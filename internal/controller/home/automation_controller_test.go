@@ -17,71 +17,68 @@ limitations under the License.
 package home
 
 import (
-	"context"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
 )
 
 var _ = Describe("Automation Controller", func() {
-	Context("When reconciling a resource", func() {
-		const (
-			resourceName      = "test-resource"
-			resourceNamespace = "default"
-		)
+	reconcileReady := func(name, condition string, value string) *metav1.Condition {
+		key := types.NamespacedName{Namespace: "default", Name: name}
+		Expect(k8sClient.Create(ctx, &homev1alpha1.Automation{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: homev1alpha1.AutomationSpec{
+				Triggers:  []homev1alpha1.Trigger{{Device: "hallway-motion", Capability: "sensor.occupancy-detected"}},
+				Condition: condition,
+				Actions: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+					Device: "hallway-light", Capability: "light.level", Value: apiextensionsv1.JSON{Raw: []byte(value)},
+				}}},
+			},
+		})).To(Succeed())
+		r := &AutomationReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		var a homev1alpha1.Automation
+		Expect(k8sClient.Get(ctx, key, &a)).To(Succeed())
+		Expect(a.Status.ObservedGeneration).To(Equal(a.Generation))
+		return meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionReady)
+	}
 
-		ctx := context.Background()
+	It("marks a valid Automation Ready", func() {
+		cond := reconcileReady("valid", "trigger.value && now.getHours(tz) >= 18", "40")
+		Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+	})
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: resourceNamespace,
-		}
-		automation := &homev1alpha1.Automation{}
+	It("reports a bad CEL condition", func() {
+		cond := reconcileReady("bad-cel", "trigger.value &&", "40")
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Reason).To(Equal("Invalid"))
+		Expect(cond.Message).To(ContainSubstring("condition"))
+	})
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind Automation")
-			err := k8sClient.Get(ctx, typeNamespacedName, automation)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &homev1alpha1.Automation{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: resourceNamespace,
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
+	It("reports a value of the wrong kind", func() {
+		cond := reconcileReady("bad-value", "", `"bright"`)
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		Expect(cond.Message).To(ContainSubstring("takes a number"))
+	})
+
+	It("rejects an action with both set and delay at admission", func() {
+		err := k8sClient.Create(ctx, &homev1alpha1.Automation{
+			ObjectMeta: metav1.ObjectMeta{Name: "both", Namespace: "default"},
+			Spec: homev1alpha1.AutomationSpec{
+				Triggers: []homev1alpha1.Trigger{{Device: "d", Capability: "light.on"}},
+				Actions: []homev1alpha1.Action{{
+					Set:   &homev1alpha1.SetAction{Device: "d", Capability: "light.on", Value: apiextensionsv1.JSON{Raw: []byte("true")}},
+					Delay: &metav1.Duration{Duration: 1},
+				}},
+			},
 		})
-
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &homev1alpha1.Automation{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance Automation")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &AutomationReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
-		})
+		Expect(err).To(MatchError(ContainSubstring("exactly one of set or delay")))
 	})
 })

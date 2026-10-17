@@ -43,7 +43,7 @@ func TestClientAgainstBroker(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := make(chan mqtt.Message, 10)
-	if err := sub.Subscribe(ctx, "z2m/#", func(m mqtt.Message) { got <- m }); err != nil {
+	if _, err := sub.Subscribe(ctx, "z2m/#", func(m mqtt.Message) { got <- m }); err != nil {
 		t.Fatal(err)
 	}
 

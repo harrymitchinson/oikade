@@ -19,15 +19,18 @@ package home
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
+	"github.com/harry/oikade/internal/engine"
 )
 
-// AutomationReconciler reconciles a Automation object
+// AutomationReconciler validates Automations. The runtime compiles them again to run them.
 type AutomationReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -37,21 +40,25 @@ type AutomationReconciler struct {
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=automations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=automations/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Automation object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
+// Reconcile sets the Ready condition from compiling the Automation.
 func (r *AutomationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
-
-	// TODO(user): your logic here
-
-	return ctrl.Result{}, nil
+	var a homev1alpha1.Automation
+	if err := r.Get(ctx, req.NamespacedName, &a); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	orig := a.DeepCopy()
+	cond := metav1.Condition{
+		Type: homev1alpha1.ConditionReady, Status: metav1.ConditionTrue, Reason: "Valid", ObservedGeneration: a.Generation,
+	}
+	if _, err := engine.Compile(&a); err != nil {
+		cond.Status, cond.Reason, cond.Message = metav1.ConditionFalse, "Invalid", err.Error()
+	}
+	meta.SetStatusCondition(&a.Status.Conditions, cond)
+	a.Status.ObservedGeneration = a.Generation
+	if equality.Semantic.DeepEqual(orig.Status, a.Status) {
+		return ctrl.Result{}, nil
+	}
+	return ctrl.Result{}, r.Status().Patch(ctx, &a, client.MergeFrom(orig))
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -18,12 +18,14 @@ package mqtt
 
 import (
 	"context"
+	"slices"
 	"sync"
 )
 
 // Memory is an in-process Bus for tests. Delivery is synchronous; retained messages are kept.
 type Memory struct {
 	mu       sync.Mutex
+	nextID   uint64
 	subs     []subscription
 	retained map[string][]byte
 	// Published records every message in order.
@@ -56,9 +58,11 @@ func (m *Memory) Publish(_ context.Context, topic string, payload []byte, retain
 }
 
 // Subscribe implements Bus.
-func (m *Memory) Subscribe(_ context.Context, filter string, h Handler) error {
+func (m *Memory) Subscribe(_ context.Context, filter string, h Handler) (func(), error) {
 	m.mu.Lock()
-	m.subs = append(m.subs, subscription{filter: filter, h: h})
+	m.nextID++
+	id := m.nextID
+	m.subs = append(m.subs, subscription{id: id, filter: filter, h: h})
 	var retained []Message
 	for t, p := range m.retained {
 		if Match(filter, t) {
@@ -69,7 +73,11 @@ func (m *Memory) Subscribe(_ context.Context, filter string, h Handler) error {
 	for _, msg := range retained {
 		h(msg)
 	}
-	return nil
+	return func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.subs = slices.DeleteFunc(m.subs, func(s subscription) bool { return s.id == id })
+	}, nil
 }
 
 // Sent returns the payloads published to topic, in order.

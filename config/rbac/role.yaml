@@ -69,6 +69,7 @@ rules:
   - home.oikade.dev
   resources:
   - automations/status
+  - devices/status
   verbs:
   - get
   - patch

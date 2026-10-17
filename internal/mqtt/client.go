@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,11 +47,13 @@ type Handler func(Message)
 type Bus interface {
 	Publish(ctx context.Context, topic string, payload []byte, retain bool) error
 	// Subscribe registers h for filter (MQTT wildcards allowed). Subscriptions are restored after
-	// a reconnect, and retained messages are delivered on subscribe.
-	Subscribe(ctx context.Context, filter string, h Handler) error
+	// a reconnect, and retained messages are delivered on subscribe. Calling the returned func
+	// removes the handler.
+	Subscribe(ctx context.Context, filter string, h Handler) (unsubscribe func(), err error)
 }
 
 type subscription struct {
+	id     uint64
 	filter string
 	h      Handler
 }
@@ -59,8 +62,9 @@ type subscription struct {
 type Client struct {
 	cm *autopaho.ConnectionManager
 
-	mu   sync.RWMutex
-	subs []subscription
+	mu     sync.RWMutex
+	subs   []subscription
+	nextID uint64
 	// ups counts connections; subscriptions only need restoring after the first.
 	ups atomic.Int64
 }
@@ -120,13 +124,35 @@ func (c *Client) Publish(ctx context.Context, topic string, payload []byte, reta
 	return err
 }
 
-// Subscribe implements Bus.
-func (c *Client) Subscribe(ctx context.Context, filter string, h Handler) error {
+// Subscribe implements Bus. The handler stays registered even if subscribing fails, so it is
+// restored on the next reconnect.
+func (c *Client) Subscribe(ctx context.Context, filter string, h Handler) (func(), error) {
 	c.mu.Lock()
-	c.subs = append(c.subs, subscription{filter: filter, h: h})
+	c.nextID++
+	id := c.nextID
+	c.subs = append(c.subs, subscription{id: id, filter: filter, h: h})
 	c.mu.Unlock()
+	unsubscribe := func() { c.unsubscribe(id) }
 	_, err := c.cm.Subscribe(ctx, &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: filter, QoS: 1}}})
-	return err
+	return unsubscribe, err
+}
+
+func (c *Client) unsubscribe(id uint64) {
+	c.mu.Lock()
+	i := slices.IndexFunc(c.subs, func(s subscription) bool { return s.id == id })
+	if i < 0 {
+		c.mu.Unlock()
+		return
+	}
+	filter := c.subs[i].filter
+	c.subs = slices.Delete(c.subs, i, i+1)
+	shared := slices.ContainsFunc(c.subs, func(s subscription) bool { return s.filter == filter })
+	c.mu.Unlock()
+	if !shared {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = c.cm.Unsubscribe(ctx, &paho.Unsubscribe{Topics: []string{filter}})
+	}
 }
 
 // Done is closed once the connection has shut down after ctx is cancelled.

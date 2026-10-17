@@ -44,11 +44,12 @@ type Instance struct {
 	Now       func() time.Time
 	Log       logr.Logger
 
-	mu       sync.Mutex
-	declared map[string]types.NamespacedName // IEEE address -> Device
-	paired   map[string]*paired              // IEEE address -> paired device
-	byName   map[string]string               // friendly name -> IEEE address
-	values   map[string]map[string]any       // IEEE address -> capability -> value
+	mu          sync.Mutex
+	unsubscribe func()
+	declared    map[string]types.NamespacedName // IEEE address -> Device
+	paired      map[string]*paired              // IEEE address -> paired device
+	byName      map[string]string               // friendly name -> IEEE address
+	values      map[string]map[string]any       // IEEE address -> capability -> value
 }
 
 type paired struct {
@@ -61,7 +62,22 @@ var _ driver.Setter = (*Instance)(nil)
 
 // Start subscribes to the instance's topics.
 func (i *Instance) Start(ctx context.Context) error {
-	return i.Bus.Subscribe(ctx, i.BaseTopic+"/#", i.handle)
+	unsubscribe, err := i.Bus.Subscribe(ctx, i.BaseTopic+"/#", i.handle)
+	i.mu.Lock()
+	i.unsubscribe = unsubscribe
+	i.mu.Unlock()
+	return err
+}
+
+// Stop unsubscribes. Devices are not reported as lost; the caller drops them.
+func (i *Instance) Stop() {
+	i.mu.Lock()
+	unsubscribe := i.unsubscribe
+	i.unsubscribe = nil
+	i.mu.Unlock()
+	if unsubscribe != nil {
+		unsubscribe()
+	}
 }
 
 // SetDevices replaces the declared devices (IEEE address -> Device) and re-reports discovery.

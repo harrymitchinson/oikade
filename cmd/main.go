@@ -60,6 +60,13 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "runtime":
+			os.Exit(runRuntime(os.Args[2:]))
+		}
+	}
+
 	var mqttURL, zigbeeImage string
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string

@@ -50,8 +50,10 @@ func TestMemoryRetained(t *testing.T) {
 	_ = m.Publish(ctx, "a/transient", []byte("2"), false)
 
 	var got []string
-	_ = m.Subscribe(ctx, "a/#", func(msg Message) { got = append(got, msg.Topic+"="+string(msg.Payload)) })
+	unsubscribe, _ := m.Subscribe(ctx, "a/#", func(msg Message) { got = append(got, msg.Topic+"="+string(msg.Payload)) })
 	_ = m.Publish(ctx, "a/new", []byte("3"), false)
+	unsubscribe()
+	_ = m.Publish(ctx, "a/after", []byte("4"), false)
 
 	if len(got) != 2 || got[0] != "a/retained=1" || got[1] != "a/new=3" {
 		t.Fatalf("got %v", got)

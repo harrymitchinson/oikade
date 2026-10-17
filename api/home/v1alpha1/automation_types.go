@@ -93,8 +93,9 @@ type AutomationSpec struct {
 
 	// condition is a CEL expression that must evaluate to true for the actions to run.
 	// Variables: devices (map of device name to map of capability to value),
-	// trigger (device, capability, value, previous) and now (timestamp).
-	// For example: trigger.value && (now.getHours() >= 18 || now.getHours() < 7)
+	// trigger (device, capability, value, previous), now (timestamp) and tz (the runtime's
+	// timezone). Timestamp accessors default to UTC, so pass tz for local time.
+	// For example: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
 	// +kubebuilder:validation:MaxLength=4096
 	// +optional
 	Condition string `json:"condition,omitempty"`
