@@ -14,10 +14,20 @@ spec:
     singular: automation
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.lastTriggered
+      name: Last Triggered
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Automation is the Schema for the automations API
+        description: Automation is a rule run by the Oikade runtime.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +49,90 @@ spec:
           spec:
             description: spec defines the desired state of Automation
             properties:
-              foo:
-                description: foo is an example field of Automation. Edit automation_types.go
-                  to remove/update
+              actions:
+                description: actions run in order.
+                items:
+                  description: Action is one step of an Automation. Exactly one field
+                    must be set.
+                  properties:
+                    delay:
+                      description: delay waits before the next action, e.g. 5m.
+                      type: string
+                    set:
+                      description: set sets a capability on a device.
+                      properties:
+                        capability:
+                          description: capability is the writable capability to set,
+                            e.g. light.level.
+                          minLength: 1
+                          type: string
+                        device:
+                          description: device names a Device in the same namespace.
+                          minLength: 1
+                          type: string
+                        value:
+                          description: value is a bool or number matching the capability's
+                            kind.
+                          x-kubernetes-preserve-unknown-fields: true
+                      required:
+                      - capability
+                      - device
+                      - value
+                      type: object
+                  type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of set or delay must be specified
+                    rule: '[has(self.set), has(self.delay)].filter(x, x).size() ==
+                      1'
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+              condition:
+                description: |-
+                  condition is a CEL expression that must evaluate to true for the actions to run.
+                  Variables: devices (map of device name to map of capability to value),
+                  trigger (device, capability, value, previous) and now (timestamp).
+                  For example: trigger.value && (now.getHours() >= 18 || now.getHours() < 7)
                 type: string
+              mode:
+                default: Single
+                description: mode decides what happens when a trigger fires while
+                  a run is in progress.
+                enum:
+                - Single
+                - Restart
+                type: string
+              triggers:
+                description: triggers are the capability changes that start the Automation.
+                items:
+                  description: Trigger fires the Automation when a capability of a
+                    device changes value.
+                  properties:
+                    capability:
+                      description: capability is the canonical capability to watch,
+                        e.g. sensor.occupancy-detected.
+                      minLength: 1
+                      type: string
+                    device:
+                      description: device names a Device in the same namespace.
+                      minLength: 1
+                      type: string
+                  required:
+                  - capability
+                  - device
+                  type: object
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+            required:
+            - actions
+            - triggers
             type: object
           status:
             description: status defines the observed state of Automation
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the Automation resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: 'conditions: Ready.'
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +191,16 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastTriggered:
+                description: lastTriggered is when the actions last started (updated
+                  at most every minute).
+                format: date-time
+                type: string
+              observedGeneration:
+                description: observedGeneration is the generation the Ready condition
+                  was computed for.
+                format: int64
+                type: integer
             type: object
         required:
         - spec

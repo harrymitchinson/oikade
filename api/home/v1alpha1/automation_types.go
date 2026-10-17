@@ -14,45 +14,113 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+
 package v1alpha1
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// ConditionReady is True when an Automation's condition compiles and its actions are valid.
+const ConditionReady = "Ready"
 
-// AutomationSpec defines the desired state of Automation
-type AutomationSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+// Trigger fires the Automation when a capability of a device changes value.
+type Trigger struct {
+	// device names a Device in the same namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Device string `json:"device"`
 
-	// foo is an example field of Automation. Edit automation_types.go to remove/update
+	// capability is the canonical capability to watch, e.g. sensor.occupancy-detected.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Capability string `json:"capability"`
+}
+
+// SetAction sets a capability on a device.
+type SetAction struct {
+	// device names a Device in the same namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Device string `json:"device"`
+
+	// capability is the writable capability to set, e.g. light.level.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Capability string `json:"capability"`
+
+	// value is a bool or number matching the capability's kind.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=""
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +required
+	Value apiextensionsv1.JSON `json:"value"`
+}
+
+// Action is one step of an Automation. Exactly one field must be set.
+// +kubebuilder:validation:XValidation:rule="[has(self.set), has(self.delay)].filter(x, x).size() == 1",message="exactly one of set or delay must be specified"
+type Action struct {
+	// set sets a capability on a device.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Set *SetAction `json:"set,omitempty"`
+
+	// delay waits before the next action, e.g. 5m.
+	// +optional
+	Delay *metav1.Duration `json:"delay,omitempty"`
+}
+
+// AutomationMode decides what happens when a trigger fires while a run is in progress.
+// +kubebuilder:validation:Enum=Single;Restart
+type AutomationMode string
+
+const (
+	// AutomationModeSingle ignores triggers while a run is in progress.
+	AutomationModeSingle AutomationMode = "Single"
+	// AutomationModeRestart cancels the run in progress and starts again, e.g. to keep a
+	// light on until five minutes after the last motion.
+	AutomationModeRestart AutomationMode = "Restart"
+)
+
+// AutomationSpec is an event-driven rule: when a trigger fires and the condition holds, run the actions.
+type AutomationSpec struct {
+	// triggers are the capability changes that start the Automation.
+	// +kubebuilder:validation:MinItems=1
+	// +listType=atomic
+	// +required
+	Triggers []Trigger `json:"triggers"`
+
+	// condition is a CEL expression that must evaluate to true for the actions to run.
+	// Variables: devices (map of device name to map of capability to value),
+	// trigger (device, capability, value, previous) and now (timestamp).
+	// For example: trigger.value && (now.getHours() >= 18 || now.getHours() < 7)
+	// +optional
+	Condition string `json:"condition,omitempty"`
+
+	// actions run in order.
+	// +kubebuilder:validation:MinItems=1
+	// +listType=atomic
+	// +required
+	Actions []Action `json:"actions"`
+
+	// mode decides what happens when a trigger fires while a run is in progress.
+	// +kubebuilder:default=Single
+	// +optional
+	Mode AutomationMode `json:"mode,omitempty"`
 }
 
 // AutomationStatus defines the observed state of Automation.
 type AutomationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// lastTriggered is when the actions last started (updated at most every minute).
+	// +optional
+	LastTriggered metav1.Time `json:"lastTriggered,omitzero"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// observedGeneration is the generation the Ready condition was computed for.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// conditions represent the current state of the Automation resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// conditions: Ready.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -61,8 +129,11 @@ type AutomationStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Last Triggered",type=date,JSONPath=`.status.lastTriggered`
 
-// Automation is the Schema for the automations API
+// Automation is a rule run by the Oikade runtime.
 type Automation struct {
 	metav1.TypeMeta `json:",inline"`
 

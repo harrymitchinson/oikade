@@ -14,10 +14,27 @@ spec:
     singular: device
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.displayName
+      name: Name
+      type: string
+    - jsonPath: .spec.roomRef.name
+      name: Room
+      type: string
+    - jsonPath: .status.capabilities[*].name
+      name: Capabilities
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Available")].status
+      name: Available
+      type: string
+    - jsonPath: .status.lastSeen
+      name: Last Seen
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Device is the Schema for the devices API
+        description: Device is a device declared in Git. Its spec is desired state;
+          its status is written by the runtime.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +56,105 @@ spec:
           spec:
             description: spec defines the desired state of Device
             properties:
-              foo:
-                description: foo is an example field of Device. Edit device_types.go
-                  to remove/update
+              displayName:
+                description: displayName is the human-friendly name shown in HomeKit
+                  and Grafana. Defaults to the object name.
+                maxLength: 64
                 type: string
+              homekit:
+                description: homekit tunes how the device appears in HomeKit.
+                properties:
+                  service:
+                    description: |-
+                      service overrides the default service chosen from the device's capabilities,
+                      e.g. Outlet for a smart plug that reports itself as a switch.
+                    enum:
+                    - Lightbulb
+                    - Switch
+                    - Outlet
+                    - MotionSensor
+                    - OccupancySensor
+                    type: string
+                type: object
+              roomRef:
+                description: roomRef names the Room the device is in.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              zigbee2mqtt:
+                description: zigbee2mqtt sources the device from a Zigbee2MQTT instance.
+                properties:
+                  ieeeAddress:
+                    description: |-
+                      ieeeAddress is the device's IEEE address. It is used instead of the friendly name
+                      because it never changes; the operator sets the friendly name to the Device's name.
+                    pattern: ^0x[0-9a-f]{16}$
+                    type: string
+                  instanceRef:
+                    description: instanceRef names the Zigbee2MQTT object the device
+                      is paired with.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - ieeeAddress
+                - instanceRef
+                type: object
             type: object
+            x-kubernetes-validations:
+            - message: a driver source (zigbee2mqtt) is required
+              rule: has(self.zigbee2mqtt)
           status:
             description: status defines the observed state of Device
             properties:
+              capabilities:
+                description: capabilities the driver reported for the device.
+                items:
+                  description: DeviceCapability is one capability a driver reported
+                    for the device.
+                  properties:
+                    kind:
+                      description: kind is the capability's value type.
+                      enum:
+                      - Bool
+                      - Number
+                      type: string
+                    name:
+                      description: name is the canonical capability, e.g. light.on
+                        or sensor.temperature.
+                      type: string
+                    writable:
+                      description: writable is true when the capability can be set,
+                        e.g. light.on but not sensor.temperature.
+                      type: boolean
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               conditions:
-                description: |-
-                  conditions represent the current state of the Device resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: 'conditions: Resolved and Available.'
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +213,17 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastSeen:
+                description: lastSeen is when the driver last heard from the device
+                  (updated at most every few minutes).
+                format: date-time
+                type: string
+              manufacturer:
+                description: manufacturer as reported by the device.
+                type: string
+              model:
+                description: model as reported by the device.
+                type: string
             type: object
         required:
         - spec

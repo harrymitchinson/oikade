@@ -14,45 +14,122 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// Device condition types, written by the runtime.
+const (
+	// ConditionResolved is True once the driver has found the device and reported its capabilities.
+	ConditionResolved = "Resolved"
+	// ConditionAvailable mirrors the driver's view of whether the device is reachable.
+	ConditionAvailable = "Available"
+)
 
-// DeviceSpec defines the desired state of Device
-type DeviceSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+// ZigbeeDeviceSource identifies a device paired with a Zigbee2MQTT instance.
+type ZigbeeDeviceSource struct {
+	// instanceRef names the Zigbee2MQTT object the device is paired with.
+	// +required
+	InstanceRef corev1.LocalObjectReference `json:"instanceRef"`
 
-	// foo is an example field of Device. Edit device_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// ieeeAddress is the device's IEEE address. It is used instead of the friendly name
+	// because it never changes; the operator sets the friendly name to the Device's name.
+	// +kubebuilder:validation:Pattern=`^0x[0-9a-f]{16}$`
+	// +required
+	IEEEAddress string `json:"ieeeAddress"`
 }
 
-// DeviceStatus defines the observed state of Device.
+// HomeKitService overrides which HomeKit service a device is exposed as.
+// +kubebuilder:validation:Enum=Lightbulb;Switch;Outlet;MotionSensor;OccupancySensor
+type HomeKitService string
+
+const (
+	HomeKitServiceLightbulb       HomeKitService = "Lightbulb"
+	HomeKitServiceSwitch          HomeKitService = "Switch"
+	HomeKitServiceOutlet          HomeKitService = "Outlet"
+	HomeKitServiceMotionSensor    HomeKitService = "MotionSensor"
+	HomeKitServiceOccupancySensor HomeKitService = "OccupancySensor"
+)
+
+// DeviceHomeKit tunes how a device appears in HomeKit.
+type DeviceHomeKit struct {
+	// service overrides the default service chosen from the device's capabilities,
+	// e.g. Outlet for a smart plug that reports itself as a switch.
+	// +optional
+	Service HomeKitService `json:"service,omitempty"`
+}
+
+// DeviceSpec declares a device that should exist in the home. Exactly one driver source must be set.
+// +kubebuilder:validation:XValidation:rule="has(self.zigbee2mqtt)",message="a driver source (zigbee2mqtt) is required"
+type DeviceSpec struct {
+	// displayName is the human-friendly name shown in HomeKit and Grafana. Defaults to the object name.
+	// +kubebuilder:validation:MaxLength=64
+	// +optional
+	DisplayName string `json:"displayName,omitempty"`
+
+	// roomRef names the Room the device is in.
+	// +optional
+	RoomRef *corev1.LocalObjectReference `json:"roomRef,omitempty"`
+
+	// zigbee2mqtt sources the device from a Zigbee2MQTT instance.
+	// +optional
+	Zigbee2MQTT *ZigbeeDeviceSource `json:"zigbee2mqtt,omitempty"`
+
+	// homekit tunes how the device appears in HomeKit.
+	// +optional
+	HomeKit *DeviceHomeKit `json:"homekit,omitempty"`
+}
+
+// CapabilityKind is the value type of a capability.
+// +kubebuilder:validation:Enum=Bool;Number
+type CapabilityKind string
+
+const (
+	CapabilityKindBool   CapabilityKind = "Bool"
+	CapabilityKindNumber CapabilityKind = "Number"
+)
+
+// DeviceCapability is one capability a driver reported for the device.
+type DeviceCapability struct {
+	// name is the canonical capability, e.g. light.on or sensor.temperature.
+	// +required
+	Name string `json:"name"`
+
+	// kind is the capability's value type.
+	// +required
+	Kind CapabilityKind `json:"kind"`
+
+	// writable is true when the capability can be set, e.g. light.on but not sensor.temperature.
+	// +optional
+	Writable bool `json:"writable,omitempty"`
+}
+
+// DeviceStatus is the driver's coarse view of the device. Live values are on the MQTT bus, never here.
 type DeviceStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// capabilities the driver reported for the device.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Capabilities []DeviceCapability `json:"capabilities,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// manufacturer as reported by the device.
+	// +optional
+	Manufacturer string `json:"manufacturer,omitempty"`
 
-	// conditions represent the current state of the Device resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// model as reported by the device.
+	// +optional
+	Model string `json:"model,omitempty"`
+
+	// lastSeen is when the driver last heard from the device (updated at most every few minutes).
+	// +optional
+	LastSeen metav1.Time `json:"lastSeen,omitzero"`
+
+	// conditions: Resolved and Available.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -61,8 +138,13 @@ type DeviceStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Name",type=string,JSONPath=`.spec.displayName`
+// +kubebuilder:printcolumn:name="Room",type=string,JSONPath=`.spec.roomRef.name`
+// +kubebuilder:printcolumn:name="Capabilities",type=string,JSONPath=`.status.capabilities[*].name`
+// +kubebuilder:printcolumn:name="Available",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].status`
+// +kubebuilder:printcolumn:name="Last Seen",type=date,JSONPath=`.status.lastSeen`
 
-// Device is the Schema for the devices API
+// Device is a device declared in Git. Its spec is desired state; its status is written by the runtime.
 type Device struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -77,6 +159,14 @@ type Device struct {
 	// status defines the observed state of Device
 	// +optional
 	Status DeviceStatus `json:"status,omitzero"`
+}
+
+// Title returns the display name, falling back to the object name.
+func (d *Device) Title() string {
+	if d.Spec.DisplayName != "" {
+		return d.Spec.DisplayName
+	}
+	return d.Name
 }
 
 // +kubebuilder:object:root=true

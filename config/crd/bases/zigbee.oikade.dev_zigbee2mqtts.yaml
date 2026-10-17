@@ -14,10 +14,23 @@ spec:
     singular: zigbee2mqtt
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.serial.port
+      name: Port
+      type: string
+    - jsonPath: .status.devices
+      name: Devices
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Zigbee2MQTT is the Schema for the zigbee2mqtts API
+        description: Zigbee2MQTT is a Zigbee2MQTT instance managed by the operator.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +52,182 @@ spec:
           spec:
             description: spec defines the desired state of Zigbee2MQTT
             properties:
-              foo:
-                description: foo is an example field of Zigbee2MQTT. Edit zigbee2mqtt_types.go
-                  to remove/update
+              baseTopic:
+                description: baseTopic is the MQTT topic prefix. Defaults to the object
+                  name.
+                pattern: ^[A-Za-z0-9_-]+$
                 type: string
+              channel:
+                default: 11
+                description: channel is the Zigbee channel. Changing it means re-pairing
+                  every device.
+                format: int32
+                maximum: 26
+                minimum: 11
+                type: integer
+              frontend:
+                description: frontend enables the Zigbee2MQTT web UI (useful for pairing)
+                  behind a ClusterIP Service on port 8080.
+                type: boolean
+              image:
+                description: image overrides the operator's default Zigbee2MQTT image.
+                type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: nodeSelector pins the pod, e.g. to the node with the
+                  USB coordinator.
+                type: object
+              resources:
+                description: resources for the Zigbee2MQTT container.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              serial:
+                description: serial configures the coordinator.
+                properties:
+                  adapter:
+                    description: adapter is the coordinator firmware family.
+                    enum:
+                    - zstack
+                    - ember
+                    - deconz
+                    - zigate
+                    - zboss
+                    type: string
+                  baudrate:
+                    description: baudrate for USB coordinators. Defaults to Zigbee2MQTT's
+                      default.
+                    format: int32
+                    type: integer
+                  port:
+                    description: |-
+                      port is the coordinator address: tcp://host:port for a network coordinator (recommended,
+                      the pod can run anywhere) or a /dev path for a USB stick (the pod must run on that node,
+                      see nodeSelector, and runs privileged to reach the device).
+                    pattern: ^(tcp://.+|/dev/.+)$
+                    type: string
+                required:
+                - adapter
+                - port
+                type: object
+              storage:
+                default:
+                  size: 1Gi
+                description: storage configures the PersistentVolumeClaim.
+                properties:
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 1Gi
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClassName:
+                    type: string
+                type: object
+              tolerations:
+                description: tolerations for the pod.
+                items:
+                  description: |-
+                    The pod this Toleration is attached to tolerates any taint that matches
+                    the triple <key,value,effect> using the matching operator <operator>.
+                  properties:
+                    effect:
+                      description: |-
+                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: |-
+                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      type: string
+                    operator:
+                      description: |-
+                        Operator represents a key's relationship to the value.
+                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod can
+                        tolerate all taints of a particular category.
+                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                      type: string
+                    tolerationSeconds:
+                      description: |-
+                        TolerationSeconds represents the period of time the toleration (which must be
+                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                        negative values will be treated as 0 (evict immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: |-
+                        Value is the taint value the toleration matches to.
+                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+            required:
+            - serial
             type: object
           status:
             description: status defines the observed state of Zigbee2MQTT
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the Zigbee2MQTT resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +286,24 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              configHash:
+                description: configHash is the hash of the rendered configuration.yaml.
+                type: string
+              devices:
+                description: devices is the number of Devices declared for this instance.
+                format: int32
+                type: integer
+              observedGeneration:
+                description: observedGeneration is the generation the conditions were
+                  computed for.
+                format: int64
+                type: integer
+              panID:
+                description: |-
+                  panID is the Zigbee network's PAN ID. It is generated once and kept, so a lost network Secret
+                  can be partly recovered; the network key itself only lives in the Secret.
+                format: int32
+                type: integer
             type: object
         required:
         - spec

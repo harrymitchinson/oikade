@@ -14,10 +14,23 @@ spec:
     singular: bridge
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.port
+      name: Port
+      type: integer
+    - jsonPath: .status.devices
+      name: Devices
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Bridge is the Schema for the bridges API
+        description: Bridge is a HomeKit bridge that exposes Devices to the Home app.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +52,204 @@ spec:
           spec:
             description: spec defines the desired state of Bridge
             properties:
-              foo:
-                description: foo is an example field of Bridge. Edit bridge_types.go
-                  to remove/update
+              deviceSelector:
+                description: deviceSelector picks the Devices in this namespace to
+                  expose. Empty selects every Device.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              displayName:
+                description: displayName is the bridge name shown while pairing. Defaults
+                  to the object name.
+                maxLength: 64
                 type: string
+              network:
+                default:
+                  mode: HostNetwork
+                description: network configures how the HAP pod reaches the LAN.
+                properties:
+                  mode:
+                    default: HostNetwork
+                    description: mode is how the pod attaches to the LAN. Only HostNetwork
+                      is supported in v1alpha1.
+                    enum:
+                    - HostNetwork
+                    type: string
+                type: object
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: nodeSelector pins the HAP pod, e.g. to a node on the
+                  same L2 network as your Apple devices.
+                type: object
+              pinSecretRef:
+                description: pinSecretRef points at the HomeKit setup code (format
+                  XXX-XX-XXX).
+                properties:
+                  key:
+                    minLength: 1
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - key
+                - name
+                type: object
+              portRange:
+                default:
+                  end: 51930
+                  start: 51830
+                description: |-
+                  portRange is the pool the HAP port is allocated from. Ports are unique across the whole cluster
+                  because host-networked pods share each node's port space.
+                properties:
+                  end:
+                    format: int32
+                    maximum: 65535
+                    minimum: 1024
+                    type: integer
+                  start:
+                    format: int32
+                    maximum: 65535
+                    minimum: 1024
+                    type: integer
+                required:
+                - end
+                - start
+                type: object
+                x-kubernetes-validations:
+                - message: start must be <= end
+                  rule: self.start <= self.end
+              storage:
+                default:
+                  size: 100Mi
+                description: storage configures the PersistentVolumeClaim that holds
+                  pairing state.
+                properties:
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 100Mi
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClassName:
+                    type: string
+                type: object
+              tolerations:
+                description: tolerations for the HAP pod.
+                items:
+                  description: |-
+                    The pod this Toleration is attached to tolerates any taint that matches
+                    the triple <key,value,effect> using the matching operator <operator>.
+                  properties:
+                    effect:
+                      description: |-
+                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: |-
+                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      type: string
+                    operator:
+                      description: |-
+                        Operator represents a key's relationship to the value.
+                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod can
+                        tolerate all taints of a particular category.
+                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                      type: string
+                    tolerationSeconds:
+                      description: |-
+                        TolerationSeconds represents the period of time the toleration (which must be
+                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                        negative values will be treated as 0 (evict immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: |-
+                        Value is the taint value the toleration matches to.
+                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+            required:
+            - pinSecretRef
             type: object
           status:
             description: status defines the observed state of Bridge
             properties:
+              accessories:
+                description: accessories maps every Device ever exposed by this Bridge
+                  to its AID.
+                items:
+                  description: |-
+                    Accessory records the AID handed to a Device. AIDs key rooms, scenes and favourites in the
+                    Home app, so they are never reused or reordered, and survive the Device being deleted.
+                  properties:
+                    aid:
+                      description: aid is the HomeKit accessory ID.
+                      format: int64
+                      minimum: 2
+                      type: integer
+                    device:
+                      description: device is the Device name.
+                      type: string
+                  required:
+                  - aid
+                  - device
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - device
+                x-kubernetes-list-type: map
               conditions:
-                description: |-
-                  conditions represent the current state of the Bridge resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +308,27 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              devices:
+                description: devices is the number of Devices currently exposed.
+                format: int32
+                type: integer
+              nextAID:
+                description: nextAID is the next AID to hand out.
+                format: int64
+                type: integer
+              observedGeneration:
+                description: observedGeneration is the generation the conditions were
+                  computed for.
+                format: int64
+                type: integer
+              port:
+                description: port is the allocated HAP port.
+                format: int32
+                type: integer
+              username:
+                description: username is the bridge's HomeKit identity (MAC-style
+                  ID). It never changes once set.
+                type: string
             type: object
         required:
         - spec
