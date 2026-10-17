@@ -1,0 +1,28 @@
+[
+  {"ieee_address":"0x00124b0000000001","friendly_name":"Coordinator","type":"Coordinator","definition":null},
+  {"ieee_address":"0x000b57fffe000001","friendly_name":"0x000b57fffe000001","type":"Router",
+   "definition":{"vendor":"IKEA","model":"LED1545G12","exposes":[
+     {"type":"light","features":[
+       {"type":"binary","name":"state","property":"state","value_on":"ON","value_off":"OFF","value_toggle":"TOGGLE","access":7},
+       {"type":"numeric","name":"brightness","property":"brightness","value_min":0,"value_max":254,"access":7},
+       {"type":"numeric","name":"color_temp","property":"color_temp","value_min":250,"value_max":454,"access":7}]},
+     {"type":"enum","name":"effect","property":"effect","values":["blink","breathe"],"access":2},
+     {"type":"numeric","name":"linkquality","property":"linkquality","value_min":0,"value_max":255,"access":1}]}},
+  {"ieee_address":"0x00158d0000000002","friendly_name":"hallway-motion","type":"EndDevice",
+   "definition":{"vendor":"Philips","model":"9290012607","exposes":[
+     {"type":"binary","name":"occupancy","property":"occupancy","value_on":true,"value_off":false,"access":1},
+     {"type":"numeric","name":"temperature","property":"temperature","unit":"°C","access":1},
+     {"type":"numeric","name":"illuminance","property":"illuminance","access":1},
+     {"type":"numeric","name":"battery","property":"battery","unit":"%","value_min":0,"value_max":100,"access":1},
+     {"type":"numeric","name":"linkquality","property":"linkquality","access":1}]}},
+  {"ieee_address":"0x00158d0000000003","friendly_name":"front-door","type":"EndDevice",
+   "definition":{"vendor":"Aqara","model":"MCCGQ11LM","exposes":[
+     {"type":"binary","name":"contact","property":"contact","value_on":false,"value_off":true,"access":1},
+     {"type":"numeric","name":"battery","property":"battery","access":1}]}},
+  {"ieee_address":"0x00124b0000000004","friendly_name":"desk-plug","type":"Router",
+   "definition":{"vendor":"SONOFF","model":"S26R2ZB","exposes":[
+     {"type":"switch","features":[{"type":"binary","name":"state","property":"state","value_on":"ON","value_off":"OFF","access":7}]}]}},
+  {"ieee_address":"0x00124b0000000005","friendly_name":"0x00124b0000000005","type":"Router",
+   "definition":{"vendor":"SONOFF","model":"ZBMINI","exposes":[
+     {"type":"switch","features":[{"type":"binary","name":"state","property":"state","value_on":"ON","value_off":"OFF","access":7}]}]}}
+]
