@@ -17,18 +17,24 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
+	"fmt"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -64,10 +70,12 @@ func main() {
 		switch os.Args[1] {
 		case "runtime":
 			os.Exit(runRuntime(os.Args[2:]))
+		case "hap":
+			os.Exit(runHAP(os.Args[2:]))
 		}
 	}
 
-	var mqttURL, zigbeeImage string
+	var mqttURL, zigbeeImage, hapImage string
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -103,6 +111,8 @@ func main() {
 		"MQTT broker that Zigbee2MQTT instances connect to.")
 	flag.StringVar(&zigbeeImage, "zigbee2mqtt-image", "koenkk/zigbee2mqtt:2.14.2",
 		"Default Zigbee2MQTT image, overridable per instance.")
+	flag.StringVar(&hapImage, "hap-image", "",
+		"Image for HomeKit bridge pods. Defaults to the operator's own image (via $POD_NAME/$POD_NAMESPACE).")
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -207,9 +217,17 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "home-automation")
 		os.Exit(1)
 	}
+	if hapImage == "" {
+		if hapImage, err = ownImage(context.Background(), mgr.GetAPIReader()); err != nil {
+			setupLog.Error(err, "Failed to determine HAP image; set --hap-image")
+			os.Exit(1)
+		}
+	}
 	if err := (&homekitcontroller.BridgeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Image:   hapImage,
+		MQTTURL: mqttURL,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "homekit-bridge")
 		os.Exit(1)
@@ -239,4 +257,22 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// ownImage returns the image of the manager container in the operator's own pod.
+func ownImage(ctx context.Context, c client.Reader) (string, error) {
+	name, ns := os.Getenv("POD_NAME"), os.Getenv("POD_NAMESPACE")
+	if name == "" || ns == "" {
+		return "", errors.New("$POD_NAME and $POD_NAMESPACE are not set")
+	}
+	var pod corev1.Pod
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &pod); err != nil {
+		return "", fmt.Errorf("reading own pod: %w", err)
+	}
+	for _, ctr := range pod.Spec.Containers {
+		if ctr.Name == "manager" {
+			return ctr.Image, nil
+		}
+	}
+	return "", errors.New("no container named manager in own pod")
 }
