@@ -60,6 +60,7 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	var mqttURL, zigbeeImage string
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -91,6 +92,10 @@ func main() {
 	opts := zap.Options{
 		Development: true,
 	}
+	flag.StringVar(&mqttURL, "mqtt-url", "mqtt://oikade-mosquitto.oikade-system.svc:1883",
+		"MQTT broker that Zigbee2MQTT instances connect to.")
+	flag.StringVar(&zigbeeImage, "zigbee2mqtt-image", "koenkk/zigbee2mqtt:2.14.2",
+		"Default Zigbee2MQTT image, overridable per instance.")
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -203,8 +208,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&zigbeecontroller.Zigbee2MQTTReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Image:   zigbeeImage,
+		MQTTURL: mqttURL,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "zigbee-zigbee2mqtt")
 		os.Exit(1)

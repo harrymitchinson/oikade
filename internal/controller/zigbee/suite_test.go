@@ -32,6 +32,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
 	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -61,6 +62,8 @@ var _ = BeforeSuite(func() {
 	var err error
 	err = zigbeev1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
+
+	Expect(homev1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	// +kubebuilder:scaffold:scheme
 

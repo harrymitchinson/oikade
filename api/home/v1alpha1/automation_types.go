@@ -59,7 +59,7 @@ type SetAction struct {
 }
 
 // Action is one step of an Automation. Exactly one field must be set.
-// +kubebuilder:validation:XValidation:rule="[has(self.set), has(self.delay)].filter(x, x).size() == 1",message="exactly one of set or delay must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.set) != has(self.delay)",message="exactly one of set or delay must be specified"
 type Action struct {
 	// set sets a capability on a device.
 	// +optional
@@ -86,6 +86,7 @@ const (
 type AutomationSpec struct {
 	// triggers are the capability changes that start the Automation.
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
 	// +listType=atomic
 	// +required
 	Triggers []Trigger `json:"triggers"`
@@ -94,11 +95,13 @@ type AutomationSpec struct {
 	// Variables: devices (map of device name to map of capability to value),
 	// trigger (device, capability, value, previous) and now (timestamp).
 	// For example: trigger.value && (now.getHours() >= 18 || now.getHours() < 7)
+	// +kubebuilder:validation:MaxLength=4096
 	// +optional
 	Condition string `json:"condition,omitempty"`
 
 	// actions run in order.
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=32
 	// +listType=atomic
 	// +required
 	Actions []Action `json:"actions"`
