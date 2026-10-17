@@ -1,0 +1,9 @@
+apiVersion: home.oikade.dev/v1alpha1
+kind: Automation
+metadata:
+  labels:
+    app.kubernetes.io/name: oikade
+    app.kubernetes.io/managed-by: kustomize
+  name: automation-sample
+spec:
+  # TODO(user): Add fields here

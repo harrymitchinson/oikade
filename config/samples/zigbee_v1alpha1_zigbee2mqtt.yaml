@@ -1,0 +1,9 @@
+apiVersion: zigbee.oikade.dev/v1alpha1
+kind: Zigbee2MQTT
+metadata:
+  labels:
+    app.kubernetes.io/name: oikade
+    app.kubernetes.io/managed-by: kustomize
+  name: zigbee2mqtt-sample
+spec:
+  # TODO(user): Add fields here

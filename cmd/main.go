@@ -34,6 +34,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
+	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
+	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
+	homecontroller "github.com/harry/oikade/internal/controller/home"
+	homekitcontroller "github.com/harry/oikade/internal/controller/homekit"
+	zigbeecontroller "github.com/harry/oikade/internal/controller/zigbee"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -45,6 +52,9 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(homev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(homekitv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(zigbeev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -178,6 +188,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&homecontroller.AutomationReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "home-automation")
+		os.Exit(1)
+	}
+	if err := (&homekitcontroller.BridgeReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "homekit-bridge")
+		os.Exit(1)
+	}
+	if err := (&zigbeecontroller.Zigbee2MQTTReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "zigbee-zigbee2mqtt")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
