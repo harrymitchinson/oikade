@@ -1,8 +1,8 @@
 ## Append samples of your project ##
 resources:
-- home_v1alpha1_device.yaml
 - home_v1alpha1_room.yaml
-- home_v1alpha1_automation.yaml
-- homekit_v1alpha1_bridge.yaml
 - zigbee_v1alpha1_zigbee2mqtt.yaml
+- home_v1alpha1_device.yaml
+- homekit_v1alpha1_bridge.yaml
+- home_v1alpha1_automation.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

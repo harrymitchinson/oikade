@@ -1,9 +1,34 @@
+# Pair a device (via the Zigbee2MQTT frontend), then declare it here by IEEE
+# address. Until it's declared it shows up in oikade_undeclared_devices.
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata:
-  labels:
-    app.kubernetes.io/name: oikade
-    app.kubernetes.io/managed-by: kustomize
-  name: device-sample
+  name: hallway-light
 spec:
-  # TODO(user): Add fields here
+  displayName: Hallway Light
+  roomRef: {name: hallway}
+  zigbee2mqtt:
+    instanceRef: {name: z2m}
+    ieeeAddress: "0x000b57fffe000001"
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: hallway-motion
+spec:
+  displayName: Hallway Motion
+  roomRef: {name: hallway}
+  zigbee2mqtt:
+    instanceRef: {name: z2m}
+    ieeeAddress: "0x00158d0000000002"
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: front-door
+spec:
+  displayName: Front Door
+  roomRef: {name: hallway}
+  zigbee2mqtt:
+    instanceRef: {name: z2m}
+    ieeeAddress: "0x00158d0000000003"

@@ -1,0 +1,8 @@
+# Mosquitto is the data plane: every device state change and command goes over it.
+# Anonymous access is allowed inside the cluster; restrict it with a NetworkPolicy
+# or replace this with your own broker and set --mqtt-url.
+resources:
+- configmap.yaml
+- pvc.yaml
+- deployment.yaml
+- service.yaml

@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime
+  namespace: system
+  labels:
+    app.kubernetes.io/name: oikade-runtime
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # One replica and Recreate: two runtimes would run every Automation twice.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oikade-runtime
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oikade-runtime
+    spec:
+      serviceAccountName: runtime
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: runtime
+        image: controller:latest
+        command: [/manager, runtime]
+        args:
+        - --mqtt-url=mqtt://oikade-mosquitto.oikade-system.svc:1883
+        # The timezone Automations see as tz, e.g. now.getHours(tz). Set it to yours.
+        - --timezone=UTC
+        ports:
+        - name: metrics
+          containerPort: 8080
+        - name: health
+          containerPort: 8081
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]

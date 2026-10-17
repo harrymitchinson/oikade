@@ -53,8 +53,7 @@ type Writer struct {
 	events chan event.GenericEvent
 }
 
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=devices,verbs=get;list;watch
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=devices/status,verbs=get;update;patch
+// The runtime's permissions are in config/runtime/role.yaml, not the operator's generated role.
 
 // Discovered implements driver.Sink.
 func (w *Writer) Discovered(dev types.NamespacedName, _ driver.Info) { w.enqueue(dev) }

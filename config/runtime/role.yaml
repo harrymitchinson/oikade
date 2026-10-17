@@ -1,0 +1,19 @@
+# Written by hand: the runtime is not the operator, so its permissions are not
+# generated from the operator's RBAC markers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: runtime-role
+  labels:
+    app.kubernetes.io/name: oikade-runtime
+    app.kubernetes.io/managed-by: kustomize
+rules:
+- apiGroups: [home.oikade.dev]
+  resources: [devices, rooms, automations]
+  verbs: [get, list, watch]
+- apiGroups: [home.oikade.dev]
+  resources: [devices/status, automations/status]
+  verbs: [get, update, patch]
+- apiGroups: [zigbee.oikade.dev]
+  resources: [zigbee2mqtts]
+  verbs: [get, list, watch]

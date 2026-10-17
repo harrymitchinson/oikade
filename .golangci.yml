@@ -39,6 +39,9 @@ linters:
       rules:
         - name: comment-spacings
         - name: import-shadowing
+    misspell:
+      ignore-rules:
+        - mosquitto
     modernize:
       disable:
         - omitzero

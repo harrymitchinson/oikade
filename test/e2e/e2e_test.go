@@ -280,6 +280,8 @@ var _ = Describe("Manager", Ordered, func() {
 		//    strings.ToLower(<Kind>),
 		// ))
 	})
+
+	homeScenario()
 })
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.

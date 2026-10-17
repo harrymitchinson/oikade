@@ -1,9 +1,17 @@
+# Hallway light on with motion after dark, off five minutes after the last motion.
+# Restart mode starts the five minutes again on every new motion event.
 apiVersion: home.oikade.dev/v1alpha1
 kind: Automation
 metadata:
-  labels:
-    app.kubernetes.io/name: oikade
-    app.kubernetes.io/managed-by: kustomize
-  name: automation-sample
+  name: hallway-motion-light
 spec:
-  # TODO(user): Add fields here
+  mode: Restart
+  triggers:
+  - device: hallway-motion
+    capability: sensor.occupancy-detected
+  condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
+  actions:
+  - set: {device: hallway-light, capability: light.level, value: 40}
+  - set: {device: hallway-light, capability: light.on, value: true}
+  - delay: 5m
+  - set: {device: hallway-light, capability: light.on, value: false}

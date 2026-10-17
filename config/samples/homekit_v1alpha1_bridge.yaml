@@ -1,9 +1,18 @@
+# Change the setup code before applying. HomeKit rejects trivial codes such as
+# 111-11-111 and 123-45-678.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: homekit-pin
+stringData:
+  pin: "031-45-154"
+---
 apiVersion: homekit.oikade.dev/v1alpha1
 kind: Bridge
 metadata:
-  labels:
-    app.kubernetes.io/name: oikade
-    app.kubernetes.io/managed-by: kustomize
-  name: bridge-sample
+  name: main
 spec:
-  # TODO(user): Add fields here
+  displayName: Oikade
+  pinSecretRef: {name: homekit-pin, key: pin}
+  # Expose every Device in the namespace. Narrow it with matchLabels if needed.
+  deviceSelector: {}

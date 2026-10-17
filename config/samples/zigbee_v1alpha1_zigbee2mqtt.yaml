@@ -1,9 +1,12 @@
+# A network coordinator (e.g. SLZB-06) lets the pod run on any node. For a USB
+# stick use port: /dev/ttyUSB0 and pin the pod with nodeSelector.
 apiVersion: zigbee.oikade.dev/v1alpha1
 kind: Zigbee2MQTT
 metadata:
-  labels:
-    app.kubernetes.io/name: oikade
-    app.kubernetes.io/managed-by: kustomize
-  name: zigbee2mqtt-sample
+  name: z2m
 spec:
-  # TODO(user): Add fields here
+  serial:
+    port: tcp://slzb-06.lan:6638
+    adapter: zstack
+  # The web UI helps while pairing: kubectl port-forward svc/z2m 8080
+  frontend: true

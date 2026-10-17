@@ -1,5 +1,6 @@
 resources:
 - monitor.yaml
+- monitor_runtime.yaml
 
 # [PROMETHEUS-WITH-CERTS] The following patch configures the ServiceMonitor in ../prometheus
 # to securely reference certificates created and managed by cert-manager.
@@ -9,3 +10,4 @@ resources:
 #  - path: monitor_tls_patch.yaml
 #    target:
 #      kind: ServiceMonitor
+#      name: controller-manager-metrics-monitor

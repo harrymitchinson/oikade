@@ -41,8 +41,6 @@ type Loader struct {
 	Engine *Engine
 }
 
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=automations,verbs=get;list;watch
-
 // Reconcile compiles and loads one Automation. Invalid ones are unloaded; the operator reports why.
 func (l *Loader) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var a homev1alpha1.Automation
@@ -82,8 +80,6 @@ type Triggered struct {
 	latest map[types.NamespacedName]time.Time
 	events chan event.GenericEvent
 }
-
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=automations/status,verbs=get;update;patch
 
 // Record is an Engine.OnStart hook.
 func (t *Triggered) Record(key types.NamespacedName, at time.Time) {

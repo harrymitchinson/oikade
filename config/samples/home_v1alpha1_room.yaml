@@ -1,9 +1,6 @@
 apiVersion: home.oikade.dev/v1alpha1
 kind: Room
 metadata:
-  labels:
-    app.kubernetes.io/name: oikade
-    app.kubernetes.io/managed-by: kustomize
-  name: room-sample
+  name: hallway
 spec:
-  # TODO(user): Add fields here
+  displayName: Hallway

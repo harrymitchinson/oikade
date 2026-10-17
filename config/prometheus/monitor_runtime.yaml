@@ -1,0 +1,17 @@
+# Scrapes device state, availability and automation runs from the Oikade runtime.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: runtime-metrics-monitor
+  namespace: system
+  labels:
+    app.kubernetes.io/name: oikade-runtime
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  endpoints:
+  - path: /metrics
+    port: metrics
+    interval: 15s
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oikade-runtime

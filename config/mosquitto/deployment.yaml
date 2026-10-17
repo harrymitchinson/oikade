@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto
+  namespace: system
+  labels:
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mosquitto
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mosquitto
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1883
+        runAsGroup: 1883
+        fsGroup: 1883
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: mosquitto
+        image: eclipse-mosquitto:2.1.2-alpine
+        ports:
+        - name: mqtt
+          containerPort: 1883
+        readinessProbe:
+          tcpSocket:
+            port: mqtt
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: mqtt
+          periodSeconds: 30
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: config
+          mountPath: /mosquitto/config
+        - name: data
+          mountPath: /mosquitto/data
+      volumes:
+      - name: config
+        configMap:
+          name: mosquitto
+      - name: data
+        persistentVolumeClaim:
+          claimName: mosquitto

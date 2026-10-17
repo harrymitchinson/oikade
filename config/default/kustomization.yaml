@@ -18,6 +18,9 @@ resources:
 - ../crd
 - ../rbac
 - ../manager
+# The data plane: MQTT broker and the Oikade runtime.
+- ../mosquitto
+- ../runtime
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # crd/kustomization.yaml
 #- ../webhook
@@ -25,6 +28,8 @@ resources:
 #- ../certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
 #- ../prometheus
+# [GRAFANA] Dashboard ConfigMap for the Grafana sidecar (label grafana_dashboard: "1").
+#- ../grafana
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 # [NETWORK POLICY] Control ingress to metrics and webhook ports.
@@ -39,6 +44,7 @@ patches:
 - path: manager_metrics_patch.yaml
   target:
     kind: Deployment
+    name: controller-manager
 
 # Uncomment the patches line if you enable Metrics and CertManager
 # [METRICS-WITH-CERTS] To enable metrics protected with certManager, uncomment the following line.
