@@ -31,3 +31,5 @@ go.work
 
 # Claude Code session handoffs are local working notes
 .claude/handoffs/
+
+groma/
