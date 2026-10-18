@@ -35,12 +35,13 @@ import (
 	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
 	"github.com/harry/oikade/internal/capability"
 	"github.com/harry/oikade/internal/driver"
+	"github.com/harry/oikade/internal/driver/plugin"
 	"github.com/harry/oikade/internal/driver/zigbee2mqtt"
 	"github.com/harry/oikade/internal/mqtt"
 )
 
-// Hub keeps a driver instance running for every Zigbee2MQTT object, feeds the Store, and routes
-// Set calls to the right instance.
+// Hub keeps a driver instance running for every driver object, such as a Zigbee2MQTT, feeds the
+// Store, and routes Set calls to the right instance.
 type Hub struct {
 	client.Client
 	Bus   mqtt.Bus
@@ -50,10 +51,22 @@ type Hub struct {
 	// ctx outlives individual reconciles; driver subscriptions are bound to it.
 	ctx       context.Context
 	mu        sync.Mutex
-	instances map[types.NamespacedName]*zigbee2mqtt.Instance
+	instances map[driver.InstanceKey]instance
 }
 
-var _ driver.Setter = (*Hub)(nil)
+// instance is a running driver instance.
+type instance interface {
+	Set(ctx context.Context, dev types.NamespacedName, name string, value any) error
+	// SetDevices replaces the declared devices, keyed by the driver's device id.
+	SetDevices(declared map[string]types.NamespacedName)
+	Stop()
+}
+
+var (
+	_ driver.Setter = (*Hub)(nil)
+	_ instance      = (*zigbee2mqtt.Instance)(nil)
+	_ instance      = (*plugin.Instance)(nil)
+)
 
 // Set validates a command against the capability registry and sends it to the device's driver.
 func (h *Hub) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
@@ -76,20 +89,22 @@ func (h *Hub) Set(ctx context.Context, dev types.NamespacedName, name string, va
 	inst := h.instances[snap.Instance]
 	h.mu.Unlock()
 	if inst == nil {
-		return fmt.Errorf("driver instance %s for device %s is not running", snap.Instance, dev)
+		return fmt.Errorf("%s instance %s for device %s is not running",
+			snap.Instance.Driver, snap.Instance.NamespacedName, dev)
 	}
 	return inst.Set(ctx, dev, name, v)
 }
 
 // Reconcile keeps one Zigbee2MQTT instance's driver and devices in sync.
 func (h *Hub) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	key := driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: req.NamespacedName}
 	var z zigbeev1alpha1.Zigbee2MQTT
 	if err := h.Get(ctx, req.NamespacedName, &z); err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
-		h.stop(req.NamespacedName)
-		h.Store.SetDevices(req.NamespacedName, nil)
+		h.stop(key)
+		h.Store.SetDevices(key, nil)
 		return ctrl.Result{}, nil
 	}
 
@@ -109,22 +124,31 @@ func (h *Hub) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, err
 		if _, taken := declared[src.IEEEAddress]; taken {
 			continue
 		}
-		key := client.ObjectKeyFromObject(&d)
-		declared[src.IEEEAddress] = key
-		metas[key] = metaFor(&d, req.NamespacedName)
+		dev := client.ObjectKeyFromObject(&d)
+		declared[src.IEEEAddress] = dev
+		metas[dev] = metaFor(&d, key)
 	}
 
-	inst, err := h.ensure(&z)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	inst := h.ensure(key, func(i instance) bool {
+		return i.(*zigbee2mqtt.Instance).BaseTopic == z.Topic()
+	}, func() instance {
+		inst := &zigbee2mqtt.Instance{
+			Key: req.NamespacedName, BaseTopic: z.Topic(), Bus: h.Bus, Sink: h.Store, Now: h.Now,
+			Log: logf.FromContext(h.ctx).WithValues("instance", req.NamespacedName),
+		}
+		if err := inst.Start(h.ctx); err != nil {
+			// The subscription is restored on reconnect; keep the instance.
+			logf.FromContext(h.ctx).Error(err, "Failed to subscribe to Zigbee2MQTT topics", "instance", req.NamespacedName)
+		}
+		return inst
+	})
 	// The store must know the devices before the driver reports on them.
-	h.Store.SetDevices(req.NamespacedName, metas)
+	h.Store.SetDevices(key, metas)
 	inst.SetDevices(declared)
 	return ctrl.Result{}, nil
 }
 
-func metaFor(d *homev1alpha1.Device, instance types.NamespacedName) Meta {
+func metaFor(d *homev1alpha1.Device, instance driver.InstanceKey) Meta {
 	m := Meta{DisplayName: d.Title(), Instance: instance}
 	if d.Spec.RoomRef != nil {
 		m.Room = d.Spec.RoomRef.Name
@@ -135,31 +159,24 @@ func metaFor(d *homev1alpha1.Device, instance types.NamespacedName) Meta {
 	return m
 }
 
-// ensure returns the running driver instance, restarting it if the base topic changed.
-func (h *Hub) ensure(z *zigbeev1alpha1.Zigbee2MQTT) (*zigbee2mqtt.Instance, error) {
-	key := client.ObjectKeyFromObject(z)
+// ensure returns the running instance for key. An instance that current rejects, such as one
+// whose topic changed, is stopped and replaced by start.
+func (h *Hub) ensure(key driver.InstanceKey, current func(instance) bool, start func() instance) instance {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if inst := h.instances[key]; inst != nil {
-		if inst.BaseTopic == z.Topic() {
-			return inst, nil
+		if current(inst) {
+			return inst
 		}
 		inst.Stop()
 		delete(h.instances, key)
 	}
-	inst := &zigbee2mqtt.Instance{
-		Key: key, BaseTopic: z.Topic(), Bus: h.Bus, Sink: h.Store, Now: h.Now,
-		Log: logf.FromContext(h.ctx).WithValues("instance", key),
-	}
-	if err := inst.Start(h.ctx); err != nil {
-		// The subscription is restored on reconnect; keep the instance.
-		logf.FromContext(h.ctx).Error(err, "Failed to subscribe to Zigbee2MQTT topics", "instance", key)
-	}
+	inst := start()
 	h.instances[key] = inst
-	return inst, nil
+	return inst
 }
 
-func (h *Hub) stop(key types.NamespacedName) {
+func (h *Hub) stop(key driver.InstanceKey) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if inst := h.instances[key]; inst != nil {
@@ -171,7 +188,7 @@ func (h *Hub) stop(key types.NamespacedName) {
 // SetupWithManager registers the hub as a controller. name must be unique within the manager.
 func (h *Hub) SetupWithManager(ctx context.Context, mgr ctrl.Manager, name string) error {
 	h.ctx = ctx
-	h.instances = map[types.NamespacedName]*zigbee2mqtt.Instance{}
+	h.instances = map[driver.InstanceKey]instance{}
 	if h.Now == nil {
 		h.Now = time.Now
 	}

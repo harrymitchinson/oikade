@@ -288,7 +288,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 	emit := i.discoveryLocked()
 	i.mu.Unlock()
 	emit()
-	i.Sink.Undeclared(i.Key, undeclared)
+	i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}, undeclared)
 }
 
 func (i *Instance) handleState(id, topic string, payload []byte) {

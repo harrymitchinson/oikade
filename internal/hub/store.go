@@ -37,7 +37,7 @@ type Meta struct {
 	DisplayName string
 	Room        string
 	// Instance is the driver instance the device belongs to.
-	Instance types.NamespacedName
+	Instance driver.InstanceKey
 	// HomeKitService is the optional HomeKit service override.
 	HomeKitService string
 }
@@ -67,7 +67,7 @@ type Store struct {
 
 	mu         sync.RWMutex
 	devices    map[types.NamespacedName]*entry
-	undeclared map[types.NamespacedName]int
+	undeclared map[driver.InstanceKey]int
 }
 
 var _ driver.Sink = (*Store)(nil)
@@ -76,13 +76,13 @@ var _ driver.Sink = (*Store)(nil)
 func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
 	return &Store{
 		Log: log, Listeners: listeners,
-		devices: map[types.NamespacedName]*entry{}, undeclared: map[types.NamespacedName]int{},
+		devices: map[types.NamespacedName]*entry{}, undeclared: map[driver.InstanceKey]int{},
 	}
 }
 
 // SetDevices replaces the devices that belong to a driver instance. State is kept for devices
 // that remain; devices no longer declared are dropped.
-func (s *Store) SetDevices(instance types.NamespacedName, devices map[types.NamespacedName]Meta) {
+func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.NamespacedName]Meta) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, e := range s.devices {
@@ -156,7 +156,7 @@ func (s *Store) Room(namespace, room string) []types.NamespacedName {
 }
 
 // Undeclared returns the number of paired-but-undeclared devices per driver instance.
-func (s *Store) UndeclaredCounts() map[types.NamespacedName]int {
+func (s *Store) UndeclaredCounts() map[driver.InstanceKey]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return maps.Clone(s.undeclared)
@@ -233,13 +233,14 @@ func (s *Store) Seen(dev types.NamespacedName, t time.Time) {
 }
 
 // Undeclared implements driver.Sink.
-func (s *Store) Undeclared(instance types.NamespacedName, count int) {
+func (s *Store) Undeclared(instance driver.InstanceKey, count int) {
 	s.mu.Lock()
 	prev, had := s.undeclared[instance]
 	s.undeclared[instance] = count
 	s.mu.Unlock()
 	if count > 0 && (!had || prev != count) {
-		s.Log.Info("Found paired devices without a Device object", "instance", instance, "count", count)
+		s.Log.Info("Found paired devices without a Device object",
+			"driver", instance.Driver, "instance", instance.NamespacedName, "count", count)
 	}
 	for _, l := range s.Listeners {
 		l.Undeclared(instance, count)
@@ -253,4 +254,4 @@ func (NopSink) Discovered(types.NamespacedName, driver.Info) {}
 func (NopSink) Changed(driver.Update)                        {}
 func (NopSink) Availability(types.NamespacedName, bool)      {}
 func (NopSink) Seen(types.NamespacedName, time.Time)         {}
-func (NopSink) Undeclared(types.NamespacedName, int)         {}
+func (NopSink) Undeclared(driver.InstanceKey, int)           {}

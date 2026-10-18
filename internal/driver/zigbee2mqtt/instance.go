@@ -186,7 +186,7 @@ func (i *Instance) discoveryLocked() func() {
 			i.Sink.Discovered(e.dev, e.info)
 		}
 		if known {
-			i.Sink.Undeclared(i.Key, undeclared)
+			i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: i.Key}, undeclared)
 		}
 	}
 }
