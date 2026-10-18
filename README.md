@@ -159,6 +159,10 @@ Go's `log/slog`, including controller-runtime logs. Use `--log-level=debug|info|
 to set the minimum level (default: `info`). Errors are always logged.
 The former `--zap-*` flags are no longer supported.
 
+## Versioning
+
+Releases are tagged by date as `YEAR.WEEK.BUILD`, for example `2026.42.1`. `WEEK` is the ISO week number with no leading zero (`date +%G.%-V`), and `BUILD` counts up from 1 within that week. Image tags use the same version.
+
 ## Development
 
 ```sh
