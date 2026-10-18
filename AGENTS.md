@@ -70,6 +70,17 @@ make lint-fix   # Auto-fix code style
 make test       # Run unit tests
 ```
 
+**After editing the TypeScript workspace** (`sdk/typescript`, `plugins/*`):
+```
+corepack yarn fix        # Auto-fix lint and formatting (only touches sdk/ and plugins/)
+make test-plugins        # Install, build, format check, lint, typecheck and unit tests
+make test-conformance    # Drive plugins/example-switch through the oikade/v1 contract
+```
+
+Yarn 4 comes from `packageManager` through corepack; don't install it globally. Use `corepack yarn install` for intentional dependency changes and keep the single root `yarn.lock`. Plugins depend on the SDK with `workspace:*`. The contract the SDK and plugins implement is `docs/plugin-contract.md`; change it, the decoder in `internal/driver/plugin` and the conformance suite in `test/conformance` together.
+
+**Plugin images:** `make docker-buildx-plugin PLUGIN=<dir>` builds `plugins/<dir>` for linux/arm64 and linux/amd64 with `plugins/Dockerfile`.
+
 ## Before Opening a PR
 
 Run the `code-review` skill (`/code-review`) on the branch and fix or explain each finding before running `gh pr create`.
