@@ -2,6 +2,7 @@
 
 - **Status:** Exploring | Proposed | Accepted | In progress | Done | Rejected | Superseded by NNNN
 - **Roadmap:** <milestone name, or "unplanned">
+- **Backlog:** <parent task or draft ID, e.g. TASK-0001>
 - **Updated:** YYYY-MM-DD
 
 <!-- design-feature fills in everything down to "Decision". write-spec fills in the rest.

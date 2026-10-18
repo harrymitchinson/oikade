@@ -93,6 +93,19 @@ Put the risky or uncertain step early, so a bad assumption shows up before it's 
 - Set Status to **Accepted** if the user agreed the design. Otherwise leave it as **Proposed**. Set `Updated:` to today. Update the index row in `docs/specs/README.md`.
 - Delete any section that doesn't apply, with one line saying why. Don't leave filler.
 
+## 9. Track the steps in Backlog
+
+Do this only once the spec is **Accepted**. A Proposed spec stays a draft, because its steps may still change. Read `backlog instructions task-creation` first.
+
+- **Find the parent task.** Use the spec header's `Backlog:` line, or `backlog search "<slug>" --plain`. If design-feature left a draft, promote it. If there's nothing, create the parent task with `--doc docs/specs/NNNN-<slug>.md -l spec-NNNN`. Then write its ID into the `Backlog:` line.
+- **Create one subtask per step in §7, in order:**
+  `backlog task create -p <parent> "Spec NNNN step N: <step title>" -d "<why this step exists>" --ac "…" --doc docs/specs/NNNN-<slug>.md -l spec-NNNN --dep <previous step's task>`
+  Take the acceptance criteria from the rows in the test plan table that this step proves. Use observable outcomes, not "write function X".
+- **Keep the approach in the spec, not on the task.** Don't pass `--plan`: whoever picks the task up records the plan when they start it, usually "follow step N of spec NNNN" plus anything that has changed since. Steps that are really `add-capability` work get a subtask that points to that skill.
+- **If the spec already has subtasks** (you're revising it), edit them to match the new steps. Archive the ones for steps that were dropped. Don't duplicate them.
+
+When the first subtask moves to In Progress, set the spec to **In progress**. When the parent is Done, set it to **Done**. Either way, update its row in `docs/specs/README.md` too.
+
 Length follows the feature. A new optional field might take a page, and a new driver might take several. Don't pad.
 
 ## What to hand back
@@ -102,5 +115,6 @@ Give:
 - the file path
 - a three-to-five line summary: the API change, the riskiest behaviour, and the number of implementation steps
 - the open questions
+- the parent task ID and the subtask IDs, one per step
 
-Suggest `plan-roadmap` to slot it in, or starting implementation at step 1. Don't commit unless asked.
+Suggest `plan-roadmap` to slot it in, or starting implementation with the first subtask. Don't commit unless asked.

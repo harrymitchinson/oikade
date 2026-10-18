@@ -17,10 +17,11 @@ Read these before proposing anything. Roadmaps written from memory drift from re
 - `docs/specs/README.md` and the spec files: each spec's status and its `Roadmap:` field.
 - `README.md`, the **Not yet** list and "Requirements".
 - `git log --oneline -30`, to see what actually shipped since the roadmap was last updated.
+- Backlog: `backlog milestone list --plain` and `backlog task list --exclude-status Done --plain`. A spec's tasks carry the `spec-NNNN` label.
 - `.claude/skills/write-spec/references/oikade-surfaces.md`, for the constraints that drive ordering.
 - Anything the user just said about priorities, hardware or frustrations. That outranks everything else.
 
-Reconcile these sources. Mark things that shipped as done. Flag specs whose status disagrees with the roadmap. Notice ideas that appear in the README but in no spec.
+Reconcile these sources. Mark things that shipped as done, and count a spec as shipped when its Backlog parent task is Done. Flag specs whose status disagrees with the roadmap or with their Backlog tasks. Notice ideas that appear in the README but in no spec.
 
 ## 2. Decide the order
 
@@ -77,6 +78,7 @@ Guidance:
 ## 4. Keep it consistent
 
 - Update each touched spec's `Roadmap:` field and its row in `docs/specs/README.md`, so that specs and roadmap agree. Create `docs/specs/README.md` if any spec exists without an index.
+- **Mirror milestones into Backlog.** `docs/ROADMAP.md` stays in charge of the order, exit criteria and reasons. Backlog only records which tasks belong to each milestone. Make sure there's a Backlog milestone named exactly after each Now and Next milestone (`backlog milestone add "<name>"`, or `rename` if the roadmap renamed one). Then put each item's parent task in it with `backlog task edit <id> -m "<name>"`. When an item moves out of Now or Next, use `--clear-milestone`. Read `backlog instructions task-execution` before editing tasks. Items without a spec don't get a task here: they need design-feature first.
 - If the README's **Not yet** list now disagrees with the roadmap, mention it to the user. Either suggest pointing that section at `docs/ROADMAP.md`, or suggest specific edits. Don't rewrite the README unless asked.
 
 ## What to hand back

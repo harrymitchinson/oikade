@@ -64,6 +64,19 @@ Record the design in the repo so it's reviewed like code:
 
 If the user explicitly wants to talk it through without writing a file, do the same thinking in chat and offer to write it down at the end.
 
+## 6. Track it in Backlog
+
+The spec is the design record. Backlog only tracks the work, so don't copy the design into it, and don't use `backlog decision` or `backlog doc`. Read `backlog instructions task-creation` first, and run `backlog search "<slug>" --plain` so you don't create a duplicate.
+
+- **Proposed:** the work isn't committed yet, so create a draft rather than a task. Drafts can't carry doc links, so name the spec in the description:
+  `backlog draft create "<Feature name>" -d "<problem in one line>. Design: docs/specs/NNNN-<slug>.md" -l spec-NNNN`
+- **Accepted:** promote the draft (or create the task directly if there's no draft) and link the spec:
+  `backlog draft promote <id>`, then `backlog task edit <id> --add-doc docs/specs/NNNN-<slug>.md`
+  This becomes the feature's parent task. Don't create subtasks here: the PR breakdown doesn't exist until write-spec has run.
+- Put the ID in the spec header's `Backlog:` line.
+
+Skip this step if no spec file was written.
+
 ## What to hand back
 
 Give a short summary:
@@ -72,6 +85,6 @@ Give a short summary:
 - the recommended option and the main trade-off
 - the public names it introduces
 - the open questions
-- the file path
+- the file path and the Backlog draft or task ID
 
 Then suggest the next step: `write-spec` if the decision is Accepted, or which question to settle first if it isn't. Don't commit unless asked.
