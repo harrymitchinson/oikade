@@ -61,6 +61,7 @@ type Compiled struct {
 
 type action struct {
 	device     string
+	room       string
 	capability string
 	value      any
 	delay      time.Duration
@@ -68,7 +69,7 @@ type action struct {
 
 // Compile validates an Automation: the condition must be boolean CEL, triggers must name known
 // capabilities, and set actions must target writable capabilities with values of the right kind.
-// Whether the devices exist is only checked when the Automation runs.
+// Whether the devices and rooms exist is only checked when the Automation runs.
 func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 	c := &Compiled{
 		Key:        types.NamespacedName{Namespace: a.Namespace, Name: a.Name},
@@ -81,6 +82,9 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 	}
 	var errs []error
 	for i, t := range a.Spec.Triggers {
+		if t.Device == "" && t.Room == "" {
+			errs = append(errs, fmt.Errorf("triggers[%d]: one of device or room is required", i))
+		}
 		if _, ok := capability.Lookup(t.Capability); !ok {
 			errs = append(errs, fmt.Errorf("triggers[%d]: unknown capability %q", i, t.Capability))
 		}
@@ -104,6 +108,10 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 		switch {
 		case act.Set != nil:
 			s := act.Set
+			if s.Device == "" && s.Room == "" {
+				errs = append(errs, fmt.Errorf("actions[%d]: one of device or room is required", i))
+				continue
+			}
 			spec, ok := capability.Lookup(s.Capability)
 			if !ok {
 				errs = append(errs, fmt.Errorf("actions[%d]: unknown capability %q", i, s.Capability))
@@ -123,7 +131,7 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 				errs = append(errs, fmt.Errorf("actions[%d]: %w", i, err))
 				continue
 			}
-			c.actions = append(c.actions, action{device: s.Device, capability: s.Capability, value: v})
+			c.actions = append(c.actions, action{device: s.Device, room: s.Room, capability: s.Capability, value: v})
 		case act.Delay != nil:
 			if act.Delay.Duration <= 0 {
 				errs = append(errs, fmt.Errorf("actions[%d]: delay must be positive", i))

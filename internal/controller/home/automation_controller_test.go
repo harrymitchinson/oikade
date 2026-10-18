@@ -81,4 +81,38 @@ var _ = Describe("Automation Controller", func() {
 		})
 		Expect(err).To(MatchError(ContainSubstring("exactly one of set or delay")))
 	})
+
+	Describe("device or room", func() {
+		create := func(name string, trigger homev1alpha1.Trigger, set homev1alpha1.SetAction) error {
+			trigger.Capability = "sensor.occupancy-detected"
+			set.Capability, set.Value = "light.on", apiextensionsv1.JSON{Raw: []byte("true")}
+			return k8sClient.Create(ctx, &homev1alpha1.Automation{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: homev1alpha1.AutomationSpec{
+					Triggers: []homev1alpha1.Trigger{trigger},
+					Actions:  []homev1alpha1.Action{{Set: &set}},
+				},
+			})
+		}
+
+		It("accepts a device or a room on triggers and set actions", func() {
+			Expect(create("device-device", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{Device: "l"})).To(Succeed())
+			Expect(create("room-room", homev1alpha1.Trigger{Room: "hallway"}, homev1alpha1.SetAction{Room: "hallway"})).To(Succeed())
+			Expect(create("device-room", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{Room: "hallway"})).To(Succeed())
+		})
+
+		It("rejects a trigger with neither or both", func() {
+			Expect(create("trigger-neither", homev1alpha1.Trigger{}, homev1alpha1.SetAction{Device: "l"})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+			Expect(create("trigger-both", homev1alpha1.Trigger{Device: "m", Room: "hallway"}, homev1alpha1.SetAction{Device: "l"})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+		})
+
+		It("rejects a set action with neither or both", func() {
+			Expect(create("set-neither", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+			Expect(create("set-both", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{Device: "l", Room: "hallway"})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+		})
+	})
 })

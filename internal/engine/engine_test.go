@@ -91,6 +91,43 @@ func TestCompile(t *testing.T) {
 	}
 }
 
+func TestCompileRoom(t *testing.T) {
+	roomSet := homev1alpha1.Action{Set: &homev1alpha1.SetAction{
+		Room: "living-room", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("false")},
+	}}
+	c, err := Compile(automation("goodnight", homev1alpha1.AutomationSpec{
+		Triggers: []homev1alpha1.Trigger{{Room: "hallway", Capability: capability.Occupancy}},
+		Actions:  []homev1alpha1.Action{roomSet},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (action{room: "living-room", capability: capability.LightOn, value: false}); c.actions[0] != want {
+		t.Fatalf("action = %+v, want %+v", c.actions[0], want)
+	}
+
+	for name, tc := range map[string]struct {
+		spec    homev1alpha1.AutomationSpec
+		wantErr string
+	}{
+		"trigger with neither": {
+			spec:    homev1alpha1.AutomationSpec{Triggers: []homev1alpha1.Trigger{{Capability: capability.Occupancy}}, Actions: []homev1alpha1.Action{delay(time.Second)}},
+			wantErr: "triggers[0]: one of device or room is required",
+		},
+		"set with neither": {
+			spec:    homev1alpha1.AutomationSpec{Triggers: motionTrigger, Actions: []homev1alpha1.Action{set("", capability.LightOn, "true")}},
+			wantErr: "actions[0]: one of device or room is required",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Compile(automation("a", tc.spec))
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 type call struct {
 	device, capability string
 	value              any

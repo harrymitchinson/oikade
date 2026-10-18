@@ -226,6 +226,10 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 		if ctx.Err() != nil {
 			return ResultCancelled
 		}
+		if a.room != "" {
+			// Room actions are resolved in spec 0001 step 2; until then they do nothing.
+			continue
+		}
 		dev := types.NamespacedName{Namespace: key.Namespace, Name: a.device}
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
 			log.Error(err, "Failed to run Automation action", "device", a.device, "capability", a.capability)
