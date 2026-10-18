@@ -173,11 +173,7 @@ make test-e2e      # Kind: fakes Zigbee2MQTT over MQTT and checks status, automa
 
 ## Not yet
 
-- Drivers other than Zigbee2MQTT (Homebridge, ESPHome, Matter)
-- Multi-endpoint Zigbee devices (`state_l2`) and colour or colour-temperature lights
-- MQTT authentication and TLS
-- Room-targeted automation actions
-- Multus/macvlan networking for the HAP pod
+Planned work, its order and what's deliberately out of scope are in the [roadmap](docs/ROADMAP.md). Designs live in [docs/specs](docs/specs/).
 
 ## License
 

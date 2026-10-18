@@ -1,12 +1,16 @@
 ---
-id: DRAFT-0001
+id: TASK-0001
 title: Plugin drivers
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-18 08:05'
+updated_date: '2026-10-18 08:19'
 labels:
   - spec-0002
+milestone: m-1
 dependencies: []
+documentation:
+  - docs/specs/0002-plugin-drivers.md
 ---
 
 ## Description

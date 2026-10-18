@@ -1,7 +1,8 @@
 # 0001: Room-targeted automations
 
 - **Status:** Accepted
-- **Roadmap:** unplanned
+- **Roadmap:** Pi bring-up
+- **Backlog:** TASK-0002
 - **Updated:** 2026-10-18
 
 <!-- design-feature fills in everything down to "Decision". write-spec fills in the rest.
