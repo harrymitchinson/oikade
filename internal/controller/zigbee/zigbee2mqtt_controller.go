@@ -39,12 +39,11 @@ import (
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
 	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
+	"github.com/harry/oikade/internal/controller/shared"
 	"github.com/harry/oikade/internal/render"
 )
 
 const (
-	fieldOwner = "oikade"
-
 	ConditionReady = "Ready"
 )
 
@@ -141,7 +140,7 @@ func (r *Zigbee2MQTTReconciler) reconcile(ctx context.Context, z *zigbeev1alpha1
 	case len(duplicates) > 0:
 		r.setReady(z, metav1.ConditionFalse, "DuplicateDevice",
 			"IEEE addresses claimed by more than one Device (first by name wins): "+strings.Join(duplicates, ", "))
-	case deploymentAvailable(&dep):
+	case shared.DeploymentAvailable(&dep):
 		r.setReady(z, metav1.ConditionTrue, "Available", "Zigbee2MQTT is running")
 	default:
 		r.setReady(z, metav1.ConditionFalse, "Progressing", "waiting for the Zigbee2MQTT pod to become ready")
@@ -239,19 +238,13 @@ func (r *Zigbee2MQTTReconciler) reconcileService(ctx context.Context, z *zigbeev
 }
 
 func (r *Zigbee2MQTTReconciler) apply(ctx context.Context, obj runtime.ApplyConfiguration) error {
-	return r.Apply(ctx, obj, client.FieldOwner(fieldOwner), client.ForceOwnership)
+	return shared.Apply(ctx, r.Client, obj)
 }
 
 func (r *Zigbee2MQTTReconciler) setReady(z *zigbeev1alpha1.Zigbee2MQTT, status metav1.ConditionStatus, reason, msg string) {
 	meta.SetStatusCondition(&z.Status.Conditions, metav1.Condition{
 		Type: ConditionReady, Status: status, Reason: reason, Message: msg, ObservedGeneration: z.Generation,
 	})
-}
-
-func deploymentAvailable(d *appsv1.Deployment) bool {
-	return d.Status.ObservedGeneration >= d.Generation &&
-		d.Status.UpdatedReplicas >= 1 &&
-		d.Status.AvailableReplicas >= 1
 }
 
 // SetupWithManager sets up the controller with the Manager.

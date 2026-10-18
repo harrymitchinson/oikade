@@ -42,6 +42,16 @@ func Hash(b []byte) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
+// labels returns the app.kubernetes.io labels plus the owning kind's own label.
+func labels(app, instance, ownLabel string) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":       app,
+		"app.kubernetes.io/instance":   instance,
+		"app.kubernetes.io/managed-by": ManagedBy,
+		ownLabel:                       instance,
+	}
+}
+
 func ownerRef(gvk schema.GroupVersionKind, obj metav1.Object) *metav1ac.OwnerReferenceApplyConfiguration {
 	return metav1ac.OwnerReference().
 		WithAPIVersion(gvk.GroupVersion().String()).

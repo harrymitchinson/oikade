@@ -53,12 +53,7 @@ func HAPServiceAccountName(b *homekitv1alpha1.Bridge) string {
 
 // BridgeLabels are applied to everything created for a Bridge.
 func BridgeLabels(b *homekitv1alpha1.Bridge) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/name":       "oikade-hap",
-		"app.kubernetes.io/instance":   b.Name,
-		"app.kubernetes.io/managed-by": ManagedBy,
-		homekitv1alpha1.LabelBridge:    b.Name,
-	}
+	return labels("oikade-hap", b.Name, homekitv1alpha1.LabelBridge)
 }
 
 func bridgeOwner(b *homekitv1alpha1.Bridge) *metav1ac.OwnerReferenceApplyConfiguration {

@@ -53,12 +53,7 @@ func ZigbeePVCName(z *zigbeev1alpha1.Zigbee2MQTT) string           { return z.Na
 
 // ZigbeeLabels are applied to everything created for a Zigbee2MQTT instance.
 func ZigbeeLabels(z *zigbeev1alpha1.Zigbee2MQTT) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/name":       "zigbee2mqtt",
-		"app.kubernetes.io/instance":   z.Name,
-		"app.kubernetes.io/managed-by": ManagedBy,
-		zigbeev1alpha1.LabelInstance:   z.Name,
-	}
+	return labels("zigbee2mqtt", z.Name, zigbeev1alpha1.LabelInstance)
 }
 
 // ZigbeeNetwork is the generated identity of a Zigbee network. Losing it means re-pairing every device.

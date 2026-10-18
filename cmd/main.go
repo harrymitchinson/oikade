@@ -243,8 +243,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&pluginscontroller.PluginReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		MQTTURL: mqttURL,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "plugins-plugin")
 		os.Exit(1)
