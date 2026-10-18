@@ -16,9 +16,11 @@ Every device family after this one (Cozytouch heaters are already in `../homebri
 
 Done looks like this:
 
-- The porch relay is a `Device` in Git. It shows up in HomeKit through an Oikade Bridge and in Grafana as `light.on`, and an Automation can switch it.
-- Adding the next device family means writing a plugin in its own repo or image, without editing `internal/hub` or `api/home`.
-- The existing protocol code (`@harrymitchinson/sonoff-lan`) is reused, not rewritten.
+- A device served by a plugin is a `Device` in Git. It shows up in HomeKit through an Oikade Bridge and in Grafana, and an Automation can switch it. The simulated example plugin proves this.
+- Adding a device family means writing a plugin, without editing `internal/hub` or `api/home`.
+- A plugin can reuse existing protocol code such as `@harrymitchinson/sonoff-lan`, rather than rewriting it.
+
+This spec designs and builds the **plugin system**. Concrete plugins (SONOFF MINIR4, TH Elite, Cozytouch) are separate pieces of work built on top of it, and aren't part of this spec.
 
 ## Constraints
 
@@ -29,7 +31,7 @@ Done looks like this:
   - `manager` reconciles a plugin CR into a Deployment and a rendered device ConfigMap, as it already does for Zigbee2MQTT. It doesn't talk to MQTT.
   - The hub (used by `runtime` *and* every `hap` pod) gains a generic decoder for the plugin contract. So HomeKit keeps working when the runtime is down.
   - Writes go out through `driver.Set` as an MQTT `/set` to the plugin.
-- **Pi.** Plugin images must be arm64. SONOFF LAN reports arrive over mDNS multicast, so the SONOFF plugin pod needs `hostNetwork`, as HAP already does. A Node plugin costs about 60–100 MiB RSS. It's one pod per plugin instance, not per device.
+- **Pi.** Plugin images must be arm64. Some plugins need mDNS multicast (SONOFF LAN reports, for example), so the `Plugin` kind offers `hostNetwork`, as HAP already uses. A Node plugin costs about 60–100 MiB RSS. It's one pod per plugin instance, not per device.
 
 ## Options
 
@@ -86,16 +88,16 @@ Run the existing Homebridge plugins unchanged in a Homebridge pod. Oikade reads 
 
 **Accepted: B.** The problem is "every new family is a core change", and B is the only option that removes that while reusing the protocol code that already exists. A is still a good choice for any family that's simple enough to be a plain MQTT decoder, as zigbee2mqtt is. Shelly or Tasmota could later be in-tree decoders *or* plugins. C reuses the most code today, but makes Homebridge, not Git, the source of device identity. B gives up CRD validation of plugin-specific options and accepts a new wire contract to maintain. The contract is deliberately small (five topics) to keep that cost down.
 
-Scope for v1: the contract, the `Plugin` kind, the generic hub decoder, the TS SDK, and a MINIR4 plugin.
+Scope: the contract, the `Plugin` kind, the generic hub decoder, the TypeScript SDK, the conformance suite and a simulated example plugin. No real device plugins.
 
 Settled in review:
 
 - **One Secret per Plugin**, with one key per device ID. The manager mounts it into the plugin pod by name. It checks that the Secret exists, but never reads its data.
-- **A relay reports `switch.on` by default.** `parameters.capability` can switch it to `light.on` or `outlet.on`. The plugin rejects any other value and reports it in `devices[].error`.
+- **A convention for relay-like devices**, documented in `docs/plugin-contract.md`: report `switch.on` by default, and accept `parameters.capability` set to `light.on` or `outlet.on`. Reject any other value, and report it in `devices[].error`.
 - **The SDK lives in this repo**, as a TypeScript workspace beside the Go code. Plugin images build from here too, which brings a Node toolchain into CI.
-- **Oikade ships a contract conformance suite**: a fake hub that drives a plugin through every topic. The Oikade side uses it in CI, and plugins built elsewhere can run it too. The TH Elite comes second, as a temperature sensor plus a relay. Its scheduler stays a separate question.
+- **Oikade ships a contract conformance suite**: a fake hub that drives a plugin through every topic. The Oikade side uses it in CI, and plugins built elsewhere can run it too.
 
-What the user would commit:
+What a user would commit for a plugin. SONOFF is shown for illustration; building that plugin isn't part of this spec.
 
 ```yaml
 apiVersion: plugins.oikade.dev/v1alpha1
@@ -126,6 +128,7 @@ spec:
 
 - Running third-party plugins from the internet. Plugins are trusted images the user builds. There's no sandboxing beyond the pod.
 - Automation logic inside plugins. The pool scheduler's daily planning isn't expressible in CEL today, and whether it moves into Oikade, stays a plugin-internal feature, or becomes an engine feature is its own design.
+- Real device plugins. The SONOFF MINIR4, TH Elite and Cozytouch plugins each get their own work item once the system exists. Where they live, and how they get `sonoff-lan`, is decided then.
 - Plugin-owned persistent state (PVCs) in v1.
 - Plugins defining new capabilities. New capabilities still go through `add-capability`.
 - Discovery or adoption. Paired-but-undeclared devices count towards `Undeclared`, as they do for zigbee2mqtt.
@@ -352,10 +355,9 @@ Conditions are `Plugin` `Ready`, and `Device` `Resolved=False PluginError`. The 
 
 Manual checks on the Pi:
 
-1. **SONOFF plugin starts on arm64** under `hostNetwork`. Pass: `oikade_plugin_up{plugin="sonoff"}=1`, and RSS under 128 MiB after an hour.
-2. **Real MINIR4 reports.** Pass: flipping the wall switch changes `oikade_capability_value{device="porch-light",capability="switch.on"}` within 5 s.
-3. **HomeKit control.** Pass: toggling in the Home app shows `oikade/v1/default/sonoff/<id>/set` on the broker within 1 s, and the relay confirms within 10 s (the `sonoff-lan` confirmation window).
-4. **The runtime is down.** Pass: after `kubectl scale deploy/oikade-runtime --replicas=0`, the Home app toggle still works.
+1. **The example plugin runs on arm64.** Pass: `oikade_plugin_up{plugin="example-switch"}=1`, and RSS under 128 MiB after an hour.
+2. **HomeKit control.** Pass: toggling the example Device in the Home app shows `oikade/v1/<ns>/example-switch/<id>/set` on the broker within 1 s, and the simulated state follows.
+3. **The runtime is down.** Pass: after `kubectl scale deploy/oikade-runtime --replicas=0`, the Home app toggle still works.
 
 ## Docs
 
@@ -366,7 +368,7 @@ Manual checks on the Pi:
   - add a short "Plugins" section linking to the contract
 - **`docs/plugin-contract.md`** (new): the topics, payloads, environment, contract versioning, and conformance.
 - **`config/samples/plugins_v1alpha1_plugin.yaml`**, and a plugin variant of `home_v1alpha1_device.yaml`.
-- **`docs/deploy-raspberry-pi.md`**: the SONOFF plugin, `hostNetwork`, a SOPS Secret for the LAN keys, and moving accessories from Homebridge.
+- **`docs/deploy-raspberry-pi.md`**: running a plugin, `hostNetwork`, and a SOPS Secret for plugin credentials.
 - **"State that must survive"**: add the plugin Secret, noting it's user-owned and comes from Git.
 - **AGENTS.md**: add the TypeScript workspace commands.
 
@@ -387,14 +389,8 @@ Manual checks on the Pi:
    - Add a CI job in `.github/workflows/test.yml` that builds the Node workspace and runs conformance.
    - Build plugin images for `linux/arm64` and `linux/amd64`.
 7. **Kind e2e.** Extend `test/e2e` with a Plugin and Device fed by `mosquitto_pub`.
-8. **SONOFF MINIR4 plugin.** `plugins/sonoff` wraps `SonoffMiniR4Controller`, maps `parameters.capability` (default `switch.on`), and reports a missing key or bad parameter as `error`. Then do the manual Pi checks. **Blocked** on the open question below.
-9. **Docs.** Update the README sections above, the Pi guide, "State that must survive" and AGENTS.md. Remove the item from "Not yet".
+8. **Docs.** Update the README sections above, the Pi guide, "State that must survive" and AGENTS.md. Remove the item from "Not yet".
 
 ## Open questions
 
-- **How the SONOFF plugin gets `sonoff-lan`.** The SDK and plugins live here, but `@harrymitchinson/sonoff-lan` lives in `../homebridge-plugins`, which keeps all its packages private. The choices are:
-  - move `sonoff-lan` into this repo (Homebridge would then consume it from here)
-  - publish it to a private registry such as GitHub Packages
-  - vendor a built copy
-
-  The user decides. It blocks the MINIR4 plugin, but not the contract, the `Plugin` kind or the hub decoder.
+None.

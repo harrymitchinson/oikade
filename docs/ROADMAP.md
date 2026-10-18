@@ -4,7 +4,7 @@ _Updated 2026-10-18._ How to change this: edit it in a PR. Specs live in [docs/s
 
 ## Direction
 
-Oikade runs the whole house from Git: every device declared, HomeKit through its own bridge, and history in Prometheus. Next it brings the non-Zigbee devices (the SONOFF relays and the pool pump) in through plugins, and adds schedules that can run the pool, so that Homebridge can be retired. It is not a general-purpose hub: it has no Home Assistant, no UI for configuration, and no cloud.
+Oikade runs the whole house from Git: every device declared, HomeKit through its own bridge, and history in Prometheus. Next it gains a plugin system, so that non-Zigbee device families (the SONOFF relays, the pool pump, the Cozytouch heaters) can join without core changes, and schedules that can run the pool. Then Homebridge can be retired. It is not a general-purpose hub: it has no Home Assistant, no UI for configuration, and no cloud.
 
 ## Now: Pi bring-up
 
@@ -23,27 +23,26 @@ Oikade runs the whole house from Git: every device declared, HomeKit through its
 | Pair the HomeKit bridge and declare the real Zigbee devices | — (ops) | S | Rebuild | Parked |
 | Backup and restore drill (identity Secret, network key, PVCs) | — (ops) | M | Pairing | Parked |
 | Check whether zigbee2mqtt re-reports occupancy while someone stays put | [0001](specs/0001-room-targeted-actions.md), open question | S | Pairing | Parked |
-| Room-targeted automations: write-spec, then build | [0001](specs/0001-room-targeted-actions.md) | M | Occupancy check (guidance only) | Accepted, needs write-spec |
+| Room-targeted automations (TASK-0002) | [0001](specs/0001-room-targeted-actions.md) | M | — (the occupancy check only affects README guidance) | Ready |
 
 Room-targeted automations are here, not in Next, because they're small and improve automations that this milestone starts running for real. The occupancy check they wait on happens during bring-up anyway.
 
 ## Next: Plugin drivers
 
-**Goal:** the SONOFF MINIR4 relays run through Oikade, and a new device family no longer needs a core change.
+**Goal:** a new device family no longer needs a core change. Oikade has a plugin system: the contract, the `Plugin` kind, the SDK and conformance. Real device plugins come afterwards.
 
 **Done when:**
 
-- The porch and hall relays are Devices in Git, appear under the Oikade Bridge in the Home app and in Grafana as `switch.on` (or `light.on`), and an Automation switches the porch light.
-- The Homebridge MINIR4 plugin is uninstalled.
-- `make test` and CI run the plugin contract conformance suite.
-- The SONOFF plugin pod stays under 128 MiB RSS on the Pi.
+- CI runs the plugin contract conformance suite against the simulated example plugin.
+- A `Plugin` and a `Device` declared in Git, served by the example plugin, reach `Resolved=True`. They show up in Grafana, an Automation can switch them, and the Home app toggles them, even with the runtime scaled to zero.
+- Writing a new plugin needs no change to `internal/hub` or `api/home`.
+- The example plugin pod stays under 128 MiB RSS on arm64.
 
 | Item | Spec | Size | Depends on | Status |
 |---|---|---|---|---|
-| Decide how this repo gets `sonoff-lan` | [0002](specs/0002-plugin-drivers.md), open question | S | — | Not started |
 | Contract, driver-agnostic hub, `Plugin` API, runtime and HAP wiring (steps 1–4) | [0002](specs/0002-plugin-drivers.md) | L | Pi bring-up | Not started |
 | Plugin reconciler in the manager, TypeScript SDK, conformance, Kind e2e (steps 5–7) | [0002](specs/0002-plugin-drivers.md) | M | Steps 1–4 | Not started |
-| SONOFF MINIR4 plugin, Pi checks, docs (steps 8–9) | [0002](specs/0002-plugin-drivers.md) | M | Steps 5–7, `sonoff-lan` decision | Not started |
+| Plugin system docs (step 8) | [0002](specs/0002-plugin-drivers.md) | S | Steps 5–7 | Not started |
 
 This comes after bring-up because the plugin contract and its Pi constraints (`hostNetwork`, multicast, Node memory) are cheaper to get right once Oikade is actually running there.
 
@@ -56,20 +55,21 @@ This comes after bring-up because the plugin contract and its Pi constraints (`h
 - Each morning, `kubectl get schedule pool-filtration` shows a target matching the water-temperature band, with blocks in off-peak and swimming hours. Credited minutes reach the target by the end of the day, and Grafana shows both.
 - Temporarily raising the frost rule's threshold turns the pump on within a minute.
 - Toggling the pump in the Home app holds it for 2 hours, and the `Pool automatic` switch pauses the schedule.
-- Homebridge is uninstalled.
+- Homebridge no longer runs the pool.
 
 | Item | Spec | Size | Depends on | Status |
 |---|---|---|---|---|
 | Schedule planner, API, validation, runner, live rules and overrides (steps 1–5) | [0003](specs/0003-schedules.md) | L | — | Accepted |
 | `Pool automatic` switch in HomeKit (step 6) | [0003](specs/0003-schedules.md) | S | 0002 steps 1–4 | Accepted |
 | Schedule docs, e2e and dashboard (step 7) | [0003](specs/0003-schedules.md) | S | Step 6 | Accepted |
-| TH Elite plugin: relay and water temperature as capabilities | needs a short addition to [0002](specs/0002-plugin-drivers.md) | M | Plugin drivers | Not started |
+| TH Elite plugin: relay and water temperature as capabilities | needs design (a plugin on the 0002 system) | M | Plugin drivers | Not started |
 
 This comes after plugin drivers, because the pool needs the TH Elite plugin for its relay and probe, and the HomeKit switch reuses the plugin contract. Steps 1–5 of spec 0003 don't depend on anything, though, and the planner is the riskiest piece. So they're a good choice for spare evenings during Now or Next, and can be moved earlier if plugin work stalls.
 
 ## Later
 
-- **Cozytouch heater plugin.** It's the second plugin, and proves the contract with a cloud-backed family. It comes after the pool, which matters more in summer.
+- **SONOFF MINIR4 plugin.** It moves the hall and porch relays off Homebridge. It needs design first: where the plugin lives, and how it gets `sonoff-lan`. It's a good first real plugin because it's a plain relay. It could move into Next once the plugin system is done.
+- **Cozytouch heater plugin.** It proves the contract with a cloud-backed family. It comes after the pool, which matters more in summer.
 - **MQTT authentication and TLS.** The broker is cluster-internal today. Do it before anything outside the cluster connects, and give each plugin a credential scoped to its own topics.
 - **Multi-endpoint Zigbee devices and colour or colour-temperature lights.** This is add-capability work, best done when such a device is actually in the house.
 - **Built-in decoders for ESPHome and Tasmota.** Only worth it if devices get reflashed. Until then, plugins cover it.
