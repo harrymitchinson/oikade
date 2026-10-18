@@ -161,7 +161,14 @@ The former `--zap-*` flags are no longer supported.
 
 ## Versioning
 
-Releases are tagged by date as `YEAR.WEEK.BUILD`, for example `2026.42.1`. `WEEK` is the ISO week number with no leading zero (`date +%G.%-V`), and `BUILD` counts up from 1 within that week. Image tags use the same version.
+Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is the CRDs, capability names, CEL variables, metric names and labels, and HomeKit accessory IDs.
+
+While the major version is 0, the API is still settling:
+
+- A breaking change to the public API bumps MINOR (`v0.1.3` → `v0.2.0`). Read the release notes before upgrading.
+- Features and fixes bump PATCH (`v0.1.0` → `v0.1.1`).
+
+`1.0.0` is a deliberate decision, not something a commit triggers. The earlier date tag `2026.42.1` isn't part of this sequence; don't pin to it.
 
 ## Development
 

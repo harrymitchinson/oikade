@@ -105,7 +105,7 @@ kind: Plugin
 metadata:
   name: sonoff
 spec:
-  image: ghcr.io/harrymitchinson/oikade-plugin-sonoff:2026.43.1
+  image: ghcr.io/harrymitchinson/oikade-plugin-sonoff:v0.1.0
   hostNetwork: true            # mDNS reports
   secretRef:
     name: sonoff-lan-keys      # one key per device id; restored from Git (SOPS)

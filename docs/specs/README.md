@@ -7,3 +7,4 @@ Each spec records one feature's design decision and, once it's accepted, how to 
 | [0001](0001-room-targeted-actions.md) | Room-targeted automations | Accepted | Plugin drivers |
 | [0002](0002-plugin-drivers.md) | Plugin drivers | Accepted | Plugin drivers |
 | [0003](0003-schedules.md) | Schedules | Accepted | Schedules |
+| [0004](0004-release-automation.md) | Release automation | Accepted | unplanned |
