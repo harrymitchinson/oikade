@@ -228,6 +228,9 @@ func TestRetainedStateBeforeDeclaration(t *testing.T) {
 
 func TestStateBeforeDevicesIsReplayed(t *testing.T) {
 	_, bus, rec := setup(t, map[string]string{"status": `{"state":"online","contract":1}`})
+	if len(rec.discovered) != 0 {
+		t.Fatalf("devices discovered before the devices topic: %+v", rec.discovered)
+	}
 
 	publish(t, bus, root+"/1000aa/state", `{"light.on":false}`)
 	if got := rec.takeChanges(); len(got) != 0 {
@@ -236,6 +239,9 @@ func TestStateBeforeDevicesIsReplayed(t *testing.T) {
 	publish(t, bus, root+"/devices", devicesJSON)
 	if got := rec.takeChanges(); len(got) != 1 || got[0].Value != false {
 		t.Fatalf("state not replayed after devices: %+v", got)
+	}
+	if !rec.discovered[porch].Found {
+		t.Errorf("porch not discovered after devices: %+v", rec.discovered[porch])
 	}
 }
 

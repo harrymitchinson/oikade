@@ -19,14 +19,20 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harry/oikade/internal/capability"
+	"github.com/harry/oikade/internal/driver/plugin"
 	"github.com/harry/oikade/internal/hub"
 )
 
+const namespaceLabel = "namespace"
+
 var (
-	deviceLabels     = []string{"namespace", "device", "room"}
+	deviceLabels     = []string{namespaceLabel, "device", "room"}
 	capabilityLabels = append(append([]string{}, deviceLabels...), "capability")
+	pluginLabels     = []string{namespaceLabel, "plugin"}
+	rejectedLabels   = append(append([]string{}, pluginLabels...), "reason")
 
 	valueDesc = prometheus.NewDesc("oikade_capability_value",
 		"Current value of a device capability. Bools are 0 or 1.", capabilityLabels, nil)
@@ -37,19 +43,33 @@ var (
 	lastSeenDesc = prometheus.NewDesc("oikade_device_last_seen_timestamp_seconds",
 		"When the driver last heard from the device.", deviceLabels, nil)
 	undeclaredDesc = prometheus.NewDesc("oikade_undeclared_devices",
-		"Devices paired with a driver instance that have no Device object.", []string{"namespace", "instance"}, nil)
+		"Devices paired with a driver instance that have no Device object.", []string{namespaceLabel, "instance"}, nil)
+	pluginUpDesc = prometheus.NewDesc("oikade_plugin_up",
+		"1 while the plugin's retained status is online with a supported contract.", pluginLabels, nil)
+	pluginRejectedDesc = prometheus.NewDesc("oikade_plugin_rejected_messages_total",
+		"Plugin messages dropped by the decoder, by reason.", rejectedLabels, nil)
 )
 
-// Collector reads the store at scrape time, so series for deleted or renamed devices disappear.
+// PluginStatser reports the decoder's view of every running Plugin.
+type PluginStatser interface {
+	PluginStats() map[types.NamespacedName]plugin.Stats
+}
+
+// Collector reads the store and plugins at scrape time, so series for deleted or renamed devices
+// and plugins disappear.
 type Collector struct {
 	Store *hub.Store
+	// Plugins is optional.
+	Plugins PluginStatser
 }
 
 var _ prometheus.Collector = Collector{}
 
 // Describe implements prometheus.Collector.
 func (Collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{valueDesc, changesDesc, availableDesc, lastSeenDesc, undeclaredDesc} {
+	for _, d := range []*prometheus.Desc{
+		valueDesc, changesDesc, availableDesc, lastSeenDesc, undeclaredDesc, pluginUpDesc, pluginRejectedDesc,
+	} {
 		ch <- d
 	}
 }
@@ -74,5 +94,15 @@ func (c Collector) Collect(ch chan<- prometheus.Metric) {
 	}
 	for key, n := range c.Store.UndeclaredCounts() {
 		ch <- prometheus.MustNewConstMetric(undeclaredDesc, prometheus.GaugeValue, float64(n), key.Namespace, key.Label())
+	}
+	if c.Plugins == nil {
+		return
+	}
+	for key, s := range c.Plugins.PluginStats() {
+		ch <- prometheus.MustNewConstMetric(pluginUpDesc, prometheus.GaugeValue, capability.Float(s.Up), key.Namespace, key.Name)
+		for reason, n := range s.Rejected {
+			ch <- prometheus.MustNewConstMetric(pluginRejectedDesc, prometheus.CounterValue, float64(n),
+				key.Namespace, key.Name, reason)
+		}
 	}
 }

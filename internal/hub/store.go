@@ -81,7 +81,8 @@ func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
 }
 
 // SetDevices replaces the devices that belong to a driver instance. State is kept for devices
-// that remain; devices no longer declared are dropped.
+// that remain on the same instance; devices no longer declared are dropped, and a device that
+// moved from another instance starts afresh.
 func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.NamespacedName]Meta) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -92,15 +93,20 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.Namesp
 	}
 	for key, m := range devices {
 		e, ok := s.devices[key]
-		if !ok {
+		if !ok || e.Instance != m.Instance {
 			e = &entry{Snapshot{Values: map[string]any{}, Changes: map[string]uint64{}}}
 			s.devices[key] = e
 		}
 		e.Meta = m
 	}
-	if len(devices) == 0 {
-		delete(s.undeclared, instance)
-	}
+}
+
+// Forget drops a driver instance that no longer exists: its devices and its undeclared count.
+func (s *Store) Forget(instance driver.InstanceKey) {
+	s.SetDevices(instance, nil)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.undeclared, instance)
 }
 
 // Get returns a copy of a device's state.

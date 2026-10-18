@@ -41,10 +41,12 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
+	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
 	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
 	"github.com/harry/oikade/internal/capability"
 	"github.com/harry/oikade/internal/mqtt"
@@ -55,37 +57,8 @@ import (
 const ns = "home"
 
 func TestRuntimeEndToEnd(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	ctrl.SetLogger(logr.FromSlogHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	ctx, c, url, reg := startRuntime(t)
 
-	env := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-		BinaryAssetsDirectory: envtestBinaries(t),
-	}
-	cfg, err := env.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = env.Stop() })
-
-	scheme := kruntime.NewScheme()
-	for _, add := range []func(*kruntime.Scheme) error{clientgoscheme.AddToScheme, homev1alpha1.AddToScheme, zigbeev1alpha1.AddToScheme} {
-		if err := add(scheme); err != nil {
-			t.Fatal(err)
-		}
-	}
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	url := mqtttest.StartBroker(t)
-	bus, err := mqtt.Connect(ctx, url, "runtime")
-	if err != nil {
-		t.Fatal(err)
-	}
 	fakeZ2M, err := mqtt.Connect(ctx, url, "fake-z2m")
 	if err != nil {
 		t.Fatal(err)
@@ -100,20 +73,7 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg := prometheus.NewRegistry()
-	if _, err := runtime.Setup(ctx, mgr, bus, runtime.Options{
-		Location: time.UTC, SeenInterval: time.Minute, TriggeredInterval: time.Second, Registry: reg,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	go func() { _ = mgr.Start(ctx) }()
-
 	// The declared home.
-	must(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
 	must(t, c.Create(ctx, &zigbeev1alpha1.Zigbee2MQTT{
 		ObjectMeta: metav1.ObjectMeta{Name: "z2m", Namespace: ns},
 		Spec:       zigbeev1alpha1.Zigbee2MQTTSpec{Serial: zigbeev1alpha1.SerialSpec{Port: "tcp://slzb:6638", Adapter: "zstack"}},
@@ -234,6 +194,187 @@ func TestRuntimeEndToEnd(t *testing.T) {
 	}
 }
 
+// A plugin's retained topics feed Device status, metrics and automations, and automations reach the
+// plugin through /set.
+func TestRuntimePluginDevices(t *testing.T) {
+	ctx, c, url, reg := startRuntime(t)
+
+	fakePlugin, err := mqtt.Connect(ctx, url, "fake-plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const root = "oikade/v1/" + ns + "/sonoff"
+	var mu sync.Mutex
+	var commands []string
+	if _, err := fakePlugin.Subscribe(ctx, root+"/+/set", func(m mqtt.Message) {
+		mu.Lock()
+		defer mu.Unlock()
+		commands = append(commands, m.Topic+" "+string(m.Payload))
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The plugin is already running: its retained topics are on the bus before the runtime knows of it.
+	for topic, payload := range map[string]string{
+		"status": `{"state":"online","contract":1}`,
+		"devices": `{"devices":[
+			{"id":"relay1","found":true,"manufacturer":"SONOFF","model":"MINIR4","capabilities":["light.on"]},
+			{"id":"button","found":true,"capabilities":["switch.on"]},
+			{"id":"pump","found":false,"error":"no LAN key for pump in /etc/oikade/secrets"}
+		],"undeclared":1}`,
+		"relay1/availability": "online",
+		"relay1/state":        `{"light.on":false}`,
+		"button/state":        `{"switch.on":false}`,
+	} {
+		must(t, fakePlugin.Publish(ctx, root+"/"+topic, []byte(payload), true))
+	}
+
+	device := func(name, id string) *homev1alpha1.Device {
+		return &homev1alpha1.Device{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Spec: homev1alpha1.DeviceSpec{
+				RoomRef: &corev1.LocalObjectReference{Name: "porch"},
+				Plugin: &homev1alpha1.PluginDeviceSource{
+					PluginRef: corev1.LocalObjectReference{Name: "sonoff"}, ID: id,
+				},
+			},
+		}
+	}
+	must(t, c.Create(ctx, device("porch-light", "relay1")))
+	must(t, c.Create(ctx, device("porch-button", "button")))
+	must(t, c.Create(ctx, device("pool-pump", "pump")))
+	// Devices come first, as they would from a synced cache: retained state for ids the hub doesn't
+	// know yet counts as undeclared.
+	must(t, c.Create(ctx, &pluginsv1alpha1.Plugin{
+		ObjectMeta: metav1.ObjectMeta{Name: "sonoff", Namespace: ns},
+		Spec:       pluginsv1alpha1.PluginSpec{Image: "example.com/oikade-plugin-sonoff:v0.1.0"},
+	}))
+	must(t, c.Create(ctx, &homev1alpha1.Automation{
+		ObjectMeta: metav1.ObjectMeta{Name: "button-light", Namespace: ns},
+		Spec: homev1alpha1.AutomationSpec{
+			Triggers:  []homev1alpha1.Trigger{{Device: "porch-button", Capability: capability.SwitchOn}},
+			Condition: "trigger.value",
+			Actions: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+				Device: "porch-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
+			}}},
+		},
+	}))
+
+	eventually(t, "light status", func() bool {
+		var d homev1alpha1.Device
+		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "porch-light"}, &d) != nil {
+			return false
+		}
+		return meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionResolved) &&
+			meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionAvailable) &&
+			d.Status.Manufacturer == "SONOFF" && d.Status.Model == "MINIR4" &&
+			len(d.Status.Capabilities) == 1 && d.Status.Capabilities[0].Name == capability.LightOn
+	})
+	eventually(t, "plugin error", func() bool {
+		var d homev1alpha1.Device
+		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "pool-pump"}, &d) != nil {
+			return false
+		}
+		cond := meta.FindStatusCondition(d.Status.Conditions, homev1alpha1.ConditionResolved)
+		return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "PluginError" &&
+			cond.Message == "no LAN key for pump in /etc/oikade/secrets"
+	})
+	eventually(t, "button discovered", func() bool {
+		var d homev1alpha1.Device
+		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "porch-button"}, &d) == nil &&
+			meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionResolved)
+	})
+
+	// Pressing the button turns the light on through the automation.
+	must(t, fakePlugin.Publish(ctx, root+"/button/state", []byte(`{"switch.on":true}`), true))
+	eventually(t, "light command", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Contains(commands, root+`/relay1/set {"light.on":true}`)
+	})
+
+	// An unknown capability is dropped and counted.
+	must(t, fakePlugin.Publish(ctx, root+"/relay1/state", []byte(`{"light.on":true,"made.up":1}`), true))
+	plugin := prometheus.Labels{"namespace": ns, "plugin": "sonoff"}
+	eventually(t, "plugin metrics", func() bool {
+		up, _ := metricValue(t, reg, "oikade_plugin_up", plugin)
+		rejected, _ := metricValue(t, reg, "oikade_plugin_rejected_messages_total",
+			prometheus.Labels{"namespace": ns, "plugin": "sonoff", "reason": "unknown_capability"})
+		undeclared, _ := metricValue(t, reg, "oikade_undeclared_devices",
+			prometheus.Labels{"namespace": ns, "instance": "plugin/sonoff"})
+		value, _ := metricValue(t, reg, "oikade_capability_value",
+			prometheus.Labels{"namespace": ns, "device": "porch-light", "capability": capability.LightOn})
+		return up == 1 && rejected >= 1 && undeclared == 1 && value == 1
+	})
+
+	// The plugin going away takes its devices offline.
+	must(t, fakePlugin.Publish(ctx, root+"/status", []byte(`{"state":"offline","contract":1}`), true))
+	eventually(t, "plugin down", func() bool {
+		up, ok := metricValue(t, reg, "oikade_plugin_up", plugin)
+		var d homev1alpha1.Device
+		return ok && up == 0 && c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "porch-light"}, &d) == nil &&
+			meta.IsStatusConditionFalse(d.Status.Conditions, homev1alpha1.ConditionAvailable)
+	})
+}
+
+// startRuntime starts envtest, a broker and the runtime, and creates the home namespace.
+func startRuntime(t *testing.T) (context.Context, client.Client, string, *prometheus.Registry) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctrl.SetLogger(logr.FromSlogHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	env := &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: envtestBinaries(t),
+	}
+	cfg, err := env.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = env.Stop() })
+
+	scheme := kruntime.NewScheme()
+	for _, add := range []func(*kruntime.Scheme) error{
+		clientgoscheme.AddToScheme, homev1alpha1.AddToScheme, zigbeev1alpha1.AddToScheme, pluginsv1alpha1.AddToScheme,
+	} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url := mqtttest.StartBroker(t)
+	bus, err := mqtt.Connect(ctx, url, "runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
+		// Each test starts its own manager with the same controller names.
+		Controller: config.Controller{SkipNameValidation: new(true)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := prometheus.NewRegistry()
+	if _, err := runtime.Setup(ctx, mgr, bus, runtime.Options{
+		Location: time.UTC, SeenInterval: time.Minute, TriggeredInterval: time.Second, Registry: reg,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = mgr.Start(ctx) }()
+	// Cleanups run last-in first-out: stop the runtime before the broker and the API server.
+	t.Cleanup(cancel)
+
+	must(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
+	return ctx, c, url, reg
+}
+
 // secondLamp is a copy of the fixture's IKEA lamp, so the hallway has two lights.
 const secondLamp = "0x000b57fffe000006"
 
@@ -286,6 +427,34 @@ func expectMetric(t *testing.T, reg *prometheus.Registry, name string, labels pr
 		}
 	}
 	t.Fatalf("%s{capability=%s} not found", name, capName)
+}
+
+// metricValue returns the value of the first series of name whose labels include labels.
+func metricValue(t *testing.T, reg *prometheus.Registry, name string, labels prometheus.Labels) (float64, bool) {
+	t.Helper()
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range families {
+		if f.GetName() != name {
+			continue
+		}
+	series:
+		for _, m := range f.GetMetric() {
+			got := map[string]string{}
+			for _, l := range m.GetLabel() {
+				got[l.GetName()] = l.GetValue()
+			}
+			for k, v := range labels {
+				if got[k] != v {
+					continue series
+				}
+			}
+			return m.GetGauge().GetValue() + m.GetCounter().GetValue(), true
+		}
+	}
+	return 0, false
 }
 
 func must(t *testing.T, err error) {

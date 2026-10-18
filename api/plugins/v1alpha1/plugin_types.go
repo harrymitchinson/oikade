@@ -101,6 +101,11 @@ type Plugin struct {
 	Status PluginStatus `json:"status,omitzero"`
 }
 
+// Topic is the plugin's oikade/v1 topic root.
+func (p *Plugin) Topic() string {
+	return "oikade/v1/" + p.Namespace + "/" + p.Name
+}
+
 // +kubebuilder:object:root=true
 
 // PluginList contains a list of Plugin

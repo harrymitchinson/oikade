@@ -70,6 +70,10 @@ make lint-fix   # Auto-fix code style
 make test       # Run unit tests
 ```
 
+## Before Opening a PR
+
+Run the `code-review` skill (`/code-review`) on the branch and fix or explain each finding before running `gh pr create`.
+
 ## CLI Commands Cheat Sheet
 
 ### Create API (your own types)
@@ -342,9 +346,3 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 
 </CRITICAL_INSTRUCTION>
 <!-- BACKLOG.MD GUIDELINES END -->
-
-<!-- groma:start -->
-## Groma
-
-This project uses Groma. Before you scan, inspect, or curate architecture, or change files for a Backlog task, run `groma agent-instructions` and read the guide it names for that job. When it reports a first scan, ask the user whether they want you to curate the architecture. Do not edit Groma-owned architecture files directly.
-<!-- groma:end -->

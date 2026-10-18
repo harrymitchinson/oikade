@@ -17,3 +17,6 @@ rules:
 - apiGroups: [zigbee.oikade.dev]
   resources: [zigbee2mqtts]
   verbs: [get, list, watch]
+- apiGroups: [plugins.oikade.dev]
+  resources: [plugins]
+  verbs: [get, list, watch]

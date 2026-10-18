@@ -232,8 +232,9 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 	switch {
 	case s.Contract != Contract:
 		i.rejectLocked(ReasonWrongContract, "", topic)
-		// Forget everything learned under a contract we may have misread.
-		i.announced, i.values, i.last = nil, nil, nil
+		// Forget everything learned under a contract we may have misread. An empty, non-nil
+		// announcement reports every device as not found.
+		i.announced, i.values, i.last = map[string]driver.Info{}, nil, nil
 		events = append(events, i.discoveryLocked())
 		events = append(events, i.allAvailabilityLocked(false))
 	case !up:
@@ -410,14 +411,17 @@ func (i *Instance) replayLocked() func() {
 }
 
 // discoveryLocked computes discovery events, followed by replays; call the returned func after unlocking.
+// Until the devices topic is seen there is nothing to report, so devices stay waiting.
 func (i *Instance) discoveryLocked() func() {
 	type found struct {
 		dev  types.NamespacedName
 		info driver.Info
 	}
-	events := make([]found, 0, len(i.declared))
-	for id, dev := range i.declared {
-		events = append(events, found{dev, i.announced[id]})
+	var events []found
+	if i.announced != nil {
+		for id, dev := range i.declared {
+			events = append(events, found{dev, i.announced[id]})
+		}
 	}
 	replay := i.replayLocked()
 	return func() {
