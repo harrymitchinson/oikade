@@ -85,10 +85,11 @@ func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
 // moved from another instance starts afresh.
 func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.NamespacedName]Meta) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var reassigned []types.NamespacedName
 	for key, e := range s.devices {
 		if _, keep := devices[key]; e.Instance == instance && !keep {
 			delete(s.devices, key)
+			reassigned = append(reassigned, key)
 		}
 	}
 	for key, m := range devices {
@@ -96,9 +97,25 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.Namesp
 		if !ok || e.Instance != m.Instance {
 			e = &entry{Snapshot{Values: map[string]any{}, Changes: map[string]uint64{}}}
 			s.devices[key] = e
+			reassigned = append(reassigned, key)
 		}
 		e.Meta = m
 	}
+	s.mu.Unlock()
+	for _, l := range s.Listeners {
+		if r, ok := l.(Reassigner); ok {
+			for _, key := range reassigned {
+				r.Reassigned(key)
+			}
+		}
+	}
+}
+
+// Reassigner is an optional Listener interface. It hears when a device joins, leaves or moves
+// between driver instances, which changes its status without any driver event: a plugin that
+// hasn't reported yet, for example, sends nothing when the hub claims its device.
+type Reassigner interface {
+	Reassigned(dev types.NamespacedName)
 }
 
 // Forget drops a driver instance that no longer exists: its devices and its undeclared count.

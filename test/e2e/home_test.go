@@ -20,6 +20,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -120,6 +121,37 @@ spec:
   - set: {room: hallway, capability: light.on, value: false}
 `
 
+// pluginRoot is the plugin's oikade/v1 topic root.
+const pluginRoot = "oikade/v1/" + homeNamespace + "/example-switch"
+
+// pluginManifests declares a Plugin and a Device it serves. The pause image keeps the plugin pod
+// running without speaking MQTT, so the test can play the plugin with mosquitto_pub.
+const pluginManifests = `
+apiVersion: plugins.oikade.dev/v1alpha1
+kind: Plugin
+metadata: {name: example-switch}
+spec:
+  image: registry.k8s.io/pause:3.10
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: porch-light}
+spec:
+  roomRef: {name: porch}
+  plugin:
+    pluginRef: {name: example-switch}
+    id: porch-relay
+    parameters: {capability: light.on}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Automation
+metadata: {name: porch-light-off}
+spec:
+  triggers: [{device: front-door, capability: sensor.contact-open}]
+  actions:
+  - set: {device: porch-light, capability: light.on, value: false}
+`
+
 func kubectl(args ...string) (string, error) {
 	return utils.Run(exec.Command("kubectl", append([]string{"-n", homeNamespace}, args...)...))
 }
@@ -169,6 +201,16 @@ func bridgeDevices(withSecondLamp bool) string {
 	return string(out)
 }
 
+// secretKey returns one key of a Secret in the home namespace, decoded.
+func secretKey(name, key string) (string, error) {
+	out, err := kubectl("get", "secret", name, "-o", "jsonpath={.data."+strings.ReplaceAll(key, ".", `\.`)+"}")
+	if err != nil {
+		return "", err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(out)
+	return string(decoded), err
+}
+
 func jsonpath(kind, name, path string) func() (string, error) {
 	return func() (string, error) { return kubectl("get", kind, name, "-o", "jsonpath="+path) }
 }
@@ -191,6 +233,10 @@ func homeScenario() {
 		})
 
 		AfterAll(func() {
+			// The broker outlives the namespace; don't leave a fake plugin retained on it.
+			for _, sub := range []string{"status", "devices", "porch-relay/availability", "porch-relay/state"} {
+				_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t", pluginRoot+"/"+sub)
+			}
 			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", homeNamespace, "--wait=false"))
 		})
 
@@ -201,7 +247,7 @@ func homeScenario() {
 			for _, args := range [][]string{
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
 				{"-n", homeNamespace, "logs", "deploy/main-hap"},
-				{"-n", homeNamespace, "get", "devices,automations,bridges,zigbee2mqtts,pods", "-o", "wide"},
+				{"-n", homeNamespace, "get", "devices,automations,bridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
 			} {
 				out, _ := utils.Run(exec.Command("kubectl", args...))
 				_, _ = fmt.Fprintf(GinkgoWriter, "kubectl %s:\n%s\n", strings.Join(args, " "), out)
@@ -210,9 +256,7 @@ func homeScenario() {
 
 		It("renders Zigbee2MQTT config with friendly names from Git", func() {
 			Eventually(func(g Gomega) {
-				out, err := kubectl("get", "secret", "z2m-config", "-o", `jsonpath={.data.configuration\.yaml}`)
-				g.Expect(err).NotTo(HaveOccurred())
-				decoded, err := utils.Run(exec.Command("sh", "-c", "echo "+out+" | base64 -d"))
+				decoded, err := secretKey("z2m-config", "configuration.yaml")
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(decoded).To(ContainSubstring("friendly_name: hallway-light"))
 				g.Expect(decoded).To(ContainSubstring("server: mqtt://oikade-mosquitto.oikade-system.svc:1883"))
@@ -274,7 +318,7 @@ func homeScenario() {
 			}).Should(Succeed())
 		})
 
-		// This runs last: it declares more devices, which changes the bridge and undeclared counts.
+		// The rest run last: they declare more devices, which changes the bridge and undeclared counts.
 		It("turns off every light in a Room with one action", func() {
 			By("naming a Room that doesn't exist yet")
 			apply(roomManifests)
@@ -308,6 +352,77 @@ func homeScenario() {
 			Expect(sub.Wait()).To(Succeed())
 			Expect(out.String()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"OFF"}`))
 			Expect(out.String()).To(ContainSubstring("z2m/" + secondLamp + `/set {"state":"OFF"}`))
+		})
+
+		// This needs the porch Room from the test above.
+		It("serves a plugin Device fed over MQTT", func() {
+			By("declaring a Plugin and a Device it serves")
+			apply(pluginManifests)
+			Eventually(func(g Gomega) {
+				raw, err := secretKey("example-switch-plugin-config", "devices.json")
+				g.Expect(err).NotTo(HaveOccurred())
+				var cfg struct {
+					Contract int `json:"contract"`
+					Devices  []struct {
+						ID         string            `json:"id"`
+						Name       string            `json:"name"`
+						Room       string            `json:"room"`
+						Parameters map[string]string `json:"parameters"`
+					} `json:"devices"`
+				}
+				g.Expect(json.Unmarshal([]byte(raw), &cfg)).To(Succeed())
+				g.Expect(cfg.Contract).To(Equal(1))
+				g.Expect(cfg.Devices).To(HaveLen(1))
+				g.Expect(cfg.Devices[0].ID).To(Equal("porch-relay"))
+				g.Expect(cfg.Devices[0].Name).To(Equal("porch-light"))
+				g.Expect(cfg.Devices[0].Room).To(Equal("porch"))
+				g.Expect(cfg.Devices[0].Parameters).To(Equal(map[string]string{"capability": "light.on"}))
+			}).Should(Succeed())
+			Eventually(jsonpath("plugin", "example-switch", `{.status.conditions[?(@.type=="Ready")].status}`), 3*time.Minute).
+				Should(Equal("True"))
+			Expect(jsonpath("plugin", "example-switch", "{.status.devices}")()).To(Equal("1"))
+
+			By("playing the plugin on the bus")
+			publish(pluginRoot+"/status", `{"state":"online","contract":1}`, true)
+			publish(pluginRoot+"/devices", `{"devices":[{"id":"porch-relay","found":true,`+
+				`"manufacturer":"Oikade","model":"Simulated switch","capabilities":["light.on"]}],"undeclared":0}`, true)
+			publish(pluginRoot+"/porch-relay/availability", "online", true)
+			publish(pluginRoot+"/porch-relay/state", `{"light.on":true}`, true)
+
+			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].status}`)).
+				Should(Equal("True"))
+			Eventually(jsonpath("device", "porch-light", `{.status.capabilities[*].name}`)).Should(Equal("light.on"))
+			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Available")].status}`)).
+				Should(Equal("True"))
+			Eventually(func(g Gomega) {
+				out, err := mqttExec("wget", "-qO-", runtimeURL)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(ContainSubstring(`oikade_capability_value{capability="light.on",` +
+					`device="porch-light",namespace="e2e-home",room="porch"} 1`))
+				g.Expect(out).To(ContainSubstring(`oikade_plugin_up{namespace="e2e-home",plugin="example-switch"} 1`))
+			}).Should(Succeed())
+
+			By("switching the plugin Device from an Automation")
+			Eventually(jsonpath("automation", "porch-light-off", `{.status.conditions[?(@.type=="Ready")].status}`)).
+				Should(Equal("True"))
+			var out bytes.Buffer
+			sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
+				"mosquitto_sub", "-h", mqttHost, "-t", pluginRoot+"/porch-relay/set", "-v", "-C", "1", "-W", "90")
+			sub.Stdout = &out
+			Expect(sub.Start()).To(Succeed())
+			time.Sleep(3 * time.Second) // let the subscription land before publishing
+			// The test above left the door open; closing it is a change.
+			publish("z2m/front-door", `{"contact":true}`, false)
+			Expect(sub.Wait()).To(Succeed())
+			Expect(out.String()).To(ContainSubstring(pluginRoot + `/porch-relay/set {"light.on":false}`))
+
+			By("reporting a device error")
+			publish(pluginRoot+"/devices", `{"devices":[{"id":"porch-relay","found":false,`+
+				`"error":"no LAN key for porch-relay"}],"undeclared":0}`, true)
+			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].reason}`)).
+				Should(Equal("PluginError"))
+			Expect(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].message}`)()).
+				To(Equal("no LAN key for porch-relay"))
 		})
 	})
 }
