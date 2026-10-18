@@ -120,6 +120,29 @@ spec:
   - set: {room: hallway, capability: light.on, value: false}
 `
 
+// pluginRoot is the plugin's oikade/v1 topic root.
+const pluginRoot = "oikade/v1/" + homeNamespace + "/example-switch"
+
+// pluginManifests declares a Plugin and a Device it serves. The pause image keeps the plugin pod
+// running without speaking MQTT, so the test can play the plugin with mosquitto_pub.
+const pluginManifests = `
+apiVersion: plugins.oikade.dev/v1alpha1
+kind: Plugin
+metadata: {name: example-switch}
+spec:
+  image: registry.k8s.io/pause:3.10
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: porch-light}
+spec:
+  roomRef: {name: porch}
+  plugin:
+    pluginRef: {name: example-switch}
+    id: porch-relay
+    parameters: {capability: light.on}
+`
+
 func kubectl(args ...string) (string, error) {
 	return utils.Run(exec.Command("kubectl", append([]string{"-n", homeNamespace}, args...)...))
 }
@@ -201,7 +224,7 @@ func homeScenario() {
 			for _, args := range [][]string{
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
 				{"-n", homeNamespace, "logs", "deploy/main-hap"},
-				{"-n", homeNamespace, "get", "devices,automations,bridges,zigbee2mqtts,pods", "-o", "wide"},
+				{"-n", homeNamespace, "get", "devices,automations,bridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
 			} {
 				out, _ := utils.Run(exec.Command("kubectl", args...))
 				_, _ = fmt.Fprintf(GinkgoWriter, "kubectl %s:\n%s\n", strings.Join(args, " "), out)
@@ -274,7 +297,7 @@ func homeScenario() {
 			}).Should(Succeed())
 		})
 
-		// This runs last: it declares more devices, which changes the bridge and undeclared counts.
+		// The rest run last: they declare more devices, which changes the bridge and undeclared counts.
 		It("turns off every light in a Room with one action", func() {
 			By("naming a Room that doesn't exist yet")
 			apply(roomManifests)
@@ -308,6 +331,51 @@ func homeScenario() {
 			Expect(sub.Wait()).To(Succeed())
 			Expect(out.String()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"OFF"}`))
 			Expect(out.String()).To(ContainSubstring("z2m/" + secondLamp + `/set {"state":"OFF"}`))
+		})
+
+		// This needs the porch Room from the test above.
+		It("serves a plugin Device fed over MQTT", func() {
+			By("declaring a Plugin and a Device it serves")
+			apply(pluginManifests)
+			Eventually(func(g Gomega) {
+				out, err := kubectl("get", "secret", "example-switch-plugin-config", "-o", `jsonpath={.data.devices\.json}`)
+				g.Expect(err).NotTo(HaveOccurred())
+				decoded, err := utils.Run(exec.Command("sh", "-c", "echo "+out+" | base64 -d"))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(decoded).To(ContainSubstring(`"id":"porch-relay","name":"porch-light"`))
+				g.Expect(decoded).To(ContainSubstring(`"parameters":{"capability":"light.on"}`))
+			}).Should(Succeed())
+			Eventually(jsonpath("plugin", "example-switch", `{.status.conditions[?(@.type=="Ready")].status}`), 3*time.Minute).
+				Should(Equal("True"))
+			Expect(jsonpath("plugin", "example-switch", "{.status.devices}")()).To(Equal("1"))
+
+			By("playing the plugin on the bus")
+			publish(pluginRoot+"/status", `{"state":"online","contract":1}`, true)
+			publish(pluginRoot+"/devices", `{"devices":[{"id":"porch-relay","found":true,`+
+				`"manufacturer":"Oikade","model":"Simulated switch","capabilities":["light.on"]}],"undeclared":0}`, true)
+			publish(pluginRoot+"/porch-relay/availability", "online", true)
+			publish(pluginRoot+"/porch-relay/state", `{"light.on":true}`, true)
+
+			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].status}`)).
+				Should(Equal("True"))
+			Eventually(jsonpath("device", "porch-light", `{.status.capabilities[*].name}`)).Should(Equal("light.on"))
+			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Available")].status}`)).
+				Should(Equal("True"))
+			Eventually(func(g Gomega) {
+				out, err := mqttExec("wget", "-qO-", runtimeURL)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(ContainSubstring(`oikade_capability_value{capability="light.on",` +
+					`device="porch-light",namespace="e2e-home",room="porch"} 1`))
+				g.Expect(out).To(ContainSubstring(`oikade_plugin_up{namespace="e2e-home",plugin="example-switch"} 1`))
+			}).Should(Succeed())
+
+			By("reporting a device error")
+			publish(pluginRoot+"/devices", `{"devices":[{"id":"porch-relay","found":false,`+
+				`"error":"no LAN key for porch-relay"}],"undeclared":0}`, true)
+			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].reason}`)).
+				Should(Equal("PluginError"))
+			Expect(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].message}`)()).
+				To(Equal("no LAN key for porch-relay"))
 		})
 	})
 }
