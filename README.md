@@ -150,6 +150,13 @@ kubectl delete secret,pvc -l zigbee.oikade.dev/instance=<name>
 - Mosquitto allows anonymous access inside the cluster. Anything that can reach it can control your devices. Restrict it with a NetworkPolicy, or bring your own broker and set `--mqtt-url` on the operator, runtime and Bridge pods.
 - HAP pods use the host network, run as non-root and only have read access to the API. Each one can read only its own setup code and identity Secret.
 
+## Logging
+
+The operator, `runtime` and `hap` commands write structured JSON logs to stderr using
+Go's `log/slog`, including controller-runtime logs. Use `--log-level=debug|info|warn|error`
+to set the minimum level (default: `info`). Errors are always logged.
+The former `--zap-*` flags are no longer supported.
+
 ## Development
 
 ```sh

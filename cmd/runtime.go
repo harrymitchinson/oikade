@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 	_ "time/tzdata" // distroless images may lack zone data; automations need it
@@ -26,7 +27,6 @@ import (
 	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -45,10 +45,10 @@ func runRuntime(args []string) int {
 	seen := fs.Duration("seen-interval", 5*time.Minute, "Minimum interval between Device lastSeen updates.")
 	triggered := fs.Duration("triggered-interval", time.Minute,
 		"Minimum interval between Automation lastTriggered updates.")
-	opts := zap.Options{}
-	opts.BindFlags(fs)
+	var logLevel slog.Level
+	fs.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
 	_ = fs.Parse(args)
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	configureLogging(logLevel)
 	log := ctrl.Log.WithName("runtime")
 
 	loc, err := time.LoadLocation(*tz)

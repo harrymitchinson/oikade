@@ -19,13 +19,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/harry/oikade/internal/hap"
@@ -40,10 +40,10 @@ func runHAP(args []string) int {
 	bridge := fs.String("bridge", "", "Name of the Bridge to serve.")
 	mqttURL := fs.String("mqtt-url", "mqtt://oikade-mosquitto.oikade-system.svc:1883", "MQTT broker.")
 	dataDir := fs.String("data-dir", "/data", "Directory for pairings and keys. Losing it means re-pairing.")
-	opts := zap.Options{}
-	opts.BindFlags(fs)
+	var logLevel slog.Level
+	fs.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
 	_ = fs.Parse(args)
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	configureLogging(logLevel)
 	log := ctrl.Log.WithName("hap")
 
 	ns := os.Getenv("POD_NAMESPACE")
