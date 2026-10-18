@@ -4,6 +4,20 @@ on:
   push:
     branches: [main]
   pull_request:
+    # Kind e2e takes ~8 minutes; skip it for PRs that cannot change cluster behaviour
+    paths:
+      - "api/**"
+      - "cmd/**"
+      - "internal/**"
+      - "config/**"
+      - "test/**"
+      - "hack/**"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - "Dockerfile"
+      - ".github/workflows/test-e2e.yml"
+  workflow_dispatch:
 
 permissions: {}
 
