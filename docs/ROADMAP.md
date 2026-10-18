@@ -4,7 +4,7 @@ _Updated 2026-10-18._ How to change this: edit it in a PR. Specs live in [docs/s
 
 ## Direction
 
-Oikade runs the whole house from Git: every device declared, HomeKit through its own bridge, and history in Prometheus. Next it brings the non-Zigbee devices (the SONOFF relays and the pool pump) in through plugins, so that Homebridge can be retired. It is not a general-purpose hub: it has no Home Assistant, no UI for configuration, and no cloud.
+Oikade runs the whole house from Git: every device declared, HomeKit through its own bridge, and history in Prometheus. Next it brings the non-Zigbee devices (the SONOFF relays and the pool pump) in through plugins, and adds schedules that can run the pool, so that Homebridge can be retired. It is not a general-purpose hub: it has no Home Assistant, no UI for configuration, and no cloud.
 
 ## Now: Pi bring-up
 
@@ -47,9 +47,28 @@ Room-targeted automations are here, not in Next, because they're small and impro
 
 This comes after bring-up because the plugin contract and its Pi constraints (`hostNetwork`, multicast, Node memory) are cheaper to get right once Oikade is actually running there.
 
+## After that: Pool on Oikade
+
+**Goal:** the pool pump runs on an Oikade Schedule, and Homebridge is retired.
+
+**Done when:**
+
+- Each morning, `kubectl get schedule pool-filtration` shows a target matching the water-temperature band, with blocks in off-peak and swimming hours. Credited minutes reach the target by the end of the day, and Grafana shows both.
+- Temporarily raising the frost rule's threshold turns the pump on within a minute.
+- Toggling the pump in the Home app holds it for 2 hours, and the `Pool automatic` switch pauses the schedule.
+- Homebridge is uninstalled.
+
+| Item | Spec | Size | Depends on | Status |
+|---|---|---|---|---|
+| Schedule planner, API, validation, runner, live rules and overrides (steps 1–5) | [0003](specs/0003-schedules.md) | L | — | Accepted |
+| `Pool automatic` switch in HomeKit (step 6) | [0003](specs/0003-schedules.md) | S | 0002 steps 1–4 | Accepted |
+| Schedule docs, e2e and dashboard (step 7) | [0003](specs/0003-schedules.md) | S | Step 6 | Accepted |
+| TH Elite plugin: relay and water temperature as capabilities | needs a short addition to [0002](specs/0002-plugin-drivers.md) | M | Plugin drivers | Not started |
+
+This comes after plugin drivers, because the pool needs the TH Elite plugin for its relay and probe, and the HomeKit switch reuses the plugin contract. Steps 1–5 of spec 0003 don't depend on anything, though, and the planner is the riskiest piece. So they're a good choice for spare evenings during Now or Next, and can be moved earlier if plugin work stalls.
+
 ## Later
 
-- **TH Elite pool plugin, and where the scheduler lives.** It needs plugin drivers first. Where the daily-planning logic belongs (inside the plugin, in the engine, or somewhere new) needs design-feature.
 - **Cozytouch heater plugin.** It's the second plugin, and proves the contract with a cloud-backed family. It comes after the pool, which matters more in summer.
 - **MQTT authentication and TLS.** The broker is cluster-internal today. Do it before anything outside the cluster connects, and give each plugin a credential scoped to its own topics.
 - **Multi-endpoint Zigbee devices and colour or colour-temperature lights.** This is add-capability work, best done when such a device is actually in the house.
