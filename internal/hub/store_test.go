@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/harry/oikade/internal/capability"
 	"github.com/harry/oikade/internal/driver"
 )
 
@@ -70,8 +71,15 @@ func TestInstanceKeySeparatesDrivers(t *testing.T) {
 		t.Errorf("UndeclaredCounts() = %v, want %v=3 and %v=1", got, z2m, plug)
 	}
 
-	// Dropping the Zigbee2MQTT instance's devices leaves the Plugin's alone.
-	s.SetDevices(z2m, nil)
+	// An instance with no Devices declared still counts its paired devices.
+	s.SetDevices(plug, nil)
+	if got := s.UndeclaredCounts(); got[plug] != 1 {
+		t.Errorf("UndeclaredCounts() = %v, want %v=1 kept while no Devices are declared", got, plug)
+	}
+	s.SetDevices(plug, map[types.NamespacedName]Meta{relay: {Instance: plug}})
+
+	// Forgetting the Zigbee2MQTT instance leaves the Plugin's alone.
+	s.Forget(z2m)
 	if _, ok := s.Get(lamp); ok {
 		t.Errorf("lamp still declared after its instance dropped it")
 	}
@@ -87,5 +95,36 @@ func TestInstanceKeySeparatesDrivers(t *testing.T) {
 	}
 	if got, want := plug.Label(), "plugin/garden"; got != want {
 		t.Errorf("Plugin Label() = %q, want %q", got, want)
+	}
+}
+
+func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
+	s := NewStore(logr.Discard())
+	name := types.NamespacedName{Namespace: "home", Name: "porch"}
+	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: name}
+	plug := driver.InstanceKey{Driver: driver.Plugin, NamespacedName: name}
+	light := types.NamespacedName{Namespace: "home", Name: "porch-light"}
+
+	s.SetDevices(z2m, map[types.NamespacedName]Meta{light: {Instance: z2m}})
+	s.Discovered(light, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
+	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: true})
+	s.Availability(light, true)
+
+	// The Plugin reconciler can run before the Zigbee2MQTT one drops the device.
+	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug}})
+	s.SetDevices(z2m, nil)
+	snap, ok := s.Get(light)
+	if !ok || snap.Instance != plug {
+		t.Fatalf("Get = %+v, %v; want it on %v", snap.Instance, ok, plug)
+	}
+	if snap.Discovered || len(snap.Values) != 0 || len(snap.Changes) != 0 || snap.Online != nil {
+		t.Errorf("state from the old driver kept: %+v", snap)
+	}
+
+	// The same instance re-declaring keeps state.
+	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: false})
+	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug, Room: "porch"}})
+	if snap, _ := s.Get(light); len(snap.Values) != 1 || snap.Room != "porch" {
+		t.Errorf("state lost on re-declaration: %+v", snap)
 	}
 }

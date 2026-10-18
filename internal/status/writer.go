@@ -106,6 +106,9 @@ func compute(d *homev1alpha1.Device, snap hub.Snapshot, known bool, seenInterval
 	case !snap.Info.Found:
 		resolved.Status, resolved.Reason = metav1.ConditionFalse, "NotPaired"
 		resolved.Message = fmt.Sprintf("The device is not paired with %s", snap.Instance.Name)
+		if d.Spec.Plugin != nil {
+			resolved.Message = fmt.Sprintf("Plugin %s has not found the device", snap.Instance.Name)
+		}
 	default:
 		resolved.Status, resolved.Reason = metav1.ConditionTrue, "Paired"
 		resolved.Message = fmt.Sprintf("%d capabilities", len(snap.Info.Capabilities))

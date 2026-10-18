@@ -50,6 +50,14 @@ func TestComputeResolved(t *testing.T) {
 		{name: "no plugin driver", spec: plugin, status: metav1.ConditionFalse, reason: "NoDriver", message: "spec.plugin.pluginRef"},
 		{name: "waiting", spec: plugin, known: true, status: metav1.ConditionUnknown, reason: "Waiting"},
 		{
+			name: "zigbee not paired", spec: zigbee, known: true, snap: hub.Snapshot{Discovered: true},
+			status: metav1.ConditionFalse, reason: "NotPaired", message: "not paired with",
+		},
+		{
+			name: "plugin not found", spec: plugin, known: true, snap: hub.Snapshot{Discovered: true},
+			status: metav1.ConditionFalse, reason: "NotPaired", message: "has not found the device",
+		},
+		{
 			name: "plugin error", spec: plugin, known: true,
 			snap:   hub.Snapshot{Discovered: true, Info: driver.Info{Error: "no LAN key for relay"}},
 			status: metav1.ConditionFalse, reason: "PluginError", message: "no LAN key for relay",

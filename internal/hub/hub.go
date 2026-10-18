@@ -176,7 +176,7 @@ func (h *Hub) get(ctx context.Context, key driver.InstanceKey, obj client.Object
 			return false, err
 		}
 		h.stop(key)
-		h.Store.SetDevices(key, nil)
+		h.Store.Forget(key)
 		return false, nil
 	}
 	return true, nil
