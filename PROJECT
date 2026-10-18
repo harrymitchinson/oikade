@@ -53,4 +53,13 @@ resources:
   kind: Zigbee2MQTT
   path: github.com/harry/oikade/api/zigbee/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: oikade.dev
+  group: plugins
+  kind: Plugin
+  path: github.com/harry/oikade/api/plugins/v1alpha1
+  version: v1alpha1
 version: "3"

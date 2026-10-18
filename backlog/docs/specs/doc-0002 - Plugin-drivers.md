@@ -3,7 +3,7 @@ id: doc-0002
 title: Plugin drivers
 type: specification
 created_date: '2026-10-18 10:56'
-updated_date: '2026-10-18 10:56'
+updated_date: '2026-10-18 13:54'
 ---
 **Decision:** accepted · **Work:** TASK-0001
 
@@ -214,6 +214,7 @@ This goes in `api/home/v1alpha1/device_types.go`:
 // PluginDeviceSource identifies a device served by a Plugin.
 type PluginDeviceSource struct {
 	// pluginRef names the Plugin that serves the device.
+	// +kubebuilder:validation:XValidation:rule="self.name != ''",message="pluginRef.name is required"
 	// +required
 	PluginRef corev1.LocalObjectReference `json:"pluginRef"`
 
@@ -223,7 +224,10 @@ type PluginDeviceSource struct {
 	ID string `json:"id"`
 
 	// parameters are plugin-specific settings. Oikade passes them through unchanged, and the plugin validates them.
+	// Keys are up to 63 characters of letters, digits, '_', '.' and '-'; values are up to 1024 characters.
 	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[A-Za-z0-9_.-]{1,63}$'))",message="parameter keys must be 1-63 characters of letters, digits, '_', '.' or '-'"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, size(self[k]) <= 1024)",message="parameter values must be at most 1024 characters"
 	// +optional
 	Parameters map[string]string `json:"parameters,omitempty"`
 }
@@ -235,7 +239,7 @@ type PluginDeviceSource struct {
 // +kubebuilder:validation:XValidation:rule="[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size() == 1",message="exactly one driver source (zigbee2mqtt or plugin) is required"
 ```
 
-Every existing Device still satisfies this rule.
+Every existing Device still satisfies this rule. The `pluginRef.name` and parameter bounds were added in TASK-0001.03 review: an empty ref could never resolve, and unbounded values could push the rendered `<plugin>-config` Secret past 1 MiB.
 
 ### The `oikade/v1` contract
 

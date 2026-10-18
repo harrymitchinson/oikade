@@ -25,7 +25,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 
 | Kind | Group | Purpose |
 |------|-------|---------|
-| `Device` | `home.oikade.dev` | A device that should exist: name, room and driver source (Zigbee IEEE address). Status shows its capabilities and availability. |
+| `Device` | `home.oikade.dev` | A device that should exist: name, room and driver source (a Zigbee IEEE address, or a Plugin and a plugin-local id). Status shows its capabilities and availability. |
 | `Room` | `home.oikade.dev` | Labels metrics and groups devices. HomeKit can't receive rooms from a bridge, so you also assign them once in the Home app. |
 | `Automation` | `home.oikade.dev` | Triggers, a CEL condition and actions (`set`, `delay`). |
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |

@@ -76,6 +76,49 @@ spec:
                     - OccupancySensor
                     type: string
                 type: object
+              plugin:
+                description: plugin sources the device from a Plugin.
+                properties:
+                  id:
+                    description: id is the device's stable, plugin-local identifier,
+                      such as an eWeLink device ID. It appears in MQTT topics.
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$
+                    type: string
+                  parameters:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      parameters are plugin-specific settings. Oikade passes them through unchanged, and the plugin validates them.
+                      Keys are up to 63 characters of letters, digits, '_', '.' and '-'; values are up to 1024 characters.
+                    maxProperties: 32
+                    type: object
+                    x-kubernetes-validations:
+                    - message: parameter keys must be 1-63 characters of letters,
+                        digits, '_', '.' or '-'
+                      rule: self.all(k, k.matches('^[A-Za-z0-9_.-]{1,63}$'))
+                    - message: parameter values must be at most 1024 characters
+                      rule: self.all(k, size(self[k]) <= 1024)
+                  pluginRef:
+                    description: pluginRef names the Plugin that serves the device.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                    x-kubernetes-validations:
+                    - message: pluginRef.name is required
+                      rule: self.name != ''
+                required:
+                - id
+                - pluginRef
+                type: object
               roomRef:
                 description: roomRef names the Room the device is in.
                 properties:
@@ -120,8 +163,9 @@ spec:
                 type: object
             type: object
             x-kubernetes-validations:
-            - message: a driver source (zigbee2mqtt) is required
-              rule: has(self.zigbee2mqtt)
+            - message: exactly one driver source (zigbee2mqtt or plugin) is required
+              rule: '[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size()
+                == 1'
           status:
             description: status defines the observed state of Device
             properties:

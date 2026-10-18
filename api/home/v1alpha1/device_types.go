@@ -43,6 +43,27 @@ type ZigbeeDeviceSource struct {
 	IEEEAddress string `json:"ieeeAddress"`
 }
 
+// PluginDeviceSource identifies a device served by a Plugin.
+type PluginDeviceSource struct {
+	// pluginRef names the Plugin that serves the device.
+	// +kubebuilder:validation:XValidation:rule="self.name != ''",message="pluginRef.name is required"
+	// +required
+	PluginRef corev1.LocalObjectReference `json:"pluginRef"`
+
+	// id is the device's stable, plugin-local identifier, such as an eWeLink device ID. It appears in MQTT topics.
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`
+	// +required
+	ID string `json:"id"`
+
+	// parameters are plugin-specific settings. Oikade passes them through unchanged, and the plugin validates them.
+	// Keys are up to 63 characters of letters, digits, '_', '.' and '-'; values are up to 1024 characters.
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[A-Za-z0-9_.-]{1,63}$'))",message="parameter keys must be 1-63 characters of letters, digits, '_', '.' or '-'"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, size(self[k]) <= 1024)",message="parameter values must be at most 1024 characters"
+	// +optional
+	Parameters map[string]string `json:"parameters,omitempty"`
+}
+
 // HomeKitService overrides which HomeKit service a device is exposed as.
 // +kubebuilder:validation:Enum=Lightbulb;Switch;Outlet;MotionSensor;OccupancySensor
 type HomeKitService string
@@ -64,7 +85,7 @@ type DeviceHomeKit struct {
 }
 
 // DeviceSpec declares a device that should exist in the home. Exactly one driver source must be set.
-// +kubebuilder:validation:XValidation:rule="has(self.zigbee2mqtt)",message="a driver source (zigbee2mqtt) is required"
+// +kubebuilder:validation:XValidation:rule="[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size() == 1",message="exactly one driver source (zigbee2mqtt or plugin) is required"
 type DeviceSpec struct {
 	// displayName is the human-friendly name shown in HomeKit and Grafana. Defaults to the object name.
 	// +kubebuilder:validation:MaxLength=64
@@ -78,6 +99,10 @@ type DeviceSpec struct {
 	// zigbee2mqtt sources the device from a Zigbee2MQTT instance.
 	// +optional
 	Zigbee2MQTT *ZigbeeDeviceSource `json:"zigbee2mqtt,omitempty"`
+
+	// plugin sources the device from a Plugin.
+	// +optional
+	Plugin *PluginDeviceSource `json:"plugin,omitempty"`
 
 	// homekit tunes how the device appears in HomeKit.
 	// +optional
