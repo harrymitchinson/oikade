@@ -83,7 +83,13 @@ func TestBrokerWaitsDontBlockSet(t *testing.T) {
 			PluginRef: corev1.LocalObjectReference{Name: "fast"}, ID: "lamp",
 		}},
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(plugin("fast"), plugin("slow"), lamp).Build()
+	pump := &homev1alpha1.Device{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "home", Name: "pump"},
+		Spec: homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{
+			PluginRef: corev1.LocalObjectReference{Name: "slow"}, ID: "pump",
+		}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(plugin("fast"), plugin("slow"), lamp, pump).Build()
 
 	mem := mqtt.NewMemory()
 	fast, slow := plugin("fast").Topic(), plugin("slow").Topic()
@@ -139,6 +145,11 @@ func TestBrokerWaitsDontBlockSet(t *testing.T) {
 	created := reconcile("slow")
 	<-bus.entered
 	unblocked("subscribe", 2)
+	// slow's devices are declared before Set can reach it; slow just hasn't announced them yet.
+	if err := h.Set(ctx, client.ObjectKeyFromObject(pump), capability.SwitchOn, true); err == nil ||
+		!strings.Contains(err.Error(), "not found by plugin") {
+		t.Errorf("Set on a subscribing plugin's device = %v, want not found by plugin", err)
+	}
 	bus.release <- struct{}{}
 	if err := <-created; err != nil {
 		t.Fatal(err)
