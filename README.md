@@ -54,6 +54,8 @@ There is one binary with three subcommands:
 
 ## Quick start
 
+For a full walkthrough on real hardware, from blank Pis to a paired bridge, with GitOps, monitoring and backups, see [Deploying on a Raspberry Pi cluster](docs/deploy-raspberry-pi.md).
+
 ```sh
 make docker-build docker-push IMG=<registry>/oikade:dev
 make deploy IMG=<registry>/oikade:dev      # operator, runtime and Mosquitto in oikade-system
