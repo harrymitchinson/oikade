@@ -111,36 +111,156 @@ Agreed semantics:
 
 ## API
 
-TODO (write-spec)
+These changes go in `api/home/v1alpha1/automation_types.go`. `device` becomes optional on both structs, and a CEL rule requires exactly one of `device` or `room`:
+
+```go
+// Trigger fires the Automation when a capability of a device, or of any device in a room, changes value.
+// +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
+type Trigger struct {
+	// device names a Device in the same namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Device string `json:"device,omitempty"`
+
+	// room names a Room in the same namespace. The trigger matches a change from any Device whose
+	// roomRef is this room at the time of the change.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Room string `json:"room,omitempty"`
+
+	// capability is unchanged.
+	Capability string `json:"capability"`
+}
+
+// SetAction sets a capability on a device, or on every device in a room that has the capability.
+// +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
+type SetAction struct {
+	// device names a Device in the same namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Device string `json:"device,omitempty"`
+
+	// room names a Room in the same namespace. Every discovered Device in it that reports the capability is set,
+	// in name order.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Room string `json:"room,omitempty"`
+
+	// capability and value are unchanged.
+	Capability string               `json:"capability"`
+	Value      apiextensionsv1.JSON `json:"value"`
+}
+```
+
+There are no new printer columns. The `Ready` condition gains the reason `RoomNotFound`. `Invalid` still takes precedence, because a spec that doesn't compile is reported first. The YAML example is in the Decision section above.
 
 ## Behaviour
 
-TODO (write-spec)
+### Manager: `AutomationReconciler` (`internal/controller/home/automation_controller.go`)
+
+1. Run `engine.Compile` as today. On error, set `Ready=False Invalid`.
+2. Otherwise, collect the distinct `room` values from the triggers and set actions. List the Rooms in the namespace. If any are missing, set `Ready=False RoomNotFound`, with the message `Room(s) not found: kitchen, livingroom`, sorted.
+3. Otherwise, set `Ready=True Valid`.
+4. Add `Watches(&homev1alpha1.Room{}, …)`, mapping a Room to every Automation in its namespace. That way, creating or deleting a Room flips `Ready` without the Automation being edited. Automations are few, so mapping to all of them in the namespace is cheaper than indexing.
+
+### Runtime: the engine (`internal/engine`)
+
+1. **`Compile`** (`compile.go`): `action` gains `room string`. As a defence in depth, if neither `device` nor `room` is set, Compile returns `triggers[i]: one of device or room is required` (and the same for `actions[i]`). The API rejects this already. Compile doesn't check whether a room exists, just as it doesn't for devices.
+2. **A new store method** (`internal/hub/store.go`): `func (s *Store) Room(namespace, room string) []types.NamespacedName` returns the declared Devices whose `Meta.Room` matches, sorted by name. HAP doesn't use it.
+3. **Matching triggers** (`engine.go` `handle`): before the loop, look up the changed device's current room once with `e.Store.Get(u.Device)`. `matches(device, room, capability)` is true for a trigger whose `Device == device`, or whose `Room` is set and equals `room`, when the capability also matches. A device with no room never matches a room trigger. `trigger.device` in CEL is still the device that actually changed.
+4. **Running room actions** (`execute`): when `a.room` is set, resolve the members **at the moment the action runs**, not when the run started. A lamp added to the room during the `delay: 5m` is turned off with the others.
+   - Skip members where `!snap.Discovered`, or where `a.capability` isn't in `snap.Info.Capabilities`.
+   - Call `e.Setter.Set` on each remaining member in name order. Log each failure as `"Failed to run Automation action"`, with `device`, `room` and `capability`.
+   - If nothing matched, log `"Matched no Devices in Room"` at `V(1)` and carry on.
+5. **Results.** **A room action that fails on some devices doesn't stop the run.** The rest of the actions still run, and the run counts as `failed` at the end. This spells out the agreed rule, "a dead bulb shouldn't leave the rest of the room on". If the run stopped, `on, delay, off` would leave the working bulbs on forever. A failing **device** action still stops the run immediately, as it does today.
+
+### Restart mode with a room trigger
+
+Every matching change from any sensor in the room restarts the run. That's what the hallway example wants when people move between sensors. Whether one person *standing still* in front of a single sensor keeps the lights on depends on the parked open question below:
+
+- Drivers only report real changes (`driver.Update` carries `Previous`). So a re-reported `occupancy: true` doesn't restart the run, whether or not zigbee2mqtt sends it. Someone standing still therefore produces no new trigger. The lights stay on only while the run's `delay` is longer than the time before the sensor next flips `false` and then `true` again.
+- **The open question decides the guidance.**
+  - If the sensor's `true` lasts for as long as someone is in range, the safe pattern is a delay longer than the sensor's occupancy timeout.
+  - If it pulses `true`/`false` while someone is present, the delay only needs to cover the gap between pulses.
+- **Switching off "when the room is empty"** would need room aggregates in CEL (is any sensor in this room occupied?). That's a non-goal here. Until it exists, the delay-based pattern is the only room-scoped one. The README will state the recommended delay once the Pi check is done, and the sample keeps today's delay-based form with a comment.
+
+### Failure modes
+
+| Situation | What happens | What the user sees |
+|---|---|---|
+| A Room is missing | The manager sets `RoomNotFound`. The runtime loads the Automation anyway, and the room matches nothing. | `kubectl get automations` shows `Ready=False`, with the room names. |
+| The Room is created later | The Room watch re-reconciles. | `Ready=True`, with no edit needed. |
+| A Device moves rooms | Membership is read from `hub.Store` on each update and each action. | The next trigger or action uses the new room. |
+| A Device isn't discovered yet, or lacks the capability | It's skipped by room actions. | Nothing, apart from a `V(1)` log if no device matched. |
+| A Device is offline | `Set` publishes as it does for device actions today. The driver doesn't refuse. | Same as today's device actions. |
+| One bulb fails | The other bulbs are set and later actions run. | `oikade_automation_runs_total{result="failed"}`, and a log line naming the bulb. |
+| Two sensors in a room fire together | Two updates arrive. Restart mode restarts twice, which is harmless. Single mode counts the second as `busy`. | As today. |
+| The runtime restarts mid-run | The run is lost, as it is today. Room membership has no extra state. | As today. |
+| The broker is down | `Set` fails for each member, and the run counts as `failed`. | As today, multiplied by the number of members. |
+
+hap is unaffected.
 
 ## State and upgrade
 
-TODO (write-spec)
+- **Nothing new persists.** Membership comes from `Device.spec.roomRef`, held in memory by `hub.Store`.
+- **Upgrade:** additive. Existing Automations have `device` set and pass the new CEL rule. Making `device` `omitempty` doesn't change how existing objects serialise.
+- **Delete:** a deleted Automation is removed by the loader as it is today. A deleted Room makes Automations that reference it go to `RoomNotFound`, and its room actions match nothing.
+- **Restoring from Git:** everything is config. Nothing needs a backup.
 
 ## Observability
 
-TODO (write-spec)
+- **No new metrics.** `oikade_automation_runs_total{namespace,automation,result}` keeps its labels and result values, as the top half decided.
+- **Log messages:**
+  - `"Matched no Devices in Room", "automation", key, "room", r, "capability", c` at `V(1)`
+  - `"Failed to run Automation action"` gains a `room` key for room actions
+- **Condition:** `Ready` reason `RoomNotFound`.
+- **Grafana:** no change.
 
 ## Security
 
-TODO (write-spec)
+- **Manager RBAC:** add `// +kubebuilder:rbac:groups=home.oikade.dev,resources=rooms,verbs=get;list;watch` to `AutomationReconciler`. The manager has no access to Rooms today. Then run `make manifests`.
+- The runtime and hap need no changes. Nothing new is exposed on the network, and no Secrets are involved.
 
 ## Test plan
 
-TODO (write-spec)
+| Behaviour | Layer | Test |
+|---|---|---|
+| Compile accepts room triggers and actions, and rejects neither (defence in depth) | Unit | `internal/engine` `TestCompileRoom` |
+| A room trigger matches a member's change, but not a non-member's or a roomless device's | Unit | `TestRoomTriggerMatches`, with a `hub.Store` fixture |
+| A room action sets discovered members with the capability, in name order, and skips the rest | Unit | `TestRoomActionSetsMembers`, with a fake `Setter` |
+| An empty match succeeds and logs | Unit | `TestRoomActionEmptyMatch` |
+| A partial failure continues the run and counts `failed` | Unit | `TestRoomActionPartialFailure` |
+| Membership is resolved when the action runs (a device added during the delay is included) | Unit | `TestRoomMembershipAtExecution`, with a fake clock |
+| `Store.Room` returns sorted members for that namespace only | Unit | `internal/hub` `TestStoreRoom` |
+| Room action → `/set` on the bus for every lamp | Integration | `internal/runtime` with `mqtttest`: two z2m lamps in one room, one action, two `/set` publishes |
+| CEL: exactly one of device or room, on triggers and set | envtest | `internal/controller/home` creates valid and invalid Automations |
+| `RoomNotFound`, then `Ready=True` after creating the Room; `Invalid` takes precedence | envtest | `automation_controller_test.go` |
+| A deployed room automation fires | Kind e2e | `test/e2e/home_test.go`: two fake lamps in a Room, a room action, and both `zigbee2mqtt/<ieee>/set` publishes seen |
+
+Manual checks on the Pi (parked with the rest of Pi bring-up):
+
+1. **Goodnight.** A room action at a fixed time turns off every light in the living room. Pass: every lamp is off within 2 s, and the run counts as `succeeded`.
+2. **Two hallway sensors.** Walking past either sensor turns the hallway lights on. Pass: one `/set` per lamp within 1 s of the motion.
+3. **The open question.** Stand still in front of one sensor for longer than the delay. Watch `oikade_capability_changes_total{capability="sensor.occupancy-detected"}` and the lights. Record whether the lights go off while you're still there. That decides which pattern the README recommends.
 
 ## Docs
 
-TODO (write-spec)
+- **README "Automations":**
+  - document `room` on triggers and `set`
+  - add `RoomNotFound` to the paragraph on `Ready` reasons
+  - add a short note on Restart mode with room triggers
+  - add the switch-off-when-empty pattern once the Pi check is done
+- **`config/samples/home_v1alpha1_automation.yaml`**: add a `goodnight-living-room` Automation with a room action. Keep the hallway sample as it is until the Pi check.
+- **`docs/deploy-raspberry-pi.md`**: no change. It doesn't cover writing automations.
+- **"Not yet"** now points at the roadmap, so it doesn't need an edit.
 
 ## Implementation plan
 
-TODO (write-spec)
+1. **API and Compile.** Add `Room` and make `Device` optional on `Trigger` and `SetAction`, with the CEL rules, then run `make manifests generate`. Make `Compile` carry `room` into `action` and reject "neither" (`internal/engine/compile.go`). Add CEL envtest cases and `TestCompileRoom`. The runtime doesn't use rooms yet: a room trigger never matches, and a room action is a no-op.
+2. **Engine semantics.** This is the riskiest step, because it changes run results. Add `Store.Room` (`internal/hub/store.go`). Add room matching in `handle` and `matches`, and room resolution, skipping, partial-failure continuation and the empty-match log in `execute` (`internal/engine/engine.go`). Add the unit tests above and the `mqtttest` integration test.
+3. **Manager `RoomNotFound`.** Add the Room existence check, the Room watch and the RBAC marker in `automation_controller.go`, then run `make manifests`. Add envtest cases.
+4. **Docs, sample and e2e.** Update the README "Automations" section, add the `goodnight-living-room` sample, and add the Kind e2e case in `test/e2e/home_test.go`.
 
 ## Open questions
 
-1. **Does zigbee2mqtt re-report occupancy** while someone stays in front of one sensor? This decides whether Restart mode with a room trigger can switch the lights off too early. Answer: check on the Pi with a real sensor. Blocks: the Behaviour section's Restart-mode guidance, not the implementation.
+1. **Does zigbee2mqtt re-report occupancy** while someone stays in front of one sensor? **Parked** with Pi bring-up. The user answers it with the third manual check. It blocks only the README's recommended Restart-mode pattern. The implementation and the conditional guidance above don't depend on it.
