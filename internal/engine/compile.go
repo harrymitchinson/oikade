@@ -148,10 +148,14 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 	return c, nil
 }
 
-// matches reports whether a capability change triggers the Automation.
-func (c *Compiled) matches(device, name string) bool {
+// matches reports whether a capability change on a device, currently in room, triggers the
+// Automation. room is empty when the device has none.
+func (c *Compiled) matches(device, room, name string) bool {
 	for _, t := range c.Trigger {
-		if t.Device == device && t.Capability == name {
+		if t.Capability != name {
+			continue
+		}
+		if (t.Device != "" && t.Device == device) || (t.Room != "" && t.Room == room) {
 			return true
 		}
 	}

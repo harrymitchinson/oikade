@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -137,12 +139,17 @@ type fakeSetter struct {
 	mu    sync.Mutex
 	calls []call
 	err   error
+	// fail names devices whose Set fails.
+	fail map[string]bool
 }
 
 func (f *fakeSetter) Set(_ context.Context, dev types.NamespacedName, c string, v any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, call{dev.Name, c, v})
+	if f.fail[dev.Name] {
+		return errors.New("not responding")
+	}
 	return f.err
 }
 
@@ -328,4 +335,178 @@ func TestReloadingTheSameGenerationKeepsTheRun(t *testing.T) {
 	h.eventually("second delay to start", h.clock.HasWaiters)
 	h.e.Load(c)
 	h.eventually("cancelled by reload", func() bool { return h.runs(ResultCancelled) == 1 })
+}
+
+func roomSet(room, name, value string) homev1alpha1.Action {
+	return homev1alpha1.Action{Set: &homev1alpha1.SetAction{
+		Room: room, Capability: name, Value: apiextensionsv1.JSON{Raw: []byte(value)},
+	}}
+}
+
+// member is a declared Device: its room, and its capabilities once discovered (nil if not yet).
+type member struct {
+	room string
+	caps []string
+}
+
+var lampCaps = []string{capability.LightOn, capability.LightLevel, capability.LinkQuality}
+
+// declare replaces the store's devices with these.
+func declare(store *hub.Store, devices map[string]member) {
+	m := map[types.NamespacedName]hub.Meta{}
+	for name, d := range devices {
+		m[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Room: d.room}
+	}
+	store.SetDevices(types.NamespacedName{Namespace: ns, Name: "z2m"}, m)
+	for name, d := range devices {
+		if d.caps != nil {
+			store.Discovered(types.NamespacedName{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: d.caps})
+		}
+	}
+}
+
+// runRoom executes an Automation's actions once against these devices, and returns the result
+// and the log lines.
+func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, actions ...homev1alpha1.Action) (string, []string) {
+	t.Helper()
+	c, err := Compile(automation("goodnight", homev1alpha1.AutomationSpec{Triggers: motionTrigger, Actions: actions}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs []string
+	e := &Engine{
+		Store: hub.NewStore(logr.Discard()), Setter: setter, Log: funcr.New(func(_, args string) {
+			logs = append(logs, args)
+		}, funcr.Options{Verbosity: 1}),
+	}
+	e.Init()
+	declare(e.Store, devices)
+	return e.execute(context.Background(), c.Key, c), logs
+}
+
+func TestRoomTriggerMatches(t *testing.T) {
+	a := automation("motion-light", homev1alpha1.AutomationSpec{
+		Triggers:  []homev1alpha1.Trigger{{Room: "hallway", Capability: capability.Occupancy}},
+		Condition: `trigger.device in ["hallway-motion", "landing-motion"]`,
+		Actions:   []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
+	})
+	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
+	declare(h.e.Store, map[string]member{
+		"hallway-motion": {room: "hallway"},
+		"landing-motion": {room: "hallway"},
+		"kitchen-motion": {room: "kitchen"},
+		"loft-motion":    {},
+	})
+	change := func(device string) {
+		h.e.Changed(driver.Update{Device: types.NamespacedName{Namespace: ns, Name: device}, Capability: capability.Occupancy, Value: true})
+	}
+	on := call{"hallway-light", capability.LightOn, true}
+
+	// Changes from another room or from a device with no room don't match; changes are handled in
+	// order, so the first call proves they were skipped.
+	change("kitchen-motion")
+	change("loft-motion")
+	change("hallway-motion")
+	h.expectCalls(on)
+	h.eventually("first run", func() bool { return h.runs(ResultSucceeded) == 1 })
+
+	// trigger.device is the sensor that changed, so the condition holds for the second sensor too.
+	change("landing-motion")
+	h.expectCalls(on, on)
+	h.eventually("second run", func() bool { return h.runs(ResultSucceeded) == 2 })
+	if n := h.runs(ResultConditionFalse); n != 0 {
+		t.Fatalf("condition_false = %v, want 0", n)
+	}
+}
+
+func TestRoomActionSetsMembers(t *testing.T) {
+	setter := &fakeSetter{}
+	result, _ := runRoom(t, setter, map[string]member{
+		"lamp-b":       {room: "living-room", caps: lampCaps},
+		"lamp-a":       {room: "living-room", caps: lampCaps},
+		"motion":       {room: "living-room", caps: []string{capability.Occupancy}},
+		"lamp-new":     {room: "living-room"},
+		"kitchen-lamp": {room: "kitchen", caps: lampCaps},
+	}, roomSet("living-room", capability.LightOn, "false"))
+
+	if result != ResultSucceeded {
+		t.Fatalf("result = %s, want %s", result, ResultSucceeded)
+	}
+	want := []call{{"lamp-a", capability.LightOn, false}, {"lamp-b", capability.LightOn, false}}
+	if got := setter.got(); !slices.Equal(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+}
+
+func TestRoomActionEmptyMatch(t *testing.T) {
+	setter := &fakeSetter{}
+	result, logs := runRoom(t, setter, map[string]member{
+		"motion": {room: "garage", caps: []string{capability.Occupancy}},
+	}, roomSet("garage", capability.LightOn, "true"), set("hallway-light", capability.LightOn, "true"))
+
+	if result != ResultSucceeded {
+		t.Fatalf("result = %s, want %s", result, ResultSucceeded)
+	}
+	if got := setter.got(); !slices.Equal(got, []call{{"hallway-light", capability.LightOn, true}}) {
+		t.Fatalf("calls = %v, want only the device action", got)
+	}
+	if !slices.ContainsFunc(logs, func(l string) bool {
+		return strings.Contains(l, `"level"=1`) && strings.Contains(l, `"msg"="Matched no Devices in Room"`) && strings.Contains(l, `"room"="garage"`)
+	}) {
+		t.Fatalf("no V(1) empty-match log in %q", logs)
+	}
+}
+
+func TestRoomActionPartialFailure(t *testing.T) {
+	setter := &fakeSetter{fail: map[string]bool{"lamp-a": true}}
+	result, logs := runRoom(t, setter, map[string]member{
+		"lamp-a": {room: "living-room", caps: lampCaps},
+		"lamp-b": {room: "living-room", caps: lampCaps},
+	}, roomSet("living-room", capability.LightOn, "false"), set("hallway-light", capability.LightOn, "false"))
+
+	if result != ResultFailed {
+		t.Fatalf("result = %s, want %s", result, ResultFailed)
+	}
+	want := []call{{"lamp-a", capability.LightOn, false}, {"lamp-b", capability.LightOn, false}, {"hallway-light", capability.LightOn, false}}
+	if got := setter.got(); !slices.Equal(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+	if !slices.ContainsFunc(logs, func(l string) bool {
+		return strings.Contains(l, `"device"="lamp-a"`) && strings.Contains(l, `"room"="living-room"`)
+	}) {
+		t.Fatalf("no failure log naming lamp-a in %q", logs)
+	}
+}
+
+func TestRoomMembershipAtExecution(t *testing.T) {
+	a := automation("motion-light", homev1alpha1.AutomationSpec{
+		Triggers: motionTrigger,
+		Actions: []homev1alpha1.Action{
+			roomSet("hallway", capability.LightOn, "true"),
+			delay(5 * time.Minute),
+			roomSet("hallway", capability.LightOn, "false"),
+		},
+	})
+	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
+	devices := map[string]member{
+		"hallway-motion": {room: "hallway", caps: []string{capability.Occupancy}},
+		"hallway-light":  {room: "hallway", caps: lampCaps},
+	}
+	declare(h.e.Store, devices)
+
+	h.motion(true)
+	h.expectCalls(call{"hallway-light", capability.LightOn, true})
+	h.eventually("delay to start", h.clock.HasWaiters)
+
+	// A lamp joins the hallway during the delay.
+	devices["hallway-lamp"] = member{room: "hallway", caps: lampCaps}
+	declare(h.e.Store, devices)
+	h.clock.Step(5 * time.Minute)
+
+	h.expectCalls(
+		call{"hallway-light", capability.LightOn, true},
+		call{"hallway-lamp", capability.LightOn, false},
+		call{"hallway-light", capability.LightOn, false},
+	)
+	h.eventually("succeeded", func() bool { return h.runs(ResultSucceeded) == 1 })
 }

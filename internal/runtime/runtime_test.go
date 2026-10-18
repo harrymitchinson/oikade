@@ -18,10 +18,12 @@ package runtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -115,20 +117,23 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "z2m", Namespace: ns},
 		Spec:       zigbeev1alpha1.Zigbee2MQTTSpec{Serial: zigbeev1alpha1.SerialSpec{Port: "tcp://slzb:6638", Adapter: "zstack"}},
 	}))
-	device := func(name, ieee string) *homev1alpha1.Device {
+	device := func(name, ieee, room string) *homev1alpha1.Device {
 		return &homev1alpha1.Device{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 			Spec: homev1alpha1.DeviceSpec{
-				RoomRef: &corev1.LocalObjectReference{Name: "hallway"},
+				RoomRef: &corev1.LocalObjectReference{Name: room},
 				Zigbee2MQTT: &homev1alpha1.ZigbeeDeviceSource{
 					InstanceRef: corev1.LocalObjectReference{Name: "z2m"}, IEEEAddress: ieee,
 				},
 			},
 		}
 	}
-	must(t, c.Create(ctx, device("hallway-light", "0x000b57fffe000001")))
-	must(t, c.Create(ctx, device("hallway-motion", "0x00158d0000000002")))
-	must(t, c.Create(ctx, device("not-paired", "0x00158d00000000ff")))
+	must(t, c.Create(ctx, device("hallway-light", "0x000b57fffe000001", "hallway")))
+	must(t, c.Create(ctx, device("hallway-lamp", secondLamp, "hallway")))
+	must(t, c.Create(ctx, device("hallway-motion", "0x00158d0000000002", "hallway")))
+	must(t, c.Create(ctx, device("desk-plug", "0x00124b0000000004", "hallway")))
+	must(t, c.Create(ctx, device("front-door", "0x00158d0000000003", "porch")))
+	must(t, c.Create(ctx, device("not-paired", "0x00158d00000000ff", "hallway")))
 	must(t, c.Create(ctx, &homev1alpha1.Automation{
 		ObjectMeta: metav1.ObjectMeta{Name: "motion-light", Namespace: ns},
 		Spec: homev1alpha1.AutomationSpec{
@@ -140,12 +145,19 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		},
 	}))
 
+	// Opening the front door turns off every light in the hallway.
+	must(t, c.Create(ctx, &homev1alpha1.Automation{
+		ObjectMeta: metav1.ObjectMeta{Name: "hallway-off", Namespace: ns},
+		Spec: homev1alpha1.AutomationSpec{
+			Triggers: []homev1alpha1.Trigger{{Room: "porch", Capability: capability.ContactOpen}},
+			Actions: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+				Room: "hallway", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("false")},
+			}}},
+		},
+	}))
+
 	// Zigbee2MQTT announces its paired devices.
-	devices, err := os.ReadFile(filepath.Join("..", "driver", "zigbee2mqtt", "testdata", "bridge-devices.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	must(t, fakeZ2M.Publish(ctx, "z2m/bridge/devices", devices, true))
+	must(t, fakeZ2M.Publish(ctx, "z2m/bridge/devices", bridgeDevicesWithSecondLamp(t), true))
 	must(t, fakeZ2M.Publish(ctx, "z2m/hallway-motion/availability", []byte(`{"state":"online"}`), true))
 
 	eventually(t, "light status", func() bool {
@@ -196,6 +208,57 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		var a homev1alpha1.Automation
 		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "motion-light"}, &a) == nil && !a.Status.LastTriggered.IsZero()
 	})
+
+	// One room action sends /set to both hallway lamps, and skips the plug and the motion sensor,
+	// which don't have light.on.
+	for _, name := range []string{"hallway-lamp", "desk-plug"} {
+		eventually(t, name+" discovered", func() bool {
+			var d homev1alpha1.Device
+			return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &d) == nil && len(d.Status.Capabilities) > 0
+		})
+	}
+	must(t, fakeZ2M.Publish(ctx, "z2m/front-door", []byte(`{"contact":false}`), false))
+	eventually(t, "room commands", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Contains(commands, `z2m/0x000b57fffe000001/set {"state":"OFF"}`) &&
+			slices.Contains(commands, "z2m/"+secondLamp+`/set {"state":"OFF"}`)
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for _, cmd := range commands {
+		if !strings.HasPrefix(cmd, "z2m/0x000b57fffe000001/") && !strings.HasPrefix(cmd, "z2m/"+secondLamp+"/") {
+			t.Errorf("unexpected command %s", cmd)
+		}
+	}
+}
+
+// secondLamp is a copy of the fixture's IKEA lamp, so the hallway has two lights.
+const secondLamp = "0x000b57fffe000006"
+
+// bridgeDevicesWithSecondLamp returns the driver's bridge/devices fixture with secondLamp added.
+func bridgeDevicesWithSecondLamp(t *testing.T) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "driver", "zigbee2mqtt", "testdata", "bridge-devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var devices []map[string]any
+	must(t, json.Unmarshal(raw, &devices))
+	for _, d := range devices {
+		if d["ieee_address"] == "0x000b57fffe000001" {
+			lamp := map[string]any{}
+			for k, v := range d {
+				lamp[k] = v
+			}
+			lamp["ieee_address"], lamp["friendly_name"] = secondLamp, secondLamp
+			devices = append(devices, lamp)
+			break
+		}
+	}
+	out, err := json.Marshal(devices)
+	must(t, err)
+	return out
 }
 
 func expectMetric(t *testing.T, reg *prometheus.Registry, name string, labels prometheus.Labels, capName string, want float64) {

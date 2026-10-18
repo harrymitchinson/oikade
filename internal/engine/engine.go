@@ -18,6 +18,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -162,11 +163,15 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 		"now": e.Clock.Now(),
 		"tz":  e.Location.String(),
 	}
+	var room string
+	if snap, ok := e.Store.Get(u.Device); ok {
+		room = snap.Room
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for key, s := range e.automations {
-		if key.Namespace != u.Device.Namespace || !s.c.matches(u.Device.Name, u.Capability) {
+		if key.Namespace != u.Device.Namespace || !s.c.matches(u.Device.Name, room, u.Capability) {
 			continue
 		}
 		ok, err := s.c.eval(vars)
@@ -212,8 +217,12 @@ func (e *Engine) start(ctx context.Context, key types.NamespacedName, s *state) 
 	})
 }
 
+// execute runs the actions in order. A failing device action stops the run; a room action that
+// fails on some devices lets the run continue, so a dead bulb can't leave the rest of the room on,
+// and the run counts as failed at the end.
 func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compiled) string {
 	log := e.Log.WithValues("automation", key)
+	failed := false
 	for _, a := range c.actions {
 		if a.delay > 0 {
 			select {
@@ -227,7 +236,12 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 			return ResultCancelled
 		}
 		if a.room != "" {
-			// Room actions are resolved in spec 0001 step 2; until then they do nothing.
+			if !e.setRoom(ctx, log, key.Namespace, a) {
+				failed = true
+			}
+			if ctx.Err() != nil {
+				return ResultCancelled
+			}
 			continue
 		}
 		dev := types.NamespacedName{Namespace: key.Namespace, Name: a.device}
@@ -236,7 +250,35 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 			return ResultFailed
 		}
 	}
+	if failed {
+		return ResultFailed
+	}
 	return ResultSucceeded
+}
+
+// setRoom sets a capability on every discovered device in a room that reports it, in name order.
+// Membership is read now, not when the run started. It tries every device and reports whether
+// all of them succeeded.
+func (e *Engine) setRoom(ctx context.Context, log logr.Logger, namespace string, a action) bool {
+	ok, matched := true, false
+	for _, dev := range e.Store.Room(namespace, a.room) {
+		snap, found := e.Store.Get(dev)
+		if !found || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, a.capability) {
+			continue
+		}
+		if ctx.Err() != nil {
+			return ok
+		}
+		matched = true
+		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
+			log.Error(err, "Failed to run Automation action", "device", dev.Name, "room", a.room, "capability", a.capability)
+			ok = false
+		}
+	}
+	if !matched {
+		log.V(1).Info("Matched no Devices in Room", "room", a.room, "capability", a.capability)
+	}
+	return ok
 }
 
 func (e *Engine) count(key types.NamespacedName, result string) {

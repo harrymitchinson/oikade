@@ -20,6 +20,8 @@ package hub
 
 import (
 	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,6 +135,23 @@ func (s *Store) Values(namespace string) map[string]map[string]any {
 			out[k.Name] = maps.Clone(e.Values)
 		}
 	}
+	return out
+}
+
+// Room returns the declared devices whose room is room in one namespace, sorted by name.
+func (s *Store) Room(namespace, room string) []types.NamespacedName {
+	if room == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []types.NamespacedName
+	for k, e := range s.devices {
+		if k.Namespace == namespace && e.Room == room {
+			out = append(out, k)
+		}
+	}
+	slices.SortFunc(out, func(a, b types.NamespacedName) int { return strings.Compare(a.Name, b.Name) })
 	return out
 }
 
