@@ -1,0 +1,11 @@
+# Plugin images build from the repository root but need only the TypeScript workspace.
+**
+!package.json
+!yarn.lock
+!.yarnrc.yml
+!tsconfig.base.json
+!sdk/**
+!plugins/**
+**/node_modules
+**/dist
+**/coverage

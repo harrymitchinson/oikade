@@ -111,4 +111,25 @@ The contract version appears twice: in the topic root (`oikade/v1`) and in `stat
 
 ## Conformance
 
-Oikade will ship a conformance suite: a fake hub that drives a plugin through every topic above. Oikade's own CI runs it against the example plugin, and plugins built elsewhere can run it too. It arrives with the TypeScript plugin SDK (spec 0002, step 6).
+`test/conformance` is a fake hub: an in-process broker and Oikade's own decoder for this contract. It starts the plugin with a devices file and checks that:
+
+- `status` goes online with contract 1, and `devices` lists every declared device
+- every found device has availability, state and a value for each capability it announced
+- `status`, `devices`, `<id>/state` and `<id>/availability` are retained, and nothing is retained on `<id>/set`
+- a `/set` for each writable capability is applied and reported back as state
+- on SIGTERM the plugin exits 0 and leaves `status` offline
+- after a restart, the plugin and its devices come back online
+- when the plugin is killed, its Last Will marks it offline with contract 1
+- Oikade rejected none of its messages at any point
+
+Oikade's CI runs it against [`plugins/example-switch`](../plugins/example-switch). To run it against a plugin built elsewhere, check out Oikade and pass the plugin's start command and a devices file for it. Paths are relative to the Oikade checkout unless absolute:
+
+```sh
+make test-conformance \
+  CONFORMANCE_PLUGIN="node ../my-plugin/dist/main.js" \
+  OIKADE_CONFORMANCE_DEVICES=../my-plugin/conformance-devices.json
+```
+
+The command is split on spaces, without a shell. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `OIKADE_CONFORMANCE_SECRETS` names a directory to pass as `OIKADE_SECRETS_DIR`.
+
+Plugins written in TypeScript can use [the SDK](../sdk/typescript), which implements this contract.
