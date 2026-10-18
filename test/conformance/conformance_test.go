@@ -44,12 +44,12 @@ import (
 	"github.com/go-logr/logr/testr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
-	"github.com/harry/oikade/internal/driver"
-	"github.com/harry/oikade/internal/driver/plugin"
-	"github.com/harry/oikade/internal/mqtt"
-	"github.com/harry/oikade/internal/mqtt/mqtttest"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/driver/plugin"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
 const (

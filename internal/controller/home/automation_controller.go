@@ -31,8 +31,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	"github.com/harry/oikade/internal/engine"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
 // AutomationReconciler validates Automations. The runtime compiles them again to run them.

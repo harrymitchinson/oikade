@@ -20,7 +20,7 @@ import (
 	"errors"
 	"testing"
 
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
 )
 
 func TestAllocate(t *testing.T) {

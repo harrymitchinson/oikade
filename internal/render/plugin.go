@@ -25,7 +25,7 @@ import (
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 )
 
 // Paths and keys of the oikade/v1 plugin environment (docs/plugin-contract.md).

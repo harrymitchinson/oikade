@@ -8,7 +8,7 @@ layout:
 - go.kubebuilder.io/v4
 multigroup: true
 projectName: oikade
-repo: github.com/harry/oikade
+repo: github.com/harrymitchinson/oikade
 resources:
 - api:
     crdVersion: v1
@@ -16,7 +16,7 @@ resources:
   domain: oikade.dev
   group: home
   kind: Device
-  path: github.com/harry/oikade/api/home/v1alpha1
+  path: github.com/harrymitchinson/oikade/api/home/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -24,7 +24,7 @@ resources:
   domain: oikade.dev
   group: home
   kind: Room
-  path: github.com/harry/oikade/api/home/v1alpha1
+  path: github.com/harrymitchinson/oikade/api/home/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -33,7 +33,7 @@ resources:
   domain: oikade.dev
   group: home
   kind: Automation
-  path: github.com/harry/oikade/api/home/v1alpha1
+  path: github.com/harrymitchinson/oikade/api/home/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -42,7 +42,7 @@ resources:
   domain: oikade.dev
   group: homekit
   kind: Bridge
-  path: github.com/harry/oikade/api/homekit/v1alpha1
+  path: github.com/harrymitchinson/oikade/api/homekit/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -51,7 +51,7 @@ resources:
   domain: oikade.dev
   group: zigbee
   kind: Zigbee2MQTT
-  path: github.com/harry/oikade/api/zigbee/v1alpha1
+  path: github.com/harrymitchinson/oikade/api/zigbee/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -60,6 +60,6 @@ resources:
   domain: oikade.dev
   group: plugins
   kind: Plugin
-  path: github.com/harry/oikade/api/plugins/v1alpha1
+  path: github.com/harrymitchinson/oikade/api/plugins/v1alpha1
   version: v1alpha1
 version: "3"

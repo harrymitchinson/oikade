@@ -33,14 +33,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
-	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
-	"github.com/harry/oikade/internal/driver"
-	"github.com/harry/oikade/internal/driver/plugin"
-	"github.com/harry/oikade/internal/driver/zigbee2mqtt"
-	"github.com/harry/oikade/internal/mqtt"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/driver/plugin"
+	"github.com/harrymitchinson/oikade/internal/driver/zigbee2mqtt"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
 // Hub keeps a driver instance running for every driver object, a Zigbee2MQTT or a Plugin, feeds the

@@ -30,10 +30,10 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
-	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 )
 
 const (

@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
 
 var _ = Describe("Device validation", func() {

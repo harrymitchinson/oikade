@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
 
 var _ = Describe("Automation Controller", func() {

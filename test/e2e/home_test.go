@@ -33,7 +33,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/harry/oikade/test/utils"
+	"github.com/harrymitchinson/oikade/test/utils"
 )
 
 const (

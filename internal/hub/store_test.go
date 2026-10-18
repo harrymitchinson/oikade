@@ -23,8 +23,8 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/harry/oikade/internal/capability"
-	"github.com/harry/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
 )
 
 func TestStoreRoom(t *testing.T) {

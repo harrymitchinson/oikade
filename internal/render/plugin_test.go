@@ -23,7 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 )
 
 func plugin() *pluginsv1alpha1.Plugin {

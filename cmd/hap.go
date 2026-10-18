@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/harry/oikade/internal/hap"
-	"github.com/harry/oikade/internal/hub"
-	"github.com/harry/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/hap"
+	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
 // runHAP is the `manager hap` subcommand: the HomeKit bridge for one Bridge object. It follows the

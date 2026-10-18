@@ -34,10 +34,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
-	"github.com/harry/oikade/internal/driver"
-	"github.com/harry/oikade/internal/hub"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/hub"
 )
 
 const ns = "home"

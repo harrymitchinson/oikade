@@ -28,8 +28,8 @@ import (
 	"github.com/brutella/hap/service"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 // lowBattery is the charge below which HomeKit shows a low battery warning.

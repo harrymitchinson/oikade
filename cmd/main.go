@@ -41,14 +41,14 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
-	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
-	homecontroller "github.com/harry/oikade/internal/controller/home"
-	homekitcontroller "github.com/harry/oikade/internal/controller/homekit"
-	pluginscontroller "github.com/harry/oikade/internal/controller/plugins"
-	zigbeecontroller "github.com/harry/oikade/internal/controller/zigbee"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
+	homecontroller "github.com/harrymitchinson/oikade/internal/controller/home"
+	homekitcontroller "github.com/harrymitchinson/oikade/internal/controller/homekit"
+	pluginscontroller "github.com/harrymitchinson/oikade/internal/controller/plugins"
+	zigbeecontroller "github.com/harrymitchinson/oikade/internal/controller/zigbee"
 	// +kubebuilder:scaffold:imports
 )
 

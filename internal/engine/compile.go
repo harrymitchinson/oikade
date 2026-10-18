@@ -26,8 +26,8 @@ import (
 	"github.com/google/cel-go/cel"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 var env = mustEnv()

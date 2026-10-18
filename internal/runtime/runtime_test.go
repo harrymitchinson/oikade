@@ -46,13 +46,13 @@ import (
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
-	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
-	"github.com/harry/oikade/internal/mqtt"
-	"github.com/harry/oikade/internal/mqtt/mqtttest"
-	"github.com/harry/oikade/internal/runtime"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
+	"github.com/harrymitchinson/oikade/internal/runtime"
 )
 
 const ns = "home"

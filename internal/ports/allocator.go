@@ -20,7 +20,7 @@ package ports
 import (
 	"errors"
 
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
 )
 
 // ErrExhausted is returned when every port in the range is taken.

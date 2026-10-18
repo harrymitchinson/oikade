@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 

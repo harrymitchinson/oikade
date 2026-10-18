@@ -17,7 +17,7 @@ limitations under the License.
 package zigbee2mqtt
 
 import (
-	"github.com/harry/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 // Exposes, as published in <base>/bridge/devices. Only the fields Oikade uses.

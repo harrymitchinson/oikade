@@ -39,12 +39,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
-	"github.com/harry/oikade/internal/controller/shared"
-	"github.com/harry/oikade/internal/identity"
-	"github.com/harry/oikade/internal/ports"
-	"github.com/harry/oikade/internal/render"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/controller/shared"
+	"github.com/harrymitchinson/oikade/internal/identity"
+	"github.com/harrymitchinson/oikade/internal/ports"
+	"github.com/harrymitchinson/oikade/internal/render"
 )
 
 const (
