@@ -33,18 +33,16 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
 	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
+	"github.com/harry/oikade/internal/controller/shared"
 	"github.com/harry/oikade/internal/render"
 )
 
-const (
-	fieldOwner = "oikade"
-
-	ConditionReady = "Ready"
-)
+const ConditionReady = "Ready"
 
 // PluginReconciler reconciles a Plugin object
 type PluginReconciler struct {
@@ -75,7 +73,10 @@ func (r *PluginReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	orig := p.DeepCopy()
 	err := r.reconcile(ctx, &p)
-	p.Status.ObservedGeneration = p.Generation
+	if err == nil {
+		// A failed reconcile leaves the conditions describing an older spec.
+		p.Status.ObservedGeneration = p.Generation
+	}
 	if !equality.Semantic.DeepEqual(orig.Status, p.Status) {
 		if serr := r.Status().Patch(ctx, &p, client.MergeFrom(orig)); serr != nil && err == nil {
 			err = serr
@@ -96,30 +97,64 @@ func (r *PluginReconciler) reconcile(ctx context.Context, p *pluginsv1alpha1.Plu
 		return fmt.Errorf("rendering devices.json: %w", err)
 	}
 	hash := render.Hash(config)
-	if err := r.apply(ctx, render.PluginConfigSecret(p, config)); err != nil {
-		return fmt.Errorf("applying config secret: %w", err)
-	}
 
-	secretFound := true
-	if ref := p.Spec.SecretRef; ref != nil {
-		// Only existence matters: the operator never reads the user's keys.
-		var s corev1.Secret
-		err := r.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: ref.Name}, &s)
-		if apierrors.IsNotFound(err) {
-			secretFound = false
-		} else if err != nil {
-			return fmt.Errorf("getting secret %s: %w", ref.Name, err)
+	key := func(name string) types.NamespacedName {
+		return types.NamespacedName{Namespace: p.Namespace, Name: name}
+	}
+	if ref := p.Spec.SecretRef; ref != nil && ref.Name == render.PluginConfigSecretName(p) {
+		r.setReady(p, metav1.ConditionFalse, "NameConflict",
+			fmt.Sprintf("spec.secretRef names %s, which the operator renders devices.json into", ref.Name))
+		return nil
+	}
+	// Applying with ForceOwnership would silently take over an object someone else owns.
+	for _, o := range []struct {
+		kind, name string
+		obj        client.Object
+	}{
+		{"Secret", render.PluginConfigSecretName(p), &corev1.Secret{}},
+		{"Deployment", render.PluginDeploymentName(p), &appsv1.Deployment{}},
+	} {
+		err := r.Get(ctx, key(o.name), o.obj)
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		if err == nil && !metav1.IsControlledBy(o.obj, p) {
+			r.setReady(p, metav1.ConditionFalse, "NameConflict",
+				fmt.Sprintf("%s %s exists and isn't owned by this Plugin", o.kind, o.name))
+			return nil
 		}
 	}
 
-	if err := r.apply(ctx, render.PluginDeployment(p, r.MQTTURL, hash)); err != nil {
+	if err := shared.Apply(ctx, r.Client, render.PluginConfigSecret(p, config)); err != nil {
+		return fmt.Errorf("applying config secret: %w", err)
+	}
+
+	secretFound, secretVersion := true, ""
+	if ref := p.Spec.SecretRef; ref != nil {
+		// Only existence and version matter: the operator never reads the user's keys.
+		var s corev1.Secret
+		err := r.Get(ctx, key(ref.Name), &s)
+		switch {
+		case apierrors.IsNotFound(err):
+			secretFound = false
+		case err != nil:
+			return fmt.Errorf("getting secret %s: %w", ref.Name, err)
+		default:
+			secretVersion = s.ResourceVersion
+		}
+	}
+
+	if err := shared.Apply(ctx, r.Client, render.PluginDeployment(render.PluginInput{
+		Plugin: p, MQTTURL: r.MQTTURL, ConfigHash: hash, SecretVersion: secretVersion,
+	})); err != nil {
 		return fmt.Errorf("applying deployment: %w", err)
 	}
 	p.Status.ConfigHash = hash
 
+	// The cache may not have the Deployment we just created yet; it then reads as Progressing.
 	var dep appsv1.Deployment
-	if err := r.Get(ctx, client.ObjectKeyFromObject(p), &dep); err != nil {
-		return client.IgnoreNotFound(err)
+	if err := r.Get(ctx, key(render.PluginDeploymentName(p)), &dep); client.IgnoreNotFound(err) != nil {
+		return err
 	}
 	switch {
 	case len(duplicates) > 0:
@@ -128,7 +163,7 @@ func (r *PluginReconciler) reconcile(ctx context.Context, p *pluginsv1alpha1.Plu
 	case !secretFound:
 		r.setReady(p, metav1.ConditionFalse, "SecretNotFound",
 			fmt.Sprintf("Secret %s named in spec.secretRef doesn't exist", p.Spec.SecretRef.Name))
-	case deploymentAvailable(&dep):
+	case shared.DeploymentAvailable(&dep):
 		r.setReady(p, metav1.ConditionTrue, "Available", "The plugin is running")
 	default:
 		r.setReady(p, metav1.ConditionFalse, "Progressing", "waiting for the plugin pod to become ready")
@@ -170,20 +205,10 @@ func (r *PluginReconciler) devices(ctx context.Context, p *pluginsv1alpha1.Plugi
 	return out, slices.Compact(duplicates), nil
 }
 
-func (r *PluginReconciler) apply(ctx context.Context, obj runtime.ApplyConfiguration) error {
-	return r.Apply(ctx, obj, client.FieldOwner(fieldOwner), client.ForceOwnership)
-}
-
 func (r *PluginReconciler) setReady(p *pluginsv1alpha1.Plugin, status metav1.ConditionStatus, reason, msg string) {
 	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
 		Type: ConditionReady, Status: status, Reason: reason, Message: msg, ObservedGeneration: p.Generation,
 	})
-}
-
-func deploymentAvailable(d *appsv1.Deployment) bool {
-	return d.Status.ObservedGeneration >= d.Generation &&
-		d.Status.UpdatedReplicas >= 1 &&
-		d.Status.AvailableReplicas >= 1
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -213,6 +238,7 @@ func pluginForDevice(_ context.Context, obj client.Object) []reconcile.Request {
 func (r *PluginReconciler) pluginsForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
 	var list pluginsv1alpha1.PluginList
 	if err := r.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
+		logf.FromContext(ctx).Error(err, "Could not list Plugins for Secret", "secret", client.ObjectKeyFromObject(obj))
 		return nil
 	}
 	var out []reconcile.Request

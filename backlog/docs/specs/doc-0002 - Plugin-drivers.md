@@ -3,7 +3,7 @@ id: doc-0002
 title: Plugin drivers
 type: specification
 created_date: '2026-10-18 10:56'
-updated_date: '2026-10-18 13:54'
+updated_date: '2026-10-18 15:06'
 ---
 **Decision:** accepted · **Work:** TASK-0001
 
@@ -205,6 +205,7 @@ The `Ready` reasons are:
 | `Progressing` | False | The rollout hasn't finished yet. |
 | `SecretNotFound` | False | `spec.secretRef` names a Secret that doesn't exist. The operator still deploys, because the plugin reports a per-device error for each missing key. |
 | `DuplicateDevice` | False | Two Devices claim the same `id`. The first by name wins, as in `Zigbee2MQTTReconciler`. |
+| `NameConflict` | False | `<plugin>-plugin` or `<plugin>-plugin-config` already exists and isn't owned by this Plugin, or `spec.secretRef` names the config Secret. Nothing is applied. |
 
 ### `Device.spec.plugin`
 
@@ -239,7 +240,7 @@ type PluginDeviceSource struct {
 // +kubebuilder:validation:XValidation:rule="[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size() == 1",message="exactly one driver source (zigbee2mqtt or plugin) is required"
 ```
 
-Every existing Device still satisfies this rule. The `pluginRef.name` and parameter bounds were added in TASK-0001.03 review: an empty ref could never resolve, and unbounded values could push the rendered `<plugin>-config` Secret past 1 MiB.
+Every existing Device still satisfies this rule. The `pluginRef.name` and parameter bounds were added in TASK-0001.03 review: an empty ref could never resolve, and unbounded values could push the rendered `<plugin>-plugin-config` Secret past 1 MiB.
 
 ### The `oikade/v1` contract
 
@@ -264,11 +265,13 @@ The plugin learns its settings from environment variables and files that the ope
 ### Manager: `PluginReconciler` (`internal/controller/plugins/plugin_controller.go`)
 
 1. List the Devices in the namespace whose `spec.plugin.pluginRef.name` matches, sorted by name. Drop duplicate `id`s and remember them for `DuplicateDevice`.
-2. Render `devices.json`, then apply Secret `<plugin>-config` with an owner reference, as `render.ZigbeeConfigSecret` does. The content is Device names and parameters. It's a Secret rather than a ConfigMap so that parameters which turn out to be sensitive aren't exposed, and it needs no new RBAC.
+2. Render `devices.json`, then apply Secret `<plugin>-plugin-config` with an owner reference, as `render.ZigbeeConfigSecret` does. The content is Device names and parameters. It's a Secret rather than a ConfigMap so that parameters which turn out to be sensitive aren't exposed, and it needs no new RBAC.
 3. If `spec.secretRef` is set, `Get` it to decide `SecretNotFound`. The data is never read.
-4. Apply Deployment `<plugin>` (`render.PluginDeployment`, a new function in `internal/render/plugin.go`):
+4. Apply Deployment `<plugin>-plugin` (`render.PluginDeployment`, a new function in `internal/render/plugin.go`). The `-plugin` suffix keeps both names clear of a Zigbee2MQTT with the same name (TASK-0001.05 review). If either object exists without this Plugin as its controller, or `spec.secretRef` names the config Secret, the operator applies nothing and reports `NameConflict`:
    - one replica, with the `Recreate` strategy, because two plugin pods would both answer `/set`
    - the `configHash` annotation, so a Device change restarts the pod
+   - a `plugins.oikade.dev/secret-version` annotation holding the user Secret's `resourceVersion`, so rotating keys restarts the pod as well
+   - the user Secret mounted `optional`, so a missing one shows as per-device errors rather than a pod stuck in `ContainerCreating`
    - `hostNetwork` and `dnsPolicy: ClusterFirstWithHostNet` when `hostNetwork` is set
    - `podSecurityContext` and `containerSecurityContext` from `render/common.go`
    - labels `plugins.oikade.dev/plugin: <name>`
@@ -378,3 +381,4 @@ Manual checks on the Pi:
 ## Open questions
 
 None.
+

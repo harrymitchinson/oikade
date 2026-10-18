@@ -41,14 +41,13 @@ import (
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
 	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
+	"github.com/harry/oikade/internal/controller/shared"
 	"github.com/harry/oikade/internal/identity"
 	"github.com/harry/oikade/internal/ports"
 	"github.com/harry/oikade/internal/render"
 )
 
 const (
-	fieldOwner = "oikade"
-
 	ConditionReady         = "Ready"
 	ConditionPortAllocated = "PortAllocated"
 )
@@ -166,7 +165,7 @@ func (r *BridgeReconciler) reconcile(ctx context.Context, b *homekitv1alpha1.Bri
 	if err := r.Get(ctx, types.NamespacedName{Namespace: b.Namespace, Name: b.Name + "-hap"}, &dep); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if deploymentAvailable(&dep) {
+	if shared.DeploymentAvailable(&dep) {
 		r.setCondition(b, ConditionReady, metav1.ConditionTrue, "Available", "HAP server is running")
 	} else {
 		r.setCondition(b, ConditionReady, metav1.ConditionFalse, "Progressing", "waiting for the HAP pod to become ready")
@@ -305,19 +304,13 @@ func (r *BridgeReconciler) release(key types.NamespacedName) {
 }
 
 func (r *BridgeReconciler) apply(ctx context.Context, obj runtime.ApplyConfiguration) error {
-	return r.Apply(ctx, obj, client.FieldOwner(fieldOwner), client.ForceOwnership)
+	return shared.Apply(ctx, r.Client, obj)
 }
 
 func (r *BridgeReconciler) setCondition(b *homekitv1alpha1.Bridge, typ string, status metav1.ConditionStatus, reason, msg string) {
 	meta.SetStatusCondition(&b.Status.Conditions, metav1.Condition{
 		Type: typ, Status: status, Reason: reason, Message: msg, ObservedGeneration: b.Generation,
 	})
-}
-
-func deploymentAvailable(d *appsv1.Deployment) bool {
-	return d.Status.ObservedGeneration >= d.Generation &&
-		d.Status.UpdatedReplicas >= 1 &&
-		d.Status.AvailableReplicas >= 1
 }
 
 // SetupWithManager sets up the controller with the Manager.

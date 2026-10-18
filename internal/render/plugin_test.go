@@ -57,13 +57,19 @@ func TestPluginConfig(t *testing.T) {
 }
 
 func TestPluginDeployment(t *testing.T) {
-	d := PluginDeployment(plugin(), "mqtt://broker:1883", "h")
+	d := PluginDeployment(PluginInput{Plugin: plugin(), MQTTURL: "mqtt://broker:1883", ConfigHash: "h"})
+	if *d.Name != "sonoff-plugin" {
+		t.Errorf("deployment name = %q, want sonoff-plugin", *d.Name)
+	}
 	if *d.Spec.Replicas != 1 || *d.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
 		t.Errorf("want one replica with Recreate, got %v %v", *d.Spec.Replicas, *d.Spec.Strategy.Type)
 	}
 	tmpl := d.Spec.Template
 	if tmpl.Annotations[AnnotationConfigHash] != "h" {
 		t.Errorf("config hash annotation = %q", tmpl.Annotations[AnnotationConfigHash])
+	}
+	if _, ok := tmpl.Annotations[AnnotationSecretVersion]; ok {
+		t.Error("no secretRef should mean no secret version annotation")
 	}
 	pod := tmpl.Spec
 	if pod.HostNetwork != nil || pod.DNSPolicy != nil {
@@ -96,7 +102,13 @@ func TestPluginDeployment(t *testing.T) {
 	p := plugin()
 	p.Spec.HostNetwork = true
 	p.Spec.SecretRef = &corev1.LocalObjectReference{Name: "sonoff-lan-keys"}
-	pod = PluginDeployment(p, "mqtt://broker:1883", "h").Spec.Template.Spec
+	tmpl = PluginDeployment(PluginInput{
+		Plugin: p, MQTTURL: "mqtt://broker:1883", ConfigHash: "h", SecretVersion: "42",
+	}).Spec.Template
+	if tmpl.Annotations[AnnotationSecretVersion] != "42" {
+		t.Errorf("secret version annotation = %q", tmpl.Annotations[AnnotationSecretVersion])
+	}
+	pod = tmpl.Spec
 	if !*pod.HostNetwork || *pod.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
 		t.Error("hostNetwork should set ClusterFirstWithHostNet")
 	}

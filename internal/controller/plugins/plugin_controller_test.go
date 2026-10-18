@@ -87,13 +87,21 @@ func get[T client.Object](key types.NamespacedName, obj T) T {
 	return obj
 }
 
+func depKey(key types.NamespacedName) types.NamespacedName {
+	return types.NamespacedName{Namespace: key.Namespace, Name: key.Name + "-plugin"}
+}
+
+func cfgKey(key types.NamespacedName) types.NamespacedName {
+	return types.NamespacedName{Namespace: key.Namespace, Name: key.Name + "-plugin-config"}
+}
+
 func ready(p *pluginsv1alpha1.Plugin) *metav1.Condition {
 	return meta.FindStatusCondition(p.Status.Conditions, ConditionReady)
 }
 
 // renderedDevices returns the parsed devices.json from the config Secret.
 func renderedDevices(key types.NamespacedName) []render.PluginDevice {
-	s := get(types.NamespacedName{Namespace: key.Namespace, Name: key.Name + "-config"}, &corev1.Secret{})
+	s := get(cfgKey(key), &corev1.Secret{})
 	var cfg struct {
 		Contract int                   `json:"contract"`
 		Devices  []render.PluginDevice `json:"devices"`
@@ -105,7 +113,7 @@ func renderedDevices(key types.NamespacedName) []render.PluginDevice {
 
 // markAvailable stands in for the kubelet and deployment controller, which envtest doesn't run.
 func markAvailable(key types.NamespacedName) {
-	dep := get(key, &appsv1.Deployment{})
+	dep := get(depKey(key), &appsv1.Deployment{})
 	dep.Status = appsv1.DeploymentStatus{
 		ObservedGeneration: dep.Generation, Replicas: 1, UpdatedReplicas: 1, ReadyReplicas: 1, AvailableReplicas: 1,
 	}
@@ -135,10 +143,10 @@ var _ = Describe("Plugin Controller", func() {
 			{ID: "1000aabbcc", Name: "porch-light", DisplayName: "porch-light", Room: "porch",
 				Parameters: map[string]string{"capability": "light.on"}},
 		}))
-		cfg := get(types.NamespacedName{Namespace: ns, Name: pluginName + "-config"}, &corev1.Secret{})
+		cfg := get(cfgKey(key), &corev1.Secret{})
 		Expect(metav1.IsControlledBy(cfg, p)).To(BeTrue())
 
-		dep := get(key, &appsv1.Deployment{})
+		dep := get(depKey(key), &appsv1.Deployment{})
 		Expect(metav1.IsControlledBy(dep, p)).To(BeTrue())
 		Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
 		Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
@@ -165,7 +173,7 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(k8sClient.Update(ctx, d)).To(Succeed())
 		p2 := reconcilePlugin(r, key)
 		Expect(p2.Status.ConfigHash).NotTo(Equal(p.Status.ConfigHash))
-		Expect(get(key, &appsv1.Deployment{}).Spec.Template.Annotations).
+		Expect(get(depKey(key), &appsv1.Deployment{}).Spec.Template.Annotations).
 			To(HaveKeyWithValue(render.AnnotationConfigHash, p2.Status.ConfigHash))
 		Expect(renderedDevices(key)[0].DisplayName).To(Equal("Hall light"))
 
@@ -177,7 +185,7 @@ var _ = Describe("Plugin Controller", func() {
 		ns := newNamespace()
 		key := createPlugin(ns, func(s *pluginsv1alpha1.PluginSpec) { s.HostNetwork = true })
 		reconcilePlugin(r, key)
-		pod := get(key, &appsv1.Deployment{}).Spec.Template.Spec
+		pod := get(depKey(key), &appsv1.Deployment{}).Spec.Template.Spec
 		Expect(pod.HostNetwork).To(BeTrue())
 		Expect(pod.DNSPolicy).To(Equal(corev1.DNSClusterFirstWithHostNet))
 	})
@@ -190,7 +198,7 @@ var _ = Describe("Plugin Controller", func() {
 
 		p := reconcilePlugin(r, key)
 		Expect(ready(p).Reason).To(Equal("SecretNotFound"))
-		pod := get(key, &appsv1.Deployment{}).Spec.Template.Spec
+		pod := get(depKey(key), &appsv1.Deployment{}).Spec.Template.Spec
 		Expect(pod.Volumes).To(ContainElement(corev1.Volume{Name: "secrets", VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
 				SecretName: "sonoff-lan-keys", Optional: new(true), DefaultMode: new(int32(0o644)),
@@ -206,10 +214,46 @@ var _ = Describe("Plugin Controller", func() {
 		}
 		Expect(k8sClient.Create(ctx, keys)).To(Succeed())
 		Expect(r.pluginsForSecret(ctx, keys)).To(ConsistOf(reconcile.Request{NamespacedName: key}))
+		// The new secret version rolls the pod.
+		Expect(ready(reconcilePlugin(r, key)).Reason).To(Equal("Progressing"))
 		markAvailable(key)
 		p = reconcilePlugin(r, key)
 		Expect(ready(p).Reason).To(Equal("Available"))
 		Expect(get(client.ObjectKeyFromObject(keys), &corev1.Secret{}).OwnerReferences).To(BeEmpty())
+		version := get(depKey(key), &appsv1.Deployment{}).Spec.Template.Annotations[render.AnnotationSecretVersion]
+		Expect(version).NotTo(BeEmpty())
+
+		By("rotating the Secret, which restarts the pod")
+		keys = get(client.ObjectKeyFromObject(keys), &corev1.Secret{})
+		keys.Data["1000aabbcc"] = []byte("rotated")
+		Expect(k8sClient.Update(ctx, keys)).To(Succeed())
+		reconcilePlugin(r, key)
+		Expect(get(depKey(key), &appsv1.Deployment{}).Spec.Template.Annotations).
+			To(HaveKeyWithValue(render.AnnotationSecretVersion, Not(Equal(version))))
+	})
+
+	It("refuses to take over objects it doesn't own", func() {
+		ns := newNamespace()
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: pluginName + "-plugin-config", Namespace: ns},
+			StringData: map[string]string{"mine": "yes"},
+		})).To(Succeed())
+		key := createPlugin(ns, nil)
+
+		p := reconcilePlugin(r, key)
+		Expect(ready(p).Reason).To(Equal("NameConflict"))
+		Expect(get(cfgKey(key), &corev1.Secret{}).Data).To(Equal(map[string][]byte{"mine": []byte("yes")}))
+		Expect(k8sClient.Get(ctx, depKey(key), &appsv1.Deployment{})).NotTo(Succeed())
+	})
+
+	It("refuses a secretRef naming its own config Secret", func() {
+		ns := newNamespace()
+		key := createPlugin(ns, func(s *pluginsv1alpha1.PluginSpec) {
+			s.SecretRef = &corev1.LocalObjectReference{Name: pluginName + "-plugin-config"}
+		})
+		p := reconcilePlugin(r, key)
+		Expect(ready(p).Reason).To(Equal("NameConflict"))
+		Expect(k8sClient.Get(ctx, cfgKey(key), &corev1.Secret{})).NotTo(Succeed())
 	})
 
 	It("flags an id claimed by two Devices, keeping the first by name", func() {

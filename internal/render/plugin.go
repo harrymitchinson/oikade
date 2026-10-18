@@ -39,7 +39,13 @@ const (
 	pluginUserID = 1000
 )
 
-func PluginConfigSecretName(p *pluginsv1alpha1.Plugin) string { return p.Name + "-config" }
+// AnnotationSecretVersion on a plugin pod template rolls the pod when the user's Secret changes,
+// so plugins that read their keys at start pick up rotated ones.
+const AnnotationSecretVersion = "plugins.oikade.dev/secret-version"
+
+// Plugin objects carry a -plugin suffix so they can't collide with a Zigbee2MQTT of the same name.
+func PluginDeploymentName(p *pluginsv1alpha1.Plugin) string   { return p.Name + "-plugin" }
+func PluginConfigSecretName(p *pluginsv1alpha1.Plugin) string { return p.Name + "-plugin-config" }
 
 // PluginLabels are applied to everything created for a Plugin.
 func PluginLabels(p *pluginsv1alpha1.Plugin) map[string]string {
@@ -81,11 +87,22 @@ func PluginConfigSecret(p *pluginsv1alpha1.Plugin, config []byte) *corev1ac.Secr
 		WithData(map[string][]byte{PluginDevicesKey: config})
 }
 
+// PluginInput is everything needed to render a plugin's Deployment.
+type PluginInput struct {
+	Plugin  *pluginsv1alpha1.Plugin
+	MQTTURL string
+	// ConfigHash is the hash of devices.json.
+	ConfigHash string
+	// SecretVersion is the resourceVersion of the user's Secret, empty when there is none.
+	SecretVersion string
+}
+
 // PluginDeployment runs a plugin. Recreate guarantees only one pod ever answers /set.
 // The user's Secret is optional so a missing one shows as per-device errors rather than a stuck pod.
-func PluginDeployment(p *pluginsv1alpha1.Plugin, mqttURL, configHash string) *appsv1ac.DeploymentApplyConfiguration {
+func PluginDeployment(in PluginInput) *appsv1ac.DeploymentApplyConfiguration {
+	p := in.Plugin
 	env := []*corev1ac.EnvVarApplyConfiguration{
-		corev1ac.EnvVar().WithName("OIKADE_MQTT_URL").WithValue(mqttURL),
+		corev1ac.EnvVar().WithName("OIKADE_MQTT_URL").WithValue(in.MQTTURL),
 		corev1ac.EnvVar().WithName("OIKADE_TOPIC").WithValue(p.Topic()),
 		corev1ac.EnvVar().WithName("OIKADE_DEVICES_FILE").WithValue(pluginConfigPath + "/" + PluginDevicesKey),
 	}
@@ -123,8 +140,12 @@ func PluginDeployment(p *pluginsv1alpha1.Plugin, mqttURL, configHash string) *ap
 	}
 	schedule(pod, p.Spec.NodeSelector, p.Spec.Tolerations)
 
+	annotations := map[string]string{AnnotationConfigHash: in.ConfigHash}
+	if in.SecretVersion != "" {
+		annotations[AnnotationSecretVersion] = in.SecretVersion
+	}
 	selector := map[string]string{pluginsv1alpha1.LabelPlugin: p.Name}
-	return appsv1ac.Deployment(p.Name, p.Namespace).
+	return appsv1ac.Deployment(PluginDeploymentName(p), p.Namespace).
 		WithLabels(PluginLabels(p)).
 		WithOwnerReferences(pluginOwner(p)).
 		WithSpec(appsv1ac.DeploymentSpec().
@@ -133,6 +154,6 @@ func PluginDeployment(p *pluginsv1alpha1.Plugin, mqttURL, configHash string) *ap
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(selector)).
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithLabels(PluginLabels(p)).
-				WithAnnotations(map[string]string{AnnotationConfigHash: configHash}).
+				WithAnnotations(annotations).
 				WithSpec(pod)))
 }
