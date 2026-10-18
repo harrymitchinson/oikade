@@ -4,6 +4,6 @@ Each spec records one feature's design decision and, once it's accepted, how to 
 
 | # | Title | Status | Roadmap |
 |---|---|---|---|
-| [0001](0001-room-targeted-actions.md) | Room-targeted automations | Accepted | Pi bring-up |
+| [0001](0001-room-targeted-actions.md) | Room-targeted automations | Accepted | Plugin drivers |
 | [0002](0002-plugin-drivers.md) | Plugin drivers | Accepted | Plugin drivers |
-| [0003](0003-schedules.md) | Schedules | Accepted | Pool on Oikade |
+| [0003](0003-schedules.md) | Schedules | Accepted | Schedules |

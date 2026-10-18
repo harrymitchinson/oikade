@@ -4,9 +4,10 @@ title: Schedules
 status: To Do
 assignee: []
 created_date: '2026-10-18 08:36'
-updated_date: '2026-10-18 08:53'
+updated_date: '2026-10-18 09:06'
 labels:
   - spec-0003
+milestone: m-2
 dependencies: []
 documentation:
   - docs/specs/0003-schedules.md

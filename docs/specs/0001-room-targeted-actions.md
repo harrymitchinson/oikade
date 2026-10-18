@@ -1,7 +1,7 @@
 # 0001: Room-targeted automations
 
 - **Status:** Accepted
-- **Roadmap:** Pi bring-up
+- **Roadmap:** Plugin drivers
 - **Backlog:** TASK-0002
 - **Updated:** 2026-10-18
 

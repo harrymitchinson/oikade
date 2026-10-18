@@ -6,70 +6,78 @@ _Updated 2026-10-18._ How to change this: edit it in a PR. Specs live in [docs/s
 
 Oikade runs the whole house from Git: every device declared, HomeKit through its own bridge, and history in Prometheus. Next it gains a plugin system, so that non-Zigbee device families (the SONOFF relays, the pool pump, the Cozytouch heaters) can join without core changes, and schedules that can run the pool. Then Homebridge can be retired. It is not a general-purpose hub: it has no Home Assistant, no UI for configuration, and no cloud.
 
-## Now: Pi bring-up
+## Now: Plugin drivers
 
-**Goal:** the real house runs on Oikade on the Pi cluster, not just in Kind.
-
-**Done when:**
-
-- `kubectl -n home get devices` on the Pi shows every declared Zigbee device with `Resolved=True` and `Available=True`, deployed by GitOps from a CalVer release built for arm64.
-- The Bridge is paired in the Home app. Toggling a light from the phone works, and it still works with the runtime scaled to zero.
-- The hallway motion automation runs for a week with no manual restarts.
-- Restore drill: delete the `home` namespace, restore from Git and backups, and nothing has to be re-paired. The Home app keeps its accessories and rooms, and Zigbee devices stay joined.
-
-| Item | Spec | Size | Depends on | Status |
-|---|---|---|---|---|
-| Rebuild the cluster and deploy Oikade by GitOps (arm64 image) | — (ops, per [Pi guide](deploy-raspberry-pi.md)) | M | — | In progress |
-| Pair the HomeKit bridge and declare the real Zigbee devices | — (ops) | S | Rebuild | Parked |
-| Backup and restore drill (identity Secret, network key, PVCs) | — (ops) | M | Pairing | Parked |
-| Check whether zigbee2mqtt re-reports occupancy while someone stays put | [0001](specs/0001-room-targeted-actions.md), open question | S | Pairing | Parked |
-| Room-targeted automations (TASK-0002) | [0001](specs/0001-room-targeted-actions.md) | M | — (the occupancy check only affects README guidance) | Ready |
-
-Room-targeted automations are here, not in Next, because they're small and improve automations that this milestone starts running for real. The occupancy check they wait on happens during bring-up anyway.
-
-## Next: Plugin drivers
-
-**Goal:** a new device family no longer needs a core change. Oikade has a plugin system: the contract, the `Plugin` kind, the SDK and conformance. Real device plugins come afterwards.
+**Goal:** a new device family no longer needs a core change, and automations can target whole rooms.
 
 **Done when:**
 
 - CI runs the plugin contract conformance suite against the simulated example plugin.
-- A `Plugin` and a `Device` declared in Git, served by the example plugin, reach `Resolved=True`. They show up in Grafana, an Automation can switch them, and the Home app toggles them, even with the runtime scaled to zero.
+- In Kind, a `Plugin` and a `Device` declared in Git and served by the example plugin reach `Resolved=True`. They appear in `oikade_capability_value`, and an Automation switches them.
 - Writing a new plugin needs no change to `internal/hub` or `api/home`.
-- The example plugin pod stays under 128 MiB RSS on arm64.
+- In Kind, one `set` action with `room:` turns off both lamps in a Room, and a misspelled room shows `Ready=False RoomNotFound`.
 
 | Item | Spec | Size | Depends on | Status |
 |---|---|---|---|---|
-| Contract, driver-agnostic hub, `Plugin` API, runtime and HAP wiring (steps 1–4) | [0002](specs/0002-plugin-drivers.md) | L | Pi bring-up | Not started |
-| Plugin reconciler in the manager, TypeScript SDK, conformance, Kind e2e (steps 5–7) | [0002](specs/0002-plugin-drivers.md) | M | Steps 1–4 | Not started |
-| Plugin system docs (step 8) | [0002](specs/0002-plugin-drivers.md) | S | Steps 5–7 | Not started |
+| Room-targeted automations (TASK-0002, steps 1–4) | [0001](specs/0001-room-targeted-actions.md) | M | — | Ready |
+| Contract and decoder, driver-agnostic hub (steps 1–2) | [0002](specs/0002-plugin-drivers.md) | M | — | Ready |
+| `Plugin` API, runtime and HAP wiring (steps 3–4) | [0002](specs/0002-plugin-drivers.md) | M | Steps 1–2 | Ready |
+| Plugin reconciler, TypeScript SDK and conformance, Kind e2e (steps 5–7) | [0002](specs/0002-plugin-drivers.md) | M | Steps 3–4 | Ready |
+| Plugin system docs (step 8) | [0002](specs/0002-plugin-drivers.md) | S | Steps 5–7 | Ready |
 
-This comes after bring-up because the plugin contract and its Pi constraints (`hostNetwork`, multicast, Node memory) are cheaper to get right once Oikade is actually running there.
+Plugin drivers come before schedules for two reasons. Their contract and `Device` source rule are public API that spec 0003 builds on, and those are cheapest to settle before more YAML depends on them. Room-targeted automations ride along because they're small, ready and independent. Start with either, but room automations are the quicker win.
 
-## After that: Pool on Oikade
+The manual Pi checks in specs 0001 and 0002 wait for Pi bring-up (see Retire Homebridge).
 
-**Goal:** the pool pump runs on an Oikade Schedule, and Homebridge is retired.
+## Next: Schedules
+
+**Goal:** anything with an on/off capability can run on a schedule, from fixed windows to a daily budget shaped by sensors.
 
 **Done when:**
 
-- Each morning, `kubectl get schedule pool-filtration` shows a target matching the water-temperature band, with blocks in off-peak and swimming hours. Credited minutes reach the target by the end of the day, and Grafana shows both.
-- Temporarily raising the frost rule's threshold turns the pump on within a minute.
-- Toggling the pump in the Home app holds it for 2 hours, and the `Pool automatic` switch pauses the schedule.
-- Homebridge no longer runs the pool.
+- In Kind, a Schedule with a single `require` window drives a faked Zigbee plug on and off at the window edges.
+- A budgeted Schedule writes `status.today` at planning time with the expected blocks. Credited `runMinutes` follow the plug's reported state.
+- A live `require` rule turns the target on within a minute of its condition, a manual toggle holds for `override.duration`, and the control Device's `/set` pauses the schedule.
+- Grafana's "Schedules" row shows target against credited minutes.
 
 | Item | Spec | Size | Depends on | Status |
 |---|---|---|---|---|
-| Schedule planner, API, validation, runner, live rules and overrides (steps 1–5) | [0003](specs/0003-schedules.md) | L | — | Accepted |
-| `Pool automatic` switch in HomeKit (step 6) | [0003](specs/0003-schedules.md) | S | 0002 steps 1–4 | Accepted |
-| Schedule docs, e2e and dashboard (step 7) | [0003](specs/0003-schedules.md) | S | Step 6 | Accepted |
-| TH Elite plugin: relay and water temperature as capabilities | needs design (a plugin on the 0002 system) | M | Plugin drivers | Not started |
+| Planner (step 1) | [0003](specs/0003-schedules.md) | M | — | Ready |
+| API and manager validation (steps 2–3) | [0003](specs/0003-schedules.md) | M | Step 1; 0002 step 3 for the `Device` source rule | Ready |
+| Runner, live rules and overrides (steps 4–5) | [0003](specs/0003-schedules.md) | L | Steps 2–3 | Ready |
+| Control Device in HomeKit (step 6) | [0003](specs/0003-schedules.md) | S | Steps 4–5; 0002 steps 1–4 | Ready |
+| Docs, e2e and dashboard (step 7) | [0003](specs/0003-schedules.md) | S | Step 6 | Ready |
 
-This comes after plugin drivers, because the pool needs the TH Elite plugin for its relay and probe, and the HomeKit switch reuses the plugin contract. Steps 1–5 of spec 0003 don't depend on anything, though, and the planner is the riskiest piece. So they're a good choice for spare evenings during Now or Next, and can be moved earlier if plugin work stalls.
+The planner has no dependencies and is the riskiest piece, so it's a good spare-evening task during Now.
+
+## After that: Retire Homebridge
+
+**Goal:** the SONOFF relays and the pool run on Oikade on the Pi, and Homebridge is uninstalled.
+
+**Done when:**
+
+- Every Pi bring-up check passes:
+  - Zigbee devices are `Resolved=True` and `Available=True` on the Pi, deployed by GitOps.
+  - The Bridge is paired, and the Home app works with the runtime scaled to zero.
+  - A namespace delete plus restore re-pairs nothing.
+- The hall and porch MINIR4 relays are Devices in Git, toggled from the Home app through the Oikade Bridge.
+- Each morning, `kubectl get schedule pool-filtration` shows a target matching the water-temperature band, and credited minutes reach it by the end of the day.
+- Homebridge is uninstalled.
+
+| Item | Spec | Size | Depends on | Status |
+|---|---|---|---|---|
+| Pi bring-up: rebuild and deploy by GitOps, pair the Bridge, declare the Zigbee devices, restore drill | — (ops, per [Pi guide](deploy-raspberry-pi.md)) | M | — | Parked |
+| Check whether zigbee2mqtt re-reports occupancy | [0001](specs/0001-room-targeted-actions.md), open question | S | Pi bring-up | Parked |
+| SONOFF MINIR4 plugin | needs design | M | Plugin drivers | Not started |
+| TH Elite plugin: relay and water temperature as capabilities | needs design | M | Plugin drivers | Not started |
+| Pool Schedule on the real pump, then remove Homebridge | [0003](specs/0003-schedules.md) | S | Schedules, TH Elite plugin, Pi bring-up | Not started |
+
+Pi bring-up is parked by choice, but it's a hard prerequisite here, because HomeKit pairing and real devices can only be checked on the Pi. The longer features pile up untested on real hardware, the more this milestone will turn up. So resume bring-up as soon as Plugin drivers is done.
 
 ## Later
 
-- **SONOFF MINIR4 plugin.** It moves the hall and porch relays off Homebridge. It needs design first: where the plugin lives, and how it gets `sonoff-lan`. It's a good first real plugin because it's a plain relay. It could move into Next once the plugin system is done.
-- **Cozytouch heater plugin.** It proves the contract with a cloud-backed family. It comes after the pool, which matters more in summer.
+- **Time triggers on Automations** (`at`, `cron`, sunset). One-off actions such as "porch light at sunset". Spec 0003 left this out of scope; it needs design-feature.
+- **Cozytouch heater plugin.** It proves the contract with a cloud-backed family. It comes after Retire Homebridge, which removes a running dependency.
 - **MQTT authentication and TLS.** The broker is cluster-internal today. Do it before anything outside the cluster connects, and give each plugin a credential scoped to its own topics.
 - **Multi-endpoint Zigbee devices and colour or colour-temperature lights.** This is add-capability work, best done when such a device is actually in the house.
 - **Built-in decoders for ESPHome and Tasmota.** Only worth it if devices get reflashed. Until then, plugins cover it.

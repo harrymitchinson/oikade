@@ -1,7 +1,7 @@
 # 0003: Schedules
 
 - **Status:** Accepted
-- **Roadmap:** Pool on Oikade (after Plugin drivers)
+- **Roadmap:** Schedules
 - **Backlog:** TASK-0003
 - **Updated:** 2026-10-18
 

@@ -4,9 +4,10 @@ title: Room-targeted automations
 status: To Do
 assignee: []
 created_date: '2026-10-18 08:19'
+updated_date: '2026-10-18 09:06'
 labels:
   - spec-0001
-milestone: m-0
+milestone: m-1
 dependencies: []
 documentation:
   - docs/specs/0001-room-targeted-actions.md
