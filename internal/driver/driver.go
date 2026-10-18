@@ -31,6 +31,8 @@ type Info struct {
 	Capabilities []string
 	Manufacturer string
 	Model        string
+	// Error is a driver-reported problem with the device, such as bad plugin parameters.
+	Error string
 }
 
 // Update is a capability changing value. Drivers only report actual changes.

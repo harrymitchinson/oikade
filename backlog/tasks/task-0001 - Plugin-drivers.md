@@ -1,10 +1,11 @@
 ---
 id: TASK-0001
 title: Plugin drivers
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-18 08:05'
-updated_date: '2026-10-18 08:19'
+updated_date: '2026-10-18 10:13'
 labels:
   - spec-0002
 milestone: m-1
