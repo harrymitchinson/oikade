@@ -168,7 +168,7 @@ While the major version is 0, the API is still settling:
 - A breaking change to the public API bumps MINOR (`v0.1.3` → `v0.2.0`). Read the release notes before upgrading.
 - Features and fixes bump PATCH (`v0.1.0` → `v0.1.1`).
 
-`1.0.0` is a deliberate decision, not something a commit triggers. The earlier date tag `2026.42.1` isn't part of this sequence; don't pin to it.
+`1.0.0` is a deliberate decision, not something a commit triggers.
 
 ## Development
 

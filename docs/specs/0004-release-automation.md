@@ -20,7 +20,7 @@ The request was "implement release-please". The underlying need is to stop relea
 
 ## Constraints
 
-- **Version format is a public surface.** Tags, image tags and anything Flux image automation matches on use semver, `vMAJOR.MINOR.PATCH` (README "Versioning"). While the major version is 0, a breaking change bumps MINOR, and features and fixes bump PATCH. The first semver release is `v0.1.0`. The old date tag `2026.42.1` sorts above every `0.x` under a Flux `semver` policy, so it has to be retired (the tag deleted, or the policy bounded to `<1.0.0`) before `v0.1.0` ships.
+- **Version format is a public surface.** Tags, image tags and anything Flux image automation matches on use semver, `vMAJOR.MINOR.PATCH` (README "Versioning"). While the major version is 0, a breaking change bumps MINOR, and features and fixes bump PATCH. The first semver release is `v0.1.0`. The old date tag `2026.42.1` would have sorted above every `0.x` under a Flux `semver` policy, so it was deleted.
 - **No Oikade runtime surfaces change.** There are no CRD, capability, metric, CEL, AID/IID or state-that-must-survive changes. The image is the one binary used by all three roles (manager, runtime, hap), so a single image per release is enough.
 - **Hardware.** The Pis are arm64. The Dockerfile already cross-compiles with `CGO_ENABLED=0` and `TARGETARCH`, so a buildx build on an amd64 runner doesn't need QEMU for the Go stage. amd64 is still worth shipping for Kind. The Makefile's default `PLATFORMS` also includes s390x and ppc64le, which aren't needed.
 - **CI conventions.** The existing workflows (`.github/workflows/*.yml`) pin actions by SHA, default to `permissions: {}`, grant per-job permissions and set `persist-credentials: false`. Releasing needs `contents: write` (for the tag and Release) and `packages: write` (for ghcr), and nothing broader.
@@ -107,4 +107,3 @@ TODO (write-spec)
 
 - **Bake the version into the binary?** `-ldflags -X` would let `manager --version` and the startup log line report it. A `oikade_build_info{version}` metric would be a new public metric. The user decides. It doesn't block the workflow.
 - **Commit `dist/install.yaml` to `main` on release, or only attach it to the Release?** Committing means a bot push to `main`, which needs a PAT or ruleset bypass. Attaching only means Flux follows the Release asset URL or a `GitRepository` ref on the tag. This depends on how the Pi cluster's Flux is wired today. The user decides, and it blocks the write-spec Behaviour section.
-- **Retiring `2026.42.1`:** delete the Git tag (and the image tag, if one was pushed), or keep it and bound Flux policies to `<1.0.0`. It blocks the first `v0.1.0` release, not the workflow. The user decides.

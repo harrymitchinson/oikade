@@ -93,4 +93,4 @@ Pi bring-up is parked by choice, but it's a hard prerequisite here, because Home
 
 ## Done
 
-- **Oikade core**, first released as the date tag `2026.42.1` before versioning moved to semver. Device, Room, Automation, Bridge and Zigbee2MQTT. The zigbee2mqtt driver, the runtime (status, metrics, CEL automations), the HAP bridge, the Mosquitto and Grafana packaging, Kind e2e, and the Raspberry Pi guide (`3751951`…`d30535a`).
+- **Oikade core**, first tagged `2026.42.1` under the old date scheme. That tag was deleted when versioning moved to semver, and `v0.1.0` will be the first semver release. Device, Room, Automation, Bridge and Zigbee2MQTT. The zigbee2mqtt driver, the runtime (status, metrics, CEL automations), the HAP bridge, the Mosquitto and Grafana packaging, Kind e2e, and the Raspberry Pi guide (`3751951`…`d30535a`).
