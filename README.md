@@ -97,7 +97,29 @@ The condition is [CEL](https://cel.dev). It can use these variables:
 | `now` | timestamp | |
 | `tz` | string | The runtime's `--timezone`. CEL's accessors default to UTC, so write `now.getHours(tz)`. |
 
-The operator compiles every Automation and sets `Ready=False` with the reason when the condition doesn't compile, a capability is unknown or read-only, or a value has the wrong type. `status.lastTriggered` is updated at most once a minute.
+### Rooms
+
+A trigger or a `set` action can name a `room` instead of a `device`, but not both. A Device is in a room when its `roomRef` names it, so a lamp added to the room later is covered without editing the Automation.
+
+```yaml
+spec:
+  triggers:
+  - {room: hallway, capability: sensor.occupancy-detected}   # any sensor in the hallway
+  actions:
+  - set: {room: living-room, capability: light.on, value: false}   # every light in the living room
+```
+
+- **Room triggers** fire on a change from any Device in the room at the time of the change. `trigger.device` is still the Device that changed.
+- **Room actions** set every Device in the room that has reported the capability, in name order, and skip the rest. So `light.on` on a room leaves the motion sensor and the thermostat alone, and a Device that hasn't been discovered yet is skipped. Membership is read when the action runs, so a lamp added to the room during a `delay` is included in the actions after it.
+- **If some Devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`, and the runtime logs `Matched no Devices in Room` with `--log-level=debug`.
+- **Restart mode with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `delay` longer than the time your sensor holds `occupancy: true` after the last movement.
+
+The operator compiles every Automation and sets `Ready=False` with the reason:
+
+- `Invalid` when the condition doesn't compile, a capability is unknown or read-only, or a value has the wrong type.
+- `RoomNotFound` when a trigger or action names a Room that doesn't exist in the namespace. The message lists the missing Rooms. Creating them sets `Ready=True` without editing the Automation. Until then the runtime still runs the Automation, and the missing room matches nothing.
+
+`Invalid` is reported before `RoomNotFound`. `status.lastTriggered` is updated at most once a minute.
 
 ## Capabilities
 
