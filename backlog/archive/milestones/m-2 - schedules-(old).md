@@ -1,6 +1,6 @@
 ---
 id: m-2
-title: "Schedules"
+title: "Schedules (old)"
 ---
 
 ## Description

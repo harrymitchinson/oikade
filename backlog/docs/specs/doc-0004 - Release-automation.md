@@ -1,12 +1,11 @@
-# 0004: Release automation
-
-- **Status:** Accepted
-- **Roadmap:** unplanned
-- **Backlog:** DRAFT-0001
-- **Updated:** 2026-10-18
-
-<!-- design-feature fills in everything down to "Decision". write-spec fills in the rest.
-     Delete any section that really doesn't apply, and say why in one line rather than leaving it empty. -->
+---
+id: doc-0004
+title: Release automation
+type: specification
+created_date: '2026-10-18 10:56'
+updated_date: '2026-10-18 10:56'
+---
+**Decision:** accepted · **Work:** DRAFT-0001 (not committed yet)
 
 ## Problem
 
@@ -96,10 +95,6 @@ TODO (write-spec)
 TODO (write-spec)
 
 ## Docs
-
-TODO (write-spec)
-
-## Implementation plan
 
 TODO (write-spec)
 

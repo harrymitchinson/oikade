@@ -1,11 +1,6 @@
-# NNNN: <Feature name>
+**Decision:** proposed · **Work:** <DRAFT-NNNN or TASK-NNNN>
 
-- **Status:** Exploring | Proposed | Accepted | In progress | Done | Rejected | Superseded by NNNN
-- **Roadmap:** <milestone name, or "unplanned">
-- **Backlog:** <parent task or draft ID, e.g. TASK-0001>
-- **Updated:** YYYY-MM-DD
-
-<!-- design-feature fills in everything down to "Decision". write-spec fills in the rest.
+<!-- design-feature fills in everything down to "Non-goals". write-spec fills in the rest.
      Delete any section that really doesn't apply, and say why in one line rather than leaving it empty. -->
 
 ## Problem
@@ -65,12 +60,8 @@ Name the manual checks on the Pi separately, with what "pass" looks like.
 
 The README sections and tables, the samples, the Pi guide, and the "Not yet" list to update.
 
-## Implementation plan
-
-Ordered, PR-sized steps. Each one leaves `make test` green and says what it delivers.
-
-1. ...
-
 ## Open questions
 
 Each question, who answers it, and what it blocks.
+
+<!-- The implementation steps are not written here. They're the parent task's subtasks. -->

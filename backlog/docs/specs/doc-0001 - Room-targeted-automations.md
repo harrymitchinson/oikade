@@ -1,12 +1,11 @@
-# 0001: Room-targeted automations
-
-- **Status:** Accepted
-- **Roadmap:** Plugin drivers
-- **Backlog:** TASK-0002
-- **Updated:** 2026-10-18
-
-<!-- design-feature fills in everything down to "Decision". write-spec fills in the rest.
-     Delete any section that really doesn't apply, and say why in one line rather than leaving it empty. -->
+---
+id: doc-0001
+title: Room-targeted automations
+type: specification
+created_date: '2026-10-18 10:56'
+updated_date: '2026-10-18 10:56'
+---
+**Decision:** accepted · **Work:** TASK-0002
 
 ## Problem
 
@@ -253,13 +252,6 @@ Manual checks on the Pi (parked with the rest of Pi bring-up):
 - **`config/samples/home_v1alpha1_automation.yaml`**: add a `goodnight-living-room` Automation with a room action. Keep the hallway sample as it is until the Pi check.
 - **`docs/deploy-raspberry-pi.md`**: no change. It doesn't cover writing automations.
 - **"Not yet"** now points at the roadmap, so it doesn't need an edit.
-
-## Implementation plan
-
-1. **API and Compile.** Add `Room` and make `Device` optional on `Trigger` and `SetAction`, with the CEL rules, then run `make manifests generate`. Make `Compile` carry `room` into `action` and reject "neither" (`internal/engine/compile.go`). Add CEL envtest cases and `TestCompileRoom`. The runtime doesn't use rooms yet: a room trigger never matches, and a room action is a no-op.
-2. **Engine semantics.** This is the riskiest step, because it changes run results. Add `Store.Room` (`internal/hub/store.go`). Add room matching in `handle` and `matches`, and room resolution, skipping, partial-failure continuation and the empty-match log in `execute` (`internal/engine/engine.go`). Add the unit tests above and the `mqtttest` integration test.
-3. **Manager `RoomNotFound`.** Add the Room existence check, the Room watch and the RBAC marker in `automation_controller.go`, then run `make manifests`. Add envtest cases.
-4. **Docs, sample and e2e.** Update the README "Automations" section, add the `goodnight-living-room` sample, and add the Kind e2e case in `test/e2e/home_test.go`.
 
 ## Open questions
 

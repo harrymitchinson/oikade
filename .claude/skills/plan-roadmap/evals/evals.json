@@ -4,17 +4,16 @@
     {
       "id": 1,
       "prompt": "can you put together a roadmap for oikade? v1 works in kind, next i'm rebuilding the pi cluster to run it for real and pair homekit. after that i want esphome devices (a few esp32 temp sensors), scenes, mqtt auth, and eventually presence detection from phones. what order makes sense",
-      "expected_output": "docs/ROADMAP.md with Now = Pi bring-up with observable exit criteria, ordered Next/Later reflecting unlocks (auth before wider exposure, state/API protection), sizes, deps, 'needs design' flags, Not doing (Home Assistant), Done from git log.",
+      "expected_output": "Backlog milestones (Pi bring-up first) with membership set on tasks and drafts, later ideas as drafts with no milestone, and the Roadmap doc updated with Direction, ordered milestones with observable exit criteria and reasons, and Not doing (Home Assistant). No docs/ROADMAP.md and no item tables.",
       "files": [],
       "assertions": [
-        "Writes docs/ROADMAP.md",
+        "Updates the Roadmap Backlog doc (doc-0005) and Backlog milestones; writes no docs/ROADMAP.md",
         "First (Now) milestone is Pi cluster bring-up and HomeKit pairing",
         "Milestones have observable exit criteria (checkable on the Pi/Grafana), not vague goals",
         "Orders MQTT auth before or alongside adding ESPHome devices, with a stated reason",
-        "Items have sizes and dependencies",
-        "Flags items needing design/spec (e.g. scenes, presence, ESPHome driver)",
+        "Expresses order between items as Backlog dependencies, not tables in the doc",
+        "Creates drafts for items needing design (e.g. scenes, presence, ESPHome driver) and recommends design-feature for them",
         "Has an explicit 'Not doing' list including Home Assistant",
-        "Records shipped work in a Done section based on git history",
         "Does not invent calendar dates"
       ]
     }
