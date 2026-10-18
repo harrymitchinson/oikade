@@ -26,9 +26,11 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
@@ -57,6 +59,7 @@ type Hub struct {
 
 // instance is a running driver instance.
 type instance interface {
+	Start(ctx context.Context) error
 	Set(ctx context.Context, dev types.NamespacedName, name string, value any) error
 	// SetDevices replaces the declared devices, keyed by the driver's device id.
 	SetDevices(declared map[string]types.NamespacedName)
@@ -112,23 +115,17 @@ func (h *Hub) reconcileZigbee2MQTT(ctx context.Context, req ctrl.Request) (ctrl.
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	inst := h.ensure(key, func(i instance) bool {
-		zi, ok := i.(*zigbee2mqtt.Instance)
-		return ok && zi.BaseTopic == z.Topic()
+	// The store must know the devices before the driver reports on them.
+	h.Store.SetDevices(key, metas)
+	h.ensure(key, declared, func(i instance) bool {
+		// The key carries the driver, so the instance is a Zigbee2MQTT one.
+		return i.(*zigbee2mqtt.Instance).BaseTopic == z.Topic()
 	}, func() instance {
-		inst := &zigbee2mqtt.Instance{
+		return &zigbee2mqtt.Instance{
 			Key: req.NamespacedName, BaseTopic: z.Topic(), Bus: h.Bus, Sink: h.Store, Now: h.Now,
 			Log: logf.FromContext(h.ctx).WithValues("instance", req.NamespacedName),
 		}
-		if err := inst.Start(h.ctx); err != nil {
-			// The subscription is restored on reconnect; keep the instance.
-			logf.FromContext(h.ctx).Error(err, "Failed to subscribe to Zigbee2MQTT topics", "instance", req.NamespacedName)
-		}
-		return inst
 	})
-	// The store must know the devices before the driver reports on them.
-	h.Store.SetDevices(key, metas)
-	inst.SetDevices(declared)
 	return ctrl.Result{}, nil
 }
 
@@ -148,23 +145,15 @@ func (h *Hub) reconcilePlugin(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	inst := h.ensure(key, func(i instance) bool {
-		pi, ok := i.(*plugin.Instance)
-		return ok && pi.Root == p.Topic()
-	}, func() instance {
+	h.Store.SetDevices(key, metas)
+	// The topic root follows from the key, so a running instance is always current.
+	h.ensure(key, declared, nil, func() instance {
 		// The decoder logs the plugin key itself.
-		inst := &plugin.Instance{
+		return &plugin.Instance{
 			Key: req.NamespacedName, Root: p.Topic(), Bus: h.Bus, Sink: h.Store, Now: h.Now,
 			Log: logf.FromContext(h.ctx),
 		}
-		if err := inst.Start(h.ctx); err != nil {
-			// The subscription is restored on reconnect; keep the instance.
-			logf.FromContext(h.ctx).Error(err, "Failed to subscribe to plugin topics", "plugin", req.NamespacedName)
-		}
-		return inst
 	})
-	h.Store.SetDevices(key, metas)
-	inst.SetDevices(declared)
 	return ctrl.Result{}, nil
 }
 
@@ -221,41 +210,71 @@ func metaFor(d *homev1alpha1.Device, instance driver.InstanceKey) Meta {
 	return m
 }
 
-// ensure returns the running instance for key. An instance that current rejects, such as one
-// whose topic changed, is stopped and replaced by start.
-func (h *Hub) ensure(key driver.InstanceKey, current func(instance) bool, start func() instance) instance {
+// subscribeTimeout bounds the wait for the broker to acknowledge a driver's subscription.
+const subscribeTimeout = 10 * time.Second
+
+// ensure keeps an instance running for key with the declared devices. An instance that current
+// rejects, such as one whose topic changed, is stopped and replaced by a new one from create; a
+// nil current keeps any running instance.
+//
+// Start and Stop wait on the broker, so they run outside h.mu, which Set and PluginStats take. A
+// new instance gets its devices before Set can reach it. Reconciles of one key never overlap, so
+// nothing else touches key's slot meanwhile.
+func (h *Hub) ensure(key driver.InstanceKey, declared map[string]types.NamespacedName,
+	current func(instance) bool, create func() instance,
+) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if inst := h.instances[key]; inst != nil {
-		if current(inst) {
-			return inst
-		}
-		inst.Stop()
-		delete(h.instances, key)
+	old := h.instances[key]
+	if old != nil && (current == nil || current(old)) {
+		h.mu.Unlock()
+		old.SetDevices(declared)
+		return
 	}
-	inst := start()
+	inst := create()
+	inst.SetDevices(declared)
 	h.instances[key] = inst
-	return inst
+	h.mu.Unlock()
+
+	if old != nil {
+		old.Stop()
+	}
+	ctx, cancel := context.WithTimeout(h.ctx, subscribeTimeout)
+	defer cancel()
+	if err := inst.Start(ctx); err != nil {
+		// The handler stays registered and the subscription is restored on reconnect; keep the instance.
+		logf.FromContext(h.ctx).Error(err, "Failed to subscribe to driver topics",
+			"driver", key.Driver, "instance", key.NamespacedName)
+	}
 }
 
+// stop stops and removes key's instance. Like ensure, it waits on the broker outside h.mu.
 func (h *Hub) stop(key driver.InstanceKey) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if inst := h.instances[key]; inst != nil {
+	inst := h.instances[key]
+	delete(h.instances, key)
+	h.mu.Unlock()
+	if inst != nil {
 		inst.Stop()
-		delete(h.instances, key)
 	}
 }
 
 // PluginStats returns the decoder's view of every running Plugin.
 func (h *Hub) PluginStats() map[types.NamespacedName]plugin.Stats {
+	type running struct {
+		key  types.NamespacedName
+		inst *plugin.Instance
+	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	out := map[types.NamespacedName]plugin.Stats{}
+	var plugins []running
 	for key, inst := range h.instances {
 		if p, ok := inst.(*plugin.Instance); ok {
-			out[key.NamespacedName] = p.Stats()
+			plugins = append(plugins, running{key.NamespacedName, p})
 		}
+	}
+	h.mu.Unlock()
+	out := make(map[types.NamespacedName]plugin.Stats, len(plugins))
+	for _, p := range plugins {
+		out[p.key] = p.inst.Stats()
 	}
 	return out
 }
@@ -268,16 +287,19 @@ func (h *Hub) SetupWithManager(ctx context.Context, mgr ctrl.Manager, name strin
 	if h.Now == nil {
 		h.Now = time.Now
 	}
+	// Status writes, the hub's own included, change no generation and need no reconcile.
+	// GenerationChangedPredicate passes creates and deletes.
+	specChanged := builder.WithPredicates(predicate.GenerationChangedPredicate{})
 	if err := ctrl.NewControllerManagedBy(mgr).
-		For(&zigbeev1alpha1.Zigbee2MQTT{}).
-		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(zigbee2mqttForDevice)).
+		For(&zigbeev1alpha1.Zigbee2MQTT{}, specChanged).
+		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(zigbee2mqttForDevice), specChanged).
 		Named(name).
 		Complete(reconcile.Func(h.reconcileZigbee2MQTT)); err != nil {
 		return err
 	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&pluginsv1alpha1.Plugin{}).
-		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(pluginForDevice)).
+		For(&pluginsv1alpha1.Plugin{}, specChanged).
+		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(pluginForDevice), specChanged).
 		Named(name + "-plugin").
 		Complete(reconcile.Func(h.reconcilePlugin))
 }
