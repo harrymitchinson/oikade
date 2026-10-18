@@ -18,9 +18,10 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
  drivers                           bus                        consumers
  ┌──────────────┐                                      ┌──────────────────────┐
  │ zigbee2mqtt  │◀──────▶  Mosquitto (MQTT)  ◀────────▶│ runtime              │ → Device status, /metrics, automations
- │ plugins      │◀──┘                              └──▶│ HAP bridge (per      │ → the Home app and Siri
- └──────────────┘                                      │   Bridge)            │
-        ▲                                              └──────────────────────┘
+ ├──────────────┤             ▲                    └──▶│ HAP bridge (per      │ → the Home app and Siri
+ │ plugins      │◀────────────┘                        │   Bridge)            │
+ └──────────────┘                                      └──────────────────────┘
+        ▲
         └── operator: renders configuration.yaml and devices.json from Devices
 ```
 
@@ -149,7 +150,7 @@ apiVersion: plugins.oikade.dev/v1alpha1
 kind: Plugin
 metadata: {name: sonoff}
 spec:
-  image: ghcr.io/harrymitchinson/oikade-plugin-sonoff:v0.1.0
+  image: ghcr.io/harrymitchinson/oikade-plugin-sonoff:v0.1.0   # illustrative: plugins/example-switch is the only plugin so far
   hostNetwork: true              # for plugins that need mDNS or multicast
   secretRef: {name: sonoff-keys} # mounted at /etc/oikade/secrets, one key per device id
 ---
@@ -164,14 +165,14 @@ spec:
     parameters: {capability: light.on}   # passed through; the plugin validates them
 ```
 
-The operator runs each Plugin as a one-replica Deployment `<plugin>-plugin`, and writes the Devices declared for it to `devices.json` in the Secret `<plugin>-plugin-config`. A Device change, or a change to the `secretRef` Secret, restarts the pod. Plugins are trusted images you build: they get no service account token and run as non-root with a read-only root filesystem.
+The operator runs each Plugin as a one-replica Deployment `<plugin>-plugin`, and writes the Devices declared for it to `devices.json` in the Secret `<plugin>-plugin-config`. A change to a Device's id, name, display name, room or parameters, or to the `secretRef` Secret, restarts the pod. Plugins are trusted images you build: they get no service account token and run as non-root with a read-only root filesystem.
 
 The Plugin's `Ready` condition is `Available` once the pod runs, or `False` with one of these reasons:
 
 - `Progressing`: the pod isn't available yet
 - `SecretNotFound`: the `secretRef` Secret doesn't exist. The plugin still runs and reports an error for each device that needs a key.
 - `DuplicateDevice`: two Devices claim the same `id`. The first by name wins.
-- `NameConflict`: `<plugin>-plugin` or `<plugin>-plugin-config` exists and belongs to something else
+- `NameConflict`: `<plugin>-plugin` or `<plugin>-plugin-config` exists and belongs to something else, or `secretRef` names `<plugin>-plugin-config`
 
 A plugin reports problems with a device, such as bad parameters or a missing key, as `Resolved=False` with reason `PluginError` on the Device. Messages Oikade can't validate are dropped and counted in `oikade_plugin_rejected_messages_total`.
 

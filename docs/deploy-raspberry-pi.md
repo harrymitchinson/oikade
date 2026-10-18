@@ -303,7 +303,7 @@ make docker-buildx-plugin PLUGIN=example-switch \
   PLUGIN_PLATFORMS=linux/arm64 PLUGIN_BUILD_ARGS=--push
 ```
 
-`example-switch` simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware.
+`example-switch` simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware. It's the only plugin that ships today. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
 
 **Credentials.** A plugin that needs per-device keys reads them from a Secret named in `spec.secretRef`, with one key per device id. The operator mounts it but never creates, changes or deletes it, so it's yours to keep in Git. Encrypt it with SOPS and let Flux decrypt it:
 
@@ -332,7 +332,7 @@ spec:
   image: ghcr.io/<github-user>/oikade-plugin-sonoff:v0.1.0
   hostNetwork: true                # see below
   secretRef: {name: sonoff-keys}
-  nodeSelector: {kubernetes.io/arch: arm64}
+  nodeSelector: {oikade.dev/devices-lan: "true"}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
@@ -346,13 +346,20 @@ spec:
     parameters: {capability: light.on}   # relays report switch.on unless told otherwise
 ```
 
-**`hostNetwork`.** Plugins that find devices with mDNS or multicast, such as SONOFF LAN, must run on the host network, like the HAP pod. They then need a node on the same L2 network as the devices (step 4). Plugins that only make outbound connections, such as cloud APIs, don't need it.
+**`hostNetwork`.** Plugins that find devices with mDNS or multicast, such as SONOFF LAN, must run on the host network, like the HAP pod. They then need a node on the same L2 network as the devices, as the HAP pod does with your iPhone (step 4). Label one, and pin the plugin to it with `nodeSelector` as above:
+
+```sh
+kubectl label node pi-1 oikade.dev/devices-lan=true
+```
+
+Plugins that only make outbound connections, such as cloud APIs, don't need either.
 
 Add both files to `home/kustomization.yaml`, then check the plugin:
 
 ```sh
 kubectl -n home get plugins                     # READY True once the pod runs
-kubectl -n home get devices porch-light         # Resolved=False PluginError explains a bad parameter or missing key
+kubectl -n home get device porch-light \
+  -o jsonpath='{.status.conditions[?(@.type=="Resolved")]}'   # PluginError explains a bad parameter or missing key
 kubectl -n home logs deploy/sonoff-plugin
 ```
 
@@ -458,7 +465,8 @@ Everything in your home repo can be rebuilt from Git. These can't:
 | HomeKit identity | Secret `home/main-identity` | The Home app sees a new bridge |
 | HomeKit pairings and keys | PVC `home/main-hap` | You must re-pair, and the Home app forgets rooms, scenes and automations |
 | Zigbee database and coordinator backup | PVC `home/z2m-data` | zigbee2mqtt rebuilds what it can; devices may need re-interviewing |
-| Plugin credentials | Your `spec.secretRef` Secrets, such as `home/sonoff-keys` | The plugin reports an error for every device. If they're in Git with SOPS, only the age key needs backing up. |
+| Plugin credentials | Your `spec.secretRef` Secrets, such as `home/sonoff-keys` | The plugin reports an error for every device. If they're in Git with SOPS, they come back with Flux. |
+| SOPS age key | `age.agekey`, and Secret `flux-system/sops-age` | Nothing encrypted in Git can be decrypted. Keep `age.agekey` in a password manager. |
 
 Export the Secrets now, and again whenever you create a new Bridge or Zigbee2MQTT instance. Store them somewhere safe, such as a password manager. Don't put them in Git unencrypted.
 

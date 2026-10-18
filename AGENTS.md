@@ -72,7 +72,7 @@ make test       # Run unit tests
 
 **After editing the TypeScript workspace** (`sdk/typescript`, `plugins/*`):
 ```
-corepack yarn fix        # Auto-fix lint and formatting (only touches sdk/ and plugins/)
+corepack yarn fix        # Auto-fix lint and formatting (sdk/, plugins/ and the root vitest.config.ts)
 make test-plugins        # Install, build, format check, lint, typecheck and unit tests
 make test-conformance    # Drive plugins/example-switch through the oikade/v1 contract
 ```
