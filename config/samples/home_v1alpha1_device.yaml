@@ -32,3 +32,18 @@ spec:
   zigbee2mqtt:
     instanceRef: {name: z2m}
     ieeeAddress: "0x00158d0000000003"
+---
+# A device served by a Plugin. id is plugin-local and stable; parameters are
+# passed to the plugin unchanged.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: porch-light
+spec:
+  displayName: Porch Light
+  roomRef: {name: hallway}
+  plugin:
+    pluginRef: {name: example-switch}
+    id: porch-light-1
+    parameters:
+      capability: light.on

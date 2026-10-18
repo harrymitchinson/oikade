@@ -116,6 +116,28 @@ rules:
   - patch
   - update
 - apiGroups:
+  - plugins.oikade.dev
+  resources:
+  - plugins
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - plugins.oikade.dev
+  resources:
+  - plugins/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - plugins.oikade.dev
+  resources:
+  - plugins/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - rbac.authorization.k8s.io
   resources:
   - rolebindings
