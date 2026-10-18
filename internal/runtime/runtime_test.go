@@ -370,11 +370,13 @@ func TestHubIgnoresStatusPatches(t *testing.T) {
 		}},
 	}
 	must(t, c.Create(ctx, light))
-	// The status writer reports the device as not found; none of its patches reach the hub.
+	// The status writer reports the device as waiting for its plugin; none of its patches reach the
+	// hub. NoDriver can show briefly before the hub claims the Device, so wait for the steady state.
 	n = settled("Device create", n)
 	eventually(t, "light status", func() bool {
 		must(t, c.Get(ctx, client.ObjectKeyFromObject(light), light))
-		return meta.IsStatusConditionFalse(light.Status.Conditions, homev1alpha1.ConditionResolved)
+		resolved := meta.FindStatusCondition(light.Status.Conditions, homev1alpha1.ConditionResolved)
+		return resolved != nil && resolved.Reason == "Waiting"
 	})
 
 	patch := client.MergeFrom(light.DeepCopy())

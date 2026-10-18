@@ -121,10 +121,34 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 		t.Errorf("state from the old driver kept: %+v", snap)
 	}
 
-	// The same instance re-declaring keeps state.
+	// The same instance re-declaring keeps state, and isn't a reassignment.
 	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: false})
 	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug, Room: "porch"}})
 	if snap, _ := s.Get(light); len(snap.Values) != 1 || snap.Room != "porch" {
 		t.Errorf("state lost on re-declaration: %+v", snap)
+	}
+}
+
+type reassignments struct {
+	NopSink
+	got []types.NamespacedName
+}
+
+func (r *reassignments) Reassigned(dev types.NamespacedName) { r.got = append(r.got, dev) }
+
+func TestSetDevicesReportsReassignments(t *testing.T) {
+	r := &reassignments{}
+	s := NewStore(logr.Discard(), r)
+	name := types.NamespacedName{Namespace: "home", Name: "porch"}
+	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: name}
+	plug := driver.InstanceKey{Driver: driver.Plugin, NamespacedName: name}
+	light := types.NamespacedName{Namespace: "home", Name: "porch-light"}
+
+	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug}})                // claimed
+	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug, Room: "porch"}}) // unchanged
+	s.SetDevices(z2m, map[types.NamespacedName]Meta{light: {Instance: z2m}})                  // moved
+	s.SetDevices(z2m, nil)                                                                    // dropped
+	if want := []types.NamespacedName{light, light, light}; !slices.Equal(r.got, want) {
+		t.Errorf("Reassigned = %v, want %v", r.got, want)
 	}
 }

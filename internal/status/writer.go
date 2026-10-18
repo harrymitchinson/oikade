@@ -65,6 +65,11 @@ func (w *Writer) Availability(dev types.NamespacedName, _ bool) { w.enqueue(dev)
 // Seen implements driver.Sink.
 func (w *Writer) Seen(dev types.NamespacedName, _ time.Time) { w.enqueue(dev) }
 
+// Reassigned implements hub.Reassigner: whether a driver instance claims the Device is in its status.
+func (w *Writer) Reassigned(dev types.NamespacedName) { w.enqueue(dev) }
+
+var _ hub.Reassigner = (*Writer)(nil)
+
 // enqueue never blocks the driver. A dropped event is caught by the periodic requeue.
 func (w *Writer) enqueue(dev types.NamespacedName) {
 	obj := &homev1alpha1.Device{}
