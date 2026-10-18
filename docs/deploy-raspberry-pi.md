@@ -14,12 +14,13 @@ This guide takes you from blank Pis to a paired HomeKit bridge, Zigbee devices d
 8. [Set up a Git repo for your home](#8-set-up-a-git-repo-for-your-home)
 9. [Run Zigbee2MQTT](#9-run-zigbee2mqtt)
 10. [Pair and declare Zigbee devices](#10-pair-and-declare-zigbee-devices)
-11. [Pair the HomeKit bridge](#11-pair-the-homekit-bridge)
-12. [Add automations](#12-add-automations)
-13. [Monitoring](#13-monitoring)
-14. [Back up what Git can't rebuild](#14-back-up-what-git-cant-rebuild)
-15. [Upgrades](#15-upgrades)
-16. [Troubleshooting](#16-troubleshooting)
+11. [Run plugins](#11-run-plugins)
+12. [Pair the HomeKit bridge](#12-pair-the-homekit-bridge)
+13. [Add automations](#13-add-automations)
+14. [Monitoring](#14-monitoring)
+15. [Back up what Git can't rebuild](#15-back-up-what-git-cant-rebuild)
+16. [Upgrades](#16-upgrades)
+17. [Troubleshooting](#17-troubleshooting)
 
 ---
 
@@ -112,7 +113,7 @@ k3s ships with the `local-path` StorageClass. It's the default and it works, but
 
 You have two options:
 
-- **Keep `local-path` and take backups** as in step 14. This is fine for a single-node or small cluster.
+- **Keep `local-path` and take backups** as in step 15. This is fine for a single-node or small cluster.
 - **Use replicated storage** such as [Longhorn](https://longhorn.io). It needs `open-iscsi` on every Pi (`sudo apt install -y open-iscsi`) and adds noticeable load on a Pi 4.
 
 ## 6. Build and push the image
@@ -166,6 +167,9 @@ home-infra/
     │   ├── hallway.yaml
     │   └── kitchen.yaml
     ├── bridge.yaml
+    ├── plugins/              # step 11, if you have non-Zigbee devices
+    │   ├── sonoff.yaml
+    │   └── sonoff-keys.yaml  # encrypted with SOPS
     └── automations/
         └── hallway-motion-light.yaml
 ```
@@ -254,7 +258,7 @@ kubectl -n home get zigbee2mqtt z2m              # READY should become True
 kubectl -n home logs deploy/z2m -f               # look for "Zigbee2MQTT started"
 ```
 
-The operator generates the Zigbee network key, PAN ID and extended PAN ID once, and stores them in the `z2m-network` Secret. **Back up that Secret now** (step 14). If it's lost, every device has to be paired again.
+The operator generates the Zigbee network key, PAN ID and extended PAN ID once, and stores them in the `z2m-network` Secret. **Back up that Secret now** (step 15). If it's lost, every device has to be paired again.
 
 ## 10. Pair and declare Zigbee devices
 
@@ -290,7 +294,81 @@ The operator generates the Zigbee network key, PAN ID and extended PAN ID once, 
 
 Turn **Permit join** off again when you're done. Changes made in the Zigbee2MQTT frontend, such as renames, are overwritten from Git when the pod restarts, so make them in Git.
 
-## 11. Pair the HomeKit bridge
+## 11. Run plugins
+
+Devices that aren't Zigbee, such as SONOFF LAN relays, are served by a [plugin](../README.md#plugins): a separate pod that speaks Oikade's capabilities over MQTT. Skip this step if you only have Zigbee devices.
+
+Plugin images must be arm64. Build one from this repo, the same way as the Oikade image:
+
+```sh
+make docker-buildx-plugin PLUGIN=example-switch \
+  PLUGIN_IMG=ghcr.io/<github-user>/oikade-plugin-example-switch:v0.1.0 \
+  PLUGIN_PLATFORMS=linux/arm64 PLUGIN_BUILD_ARGS=--push
+```
+
+`example-switch` simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware. It's the only plugin that ships today. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
+
+**Credentials.** A plugin that needs per-device keys reads them from a Secret named in `spec.secretRef`, with one key per device id. The operator mounts it but never creates, changes or deletes it, so it's yours to keep in Git. Encrypt it with SOPS and let Flux decrypt it:
+
+```sh
+brew install sops age
+age-keygen -o age.agekey
+kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=age.agekey
+# Keep age.agekey somewhere safe, such as a password manager: without it the file can't be decrypted.
+
+kubectl -n home create secret generic sonoff-keys --dry-run=client -o yaml \
+  --from-literal=1000aabbcc=<lan-key> > home/plugins/sonoff-keys.yaml
+sops --encrypt --age <age-public-key> --encrypted-regex '^(data|stringData)$' \
+  --in-place home/plugins/sonoff-keys.yaml
+```
+
+Then add `decryption: {provider: sops, secretRef: {name: sops-age}}` to the `spec` of `clusters/pi/home.yaml`. The `homekit-pin` Secret from step 8 can now live in Git the same way.
+
+`home/plugins/sonoff.yaml`:
+
+```yaml
+apiVersion: plugins.oikade.dev/v1alpha1
+kind: Plugin
+metadata:
+  name: sonoff
+spec:
+  image: ghcr.io/<github-user>/oikade-plugin-sonoff:v0.1.0
+  hostNetwork: true                # see below
+  secretRef: {name: sonoff-keys}
+  nodeSelector: {oikade.dev/devices-lan: "true"}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: porch-light
+spec:
+  roomRef: {name: hallway}
+  plugin:
+    pluginRef: {name: sonoff}
+    id: 1000aabbcc
+    parameters: {capability: light.on}   # relays report switch.on unless told otherwise
+```
+
+**`hostNetwork`.** Plugins that find devices with mDNS or multicast, such as SONOFF LAN, must run on the host network, like the HAP pod. They then need a node on the same L2 network as the devices, as the HAP pod does with your iPhone (step 4). Label one, and pin the plugin to it with `nodeSelector` as above:
+
+```sh
+kubectl label node pi-1 oikade.dev/devices-lan=true
+```
+
+Plugins that only make outbound connections, such as cloud APIs, don't need either.
+
+Add `plugins/sonoff-keys.yaml` and `plugins/sonoff.yaml` to the `resources` in `home/kustomization.yaml`, then check the plugin:
+
+```sh
+kubectl -n home get plugins                     # READY True once the pod runs
+kubectl -n home get device porch-light \
+  -o jsonpath='{.status.conditions[?(@.type=="Resolved")]}'   # PluginError explains a bad parameter or missing key
+kubectl -n home logs deploy/sonoff-plugin
+```
+
+`oikade_plugin_up{plugin="sonoff"}` is 1 while the plugin is connected. If it crashes, the broker marks it offline and its devices show "No Response" in HomeKit until Kubernetes restarts it.
+
+## 12. Pair the HomeKit bridge
 
 `home/bridge.yaml`:
 
@@ -332,7 +410,7 @@ From now on:
 - **Accessory IDs never change**, so rooms, scenes and favourites survive restarts, and even deleting and re-creating a Device.
 - **Restarting the HAP pod** (`kubectl -n home rollout restart deploy/main-hap`) keeps the pairing.
 
-## 12. Add automations
+## 13. Add automations
 
 `home/automations/hallway-motion-light.yaml`:
 
@@ -358,7 +436,7 @@ kubectl -n home get automations     # READY False explains what's wrong with the
 
 The README describes the CEL variables and the capability names.
 
-## 13. Monitoring
+## 14. Monitoring
 
 Install the kube-prometheus-stack chart. Both `--set` flags matter: without the first, Prometheus ignores Oikade's ServiceMonitor; the second makes sure Grafana's dashboard sidecar also looks in `oikade-system`.
 
@@ -380,7 +458,7 @@ kubectl -n monitoring port-forward svc/kps-grafana 3000:80
 
 The **Oikade home** dashboard shows temperature and humidity per room, light and door timelines, motion events, battery levels, availability and automation runs. On a Pi 4, consider a Prometheus memory limit and an SSD for the Prometheus PVC.
 
-## 14. Back up what Git can't rebuild
+## 15. Back up what Git can't rebuild
 
 Everything in your home repo can be rebuilt from Git. These can't:
 
@@ -390,11 +468,14 @@ Everything in your home repo can be rebuilt from Git. These can't:
 | HomeKit identity | Secret `home/main-identity` | The Home app sees a new bridge |
 | HomeKit pairings and keys | PVC `home/main-hap` | You must re-pair, and the Home app forgets rooms, scenes and automations |
 | Zigbee database and coordinator backup | PVC `home/z2m-data` | zigbee2mqtt rebuilds what it can; devices may need re-interviewing |
+| Plugin credentials | Your `spec.secretRef` Secrets, such as `home/sonoff-keys` | The plugin reports an error for every device. If they're in Git with SOPS, they come back with Flux. |
+| SOPS age key | `age.agekey`, and Secret `flux-system/sops-age` | Nothing encrypted in Git can be decrypted. Keep `age.agekey` in a password manager. |
 
 Export the Secrets now, and again whenever you create a new Bridge or Zigbee2MQTT instance. Store them somewhere safe, such as a password manager. Don't put them in Git unencrypted.
 
 ```sh
 kubectl -n home get secret z2m-network main-identity -o yaml > oikade-secrets-backup.yaml
+kubectl -n flux-system get secret sops-age -o yaml >> oikade-secrets-backup.yaml   # if you use SOPS
 ```
 
 For the PVCs on `local-path`, copy the directories off the Pi they live on. Find which Pi holds each one, then list its directories, which are named `pvc-<uid>_<namespace>_<claim>`:
@@ -406,9 +487,9 @@ ssh pi-1 sudo ls /var/lib/rancher/k3s/storage/        # e.g. pvc-3f2..._home_mai
 
 Copy them to another machine from a nightly cron, e.g. `rsync -a --rsync-path="sudo rsync" pi-1:/var/lib/rancher/k3s/storage/pvc-3f2..._home_main-hap/ backups/main-hap/`. If you use Longhorn, use its scheduled backups to NFS or S3 instead.
 
-**To restore:** apply the Secrets *before* the Bridge and Zigbee2MQTT objects. The operator never overwrites existing ones, so it picks them up.
+**To restore:** apply the Secrets *before* the Bridge and Zigbee2MQTT objects. The operator never overwrites existing ones, so it picks them up. If you use SOPS, create `flux-system/sops-age` before Flux reconciles `home`: until it exists, Flux can't decrypt anything in the tree and applies none of it.
 
-## 15. Upgrades
+## 16. Upgrades
 
 ```sh
 make docker-buildx IMG=ghcr.io/<github-user>/oikade:v0.2.0 PLATFORMS=linux/arm64
@@ -420,14 +501,18 @@ The operator and runtime roll over. HAP pods pick up the new image the next time
 
 To upgrade Zigbee2MQTT, set `spec.image` on the Zigbee2MQTT object, or change the operator's `--zigbee2mqtt-image` default.
 
-## 16. Troubleshooting
+Plugins are versioned separately. Build and push the new plugin image (step 11), then change `spec.image` on the Plugin. Upgrading Oikade doesn't touch them.
+
+## 17. Troubleshooting
 
 | Symptom | Check |
 |---|---|
 | Bridge doesn't appear in the Home app | `dns-sd -B _hap._tcp` from a Mac on the same network. If it's missing: is the HAP pod on the labelled node (`kubectl -n home get pod -o wide`)? Same subnet as the iPhone? Is UDP 5353 open? Does the router or access point block multicast between Wi-Fi and Ethernet? |
 | "Accessory not found" or pairing fails | `kubectl -n home logs deploy/main-hap`. A port conflict on the node shows up there. |
 | Device stays `Resolved=False` (`NotPaired`) | The IEEE address in Git doesn't match the paired device. Compare with the Zigbee2MQTT frontend. |
-| Device stays `Resolved=False` (`NoDriver`) | `instanceRef` names a Zigbee2MQTT that doesn't exist, or another Device already claims that IEEE address (see the Zigbee2MQTT `Ready` condition). |
+| Device stays `Resolved=False` (`NoDriver`) | `instanceRef` or `pluginRef` names a Zigbee2MQTT or Plugin that doesn't exist, or another Device already claims that IEEE address or plugin id (see the Zigbee2MQTT or Plugin `Ready` condition). |
+| Device stays `Resolved=False` (`PluginError`) | The plugin rejected the Device's `parameters` or has no key for its id. The condition message says which. |
+| Plugin isn't `READY` | `kubectl -n home get plugin <name> -o yaml` shows the reason: `SecretNotFound`, `DuplicateDevice`, `NameConflict`, or `Progressing` while the pod starts. Check `kubectl -n home logs deploy/<name>-plugin`. |
 | A capability is missing | Oikade doesn't map that expose yet, e.g. colour, colour temperature or multi-gang switches (`state_l2`). |
 | HomeKit shows "No Response" | Is the device `Available=False` in `kubectl get devices`? Does `kubectl -n home logs deploy/main-hap` show `Failed to set capability`? |
 | Automation never fires | Is it `READY` in `kubectl get automations`? `oikade_automation_runs_total` shows whether it's hitting `condition_false`. Check `--timezone` if the condition uses the time. |

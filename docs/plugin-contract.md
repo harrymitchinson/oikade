@@ -1,6 +1,6 @@
 # The oikade/v1 plugin contract
 
-A plugin is a separate process that connects a device family Oikade doesn't speak natively (SONOFF LAN relays, Cozytouch heaters) to the MQTT bus. It speaks **canonical capabilities**, not vendor payloads, so Oikade needs no code for the family. The design is in [spec 0002](specs/0002-plugin-drivers.md).
+A plugin is a separate process that connects a device family Oikade doesn't speak natively (SONOFF LAN relays, Cozytouch heaters) to the MQTT bus. It speaks **canonical capabilities**, not vendor payloads, so Oikade needs no code for the family. The design is in [doc-0002](../backlog/docs/specs/doc-0002%20-%20Plugin-drivers.md).
 
 This page is the contract. A plugin that follows it works with Oikade's runtime and HomeKit bridges unchanged.
 

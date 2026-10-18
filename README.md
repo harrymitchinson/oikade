@@ -18,9 +18,11 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
  drivers                           bus                        consumers
  ┌──────────────┐                                      ┌──────────────────────┐
  │ zigbee2mqtt  │◀──────▶  Mosquitto (MQTT)  ◀────────▶│ runtime              │ → Device status, /metrics, automations
- └──────────────┘                                  └──▶│ HAP bridge (per      │ → the Home app and Siri
-        ▲                                              │   Bridge)            │
-        └── operator: renders configuration.yaml from Devices ─────────────────┘
+ ├──────────────┤             ▲                    └──▶│ HAP bridge (per      │ → the Home app and Siri
+ │ plugins      │◀────────────┘                        │   Bridge)            │
+ └──────────────┘                                      └──────────────────────┘
+        ▲
+        └── operator: renders configuration.yaml and devices.json from Devices
 ```
 
 | Kind | Group | Purpose |
@@ -29,6 +31,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 | `Room` | `home.oikade.dev` | Labels metrics and groups devices. HomeKit can't receive rooms from a bridge, so you also assign them once in the Home app. |
 | `Automation` | `home.oikade.dev` | Triggers, a CEL condition and actions (`set`, `delay`). |
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
+| `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device family Oikade doesn't speak natively. See [Plugins](#plugins). |
 | `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
 
 Illustrative output:
@@ -138,6 +141,43 @@ Drivers translate to and from a protocol-neutral set of capabilities. HomeKit, m
 | `battery.level` | % | | Battery, with a low-battery warning below 20% |
 | `link.quality` | 0–255 | | (metrics only) |
 
+## Plugins
+
+A plugin connects a device family that isn't Zigbee, such as SONOFF LAN relays or Cozytouch heaters, without changing Oikade. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up in HomeKit, Grafana and automations like Zigbee ones, and keep working in HomeKit while the runtime is down.
+
+```yaml
+apiVersion: plugins.oikade.dev/v1alpha1
+kind: Plugin
+metadata: {name: sonoff}
+spec:
+  image: ghcr.io/harrymitchinson/oikade-plugin-sonoff:v0.1.0   # illustrative: plugins/example-switch is the only plugin so far
+  hostNetwork: true              # for plugins that need mDNS or multicast
+  secretRef: {name: sonoff-keys} # mounted at /etc/oikade/secrets, one key per device id
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: porch-light}
+spec:
+  roomRef: {name: porch}
+  plugin:
+    pluginRef: {name: sonoff}
+    id: 1000aabbcc               # plugin-local and stable
+    parameters: {capability: light.on}   # passed through; the plugin validates them
+```
+
+The operator runs each Plugin as a one-replica Deployment `<plugin>-plugin`, and writes the Devices declared for it to `devices.json` in the Secret `<plugin>-plugin-config`. Any change to the Devices it serves restarts the pod: adding or removing one, or changing its id, name, display name, room or parameters. So does a change to the `secretRef` Secret. Plugins are trusted images you build: they get no service account token and run as non-root with a read-only root filesystem.
+
+The Plugin's `Ready` condition is `True` with reason `Available` once the pod runs and nothing below applies. Otherwise it's `False` with one of these reasons, and `DuplicateDevice`, `SecretNotFound` and `NameConflict` show even while the pod is running:
+
+- `Progressing`: the pod isn't available yet
+- `SecretNotFound`: the `secretRef` Secret doesn't exist. The plugin still runs and reports an error for each device that needs a key.
+- `DuplicateDevice`: two Devices claim the same `id`. The first by name wins.
+- `NameConflict`: `<plugin>-plugin` or `<plugin>-plugin-config` exists and belongs to something else, or `secretRef` names `<plugin>-plugin-config`
+
+A plugin reports problems with a device, such as bad parameters or a missing key, as `Resolved=False` with reason `PluginError` on the Device. Messages Oikade can't validate are dropped and counted in `oikade_plugin_rejected_messages_total`.
+
+To write a plugin in TypeScript, use the [SDK](sdk/typescript). [`plugins/example-switch`](plugins/example-switch) is a complete example with simulated relays. `make docker-buildx-plugin PLUGIN=<dir>` builds a plugin image for arm64 and amd64, and `make test-conformance` checks a plugin against the contract.
+
 ## Metrics
 
 The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/default` for a ServiceMonitor, and `../grafana` for the "Oikade home" dashboard.
@@ -163,6 +203,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - **Accessory IDs** live in `Bridge.status.accessories`. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
 - **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git. Changes made in its frontend don't survive a restart.
+- **A plugin's credentials** (the `spec.secretRef` Secret, such as LAN keys) belong to you. The operator never creates, changes or deletes them, so keep them in Git, encrypted with SOPS or similar. Everything else a plugin needs is rendered from Git, and plugins keep no state of their own.
 
 To really forget a Bridge or Zigbee2MQTT instance, delete those objects yourself:
 
@@ -175,6 +216,7 @@ kubectl delete secret,pvc -l zigbee.oikade.dev/instance=<name>
 
 - Mosquitto allows anonymous access inside the cluster. Anything that can reach it can control your devices. Restrict it with a NetworkPolicy, or bring your own broker and set `--mqtt-url` on the operator, runtime and Bridge pods.
 - HAP pods use the host network, run as non-root and only have read access to the API. Each one can read only its own setup code and identity Secret.
+- Plugins publish on the same anonymous broker, so anything on the cluster network could also publish as a plugin, just as it could as Zigbee2MQTT.
 
 ## Logging
 
@@ -199,8 +241,13 @@ While the major version is 0, the API is still settling:
 ```sh
 make test          # unit tests, envtest, and an in-process MQTT broker for the runtime integration test
 make lint
-make test-e2e      # Kind: fakes Zigbee2MQTT over MQTT and checks status, automations, metrics and the HAP pod
+make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, automations, metrics and the HAP pod
+
+make test-plugins       # the TypeScript workspace (sdk/typescript, plugins/): format, lint, typecheck, unit tests
+make test-conformance   # drives plugins/example-switch through the plugin contract
 ```
+
+The TypeScript workspace needs Node 22 or 24. Yarn comes from `packageManager` through corepack.
 
 ## Not yet
 
