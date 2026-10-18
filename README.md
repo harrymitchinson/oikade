@@ -165,9 +165,9 @@ spec:
     parameters: {capability: light.on}   # passed through; the plugin validates them
 ```
 
-The operator runs each Plugin as a one-replica Deployment `<plugin>-plugin`, and writes the Devices declared for it to `devices.json` in the Secret `<plugin>-plugin-config`. A change to a Device's id, name, display name, room or parameters, or to the `secretRef` Secret, restarts the pod. Plugins are trusted images you build: they get no service account token and run as non-root with a read-only root filesystem.
+The operator runs each Plugin as a one-replica Deployment `<plugin>-plugin`, and writes the Devices declared for it to `devices.json` in the Secret `<plugin>-plugin-config`. Any change to the Devices it serves restarts the pod: adding or removing one, or changing its id, name, display name, room or parameters. So does a change to the `secretRef` Secret. Plugins are trusted images you build: they get no service account token and run as non-root with a read-only root filesystem.
 
-The Plugin's `Ready` condition is `Available` once the pod runs, or `False` with one of these reasons:
+The Plugin's `Ready` condition is `True` with reason `Available` once the pod runs and nothing below applies. Otherwise it's `False` with one of these reasons, and `DuplicateDevice`, `SecretNotFound` and `NameConflict` show even while the pod is running:
 
 - `Progressing`: the pod isn't available yet
 - `SecretNotFound`: the `secretRef` Secret doesn't exist. The plugin still runs and reports an error for each device that needs a key.

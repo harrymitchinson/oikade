@@ -167,6 +167,9 @@ home-infra/
     │   ├── hallway.yaml
     │   └── kitchen.yaml
     ├── bridge.yaml
+    ├── plugins/              # step 11, if you have non-Zigbee devices
+    │   ├── sonoff.yaml
+    │   └── sonoff-keys.yaml  # encrypted with SOPS
     └── automations/
         └── hallway-motion-light.yaml
 ```
@@ -319,7 +322,7 @@ sops --encrypt --age <age-public-key> --encrypted-regex '^(data|stringData)$' \
   --in-place home/plugins/sonoff-keys.yaml
 ```
 
-Then add `decryption: {provider: sops, secretRef: {name: sops-age}}` to the `spec` of `clusters/pi/home.yaml`.
+Then add `decryption: {provider: sops, secretRef: {name: sops-age}}` to the `spec` of `clusters/pi/home.yaml`. The `homekit-pin` Secret from step 8 can now live in Git the same way.
 
 `home/plugins/sonoff.yaml`:
 
@@ -339,7 +342,7 @@ kind: Device
 metadata:
   name: porch-light
 spec:
-  roomRef: {name: porch}
+  roomRef: {name: hallway}
   plugin:
     pluginRef: {name: sonoff}
     id: 1000aabbcc
@@ -354,7 +357,7 @@ kubectl label node pi-1 oikade.dev/devices-lan=true
 
 Plugins that only make outbound connections, such as cloud APIs, don't need either.
 
-Add both files to `home/kustomization.yaml`, then check the plugin:
+Add `plugins/sonoff-keys.yaml` and `plugins/sonoff.yaml` to the `resources` in `home/kustomization.yaml`, then check the plugin:
 
 ```sh
 kubectl -n home get plugins                     # READY True once the pod runs
@@ -472,6 +475,7 @@ Export the Secrets now, and again whenever you create a new Bridge or Zigbee2MQT
 
 ```sh
 kubectl -n home get secret z2m-network main-identity -o yaml > oikade-secrets-backup.yaml
+kubectl -n flux-system get secret sops-age -o yaml >> oikade-secrets-backup.yaml   # if you use SOPS
 ```
 
 For the PVCs on `local-path`, copy the directories off the Pi they live on. Find which Pi holds each one, then list its directories, which are named `pvc-<uid>_<namespace>_<claim>`:
@@ -483,7 +487,7 @@ ssh pi-1 sudo ls /var/lib/rancher/k3s/storage/        # e.g. pvc-3f2..._home_mai
 
 Copy them to another machine from a nightly cron, e.g. `rsync -a --rsync-path="sudo rsync" pi-1:/var/lib/rancher/k3s/storage/pvc-3f2..._home_main-hap/ backups/main-hap/`. If you use Longhorn, use its scheduled backups to NFS or S3 instead.
 
-**To restore:** apply the Secrets *before* the Bridge and Zigbee2MQTT objects. The operator never overwrites existing ones, so it picks them up.
+**To restore:** apply the Secrets *before* the Bridge and Zigbee2MQTT objects. The operator never overwrites existing ones, so it picks them up. If you use SOPS, create `flux-system/sops-age` before Flux reconciles `home`: until it exists, Flux can't decrypt anything in the tree and applies none of it.
 
 ## 16. Upgrades
 
@@ -497,6 +501,8 @@ The operator and runtime roll over. HAP pods pick up the new image the next time
 
 To upgrade Zigbee2MQTT, set `spec.image` on the Zigbee2MQTT object, or change the operator's `--zigbee2mqtt-image` default.
 
+Plugins are versioned separately. Build and push the new plugin image (step 11), then change `spec.image` on the Plugin. Upgrading Oikade doesn't touch them.
+
 ## 17. Troubleshooting
 
 | Symptom | Check |
@@ -504,7 +510,7 @@ To upgrade Zigbee2MQTT, set `spec.image` on the Zigbee2MQTT object, or change th
 | Bridge doesn't appear in the Home app | `dns-sd -B _hap._tcp` from a Mac on the same network. If it's missing: is the HAP pod on the labelled node (`kubectl -n home get pod -o wide`)? Same subnet as the iPhone? Is UDP 5353 open? Does the router or access point block multicast between Wi-Fi and Ethernet? |
 | "Accessory not found" or pairing fails | `kubectl -n home logs deploy/main-hap`. A port conflict on the node shows up there. |
 | Device stays `Resolved=False` (`NotPaired`) | The IEEE address in Git doesn't match the paired device. Compare with the Zigbee2MQTT frontend. |
-| Device stays `Resolved=False` (`NoDriver`) | `instanceRef` names a Zigbee2MQTT that doesn't exist, or another Device already claims that IEEE address (see the Zigbee2MQTT `Ready` condition). |
+| Device stays `Resolved=False` (`NoDriver`) | `instanceRef` or `pluginRef` names a Zigbee2MQTT or Plugin that doesn't exist, or another Device already claims that IEEE address or plugin id (see the Zigbee2MQTT or Plugin `Ready` condition). |
 | Device stays `Resolved=False` (`PluginError`) | The plugin rejected the Device's `parameters` or has no key for its id. The condition message says which. |
 | Plugin isn't `READY` | `kubectl -n home get plugin <name> -o yaml` shows the reason: `SecretNotFound`, `DuplicateDevice`, `NameConflict`, or `Progressing` while the pod starts. Check `kubectl -n home logs deploy/<name>-plugin`. |
 | A capability is missing | Oikade doesn't map that expose yet, e.g. colour, colour temperature or multi-gang switches (`state_l2`). |
