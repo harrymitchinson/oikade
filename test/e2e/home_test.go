@@ -20,7 +20,9 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,6 +91,35 @@ spec:
   pinSecretRef: {name: homekit-pin, key: pin}
 `
 
+// secondLamp is a copy of the fixture's IKEA lamp, so the hallway has two lights.
+const secondLamp = "0x000b57fffe000006"
+
+// roomManifests adds the second hallway lamp, puts the front door in a porch, and turns off every
+// hallway light when the porch door opens. The porch Room is created later.
+const roomManifests = `
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: hallway-lamp}
+spec:
+  roomRef: {name: hallway}
+  zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "` + secondLamp + `"}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: front-door}
+spec:
+  roomRef: {name: porch}
+  zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x00158d0000000003"}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Automation
+metadata: {name: hallway-off}
+spec:
+  triggers: [{room: porch, capability: sensor.contact-open}]
+  actions:
+  - set: {room: hallway, capability: light.on, value: false}
+`
+
 func kubectl(args ...string) (string, error) {
 	return utils.Run(exec.Command("kubectl", append([]string{"-n", homeNamespace}, args...)...))
 }
@@ -104,6 +135,38 @@ func publish(topic, payload string, retain bool) {
 	}
 	_, err := mqttExec(args...)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+}
+
+func apply(manifests string) {
+	cmd := exec.Command("kubectl", "-n", homeNamespace, "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifests)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+}
+
+// bridgeDevices returns the driver's bridge/devices fixture on one line, with secondLamp added
+// when withSecondLamp is set.
+func bridgeDevices(withSecondLamp bool) string {
+	root, err := utils.GetProjectDir()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	raw, err := os.ReadFile(filepath.Join(root, "internal", "driver", "zigbee2mqtt", "testdata", "bridge-devices.json"))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	if !withSecondLamp {
+		return string(bytes.Join(bytes.Fields(raw), []byte(" ")))
+	}
+	var devices []map[string]any
+	ExpectWithOffset(1, json.Unmarshal(raw, &devices)).To(Succeed())
+	for _, d := range devices {
+		if d["ieee_address"] == "0x000b57fffe000001" {
+			lamp := maps.Clone(d)
+			lamp["ieee_address"], lamp["friendly_name"] = secondLamp, secondLamp
+			devices = append(devices, lamp)
+			break
+		}
+	}
+	out, err := json.Marshal(devices)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return string(out)
 }
 
 func jsonpath(kind, name, path string) func() (string, error) {
@@ -124,10 +187,7 @@ func homeScenario() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("declaring the home")
-			cmd := exec.Command("kubectl", "-n", homeNamespace, "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(homeManifests)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			apply(homeManifests)
 		})
 
 		AfterAll(func() {
@@ -160,12 +220,7 @@ func homeScenario() {
 		})
 
 		It("resolves Devices from the Zigbee2MQTT device list", func() {
-			root, err := utils.GetProjectDir()
-			Expect(err).NotTo(HaveOccurred())
-			fixture := filepath.Join(root, "internal", "driver", "zigbee2mqtt", "testdata", "bridge-devices.json")
-			devices, err := os.ReadFile(fixture)
-			Expect(err).NotTo(HaveOccurred())
-			publish("z2m/bridge/devices", string(bytes.Join(bytes.Fields(devices), []byte(" "))), true)
+			publish("z2m/bridge/devices", bridgeDevices(false), true)
 			publish("z2m/hallway-motion/availability", `{"state":"online"}`, true)
 
 			Eventually(jsonpath("device", "hallway-light", `{.status.conditions[?(@.type=="Resolved")].status}`)).
@@ -217,6 +272,42 @@ func homeScenario() {
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(out).To(ContainSubstring(`"accessories":2`))
 			}).Should(Succeed())
+		})
+
+		// This runs last: it declares more devices, which changes the bridge and undeclared counts.
+		It("turns off every light in a Room with one action", func() {
+			By("naming a Room that doesn't exist yet")
+			apply(roomManifests)
+			Eventually(jsonpath("automation", "hallway-off", `{.status.conditions[?(@.type=="Ready")].reason}`)).
+				Should(Equal("RoomNotFound"))
+			Expect(jsonpath("automation", "hallway-off", `{.status.conditions[?(@.type=="Ready")].message}`)()).
+				To(Equal("Room(s) not found: porch"))
+
+			By("creating the Room, without editing the Automation")
+			apply("apiVersion: home.oikade.dev/v1alpha1\nkind: Room\nmetadata: {name: porch}\n")
+			Eventually(jsonpath("automation", "hallway-off", `{.status.conditions[?(@.type=="Ready")].status}`)).
+				Should(Equal("True"))
+
+			By("pairing the second lamp")
+			publish("z2m/bridge/devices", bridgeDevices(true), true)
+			Eventually(jsonpath("device", "hallway-lamp", `{.status.capabilities[*].name}`)).
+				Should(Equal("light.on light.level link.quality"))
+			Eventually(jsonpath("device", "front-door", `{.status.conditions[?(@.type=="Resolved")].status}`)).
+				Should(Equal("True"))
+
+			By("listening for commands to Zigbee2MQTT")
+			var out bytes.Buffer
+			sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
+				"mosquitto_sub", "-h", mqttHost, "-t", "z2m/+/set", "-v", "-C", "2", "-W", "90")
+			sub.Stdout = &out
+			Expect(sub.Start()).To(Succeed())
+			time.Sleep(3 * time.Second) // let the subscription land before publishing
+
+			By("opening the porch door")
+			publish("z2m/front-door", `{"contact":false}`, false)
+			Expect(sub.Wait()).To(Succeed())
+			Expect(out.String()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"OFF"}`))
+			Expect(out.String()).To(ContainSubstring("z2m/" + secondLamp + `/set {"state":"OFF"}`))
 		})
 	})
 }

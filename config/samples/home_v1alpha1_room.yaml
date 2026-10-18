@@ -4,3 +4,10 @@ metadata:
   name: hallway
 spec:
   displayName: Hallway
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Room
+metadata:
+  name: living-room
+spec:
+  displayName: Living Room

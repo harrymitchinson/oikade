@@ -25,12 +25,19 @@ import (
 // ConditionReady is True when an Automation's condition compiles and its actions are valid.
 const ConditionReady = "Ready"
 
-// Trigger fires the Automation when a capability of a device changes value.
+// Trigger fires the Automation when a capability of a device, or of any device in a room, changes value.
+// +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
 type Trigger struct {
 	// device names a Device in the same namespace.
 	// +kubebuilder:validation:MinLength=1
-	// +required
-	Device string `json:"device"`
+	// +optional
+	Device string `json:"device,omitempty"`
+
+	// room names a Room in the same namespace. The trigger matches a change from any Device whose
+	// roomRef is this room at the time of the change.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Room string `json:"room,omitempty"`
 
 	// capability is the canonical capability to watch, e.g. sensor.occupancy-detected.
 	// +kubebuilder:validation:MinLength=1
@@ -38,12 +45,19 @@ type Trigger struct {
 	Capability string `json:"capability"`
 }
 
-// SetAction sets a capability on a device.
+// SetAction sets a capability on a device, or on every device in a room that has the capability.
+// +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
 type SetAction struct {
 	// device names a Device in the same namespace.
 	// +kubebuilder:validation:MinLength=1
-	// +required
-	Device string `json:"device"`
+	// +optional
+	Device string `json:"device,omitempty"`
+
+	// room names a Room in the same namespace. Every discovered Device in it that reports the capability is set,
+	// in name order.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Room string `json:"room,omitempty"`
 
 	// capability is the writable capability to set, e.g. light.level.
 	// +kubebuilder:validation:MinLength=1

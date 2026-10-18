@@ -70,15 +70,23 @@ spec:
                           description: device names a Device in the same namespace.
                           minLength: 1
                           type: string
+                        room:
+                          description: |-
+                            room names a Room in the same namespace. Every discovered Device in it that reports the capability is set,
+                            in name order.
+                          minLength: 1
+                          type: string
                         value:
                           description: value is a bool or number matching the capability's
                             kind.
                           x-kubernetes-preserve-unknown-fields: true
                       required:
                       - capability
-                      - device
                       - value
                       type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of device or room must be specified
+                        rule: has(self.device) != has(self.room)
                   type: object
                   x-kubernetes-validations:
                   - message: exactly one of set or delay must be specified
@@ -108,7 +116,7 @@ spec:
                 description: triggers are the capability changes that start the Automation.
                 items:
                   description: Trigger fires the Automation when a capability of a
-                    device changes value.
+                    device, or of any device in a room, changes value.
                   properties:
                     capability:
                       description: capability is the canonical capability to watch,
@@ -119,10 +127,18 @@ spec:
                       description: device names a Device in the same namespace.
                       minLength: 1
                       type: string
+                    room:
+                      description: |-
+                        room names a Room in the same namespace. The trigger matches a change from any Device whose
+                        roomRef is this room at the time of the change.
+                      minLength: 1
+                      type: string
                   required:
                   - capability
-                  - device
                   type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of device or room must be specified
+                    rule: has(self.device) != has(self.room)
                 maxItems: 16
                 minItems: 1
                 type: array

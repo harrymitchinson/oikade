@@ -19,6 +19,7 @@ package home
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -80,5 +81,111 @@ var _ = Describe("Automation Controller", func() {
 			},
 		})
 		Expect(err).To(MatchError(ContainSubstring("exactly one of set or delay")))
+	})
+
+	Describe("rooms", Ordered, func() {
+		// A namespace of its own, so the Room map only sees these Automations.
+		const roomNS = "rooms"
+		r := &AutomationReconciler{}
+		BeforeEach(func() {
+			r.Client, r.Scheme = k8sClient, k8sClient.Scheme()
+		})
+
+		ready := func(name string) *metav1.Condition {
+			key := types.NamespacedName{Namespace: roomNS, Name: name}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			var a homev1alpha1.Automation
+			Expect(k8sClient.Get(ctx, key, &a)).To(Succeed())
+			return meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionReady)
+		}
+		create := func(name, value string) {
+			Expect(k8sClient.Create(ctx, &homev1alpha1.Automation{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: roomNS},
+				Spec: homev1alpha1.AutomationSpec{
+					Triggers: []homev1alpha1.Trigger{
+						{Room: "livingroom", Capability: "sensor.occupancy-detected"},
+						{Device: "hallway-motion", Capability: "sensor.occupancy-detected"},
+					},
+					Actions: []homev1alpha1.Action{
+						{Set: &homev1alpha1.SetAction{Room: "livingroom", Capability: "light.on", Value: apiextensionsv1.JSON{Raw: []byte(value)}}},
+						{Set: &homev1alpha1.SetAction{Room: "kitchen", Capability: "light.on", Value: apiextensionsv1.JSON{Raw: []byte(value)}}},
+					},
+				},
+			})).To(Succeed())
+		}
+		room := func(name string) *homev1alpha1.Room {
+			return &homev1alpha1.Room{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: roomNS}}
+		}
+
+		It("reports missing Rooms until they exist", func() {
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: roomNS}})).To(Succeed())
+			create("goodnight", "false")
+
+			cond := ready("goodnight")
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("RoomNotFound"))
+			Expect(cond.Message).To(Equal("Room(s) not found: kitchen, livingroom"))
+
+			Expect(k8sClient.Create(ctx, room("kitchen"))).To(Succeed())
+			Expect(ready("goodnight").Message).To(Equal("Room(s) not found: livingroom"))
+
+			// Creating the last Room maps to the Automation, so the watch re-reconciles it unedited.
+			living := room("livingroom")
+			Expect(k8sClient.Create(ctx, living)).To(Succeed())
+			Expect(r.automationsInNamespace(ctx, living)).To(ContainElement(
+				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: roomNS, Name: "goodnight"}}))
+			cond = ready("goodnight")
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("Valid"))
+		})
+
+		It("reports Invalid before RoomNotFound", func() {
+			create("bad-and-missing", `"off"`)
+			Expect(k8sClient.Delete(ctx, room("kitchen"))).To(Succeed())
+			cond := ready("bad-and-missing")
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("Invalid"))
+		})
+
+		It("doesn't map a Room to Automations in other namespaces", func() {
+			Expect(r.automationsInNamespace(ctx, &homev1alpha1.Room{
+				ObjectMeta: metav1.ObjectMeta{Name: "livingroom", Namespace: "empty"},
+			})).To(BeEmpty())
+		})
+	})
+
+	Describe("device or room", func() {
+		create := func(name string, trigger homev1alpha1.Trigger, set homev1alpha1.SetAction) error {
+			trigger.Capability = "sensor.occupancy-detected"
+			set.Capability, set.Value = "light.on", apiextensionsv1.JSON{Raw: []byte("true")}
+			return k8sClient.Create(ctx, &homev1alpha1.Automation{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: homev1alpha1.AutomationSpec{
+					Triggers: []homev1alpha1.Trigger{trigger},
+					Actions:  []homev1alpha1.Action{{Set: &set}},
+				},
+			})
+		}
+
+		It("accepts a device or a room on triggers and set actions", func() {
+			Expect(create("device-device", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{Device: "l"})).To(Succeed())
+			Expect(create("room-room", homev1alpha1.Trigger{Room: "hallway"}, homev1alpha1.SetAction{Room: "hallway"})).To(Succeed())
+			Expect(create("device-room", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{Room: "hallway"})).To(Succeed())
+		})
+
+		It("rejects a trigger with neither or both", func() {
+			Expect(create("trigger-neither", homev1alpha1.Trigger{}, homev1alpha1.SetAction{Device: "l"})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+			Expect(create("trigger-both", homev1alpha1.Trigger{Device: "m", Room: "hallway"}, homev1alpha1.SetAction{Device: "l"})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+		})
+
+		It("rejects a set action with neither or both", func() {
+			Expect(create("set-neither", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+			Expect(create("set-both", homev1alpha1.Trigger{Device: "m"}, homev1alpha1.SetAction{Device: "l", Room: "hallway"})).
+				To(MatchError(ContainSubstring("exactly one of device or room")))
+		})
 	})
 })
