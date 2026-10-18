@@ -1,0 +1,63 @@
+{
+  "skill_name": "add-capability",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "my ikea TRADFRI bulbs (LED1545G12) support colour temperature, z2m exposes color_temp as a light feature in mireds, value_min 250 value_max 454. can you add support so i can set it from homekit and automations",
+      "expected_output": "A writable colour-temperature capability with a protocol-neutral unit, z2m binding with value_min/value_max parsed, HAP ColorTemperature characteristic appended to the Lightbulb service, tests, README row.",
+      "files": [],
+      "assertions": [
+        "Registry: new exported const with a doc comment stating unit (or polarity for bools) and a registry entry with correct Kind/Writable/Min/Max",
+        "capability_test.go gains TestValidate rows for the new capability",
+        "zigbee2mqtt binding added in exposes.go for the right expose shape",
+        "bridge-devices.json fixture and instance_test.go exercise the new capability (discovery + decoded state)",
+        "HomeKit: new service/characteristic appended after existing ones; no existing service or characteristic reordered",
+        "TestServerAcceptsEveryAccessoryKind (or equivalent HAP server test) includes the new capability",
+        "README Capabilities table has a row for the new capability",
+        "Final summary reports test results (go test / make test) and lint result",
+        "Capability is Writable and uses a documented unit (kelvin or mireds) with an honest range",
+        "decode and encode are exact inverses for the colour-temperature conversion, and z2m value_min/value_max are parsed rather than hard-coded only",
+        "HAP ColorTemperature characteristic added to the Lightbulb service after Brightness, with a set callback",
+        "TestSet (or equivalent) checks the encoded /set payload for colour temperature"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I just paired an Aqara water leak sensor (SJCGQ11LM) and the Device only shows battery and link quality. z2m exposes it as a top-level binary expose named water_leak, value_on true value_off false. Make Oikade support it properly, I want it in the Home app and a big red thing in grafana if it fires",
+      "expected_output": "A read-only bool leak capability (true = leak), z2m binary binding, HAP LeakSensor service appended after existing services, stat panel in Grafana, tests, README row.",
+      "files": [],
+      "assertions": [
+        "Registry: new exported const with a doc comment stating unit (or polarity for bools) and a registry entry with correct Kind/Writable/Min/Max",
+        "capability_test.go gains TestValidate rows for the new capability",
+        "zigbee2mqtt binding added in exposes.go for the right expose shape",
+        "bridge-devices.json fixture and instance_test.go exercise the new capability (discovery + decoded state)",
+        "HomeKit: new service/characteristic appended after existing ones; no existing service or characteristic reordered",
+        "TestServerAcceptsEveryAccessoryKind (or equivalent HAP server test) includes the new capability",
+        "README Capabilities table has a row for the new capability",
+        "Final summary reports test results (go test / make test) and lint result",
+        "Bool capability where true means a leak is detected, read-only",
+        "HomeKit LeakSensor service is used",
+        "Grafana dashboard gains a leak panel that goes red when a leak fires, and the JSON is valid"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "add illuminance support. aqara RTCGQ11LM motion sensors expose illuminance_lux (numeric, lx) alongside occupancy. want it in metrics + homekit light sensor",
+      "expected_output": "A read-only numeric illuminance capability in lux with an honest range, z2m numeric binding on illuminance_lux, HAP LightSensor respecting its 0.0001 minimum, appended after existing services, tests, README row.",
+      "files": [],
+      "assertions": [
+        "Registry: new exported const with a doc comment stating unit (or polarity for bools) and a registry entry with correct Kind/Writable/Min/Max",
+        "capability_test.go gains TestValidate rows for the new capability",
+        "zigbee2mqtt binding added in exposes.go for the right expose shape",
+        "bridge-devices.json fixture and instance_test.go exercise the new capability (discovery + decoded state)",
+        "HomeKit: new service/characteristic appended after existing ones; no existing service or characteristic reordered",
+        "TestServerAcceptsEveryAccessoryKind (or equivalent HAP server test) includes the new capability",
+        "README Capabilities table has a row for the new capability",
+        "Final summary reports test results (go test / make test) and lint result",
+        "Read-only Number capability in lux with Min 0 and a Max at least 10000 (doesn't reject daylight readings)",
+        "Binding uses illuminance_lux (not raw illuminance) for the RTCGQ11LM",
+        "HomeKit LightSensor used and 0 lux handled against HomeKit's 0.0001 minimum"
+      ]
+    }
+  ]
+}
