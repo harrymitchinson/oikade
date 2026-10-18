@@ -40,7 +40,12 @@ await plugin.setDevices(
     if ("error" in chosen) {
       return { id: d.id, found: false, error: chosen.error };
     }
-    return { id: d.id, found: true, model: "MINIR4", capabilities: [chosen.capability] };
+    return {
+      id: d.id,
+      found: true,
+      model: "MINIR4",
+      capabilities: [chosen.capability],
+    };
   })
 );
 await plugin.setAvailability("1000aabbcc", true);

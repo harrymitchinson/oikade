@@ -122,7 +122,7 @@ The contract version appears twice: in the topic root (`oikade/v1`) and in `stat
 - when the plugin is killed, its Last Will marks it offline with contract 1
 - Oikade rejected none of its messages at any point
 
-Oikade's CI runs it against [`plugins/example-switch`](../plugins/example-switch). To run it against a plugin built elsewhere, check out Oikade and pass the plugin's start command and a devices file for it. Both paths are relative to the Oikade checkout:
+Oikade's CI runs it against [`plugins/example-switch`](../plugins/example-switch). To run it against a plugin built elsewhere, check out Oikade and pass the plugin's start command and a devices file for it. Paths are relative to the Oikade checkout unless absolute:
 
 ```sh
 make test-conformance \

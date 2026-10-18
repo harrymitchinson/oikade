@@ -121,7 +121,10 @@ export async function readSecret(
   environment: Environment,
   key: string
 ): Promise<string | undefined> {
-  if (environment.secretsDir === undefined || key.includes("/")) {
+  // A Secret key is a file name; anything else could name the directory or its parent.
+  const invalid =
+    key === "" || key === "." || key === ".." || key.includes("/");
+  if (environment.secretsDir === undefined || invalid) {
     return undefined;
   }
   try {

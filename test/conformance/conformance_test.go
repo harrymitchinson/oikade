@@ -85,6 +85,8 @@ type suite struct {
 
 	mu     sync.Mutex
 	report map[string]bool // id -> found, from the raw devices topic
+	// online is when each id last published availability online live, not replayed from retain.
+	online map[string]time.Time
 }
 
 func TestConformance(t *testing.T) {
@@ -106,7 +108,7 @@ func newSuite(t *testing.T, command []string) *suite {
 	repo := repoRoot(t)
 	devicesFile := filepath.Join(repo, "test", "conformance", "testdata", "devices.json")
 	if f := os.Getenv("OIKADE_CONFORMANCE_DEVICES"); f != "" {
-		devicesFile = filepath.Join(repo, f)
+		devicesFile = fromRepo(repo, f)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -130,6 +132,9 @@ func newSuite(t *testing.T, command []string) *suite {
 	if _, err := bus.Subscribe(ctx, root+"/devices", s.recordReport); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := bus.Subscribe(ctx, root+"/+/availability", s.recordAvailability); err != nil {
+		t.Fatal(err)
+	}
 
 	s.env = append(os.Environ(),
 		"OIKADE_MQTT_URL="+s.url,
@@ -137,7 +142,7 @@ func newSuite(t *testing.T, command []string) *suite {
 		"OIKADE_DEVICES_FILE="+devicesFile,
 	)
 	if dir := os.Getenv("OIKADE_CONFORMANCE_SECRETS"); dir != "" {
-		s.env = append(s.env, "OIKADE_SECRETS_DIR="+filepath.Join(repo, dir))
+		s.env = append(s.env, "OIKADE_SECRETS_DIR="+fromRepo(repo, dir))
 	}
 	return s
 }
@@ -187,6 +192,27 @@ func (s *suite) recordReport(m mqtt.Message) {
 	s.mu.Lock()
 	s.report = r
 	s.mu.Unlock()
+}
+
+func (s *suite) recordAvailability(m mqtt.Message) {
+	id, ok := strings.CutSuffix(strings.TrimPrefix(m.Topic, root+"/"), "/availability")
+	if !ok || m.Retained || string(m.Payload) != "online" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.online == nil {
+		s.online = map[string]time.Time{}
+	}
+	s.online[id] = time.Now()
+}
+
+// fromRepo resolves a path given relative to the repository root, leaving absolute paths alone.
+func fromRepo(repo, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(repo, path)
 }
 
 // reported is true once the plugin's devices report lists every declared device and the decoder
@@ -310,10 +336,21 @@ func (s *suite) stops(t *testing.T) {
 }
 
 func (s *suite) restarts(t *testing.T) {
+	since := time.Now()
 	s.p = s.run()
 	eventually(t, "status online", s.up)
-	for _, dev := range s.sink.foundDevices() {
-		eventually(t, dev.Name+" available again", func() bool { on, _ := s.sink.online(dev); return on })
+	// The decoder replays the availability retained before the restart, so only a fresh message
+	// shows the plugin republishes it after a Last Will.
+	for id, dev := range s.devices {
+		if !s.sink.info(dev).Found {
+			continue
+		}
+		eventually(t, id+" to republish availability online", func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.online[id].After(since)
+		})
+		eventually(t, id+" available again", func() bool { on, _ := s.sink.online(dev); return on })
 	}
 	s.noRejections(t)
 }

@@ -118,7 +118,9 @@ describe("readSecret", () => {
     const environment = { ...readEnvironment(env), secretsDir: dir };
     expect(await readSecret(environment, "1000aabbcc")).toBe("lan-key");
     expect(await readSecret(environment, "missing")).toBeUndefined();
-    expect(await readSecret(environment, "../1000aabbcc")).toBeUndefined();
+    for (const key of ["../1000aabbcc", "", ".", ".."]) {
+      expect(await readSecret(environment, key)).toBeUndefined();
+    }
     expect(
       await readSecret(readEnvironment(env), "1000aabbcc")
     ).toBeUndefined();

@@ -21,16 +21,25 @@ class FakeConnection implements Connection {
   published: Published[] = [];
   subscribed: string[] = [];
   ended = false;
+  forced = false;
+  /** While set, publishes never complete, as when the broker is unreachable. */
+  stalled = false;
+  /** Runs inside subscribe, to interleave with an announce. */
+  duringSubscribe?: () => void;
   private connect?: () => void;
   private message?: (topic: string, payload: Buffer) => void;
 
   constructor(readonly will: Will) {}
 
   async publish(topic: string, payload: string, retain: boolean) {
+    if (this.stalled) {
+      return new Promise<void>(() => {});
+    }
     this.published.push({ topic, payload, retain });
   }
   async subscribe(filter: string) {
     this.subscribed.push(filter);
+    this.duringSubscribe?.();
   }
   onConnect(handler: () => void) {
     this.connect = handler;
@@ -39,8 +48,9 @@ class FakeConnection implements Connection {
     this.message = handler;
   }
   onError() {}
-  async end() {
+  async end(force: boolean) {
     this.ended = true;
+    this.forced = force;
   }
 
   connected() {
@@ -85,6 +95,65 @@ const relay = {
 };
 
 describe("Plugin", () => {
+  it("fails to start when it can't come online in time", async () => {
+    let connection: FakeConnection | undefined;
+    await expect(
+      Plugin.start({
+        environment: {
+          mqttUrl: "mqtt://nowhere",
+          topic: root,
+          devicesFile: "",
+        },
+        onSet: () => {},
+        log: silent,
+        startTimeoutMs: 20,
+        connect: (_url, will) => (connection = new FakeConnection(will)),
+      })
+    ).rejects.toThrow(/could not come online at mqtt:\/\/nowhere/);
+    expect(connection?.forced).toBe(true);
+  });
+
+  it("closes without waiting forever for an unreachable broker", async () => {
+    const { connection } = await start();
+    const plugin = await Plugin.start({
+      environment: { mqttUrl: "mqtt://x", topic: root, devicesFile: "" },
+      onSet: () => {},
+      log: silent,
+      closeTimeoutMs: 20,
+      connect: () => {
+        setTimeout(() => connection.connected());
+        return connection;
+      },
+    });
+    connection.stalled = true;
+    await plugin.close();
+    expect(connection.forced).toBe(true);
+  });
+
+  it("never announces online after closing", async () => {
+    const { plugin, connection } = await start();
+    connection.duringSubscribe = () => void plugin.close();
+    connection.connected();
+    await vi.waitFor(() => expect(connection.ended).toBe(true));
+    expect(connection.last(`${root}/status`)?.payload).toBe(
+      '{"state":"offline","contract":1}'
+    );
+  });
+
+  it("replaces the retained state when a capability is no longer announced", async () => {
+    const { plugin, connection } = await start();
+    await plugin.setDevices([
+      { ...relay, capabilities: ["light.on", "light.level"] },
+    ]);
+    await plugin.setState("relay-1", { "light.on": true, "light.level": 40 });
+    await plugin.setDevices([{ ...relay, capabilities: ["light.on"] }]);
+    expect(connection.last(`${root}/relay-1/state`)?.payload).toBe(
+      '{"light.on":true}'
+    );
+    await plugin.setDevices([{ id: "relay-1", found: false }]);
+    expect(connection.last(`${root}/relay-1/state`)?.payload).toBe("{}");
+  });
+
   it("sets a retained offline Last Will and announces itself online", async () => {
     const { connection } = await start();
     expect(connection.will).toEqual({

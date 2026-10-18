@@ -37,7 +37,8 @@ export interface Connection {
   onConnect(handler: () => void): void;
   onMessage(handler: (topic: string, payload: Buffer) => void): void;
   onError(handler: (error: Error) => void): void;
-  end(): Promise<void>;
+  /** Disconnects. force drops queued messages instead of waiting to send them. */
+  end(force: boolean): Promise<void>;
 }
 
 /** The Last Will the broker publishes, retained on `status`, when it loses the plugin. */
@@ -55,10 +56,30 @@ export interface PluginOptions {
   log?: Logger;
   /** Replaces the MQTT client, for tests. */
   connect?: Connect;
+  /**
+   * How long start waits to come online before failing, so a wrong broker URL crashes the pod
+   * instead of leaving it Running and silent. Defaults to 60 seconds.
+   */
+  startTimeoutMs?: number;
+  /** How long close waits to publish the offline status. Defaults to 2 seconds. */
+  closeTimeoutMs?: number;
 }
 
 const online = JSON.stringify({ state: "online", contract: CONTRACT });
 const offline = JSON.stringify({ state: "offline", contract: CONTRACT });
+
+/** Resolves true when promise settles within ms, false otherwise. */
+async function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([promise.then(() => true), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * A running plugin. It keeps the latest devices, state and availability and republishes them,
@@ -74,15 +95,20 @@ export class Plugin {
   private readonly states = new Map<string, State>();
   private readonly availability = new Map<string, boolean>();
   private closed = false;
+  private readonly closeTimeoutMs: number;
 
   private constructor(options: PluginOptions, connection: Connection) {
     this.root = options.environment.topic;
     this.connection = connection;
     this.log = options.log ?? jsonLogger;
     this.onSet = options.onSet;
+    this.closeTimeoutMs = options.closeTimeoutMs ?? 2000;
   }
 
-  /** Connects with the Last Will set and resolves once the plugin is online. */
+  /**
+   * Connects with the Last Will set and resolves once the plugin is online. Rejects if it isn't
+   * online within startTimeoutMs.
+   */
   static async start(options: PluginOptions): Promise<Plugin> {
     const connect = options.connect ?? mqttConnect;
     const root = options.environment.topic;
@@ -91,7 +117,7 @@ export class Plugin {
       payload: offline,
     });
     const plugin = new Plugin(options, connection);
-    await new Promise<void>((resolve) => {
+    const started = new Promise<void>((resolve) => {
       let first = true;
       connection.onError((error) => {
         plugin.log.warn("MQTT connection failed", { error: error.message });
@@ -116,6 +142,14 @@ export class Plugin {
         );
       });
     });
+    const timeoutMs = options.startTimeoutMs ?? 60_000;
+    if (!(await within(started, timeoutMs))) {
+      plugin.closed = true;
+      await connection.end(true);
+      throw new Error(
+        `could not come online at ${options.environment.mqttUrl} within ${timeoutMs}ms`
+      );
+    }
     return plugin;
   }
 
@@ -123,16 +157,20 @@ export class Plugin {
   async setDevices(devices: DeviceReport[], undeclared = 0): Promise<void> {
     this.devices = devices.map((d) => ({ ...d }));
     this.undeclared = undeclared;
-    // Drop values the devices no longer announce, so they can't be republished.
+    await this.publishDevices();
+    // Drop values the devices no longer announce, and replace the retained state that holds them:
+    // a hub that restarts would otherwise read and reject them.
     for (const [id, state] of this.states) {
       const announced = this.capabilities(id);
-      for (const capability of Object.keys(state)) {
-        if (!announced.includes(capability)) {
-          delete state[capability];
-        }
+      const stale = Object.keys(state).filter((c) => !announced.includes(c));
+      if (stale.length === 0) {
+        continue;
       }
+      for (const capability of stale) {
+        delete state[capability];
+      }
+      await this.publishState(id);
     }
-    await this.publishDevices();
   }
 
   /** Publishes a device's full current values. Every capability must be announced in devices. */
@@ -166,21 +204,29 @@ export class Plugin {
     return state === undefined ? undefined : { ...state };
   }
 
-  /** Marks the plugin offline and disconnects. A clean disconnect doesn't trigger the Last Will. */
+  /**
+   * Marks the plugin offline and disconnects. A clean disconnect doesn't trigger the Last Will, so
+   * the offline status is published first. If the broker can't take it within closeTimeoutMs, the
+   * connection is dropped instead, which leaves the Last Will to the broker.
+   */
   async close(): Promise<void> {
     if (this.closed) {
       return;
     }
     this.closed = true;
-    try {
-      await this.connection.publish(`${this.root}/status`, offline, true);
-    } finally {
-      await this.connection.end();
-    }
+    const published = await within(
+      this.connection.publish(`${this.root}/status`, offline, true),
+      this.closeTimeoutMs
+    );
+    await this.connection.end(!published);
   }
 
   private async announce(): Promise<void> {
     await this.connection.subscribe(`${this.root}/+/set`);
+    // close() may run while a reconnect announces; online must never land after its offline.
+    if (this.closed) {
+      return;
+    }
     await this.connection.publish(`${this.root}/status`, online, true);
     // Until the plugin reports its devices, keep whatever is retained: an empty list would mark
     // every Device as not found while the plugin starts.
@@ -328,6 +374,6 @@ function mqttConnect(url: string, will: Will): Connection {
     onError: (handler) => {
       client.on("error", handler);
     },
-    end: () => client.endAsync(),
+    end: (force) => client.endAsync(force),
   };
 }
