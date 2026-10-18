@@ -1,12 +1,11 @@
-# 0003: Schedules
-
-- **Status:** Accepted
-- **Roadmap:** Schedules
-- **Backlog:** TASK-0003
-- **Updated:** 2026-10-18
-
-<!-- design-feature fills in everything down to "Decision". write-spec fills in the rest.
-     Delete any section that really doesn't apply, and say why in one line rather than leaving it empty. -->
+---
+id: doc-0003
+title: Schedules
+type: specification
+created_date: '2026-10-18 10:56'
+updated_date: '2026-10-18 10:56'
+---
+**Decision:** accepted · **Work:** TASK-0003
 
 ## Problem
 
@@ -83,7 +82,7 @@ Precedence is **require > forbid > prefer**, so a frost rule beats quiet hours.
 
 **Overrides.**
 - Any change to the target that the runtime didn't command (the Home app, a wall switch, another Automation) becomes a force-on or force-off for `override.duration`. A live `require` still wins over a force-off.
-- A control Device (`spec.schedule.scheduleRef`) shows in HomeKit as a Switch: `switch.on` means automatic scheduling is on. Turning it off forces off for the override duration. Turning it on clears the override. These are the plugin's semantics. The runtime publishes the control Device on the [0002](0002-plugin-drivers.md) `oikade/v1` contract, so hap decodes it with no new code path.
+- A control Device (`spec.schedule.scheduleRef`) shows in HomeKit as a Switch: `switch.on` means automatic scheduling is on. Turning it off forces off for the override duration. Turning it on clears the override. These are the plugin's semantics. The runtime publishes the control Device on the doc-0002 `oikade/v1` contract, so hap decodes it with no new code path.
 
 - Pros:
   - One concept spans "on during off-peak" to the pool.
@@ -119,7 +118,7 @@ The safety rules are also settled. Every schedule follows these, whatever its ta
 There's no "target reached" surface in HomeKit. Progress shows in `kubectl get schedules` and in Grafana.
 
 **Dependencies:**
-- The control Device uses the [0002](0002-plugin-drivers.md) contract and the driver-agnostic hub (0002 steps 1–4).
+- The control Device uses the doc-0002 contract and the driver-agnostic hub (TASK-0001.01 to TASK-0001.04).
 - The pool needs the TH Elite plugin for the relay and the probe.
 - Schedules on Zigbee targets need neither, except for the control Device.
 
@@ -425,7 +424,7 @@ type ScheduleDeviceSource struct {
 }
 ```
 
-`DeviceSpec` gains `Schedule *ScheduleDeviceSource \`json:"schedule,omitempty"\``. The source rule from [0002](0002-plugin-drivers.md) grows to `[has(self.zigbee2mqtt), has(self.plugin), has(self.schedule)].filter(x, x).size() == 1`. If 0002 hasn't landed yet, the rule lists `zigbee2mqtt` and `schedule`, and 0002 adds `plugin`.
+`DeviceSpec` gains `Schedule *ScheduleDeviceSource \`json:"schedule,omitempty"\``. The source rule from doc-0002 grows to `[has(self.zigbee2mqtt), has(self.plugin), has(self.schedule)].filter(x, x).size() == 1`. If Plugin drivers hasn't landed yet, the rule lists `zigbee2mqtt` and `schedule`, and TASK-0001.03 adds `plugin`.
 
 ### The CEL environment (`internal/schedule/cel.go`)
 
@@ -479,12 +478,12 @@ A rule's `window` and its `when` are ANDed. So `when` can do what a window can't
 
 ### Runtime: the control Device
 
-1. The runtime acts as a publisher on the 0002 contract, under the reserved root `oikade/v1/_runtime/schedules`. Kubernetes namespaces can't start with `_`, so it can't collide with a namespace. Device ids are `<namespace>.<schedule>`.
+1. The runtime acts as a publisher on the doc-0002 contract, under the reserved root `oikade/v1/_runtime/schedules`. Kubernetes namespaces can't start with `_`, so it can't collide with a namespace. Device ids are `<namespace>.<schedule>`.
    - `status`: retained, with a Last Will. This needs a `mqtt.WithWill` option on `mqtt.Connect` (`internal/mqtt/client.go`), using autopaho's will message.
    - `devices`: one entry per Schedule, `capabilities: ["switch.on"]`, manufacturer `Oikade`, model `Schedule`, and `undeclared: 0`. A Schedule without a control Device is normal.
    - `<id>/state`: `{"switch.on": automatic}`.
    - `<id>/availability`: `online`.
-2. The hub has a schedule-source reconciler, like the Plugin one in 0002. It feeds the 0002 decoder with root `oikade/v1/_runtime/schedules`, and declared ids taken from `Device.spec.schedule.scheduleRef`. It runs in the runtime and in every hap pod. Its `InstanceKey` is `{Driver: "schedule", <namespace>/_schedules}`.
+2. The hub has a schedule-source reconciler, like the Plugin one in doc-0002. It feeds the doc-0002 decoder with root `oikade/v1/_runtime/schedules`, and declared ids taken from `Device.spec.schedule.scheduleRef`. It runs in the runtime and in every hap pod. Its `InstanceKey` is `{Driver: "schedule", <namespace>/_schedules}`.
 3. **Writes** arrive on `<id>/set`:
    - `{"switch.on": false}` (automatic off) starts a force-off override for `override.duration`, with `source=homekit`.
    - `{"switch.on": true}` clears any override.
@@ -602,23 +601,7 @@ Manual checks on the Pi (after the TH Elite plugin exists for the pool parts):
   - add a note under "State that must survive" that schedule state is reconstructable and needs no backup
 - **`config/samples/home_v1alpha1_schedule.yaml`**: the water heater and the pool, plus a `pool-automatic` control Device.
 - **`docs/deploy-raspberry-pi.md`**: the runtime's `--timezone` matters for schedules, and moving the pool from Homebridge to a Schedule.
-- **`docs/plugin-contract.md`** (from 0002): note the reserved `_runtime` root.
-
-## Implementation plan
-
-1. **The planner.** Write `internal/schedule/plan.go`: budget, classification and block selection, with the unit tests above, including the property and brute-force tests. It has no API types yet, using its own `PlanInput`. This comes first because it's the uncertain, algorithmic core, and everything else feeds it.
-2. **The API.** Run `kubebuilder create api --group home --version v1alpha1 --kind Schedule --resource --controller`. Add the types above, plus `Device.spec.schedule` and the extended source rule. Run `make manifests generate`, and add CEL envtest cases.
-3. **Compile and the manager.**
-   - Write `internal/schedule/compile.go` and `cel.go`: spec to `PlanInput` and CEL programs, with the compile rules.
-   - Write `ScheduleReconciler`, with `Ready` reasons, the duplicate-target check, the Device watch and RBAC markers. Run `make manifests`.
-   - Add envtest cases and `config/samples`.
-4. **The runner: planning and execution.**
-   - Write the `Loader`, the planning timer, the plan reuse on restart, precedence (plan only), the safety rules, crediting runtime, the status writer and `Planned`.
-   - Write `schedule.Collector`, and wire it into `internal/runtime/runtime.go`. Update RBAC in `config/runtime/role.yaml`.
-   - Add the unit tests and the `mqtttest` integration test.
-5. **Live rules and external overrides.** Re-evaluate live rules on input changes, hold for `minimumRun`, detect external changes, and use the retained override records. Add the unit tests.
-6. **The control Device.** Add `mqtt.WithWill`, the runtime as a publisher under `oikade/v1/_runtime/schedules`, the hub schedule-source reconciler (which reuses the 0002 decoder), and the automatic switch semantics. Add the integration test. **Depends on** [0002](0002-plugin-drivers.md) steps 1–4.
-7. **Docs, e2e and dashboard.** Update the README sections, the Pi guide and the contract note. Add the Grafana "Schedules" row and the Kind e2e case.
+- **`docs/plugin-contract.md`** (from doc-0002): note the reserved `_runtime` root.
 
 ## Open questions
 

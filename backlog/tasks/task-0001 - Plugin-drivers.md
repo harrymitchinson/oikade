@@ -5,19 +5,18 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-18 08:05'
-updated_date: '2026-10-18 10:13'
-labels:
-  - spec-0002
-milestone: m-1
+updated_date: '2026-10-18 10:57'
+labels: []
+milestone: m-3
 dependencies: []
 documentation:
-  - docs/specs/0002-plugin-drivers.md
+  - doc-0002
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Every non-Zigbee device family (SONOFF LAN relays, Cozytouch heaters) needs an Oikade core change today, so these devices live in a separate Homebridge, outside Git, Grafana and automations. Design: docs/specs/0002-plugin-drivers.md
+Every non-Zigbee device family (SONOFF LAN relays, Cozytouch heaters) needs an Oikade core change today, so these devices live in a separate Homebridge, outside Git, Grafana and automations. Design: doc-0002
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Definition of Done

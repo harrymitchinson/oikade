@@ -1,6 +1,6 @@
 ---
 name: design-feature
-description: Design a new Oikade feature before anyone writes code. Frame the problem, check it against Oikade's control plane, data plane and history split, its public API and the state that must survive, compare two or three real options, recommend one, and record the decision in docs/specs/NNNN-slug.md. Use this whenever the user floats an idea or asks "how should we…", "what's the best way to…", "I want Oikade to…", "thinking about adding…", or wants to talk through scenes, presence, a new driver (ESPHome, Matter, Homebridge, Shelly), room-targeted actions, MQTT auth, HA runtime, backups or any other change that needs a decision before implementation, even if they never say "design". If the request is only a new capability on an existing driver, use add-capability instead.
+description: Design a new Oikade feature before anyone writes code. Frame the problem, check it against Oikade's control plane, data plane and history split, its public API and the state that must survive, compare two or three real options, recommend one, and record the decision as a Backlog design doc. Use this whenever the user floats an idea or asks "how should we…", "what's the best way to…", "I want Oikade to…", "thinking about adding…", or wants to talk through scenes, presence, a new driver (ESPHome, Matter, Homebridge, Shelly), room-targeted actions, MQTT auth, HA runtime, backups or any other change that needs a decision before implementation, even if they never say "design". If the request is only a new capability on an existing driver, use add-capability instead.
 ---
 
 # Designing an Oikade feature
@@ -13,7 +13,7 @@ This is the first of three planning skills. Each one hands off to the next:
 
 The user is an SRE building their own home on this, so a design that reads well but quietly breaks one of the invariants below costs them a re-pair of every HomeKit accessory, or every Zigbee device, later. The job here is to make that kind of consequence visible *before* the decision is made.
 
-**Read `.claude/skills/write-spec/references/oikade-surfaces.md` first.** It lists the planes, the public API surfaces, the state that must survive, the component boundaries and the hardware constraints. Then read the code the feature would touch, just enough to be accurate. Designs that cite real files and types are much more useful than ones written in the abstract.
+**Read `.claude/skills/write-spec/references/tracking.md` and `.claude/skills/write-spec/references/oikade-surfaces.md` first.** The first says where everything is recorded. The second lists the planes, the public API surfaces, the state that must survive, the component boundaries and the hardware constraints. Then read the code the feature would touch, just enough to be accurate. Designs that cite real files and types are much more useful than ones written in the abstract.
 
 ## 1. Frame the problem
 
@@ -49,33 +49,31 @@ Never propose Home Assistant or HA integrations. The user has ruled it out. Pref
 
 ## 4. Recommend and decide
 
-Recommend one option and explain why in a few sentences, including what it gives up. Have an opinion: the user can overrule it, but "it depends" is not a design. If the user is present, confirm the decision before you write it down as Accepted. Otherwise set the status to **Proposed**.
+Recommend one option and explain why in a few sentences, including what it gives up. Have an opinion: the user can overrule it, but "it depends" is not a design. If the user is present, confirm the decision before you mark it `accepted`. Otherwise leave it `proposed`.
 
 Sketch the main public names now (field names, capability names, metric names) and show a short YAML example of what the user would commit. Seeing the YAML is often where a design falls apart, and it's better to find that here.
 
 ## 5. Write it down
 
-Record the design in the repo so it's reviewed like code:
+The design is a Backlog doc, reviewed in the same PR as everything else under `backlog/`. Follow `tracking.md` for how to create and edit it.
 
-- The file is `docs/specs/NNNN-<kebab-slug>.md`. Take the next free four-digit number in `docs/specs/`, starting at `0001`. If `docs/specs/README.md` doesn't exist, create it with a one-paragraph explanation of the lifecycle (Exploring → Proposed → Accepted → In progress → Done, or Rejected or Superseded) and an index table (number, title, status, roadmap milestone). Add a row for this spec.
-- Use the template at `.claude/skills/write-spec/assets/spec-template.md`. Fill in everything **above the `---` line**: Problem, Constraints, Options, Decision and Non-goals. Leave the sections below the line as their headings with a one-line `TODO (write-spec)`. That way the handoff is obvious and nobody mistakes it for a finished spec.
-- Set `Updated:` to today's date. Set `Roadmap:` to "unplanned" unless `docs/ROADMAP.md` already has a home for it.
+- Search first so you don't duplicate an existing design or work item: `backlog search "<topic>" --plain` and `backlog doc list --plain`. If a draft or task for this already exists (the roadmap often has one waiting for a design), link to it rather than creating another.
+- Create the doc: `backlog doc create "<Feature name>" -p specs -t specification --plain`.
+- Fill its body from `.claude/skills/write-spec/assets/spec-template.md`. Write everything **above the `---` line**: Problem, Constraints, Options, Decision and Non-goals. Leave the sections below it as headings with a one-line `TODO (write-spec)`, so the handoff is obvious and nobody mistakes it for a finished spec.
+- Set the first line to `**Decision:** accepted` or `proposed`, and `**Work:**` to the draft or task ID from step 6.
 - Keep it tight. A design is good when a reviewer can disagree with it in five minutes. Aim for one to two screens, not an essay.
 
-If the user explicitly wants to talk it through without writing a file, do the same thinking in chat and offer to write it down at the end.
+If the user explicitly wants to talk it through without writing anything, do the same thinking in chat and offer to write it down at the end.
 
-## 6. Track it in Backlog
+## 6. Make sure there's a work item
 
-The spec is the design record. Backlog only tracks the work, so don't copy the design into it, and don't use `backlog decision` or `backlog doc`. Read `backlog instructions task-creation` first, and run `backlog search "<slug>" --plain` so you don't create a duplicate.
+Read `backlog instructions task-creation` first. Every design doc belongs to one draft or task, linked with `--doc`.
 
-- **Proposed:** the work isn't committed yet, so create a draft rather than a task. Drafts can't carry doc links, so name the spec in the description:
-  `backlog draft create "<Feature name>" -d "<problem in one line>. Design: docs/specs/NNNN-<slug>.md" -l spec-NNNN`
-- **Accepted:** promote the draft (or create the task directly if there's no draft) and link the spec:
-  `backlog draft promote <id>`, then `backlog task edit <id> --add-doc docs/specs/NNNN-<slug>.md`
-  This becomes the feature's parent task. Don't create subtasks here: the PR breakdown doesn't exist until write-spec has run.
-- Put the ID in the spec header's `Backlog:` line.
+- **There's already one:** run `backlog draft edit <id> --doc doc-NNNN` (or `task edit`).
+- **There isn't:** create a draft, because the work isn't ready to build until write-spec has broken it into steps:
+  `backlog draft create "<Feature name>" -d "<the problem in one or two lines, and why it matters>"`, then `backlog draft edit <id> --doc doc-NNNN`.
 
-Skip this step if no spec file was written.
+Don't promote the draft or create subtasks here. That's write-spec's job, once the design is accepted. Don't assign a milestone either, unless the user asked: that's plan-roadmap's job.
 
 ## What to hand back
 
@@ -85,6 +83,6 @@ Give a short summary:
 - the recommended option and the main trade-off
 - the public names it introduces
 - the open questions
-- the file path and the Backlog draft or task ID
+- the doc ID and the draft or task ID
 
 Then suggest the next step: `write-spec` if the decision is Accepted, or which question to settle first if it isn't. Don't commit unless asked.

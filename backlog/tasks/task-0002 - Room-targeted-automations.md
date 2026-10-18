@@ -5,13 +5,12 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-18 08:19'
-updated_date: '2026-10-18 09:44'
-labels:
-  - spec-0001
-milestone: m-1
+updated_date: '2026-10-18 10:57'
+labels: []
+milestone: m-3
 dependencies: []
 documentation:
-  - docs/specs/0001-room-targeted-actions.md
+  - doc-0001
 ---
 
 ## Description

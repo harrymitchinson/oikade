@@ -1,11 +1,16 @@
 ---
 name: plan-roadmap
-description: Build or update Oikade's roadmap in docs/ROADMAP.md by sequencing features into milestones with observable exit criteria, dependencies, sizes and an explicit "not doing" list, reconciled against docs/specs, the README's "Not yet" list and recent git history. Use this whenever the user asks "what should I work on next", "what's the plan", "prioritise", "sequence these", "roadmap", "milestones", "what's left for the next release", wants to slot a new idea or spec into the plan, or reports that something shipped and the plan needs updating, even if they never say the word "roadmap".
+description: Build or update Oikade's roadmap in Backlog.md by sequencing work into milestones with observable exit criteria, dependencies and an explicit "not doing" list, kept in the Roadmap doc (doc-0005) plus milestone membership, and reconciled against the board, design docs, the README's "Not yet" list and recent git history. Use this whenever the user asks "what should I work on next", "what's the plan", "prioritise", "sequence these", "roadmap", "milestones", "what's left for the next release", wants to slot a new idea or design into the plan, or reports that something shipped and the plan needs updating, even if they never say the word "roadmap".
 ---
 
 # Planning Oikade's roadmap
 
-This is the third of three planning skills (design-feature → write-spec → **plan-roadmap**). The roadmap answers three questions: what's done, what's next and why, and what we're deliberately not doing. It lives at `docs/ROADMAP.md` so it's reviewed in Git like everything else.
+This is the third of three planning skills (design-feature → write-spec → **plan-roadmap**). The roadmap answers three questions: what's next and why, what each milestone has to prove, and what we're deliberately not doing. What's done and what's in flight is already on the board, so the roadmap doesn't repeat it.
+
+**Read `.claude/skills/write-spec/references/tracking.md` first.** In short, the roadmap is split two ways:
+
+- **Backlog state** is membership and status. Each task or draft's milestone, its dependencies, and its status. Drafts with no milestone are the "later" list.
+- **The Roadmap doc (doc-0005)** holds what Backlog can't: the direction, the milestones in order with each one's goal, exit criteria and reason for its place, and "Not doing". It has no item tables and no statuses.
 
 This is one person's home platform, so the roadmap should help them pick the next weekend's work with confidence. A corporate quarterly plan is the wrong model: don't use dates unless the user gives them, and don't build a Gantt chart.
 
@@ -13,15 +18,15 @@ This is one person's home platform, so the roadmap should help them pick the nex
 
 Read these before proposing anything. Roadmaps written from memory drift from reality.
 
-- `docs/ROADMAP.md`, if it exists. You're updating it, not replacing it. Keep the user's own edits and wording unless they're now wrong.
-- `docs/specs/README.md` and the spec files: each spec's status and its `Roadmap:` field.
-- `README.md`, the **Not yet** list and "Requirements".
-- `git log --oneline -30`, to see what actually shipped since the roadmap was last updated.
-- Backlog: `backlog milestone list --plain` and `backlog task list --exclude-status Done --plain`. A spec's tasks carry the `spec-NNNN` label.
+- The Roadmap doc: `backlog doc view doc-0005 --plain`. You're updating it, not replacing it. Keep the user's wording unless it's now wrong.
+- The board: `backlog milestone list --plain`, `backlog task list --exclude-status Done --plain`, and `backlog draft list --plain`.
+- The design docs: `backlog doc list --plain`, and the Decision line of any you're placing.
+- `README.md`, the **Not yet** section and "Requirements".
+- `git log --oneline -30`, to see what actually shipped.
 - `.claude/skills/write-spec/references/oikade-surfaces.md`, for the constraints that drive ordering.
 - Anything the user just said about priorities, hardware or frustrations. That outranks everything else.
 
-Reconcile these sources. Mark things that shipped as done, and count a spec as shipped when its Backlog parent task is Done. Flag specs whose status disagrees with the roadmap or with their Backlog tasks. Notice ideas that appear in the README but in no spec.
+Reconcile these sources. A milestone whose tasks are all Done is finished. Flag tasks that look shipped in git but aren't Done, design docs with no work item, and ideas in the README that have no draft.
 
 ## 2. Decide the order
 
@@ -31,63 +36,57 @@ Order work by what it unlocks, not by how interesting it is. For Oikade, these p
 2. **Protect state that must survive, and the public API.** Work that would force a re-pair, or a rename of CRD fields, capabilities or metrics, gets cheaper the earlier it's done. Ship breaking API cleanups before people commit lots of YAML against them.
 3. **Foundations before the things that use them.** For example: MQTT auth before exposing the broker more widely, a second driver before abstractions that assume many drivers, and room-targeted actions before scenes that would use them.
 4. **Retire risk early.** Put the item with the biggest unknown (HAP behaviour, a new protocol, Pi resource limits) early, as a small spike if necessary.
-5. **Keep milestones small.** Each milestone should be finishable in a few weeks of hobby time and leave the home working.
+5. **Keep milestones small.** Each milestone should be finishable in a few weeks of hobby time and leave the home working. Three to six items is about right.
 
 When two orders are both reasonable, pick one and say why in a sentence. The user can swap them.
 
-## 3. Write the roadmap
+## 3. Update Backlog
 
-Use this structure. Adapt the headings if the existing file already has a style.
+Read `backlog instructions task-execution` before editing tasks.
+
+- **Milestones.** Create one per planned milestone with the fixed description from `tracking.md`. Rename with `backlog milestone rename`. Archive a finished one with `backlog milestone archive`.
+- **Membership.** `backlog task edit <id> -m "<name>"` or `backlog draft edit <id> -m "<name>"`. Put the feature's parent task in, not each subtask. Use `--clear-milestone` when something moves out to "later".
+- **Order between items** is `--dep`, not a table. Add a dependency where one item really needs another, including across features.
+- **New items.** Something that needs a design is a draft (`backlog draft create`, then `draft edit -m`). Recommend design-feature for it. Something that's ready to build, such as ops work, is a task. Read `backlog instructions task-creation` first.
+- **Later ideas** are drafts with no milestone. Put the one-line reason it's not sooner in the draft's description.
+
+## 4. Update the Roadmap doc
+
+Edit it as `tracking.md` describes. Keep this shape:
 
 ```markdown
-# Oikade roadmap
-
-_Updated YYYY-MM-DD._ How to change this: edit it in a PR. Specs live in [docs/specs](specs/).
+<One paragraph: what this doc holds and the backlog commands for everything else.>
 
 ## Direction
 Two or three sentences on where Oikade is heading and what it is not.
 
-## Now: <milestone name>
+## Milestones, in order
+
+### 1. <milestone name, exactly as in Backlog>
 **Goal:** one sentence.
 **Done when:** observable exit criteria, things you could check on the Pi or in Grafana.
-
-| Item | Spec | Size | Depends on | Status |
-|---|---|---|---|---|
-
-## Next: <milestone name>
-(same shape)
-
-## Later
-Short bullets, roughly ordered, each with a one-line reason it's not sooner.
+**Why here:** one or two sentences on what it unlocks or depends on.
 
 ## Not doing
 Things we've decided against, and why: for example Home Assistant integration, or HA runtime replicas. This stops them being re-litigated.
-
-## Done
-Milestones or items shipped, newest first, each with a commit or spec reference.
 ```
 
 Guidance:
 
 - **Exit criteria must be observable.** Write "the hallway motion light runs from the Pi for a week with no manual restarts", not "automations stable". Write "`kubectl delete ns oikade-system` followed by a GitOps restore re-pairs nothing", not "backups done".
-- **Sizes are S, M or L.** S is an evening, M a weekend, and L more than that. An L item probably needs a spec, and maybe splitting.
-- **Spec column.** Link `specs/NNNN-slug.md` if a spec exists. If an item in Now or Next has no spec and isn't trivial, write "needs design" and recommend running design-feature on it. Items in Later don't need specs.
-- **Keep Now to three to six items.** A long Now list is a backlog, not a milestone.
-- **Use the user's framing.** If they call it "v0.2" or "Pi bring-up", use those names.
+- **No item lists, sizes or statuses in the doc.** They're on the board. Name a task or draft only when the reason for the order depends on it.
+- **Drop finished milestones from the doc** once they're archived in Backlog. Git history and the archived tasks keep the record.
+- **Use the user's framing.** If they call it "v0.2" or "Pi bring-up", use those names, the same in Backlog and the doc.
 
-## 4. Keep it consistent
-
-- Update each touched spec's `Roadmap:` field and its row in `docs/specs/README.md`, so that specs and roadmap agree. Create `docs/specs/README.md` if any spec exists without an index.
-- **Mirror milestones into Backlog.** `docs/ROADMAP.md` stays in charge of the order, exit criteria and reasons. Backlog only records which tasks belong to each milestone. Make sure there's a Backlog milestone named exactly after each Now and Next milestone (`backlog milestone add "<name>"`, or `rename` if the roadmap renamed one). Then put each item's parent task in it with `backlog task edit <id> -m "<name>"`. When an item moves out of Now or Next, use `--clear-milestone`. Read `backlog instructions task-execution` before editing tasks. Items without a spec don't get a task here: they need design-feature first.
-- If the README's **Not yet** list now disagrees with the roadmap, mention it to the user. Either suggest pointing that section at `docs/ROADMAP.md`, or suggest specific edits. Don't rewrite the README unless asked.
+If the README's **Not yet** section disagrees with the plan, mention it to the user rather than rewriting it.
 
 ## What to hand back
 
 Give:
 
-- the path, and a short summary of **Now** (the goal and its items) and **Next**
-- what changed since the last version: items added, moved, finished or dropped
-- items that need a design or spec before they can start
-- one recommended next action, for example "run design-feature on scenes", or "start item 1 of spec 0002"
+- the milestones in order, each with its goal and its open tasks and drafts
+- what changed: milestones or items added, moved, finished or dropped
+- drafts that need a design before they can start
+- one recommended next action, for example "run design-feature on DRAFT-0002", or "start TASK-0001.02"
 
 Don't commit unless asked.

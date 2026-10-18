@@ -1,12 +1,11 @@
-# 0002: Plugin drivers
-
-- **Status:** Accepted
-- **Roadmap:** Plugin drivers
-- **Backlog:** TASK-0001
-- **Updated:** 2026-10-18
-
-<!-- design-feature fills in everything down to "Decision". write-spec fills in the rest.
-     Delete any section that really doesn't apply, and say why in one line rather than leaving it empty. -->
+---
+id: doc-0002
+title: Plugin drivers
+type: specification
+created_date: '2026-10-18 10:56'
+updated_date: '2026-10-18 10:56'
+---
+**Decision:** accepted · **Work:** TASK-0001
 
 ## Problem
 
@@ -240,7 +239,7 @@ Every existing Device still satisfies this rule.
 
 ### The `oikade/v1` contract
 
-It's written up in full in `docs/plugin-contract.md`, which step 1 creates, and enforced by the conformance suite. The root is `oikade/v1/<namespace>/<plugin>`.
+It's written up in full in `docs/plugin-contract.md`, which TASK-0001.01 creates, and enforced by the conformance suite. The root is `oikade/v1/<namespace>/<plugin>`.
 
 | Topic | Direction | Retained | Payload |
 |---|---|---|---|
@@ -371,25 +370,6 @@ Manual checks on the Pi:
 - **`docs/deploy-raspberry-pi.md`**: running a plugin, `hostNetwork`, and a SOPS Secret for plugin credentials.
 - **"State that must survive"**: add the plugin Secret, noting it's user-owned and comes from Git.
 - **AGENTS.md**: add the TypeScript workspace commands.
-
-## Implementation plan
-
-1. **The contract and the decoder.** Write `docs/plugin-contract.md` and `internal/driver/plugin/instance.go` with unit tests against `mqtt.Memory`. Nothing is wired up yet. This is first because the contract is the part that's expensive to change, and writing the decoder is what tests it.
-2. **A driver-agnostic hub.** Add `InstanceKey` and the internal `instance` interface in `internal/hub`, and thread `InstanceKey` through `Store`, `driver.Sink.Undeclared`, the metrics collector and `status`. Zigbee2MQTT behaviour is unchanged, and the existing tests stay green.
-3. **The API.** Run `kubebuilder create api --group plugins --version v1alpha1 --kind Plugin --resource --controller`. Add the types above, plus `Device.spec.plugin` and the new CEL rule. Run `make manifests generate`, and add envtest cases for CEL. The controller stays a scaffold.
-4. **Runtime and HAP wiring.**
-   - Add the Plugin reconciler in `internal/hub`.
-   - Add RBAC in `config/runtime/role.yaml` and `internal/render/hap.go`.
-   - Add the status writer `PluginError` reason and the two metrics.
-   - Add integration tests with `mqtttest`.
-5. **Manager.** Write `PluginReconciler`, `internal/render/plugin.go` (config Secret and Deployment), and the `Ready` reasons, with an envtest suite. Add `config/samples`.
-6. **TypeScript SDK and conformance.**
-   - The SDK goes in `sdk/typescript` (`@harrymitchinson/oikade-plugin-sdk`): it reads the environment, connects with the Last Will, publishes retained topics, and dispatches `/set`.
-   - Add `plugins/example-switch` (simulated) and `test/conformance` (a Go fake hub).
-   - Add a CI job in `.github/workflows/test.yml` that builds the Node workspace and runs conformance.
-   - Build plugin images for `linux/arm64` and `linux/amd64`.
-7. **Kind e2e.** Extend `test/e2e` with a Plugin and Device fed by `mosquitto_pub`.
-8. **Docs.** Update the README sections above, the Pi guide, "State that must survive" and AGENTS.md. Remove the item from "Not yet".
 
 ## Open questions
 

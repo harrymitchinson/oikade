@@ -1,6 +1,6 @@
 ---
 name: write-spec
-description: Write an implementable spec for an Oikade feature in docs/specs/NNNN-slug.md, covering the exact CRD changes with kubebuilder markers, behaviour and failure modes, state and upgrade, metrics and conditions, security, a test plan mapped to unit, integration, envtest, Kind e2e and Pi testing, the docs to update, and an ordered PR-sized implementation plan. Use this whenever the user asks to "spec out", "write up", "flesh out", "detail" or "plan the implementation of" a feature, wants an RFC or design doc turned into something buildable, or hands over a decided design, a GitHub issue or a README "Not yet" item and asks what exactly to build. If the approach hasn't been decided yet, run design-feature first.
+description: Write an implementable spec for an Oikade feature as a Backlog design doc, covering the exact CRD changes with kubebuilder markers, behaviour and failure modes, state and upgrade, metrics and conditions, security, a test plan mapped to unit, integration, envtest, Kind e2e and Pi testing, the docs to update, and a breakdown into ordered, PR-sized Backlog subtasks. Use this whenever the user asks to "spec out", "write up", "flesh out", "detail" or "plan the implementation of" a feature, wants an RFC or design doc turned into something buildable, or hands over a decided design, a GitHub issue or a README "Not yet" item and asks what exactly to build. If the approach hasn't been decided yet, run design-feature first.
 ---
 
 # Writing an Oikade spec
@@ -12,20 +12,21 @@ This is the second of three planning skills (design-feature → **write-spec** �
 
 **Read these first:**
 
+- `references/tracking.md` says where everything is recorded and how to edit a Backlog doc. Nothing goes in `docs/specs/`.
 - `references/oikade-surfaces.md` covers the invariants, public surfaces, component boundaries and test layers. Every section of the spec comes back to it.
 - `assets/spec-template.md` gives the section structure.
-- The existing spec in `docs/specs/`, if there is one. Usually design-feature has already written the top half.
+- The design doc, if there is one: the work item's `--doc` link, or `backlog doc list --plain`. Usually design-feature has already written the top half.
 - The code the feature touches: the `api/*/v1alpha1/*_types.go` files, the relevant controller or runtime package, and the README sections it changes. Cite real types, functions and files. A spec that names `internal/engine/compile.go` is checkable. One that says "update the engine" isn't.
 
 ## 0. Is there a decision?
 
-Check that the problem and chosen approach are settled. Either `docs/specs/NNNN-*.md` has a Decision, or the user stated one clearly.
+Check that the problem and chosen approach are settled. Either the design doc has a Decision, or the user stated one clearly.
 
 - **If there is a decision**, keep the top half. Tighten it only if the code reveals it's wrong, and if so, say so: don't silently change it.
 - **If there's no decision but the approach is obvious** (one sane option), write a short Problem, Options and Decision yourself, with the rejected alternative in one line, and carry on.
 - **If there's no decision and there's a real fork**, stop and suggest `design-feature`, or briefly lay out the fork and ask. Writing a detailed spec for the wrong option is the most expensive thing this skill can do.
 
-If no spec file exists yet, create one. Follow the numbering and index rules: `docs/specs/NNNN-<slug>.md`, the next free number, and a row in `docs/specs/README.md`, creating that README if it's missing.
+If no design doc exists yet, create one as `tracking.md` describes, with `-p specs -t specification`, from `assets/spec-template.md`.
 
 ## 1. API
 
@@ -77,44 +78,50 @@ Name the exact sections to update:
 
 Docs are part of done.
 
-## 7. Implementation plan
+## 7. Break it into steps
 
-Write ordered, PR-sized steps. Each step should:
+The steps aren't written in the doc. Each one is a subtask of the feature's parent task, so its order, status and acceptance criteria live in one place. Plan them first, then create them in §9. Each step should:
 
 - leave `CGO_ENABLED=0 make test` green
 - deliver something reviewable (API and generated code, then the controller, then the runtime, then HAP, then docs)
 - name the files it touches and any CLI commands (`kubebuilder create …`, `make manifests generate`)
 
-Put the risky or uncertain step early, so a bad assumption shows up before it's built on. If a step is really "add capability X", point at the `add-capability` skill instead of re-describing it.
+Put the risky or uncertain step early, so a bad assumption shows up before it's built on. If a step is really "add capability X", point at the `add-capability` skill instead of re-describing it. If a step depends on another feature's task, note that task's ID: it becomes a `--dep`.
 
-## 8. Finish
+## 8. Finish the doc
 
 - Fill **Open questions** with only the real ones, each saying who answers it and what it blocks. If there are none, write "None".
-- Set Status to **Accepted** if the user agreed the design. Otherwise leave it as **Proposed**. Set `Updated:` to today. Update the index row in `docs/specs/README.md`.
+- Set the first line to `**Decision:** accepted` if the user agreed the design. Otherwise leave it `proposed`, and stop after this section: a proposed design gets no subtasks, because its steps may still change.
 - Delete any section that doesn't apply, with one line saying why. Don't leave filler.
-
-## 9. Track the steps in Backlog
-
-Do this only once the spec is **Accepted**. A Proposed spec stays a draft, because its steps may still change. Read `backlog instructions task-creation` first.
-
-- **Find the parent task.** Use the spec header's `Backlog:` line, or `backlog search "<slug>" --plain`. If design-feature left a draft, promote it. If there's nothing, create the parent task with `--doc docs/specs/NNNN-<slug>.md -l spec-NNNN`. Then write its ID into the `Backlog:` line.
-- **Create one subtask per step in §7, in order:**
-  `backlog task create -p <parent> "Spec NNNN step N: <step title>" -d "<why this step exists>" --ac "…" --doc docs/specs/NNNN-<slug>.md -l spec-NNNN --dep <previous step's task>`
-  Take the acceptance criteria from the rows in the test plan table that this step proves. Use observable outcomes, not "write function X".
-- **Keep the approach in the spec, not on the task.** Don't pass `--plan`: whoever picks the task up records the plan when they start it, usually "follow step N of spec NNNN" plus anything that has changed since. Steps that are really `add-capability` work get a subtask that points to that skill.
-- **If the spec already has subtasks** (you're revising it), edit them to match the new steps. Archive the ones for steps that were dropped. Don't duplicate them.
-
-When the first subtask moves to In Progress, set the spec to **In progress**. When the parent is Done, set it to **Done**. Either way, update its row in `docs/specs/README.md` too.
+- Write the body back with `backlog doc update` and view it to check.
 
 Length follows the feature. A new optional field might take a page, and a new driver might take several. Don't pad.
+
+## 9. Create the subtasks
+
+Do this only once the design is **accepted**. Read `backlog instructions task-creation` first.
+
+- **Find the parent.** It's the draft or task in the doc's `**Work:**` line, or `backlog search "<topic>" --plain`. Promote a draft with `backlog draft promote <id>`: it's now ready to build. Update the doc's `**Work:**` line, because the ID changes. If there's nothing, create the parent with `backlog task create "<Feature name>" -d "<the problem, and why it matters>" --doc doc-NNNN`.
+- **Create one subtask per step, in order:**
+  `backlog task create -p <parent> "<step title>" -d $'<why this step exists>
+
+Scope:
+<files, commands and risks from §7>' --ac "…" --doc doc-NNNN --dep <previous step's task>`
+  Titles don't carry step numbers or a feature prefix: the parent and the dependency chain give the order.
+  Take the acceptance criteria from the rows in the test plan that this step proves. Use observable outcomes, not "write function X".
+  Add a `--dep` on any other feature's task this step needs.
+- **Don't pass `--plan`.** Whoever picks the task up records the plan when they start it.
+- **If the parent already has subtasks** (you're revising the design), edit them to match the new steps. Archive the ones for steps that were dropped. Don't duplicate them.
+
+Progress is the subtasks' status. Don't record it anywhere else.
 
 ## What to hand back
 
 Give:
 
-- the file path
-- a three-to-five line summary: the API change, the riskiest behaviour, and the number of implementation steps
+- the doc ID
+- a three-to-five line summary: the API change, the riskiest behaviour, and the number of steps
 - the open questions
-- the parent task ID and the subtask IDs, one per step
+- the parent task ID and the subtask IDs, in order
 
 Suggest `plan-roadmap` to slot it in, or starting implementation with the first subtask. Don't commit unless asked.

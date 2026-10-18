@@ -202,7 +202,7 @@ make test-e2e      # Kind: fakes Zigbee2MQTT over MQTT and checks status, automa
 
 ## Not yet
 
-Planned work, its order and what's deliberately out of scope are in the [roadmap](docs/ROADMAP.md). Designs live in [docs/specs](docs/specs/).
+Planned work is tracked in [Backlog.md](backlog/). The [roadmap](backlog/docs/doc-0005%20-%20Roadmap.md) gives the order and what's deliberately out of scope, and designs live in [backlog/docs/specs](backlog/docs/specs/). Run `backlog board` or `backlog browser` to see it all.
 
 ## License
 
