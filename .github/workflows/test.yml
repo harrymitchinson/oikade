@@ -28,3 +28,39 @@ jobs:
         run: |
           go mod tidy
           make test
+
+  plugins:
+    permissions:
+      contents: read
+    name: Plugin SDK and conformance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Check and test the TypeScript workspace
+        run: make test-plugins
+
+      - name: Run the conformance suite against example-switch
+        run: make test-conformance
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the example-switch image for arm64 and amd64
+        run: make docker-buildx-plugin PLUGIN=example-switch
