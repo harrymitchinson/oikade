@@ -1,9 +1,11 @@
 ---
 id: TASK-0007
 title: Hub hardening from the TASK-0001.04 review
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-18 14:30'
+updated_date: '2026-10-18 15:00'
 labels: []
 dependencies:
   - TASK-0001.04
@@ -37,3 +39,22 @@ Follow-up findings from the code review of PR #9 (TASK-0001.04). None of them ch
 - [ ] #2 Documentation updated
 - [ ] #3 No regressions introduced
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. hub.ensure/stop: reserve or clear the map slot under h.mu, run Start/Stop outside it; PluginStats snapshots instances then reads Stats unlocked
+2. GenerationChangedPredicate on For and the Device watch of both hub controllers
+3. Drop unreachable branches in the current checks (plugin root follows from the key; key carries the driver)
+4. startRuntime: create ctx after the broker and API server, register cancel at once
+5. Tests: hub unit test with a gated Bus; runtime test counting hub-plugin reconciles around a status patch
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Instance interface gains Start so ensure owns the start/log. Per-key reconciles never overlap, so the reserved slot is safe without the lock.
+TestBrokerWaitsDontBlockSet (internal/hub) and TestHubIgnoresStatusPatches (internal/runtime) both fail against the old hub.go and pass now.
+Local toolchain: tests need CGO_ENABLED=0 (SDK tbd linker error) and lint needs GOTOOLCHAIN=go1.26.0; both unrelated to this change. TestReloadingTheSameGenerationKeepsTheRun flaked once in make test, passed 5/5 on rerun.
+No user-facing docs describe hub locking or watches; comments updated in hub.go.
+<!-- SECTION:NOTES:END -->

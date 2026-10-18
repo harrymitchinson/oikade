@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
@@ -317,10 +318,85 @@ func TestRuntimePluginDevices(t *testing.T) {
 	})
 }
 
+// TestHubIgnoresStatusPatches checks that the hub reconciles on Device spec changes, creates and
+// deletes, but not on the status patches the status writer makes.
+func TestHubIgnoresStatusPatches(t *testing.T) {
+	ctx, c, _, _ := startRuntime(t)
+
+	reconciles := func() float64 {
+		families, err := crmetrics.Registry.Gather()
+		must(t, err)
+		var n float64
+		for _, f := range families {
+			if f.GetName() != "controller_runtime_reconcile_total" {
+				continue
+			}
+			for _, m := range f.GetMetric() {
+				for _, l := range m.GetLabel() {
+					if l.GetName() == "controller" && l.GetValue() == "hub-plugin" {
+						n += m.GetCounter().GetValue()
+					}
+				}
+			}
+		}
+		return n
+	}
+	// settled waits until the hub has reconciled since before and then stays quiet for a second.
+	settled := func(what string, before float64) float64 {
+		t.Helper()
+		var last float64
+		eventually(t, what, func() bool {
+			n := reconciles()
+			if n <= before {
+				return false
+			}
+			time.Sleep(time.Second)
+			last = reconciles()
+			return last == n
+		})
+		return last
+	}
+
+	n := reconciles()
+	must(t, c.Create(ctx, &pluginsv1alpha1.Plugin{
+		ObjectMeta: metav1.ObjectMeta{Name: "sonoff", Namespace: ns},
+		Spec:       pluginsv1alpha1.PluginSpec{Image: "example.com/oikade-plugin-sonoff:v0.1.0"},
+	}))
+	n = settled("Plugin create", n)
+	light := &homev1alpha1.Device{
+		ObjectMeta: metav1.ObjectMeta{Name: "porch-light", Namespace: ns},
+		Spec: homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{
+			PluginRef: corev1.LocalObjectReference{Name: "sonoff"}, ID: "relay1",
+		}},
+	}
+	must(t, c.Create(ctx, light))
+	// The status writer reports the device as not found; none of its patches reach the hub.
+	n = settled("Device create", n)
+	eventually(t, "light status", func() bool {
+		must(t, c.Get(ctx, client.ObjectKeyFromObject(light), light))
+		return meta.IsStatusConditionFalse(light.Status.Conditions, homev1alpha1.ConditionResolved)
+	})
+
+	patch := client.MergeFrom(light.DeepCopy())
+	light.Status.Manufacturer = "Patched"
+	must(t, c.Status().Patch(ctx, light, patch))
+	time.Sleep(2 * time.Second)
+	if got := reconciles(); got != n {
+		t.Fatalf("hub reconciled %v times after a Device status patch, want 0", got-n)
+	}
+
+	must(t, c.Get(ctx, client.ObjectKeyFromObject(light), light))
+	light.Spec.DisplayName = "Porch light"
+	must(t, c.Update(ctx, light))
+	n = settled("Device spec change", n)
+
+	must(t, c.Delete(ctx, light))
+	settled("Device delete", n)
+}
+
 // startRuntime starts envtest, a broker and the runtime, and creates the home namespace.
 func startRuntime(t *testing.T) (context.Context, client.Client, string, *prometheus.Registry) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
 	env := &envtest.Environment{
@@ -348,6 +424,10 @@ func startRuntime(t *testing.T) (context.Context, client.Client, string, *promet
 	}
 
 	url := mqtttest.StartBroker(t)
+	// Cleanups run last-in first-out: registered after the broker and the API server, cancel stops
+	// the runtime before them, on every exit path.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
 	bus, err := mqtt.Connect(ctx, url, "runtime")
 	if err != nil {
 		t.Fatal(err)
@@ -368,8 +448,6 @@ func startRuntime(t *testing.T) (context.Context, client.Client, string, *promet
 		t.Fatal(err)
 	}
 	go func() { _ = mgr.Start(ctx) }()
-	// Cleanups run last-in first-out: stop the runtime before the broker and the API server.
-	t.Cleanup(cancel)
 
 	must(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
 	return ctx, c, url, reg
