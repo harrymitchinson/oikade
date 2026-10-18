@@ -24,6 +24,28 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// Driver names for InstanceKey.
+const (
+	Zigbee2MQTT = "zigbee2mqtt"
+	Plugin      = "plugin"
+)
+
+// InstanceKey identifies a driver instance. Objects of different drivers may share a name, so the
+// driver is part of the key.
+type InstanceKey struct {
+	Driver string
+	types.NamespacedName
+}
+
+// Label is the instance label value on metrics: the bare name for Zigbee2MQTT, which predates
+// other drivers, and <driver>/<name> otherwise.
+func (k InstanceKey) Label() string {
+	if k.Driver == Zigbee2MQTT {
+		return k.Name
+	}
+	return k.Driver + "/" + k.Name
+}
+
 // Info is what a driver knows about a declared device.
 type Info struct {
 	// Found is false while the device is declared but not paired with the driver.
@@ -54,7 +76,7 @@ type Sink interface {
 	// Seen reports any message from the device, changed or not.
 	Seen(dev types.NamespacedName, t time.Time)
 	// Undeclared reports how many paired devices have no Device object, per driver instance.
-	Undeclared(instance types.NamespacedName, count int)
+	Undeclared(instance InstanceKey, count int)
 }
 
 // Setter writes capabilities.

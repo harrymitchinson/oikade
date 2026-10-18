@@ -180,7 +180,7 @@ func newHarness(t *testing.T, now time.Time, automations ...*homev1alpha1.Automa
 		t.Fatal(err)
 	}
 	store := hub.NewStore(logr.Discard())
-	store.SetDevices(types.NamespacedName{Namespace: ns, Name: "z2m"}, map[types.NamespacedName]hub.Meta{
+	store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{
 		{Namespace: ns, Name: "hallway-motion"}: {},
 		{Namespace: ns, Name: "hallway-light"}:  {},
 	})
@@ -359,13 +359,16 @@ type member struct {
 
 var lampCaps = []string{capability.LightOn, capability.LightLevel, capability.LinkQuality}
 
+// z2m is the driver instance every test device belongs to.
+var z2m = driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: types.NamespacedName{Namespace: ns, Name: "z2m"}}
+
 // declare replaces the store's devices with these.
 func declare(store *hub.Store, devices map[string]member) {
 	m := map[types.NamespacedName]hub.Meta{}
 	for name, d := range devices {
 		m[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Room: d.room}
 	}
-	store.SetDevices(types.NamespacedName{Namespace: ns, Name: "z2m"}, m)
+	store.SetDevices(z2m, m)
 	for name, d := range devices {
 		if d.caps != nil {
 			store.Discovered(types.NamespacedName{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: d.caps})

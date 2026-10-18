@@ -73,6 +73,6 @@ func (c Collector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 	for key, n := range c.Store.UndeclaredCounts() {
-		ch <- prometheus.MustNewConstMetric(undeclaredDesc, prometheus.GaugeValue, float64(n), key.Namespace, key.Name)
+		ch <- prometheus.MustNewConstMetric(undeclaredDesc, prometheus.GaugeValue, float64(n), key.Namespace, key.Label())
 	}
 }

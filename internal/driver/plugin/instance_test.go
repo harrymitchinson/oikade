@@ -69,7 +69,7 @@ func (r *recorder) Seen(d types.NamespacedName, t time.Time) {
 	defer r.mu.Unlock()
 	r.seen[d] = t
 }
-func (r *recorder) Undeclared(_ types.NamespacedName, n int) {
+func (r *recorder) Undeclared(_ driver.InstanceKey, n int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.undeclared = n
