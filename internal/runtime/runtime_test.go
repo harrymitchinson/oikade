@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -247,10 +248,7 @@ func bridgeDevicesWithSecondLamp(t *testing.T) []byte {
 	must(t, json.Unmarshal(raw, &devices))
 	for _, d := range devices {
 		if d["ieee_address"] == "0x000b57fffe000001" {
-			lamp := map[string]any{}
-			for k, v := range d {
-				lamp[k] = v
-			}
+			lamp := maps.Clone(d)
 			lamp["ieee_address"], lamp["friendly_name"] = secondLamp, secondLamp
 			devices = append(devices, lamp)
 			break

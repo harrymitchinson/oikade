@@ -82,8 +82,8 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 	}
 	var errs []error
 	for i, t := range a.Spec.Triggers {
-		if t.Device == "" && t.Room == "" {
-			errs = append(errs, fmt.Errorf("triggers[%d]: one of device or room is required", i))
+		if (t.Device == "") == (t.Room == "") {
+			errs = append(errs, fmt.Errorf("triggers[%d]: exactly one of device or room is required", i))
 		}
 		if _, ok := capability.Lookup(t.Capability); !ok {
 			errs = append(errs, fmt.Errorf("triggers[%d]: unknown capability %q", i, t.Capability))
@@ -108,8 +108,8 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 		switch {
 		case act.Set != nil:
 			s := act.Set
-			if s.Device == "" && s.Room == "" {
-				errs = append(errs, fmt.Errorf("actions[%d]: one of device or room is required", i))
+			if (s.Device == "") == (s.Room == "") {
+				errs = append(errs, fmt.Errorf("actions[%d]: exactly one of device or room is required", i))
 				continue
 			}
 			spec, ok := capability.Lookup(s.Capability)

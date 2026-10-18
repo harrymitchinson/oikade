@@ -117,7 +117,7 @@ spec:
 The operator compiles every Automation and sets `Ready=False` with the reason:
 
 - `Invalid` when the condition doesn't compile, a capability is unknown or read-only, or a value has the wrong type.
-- `RoomNotFound` when a trigger or action names a Room that doesn't exist in the namespace. The message lists the missing Rooms. Creating them sets `Ready=True` without editing the Automation. Until then the runtime still runs the Automation, and the missing room matches nothing.
+- `RoomNotFound` when a trigger or action names a Room that doesn't exist in the namespace. The message lists the missing Rooms. Creating them sets `Ready=True` without editing the Automation. The runtime doesn't check Rooms: until the Room exists it still runs the Automation, matching any Devices whose `roomRef` names it. For a misspelled room that's none. After a Room is deleted, Devices still pointing at it keep matching.
 
 `Invalid` is reported before `RoomNotFound`. `status.lastTriggered` is updated at most once a minute.
 

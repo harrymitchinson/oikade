@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,10 +158,7 @@ func bridgeDevices(withSecondLamp bool) string {
 	ExpectWithOffset(1, json.Unmarshal(raw, &devices)).To(Succeed())
 	for _, d := range devices {
 		if d["ieee_address"] == "0x000b57fffe000001" {
-			lamp := map[string]any{}
-			for k, v := range d {
-				lamp[k] = v
-			}
+			lamp := maps.Clone(d)
 			lamp["ieee_address"], lamp["friendly_name"] = secondLamp, secondLamp
 			devices = append(devices, lamp)
 			break

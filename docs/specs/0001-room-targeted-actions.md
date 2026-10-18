@@ -32,7 +32,7 @@ Done looks like this:
   - The runtime engine changes: `internal/engine/compile.go` (`Compile`, `matches`) and `engine.go` (`handle`, `execute`).
   - The manager's `AutomationReconciler` adds the Room existence check. It has to watch Rooms so that creating a missing Room flips the Automation back to `Ready=True`.
   - hap is unaffected.
-  - The runtime doesn't check whether a Room exists. A room that doesn't exist simply matches no devices.
+  - The runtime doesn't check whether a Room exists. It matches Devices by the name in their `roomRef`, so a misspelled room matches none, and a deleted Room still matches Devices whose `roomRef` names it.
 - **Resolve at run time, not compile time.** `Compile` already leaves device existence to run time. A room's members also change without the Automation's generation changing, and the loader only reloads on a generation change (`internal/engine/controllers.go`). So actions read membership from `hub.Store` on each run, and triggers read the changed device's room on each update.
 - **Pi.** A few extra MQTT `/set` publishes per run, and one store lookup per update. Negligible.
 
@@ -95,7 +95,7 @@ Public names introduced: `spec.triggers[].room` and `spec.actions[].set.room`. E
 Agreed semantics:
 
 - **Membership** comes from `hub.Store`. It's read when an action runs, and when an update arrives for a trigger. Devices that haven't been discovered yet are skipped by room actions, because their capabilities are unknown.
-- **Missing Room:** the manager sets `Ready=False, reason=RoomNotFound` when any trigger or action names a Room that doesn't exist in the namespace. The runtime still loads the Automation, and the missing room matches nothing. That's consistent with how a missing device behaves today. The check covers rooms only. Checking device names is a separate change.
+- **Missing Room:** the manager sets `Ready=False, reason=RoomNotFound` when any trigger or action names a Room that doesn't exist in the namespace. The runtime still loads the Automation, and the room matches the Devices whose `roomRef` names it, which for a typo is none. That's consistent with how a missing device behaves today. The check covers rooms only. Checking device names is a separate change.
 - **Empty match** (the Room exists, but no discovered device in it has the capability): the action is a no-op, logged at `V(1)` as `"Matched no Devices in Room"`. The run still counts as `succeeded`. A metric can be added later if the log turns out not to be enough. It would be additive, with no new `result` value.
 - **Partial failure:** the engine tries every matched device and logs each failure. The run counts as `failed` if any device failed. A dead Zigbee bulb shouldn't leave the rest of the room on.
 - **Restart mode with a room trigger:** every occupancy event from any sensor in the room restarts the run, which is the behaviour the hallway example wants. write-spec should check how zigbee2mqtt re-reports occupancy while someone stays in range of sensor A. If it doesn't re-report, the lights turn off while sensor A is still occupied.
@@ -188,7 +188,7 @@ Every matching change from any sensor in the room restarts the run. That's what 
 
 | Situation | What happens | What the user sees |
 |---|---|---|
-| A Room is missing | The manager sets `RoomNotFound`. The runtime loads the Automation anyway, and the room matches nothing. | `kubectl get automations` shows `Ready=False`, with the room names. |
+| A Room is missing | The manager sets `RoomNotFound`. The runtime loads the Automation anyway. The room matches Devices whose `roomRef` names it: none for a typo, and the old members after a Room is deleted. | `kubectl get automations` shows `Ready=False`, with the room names. |
 | The Room is created later | The Room watch re-reconciles. | `Ready=True`, with no edit needed. |
 | A Device moves rooms | Membership is read from `hub.Store` on each update and each action. | The next trigger or action uses the new room. |
 | A Device isn't discovered yet, or lacks the capability | It's skipped by room actions. | Nothing, apart from a `V(1)` log if no device matched. |
@@ -204,7 +204,7 @@ hap is unaffected.
 
 - **Nothing new persists.** Membership comes from `Device.spec.roomRef`, held in memory by `hub.Store`.
 - **Upgrade:** additive. Existing Automations have `device` set and pass the new CEL rule. Making `device` `omitempty` doesn't change how existing objects serialise.
-- **Delete:** a deleted Automation is removed by the loader as it is today. A deleted Room makes Automations that reference it go to `RoomNotFound`, and its room actions match nothing.
+- **Delete:** a deleted Automation is removed by the loader as it is today. A deleted Room makes Automations that reference it go to `RoomNotFound`. Their room triggers and actions still match Devices whose `roomRef` still names it.
 - **Restoring from Git:** everything is config. Nothing needs a backup.
 
 ## Observability

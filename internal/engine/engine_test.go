@@ -94,12 +94,9 @@ func TestCompile(t *testing.T) {
 }
 
 func TestCompileRoom(t *testing.T) {
-	roomSet := homev1alpha1.Action{Set: &homev1alpha1.SetAction{
-		Room: "living-room", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("false")},
-	}}
 	c, err := Compile(automation("goodnight", homev1alpha1.AutomationSpec{
 		Triggers: []homev1alpha1.Trigger{{Room: "hallway", Capability: capability.Occupancy}},
-		Actions:  []homev1alpha1.Action{roomSet},
+		Actions:  []homev1alpha1.Action{roomLightOn("living-room", "false")},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -114,11 +111,21 @@ func TestCompileRoom(t *testing.T) {
 	}{
 		"trigger with neither": {
 			spec:    homev1alpha1.AutomationSpec{Triggers: []homev1alpha1.Trigger{{Capability: capability.Occupancy}}, Actions: []homev1alpha1.Action{delay(time.Second)}},
-			wantErr: "triggers[0]: one of device or room is required",
+			wantErr: "triggers[0]: exactly one of device or room is required",
 		},
 		"set with neither": {
 			spec:    homev1alpha1.AutomationSpec{Triggers: motionTrigger, Actions: []homev1alpha1.Action{set("", capability.LightOn, "true")}},
-			wantErr: "actions[0]: one of device or room is required",
+			wantErr: "actions[0]: exactly one of device or room is required",
+		},
+		"trigger with both": {
+			spec:    homev1alpha1.AutomationSpec{Triggers: []homev1alpha1.Trigger{{Device: "m", Room: "hallway", Capability: capability.Occupancy}}, Actions: []homev1alpha1.Action{delay(time.Second)}},
+			wantErr: "triggers[0]: exactly one of device or room is required",
+		},
+		"set with both": {
+			spec: homev1alpha1.AutomationSpec{Triggers: motionTrigger, Actions: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+				Device: "lamp", Room: "hallway", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
+			}}}},
+			wantErr: "actions[0]: exactly one of device or room is required",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -337,9 +344,10 @@ func TestReloadingTheSameGenerationKeepsTheRun(t *testing.T) {
 	h.eventually("cancelled by reload", func() bool { return h.runs(ResultCancelled) == 1 })
 }
 
-func roomSet(room, name, value string) homev1alpha1.Action {
+// roomLightOn sets light.on on every light in a room.
+func roomLightOn(room, value string) homev1alpha1.Action {
 	return homev1alpha1.Action{Set: &homev1alpha1.SetAction{
-		Room: room, Capability: name, Value: apiextensionsv1.JSON{Raw: []byte(value)},
+		Room: room, Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte(value)},
 	}}
 }
 
@@ -427,7 +435,7 @@ func TestRoomActionSetsMembers(t *testing.T) {
 		"motion":       {room: "living-room", caps: []string{capability.Occupancy}},
 		"lamp-new":     {room: "living-room"},
 		"kitchen-lamp": {room: "kitchen", caps: lampCaps},
-	}, roomSet("living-room", capability.LightOn, "false"))
+	}, roomLightOn("living-room", "false"))
 
 	if result != ResultSucceeded {
 		t.Fatalf("result = %s, want %s", result, ResultSucceeded)
@@ -442,7 +450,7 @@ func TestRoomActionEmptyMatch(t *testing.T) {
 	setter := &fakeSetter{}
 	result, logs := runRoom(t, setter, map[string]member{
 		"motion": {room: "garage", caps: []string{capability.Occupancy}},
-	}, roomSet("garage", capability.LightOn, "true"), set("hallway-light", capability.LightOn, "true"))
+	}, roomLightOn("garage", "true"), set("hallway-light", capability.LightOn, "true"))
 
 	if result != ResultSucceeded {
 		t.Fatalf("result = %s, want %s", result, ResultSucceeded)
@@ -462,7 +470,7 @@ func TestRoomActionPartialFailure(t *testing.T) {
 	result, logs := runRoom(t, setter, map[string]member{
 		"lamp-a": {room: "living-room", caps: lampCaps},
 		"lamp-b": {room: "living-room", caps: lampCaps},
-	}, roomSet("living-room", capability.LightOn, "false"), set("hallway-light", capability.LightOn, "false"))
+	}, roomLightOn("living-room", "false"), set("hallway-light", capability.LightOn, "false"))
 
 	if result != ResultFailed {
 		t.Fatalf("result = %s, want %s", result, ResultFailed)
@@ -482,9 +490,9 @@ func TestRoomMembershipAtExecution(t *testing.T) {
 	a := automation("motion-light", homev1alpha1.AutomationSpec{
 		Triggers: motionTrigger,
 		Actions: []homev1alpha1.Action{
-			roomSet("hallway", capability.LightOn, "true"),
+			roomLightOn("hallway", "true"),
 			delay(5 * time.Minute),
-			roomSet("hallway", capability.LightOn, "false"),
+			roomLightOn("hallway", "false"),
 		},
 	})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)

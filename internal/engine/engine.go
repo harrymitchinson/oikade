@@ -236,7 +236,7 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 			return ResultCancelled
 		}
 		if a.room != "" {
-			if !e.setRoom(ctx, log, key.Namespace, a) {
+			if !e.setRoom(ctx, key, a) {
 				failed = true
 			}
 			if ctx.Err() != nil {
@@ -259,9 +259,10 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 // setRoom sets a capability on every discovered device in a room that reports it, in name order.
 // Membership is read now, not when the run started. It tries every device and reports whether
 // all of them succeeded.
-func (e *Engine) setRoom(ctx context.Context, log logr.Logger, namespace string, a action) bool {
+func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action) bool {
+	log := e.Log.WithValues("automation", key)
 	ok, matched := true, false
-	for _, dev := range e.Store.Room(namespace, a.room) {
+	for _, dev := range e.Store.Room(key.Namespace, a.room) {
 		snap, found := e.Store.Get(dev)
 		if !found || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, a.capability) {
 			continue
