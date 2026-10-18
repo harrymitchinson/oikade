@@ -77,7 +77,7 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	if err := triggered.SetupWithManager(mgr); err != nil {
 		return nil, err
 	}
-	for _, c := range []prometheus.Collector{metrics.Collector{Store: store}, eng.Runs, eng.Dropped} {
+	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped} {
 		if err := opts.Registry.Register(c); err != nil {
 			return nil, err
 		}

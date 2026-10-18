@@ -32,6 +32,7 @@ import (
 
 	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
 	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
+	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
 	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
 )
 
@@ -95,6 +96,7 @@ func HAPRBAC(b *homekitv1alpha1.Bridge) (
 			rbacv1ac.PolicyRule().WithAPIGroups(homekitv1alpha1.GroupVersion.Group).WithResources("bridges").WithVerbs(read...),
 			rbacv1ac.PolicyRule().WithAPIGroups(homev1alpha1.GroupVersion.Group).WithResources("devices").WithVerbs(read...),
 			rbacv1ac.PolicyRule().WithAPIGroups(zigbeev1alpha1.GroupVersion.Group).WithResources("zigbee2mqtts").WithVerbs(read...),
+			rbacv1ac.PolicyRule().WithAPIGroups(pluginsv1alpha1.GroupVersion.Group).WithResources("plugins").WithVerbs(read...),
 			rbacv1ac.PolicyRule().WithAPIGroups("").WithResources("secrets").
 				WithResourceNames(b.Spec.PinSecretRef.Name, IdentitySecretName(b)).WithVerbs("get"),
 		)

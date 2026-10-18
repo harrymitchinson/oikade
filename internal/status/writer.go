@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -97,11 +98,11 @@ func compute(d *homev1alpha1.Device, snap hub.Snapshot, known bool, seenInterval
 	resolved := metav1.Condition{Type: homev1alpha1.ConditionResolved, ObservedGeneration: d.Generation}
 	switch {
 	case !known:
-		resolved.Status, resolved.Reason = metav1.ConditionFalse, "NoDriver"
-		resolved.Message = "No running driver instance claims this device; check spec.zigbee2mqtt.instanceRef " +
-			"and that no other Device uses the same IEEE address"
+		resolved.Status, resolved.Reason, resolved.Message = metav1.ConditionFalse, "NoDriver", noDriverMessage(d)
 	case !snap.Discovered:
 		resolved.Status, resolved.Reason, resolved.Message = metav1.ConditionUnknown, "Waiting", "Waiting for the driver"
+	case snap.Info.Error != "":
+		resolved.Status, resolved.Reason, resolved.Message = metav1.ConditionFalse, "PluginError", truncate(snap.Info.Error, maxErrorLen)
 	case !snap.Info.Found:
 		resolved.Status, resolved.Reason = metav1.ConditionFalse, "NotPaired"
 		resolved.Message = fmt.Sprintf("The device is not paired with %s", snap.Instance.Name)
@@ -135,6 +136,31 @@ func compute(d *homev1alpha1.Device, snap hub.Snapshot, known bool, seenInterval
 	if known && !snap.LastSeen.IsZero() && snap.LastSeen.Sub(d.Status.LastSeen.Time) >= seenInterval {
 		d.Status.LastSeen = metav1.NewTime(snap.LastSeen.Truncate(time.Second))
 	}
+}
+
+func noDriverMessage(d *homev1alpha1.Device) string {
+	if d.Spec.Plugin != nil {
+		return "No running driver instance claims this device; check spec.plugin.pluginRef " +
+			"and that no other Device uses the same plugin id"
+	}
+	return "No running driver instance claims this device; check spec.zigbee2mqtt.instanceRef " +
+		"and that no other Device uses the same IEEE address"
+}
+
+// maxErrorLen bounds a driver-reported error in a condition message.
+const maxErrorLen = 256
+
+// truncate shortens s to at most n bytes without splitting a UTF-8 sequence.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	const ellipsis = "…"
+	cut := n - len(ellipsis)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + ellipsis
 }
 
 // SetupWithManager registers the writer.

@@ -145,6 +145,11 @@ var _ = Describe("Bridge Controller", func() {
 
 		role := get(t.key("main-hap"), &rbacv1.Role{})
 		Expect(role.Rules).To(ContainElement(HaveField("ResourceNames", ConsistOf("pin", "main-identity"))))
+		Expect(role.Rules).To(ContainElement(SatisfyAll(
+			HaveField("APIGroups", ConsistOf("plugins.oikade.dev")),
+			HaveField("Resources", ConsistOf("plugins")),
+			HaveField("Verbs", ConsistOf("get", "list", "watch")),
+		)))
 		Expect(get(t.key("main-identity"), &corev1.Secret{}).OwnerReferences).To(BeEmpty())
 		Expect(get(t.key("main-hap"), &corev1.PersistentVolumeClaim{}).OwnerReferences).To(BeEmpty())
 	})

@@ -149,6 +149,8 @@ The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/d
 | `oikade_device_available{namespace,device,room}` | 1 online, 0 offline |
 | `oikade_device_last_seen_timestamp_seconds{…}` | |
 | `oikade_undeclared_devices{namespace,instance}` | Paired but not in Git |
+| `oikade_plugin_up{namespace,plugin}` | 1 while the plugin reports itself online with contract 1 |
+| `oikade_plugin_rejected_messages_total{namespace,plugin,reason}` | Plugin messages dropped as `malformed`, `wrong_contract`, `unknown_capability`, `invalid_value`, `undeclared_device` or `unannounced_capability` |
 | `oikade_automation_runs_total{namespace,automation,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error` |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.

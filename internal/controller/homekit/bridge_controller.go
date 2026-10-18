@@ -74,6 +74,7 @@ type BridgeReconciler struct {
 // The operator must hold every permission it grants to HAP Roles.
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=devices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=zigbee.oikade.dev,resources=zigbee2mqtts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=plugins.oikade.dev,resources=plugins,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
