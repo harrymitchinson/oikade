@@ -23,7 +23,9 @@ MAX_STACK="${PLAN_MAX_STACK:-3}"
 # Paths an agent may never merge without the user (hack/plan merge): public
 # API, state that must survive, dependencies, and the rules agents work under.
 # It backs up the agent's own reading of .claude/skills/design/references/surfaces.md.
-PROTECTED='^api/|^config/(crd|rbac)/|^PROJECT$|^internal/(capability|hap|identity|metrics)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/plugin/|^docs/(plugin-contract\.md|design/|roadmap\.md)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock)$|^\.github/|^\.claude/|^hack/plan$|^(AGENTS|CLAUDE)\.md$'
+# The build and CI files are here too, so an agent can't weaken the checks it
+# is then merged on.
+PROTECTED='^api/|^cmd/|^config/|^PROJECT$|^internal/(capability|hap|hub|identity|metrics|status)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/(driver\.go|plugin/)|^docs/(plugin-contract\.md|design/|roadmap\.md)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock|Dockerfile[^/]*)$|^Makefile$|^\.golangci\.ya?ml$|^\.github/|^\.claude/|^hack/|^(AGENTS|CLAUDE)\.md$'
 
 die() { echo "plan: $*" >&2; exit 1; }
 
@@ -383,16 +385,19 @@ cmd_claim() {
 }
 
 cmd_step() {
-	local n="${1:?usage: plan step N}" branch
+	local n="${1:?usage: plan step N}" branch state
 	is_claimed "$n" || die "#$n isn't claimed. Claim it first: hack/plan claim $n"
 	branch=$(git branch --show-current)
 	[[ "$branch" =~ ^work/$n-[0-9]+$ ]] || die "run this in #$n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
-	[[ -n "$(gh pr list --head "$branch" --state all --json number -q '.[0].number // empty')" ]] ||
-		die "$branch has no PR yet. Open it first: hack/plan pr $n TITLE BODY_FILE"
+	state=$(gh pr list --head "$branch" --state all --json state -q '.[0].state // empty')
+	[[ -n "$state" ]] || die "$branch has no PR yet. Open it first: hack/plan pr $n TITLE BODY_FILE"
 	[[ -z "$(git status --porcelain)" ]] || die "the worktree has uncommitted changes"
-	fetch_branch "$branch"
-	[[ "$(git rev-list --count "$REMOTE/$branch..HEAD")" == 0 ]] ||
-		die "$branch has commits that aren't pushed, and the next step builds on the pushed branch. Push first: git push"
+	# A merged step's branch is gone from GitHub, and the next step builds on main.
+	if [[ "$state" != MERGED ]]; then
+		fetch_branch "$branch"
+		[[ "$(git rev-list --count "$REMOTE/$branch..HEAD")" == 0 ]] ||
+			die "$branch has commits that aren't pushed, and the next step builds on the pushed branch. Push first: git push"
+	fi
 	start_step "$n"
 	echo "On $(git branch --show-current), on top of $STEP_BASE"
 }
@@ -425,34 +430,59 @@ cmd_pr() {
 }
 
 cmd_merge() {
-	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing files
+	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing workflow files try
 	pr="${pr#\#}"
+	is_claimed "$n" || die "#$n isn't claimed: merging restacks its branches, so only the session building it merges"
 	body "$n" | steps | grep -qF "(PR #$pr)" || die "PR #$pr isn't recorded against a step of #$n"
 	[[ "$(gh issue view "$n" --json labels -q '[.labels[].name] | index("needs-review") != null')" != true ]] ||
 		die "#$n has the needs-review label: the user merges its steps"
-	info=$(gh pr view "$pr" --json state,headRefName,baseRefName,isDraft,mergeable,headRefOid,labels \
-		-q '"\(.state) \(.headRefName) \(.baseRefName) \(.isDraft) \(.mergeable) \(.headRefOid) ,\([.labels[].name] | join(",")),"')
-	read -r state head base draft mergeable oid labels <<<"$info"
+	restack "$n"
+	git fetch -q "$REMOTE" main
+	# GitHub reports UNKNOWN for a few seconds after a push to the PR or main.
+	for try in 1 2 3 4 5 6; do
+		info=$(gh pr view "$pr" --json state,headRefName,baseRefName,isDraft,mergeable,headRefOid,labels \
+			-q '"\(.state) \(.headRefName) \(.baseRefName) \(.isDraft) \(.mergeable) \(.headRefOid) ,\([.labels[].name] | join(",")),"')
+		read -r state head base draft mergeable oid labels <<<"$info"
+		[[ "$mergeable" == UNKNOWN ]] || break
+		sleep 5
+	done
 	[[ "$state" == OPEN ]] || die "PR #$pr is $state"
 	# Not work/N itself: merging deletes the branch, and that one is the claim.
 	[[ "$head" =~ ^work/$n-[0-9]+$ ]] || die "PR #$pr isn't from one of #$n's step branches"
 	[[ "$base" == main ]] || die "PR #$pr is stacked on $base: the step below it has to merge first"
 	[[ "$draft" == false ]] || die "PR #$pr is a draft"
 	[[ "$labels" != *,needs-review,* ]] || die "PR #$pr has the needs-review label: the user merges it"
-	[[ "$mergeable" == MERGEABLE ]] || die "PR #$pr isn't mergeable ($mergeable): rebase it on main"
-	checks=$(gh pr checks "$pr" --json name,bucket -q '.[] | "\(.bucket)\t\(.name)"' || true)
-	[[ -n "$checks" ]] || die "PR #$pr has no checks yet. Wait with: gh pr checks $pr --watch"
+	[[ "$mergeable" != CONFLICTING ]] || die "PR #$pr conflicts with main: rebase it on main"
+	[[ "$mergeable" == MERGEABLE ]] || die "PR #$pr isn't mergeable yet ($mergeable). Try again in a minute"
+	# The checks only vouch for the merge if they ran on code that has all of
+	# main in it: a squash merge then gives main exactly the tree they tested.
+	git fetch -q "$REMOTE" "refs/pull/$pr/head"
+	git merge-base --is-ancestor "$REMOTE/main" "$oid" ||
+		die "PR #$pr is behind main, so its checks didn't test what would merge. Rebase it on main, push, and wait for its checks"
+	checks=$(gh pr checks "$pr" --json workflow,name,bucket -q '.[] | "\(.bucket)\t\(.workflow)\t\(.name)"' || true)
+	for workflow in Tests Lint; do
+		grep -qE "^[a-z]+"$'\t'"$workflow"$'\t' <<<"$checks" ||
+			die "PR #$pr has no $workflow checks yet. Wait with: gh pr checks $pr --watch"
+	done
 	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
 	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
-	files=$(gh pr diff "$pr" --name-only | grep -E "$PROTECTED" || true)
+	# Both sides of a rename, so moving a file out of a protected path counts.
+	files=$(gh api --paginate "repos/$(repo)/pulls/$pr/files" -q '.[] | .filename, (.previous_filename // empty)') ||
+		die "couldn't list PR #$pr's files, so it can't be checked: the user merges it"
+	[[ -n "$files" ]] || die "PR #$pr changes no files"
+	files=$(grep -E "$PROTECTED" <<<"$files" | sort -u || true)
 	if [[ -n "$files" ]]; then
 		gh pr edit "$pr" --add-label needs-review >/dev/null
 		die "PR #$pr changes paths the user reviews, so it's labelled needs-review:"$'\n'"$files"
 	fi
-	# --match-head-commit merges exactly what the checks ran on.
-	gh pr merge "$pr" --squash --match-head-commit "$oid" >/dev/null
+	# Label first, so a merged PR can't be missing it. --match-head-commit
+	# merges exactly what the checks ran on.
 	gh pr edit "$pr" --add-label agent-merged >/dev/null
-	gh pr comment "$pr" --body "Merged by an agent: its checks passed and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." >/dev/null
+	if ! gh pr merge "$pr" --squash --match-head-commit "$oid" >/dev/null; then
+		gh pr edit "$pr" --remove-label agent-merged >/dev/null || true
+		die "couldn't merge PR #$pr"
+	fi
+	gh pr comment "$pr" --body "Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." >/dev/null || true
 	cmd_sync "$n" >/dev/null
 	restack "$n"
 	echo "Merged PR #$pr"

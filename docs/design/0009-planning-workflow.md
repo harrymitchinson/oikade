@@ -69,12 +69,19 @@ Before this revision a feature waited on you twice: once to approve it, and once
 - **Steps stack:** an agent builds a feature's steps one after another, each on its own branch, and leaves up to three for you to review together.
 
 - **Agents merge low-risk steps.** `hack/plan merge N PR` merges a step's PR only if all of these hold:
-  - its checks all passed;
-  - it's the bottom of its stack;
+  - the session merging it holds the claim;
+  - it's the bottom of its stack, and up to date with main;
+  - its Tests and Lint checks, and any others, all passed;
   - neither it nor the feature has the `needs-review` label;
-  - its diff touches no protected path.
+  - its diff touches no protected path, counting both sides of a rename.
 
-  The protected paths are public API, CRDs and RBAC, capability, HAP, identity, metrics, the CEL environment, the homekit and zigbee controllers, the plugin contract, decoder and SDK, dependency manifests, CI, `.claude/`, `hack/plan`, `AGENTS.md` and the design docs. A PR that touches one gets `needs-review` and waits for you. A merged one gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules, and a feature's first step, which commits its design doc, always waits for you. Add `needs-review` to a feature to review all of its steps yourself.
+  The protected paths are:
+  - public API, state and boundaries: `api/`, `cmd/`, `config/`, capability, HAP, hub, identity, metrics, status, the CEL environment, the Driver interface, the homekit and zigbee controllers, and the plugin contract, decoder, SDK and conformance suite;
+  - dependency manifests;
+  - what the checks run: `Makefile`, Dockerfiles, `.golangci.yml` and `.github/`;
+  - the rules agents work under: `.claude/`, `hack/`, `AGENTS.md`, the design docs and the roadmap.
+
+  `.claude/settings.json` denies agents `gh pr merge`, so they can't merge any other way. A PR that touches one gets `needs-review` and waits for you. A merged one gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules, and a feature's first step, which commits its design doc, always waits for you. Add `needs-review` to a feature to review all of its steps yourself.
 
 That also changes claims. A claim lasts while an agent is building, not until you merge. Claims taken before this revision, with their PR on `work/N` itself, still work: merging that PR deletes `work/N` and frees the claim as before. `hack/plan merge` refuses those, since merging one would delete a claim.
 
