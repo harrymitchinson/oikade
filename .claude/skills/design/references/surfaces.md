@@ -1,6 +1,6 @@
 # Oikade surfaces and invariants
 
-This is the checklist that design-feature, write-spec and plan-roadmap all use. Oikade is small, but every feature touches some of the things below. The expensive mistakes come from changing one of them without noticing. Read the code to confirm details, because this file summarises it and can go stale. Check `README.md` and `api/*/v1alpha1/*_types.go` before relying on a specific field name.
+This is the checklist the `design` and `plan` skills use. Oikade is small, but every feature touches some of the things below. The expensive mistakes come from changing one of them without noticing. Read the code to confirm details, because this file summarises it and can go stale. Check `README.md` and `api/*/v1alpha1/*_types.go` before relying on a specific field name.
 
 ## Contents
 
@@ -88,5 +88,5 @@ Lint with `GOTOOLCHAIN=go1.26.0 make lint`.
 
 ## 8. Standing preferences
 
-- **No Home Assistant**, not as a component, driver, integration source or dependency. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, Homebridge as a driver, or native Go.
+- **No Home Assistant as a driver** or component. Standalone device libraries that Home Assistant also uses are fine inside plugins. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, or plugins, written in Go first ([0006](../../../../docs/design/0006-go-plugin-sdk.md)).
 - The user is an SRE. GitOps reviewability, observability and boring operability beat cleverness.

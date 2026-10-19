@@ -251,7 +251,7 @@ The TypeScript workspace needs Node 22 or 24. Yarn comes from `packageManager` t
 
 ## Not yet
 
-Planned work is tracked in [Backlog.md](backlog/). The [roadmap](backlog/docs/doc-0005%20-%20Roadmap.md) gives the order and what's deliberately out of scope, and designs live in [backlog/docs/specs](backlog/docs/specs/). Run `backlog board` or `backlog browser` to see it all.
+Planned work is tracked as [GitHub issues](https://github.com/harrymitchinson/oikade/issues) on the [Oikade board](https://github.com/users/harrymitchinson/projects/5). The [roadmap](docs/roadmap.md) gives the order and what's deliberately out of scope, and designs live in [docs/design](docs/design/).
 
 ## License
 
