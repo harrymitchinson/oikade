@@ -29,14 +29,6 @@ go.work
 # Kubeconfig might contain secrets
 *.kubeconfig
 
-# TypeScript workspace (sdk/typescript, plugins/)
-node_modules/
-/sdk/typescript/dist/
-/plugins/*/dist/
-coverage/
-.yarn/
-*.tsbuildinfo
-
 # Claude Code session handoffs are local working notes
 .claude/handoffs/
 

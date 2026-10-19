@@ -1,11 +1,11 @@
-# Plugin images build from the repository root but need only the TypeScript workspace.
+# Plugin images build from the repository root but need only the Go module and what plugins import.
 **
-!package.json
-!yarn.lock
-!.yarnrc.yml
-!tsconfig.base.json
+!go.mod
+!go.sum
+!api/**
+!contract/**
+!internal/**
 !sdk/**
 !plugins/**
-**/node_modules
-**/dist
-**/coverage
+**/*_test.go
+**/testdata

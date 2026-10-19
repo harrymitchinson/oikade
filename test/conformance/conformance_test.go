@@ -20,7 +20,7 @@ limitations under the License.
 // It runs only when OIKADE_CONFORMANCE_PLUGIN is set:
 //
 //	OIKADE_CONFORMANCE_PLUGIN   the command that starts the plugin, split on spaces, run from the
-//	                            repository root, for example "node plugins/example-switch/dist/main.js"
+//	                            repository root, for example "bin/example-switch"
 //	OIKADE_CONFORMANCE_DEVICES  a devices.json to hand the plugin, relative to the repository root
 //	                            (default test/conformance/testdata/devices.json)
 //	OIKADE_CONFORMANCE_SECRETS  a directory to pass as OIKADE_SECRETS_DIR (optional)

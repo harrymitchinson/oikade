@@ -94,24 +94,15 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
-# The TypeScript workspace: sdk/typescript and plugins/*. Yarn comes from packageManager via corepack.
-YARN ?= COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack yarn
 # CONFORMANCE_PLUGIN is the command the conformance suite runs, from the repository root.
-CONFORMANCE_PLUGIN ?= node plugins/example-switch/dist/main.js
+CONFORMANCE_PLUGIN ?= bin/example-switch
 
-.PHONY: plugins
-plugins: ## Install and build the TypeScript workspace.
-	$(YARN) install --immutable
-	$(YARN) build
-
-.PHONY: test-plugins
-test-plugins: plugins ## Format-check, lint, typecheck and test the TypeScript workspace.
-	$(YARN) check
-	$(YARN) typecheck
-	$(YARN) test
+.PHONY: example-switch
+example-switch: ## Build the example-switch plugin into bin/.
+	go build -o bin/example-switch ./plugins/example-switch
 
 .PHONY: test-conformance
-test-conformance: plugins ## Drive a plugin through the oikade/v1 contract (default: example-switch).
+test-conformance: example-switch ## Drive a plugin through the oikade/v1 contract (default: example-switch).
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 
 .PHONY: lint
