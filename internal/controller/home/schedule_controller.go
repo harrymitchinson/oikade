@@ -33,9 +33,8 @@ type ScheduleReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=schedules,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=home.oikade.dev,resources=schedules,verbs=get;list;watch
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=schedules/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=schedules/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
