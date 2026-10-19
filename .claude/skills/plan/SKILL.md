@@ -34,7 +34,8 @@ Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. B
    - Flag stale claims. Release one only if the user agrees.
    - Flag any milestone whose exit criteria no feature covers.
 3. **Answer in this order:**
-   - what's waiting on the user (designs to decide, PR stacks to merge bottom first, questions in issue comments), since that unblocks the most
+   - what's waiting on the user (designs to decide, `needs-review` PR stacks to merge bottom first, questions in issue comments), since that unblocks the most
+   - what agents merged that the user hasn't looked at yet: `gh pr list --state merged --label agent-merged`
    - what's ready, with the first item and a one-line reason
    - what's in flight
 

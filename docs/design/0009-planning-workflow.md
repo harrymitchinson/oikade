@@ -2,7 +2,7 @@
 
 Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds the plan, `docs/roadmap.md` holds the direction, and you decide anything that's expensive to reverse. It changes the three things that didn't work in practice.
 
-*Revised on 2026-10-19, because you had become the bottleneck: agents stopped at every approval and every merge. An approved design now covers the features that build it, work with nothing expensive to reverse needs no approval, and a feature's steps stack while they wait for review. See [Revision: fewer waits](#revision-fewer-waits).*
+*Revised on 2026-10-19, because you had become the bottleneck: agents stopped at every approval and every merge. An approved design now covers the features that build it, work with nothing expensive to reverse needs no approval, a feature's steps stack while they wait for review, and agents merge steps that touch nothing you review first. See [Revision: fewer waits](#revision-fewer-waits).*
 
 ## Problem
 
@@ -68,9 +68,15 @@ Before this revision a feature waited on you twice: once to approve it, and once
 - **`no-design`** marks work with nothing expensive to reverse, which agents may build without your approval.
 - **Steps stack:** an agent builds a feature's steps one after another, each on its own branch, and leaves up to three for you to review together.
 
-That also changes claims. A claim lasts while an agent is building, not until you merge. Claims taken before this revision, with their PR on `work/N` itself, still work: merging that PR deletes `work/N` and frees the claim as before.
+- **Agents merge low-risk steps.** `hack/plan merge N PR` merges a step's PR only if all of these hold:
+  - its checks all passed;
+  - it's the bottom of its stack;
+  - neither it nor the feature has the `needs-review` label;
+  - its diff touches no protected path.
 
-You also agreed to agents merging their own low-risk steps. It isn't built here, because Claude Code's auto mode won't let an agent write a merge-without-review path. An agent can build it once you add an explicit permission rule, or you can build it yourself. Until then, automatic merging stays under "Not doing".
+  The protected paths are public API, CRDs and RBAC, capability, HAP, identity, metrics, the CEL environment, the homekit and zigbee controllers, the plugin contract, decoder and SDK, dependency manifests, CI, `.claude/`, `hack/plan`, `AGENTS.md` and the design docs. A PR that touches one gets `needs-review` and waits for you. A merged one gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules, and a feature's first step, which commits its design doc, always waits for you. Add `needs-review` to a feature to review all of its steps yourself.
+
+That also changes claims. A claim lasts while an agent is building, not until you merge. Claims taken before this revision, with their PR on `work/N` itself, still work: merging that PR deletes `work/N` and frees the claim as before. `hack/plan merge` refuses those, since merging one would delete a claim.
 
 ## Migration
 
@@ -84,4 +90,4 @@ This is GitHub bookkeeping, done with `gh` after this PR merges:
 
 - **GitHub Actions running agents on labelled issues.** It's the way to keep agents working while your laptop is closed, but it needs API credentials in the repo, the Go 1.27 toolchain on runners, and trust in unattended agents. Revisit once the local flow has proven itself.
 - **A tracker outside GitHub,** such as Linear or Trello. They're nicer to look at, but they lose the PR link, and Trello also loses dependencies.
-- **Automatic merging.** Merging stays yours.
+- **Agents merging what they can't prove is low risk.** A PR that touches a protected path waits for you, whatever its checks say. The list lives in `hack/plan` (`PROTECTED`), and only you change it.

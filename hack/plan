@@ -20,6 +20,11 @@ STALE_HOURS="${PLAN_STALE_HOURS:-24}"
 # one before, so a change asked for low in the stack means rebasing the rest.
 MAX_STACK="${PLAN_MAX_STACK:-3}"
 
+# Paths an agent may never merge without the user (hack/plan merge): public
+# API, state that must survive, dependencies, and the rules agents work under.
+# It backs up the agent's own reading of .claude/skills/design/references/surfaces.md.
+PROTECTED='^api/|^config/(crd|rbac)/|^PROJECT$|^internal/(capability|hap|identity|metrics)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/plugin/|^docs/(plugin-contract\.md|design/|roadmap\.md)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock)$|^\.github/|^\.claude/|^hack/plan$|^(AGENTS|CLAUDE)\.md$'
+
 die() { echo "plan: $*" >&2; exit 1; }
 
 repo() { gh repo view --json nameWithOwner -q .nameWithOwner; }
@@ -35,6 +40,7 @@ Work
                         (default DIR .claude/worktrees/work-N)
   step N                In N's worktree, once the current step has a PR: start the next step on its own branch
   pr N TITLE BODY_FILE  Push the current step's branch, open its PR on the right base and record it
+  merge N PR            Merge a step's PR without the user, if 0009 allows it, then restack
   restack N             Rebase the steps stacked on a step that merged onto main
   link N PR             Record PR against feature N's next unrecorded step
   release N [--force]   Give up a claim: delete branch work/N and set the card back to Todo. Step branches
@@ -418,6 +424,40 @@ cmd_pr() {
 	echo "$url"
 }
 
+cmd_merge() {
+	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing files
+	pr="${pr#\#}"
+	body "$n" | steps | grep -qF "(PR #$pr)" || die "PR #$pr isn't recorded against a step of #$n"
+	[[ "$(gh issue view "$n" --json labels -q '[.labels[].name] | index("needs-review") != null')" != true ]] ||
+		die "#$n has the needs-review label: the user merges its steps"
+	info=$(gh pr view "$pr" --json state,headRefName,baseRefName,isDraft,mergeable,headRefOid,labels \
+		-q '"\(.state) \(.headRefName) \(.baseRefName) \(.isDraft) \(.mergeable) \(.headRefOid) ,\([.labels[].name] | join(",")),"')
+	read -r state head base draft mergeable oid labels <<<"$info"
+	[[ "$state" == OPEN ]] || die "PR #$pr is $state"
+	# Not work/N itself: merging deletes the branch, and that one is the claim.
+	[[ "$head" =~ ^work/$n-[0-9]+$ ]] || die "PR #$pr isn't from one of #$n's step branches"
+	[[ "$base" == main ]] || die "PR #$pr is stacked on $base: the step below it has to merge first"
+	[[ "$draft" == false ]] || die "PR #$pr is a draft"
+	[[ "$labels" != *,needs-review,* ]] || die "PR #$pr has the needs-review label: the user merges it"
+	[[ "$mergeable" == MERGEABLE ]] || die "PR #$pr isn't mergeable ($mergeable): rebase it on main"
+	checks=$(gh pr checks "$pr" --json name,bucket -q '.[] | "\(.bucket)\t\(.name)"' || true)
+	[[ -n "$checks" ]] || die "PR #$pr has no checks yet. Wait with: gh pr checks $pr --watch"
+	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
+	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
+	files=$(gh pr diff "$pr" --name-only | grep -E "$PROTECTED" || true)
+	if [[ -n "$files" ]]; then
+		gh pr edit "$pr" --add-label needs-review >/dev/null
+		die "PR #$pr changes paths the user reviews, so it's labelled needs-review:"$'\n'"$files"
+	fi
+	# --match-head-commit merges exactly what the checks ran on.
+	gh pr merge "$pr" --squash --match-head-commit "$oid" >/dev/null
+	gh pr edit "$pr" --add-label agent-merged >/dev/null
+	gh pr comment "$pr" --body "Merged by an agent: its checks passed and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." >/dev/null
+	cmd_sync "$n" >/dev/null
+	restack "$n"
+	echo "Merged PR #$pr"
+}
+
 cmd_restack() { restack "${1:?usage: plan restack N}"; }
 
 cmd_link() {
@@ -524,7 +564,7 @@ cmd_promote() {
 cmd="${1:-help}"
 [[ $# -gt 0 ]] && shift
 case "$cmd" in
-	ready | show | claim | step | pr | restack | link | release | claims | sync | note | ideas | idea | promote) "cmd_$cmd" "$@" ;;
+	ready | show | claim | step | pr | merge | restack | link | release | claims | sync | note | ideas | idea | promote) "cmd_$cmd" "$@" ;;
 	help | -h | --help) usage ;;
 	*) usage >&2; exit 2 ;;
 esac
