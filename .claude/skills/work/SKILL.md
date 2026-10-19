@@ -44,7 +44,7 @@ Run `hack/plan show N`. It prints the issue, its comments, the next step and why
 
 1. Run the `code-review` skill on the step. When it's stacked, review only the step's own commits: `git diff <base>...HEAD`. Fix each finding, or explain in the PR why you didn't.
 2. Write the PR body to a file in your scratchpad. It has `Part of #N`, or `Closes #N` if this is the feature's last unticked step. Then the step, what you tested and how, anything left for the Pi, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first.
-3. Open it with `hack/plan pr N "<conventional title>" <body file>`. It pushes `work/N-S`, opens the PR against the step below it (or main) and records it against the step. Don't run `git push` or `gh pr create` yourself.
+3. Open it with `hack/plan pr N "<conventional title>" <body file>`. It pushes `work/N-S`, opens the PR against the step below it (or main) and records it against the step. Don't open it with `git push` and `gh pr create` yourself.
 4. If a later step needs to know something that isn't in the code or the PR, leave it with `hack/plan note N "…"`.
 
 **Then the next step:** if the feature has one, run `hack/plan step N` in the same worktree and go back to section 2. It refuses when three steps are waiting for review. That's the cue to stop.
@@ -54,6 +54,7 @@ Run `hack/plan show N`. It prints the issue, its comments, the next step and why
 1. **Release the claim:** `hack/plan release N`. Your PRs and step branches stay, and the next session continues from them. Don't hold a claim you aren't building under.
 2. **Reply** with the PR links in stack order, what's verified and what isn't, and anything that needs the user. Don't claim another feature unless the user asked you to keep going, as with a `/loop`.
 
-- **If the user comments on a PR,** claim the feature again, check out that step's branch in a worktree and address it there. If it's low in a stack, rebase the steps above it afterwards (`git rebase --onto <new> <old>`), and push each with `--force-with-lease`.
+- **If the user asks you to address comments on a step's PR,** you don't need a claim, because the PR's branch belongs to that step. If `hack/plan claims` shows another session holding the feature, ask the user first, so you don't rewrite a branch it's building on. Check out the branch in your own worktree (`git worktree add <path> origin/work/N-S`, then `git switch -c work/N-S`), fix it, and `git push`. If it's low in a stack, rebase each step above it onto the one below (`git rebase --onto <new tip> <old tip>`) and push each with `--force-with-lease`.
+- **Before `hack/plan step`,** push any commits you've added to the current step since its PR opened. The next step builds on the pushed branch, and `step` refuses while it's behind.
 - **If you can't finish a step,** commit and push what you have to its `work/N-S` branch, use the `handoff` skill, then release the claim. The next claim finds the pushed branch and resumes it rather than starting over.
 - **After a merge,** GitHub deletes the step's branch. The next `hack/plan claim` ticks the step and restacks the steps above it onto main. `git worktree remove <path>` cleans up locally.

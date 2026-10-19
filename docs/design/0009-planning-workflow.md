@@ -32,14 +32,14 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 ### Agents pick up work through `hack/plan`
 
-`hack/plan` is the only way skills and agents touch planning state. Its commands are `ready`, `show`, `claim`, `link`, `release`, `claims`, `sync`, `note`, `ideas`, `idea` and `promote`.
+`hack/plan` is the only way skills and agents touch planning state. Its commands are `ready`, `show`, `claim`, `step`, `pr`, `restack`, `link`, `release`, `claims`, `sync`, `note`, `ideas`, `idea` and `promote`.
 
 - **Ready** means open, may be built (`approved`, `no-design`, or a `Design: #M` line naming an approved feature), no `needs-design` or `pi` label, no open blocker, unclaimed, and fewer than three steps waiting for review. The earliest milestone comes first.
 - **A claim is the branch `work/N`.** `hack/plan claim N` pushes a unique empty commit to `work/N`, but only if that branch doesn't exist yet. The server checks this atomically, so exactly one of two racing agents wins. It then creates a worktree for the next step, moves the card to In Progress, and comments on the issue. The claim means "an agent is building this now": the agent releases it when its session stops, even with PRs still open.
 - **Each step has its own branch, `work/N-S`,** where S is the step's line in the checklist. Nothing builds on `work/N` itself. `hack/plan pr` pushes the step, opens its PR and records it against the step as `(PR #M)`. The PR says `Part of #N`, or `Closes #N` for the last step. When you merge it, GitHub deletes its branch and `sync` ticks the step.
 - **Steps stack while they wait for review.** An agent doesn't stop at a PR: `hack/plan step` starts the next step on top of it, and its PR's base is the step below. You can review a stack in one sitting, bottom first. When you merge a step, `hack/plan restack` rebases the steps above it onto main, because a squash merge gives main a new commit. At most three of a feature's steps wait at once, so a change you ask for low in the stack doesn't ripple far.
 - **Parallelism comes from features and stacks.** One feature's steps are built in order, because each builds on the last, but they no longer wait for your merges. Different features run at the same time.
-- **Stale claims are visible.** `hack/plan claims` flags any claim with no commit for 24 hours. `hack/plan release` gives one up, and refuses to delete a branch that has an open PR or commits unless it's forced.
+- **Stale claims are visible.** `hack/plan claims` flags any claim with no commit on it or its step branches for 24 hours. `hack/plan release` gives one up, and refuses to delete a branch that has an open PR or commits unless it's forced.
 - **Kind is per feature.** Each agent runs e2e with `KIND_CLUSTER=oikade-e2e-<N>` and its own `KUBECONFIG`, so parallel e2e runs don't collide or touch your current context.
 
 ### Skills
@@ -55,7 +55,7 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 - **What 0008 rules this replaces:** design-only PRs, merging as acceptance, and sub-issues as steps. Its other rules stand: explicit staging, worktrees, and never treating an agent's choice as yours.
 - **There's a new label, `approved`.** It already exists on GitHub.
-- **Branches named `work/*` are reserved for claims.** Merge their PRs with squash, as the repo already does, so the empty claim commit disappears.
+- **Branches named `work/*` are reserved for claims and their steps.** Merge their PRs with squash, as the repo already does, and merge a stack bottom first. A step merged into the step below it, rather than into main, isn't ticked until that one merges.
 - **Agents in parallel are bounded by your reviews,** but less than before (see the revision below).
 
 ## Revision: fewer waits
