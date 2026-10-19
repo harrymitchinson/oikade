@@ -15,7 +15,7 @@ It isn't a general-purpose hub. It has no Home Assistant driver, no UI for confi
 ## Milestones, in order
 
 1. **Plugin drivers** (done). The plugin contract and the `Device` source rule are public API that Schedules builds on, so they had to settle before more YAML depended on them.
-2. **[Schedules](https://github.com/harrymitchinson/oikade/milestone/1).** It needs the plugin contract for its control Device. The planner has no dependencies and is the riskiest piece, so build it first. Its design ([#19](https://github.com/harrymitchinson/oikade/issues/19), `docs/design/0003-schedules.md`) needs your review before it's built.
+2. **[Schedules](https://github.com/harrymitchinson/oikade/milestone/1).** It needs the plugin contract for its control Device. The planner has no dependencies and is the riskiest piece, so build it first. Its design is [`docs/design/0003-schedules.md`](design/0003-schedules.md) ([#19](https://github.com/harrymitchinson/oikade/issues/19)).
 3. **[Retire Homebridge](https://github.com/harrymitchinson/oikade/milestone/2).** It needs both plugins and schedules. Pi bring-up is a hard prerequisite, because HomeKit pairing and real devices can only be checked on the Pi. The longer features pile up untested on real hardware, the more this milestone will turn up.
 
 The Go plugin SDK ([#30](https://github.com/harrymitchinson/oikade/issues/30)) isn't in a milestone yet.

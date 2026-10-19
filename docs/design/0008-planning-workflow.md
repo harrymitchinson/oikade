@@ -1,3 +1,5 @@
+Superseded by [0009](0009-planning-workflow.md).
+
 # 0008: Planning workflow
 
 ## Problem
