@@ -25,9 +25,17 @@ It does if the work changes anything expensive to reverse:
 - **a new kind, a new driver, or a new runtime dependency**
 - **anything else** you can't cheaply undo
 
-**If it doesn't need one,** skip to step 5 and just write the Steps. Say in one line why no design was needed.
+It doesn't need its own if it only builds part of a design the user has already approved in another feature, and makes no decision that design doesn't. Then put a `Design: #M` line in the body, naming that feature, and skip to step 5. Agents may build it on that approval. Don't use this to cover a new decision: if anything in the list above isn't settled by #M's design, this feature needs its own review.
 
-**If you're unsure,** ask the user, or add the `needs-design` label to the issue and ask there.
+**If it doesn't need one,** add the `no-design` label, comment on the issue with one line on why, and skip to step 5. Agents may then build it without the user's approval, and the user vetoes by removing the label. Typical cases:
+
+- a plugin built on the existing plugin contract, which ships as its own image and touches nothing in core
+- CI, release tooling and docs that change no public name
+- a bug fix that keeps the public API and stored state as they are
+
+A plugin that needs a contract change, or a new capability in the registry, does need a design.
+
+**If you're unsure,** it needs one: add the `needs-design` label and ask the user in the issue.
 
 ## 3. Options and recommendation
 
@@ -56,9 +64,9 @@ Then stop, and tell the user it's ready for review. Update the design from their
 
 ## 5. Write the Steps
 
-Once the user has approved the design, or if it didn't need one:
+Once the user has approved the design, or if it didn't need one of its own:
 
-- **Steps are one PR each,** and an agent running the work skill builds them in order. Each must leave `CGO_ENABLED=0 make test` green and deliver something reviewable: the API and generated code, then the controller, then the runtime, then HAP, then the docs. Put the risky or uncertain step first.
+- **Steps are one PR each,** and an agent running the work skill builds them in order, stacking each on the last until the user reviews them. Keep each one reviewable on its own. Each must leave `CGO_ENABLED=0 make test` green and deliver something reviewable: the API and generated code, then the controller, then the runtime, then HAP, then the docs. Put the risky or uncertain step first.
 - **If the decision is expensive to reverse,** the first step commits `docs/design/NNNN-slug.md` with the code: the approved design condensed to a page, as the lasting record. NNNN is the feature's issue number, zero-padded (`0052-…` for #52), so agents working in parallel can't pick the same number. Designs up to 0009 kept their old sequence. The doc has a `# NNNN: Title` heading and no status line.
 - **Use the body layout** in the plan skill: a `## Steps` checklist, then a `### <step>` section for each step with its Scope and Acceptance. Acceptance is plain bullets of observable outcomes, each naming the test layer that proves it (unit, integration, envtest, Kind e2e or Pi). Detail like exact types, failure modes and test names goes in the step it affects.
 - **Separate features** if parts of the work don't depend on each other, so agents can build them in parallel. Link them with "blocked by" only where one really needs the other (the plan skill shows how).
@@ -72,4 +80,4 @@ Don't assign a milestone unless the user asks: that's the plan skill's job.
 - the recommended option and its main trade-off
 - the public names it introduces
 - the open questions
-- the issue number, and whether it's waiting on the user's review or ready for the work skill
+- the issue number, and whether it's waiting on the user's review or ready for the work skill (approved, `no-design`, or `Design: #M`)

@@ -12,8 +12,9 @@ How the workflow fits together is in `docs/design/0009-planning-workflow.md`. Ea
 | An idea nobody has committed to | A draft item on the [Oikade board](https://github.com/users/harrymitchinson/projects/5) |
 | A feature: why, its design, its steps and their acceptance | The GitHub issue. Its `## Steps` checklist is the order. |
 | That the user decided it, and agents may start | The `approved` label. **Only the user adds it.** |
+| That agents may start without the user's approval | The `no-design` label (nothing expensive to reverse), or a `Design: #M` line naming an approved feature whose design it builds. The design skill sets these. |
 | Order between features | "Blocked by" relationships |
-| Who's working on it | The branch `work/N` (`hack/plan claims`) |
+| Who's working on it | The branch `work/N` (`hack/plan claims`). Its steps are on `work/N-S`, stacked while they wait for review. |
 | Status | The board. Claiming moves it to In Progress, and closing moves it to Done. |
 | What's in a release | The GitHub milestone. Its description holds the goal and exit criteria. |
 | Direction, milestone order and why, "Not doing" | `docs/roadmap.md` |
@@ -33,7 +34,8 @@ Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. B
    - Flag stale claims. Release one only if the user agrees.
    - Flag any milestone whose exit criteria no feature covers.
 3. **Answer in this order:**
-   - what's waiting on the user (designs to decide, PRs to merge), since that unblocks the most
+   - what's waiting on the user (designs to decide, `needs-review` PR stacks to merge bottom first, questions in issue comments), since that unblocks the most
+   - what agents merged that the user hasn't looked at yet: `gh pr list --state merged --label agent-merged`
    - what's ready, with the first item and a one-line reason
    - what's in flight
 

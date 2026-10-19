@@ -5,8 +5,9 @@
 # A feature is one issue. Its "## Steps" section is a checklist with one line
 # per PR-sized step. A feature is claimed by creating the remote branch work/N:
 # the push only succeeds if that branch doesn't exist yet, so two agents can't
-# both claim it. GitHub deletes the branch when its PR merges, which frees the
-# feature for its next step.
+# both claim it. The claim lasts while an agent is building, and release frees
+# it. Each step is built on its own branch work/N-S, where S is the step's line
+# in the checklist. While a step waits for review, the next one stacks on it.
 #
 # Usage: hack/plan <command> [args]   (hack/plan help lists the commands)
 set -euo pipefail
@@ -15,6 +16,16 @@ PROJECT_OWNER="${PLAN_PROJECT_OWNER:-harrymitchinson}"
 PROJECT_NUMBER="${PLAN_PROJECT_NUMBER:-5}"
 REMOTE="${PLAN_REMOTE:-origin}"
 STALE_HOURS="${PLAN_STALE_HOURS:-24}"
+# How many of a feature's steps may wait for review at once. Each stacks on the
+# one before, so a change asked for low in the stack means rebasing the rest.
+MAX_STACK="${PLAN_MAX_STACK:-3}"
+
+# Paths an agent may never merge without the user (hack/plan merge): public
+# API, state that must survive, dependencies, and the rules agents work under.
+# It backs up the agent's own reading of .claude/skills/design/references/surfaces.md.
+# The build and CI files are here too, so an agent can't weaken the checks it
+# is then merged on.
+PROTECTED='^api/|^cmd/|^config/|^PROJECT$|^internal/(capability|hap|hub|identity|metrics|status)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/(driver\.go|plugin/)|^docs/(plugin-contract\.md|design/|roadmap\.md)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock|Dockerfile[^/]*)$|^Makefile$|^\.golangci\.ya?ml$|^\.github/|^\.claude/|^hack/|^(AGENTS|CLAUDE)\.md$'
 
 die() { echo "plan: $*" >&2; exit 1; }
 
@@ -25,13 +36,18 @@ usage() {
 Usage: hack/plan <command> [args]
 
 Work
-  ready                 Approved features nobody has claimed and nothing blocks, earliest milestone first
-  show N                A feature: its body, next step, blockers, claim and open PRs
-  claim N [DIR]         Claim feature N and create a worktree on branch work/N (default DIR .claude/worktrees/work-N)
+  ready                 Features agents may build that nobody has claimed and nothing blocks, earliest milestone first
+  show N                A feature: its body, next step, why it may be built, blockers, claim and open PRs
+  claim N [DIR]         Claim feature N and create a worktree on its next step's branch work/N-S
+                        (default DIR .claude/worktrees/work-N)
+  step N                In N's worktree, once the current step has a PR: start the next step on its own branch
+  pr N TITLE BODY_FILE  Push the current step's branch, open its PR on the right base and record it
+  merge N PR            Merge a step's PR without the user, if 0009 allows it, then restack
+  restack N             Rebase the steps stacked on a step that merged onto main
   link N PR             Record PR against feature N's next unrecorded step
-  release N [--force]   Give up a claim: delete branch work/N and set the card back to Todo.
-                        Refuses if the branch has an open PR or commits, unless --force
-  claims                Every claimed feature, with its open PR and how long since its last commit
+  release N [--force]   Give up a claim: delete branch work/N and set the card back to Todo. Step branches
+                        stay. Refuses if work/N itself has an open PR or commits, unless --force
+  claims                Every claimed feature, with its open PRs and how long since its last commit
   sync [N]              Tick steps whose PR merged and set unclaimed open cards back to Todo
   note N TEXT           Comment on issue N
 
@@ -77,6 +93,26 @@ next_step() {
 	steps | awk '/^- \[ \] / && !/\(PR #[0-9]+\)[[:space:]]*$/ {print; exit}'
 }
 
+# next_index: the next step's line number in ## Steps, which names its branch.
+next_index() {
+	steps | awk '{i++} /^- \[ \] / && !/\(PR #[0-9]+\)[[:space:]]*$/ {print i; exit}'
+}
+
+# step_prs: "S<TAB>PR<TAB>TICKED" for every step that has a PR, in order.
+# TICKED is x for a step whose PR merged into main, and - otherwise.
+step_prs() {
+	steps | awk '{i++; if (match($0, /\(PR #[0-9]+\)[[:space:]]*$/)) {pr = substr($0, RSTART + 5); sub(/\).*/, "", pr); print i "\t" pr "\t" (/^- \[ \] / ? "-" : "x")}}'
+}
+
+# stack_prs: step_prs from the last ticked step below the first step in
+# review, which is all restack needs, so it doesn't look up every step that
+# merged long ago.
+stack_prs() {
+	step_prs | awk -F'\t' '{line[NR] = $0; t[NR] = $3} END {
+		for (f = 1; f <= NR && t[f] == "x"; f++) {}
+		for (i = (f > 1 ? f - 1 : 1); i <= NR; i++) print line[i]}'
+}
+
 body() { gh issue view "$1" --json body -q .body; }
 
 # edit_body N TRANSFORM [ARGS]: rewrite issue N's body with TRANSFORM, which
@@ -101,6 +137,14 @@ edit_body() {
 }
 
 # Transforms for edit_body.
+# add_pr_at S PR: record PR on step S, which must be unticked with no PR.
+add_pr_at() {
+	awk -v s="$1" -v pr="$2" '
+		/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
+		in_steps && /^- \[[ xX]\] / {i++; if (i == s) {if (!/^- \[ \] / || /\(PR #[0-9]+\)[[:space:]]*$/) exit 1; sub(/[[:space:]]*$/, " (PR #" pr ")"); done = 1}}
+		{print}
+		END {if (!done) exit 1}'
+}
 add_pr() {
 	awk -v pr="$1" '
 		/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
@@ -121,7 +165,27 @@ drop_pr() {
 		{print}'
 }
 
-# --- Claims ------------------------------------------------------------------
+# --- Who may build it ---------------------------------------------------------
+
+# gate N: why agents may build feature N, or nothing if they may not. The user
+# approved it, or it needs no design, or it builds part of a design the user
+# approved in another feature, named by a "Design: #M" line in its body.
+# INFO, if given, is the labels joined with commas, a newline, then the body.
+gate() {
+	local n="$1" info="${2:-}" design
+	[[ -n "$info" ]] || info=$(gh issue view "$n" --json labels,body -q '([.labels[].name] | join(",")) + "\n" + .body')
+	case ",$(head -1 <<<"$info")," in
+	*,approved,*) echo "approved"; return ;;
+	*,no-design,*) echo "needs no design"; return ;;
+	esac
+	design=$(sed -nE 's/^Design:[^#]*#([0-9]+).*/\1/p' <<<"$info" | head -1)
+	if [[ -n "$design" && "$design" != "$n" ]] &&
+		[[ "$(gh issue view "$design" --json labels -q '[.labels[].name] | index("approved") != null')" == true ]]; then
+		echo "builds the design approved in #$design"
+	fi
+}
+
+# --- Claims and stacks ----------------------------------------------------------
 
 claimed_numbers() {
 	git ls-remote --heads "$REMOTE" 'refs/heads/work/*' | sed -E 's#.*refs/heads/work/##' | grep -E '^[0-9]+$' || true
@@ -133,36 +197,152 @@ open_blockers() {
 	gh api "repos/$(repo)/issues/$1/dependencies/blocked_by" -q '[.[] | select(.state == "open") | "#\(.number)"] | join(" ")'
 }
 
+# open_stack N: "S<TAB>PR<TAB>BRANCH" for each of N's steps whose PR is open,
+# in order. The last one is the base for the next step.
+open_stack() {
+	local s pr ticked info
+	while IFS=$'\t' read -r s pr ticked; do
+		[[ -n "$pr" && "$ticked" == - ]] || continue
+		info=$(gh pr view "$pr" --json state,headRefName -q '"\(.state)\t\(.headRefName)"')
+		if [[ "$info" == OPEN$'\t'* ]]; then printf '%s\t%s\t%s\n' "$s" "$pr" "${info#*$'\t'}"; fi
+	done < <(body "$1" | step_prs)
+}
+
+stack_base() { local b; b=$(open_stack "$1" | tail -1 | cut -f3); echo "${b:-main}"; }
+
+stack_size() { open_stack "$1" | grep -c . || true; }
+
+fetch_branch() { git fetch -q "$REMOTE" "+refs/heads/$1:refs/remotes/$REMOTE/$1"; }
+
+# start_step N [DIR]: put N's next step on its branch work/N-S, based on the
+# last step still in review, or on main. With DIR it's a new worktree there,
+# otherwise the current worktree switches to it. A branch pushed by an earlier
+# session that has no PR yet is resumed. It sets STEP_BASE rather than
+# printing it, so it never runs in a command substitution, where bash ignores
+# set -e.
+start_step() {
+	local n="$1" dir="${2:-}" s base branch oid start closed prev
+	s=$(body "$n" | next_index)
+	[[ -n "$s" ]] || die "#$n has no step left to build: each unticked step in ## Steps already has a PR"
+	restack "$n"
+	(( $(stack_size "$n") < MAX_STACK )) || die "$MAX_STACK steps of #$n are waiting for review. Stop until the user merges one"
+	base=$(stack_base "$n")
+	branch="work/$n-$s"
+	git show-ref --verify --quiet "refs/heads/$branch" &&
+		die "a local branch $branch exists. If it's left from an earlier session and pushed, delete it: git branch -D $branch"
+	fetch_branch "$base"
+	if git ls-remote --exit-code --heads "$REMOTE" "refs/heads/$branch" >/dev/null; then
+		closed=$(gh pr list --head "$branch" --state closed --json number -q '.[0].number // empty')
+		[[ -z "$closed" ]] || die "$branch belongs to PR #$closed, which was closed without merging. Ask the user whether to delete the branch or reopen the PR"
+		fetch_branch "$branch"
+		start="$REMOTE/$branch"
+		oid=$(git merge-base "$REMOTE/$branch" "$REMOTE/$base")
+		# If the step below was squash-merged since, the branch still holds its
+		# original commits. Start from that step's last commit, so pr replays
+		# only this step's own.
+		prev=$(body "$n" | step_prs | awk -F'\t' -v s="$s" '$1 < s && $3 == "x" {pr = $2} END {print pr}')
+		if [[ -n "$prev" && "$base" == main ]]; then
+			git fetch -q "$REMOTE" "refs/pull/$prev/head"
+			prev=$(git rev-parse FETCH_HEAD)
+			if git merge-base --is-ancestor "$prev" "$REMOTE/$branch"; then oid="$prev"; fi
+		fi
+		echo "plan: resuming $branch, which an earlier session pushed" >&2
+	else
+		oid=$(git rev-parse "$REMOTE/$base")
+		start="$oid"
+	fi
+	if [[ -n "$dir" ]]; then
+		git worktree add -q -b "$branch" "$dir" "$start"
+	else
+		git switch -q -c "$branch" "$start"
+	fi
+	# Where the step started, so pr can move it if its base merges meanwhile.
+	git config "branch.$branch.plan-base-oid" "$oid"
+	STEP_BASE="$base"
+}
+
+# restack N: after a step in review merges, rebase the steps stacked on it onto
+# main, and each later step onto the rewritten one before it. Squash merging
+# gives main a new commit, so otherwise their PRs still show the merged step.
+restack() {
+	local n="$1" s pr ticked info state head head_oid base old="" new="" tmp first
+	git fetch -q "$REMOTE" main
+	while IFS=$'\t' read -r s pr ticked; do
+		[[ -n "$pr" ]] || continue
+		info=$(gh pr view "$pr" --json state,headRefName,headRefOid,baseRefName -q '"\(.state) \(.headRefName) \(.headRefOid) \(.baseRefName)"')
+		read -r state head head_oid base <<<"$info"
+		case "$state" in
+		MERGED)
+			# A step merged into the step below it, rather than into main, is
+			# in that step's branch now. Nothing above it needs to move.
+			if [[ "$base" != main ]]; then old="" new=""; continue; fi
+			git fetch -q "$REMOTE" "refs/pull/$pr/head"
+			old="$head_oid" new=$(git rev-parse "$REMOTE/main")
+			;;
+		OPEN)
+			git fetch -q "$REMOTE" "refs/pull/$pr/head"
+			if [[ -z "$old" ]] || ! git merge-base --is-ancestor "$old" "$head_oid"; then
+				old="" new=""
+				continue
+			fi
+			tmp=$(mktemp -d)
+			git worktree add -q --detach "$tmp" "$head_oid"
+			if ! git -C "$tmp" rebase -q --onto "$new" "$old"; then
+				git -C "$tmp" rebase --abort || true
+				git worktree remove --force "$tmp"
+				die "couldn't restack PR #$pr ($head): rebase it by hand with git rebase --onto $new $old"
+			fi
+			old="$head_oid" new=$(git -C "$tmp" rev-parse HEAD)
+			git worktree remove --force "$tmp"
+			git push -q --force-with-lease="refs/heads/$head:$head_oid" "$REMOTE" "$new:refs/heads/$head"
+			# GitHub retargets a PR whose base branch was deleted on merge, but
+			# not always before this runs.
+			first=$(open_stack "$n" | head -1 | cut -f1)
+			if [[ "$s" == "$first" && "$base" != main ]]; then gh pr edit "$pr" --base main >/dev/null; fi
+			echo "plan: restacked PR #$pr ($head)" >&2
+			;;
+		*) old="" new="" ;;
+		esac
+	done < <(body "$n" | stack_prs)
+}
+
+# --- Commands -------------------------------------------------------------------
+
 cmd_ready() {
-	local claimed issues n blockers
+	local claimed all issues n milestone title info blockers
 	claimed=" $(claimed_numbers | tr '\n' ' ') "
-	issues=$(gh issue list --state open --label approved --limit 200 --json number,title,labels,milestone \
-		-q '[.[] | select([.labels[].name] | (index("needs-design") or index("pi")) | not)]
+	all=$(gh issue list --state open --limit 200 --json number,title,labels,milestone,body)
+	issues=$(jq -r '[.[] | select([.labels[].name] | (index("needs-design") or index("pi")) | not)]
 		    | sort_by(.milestone.number // 1e9, .number) | .[]
-		    | "\(.number)\t\(.milestone.title // "-")\t\(.title)"')
-	[[ -n "$issues" ]] || { echo "Nothing is ready. Features need the approved label, and no needs-design or pi label."; return; }
+		    | "\(.number)\t\(.milestone.title // "-")\t\(.title)"' <<<"$all")
+	[[ -n "$issues" ]] || return 0
 	while IFS=$'\t' read -r n milestone title; do
 		[[ "$claimed" == *" $n "* ]] && continue
+		info=$(jq -r --argjson n "$n" '.[] | select(.number == $n) | ([.labels[].name] | join(",")) + "\n" + .body' <<<"$all")
+		[[ -n "$(gate "$n" "$info")" ]] || continue
 		# A feature with nothing left to build: its steps are done or in review.
-		[[ -n "$(body "$n" | next_step)" ]] || continue
+		[[ -n "$(tail -n +2 <<<"$info" | next_step)" ]] || continue
 		blockers=$(open_blockers "$n")
 		[[ -n "$blockers" ]] && continue
+		(( $(stack_size "$n") < MAX_STACK )) || continue
 		printf '#%s\t%s\t%s\n' "$n" "$milestone" "$title"
 	done <<<"$issues"
 }
 
 cmd_show() {
-	local n="${1:?usage: plan show N}" b blockers
+	local n="${1:?usage: plan show N}" b blockers why
 	gh issue view "$n" --comments
 	b=$(body "$n")
 	echo
 	echo "Next step:  $(next_step <<<"$b" | sed -E 's/^- \[ \] //')"
+	why=$(gate "$n")
+	echo "May build:  ${why:-no: it needs the approved or no-design label, or a Design: #M line naming an approved feature}"
 	blockers=$(open_blockers "$n")
 	echo "Blocked by: ${blockers:-nothing open}"
 	if is_claimed "$n"; then echo "Claimed:    branch work/$n"; else echo "Claimed:    no"; fi
 	echo "Open PRs:"
-	gh pr list --state open --search "#$n in:body" --json number,title,isDraft,headRefName \
-		-q '.[] | "  #\(.number) \(.title) [\(.headRefName)\(if .isDraft then ", draft" else "" end)]"'
+	gh pr list --state open --search "#$n in:body" --json number,title,isDraft,headRefName,baseRefName \
+		-q '.[] | "  #\(.number) \(.title) [\(.headRefName) → \(.baseRefName)\(if .isDraft then ", draft" else "" end)]"'
 }
 
 cmd_claim() {
@@ -170,40 +350,145 @@ cmd_claim() {
 	state=$(gh issue view "$n" --json state,labels -q '.state + " " + ([.labels[].name] | join(","))')
 	[[ "$state" == OPEN* ]] || die "#$n isn't open"
 	labels=",${state#* },"
-	[[ "$labels" == *,approved,* ]] || die "#$n isn't approved: the user adds the approved label when it's decided"
 	[[ "$labels" != *,needs-design,* ]] || die "#$n still needs a design"
 	[[ "$labels" != *,pi,* ]] || die "#$n has the pi label: what's left can only be verified on the Pi"
+	[[ -n "$(gate "$n")" ]] || die "#$n may not be built yet: it needs the approved or no-design label, or a Design: #M line naming an approved feature"
 	[[ -z "$(open_blockers "$n")" ]] || die "#$n is blocked by $(open_blockers "$n")"
 	is_claimed "$n" && die "#$n is already claimed (branch work/$n exists). See: hack/plan claims"
 	cmd_sync "$n" >/dev/null
 	[[ -n "$(body "$n" | next_step)" ]] || die "#$n has no step left to build: each unticked step in ## Steps already has a PR"
 
 	dir="${dir:-$(git rev-parse --path-format=absolute --git-common-dir | sed 's#/.git$##')/.claude/worktrees/work-$n}"
-	[[ ! -e "$dir" ]] || die "$dir already exists. If it's left from an earlier step that merged: git worktree remove $dir"
-	git show-ref --verify --quiet "refs/heads/work/$n" && die "a local branch work/$n exists. If it's left from an earlier step that merged: git branch -D work/$n"
+	[[ ! -e "$dir" ]] || die "$dir already exists. If it's left from an earlier session: git worktree remove $dir"
 
 	git fetch -q "$REMOTE" main
 	# Each claim pushes its own empty commit. If two claims pushed the same
 	# commit, the second would be a no-op "up to date" push and succeed too.
 	# The empty expected value means "only if work/N doesn't exist", and the
 	# server checks it atomically, so exactly one of two racing claims wins.
-	# Squash merging drops the empty commit.
+	# Nothing builds on the claim commit: steps have their own branches.
 	claim=$(git commit-tree "$REMOTE/main^{tree}" -p "$REMOTE/main" \
 		-m "chore: claim #$n" -m "$(hostname -s) $$ $(date -u +%FT%TZ) $RANDOM")
-	# Make the worktree before pushing, so a failure here can't leave a claim
-	# that nobody holds.
-	git worktree add -q -b "work/$n" "$dir" "$claim"
 	if ! err=$(git push -q --force-with-lease="refs/heads/work/$n:" "$REMOTE" "$claim:refs/heads/work/$n" 2>&1); then
-		git worktree remove --force "$dir"
-		git branch -q -D "work/$n"
 		is_claimed "$n" && die "#$n was claimed by someone else just now. See: hack/plan claims"
 		die "couldn't push work/$n: $err"
 	fi
-	git -C "$dir" branch -q --set-upstream-to="$REMOTE/work/$n"
+	# Starting the step restacks branches, so it runs only once the claim is
+	# held. If it fails, give the claim back rather than leave one nobody holds.
+	# shellcheck disable=SC2064 # expand $n now
+	trap "echo 'plan: gave the claim on #$n back' >&2; git push -q '$REMOTE' --delete 'work/$n' || true" EXIT
+	start_step "$n" "$dir"
+	trap - EXIT
 	set_status "$n" "In Progress"
-	gh issue comment "$n" --body "Claimed on branch \`work/$n\` ($(hostname -s), $(date -u +%FT%TZ)). Next step: $(body "$n" | next_step | sed -E 's/^- \[ \] //')" >/dev/null
+	gh issue comment "$n" --body "Claimed on branch \`work/$n\` ($(hostname -s), $(date -u +%FT%TZ)). Next step: $(body "$n" | next_step | sed -E 's/^- \[ \] //'), on top of \`$STEP_BASE\`." >/dev/null
 	echo "$dir"
 }
+
+cmd_step() {
+	local n="${1:?usage: plan step N}" branch state
+	is_claimed "$n" || die "#$n isn't claimed. Claim it first: hack/plan claim $n"
+	branch=$(git branch --show-current)
+	[[ "$branch" =~ ^work/$n-[0-9]+$ ]] || die "run this in #$n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
+	state=$(gh pr list --head "$branch" --state all --json state -q '.[0].state // empty')
+	[[ -n "$state" ]] || die "$branch has no PR yet. Open it first: hack/plan pr $n TITLE BODY_FILE"
+	[[ -z "$(git status --porcelain)" ]] || die "the worktree has uncommitted changes"
+	# A merged step's branch is gone from GitHub, and the next step builds on main.
+	if [[ "$state" != MERGED ]]; then
+		fetch_branch "$branch"
+		[[ "$(git rev-list --count "$REMOTE/$branch..HEAD")" == 0 ]] ||
+			die "$branch has commits that aren't pushed, and the next step builds on the pushed branch. Push first: git push"
+	fi
+	start_step "$n"
+	echo "On $(git branch --show-current), on top of $STEP_BASE"
+}
+
+cmd_pr() {
+	local n="${1:?usage: plan pr N TITLE BODY_FILE}" title="${2:?usage: plan pr N TITLE BODY_FILE}" file="${3:?usage: plan pr N TITLE BODY_FILE}"
+	local branch base oid url pr
+	[[ -f "$file" ]] || die "no such file: $file"
+	branch=$(git branch --show-current)
+	[[ "$branch" =~ ^work/$n-[0-9]+$ ]] || die "run this in #$n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
+	[[ -z "$(git status --porcelain)" ]] || die "the worktree has uncommitted changes"
+	pr=$(gh pr list --head "$branch" --state open --json number -q '.[0].number // empty')
+	[[ -z "$pr" ]] || die "$branch already has PR #$pr"
+	restack "$n"
+	base=$(stack_base "$n")
+	fetch_branch "$base"
+	# If the step this one stacked on has merged or been restacked since, move
+	# this step's own commits onto where its base is now.
+	oid=$(git config "branch.$branch.plan-base-oid" || git merge-base HEAD "$REMOTE/$base")
+	if ! git merge-base --is-ancestor "$REMOTE/$base" HEAD; then
+		git rebase -q --onto "$REMOTE/$base" "$oid" || { git rebase --abort || true; die "couldn't rebase $branch onto $base: rebase by hand, then rerun"; }
+	fi
+	git config "branch.$branch.plan-base-oid" "$(git rev-parse "$REMOTE/$base")"
+	git push -q --force-with-lease -u "$REMOTE" "$branch"
+	url=$(gh pr create --head "$branch" --base "$base" --title "$title" --body-file "$file")
+	pr="${url##*/}"
+	edit_body "$n" add_pr_at "${branch##*-}" "$pr" ||
+		die "opened $url, but step ${branch##*-} of #$n isn't an unticked step without a PR, so it isn't recorded. Check the Steps, then: hack/plan link $n $pr"
+	echo "$url"
+}
+
+cmd_merge() {
+	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing workflow files try
+	pr="${pr#\#}"
+	is_claimed "$n" || die "#$n isn't claimed: merging restacks its branches, so only the session building it merges"
+	body "$n" | steps | grep -qF "(PR #$pr)" || die "PR #$pr isn't recorded against a step of #$n"
+	[[ "$(gh issue view "$n" --json labels -q '[.labels[].name] | index("needs-review") != null')" != true ]] ||
+		die "#$n has the needs-review label: the user merges its steps"
+	restack "$n"
+	git fetch -q "$REMOTE" main
+	# GitHub reports UNKNOWN for a few seconds after a push to the PR or main.
+	for try in 1 2 3 4 5 6; do
+		info=$(gh pr view "$pr" --json state,headRefName,baseRefName,isDraft,mergeable,headRefOid,labels \
+			-q '"\(.state) \(.headRefName) \(.baseRefName) \(.isDraft) \(.mergeable) \(.headRefOid) ,\([.labels[].name] | join(",")),"')
+		read -r state head base draft mergeable oid labels <<<"$info"
+		[[ "$mergeable" == UNKNOWN ]] || break
+		sleep 5
+	done
+	[[ "$state" == OPEN ]] || die "PR #$pr is $state"
+	# Not work/N itself: merging deletes the branch, and that one is the claim.
+	[[ "$head" =~ ^work/$n-[0-9]+$ ]] || die "PR #$pr isn't from one of #$n's step branches"
+	[[ "$base" == main ]] || die "PR #$pr is stacked on $base: the step below it has to merge first"
+	[[ "$draft" == false ]] || die "PR #$pr is a draft"
+	[[ "$labels" != *,needs-review,* ]] || die "PR #$pr has the needs-review label: the user merges it"
+	[[ "$mergeable" != CONFLICTING ]] || die "PR #$pr conflicts with main: rebase it on main"
+	[[ "$mergeable" == MERGEABLE ]] || die "PR #$pr isn't mergeable yet ($mergeable). Try again in a minute"
+	# The checks only vouch for the merge if they ran on code that has all of
+	# main in it: a squash merge then gives main exactly the tree they tested.
+	git fetch -q "$REMOTE" "refs/pull/$pr/head"
+	git merge-base --is-ancestor "$REMOTE/main" "$oid" ||
+		die "PR #$pr is behind main, so its checks didn't test what would merge. Rebase it on main, push, and wait for its checks"
+	checks=$(gh pr checks "$pr" --json workflow,name,bucket -q '.[] | "\(.bucket)\t\(.workflow)\t\(.name)"' || true)
+	for workflow in Tests Lint; do
+		grep -qE "^[a-z]+"$'\t'"$workflow"$'\t' <<<"$checks" ||
+			die "PR #$pr has no $workflow checks yet. Wait with: gh pr checks $pr --watch"
+	done
+	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
+	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
+	# Both sides of a rename, so moving a file out of a protected path counts.
+	files=$(gh api --paginate "repos/$(repo)/pulls/$pr/files" -q '.[] | .filename, (.previous_filename // empty)') ||
+		die "couldn't list PR #$pr's files, so it can't be checked: the user merges it"
+	[[ -n "$files" ]] || die "PR #$pr changes no files"
+	files=$(grep -E "$PROTECTED" <<<"$files" | sort -u || true)
+	if [[ -n "$files" ]]; then
+		gh pr edit "$pr" --add-label needs-review >/dev/null
+		die "PR #$pr changes paths the user reviews, so it's labelled needs-review:"$'\n'"$files"
+	fi
+	# Label first, so a merged PR can't be missing it. --match-head-commit
+	# merges exactly what the checks ran on.
+	gh pr edit "$pr" --add-label agent-merged >/dev/null
+	if ! gh pr merge "$pr" --squash --match-head-commit "$oid" >/dev/null; then
+		gh pr edit "$pr" --remove-label agent-merged >/dev/null || true
+		die "couldn't merge PR #$pr"
+	fi
+	gh pr comment "$pr" --body "Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." >/dev/null || true
+	cmd_sync "$n" >/dev/null
+	restack "$n"
+	echo "Merged PR #$pr"
+}
+
+cmd_restack() { restack "${1:?usage: plan restack N}"; }
 
 cmd_link() {
 	local n="${1:?usage: plan link N PR}" pr="${2:?usage: plan link N PR}"
@@ -219,8 +504,9 @@ cmd_link() {
 cmd_release() {
 	local n="${1:?usage: plan release N}" force="${2:-}" pr ahead
 	git fetch -q "$REMOTE" main "+refs/heads/work/$n:refs/remotes/$REMOTE/work/$n" 2>/dev/null || die "#$n isn't claimed"
+	# Claims taken before step branches built on work/N itself. Commits beyond
+	# the claim commit there are real work.
 	pr=$(gh pr list --head "work/$n" --state open --json number -q '.[0].number // empty')
-	# Commits beyond the claim commit are real work.
 	ahead=$(git rev-list --count "$REMOTE/main..$REMOTE/work/$n")
 	if [[ "$force" != --force ]] && { [[ -n "$pr" ]] || (( ahead > 1 )); }; then
 		die "work/$n has ${pr:+open PR #$pr and }$((ahead - 1)) commit(s) of work. Deleting it closes the PR and drops the work from GitHub. To do it anyway: hack/plan release $n --force"
@@ -232,13 +518,15 @@ cmd_release() {
 }
 
 cmd_claims() {
-	local n last age pr
+	local n last age prs
 	git fetch -q --prune "$REMOTE" '+refs/heads/work/*:refs/remotes/'"$REMOTE"'/work/*' || true
+	prs=$(gh pr list --state open --limit 200 --json number,headRefName,isDraft)
 	for n in $(claimed_numbers); do
-		last=$(git log -1 --format=%ct "$REMOTE/work/$n" 2>/dev/null || echo 0)
-		age=$(( ($(date +%s) - last) / 3600 ))
-		pr=$(gh pr list --head "work/$n" --state open --json number,isDraft -q '.[0] | if . then "#\(.number)\(if .isDraft then " draft" else "" end)" else "no PR" end')
-		printf '#%s\t%sh since last commit\t%s%s\n' "$n" "$age" "$pr" \
+		last=$(git for-each-ref --sort=-committerdate --count=1 --format='%(committerdate:unix)' \
+			"refs/remotes/$REMOTE/work/$n" "refs/remotes/$REMOTE/work/$n-*")
+		age=$(( ($(date +%s) - ${last:-0}) / 3600 ))
+		printf '#%s\t%sh since last commit\t%s%s\n' "$n" "$age" \
+			"$(jq -r --arg re "^work/$n(-[0-9]+)?$" '[.[] | select(.headRefName | test($re)) | "#\(.number)\(if .isDraft then " draft" else "" end)"] | if length > 0 then join(" ") else "no PR" end' <<<"$prs")" \
 			"$( (( age >= STALE_HOURS )) && echo $'\tSTALE' || true)"
 	done
 }
@@ -248,13 +536,19 @@ cmd_sync() {
 	# Closed features too: the last step's PR closes its issue when it merges,
 	# and that step still needs ticking.
 	if [[ $# -gt 0 ]]; then numbers="$1"; else
-		numbers=$(gh issue list --state all --label approved --limit 300 --json number -q '.[].number')
+		numbers=$(gh issue list --state all --limit 300 --json number,body -q '.[] | select(.body | test("\\(PR #[0-9]+\\)")) | .number')
 	fi
 	claimed=" $(claimed_numbers | tr '\n' ' ') "
 	for n in $numbers; do
 		for pr in $(body "$n" | steps | grep -E '^- \[ \] .*\(PR #[0-9]+\)[[:space:]]*$' | sed -E 's/.*\(PR #([0-9]+)\)[[:space:]]*$/\1/'); do
-			case "$(gh pr view "$pr" --json state -q .state)" in
-			MERGED) edit_body "$n" tick_pr "$pr" && echo "#$n: ticked the step for #$pr" ;;
+			case "$(gh pr view "$pr" --json state,baseRefName -q '.state + " " + .baseRefName')" in
+			"MERGED main") edit_body "$n" tick_pr "$pr" && echo "#$n: ticked the step for #$pr" ;;
+			MERGED*)
+				# Merged into the step below it: done once that one reaches main.
+				if [[ "$(gh pr list --head "$(gh pr view "$pr" --json baseRefName -q .baseRefName)" --state merged --json baseRefName -q '.[0].baseRefName // empty')" == main ]]; then
+					edit_body "$n" tick_pr "$pr" && echo "#$n: ticked the step for #$pr"
+				fi
+				;;
 			CLOSED) edit_body "$n" drop_pr "$pr" && echo "#$n: #$pr was closed unmerged, so its step is open again" ;;
 			esac
 		done
@@ -300,7 +594,7 @@ cmd_promote() {
 cmd="${1:-help}"
 [[ $# -gt 0 ]] && shift
 case "$cmd" in
-	ready | show | claim | link | release | claims | sync | note | ideas | idea | promote) "cmd_$cmd" "$@" ;;
+	ready | show | claim | step | pr | merge | restack | link | release | claims | sync | note | ideas | idea | promote) "cmd_$cmd" "$@" ;;
 	help | -h | --help) usage ;;
 	*) usage >&2; exit 2 ;;
 esac

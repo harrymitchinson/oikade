@@ -19,7 +19,7 @@ The repo and git history already record *what* changed. The handoff records what
 
 4. **Leave git alone.** Don't commit, stash, branch or add the handoff file. The user decides what happens to their working tree. If finished work is still uncommitted, say so under Status. (The work skill pushes its branch before calling this one. That's its choice, not yours.)
 
-5. **Post it on the issue too,** if the work belongs to a feature claimed on a `work/N` branch. Another agent picking it up may be on another machine, and the handoff file is local. Post the Status and Next steps sections with `hack/plan note N "<them>"`.
+5. **Post it on the issue too,** if the work belongs to a feature claimed on a `work/N` branch, so the next session can resume from the pushed `work/N-S` branch. Another agent picking it up may be on another machine, and the handoff file is local. Post the Status and Next steps sections with `hack/plan note N "<them>"`.
 
 6. **Reply** with the handoff's path and the resume prompt in a fenced block, so the user can copy it straight into the next session. Keep the reply short. Everything else is in the file.
 
