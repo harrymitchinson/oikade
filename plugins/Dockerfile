@@ -3,47 +3,28 @@
 #   docker buildx build --platform linux/arm64,linux/amd64 \
 #     -f plugins/Dockerfile --build-arg PLUGIN=example-switch .
 #
-# PLUGIN is the directory name; its workspace must be @harrymitchinson/oikade-plugin-<PLUGIN>.
-ARG NODE_IMAGE=node:22-alpine
+# PLUGIN is the directory name of a Go main package.
+# Override BASE_IMAGE to build from another registry, e.g. docker.io/library/golang:1.26
+ARG BASE_IMAGE=golang:1.26
 
-# TypeScript compiles once on the build machine; its output is platform-independent.
-FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
+# Go cross-compiles, so the build runs on the build machine for every target platform.
+FROM --platform=$BUILDPLATFORM ${BASE_IMAGE} AS build
+ARG TARGETOS
+ARG TARGETARCH
 ARG PLUGIN=example-switch
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-WORKDIR /src
-RUN corepack enable
-COPY package.json yarn.lock .yarnrc.yml tsconfig.base.json ./
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN go mod download
+COPY api api
+COPY contract contract
+COPY internal internal
 COPY sdk sdk
 COPY plugins plugins
-RUN yarn install --immutable
-RUN yarn workspace @harrymitchinson/oikade-plugin-sdk build && \
-    yarn workspace @harrymitchinson/oikade-plugin-${PLUGIN} build
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" -o /plugin ./plugins/${PLUGIN}
 
-# Production dependencies install on the target platform, so native modules match it.
-FROM ${NODE_IMAGE} AS deps
-ARG PLUGIN=example-switch
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-WORKDIR /src
-RUN corepack enable
-COPY package.json yarn.lock .yarnrc.yml ./
-COPY sdk sdk
-COPY plugins plugins
-RUN yarn workspaces focus --production @harrymitchinson/oikade-plugin-${PLUGIN} && \
-    mkdir -p sdk/typescript/node_modules plugins/${PLUGIN}/node_modules
-
-FROM ${NODE_IMAGE}
-ARG PLUGIN=example-switch
-ENV NODE_ENV=production
-WORKDIR /app
-COPY --from=deps /src/node_modules node_modules
-COPY --from=deps /src/sdk/typescript/node_modules sdk/typescript/node_modules
-COPY --from=deps /src/plugins/${PLUGIN}/node_modules plugins/${PLUGIN}/node_modules
-COPY --from=build /src/sdk/typescript/package.json sdk/typescript/
-COPY --from=build /src/sdk/typescript/dist sdk/typescript/dist
-COPY --from=build /src/plugins/${PLUGIN}/package.json plugins/${PLUGIN}/
-COPY --from=build /src/plugins/${PLUGIN}/dist plugins/${PLUGIN}/dist
-# A fixed path, so CMD can stay in exec form and node receives SIGTERM directly.
-RUN ln -s plugins/${PLUGIN} plugin
-# The node user, matching the operator's pod security context.
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /plugin /plugin
+# Matching the operator's pod security context.
 USER 1000:1000
-CMD ["node", "/app/plugin/dist/main.js"]
+ENTRYPOINT ["/plugin"]
