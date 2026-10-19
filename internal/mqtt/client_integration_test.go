@@ -18,6 +18,7 @@ package mqtt_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -72,4 +73,128 @@ func TestClientAgainstBroker(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("z2m/lamp", false)
+}
+
+// receive subscribes a fresh client to filter and returns its messages.
+func receive(ctx context.Context, t *testing.T, url, clientID, filter string) <-chan mqtt.Message {
+	t.Helper()
+	c, err := mqtt.Connect(ctx, url, clientID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan mqtt.Message, 10)
+	if _, err := c.Subscribe(ctx, filter, func(m mqtt.Message) { got <- m }); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestWillOnDrop(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	url := mqtttest.StartBroker(t)
+
+	live := receive(ctx, t, url, "live", "p/#")
+	plugin, err := mqtt.Connect(ctx, url, "plugin", mqtt.WithWill("p/status", []byte("offline")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mqtt.TerminateForTest(plugin)
+	select {
+	case <-live:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the Will")
+	}
+
+	// A client subscribing afterwards gets the Will, so it was retained.
+	select {
+	case m := <-receive(ctx, t, url, "late", "p/#"):
+		if m.Topic != "p/status" || string(m.Payload) != "offline" || !m.Retained {
+			t.Fatalf("got %s=%q (retained=%v), want the retained Will", m.Topic, m.Payload, m.Retained)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the Will")
+	}
+}
+
+func TestNoWillOnDisconnect(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	b := mqtttest.NewBroker(t)
+
+	got := receive(ctx, t, b.URL, "watcher", "p/#")
+	plugin, err := mqtt.Connect(ctx, b.URL, "plugin", mqtt.WithWill("p/status", []byte("offline")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plugin.Disconnect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b.WaitGone(t, "plugin")
+
+	// The watcher's next message is the sentinel, not a Will.
+	pub, err := mqtt.Connect(ctx, b.URL, "pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pub.Publish(ctx, "p/sentinel", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case m := <-got:
+		if m.Topic != "p/sentinel" {
+			t.Fatalf("got %s=%q, want no Will", m.Topic, m.Payload)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the sentinel")
+	}
+}
+
+func TestOnConnectAfterResubscribe(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	b := mqtttest.NewBroker(t)
+
+	// OnConnect publishes to a topic the client subscribes to itself. It only hears its own
+	// announcement if the subscription was restored before OnConnect ran.
+	// The first OnConnect can run before Connect returns, so the client is handed over.
+	clientCh := make(chan *mqtt.Client, 1)
+	connects := make(chan struct{}, 10)
+	client, err := mqtt.Connect(ctx, b.URL, "plugin", mqtt.WithOnConnect(func(ctx context.Context) {
+		var c *mqtt.Client
+		select {
+		case c = <-clientCh:
+			clientCh <- c
+		case <-ctx.Done():
+			return
+		}
+		if err := c.Publish(ctx, "p/hello", nil, false); err != nil {
+			t.Errorf("publishing from OnConnect: %v", err)
+		}
+		connects <- struct{}{}
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCh <- client
+	wait := func(ch <-chan struct{}, what string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+	wait(connects, "the first OnConnect")
+
+	heard := make(chan struct{}, 10)
+	if _, err := client.Subscribe(ctx, "p/hello", func(mqtt.Message) { heard <- struct{}{} }); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range 2 {
+		b.Restart(t)
+		wait(connects, fmt.Sprint("OnConnect after restart ", i+1))
+		wait(heard, fmt.Sprint("OnConnect's announcement after restart ", i+1))
+	}
 }

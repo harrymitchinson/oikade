@@ -60,37 +60,76 @@ type subscription struct {
 
 // Client is a Bus backed by a reconnecting MQTT v5 connection.
 type Client struct {
-	cm *autopaho.ConnectionManager
+	cm        *autopaho.ConnectionManager
+	onConnect func(ctx context.Context)
+	// ready is closed once cm is set, so OnConnect can publish.
+	ready chan struct{}
 
 	mu     sync.RWMutex
 	subs   []subscription
 	nextID uint64
+	// cancelConn ends the current connection's context.
+	cancelConn context.CancelFunc
 	// ups counts connections; subscriptions only need restoring after the first.
 	ups atomic.Int64
+	// upMu serialises the work done on each connection, so a stale one can't overlap the next.
+	upMu sync.Mutex
 }
 
 var _ Bus = (*Client)(nil)
 
+// Option configures Connect.
+type Option func(*options)
+
+type options struct {
+	will      *paho.WillMessage
+	onConnect func(ctx context.Context)
+}
+
+// WithWill sets a Last Will the broker publishes, retained at QoS 1, if the connection drops
+// without Disconnect.
+func WithWill(topic string, payload []byte) Option {
+	return func(o *options) { o.will = &paho.WillMessage{Topic: topic, Payload: payload, QoS: 1, Retain: true} }
+}
+
+// WithOnConnect runs f on the first and every later connection, after subscriptions are restored.
+// Runs never overlap. f's context is cancelled when that connection drops.
+func WithOnConnect(f func(ctx context.Context)) Option {
+	return func(o *options) { o.onConnect = f }
+}
+
 // Connect dials server (mqtt://host:port) and blocks until the first connection succeeds or ctx ends.
-// The connection is retried forever in the background after that, until ctx is cancelled.
-// The logger comes from ctx.
-func Connect(ctx context.Context, server, clientID string) (*Client, error) {
+// The connection is retried forever in the background after that, until ctx is cancelled or
+// Disconnect is called. It doesn't wait for OnConnect. The logger comes from ctx.
+func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Client, error) {
 	log := logr.FromContextOrDiscard(ctx)
 	u, err := url.Parse(server)
 	if err != nil {
 		return nil, fmt.Errorf("parsing MQTT URL: %w", err)
 	}
-	c := &Client{}
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	c := &Client{onConnect: o.onConnect, ready: make(chan struct{})}
 	cfg := autopaho.ClientConfig{
 		ServerUrls:                    []*url.URL{u},
 		KeepAlive:                     30,
 		CleanStartOnInitialConnection: true,
 		ReconnectBackoff:              autopaho.NewConstantBackoff(5 * time.Second),
+		WillMessage:                   o.will,
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
 			log.Info("Connected to MQTT broker", "server", u.Host)
-			if c.ups.Add(1) > 1 {
-				go c.resubscribe(ctx, cm)
-			}
+			connCtx, cancel := context.WithCancel(ctx)
+			c.mu.Lock()
+			c.cancelConn = cancel
+			c.mu.Unlock()
+			// autopaho waits for this callback, so the work runs on its own goroutine.
+			go c.connectionUp(connCtx, cm, c.ups.Add(1) == 1)
+		},
+		OnConnectionDown: func() bool {
+			c.endConnection()
+			return true
 		},
 		OnConnectError: func(err error) { log.Error(err, "Failed to connect to MQTT broker", "server", u.Host) },
 		ClientConfig: paho.ClientConfig{
@@ -112,6 +151,7 @@ func Connect(ctx context.Context, server, clientID string) (*Client, error) {
 		return nil, err
 	}
 	c.cm = cm
+	close(c.ready)
 	if err := cm.AwaitConnection(ctx); err != nil {
 		return nil, err
 	}
@@ -155,8 +195,43 @@ func (c *Client) unsubscribe(id uint64) {
 	}
 }
 
-// Done is closed once the connection has shut down after ctx is cancelled.
+// Disconnect sends a clean DISCONNECT, so the broker doesn't publish the Will, and stops
+// reconnecting.
+func (c *Client) Disconnect(ctx context.Context) error {
+	c.endConnection()
+	return c.cm.Disconnect(ctx)
+}
+
+func (c *Client) endConnection() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancelConn != nil {
+		c.cancelConn()
+	}
+}
+
+// Done is closed once the connection has shut down after ctx is cancelled or Disconnect.
 func (c *Client) Done() <-chan struct{} { return c.cm.Done() }
+
+// connectionUp restores subscriptions after a reconnect, then runs OnConnect.
+func (c *Client) connectionUp(ctx context.Context, cm *autopaho.ConnectionManager, first bool) {
+	c.upMu.Lock()
+	defer c.upMu.Unlock()
+	if !first {
+		c.resubscribe(ctx, cm)
+	}
+	if c.onConnect == nil {
+		return
+	}
+	select {
+	case <-c.ready:
+	case <-ctx.Done():
+		return
+	}
+	if ctx.Err() == nil {
+		c.onConnect(ctx)
+	}
+}
 
 func (c *Client) resubscribe(ctx context.Context, cm *autopaho.ConnectionManager) {
 	c.mu.RLock()
