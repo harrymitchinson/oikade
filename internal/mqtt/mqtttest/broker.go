@@ -18,6 +18,7 @@ limitations under the License.
 package mqtttest
 
 import (
+	"errors"
 	"log/slog"
 	"net"
 	"sync"
@@ -112,4 +113,16 @@ func (b *Broker) WaitGone(t testing.TB, clientID string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("client %s still connected", clientID)
+}
+
+// Kick drops clientID's connection as a network failure would, so the broker publishes its Will.
+func (b *Broker) Kick(t testing.TB, clientID string) {
+	t.Helper()
+	b.mu.Lock()
+	cl, ok := b.s.Clients.Get(clientID)
+	b.mu.Unlock()
+	if !ok {
+		t.Fatalf("client %s is not connected", clientID)
+	}
+	cl.Stop(errors.New("kicked by test"))
 }

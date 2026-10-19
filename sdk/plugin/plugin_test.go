@@ -1,0 +1,539 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package plugin
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"reflect"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
+)
+
+const root contractv1.Root = "oikade/v1/home/example"
+
+const relayDevices = `{"devices":[{"id":"relay-1","found":true,"manufacturer":"Oikade",` +
+	`"model":"Simulated switch","capabilities":["switch.on"]}],"undeclared":0}`
+
+const (
+	online  = `{"state":"online","contract":1}`
+	offline = `{"state":"offline","contract":1}`
+)
+
+var relay = contractv1.DeviceReport{
+	ID: "relay-1", Found: true, Manufacturer: "Oikade", Model: "Simulated switch",
+	Capabilities: []string{"switch.on"},
+}
+
+// logBuffer collects the plugin's JSON log lines.
+type logBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func testContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+func noSet(context.Context, *Plugin, contractv1.SetCommand) error { return nil }
+
+// start starts a plugin on the broker. It is closed when the test ends.
+func start(ctx context.Context, t *testing.T, url string, o Options) (*Plugin, *logBuffer) {
+	t.Helper()
+	logs := &logBuffer{}
+	o.Environment = Environment{MQTTURL: url, Root: root}
+	if o.OnSet == nil {
+		o.OnSet = noSet
+	}
+	o.Logger = slog.New(slog.NewJSONHandler(logs, nil))
+	p, err := Start(ctx, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close(context.Background()) })
+	return p, logs
+}
+
+// watcher sees every message under root, live or retained, in order.
+type watcher struct {
+	t   *testing.T
+	ctx context.Context
+	got chan mqtt.Message
+}
+
+func watch(ctx context.Context, t *testing.T, url string) *watcher {
+	t.Helper()
+	c, err := mqtt.Connect(ctx, url, fmt.Sprintf("watcher-%d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+	w := &watcher{t: t, ctx: ctx, got: make(chan mqtt.Message, 100)}
+	if _, err := c.Subscribe(ctx, root.Filter(), func(m mqtt.Message) { w.got <- m }); err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+func (w *watcher) next() mqtt.Message {
+	w.t.Helper()
+	select {
+	case m := <-w.got:
+		return m
+	case <-w.ctx.Done():
+		w.t.Fatal("timed out waiting for a message")
+		return mqtt.Message{}
+	}
+}
+
+// expect checks the next messages, as topic=payload.
+func (w *watcher) expect(want ...string) {
+	w.t.Helper()
+	for _, s := range want {
+		m := w.next()
+		if got := m.Topic + "=" + string(m.Payload); got != s {
+			w.t.Fatalf("got %s, want %s", got, s)
+		}
+	}
+}
+
+// sentinel publishes a message the watcher sees after everything published before it.
+func (w *watcher) sentinel(url string) string {
+	w.t.Helper()
+	c, err := mqtt.Connect(w.ctx, url, fmt.Sprintf("sentinel-%d", time.Now().UnixNano()))
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	defer func() { _ = c.Disconnect(context.Background()) }()
+	topic := string(root) + "/sentinel"
+	if err := c.Publish(w.ctx, topic, nil, false); err != nil {
+		w.t.Fatal(err)
+	}
+	return topic
+}
+
+// quiet checks nothing else has arrived.
+func (w *watcher) quiet(url string) {
+	w.t.Helper()
+	w.expect(w.sentinel(url) + "=")
+}
+
+// sync skips everything that has arrived.
+func (w *watcher) sync(url string) {
+	w.t.Helper()
+	topic := w.sentinel(url)
+	for w.next().Topic != topic {
+	}
+}
+
+func TestAnnounceOrder(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	w := watch(ctx, t, b.URL)
+	p, _ := start(ctx, t, b.URL, Options{})
+	w.expect(root.Status() + "=" + online)
+
+	// Until the plugin reports devices, a reconnect leaves the retained devices alone.
+	b.Kick(t, p.clientID)
+	w.expect(root.Status()+"="+offline, root.Status()+"="+online)
+	w.quiet(b.URL)
+
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay, {ID: "bad", Error: "nope"}}, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetAvailability(ctx, "relay-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetState(ctx, "relay-1", contractv1.State{"switch.on": true}); err != nil {
+		t.Fatal(err)
+	}
+	devices := root.Devices() + `={"devices":[{"id":"relay-1","found":true,"manufacturer":"Oikade",` +
+		`"model":"Simulated switch","capabilities":["switch.on"]},{"id":"bad","found":false,"error":"nope"}],"undeclared":2}`
+	announced := []string{devices, root.Availability("relay-1") + "=online", root.State("relay-1") + `={"switch.on":true}`}
+	w.expect(announced...)
+
+	b.Kick(t, p.clientID)
+	w.expect(append([]string{root.Status() + "=" + offline, root.Status() + "=" + online}, announced...)...)
+}
+
+func TestReconnectRepublishes(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	p, logs := start(ctx, t, b.URL, Options{})
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetAvailability(ctx, "relay-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetState(ctx, "relay-1", contractv1.State{"switch.on": true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A restart loses every retained message. The plugin puts them back by itself.
+	b.Restart(t)
+	want := map[string]string{
+		root.Status():                online,
+		root.Devices():               relayDevices,
+		root.Availability("relay-1"): "online",
+		root.State("relay-1"):        `{"switch.on":true}`,
+	}
+	for {
+		got := map[string]string{}
+		for m := range retained(ctx, t, b.URL) {
+			got[m.Topic] = string(m.Payload)
+		}
+		if reflect.DeepEqual(got, want) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("got retained %v, want %v", got, want)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if n := strings.Count(logs.String(), `"msg":"Plugin came online"`); n != 2 {
+		t.Fatalf("logged coming online %d times, want 2:\n%s", n, logs)
+	}
+}
+
+// retained returns the retained messages under root, as a fresh subscriber gets them.
+func retained(ctx context.Context, t *testing.T, url string) <-chan mqtt.Message {
+	t.Helper()
+	w := watch(ctx, t, url)
+	out := make(chan mqtt.Message, 100)
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case m := <-w.got:
+				if m.Retained {
+					out <- m
+				}
+			case <-time.After(200 * time.Millisecond):
+				return
+			}
+		}
+	}()
+	return out
+}
+
+func TestCloseWins(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	p, _ := start(ctx, t, b.URL, Options{})
+	w := watch(ctx, t, b.URL)
+	w.expect(root.Status() + "=" + online)
+
+	// A reconnect's announcement waits behind a publish while Close starts.
+	if err := p.acquire(ctx); err != nil {
+		t.Fatal(err)
+	}
+	announced := make(chan struct{})
+	go func() {
+		p.announce(ctx)
+		close(announced)
+	}()
+	closed := make(chan error, 1)
+	go func() { closed <- p.Close(ctx) }()
+	for !p.closed.Load() {
+		time.Sleep(time.Millisecond)
+	}
+	p.unlock()
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	<-announced
+
+	w.expect(root.Status() + "=" + offline)
+	w.quiet(b.URL)
+	b.WaitGone(t, p.clientID)
+	if err := p.SetAvailability(ctx, "relay-1", true); !errors.Is(err, ErrClosed) {
+		t.Fatalf("got %v after Close, want ErrClosed", err)
+	}
+}
+
+func TestCloseLeavesItToTheWill(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	p, _ := start(ctx, t, b.URL, Options{CloseTimeout: 50 * time.Millisecond})
+	w := watch(ctx, t, b.URL)
+	w.expect(root.Status() + "=" + online)
+
+	// A publish that never finishes holds the offline status up.
+	if err := p.acquire(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Close(ctx); err == nil {
+		t.Fatal("Close succeeded without publishing offline")
+	}
+	w.expect(root.Status() + "=" + offline) // from the Will
+	b.WaitGone(t, p.clientID)
+}
+
+func TestStartTimeout(t *testing.T) {
+	ctx := testContext(t)
+	began := time.Now()
+	_, err := Start(ctx, Options{
+		Environment:  Environment{MQTTURL: "mqtt://user:secret@127.0.0.1:1", Root: root},
+		OnSet:        noSet,
+		Logger:       slog.New(slog.DiscardHandler),
+		StartTimeout: 200 * time.Millisecond,
+	})
+	want := "could not come online at mqtt://user:xxxxx@127.0.0.1:1 within 200ms"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("got %v, want a timeout naming the redacted broker", err)
+	}
+	if time.Since(began) > 5*time.Second {
+		t.Fatalf("took %s to give up", time.Since(began))
+	}
+}
+
+func TestSetStateValidates(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	p, _ := start(ctx, t, b.URL, Options{})
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay, lamp, {ID: "lost"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	w := watch(ctx, t, b.URL)
+	w.sync(b.URL)
+
+	for _, tc := range []struct {
+		name  string
+		id    string
+		state contractv1.State
+		want  string
+	}{
+		{"unannounced capability", "relay-1", contractv1.State{"light.on": true}, "has not announced capability light.on"},
+		{"unknown device", "unknown", contractv1.State{"switch.on": true}, "device unknown is not reported found"},
+		{"device not found", "lost", contractv1.State{}, "device lost is not reported found"},
+		{"out of range", "lamp", contractv1.State{"light.level": 150.0}, "light.level must be between 0 and 100"},
+		{"wrong kind", "relay-1", contractv1.State{"switch.on": "on"}, "switch.on takes a bool"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := p.SetState(ctx, tc.id, tc.state)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want an error containing %q", err, tc.want)
+			}
+			if err := p.UpdateState(ctx, tc.id, tc.state); err == nil {
+				t.Fatal("UpdateState accepted it")
+			}
+		})
+	}
+	if s := p.State("relay-1"); s != nil {
+		t.Fatalf("stored %v after refusing it", s)
+	}
+
+	// Nothing reached the broker: the next state message is a valid one, normalised.
+	if err := p.SetState(ctx, "lamp", contractv1.State{"light.on": true, "light.level": 40}); err != nil {
+		t.Fatal(err)
+	}
+	w.expect(root.State("lamp") + `={"light.level":40,"light.on":true}`)
+	if got := p.State("lamp"); !reflect.DeepEqual(got, contractv1.State{"light.on": true, "light.level": 40.0}) {
+		t.Fatalf("stored %#v, want float64 values", got)
+	}
+}
+
+func TestUpdateStateMerges(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	p, _ := start(ctx, t, b.URL, Options{})
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetState(ctx, "lamp", contractv1.State{"light.on": true, "light.level": 40.0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.UpdateState(ctx, "lamp", contractv1.State{"light.level": 80.0}); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.State("lamp"); !reflect.DeepEqual(got, contractv1.State{"light.on": true, "light.level": 80.0}) {
+		t.Fatalf("got %v, want the merged state", got)
+	}
+}
+
+func TestSetDevicesDropsStale(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	p, _ := start(ctx, t, b.URL, Options{})
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetState(ctx, "lamp", contractv1.State{"light.on": true, "light.level": 40.0}); err != nil {
+		t.Fatal(err)
+	}
+	w := watch(ctx, t, b.URL)
+	w.sync(b.URL)
+
+	lamp.Capabilities = []string{"light.on"}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "lamp"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.expect(
+		root.Devices()+`={"devices":[{"id":"lamp","found":true,"capabilities":["light.on"]}],"undeclared":0}`,
+		root.State("lamp")+`={"light.on":true}`,
+		root.Devices()+`={"devices":[{"id":"lamp","found":false}],"undeclared":0}`,
+		root.State("lamp")+`={}`,
+	)
+}
+
+func TestSetDispatch(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	var (
+		mu      sync.Mutex
+		got     []contractv1.SetCommand
+		running atomic.Int32
+		overlap atomic.Bool
+	)
+	onSet := func(_ context.Context, _ *Plugin, cmd contractv1.SetCommand) error {
+		if cmd.ID == "relay-1" {
+			if running.Add(1) > 1 {
+				overlap.Store(true)
+			}
+			defer running.Add(-1)
+			time.Sleep(time.Millisecond)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, cmd)
+		return nil
+	}
+	p, logs := start(ctx, t, b.URL, Options{OnSet: onSet})
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.level"}}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay, lamp}, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	pub, err := mqtt.Connect(ctx, b.URL, "oikade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pub.Disconnect(context.Background()) }()
+	send := func(topic, payload string) {
+		t.Helper()
+		if err := pub.Publish(ctx, topic, []byte(payload), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(root.Set("relay-1"), `{"light.on":false}`)
+	send(root.Set("other"), `{"switch.on":false}`)
+	send(root.Set("relay-1"), `not json`)
+	send(root.Set("lamp"), `{"light.level":150}`)
+	send(root.State("relay-1"), `{"switch.on":false}`)
+	want := make([]contractv1.SetCommand, 0, 10)
+	for i := range 10 {
+		send(root.Set("relay-1"), fmt.Sprintf(`{"switch.on":%v}`, i%2 == 0))
+		want = append(want, contractv1.SetCommand{ID: "relay-1", Capability: "switch.on", Value: i%2 == 0})
+	}
+	send(root.Set("lamp"), `{"light.level":30}`)
+
+	for {
+		mu.Lock()
+		n := len(got)
+		mu.Unlock()
+		if n == len(want)+1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("got %d commands, want %d", n, len(want)+1)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	var relayCmds []contractv1.SetCommand
+	for _, c := range got {
+		if c.ID == "lamp" {
+			if c != (contractv1.SetCommand{ID: "lamp", Capability: "light.level", Value: 30.0}) {
+				t.Fatalf("got %+v for the lamp", c)
+			}
+			continue
+		}
+		relayCmds = append(relayCmds, c)
+	}
+	if !reflect.DeepEqual(relayCmds, want) {
+		t.Fatalf("got %+v, want them in order %+v", relayCmds, want)
+	}
+	if n := strings.Count(logs.String(), `"msg":"Ignored set command"`); n != 4 {
+		t.Fatalf("ignored %d set commands, want 4:\n%s", n, logs)
+	}
+	if overlap.Load() {
+		t.Fatal("one device's commands overlapped")
+	}
+}
+
+func TestSetHandlerFailure(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	p, logs := start(ctx, t, b.URL, Options{OnSet: func(context.Context, *Plugin, contractv1.SetCommand) error {
+		return errors.New("relay unreachable")
+	}})
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay}, 0); err != nil {
+		t.Fatal(err)
+	}
+	pub, err := mqtt.Connect(ctx, b.URL, "oikade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pub.Disconnect(context.Background()) }()
+	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"switch.on":true}`), false); err != nil {
+		t.Fatal(err)
+	}
+	want := `"msg":"Could not apply set command","topic":"oikade/v1/home/example/relay-1/set",` +
+		`"capability":"switch.on","error":"relay unreachable"`
+	for !strings.Contains(logs.String(), want) {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("logged:\n%s\nwant %s", logs, want)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}

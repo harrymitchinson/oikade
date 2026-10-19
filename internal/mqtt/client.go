@@ -74,6 +74,8 @@ type Client struct {
 	ups atomic.Int64
 	// upMu serialises the work done on each connection, so a stale one can't overlap the next.
 	upMu sync.Mutex
+	// dropping is set by Drop: no DISCONNECT is sent and the connection isn't retried.
+	dropping atomic.Bool
 }
 
 var _ Bus = (*Client)(nil)
@@ -131,7 +133,13 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 		},
 		OnConnectionDown: func() bool {
 			c.endConnection()
-			return true
+			return !c.dropping.Load()
+		},
+		DisconnectPacketBuilder: func() *paho.Disconnect {
+			if c.dropping.Load() {
+				return nil
+			}
+			return &paho.Disconnect{ReasonCode: 0}
 		},
 		OnConnectError: func(err error) { log.Error(err, "Failed to connect to MQTT broker", "server", u.Host) },
 		ClientConfig: paho.ClientConfig{
@@ -201,6 +209,16 @@ func (c *Client) unsubscribe(id uint64) {
 // reconnecting.
 func (c *Client) Disconnect(ctx context.Context) error {
 	c.endConnection()
+	return c.cm.Disconnect(ctx)
+}
+
+// Drop closes the connection without a DISCONNECT, so the broker publishes the Will, and stops
+// reconnecting.
+func (c *Client) Drop(ctx context.Context) error {
+	c.dropping.Store(true)
+	c.endConnection()
+	// Despite its name, this only closes the socket, which is what a lost connection looks like.
+	c.cm.TerminateConnectionForTest()
 	return c.cm.Disconnect(ctx)
 }
 

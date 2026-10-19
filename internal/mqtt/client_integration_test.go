@@ -75,15 +75,15 @@ func TestClientAgainstBroker(t *testing.T) {
 	expect("z2m/lamp", false)
 }
 
-// receive subscribes a fresh client to filter and returns its messages.
-func receive(ctx context.Context, t *testing.T, url, clientID, filter string) <-chan mqtt.Message {
+// receive subscribes a fresh client to p/# and returns its messages.
+func receive(ctx context.Context, t *testing.T, url, clientID string) <-chan mqtt.Message {
 	t.Helper()
 	c, err := mqtt.Connect(ctx, url, clientID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := make(chan mqtt.Message, 10)
-	if _, err := c.Subscribe(ctx, filter, func(m mqtt.Message) { got <- m }); err != nil {
+	if _, err := c.Subscribe(ctx, "p/#", func(m mqtt.Message) { got <- m }); err != nil {
 		t.Fatal(err)
 	}
 	return got
@@ -94,7 +94,7 @@ func TestWillOnDrop(t *testing.T) {
 	defer cancel()
 	url := mqtttest.StartBroker(t)
 
-	live := receive(ctx, t, url, "live", "p/#")
+	live := receive(ctx, t, url, "live")
 	plugin, err := mqtt.Connect(ctx, url, "plugin", mqtt.WithWill("p/status", []byte("offline")))
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestWillOnDrop(t *testing.T) {
 
 	// A client subscribing afterwards gets the Will, so it was retained.
 	select {
-	case m := <-receive(ctx, t, url, "late", "p/#"):
+	case m := <-receive(ctx, t, url, "late"):
 		if m.Topic != "p/status" || string(m.Payload) != "offline" || !m.Retained {
 			t.Fatalf("got %s=%q (retained=%v), want the retained Will", m.Topic, m.Payload, m.Retained)
 		}
@@ -120,12 +120,42 @@ func TestWillOnDrop(t *testing.T) {
 	}
 }
 
+func TestDropPublishesWill(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	b := mqtttest.NewBroker(t)
+
+	got := receive(ctx, t, b.URL, "watcher")
+	plugin, err := mqtt.Connect(ctx, b.URL, "plugin", mqtt.WithWill("p/status", []byte("offline")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plugin.Drop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case m := <-got:
+		if m.Topic != "p/status" || string(m.Payload) != "offline" {
+			t.Fatalf("got %s=%q, want the Will", m.Topic, m.Payload)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the Will")
+	}
+	// It doesn't come back.
+	select {
+	case <-plugin.Done():
+	case <-ctx.Done():
+		t.Fatal("still running after Drop")
+	}
+	b.WaitGone(t, "plugin")
+}
+
 func TestNoWillOnDisconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	b := mqtttest.NewBroker(t)
 
-	got := receive(ctx, t, b.URL, "watcher", "p/#")
+	got := receive(ctx, t, b.URL, "watcher")
 	plugin, err := mqtt.Connect(ctx, b.URL, "plugin", mqtt.WithWill("p/status", []byte("offline")))
 	if err != nil {
 		t.Fatal(err)
