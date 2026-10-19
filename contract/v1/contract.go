@@ -22,9 +22,11 @@ limitations under the License.
 package v1
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -152,25 +154,50 @@ func (r Root) ParseSet(topic string, payload []byte) (cmd SetCommand, ok bool, e
 	if !found || id == "" || strings.ContainsAny(id, "/+#") {
 		return SetCommand{}, false, nil
 	}
-	var values map[string]any
-	if err := json.Unmarshal(payload, &values); err != nil {
+	name, v, n, err := onlyMember(payload)
+	if err != nil {
 		return SetCommand{}, true, fmt.Errorf("set payload is not a JSON object: %w", err)
 	}
-	if len(values) != 1 {
-		return SetCommand{}, true, fmt.Errorf("set payload has %d capabilities, want 1", len(values))
+	if n != 1 {
+		return SetCommand{}, true, fmt.Errorf("set payload has %d capabilities, want 1", n)
 	}
-	for name, v := range values {
-		switch v.(type) {
-		case bool, float64:
-		default:
-			return SetCommand{}, true, fmt.Errorf("set value of %s is %s, want a bool or a number", name, kind(v))
-		}
-		if name == "" {
-			return SetCommand{}, true, errors.New("set payload has an empty capability")
-		}
-		cmd = SetCommand{ID: id, Capability: name, Value: v}
+	switch v.(type) {
+	case bool, float64:
+	default:
+		return SetCommand{}, true, fmt.Errorf("set value of %s is %s, want a bool or a number", name, kind(v))
 	}
+	if name == "" {
+		return SetCommand{}, true, errors.New("set payload has an empty capability")
+	}
+	cmd = SetCommand{ID: id, Capability: name, Value: v}
 	return cmd, true, nil
+}
+
+// onlyMember reads a JSON object, returning its last member and how many it has. Unlike decoding
+// into a map, it counts a repeated name twice.
+func onlyMember(payload []byte) (name string, value any, n int, err error) {
+	dec := json.NewDecoder(bytes.NewReader(payload))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return "", nil, 0, errors.New("want an object")
+	}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return "", nil, 0, err
+		}
+		name, _ = t.(string)
+		if err := dec.Decode(&value); err != nil {
+			return "", nil, 0, err
+		}
+		n++
+	}
+	if _, err := dec.Token(); err != nil {
+		return "", nil, 0, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return "", nil, 0, errors.New("data after the object")
+	}
+	return name, value, n, nil
 }
 
 func kind(v any) string {

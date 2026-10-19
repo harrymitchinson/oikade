@@ -261,7 +261,7 @@ func (s *suite) announces(t *testing.T) {
 
 func (s *suite) retains(t *testing.T) {
 	retained := snapshot(t, s.url)
-	if st := retained[root.Status()]; !bytes.Contains(st, []byte(`"online"`)) {
+	if st := retained[root.Status()]; !isStatus(st, contractv1.Online) {
 		t.Errorf("status not retained as online: %s", st)
 	}
 	if retained[root.Devices()] == nil {
@@ -352,10 +352,16 @@ func (s *suite) crashes(t *testing.T) {
 	<-s.p.done
 	eventually(t, "the Last Will to mark the plugin offline", func() bool { return !s.up() })
 	st := snapshot(t, s.url)[root.Status()]
-	if !bytes.Contains(st, []byte(`"offline"`)) || !bytes.Contains(st, []byte(`"contract":1`)) {
-		t.Errorf("retained status after a crash = %s, want offline with contract 1", st)
+	if !isStatus(st, contractv1.Offline) {
+		t.Errorf("retained status after a crash = %s, want offline with contract %d", st, contractv1.Contract)
 	}
 	s.noRejections(t)
+}
+
+// isStatus reports whether payload is a status with this state and the contract version.
+func isStatus(payload []byte, state string) bool {
+	var s contractv1.Status
+	return json.Unmarshal(payload, &s) == nil && s == contractv1.Status{State: state, Contract: contractv1.Contract}
 }
 
 // toggled returns a different valid value for a writable capability.

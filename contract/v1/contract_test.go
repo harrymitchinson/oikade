@@ -63,11 +63,20 @@ func roundTrip[T any](t *testing.T, want []byte) {
 
 func TestPayloadsMatchContractDoc(t *testing.T) {
 	blocks, doc := docBlocks(t)
-	if len(blocks) != 2 {
-		t.Fatalf("want the devices and devices file examples in the doc, found %d JSON blocks", len(blocks))
+	var devices, devicesFile int
+	for _, b := range blocks {
+		// The devices file is the only example with a contract field.
+		if bytes.HasPrefix(b, []byte(`{"contract":`)) {
+			roundTrip[DevicesFile](t, b)
+			devicesFile++
+		} else if bytes.HasPrefix(b, []byte(`{"devices":`)) {
+			roundTrip[Devices](t, b)
+			devices++
+		}
 	}
-	roundTrip[Devices](t, blocks[0])
-	roundTrip[DevicesFile](t, blocks[1])
+	if devices == 0 || devicesFile == 0 {
+		t.Errorf("want devices and devices file examples in the doc, found %d and %d", devices, devicesFile)
+	}
 
 	for _, tc := range []struct {
 		doc string
@@ -169,6 +178,9 @@ func TestParseSet(t *testing.T) {
 		{"null", "oikade/v1/home/sonoff/1000aa/set", `null`, SetCommand{}, true, true},
 		{"array", "oikade/v1/home/sonoff/1000aa/set", `[true]`, SetCommand{}, true, true},
 		{"no capability", "oikade/v1/home/sonoff/1000aa/set", `{}`, SetCommand{}, true, true},
+		{"repeated capability", "oikade/v1/home/sonoff/1000aa/set", `{"switch.on":true,"switch.on":false}`,
+			SetCommand{}, true, true},
+		{"unclosed", "oikade/v1/home/sonoff/1000aa/set", `{"switch.on":true`, SetCommand{}, true, true},
 		{"two capabilities", "oikade/v1/home/sonoff/1000aa/set", `{"switch.on":true,"light.level":1}`,
 			SetCommand{}, true, true},
 		{"empty capability", "oikade/v1/home/sonoff/1000aa/set", `{"":true}`, SetCommand{}, true, true},

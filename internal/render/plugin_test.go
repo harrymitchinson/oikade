@@ -148,7 +148,8 @@ func TestPluginConfigUnchanged(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(out, want) {
+		// An editor may add a final newline; the bytes before it are what matter.
+		if !bytes.Equal(out, bytes.TrimSuffix(want, []byte("\n"))) {
 			t.Errorf("devices.json changed:\n got %s\nwant %s", out, want)
 		}
 	}
