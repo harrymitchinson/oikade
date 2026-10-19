@@ -102,13 +102,29 @@ type watcher struct {
 
 func watch(ctx context.Context, t *testing.T, url string) *watcher {
 	t.Helper()
+	return watchFiltered(ctx, t, url, func(mqtt.Message) bool { return true })
+}
+
+// watchLive sees only messages published after it subscribed. Retained ones can arrive at any
+// point, even after messages published later by other clients.
+func watchLive(ctx context.Context, t *testing.T, url string) *watcher {
+	t.Helper()
+	return watchFiltered(ctx, t, url, func(m mqtt.Message) bool { return !m.Retained })
+}
+
+func watchFiltered(ctx context.Context, t *testing.T, url string, keep func(mqtt.Message) bool) *watcher {
+	t.Helper()
 	c, err := mqtt.Connect(ctx, url, fmt.Sprintf("watcher-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
 	w := &watcher{t: t, ctx: ctx, got: make(chan mqtt.Message, 100)}
-	if _, err := c.Subscribe(ctx, root.Filter(), func(m mqtt.Message) { w.got <- m }); err != nil {
+	if _, err := c.Subscribe(ctx, root.Filter(), func(m mqtt.Message) {
+		if keep(m) {
+			w.got <- m
+		}
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return w
@@ -155,14 +171,6 @@ func (w *watcher) sentinel(url string) string {
 func (w *watcher) quiet(url string) {
 	w.t.Helper()
 	w.expect(w.sentinel(url) + "=")
-}
-
-// sync skips everything that has arrived.
-func (w *watcher) sync(url string) {
-	w.t.Helper()
-	topic := w.sentinel(url)
-	for w.next().Topic != topic {
-	}
 }
 
 func TestAnnounceOrder(t *testing.T) {
@@ -331,13 +339,17 @@ func TestStartTimeout(t *testing.T) {
 func TestSetStateValidates(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
+	// Subscribing before anything is published: mochi races a subscription's retained scan with
+	// a concurrent retained publish.
+	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{})
 	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay, lamp, {ID: "lost"}}, 0); err != nil {
 		t.Fatal(err)
 	}
-	w := watch(ctx, t, b.URL)
-	w.sync(b.URL)
+	w.expect(root.Status()+"="+online, root.Devices()+`={"devices":[`+
+		`{"id":"relay-1","found":true,"manufacturer":"Oikade","model":"Simulated switch","capabilities":["switch.on"]},`+
+		`{"id":"lamp","found":true,"capabilities":["light.on","light.level"]},{"id":"lost","found":false}],"undeclared":0}`)
 
 	for _, tc := range []struct {
 		name  string
@@ -401,6 +413,7 @@ func TestUpdateStateMerges(t *testing.T) {
 func TestSetDevicesDropsStale(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
+	w := watchLive(ctx, t, b.URL) // first, as in TestSetStateValidates
 	p, _ := start(ctx, t, b.URL, Options{})
 	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
@@ -409,8 +422,11 @@ func TestSetDevicesDropsStale(t *testing.T) {
 	if err := p.SetState(ctx, "lamp", contractv1.State{"light.on": true, "light.level": 40.0}); err != nil {
 		t.Fatal(err)
 	}
-	w := watch(ctx, t, b.URL)
-	w.sync(b.URL)
+	w.expect(
+		root.Status()+"="+online,
+		root.Devices()+`={"devices":[{"id":"lamp","found":true,"capabilities":["light.on","light.level"]}],"undeclared":0}`,
+		root.State("lamp")+`={"light.level":40,"light.on":true}`,
+	)
 
 	lamp.Capabilities = []string{"light.on"}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
