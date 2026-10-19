@@ -31,7 +31,8 @@ _<date> · handoff from a Claude Code session_
 ## Goal
 <What the user is trying to achieve and why, in 2–4 sentences. Include the
 user's own constraints and preferences that shaped the work, such as "arm64 only"
-or "don't touch the CRD".>
+or "don't touch the CRD". Name the GitHub issue the work belongs to (#N), if
+there is one.>
 
 ## Status
 **Done**

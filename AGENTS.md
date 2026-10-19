@@ -334,26 +334,13 @@ make docker-build docker-push IMG=$IMG
 - **controller-tools**: https://github.com/kubernetes-sigs/controller-tools
 - **Kubebuilder Repo**: https://github.com/kubernetes-sigs/kubebuilder
 
-<!-- BACKLOG.MD GUIDELINES START -->
-<!-- backlog.md-instructions-version: 1.54.0 -->
-<CRITICAL_INSTRUCTION>
+## Planning
 
-## Backlog.md Workflow
+How planning works is in `docs/design/0008-planning-workflow.md`. In short:
 
-This project uses Backlog.md for task and project management.
+- **Work is GitHub issues** on the [Oikade board](https://github.com/users/harrymitchinson/projects/5). A feature is a parent issue with sub-issues, ordered by "blocked by". Manage them with `gh`, never in a PR. PRs say `Closes #N`.
+- **Releases are GitHub milestones.** The milestone order, the direction and "Not doing" are in `docs/roadmap.md`.
+- **Designs are `docs/design/NNNN-slug.md`.** They're needed only for changes that are expensive to reverse: public API, state that must survive, component boundaries, or a new kind, driver or dependency. A design arrives as a PR containing only that doc, and **merging it is the user's acceptance**. Never write "accepted" yourself, and never treat an agent-written doc as the user's decision.
+- **Skills:** `design` (whether a doc is needed, options, the review PR, then issues), `plan` (what's next, milestones, the roadmap), `add-capability` and `handoff`.
+- **Shared checkout.** Other sessions share this checkout and its git index. Work in your own git worktree, and stage explicit paths only. Never `git add` a directory.
 
-**At the beginning of each conversation in this project, run `backlog instructions overview` before answering or taking action. Re-read it only if you have not read it yet in the current conversation.**
-
-Use the overview to decide whether to search, read, create, or update Backlog tasks.
-
-Before task lifecycle actions, read the matching detailed guide:
-- `backlog instructions task-creation` before creating or splitting tasks
-- `backlog instructions task-execution` before planning, changing status or assignee, adding a plan or implementation notes, or implementing task work
-- `backlog instructions task-finalization` before checking acceptance criteria, writing final summaries, or moving tasks to terminal statuses
-
-Use `backlog <command> --help` before running unfamiliar commands. Help shows options, fields, and examples.
-
-Do not edit Backlog task, draft, document, decision, or milestone markdown files directly. Use the `backlog` CLI so metadata, relationships, and history stay consistent.
-
-</CRITICAL_INSTRUCTION>
-<!-- BACKLOG.MD GUIDELINES END -->

@@ -1,11 +1,4 @@
----
-id: doc-0001
-title: Room-targeted automations
-type: specification
-created_date: '2026-10-18 10:56'
-updated_date: '2026-10-18 10:56'
----
-**Decision:** accepted · **Work:** TASK-0002
+# 0001: Room-targeted automations
 
 ## Problem
 
