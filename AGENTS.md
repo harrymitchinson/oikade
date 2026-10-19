@@ -336,11 +336,13 @@ make docker-build docker-push IMG=$IMG
 
 ## Planning
 
-How planning works is in `docs/design/0008-planning-workflow.md`. In short:
+How planning works is in `docs/design/0009-planning-workflow.md`. In short:
 
-- **Work is GitHub issues** on the [Oikade board](https://github.com/users/harrymitchinson/projects/5). A feature is a parent issue with sub-issues, ordered by "blocked by". Manage them with `gh`, never in a PR. PRs say `Closes #N`.
+- **Ideas are draft items** on the [Oikade board](https://github.com/users/harrymitchinson/projects/5), not issues. **A feature is one issue** with a `## Steps` checklist, one PR per step. "Blocked by" orders features.
+- **Use `hack/plan`** (`hack/plan help`) for ideas, ready work, claims and steps, not raw `gh api`. Bookkeeping never needs a PR.
+- **Designs are reviewed in the feature's issue,** and only for changes that are expensive to reverse: public API, state that must survive, component boundaries, or a new kind, driver or dependency. **The user decides by adding the `approved` label.** Never add it, never write "accepted", and never treat an agent-written design as the user's decision. The first step of an approved feature commits the design as `docs/design/NNNN-slug.md`.
+- **Parallel agents claim before building.** `hack/plan claim N` takes the branch `work/N`, and fails if another agent holds it. Build one step on it, in the worktree it creates. The PR says `Part of #N`, or `Closes #N` for the last step. Run e2e with your own `KIND_CLUSTER=oikade-e2e-N` and `KUBECONFIG`.
 - **Releases are GitHub milestones.** The milestone order, the direction and "Not doing" are in `docs/roadmap.md`.
-- **Designs are `docs/design/NNNN-slug.md`.** They're needed only for changes that are expensive to reverse: public API, state that must survive, component boundaries, or a new kind, driver or dependency. A design arrives as a PR containing only that doc, and **merging it is the user's acceptance**. Never write "accepted" yourself, and never treat an agent-written doc as the user's decision.
-- **Skills:** `design` (whether a doc is needed, options, the review PR, then issues), `plan` (what's next, milestones, the roadmap), `add-capability` and `handoff`.
+- **Skills:** `design` (whether a design is needed, options, the issue review, then the Steps), `plan` (what's next, ideas, milestones, the roadmap), `work` (claim and build the next step), `add-capability` and `handoff`.
 - **Shared checkout.** Other sessions share this checkout and its git index. Work in your own git worktree, and stage explicit paths only. Never `git add` a directory.
 

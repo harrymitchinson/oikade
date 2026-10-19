@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# plan: Oikade's planning commands, so skills and agents never hand-write gh
+# GraphQL. How planning works is in docs/design/0009-planning-workflow.md.
+#
+# A feature is one issue. Its "## Steps" section is a checklist with one line
+# per PR-sized step. A feature is claimed by creating the remote branch work/N:
+# the push only succeeds if that branch doesn't exist yet, so two agents can't
+# both claim it. GitHub deletes the branch when its PR merges, which frees the
+# feature for its next step.
+#
+# Usage: hack/plan <command> [args]   (hack/plan help lists the commands)
+set -euo pipefail
+
+PROJECT_OWNER="${PLAN_PROJECT_OWNER:-harrymitchinson}"
+PROJECT_NUMBER="${PLAN_PROJECT_NUMBER:-5}"
+REMOTE="${PLAN_REMOTE:-origin}"
+STALE_HOURS="${PLAN_STALE_HOURS:-24}"
+
+die() { echo "plan: $*" >&2; exit 1; }
+
+repo() { gh repo view --json nameWithOwner -q .nameWithOwner; }
+
+usage() {
+	cat <<'EOF'
+Usage: hack/plan <command> [args]
+
+Work
+  ready                 Approved features nobody has claimed and nothing blocks, earliest milestone first
+  show N                A feature: its body, next step, blockers, claim and open PRs
+  claim N [DIR]         Claim feature N and create a worktree on branch work/N (default DIR .claude/worktrees/work-N)
+  link N PR             Record PR against feature N's next unrecorded step
+  release N             Give up a claim: delete branch work/N and set the card back to Todo
+  claims                Every claimed feature, with its open PR and how long since its last commit
+  sync [N]              Tick steps whose PR merged and set unclaimed open cards back to Todo
+  note N TEXT           Comment on issue N
+
+Ideas (Project draft items: they aren't issues and notify nobody)
+  ideas                 List the ideas
+  idea TITLE [BODY]     Add an idea
+  promote ITEM_ID       Turn an idea into an issue and print its number
+EOF
+}
+
+# --- Project board -----------------------------------------------------------
+
+project_id() {
+	gh project view "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json -q .id
+}
+
+# set_status ISSUE STATUS: STATUS is a Status option name, such as "Todo".
+set_status() {
+	local issue="$1" status="$2" url pid fields field_id option_id item_id
+	url="https://github.com/$(repo)/issues/$issue"
+	pid=$(project_id)
+	fields=$(gh project field-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json)
+	field_id=$(jq -r '.fields[] | select(.name == "Status") | .id' <<<"$fields")
+	option_id=$(jq -r --arg s "$status" '.fields[] | select(.name == "Status") | .options[] | select(.name == $s) | .id' <<<"$fields")
+	[[ -n "$option_id" ]] || die "the board has no Status option \"$status\""
+	# item-add returns the existing item when the issue is already on the board.
+	item_id=$(gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --url "$url" --format json -q .id)
+	gh project item-edit --project-id "$pid" --id "$item_id" --field-id "$field_id" --single-select-option-id "$option_id" >/dev/null
+}
+
+# --- Steps --------------------------------------------------------------------
+
+# steps: print the checklist lines in a body's "## Steps" section.
+steps() {
+	awk '/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/); next} in_steps && /^- \[[ xX]\] /'
+}
+
+# next_step: the first unticked step that has no PR yet.
+next_step() {
+	steps | awk '/^- \[ \] / && !/\(#[0-9]+\)[[:space:]]*$/ {print; exit}'
+}
+
+body() { gh issue view "$1" --json body -q .body; }
+
+# --- Claims ------------------------------------------------------------------
+
+claimed_numbers() {
+	git ls-remote --heads "$REMOTE" 'refs/heads/work/*' | sed -E 's#.*refs/heads/work/##' | grep -E '^[0-9]+$' || true
+}
+
+open_blockers() {
+	gh api "repos/$(repo)/issues/$1/dependencies/blocked_by" -q '[.[] | select(.state == "open") | "#\(.number)"] | join(" ")'
+}
+
+cmd_ready() {
+	local claimed issues n blockers
+	claimed=" $(claimed_numbers | tr '\n' ' ') "
+	issues=$(gh issue list --state open --label approved --limit 200 --json number,title,labels,milestone \
+		-q '[.[] | select([.labels[].name] | (index("needs-design") or index("pi")) | not)]
+		    | sort_by(.milestone.number // 1e9, .number) | .[]
+		    | "\(.number)\t\(.milestone.title // "-")\t\(.title)"')
+	[[ -n "$issues" ]] || { echo "Nothing is ready. Features need the approved label, and no needs-design or pi label."; return; }
+	while IFS=$'\t' read -r n milestone title; do
+		[[ "$claimed" == *" $n "* ]] && continue
+		blockers=$(open_blockers "$n")
+		[[ -n "$blockers" ]] && continue
+		printf '#%s\t%s\t%s\n' "$n" "$milestone" "$title"
+	done <<<"$issues"
+}
+
+cmd_show() {
+	local n="${1:?usage: plan show N}" b blockers
+	gh issue view "$n" --comments
+	b=$(body "$n")
+	echo
+	echo "Next step:  $(next_step <<<"$b" | sed -E 's/^- \[ \] //')"
+	blockers=$(open_blockers "$n")
+	echo "Blocked by: ${blockers:-nothing open}"
+	if git ls-remote --exit-code --heads "$REMOTE" "refs/heads/work/$n" >/dev/null; then
+		echo "Claimed:    branch work/$n"
+	else
+		echo "Claimed:    no"
+	fi
+	echo "Open PRs:"
+	gh pr list --state open --search "#$n in:body" --json number,title,isDraft,headRefName \
+		-q '.[] | "  #\(.number) \(.title) [\(.headRefName)\(if .isDraft then ", draft" else "" end)]"'
+}
+
+cmd_claim() {
+	local n="${1:?usage: plan claim N [DIR]}" dir="${2:-}" state labels claim
+	state=$(gh issue view "$n" --json state,labels -q '.state + " " + ([.labels[].name] | join(","))')
+	[[ "$state" == OPEN* ]] || die "#$n isn't open"
+	cmd_sync "$n" >/dev/null
+	labels=",${state#* },"
+	[[ "$labels" == *,approved,* ]] || die "#$n isn't approved: the user adds the approved label when it's decided"
+	[[ "$labels" != *,needs-design,* ]] || die "#$n still needs a design"
+	[[ -z "$(open_blockers "$n")" ]] || die "#$n is blocked by $(open_blockers "$n")"
+	[[ -n "$(body "$n" | next_step)" ]] || die "#$n has no unticked step in its ## Steps section"
+
+	git fetch -q "$REMOTE" main
+	# Each claim pushes its own empty commit. If two claims pushed the same
+	# commit, the second would be a no-op "up to date" push and succeed too.
+	# The empty expected value means "only if work/N doesn't exist", and the
+	# server checks it atomically, so exactly one of two racing claims wins.
+	# Squash merging drops the empty commit.
+	claim=$(git commit-tree "$REMOTE/main^{tree}" -p "$REMOTE/main" \
+		-m "chore: claim #$n" -m "$(hostname -s) $$ $(date -u +%FT%TZ) $RANDOM")
+	git push -q --force-with-lease="refs/heads/work/$n:" "$REMOTE" "$claim:refs/heads/work/$n" 2>/dev/null \
+		|| die "#$n is already claimed (branch work/$n exists). See: hack/plan claims"
+
+	dir="${dir:-$(git rev-parse --path-format=absolute --git-common-dir | sed 's#/.git$##')/.claude/worktrees/work-$n}"
+	git worktree add -q -B "work/$n" "$dir" "$claim"
+	git -C "$dir" branch -q --set-upstream-to="$REMOTE/work/$n"
+	set_status "$n" "In Progress"
+	gh issue comment "$n" --body "Claimed on branch \`work/$n\` ($(hostname -s), $(date -u +%FT%TZ)). Next step: $(body "$n" | next_step | sed -E 's/^- \[ \] //')" >/dev/null
+	echo "$dir"
+}
+
+cmd_link() {
+	local n="${1:?usage: plan link N PR}" pr="${2:?usage: plan link N PR}" b new
+	pr="${pr#\#}"
+	b=$(body "$n")
+	# Append (#PR) to the first unticked step that doesn't name a PR yet.
+	new=$(awk -v pr="$pr" '
+		/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
+		in_steps && !done && /^- \[ \] / && !/\(#[0-9]+\)[[:space:]]*$/ {sub(/[[:space:]]*$/, " (#" pr ")"); done = 1}
+		{print}
+		END {if (!done) exit 1}' <<<"$b") || die "#$n has no unticked step without a PR"
+	gh issue edit "$n" --body "$new" >/dev/null
+	echo "#$n: $(steps <<<"$new" | grep -F "(#$pr)")"
+}
+
+cmd_release() {
+	local n="${1:?usage: plan release N}"
+	git push -q "$REMOTE" --delete "work/$n" || die "couldn't delete branch work/$n"
+	set_status "$n" "Todo"
+	gh issue comment "$n" --body "Released the claim on \`work/$n\`." >/dev/null
+	echo "Released #$n"
+}
+
+cmd_claims() {
+	local n last age pr
+	git fetch -q --prune "$REMOTE" '+refs/heads/work/*:refs/remotes/'"$REMOTE"'/work/*' || true
+	for n in $(claimed_numbers); do
+		last=$(git log -1 --format=%ct "$REMOTE/work/$n" 2>/dev/null || echo 0)
+		age=$(( ($(date +%s) - last) / 3600 ))
+		pr=$(gh pr list --head "work/$n" --state open --json number,isDraft -q '.[0] | if . then "#\(.number)\(if .isDraft then " draft" else "" end)" else "no PR" end')
+		printf '#%s\t%sh since last commit\t%s%s\n' "$n" "$age" "$pr" \
+			"$( (( age >= STALE_HOURS )) && echo $'\tSTALE' || true)"
+	done
+}
+
+cmd_sync() {
+	local numbers n b new pr changed claimed
+	if [[ $# -gt 0 ]]; then numbers="$1"; else
+		numbers=$(gh issue list --state open --label approved --limit 200 --json number -q '.[].number')
+	fi
+	claimed=" $(claimed_numbers | tr '\n' ' ') "
+	for n in $numbers; do
+		b=$(body "$n")
+		new="$b"
+		for pr in $(steps <<<"$b" | grep -E '^- \[ \] .*\(#[0-9]+\)[[:space:]]*$' | sed -E 's/.*\(#([0-9]+)\)[[:space:]]*$/\1/'); do
+			case "$(gh pr view "$pr" --json state -q .state)" in
+			MERGED)
+				# Tick the step.
+				new=$(awk -v pr="(#$pr)" '
+					/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
+					in_steps && /^- \[ \] / && index($0, pr) {sub(/^- \[ \] /, "- [x] ")}
+					{print}' <<<"$new")
+				echo "#$n: ticked the step for #$pr" ;;
+			CLOSED)
+				# Abandoned: drop the PR so the step is next again.
+				new=$(awk -v pr="(#$pr)" '
+					/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
+					in_steps && /^- \[ \] / && index($0, pr) {sub(/[[:space:]]*\(#[0-9]+\)[[:space:]]*$/, "")}
+					{print}' <<<"$new")
+				echo "#$n: #$pr was closed unmerged, so its step is open again" ;;
+			*) continue ;;
+			esac
+			changed=1
+		done
+		[[ -n "${changed:-}" ]] && gh issue edit "$n" --body "$new" >/dev/null
+		changed=
+		if [[ "$claimed" != *" $n "* ]]; then set_status "$n" "Todo"; fi
+	done
+}
+
+cmd_note() {
+	local n="${1:?usage: plan note N TEXT}"
+	shift
+	gh issue comment "$n" --body "$*" >/dev/null
+	echo "Commented on #$n"
+}
+
+cmd_ideas() {
+	gh project item-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --limit 500 --format json \
+		-q '.items[] | select(.content.type == "DraftIssue") | "\(.id)\t\(.title)"'
+}
+
+cmd_idea() {
+	local title="${1:?usage: plan idea TITLE [BODY]}" body="${2:-}" item field_id
+	item=$(gh project item-create "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --title "$title" --body "$body" --format json -q .id)
+	# The board files new items under Todo. Ideas aren't work yet, so they go
+	# under No Status instead.
+	field_id=$(gh project field-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json -q '.fields[] | select(.name == "Status") | .id')
+	gh project item-edit --project-id "$(project_id)" --id "$item" --field-id "$field_id" --clear >/dev/null
+	echo "$item"
+}
+
+cmd_promote() {
+	local item="${1:?usage: plan promote ITEM_ID}" repo_id
+	repo_id=$(gh repo view --json id -q .id)
+	# shellcheck disable=SC2016 # $itemId and $repositoryId are GraphQL variables
+	gh api graphql -f itemId="$item" -f repositoryId="$repo_id" -q .data.convertProjectV2DraftIssueItemToIssue.item.content.number -f query='
+		mutation($itemId: ID!, $repositoryId: ID!) {
+			convertProjectV2DraftIssueItemToIssue(input: {itemId: $itemId, repositoryId: $repositoryId}) {
+				item { content { ... on Issue { number } } }
+			}
+		}'
+}
+
+cmd="${1:-help}"
+[[ $# -gt 0 ]] && shift
+case "$cmd" in
+	ready | show | claim | link | release | claims | sync | note | ideas | idea | promote) "cmd_$cmd" "$@" ;;
+	help | -h | --help) usage ;;
+	*) usage >&2; exit 2 ;;
+esac

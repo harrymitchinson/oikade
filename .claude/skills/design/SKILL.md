@@ -1,13 +1,13 @@
 ---
 name: design
-description: Decide how to build an Oikade feature before anyone writes code, and get the user's decision on anything expensive to reverse. First decide whether a design doc is needed at all (public API, state that must survive, component boundaries, a new kind, driver or dependency). If it is, compare two or three real options with their cost of reversing, write a one-page doc in docs/design/, and open a PR containing only that doc for the user to review; merging it is acceptance. Once it's merged, turn it into a GitHub parent issue with PR-sized sub-issues. Use this whenever the user floats an idea or asks "how should we…", "what's the best way to…", "I want Oikade to…", "thinking about adding…", "spec out", "flesh out", "plan the implementation of", or wants to talk through scenes, presence, a new driver, MQTT auth, backups or any other change that needs a decision, even if they never say "design". If the request is only a new capability on an existing driver, use add-capability instead.
+description: Decide how to build an Oikade feature before anyone writes code, and get the user's decision on anything expensive to reverse. First decide whether a design doc is needed at all (public API, state that must survive, component boundaries, a new kind, driver or dependency). If it is, compare two or three real options with their cost of reversing and write the design into the feature's GitHub issue for the user to review in comments; the user decides by adding the approved label. Then write the issue's Steps: one PR-sized step per line, each with scope and acceptance, so agents can build it with the work skill. Use this whenever the user floats an idea or asks "how should we…", "what's the best way to…", "I want Oikade to…", "thinking about adding…", "spec out", "flesh out", "plan the implementation of", or wants to talk through scenes, presence, a new driver, MQTT auth, backups or any other change that needs a decision, even if they never say "design". If the request is only a new capability on an existing driver, use add-capability instead.
 ---
 
 # Designing an Oikade feature
 
 The user is an SRE building their own home on Oikade. A design that reads well but quietly breaks an invariant can cost them a re-pair of every HomeKit accessory or Zigbee device later. This skill exists to make that kind of consequence visible, and to make sure **the user** makes the call, not you.
 
-How the workflow fits together is in `docs/design/0008-planning-workflow.md`. Read `references/surfaces.md` for the planes, the public API surfaces, the state that must survive, the component boundaries, the hardware and the test layers. Then read just enough of the code the feature touches to cite real files and types.
+How the workflow fits together is in `docs/design/0009-planning-workflow.md`. Read `references/surfaces.md` for the planes, the public API surfaces, the state that must survive, the component boundaries, the hardware and the test layers. Then read just enough of the code the feature touches to cite real files and types.
 
 ## 1. Frame the problem
 
@@ -25,9 +25,9 @@ It does if the work changes anything expensive to reverse:
 - **a new kind, a new driver, or a new runtime dependency**
 - **anything else** you can't cheaply undo
 
-**If it doesn't need one,** skip to step 5 and just create the issues. Say in one line why no design was needed.
+**If it doesn't need one,** skip to step 5 and just write the Steps. Say in one line why no design was needed.
 
-**If you're unsure,** ask the user, or create the issue with the `needs-design` label and ask there.
+**If you're unsure,** ask the user, or add the `needs-design` label to the issue and ask there.
 
 ## 3. Options and recommendation
 
@@ -41,50 +41,30 @@ Constraints:
 
 - Never propose Home Assistant as a driver.
 - Plugins are Go first, in this repo (see 0006).
-- When an earlier design constrains this one, check who decided it. An agent-written doc isn't the user's decision unless it was merged after their review. If it wasn't, say so.
+- When an earlier design constrains this one, check who decided it. An agent-written doc is the user's decision only if its issue has the `approved` label, or it was merged from a design PR they reviewed (0008's process). Otherwise, say so.
 
-## 4. Write the doc and open the review PR
+## 4. Write the design into the issue
 
-- **The file:** `docs/design/NNNN-slug.md`. NNNN is one more than the highest number in `docs/design/` and in any open design PR (`gh pr list --search "docs(design)"`).
-- **The structure:** a `# NNNN: Title` heading, then Problem, Options, Decision (what you recommend), Consequences (the public names it adds, state, what breaks, the upgrade path) and Open questions.
-- **The length:** about one page, so a reviewer can disagree with it in five minutes. Add an API sketch only when the names are the decision.
-- **No status line.** A doc on `main` is accepted and an open PR is proposed. Never write "accepted".
+The design lives in the feature's issue, where the user reviews it in comments.
 
-Create a branch from `origin/main` in **your own git worktree**, because other sessions share the main checkout. Commit **only that file**, staged by its explicit path. Then open the PR:
+- **The issue:** reuse one if it exists (`gh issue list --search "<topic>"`). If the work is an idea on the board, promote it with `hack/plan promote <item id>`. Otherwise create it with `gh issue create`.
+- **The body:** `## Why`, then `## Design` with Problem, Options (each with its cost of reversing), Recommendation, Consequences (the public names it adds, state, what breaks, the upgrade path) and Open questions. Add the `needs-design` label.
+- **The length:** about one page, so the user can disagree with it in five minutes. Add an API sketch only when the names are the decision.
+- **If the user asks to review it in a Claude Doc,** write it there instead, and put the link in the issue.
 
-```sh
-gh pr create --title "docs(design): <title> (NNNN)" --body "<the problem in two lines, the recommendation, and the open questions>"
-```
+Then stop, and tell the user it's ready for review. Update the design from their comments: edit the body, and reply to say what changed. **Only the user decides.** They do it by adding the `approved` label. Never add it yourself, and never write "accepted", however clear the discussion looks. When they've approved it, remove `needs-design`.
 
-If an issue already exists for this work, link it in the PR body and add the `needs-design` label to the issue.
+## 5. Write the Steps
 
-Then stop. The user reviews the doc in the PR, and you update it from their comments. **Merging the PR is their acceptance.** Don't create the build issues until it's merged.
+Once the user has approved the design, or if it didn't need one:
 
-## 5. Break the work into issues
+- **Steps are one PR each,** and an agent running the work skill builds them in order. Each must leave `CGO_ENABLED=0 make test` green and deliver something reviewable: the API and generated code, then the controller, then the runtime, then HAP, then the docs. Put the risky or uncertain step first.
+- **If the decision is expensive to reverse,** the first step commits `docs/design/NNNN-slug.md` with the code: the approved design condensed to a page, as the lasting record. NNNN is one more than the highest number in `docs/design/`. The doc has a `# NNNN: Title` heading and no status line.
+- **Use the body layout** in the plan skill: a `## Steps` checklist, then a `### <step>` section for each step with its Scope and Acceptance. Acceptance is plain bullets of observable outcomes, each naming the test layer that proves it (unit, integration, envtest, Kind e2e or Pi). Detail like exact types, failure modes and test names goes in the step it affects.
+- **Separate features** if parts of the work don't depend on each other, so agents can build them in parallel. Link them with "blocked by" only where one really needs the other (the plan skill shows how).
+- **If the user hasn't approved it yet,** you can draft the Steps, but the work skill won't touch the feature until the `approved` label is on it.
 
-Once the design is merged, or wasn't needed:
-
-- **The parent issue** is the feature. Reuse an existing issue if there is one (`gh issue list --search "<topic>"`), and remove its `needs-design` label.
-- **Sub-issues** are one per PR-sized step. Each step must leave `CGO_ENABLED=0 make test` green and deliver something reviewable: the API and generated code, then the controller, then the runtime, then HAP, then the docs. Put the risky or uncertain step first.
-- **An issue body** has:
-  - **Why:** one or two lines.
-  - **Scope:** the files, commands (`kubebuilder create …`, `make manifests generate`) and risks.
-  - **Acceptance:** a checklist of observable outcomes, each naming the test layer that proves it (unit, integration, envtest, Kind e2e or Pi). Use the `pi` label when a step can only be verified on the Pi.
-  - **The design link:** `docs/design/NNNN-slug.md`.
-
-Detail like exact types, failure modes and test names belongs in the sub-issue it affects, not in the design doc.
-
-To create and link them:
-
-```sh
-gh issue create -t "<title>" -F body.md                 # prints the URL
-id=$(gh api repos/{owner}/{repo}/issues/<child> --jq .id)
-gh api -X POST repos/{owner}/{repo}/issues/<parent>/sub_issues -F sub_issue_id=$id
-gh api -X POST repos/{owner}/{repo}/issues/<child>/dependencies/blocked_by -F issue_id=<blocker id>
-gh project item-add 5 --owner harrymitchinson --url <issue url>
-```
-
-Don't assign a milestone unless the user asks: that's the `plan` skill's job.
+Don't assign a milestone unless the user asks: that's the plan skill's job.
 
 ## What to hand back
 
@@ -92,4 +72,4 @@ Don't assign a milestone unless the user asks: that's the `plan` skill's job.
 - the recommended option and its main trade-off
 - the public names it introduces
 - the open questions
-- the design PR, or the issue numbers if no design was needed
+- the issue number, and whether it's waiting on the user's review or ready for the work skill
