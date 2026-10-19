@@ -39,6 +39,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/render"
 )
 
@@ -100,14 +101,11 @@ func ready(p *pluginsv1alpha1.Plugin) *metav1.Condition {
 }
 
 // renderedDevices returns the parsed devices.json from the config Secret.
-func renderedDevices(key types.NamespacedName) []render.PluginDevice {
+func renderedDevices(key types.NamespacedName) []contractv1.DeclaredDevice {
 	s := get(cfgKey(key), &corev1.Secret{})
-	var cfg struct {
-		Contract int                   `json:"contract"`
-		Devices  []render.PluginDevice `json:"devices"`
-	}
+	var cfg contractv1.DevicesFile
 	ExpectWithOffset(1, json.Unmarshal(s.Data[render.PluginDevicesKey], &cfg)).To(Succeed())
-	ExpectWithOffset(1, cfg.Contract).To(Equal(1))
+	ExpectWithOffset(1, cfg.Contract).To(Equal(contractv1.Contract))
 	return cfg.Devices
 }
 
@@ -138,7 +136,7 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(p.Status.Devices).To(Equal(int32(2)))
 		Expect(p.Status.ConfigHash).NotTo(BeEmpty())
 		Expect(p.Status.ObservedGeneration).To(Equal(p.Generation))
-		Expect(renderedDevices(key)).To(Equal([]render.PluginDevice{
+		Expect(renderedDevices(key)).To(Equal([]contractv1.DeclaredDevice{
 			{ID: "1000000001", Name: "hall-light", DisplayName: "hall-light", Room: "porch"},
 			{ID: "1000aabbcc", Name: "porch-light", DisplayName: "porch-light", Room: "porch",
 				Parameters: map[string]string{"capability": "light.on"}},

@@ -26,13 +26,13 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
 // Paths and keys of the oikade/v1 plugin environment (docs/plugin-contract.md).
 const (
 	PluginDevicesKey = "devices.json"
 
-	pluginContract   = 1
 	pluginConfigPath = "/etc/oikade/config"
 	pluginSecretPath = "/etc/oikade/secrets"
 	// pluginUserID is the node user in the official Node images.
@@ -52,26 +52,12 @@ func PluginLabels(p *pluginsv1alpha1.Plugin) map[string]string {
 	return labels("oikade-plugin", p.Name, pluginsv1alpha1.LabelPlugin)
 }
 
-// PluginDevice is a declared device as the plugin sees it in devices.json.
-type PluginDevice struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	DisplayName string            `json:"displayName"`
-	Room        string            `json:"room,omitempty"`
-	Parameters  map[string]string `json:"parameters,omitempty"`
-}
-
-type pluginConfig struct {
-	Contract int            `json:"contract"`
-	Devices  []PluginDevice `json:"devices"`
-}
-
 // PluginConfig renders devices.json. Devices must be sorted so the output, and so the hash, is stable.
-func PluginConfig(devices []PluginDevice) ([]byte, error) {
+func PluginConfig(devices []contractv1.DeclaredDevice) ([]byte, error) {
 	if devices == nil {
-		devices = []PluginDevice{}
+		devices = []contractv1.DeclaredDevice{}
 	}
-	return json.Marshal(pluginConfig{Contract: pluginContract, Devices: devices})
+	return json.Marshal(contractv1.DevicesFile{Contract: contractv1.Contract, Devices: devices})
 }
 
 func pluginOwner(p *pluginsv1alpha1.Plugin) *metav1ac.OwnerReferenceApplyConfiguration {
@@ -102,9 +88,9 @@ type PluginInput struct {
 func PluginDeployment(in PluginInput) *appsv1ac.DeploymentApplyConfiguration {
 	p := in.Plugin
 	env := []*corev1ac.EnvVarApplyConfiguration{
-		corev1ac.EnvVar().WithName("OIKADE_MQTT_URL").WithValue(in.MQTTURL),
-		corev1ac.EnvVar().WithName("OIKADE_TOPIC").WithValue(p.Topic()),
-		corev1ac.EnvVar().WithName("OIKADE_DEVICES_FILE").WithValue(pluginConfigPath + "/" + PluginDevicesKey),
+		corev1ac.EnvVar().WithName(contractv1.EnvMQTTURL).WithValue(in.MQTTURL),
+		corev1ac.EnvVar().WithName(contractv1.EnvTopic).WithValue(p.Topic()),
+		corev1ac.EnvVar().WithName(contractv1.EnvDevicesFile).WithValue(pluginConfigPath + "/" + PluginDevicesKey),
 	}
 	mounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName("config").WithMountPath(pluginConfigPath).WithReadOnly(true),
@@ -116,7 +102,7 @@ func PluginDeployment(in PluginInput) *appsv1ac.DeploymentApplyConfiguration {
 		corev1ac.Volume().WithName("tmp").WithEmptyDir(corev1ac.EmptyDirVolumeSource()),
 	}
 	if ref := p.Spec.SecretRef; ref != nil {
-		env = append(env, corev1ac.EnvVar().WithName("OIKADE_SECRETS_DIR").WithValue(pluginSecretPath))
+		env = append(env, corev1ac.EnvVar().WithName(contractv1.EnvSecretsDir).WithValue(pluginSecretPath))
 		mounts = append(mounts, corev1ac.VolumeMount().WithName("secrets").WithMountPath(pluginSecretPath).WithReadOnly(true))
 		volumes = append(volumes, corev1ac.Volume().WithName("secrets").WithSecret(
 			corev1ac.SecretVolumeSource().WithSecretName(ref.Name).WithOptional(true)))

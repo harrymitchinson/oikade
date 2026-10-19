@@ -45,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
@@ -55,10 +56,11 @@ import (
 const (
 	namespace = "conformance"
 	name      = "plugin"
-	root      = "oikade/v1/" + namespace + "/" + name
 	// wait bounds every step: a plugin has this long to react.
 	wait = 15 * time.Second
 )
+
+var root = contractv1.NewRoot(namespace, name)
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -129,20 +131,20 @@ func newSuite(t *testing.T, command []string) *suite {
 	}
 	t.Cleanup(s.inst.Stop)
 	s.inst.SetDevices(s.devices)
-	if _, err := bus.Subscribe(ctx, root+"/devices", s.recordReport); err != nil {
+	if _, err := bus.Subscribe(ctx, root.Devices(), s.recordReport); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bus.Subscribe(ctx, root+"/+/availability", s.recordAvailability); err != nil {
+	if _, err := bus.Subscribe(ctx, string(root)+"/+/availability", s.recordAvailability); err != nil {
 		t.Fatal(err)
 	}
 
 	s.env = append(os.Environ(),
-		"OIKADE_MQTT_URL="+s.url,
-		"OIKADE_TOPIC="+root,
-		"OIKADE_DEVICES_FILE="+devicesFile,
+		contractv1.EnvMQTTURL+"="+s.url,
+		contractv1.EnvTopic+"="+string(root),
+		contractv1.EnvDevicesFile+"="+devicesFile,
 	)
 	if dir := os.Getenv("OIKADE_CONFORMANCE_SECRETS"); dir != "" {
-		s.env = append(s.env, "OIKADE_SECRETS_DIR="+fromRepo(repo, dir))
+		s.env = append(s.env, contractv1.EnvSecretsDir+"="+fromRepo(repo, dir))
 	}
 	return s
 }
@@ -154,15 +156,10 @@ func readDeclared(t *testing.T, file string) map[string]types.NamespacedName {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var declared struct {
-		Contract int `json:"contract"`
-		Devices  []struct {
-			ID string `json:"id"`
-		} `json:"devices"`
-	}
+	var declared contractv1.DevicesFile
 	err = json.Unmarshal(raw, &declared)
-	if err != nil || declared.Contract != plugin.Contract || len(declared.Devices) == 0 {
-		t.Fatalf("%s must be a contract %d devices file with at least one device: %v", file, plugin.Contract, err)
+	if err != nil || declared.Contract != contractv1.Contract || len(declared.Devices) == 0 {
+		t.Fatalf("%s must be a contract %d devices file with at least one device: %v", file, contractv1.Contract, err)
 	}
 	devices := map[string]types.NamespacedName{}
 	for _, d := range declared.Devices {
@@ -176,12 +173,7 @@ func (s *suite) run() *process { return start(s.t, s.repo, s.command, s.env) }
 // recordReport keeps the raw devices report, to tell the plugin's own report from the decoder's
 // initial "not found".
 func (s *suite) recordReport(m mqtt.Message) {
-	var msg struct {
-		Devices []struct {
-			ID    string `json:"id"`
-			Found bool   `json:"found"`
-		} `json:"devices"`
-	}
+	var msg contractv1.Devices
 	if json.Unmarshal(m.Payload, &msg) != nil {
 		return
 	}
@@ -195,8 +187,8 @@ func (s *suite) recordReport(m mqtt.Message) {
 }
 
 func (s *suite) recordAvailability(m mqtt.Message) {
-	id, ok := strings.CutSuffix(strings.TrimPrefix(m.Topic, root+"/"), "/availability")
-	if !ok || m.Retained || string(m.Payload) != "online" {
+	id, ok := strings.CutSuffix(strings.TrimPrefix(m.Topic, string(root)+"/"), "/availability")
+	if !ok || m.Retained || string(m.Payload) != contractv1.Online {
 		return
 	}
 	s.mu.Lock()
@@ -269,19 +261,19 @@ func (s *suite) announces(t *testing.T) {
 
 func (s *suite) retains(t *testing.T) {
 	retained := snapshot(t, s.url)
-	if st := retained[root+"/status"]; !bytes.Contains(st, []byte(`"online"`)) {
+	if st := retained[root.Status()]; !bytes.Contains(st, []byte(`"online"`)) {
 		t.Errorf("status not retained as online: %s", st)
 	}
-	if retained[root+"/devices"] == nil {
+	if retained[root.Devices()] == nil {
 		t.Error("devices not retained")
 	}
 	for id, dev := range s.devices {
 		if !s.sink.info(dev).Found {
 			continue
 		}
-		for _, sub := range []string{"state", "availability"} {
-			if retained[root+"/"+id+"/"+sub] == nil {
-				t.Errorf("%s/%s not retained", id, sub)
+		for _, topic := range []string{root.State(id), root.Availability(id)} {
+			if retained[topic] == nil {
+				t.Errorf("%s not retained", topic)
 			}
 		}
 	}
@@ -359,7 +351,7 @@ func (s *suite) crashes(t *testing.T) {
 	s.p.signal(t, syscall.SIGKILL)
 	<-s.p.done
 	eventually(t, "the Last Will to mark the plugin offline", func() bool { return !s.up() })
-	st := snapshot(t, s.url)[root+"/status"]
+	st := snapshot(t, s.url)[root.Status()]
 	if !bytes.Contains(st, []byte(`"offline"`)) || !bytes.Contains(st, []byte(`"contract":1`)) {
 		t.Errorf("retained status after a crash = %s, want offline with contract 1", st)
 	}
@@ -401,7 +393,7 @@ func snapshot(t *testing.T, url string) map[string][]byte {
 	}
 	var mu sync.Mutex
 	got := map[string][]byte{}
-	unsubscribe, err := c.Subscribe(ctx, root+"/#", func(m mqtt.Message) {
+	unsubscribe, err := c.Subscribe(ctx, root.Filter(), func(m mqtt.Message) {
 		if !m.Retained {
 			return
 		}

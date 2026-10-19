@@ -83,7 +83,7 @@ The devices file lists the Devices declared for this plugin. The operator rewrit
 {
   "contract": 1,
   "devices": [
-    {"id": "1000aabbcc", "name": "porch-light", "displayName": "Porch light", "room": "porch", "parameters": {"model": "MINIR4", "capability": "light.on"}}
+    {"id": "1000aabbcc", "name": "porch-light", "displayName": "Porch light", "room": "porch", "parameters": {"capability": "light.on", "model": "MINIR4"}}
   ]
 }
 ```

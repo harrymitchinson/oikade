@@ -20,6 +20,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
 // LabelPlugin is set on objects that belong to a Plugin.
@@ -103,7 +105,7 @@ type Plugin struct {
 
 // Topic is the plugin's oikade/v1 topic root.
 func (p *Plugin) Topic() string {
-	return "oikade/v1/" + p.Namespace + "/" + p.Name
+	return string(contractv1.NewRoot(p.Namespace, p.Name))
 }
 
 // +kubebuilder:object:root=true

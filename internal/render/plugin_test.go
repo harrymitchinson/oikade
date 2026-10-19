@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
 func plugin() *pluginsv1alpha1.Plugin {
@@ -36,7 +37,7 @@ func plugin() *pluginsv1alpha1.Plugin {
 }
 
 func TestPluginConfig(t *testing.T) {
-	out, err := PluginConfig([]PluginDevice{{
+	out, err := PluginConfig([]contractv1.DeclaredDevice{{
 		ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
 		Parameters: map[string]string{"capability": "light.on"},
 	}})
@@ -129,10 +130,10 @@ func TestPluginDeployment(t *testing.T) {
 func TestPluginConfigUnchanged(t *testing.T) {
 	for _, tc := range []struct {
 		golden  string
-		devices []PluginDevice
+		devices []contractv1.DeclaredDevice
 	}{
 		{"testdata/plugin-devices-empty.json", nil},
-		{"testdata/plugin-devices.json", []PluginDevice{
+		{"testdata/plugin-devices.json", []contractv1.DeclaredDevice{
 			{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
 				Parameters: map[string]string{"model": "MINIR4", "capability": "light.on"}},
 			{ID: "1000ddeeff", Name: "fan", DisplayName: "Fan \"<big>\" & co"},

@@ -38,6 +38,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/controller/shared"
 	"github.com/harrymitchinson/oikade/internal/render"
 )
@@ -173,13 +174,13 @@ func (r *PluginReconciler) reconcile(ctx context.Context, p *pluginsv1alpha1.Plu
 
 // devices returns the Devices declared for this plugin, sorted by id, and any ids claimed by
 // more than one Device. The first Device by name wins, as in the hub.
-func (r *PluginReconciler) devices(ctx context.Context, p *pluginsv1alpha1.Plugin) ([]render.PluginDevice, []string, error) {
+func (r *PluginReconciler) devices(ctx context.Context, p *pluginsv1alpha1.Plugin) ([]contractv1.DeclaredDevice, []string, error) {
 	var list homev1alpha1.DeviceList
 	if err := r.List(ctx, &list, client.InNamespace(p.Namespace)); err != nil {
 		return nil, nil, err
 	}
 	slices.SortFunc(list.Items, func(a, b homev1alpha1.Device) int { return strings.Compare(a.Name, b.Name) })
-	byID := map[string]render.PluginDevice{}
+	byID := map[string]contractv1.DeclaredDevice{}
 	var duplicates []string
 	for _, d := range list.Items {
 		src := d.Spec.Plugin
@@ -190,17 +191,17 @@ func (r *PluginReconciler) devices(ctx context.Context, p *pluginsv1alpha1.Plugi
 			duplicates = append(duplicates, src.ID)
 			continue
 		}
-		dev := render.PluginDevice{ID: src.ID, Name: d.Name, DisplayName: d.Title(), Parameters: src.Parameters}
+		dev := contractv1.DeclaredDevice{ID: src.ID, Name: d.Name, DisplayName: d.Title(), Parameters: src.Parameters}
 		if d.Spec.RoomRef != nil {
 			dev.Room = d.Spec.RoomRef.Name
 		}
 		byID[src.ID] = dev
 	}
-	out := make([]render.PluginDevice, 0, len(byID))
+	out := make([]contractv1.DeclaredDevice, 0, len(byID))
 	for _, d := range byID {
 		out = append(out, d)
 	}
-	slices.SortFunc(out, func(a, b render.PluginDevice) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(out, func(a, b contractv1.DeclaredDevice) int { return strings.Compare(a.ID, b.ID) })
 	slices.Sort(duplicates)
 	return out, slices.Compact(duplicates), nil
 }

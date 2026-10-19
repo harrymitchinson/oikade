@@ -36,6 +36,7 @@ import (
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
@@ -150,7 +151,7 @@ func (h *Hub) reconcilePlugin(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	h.ensure(key, declared, nil, func() instance {
 		// The decoder logs the plugin key itself.
 		return &plugin.Instance{
-			Key: req.NamespacedName, Root: p.Topic(), Bus: h.Bus, Sink: h.Store, Now: h.Now,
+			Key: req.NamespacedName, Root: contractv1.Root(p.Topic()), Bus: h.Bus, Sink: h.Store, Now: h.Now,
 			Log: logf.FromContext(h.ctx),
 		}
 	})
