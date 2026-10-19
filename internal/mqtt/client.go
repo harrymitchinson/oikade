@@ -87,13 +87,15 @@ type options struct {
 }
 
 // WithWill sets a Last Will the broker publishes, retained at QoS 1, if the connection drops
-// without Disconnect.
+// without a clean DISCONNECT. Disconnect and cancelling Connect's ctx both send one, so neither
+// publishes the Will.
 func WithWill(topic string, payload []byte) Option {
 	return func(o *options) { o.will = &paho.WillMessage{Topic: topic, Payload: payload, QoS: 1, Retain: true} }
 }
 
 // WithOnConnect runs f on the first and every later connection, after subscriptions are restored.
-// Runs never overlap. f's context is cancelled when that connection drops.
+// A failure to restore them is logged, and f still runs. Runs never overlap, and f's context is
+// cancelled when that connection drops, so f must return then or the next connection waits.
 func WithOnConnect(f func(ctx context.Context)) Option {
 	return func(o *options) { o.onConnect = f }
 }
@@ -217,6 +219,9 @@ func (c *Client) Done() <-chan struct{} { return c.cm.Done() }
 func (c *Client) connectionUp(ctx context.Context, cm *autopaho.ConnectionManager, first bool) {
 	c.upMu.Lock()
 	defer c.upMu.Unlock()
+	if ctx.Err() != nil {
+		return // this connection already dropped; the next one restores everything
+	}
 	if !first {
 		c.resubscribe(ctx, cm)
 	}

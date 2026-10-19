@@ -101,7 +101,10 @@ func TestWillOnDrop(t *testing.T) {
 	}
 	mqtt.TerminateForTest(plugin)
 	select {
-	case <-live:
+	case m := <-live:
+		if m.Topic != "p/status" || string(m.Payload) != "offline" {
+			t.Fatalf("got %s=%q, want the Will", m.Topic, m.Payload)
+		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for the Will")
 	}
@@ -159,7 +162,8 @@ func TestOnConnectAfterResubscribe(t *testing.T) {
 	// announcement if the subscription was restored before OnConnect ran.
 	// The first OnConnect can run before Connect returns, so the client is handed over.
 	clientCh := make(chan *mqtt.Client, 1)
-	connects := make(chan struct{}, 10)
+	// OnConnect reports its publish result here rather than calling t from a client goroutine.
+	connects := make(chan error, 10)
 	client, err := mqtt.Connect(ctx, b.URL, "plugin", mqtt.WithOnConnect(func(ctx context.Context) {
 		var c *mqtt.Client
 		select {
@@ -168,15 +172,13 @@ func TestOnConnectAfterResubscribe(t *testing.T) {
 		case <-ctx.Done():
 			return
 		}
-		if err := c.Publish(ctx, "p/hello", nil, false); err != nil {
-			t.Errorf("publishing from OnConnect: %v", err)
-		}
-		connects <- struct{}{}
+		connects <- c.Publish(ctx, "p/hello", nil, false)
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	clientCh <- client
+	defer func() { _ = client.Disconnect(context.Background()) }()
 	wait := func(ch <-chan struct{}, what string) {
 		t.Helper()
 		select {
@@ -185,7 +187,18 @@ func TestOnConnectAfterResubscribe(t *testing.T) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
 	}
-	wait(connects, "the first OnConnect")
+	connected := func(what string) {
+		t.Helper()
+		select {
+		case err := <-connects:
+			if err != nil {
+				t.Fatalf("publishing from %s: %v", what, err)
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+	connected("the first OnConnect")
 
 	heard := make(chan struct{}, 10)
 	if _, err := client.Subscribe(ctx, "p/hello", func(mqtt.Message) { heard <- struct{}{} }); err != nil {
@@ -194,7 +207,7 @@ func TestOnConnectAfterResubscribe(t *testing.T) {
 
 	for i := range 2 {
 		b.Restart(t)
-		wait(connects, fmt.Sprint("OnConnect after restart ", i+1))
+		connected(fmt.Sprint("OnConnect after restart ", i+1))
 		wait(heard, fmt.Sprint("OnConnect's announcement after restart ", i+1))
 	}
 }

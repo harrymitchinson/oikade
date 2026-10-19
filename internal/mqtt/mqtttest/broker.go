@@ -72,7 +72,15 @@ func (b *Broker) start(t testing.TB) {
 	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddListener(listeners.NewTCP(listeners.Config{ID: "test", Address: b.addr})); err != nil {
+	// After a Restart the old listener's port can take a moment to free up.
+	var err error
+	for range 50 {
+		if err = s.AddListener(listeners.NewTCP(listeners.Config{ID: "test", Address: b.addr})); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 	go func() { _ = s.Serve() }()
