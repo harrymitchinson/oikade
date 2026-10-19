@@ -62,7 +62,16 @@ func NewBroker(t testing.TB) *Broker {
 	t.Cleanup(func() {
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		_ = b.s.Close()
+		closed := make(chan struct{})
+		go func() {
+			closeServer(b.s)
+			close(closed)
+		}()
+		// If mochi deadlocks anyway, leave it rather than hang the test binary.
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+		}
 	})
 	return b
 }
@@ -95,9 +104,26 @@ func (b *Broker) start(t testing.TB) {
 func (b *Broker) Restart(t testing.TB) {
 	t.Helper()
 	b.mu.Lock()
-	_ = b.s.Close()
+	closeServer(b.s)
 	b.mu.Unlock()
 	b.start(t)
+}
+
+// closeServer closes s once no client is mid-disconnect. mochi v2.7.9's Close takes the clients'
+// read lock twice (GetByListener calls Len), so a client being removed at the same moment, which
+// waits for the write lock, deadlocks it. Waiting until the client count holds still closes that
+// window.
+func closeServer(s *mochi.Server) {
+	last := s.Clients.Len()
+	for range 50 {
+		time.Sleep(20 * time.Millisecond)
+		n := s.Clients.Len()
+		if n == last {
+			break
+		}
+		last = n
+	}
+	_ = s.Close()
 }
 
 // WaitGone waits until the broker has finished with clientID's connection, including any Will.

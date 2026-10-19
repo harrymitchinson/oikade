@@ -350,6 +350,7 @@ func TestSetStateValidates(t *testing.T) {
 		{"device not found", "lost", contractv1.State{}, "device lost is not reported found"},
 		{"out of range", "lamp", contractv1.State{"light.level": 150.0}, "light.level must be between 0 and 100"},
 		{"wrong kind", "relay-1", contractv1.State{"switch.on": "on"}, "switch.on takes a bool"},
+		{"incomplete", "lamp", contractv1.State{"light.on": true}, "no value for announced capability light.level"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := p.SetState(ctx, tc.id, tc.state)
@@ -363,6 +364,9 @@ func TestSetStateValidates(t *testing.T) {
 	}
 	if s := p.State("relay-1"); s != nil {
 		t.Fatalf("stored %v after refusing it", s)
+	}
+	if err := p.SetAvailability(ctx, "unknown", true); err == nil {
+		t.Fatal("published availability for a device not in SetDevices")
 	}
 
 	// Nothing reached the broker: the next state message is a valid one, normalised.
@@ -507,6 +511,31 @@ func TestSetDispatch(t *testing.T) {
 	}
 	if overlap.Load() {
 		t.Fatal("one device's commands overlapped")
+	}
+}
+
+func TestRetainedSetIgnored(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	pub, err := mqtt.Connect(ctx, b.URL, "old-hub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pub.Disconnect(context.Background()) }()
+	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"switch.on":true}`), true); err != nil {
+		t.Fatal(err)
+	}
+	_, logs := start(ctx, t, b.URL, Options{OnSet: func(context.Context, *Plugin, contractv1.SetCommand) error {
+		t.Error("applied a retained set command")
+		return nil
+	}})
+	want := `"msg":"Ignored set command","topic":"` + root.Set("relay-1") + `","reason":"retained"`
+	for !strings.Contains(logs.String(), want) {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("logged:\n%s\nwant the retained command ignored", logs)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
 

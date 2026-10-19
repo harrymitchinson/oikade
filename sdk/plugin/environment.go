@@ -78,10 +78,7 @@ func ReadDevices(file string) ([]contractv1.DeclaredDevice, error) {
 	if err != nil {
 		return nil, err
 	}
-	var f struct {
-		Contract int                          `json:"contract"`
-		Devices  *[]contractv1.DeclaredDevice `json:"devices"`
-	}
+	var f contractv1.DevicesFile
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
@@ -92,14 +89,19 @@ func ReadDevices(file string) ([]contractv1.DeclaredDevice, error) {
 	if f.Devices == nil {
 		return nil, fmt.Errorf("%s: devices must be a list", file)
 	}
-	for i, d := range *f.Devices {
+	seen := map[string]bool{}
+	for i, d := range f.Devices {
 		for _, field := range [][2]string{{"id", d.ID}, {"name", d.Name}, {"displayName", d.DisplayName}} {
 			if field[1] == "" {
 				return nil, fmt.Errorf("%s: devices[%d]: %s must be a non-empty string", file, i, field[0])
 			}
 		}
+		if seen[d.ID] {
+			return nil, fmt.Errorf("%s: devices[%d]: id %s is repeated", file, i, d.ID)
+		}
+		seen[d.ID] = true
 	}
-	return *f.Devices, nil
+	return f.Devices, nil
 }
 
 // ReadSecret reads one key of the mounted user Secret, by convention the device id. ok is false

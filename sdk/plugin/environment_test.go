@@ -124,6 +124,11 @@ func TestReadDevicesRejects(t *testing.T) {
 			"parameters",
 		},
 		{"not JSON", `nope`, "invalid character"},
+		{
+			"repeated id",
+			`{"contract":1,"devices":[{"id":"x","name":"a","displayName":"a"},{"id":"x","name":"b","displayName":"b"}]}`,
+			"devices[1]: id x is repeated",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := ReadDevices(writeFile(t, dir, "devices.json", tc.content))
