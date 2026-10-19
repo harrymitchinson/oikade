@@ -11,7 +11,7 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 ## Decision
 
-*Proposed. Merging this PR is your acceptance.*
+*Proposed. This is the last design decided 0008's way: merging this PR is your acceptance. Designs after it are decided with the `approved` label.*
 
 ### Ideas are board drafts, features are issues
 
@@ -23,7 +23,7 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 - **The design is written into the feature issue,** with the same content as before: Problem, Options with their cost of reversing, Recommendation, Consequences and Open questions. The issue carries `needs-design` while it's under discussion, and you reply in comments.
 - **You decide by adding the `approved` label.** Agents never add it. It also means "agents may start": nothing without it is ready.
-- **The file in `docs/design/` is the record, not the review.** When the decision is expensive to reverse (the same list as 0008), the first step of the feature commits a one-page `docs/design/NNNN-slug.md` condensed from the approved issue. It goes in with the code that needs it, not in a PR of its own.
+- **The file in `docs/design/` is the record, not the review.** When the decision is expensive to reverse (the same list as 0008), the first step of the feature commits a one-page `docs/design/NNNN-slug.md` condensed from the approved issue. NNNN is the issue number, so agents working in parallel can't pick the same one. It goes in with the code that needs it, not in a PR of its own.
 - **A long design can be reviewed in a Claude Doc instead,** if you ask for one. The decision is still the `approved` label.
 
 ### Agents pick up work through `hack/plan`
@@ -32,9 +32,9 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 - **Ready** means open, `approved`, no `needs-design` or `pi` label, no open blocker, and unclaimed. The earliest milestone comes first.
 - **A claim is the branch `work/N`.** `hack/plan claim N` pushes a unique empty commit to `work/N`, but only if that branch doesn't exist yet. The server checks this atomically, so exactly one of two racing agents wins. It then creates a worktree on that branch, moves the card to In Progress, and comments on the issue.
-- **One step per PR, one feature per agent.** The step's PR is opened from `work/N` and says `Part of #N`, or `Closes #N` for the last step. `hack/plan link` records the PR against the step. The feature stays claimed until you merge. GitHub then deletes the branch, `sync` ticks the step, and the next step can be claimed.
+- **One step per PR, one feature per agent.** The step's PR is opened from `work/N` and says `Part of #N`, or `Closes #N` for the last step. `hack/plan link` records the PR against the step as `(PR #M)`. The feature stays claimed until you merge. GitHub then deletes the branch, `sync` ticks the step, and the next step can be claimed.
 - **Parallelism comes from features.** One feature's steps run in order, because each builds on the last. Different features run at the same time.
-- **Stale claims are visible.** `hack/plan claims` flags any claim with no commit for 24 hours. `hack/plan release` gives one up.
+- **Stale claims are visible.** `hack/plan claims` flags any claim with no commit for 24 hours. `hack/plan release` gives one up, and refuses to delete a branch that has an open PR or commits unless it's forced.
 - **Kind is per feature.** Each agent runs e2e with `KIND_CLUSTER=oikade-e2e-<N>` and its own `KUBECONFIG`, so parallel e2e runs don't collide or touch your current context.
 
 ### Skills
