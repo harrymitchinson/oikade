@@ -79,10 +79,8 @@ Done in one PR after this one merges. Issues are created with `gh` before it.
 - **Docs move to `docs/design/` and keep their numbers**, so existing references still read correctly:
   - doc-0001: room-targeted automations, shipped
   - doc-0002: plugin drivers, with your 2026-10-19 review note
-  - doc-0003: schedules
-  - doc-0004: release automation
   - doc-0006: Go plugin SDK, with TASK-0008 becoming issues
-  - doc-0007: time triggers, written by another session and still proposed
+- **Designs nobody has reviewed go to design PRs instead,** one per doc, for you to review: doc-0003 (schedules) first, then doc-0004 (release automation) and doc-0007 (time triggers, from another session). Until they merge, their issues carry `needs-design`.
 - **doc-0005 (Roadmap) becomes `docs/roadmap.md`.**
 - **What gets deleted:** `backlog/`, the Backlog.md block in AGENTS.md, and the three old skills.
 - **What gets updated:** two references (README line 254 and `docs/plugin-contract.md` line 3).
@@ -97,5 +95,9 @@ Done in one PR after this one merges. Issues are created with `gh` before it.
 
 ## Open questions
 
-1. **Are doc-0003 and doc-0004 accepted?** You never reviewed them. Either they move across as accepted (you confirm them here), or they move to open design PRs for you to review. I'd review them: Schedules is next on the roadmap, and doc-0003 decides its public API.
-2. **Design review in a PR, or in the issue?** I recommend a PR, because inline comments on a file beat comments on an issue body. If you'd rather never see a planning PR, the design can be the issue's body and you comment there. It's worse for discussing specific lines, though.
+None.
+
+Settled in review:
+
+- **doc-0003 (Schedules) and doc-0004 (Release automation) aren't accepted.** Each one moves to its own design PR for you to review, Schedules first. doc-0007 does the same.
+- **Design review happens in a PR.**
