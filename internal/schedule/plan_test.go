@@ -54,7 +54,6 @@ func window(start, end string, days ...time.Weekday) *Window {
 // input is a Saturday of 30-minute slots in Paris, planned at midnight.
 func input(rules ...Rule) PlanInput {
 	return PlanInput{
-		Location:  paris,
 		Now:       saturday,
 		NotBefore: saturday,
 		Slots:     DaySlots(2026, time.July, 4, 0, 30, paris),
@@ -104,6 +103,7 @@ func TestBudget(t *testing.T) {
 		{"expression clamps to a day", expression(5000), SourceExpression, 1440, false},
 		{"expression error is zero", &Minutes{Expression: func() (int, error) { return 0, errors.New("no such key") }}, SourceExpression, 0, true},
 		{"no budget", nil, SourceNone, 0, false},
+		{"empty minutes is an error", &Minutes{}, SourceNone, 0, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,6 +144,8 @@ func TestClassify(t *testing.T) {
 		Rule{Name: "broken", Window: window("20:00", "21:00"), When: func(Slot) (bool, error) { return true, errors.New("boom") }, Effect: Require},
 	)
 	in.NotBefore = saturday.Add(30 * time.Minute)
+	// A second rule with the same name still reports its own error.
+	in.Rules = append(in.Rules, in.Rules[len(in.Rules)-1])
 	classes, errs := classify(in)
 
 	cases := []struct {
@@ -170,8 +172,8 @@ func TestClassify(t *testing.T) {
 			t.Errorf("%s: got %+v, want %+v", tc.at, got, tc.want)
 		}
 	}
-	if len(errs) != 1 || !strings.Contains(errs[0].Error(), `"broken"`) {
-		t.Errorf("want one error for the broken rule, got %v", errs)
+	if len(errs) != 2 || !strings.Contains(errs[0].Error(), `"broken"`) {
+		t.Errorf("want one error for each broken rule, got %v", errs)
 	}
 }
 
@@ -259,7 +261,7 @@ func TestPlanConstraints(t *testing.T) {
 			minutes:   60,
 			rules:     []Rule{{Name: "early", Window: window("00:00", "01:00"), Effect: Require}},
 			notBefore: saturday.Add(15*time.Hour + 10*time.Minute),
-			want:      "15:30-16:30",
+			want:      "15:00-16:00",
 		},
 	}
 	for _, tc := range cases {
@@ -409,7 +411,7 @@ func TestPlanDST(t *testing.T) {
 			}
 			start := slots[0].Start
 			in := PlanInput{
-				Location: paris, Now: start, NotBefore: start, Slots: slots,
+				Now: start, NotBefore: start, Slots: slots,
 				Rules: []Rule{
 					{Name: "night", Window: window("01:00", "04:00"), Effect: Require},
 					{Name: "cheap", Window: window("04:00", "06:00"), Effect: Prefer, Prefer: 1},
@@ -459,7 +461,6 @@ func randomInput(r *rand.Rand, n int) PlanInput {
 		rules = append(rules, rule)
 	}
 	in := PlanInput{
-		Location:  time.UTC,
 		Now:       start,
 		NotBefore: start.Add(time.Duration(r.IntN(3)) * time.Hour),
 		Slots:     slots,
@@ -646,7 +647,7 @@ func BenchmarkPlanWorstCase(b *testing.B) {
 		rules = append(rules, Rule{Name: fmt.Sprint("h", h), Window: &Window{Start: h * 60, End: (h + 1) % 24 * 60}, Effect: Prefer, Prefer: h%7 - 3})
 	}
 	in := PlanInput{
-		Location: paris, Now: slots[0].Start, NotBefore: slots[0].Start, Slots: slots, Rules: rules,
+		Now: slots[0].Start, NotBefore: slots[0].Start, Slots: slots, Rules: rules,
 		Minutes:     expression(720),
 		Constraints: Constraints{MinimumRun: 2 * time.Hour, MinimumRest: 2 * time.Hour},
 	}

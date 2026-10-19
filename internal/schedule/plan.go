@@ -19,6 +19,7 @@ limitations under the License.
 package schedule
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/bits"
@@ -119,12 +120,13 @@ type Constraints struct {
 
 // PlanInput is everything the planner needs for one planning day.
 type PlanInput struct {
-	Location *time.Location
 	// Now is the planning time, which judges the age of a bands input.
 	Now time.Time
-	// NotBefore makes slots that start before it unavailable.
+	// NotBefore makes slots that end at or before it unavailable. The slot in progress stays
+	// available, so planning a moment after a slot edge doesn't lose the slot.
 	NotBefore time.Time
 	// Slots are the planning day's slots, contiguous and all of one length, as from DaySlots.
+	// Windows match against the slots' own location.
 	Slots []Slot
 	// Minutes is nil for no budget: the plan is then exactly the required slots.
 	Minutes     *Minutes
@@ -167,6 +169,9 @@ type Day struct {
 // DaySlots divides the planning day that starts at planningMinute (minutes since local midnight)
 // on the given date into slots of slotMinutes. DST days have fewer or more slots.
 func DaySlots(year int, month time.Month, day, planningMinute, slotMinutes int, loc *time.Location) []Slot {
+	if slotMinutes <= 0 {
+		return nil
+	}
 	start := time.Date(year, month, day, 0, planningMinute, 0, 0, loc)
 	end := time.Date(year, month, day+1, 0, planningMinute, 0, 0, loc)
 	step := time.Duration(slotMinutes) * time.Minute
@@ -274,7 +279,7 @@ func budget(in PlanInput) (TargetSource, int, error) {
 			minutes, err = 0, fmt.Errorf("minutes.expression: %w", err)
 		}
 	default:
-		source = SourceNone
+		source, err = SourceNone, errors.New("minutes: neither bands nor expression is set")
 	}
 	return source, min(max(minutes, 0), 24*60), err
 }
@@ -284,24 +289,24 @@ func budget(in PlanInput) (TargetSource, int, error) {
 // Precedence is require over forbid over prefer.
 func classify(in PlanInput) ([]slotClass, []error) {
 	classes := make([]slotClass, len(in.Slots))
-	failed := map[string]bool{}
+	failed := map[int]bool{}
 	var errs []error
 	for i, s := range in.Slots {
-		if s.Start.Before(in.NotBefore) {
+		if !s.End.After(in.NotBefore) {
 			classes[i].kind = unavailable
 			continue
 		}
 		var req, forbid bool
 		score := 0
-		for _, r := range in.Rules {
-			if !inWindow(r.Window, s, in.Location) {
+		for j, r := range in.Rules {
+			if !inWindow(r.Window, s) {
 				continue
 			}
 			if r.When != nil {
 				ok, err := r.When(s)
 				if err != nil {
-					if !failed[r.Name] {
-						failed[r.Name] = true
+					if !failed[j] {
+						failed[j] = true
 						errs = append(errs, fmt.Errorf("rule %q: %w", r.Name, err))
 					}
 					continue
@@ -331,12 +336,12 @@ func classify(in PlanInput) ([]slotClass, []error) {
 	return classes, errs
 }
 
-func inWindow(w *Window, s Slot, loc *time.Location) bool {
+func inWindow(w *Window, s Slot) bool {
 	if w == nil {
 		return true
 	}
 	for t := s.Start; t.Before(s.End); t = t.Add(time.Minute) {
-		if w.covers(t.In(loc)) {
+		if w.covers(t) {
 			return true
 		}
 	}
