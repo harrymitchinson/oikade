@@ -3,9 +3,19 @@ id: doc-0002
 title: Plugin drivers
 type: specification
 created_date: '2026-10-18 10:56'
-updated_date: '2026-10-18 15:06'
+updated_date: '2026-10-19 07:52'
 ---
 **Decision:** accepted · **Work:** TASK-0001
+
+> **Review (2026-10-19).** An agent made and accepted this design without the user's review. The user has since confirmed these parts of it:
+> - out-of-process plugins over MQTT (option B)
+> - the `oikade/v1` topic layout, which is versioned and can be extended
+> - the `Plugin` kind in `plugins.oikade.dev`
+> - `Device.spec.plugin` with opaque `parameters`
+> - one credentials Secret per Plugin
+> - the relay convention
+>
+> doc-0006 revises where the SDK lives and its language: Go first, in this repo, with no handwritten TypeScript SDK here.
 
 ## Problem
 
@@ -93,7 +103,7 @@ Settled in review:
 
 - **One Secret per Plugin**, with one key per device ID. The manager mounts it into the plugin pod by name. It checks that the Secret exists, but never reads its data.
 - **A convention for relay-like devices**, documented in `docs/plugin-contract.md`: report `switch.on` by default, and accept `parameters.capability` set to `light.on` or `outlet.on`. Reject any other value, and report it in `devices[].error`.
-- **The SDK lives in this repo**, as a TypeScript workspace beside the Go code. Plugin images build from here too, which brings a Node toolchain into CI.
+- **The SDK lives in this repo**, as a TypeScript workspace beside the Go code. *(Revised by doc-0006.)* Plugin images build from here too, which brings a Node toolchain into CI.
 - **Oikade ships a contract conformance suite**: a fake hub that drives a plugin through every topic. The Oikade side uses it in CI, and plugins built elsewhere can run it too.
 
 What a user would commit for a plugin. SONOFF is shown for illustration; building that plugin isn't part of this spec.
@@ -381,4 +391,3 @@ Manual checks on the Pi:
 ## Open questions
 
 None.
-
