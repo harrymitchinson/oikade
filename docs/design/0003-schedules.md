@@ -1,6 +1,6 @@
 # 0003: Schedules
 
-> Moved from Backlog doc-0003. An agent marked it accepted without your review, so it's up for review here. Work: [#19](https://github.com/harrymitchinson/oikade/issues/19).
+Work: [#19](https://github.com/harrymitchinson/oikade/issues/19).
 
 ## Problem
 
