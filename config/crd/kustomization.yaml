@@ -8,6 +8,7 @@ resources:
 - bases/homekit.oikade.dev_bridges.yaml
 - bases/zigbee.oikade.dev_zigbee2mqtts.yaml
 - bases/plugins.oikade.dev_plugins.yaml
+- bases/home.oikade.dev_schedules.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

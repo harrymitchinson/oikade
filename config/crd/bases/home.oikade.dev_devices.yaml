@@ -133,6 +133,30 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              schedule:
+                description: schedule makes the Device the HomeKit control surface
+                  of a Schedule.
+                properties:
+                  scheduleRef:
+                    description: scheduleRef names the Schedule in the same namespace.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                    x-kubernetes-validations:
+                    - message: scheduleRef.name is required
+                      rule: self.name != ''
+                required:
+                - scheduleRef
+                type: object
               zigbee2mqtt:
                 description: zigbee2mqtt sources the device from a Zigbee2MQTT instance.
                 properties:
@@ -163,9 +187,10 @@ spec:
                 type: object
             type: object
             x-kubernetes-validations:
-            - message: exactly one driver source (zigbee2mqtt or plugin) is required
-              rule: '[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size()
-                == 1'
+            - message: exactly one driver source (zigbee2mqtt, plugin or schedule)
+                is required
+              rule: '[has(self.zigbee2mqtt), has(self.plugin), has(self.schedule)].filter(x,
+                x).size() == 1'
           status:
             description: status defines the observed state of Device
             properties:

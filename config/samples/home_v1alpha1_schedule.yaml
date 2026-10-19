@@ -1,0 +1,62 @@
+# The water heater runs only during off-peak hours.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Schedule
+metadata:
+  labels:
+    app.kubernetes.io/name: oikade
+    app.kubernetes.io/managed-by: kustomize
+  name: water-heater
+spec:
+  target: {device: water-heater, capability: switch.on}
+  rules:
+  - {name: off-peak, window: {start: "22:00", end: "06:00"}, require: true}
+---
+# The pool pump filters for a daily budget set by the water temperature, placed in off-peak and
+# swimming hours, and runs whatever the plan says when there's a frost risk.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Schedule
+metadata:
+  labels:
+    app.kubernetes.io/name: oikade
+    app.kubernetes.io/managed-by: kustomize
+  name: pool-filtration
+spec:
+  target: {device: pool-pump, capability: switch.on}
+  planningTime: "00:00"
+  slotMinutes: 30
+  minutes:
+    bands:
+      input: {device: pool-probe, capability: sensor.temperature, maxAge: 30m}
+      missingMinutes: 240
+      ranges:
+      - {below: 12, minutes: 120}
+      - {below: 16, minutes: 240}
+      - {below: 24, minutes: 360}
+      - {minutes: 480}
+  rules:
+  - {name: off-peak, window: {start: "22:00", end: "06:00"}, prefer: 3}
+  - {name: swimming, window: {start: "14:00", end: "19:00", days: [Sat, Sun]}, prefer: 2}
+  - {name: quiet, window: {start: "07:00", end: "08:30"}, forbid: true}
+  - name: frost
+    live: true
+    when: 'devices["outdoor"]["sensor.temperature"] < 1.0'
+    require: true
+  constraints:
+    minimumRun: 1h
+    minimumRest: 30m
+    maximumStartsPerDay: 3
+  override:
+    duration: 2h
+---
+# A switch in the Home app that pauses and resumes the pool's schedule.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  labels:
+    app.kubernetes.io/name: oikade
+    app.kubernetes.io/managed-by: kustomize
+  name: pool-automatic
+spec:
+  displayName: Pool automatic
+  schedule:
+    scheduleRef: {name: pool-filtration}

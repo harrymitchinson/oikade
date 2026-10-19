@@ -147,6 +147,9 @@ func compute(d *homev1alpha1.Device, snap hub.Snapshot, known bool, seenInterval
 }
 
 func noDriverMessage(d *homev1alpha1.Device) string {
+	if d.Spec.Schedule != nil {
+		return "No running driver instance claims this device; check spec.schedule.scheduleRef"
+	}
 	if d.Spec.Plugin != nil {
 		return "No running driver instance claims this device; check spec.plugin.pluginRef " +
 			"and that no other Device uses the same plugin id"

@@ -58,6 +58,7 @@ rules:
   - home.oikade.dev
   resources:
   - automations
+  - schedules
   verbs:
   - create
   - delete
@@ -70,12 +71,14 @@ rules:
   - home.oikade.dev
   resources:
   - automations/finalizers
+  - schedules/finalizers
   verbs:
   - update
 - apiGroups:
   - home.oikade.dev
   resources:
   - automations/status
+  - schedules/status
   verbs:
   - get
   - patch

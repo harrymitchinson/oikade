@@ -62,4 +62,13 @@ resources:
   kind: Plugin
   path: github.com/harrymitchinson/oikade/api/plugins/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: oikade.dev
+  group: home
+  kind: Schedule
+  path: github.com/harrymitchinson/oikade/api/home/v1alpha1
+  version: v1alpha1
 version: "3"

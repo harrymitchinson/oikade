@@ -64,6 +64,15 @@ type PluginDeviceSource struct {
 	Parameters map[string]string `json:"parameters,omitempty"`
 }
 
+// ScheduleDeviceSource makes the Device the HomeKit control surface of a Schedule: a switch that is on
+// while automatic scheduling is on.
+type ScheduleDeviceSource struct {
+	// scheduleRef names the Schedule in the same namespace.
+	// +kubebuilder:validation:XValidation:rule="self.name != ''",message="scheduleRef.name is required"
+	// +required
+	ScheduleRef corev1.LocalObjectReference `json:"scheduleRef"`
+}
+
 // HomeKitService overrides which HomeKit service a device is exposed as.
 // +kubebuilder:validation:Enum=Lightbulb;Switch;Outlet;MotionSensor;OccupancySensor
 type HomeKitService string
@@ -85,7 +94,7 @@ type DeviceHomeKit struct {
 }
 
 // DeviceSpec declares a device that should exist in the home. Exactly one driver source must be set.
-// +kubebuilder:validation:XValidation:rule="[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size() == 1",message="exactly one driver source (zigbee2mqtt or plugin) is required"
+// +kubebuilder:validation:XValidation:rule="[has(self.zigbee2mqtt), has(self.plugin), has(self.schedule)].filter(x, x).size() == 1",message="exactly one driver source (zigbee2mqtt, plugin or schedule) is required"
 type DeviceSpec struct {
 	// displayName is the human-friendly name shown in HomeKit and Grafana. Defaults to the object name.
 	// +kubebuilder:validation:MaxLength=64
@@ -103,6 +112,10 @@ type DeviceSpec struct {
 	// plugin sources the device from a Plugin.
 	// +optional
 	Plugin *PluginDeviceSource `json:"plugin,omitempty"`
+
+	// schedule makes the Device the HomeKit control surface of a Schedule.
+	// +optional
+	Schedule *ScheduleDeviceSource `json:"schedule,omitempty"`
 
 	// homekit tunes how the device appears in HomeKit.
 	// +optional

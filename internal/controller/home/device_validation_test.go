@@ -40,6 +40,7 @@ var _ = Describe("Device validation", func() {
 	plugin := func(id string) *homev1alpha1.PluginDeviceSource {
 		return &homev1alpha1.PluginDeviceSource{PluginRef: corev1.LocalObjectReference{Name: "sonoff"}, ID: id}
 	}
+	schedule := &homev1alpha1.ScheduleDeviceSource{ScheduleRef: corev1.LocalObjectReference{Name: "pool-filtration"}}
 	create := func(name string, spec homev1alpha1.DeviceSpec) error {
 		d := &homev1alpha1.Device{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}, Spec: spec}
 		err := k8sClient.Create(ctx, d)
@@ -48,7 +49,7 @@ var _ = Describe("Device validation", func() {
 		}
 		return err
 	}
-	const oneSource = "exactly one driver source (zigbee2mqtt or plugin) is required"
+	const oneSource = "exactly one driver source (zigbee2mqtt, plugin or schedule) is required"
 
 	It("accepts exactly one driver source", func() {
 		Expect(create("source-zigbee", homev1alpha1.DeviceSpec{Zigbee2MQTT: zigbee})).To(Succeed())
@@ -57,6 +58,7 @@ var _ = Describe("Device validation", func() {
 			ID:         "1000aabbcc",
 			Parameters: map[string]string{"model": "MINIR4", "capability": "light.on"},
 		}})).To(Succeed())
+		Expect(create("source-schedule", homev1alpha1.DeviceSpec{Schedule: schedule})).To(Succeed())
 	})
 
 	It("rejects neither or both driver sources", func() {
@@ -64,6 +66,15 @@ var _ = Describe("Device validation", func() {
 			To(MatchError(ContainSubstring(oneSource)))
 		Expect(create("source-both", homev1alpha1.DeviceSpec{Zigbee2MQTT: zigbee, Plugin: plugin("1000aabbcc")})).
 			To(MatchError(ContainSubstring(oneSource)))
+		Expect(create("source-schedule-zigbee", homev1alpha1.DeviceSpec{Zigbee2MQTT: zigbee, Schedule: schedule})).
+			To(MatchError(ContainSubstring(oneSource)))
+		Expect(create("source-schedule-plugin", homev1alpha1.DeviceSpec{Plugin: plugin("1000aabbcc"), Schedule: schedule})).
+			To(MatchError(ContainSubstring(oneSource)))
+	})
+
+	It("rejects an empty scheduleRef name", func() {
+		Expect(create("schedule-ref-empty", homev1alpha1.DeviceSpec{Schedule: &homev1alpha1.ScheduleDeviceSource{}})).
+			To(MatchError(ContainSubstring("scheduleRef.name is required")))
 	})
 
 	It("accepts topic-safe plugin ids", func() {

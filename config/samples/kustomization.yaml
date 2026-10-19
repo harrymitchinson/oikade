@@ -6,4 +6,5 @@ resources:
 - homekit_v1alpha1_bridge.yaml
 - home_v1alpha1_automation.yaml
 - plugins_v1alpha1_plugin.yaml
+- home_v1alpha1_schedule.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

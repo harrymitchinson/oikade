@@ -34,6 +34,7 @@ import (
 func TestComputeResolved(t *testing.T) {
 	zigbee := homev1alpha1.DeviceSpec{Zigbee2MQTT: &homev1alpha1.ZigbeeDeviceSource{IEEEAddress: "0x01"}}
 	plugin := homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{ID: "relay"}}
+	schedule := homev1alpha1.DeviceSpec{Schedule: &homev1alpha1.ScheduleDeviceSource{}}
 	long := strings.Repeat("é", 200)
 
 	for _, tc := range []struct {
@@ -48,6 +49,7 @@ func TestComputeResolved(t *testing.T) {
 	}{
 		{name: "no zigbee driver", spec: zigbee, status: metav1.ConditionFalse, reason: "NoDriver", message: "spec.zigbee2mqtt.instanceRef"},
 		{name: "no plugin driver", spec: plugin, status: metav1.ConditionFalse, reason: "NoDriver", message: "spec.plugin.pluginRef"},
+		{name: "no schedule driver", spec: schedule, status: metav1.ConditionFalse, reason: "NoDriver", message: "spec.schedule.scheduleRef"},
 		{name: "waiting", spec: plugin, known: true, status: metav1.ConditionUnknown, reason: "Waiting"},
 		{
 			name: "zigbee not paired", spec: zigbee, known: true, snap: hub.Snapshot{Discovered: true},
