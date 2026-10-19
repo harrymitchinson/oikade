@@ -123,6 +123,11 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 		ReconnectBackoff:              autopaho.NewConstantBackoff(5 * time.Second),
 		WillMessage:                   o.will,
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
+			if c.dropping.Load() {
+				// Drop raced this reconnect. Without a DISCONNECT, autopaho leaves the socket open.
+				cm.TerminateConnectionForTest()
+				return
+			}
 			log.Info("Connected to MQTT broker", "server", u.Host)
 			connCtx, cancel := context.WithCancel(ctx)
 			c.mu.Lock()

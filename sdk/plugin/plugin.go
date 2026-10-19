@@ -87,9 +87,9 @@ type Plugin struct {
 	// closed is set when Close starts. Nothing but offline is published after that.
 	closed atomic.Bool
 
-	mu           sync.Mutex
+	mu sync.Mutex
+	// devices is nil until SetDevices.
 	devices      []contractv1.DeviceReport
-	devicesSet   bool
 	undeclared   int
 	states       map[string]contractv1.State
 	availability map[string]bool
@@ -208,8 +208,9 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 		d.Capabilities = slices.Clone(d.Capabilities)
 		p.devices[i] = d
 	}
-	p.devicesSet = true
 	p.undeclared = undeclared
+	// Availability is only republished for devices still reported.
+	maps.DeleteFunc(p.availability, func(id string, _ bool) bool { return !p.reportedLocked(id) })
 	// A hub that restarts would read and reject the values that are no longer announced.
 	var changed []string
 	for id, s := range p.states {
@@ -234,14 +235,15 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 	return nil
 }
 
-// SetState publishes a device's full current values. The device must be found, and every
-// capability announced in SetDevices with a value that capability accepts. Otherwise SetState
-// returns an error and publishes nothing.
+// SetState publishes a device's full current values. The device must be found, and the state
+// must hold a valid value for every capability announced in SetDevices and nothing else.
+// Otherwise SetState returns an error and publishes nothing.
 func (p *Plugin) SetState(ctx context.Context, id string, s contractv1.State) error {
 	return p.writeState(ctx, id, s, false)
 }
 
-// UpdateState merges values into a device's state and publishes the full result, as SetState.
+// UpdateState merges values into a device's state and publishes the full result, which must be
+// complete as for SetState.
 func (p *Plugin) UpdateState(ctx context.Context, id string, s contractv1.State) error {
 	return p.writeState(ctx, id, s, true)
 }
@@ -274,18 +276,29 @@ func (p *Plugin) writeState(ctx context.Context, id string, s contractv1.State, 
 		}
 		next[c] = valid
 	}
+	for _, c := range announced {
+		if _, ok := next[c]; !ok {
+			p.mu.Unlock()
+			return fmt.Errorf("device %s: state has no value for announced capability %s", id, c)
+		}
+	}
 	p.states[id] = next
 	p.mu.Unlock()
 	return p.publishState(ctx, id)
 }
 
-// SetAvailability publishes whether a device is reachable.
+// SetAvailability publishes whether a device is reachable. The device must be reported in
+// SetDevices, found or not.
 func (p *Plugin) SetAvailability(ctx context.Context, id string, online bool) error {
 	if err := p.lock(ctx); err != nil {
 		return err
 	}
 	defer p.unlock()
 	p.mu.Lock()
+	if !p.reportedLocked(id) {
+		p.mu.Unlock()
+		return fmt.Errorf("device %s is not reported in SetDevices", id)
+	}
 	p.availability[id] = online
 	p.mu.Unlock()
 	return p.publishAvailability(ctx, id)
@@ -346,7 +359,7 @@ func (p *Plugin) announce(ctx context.Context) {
 	p.mu.Lock()
 	// Until the plugin reports its devices, whatever is retained stays: an empty list would mark
 	// every Device not found while the plugin starts.
-	devicesSet := p.devicesSet
+	devicesSet := p.devices != nil
 	available := slices.Sorted(maps.Keys(p.availability))
 	stated := slices.Sorted(maps.Keys(p.states))
 	p.mu.Unlock()
@@ -384,6 +397,11 @@ func (p *Plugin) receive(m mqtt.Message) {
 		return
 	}
 	ignore := func(reason string) { p.log.Warn("Ignored set command", "topic", m.Topic, "reason", reason) }
+	if m.Retained {
+		// Nothing is retained on /set, so this is stale and would replay on every reconnect.
+		ignore("retained")
+		return
+	}
 	if err != nil {
 		ignore(err.Error())
 		return
@@ -411,12 +429,13 @@ func (p *Plugin) receive(m mqtt.Message) {
 	}
 }
 
-// drain applies a device's queued commands in order, then exits.
+// drain applies a device's queued commands in order, then exits. Commands left when the plugin
+// closes are dropped.
 func (p *Plugin) drain(id string) {
 	for {
 		p.mu.Lock()
 		queue := p.queues[id]
-		if len(queue) == 0 {
+		if len(queue) == 0 || p.closed.Load() {
 			delete(p.queues, id)
 			p.mu.Unlock()
 			return
@@ -498,6 +517,10 @@ func (p *Plugin) capabilitiesLocked(id string) []string {
 		}
 	}
 	return nil
+}
+
+func (p *Plugin) reportedLocked(id string) bool {
+	return slices.ContainsFunc(p.devices, func(d contractv1.DeviceReport) bool { return d.ID == id })
 }
 
 func (p *Plugin) foundLocked(id string) bool {
