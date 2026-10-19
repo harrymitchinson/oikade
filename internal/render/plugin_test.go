@@ -17,7 +17,9 @@ limitations under the License.
 package render
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -119,5 +121,34 @@ func TestPluginDeployment(t *testing.T) {
 	m := pod.Containers[0].VolumeMounts[len(pod.Containers[0].VolumeMounts)-1]
 	if *m.MountPath != "/etc/oikade/secrets" || !*m.ReadOnly {
 		t.Errorf("user secret mount = %+v", m)
+	}
+}
+
+// TestPluginConfigUnchanged pins devices.json to its bytes: a change rehashes the config, so every
+// plugin pod restarts on an operator upgrade.
+func TestPluginConfigUnchanged(t *testing.T) {
+	for _, tc := range []struct {
+		golden  string
+		devices []PluginDevice
+	}{
+		{"testdata/plugin-devices-empty.json", nil},
+		{"testdata/plugin-devices.json", []PluginDevice{
+			{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
+				Parameters: map[string]string{"model": "MINIR4", "capability": "light.on"}},
+			{ID: "1000ddeeff", Name: "fan", DisplayName: "Fan \"<big>\" & co"},
+			{ID: "1000ffeedd", Name: "heater", DisplayName: "Heater", Parameters: map[string]string{}},
+		}},
+	} {
+		out, err := PluginConfig(tc.devices)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := os.ReadFile(tc.golden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(out, want) {
+			t.Errorf("devices.json changed:\n got %s\nwant %s", out, want)
+		}
 	}
 }
