@@ -17,13 +17,16 @@ limitations under the License.
 package render
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
 func plugin() *pluginsv1alpha1.Plugin {
@@ -34,7 +37,7 @@ func plugin() *pluginsv1alpha1.Plugin {
 }
 
 func TestPluginConfig(t *testing.T) {
-	out, err := PluginConfig([]PluginDevice{{
+	out, err := PluginConfig([]contractv1.DeclaredDevice{{
 		ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
 		Parameters: map[string]string{"capability": "light.on"},
 	}})
@@ -119,5 +122,35 @@ func TestPluginDeployment(t *testing.T) {
 	m := pod.Containers[0].VolumeMounts[len(pod.Containers[0].VolumeMounts)-1]
 	if *m.MountPath != "/etc/oikade/secrets" || !*m.ReadOnly {
 		t.Errorf("user secret mount = %+v", m)
+	}
+}
+
+// TestPluginConfigUnchanged pins devices.json to its bytes: a change rehashes the config, so every
+// plugin pod restarts on an operator upgrade.
+func TestPluginConfigUnchanged(t *testing.T) {
+	for _, tc := range []struct {
+		golden  string
+		devices []contractv1.DeclaredDevice
+	}{
+		{"testdata/plugin-devices-empty.json", nil},
+		{"testdata/plugin-devices.json", []contractv1.DeclaredDevice{
+			{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
+				Parameters: map[string]string{"model": "MINIR4", "capability": "light.on"}},
+			{ID: "1000ddeeff", Name: "fan", DisplayName: "Fan \"<big>\" & co"},
+			{ID: "1000ffeedd", Name: "heater", DisplayName: "Heater", Parameters: map[string]string{}},
+		}},
+	} {
+		out, err := PluginConfig(tc.devices)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := os.ReadFile(tc.golden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// An editor may add a final newline; the bytes before it are what matter.
+		if !bytes.Equal(out, bytes.TrimSuffix(want, []byte("\n"))) {
+			t.Errorf("devices.json changed:\n got %s\nwant %s", out, want)
+		}
 	}
 }

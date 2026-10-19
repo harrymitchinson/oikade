@@ -30,18 +30,10 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
-)
-
-// Contract is the contract version this driver speaks.
-const Contract = 1
-
-// The values of the status and availability topics.
-const (
-	stateOnline  = "online"
-	stateOffline = "offline"
 )
 
 // Reasons a plugin message is rejected, as counted in Stats.
@@ -57,9 +49,8 @@ const (
 // Instance follows one plugin on the bus.
 type Instance struct {
 	// Key is the Plugin object.
-	Key types.NamespacedName
-	// Root is the plugin's topic root, oikade/v1/<namespace>/<plugin>.
-	Root string
+	Key  types.NamespacedName
+	Root contractv1.Root
 	Bus  mqtt.Bus
 	Sink driver.Sink
 	Now  func() time.Time
@@ -69,7 +60,7 @@ type Instance struct {
 	unsubscribe func()
 	declared    map[string]types.NamespacedName // id -> Device
 	// status is nil until the plugin's status topic is seen.
-	status *statusMessage
+	status *contractv1.Status
 	// announced is nil until the devices topic is seen.
 	announced map[string]driver.Info
 	// last holds each id's latest state and availability, so they can be replayed once the id is
@@ -88,23 +79,6 @@ type lastSeen struct {
 	hasState  bool
 }
 
-type statusMessage struct {
-	State    string `json:"state"`
-	Contract int    `json:"contract"`
-}
-
-type devicesMessage struct {
-	Devices []struct {
-		ID           string   `json:"id"`
-		Found        bool     `json:"found"`
-		Manufacturer string   `json:"manufacturer"`
-		Model        string   `json:"model"`
-		Capabilities []string `json:"capabilities"`
-		Error        string   `json:"error"`
-	} `json:"devices"`
-	Undeclared int `json:"undeclared"`
-}
-
 // Stats is the plugin's health as the decoder sees it.
 type Stats struct {
 	// Up is true while the retained status is online with a supported contract.
@@ -117,7 +91,7 @@ var _ driver.Setter = (*Instance)(nil)
 
 // Start subscribes to the plugin's topics.
 func (i *Instance) Start(ctx context.Context) error {
-	unsubscribe, err := i.Bus.Subscribe(ctx, i.Root+"/#", i.handle)
+	unsubscribe, err := i.Bus.Subscribe(ctx, i.Root.Filter(), i.handle)
 	i.mu.Lock()
 	i.unsubscribe = unsubscribe
 	i.mu.Unlock()
@@ -166,24 +140,24 @@ func (i *Instance) Set(ctx context.Context, dev types.NamespacedName, name strin
 	switch {
 	case id == "":
 		return fmt.Errorf("device %s is not declared on plugin %s", dev, i.Key)
-	case status != nil && status.Contract != Contract:
-		return fmt.Errorf("plugin %s speaks contract %d, not %d", i.Key, status.Contract, Contract)
-	case status != nil && status.State != stateOnline:
+	case status != nil && status.Contract != contractv1.Contract:
+		return fmt.Errorf("plugin %s speaks contract %d, not %d", i.Key, status.Contract, contractv1.Contract)
+	case status != nil && status.State != contractv1.Online:
 		return fmt.Errorf("plugin %s is offline", i.Key)
 	case !announced || !info.Found:
 		return fmt.Errorf("device %s is not found by plugin %s", dev, i.Key)
 	case !slices.Contains(info.Capabilities, name):
 		return fmt.Errorf("device %s has no capability %s", dev, name)
 	}
-	payload, err := json.Marshal(map[string]any{name: value})
+	payload, err := contractv1.SetCommand{ID: id, Capability: name, Value: value}.Payload()
 	if err != nil {
 		return err
 	}
-	return i.Bus.Publish(ctx, i.Root+"/"+id+"/set", payload, false)
+	return i.Bus.Publish(ctx, i.Root.Set(id), payload, false)
 }
 
 func (i *Instance) handle(m mqtt.Message) {
-	rest, ok := strings.CutPrefix(m.Topic, i.Root+"/")
+	rest, ok := strings.CutPrefix(m.Topic, string(i.Root)+"/")
 	if !ok {
 		return
 	}
@@ -197,7 +171,7 @@ func (i *Instance) handle(m mqtt.Message) {
 		return
 	}
 	i.mu.Lock()
-	wrong := i.status != nil && i.status.Contract != Contract
+	wrong := i.status != nil && i.status.Contract != contractv1.Contract
 	if wrong {
 		i.rejectLocked(ReasonWrongContract, "", m.Topic)
 	}
@@ -217,8 +191,8 @@ func (i *Instance) handle(m mqtt.Message) {
 }
 
 func (i *Instance) handleStatus(topic string, payload []byte) {
-	var s statusMessage
-	if err := json.Unmarshal(payload, &s); err != nil || (s.State != stateOnline && s.State != stateOffline) {
+	var s contractv1.Status
+	if err := json.Unmarshal(payload, &s); err != nil || (s.State != contractv1.Online && s.State != contractv1.Offline) {
 		i.mu.Lock()
 		i.rejectLocked(ReasonMalformed, "", topic)
 		i.mu.Unlock()
@@ -230,7 +204,7 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 	up := i.upLocked()
 	var events []func()
 	switch {
-	case s.Contract != Contract:
+	case s.Contract != contractv1.Contract:
 		i.rejectLocked(ReasonWrongContract, "", topic)
 		// Forget everything learned under a contract we may have misread. An empty, non-nil
 		// announcement reports every device as not found.
@@ -255,7 +229,7 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 }
 
 func (i *Instance) handleDevices(topic string, payload []byte) {
-	var msg devicesMessage
+	var msg contractv1.Devices
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		i.mu.Lock()
 		i.rejectLocked(ReasonMalformed, "", topic)
@@ -295,7 +269,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 func (i *Instance) handleState(id, topic string, payload []byte) {
 	now := i.Now()
 	i.mu.Lock()
-	var state map[string]any
+	var state contractv1.State
 	if err := json.Unmarshal(payload, &state); err != nil {
 		i.rejectLocked(ReasonMalformed, id, topic)
 		i.mu.Unlock()
@@ -318,13 +292,13 @@ func (i *Instance) handleState(id, topic string, payload []byte) {
 func (i *Instance) handleAvailability(id, topic string, payload []byte) {
 	state := string(payload)
 	i.mu.Lock()
-	if state != stateOnline && state != stateOffline {
+	if state != contractv1.Online && state != contractv1.Offline {
 		i.rejectLocked(ReasonMalformed, id, topic)
 		i.mu.Unlock()
 		return
 	}
 	l := i.lastLocked(id)
-	l.online, l.hasOnline = state == stateOnline, true
+	l.online, l.hasOnline = state == contractv1.Online, true
 	dev, declared := i.declared[id]
 	if !declared && i.declared != nil {
 		i.rejectLocked(ReasonUndeclaredDevice, id, topic)
@@ -339,7 +313,7 @@ func (i *Instance) handleAvailability(id, topic string, payload []byte) {
 
 // applyStateLocked diffs a state object against the last values and returns the events to send
 // after unlocking. topic is empty for replays, which neither count rejections again nor log.
-func (i *Instance) applyStateLocked(id string, state map[string]any, at time.Time, topic string) func() {
+func (i *Instance) applyStateLocked(id string, state contractv1.State, at time.Time, topic string) func() {
 	dev := i.declared[id]
 	info, announced := i.announced[id]
 	if !announced {
@@ -395,7 +369,7 @@ func (i *Instance) replayLocked() func() {
 			events = append(events, func() { i.Sink.Availability(dev, online) })
 		}
 		if l.hasState {
-			var state map[string]any
+			var state contractv1.State
 			if json.Unmarshal(l.state, &state) == nil {
 				if e := i.applyStateLocked(id, state, l.stateAt, ""); e != nil {
 					events = append(events, e)
@@ -442,7 +416,7 @@ func (i *Instance) allAvailabilityLocked(online bool) func() {
 }
 
 func (i *Instance) upLocked() bool {
-	return i.status != nil && i.status.State == stateOnline && i.status.Contract == Contract
+	return i.status != nil && i.status.State == contractv1.Online && i.status.Contract == contractv1.Contract
 }
 
 func (i *Instance) lastLocked(id string) *lastSeen {
