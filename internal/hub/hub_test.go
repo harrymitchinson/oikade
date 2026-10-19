@@ -32,11 +32,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
-	"github.com/harry/oikade/internal/driver"
-	"github.com/harry/oikade/internal/mqtt"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
 // gatedBus is a Memory bus whose Subscribe and unsubscribe block on topics under gated, standing

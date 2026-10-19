@@ -26,11 +26,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/harry/oikade/internal/engine"
-	"github.com/harry/oikade/internal/hub"
-	"github.com/harry/oikade/internal/metrics"
-	"github.com/harry/oikade/internal/mqtt"
-	"github.com/harry/oikade/internal/status"
+	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/metrics"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/status"
 )
 
 // Options configures the runtime.

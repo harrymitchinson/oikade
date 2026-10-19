@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"math"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
 
 // Canonical capability names.

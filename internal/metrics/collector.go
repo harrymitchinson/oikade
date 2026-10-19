@@ -21,9 +21,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/harry/oikade/internal/capability"
-	"github.com/harry/oikade/internal/driver/plugin"
-	"github.com/harry/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver/plugin"
+	"github.com/harrymitchinson/oikade/internal/hub"
 )
 
 const namespaceLabel = "namespace"

@@ -28,8 +28,8 @@ import (
 	"github.com/brutella/hap/characteristic"
 	"github.com/brutella/hap/service"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	"github.com/harry/oikade/internal/capability"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 func serviceTypes(a *accessory.A) []string {

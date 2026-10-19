@@ -30,8 +30,8 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/harry/oikade/internal/mqtt"
-	"github.com/harry/oikade/internal/runtime"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/runtime"
 )
 
 // runRuntime is the `manager runtime` subcommand: the data plane. It follows every driver on the

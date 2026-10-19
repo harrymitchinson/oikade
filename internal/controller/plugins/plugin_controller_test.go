@@ -37,9 +37,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	pluginsv1alpha1 "github.com/harry/oikade/api/plugins/v1alpha1"
-	"github.com/harry/oikade/internal/render"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/render"
 )
 
 var testSeq atomic.Int32

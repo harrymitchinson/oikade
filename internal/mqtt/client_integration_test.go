@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harry/oikade/internal/mqtt"
-	"github.com/harry/oikade/internal/mqtt/mqtttest"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
 func TestClientAgainstBroker(t *testing.T) {

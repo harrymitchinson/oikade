@@ -32,7 +32,7 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"sigs.k8s.io/yaml"
 
-	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 )
 
 // Keys of the Zigbee network Secret.

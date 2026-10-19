@@ -37,10 +37,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
-	"github.com/harry/oikade/internal/controller/shared"
-	"github.com/harry/oikade/internal/render"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/controller/shared"
+	"github.com/harrymitchinson/oikade/internal/render"
 )
 
 const (

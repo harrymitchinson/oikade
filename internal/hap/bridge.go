@@ -35,11 +35,11 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
-	"github.com/harry/oikade/internal/driver"
-	"github.com/harry/oikade/internal/hub"
-	"github.com/harry/oikade/internal/identity"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/identity"
 )
 
 // setTimeout bounds how long a Home app write waits for the bus.

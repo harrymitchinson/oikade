@@ -24,9 +24,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/harry/oikade/internal/driver"
-	"github.com/harry/oikade/internal/driver/plugin"
-	"github.com/harry/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/driver/plugin"
+	"github.com/harrymitchinson/oikade/internal/hub"
 )
 
 func TestUndeclaredInstanceLabel(t *testing.T) {

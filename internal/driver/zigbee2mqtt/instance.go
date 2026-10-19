@@ -30,8 +30,8 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/harry/oikade/internal/driver"
-	"github.com/harry/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
 // Instance follows one Zigbee2MQTT instance on the bus.

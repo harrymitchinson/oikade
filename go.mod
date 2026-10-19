@@ -1,4 +1,4 @@
-module github.com/harry/oikade
+module github.com/harrymitchinson/oikade
 
 go 1.26.0
 

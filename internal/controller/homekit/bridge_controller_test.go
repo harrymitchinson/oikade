@@ -31,10 +31,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	homev1alpha1 "github.com/harry/oikade/api/home/v1alpha1"
-	homekitv1alpha1 "github.com/harry/oikade/api/homekit/v1alpha1"
-	"github.com/harry/oikade/internal/identity"
-	"github.com/harry/oikade/internal/render"
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/identity"
+	"github.com/harrymitchinson/oikade/internal/render"
 )
 
 // Ports are unique cluster-wide, so every test gets its own namespace and port range.

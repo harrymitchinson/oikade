@@ -23,7 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
-	zigbeev1alpha1 "github.com/harry/oikade/api/zigbee/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 )
 
 func zigbeeInstance(port string) *zigbeev1alpha1.Zigbee2MQTT {
