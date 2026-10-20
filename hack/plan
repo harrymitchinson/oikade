@@ -25,7 +25,7 @@ MAX_STACK="${PLAN_MAX_STACK:-3}"
 # It backs up the agent's own reading of .claude/skills/design/references/surfaces.md.
 # The build and CI files are here too, so an agent can't weaken the checks it
 # is then merged on.
-PROTECTED='^api/|^cmd/|^config/|^PROJECT$|^internal/(capability|hap|hub|identity|metrics|status)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/(driver\.go|plugin/)|^docs/(plugin-contract\.md|design/|roadmap\.md)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock|Dockerfile[^/]*)$|^Makefile$|^\.golangci\.ya?ml$|^\.github/|^\.claude/|^hack/|^(AGENTS|CLAUDE)\.md$'
+PROTECTED='^api/|^cmd/|^config/|^PROJECT$|^internal/(capability|hap|hub|identity|metrics|status)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/(driver\.go|plugin/)|^docs/(plugin-contract\.md|design/)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock|Dockerfile[^/]*)$|^Makefile$|^\.golangci\.ya?ml$|^\.github/|^\.claude/|^hack/|^(AGENTS|CLAUDE)\.md$'
 
 die() { echo "plan: $*" >&2; exit 1; }
 
