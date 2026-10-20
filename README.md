@@ -72,7 +72,7 @@ kubectl -n home get zigbee2mqtts,devices,bridges,rules
 1. **Pair devices.** Open the Zigbee2MQTT frontend (`kubectl -n home port-forward svc/z2m 8080`), permit joining, and pair. A paired device that isn't declared shows up in `oikade_undeclared_devices` and the runtime logs.
 2. **Declare them.** Add a `Device` for each IEEE address. The operator sets each device's Zigbee2MQTT friendly name to the Device name.
 3. **Pair the bridge.** In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the setup code from its Secret.
-4. **Set your timezone.** Edit `--timezone` in `config/runtime/deployment.yaml` so rules see local time.
+4. **Set your timezone and location.** Edit `--timezone` in `config/runtime/deployment.yaml` so rules see local time, and `--latitude` and `--longitude` if you use sun triggers.
 
 ## Rules
 
@@ -95,10 +95,31 @@ The condition is [CEL](https://cel.dev). It can use these variables:
 
 | Variable | Type | |
 |---|---|---|
-| `trigger` | map | `device`, `capability`, `value`, `previous` (null the first time) |
+| `trigger` | map | `type`: `change`, `at` or `sun`. For a change also `device`, `capability`, `value` and `previous` (null the first time) |
 | `devices` | map | Device name → capability → current value, for every Device in the namespace |
 | `now` | timestamp | |
 | `tz` | string | The runtime's `--timezone`. CEL's accessors default to UTC, so write `now.getHours(tz)`. |
+
+### Time and sun triggers
+
+A trigger can be a time of day (`at`) or sunrise or sunset (`sun`) instead of a `change`:
+
+```yaml
+spec:
+  triggers:
+  - at: {time: "23:30", days: [Sun, Mon, Tue, Wed, Thu]}   # weeknights
+  - at: {time: "00:30", days: [Sat, Sun]}                  # Friday and Saturday nights
+  - sun: {event: Sunset, offset: -15m}                     # 15 minutes before sunset
+  startingDeadline: 10m
+  do:
+  - set: {room: downstairs, capability: light.on, value: false}
+```
+
+- **Times are local,** in the runtime's `--timezone`. A time the clocks skip when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
+- **`days` is the calendar day the trigger fires on.** 00:30 after Friday evening is Saturday, so Friday and Saturday nights at 00:30 are `days: [Sat, Sun]`. Leave `days` out for every day.
+- **Sun times** are computed by the runtime from `--latitude` and `--longitude`, to within about a minute. `offset` is between `-6h` and `6h`. Without a location, sun triggers don't fire, and the Rule shows `Scheduled=False` with reason `NoLocation`. Where the sun doesn't rise or set that day, its trigger doesn't fire that day.
+- **`startingDeadline`** is how late a time may still fire after the runtime was down at it. A later one is skipped, logged and counted as `missed`. Without `startingDeadline`, every missed time is skipped. Only the latest missed time counts, and a new Rule never fires for times before it was created.
+- `status.nextFire` answers "will the porch light come on tonight?". `status.lastFire` is the last time fired or skipped, so a restart doesn't fire it again.
 
 ### Rooms
 
@@ -202,7 +223,8 @@ The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/d
 | `oikade_undeclared_devices{namespace,instance}` | Paired but not in Git |
 | `oikade_plugin_up{namespace,plugin}` | 1 while the plugin reports itself online with contract 1 |
 | `oikade_plugin_rejected_messages_total{namespace,plugin,reason}` | Plugin messages dropped as `malformed`, `wrong_contract`, `unknown_capability`, `invalid_value`, `undeclared_device` or `unannounced_capability` |
-| `oikade_rule_runs_total{namespace,rule,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error` |
+| `oikade_rule_runs_total{namespace,rule,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error`, `missed` |
+| `oikade_rule_next_change_timestamp_seconds{namespace,rule}` | When a Rule's next `at` or `sun` trigger fires |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.

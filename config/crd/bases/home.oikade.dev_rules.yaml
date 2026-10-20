@@ -24,6 +24,9 @@ spec:
     - jsonPath: .status.lastTriggered
       name: Last Triggered
       type: date
+    - jsonPath: .status.nextFire
+      name: Next Fire
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -54,8 +57,9 @@ spec:
                 description: |-
                   condition is a CEL expression that must evaluate to true for the actions to run.
                   Variables: devices (map of device name to map of capability to value),
-                  trigger (device, capability, value, previous), now (timestamp) and tz (the runtime's
-                  timezone). Timestamp accessors default to UTC, so pass tz for local time.
+                  trigger (type, which is change, at or sun, and for a change device, capability, value and
+                  previous), now (timestamp) and tz (the runtime's timezone). Timestamp accessors default
+                  to UTC, so pass tz for local time.
                   For example: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
                 maxLength: 4096
                 type: string
@@ -113,12 +117,48 @@ spec:
                 - Single
                 - Restart
                 type: string
+              startingDeadline:
+                description: |-
+                  startingDeadline is how late an at or sun trigger may still fire after the runtime was
+                  down at its time. A later one is skipped and counted as missed. Unset skips every missed
+                  time.
+                type: string
               triggers:
                 description: triggers are the moments that start the Rule.
                 items:
                   description: Trigger is a moment that fires the Rule. Exactly one
                     field must be set.
                   properties:
+                    at:
+                      description: at fires at a local time of day.
+                      properties:
+                        days:
+                          description: |-
+                            days limits the trigger to these days. A day is the calendar day the trigger fires on, so
+                            00:30 on Friday and Saturday nights is days [Sat, Sun]. Empty means every day.
+                          items:
+                            description: Weekday is a day of the week.
+                            enum:
+                            - Mon
+                            - Tue
+                            - Wed
+                            - Thu
+                            - Fri
+                            - Sat
+                            - Sun
+                            type: string
+                          maxItems: 7
+                          type: array
+                          x-kubernetes-list-type: set
+                        time:
+                          description: |-
+                            time is the local time, HH:MM. A time skipped by a daylight saving change fires when the
+                            clocks go forward, and a time that happens twice fires the first time.
+                          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                          type: string
+                      required:
+                      - time
+                      type: object
                     change:
                       description: change fires when a capability changes value.
                       properties:
@@ -143,10 +183,50 @@ spec:
                       x-kubernetes-validations:
                       - message: exactly one of device or room must be specified
                         rule: has(self.device) != has(self.room)
+                    sun:
+                      description: sun fires at sunrise or sunset, from the runtime's
+                        --latitude and --longitude.
+                      properties:
+                        days:
+                          description: |-
+                            days limits the trigger to these days. A day is the calendar day the trigger fires on.
+                            Empty means every day.
+                          items:
+                            description: Weekday is a day of the week.
+                            enum:
+                            - Mon
+                            - Tue
+                            - Wed
+                            - Thu
+                            - Fri
+                            - Sat
+                            - Sun
+                            type: string
+                          maxItems: 7
+                          type: array
+                          x-kubernetes-list-type: set
+                        event:
+                          description: event is Sunrise or Sunset.
+                          enum:
+                          - Sunrise
+                          - Sunset
+                          type: string
+                        offset:
+                          description: offset moves the trigger from the event, e.g.
+                            -15m for 15 minutes before.
+                          type: string
+                      required:
+                      - event
+                      type: object
+                      x-kubernetes-validations:
+                      - message: offset must be between -6h and 6h
+                        rule: '!has(self.offset) || (duration(self.offset) >= duration(''-6h'')
+                          && duration(self.offset) <= duration(''6h''))'
                   type: object
                   x-kubernetes-validations:
-                  - message: change must be specified
-                    rule: has(self.change)
+                  - message: exactly one of change, at or sun must be specified
+                    rule: '[has(self.change), has(self.at), has(self.sun)].exists_one(x,
+                      x)'
                 maxItems: 16
                 minItems: 1
                 type: array
@@ -159,7 +239,8 @@ spec:
             description: status defines the observed state of Rule
             properties:
               conditions:
-                description: 'conditions: Ready.'
+                description: 'conditions: Ready, set by the operator, and Scheduled,
+                  set by the runtime.'
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -218,9 +299,19 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastFire:
+                description: |-
+                  lastFire is the scheduled time of the last at or sun trigger the runtime fired or skipped,
+                  so a restart doesn't fire it again.
+                format: date-time
+                type: string
               lastTriggered:
                 description: lastTriggered is when the actions last started (updated
                   at most every minute).
+                format: date-time
+                type: string
+              nextFire:
+                description: nextFire is when the next at or sun trigger fires.
                 format: date-time
                 type: string
               observedGeneration:

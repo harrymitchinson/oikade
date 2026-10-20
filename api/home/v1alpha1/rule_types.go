@@ -25,12 +25,72 @@ import (
 // ConditionReady is True when a Rule's condition compiles and its actions are valid.
 const ConditionReady = "Ready"
 
+// ConditionScheduled is set by the runtime on a Rule with time or sun triggers. It is False when
+// the Rule can't be scheduled, such as a sun trigger on a runtime without a location.
+const ConditionScheduled = "Scheduled"
+
 // Trigger is a moment that fires the Rule. Exactly one field must be set.
-// +kubebuilder:validation:XValidation:rule="has(self.change)",message="change must be specified"
+// +kubebuilder:validation:XValidation:rule="[has(self.change), has(self.at), has(self.sun)].exists_one(x, x)",message="exactly one of change, at or sun must be specified"
 type Trigger struct {
 	// change fires when a capability changes value.
 	// +optional
 	Change *ChangeTrigger `json:"change,omitempty"`
+
+	// at fires at a local time of day.
+	// +optional
+	At *AtTrigger `json:"at,omitempty"`
+
+	// sun fires at sunrise or sunset, from the runtime's --latitude and --longitude.
+	// +optional
+	Sun *SunTrigger `json:"sun,omitempty"`
+}
+
+// Weekday is a day of the week.
+// +kubebuilder:validation:Enum=Mon;Tue;Wed;Thu;Fri;Sat;Sun
+type Weekday string
+
+// AtTrigger fires the Rule at a time of day in the runtime's --timezone.
+type AtTrigger struct {
+	// time is the local time, HH:MM. A time skipped by a daylight saving change fires when the
+	// clocks go forward, and a time that happens twice fires the first time.
+	// +kubebuilder:validation:Pattern=`^([01][0-9]|2[0-3]):[0-5][0-9]$`
+	// +required
+	Time string `json:"time"`
+
+	// days limits the trigger to these days. A day is the calendar day the trigger fires on, so
+	// 00:30 on Friday and Saturday nights is days [Sat, Sun]. Empty means every day.
+	// +kubebuilder:validation:MaxItems=7
+	// +listType=set
+	// +optional
+	Days []Weekday `json:"days,omitempty"`
+}
+
+// SunEvent is a sun event.
+// +kubebuilder:validation:Enum=Sunrise;Sunset
+type SunEvent string
+
+const (
+	SunEventSunrise SunEvent = "Sunrise"
+	SunEventSunset  SunEvent = "Sunset"
+)
+
+// SunTrigger fires the Rule at sunrise or sunset, moved by an offset.
+// +kubebuilder:validation:XValidation:rule="!has(self.offset) || (duration(self.offset) >= duration('-6h') && duration(self.offset) <= duration('6h'))",message="offset must be between -6h and 6h"
+type SunTrigger struct {
+	// event is Sunrise or Sunset.
+	// +required
+	Event SunEvent `json:"event"`
+
+	// offset moves the trigger from the event, e.g. -15m for 15 minutes before.
+	// +optional
+	Offset *metav1.Duration `json:"offset,omitempty"`
+
+	// days limits the trigger to these days. A day is the calendar day the trigger fires on.
+	// Empty means every day.
+	// +kubebuilder:validation:MaxItems=7
+	// +listType=set
+	// +optional
+	Days []Weekday `json:"days,omitempty"`
 }
 
 // ChangeTrigger fires the Rule when a capability of a device, or of any device in a room, changes value.
@@ -115,8 +175,9 @@ type RuleSpec struct {
 
 	// condition is a CEL expression that must evaluate to true for the actions to run.
 	// Variables: devices (map of device name to map of capability to value),
-	// trigger (device, capability, value, previous), now (timestamp) and tz (the runtime's
-	// timezone). Timestamp accessors default to UTC, so pass tz for local time.
+	// trigger (type, which is change, at or sun, and for a change device, capability, value and
+	// previous), now (timestamp) and tz (the runtime's timezone). Timestamp accessors default
+	// to UTC, so pass tz for local time.
 	// For example: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
 	// +kubebuilder:validation:MaxLength=4096
 	// +optional
@@ -133,6 +194,12 @@ type RuleSpec struct {
 	// +kubebuilder:default=Single
 	// +optional
 	Mode RuleMode `json:"mode,omitempty"`
+
+	// startingDeadline is how late an at or sun trigger may still fire after the runtime was
+	// down at its time. A later one is skipped and counted as missed. Unset skips every missed
+	// time.
+	// +optional
+	StartingDeadline *metav1.Duration `json:"startingDeadline,omitempty"`
 }
 
 // RuleStatus defines the observed state of Rule.
@@ -141,11 +208,20 @@ type RuleStatus struct {
 	// +optional
 	LastTriggered metav1.Time `json:"lastTriggered,omitzero"`
 
+	// nextFire is when the next at or sun trigger fires.
+	// +optional
+	NextFire metav1.Time `json:"nextFire,omitzero"`
+
+	// lastFire is the scheduled time of the last at or sun trigger the runtime fired or skipped,
+	// so a restart doesn't fire it again.
+	// +optional
+	LastFire metav1.Time `json:"lastFire,omitzero"`
+
 	// observedGeneration is the generation the Ready condition was computed for.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// conditions: Ready.
+	// conditions: Ready, set by the operator, and Scheduled, set by the runtime.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -157,6 +233,7 @@ type RuleStatus struct {
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Last Triggered",type=date,JSONPath=`.status.lastTriggered`
+// +kubebuilder:printcolumn:name="Next Fire",type=date,JSONPath=`.status.nextFire`
 
 // Rule is run by the Oikade runtime: when one of its triggers fires and the condition holds, it runs its actions.
 type Rule struct {

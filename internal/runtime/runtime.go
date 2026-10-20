@@ -31,11 +31,14 @@ import (
 	"github.com/harrymitchinson/oikade/internal/metrics"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/status"
+	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
 // Options configures the runtime.
 type Options struct {
-	Location          *time.Location
+	Location *time.Location
+	// Site is where sun triggers are computed for. Nil means they never fire.
+	Site              *sun.Site
 	SeenInterval      time.Duration
 	TriggeredInterval time.Duration
 	// Registry receives the runtime's metrics.
@@ -54,10 +57,11 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	log := logr.FromContextOrDiscard(ctx)
 	writer := &status.Writer{Client: mgr.GetClient(), SeenInterval: opts.SeenInterval}
 	triggered := &engine.Triggered{Client: mgr.GetClient(), Interval: opts.TriggeredInterval}
+	scheduled := &engine.Scheduled{Client: mgr.GetClient()}
 	eng := &engine.Engine{
-		Location: opts.Location, Log: log.WithName("engine"),
-		Runs: engine.NewRunsCounter(), Dropped: engine.NewDroppedCounter(),
-		OnStart: triggered.Record,
+		Location: opts.Location, Site: opts.Site, Log: log.WithName("engine"),
+		Runs: engine.NewRunsCounter(), Dropped: engine.NewDroppedCounter(), NextChange: engine.NewNextChangeGauge(),
+		OnStart: triggered.Record, OnSchedule: scheduled.Record,
 	}
 	eng.Init()
 	store := hub.NewStore(log.WithName("store"), writer, eng)
@@ -77,7 +81,10 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	if err := triggered.SetupWithManager(mgr); err != nil {
 		return nil, err
 	}
-	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped} {
+	if err := scheduled.SetupWithManager(mgr); err != nil {
+		return nil, err
+	}
+	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped, eng.NextChange} {
 		if err := opts.Registry.Register(c); err != nil {
 			return nil, err
 		}

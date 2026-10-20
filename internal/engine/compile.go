@@ -53,8 +53,14 @@ type Compiled struct {
 	// Generation is the Rule generation this was compiled from.
 	Generation int64
 	Mode       homev1alpha1.RuleMode
-	// changes are the Rule's change triggers.
+	// changes are the Rule's change triggers, and timers its at and sun triggers.
 	changes []homev1alpha1.ChangeTrigger
+	timers  []timeTrigger
+	// StartingDeadline is how late a missed timer may still fire on startup.
+	StartingDeadline time.Duration
+	// Since is when a missed timer was last accounted for: the Rule's status.lastFire, or its
+	// creation when it has never fired.
+	Since time.Time
 	// program is nil when there is no condition.
 	program cel.Program
 	actions []action
@@ -76,17 +82,42 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 		Key:        types.NamespacedName{Namespace: a.Namespace, Name: a.Name},
 		Generation: a.Generation,
 		Mode:       a.Spec.Mode,
+		Since:      a.CreationTimestamp.Time,
+	}
+	if !a.Status.LastFire.IsZero() {
+		c.Since = a.Status.LastFire.Time
+	}
+	if d := a.Spec.StartingDeadline; d != nil {
+		if d.Duration < 0 {
+			return nil, errors.New("startingDeadline must not be negative")
+		}
+		c.StartingDeadline = d.Duration
 	}
 	if c.Mode == "" {
 		c.Mode = homev1alpha1.RuleModeSingle
 	}
 	var errs []error
 	for i, trig := range a.Spec.Triggers {
-		t := trig.Change
-		if t == nil {
-			errs = append(errs, fmt.Errorf("triggers[%d]: change is required", i))
+		if n := btoi(trig.Change != nil) + btoi(trig.At != nil) + btoi(trig.Sun != nil); n != 1 {
+			errs = append(errs, fmt.Errorf("triggers[%d]: exactly one of change, at or sun is required", i))
 			continue
 		}
+		if trig.At != nil || trig.Sun != nil {
+			var tt timeTrigger
+			var err error
+			if trig.At != nil {
+				tt, err = compileAt(trig.At)
+			} else {
+				tt, err = compileSun(trig.Sun)
+			}
+			if err != nil {
+				errs = append(errs, fmt.Errorf("triggers[%d]: %w", i, err))
+				continue
+			}
+			c.timers = append(c.timers, tt)
+			continue
+		}
+		t := trig.Change
 		if (t.Device == "") == (t.Room == "") {
 			errs = append(errs, fmt.Errorf("triggers[%d].change: exactly one of device or room is required", i))
 		}
@@ -182,4 +213,11 @@ func (c *Compiled) eval(vars map[string]any) (bool, error) {
 		return false, fmt.Errorf("condition evaluated to %T, not bool", out.Value())
 	}
 	return b, nil
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

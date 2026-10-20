@@ -30,6 +30,7 @@ import (
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
 // Run results, as reported in oikade_rule_runs_total.
@@ -40,7 +41,30 @@ const (
 	ResultBusy           = "busy"
 	ResultConditionFalse = "condition_false"
 	ResultConditionError = "condition_error"
+	// ResultMissed is an at or sun trigger whose time passed while the runtime was down, longer
+	// ago than the Rule's startingDeadline.
+	ResultMissed = "missed"
 )
+
+// Metric labels.
+const (
+	labelNamespace = "namespace"
+	labelRule      = "rule"
+)
+
+// ReasonNoLocation is the Scheduled reason for a sun trigger on a runtime without a location.
+const ReasonNoLocation = "NoLocation"
+
+// Schedule is what the engine reports about a Rule's at and sun triggers.
+type Schedule struct {
+	// Next is the next fire. Zero means none within a week.
+	Next time.Time
+	// LastFire is the scheduled time of the last fire the engine ran or skipped. Zero means it
+	// hasn't changed since the Rule loaded.
+	LastFire time.Time
+	// Reason is ReasonNoLocation when sun triggers can't fire, and empty otherwise.
+	Reason string
+}
 
 // Engine is a driver.Sink that runs Rules on capability changes.
 type Engine struct {
@@ -50,18 +74,29 @@ type Engine struct {
 	Clock    clock.Clock
 	Location *time.Location
 	Log      logr.Logger
+	// Site is where sun triggers are computed for. Nil means they never fire.
+	Site *sun.Site
 	// Runs counts trigger outcomes by namespace, rule and result.
 	Runs *prometheus.CounterVec
+	// NextChange is the next fire's Unix time, by namespace and rule.
+	NextChange *prometheus.GaugeVec
 	// Dropped counts changes dropped because the engine fell behind.
 	Dropped prometheus.Counter
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key types.NamespacedName, t time.Time)
+	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
+	// fires. It must not block.
+	OnSchedule func(key types.NamespacedName, s Schedule)
 
 	events chan driver.Update
+	// wake makes Run look at the timers again.
+	wake chan struct{}
 
 	mu    sync.Mutex
 	rules map[types.NamespacedName]*state
-	runs  sync.WaitGroup
+	// loaded holds every Rule loaded since Init, so only the first load looks for missed fires.
+	loaded map[types.NamespacedName]bool
+	runs   sync.WaitGroup
 }
 
 type state struct {
@@ -70,6 +105,8 @@ type state struct {
 	cancel context.CancelFunc
 	// run identifies the latest run, so a cancelled run doesn't mark a newer one idle.
 	run uint64
+	// next is the next timer fire, and due a missed one to run now. Zero At means none.
+	next, due fire
 }
 
 // NewRunsCounter returns the counter Engine.Runs expects.
@@ -77,7 +114,15 @@ func NewRunsCounter() *prometheus.CounterVec {
 	return prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "oikade_rule_runs_total",
 		Help: "Rule trigger outcomes.",
-	}, []string{"namespace", "rule", "result"})
+	}, []string{labelNamespace, labelRule, "result"})
+}
+
+// NewNextChangeGauge returns the gauge Engine.NextChange expects.
+func NewNextChangeGauge() *prometheus.GaugeVec {
+	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "oikade_rule_next_change_timestamp_seconds",
+		Help: "When a Rule's next at or sun trigger fires, as a Unix time.",
+	}, []string{labelNamespace, labelRule})
 }
 
 // NewDroppedCounter returns the counter Engine.Dropped expects.
@@ -91,7 +136,9 @@ func NewDroppedCounter() prometheus.Counter {
 // Init prepares the engine. Call it before Load, Changed or Run.
 func (e *Engine) Init() {
 	e.events = make(chan driver.Update, 1024)
+	e.wake = make(chan struct{}, 1)
 	e.rules = map[types.NamespacedName]*state{}
+	e.loaded = map[types.NamespacedName]bool{}
 	if e.Clock == nil {
 		e.Clock = clock.RealClock{}
 	}
@@ -113,7 +160,60 @@ func (e *Engine) Load(c *Compiled) {
 			s.cancel()
 		}
 	}
-	e.rules[c.Key] = &state{c: c}
+	s := &state{c: c}
+	e.rules[c.Key] = s
+	first := !e.loaded[c.Key]
+	e.loaded[c.Key] = true
+	if len(c.timers) > 0 {
+		e.schedule(c.Key, s, first)
+	}
+	e.signal()
+}
+
+// schedule works out a Rule's next fire and, on its first load, the missed fire to run. Call
+// with e.mu held.
+func (e *Engine) schedule(key types.NamespacedName, s *state, first bool) {
+	now := e.Clock.Now()
+	sched := Schedule{}
+	if s.c.needsSite() && e.Site == nil {
+		sched.Reason = ReasonNoLocation
+		e.Log.Info("Sun triggers won't fire; set --latitude and --longitude", "rule", key)
+	}
+	if first {
+		if f, ok := s.c.lastFire(s.c.Since, now, e.Location, e.Site); ok {
+			if now.Sub(f.At) <= s.c.StartingDeadline {
+				s.due = f
+			} else {
+				e.Log.Info("Skipped missed trigger; it is older than the startingDeadline",
+					"rule", key, "type", f.Typ, "scheduled", f.At)
+				e.count(key, ResultMissed)
+				sched.LastFire = f.At
+			}
+		}
+	}
+	s.next, _ = s.c.nextFire(now, e.Location, e.Site)
+	sched.Next = s.next.At
+	e.report(key, sched)
+}
+
+func (e *Engine) report(key types.NamespacedName, sched Schedule) {
+	if e.NextChange != nil {
+		if sched.Next.IsZero() {
+			e.NextChange.DeleteLabelValues(key.Namespace, key.Name)
+		} else {
+			e.NextChange.WithLabelValues(key.Namespace, key.Name).Set(float64(sched.Next.Unix()))
+		}
+	}
+	if e.OnSchedule != nil {
+		e.OnSchedule(key, sched)
+	}
+}
+
+func (e *Engine) signal() {
+	select {
+	case e.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Remove drops a Rule and cancels its run.
@@ -125,8 +225,12 @@ func (e *Engine) Remove(key types.NamespacedName) {
 	}
 	delete(e.rules, key)
 	if e.Runs != nil {
-		e.Runs.DeletePartialMatch(prometheus.Labels{"namespace": key.Namespace, "rule": key.Name})
+		e.Runs.DeletePartialMatch(prometheus.Labels{labelNamespace: key.Namespace, labelRule: key.Name})
 	}
+	if e.NextChange != nil {
+		e.NextChange.DeleteLabelValues(key.Namespace, key.Name)
+	}
+	e.signal()
 }
 
 // Changed implements driver.Sink. It never blocks the driver.
@@ -141,28 +245,93 @@ func (e *Engine) Changed(u driver.Update) {
 	}
 }
 
-// Run processes changes until ctx is cancelled, then waits for runs in progress to stop.
+// Run processes changes and fires timers until ctx is cancelled, then waits for runs in progress
+// to stop.
 func (e *Engine) Run(ctx context.Context) {
 	defer e.runs.Wait()
 	for {
+		e.fireDue(ctx)
+		timer, due := e.timer()
+		if due {
+			continue
+		}
+		var fired <-chan time.Time
+		if timer != nil {
+			fired = timer.C()
+		}
 		select {
 		case <-ctx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
 			return
 		case u := <-e.events:
 			e.handle(ctx, u)
+		case <-e.wake:
+		case <-fired:
+		}
+		if timer != nil {
+			timer.Stop()
 		}
 	}
 }
 
-func (e *Engine) handle(ctx context.Context, u driver.Update) {
-	vars := map[string]any{
-		"devices": e.Store.Values(u.Device.Namespace),
-		"trigger": map[string]any{
-			"device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
-		},
-		"now": e.Clock.Now(),
-		"tz":  e.Location.String(),
+// timer returns a timer for the earliest fire, or nil when there is none. It reports true instead
+// when that fire is already due.
+func (e *Engine) timer() (clock.Timer, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var next time.Time
+	for _, s := range e.rules {
+		if at := s.next.At; !at.IsZero() && (next.IsZero() || at.Before(next)) {
+			next = at
+		}
 	}
+	if next.IsZero() {
+		return nil, false
+	}
+	d := next.Sub(e.Clock.Now())
+	if d <= 0 {
+		return nil, true
+	}
+	return e.Clock.NewTimer(d), false
+}
+
+// fireDue fires the missed fires found on load, and every timer whose time has come. A timer more
+// than one fire behind, as after a long pause, fires once.
+func (e *Engine) fireDue(ctx context.Context) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.Clock.Now()
+	for key, s := range e.rules {
+		var f fire
+		switch {
+		case !s.due.At.IsZero():
+			f, s.due = s.due, fire{}
+		case !s.next.At.IsZero() && !now.Before(s.next.At):
+			f = s.next
+		default:
+			continue
+		}
+		e.trigger(ctx, key, s, e.vars(key.Namespace, map[string]any{"type": f.Typ}))
+		s.next, _ = s.c.nextFire(now, e.Location, e.Site)
+		e.report(key, Schedule{Next: s.next.At, LastFire: f.At})
+	}
+}
+
+func (e *Engine) vars(namespace string, trigger map[string]any) map[string]any {
+	return map[string]any{
+		"devices": e.Store.Values(namespace),
+		"trigger": trigger,
+		"now":     e.Clock.Now(),
+		"tz":      e.Location.String(),
+	}
+}
+
+func (e *Engine) handle(ctx context.Context, u driver.Update) {
+	vars := e.vars(u.Device.Namespace, map[string]any{
+		"type": TypeChange, "device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
+	})
 	var room string
 	if snap, ok := e.Store.Get(u.Device); ok {
 		room = snap.Room
@@ -174,25 +343,30 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 		if key.Namespace != u.Device.Namespace || !s.c.matches(u.Device.Name, room, u.Capability) {
 			continue
 		}
-		ok, err := s.c.eval(vars)
-		switch {
-		case err != nil:
-			e.Log.Error(err, "Failed to evaluate Rule condition", "rule", key)
-			e.count(key, ResultConditionError)
-			continue
-		case !ok:
-			e.count(key, ResultConditionFalse)
-			continue
-		}
-		if s.cancel != nil {
-			if s.c.Mode == homev1alpha1.RuleModeSingle {
-				e.count(key, ResultBusy)
-				continue
-			}
-			s.cancel()
-		}
-		e.start(ctx, key, s)
+		e.trigger(ctx, key, s, vars)
 	}
+}
+
+// trigger runs the Rule if its condition holds and its mode allows. Call with e.mu held.
+func (e *Engine) trigger(ctx context.Context, key types.NamespacedName, s *state, vars map[string]any) {
+	ok, err := s.c.eval(vars)
+	switch {
+	case err != nil:
+		e.Log.Error(err, "Failed to evaluate Rule condition", "rule", key)
+		e.count(key, ResultConditionError)
+		return
+	case !ok:
+		e.count(key, ResultConditionFalse)
+		return
+	}
+	if s.cancel != nil {
+		if s.c.Mode == homev1alpha1.RuleModeSingle {
+			e.count(key, ResultBusy)
+			return
+		}
+		s.cancel()
+	}
+	e.start(ctx, key, s)
 }
 
 // start launches a run. Call with e.mu held.

@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -126,4 +128,76 @@ func (t *Triggered) SetupWithManager(mgr ctrl.Manager) error {
 		Named("rule-triggered").
 		WatchesRawSource(source.Channel(t.events, &handler.EnqueueRequestForObject{})).
 		Complete(t)
+}
+
+// Scheduled writes what the engine reports about Rules' at and sun triggers: status.nextFire,
+// status.lastFire and the Scheduled condition.
+type Scheduled struct {
+	client.Client
+
+	mu     sync.Mutex
+	latest map[types.NamespacedName]Schedule
+	events chan event.GenericEvent
+}
+
+// Record is an Engine.OnSchedule hook. A zero LastFire keeps the one already recorded.
+func (s *Scheduled) Record(key types.NamespacedName, sched Schedule) {
+	s.mu.Lock()
+	if sched.LastFire.IsZero() {
+		sched.LastFire = s.latest[key].LastFire
+	}
+	s.latest[key] = sched
+	s.mu.Unlock()
+	obj := &homev1alpha1.Rule{}
+	obj.Name, obj.Namespace = key.Name, key.Namespace
+	select {
+	case s.events <- event.GenericEvent{Object: obj}:
+	default:
+	}
+}
+
+// Reconcile writes the schedule. It patches with optimistic locking, because the operator writes
+// the Ready condition into the same list.
+func (s *Scheduled) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	s.mu.Lock()
+	sched, ok := s.latest[req.NamespacedName]
+	s.mu.Unlock()
+	if !ok {
+		return ctrl.Result{}, nil
+	}
+	var a homev1alpha1.Rule
+	if err := s.Get(ctx, req.NamespacedName, &a); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	orig := a.DeepCopy()
+	a.Status.NextFire = metav1.Time{}
+	if !sched.Next.IsZero() {
+		a.Status.NextFire = metav1.NewTime(sched.Next.Truncate(time.Second))
+	}
+	if last := sched.LastFire.Truncate(time.Second); last.After(a.Status.LastFire.Time) {
+		a.Status.LastFire = metav1.NewTime(last)
+	}
+	cond := metav1.Condition{
+		Type: homev1alpha1.ConditionScheduled, Status: metav1.ConditionTrue, Reason: "Scheduled",
+		ObservedGeneration: a.Generation,
+	}
+	if sched.Reason == ReasonNoLocation {
+		cond.Status, cond.Reason = metav1.ConditionFalse, ReasonNoLocation
+		cond.Message = "Sun triggers need the runtime's --latitude and --longitude"
+	}
+	meta.SetStatusCondition(&a.Status.Conditions, cond)
+	if equality.Semantic.DeepEqual(orig.Status, a.Status) {
+		return ctrl.Result{}, nil
+	}
+	return ctrl.Result{}, s.Status().Patch(ctx, &a, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{}))
+}
+
+// SetupWithManager registers the status writer.
+func (s *Scheduled) SetupWithManager(mgr ctrl.Manager) error {
+	s.latest = map[types.NamespacedName]Schedule{}
+	s.events = make(chan event.GenericEvent, 256)
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("rule-scheduled").
+		WatchesRawSource(source.Channel(s.events, &handler.EnqueueRequestForObject{})).
+		Complete(s)
 }

@@ -74,7 +74,8 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if equality.Semantic.DeepEqual(orig.Status, a.Status) {
 		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{}, r.Status().Patch(ctx, &a, client.MergeFrom(orig))
+	// Optimistic locking, because the runtime writes the Scheduled condition into the same list.
+	return ctrl.Result{}, r.Status().Patch(ctx, &a, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{}))
 }
 
 // missingRooms returns the Rooms named by the Rule's triggers and set actions that don't
