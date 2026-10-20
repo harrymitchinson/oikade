@@ -4,11 +4,11 @@ on:
   pull_request:
   # Main isn't tested on every merge: hack/plan merge only merges a PR whose
   # checks passed on top of main. Nightly catches anything that slips past,
-  # such as two PRs that pass alone but not together, and tags test a release.
+  # such as two PRs that pass alone but not together, and release.yml calls
+  # this before it publishes a release.
   schedule:
     - cron: "0 3 * * *"
-  push:
-    tags: ["v*"]
+  workflow_call:
   workflow_dispatch:
 
 permissions: {}
