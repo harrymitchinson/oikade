@@ -1,0 +1,88 @@
+name: Release
+
+# release-please keeps a release PR open on main (docs/design/0036-release-automation.md).
+# Merging it tags the release and creates the GitHub Release, and the publish job
+# then builds the image and attaches install.yaml. Tags created with GITHUB_TOKEN
+# don't trigger other workflows, so publishing has to happen here.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    name: Update the release PR or cut a release
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+      packages: write
+    name: Publish the image and install.yaml
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      IMG: ghcr.io/${{ github.repository_owner }}/oikade:${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - name: Clone the code at the tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The builder stage runs on the runner's platform and cross-compiles, so no QEMU.
+      - name: Build and push the image for arm64 and amd64
+        run: make docker-buildx IMG="$IMG" VERSION="$TAG" PLATFORMS=linux/arm64,linux/amd64
+
+      - name: Render install.yaml
+        run: make build-installer IMG="$IMG"
+
+      - name: Attach install.yaml to the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/install.yaml --repo "$GITHUB_REPOSITORY"
+
+      # prerelease: true in release-please-config.json marks every 0.x release as a
+      # pre-release. Only the alphas between milestones are, so a milestone release
+      # (v0.1.0) is marked as the latest one.
+      - name: Mark a milestone release as the latest
+        if: ${{ !contains(needs.release-please.outputs.tag_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --prerelease=false --latest --repo "$GITHUB_REPOSITORY"

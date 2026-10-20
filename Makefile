@@ -153,9 +153,11 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name oikade-builder
 	$(CONTAINER_TOOL) buildx use oikade-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm oikade-builder
-	rm Dockerfile.cross
+	# A failed build fails the target, after cleaning up, so a release never ships without its image.
+	status=0; $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) --tag ${IMG} -f Dockerfile.cross . || status=$$?; \
+	$(CONTAINER_TOOL) buildx rm oikade-builder; \
+	rm Dockerfile.cross; \
+	exit $$status
 
 # PLUGIN names a directory in plugins/. Plugin images are arm64 for the Pi and amd64 for Kind and CI.
 PLUGIN ?= example-switch
