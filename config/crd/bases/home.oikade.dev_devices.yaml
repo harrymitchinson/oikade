@@ -106,7 +106,7 @@ spec:
                         overrideHold is how long an outside change holds as an Override claim: a duration such as
                         1h, or Next to hold until the result without it next changes.
                       maxLength: 32
-                      pattern: ^(Next|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                      pattern: ^(Next|([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+)$
                       type: string
                     resolve:
                       description: |-
@@ -127,6 +127,11 @@ spec:
                   x-kubernetes-validations:
                   - message: overrideHold is required when external is Override
                     rule: self.external != 'Override' || has(self.overrideHold)
+                  - message: overrideHold has no effect when external is Revert
+                    rule: self.external != 'Revert' || !has(self.overrideHold)
+                  - message: overrideHold must be positive
+                    rule: '!has(self.overrideHold) || self.overrideHold == ''Next''
+                      || duration(self.overrideHold) > duration(''0s'')'
                   - message: minimumOn must not be negative
                     rule: '!has(self.minimumOn) || duration(self.minimumOn) >= duration(''0s'')'
                   - message: maximumOn must be positive

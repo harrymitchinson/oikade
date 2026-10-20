@@ -119,6 +119,8 @@ const OverrideHoldNext = "Next"
 // CapabilityControl makes one capability arbitrated (0060): rules, HomeKit and the device itself
 // make claims on it, and the device takes the winner.
 // +kubebuilder:validation:XValidation:rule="self.external != 'Override' || has(self.overrideHold)",message="overrideHold is required when external is Override"
+// +kubebuilder:validation:XValidation:rule="self.external != 'Revert' || !has(self.overrideHold)",message="overrideHold has no effect when external is Revert"
+// +kubebuilder:validation:XValidation:rule="!has(self.overrideHold) || self.overrideHold == 'Next' || duration(self.overrideHold) > duration('0s')",message="overrideHold must be positive"
 // +kubebuilder:validation:XValidation:rule="!has(self.minimumOn) || duration(self.minimumOn) >= duration('0s')",message="minimumOn must not be negative"
 // +kubebuilder:validation:XValidation:rule="!has(self.maximumOn) || duration(self.maximumOn) > duration('0s')",message="maximumOn must be positive"
 // +kubebuilder:validation:XValidation:rule="!has(self.minimumOff) || duration(self.minimumOff) >= duration('0s')",message="minimumOff must not be negative"
@@ -147,7 +149,7 @@ type CapabilityControl struct {
 
 	// overrideHold is how long an outside change holds as an Override claim: a duration such as
 	// 1h, or Next to hold until the result without it next changes.
-	// +kubebuilder:validation:Pattern=`^(Next|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$`
+	// +kubebuilder:validation:Pattern=`^(Next|([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+)$`
 	// +kubebuilder:validation:MaxLength=32
 	// +optional
 	OverrideHold string `json:"overrideHold,omitempty"`

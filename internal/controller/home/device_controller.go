@@ -19,8 +19,10 @@ package home
 import (
 	"context"
 	"errors"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -68,7 +70,12 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 	// Optimistic locking, because the runtime writes Resolved and Available into the same list.
-	return ctrl.Result{}, r.Status().Patch(ctx, &d, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{}))
+	// It writes often, so a conflict is expected and retried quietly.
+	err := r.Status().Patch(ctx, &d, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{}))
+	if apierrors.IsConflict(err) {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	return ctrl.Result{}, err
 }
 
 // SetupWithManager sets up the controller with the Manager. Only spec changes matter, so the
