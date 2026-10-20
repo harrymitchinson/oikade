@@ -16,6 +16,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -182,7 +183,7 @@ var _ = Describe("Rule Controller", func() {
 			names = append(names, rule.Name)
 		}
 		Expect(names).To(ConsistOf("hallway-motion-light", "goodnight-living-room", "porch-light-sunset",
-			"front-door-welcome", "towel-rail-mornings", "workshop-overheat", "workshop-overheat-reset"))
+			"towel-rail-boost", "towel-rail-mornings", "workshop-overheat", "workshop-overheat-reset"))
 	})
 
 	It("brings every sample Rule to Ready next to the sample Devices and Rooms", func() {
@@ -464,6 +465,15 @@ var _ = Describe("Rule Controller", func() {
 			Expect(ready("bathroom-quiet").Status).To(Equal(metav1.ConditionTrue))
 		})
 
+		It("doesn't count holds on a Device that doesn't exist as a conflict", func() {
+			for _, name := range []string{"ghost-a", "ghost-b"} {
+				rule(name, `
+  while: {when: "true"}
+  hold: {device: ghost, capability: switch.on, value: true}`)
+			}
+			Expect(ready("ghost-a").Status).To(Equal(metav1.ConditionTrue))
+		})
+
 		It("requires a release to name a Rule that can be released, until it does", func() {
 			rule("reset", `
   triggers: [{change: {device: b, capability: sensor.contact-open}}]
@@ -496,7 +506,30 @@ var _ = Describe("Rule Controller", func() {
   hold: {device: d, capability: light.on, value: true}`)
 			cond := ready("bad-window")
 			Expect(cond.Reason).To(Equal("Invalid"))
-			Expect(cond.Message).To(ContainSubstring(`time "6:00" is not HH:MM`))
+			Expect(cond.Message).To(ContainSubstring(`start: 6:00 is neither "HH:MM" nor {sun, offset}`))
+		})
+
+		It("reads back a window time that is neither a string nor a sun event, and reports it", func() {
+			// The field has no schema, so the API server keeps a number. Decoding it mustn't fail,
+			// or no client could list Rules.
+			u := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "home.oikade.dev/v1alpha1", "kind": "Rule",
+				"metadata": map[string]any{"name": "number-window", "namespace": ns},
+				"spec": map[string]any{
+					"while": map[string]any{"window": map[string]any{"start": int64(6), "end": map[string]any{"sun": "Sunset", "ofset": "1h"}}},
+					"hold":  map[string]any{"device": "d", "capability": "light.on", "value": true},
+				},
+			}}
+			Expect(k8sClient.Create(ctx, u)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, u)
+			var list homev1alpha1.RuleList
+			Expect(k8sClient.List(ctx, &list, client.InNamespace(ns))).To(Succeed())
+			cond := ready("number-window")
+			Expect(cond.Reason).To(Equal("Invalid"))
+			Expect(cond.Message).To(SatisfyAll(
+				ContainSubstring(`start: 6 is neither`),
+				ContainSubstring(`end: {"ofset":"1h","sun":"Sunset"} is neither`),
+			))
 		})
 	})
 })

@@ -193,7 +193,8 @@ type Action struct {
 // WindowTime is a window's start or end: a local time as "HH:MM", or a sun event with an
 // offset, as {sun: Sunset, offset: -15m}.
 type WindowTime struct {
-	// Time is the local time, HH:MM. It is written as a bare string.
+	// Time is the local time, HH:MM. It is written as a bare string. A value that is neither a
+	// string nor a sun event is kept here as JSON, for the operator to report.
 	Time string `json:"-"`
 
 	// sun is Sunrise or Sunset, from the runtime's --latitude and --longitude.
@@ -213,17 +214,26 @@ func (w WindowTime) MarshalJSON() ([]byte, error) {
 	return json.Marshal(windowSun(w))
 }
 
-// UnmarshalJSON reads a bare string as a time, and an object as a sun event.
+// UnmarshalJSON reads a bare string as a time, and an object as a sun event. The field has no
+// schema, so the API server stores anything. Anything else, or an object with unknown keys,
+// becomes a Time the operator reports as invalid, rather than an error that would stop every
+// client from listing Rules.
 func (w *WindowTime) UnmarshalJSON(data []byte) error {
-	if b := bytes.TrimSpace(data); len(b) > 0 && b[0] == '"' {
-		*w = WindowTime{}
+	*w = WindowTime{}
+	b := bytes.TrimSpace(data)
+	if len(b) > 0 && b[0] == '"' {
 		return json.Unmarshal(b, &w.Time)
 	}
-	var sun windowSun
-	if err := json.Unmarshal(data, &sun); err != nil {
-		return err
+	if len(b) > 0 && b[0] == '{' {
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.DisallowUnknownFields()
+		var sun windowSun
+		if err := dec.Decode(&sun); err == nil && sun.Sun != "" {
+			*w = WindowTime(sun)
+			return nil
+		}
 	}
-	*w = WindowTime(sun)
+	w.Time = string(b)
 	return nil
 }
 

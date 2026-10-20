@@ -10,15 +10,6 @@ spec:
   zigbee2mqtt:
     instanceRef: {name: z2m}
     ieeeAddress: "0x000b57fffe000001"
-  # light.on is arbitrated: rules, HomeKit and the wall switch make claims, and
-  # the light takes the winner. A wall switch or Home app change holds until
-  # what the rules want next changes.
-  control:
-  - capability: light.on
-    default: false
-    resolve: PreferOn
-    external: Override
-    overrideHold: Next
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
@@ -57,8 +48,9 @@ spec:
     parameters:
       capability: light.on
 ---
-# A heated towel rail on a plugin relay, arbitrated so a Home app tap holds until the morning
-# window next starts or ends.
+# A heated towel rail on a plugin relay. switch.on is arbitrated: rules, HomeKit and the relay
+# itself make claims, and the rail takes the winner. A Home app tap holds until what the rules
+# want next changes.
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata:
