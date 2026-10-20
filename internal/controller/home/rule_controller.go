@@ -2,6 +2,7 @@ package home
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -10,9 +11,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -29,9 +33,21 @@ type RuleReconciler struct {
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=rules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=rules/finalizers,verbs=update
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=rooms,verbs=get;list;watch
+// +kubebuilder:rbac:groups=home.oikade.dev,resources=devices,verbs=get;list;watch
 
-// Reconcile sets the Ready condition from compiling the Rule and checking that the Rooms it
-// names exist. A spec that doesn't compile is reported first.
+// Reasons for Ready=False, after Invalid and RoomNotFound.
+const (
+	// ReasonUnendedClaim: a set on an arbitrated capability of a device has no for or until.
+	ReasonUnendedClaim = "UnendedClaim"
+	// ReasonConflictingHolds: two holds keep one capability that has no control entry.
+	ReasonConflictingHolds = "ConflictingHolds"
+	// ReasonInvalidRelease: a release names a Rule that doesn't exist or can't be released.
+	ReasonInvalidRelease = "InvalidRelease"
+)
+
+// Reconcile sets the Ready condition from compiling the Rule, then checking it against the
+// Rooms, Devices and other Rules in its namespace. The first problem found is reported, in the
+// order of the reasons above.
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var a homev1alpha1.Rule
 	if err := r.Get(ctx, req.NamespacedName, &a); err != nil {
@@ -51,6 +67,14 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if len(missing) > 0 {
 			cond.Status, cond.Reason = metav1.ConditionFalse, "RoomNotFound"
 			cond.Message = "Room(s) not found: " + strings.Join(missing, ", ")
+		} else {
+			reason, msg, err := r.checkClaims(ctx, &a)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if reason != "" {
+				cond.Status, cond.Reason, cond.Message = metav1.ConditionFalse, reason, msg
+			}
 		}
 	}
 	meta.SetStatusCondition(&a.Status.Conditions, cond)
@@ -76,6 +100,9 @@ func (r *RuleReconciler) missingRooms(ctx context.Context, a *homev1alpha1.Rule)
 			named = append(named, act.Set.Room)
 		}
 	}
+	if a.Spec.Hold != nil && a.Spec.Hold.Room != "" {
+		named = append(named, a.Spec.Hold.Room)
+	}
 	if len(named) == 0 {
 		return nil, nil
 	}
@@ -93,18 +120,151 @@ func (r *RuleReconciler) missingRooms(ctx context.Context, a *homev1alpha1.Rule)
 	return slices.Compact(missing), nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// checkClaims checks the Rule against arbitration (0060): a set on an arbitrated capability of a
+// device must end, two holds mustn't keep one capability that isn't arbitrated, and a release
+// must name a Rule that can be released. It returns an empty reason when all is well.
+func (r *RuleReconciler) checkClaims(ctx context.Context, a *homev1alpha1.Rule) (string, string, error) {
+	var devices homev1alpha1.DeviceList
+	if err := r.List(ctx, &devices, client.InNamespace(a.Namespace)); err != nil {
+		return "", "", err
+	}
+	byName := map[string]*homev1alpha1.Device{}
+	for i := range devices.Items {
+		byName[devices.Items[i].Name] = &devices.Items[i]
+	}
+
+	var unended []string
+	for i, act := range a.Spec.Do {
+		s := act.Set
+		if s == nil || s.Device == "" || s.For != nil || s.Until != "" {
+			continue
+		}
+		if d, ok := byName[s.Device]; ok && arbitrated(d, s.Capability) {
+			unended = append(unended, fmt.Sprintf("do[%d] sets %s on %s", i, s.Capability, s.Device))
+		}
+	}
+	if len(unended) > 0 {
+		return ReasonUnendedClaim, strings.Join(unended, "; ") +
+			", which is arbitrated, so the set needs for or until", nil
+	}
+
+	var rules homev1alpha1.RuleList
+	needRules := a.Spec.Hold != nil || slices.ContainsFunc(a.Spec.Do, func(act homev1alpha1.Action) bool { return act.Release != nil })
+	if needRules {
+		if err := r.List(ctx, &rules, client.InNamespace(a.Namespace)); err != nil {
+			return "", "", err
+		}
+	}
+
+	if a.Spec.Hold != nil {
+		mine := heldTargets(a.Spec.Hold, devices.Items)
+		var conflicts []string
+		for i := range rules.Items {
+			other := &rules.Items[i]
+			if other.Name == a.Name || other.Spec.Hold == nil {
+				continue
+			}
+			for _, t := range heldTargets(other.Spec.Hold, devices.Items) {
+				if !slices.Contains(mine, t) {
+					continue
+				}
+				if d, ok := byName[t.device]; ok && arbitrated(d, t.capability) {
+					continue
+				}
+				conflicts = append(conflicts, fmt.Sprintf("%s on %s with Rule %s", t.capability, t.device, other.Name))
+			}
+		}
+		if len(conflicts) > 0 {
+			slices.Sort(conflicts)
+			return ReasonConflictingHolds, "Holds " + strings.Join(slices.Compact(conflicts), "; ") +
+				", which has no control entry to arbitrate them", nil
+		}
+	}
+
+	var bad []string
+	for _, act := range a.Spec.Do {
+		if act.Release == nil {
+			continue
+		}
+		i := slices.IndexFunc(rules.Items, func(o homev1alpha1.Rule) bool { return o.Name == act.Release.Rule })
+		switch {
+		case i < 0:
+			bad = append(bad, fmt.Sprintf("Rule %s doesn't exist", act.Release.Rule))
+		case !releasable(&rules.Items[i]):
+			bad = append(bad, fmt.Sprintf("Rule %s has no latched hold or until: Released set", act.Release.Rule))
+		}
+	}
+	if len(bad) > 0 {
+		return ReasonInvalidRelease, "Can't release: " + strings.Join(bad, "; "), nil
+	}
+	return "", "", nil
+}
+
+// target is one capability of one device.
+type target struct{ device, capability string }
+
+// heldTargets returns what a hold keeps: its device, or the Devices in its Room that report the
+// capability, as the runtime would.
+func heldTargets(h *homev1alpha1.Hold, devices []homev1alpha1.Device) []target {
+	if h.Device != "" {
+		return []target{{h.Device, h.Capability}}
+	}
+	var out []target
+	for _, d := range devices {
+		if d.Spec.RoomRef == nil || d.Spec.RoomRef.Name != h.Room {
+			continue
+		}
+		if slices.ContainsFunc(d.Status.Capabilities, func(c homev1alpha1.DeviceCapability) bool { return c.Name == h.Capability }) {
+			out = append(out, target{d.Name, h.Capability})
+		}
+	}
+	return out
+}
+
+// arbitrated reports whether the Device has a control entry for the capability.
+func arbitrated(d *homev1alpha1.Device, capability string) bool {
+	return slices.ContainsFunc(d.Spec.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == capability })
+}
+
+// releasable reports whether a release action can name the Rule: it has a latched hold, or a
+// set that lasts until released.
+func releasable(a *homev1alpha1.Rule) bool {
+	if a.Spec.While != nil && a.Spec.While.Latch {
+		return true
+	}
+	return slices.ContainsFunc(a.Spec.Do, func(act homev1alpha1.Action) bool {
+		return act.Set != nil && act.Set.Until == homev1alpha1.ClaimUntilReleased
+	})
+}
+
+// SetupWithManager sets up the controller with the Manager. Rooms, Devices and other Rules feed
+// the checks, so a change to any of them re-checks every Rule in the namespace.
 func (r *RuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&homev1alpha1.Rule{}).
 		Watches(&homev1alpha1.Room{}, handler.EnqueueRequestsFromMapFunc(r.rulesInNamespace)).
+		// A Device's control entries are spec, and Room members are held by what they report.
+		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(r.rulesInNamespace),
+			builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, capabilitiesChanged))).
+		// Status writes by the runtime don't change what other Rules check against.
+		Watches(&homev1alpha1.Rule{}, handler.EnqueueRequestsFromMapFunc(r.rulesInNamespace),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("home-rule").
 		Complete(r)
 }
 
-// rulesInNamespace maps a Room to every Rule in its namespace, so creating or deleting
-// a Room updates RoomNotFound without the Rule being edited. Rules are few, so this is
-// cheaper than an index.
+// capabilitiesChanged passes Device updates that change the capabilities it reports.
+var capabilitiesChanged = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		old, okOld := e.ObjectOld.(*homev1alpha1.Device)
+		cur, okNew := e.ObjectNew.(*homev1alpha1.Device)
+		return okOld && okNew && !equality.Semantic.DeepEqual(old.Status.Capabilities, cur.Status.Capabilities)
+	},
+}
+
+// rulesInNamespace maps a Room, Device or Rule to every Rule in its namespace, so a change to
+// one updates the others' Ready without them being edited. Rules are few, so this is cheaper
+// than an index.
 func (r *RuleReconciler) rulesInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
 	var list homev1alpha1.RuleList
 	if err := r.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {

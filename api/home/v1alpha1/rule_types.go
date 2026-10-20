@@ -1,6 +1,9 @@
 package v1alpha1
 
 import (
+	"bytes"
+	"encoding/json"
+
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -100,6 +103,8 @@ type ChangeTrigger struct {
 
 // SetAction sets a capability on a device, or on every device in a room that has the capability.
 // +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.for) || duration(self.for) > duration('0s')",message="for must be positive"
+// +kubebuilder:validation:XValidation:rule="!has(self.for) || !has(self.until) || self.until != 'Released'",message="for can't be combined with until: Released"
 type SetAction struct {
 	// device names a Device in the same namespace.
 	// +kubebuilder:validation:MinLength=1
@@ -123,10 +128,54 @@ type SetAction struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +required
 	Value apiextensionsv1.JSON `json:"value"`
+
+	// for ends the claim after this long. A set on an arbitrated capability is a claim and must
+	// end, with for, until or both; on any other capability it's a plain write, and for and until
+	// have no effect.
+	// +optional
+	For *metav1.Duration `json:"for,omitempty"`
+
+	// until ends the claim when the result without it next changes (Next), or at a release
+	// action (Released). With for as well, Next ends the claim at whichever comes first.
+	// +optional
+	Until ClaimUntil `json:"until,omitempty"`
+
+	// priority is the claim's level. Defaults to Normal.
+	// +optional
+	Priority RulePriority `json:"priority,omitempty"`
+}
+
+// ClaimUntil says what ends a claim.
+// +kubebuilder:validation:Enum=Next;Released
+type ClaimUntil string
+
+const (
+	// ClaimUntilNext ends the claim when the result without it next changes.
+	ClaimUntilNext ClaimUntil = "Next"
+	// ClaimUntilReleased ends the claim at a release action.
+	ClaimUntilReleased ClaimUntil = "Released"
+)
+
+// RulePriority is the level of a Rule's claims. A higher level always wins.
+// +kubebuilder:validation:Enum=Safety;Override;Normal
+type RulePriority string
+
+const (
+	RulePrioritySafety   RulePriority = "Safety"
+	RulePriorityOverride RulePriority = "Override"
+	RulePriorityNormal   RulePriority = "Normal"
+)
+
+// ReleaseAction ends another Rule's latched hold, or its until: Released claims.
+type ReleaseAction struct {
+	// rule names a Rule in the same namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Rule string `json:"rule"`
 }
 
 // Action is one step of a Rule. Exactly one field must be set.
-// +kubebuilder:validation:XValidation:rule="has(self.set) != has(self.delay)",message="exactly one of set or delay must be specified"
+// +kubebuilder:validation:XValidation:rule="[has(self.set), has(self.delay), has(self.release)].exists_one(x, x)",message="exactly one of set, delay or release must be specified"
 type Action struct {
 	// set sets a capability on a device.
 	// +optional
@@ -135,6 +184,126 @@ type Action struct {
 	// delay waits before the next action, e.g. 5m.
 	// +optional
 	Delay *metav1.Duration `json:"delay,omitempty"`
+
+	// release ends another Rule's latched hold, or its until: Released claims.
+	// +optional
+	Release *ReleaseAction `json:"release,omitempty"`
+}
+
+// WindowTime is a window's start or end: a local time as "HH:MM", or a sun event with an
+// offset, as {sun: Sunset, offset: -15m}.
+type WindowTime struct {
+	// Time is the local time, HH:MM. It is written as a bare string.
+	Time string `json:"-"`
+
+	// sun is Sunrise or Sunset, from the runtime's --latitude and --longitude.
+	Sun SunEvent `json:"sun,omitempty"`
+
+	// offset moves the time from the sun event, e.g. -15m for 15 minutes before.
+	Offset *metav1.Duration `json:"offset,omitempty"`
+}
+
+type windowSun WindowTime
+
+// MarshalJSON writes a time as a bare string.
+func (w WindowTime) MarshalJSON() ([]byte, error) {
+	if w.Time != "" {
+		return json.Marshal(w.Time)
+	}
+	return json.Marshal(windowSun(w))
+}
+
+// UnmarshalJSON reads a bare string as a time, and an object as a sun event.
+func (w *WindowTime) UnmarshalJSON(data []byte) error {
+	if b := bytes.TrimSpace(data); len(b) > 0 && b[0] == '"' {
+		*w = WindowTime{}
+		return json.Unmarshal(b, &w.Time)
+	}
+	var sun windowSun
+	if err := json.Unmarshal(data, &sun); err != nil {
+		return err
+	}
+	*w = WindowTime(sun)
+	return nil
+}
+
+// Window is a span of local time each day, which may cross midnight.
+type Window struct {
+	// start is "HH:MM", or {sun, offset}.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=""
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +required
+	Start WindowTime `json:"start"`
+
+	// end is "HH:MM", or {sun, offset}. An end at or before the start is the next day.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=""
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +required
+	End WindowTime `json:"end"`
+
+	// days limits the window to those starting on these days. Empty means every day.
+	// +kubebuilder:validation:MaxItems=7
+	// +listType=set
+	// +optional
+	Days []Weekday `json:"days,omitempty"`
+}
+
+// While is when a hold is active: all of its conditions together.
+// +kubebuilder:validation:XValidation:rule="has(self.window) || has(self.when)",message="while needs a window or when"
+// +kubebuilder:validation:XValidation:rule="!has(self.latch) || !self.latch || has(self.when)",message="latch needs when"
+// +kubebuilder:validation:XValidation:rule="!has(self.onDelay) || duration(self.onDelay) >= duration('0s')",message="onDelay must not be negative"
+// +kubebuilder:validation:XValidation:rule="!has(self.offDelay) || duration(self.offDelay) >= duration('0s')",message="offDelay must not be negative"
+type While struct {
+	// window is a span of local time each day.
+	// +optional
+	Window *Window `json:"window,omitempty"`
+
+	// when is a CEL expression over devices, now and tz, as in a Rule's condition.
+	// For example: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+	// +kubebuilder:validation:MaxLength=4096
+	// +optional
+	When string `json:"when,omitempty"`
+
+	// onDelay is how long the rest must stay true before the hold starts.
+	// +optional
+	OnDelay *metav1.Duration `json:"onDelay,omitempty"`
+
+	// offDelay is how long the hold stays active after the rest stops being true.
+	// +optional
+	OffDelay *metav1.Duration `json:"offDelay,omitempty"`
+
+	// latch keeps the hold active once when has been true, until a release action.
+	// +optional
+	Latch bool `json:"latch,omitempty"`
+}
+
+// Hold is the value a hold keeps a capability at while it's active.
+// +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
+type Hold struct {
+	// device names a Device in the same namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Device string `json:"device,omitempty"`
+
+	// room names a Room in the same namespace. Every discovered Device in it that reports the
+	// capability is held.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Room string `json:"room,omitempty"`
+
+	// capability is the writable capability to hold, e.g. switch.on.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Capability string `json:"capability"`
+
+	// value is a bool or number matching the capability's kind.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=""
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +required
+	Value apiextensionsv1.JSON `json:"value"`
 }
 
 // RuleMode decides what happens when a trigger fires while a run is in progress.
@@ -149,14 +318,21 @@ const (
 	RuleModeRestart RuleMode = "Restart"
 )
 
-// RuleSpec is a moment rule: when a trigger fires and the condition holds, run the actions.
+// RuleSpec is a moment or a hold. A moment has triggers: when one fires and the condition holds,
+// it runs the actions. A hold has while: while that is true, it keeps a capability at a value.
+// +kubebuilder:validation:XValidation:rule="has(self.triggers) != has(self.while)",message="exactly one of triggers or while must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.triggers) == has(self.do)",message="do is required with triggers, and only with triggers"
+// +kubebuilder:validation:XValidation:rule="has(self.while) == has(self.hold)",message="hold is required with while, and only with while"
+// +kubebuilder:validation:XValidation:rule="!has(self.priority) || has(self.while)",message="priority applies to a hold; a set action takes its own"
+// +kubebuilder:validation:XValidation:rule="!has(self.condition) || has(self.triggers)",message="condition applies to triggers; a hold uses while.when"
+// +kubebuilder:validation:XValidation:rule="!has(self.startingDeadline) || has(self.triggers)",message="startingDeadline applies to triggers"
 type RuleSpec struct {
 	// triggers are the moments that start the Rule.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=atomic
-	// +required
-	Triggers []Trigger `json:"triggers"`
+	// +optional
+	Triggers []Trigger `json:"triggers,omitempty"`
 
 	// condition is a CEL expression that must evaluate to true for the actions to run.
 	// Variables: devices (map of device name to map of capability to value),
@@ -172,8 +348,8 @@ type RuleSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +listType=atomic
-	// +required
-	Do []Action `json:"do"`
+	// +optional
+	Do []Action `json:"do,omitempty"`
 
 	// mode decides what happens when a trigger fires while a run is in progress.
 	// +kubebuilder:default=Single
@@ -185,6 +361,18 @@ type RuleSpec struct {
 	// time.
 	// +optional
 	StartingDeadline *metav1.Duration `json:"startingDeadline,omitempty"`
+
+	// while is when the hold is active: a window, a when expression, or both.
+	// +optional
+	While *While `json:"while,omitempty"`
+
+	// hold is the capability the Rule keeps at a value while it's active.
+	// +optional
+	Hold *Hold `json:"hold,omitempty"`
+
+	// priority is the level of the hold's claim on an arbitrated capability. Defaults to Normal.
+	// +optional
+	Priority RulePriority `json:"priority,omitempty"`
 }
 
 // RuleStatus defines the observed state of Rule.
@@ -202,6 +390,20 @@ type RuleStatus struct {
 	// +optional
 	LastFire metav1.Time `json:"lastFire,omitzero"`
 
+	// active is true while a hold is active.
+	// +optional
+	Active bool `json:"active,omitempty"`
+
+	// nextChange is when a hold next starts or ends, if that's known from the clock.
+	// +optional
+	NextChange metav1.Time `json:"nextChange,omitzero"`
+
+	// skipped lists the Room members a set or hold left out, because the capability is
+	// arbitrated on them and the set has no end.
+	// +listType=atomic
+	// +optional
+	Skipped []string `json:"skipped,omitempty"`
+
 	// observedGeneration is the generation the Ready condition was computed for.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -216,11 +418,13 @@ type RuleStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.mode`
+// +kubebuilder:printcolumn:name="Active",type=boolean,JSONPath=`.status.active`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Last Triggered",type=date,JSONPath=`.status.lastTriggered`
 // +kubebuilder:printcolumn:name="Next Fire",type=date,JSONPath=`.status.nextFire`
 
-// Rule is run by the Oikade runtime: when one of its triggers fires and the condition holds, it runs its actions.
+// Rule is run by the Oikade runtime. A moment runs its actions when a trigger fires and the
+// condition holds; a hold keeps a capability at a value while its while is true.
 type Rule struct {
 	metav1.TypeMeta `json:",inline"`
 
