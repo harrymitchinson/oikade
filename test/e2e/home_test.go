@@ -318,7 +318,7 @@ func homeScenario() {
 			out, err := mqttExec("wget", "-qO-", runtimeURL)
 			Expect(err).NotTo(HaveOccurred())
 			for _, name := range queried {
-				Expect(out).To(ContainSubstring(name+"{"), "the dashboard queries %s", name)
+				Expect(out).To(MatchRegexp(`(?m)^`+name+`[{ ]`), "the dashboard queries %s", name)
 			}
 		})
 

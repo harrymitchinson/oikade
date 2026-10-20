@@ -165,7 +165,7 @@ var _ = Describe("Rule Controller", func() {
 				Do: []homev1alpha1.Action{{Delay: &metav1.Duration{Duration: 1}}},
 			},
 		})
-		Expect(err).To(MatchError(ContainSubstring("exactly one of change")))
+		Expect(err).To(MatchError(ContainSubstring("change must be specified")))
 	})
 
 	Describe("device or room", func() {

@@ -145,7 +145,7 @@ spec:
                         rule: has(self.device) != has(self.room)
                   type: object
                   x-kubernetes-validations:
-                  - message: exactly one of change must be specified
+                  - message: change must be specified
                     rule: has(self.change)
                 maxItems: 16
                 minItems: 1
