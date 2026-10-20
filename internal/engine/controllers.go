@@ -140,19 +140,22 @@ type Scheduled struct {
 	events chan event.GenericEvent
 }
 
-// Record is an Engine.OnSchedule hook. A zero LastFire keeps the one already recorded.
+// Record is an Engine.OnSchedule hook. A zero LastFire keeps the one already recorded. It never
+// drops a write: when the queue is full, it queues from a goroutine.
 func (s *Scheduled) Record(key types.NamespacedName, sched Schedule) {
 	s.mu.Lock()
-	if sched.LastFire.IsZero() {
-		sched.LastFire = s.latest[key].LastFire
+	if prev, ok := s.latest[key]; ok && sched.LastFire.IsZero() && !sched.Cleared && !prev.Cleared {
+		sched.LastFire = prev.LastFire
 	}
 	s.latest[key] = sched
 	s.mu.Unlock()
 	obj := &homev1alpha1.Rule{}
 	obj.Name, obj.Namespace = key.Name, key.Namespace
+	ev := event.GenericEvent{Object: obj}
 	select {
-	case s.events <- event.GenericEvent{Object: obj}:
+	case s.events <- ev:
 	default:
+		go func() { s.events <- ev }()
 	}
 }
 
@@ -167,10 +170,23 @@ func (s *Scheduled) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	}
 	var a homev1alpha1.Rule
 	if err := s.Get(ctx, req.NamespacedName, &a); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			s.forget(req.NamespacedName, sched)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	orig := a.DeepCopy()
 	a.Status.NextFire = metav1.Time{}
+	if sched.Cleared {
+		meta.RemoveStatusCondition(&a.Status.Conditions, homev1alpha1.ConditionScheduled)
+		if !equality.Semantic.DeepEqual(orig.Status, a.Status) {
+			if err := s.Status().Patch(ctx, &a, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		s.forget(req.NamespacedName, sched)
+		return ctrl.Result{}, nil
+	}
 	if !sched.Next.IsZero() {
 		a.Status.NextFire = metav1.NewTime(sched.Next.Truncate(time.Second))
 	}
@@ -179,7 +195,7 @@ func (s *Scheduled) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	}
 	cond := metav1.Condition{
 		Type: homev1alpha1.ConditionScheduled, Status: metav1.ConditionTrue, Reason: "Scheduled",
-		ObservedGeneration: a.Generation,
+		ObservedGeneration: sched.Generation,
 	}
 	if sched.Reason == ReasonNoLocation {
 		cond.Status, cond.Reason = metav1.ConditionFalse, ReasonNoLocation
@@ -190,6 +206,15 @@ func (s *Scheduled) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{}, s.Status().Patch(ctx, &a, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{}))
+}
+
+// forget drops a Rule's schedule once it's cleared or the Rule is gone, unless a newer one came.
+func (s *Scheduled) forget(key types.NamespacedName, sched Schedule) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.latest[key]; ok && cur == sched {
+		delete(s.latest, key)
+	}
 }
 
 // SetupWithManager registers the status writer.
