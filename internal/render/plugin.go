@@ -35,7 +35,7 @@ const (
 
 	pluginConfigPath = "/etc/oikade/config"
 	pluginSecretPath = "/etc/oikade/secrets"
-	// pluginUserID is the node user in the official Node images.
+	// pluginUserID matches USER in plugins/Dockerfile. Images built elsewhere must run as it too.
 	pluginUserID = 1000
 )
 
