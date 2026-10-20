@@ -312,7 +312,7 @@ cmd_ready() {
 	local claimed all issues n milestone title info blockers
 	claimed=" $(claimed_numbers | tr '\n' ' ') "
 	all=$(gh issue list --state open --limit 200 --json number,title,labels,milestone,body)
-	issues=$(jq -r '[.[] | select([.labels[].name] | (index("needs-design") or index("pi")) | not)]
+	issues=$(jq -r '[.[] | select([.labels[].name] | (index("needs-design") or index("manual")) | not)]
 		    | sort_by(.milestone.number // 1e9, .number) | .[]
 		    | "\(.number)\t\(.milestone.title // "-")\t\(.title)"' <<<"$all")
 	[[ -n "$issues" ]] || return 0
@@ -351,7 +351,7 @@ cmd_claim() {
 	[[ "$state" == OPEN* ]] || die "#$n isn't open"
 	labels=",${state#* },"
 	[[ "$labels" != *,needs-design,* ]] || die "#$n still needs a design"
-	[[ "$labels" != *,pi,* ]] || die "#$n has the pi label: what's left can only be verified on the Pi"
+	[[ "$labels" != *,manual,* ]] || die "#$n has the manual label: what's left can only be checked by hand"
 	[[ -n "$(gate "$n")" ]] || die "#$n may not be built yet: it needs the approved or no-design label, or a Design: #M line naming an approved feature"
 	[[ -z "$(open_blockers "$n")" ]] || die "#$n is blocked by $(open_blockers "$n")"
 	is_claimed "$n" && die "#$n is already claimed (branch work/$n exists). See: hack/plan claims"

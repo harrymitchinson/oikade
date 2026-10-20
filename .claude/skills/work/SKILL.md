@@ -37,15 +37,15 @@ Run `hack/plan show N`. It prints the issue, its comments, the next step and why
   make test-e2e && make cleanup-test-e2e
   ```
 
-- **Pi-only acceptance** (the `pi` label, or real HomeKit pairing and devices) can't be checked here. Leave it for the user, and say so in the PR.
+- **Manual acceptance** (`(manual, in #27)`, such as real HomeKit pairing and devices) can't be checked here. Leave it for the user, check that #27 lists it, and say so in the PR.
 - **Commit as you go,** with conventional commits like the git log (`feat(schedule): …`). Stage explicit paths only.
 
 ## 4. Review and open the PR
 
 1. Run the `code-review` skill on the step. When it's stacked, review only the step's own commits: `git diff <base>...HEAD`. Fix each finding, or explain in the PR why you didn't.
-2. Write the PR body to a file in your scratchpad. It has `Part of #N`, or `Closes #N` if this is the feature's last unticked step. Then the step, what you tested and how, anything left for the Pi, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first.
+2. Write the PR body to a file in your scratchpad. It has `Part of #N`, or `Closes #N` if this is the feature's last unticked step. Then the step, what you tested and how, anything left for manual testing, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first.
 3. Open it with `hack/plan pr N "<conventional title>" <body file>`. It pushes `work/N-S`, opens the PR against the step below it (or main) and records it against the step. Don't open it with `git push` and `gh pr create` yourself.
-4. **Merge it yourself if it's low risk.** It is when the step's acceptance needs nothing on the Pi, and the step changes nothing in `.claude/skills/design/references/surfaces.md` (public API, state that must survive, component boundaries, dependencies). It also has to be the bottom of its stack. Wait for CI with `gh pr checks <PR> --watch`, then run `hack/plan merge N <PR>`. That checks again: it refuses a PR that touches a protected path, labels it `needs-review` and leaves it for the user. If you judge a step risky though it touches no protected path, label it yourself: `gh pr edit <PR> --add-label needs-review`. **Never work around a refusal,** and never merge with `gh pr merge` directly.
+4. **Merge it yourself if it's low risk.** It is when the step's acceptance needs no manual testing, and the step changes nothing in `.claude/skills/design/references/surfaces.md` (public API, state that must survive, component boundaries, dependencies). It also has to be the bottom of its stack. Wait for CI with `gh pr checks <PR> --watch`, then run `hack/plan merge N <PR>`. That checks again: it refuses a PR that touches a protected path, labels it `needs-review` and leaves it for the user. If you judge a step risky though it touches no protected path, label it yourself: `gh pr edit <PR> --add-label needs-review`. **Never work around a refusal,** and never merge with `gh pr merge` directly.
    - If a check fails, fix it on the branch and push, rather than leaving it red.
 5. If a later step needs to know something that isn't in the code or the PR, leave it with `hack/plan note N "…"`.
 

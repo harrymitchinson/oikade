@@ -61,7 +61,7 @@ The data path is: driver ↔ MQTT ↔ hub ↔ {status writer, exporter, engine, 
 ## 5. Hardware and environment
 
 - The real target is the user's **arm64 Raspberry Pi cluster** running k3s. Images must build for arm64, and memory and CPU are tight.
-- HAP needs **L2 adjacency and mDNS** with Apple devices. Kind on macOS can't do mDNS, so anything user-visible in HomeKit is only verifiable on the Pi.
+- HAP needs **L2 adjacency and mDNS** with Apple devices. Kind on macOS can't do mDNS, so anything user-visible in HomeKit can only be checked manually, against real devices and the Home app.
 - The Zigbee coordinator is either networked (`tcp://host:6638`), so the pod can run anywhere, or USB, so the pod is pinned with `nodeSelector` and runs privileged.
 - Mosquitto is anonymous inside the cluster today. MQTT auth and TLS are listed under "Not yet".
 
@@ -75,7 +75,7 @@ Say which layer proves each behaviour. Don't just write "add tests".
 | Integration | Part of `make test`, with an in-process broker (`internal/mqtt/mqtttest`) | Bus → status, metrics, and engine `/set` |
 | envtest | `CGO_ENABLED=0 make test` | Controllers: AID stability, identity restore, rendered z2m config, `Ready=False` on a bad CEL |
 | Kind e2e | `make test-e2e` | The deployed system with z2m faked by `mosquitto_pub` |
-| Manual on the Pi | See `docs/deploy-raspberry-pi.md` | HomeKit pairing, real Zigbee payloads, the Home app's rendering, arm64 resource use |
+| Manual, in #27 | Real devices and the Home app | HomeKit pairing, real Zigbee payloads, the Home app's rendering, arm64 resource use |
 
 Lint with `GOTOOLCHAIN=go1.26.0 make lint`.
 
