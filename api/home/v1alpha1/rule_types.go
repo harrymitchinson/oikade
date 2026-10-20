@@ -26,7 +26,7 @@ import (
 const ConditionReady = "Ready"
 
 // Trigger is a moment that fires the Rule. Exactly one field must be set.
-// +kubebuilder:validation:XValidation:rule="has(self.change)",message="exactly one of change must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.change)",message="change must be specified"
 type Trigger struct {
 	// change fires when a capability changes value.
 	// +optional
