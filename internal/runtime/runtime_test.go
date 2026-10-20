@@ -99,7 +99,7 @@ func TestRuntimeEndToEnd(t *testing.T) {
 	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "motion-light", Namespace: ns},
 		Spec: homev1alpha1.RuleSpec{
-			On:        []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: capability.Occupancy}}},
+			Triggers:  []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: capability.Occupancy}}},
 			Condition: "trigger.value",
 			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
 				Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
@@ -111,7 +111,7 @@ func TestRuntimeEndToEnd(t *testing.T) {
 	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "hallway-off", Namespace: ns},
 		Spec: homev1alpha1.RuleSpec{
-			On: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Room: "porch", Capability: capability.ContactOpen}}},
+			Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Room: "porch", Capability: capability.ContactOpen}}},
 			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
 				Room: "hallway", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("false")},
 			}}},
@@ -253,7 +253,7 @@ func TestRuntimePluginDevices(t *testing.T) {
 	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "button-light", Namespace: ns},
 		Spec: homev1alpha1.RuleSpec{
-			On:        []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "porch-button", Capability: capability.SwitchOn}}},
+			Triggers:  []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "porch-button", Capability: capability.SwitchOn}}},
 			Condition: "trigger.value",
 			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
 				Device: "porch-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},

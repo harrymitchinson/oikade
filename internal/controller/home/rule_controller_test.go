@@ -17,6 +17,10 @@ limitations under the License.
 package home
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -25,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
@@ -35,7 +40,7 @@ var _ = Describe("Rule Controller", func() {
 		Expect(k8sClient.Create(ctx, &homev1alpha1.Rule{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 			Spec: homev1alpha1.RuleSpec{
-				On: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{
+				Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{
 					Device: "hallway-motion", Capability: "sensor.occupancy-detected",
 				}}},
 				Condition: condition,
@@ -75,7 +80,7 @@ var _ = Describe("Rule Controller", func() {
 		err := k8sClient.Create(ctx, &homev1alpha1.Rule{
 			ObjectMeta: metav1.ObjectMeta{Name: "both", Namespace: "default"},
 			Spec: homev1alpha1.RuleSpec{
-				On: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "d", Capability: "light.on"}}},
+				Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "d", Capability: "light.on"}}},
 				Do: []homev1alpha1.Action{{
 					Set:   &homev1alpha1.SetAction{Device: "d", Capability: "light.on", Value: apiextensionsv1.JSON{Raw: []byte("true")}},
 					Delay: &metav1.Duration{Duration: 1},
@@ -105,7 +110,7 @@ var _ = Describe("Rule Controller", func() {
 			Expect(k8sClient.Create(ctx, &homev1alpha1.Rule{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: roomNS},
 				Spec: homev1alpha1.RuleSpec{
-					On: []homev1alpha1.Trigger{
+					Triggers: []homev1alpha1.Trigger{
 						{Change: &homev1alpha1.ChangeTrigger{Room: "livingroom", Capability: "sensor.occupancy-detected"}},
 						{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: "sensor.occupancy-detected"}},
 					},
@@ -157,12 +162,25 @@ var _ = Describe("Rule Controller", func() {
 		})
 	})
 
+	// kubectl decodes YAML 1.1, where some bare keys aren't strings (on is true), so the samples
+	// go through the same decoder, strictly, before the API server sees them.
+	It("accepts the samples as kubectl decodes them", func() {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "samples", "home_v1alpha1_rule.yaml"))
+		Expect(err).NotTo(HaveOccurred())
+		for doc := range strings.SplitSeq(string(raw), "\n---\n") {
+			var rule homev1alpha1.Rule
+			Expect(yaml.UnmarshalStrict([]byte(doc), &rule)).To(Succeed())
+			rule.Namespace = "default"
+			Expect(k8sClient.Create(ctx, &rule)).To(Succeed())
+		}
+	})
+
 	It("rejects a moment with no trigger at admission", func() {
 		err := k8sClient.Create(ctx, &homev1alpha1.Rule{
 			ObjectMeta: metav1.ObjectMeta{Name: "no-trigger", Namespace: "default"},
 			Spec: homev1alpha1.RuleSpec{
-				On: []homev1alpha1.Trigger{{}},
-				Do: []homev1alpha1.Action{{Delay: &metav1.Duration{Duration: 1}}},
+				Triggers: []homev1alpha1.Trigger{{}},
+				Do:       []homev1alpha1.Action{{Delay: &metav1.Duration{Duration: 1}}},
 			},
 		})
 		Expect(err).To(MatchError(ContainSubstring("change must be specified")))
@@ -175,8 +193,8 @@ var _ = Describe("Rule Controller", func() {
 			return k8sClient.Create(ctx, &homev1alpha1.Rule{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 				Spec: homev1alpha1.RuleSpec{
-					On: []homev1alpha1.Trigger{{Change: &trigger}},
-					Do: []homev1alpha1.Action{{Set: &set}},
+					Triggers: []homev1alpha1.Trigger{{Change: &trigger}},
+					Do:       []homev1alpha1.Action{{Set: &set}},
 				},
 			})
 		}

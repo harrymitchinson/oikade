@@ -81,7 +81,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // exist in its namespace, sorted.
 func (r *RuleReconciler) missingRooms(ctx context.Context, a *homev1alpha1.Rule) ([]string, error) {
 	var named []string
-	for _, t := range a.Spec.On {
+	for _, t := range a.Spec.Triggers {
 		if t.Change != nil && t.Change.Room != "" {
 			named = append(named, t.Change.Room)
 		}
