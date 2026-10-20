@@ -114,29 +114,30 @@ func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alp
 }
 
 func compileWindow(w *homev1alpha1.Window) (*window, error) {
+	var errs []error
 	start, err := compileWindowTime(w.Start)
 	if err != nil {
-		return nil, fmt.Errorf("start: %w", err)
+		errs = append(errs, fmt.Errorf("start: %w", err))
 	}
 	end, err := compileWindowTime(w.End)
 	if err != nil {
-		return nil, fmt.Errorf("end: %w", err)
+		errs = append(errs, fmt.Errorf("end: %w", err))
 	}
 	days, err := compileDays(w.Days)
-	return &window{start: start, end: end, days: days}, err
+	errs = append(errs, err)
+	return &window{start: start, end: end, days: days}, errors.Join(errs...)
 }
 
 func compileWindowTime(t homev1alpha1.WindowTime) (timeTrigger, error) {
 	switch {
-	case t.Time != "" && t.Sun == "":
-		if t.Offset != nil {
-			return timeTrigger{}, errors.New("offset only applies to a sun time")
-		}
+	case t.Time != "" && t.Sun == "" && t.Offset == nil && hhmm.MatchString(t.Time):
 		return compileAt(&homev1alpha1.AtTrigger{Time: t.Time})
 	case t.Time == "" && t.Sun != "":
 		return compileSun(&homev1alpha1.SunTrigger{Event: t.Sun, Offset: t.Offset})
+	case t.Time != "":
+		return timeTrigger{}, fmt.Errorf(`%s is neither "HH:MM" nor {sun, offset}`, t.Time)
 	default:
-		return timeTrigger{}, errors.New(`exactly one of "HH:MM" or {sun, offset} is required`)
+		return timeTrigger{}, errors.New(`"HH:MM" or {sun, offset} is required`)
 	}
 }
 

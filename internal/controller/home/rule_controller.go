@@ -168,7 +168,8 @@ func (r *RuleReconciler) checkClaims(ctx context.Context, a *homev1alpha1.Rule) 
 				if !slices.Contains(mine, t) {
 					continue
 				}
-				if d, ok := byName[t.device]; ok && arbitrated(d, t.capability) {
+				// A Device that doesn't exist yet isn't held by anything, so it can't conflict.
+				if d, ok := byName[t.device]; !ok || arbitrated(d, t.capability) {
 					continue
 				}
 				conflicts = append(conflicts, fmt.Sprintf("%s on %s with Rule %s", t.capability, t.device, other.Name))

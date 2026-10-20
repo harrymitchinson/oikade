@@ -104,13 +104,19 @@ func TestCompileRejectsHolds(t *testing.T) {
   do: [{delay: 1m}]`, "do is only allowed with triggers"},
 		"bad time": {`
   while: {window: {start: "6:00", end: "08:00"}}
-  hold: {device: d, capability: switch.on, value: true}`, `while.window: start: time "6:00" is not HH:MM`},
+  hold: {device: d, capability: switch.on, value: true}`, `while.window: start: 6:00 is neither "HH:MM" nor {sun, offset}`},
+		"number time": {`
+  while: {window: {start: 6, end: true}}
+  hold: {device: d, capability: switch.on, value: true}`, `start: 6 is neither "HH:MM" nor {sun, offset}` + "\nend: true is neither"},
+		"unknown key": {`
+  while: {window: {start: {sun: Sunset, ofset: 1h}, end: "08:00"}}
+  hold: {device: d, capability: switch.on, value: true}`, `start: {"ofset":"1h","sun":"Sunset"} is neither`},
 		"time and sun": {`
   while: {window: {start: {sun: Sunset, offset: 1h}, end: {sun: Noon}}}
   hold: {device: d, capability: switch.on, value: true}`, `while.window: end: unknown event "Noon"`},
 		"offset on a time": {`
   while: {window: {start: {offset: 1h}, end: "08:00"}}
-  hold: {device: d, capability: switch.on, value: true}`, `exactly one of "HH:MM" or {sun, offset}`},
+  hold: {device: d, capability: switch.on, value: true}`, `start: {"offset":"1h"} is neither "HH:MM" nor {sun, offset}`},
 		"when not a bool": {`
   while: {when: "1 + 1"}
   hold: {device: d, capability: switch.on, value: true}`, "while.when: must evaluate to a bool"},
@@ -132,6 +138,18 @@ func TestCompileRejectsHolds(t *testing.T) {
 		"zero for": {`
   triggers: [{at: {time: "07:00"}}]
   do: [{set: {device: d, capability: switch.on, value: true, for: 0s}}]`, "for must be positive"},
+		"condition on a hold": {`
+  condition: "true"
+  while: {when: "true"}
+  hold: {device: d, capability: switch.on, value: true}`, "condition applies to triggers"},
+		"startingDeadline on a hold": {`
+  startingDeadline: 5m
+  while: {when: "true"}
+  hold: {device: d, capability: switch.on, value: true}`, "startingDeadline applies to triggers"},
+		"priority on a moment": {`
+  priority: Safety
+  triggers: [{at: {time: "07:00"}}]
+  do: [{delay: 1m}]`, "priority applies to a hold"},
 		"release without a rule": {`
   triggers: [{at: {time: "07:00"}}]
   do: [{release: {rule: ""}}]`, "release needs a rule"},

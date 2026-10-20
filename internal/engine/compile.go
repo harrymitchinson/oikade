@@ -2,7 +2,6 @@
 package engine
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -99,8 +98,19 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 			errs = append(errs, err)
 		}
 		c.hold = h
-	} else if a.Spec.Hold != nil {
-		errs = append(errs, errors.New("hold is only allowed with while"))
+		if a.Spec.Condition != "" {
+			errs = append(errs, errors.New("condition applies to triggers; a hold uses while.when"))
+		}
+		if a.Spec.StartingDeadline != nil {
+			errs = append(errs, errors.New("startingDeadline applies to triggers"))
+		}
+	} else {
+		if a.Spec.Hold != nil {
+			errs = append(errs, errors.New("hold is only allowed with while"))
+		}
+		if a.Spec.Priority != "" {
+			errs = append(errs, errors.New("priority applies to a hold; a set action takes its own"))
+		}
 	}
 	for i, trig := range a.Spec.Triggers {
 		if n := btoi(trig.Change != nil) + btoi(trig.At != nil) + btoi(trig.Sun != nil); n != 1 {
@@ -132,19 +142,11 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 		c.changes = append(c.changes, *t)
 	}
 	if a.Spec.Condition != "" {
-		ast, iss := env.Compile(a.Spec.Condition)
-		switch {
-		case iss.Err() != nil:
-			errs = append(errs, fmt.Errorf("condition: %w", iss.Err()))
-		case ast.OutputType() != cel.BoolType && ast.OutputType() != cel.DynType:
-			errs = append(errs, fmt.Errorf("condition must evaluate to a bool, not %s", ast.OutputType()))
-		default:
-			prg, err := env.Program(ast)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("condition: %w", err))
-			}
-			c.program = prg
+		prg, err := compileBool(env, a.Spec.Condition)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("condition: %w", err))
 		}
+		c.program = prg
 	}
 	actions, actErrs := compileActions(a.Spec.Do)
 	c.actions = actions
@@ -173,21 +175,7 @@ func compileActions(do []homev1alpha1.Action) ([]action, []error) {
 				errs = append(errs, fmt.Errorf("do[%d]: exactly one of device or room is required", i))
 				continue
 			}
-			spec, ok := capability.Lookup(s.Capability)
-			if !ok {
-				errs = append(errs, fmt.Errorf("do[%d]: unknown capability %q", i, s.Capability))
-				continue
-			}
-			if !spec.Writable {
-				errs = append(errs, fmt.Errorf("do[%d]: capability %s is read-only", i, s.Capability))
-				continue
-			}
-			var raw any
-			if err := json.Unmarshal(s.Value.Raw, &raw); err != nil {
-				errs = append(errs, fmt.Errorf("do[%d]: value: %w", i, err))
-				continue
-			}
-			v, err := capability.Validate(s.Capability, raw)
+			v, err := writableValue(s.Capability, s.Value.Raw)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("do[%d]: %w", i, err))
 				continue
