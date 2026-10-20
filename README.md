@@ -271,7 +271,7 @@ While the major version is 0, the API is still settling, and versions follow the
 
 `1.0.0` is a deliberate decision, not something a commit triggers.
 
-Releases are cut by merging the release PR that [release-please](https://github.com/googleapis/release-please) keeps open on `main`. That gives the tag, a GitHub Release with notes and `install.yaml`, and the image `ghcr.io/harrymitchinson/oikade:<tag>` for arm64 and amd64. CI doesn't run on the release PR, because it's opened with `GITHUB_TOKEN`. That's fine, since it only changes `CHANGELOG.md` and `.release-please-manifest.json`. release-please needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on.
+Releases are cut by merging the release PR that [release-please](https://github.com/googleapis/release-please) keeps open on `main`. That gives the tag, a GitHub Release with notes and `install.yaml`, and the image `ghcr.io/harrymitchinson/oikade:<tag>` for arm64 and amd64. CI doesn't run on the release PR, because it's opened with `GITHUB_TOKEN`. That's fine, since it only changes `CHANGELOG.md` and `.release-please-manifest.json`. release-please needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on. The first release creates the ghcr package as private, so set its visibility to public once, in the package's settings.
 
 To ship a milestone:
 
