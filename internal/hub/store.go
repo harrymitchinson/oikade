@@ -24,6 +24,8 @@ type Meta struct {
 	Instance driver.InstanceKey
 	// HomeKitService is the optional HomeKit service override.
 	HomeKitService string
+	// Controlled lists the capabilities the Device arbitrates: those with a control entry.
+	Controlled []string
 }
 
 // Snapshot is a copy of one device's state.

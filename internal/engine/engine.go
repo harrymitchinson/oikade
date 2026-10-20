@@ -46,19 +46,23 @@ const maxWait = time.Minute
 // recheck is how often a Rule with no fire within a week looks again, as at a polar sunrise.
 const recheck = 24 * time.Hour
 
-// Schedule is what the engine reports about a Rule's at and sun triggers.
+// Schedule is what the engine reports about a Rule's at and sun triggers, or its hold.
 type Schedule struct {
 	// Generation is the Rule generation the schedule is for.
 	Generation int64
 	// Cleared is set when the Rule no longer has at or sun triggers, or is gone.
 	Cleared bool
-	// Next is the next fire. Zero means none within a week.
+	// Next is the next fire, or when a hold next starts or ends. Zero means none within a week.
 	Next time.Time
 	// LastFire is the scheduled time of the last fire the engine ran or skipped. Zero means it
 	// hasn't changed since the Rule loaded.
 	LastFire time.Time
-	// Reason is ReasonNoLocation when sun triggers can't fire, and empty otherwise.
+	// Reason is ReasonNoLocation when sun triggers or sun windows can't fire, and empty otherwise.
 	Reason string
+	// Hold is set for a Rule with a hold, which reports Active rather than fires.
+	Hold bool
+	// Active is whether the hold is active.
+	Active bool
 }
 
 // Engine is a driver.Sink that runs Rules on capability changes.
@@ -77,6 +81,10 @@ type Engine struct {
 	NextChange *prometheus.GaugeVec
 	// Dropped counts changes dropped because the engine fell behind.
 	Dropped prometheus.Counter
+	// Active is 1 while a Rule's hold is active, by namespace and rule.
+	Active *prometheus.GaugeVec
+	// States keeps holds' state across restarts. Nil keeps it in memory only.
+	States HoldStates
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key types.NamespacedName, t time.Time)
 	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
@@ -101,8 +109,11 @@ type state struct {
 	// run identifies the latest run, so a cancelled run doesn't mark a newer one idle.
 	run uint64
 	// next is the next timer fire, and due a missed one to run now. Zero At means none. A next
-	// with no type is a recheck, which only looks for the next fire again.
+	// with no type is a recheck, which only looks for the next fire again. For a hold, next is
+	// when to evaluate it again.
 	next, due fire
+	// hold is nil for a moment.
+	hold *holdState
 }
 
 // NewRunsCounter returns the counter Engine.Runs expects.
@@ -141,6 +152,9 @@ func (e *Engine) Init() {
 	if e.Location == nil {
 		e.Location = time.Local
 	}
+	if e.States == nil {
+		e.States = &memoryStates{states: map[types.NamespacedName]HoldState{}}
+	}
 }
 
 // Load adds or replaces a Rule. A run in progress for an older generation is cancelled;
@@ -156,16 +170,24 @@ func (e *Engine) Load(c *Compiled) {
 			s.cancel()
 		}
 	}
-	hadTimers := e.rules[c.Key] != nil && len(e.rules[c.Key].c.timers) > 0
+	old := e.rules[c.Key]
+	reported := old != nil && (len(old.c.timers) > 0 || old.c.hold != nil)
 	s := &state{c: c}
 	e.rules[c.Key] = s
 	first := !e.loaded[c.Key]
 	e.loaded[c.Key] = true
 	switch {
+	case c.hold != nil:
+		// Run evaluates it, once the saved states are in.
+		s.hold = &holdState{}
+		s.next = fire{At: e.Clock.Now()}
 	case len(c.timers) > 0:
 		e.schedule(c.Key, s, first)
-	case hadTimers:
+	case reported:
 		e.report(c.Key, Schedule{Generation: c.Generation, Cleared: true})
+	}
+	if old != nil && old.c.hold != nil && c.hold == nil && e.Active != nil {
+		e.Active.DeleteLabelValues(c.Key.Namespace, c.Key.Name)
 	}
 	e.signal()
 }
@@ -227,15 +249,30 @@ func (e *Engine) signal() {
 	}
 }
 
-// Remove drops a Rule and cancels its run.
+// Remove drops a deleted Rule, cancels its run and forgets its hold's state. A hold that is
+// active leaves its device as it is.
 func (e *Engine) Remove(key types.NamespacedName) {
+	e.Unload(key)
+	// A Rule unloaded as invalid before it was deleted has a state too.
+	if _, ok := e.States.Get(key); ok {
+		e.runs.Go(func() {
+			if err := e.States.Delete(context.Background(), key); err != nil {
+				e.Log.Error(err, "Failed to delete hold state", "rule", key)
+			}
+		})
+	}
+}
+
+// Unload drops a Rule that is no longer valid and cancels its run. Its hold's state is kept, so
+// a fixed Rule carries on. It reports whether the Rule had a hold.
+func (e *Engine) Unload(key types.NamespacedName) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.rules[key]
 	if s != nil && s.cancel != nil {
 		s.cancel()
 	}
-	if s != nil && len(s.c.timers) > 0 {
+	if s != nil && (len(s.c.timers) > 0 || s.c.hold != nil) {
 		e.report(key, Schedule{Generation: s.c.Generation, Cleared: true})
 	}
 	delete(e.rules, key)
@@ -247,7 +284,11 @@ func (e *Engine) Remove(key types.NamespacedName) {
 	if e.NextChange != nil {
 		e.NextChange.DeleteLabelValues(key.Namespace, key.Name)
 	}
+	if e.Active != nil {
+		e.Active.DeleteLabelValues(key.Namespace, key.Name)
+	}
 	e.signal()
+	return s != nil && s.c.hold != nil
 }
 
 // Changed implements driver.Sink. It never blocks the driver.
@@ -332,6 +373,12 @@ func (e *Engine) fireDue(ctx context.Context) {
 	defer e.mu.Unlock()
 	now := e.Clock.Now()
 	for key, s := range e.rules {
+		if s.hold != nil {
+			if !s.next.At.IsZero() && !now.Before(s.next.At) {
+				e.evaluate(ctx, key, s, now)
+			}
+			continue
+		}
 		var f fire
 		switch {
 		case !s.due.At.IsZero():
@@ -371,11 +418,25 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	now := e.Clock.Now()
+	evaluated := false
 	for key, s := range e.rules {
-		if key.Namespace != u.Device.Namespace || !s.c.matches(u.Device.Name, room, u.Capability) {
+		if key.Namespace != u.Device.Namespace {
 			continue
 		}
-		e.trigger(ctx, key, s, vars)
+		// A hold with when may read any device in its namespace.
+		if s.hold != nil && s.c.hold.when != nil && s.hold.loaded {
+			e.evaluate(ctx, key, s, now)
+			evaluated = true
+			continue
+		}
+		if s.c.matches(u.Device.Name, room, u.Capability) {
+			e.trigger(ctx, key, s, vars)
+		}
+	}
+	if evaluated {
+		// The evaluation may have moved a hold's next look earlier.
+		e.signal()
 	}
 }
 
@@ -442,7 +503,8 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 			return ResultCancelled
 		}
 		if a.release != "" {
-			// Latches and claims don't run yet, so there's nothing to release (0060).
+			// until: Released claims are released with arbitration, in a later step (0060).
+			e.release(types.NamespacedName{Namespace: key.Namespace, Name: a.release})
 			continue
 		}
 		if a.room != "" {

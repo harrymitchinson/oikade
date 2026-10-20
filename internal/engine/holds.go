@@ -1,0 +1,316 @@
+package engine
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/apimachinery/pkg/types"
+)
+
+// Hold timings.
+const (
+	// whenEvery is how often a hold with when looks again with no device change, since when may
+	// read now.
+	whenEvery = time.Minute
+	// retryUndiscovered is how soon a hold retries a write to a device its driver hasn't reported
+	// on yet, as on startup.
+	retryUndiscovered = 10 * time.Second
+	// retryFailed is how soon a hold retries a write that failed.
+	retryFailed = 30 * time.Second
+)
+
+// holdState is a loaded hold's state. Use it with e.mu held.
+type holdState struct {
+	// loaded is false until the saved state has been read.
+	loaded bool
+	// saved is the state as last saved, apart from changes dirty marks.
+	saved HoldState
+	// dirty is set when saved has changed without being saved, as after an edit.
+	dirty bool
+	// released is set by a release, for the next look to clear the latch.
+	released bool
+	// writing is true while a write or a save is in progress.
+	writing bool
+	// retry is when to try a failed write again. Zero means none is due.
+	retry time.Time
+	// warned is set once the hold has logged that its target is arbitrated.
+	warned bool
+	// reported is the last Schedule reported, so an unchanged one isn't reported again.
+	reported *Schedule
+}
+
+// NewActiveGauge returns the gauge Engine.Active expects.
+func NewActiveGauge() *prometheus.GaugeVec {
+	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "oikade_rule_active",
+		Help: "Whether a Rule's hold is active: 1 or 0.",
+	}, []string{labelNamespace, labelRule})
+}
+
+func (c *Compiled) target() HoldTarget {
+	h := c.hold
+	return HoldTarget{Device: h.device, Room: h.room, Capability: h.capability, Value: h.value}
+}
+
+// sameTarget compares targets as JSON, since a saved value decodes as float64.
+func sameTarget(a, b HoldTarget) bool {
+	x, err1 := json.Marshal(a)
+	y, err2 := json.Marshal(b)
+	return err1 == nil && err2 == nil && string(x) == string(y)
+}
+
+// condition reports whether the hold's while is true at now, and when the window next changes.
+// known is false when when can't be evaluated, as before a device it reads has reported.
+func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time) (on, known bool, next time.Time) {
+	on = true
+	if h.window != nil {
+		on, next = h.window.at(now, e.Location, e.Site)
+	}
+	if !on || h.when == nil {
+		return on, true, next
+	}
+	out, _, err := h.when.Eval(map[string]any{"devices": e.Store.Values(key.Namespace), "now": now, "tz": e.Location.String()})
+	if err != nil {
+		e.Log.V(1).Info("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
+		return false, false, next
+	}
+	b, ok := out.Value().(bool)
+	if !ok {
+		e.Log.Info("Hold's when didn't evaluate to a bool; keeping its state", "rule", key, "value", out.Value())
+		return false, false, next
+	}
+	return b, true, next
+}
+
+// evaluate works out whether a hold is active now, starts the write and save that follow, and
+// sets when to look again. Call with e.mu held.
+func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *state, now time.Time) {
+	hs, h := s.hold, s.c.hold
+	if hs.writing {
+		// The write's end signals Run, which looks again.
+		s.next = fire{}
+		return
+	}
+	var end *HoldTarget
+	if !hs.loaded {
+		hs.loaded = true
+		if saved, ok := e.States.Get(key); ok {
+			hs.saved = saved
+		}
+		// An edit that changed what the hold writes ends the old one, then starts afresh.
+		if t := s.c.target(); !sameTarget(hs.saved.Target, t) {
+			if hs.saved.Active {
+				old := hs.saved.Target
+				end = &old
+			}
+			hs.saved, hs.dirty = HoldState{Target: t}, true
+		}
+	}
+	st := hs.saved
+	if hs.released {
+		st.Latched, hs.released = false, false
+	}
+	on, known, next := e.condition(key, h, now)
+	active := st.Active
+	switch {
+	case st.Latched:
+		active = true
+	case !known:
+	case on:
+		st.OffAt = time.Time{}
+		if !st.Active {
+			if h.onDelay > 0 && st.OnAt.IsZero() {
+				st.OnAt = now.Add(h.onDelay)
+			}
+			if !now.Before(st.OnAt) {
+				active, st.OnAt = true, time.Time{}
+			}
+		}
+	default:
+		st.OnAt = time.Time{}
+		if st.Active {
+			if h.offDelay > 0 && st.OffAt.IsZero() {
+				st.OffAt = now.Add(h.offDelay)
+			}
+			if !now.Before(st.OffAt) {
+				active, st.OffAt = false, time.Time{}
+			}
+		}
+	}
+	if active && h.latch {
+		st.Latched = true
+	}
+	if !hs.retry.IsZero() && now.Before(hs.retry) {
+		// A failed write waits for its retry.
+		active = st.Active
+	}
+	hs.retry = time.Time{}
+
+	if e.Active != nil {
+		e.Active.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(st.Active)))
+	}
+	if active != st.Active || st != hs.saved || hs.dirty || end != nil {
+		hs.writing, hs.dirty = true, false
+		e.runs.Go(func() { e.write(ctx, key, s, st, active, end) })
+		s.next = fire{}
+	} else {
+		s.next = fire{At: lookAgain(h, st, next, now)}
+	}
+	e.reportHold(key, s, st, next)
+}
+
+// lookAgain returns when a hold next needs evaluating without a device change.
+func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
+	at := now.Add(recheck)
+	for _, t := range []time.Time{next, st.OnAt, st.OffAt} {
+		if !t.IsZero() && t.Before(at) {
+			at = t
+		}
+	}
+	if every := now.Add(whenEvery); h.when != nil && !st.Latched && every.Before(at) {
+		at = every
+	}
+	return at
+}
+
+// write ends an edited hold's old target, writes the hold's start or end, and saves its state.
+// A failed write isn't saved as done, so it's tried again.
+func (e *Engine) write(ctx context.Context, key types.NamespacedName, s *state, st HoldState, active bool, end *HoldTarget) {
+	var retry time.Duration
+	if end != nil {
+		retry, _ = e.applyHold(ctx, key, *end, false)
+	}
+	if retry == 0 && active != st.Active {
+		if d, err := e.applyHold(ctx, key, st.Target, active); err != nil {
+			retry = d
+		} else {
+			st.Active = active
+		}
+	}
+	// When the old target couldn't be ended, nothing is saved, and the next look loads the saved
+	// state again and retries.
+	ended := end == nil || retry == 0
+	if ended {
+		if err := e.States.Put(ctx, key, st); err != nil && ctx.Err() == nil {
+			e.Log.Error(err, "Failed to save hold state", "rule", key)
+		}
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s.hold.writing = false
+	if e.rules[key] != s {
+		return
+	}
+	if ended {
+		s.hold.saved = st
+	} else {
+		s.hold.loaded = false
+	}
+	s.next = fire{At: e.Clock.Now()}
+	if retry != 0 {
+		s.hold.retry = e.Clock.Now().Add(retry)
+		s.next = fire{At: s.hold.retry}
+	}
+	e.signal()
+}
+
+// applyHold writes a hold's start (its value) or end (the opposite of a bool, and nothing for a
+// number). It returns how soon to retry when it fails.
+func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t HoldTarget, start bool) (time.Duration, error) {
+	value := t.Value
+	if !start {
+		b, ok := value.(bool)
+		if !ok {
+			// A number hold leaves the device as it is when it ends (0060, answer 19).
+			return 0, nil
+		}
+		value = !b
+	}
+	log := e.Log.WithValues("rule", key, "capability", t.Capability)
+	var devices []types.NamespacedName
+	if t.Device != "" {
+		devices = []types.NamespacedName{{Namespace: key.Namespace, Name: t.Device}}
+	} else {
+		for _, dev := range e.Store.Room(key.Namespace, t.Room) {
+			if snap, ok := e.Store.Get(dev); ok && snap.Discovered && slices.Contains(snap.Info.Capabilities, t.Capability) {
+				devices = append(devices, dev)
+			}
+		}
+	}
+	var retry time.Duration
+	var failed error
+	for _, dev := range devices {
+		snap, ok := e.Store.Get(dev)
+		if ok && slices.Contains(snap.Controlled, t.Capability) {
+			e.warnArbitrated(key, dev)
+			continue
+		}
+		if !ok || !snap.Discovered {
+			log.V(1).Info("Waiting for Device before writing hold", "device", dev.Name)
+			retry, failed = max(retry, retryUndiscovered), fmt.Errorf("device %s isn't discovered", dev.Name)
+			continue
+		}
+		if err := e.Setter.Set(ctx, dev, t.Capability, value); err != nil {
+			if ctx.Err() == nil {
+				log.Error(err, "Failed to write hold", "device", dev.Name)
+			}
+			retry, failed = retryFailed, err
+		}
+	}
+	return retry, failed
+}
+
+// warnArbitrated logs once per load that a hold's target is arbitrated, which holds don't
+// write yet.
+func (e *Engine) warnArbitrated(key types.NamespacedName, dev types.NamespacedName) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s := e.rules[key]
+	if s == nil || s.hold == nil || s.hold.warned {
+		return
+	}
+	s.hold.warned = true
+	e.Log.Info("Hold on an arbitrated capability set nothing; arbitration isn't in the runtime yet",
+		"rule", key, "device", dev.Name, "capability", s.c.hold.capability)
+}
+
+// reportHold reports a hold's state and next change: the window's next change, or a delay's
+// end, whichever comes first. A latched hold has none. Call with e.mu held.
+func (e *Engine) reportHold(key types.NamespacedName, s *state, st HoldState, next time.Time) {
+	sched := Schedule{Generation: s.c.Generation, Hold: true, Active: st.Active}
+	if !st.Latched {
+		sched.Next = next
+		for _, t := range []time.Time{st.OnAt, st.OffAt} {
+			if !t.IsZero() && (sched.Next.IsZero() || t.Before(sched.Next)) {
+				sched.Next = t
+			}
+		}
+	}
+	if s.c.needsSite() && e.Site == nil {
+		sched.Reason = ReasonNoLocation
+	}
+	if r := s.hold.reported; r != nil && *r == sched {
+		return
+	}
+	s.hold.reported = &sched
+	e.report(key, sched)
+}
+
+// release clears a latched hold's latch. Call without e.mu held.
+func (e *Engine) release(key types.NamespacedName) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s := e.rules[key]
+	if s == nil || s.hold == nil {
+		e.Log.Info("Released no hold; the Rule isn't loaded or has none", "rule", key)
+		return
+	}
+	s.hold.released = true
+	s.next = fire{At: e.Clock.Now()}
+	e.signal()
+}

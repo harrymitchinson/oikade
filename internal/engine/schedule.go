@@ -176,7 +176,10 @@ func (c *Compiled) lastFire(since, t time.Time, loc *time.Location, site *sun.Si
 	return fire{}, false
 }
 
-// needsSite reports whether the Rule has a sun trigger.
+// needsSite reports whether the Rule has a sun trigger, or a hold window with a sun time.
 func (c *Compiled) needsSite() bool {
+	if h := c.hold; h != nil && h.window != nil {
+		return h.window.start.typ == TypeSun || h.window.end.typ == TypeSun
+	}
 	return slices.ContainsFunc(c.timers, func(t timeTrigger) bool { return t.typ == TypeSun })
 }

@@ -40,7 +40,7 @@ func (l *Loader) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, 
 	c, err := Compile(&a)
 	if err != nil {
 		logf.FromContext(ctx).Info("Unloaded invalid Rule", "rule", req.NamespacedName, "error", err.Error())
-		l.Engine.Remove(req.NamespacedName)
+		l.Engine.Unload(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 	l.Engine.Load(c)
@@ -115,7 +115,8 @@ func (t *Triggered) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // Scheduled writes what the engine reports about Rules' at and sun triggers: status.nextFire,
-// status.lastFire and the Scheduled condition.
+// status.lastFire and the Scheduled condition. For a hold, it writes status.active and
+// status.nextChange, and the Scheduled condition when the hold has sun times.
 type Scheduled struct {
 	client.Client
 
@@ -161,6 +162,7 @@ func (s *Scheduled) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	}
 	orig := a.DeepCopy()
 	a.Status.NextFire = metav1.Time{}
+	a.Status.Active, a.Status.NextChange = false, metav1.Time{}
 	if sched.Cleared {
 		meta.RemoveStatusCondition(&a.Status.Conditions, homev1alpha1.ConditionScheduled)
 		if !equality.Semantic.DeepEqual(orig.Status, a.Status) {
@@ -171,8 +173,14 @@ func (s *Scheduled) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 		s.forget(req.NamespacedName, sched)
 		return ctrl.Result{}, nil
 	}
+	next := metav1.Time{}
 	if !sched.Next.IsZero() {
-		a.Status.NextFire = metav1.NewTime(sched.Next.Truncate(time.Second))
+		next = metav1.NewTime(sched.Next.Truncate(time.Second))
+	}
+	if sched.Hold {
+		a.Status.Active, a.Status.NextChange = sched.Active, next
+	} else {
+		a.Status.NextFire = next
 	}
 	if last := sched.LastFire.Truncate(time.Second); last.After(a.Status.LastFire.Time) {
 		a.Status.LastFire = metav1.NewTime(last)
@@ -183,9 +191,14 @@ func (s *Scheduled) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	}
 	if sched.Reason == ReasonNoLocation {
 		cond.Status, cond.Reason = metav1.ConditionFalse, ReasonNoLocation
-		cond.Message = "Sun triggers need the runtime's --latitude and --longitude"
+		cond.Message = "Sun triggers and sun windows need the runtime's --latitude and --longitude"
 	}
-	meta.SetStatusCondition(&a.Status.Conditions, cond)
+	if sched.Hold && sched.Reason == "" {
+		// A hold only reports Scheduled when its sun times can't be computed.
+		meta.RemoveStatusCondition(&a.Status.Conditions, homev1alpha1.ConditionScheduled)
+	} else {
+		meta.SetStatusCondition(&a.Status.Conditions, cond)
+	}
 	if equality.Semantic.DeepEqual(orig.Status, a.Status) {
 		return ctrl.Result{}, nil
 	}
