@@ -30,16 +30,17 @@ limitations under the License.
 //
 // Handler.Serve reports the devices with SetDevices, then each device's SetAvailability and
 // SetState, and follows the devices until its context ends. Handler.Set applies one command and
-// reports the result with SetState or UpdateState. Calls for one device never overlap.
+// reports the result with SetState or UpdateState. Set calls for one device never overlap, but
+// they run on their own goroutines alongside Serve, so state both use needs a lock.
 //
 // Everything a plugin publishes is checked first. SetState refuses a device that isn't found, a
 // capability the device hasn't announced, a value the capability doesn't accept, and a state
 // missing an announced capability. The mistake is then the plugin's error, not a message Oikade
 // rejects.
 //
-// Logs are JSON on stderr. The SDK logs "Plugin came online", "Ignored set command", "Could not
-// apply set command", "Could not start plugin", "Could not serve plugin" and "Could not close
-// plugin". It never logs secrets: ReadSecret's values are the plugin's to protect.
+// Logs are JSON on stderr. The SDK logs "Plugin came online", "Could not announce plugin",
+// "Ignored set command", "Could not apply set command", "Could not start plugin", "Could not
+// serve plugin" and "Could not close plugin". It never logs secrets: ReadSecret's values are the plugin's to protect.
 //
 // plugins/example-switch in the Oikade repository is a complete plugin.
 package plugin
