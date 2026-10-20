@@ -7,18 +7,17 @@ Where Oikade is going, the order of the milestones and why, and what it delibera
 Oikade runs the whole house from Git: every device is declared there, HomeKit goes through Oikade's own bridge, and history lives in Prometheus.
 
 - **Done:** a plugin system, so device families other than Zigbee can join without core changes.
-- **Next:** schedules that can run the pool.
-- **Then:** Homebridge can be retired.
+- **Next:** one rule model for timed, conditional and budgeted behaviour, and a first release.
+- **Then:** checked against real devices and the Home app, with the first plugin for real devices.
 
 It isn't a general-purpose hub. It has no Home Assistant driver, no UI for configuration and no cloud.
 
 ## Milestones, in order
 
-1. **Plugin drivers** (done). The plugin contract and the `Device` source rule are public API that Schedules builds on, so they had to settle before more YAML depended on them.
-2. **[Schedules](https://github.com/harrymitchinson/oikade/milestone/1).** It needs the plugin contract for its control Device. The planner has no dependencies and is the riskiest piece, so build it first. Its design is [`docs/design/0003-schedules.md`](design/0003-schedules.md) ([#19](https://github.com/harrymitchinson/oikade/issues/19)).
-3. **[Retire Homebridge](https://github.com/harrymitchinson/oikade/milestone/2).** It needs both plugins and schedules. Pi bring-up is a hard prerequisite, because HomeKit pairing and real devices can only be checked on the Pi. The longer features pile up untested on real hardware, the more this milestone will turn up.
+Each milestone is a release, named by its semver version. Everything merged before a release ships in it.
 
-The Go plugin SDK ([#30](https://github.com/harrymitchinson/oikade/issues/30)) isn't in a milestone yet.
+1. **[v0.1.0](https://github.com/harrymitchinson/oikade/milestone/1).** The unified rule model ([#60](https://github.com/harrymitchinson/oikade/issues/60)) replaces `Schedule` and renames `Automation`, so it comes first: everything after it writes YAML against that API. Budgets ([#19](https://github.com/harrymitchinson/oikade/issues/19)) build on it. Release automation ([#36](https://github.com/harrymitchinson/oikade/issues/36)) is here so the first tag is cut the way every later one will be.
+2. **[v0.2.0](https://github.com/harrymitchinson/oikade/milestone/2).** Real devices. HomeKit pairing and real device payloads can only be checked by hand, and every manual check is in [#27](https://github.com/harrymitchinson/oikade/issues/27). The longer features pile up unchecked, the more this milestone will turn up. The SONOFF plugin ([#37](https://github.com/harrymitchinson/oikade/issues/37)) is the first plugin for real devices.
 
 ## Not doing
 
