@@ -24,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -91,7 +92,10 @@ func (w *Writer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, 
 	compute(&d, snap, ok, w.SeenInterval)
 	if !equality.Semantic.DeepEqual(orig.Status, d.Status) {
 		// Optimistic locking, because the operator writes Ready into the same conditions list.
-		if err := w.Status().Patch(ctx, &d, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})); err != nil {
+		// The cache lags bursts of driver events, so a conflict is expected and retried quietly.
+		if err := w.Status().Patch(ctx, &d, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})); apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		} else if err != nil {
 			return ctrl.Result{}, err
 		}
 	}

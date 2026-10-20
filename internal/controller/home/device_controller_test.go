@@ -138,9 +138,15 @@ var _ = Describe("Device Controller", func() {
 			control []homev1alpha1.CapabilityControl
 			want    string
 		}{
-			"duplicate":           {[]homev1alpha1.CapabilityControl{ok(), ok()}, "Duplicate value"},
-			"bad overrideHold":    {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) { c.OverrideHold = "soon" })}, "spec.control[0].overrideHold"},
-			"override, no hold":   {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) { c.External = homev1alpha1.ControlExternalOverride })}, "overrideHold is required when external is Override"},
+			"duplicate": {[]homev1alpha1.CapabilityControl{ok(), ok()}, "Duplicate value"},
+			"bad overrideHold": {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) {
+				c.External, c.OverrideHold = homev1alpha1.ControlExternalOverride, "soon"
+			})}, "spec.control[0].overrideHold"},
+			"override, no hold":  {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) { c.External = homev1alpha1.ControlExternalOverride })}, "overrideHold is required when external is Override"},
+			"revert with a hold": {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) { c.OverrideHold = "1h" })}, "overrideHold has no effect when external is Revert"},
+			"zero overrideHold": {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) {
+				c.External, c.OverrideHold = homev1alpha1.ControlExternalOverride, "0s"
+			})}, "overrideHold must be positive"},
 			"unknown resolve":     {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) { c.Resolve = "Newest" })}, "spec.control[0].resolve"},
 			"missing external":    {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) { c.External = "" })}, "spec.control[0].external"},
 			"negative minimumOn":  {[]homev1alpha1.CapabilityControl{with(func(c *homev1alpha1.CapabilityControl) { c.MinimumOn = &metav1.Duration{Duration: -time.Minute} })}, "minimumOn must not be negative"},
