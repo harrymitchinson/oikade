@@ -122,14 +122,14 @@ The contract version appears twice: in the topic root (`oikade/v1`) and in `stat
 - when the plugin is killed, its Last Will marks it offline with contract 1
 - Oikade rejected none of its messages at any point
 
-Oikade's CI runs it against [`plugins/example-switch`](../plugins/example-switch). To run it against a plugin built elsewhere, check out Oikade and pass the plugin's start command and a devices file for it. Paths are relative to the Oikade checkout unless absolute:
+Oikade's CI runs it against [`plugins/example-switch`](../plugins/example-switch). To run it against a plugin built elsewhere, in any language, check out Oikade and pass the plugin's start command and a devices file for it. Paths are relative to the Oikade checkout unless absolute:
 
 ```sh
 make test-conformance \
-  CONFORMANCE_PLUGIN="node ../my-plugin/dist/main.js" \
+  CONFORMANCE_PLUGIN="../my-plugin/bin/my-plugin" \
   OIKADE_CONFORMANCE_DEVICES=../my-plugin/conformance-devices.json
 ```
 
 The command is split on spaces, without a shell. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `OIKADE_CONFORMANCE_SECRETS` names a directory to pass as `OIKADE_SECRETS_DIR`.
 
-Plugins written in TypeScript can use [the SDK](../sdk/typescript), which implements this contract.
+Plugins written in Go can use [the SDK](../sdk/plugin), which implements this contract, and the payload types in [`contract/v1`](../contract/v1), which Oikade's own decoder uses. Plugins in other languages implement this document directly and pass the conformance suite above. Oikade maintains no SDK for them.

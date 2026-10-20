@@ -14,9 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package plugin is the Go SDK for Oikade plugins. It speaks the oikade/v1 contract
-// (docs/plugin-contract.md): the Last Will, re-announcing after a reconnect, /set dispatch and a
-// clean shutdown.
 package plugin
 
 import (

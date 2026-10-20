@@ -14,6 +14,9 @@ config/rbac/role.yaml          Generated RBAC (DO NOT EDIT)
 config/samples/*               Example CRs (edit these)
 Makefile                       Build/test/deploy commands
 PROJECT                        Kubebuilder metadata Auto-generated (DO NOT EDIT)
+contract/v1/*                  The oikade/v1 plugin contract as Go types (public API)
+sdk/plugin/*                   The Go plugin SDK (public API)
+plugins/<name>/*               Plugins: one Go main package per directory
 ```
 
 **Multi-group layout** (for projects with multiple API groups):
@@ -70,14 +73,12 @@ make lint-fix   # Auto-fix code style
 make test       # Run unit tests
 ```
 
-**After editing the TypeScript workspace** (`sdk/typescript`, `plugins/*`):
+**After editing the plugin contract, the SDK or a plugin** (`contract/v1`, `sdk/plugin`, `plugins/*`), as well as the Go steps above:
 ```
-corepack yarn fix        # Auto-fix lint and formatting (sdk/, plugins/ and the root vitest.config.ts)
-make test-plugins        # Install, build, format check, lint, typecheck and unit tests
 make test-conformance    # Drive plugins/example-switch through the oikade/v1 contract
 ```
 
-Yarn 4 comes from `packageManager` through corepack; don't install it globally. Use `corepack yarn install` for intentional dependency changes and keep the single root `yarn.lock`. Plugins depend on the SDK with `workspace:*`. The contract the SDK and plugins implement is `docs/plugin-contract.md`; change it, the decoder in `internal/driver/plugin` and the conformance suite in `test/conformance` together.
+The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `test/conformance` together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. Plugins in other languages live in their own repos. An SDK for another language may live here only if it's generated from the contract (`docs/design/0006-go-plugin-sdk.md`).
 
 **Plugin images:** `make docker-buildx-plugin PLUGIN=<dir>` builds `plugins/<dir>` for linux/arm64 and linux/amd64 with `plugins/Dockerfile`.
 

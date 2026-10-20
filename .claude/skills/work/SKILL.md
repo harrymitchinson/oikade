@@ -29,7 +29,7 @@ Run `hack/plan show N`. It prints the issue, its comments, the next step and why
 ## 3. Build it
 
 - **Only this step.** If you find work for later, mention it in the PR, or add it with `hack/plan idea` if it's new.
-- **Follow AGENTS.md:** scaffold with `kubebuilder`, run `make manifests generate` after editing types, and `make lint-fix test` after Go changes. For the TypeScript workspace, run `corepack yarn fix` and `make test-plugins`.
+- **Follow AGENTS.md:** scaffold with `kubebuilder`, run `make manifests generate` after editing types, and `make lint-fix test` after Go changes. After changing the plugin contract, the SDK or a plugin, also run `make test-conformance`.
 - **e2e gets its own cluster,** so parallel agents don't collide and nothing touches the user's current context:
 
   ```sh
