@@ -57,13 +57,13 @@ Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. B
   ### <step one>
   Scope: the files, commands (`kubebuilder create …`, `make manifests generate`) and risks.
   Acceptance:
-  - <observable outcome> (unit / integration / envtest / Kind e2e / Pi)
+  - <observable outcome> (unit / integration / envtest / Kind e2e / manual)
 
   ### <step two>
   …
   ```
 
-  Only steps are checkboxes. Acceptance lines are plain bullets, so GitHub's "N of M tasks" counts steps. Add the `pi` label to a feature whose remaining steps can only be verified on the Pi.
+  Only steps are checkboxes. Acceptance lines are plain bullets, so GitHub's "N of M tasks" counts steps. Acceptance that needs real devices or the Home app, which CI and Kind can't provide, reads `(manual, in #27)`. Its check goes in #27, Manual testing, under a heading for the feature. The feature closes when its last step merges, and the check stays open in #27 until the user has done it. Only #27 carries the `manual` label.
 - **Order between features:**
 
   ```sh
