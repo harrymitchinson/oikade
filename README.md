@@ -298,4 +298,4 @@ Oikade isn't a general-purpose hub. It has no Home Assistant driver and no UI fo
 
 ## License
 
-Copyright 2026. Licensed under the Apache License, Version 2.0.
+Licensed under the [Apache License, Version 2.0](LICENSE).
