@@ -16,7 +16,7 @@ This guide takes you from blank Pis to a paired HomeKit bridge, Zigbee devices d
 10. [Pair and declare Zigbee devices](#10-pair-and-declare-zigbee-devices)
 11. [Run plugins](#11-run-plugins)
 12. [Pair the HomeKit bridge](#12-pair-the-homekit-bridge)
-13. [Add automations](#13-add-automations)
+13. [Add rules](#13-add-rules)
 14. [Monitoring](#14-monitoring)
 15. [Back up what Git can't rebuild](#15-back-up-what-git-cant-rebuild)
 16. [Upgrades](#16-upgrades)
@@ -130,7 +130,7 @@ The same image runs the operator, the runtime and the HAP pods. Either make the 
 
 ## 7. Install Oikade
 
-First, set your timezone so automations see local time. Edit `config/runtime/deployment.yaml`:
+First, set your timezone so rules see local time. Edit `config/runtime/deployment.yaml`:
 
 ```yaml
         - --timezone=Europe/London    # your IANA timezone
@@ -170,7 +170,7 @@ home-infra/
     ├── plugins/              # step 11, if you have non-Zigbee devices
     │   ├── sonoff.yaml
     │   └── sonoff-keys.yaml  # encrypted with SOPS
-    └── automations/
+    └── rules/
         └── hallway-motion-light.yaml
 ```
 
@@ -184,7 +184,7 @@ resources:
 - zigbee2mqtt.yaml
 - devices/hallway.yaml
 - bridge.yaml
-- automations/hallway-motion-light.yaml
+- rules/hallway-motion-light.yaml
 ```
 
 `config/samples` in this repo has a starting point for every file.
@@ -410,28 +410,28 @@ From now on:
 - **Accessory IDs never change**, so rooms, scenes and favourites survive restarts, and even deleting and re-creating a Device.
 - **Restarting the HAP pod** (`kubectl -n home rollout restart deploy/main-hap`) keeps the pairing.
 
-## 13. Add automations
+## 13. Add rules
 
-`home/automations/hallway-motion-light.yaml`:
+`home/rules/hallway-motion-light.yaml`:
 
 ```yaml
 apiVersion: home.oikade.dev/v1alpha1
-kind: Automation
+kind: Rule
 metadata:
   name: hallway-motion-light
 spec:
   mode: Restart
-  triggers:
-  - {device: hallway-motion, capability: sensor.occupancy-detected}
+  on:
+  - change: {device: hallway-motion, capability: sensor.occupancy-detected}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
-  actions:
+  do:
   - set: {device: hallway-light, capability: light.on, value: true}
   - delay: 5m
   - set: {device: hallway-light, capability: light.on, value: false}
 ```
 
 ```sh
-kubectl -n home get automations     # READY False explains what's wrong with the condition or actions
+kubectl -n home get rules           # READY False explains what's wrong with the condition or actions
 ```
 
 The README describes the CEL variables and the capability names.
@@ -456,7 +456,7 @@ kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}
 kubectl -n monitoring port-forward svc/kps-grafana 3000:80
 ```
 
-The **Oikade home** dashboard shows temperature and humidity per room, light and door timelines, motion events, battery levels, availability and automation runs. On a Pi 4, consider a Prometheus memory limit and an SSD for the Prometheus PVC.
+The **Oikade home** dashboard shows temperature and humidity per room, light and door timelines, motion events, battery levels, availability and rule runs. On a Pi 4, consider a Prometheus memory limit and an SSD for the Prometheus PVC.
 
 ## 15. Back up what Git can't rebuild
 
@@ -515,6 +515,6 @@ Plugins are versioned separately. Build and push the new plugin image (step 11),
 | Plugin isn't `READY` | `kubectl -n home get plugin <name> -o yaml` shows the reason: `SecretNotFound`, `DuplicateDevice`, `NameConflict`, or `Progressing` while the pod starts. Check `kubectl -n home logs deploy/<name>-plugin`. |
 | A capability is missing | Oikade doesn't map that expose yet, e.g. colour, colour temperature or multi-gang switches (`state_l2`). |
 | HomeKit shows "No Response" | Is the device `Available=False` in `kubectl get devices`? Does `kubectl -n home logs deploy/main-hap` show `Failed to set capability`? |
-| Automation never fires | Is it `READY` in `kubectl get automations`? `oikade_automation_runs_total` shows whether it's hitting `condition_false`. Check `--timezone` if the condition uses the time. |
+| Rule never fires | Is it `READY` in `kubectl get rules`? `oikade_rule_runs_total` shows whether it's hitting `condition_false`. Check `--timezone` if the condition uses the time. |
 | zigbee2mqtt crash-loops | `kubectl -n home logs deploy/z2m`. Check the coordinator address or USB path, and that `adapter` matches the coordinator's chip. |
 | Something is wrong with MQTT | Watch the bus: `kubectl -n home run mqtt --rm -it --image=eclipse-mosquitto:2.1.2-alpine -- mosquitto_sub -h oikade-mosquitto.oikade-system.svc -t '#' -v` |

@@ -1,5 +1,5 @@
 # The Oikade runtime follows the MQTT bus, writes Device status, exports metrics
-# and runs Automations. It runs the operator's image; make deploy sets it here too.
+# and runs Rules. It runs the operator's image; make deploy sets it here too.
 resources:
 - service_account.yaml
 - role.yaml

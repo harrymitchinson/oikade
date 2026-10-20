@@ -226,8 +226,8 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Automation runs (24h)",
-      "description": "Automation runs that completed in the last 24 hours.",
+      "title": "Rule runs (24h)",
+      "description": "Rule runs that completed in the last 24 hours.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -245,7 +245,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum(increase(oikade_automation_runs_total{namespace=~\"$namespace\", result=\"succeeded\"}[24h])) or vector(0)",
+          "expr": "sum(increase(oikade_rule_runs_total{namespace=~\"$namespace\", result=\"succeeded\"}[24h])) or vector(0)",
           "instant": true
         }
       ],
@@ -793,7 +793,7 @@
     {
       "id": 17,
       "type": "row",
-      "title": "Automations",
+      "title": "Rules",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -806,8 +806,8 @@
     {
       "id": 18,
       "type": "timeseries",
-      "title": "Automation runs",
-      "description": "Completed runs per automation.",
+      "title": "Rule runs",
+      "description": "Completed runs per rule.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -825,8 +825,8 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (automation) (increase(oikade_automation_runs_total{namespace=~\"$namespace\", result=\"succeeded\"}[$__rate_interval]))",
-          "legendFormat": "{{automation}}"
+          "expr": "sum by (rule) (increase(oikade_rule_runs_total{namespace=~\"$namespace\", result=\"succeeded\"}[$__rate_interval]))",
+          "legendFormat": "{{rule}}"
         }
       ],
       "options": {
@@ -858,7 +858,7 @@
     {
       "id": 19,
       "type": "table",
-      "title": "Automation outcomes (24h)",
+      "title": "Rule outcomes (24h)",
       "description": "Every trigger outcome: succeeded, failed, cancelled (restarted), busy, condition_false, condition_error.",
       "datasource": {
         "type": "prometheus",
@@ -877,7 +877,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (automation, result) (increase(oikade_automation_runs_total{namespace=~\"$namespace\"}[24h]))",
+          "expr": "sum by (rule, result) (increase(oikade_rule_runs_total{namespace=~\"$namespace\"}[24h]))",
           "format": "table",
           "instant": true
         }

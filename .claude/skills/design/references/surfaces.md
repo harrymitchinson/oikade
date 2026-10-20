@@ -17,9 +17,9 @@ This is the checklist the `design` and `plan` skills use. Oikade is small, but e
 
 | Plane | Owner | Holds |
 |---|---|---|
-| Control | Git, as CRDs (`home.oikade.dev`, `homekit.oikade.dev`, `zigbee.oikade.dev`) | What should exist: Devices, Rooms, Automations, Bridges, Zigbee2MQTT instances |
+| Control | Git, as CRDs (`home.oikade.dev`, `homekit.oikade.dev`, `zigbee.oikade.dev`) | What should exist: Devices, Rooms, Rules, Bridges, Zigbee2MQTT instances |
 | Data | MQTT (Mosquitto) | Live state and commands: "light is on", "21.4°C", `/set` |
-| History | Prometheus, Grafana, Loki | Values over time, changes, automation runs |
+| History | Prometheus, Grafana, Loki | Values over time, changes, rule runs |
 
 Ask these questions of every feature:
 
@@ -32,9 +32,9 @@ Ask these questions of every feature:
 These appear in users' Git repos, dashboards, alert rules and Home app setups. Changing them breaks someone, so a design has to call out any change to them explicitly.
 
 - **CRD fields and enums.** They're `v1alpha1`, but people's homes are declared in them. Prefer additive, optional fields with defaults. A rename or a change of meaning needs a migration note.
-- **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `sensor.contact-open: true` means open. They appear in Automation YAML, PromQL and `Device.status`. The `add-capability` skill owns this procedure.
+- **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `sensor.contact-open: true` means open. They appear in Rule YAML, PromQL and `Device.status`. The `add-capability` skill owns this procedure.
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.
-- **The CEL environment** for Automations: `trigger`, `devices`, `now`, `tz`. Its variables and types are a language contract.
+- **The CEL environment** for Rules: `trigger`, `devices`, `now`, `tz`. Its variables and types are a language contract.
 - **Log messages that are queried**, for example `"Changed capability"` in Loki.
 - **Object names and labels**: `<bridge>-identity`, `<bridge>-hap`, `<instance>-network`, `<instance>-data`, and the labels `homekit.oikade.dev/bridge` and `zigbee.oikade.dev/instance`. Backup and cleanup docs depend on them.
 - **HomeKit instance IDs.** AIDs are append-only in `Bridge.status.accessories`. Service and characteristic IIDs are positional: `hap.NewServer` numbers them in the order they're added. Reordering silently remaps users' Home app scenes.
@@ -53,7 +53,7 @@ Losing any of these means re-pairing. Then the Home app forgets rooms, scenes an
 There is one binary with three roles:
 
 - **`manager`**: the operator. It only talks to Kubernetes, and never to MQTT.
-- **`manager runtime`**: exactly one replica, because two would run every automation twice. It runs the drivers on the bus, the Device status writer, `/metrics` on `:8080`, and the CEL automation engine. A feature that assumes runtime HA, or needs leader election, is a big decision.
+- **`manager runtime`**: exactly one replica, because two would run every rule twice. It runs the drivers on the bus, the Device status writer, `/metrics` on `:8080`, and the CEL rule engine. A feature that assumes runtime HA, or needs leader election, is a big decision.
 - **`manager hap --bridge <name>`**: one per Bridge, with `hostNetwork`. It follows the bus itself so HomeKit keeps working if the runtime is down. It has **read-only** API access and can only read its own Secrets.
 
 The data path is: driver ↔ MQTT ↔ hub ↔ {status writer, exporter, engine, HAP}. Writes go through `driver.Set`. A new driver (ESPHome, Matter, Homebridge) implements `internal/driver.Driver` and joins the Device spec's driver union.

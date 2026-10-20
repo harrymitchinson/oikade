@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: oikade-runtime
     app.kubernetes.io/managed-by: kustomize
 spec:
-  # One replica and Recreate: two runtimes would run every Automation twice.
+  # One replica and Recreate: two runtimes would run every Rule twice.
   replicas: 1
   strategy:
     type: Recreate
@@ -30,7 +30,7 @@ spec:
         command: [/manager, runtime]
         args:
         - --mqtt-url=mqtt://oikade-mosquitto.oikade-system.svc:1883
-        # The timezone Automations see as tz, e.g. now.getHours(tz). Set it to yours.
+        # The timezone Rules see as tz, e.g. now.getHours(tz). Set it to yours.
         - --timezone=UTC
         ports:
         - name: metrics

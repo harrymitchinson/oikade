@@ -1,4 +1,4 @@
-# Scrapes device state, availability and automation runs from the Oikade runtime.
+# Scrapes device state, availability and rule runs from the Oikade runtime.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

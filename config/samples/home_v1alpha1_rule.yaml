@@ -1,16 +1,15 @@
 # Hallway light on with motion after dark, off five minutes after the last motion.
 # Restart mode starts the five minutes again on every new motion event.
 apiVersion: home.oikade.dev/v1alpha1
-kind: Automation
+kind: Rule
 metadata:
   name: hallway-motion-light
 spec:
   mode: Restart
-  triggers:
-  - device: hallway-motion
-    capability: sensor.occupancy-detected
+  on:
+  - change: {device: hallway-motion, capability: sensor.occupancy-detected}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
-  actions:
+  do:
   - set: {device: hallway-light, capability: light.level, value: 40}
   - set: {device: hallway-light, capability: light.on, value: true}
   - delay: 5m
@@ -19,13 +18,12 @@ spec:
 # Every light in the living room off when the front door is shut after 23:00.
 # A room action covers lamps added to the living room later without editing this.
 apiVersion: home.oikade.dev/v1alpha1
-kind: Automation
+kind: Rule
 metadata:
   name: goodnight-living-room
 spec:
-  triggers:
-  - device: front-door
-    capability: sensor.contact-open
+  on:
+  - change: {device: front-door, capability: sensor.contact-open}
   condition: "!trigger.value && now.getHours(tz) >= 23"
-  actions:
+  do:
   - set: {room: living-room, capability: light.on, value: false}

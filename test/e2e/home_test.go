@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -72,12 +73,12 @@ spec:
   zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x00158d0000000002"}
 ---
 apiVersion: home.oikade.dev/v1alpha1
-kind: Automation
+kind: Rule
 metadata: {name: motion-light}
 spec:
-  triggers: [{device: hallway-motion, capability: sensor.occupancy-detected}]
+  on: [{change: {device: hallway-motion, capability: sensor.occupancy-detected}}]
   condition: trigger.value
-  actions:
+  do:
   - set: {device: hallway-light, capability: light.on, value: true}
 ---
 apiVersion: v1
@@ -113,11 +114,11 @@ spec:
   zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x00158d0000000003"}
 ---
 apiVersion: home.oikade.dev/v1alpha1
-kind: Automation
+kind: Rule
 metadata: {name: hallway-off}
 spec:
-  triggers: [{room: porch, capability: sensor.contact-open}]
-  actions:
+  on: [{change: {room: porch, capability: sensor.contact-open}}]
+  do:
   - set: {room: hallway, capability: light.on, value: false}
 `
 
@@ -144,11 +145,11 @@ spec:
     parameters: {capability: light.on}
 ---
 apiVersion: home.oikade.dev/v1alpha1
-kind: Automation
+kind: Rule
 metadata: {name: porch-light-off}
 spec:
-  triggers: [{device: front-door, capability: sensor.contact-open}]
-  actions:
+  on: [{change: {device: front-door, capability: sensor.contact-open}}]
+  do:
   - set: {device: porch-light, capability: light.on, value: false}
 `
 
@@ -247,7 +248,7 @@ func homeScenario() {
 			for _, args := range [][]string{
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
 				{"-n", homeNamespace, "logs", "deploy/main-hap"},
-				{"-n", homeNamespace, "get", "devices,automations,bridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
+				{"-n", homeNamespace, "get", "devices,rules,bridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
 			} {
 				out, _ := utils.Run(exec.Command("kubectl", args...))
 				_, _ = fmt.Fprintf(GinkgoWriter, "kubectl %s:\n%s\n", strings.Join(args, " "), out)
@@ -273,7 +274,7 @@ func homeScenario() {
 				Should(Equal("light.on light.level link.quality"))
 			Eventually(jsonpath("device", "hallway-motion", `{.status.conditions[?(@.type=="Available")].status}`)).
 				Should(Equal("True"))
-			Eventually(jsonpath("automation", "motion-light", `{.status.conditions[?(@.type=="Ready")].status}`)).
+			Eventually(jsonpath("rule", "motion-light", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
 		})
 
@@ -291,7 +292,7 @@ func homeScenario() {
 			Expect(sub.Wait()).To(Succeed())
 			Expect(out.String()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"ON"}`))
 
-			Eventually(jsonpath("automation", "motion-light", "{.status.lastTriggered}")).ShouldNot(BeEmpty())
+			Eventually(jsonpath("rule", "motion-light", "{.status.lastTriggered}")).ShouldNot(BeEmpty())
 		})
 
 		It("exports device state to Prometheus", func() {
@@ -301,9 +302,29 @@ func homeScenario() {
 				g.Expect(out).To(ContainSubstring(`oikade_capability_value{capability="sensor.temperature",` +
 					`device="hallway-motion",namespace="e2e-home",room="hallway"} 19.5`))
 				g.Expect(out).To(ContainSubstring(
-					`oikade_automation_runs_total{automation="motion-light",namespace="e2e-home",result="succeeded"} 1`))
+					`oikade_rule_runs_total{namespace="e2e-home",result="succeeded",rule="motion-light"} 1`))
 				g.Expect(out).To(MatchRegexp(`oikade_undeclared_devices\{instance="z2m",namespace="e2e-home"\} 3`))
 			}).Should(Succeed())
+		})
+
+		It("serves the Rule metrics the dashboard queries", func() {
+			root, err := utils.GetProjectDir()
+			Expect(err).NotTo(HaveOccurred())
+			dashboard, err := os.ReadFile(filepath.Join(root, "config", "grafana", "oikade-home.json"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(dashboard)).NotTo(ContainSubstring("oikade_automation_"))
+			queried := regexp.MustCompile(`oikade_rule_[a-z_]+`).FindAllString(string(dashboard), -1)
+			Expect(queried).NotTo(BeEmpty())
+			out, err := mqttExec("wget", "-qO-", runtimeURL)
+			Expect(err).NotTo(HaveOccurred())
+			for _, name := range queried {
+				Expect(out).To(ContainSubstring(name+"{"), "the dashboard queries %s", name)
+			}
+		})
+
+		It("has no Automation kind left", func() {
+			_, err := utils.Run(exec.Command("kubectl", "get", "crd", "automations.home.oikade.dev"))
+			Expect(err).To(MatchError(ContainSubstring("NotFound")))
 		})
 
 		It("runs a HomeKit bridge", func() {
@@ -322,14 +343,14 @@ func homeScenario() {
 		It("turns off every light in a Room with one action", func() {
 			By("naming a Room that doesn't exist yet")
 			apply(roomManifests)
-			Eventually(jsonpath("automation", "hallway-off", `{.status.conditions[?(@.type=="Ready")].reason}`)).
+			Eventually(jsonpath("rule", "hallway-off", `{.status.conditions[?(@.type=="Ready")].reason}`)).
 				Should(Equal("RoomNotFound"))
-			Expect(jsonpath("automation", "hallway-off", `{.status.conditions[?(@.type=="Ready")].message}`)()).
+			Expect(jsonpath("rule", "hallway-off", `{.status.conditions[?(@.type=="Ready")].message}`)()).
 				To(Equal("Room(s) not found: porch"))
 
-			By("creating the Room, without editing the Automation")
+			By("creating the Room, without editing the Rule")
 			apply("apiVersion: home.oikade.dev/v1alpha1\nkind: Room\nmetadata: {name: porch}\n")
-			Eventually(jsonpath("automation", "hallway-off", `{.status.conditions[?(@.type=="Ready")].status}`)).
+			Eventually(jsonpath("rule", "hallway-off", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
 
 			By("pairing the second lamp")
@@ -402,8 +423,8 @@ func homeScenario() {
 				g.Expect(out).To(ContainSubstring(`oikade_plugin_up{namespace="e2e-home",plugin="example-switch"} 1`))
 			}).Should(Succeed())
 
-			By("switching the plugin Device from an Automation")
-			Eventually(jsonpath("automation", "porch-light-off", `{.status.conditions[?(@.type=="Ready")].status}`)).
+			By("switching the plugin Device from a Rule")
+			Eventually(jsonpath("rule", "porch-light-off", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
 			var out bytes.Buffer
 			sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",

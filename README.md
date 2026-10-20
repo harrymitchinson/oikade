@@ -2,13 +2,13 @@
 
 Home automation as reconciled, reviewable infrastructure.
 
-You declare your home in Git: devices, rooms, automations and the HomeKit bridge. Kubernetes reconciles it. Live state never touches etcd. It travels over MQTT, and Prometheus keeps its history.
+You declare your home in Git: devices, rooms, rules and the HomeKit bridge. Kubernetes reconciles it. Live state never touches etcd. It travels over MQTT, and Prometheus keeps its history.
 
 | | Owner | Examples |
 |---|---|---|
-| **Control plane** | Git, as CRDs | Which devices exist, their names and rooms, automations, the HomeKit bridge |
+| **Control plane** | Git, as CRDs | Which devices exist, their names and rooms, rules, the HomeKit bridge |
 | **Data plane** | MQTT (Mosquitto) | "the light is on", "motion detected", "21.4°C", "turn the light off" |
-| **History** | Prometheus and Grafana | Temperature over time, how often the door opened, automation runs |
+| **History** | Prometheus and Grafana | Temperature over time, how often the door opened, rule runs |
 
 Toggling a light from your phone is state, so it goes over the bus and Git doesn't care. Pairing a bulb that isn't declared in Git is drift, and Oikade reports it.
 
@@ -17,7 +17,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 ```
  drivers                           bus                        consumers
  ┌──────────────┐                                      ┌──────────────────────┐
- │ zigbee2mqtt  │◀──────▶  Mosquitto (MQTT)  ◀────────▶│ runtime              │ → Device status, /metrics, automations
+ │ zigbee2mqtt  │◀──────▶  Mosquitto (MQTT)  ◀────────▶│ runtime              │ → Device status, /metrics, rules
  ├──────────────┤             ▲                    └──▶│ HAP bridge (per      │ → the Home app and Siri
  │ plugins      │◀────────────┘                        │   Bridge)            │
  └──────────────┘                                      └──────────────────────┘
@@ -29,7 +29,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 |------|-------|---------|
 | `Device` | `home.oikade.dev` | A device that should exist: name, room and driver source (a Zigbee IEEE address, or a Plugin and a plugin-local id). Status shows its capabilities and availability. |
 | `Room` | `home.oikade.dev` | Labels metrics and groups devices. HomeKit can't receive rooms from a bridge, so you also assign them once in the Home app. |
-| `Automation` | `home.oikade.dev` | Triggers, a CEL condition and actions (`set`, `delay`). |
+| `Rule` | `home.oikade.dev` | Triggers (`on`), a CEL condition and actions (`do`: `set`, `delay`). |
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
 | `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device platform Oikade doesn't speak natively. See [Plugins](#plugins). |
 | `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
@@ -46,7 +46,7 @@ hallway-motion   Hallway Motion   hallway   ["sensor.occupancy-detected",...]   
 There is one binary with three subcommands:
 
 - **`manager`** is the operator. It only talks to Kubernetes.
-- **`manager runtime`** is the data plane. It follows every driver on the bus, writes coarse Device status (capabilities, availability, and `lastSeen` at most every 5 minutes), serves Prometheus metrics on `:8080` and runs automations. It runs as one replica, because two would run every automation twice.
+- **`manager runtime`** is the data plane. It follows every driver on the bus, writes coarse Device status (capabilities, availability, and `lastSeen` at most every 5 minutes), serves Prometheus metrics on `:8080` and runs rules. It runs as one replica, because two would run every rule twice.
 - **`manager hap --bridge <name>`** is a HomeKit accessory server, started by the operator for each `Bridge`. It follows the bus itself, so HomeKit keeps working if the runtime is down. It never writes to the API.
 
 ## Requirements
@@ -66,26 +66,26 @@ make deploy IMG=<registry>/oikade:dev      # operator, runtime and Mosquitto in 
 kubectl create namespace home
 # Edit config/samples first: the coordinator address, IEEE addresses and the setup code.
 kubectl -n home apply -k config/samples
-kubectl -n home get zigbee2mqtts,devices,bridges,automations
+kubectl -n home get zigbee2mqtts,devices,bridges,rules
 ```
 
 1. **Pair devices.** Open the Zigbee2MQTT frontend (`kubectl -n home port-forward svc/z2m 8080`), permit joining, and pair. A paired device that isn't declared shows up in `oikade_undeclared_devices` and the runtime logs.
 2. **Declare them.** Add a `Device` for each IEEE address. The operator sets each device's Zigbee2MQTT friendly name to the Device name.
 3. **Pair the bridge.** In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the setup code from its Secret.
-4. **Set your timezone.** Edit `--timezone` in `config/runtime/deployment.yaml` so automations see local time.
+4. **Set your timezone.** Edit `--timezone` in `config/runtime/deployment.yaml` so rules see local time.
 
-## Automations
+## Rules
 
 ```yaml
 apiVersion: home.oikade.dev/v1alpha1
-kind: Automation
+kind: Rule
 metadata: {name: hallway-motion-light}
 spec:
   mode: Restart          # new motion restarts the 5 minutes; Single ignores triggers while running
-  triggers:
-  - {device: hallway-motion, capability: sensor.occupancy-detected}
+  on:
+  - change: {device: hallway-motion, capability: sensor.occupancy-detected}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
-  actions:
+  do:
   - set: {device: hallway-light, capability: light.on, value: true}
   - delay: 5m
   - set: {device: hallway-light, capability: light.on, value: false}
@@ -102,13 +102,13 @@ The condition is [CEL](https://cel.dev). It can use these variables:
 
 ### Rooms
 
-A trigger or a `set` action can name a `room` instead of a `device`, but not both. A Device is in a room when its `roomRef` names it, so a lamp added to the room later is covered without editing the Automation.
+A `change` trigger or a `set` action can name a `room` instead of a `device`, but not both. A Device is in a room when its `roomRef` names it, so a lamp added to the room later is covered without editing the Rule.
 
 ```yaml
 spec:
-  triggers:
-  - {room: hallway, capability: sensor.occupancy-detected}   # any sensor in the hallway
-  actions:
+  on:
+  - change: {room: hallway, capability: sensor.occupancy-detected}   # any sensor in the hallway
+  do:
   - set: {room: living-room, capability: light.on, value: false}   # every light in the living room
 ```
 
@@ -117,16 +117,27 @@ spec:
 - **If some Devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`, and the runtime logs `Matched no Devices in Room` with `--log-level=debug`.
 - **Restart mode with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `delay` longer than the time your sensor holds `occupancy: true` after the last movement.
 
-The operator compiles every Automation and sets `Ready=False` with the reason:
+The operator compiles every Rule and sets `Ready=False` with the reason:
 
 - `Invalid` when the condition doesn't compile, a capability is unknown or read-only, or a value has the wrong type.
-- `RoomNotFound` when a trigger or action names a Room that doesn't exist in the namespace. The message lists the missing Rooms. Creating them sets `Ready=True` without editing the Automation. The runtime doesn't check Rooms: until the Room exists it still runs the Automation, matching any Devices whose `roomRef` names it. For a misspelled room that's none. After a Room is deleted, Devices still pointing at it keep matching.
+- `RoomNotFound` when a trigger or action names a Room that doesn't exist in the namespace. The message lists the missing Rooms. Creating them sets `Ready=True` without editing the Rule. The runtime doesn't check Rooms: until the Room exists it still runs the Rule, matching any Devices whose `roomRef` names it. For a misspelled room that's none. After a Room is deleted, Devices still pointing at it keep matching.
 
 `Invalid` is reported before `RoomNotFound`. `status.lastTriggered` is updated at most once a minute.
 
+### Migrating from Automation
+
+`Rule` replaces the `Automation` kind, with the same behaviour ([0060](docs/design/0060-rule-model.md)). To move an Automation over:
+
+- Change `kind: Automation` to `kind: Rule`.
+- Wrap each entry of `triggers` in `change:` and rename the list to `on`. For example, `- {device: m, capability: c}` becomes `- change: {device: m, capability: c}`.
+- Rename `actions` to `do`. `condition`, `mode`, `delay` and room targets are unchanged.
+- In PromQL, `oikade_automation_runs_total{automation=…}` is now `oikade_rule_runs_total{rule=…}`, and `oikade_automation_events_dropped_total` is now `oikade_rule_events_dropped_total`.
+
+Apply the Rules, then delete the old Automation CRD with `kubectl delete crd automations.home.oikade.dev`. That also deletes every Automation, which the runtime stops running.
+
 ## Capabilities
 
-Drivers translate to and from a protocol-neutral set of capabilities. HomeKit, metrics and automations only ever see these.
+Drivers translate to and from a protocol-neutral set of capabilities. HomeKit, metrics and rules only ever see these.
 
 | Capability | Type | Writable | HomeKit |
 |---|---|---|---|
@@ -143,7 +154,7 @@ Drivers translate to and from a protocol-neutral set of capabilities. HomeKit, m
 
 ## Plugins
 
-A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up in HomeKit, Grafana and automations like Zigbee ones, and keep working in HomeKit while the runtime is down.
+A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up in HomeKit, Grafana and rules like Zigbee ones, and keep working in HomeKit while the runtime is down.
 
 ```yaml
 apiVersion: plugins.oikade.dev/v1alpha1
@@ -191,7 +202,8 @@ The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/d
 | `oikade_undeclared_devices{namespace,instance}` | Paired but not in Git |
 | `oikade_plugin_up{namespace,plugin}` | 1 while the plugin reports itself online with contract 1 |
 | `oikade_plugin_rejected_messages_total{namespace,plugin,reason}` | Plugin messages dropped as `malformed`, `wrong_contract`, `unknown_capability`, `invalid_value`, `undeclared_device` or `unannounced_capability` |
-| `oikade_automation_runs_total{namespace,automation,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error` |
+| `oikade_rule_runs_total{namespace,rule,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error` |
+| `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.
 
@@ -241,7 +253,7 @@ While the major version is 0, the API is still settling:
 ```sh
 make test          # unit tests, envtest, and an in-process MQTT broker for the runtime integration test
 make lint
-make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, automations, metrics and the HAP pod
+make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, metrics and the HAP pod
 
 make test-conformance   # builds plugins/example-switch and drives it through the plugin contract
 ```

@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the oikade itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- home_rule_admin_role.yaml
+- home_rule_editor_role.yaml
+- home_rule_viewer_role.yaml
 - plugins_plugin_admin_role.yaml
 - plugins_plugin_editor_role.yaml
 - plugins_plugin_viewer_role.yaml
@@ -31,9 +34,6 @@ resources:
 - homekit_bridge_admin_role.yaml
 - homekit_bridge_editor_role.yaml
 - homekit_bridge_viewer_role.yaml
-- home_automation_admin_role.yaml
-- home_automation_editor_role.yaml
-- home_automation_viewer_role.yaml
 - home_room_admin_role.yaml
 - home_room_editor_role.yaml
 - home_room_viewer_role.yaml
