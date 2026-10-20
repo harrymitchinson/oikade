@@ -328,3 +328,68 @@ func TestSunWithoutASiteIsReported(t *testing.T) {
 	h.advance(local("2026-10-21 23:00 BST"), 1)
 	h.expectCalls(lightOn)
 }
+
+func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
+	h, s := timedHarness(t, local("2026-10-21 06:00 BST"), nil, nil, atTrigger("07:00"))
+	r := rule("lights-on", homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: []homev1alpha1.Action{delay(time.Second)}})
+	r.Generation = 2
+	c, err := Compile(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.e.Load(c)
+	if got := s.last(); !got.Cleared || got.Generation != 2 {
+		t.Errorf("got %+v, want the schedule cleared for generation 2", got)
+	}
+	if n := testutil.CollectAndCount(h.e.NextChange); n != 0 {
+		t.Errorf("next-change gauge has %d series, want none", n)
+	}
+}
+
+func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
+	h, s := timedHarness(t, local("2026-10-21 06:00 BST"), nil, nil, atTrigger("07:00"))
+	h.e.Remove(types.NamespacedName{Namespace: ns, Name: "lights-on"})
+	if !s.last().Cleared {
+		t.Errorf("got %+v, want the schedule cleared", s.last())
+	}
+	// Recreated, it looks for missed fires again, but only since it was created.
+	h.clock.SetTime(local("2026-10-21 07:05 BST"))
+	r := rule("lights-on", homev1alpha1.RuleSpec{
+		Triggers: []homev1alpha1.Trigger{atTrigger("07:00")}, StartingDeadline: &metav1.Duration{Duration: time.Hour},
+		Do: []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
+	})
+	r.CreationTimestamp = metav1.NewTime(local("2026-10-21 07:01 BST"))
+	// The old Rule's lastFire is older than the new one.
+	r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
+	c, err := Compile(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.e.Load(c)
+	time.Sleep(50 * time.Millisecond)
+	if calls := h.setter.got(); len(calls) != 0 {
+		t.Errorf("calls = %v; 07:00 was before the new Rule existed", calls)
+	}
+}
+
+func TestPolarNightLooksAgain(t *testing.T) {
+	tromso := &sun.Site{Latitude: 69.6492, Longitude: 18.9553}
+	h, s := timedHarness(t, local("2026-12-10 12:00 GMT"), tromso, nil,
+		homev1alpha1.Trigger{Sun: &homev1alpha1.SunTrigger{Event: homev1alpha1.SunEventSunrise}})
+	if got := s.last().Next; !got.IsZero() {
+		t.Fatalf("next = %v, want none in the polar night", got)
+	}
+	h.eventually("the recheck timer", h.clock.HasWaiters)
+	h.eventually("a sunrise in late January", func() bool {
+		h.clock.SetTime(local("2027-01-25 00:00 GMT"))
+		return !s.last().Next.IsZero()
+	})
+}
+
+func TestCompileRejectsSignedTimes(t *testing.T) {
+	for _, tm := range []string{"-1:30", "+7:05", "07:5x"} {
+		if _, err := compileAt(&homev1alpha1.AtTrigger{Time: tm}); err == nil {
+			t.Errorf("%q compiled", tm)
+		}
+	}
+}

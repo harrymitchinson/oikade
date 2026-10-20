@@ -55,8 +55,19 @@ const (
 // ReasonNoLocation is the Scheduled reason for a sun trigger on a runtime without a location.
 const ReasonNoLocation = "NoLocation"
 
+// maxWait bounds how long Run sleeps, so a wall clock that steps forward, as NTP does on a
+// Raspberry Pi without a clock battery, delays a fire by at most this.
+const maxWait = time.Minute
+
+// recheck is how often a Rule with no fire within a week looks again, as at a polar sunrise.
+const recheck = 24 * time.Hour
+
 // Schedule is what the engine reports about a Rule's at and sun triggers.
 type Schedule struct {
+	// Generation is the Rule generation the schedule is for.
+	Generation int64
+	// Cleared is set when the Rule no longer has at or sun triggers, or is gone.
+	Cleared bool
 	// Next is the next fire. Zero means none within a week.
 	Next time.Time
 	// LastFire is the scheduled time of the last fire the engine ran or skipped. Zero means it
@@ -105,7 +116,8 @@ type state struct {
 	cancel context.CancelFunc
 	// run identifies the latest run, so a cancelled run doesn't mark a newer one idle.
 	run uint64
-	// next is the next timer fire, and due a missed one to run now. Zero At means none.
+	// next is the next timer fire, and due a missed one to run now. Zero At means none. A next
+	// with no type is a recheck, which only looks for the next fire again.
 	next, due fire
 }
 
@@ -160,12 +172,16 @@ func (e *Engine) Load(c *Compiled) {
 			s.cancel()
 		}
 	}
+	hadTimers := e.rules[c.Key] != nil && len(e.rules[c.Key].c.timers) > 0
 	s := &state{c: c}
 	e.rules[c.Key] = s
 	first := !e.loaded[c.Key]
 	e.loaded[c.Key] = true
-	if len(c.timers) > 0 {
+	switch {
+	case len(c.timers) > 0:
 		e.schedule(c.Key, s, first)
+	case hadTimers:
+		e.report(c.Key, Schedule{Generation: c.Generation, Cleared: true})
 	}
 	e.signal()
 }
@@ -174,7 +190,7 @@ func (e *Engine) Load(c *Compiled) {
 // with e.mu held.
 func (e *Engine) schedule(key types.NamespacedName, s *state, first bool) {
 	now := e.Clock.Now()
-	sched := Schedule{}
+	sched := Schedule{Generation: s.c.Generation}
 	if s.c.needsSite() && e.Site == nil {
 		sched.Reason = ReasonNoLocation
 		e.Log.Info("Sun triggers won't fire; set --latitude and --longitude", "rule", key)
@@ -191,14 +207,25 @@ func (e *Engine) schedule(key types.NamespacedName, s *state, first bool) {
 			}
 		}
 	}
-	s.next, _ = s.c.nextFire(now, e.Location, e.Site)
-	sched.Next = s.next.At
+	sched.Next = e.reschedule(s, now)
 	e.report(key, sched)
+}
+
+// reschedule sets the Rule's next fire after now and returns it, or zero when there is none
+// within a week. Call with e.mu held.
+func (e *Engine) reschedule(s *state, now time.Time) time.Time {
+	f, ok := s.c.nextFire(now, e.Location, e.Site)
+	if !ok {
+		s.next = fire{At: now.Add(recheck)}
+		return time.Time{}
+	}
+	s.next = f
+	return f.At
 }
 
 func (e *Engine) report(key types.NamespacedName, sched Schedule) {
 	if e.NextChange != nil {
-		if sched.Next.IsZero() {
+		if sched.Next.IsZero() || sched.Cleared {
 			e.NextChange.DeleteLabelValues(key.Namespace, key.Name)
 		} else {
 			e.NextChange.WithLabelValues(key.Namespace, key.Name).Set(float64(sched.Next.Unix()))
@@ -220,10 +247,16 @@ func (e *Engine) signal() {
 func (e *Engine) Remove(key types.NamespacedName) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if s := e.rules[key]; s != nil && s.cancel != nil {
+	s := e.rules[key]
+	if s != nil && s.cancel != nil {
 		s.cancel()
 	}
+	if s != nil && len(s.c.timers) > 0 {
+		e.report(key, Schedule{Generation: s.c.Generation, Cleared: true})
+	}
 	delete(e.rules, key)
+	// A Rule loaded again, after a delete or an invalid edit, looks for missed fires again.
+	delete(e.loaded, key)
 	if e.Runs != nil {
 		e.Runs.DeletePartialMatch(prometheus.Labels{labelNamespace: key.Namespace, labelRule: key.Name})
 	}
@@ -246,39 +279,57 @@ func (e *Engine) Changed(u driver.Update) {
 }
 
 // Run processes changes and fires timers until ctx is cancelled, then waits for runs in progress
-// to stop.
+// to stop. Changes don't touch the timer: only loads, removes and fires do.
 func (e *Engine) Run(ctx context.Context) {
 	defer e.runs.Wait()
-	for {
-		e.fireDue(ctx)
-		timer, due := e.timer()
-		if due {
-			continue
+	var timer clock.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
 		}
+	}()
+	for {
+		if timer != nil {
+			timer.Stop()
+		}
+		timer = e.arm(ctx)
 		var fired <-chan time.Time
 		if timer != nil {
 			fired = timer.C()
 		}
-		select {
-		case <-ctx.Done():
-			if timer != nil {
-				timer.Stop()
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case u := <-e.events:
+				e.handle(ctx, u)
+			case <-e.wake:
+				break wait
+			case <-fired:
+				break wait
 			}
-			return
-		case u := <-e.events:
-			e.handle(ctx, u)
-		case <-e.wake:
-		case <-fired:
-		}
-		if timer != nil {
-			timer.Stop()
 		}
 	}
 }
 
-// timer returns a timer for the earliest fire, or nil when there is none. It reports true instead
-// when that fire is already due.
-func (e *Engine) timer() (clock.Timer, bool) {
+// arm fires what is due, then returns a timer for the earliest fire still to come, or nil when
+// there is none. The timer waits at most maxWait.
+func (e *Engine) arm(ctx context.Context) clock.Timer {
+	for {
+		e.fireDue(ctx)
+		next := e.earliest()
+		if next.IsZero() {
+			return nil
+		}
+		if d := next.Sub(e.Clock.Now()); d > 0 {
+			return e.Clock.NewTimer(min(d, maxWait))
+		}
+	}
+}
+
+// earliest returns the earliest next fire of any Rule, or zero.
+func (e *Engine) earliest() time.Time {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	var next time.Time
@@ -287,14 +338,7 @@ func (e *Engine) timer() (clock.Timer, bool) {
 			next = at
 		}
 	}
-	if next.IsZero() {
-		return nil, false
-	}
-	d := next.Sub(e.Clock.Now())
-	if d <= 0 {
-		return nil, true
-	}
-	return e.Clock.NewTimer(d), false
+	return next
 }
 
 // fireDue fires the missed fires found on load, and every timer whose time has come. A timer more
@@ -313,9 +357,13 @@ func (e *Engine) fireDue(ctx context.Context) {
 		default:
 			continue
 		}
-		e.trigger(ctx, key, s, e.vars(key.Namespace, map[string]any{"type": f.Typ}))
-		s.next, _ = s.c.nextFire(now, e.Location, e.Site)
-		e.report(key, Schedule{Next: s.next.At, LastFire: f.At})
+		sched := Schedule{Generation: s.c.Generation}
+		if f.Typ != "" {
+			e.trigger(ctx, key, s, e.vars(key.Namespace, map[string]any{"type": f.Typ}))
+			sched.LastFire = f.At
+		}
+		sched.Next = e.reschedule(s, now)
+		e.report(key, sched)
 	}
 }
 

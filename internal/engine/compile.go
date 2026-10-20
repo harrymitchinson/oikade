@@ -84,7 +84,8 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 		Mode:       a.Spec.Mode,
 		Since:      a.CreationTimestamp.Time,
 	}
-	if !a.Status.LastFire.IsZero() {
+	// A lastFire from before the Rule was created belongs to an earlier Rule of the same name.
+	if a.Status.LastFire.After(c.Since) {
 		c.Since = a.Status.LastFire.Time
 	}
 	if d := a.Spec.StartingDeadline; d != nil {

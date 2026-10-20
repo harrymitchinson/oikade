@@ -18,7 +18,9 @@ package engine
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"time"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -64,11 +66,16 @@ func compileDays(days []homev1alpha1.Weekday) ([]time.Weekday, error) {
 	return out, nil
 }
 
+// hhmm matches the CRD's pattern for at.time.
+var hhmm = regexp.MustCompile(`^([01][0-9]|2[0-3]):([0-5][0-9])$`)
+
 func compileAt(at *homev1alpha1.AtTrigger) (timeTrigger, error) {
-	var h, m int
-	if _, err := fmt.Sscanf(at.Time, "%2d:%2d", &h, &m); err != nil || h > 23 || m > 59 || len(at.Time) != 5 {
+	parts := hhmm.FindStringSubmatch(at.Time)
+	if parts == nil {
 		return timeTrigger{}, fmt.Errorf("time %q is not HH:MM", at.Time)
 	}
+	h, _ := strconv.Atoi(parts[1])
+	m, _ := strconv.Atoi(parts[2])
 	days, err := compileDays(at.Days)
 	return timeTrigger{typ: TypeAt, minutes: h*60 + m, days: days}, err
 }
