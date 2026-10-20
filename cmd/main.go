@@ -59,6 +59,9 @@ func main() {
 			os.Exit(runRuntime(os.Args[2:]))
 		case "hap":
 			os.Exit(runHAP(os.Args[2:]))
+		case "--version", "-version":
+			printVersion(os.Stdout)
+			return
 		}
 	}
 
@@ -252,7 +255,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("Starting manager")
+	setupLog.Info("Starting manager", "version", version)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)

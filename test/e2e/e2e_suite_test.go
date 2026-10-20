@@ -18,6 +18,8 @@ import (
 var (
 	// managerImage is the manager image to be built and loaded for testing.
 	managerImage = "example.com/oikade:v0.0.1"
+	// managerVersion is baked into the manager image, and every role logs it on startup.
+	managerVersion = "v0.0.0-e2e"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -36,7 +38,8 @@ func TestE2E(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	By("building the manager image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage))
+	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage),
+		fmt.Sprintf("VERSION=%s", managerVersion))
 	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
 

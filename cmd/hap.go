@@ -70,7 +70,7 @@ func runHAP(args []string) int {
 		return 1
 	}
 
-	log.Info("Starting HomeKit bridge", "bridge", b.Key, "mqtt", *mqttURL)
+	log.Info("Starting HomeKit bridge", "version", version, "bridge", b.Key, "mqtt", *mqttURL)
 	if err := mgr.Start(ctx); err != nil {
 		log.Error(err, "HomeKit bridge stopped")
 		return 1
