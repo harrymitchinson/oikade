@@ -4,6 +4,8 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 *Revised on 2026-10-19, because you had become the bottleneck: agents stopped at every approval and every merge. An approved design now covers the features that build it, work with nothing expensive to reverse needs no approval, a feature's steps stack while they wait for review, and agents merge steps that touch nothing you review first. See [Revision: fewer waits](#revision-fewer-waits).*
 
+*Revised on 2026-10-20, at your request: `docs/roadmap.md` is gone, because the milestones already held most of it. Each milestone's description now says why it sits where it does, the version numbers give the order, and "Not doing" is in the README.*
+
 ## Problem
 
 - **Too many issues.** One sub-issue per PR-sized step made 26 open issues out of about a dozen pieces of work. Ten of them are ideas nobody has committed to.
@@ -47,7 +49,7 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 | Skill | Job |
 |---|---|
 | `design` | Decide whether a design is needed, write it into the issue, and once you approve it, write the Steps |
-| `plan` | What's next, ideas, milestones, the board and `docs/roadmap.md` |
+| `plan` | What's next, ideas, milestones, the board and the README's "Not doing" |
 | `work` (new) | Take the next ready feature, build one step, review it and open the PR |
 | `handoff` | Also posts the status and next steps on the issue, so another agent can see them |
 
@@ -79,7 +81,7 @@ Before this revision a feature waited on you twice: once to approve it, and once
   - public API, state and boundaries: `api/`, `cmd/`, `config/`, capability, HAP, hub, identity, metrics, status, the CEL environment, the Driver interface, the homekit and zigbee controllers, and the plugin contract, decoder, SDK and conformance suite;
   - dependency manifests;
   - what the checks run: `Makefile`, Dockerfiles, `.golangci.yml` and `.github/`;
-  - the rules agents work under: `.claude/`, `hack/`, `AGENTS.md`, the design docs and the roadmap.
+  - the rules agents work under: `.claude/`, `hack/`, `AGENTS.md` and the design docs.
 
   `.claude/settings.json` denies agents `gh pr merge`, so they can't merge any other way. A PR that touches one gets `needs-review` and waits for you. A merged one gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules, and a feature's first step, which commits its design doc, always waits for you. Add `needs-review` to a feature to review all of its steps yourself.
 

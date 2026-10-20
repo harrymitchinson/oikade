@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Keep Oikade's plan on GitHub honest and answer what to do next. Manage ideas (board drafts), features (issues with a Steps checklist), blocked-by links between features, milestones with observable exit criteria, the Oikade Project board, claims by parallel agents, and docs/roadmap.md (direction, milestone order with reasons, and the "Not doing" list), reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
+description: Keep Oikade's plan on GitHub honest and answer what to do next. Manage ideas (board drafts), features (issues with a Steps checklist), blocked-by links between features, milestones with observable exit criteria, the Oikade Project board, claims by parallel agents, and the README's "Not doing" list, reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
 ---
 
 # Planning Oikade
@@ -16,10 +16,11 @@ How the workflow fits together is in `docs/design/0009-planning-workflow.md`. Ea
 | Order between features | "Blocked by" relationships |
 | Who's working on it | The branch `work/N` (`hack/plan claims`). Its steps are on `work/N-S`, stacked while they wait for review. |
 | Status | The board. Claiming moves it to In Progress, and closing moves it to Done. |
-| What's in a release | The GitHub milestone. Its description holds the goal and exit criteria. |
-| Direction, milestone order and why, "Not doing" | `docs/roadmap.md` |
+| What's in a release | The GitHub milestone. Its description holds the goal, the exit criteria and a "Why here" line. |
+| Order between releases | The version numbers, with each milestone's "Why here" line |
+| What the user ruled out, and why | The README's "Not doing" |
 
-Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. Bookkeeping (ideas, issues, labels, milestones) is done directly and never needs a PR. Only `docs/roadmap.md` is a file. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
+Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. Bookkeeping (ideas, issues, labels, milestones) is done directly and never needs a PR. Only "Not doing" is a file, in the README. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
 
 ## Answering "what's next"
 
@@ -28,7 +29,7 @@ Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. B
    - `hack/plan ready` lists what an agent can start now
    - `hack/plan claims` lists what's in flight, and what's stale
    - `gh issue list --label needs-design` and `gh pr list` show what's waiting on the user
-   - `git log --oneline -20` and `docs/roadmap.md`
+   - `git log --oneline -20`, and the milestones with `gh api repos/{owner}/{repo}/milestones`
 2. **Reconcile it:**
    - Close features whose last step merged without closing them.
    - Flag stale claims. Release one only if the user agrees.
@@ -70,15 +71,15 @@ Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. B
   gh api -X POST repos/{owner}/{repo}/issues/<blocked>/dependencies/blocked_by -F issue_id=$(gh api repos/{owner}/{repo}/issues/<blocker> -q .id)
   ```
 
-- **Milestones:** each has a goal and exit criteria that the user could observe, such as "in Kind, X reaches `Ready=True`". Avoid criteria like "code written". To create one:
+- **Milestones:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "in Kind, X reaches `Ready=True`". Avoid criteria like "code written". To create one:
 
   ```sh
   gh api -X POST repos/{owner}/{repo}/milestones -f title=… -f description=…
   ```
 
   Put a feature in one with `gh issue edit N -m "<title>"`. Assign milestones only when the user asks, or after agreeing an order with them.
-- **Order of milestones:** `docs/roadmap.md` holds it, with one line on why each sits where it does. Changes come from the user. Propose one; don't just make it.
-- **Shipped:** check the milestone's exit criteria against what's actually observable, close it on GitHub, and mark it done in `docs/roadmap.md`.
+- **Order of milestones:** the version numbers give it, and each milestone's description ends with a "Why here" line. Changes come from the user. Propose one; don't just make it.
+- **Shipped:** check the milestone's exit criteria against what's actually observable, and close it on GitHub.
 - **"Not doing":** add an entry only when the user rules something out, and say who ruled it out and why.
 
 ## Rules

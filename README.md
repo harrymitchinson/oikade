@@ -250,7 +250,17 @@ The plugin SDK and plugins are Go, in the same module, so `make test` and `make 
 
 ## Not yet
 
-Planned work is tracked as [GitHub issues](https://github.com/harrymitchinson/oikade/issues) on the [Oikade board](https://github.com/users/harrymitchinson/projects/5). The [roadmap](docs/roadmap.md) gives the order and what's deliberately out of scope, and designs live in [docs/design](docs/design/).
+Planned work is tracked as [GitHub issues](https://github.com/harrymitchinson/oikade/issues) on the [Oikade board](https://github.com/users/harrymitchinson/projects/5). Releases are [milestones](https://github.com/harrymitchinson/oikade/milestones), and each one's description gives its goal, exit criteria and why it sits where it does. Designs live in [docs/design](docs/design/).
+
+## Not doing
+
+Oikade isn't a general-purpose hub. It has no Home Assistant driver and no UI for configuration.
+
+- **Home Assistant as a driver.** Standalone device libraries that Home Assistant also uses are fine inside plugins.
+- **Runtime replicas or leader election.** A single replica is deliberate, because two would run every automation twice.
+- **Homebridge as a driver.** It would make Homebridge, rather than Git, the source of device identity ([0002](docs/design/0002-plugin-drivers.md)).
+- **Go `plugin` or WASM plugins.** The first needs CGO, and neither can do LAN multicast usefully.
+- **Configuration from a UI.** Changes made in the zigbee2mqtt frontend count as drift, by design.
 
 ## License
 
