@@ -32,6 +32,9 @@ spec:
         - --mqtt-url=mqtt://oikade-mosquitto.oikade-system.svc:1883
         # The timezone Rules see as tz, e.g. now.getHours(tz). Set it to yours.
         - --timezone=UTC
+        # Where your home is, for sun triggers. Without them, sun triggers don't fire.
+        # - --latitude=51.5074
+        # - --longitude=-0.1278
         ports:
         - name: metrics
           containerPort: 8080

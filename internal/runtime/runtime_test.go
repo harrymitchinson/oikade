@@ -397,6 +397,51 @@ func TestHubIgnoresStatusPatches(t *testing.T) {
 }
 
 // startRuntime starts envtest, a broker and the runtime, and creates the home namespace.
+func TestRuntimeSchedulesTimeTriggers(t *testing.T) {
+	ctx, c, _, reg := startRuntime(t)
+	lightOn := []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+		Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
+	}}}
+	// Two hours ahead in the runtime's UTC, so it can't fire during the test.
+	at := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Minute)
+	must(t, c.Create(ctx, &homev1alpha1.Rule{
+		ObjectMeta: metav1.ObjectMeta{Name: "evening", Namespace: ns},
+		Spec: homev1alpha1.RuleSpec{
+			Triggers: []homev1alpha1.Trigger{{At: &homev1alpha1.AtTrigger{Time: at.Format("15:04")}}},
+			Do:       lightOn,
+		},
+	}))
+	must(t, c.Create(ctx, &homev1alpha1.Rule{
+		ObjectMeta: metav1.ObjectMeta{Name: "porch-sunset", Namespace: ns},
+		Spec: homev1alpha1.RuleSpec{
+			Triggers: []homev1alpha1.Trigger{{Sun: &homev1alpha1.SunTrigger{Event: homev1alpha1.SunEventSunset}}},
+			Do:       lightOn,
+		},
+	}))
+
+	get := func(name string) homev1alpha1.Rule {
+		var r homev1alpha1.Rule
+		_ = c.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &r)
+		return r
+	}
+	eventually(t, "evening nextFire", func() bool {
+		r := get("evening")
+		return r.Status.NextFire.Time.Equal(at) &&
+			meta.IsStatusConditionTrue(r.Status.Conditions, homev1alpha1.ConditionScheduled)
+	})
+	if got, ok := metricValue(t, reg, "oikade_rule_next_change_timestamp_seconds",
+		prometheus.Labels{"namespace": ns, "rule": "evening"}); !ok || got != float64(at.Unix()) {
+		t.Errorf("next-change gauge = %v (%v), want %v", got, ok, at.Unix())
+	}
+
+	// The runtime has no --latitude or --longitude.
+	eventually(t, "porch-sunset NoLocation", func() bool {
+		r := get("porch-sunset")
+		cond := meta.FindStatusCondition(r.Status.Conditions, homev1alpha1.ConditionScheduled)
+		return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "NoLocation" && r.Status.NextFire.IsZero()
+	})
+}
+
 func startRuntime(t *testing.T) (context.Context, client.Client, string, *prometheus.Registry) {
 	t.Helper()
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))

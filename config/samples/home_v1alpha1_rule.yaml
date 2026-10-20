@@ -27,3 +27,16 @@ spec:
   condition: "!trigger.value && now.getHours(tz) >= 23"
   do:
   - set: {room: living-room, capability: light.on, value: false}
+---
+# The porch light on 15 minutes before sunset. If the runtime is down at that time, it still
+# comes on up to 10 minutes late. Sun triggers need the runtime's --latitude and --longitude.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata:
+  name: porch-light-sunset
+spec:
+  triggers:
+  - sun: {event: Sunset, offset: -15m}
+  startingDeadline: 10m
+  do:
+  - set: {device: porch-light, capability: light.on, value: true}

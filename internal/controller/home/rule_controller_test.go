@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -194,7 +195,7 @@ var _ = Describe("Rule Controller", func() {
 			Expect(err).NotTo(HaveOccurred(), "sample %s", rule.Name)
 			names = append(names, rule.Name)
 		}
-		Expect(names).To(ConsistOf("hallway-motion-light", "goodnight-living-room"))
+		Expect(names).To(ConsistOf("hallway-motion-light", "goodnight-living-room", "porch-light-sunset"))
 	})
 
 	It("rejects a moment with no trigger at admission", func() {
@@ -205,7 +206,51 @@ var _ = Describe("Rule Controller", func() {
 				Do:       []homev1alpha1.Action{{Delay: &metav1.Duration{Duration: 1}}},
 			},
 		})
-		Expect(err).To(MatchError(ContainSubstring("change must be specified")))
+		Expect(err).To(MatchError(ContainSubstring("exactly one of change, at or sun")))
+	})
+
+	Describe("time and sun triggers", func() {
+		create := func(name string, trigger homev1alpha1.Trigger) error {
+			return k8sClient.Create(ctx, &homev1alpha1.Rule{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: homev1alpha1.RuleSpec{
+					Triggers: []homev1alpha1.Trigger{trigger},
+					Do:       []homev1alpha1.Action{{Delay: &metav1.Duration{Duration: 1}}},
+				},
+			})
+		}
+		offset := func(d string) *metav1.Duration {
+			dur, err := time.ParseDuration(d)
+			Expect(err).NotTo(HaveOccurred())
+			return &metav1.Duration{Duration: dur}
+		}
+
+		It("accepts at and sun triggers", func() {
+			Expect(create("at-weekend-nights", homev1alpha1.Trigger{At: &homev1alpha1.AtTrigger{
+				Time: "00:30", Days: []homev1alpha1.Weekday{"Sat", "Sun"},
+			}})).To(Succeed())
+			Expect(create("sun-before", homev1alpha1.Trigger{Sun: &homev1alpha1.SunTrigger{
+				Event: homev1alpha1.SunEventSunset, Offset: offset("-15m"),
+			}})).To(Succeed())
+		})
+
+		It("rejects two kinds in one trigger", func() {
+			Expect(create("at-and-sun", homev1alpha1.Trigger{
+				At:  &homev1alpha1.AtTrigger{Time: "07:00"},
+				Sun: &homev1alpha1.SunTrigger{Event: homev1alpha1.SunEventSunrise},
+			})).To(MatchError(ContainSubstring("exactly one of change, at or sun")))
+		})
+
+		It("rejects a malformed time, day or offset", func() {
+			Expect(create("bad-time", homev1alpha1.Trigger{At: &homev1alpha1.AtTrigger{Time: "7:00"}})).
+				To(MatchError(ContainSubstring("spec.triggers[0].at.time")))
+			Expect(create("bad-day", homev1alpha1.Trigger{At: &homev1alpha1.AtTrigger{
+				Time: "07:00", Days: []homev1alpha1.Weekday{"Monday"},
+			}})).To(MatchError(ContainSubstring("spec.triggers[0].at.days[0]")))
+			Expect(create("long-offset", homev1alpha1.Trigger{Sun: &homev1alpha1.SunTrigger{
+				Event: homev1alpha1.SunEventSunset, Offset: offset("7h"),
+			}})).To(MatchError(ContainSubstring("offset must be between -6h and 6h")))
+		})
 	})
 
 	Describe("device or room", func() {

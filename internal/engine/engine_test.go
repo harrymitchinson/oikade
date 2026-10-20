@@ -175,6 +175,12 @@ type harness struct {
 
 func newHarness(t *testing.T, now time.Time, rules ...*homev1alpha1.Rule) *harness {
 	t.Helper()
+	return newHarnessWith(t, now, nil, rules...)
+}
+
+// newHarnessWith is newHarness with a hook to configure the engine before its first Load.
+func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules ...*homev1alpha1.Rule) *harness {
+	t.Helper()
 	london, err := time.LoadLocation("Europe/London")
 	if err != nil {
 		t.Fatal(err)
@@ -190,6 +196,9 @@ func newHarness(t *testing.T, now time.Time, rules ...*homev1alpha1.Rule) *harne
 		Runs: NewRunsCounter(),
 	}
 	h.e.Init()
+	if configure != nil {
+		configure(h.e)
+	}
 	for _, a := range rules {
 		c, err := Compile(a)
 		if err != nil {
