@@ -1,5 +1,7 @@
 # 0003: Schedules
 
+> [0060](0060-rule-model.md) replaces this design's `Schedule` kind with `Rule` holds and `Device.spec.control`. Its planner (#53) carries over unchanged as `while.budget`.
+
 Work: [#19](https://github.com/harrymitchinson/oikade/issues/19).
 
 ## Problem
