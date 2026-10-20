@@ -41,6 +41,8 @@ type holdState struct {
 	warned bool
 	// reported is the last Schedule reported, so an unchanged one isn't reported again.
 	reported *Schedule
+	// deleted is set when the Rule is deleted, so a write still running doesn't save its state.
+	deleted bool
 }
 
 // NewActiveGauge returns the gauge Engine.Active expects.
@@ -64,8 +66,9 @@ func sameTarget(a, b HoldTarget) bool {
 }
 
 // condition reports whether the hold's while is true at now, and when the window next changes.
-// known is false when when can't be evaluated, as before a device it reads has reported.
-func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time) (on, known bool, next time.Time) {
+// known is false when when can't be evaluated, as before a device it reads has reported. devices
+// are the namespace's values, or nil to read them.
+func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, devices map[string]map[string]any) (on, known bool, next time.Time) {
 	on = true
 	if h.window != nil {
 		on, next = h.window.at(now, e.Location, e.Site)
@@ -73,7 +76,10 @@ func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time) (on
 	if !on || h.when == nil {
 		return on, true, next
 	}
-	out, _, err := h.when.Eval(map[string]any{"devices": e.Store.Values(key.Namespace), "now": now, "tz": e.Location.String()})
+	if devices == nil {
+		devices = e.Store.Values(key.Namespace)
+	}
+	out, _, err := h.when.Eval(map[string]any{"devices": devices, "now": now, "tz": e.Location.String()})
 	if err != nil {
 		e.Log.V(1).Info("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
 		return false, false, next
@@ -87,34 +93,64 @@ func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time) (on
 }
 
 // evaluate works out whether a hold is active now, starts the write and save that follow, and
-// sets when to look again. Call with e.mu held.
-func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *state, now time.Time) {
+// sets when to look again. devices are the namespace's values, or nil to read them. Call with
+// e.mu held.
+func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *state, now time.Time, devices map[string]map[string]any) {
 	hs, h := s.hold, s.c.hold
 	if hs.writing {
 		// The write's end signals Run, which looks again.
 		s.next = fire{}
 		return
 	}
-	var end *HoldTarget
 	if !hs.loaded {
 		hs.loaded = true
 		if saved, ok := e.States.Get(key); ok {
 			hs.saved = saved
 		}
-		// An edit that changed what the hold writes ends the old one, then starts afresh.
-		if t := s.c.target(); !sameTarget(hs.saved.Target, t) {
-			if hs.saved.Active {
-				old := hs.saved.Target
-				end = &old
-			}
-			hs.saved, hs.dirty = HoldState{Target: t}, true
+	}
+	// An edit that changed what the hold writes ends the old one, then starts afresh.
+	var end *HoldTarget
+	if t := s.c.target(); !sameTarget(hs.saved.Target, t) {
+		if hs.saved.Active {
+			old := hs.saved.Target
+			end = &old
 		}
+		hs.saved, hs.dirty = HoldState{Target: t}, true
 	}
 	st := hs.saved
 	if hs.released {
 		st.Latched, hs.released = false, false
 	}
-	on, known, next := e.condition(key, h, now)
+	on, known, next := e.condition(key, h, now, devices)
+	st, active := h.step(st, on, known, now)
+	switch {
+	case hs.retry.IsZero():
+	case now.Before(hs.retry):
+		// A failed write waits for its retry.
+		active = st.Active
+	default:
+		hs.retry = time.Time{}
+	}
+
+	if e.Active != nil {
+		e.Active.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(st.Active)))
+	}
+	if active != st.Active || st != hs.saved || hs.dirty || end != nil {
+		hs.writing, hs.dirty = true, false
+		e.runs.Go(func() { e.write(ctx, key, hs, st, active, end) })
+		s.next = fire{}
+	} else {
+		s.next = fire{At: lookAgain(h, st, next, now)}
+		if !hs.retry.IsZero() && hs.retry.Before(s.next.At) {
+			s.next.At = hs.retry
+		}
+	}
+	e.reportHold(key, s, st, next)
+}
+
+// step moves a hold's state on to now, given its condition, and returns whether it should be
+// active.
+func (h *hold) step(st HoldState, on, known bool, now time.Time) (HoldState, bool) {
 	active := st.Active
 	switch {
 	case st.Latched:
@@ -141,26 +177,12 @@ func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *stat
 			}
 		}
 	}
-	if active && h.latch {
+	// Only a condition known to be true latches, so a release while when can't be evaluated
+	// isn't undone: the hold ends once when is known to be false.
+	if active && h.latch && known && on {
 		st.Latched = true
 	}
-	if !hs.retry.IsZero() && now.Before(hs.retry) {
-		// A failed write waits for its retry.
-		active = st.Active
-	}
-	hs.retry = time.Time{}
-
-	if e.Active != nil {
-		e.Active.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(st.Active)))
-	}
-	if active != st.Active || st != hs.saved || hs.dirty || end != nil {
-		hs.writing, hs.dirty = true, false
-		e.runs.Go(func() { e.write(ctx, key, s, st, active, end) })
-		s.next = fire{}
-	} else {
-		s.next = fire{At: lookAgain(h, st, next, now)}
-	}
-	e.reportHold(key, s, st, next)
+	return st, active
 }
 
 // lookAgain returns when a hold next needs evaluating without a device change.
@@ -179,12 +201,15 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 
 // write ends an edited hold's old target, writes the hold's start or end, and saves its state.
 // A failed write isn't saved as done, so it's tried again.
-func (e *Engine) write(ctx context.Context, key types.NamespacedName, s *state, st HoldState, active bool, end *HoldTarget) {
+func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdState, st HoldState, active bool, end *HoldTarget) {
 	var retry time.Duration
+	ended := true
 	if end != nil {
-		retry, _ = e.applyHold(ctx, key, *end, false)
+		if d, err := e.applyHold(ctx, key, *end, false); err != nil {
+			retry, ended = d, false
+		}
 	}
-	if retry == 0 && active != st.Active {
+	if ended && active != st.Active {
 		if d, err := e.applyHold(ctx, key, st.Target, active); err != nil {
 			retry = d
 		} else {
@@ -193,7 +218,6 @@ func (e *Engine) write(ctx context.Context, key types.NamespacedName, s *state, 
 	}
 	// When the old target couldn't be ended, nothing is saved, and the next look loads the saved
 	// state again and retries.
-	ended := end == nil || retry == 0
 	if ended {
 		if err := e.States.Put(ctx, key, st); err != nil && ctx.Err() == nil {
 			e.Log.Error(err, "Failed to save hold state", "rule", key)
@@ -202,21 +226,34 @@ func (e *Engine) write(ctx context.Context, key types.NamespacedName, s *state, 
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	s.hold.writing = false
-	if e.rules[key] != s {
+	hs.writing = false
+	if hs.deleted {
+		// The Rule was deleted while this ran: its state stays deleted.
+		e.runs.Go(func() { e.deleteState(key) })
 		return
 	}
 	if ended {
-		s.hold.saved = st
+		hs.saved = st
 	} else {
-		s.hold.loaded = false
+		hs.loaded = false
 	}
-	s.next = fire{At: e.Clock.Now()}
 	if retry != 0 {
-		s.hold.retry = e.Clock.Now().Add(retry)
-		s.next = fire{At: s.hold.retry}
+		hs.retry = e.Clock.Now().Add(retry)
 	}
-	e.signal()
+	// The hold may have been reloaded or unloaded meanwhile; a reload keeps hs.
+	if s := e.rules[key]; s != nil && s.hold == hs {
+		s.next = fire{At: e.Clock.Now()}
+		if retry != 0 {
+			s.next = fire{At: hs.retry}
+		}
+		e.signal()
+	}
+}
+
+func (e *Engine) deleteState(key types.NamespacedName) {
+	if err := e.States.Delete(context.Background(), key); err != nil {
+		e.Log.Error(err, "Failed to delete hold state", "rule", key)
+	}
 }
 
 // applyHold writes a hold's start (its value) or end (the opposite of a bool, and nothing for a
@@ -235,15 +272,25 @@ func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t Hold
 	var devices []types.NamespacedName
 	if t.Device != "" {
 		devices = []types.NamespacedName{{Namespace: key.Namespace, Name: t.Device}}
-	} else {
-		for _, dev := range e.Store.Room(key.Namespace, t.Room) {
-			if snap, ok := e.Store.Get(dev); ok && snap.Discovered && slices.Contains(snap.Info.Capabilities, t.Capability) {
-				devices = append(devices, dev)
-			}
-		}
 	}
 	var retry time.Duration
 	var failed error
+	if t.Room != "" {
+		waiting := false
+		for _, dev := range e.Store.Room(key.Namespace, t.Room) {
+			snap, ok := e.Store.Get(dev)
+			waiting = waiting || !ok || !snap.Discovered
+			if ok && snap.Discovered && slices.Contains(snap.Info.Capabilities, t.Capability) {
+				devices = append(devices, dev)
+			}
+		}
+		// With no member to write yet, as on startup, wait for the undiscovered ones. Once some
+		// are written, one that never reports doesn't keep rewriting the rest.
+		if len(devices) == 0 && waiting {
+			log.V(1).Info("Waiting for Room members before writing hold", "room", t.Room)
+			return retryUndiscovered, fmt.Errorf("no member of room %s is discovered", t.Room)
+		}
+	}
 	for _, dev := range devices {
 		snap, ok := e.Store.Get(dev)
 		if ok && slices.Contains(snap.Controlled, t.Capability) {

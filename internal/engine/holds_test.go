@@ -131,7 +131,10 @@ func startRig(t *testing.T, now time.Time, states HoldStates, values map[string]
 func (r *rig) settle() {
 	r.t.Helper()
 	idle := func() bool {
-		if len(r.e.events) > 0 || !r.clock.HasWaiters() {
+		r.e.mu.Lock()
+		empty := len(r.e.rules) == 0
+		r.e.mu.Unlock()
+		if len(r.e.events) > 0 || !empty && !r.clock.HasWaiters() {
 			return false
 		}
 		r.e.mu.Lock()
@@ -473,5 +476,105 @@ func TestSunWindowFollowsTheDay(t *testing.T) {
 	}
 	if in, next := w.at(local("2026-12-21 16:00 GMT"), london, nil); in || !next.IsZero() {
 		t.Error("a sun window opened without a site")
+	}
+}
+
+// declareAlso adds devices to the rig's store, in rooms, undiscovered.
+func (r *rig) declareAlso(rooms map[string]string) {
+	metas := map[types.NamespacedName]hub.Meta{}
+	for name := range holdDevices {
+		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+	}
+	for name, room := range rooms {
+		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Room: room}
+	}
+	r.store.SetDevices(z2m, metas)
+}
+
+func (r *rig) failing(devices ...string) {
+	r.setter.mu.Lock()
+	defer r.setter.mu.Unlock()
+	r.setter.fail = map[string]bool{}
+	for _, d := range devices {
+		r.setter.fail[d] = true
+	}
+}
+
+func TestRoomHoldWaitsForItsMembers(t *testing.T) {
+	r := startRig(t, local("2026-10-21 12:00 BST"), nil, nil, nil)
+	r.declareAlso(map[string]string{"porch-lamp": "porch"})
+	c, err := Compile(holdRule(t, "porch-day", `
+  while: {window: {start: "00:00", end: "00:00"}}
+  hold: {room: porch, capability: light.on, value: true}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.e.Load(c)
+	r.settle()
+	r.expect()
+	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "porch-lamp"}, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
+	r.at("2026-10-21 12:01 BST")
+	r.expect(call{"porch-lamp", capability.LightOn, true})
+}
+
+func TestReleaseWhileWhenIsUnknown(t *testing.T) {
+	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}}
+	r := startRig(t, local("2026-10-21 08:00 BST"), nil, hot, nil, holdRule(t, "workshop-overheat", overheat))
+	r.expect(call{"workshop-heater", capability.SwitchOn, false})
+	// The sensor drops out of the store, so when can't be evaluated.
+	r.declareAlso(nil)
+	r.store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{{Namespace: ns, Name: "workshop-heater"}: {Instance: z2m}})
+	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "workshop-heater"}, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
+	r.e.release(types.NamespacedName{Namespace: ns, Name: "workshop-overheat"})
+	r.settle()
+	r.expect(call{"workshop-heater", capability.SwitchOn, false})
+	// It's back, and cool: the released hold ends rather than latching again.
+	r.declareAlso(nil)
+	r.change("workshop-temp", capability.Temperature, 20.0)
+	r.expect(call{"workshop-heater", capability.SwitchOn, false}, call{"workshop-heater", capability.SwitchOn, true})
+}
+
+func TestChangesDontSkipTheRetryWait(t *testing.T) {
+	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, holdRule(t, "workshop-overheat", overheat))
+	r.failing("workshop-heater")
+	r.change("workshop-temp", capability.Temperature, 50.0)
+	for i := range 5 {
+		r.change("workshop-temp", capability.Temperature, 51.0+float64(i))
+	}
+	if n := len(r.setter.got()); n != 1 {
+		t.Fatalf("%d writes before the retry, want 1", n)
+	}
+	r.failing()
+	r.at("2026-10-21 08:01 BST")
+	if n := len(r.setter.got()); n != 2 {
+		t.Fatalf("%d writes after the retry, want 2", n)
+	}
+}
+
+func TestEditedTargetEndsTheOldOneOnce(t *testing.T) {
+	r := startRig(t, local("2026-10-21 23:00 BST"), nil, nil, nil, holdRule(t, "water-heater-night", heaterNight))
+	r.failing("bathroom-fan")
+	edited := holdRule(t, "water-heater-night", strings.ReplaceAll(heaterNight, "water-heater", "bathroom-fan"))
+	edited.Generation = 2
+	c, err := Compile(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.e.Load(c)
+	r.settle()
+	r.at("2026-10-21 23:02 BST")
+	// The fan is retried, but the heater is ended only once.
+	var heater, fan int
+	for _, c := range r.setter.got() {
+		switch c.device {
+		case "water-heater":
+			heater++
+		case "bathroom-fan":
+			fan++
+		}
+	}
+	if heater != 2 || fan < 3 {
+		t.Fatalf("calls = %v, want the heater on and off once and the fan retried", r.setter.got())
 	}
 }
