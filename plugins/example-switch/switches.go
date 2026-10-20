@@ -76,14 +76,19 @@ func (s *switches) Serve(ctx context.Context, p *plugin.Plugin) error {
 		if err := p.SetAvailability(ctx, r.id, true); err != nil {
 			return err
 		}
-		s.mu.Lock()
-		state := r.state()
-		s.mu.Unlock()
-		if err := p.SetState(ctx, r.id, state); err != nil {
+		if err := s.publishInitial(ctx, p, r); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// publishInitial publishes a relay's state holding the lock, so a command applied meanwhile
+// can't be overwritten by the state read before it.
+func (s *switches) publishInitial(ctx context.Context, p *plugin.Plugin, r *relay) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return p.SetState(ctx, r.id, r.state())
 }
 
 // Set switches a relay and reports its new state.
