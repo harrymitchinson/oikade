@@ -3,12 +3,14 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/cel-go/cel"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
 // whenEnv is the CEL environment of while.when: a condition with no trigger.
@@ -26,7 +28,7 @@ func mustWhenEnv() *cel.Env {
 	return e
 }
 
-// hold is a compiled while and hold. The runtime doesn't run holds yet.
+// hold is a compiled while and hold.
 type hold struct {
 	device     string
 	room       string
@@ -45,6 +47,46 @@ type hold struct {
 type window struct {
 	start, end timeTrigger
 	days       []time.Weekday
+}
+
+// at reports whether t is inside the window, and when that next changes. The window is open from
+// a start on one of its days until the first end after it, so it may cross midnight. An end at
+// the same time as the start makes it a whole day. Next is zero when nothing changes within a
+// week, as with sun times and no site.
+func (w *window) at(t time.Time, loc *time.Location, site *sun.Site) (in bool, next time.Time) {
+	local := t.In(loc)
+	first := local.AddDate(0, 0, -2)
+	for day := time.Date(first.Year(), first.Month(), first.Day(), 12, 0, 0, 0, loc); day.Before(local.AddDate(0, 0, lookback)); day = day.AddDate(0, 0, 1) {
+		start, ok := w.start.on(day.Year(), day.Month(), day.Day(), loc, site)
+		if !ok || len(w.days) > 0 && !slices.Contains(w.days, start.In(loc).Weekday()) {
+			continue
+		}
+		end, ok := w.endAfter(start, loc, site)
+		if !ok {
+			continue
+		}
+		if !start.After(t) && t.Before(end) {
+			in = true
+		}
+		for _, b := range []time.Time{start, end} {
+			if b.After(t) && (next.IsZero() || b.Before(next)) {
+				next = b
+			}
+		}
+	}
+	return in, next
+}
+
+// endAfter returns the window's first end after start, looking at most two days ahead.
+func (w *window) endAfter(start time.Time, loc *time.Location, site *sun.Site) (time.Time, bool) {
+	d := start.In(loc)
+	for i := range 3 {
+		day := d.AddDate(0, 0, i)
+		if end, ok := w.end.on(day.Year(), day.Month(), day.Day(), loc, site); ok && end.After(start) {
+			return end, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alpha1.RulePriority) (*hold, error) {

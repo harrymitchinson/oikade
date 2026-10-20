@@ -13,8 +13,9 @@ import (
 // its actions are valid, or a Device's control entries fit their capabilities.
 const ConditionReady = "Ready"
 
-// ConditionScheduled is set by the runtime on a Rule with time or sun triggers. It is False when
-// the Rule can't be scheduled, such as a sun trigger on a runtime without a location.
+// ConditionScheduled is set by the runtime on a Rule with time or sun triggers, and on a hold whose
+// window has sun times that can't be computed. It is False when the Rule can't be scheduled, such
+// as a sun trigger or sun window on a runtime without a location.
 const ConditionScheduled = "Scheduled"
 
 // Trigger is a moment that fires the Rule. Exactly one field must be set.

@@ -169,7 +169,8 @@ func TestCompileClaims(t *testing.T) {
 	}
 }
 
-func TestReleaseActionsDoNothingYet(t *testing.T) {
+// A release clears another Rule's latch; it writes nothing itself.
+func TestReleaseActionDoesNotSet(t *testing.T) {
 	setter := &fakeSetter{}
 	result, _ := runRoom(t, setter, nil,
 		homev1alpha1.Action{Release: &homev1alpha1.ReleaseAction{Rule: "workshop-overheat"}},

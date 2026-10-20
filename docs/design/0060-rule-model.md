@@ -79,6 +79,7 @@ spec:
 16. **Sun times in windows:** `window.start`/`end` take `{sun: Sunrise|Sunset, offset}`.
 17. **`triggers`, not `on`** (answered while building): kubectl decodes YAML 1.1, which reads a bare `on` key as the boolean `true`, so `spec.on` arrived as `spec.true`. Moments are `triggers[]`, as Automation's field was, and the issue's `on` reads as `triggers`.
 18. **`PreferOn`/`PreferOff`, not `On`/`Off`** (answered while building): for the same reason, `resolve: On` arrived as `true`. The bool values of `resolve` are `PreferOn` and `PreferOff`, and the issue's `On`/`Off` read as those.
+19. **The end of an unarbitrated number hold** (answered while building): the runtime writes nothing, and the device keeps the held value. A bool hold writes the opposite. Going back to a set value takes a `control` entry, whose `default` arbitration falls back to.
 
 ## Consequences
 

@@ -45,8 +45,10 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	eng := &engine.Engine{
 		Location: opts.Location, Site: opts.Site, Log: log.WithName("engine"),
 		Runs: engine.NewRunsCounter(), Dropped: engine.NewDroppedCounter(), NextChange: engine.NewNextChangeGauge(),
-		OnStart: triggered.Record, OnSchedule: scheduled.Record,
+		Active: engine.NewActiveGauge(), OnStart: triggered.Record, OnSchedule: scheduled.Record,
 	}
+	states := &engine.BusStates{Bus: bus, Log: log.WithName("holds")}
+	eng.States = states
 	eng.Init()
 	store := hub.NewStore(log.WithName("store"), writer, eng)
 	writer.Store, eng.Store = store, store
@@ -68,12 +70,16 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	if err := scheduled.SetupWithManager(mgr); err != nil {
 		return nil, err
 	}
-	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped, eng.NextChange} {
+	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped, eng.NextChange, eng.Active} {
 		if err := opts.Registry.Register(c); err != nil {
 			return nil, err
 		}
 	}
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		// Holds compare against their saved state, so it must be in before any is evaluated.
+		if err := states.Sync(ctx); err != nil {
+			return err
+		}
 		eng.Run(ctx)
 		return nil
 	})); err != nil {

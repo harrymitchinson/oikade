@@ -382,7 +382,7 @@ func TestHubIgnoresStatusPatches(t *testing.T) {
 
 // startRuntime starts envtest, a broker and the runtime, and creates the home namespace.
 func TestRuntimeSchedulesTimeTriggers(t *testing.T) {
-	ctx, c, _, reg := startRuntime(t)
+	ctx, c, url, reg := startRuntime(t)
 	lightOn := []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
 		Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
 	}}}
@@ -424,6 +424,49 @@ func TestRuntimeSchedulesTimeTriggers(t *testing.T) {
 		cond := meta.FindStatusCondition(r.Status.Conditions, homev1alpha1.ConditionScheduled)
 		return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "NoLocation" && r.Status.NextFire.IsZero()
 	})
+
+	// A hold whose window opens in two hours reports when, and saves its state on the bus.
+	must(t, c.Create(ctx, &homev1alpha1.Rule{
+		ObjectMeta: metav1.ObjectMeta{Name: "night-heat", Namespace: ns},
+		Spec: homev1alpha1.RuleSpec{
+			While: &homev1alpha1.While{Window: &homev1alpha1.Window{
+				Start: homev1alpha1.WindowTime{Time: at.Format("15:04")},
+				End:   homev1alpha1.WindowTime{Time: at.Add(time.Hour).Format("15:04")},
+			}},
+			Hold: &homev1alpha1.Hold{Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")}},
+		},
+	}))
+	eventually(t, "night-heat nextChange", func() bool {
+		r := get("night-heat")
+		return r.Status.NextChange.Time.Equal(at) && !r.Status.Active && r.Status.NextFire.IsZero() &&
+			meta.FindStatusCondition(r.Status.Conditions, homev1alpha1.ConditionScheduled) == nil
+	})
+	if got, ok := metricValue(t, reg, "oikade_rule_active", prometheus.Labels{"namespace": ns, "rule": "night-heat"}); !ok || got != 0 {
+		t.Errorf("oikade_rule_active = %v (%v), want 0", got, ok)
+	}
+	watcher, err := mqtt.Connect(ctx, url, "watcher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := make(chan string, 1)
+	if _, err := watcher.Subscribe(ctx, "oikade/v1/_runtime/rules/"+ns+"/night-heat", func(m mqtt.Message) {
+		if m.Retained {
+			select {
+			case saved <- string(m.Payload):
+			default:
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-saved:
+		if !strings.Contains(got, `"active":false`) || !strings.Contains(got, `"device":"hallway-light"`) {
+			t.Errorf("saved state = %s", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no saved hold state")
+	}
 }
 
 func startRuntime(t *testing.T) (context.Context, client.Client, string, *prometheus.Registry) {
