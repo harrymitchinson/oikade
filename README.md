@@ -29,7 +29,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 |------|-------|---------|
 | `Device` | `home.oikade.dev` | A device that should exist: name, room and driver source (a Zigbee IEEE address, or a Plugin and a plugin-local id). Status shows its capabilities and availability. |
 | `Room` | `home.oikade.dev` | Labels metrics and groups devices. HomeKit can't receive rooms from a bridge, so you also assign them once in the Home app. |
-| `Rule` | `home.oikade.dev` | Triggers (`on`), a CEL condition and actions (`do`: `set`, `delay`). |
+| `Rule` | `home.oikade.dev` | Triggers, a CEL condition and actions (`do`: `set`, `delay`). |
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
 | `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device platform Oikade doesn't speak natively. See [Plugins](#plugins). |
 | `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
@@ -82,7 +82,7 @@ kind: Rule
 metadata: {name: hallway-motion-light}
 spec:
   mode: Restart          # new motion restarts the 5 minutes; Single ignores triggers while running
-  on:
+  triggers:
   - change: {device: hallway-motion, capability: sensor.occupancy-detected}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
   do:
@@ -106,7 +106,7 @@ A `change` trigger or a `set` action can name a `room` instead of a `device`, bu
 
 ```yaml
 spec:
-  on:
+  triggers:
   - change: {room: hallway, capability: sensor.occupancy-detected}   # any sensor in the hallway
   do:
   - set: {room: living-room, capability: light.on, value: false}   # every light in the living room
@@ -129,7 +129,7 @@ The operator compiles every Rule and sets `Ready=False` with the reason:
 `Rule` replaces the `Automation` kind, with the same behaviour ([0060](docs/design/0060-rule-model.md)). To move an Automation over:
 
 - Change `kind: Automation` to `kind: Rule`.
-- Wrap each entry of `triggers` in `change:` and rename the list to `on`. For example, `- {device: m, capability: c}` becomes `- change: {device: m, capability: c}`.
+- Wrap each entry of `triggers` in `change:`. For example, `- {device: m, capability: c}` becomes `- change: {device: m, capability: c}`.
 - Rename `actions` to `do`. `condition`, `mode`, `delay` and room targets are unchanged.
 - In PromQL, `oikade_automation_runs_total{automation=…}` is now `oikade_rule_runs_total{rule=…}`, and `oikade_automation_events_dropped_total` is now `oikade_rule_events_dropped_total`.
 

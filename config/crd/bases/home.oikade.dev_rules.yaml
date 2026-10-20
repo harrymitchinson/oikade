@@ -113,8 +113,8 @@ spec:
                 - Single
                 - Restart
                 type: string
-              "on":
-                description: on are the moments that start the Rule.
+              triggers:
+                description: triggers are the moments that start the Rule.
                 items:
                   description: Trigger is a moment that fires the Rule. Exactly one
                     field must be set.
@@ -153,7 +153,7 @@ spec:
                 x-kubernetes-list-type: atomic
             required:
             - do
-            - "on"
+            - triggers
             type: object
           status:
             description: status defines the observed state of Rule

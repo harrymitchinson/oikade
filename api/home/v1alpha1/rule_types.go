@@ -106,12 +106,12 @@ const (
 
 // RuleSpec is a moment rule: when a trigger fires and the condition holds, run the actions.
 type RuleSpec struct {
-	// on are the moments that start the Rule.
+	// triggers are the moments that start the Rule.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=atomic
 	// +required
-	On []Trigger `json:"on"`
+	Triggers []Trigger `json:"triggers"`
 
 	// condition is a CEL expression that must evaluate to true for the actions to run.
 	// Variables: devices (map of device name to map of capability to value),

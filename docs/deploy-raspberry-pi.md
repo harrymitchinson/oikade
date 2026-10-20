@@ -421,7 +421,7 @@ metadata:
   name: hallway-motion-light
 spec:
   mode: Restart
-  on:
+  triggers:
   - change: {device: hallway-motion, capability: sensor.occupancy-detected}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
   do:

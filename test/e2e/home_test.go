@@ -76,7 +76,7 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: motion-light}
 spec:
-  on: [{change: {device: hallway-motion, capability: sensor.occupancy-detected}}]
+  triggers: [{change: {device: hallway-motion, capability: sensor.occupancy-detected}}]
   condition: trigger.value
   do:
   - set: {device: hallway-light, capability: light.on, value: true}
@@ -117,7 +117,7 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: hallway-off}
 spec:
-  on: [{change: {room: porch, capability: sensor.contact-open}}]
+  triggers: [{change: {room: porch, capability: sensor.contact-open}}]
   do:
   - set: {room: hallway, capability: light.on, value: false}
 `
@@ -148,7 +148,7 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: porch-light-off}
 spec:
-  on: [{change: {device: front-door, capability: sensor.contact-open}}]
+  triggers: [{change: {device: front-door, capability: sensor.contact-open}}]
   do:
   - set: {device: porch-light, capability: light.on, value: false}
 `

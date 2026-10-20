@@ -81,17 +81,17 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 		c.Mode = homev1alpha1.RuleModeSingle
 	}
 	var errs []error
-	for i, on := range a.Spec.On {
-		t := on.Change
+	for i, trig := range a.Spec.Triggers {
+		t := trig.Change
 		if t == nil {
-			errs = append(errs, fmt.Errorf("on[%d]: change is required", i))
+			errs = append(errs, fmt.Errorf("triggers[%d]: change is required", i))
 			continue
 		}
 		if (t.Device == "") == (t.Room == "") {
-			errs = append(errs, fmt.Errorf("on[%d].change: exactly one of device or room is required", i))
+			errs = append(errs, fmt.Errorf("triggers[%d].change: exactly one of device or room is required", i))
 		}
 		if _, ok := capability.Lookup(t.Capability); !ok {
-			errs = append(errs, fmt.Errorf("on[%d].change: unknown capability %q", i, t.Capability))
+			errs = append(errs, fmt.Errorf("triggers[%d].change: unknown capability %q", i, t.Capability))
 		}
 		c.changes = append(c.changes, *t)
 	}
