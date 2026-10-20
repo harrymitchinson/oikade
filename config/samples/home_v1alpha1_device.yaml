@@ -10,6 +10,15 @@ spec:
   zigbee2mqtt:
     instanceRef: {name: z2m}
     ieeeAddress: "0x000b57fffe000001"
+  # light.on is arbitrated: rules, HomeKit and the wall switch make claims, and
+  # the light takes the winner. A wall switch or Home app change holds until
+  # what the rules want next changes.
+  control:
+  - capability: light.on
+    default: false
+    resolve: PreferOn
+    external: Override
+    overrideHold: Next
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device

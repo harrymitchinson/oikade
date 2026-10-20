@@ -18,11 +18,13 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// Device condition types, written by the runtime.
+// Device condition types. The runtime writes Resolved and Available; the operator writes Ready
+// from validating the spec.
 const (
 	// ConditionResolved is True once the driver has found the device and reported its capabilities.
 	ConditionResolved = "Resolved"
@@ -84,6 +86,91 @@ type DeviceHomeKit struct {
 	Service HomeKitService `json:"service,omitempty"`
 }
 
+// ControlResolve picks between claims at the same level. The bool values aren't On and Off,
+// because YAML 1.1, which kubectl decodes, reads those unquoted as booleans.
+// +kubebuilder:validation:Enum=PreferOn;PreferOff;Highest;Lowest
+type ControlResolve string
+
+const (
+	// ControlResolvePreferOn prefers true, for bool capabilities.
+	ControlResolvePreferOn ControlResolve = "PreferOn"
+	// ControlResolvePreferOff prefers false, for bool capabilities.
+	ControlResolvePreferOff ControlResolve = "PreferOff"
+	// ControlResolveHighest prefers the highest value, for number capabilities.
+	ControlResolveHighest ControlResolve = "Highest"
+	// ControlResolveLowest prefers the lowest value, for number capabilities.
+	ControlResolveLowest ControlResolve = "Lowest"
+)
+
+// ControlExternal says what a change from outside the rules does.
+// +kubebuilder:validation:Enum=Override;Revert
+type ControlExternal string
+
+const (
+	// ControlExternalOverride makes an outside change an Override claim for overrideHold.
+	ControlExternalOverride ControlExternal = "Override"
+	// ControlExternalRevert writes the winner straight back.
+	ControlExternalRevert ControlExternal = "Revert"
+)
+
+// OverrideHoldNext ends an outside change's claim when the result without it next changes.
+const OverrideHoldNext = "Next"
+
+// CapabilityControl makes one capability arbitrated (0060): rules, HomeKit and the device itself
+// make claims on it, and the device takes the winner.
+// +kubebuilder:validation:XValidation:rule="self.external != 'Override' || has(self.overrideHold)",message="overrideHold is required when external is Override"
+// +kubebuilder:validation:XValidation:rule="!has(self.minimumOn) || duration(self.minimumOn) >= duration('0s')",message="minimumOn must not be negative"
+// +kubebuilder:validation:XValidation:rule="!has(self.maximumOn) || duration(self.maximumOn) > duration('0s')",message="maximumOn must be positive"
+// +kubebuilder:validation:XValidation:rule="!has(self.minimumOff) || duration(self.minimumOff) >= duration('0s')",message="minimumOff must not be negative"
+type CapabilityControl struct {
+	// capability is the writable capability to arbitrate, e.g. switch.on.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Capability string `json:"capability"`
+
+	// default is the value when nobody claims the capability: a bool or number matching its kind.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=""
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +required
+	Default apiextensionsv1.JSON `json:"default"`
+
+	// resolve picks between claims at the same level: PreferOn or PreferOff for a bool capability,
+	// Highest or Lowest for a number.
+	// +required
+	Resolve ControlResolve `json:"resolve"`
+
+	// external says what a change from outside the rules, through HomeKit or on the device
+	// itself, does. Override makes it a claim for overrideHold; Revert writes the winner back.
+	// +required
+	External ControlExternal `json:"external"`
+
+	// overrideHold is how long an outside change holds as an Override claim: a duration such as
+	// 1h, or Next to hold until the result without it next changes.
+	// +kubebuilder:validation:Pattern=`^(Next|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$`
+	// +kubebuilder:validation:MaxLength=32
+	// +optional
+	OverrideHold string `json:"overrideHold,omitempty"`
+
+	// minimumOn keeps the device on at least this long once it starts. Equipment limits win over
+	// every claim, Safety included.
+	// +optional
+	MinimumOn *metav1.Duration `json:"minimumOn,omitempty"`
+
+	// maximumOn stops the device after it has been on this long. It then rests for minimumOff.
+	// +optional
+	MaximumOn *metav1.Duration `json:"maximumOn,omitempty"`
+
+	// minimumOff keeps the device off at least this long once it stops.
+	// +optional
+	MinimumOff *metav1.Duration `json:"minimumOff,omitempty"`
+
+	// maximumStartsPerDay limits how often the device turns on per local day. Unset is unlimited.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	MaximumStartsPerDay *int32 `json:"maximumStartsPerDay,omitempty"`
+}
+
 // DeviceSpec declares a device that should exist in the home. Exactly one driver source must be set.
 // +kubebuilder:validation:XValidation:rule="[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size() == 1",message="exactly one driver source (zigbee2mqtt or plugin) is required"
 type DeviceSpec struct {
@@ -107,6 +194,14 @@ type DeviceSpec struct {
 	// homekit tunes how the device appears in HomeKit.
 	// +optional
 	HomeKit *DeviceHomeKit `json:"homekit,omitempty"`
+
+	// control lists the capabilities that are arbitrated. Capabilities without an entry keep
+	// last-write-wins.
+	// +listType=map
+	// +listMapKey=capability
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Control []CapabilityControl `json:"control,omitempty"`
 }
 
 // CapabilityKind is the value type of a capability.
@@ -133,8 +228,84 @@ type DeviceCapability struct {
 	Writable bool `json:"writable,omitempty"`
 }
 
+// ControlLevel orders claims. A higher level always wins, and Default is the device's default
+// value when nobody claims.
+// +kubebuilder:validation:Enum=Safety;Override;Normal;Default
+type ControlLevel string
+
+const (
+	ControlLevelSafety   ControlLevel = "Safety"
+	ControlLevelOverride ControlLevel = "Override"
+	ControlLevelNormal   ControlLevel = "Normal"
+	ControlLevelDefault  ControlLevel = "Default"
+)
+
+// ControlClaim is one source's claim on an arbitrated capability.
+type ControlClaim struct {
+	// source is the path the claim came in by: HomeKit, Device or Rule/<name>.
+	// +required
+	Source string `json:"source"`
+
+	// level is the claim's level.
+	// +required
+	Level ControlLevel `json:"level"`
+
+	// value is the claimed value.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=""
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +required
+	Value apiextensionsv1.JSON `json:"value"`
+
+	// expires is when the claim ends, if it ends at a time.
+	// +optional
+	Expires metav1.Time `json:"expires,omitzero"`
+
+	// latched is true for a latched hold, which lasts until a release action.
+	// +optional
+	Latched bool `json:"latched,omitempty"`
+
+	// winner is true for the claim the device takes.
+	// +optional
+	Winner bool `json:"winner,omitempty"`
+
+	// reverted is true for an outside change that was written back.
+	// +optional
+	Reverted bool `json:"reverted,omitempty"`
+}
+
+// CapabilityControlStatus is the state of one arbitrated capability. It changes at transitions,
+// not on every value.
+type CapabilityControlStatus struct {
+	// capability is the arbitrated capability.
+	// +required
+	Capability string `json:"capability"`
+
+	// value is the value the device was last given.
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=""
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
+	Value *apiextensionsv1.JSON `json:"value,omitempty"`
+
+	// level is the winning claim's level.
+	// +optional
+	Level ControlLevel `json:"level,omitempty"`
+
+	// claims are the current claims, the winner among them.
+	// +listType=atomic
+	// +optional
+	Claims []ControlClaim `json:"claims,omitempty"`
+}
+
 // DeviceStatus is the driver's coarse view of the device. Live values are on the MQTT bus, never here.
 type DeviceStatus struct {
+	// control is the state of each arbitrated capability, written by the runtime.
+	// +listType=map
+	// +listMapKey=capability
+	// +optional
+	Control []CapabilityControlStatus `json:"control,omitempty"`
+
 	// capabilities the driver reported for the device.
 	// +listType=map
 	// +listMapKey=name
@@ -153,7 +324,7 @@ type DeviceStatus struct {
 	// +optional
 	LastSeen metav1.Time `json:"lastSeen,omitzero"`
 
-	// conditions: Resolved and Available.
+	// conditions: Ready, set by the operator, and Resolved and Available, set by the runtime.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

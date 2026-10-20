@@ -90,7 +90,8 @@ func (w *Writer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, 
 	snap, ok := w.Store.Get(req.NamespacedName)
 	compute(&d, snap, ok, w.SeenInterval)
 	if !equality.Semantic.DeepEqual(orig.Status, d.Status) {
-		if err := w.Status().Patch(ctx, &d, client.MergeFrom(orig)); err != nil {
+		// Optimistic locking, because the operator writes Ready into the same conditions list.
+		if err := w.Status().Patch(ctx, &d, client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
 	}

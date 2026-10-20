@@ -56,6 +56,88 @@ spec:
           spec:
             description: spec defines the desired state of Device
             properties:
+              control:
+                description: |-
+                  control lists the capabilities that are arbitrated. Capabilities without an entry keep
+                  last-write-wins.
+                items:
+                  description: |-
+                    CapabilityControl makes one capability arbitrated (0060): rules, HomeKit and the device itself
+                    make claims on it, and the device takes the winner.
+                  properties:
+                    capability:
+                      description: capability is the writable capability to arbitrate,
+                        e.g. switch.on.
+                      minLength: 1
+                      type: string
+                    default:
+                      description: 'default is the value when nobody claims the capability:
+                        a bool or number matching its kind.'
+                      x-kubernetes-preserve-unknown-fields: true
+                    external:
+                      description: |-
+                        external says what a change from outside the rules, through HomeKit or on the device
+                        itself, does. Override makes it a claim for overrideHold; Revert writes the winner back.
+                      enum:
+                      - Override
+                      - Revert
+                      type: string
+                    maximumOn:
+                      description: maximumOn stops the device after it has been on
+                        this long. It then rests for minimumOff.
+                      type: string
+                    maximumStartsPerDay:
+                      description: maximumStartsPerDay limits how often the device
+                        turns on per local day. Unset is unlimited.
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    minimumOff:
+                      description: minimumOff keeps the device off at least this long
+                        once it stops.
+                      type: string
+                    minimumOn:
+                      description: |-
+                        minimumOn keeps the device on at least this long once it starts. Equipment limits win over
+                        every claim, Safety included.
+                      type: string
+                    overrideHold:
+                      description: |-
+                        overrideHold is how long an outside change holds as an Override claim: a duration such as
+                        1h, or Next to hold until the result without it next changes.
+                      maxLength: 32
+                      pattern: ^(Next|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                      type: string
+                    resolve:
+                      description: |-
+                        resolve picks between claims at the same level: PreferOn or PreferOff for a bool capability,
+                        Highest or Lowest for a number.
+                      enum:
+                      - PreferOn
+                      - PreferOff
+                      - Highest
+                      - Lowest
+                      type: string
+                  required:
+                  - capability
+                  - default
+                  - external
+                  - resolve
+                  type: object
+                  x-kubernetes-validations:
+                  - message: overrideHold is required when external is Override
+                    rule: self.external != 'Override' || has(self.overrideHold)
+                  - message: minimumOn must not be negative
+                    rule: '!has(self.minimumOn) || duration(self.minimumOn) >= duration(''0s'')'
+                  - message: maximumOn must be positive
+                    rule: '!has(self.maximumOn) || duration(self.maximumOn) > duration(''0s'')'
+                  - message: minimumOff must not be negative
+                    rule: '!has(self.minimumOff) || duration(self.minimumOff) >= duration(''0s'')'
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - capability
+                x-kubernetes-list-type: map
               displayName:
                 description: displayName is the human-friendly name shown in HomeKit
                   and Grafana. Defaults to the object name.
@@ -198,7 +280,8 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               conditions:
-                description: 'conditions: Resolved and Available.'
+                description: 'conditions: Ready, set by the operator, and Resolved
+                  and Available, set by the runtime.'
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -256,6 +339,80 @@ spec:
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
+                x-kubernetes-list-type: map
+              control:
+                description: control is the state of each arbitrated capability, written
+                  by the runtime.
+                items:
+                  description: |-
+                    CapabilityControlStatus is the state of one arbitrated capability. It changes at transitions,
+                    not on every value.
+                  properties:
+                    capability:
+                      description: capability is the arbitrated capability.
+                      type: string
+                    claims:
+                      description: claims are the current claims, the winner among
+                        them.
+                      items:
+                        description: ControlClaim is one source's claim on an arbitrated
+                          capability.
+                        properties:
+                          expires:
+                            description: expires is when the claim ends, if it ends
+                              at a time.
+                            format: date-time
+                            type: string
+                          latched:
+                            description: latched is true for a latched hold, which
+                              lasts until a release action.
+                            type: boolean
+                          level:
+                            description: level is the claim's level.
+                            enum:
+                            - Safety
+                            - Override
+                            - Normal
+                            - Default
+                            type: string
+                          reverted:
+                            description: reverted is true for an outside change that
+                              was written back.
+                            type: boolean
+                          source:
+                            description: 'source is the path the claim came in by:
+                              HomeKit, Device or Rule/<name>.'
+                            type: string
+                          value:
+                            description: value is the claimed value.
+                            x-kubernetes-preserve-unknown-fields: true
+                          winner:
+                            description: winner is true for the claim the device takes.
+                            type: boolean
+                        required:
+                        - level
+                        - source
+                        - value
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    level:
+                      description: level is the winning claim's level.
+                      enum:
+                      - Safety
+                      - Override
+                      - Normal
+                      - Default
+                      type: string
+                    value:
+                      description: value is the value the device was last given.
+                      x-kubernetes-preserve-unknown-fields: true
+                  required:
+                  - capability
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - capability
                 x-kubernetes-list-type: map
               lastSeen:
                 description: lastSeen is when the driver last heard from the device

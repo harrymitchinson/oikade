@@ -35,7 +35,7 @@ Done looks like this. Each case is written in Git with one mental model, is corr
 | Normal | ordinary rules | when the hold ends, or the set's `for`/`until` |
 | default | nobody | never |
 
-- The highest level with a claim wins. Within a level, the device's required `resolve` picks: `On`/`Off` for bools, `Highest`/`Lowest` for numbers. Rules carry no numeric priorities.
+- The highest level with a claim wins. Within a level, the device's required `resolve` picks: `PreferOn`/`PreferOff` for bools, `Highest`/`Lowest` for numbers. Rules carry no numeric priorities.
 - **Equipment limits** (`minimumOn`, `maximumOn`, `minimumOff`, `maximumStartsPerDay`) apply after the winner is picked, and win over every rule, Safety included.
 - **Outside changes.** Status records the path a change came in by (`HomeKit`, `Device`, `Rule/<name>`), never "manual". The required `external` says what an outside change does: `Override` makes it a claim for `overrideHold` (a duration or `Next`); `Revert` writes the winner back at once. An accepted outside change counts towards the limits but isn't fought by them.
 - **One-off sets** on an arbitrated capability are claims, and must end: `for: <duration>`, `until: Next` (when the result without the claim next changes), `until: Released`, or `for` with `until: Next`, ending at whichever comes first.
@@ -54,7 +54,7 @@ kind: Device
 metadata: {name: main-valve}
 spec:
   control:
-  - {capability: switch.on, default: true, resolve: Off, external: Revert}
+  - {capability: switch.on, default: true, resolve: PreferOff, external: Revert}
 ```
 
 `Device.status.control[]` then lists each capability's value, level and claims (`source`, `level`, `value`, `expires`, `latched`, `winner`, `reverted`). It changes at transitions, not on every value.
@@ -78,6 +78,7 @@ spec:
 15. **Latching:** `latch: true` on `while` holds.
 16. **Sun times in windows:** `window.start`/`end` take `{sun: Sunrise|Sunset, offset}`.
 17. **`triggers`, not `on`** (answered while building): kubectl decodes YAML 1.1, which reads a bare `on` key as the boolean `true`, so `spec.on` arrived as `spec.true`. Moments are `triggers[]`, as Automation's field was, and the issue's `on` reads as `triggers`.
+18. **`PreferOn`/`PreferOff`, not `On`/`Off`** (answered while building): for the same reason, `resolve: On` arrived as `true`. The bool values of `resolve` are `PreferOn` and `PreferOff`, and the issue's `On`/`Off` read as those.
 
 ## Consequences
 

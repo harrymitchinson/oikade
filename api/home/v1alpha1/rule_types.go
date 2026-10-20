@@ -22,7 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// ConditionReady is True when a Rule's condition compiles and its actions are valid.
+// ConditionReady is True when the operator finds the spec valid: a Rule's condition compiles and
+// its actions are valid, or a Device's control entries fit their capabilities.
 const ConditionReady = "Ready"
 
 // ConditionScheduled is set by the runtime on a Rule with time or sun triggers. It is False when
