@@ -9,7 +9,7 @@ This guide takes you from blank Pis to a paired HomeKit bridge, Zigbee devices d
 3. [Install k3s](#3-install-k3s)
 4. [Choose nodes for HomeKit and Zigbee](#4-choose-nodes-for-homekit-and-zigbee)
 5. [Storage](#5-storage)
-6. [Build and push the image](#6-build-and-push-the-image)
+6. [Choose a release](#6-choose-a-release)
 7. [Install Oikade](#7-install-oikade)
 8. [Set up a Git repo for your home](#8-set-up-a-git-repo-for-your-home)
 9. [Run Zigbee2MQTT](#9-run-zigbee2mqtt)
@@ -116,37 +116,53 @@ You have two options:
 - **Keep `local-path` and take backups** as in step 15. This is fine for a single-node or small cluster.
 - **Use replicated storage** such as [Longhorn](https://longhorn.io). It needs `open-iscsi` on every Pi (`sudo apt install -y open-iscsi`) and adds noticeable load on a Pi 4.
 
-## 6. Build and push the image
+## 6. Choose a release
+
+Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the HAP pods.
+
+Versions between milestones are pre-releases, such as `v0.1.0-alpha.3`. Any of them may change the API, so read the release notes before you upgrade (README, "Versioning").
+
+<details>
+<summary>Building from source instead</summary>
 
 On your Mac, in this repo:
 
 ```sh
 echo <github-token> | docker login ghcr.io -u <github-user> --password-stdin
-
-make docker-buildx IMG=ghcr.io/<github-user>/oikade:v0.1.0 PLATFORMS=linux/arm64
+make docker-buildx IMG=ghcr.io/<github-user>/oikade:dev VERSION=dev PLATFORMS=linux/arm64
+make build-installer IMG=ghcr.io/<github-user>/oikade:dev
 ```
 
-The same image runs the operator, the runtime and the HAP pods. Either make the package public in GitHub's package settings, or add an `imagePullSecret` to the `oikade-system` service accounts.
+Then use `dist/install.yaml` wherever this guide uses the Release's URL. Either make your package public in GitHub's package settings, or add an `imagePullSecret` to the `oikade-system` service accounts.
+
+</details>
 
 ## 7. Install Oikade
 
-First, set your timezone so rules see local time. Edit `config/runtime/deployment.yaml`:
+The Release's `install.yaml` runs the runtime with `--timezone=UTC`. Rules see the timezone as `tz`, and time and sun triggers use it, so patch in yours. Create a directory for it, which becomes part of your home repo in step 8:
+
+`oikade/kustomization.yaml`:
 
 ```yaml
-        - --timezone=Europe/London    # your IANA timezone
+resources:
+- https://github.com/harrymitchinson/oikade/releases/download/v0.1.0-alpha.1/install.yaml
+patches:
+# Appends a second --timezone. The last one wins, so this overrides the UTC default.
+- target: {kind: Deployment, name: oikade-runtime}
+  patch: |
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --timezone=Europe/London    # your IANA timezone
 ```
 
-Then render a single install file and apply it:
+Then apply it:
 
 ```sh
-make build-installer IMG=ghcr.io/<github-user>/oikade:v0.1.0
-kubectl apply -f dist/install.yaml
+kubectl apply -k oikade/
 kubectl -n oikade-system get pods
 ```
 
 You should see three pods running: `oikade-controller-manager`, `oikade-runtime` and `oikade-mosquitto`.
-
-`make build-installer` writes the image name into `config/manager/kustomization.yaml` and `config/runtime/kustomization.yaml`. Commit `dist/install.yaml` if you want Flux to install Oikade itself (step 8). Revert the two kustomizations if you don't want the tag in the repo.
 
 > **Security:** Mosquitto allows anonymous connections from inside the cluster, so anything that can reach `oikade-mosquitto:1883` can control your devices. At minimum, keep untrusted workloads off this cluster or add a NetworkPolicy.
 
@@ -157,7 +173,10 @@ Keep your home's manifests in their own repo, separate from Oikade's code:
 ```
 home-infra/
 ├── clusters/pi/              # Flux entry point
+│   ├── oikade.yaml           # Kustomization pointing at ./oikade
 │   └── home.yaml             # Kustomization pointing at ./home
+├── oikade/
+│   └── kustomization.yaml    # step 7: the Release's install.yaml and your timezone
 └── home/
     ├── kustomization.yaml
     ├── namespace.yaml
@@ -205,7 +224,25 @@ brew install fluxcd/tap/flux
 flux bootstrap github --owner=<github-user> --repository=home-infra --path=clusters/pi --personal
 ```
 
-`clusters/pi/home.yaml`:
+`clusters/pi/oikade.yaml` installs Oikade itself, from the Release named in `oikade/kustomization.yaml`:
+
+```yaml
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: oikade
+  namespace: flux-system
+spec:
+  interval: 1h
+  path: ./oikade
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+```
+
+`clusters/pi/home.yaml` applies your home once Oikade's CRDs are in place:
 
 ```yaml
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -214,6 +251,8 @@ metadata:
   name: home
   namespace: flux-system
 spec:
+  dependsOn:
+  - name: oikade
   interval: 5m
   path: ./home
   prune: true
@@ -449,7 +488,17 @@ helm install kps prometheus-community/kube-prometheus-stack -n monitoring --crea
   --set prometheus.prometheusSpec.retention=90d
 ```
 
-In this repo, uncomment `- ../prometheus` and `- ../grafana` in `config/default/kustomization.yaml`. Then run `make build-installer` again and re-apply `dist/install.yaml`.
+The ServiceMonitors and the dashboard aren't in `install.yaml`, so add them from the same release. `oikade/monitoring/kustomization.yaml`:
+
+```yaml
+namespace: oikade-system
+namePrefix: oikade-
+resources:
+- https://github.com/harrymitchinson/oikade//config/prometheus?ref=v0.1.0-alpha.1
+- https://github.com/harrymitchinson/oikade//config/grafana?ref=v0.1.0-alpha.1
+```
+
+Add `- monitoring` to the `resources` in `oikade/kustomization.yaml`, and keep its version in step with the `install.yaml` URL when you upgrade. Then run `kubectl apply -k oikade/`, or commit it for Flux.
 
 ```sh
 kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
@@ -491,11 +540,14 @@ Copy them to another machine from a nightly cron, e.g. `rsync -a --rsync-path="s
 
 ## 16. Upgrades
 
-```sh
-make docker-buildx IMG=ghcr.io/<github-user>/oikade:v0.2.0 PLATFORMS=linux/arm64
-make build-installer IMG=ghcr.io/<github-user>/oikade:v0.2.0
-kubectl apply -f dist/install.yaml        # or commit dist/install.yaml and let Flux apply it
+Read the release notes, then change the version in the URL in `oikade/kustomization.yaml`:
+
+```yaml
+resources:
+- https://github.com/harrymitchinson/oikade/releases/download/v0.1.0-alpha.2/install.yaml
 ```
+
+Commit it and let Flux apply it, or run `kubectl apply -k oikade/`. Your timezone patch carries over. Renovate's regex manager can open these PRs for you. Pre-releases count as newer, so a range has to include them (`>=0.1.0-0`).
 
 The operator and runtime roll over. HAP pods pick up the new image the next time the operator applies them, keeping their pairings. They use the Recreate strategy, so expect a few seconds when HomeKit shows "No Response".
 
