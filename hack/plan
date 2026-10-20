@@ -424,6 +424,9 @@ cmd_pr() {
 	git push -q --force-with-lease -u "$REMOTE" "$branch"
 	url=$(gh pr create --head "$branch" --base "$base" --title "$title" --body-file "$file")
 	pr="${url##*/}"
+	# The board's "Pull requests" and "Waiting on me" views list PRs too.
+	gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --url "$url" >/dev/null ||
+		echo "plan: opened $url, but couldn't add it to the board" >&2
 	edit_body "$n" add_pr_at "${branch##*-}" "$pr" ||
 		die "opened $url, but step ${branch##*-} of #$n isn't an unticked step without a PR, so it isn't recorded. Check the Steps, then: hack/plan link $n $pr"
 	echo "$url"
