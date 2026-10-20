@@ -26,7 +26,12 @@ func runHAP(args []string) int {
 	dataDir := fs.String("data-dir", "/data", "Directory for pairings and keys. Losing it means re-pairing.")
 	var logLevel slog.Level
 	fs.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
+	showVersion := versionFlag(fs)
 	_ = fs.Parse(args)
+	if *showVersion {
+		printVersion(os.Stdout)
+		return 0
+	}
 	configureLogging(logLevel)
 	log := ctrl.Log.WithName("hap")
 

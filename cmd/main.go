@@ -59,9 +59,6 @@ func main() {
 			os.Exit(runRuntime(os.Args[2:]))
 		case "hap":
 			os.Exit(runHAP(os.Args[2:]))
-		case "--version", "-version":
-			printVersion(os.Stdout)
-			return
 		}
 	}
 
@@ -102,7 +99,12 @@ func main() {
 		"Image for HomeKit bridge pods. Defaults to the operator's own image (via $POD_NAME/$POD_NAMESPACE).")
 	var logLevel slog.Level
 	flag.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
+	showVersion := versionFlag(flag.CommandLine)
 	flag.Parse()
+	if *showVersion {
+		printVersion(os.Stdout)
+		return
+	}
 
 	configureLogging(logLevel)
 
