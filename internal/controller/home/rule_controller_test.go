@@ -17,9 +17,12 @@ limitations under the License.
 package home
 
 import (
+	"bufio"
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,10 +31,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
 var _ = Describe("Rule Controller", func() {
@@ -163,16 +168,33 @@ var _ = Describe("Rule Controller", func() {
 	})
 
 	// kubectl decodes YAML 1.1, where some bare keys aren't strings (on is true), so the samples
-	// go through the same decoder, strictly, before the API server sees them.
-	It("accepts the samples as kubectl decodes them", func() {
-		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "samples", "home_v1alpha1_rule.yaml"))
+	// go through the same decoder, strictly, before the API server sees them. Then they must
+	// compile, as the operator would report them Invalid otherwise.
+	It("accepts and compiles the samples as kubectl decodes them", func() {
+		f, err := os.Open(filepath.Join("..", "..", "..", "config", "samples", "home_v1alpha1_rule.yaml"))
 		Expect(err).NotTo(HaveOccurred())
-		for doc := range strings.SplitSeq(string(raw), "\n---\n") {
+		DeferCleanup(f.Close)
+		docs := utilyaml.NewYAMLReader(bufio.NewReader(f))
+		var names []string
+		for {
+			doc, err := docs.Read()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			Expect(err).NotTo(HaveOccurred())
+			if len(bytes.TrimSpace(doc)) == 0 {
+				continue
+			}
 			var rule homev1alpha1.Rule
-			Expect(yaml.UnmarshalStrict([]byte(doc), &rule)).To(Succeed())
+			Expect(yaml.UnmarshalStrict(doc, &rule)).To(Succeed())
 			rule.Namespace = "default"
 			Expect(k8sClient.Create(ctx, &rule)).To(Succeed())
+			DeferCleanup(k8sClient.Delete, ctx, &rule)
+			_, err = engine.Compile(&rule)
+			Expect(err).NotTo(HaveOccurred(), "sample %s", rule.Name)
+			names = append(names, rule.Name)
 		}
+		Expect(names).To(ConsistOf("hallway-motion-light", "goodnight-living-room"))
 	})
 
 	It("rejects a moment with no trigger at admission", func() {
