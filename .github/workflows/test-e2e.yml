@@ -12,7 +12,6 @@ on:
       - "internal/**"
       - "config/**"
       - "test/**"
-      - "hack/**"
       - "go.mod"
       - "go.sum"
       - "Makefile"

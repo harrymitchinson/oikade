@@ -8,10 +8,42 @@ on:
 permissions: {}
 
 jobs:
+  # Docs and planning changes can't break Go, so their PRs skip the jobs
+  # below. Skipped jobs still report, so hack/plan merge sees the checks.
+  changes:
+    permissions:
+      contents: read
+    name: Check for code changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: List changed files that aren't docs or planning
+        id: diff
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo code=true >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # HEAD is the PR's merge commit, and HEAD^1 the base it merges into
+          files=$(git diff --name-only HEAD^1 HEAD)
+          # contract/v1's tests check docs/plugin-contract.md, so it counts as code
+          code=$(grep -vE '\.md$|^docs/|^\.claude/|^hack/plan$|^LICENSE$' <<<"$files"; grep -Fx docs/plugin-contract.md <<<"$files" || true)
+          echo "$code"
+          if [ -n "$code" ]; then echo code=true; else echo code=false; fi >>"$GITHUB_OUTPUT"
+
   lint:
     permissions:
       contents: read
     name: Run on Ubuntu
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -23,6 +55,19 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version-file: go.mod
+
+      - name: Cache tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin
+          key: bin-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
+
+      - name: Cache lint results
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-${{ runner.os }}-${{ github.sha }}
+          restore-keys: golangci-${{ runner.os }}-
 
       - name: Check linter configuration
         run: make lint-config
