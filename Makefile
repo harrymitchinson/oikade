@@ -258,7 +258,11 @@ $(ENVTEST): $(LOCALBIN)
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
-$(GOLANGCI_LINT): $(LOCALBIN)
+# bin/ is order-only: a restored CI cache leaves it newer than the custom binary,
+# which would rebuild it every run. After changing GOLANGCI_LINT_VERSION or
+# .custom-gcl.yml, rm bin/golangci-lint to rebuild it locally. CI's cache key
+# covers both.
+$(GOLANGCI_LINT): | $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 	@test -f .custom-gcl.yml && { \
 		echo "Building custom golangci-lint with plugins..." && \
