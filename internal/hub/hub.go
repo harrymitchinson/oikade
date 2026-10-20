@@ -192,9 +192,7 @@ func metaFor(d *homev1alpha1.Device, instance driver.InstanceKey) Meta {
 	if d.Spec.HomeKit != nil {
 		m.HomeKitService = string(d.Spec.HomeKit.Service)
 	}
-	for _, c := range d.Spec.Control {
-		m.Controlled = append(m.Controlled, c.Capability)
-	}
+	m.Control = d.Spec.Control
 	return m
 }
 

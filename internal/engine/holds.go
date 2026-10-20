@@ -9,6 +9,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 )
 
 // Hold timings.
@@ -37,8 +40,6 @@ type holdState struct {
 	writing bool
 	// retry is when to try a failed write again. Zero means none is due.
 	retry time.Time
-	// warned is set once the hold has logged that its target is arbitrated.
-	warned bool
 	// reported is the last Schedule reported, so an unchanged one isn't reported again.
 	reported *Schedule
 	// deleted is set when the Rule is deleted, so a write still running doesn't save its state.
@@ -137,7 +138,8 @@ func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *stat
 	}
 	if active != st.Active || st != hs.saved || hs.dirty || end != nil {
 		hs.writing, hs.dirty = true, false
-		e.runs.Go(func() { e.write(ctx, key, hs, st, active, end) })
+		claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
+		e.runs.Go(func() { e.write(ctx, key, hs, st, active, end, claim) })
 		s.next = fire{}
 	} else {
 		s.next = fire{At: lookAgain(h, st, next, now)}
@@ -201,16 +203,16 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 
 // write ends an edited hold's old target, writes the hold's start or end, and saves its state.
 // A failed write isn't saved as done, so it's tried again.
-func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdState, st HoldState, active bool, end *HoldTarget) {
+func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdState, st HoldState, active bool, end *HoldTarget, claim control.Claim) {
 	var retry time.Duration
 	ended := true
 	if end != nil {
-		if d, err := e.applyHold(ctx, key, *end, false); err != nil {
+		if d, err := e.applyHold(ctx, key, *end, false, claim); err != nil {
 			retry, ended = d, false
 		}
 	}
 	if ended && active != st.Active {
-		if d, err := e.applyHold(ctx, key, st.Target, active); err != nil {
+		if d, err := e.applyHold(ctx, key, st.Target, active, claim); err != nil {
 			retry = d
 		} else {
 			st.Active = active
@@ -257,15 +259,14 @@ func (e *Engine) deleteState(key types.NamespacedName) {
 }
 
 // applyHold writes a hold's start (its value) or end (the opposite of a bool, and nothing for a
-// number). It returns how soon to retry when it fails.
-func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t HoldTarget, start bool) (time.Duration, error) {
+// number). On an arbitrated capability, the start is claim with the hold's value, and the end
+// releases it. It returns how soon to retry when it fails.
+func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t HoldTarget, start bool, claim control.Claim) (time.Duration, error) {
+	claim.Value = capability.Float(t.Value)
 	value := t.Value
-	if !start {
-		b, ok := value.(bool)
-		if !ok {
-			// A number hold leaves the device as it is when it ends (0060, answer 19).
-			return 0, nil
-		}
+	// An unarbitrated number hold leaves the device as it is when it ends (0060, answer 19).
+	plainEnd := !start
+	if b, ok := value.(bool); ok && !start {
 		value = !b
 	}
 	log := e.Log.WithValues("rule", key, "capability", t.Capability)
@@ -293,8 +294,12 @@ func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t Hold
 	}
 	for _, dev := range devices {
 		snap, ok := e.Store.Get(dev)
-		if ok && slices.Contains(snap.Controlled, t.Capability) {
-			e.warnArbitrated(key, dev)
+		if ok && snap.Controls(t.Capability) {
+			if start && e.claim(ctx, dev, t.Capability, claim) || !start && e.releaseClaim(ctx, dev, t.Capability, claim.Source) {
+				continue
+			}
+		}
+		if _, isBool := t.Value.(bool); plainEnd && !isBool {
 			continue
 		}
 		if !ok || !snap.Discovered {
@@ -310,20 +315,6 @@ func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t Hold
 		}
 	}
 	return retry, failed
-}
-
-// warnArbitrated logs once per load that a hold's target is arbitrated, which holds don't
-// write yet.
-func (e *Engine) warnArbitrated(key types.NamespacedName, dev types.NamespacedName) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	s := e.rules[key]
-	if s == nil || s.hold == nil || s.hold.warned {
-		return
-	}
-	s.hold.warned = true
-	e.Log.Info("Hold on an arbitrated capability set nothing; arbitration isn't in the runtime yet",
-		"rule", key, "device", dev.Name, "capability", s.c.hold.capability)
 }
 
 // reportHold reports a hold's state and next change: the window's next change, or a delay's

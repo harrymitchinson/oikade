@@ -37,70 +37,79 @@ type HoldTarget struct {
 	Value      any    `json:"value"`
 }
 
-// HoldStates keeps HoldStates where they survive a restart.
-type HoldStates interface {
-	// Get returns the Rule's state, if one was saved.
-	Get(key types.NamespacedName) (HoldState, bool)
-	Put(ctx context.Context, key types.NamespacedName, s HoldState) error
+// States keeps state, by Rule or Device, where it survives a restart.
+type States[T any] interface {
+	// Get returns the saved state, if there is one.
+	Get(key types.NamespacedName) (T, bool)
+	Put(ctx context.Context, key types.NamespacedName, s T) error
 	Delete(ctx context.Context, key types.NamespacedName) error
 }
 
-// statesRoot is where BusStates keeps hold states. 0003 reserved oikade/v1/_runtime, and no
-// namespace starts with "_", so it can't collide with a plugin's root.
-const statesRoot = "oikade/v1/_runtime/rules/"
+// HoldStates keeps HoldStates, by Rule.
+type HoldStates = States[HoldState]
 
-// syncNamespace carries BusStates' sync marker. It's no namespace, for the same reason.
+// Roots of the runtime's retained state. 0003 reserved oikade/v1/_runtime, and no namespace
+// starts with "_", so they can't collide with a plugin's root.
+const (
+	// HoldStatesRoot keeps a HoldState per Rule, at <root><namespace>/<rule>.
+	HoldStatesRoot = "oikade/v1/_runtime/rules/"
+	// ControlStatesRoot keeps a ControlState per Device, at <root><namespace>/<device>.
+	ControlStatesRoot = "oikade/v1/_runtime/control/"
+)
+
+// syncNamespace carries Retained's sync marker. It's no namespace, for the same reason.
 const syncNamespace = "_sync"
 
 // syncRetry is how long Sync waits for its marker before publishing another.
 const syncRetry = 10 * time.Second
 
-// BusStates keeps hold states as retained MQTT messages, one per Rule, at
-// oikade/v1/_runtime/rules/<namespace>/<rule>.
-type BusStates struct {
-	Bus mqtt.Bus
-	Log logr.Logger
+// Retained keeps states as retained MQTT messages under Root, one per Rule or Device, at
+// <Root><namespace>/<name>.
+type Retained[T any] struct {
+	Bus  mqtt.Bus
+	Root string
+	Log  logr.Logger
 
 	mu     sync.Mutex
-	states map[types.NamespacedName]HoldState
+	states map[types.NamespacedName]T
 	synced chan struct{}
 	marker string
 }
 
-var _ HoldStates = (*BusStates)(nil)
+var _ HoldStates = (*Retained[HoldState])(nil)
 
 // Sync subscribes to the saved states and returns once the broker has delivered them, or ctx
 // ends. Call it once, before the engine runs. The broker delivers retained messages before a
 // message published after the subscription, so a marker published then arrives after every
 // state. Messages after the marker are the engine's own saves, which Put has already recorded.
-func (b *BusStates) Sync(ctx context.Context) error {
+func (b *Retained[T]) Sync(ctx context.Context) error {
 	b.mu.Lock()
-	b.states = map[types.NamespacedName]HoldState{}
+	b.states = map[types.NamespacedName]T{}
 	b.synced = make(chan struct{})
 	b.marker = strconv.FormatInt(time.Now().UnixNano(), 36)
 	b.mu.Unlock()
-	unsubscribe, err := b.Bus.Subscribe(ctx, statesRoot+"+/+", b.received)
+	unsubscribe, err := b.Bus.Subscribe(ctx, b.Root+"+/+", b.received)
 	if err != nil {
-		return fmt.Errorf("subscribe to hold states: %w", err)
+		return fmt.Errorf("subscribe to %s: %w", b.Root, err)
 	}
 	defer unsubscribe()
 	for {
-		if err := b.Bus.Publish(ctx, statesRoot+syncNamespace+"/"+b.marker, nil, false); err != nil && ctx.Err() == nil {
-			b.Log.Error(err, "Failed to publish hold state marker")
+		if err := b.Bus.Publish(ctx, b.Root+syncNamespace+"/"+b.marker, nil, false); err != nil && ctx.Err() == nil {
+			b.Log.Error(err, "Failed to publish state marker", "root", b.Root)
 		}
 		select {
 		case <-b.synced:
 			return nil
 		case <-time.After(syncRetry):
-			b.Log.Info("Still waiting for saved hold states from the broker")
+			b.Log.Info("Still waiting for saved states from the broker", "root", b.Root)
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 }
 
-func (b *BusStates) received(m mqtt.Message) {
-	ns, name, ok := strings.Cut(strings.TrimPrefix(m.Topic, statesRoot), "/")
+func (b *Retained[T]) received(m mqtt.Message) {
+	ns, name, ok := strings.Cut(strings.TrimPrefix(m.Topic, b.Root), "/")
 	if !ok {
 		return
 	}
@@ -122,24 +131,24 @@ func (b *BusStates) received(m mqtt.Message) {
 		delete(b.states, key)
 		return
 	}
-	var s HoldState
+	var s T
 	if err := json.Unmarshal(m.Payload, &s); err != nil {
-		b.Log.Error(err, "Ignored unreadable hold state", "rule", key)
+		b.Log.Error(err, "Ignored unreadable saved state", "topic", m.Topic)
 		return
 	}
 	b.states[key] = s
 }
 
-// Get implements HoldStates.
-func (b *BusStates) Get(key types.NamespacedName) (HoldState, bool) {
+// Get implements States.
+func (b *Retained[T]) Get(key types.NamespacedName) (T, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	s, ok := b.states[key]
 	return s, ok
 }
 
-// Put implements HoldStates.
-func (b *BusStates) Put(ctx context.Context, key types.NamespacedName, s HoldState) error {
+// Put implements States.
+func (b *Retained[T]) Put(ctx context.Context, key types.NamespacedName, s T) error {
 	payload, err := json.Marshal(s)
 	if err != nil {
 		return err
@@ -147,38 +156,42 @@ func (b *BusStates) Put(ctx context.Context, key types.NamespacedName, s HoldSta
 	b.mu.Lock()
 	b.states[key] = s
 	b.mu.Unlock()
-	return b.Bus.Publish(ctx, statesRoot+key.Namespace+"/"+key.Name, payload, true)
+	return b.Bus.Publish(ctx, b.Root+key.Namespace+"/"+key.Name, payload, true)
 }
 
-// Delete implements HoldStates. An empty retained message clears the saved state.
-func (b *BusStates) Delete(ctx context.Context, key types.NamespacedName) error {
+// Delete implements States. An empty retained message clears the saved state.
+func (b *Retained[T]) Delete(ctx context.Context, key types.NamespacedName) error {
 	b.mu.Lock()
 	delete(b.states, key)
 	b.mu.Unlock()
-	return b.Bus.Publish(ctx, statesRoot+key.Namespace+"/"+key.Name, nil, true)
+	return b.Bus.Publish(ctx, b.Root+key.Namespace+"/"+key.Name, nil, true)
 }
 
-// memoryStates is a HoldStates that doesn't survive a restart, for an engine without one.
-type memoryStates struct {
+// memoryStates is States that doesn't survive a restart, for an engine without one.
+type memoryStates[T any] struct {
 	mu     sync.Mutex
-	states map[types.NamespacedName]HoldState
+	states map[types.NamespacedName]T
 }
 
-func (m *memoryStates) Get(key types.NamespacedName) (HoldState, bool) {
+func newMemoryStates[T any]() *memoryStates[T] {
+	return &memoryStates[T]{states: map[types.NamespacedName]T{}}
+}
+
+func (m *memoryStates[T]) Get(key types.NamespacedName) (T, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.states[key]
 	return s, ok
 }
 
-func (m *memoryStates) Put(_ context.Context, key types.NamespacedName, s HoldState) error {
+func (m *memoryStates[T]) Put(_ context.Context, key types.NamespacedName, s T) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.states[key] = s
 	return nil
 }
 
-func (m *memoryStates) Delete(_ context.Context, key types.NamespacedName) error {
+func (m *memoryStates[T]) Delete(_ context.Context, key types.NamespacedName) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.states, key)

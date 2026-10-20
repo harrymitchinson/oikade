@@ -170,6 +170,28 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		return slices.Contains(commands, `z2m/0x000b57fffe000001/set {"state":"OFF"}`) &&
 			slices.Contains(commands, "z2m/"+secondLamp+`/set {"state":"OFF"}`)
 	})
+	// Arbitrating the second lamp's light.on puts it in Device status, at the default.
+	var lamp homev1alpha1.Device
+	must(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, &lamp))
+	lamp.Spec.Control = []homev1alpha1.CapabilityControl{{
+		Capability: capability.LightOn, Default: apiextensionsv1.JSON{Raw: []byte("false")},
+		Resolve: homev1alpha1.ControlResolvePreferOn, External: homev1alpha1.ControlExternalOverride, OverrideHold: "1h",
+	}}
+	must(t, c.Update(ctx, &lamp))
+	eventually(t, "lamp control status", func() bool {
+		var d homev1alpha1.Device
+		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, &d) != nil || len(d.Status.Control) != 1 {
+			return false
+		}
+		st := d.Status.Control[0]
+		return st.Capability == capability.LightOn && st.Level == homev1alpha1.ControlLevelDefault &&
+			st.Value != nil && string(st.Value.Raw) == "false" && len(st.Claims) == 0
+	})
+	if got, ok := metricValue(t, reg, "oikade_device_control_level",
+		prometheus.Labels{"namespace": ns, "device": "hallway-lamp", "capability": capability.LightOn}); !ok || got != 0 {
+		t.Errorf("oikade_device_control_level = %v (%v), want 0", got, ok)
+	}
+
 	mu.Lock()
 	defer mu.Unlock()
 	for _, cmd := range commands {

@@ -42,13 +42,17 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	writer := &status.Writer{Client: mgr.GetClient(), SeenInterval: opts.SeenInterval}
 	triggered := &engine.Triggered{Client: mgr.GetClient(), Interval: opts.TriggeredInterval}
 	scheduled := &engine.Scheduled{Client: mgr.GetClient()}
+	controlStatus := &engine.ControlStatus{Client: mgr.GetClient()}
+	skipped := &engine.Skipped{Client: mgr.GetClient()}
 	eng := &engine.Engine{
 		Location: opts.Location, Site: opts.Site, Log: log.WithName("engine"),
 		Runs: engine.NewRunsCounter(), Dropped: engine.NewDroppedCounter(), NextChange: engine.NewNextChangeGauge(),
-		Active: engine.NewActiveGauge(), OnStart: triggered.Record, OnSchedule: scheduled.Record,
+		Active: engine.NewActiveGauge(), ControlLevel: engine.NewControlLevelGauge(),
+		OnStart: triggered.Record, OnSchedule: scheduled.Record, OnControl: controlStatus.Record, OnSkipped: skipped.Record,
 	}
-	states := &engine.BusStates{Bus: bus, Log: log.WithName("holds")}
-	eng.States = states
+	holds := &engine.Retained[engine.HoldState]{Bus: bus, Root: engine.HoldStatesRoot, Log: log.WithName("holds")}
+	controls := &engine.Retained[engine.ControlState]{Bus: bus, Root: engine.ControlStatesRoot, Log: log.WithName("control")}
+	eng.States, eng.Controls = holds, controls
 	eng.Init()
 	store := hub.NewStore(log.WithName("store"), writer, eng)
 	writer.Store, eng.Store = store, store
@@ -67,19 +71,23 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	if err := triggered.SetupWithManager(mgr); err != nil {
 		return nil, err
 	}
-	if err := scheduled.SetupWithManager(mgr); err != nil {
-		return nil, err
+	for _, r := range []interface{ SetupWithManager(ctrl.Manager) error }{scheduled, controlStatus, skipped} {
+		if err := r.SetupWithManager(mgr); err != nil {
+			return nil, err
+		}
 	}
-	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped, eng.NextChange, eng.Active} {
+	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped, eng.NextChange, eng.Active, eng.ControlLevel} {
 		if err := opts.Registry.Register(c); err != nil {
 			return nil, err
 		}
 	}
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-		// Holds compare against their saved state, so it must be in before any is evaluated. Sync
-		// waits as long as the broker takes, and returns only when ctx ends.
-		if err := states.Sync(ctx); err != nil {
-			return err
+		// Holds and arbiters continue from their saved state, so it must be in before any is
+		// evaluated. Sync waits as long as the broker takes, and returns early only when ctx ends.
+		for _, s := range []interface{ Sync(context.Context) error }{holds, controls} {
+			if err := s.Sync(ctx); err != nil {
+				return err
+			}
 		}
 		eng.Run(ctx)
 		return nil

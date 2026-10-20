@@ -159,48 +159,49 @@ func (s Settings) Validate() error {
 // Claim is one source's claim on the capability. A source has at most one claim.
 type Claim struct {
 	// Source is the path the claim came in by: "Rule/<name>", "HomeKit" or "Device".
-	Source string
-	Level  Level
-	Value  float64
+	Source string  `json:"source"`
+	Level  Level   `json:"level"`
+	Value  float64 `json:"value"`
 	// Expires ends the claim at this time. Zero means no expiry.
-	Expires time.Time
+	Expires time.Time `json:"expires,omitzero"`
 	// UntilNext ends the claim when the result without it next differs from Baseline. With
 	// Expires as well, the claim ends at whichever comes first.
-	UntilNext bool
+	UntilNext bool `json:"untilNext,omitempty"`
 	// Baseline is the result without this claim when it was made. The arbiter sets it.
-	Baseline float64
+	Baseline float64 `json:"baseline,omitempty"`
 	// External marks a claim made from an outside change. The arbiter sets it.
-	External bool
+	External bool `json:"external,omitempty"`
 	// Latched is shown in status only. A latched hold ends with Release, like any other.
-	Latched bool
+	Latched bool `json:"latched,omitempty"`
 }
 
 // Revert records an outside change that was written back.
 type Revert struct {
-	Source string
-	Value  float64
-	At     time.Time
+	Source string    `json:"source"`
+	Value  float64   `json:"value"`
+	At     time.Time `json:"at"`
 	// From is the device's value before the change.
-	From float64
+	From float64 `json:"from"`
 }
 
 // State is everything the arbiter remembers. It is what must survive a restart.
 type State struct {
-	Claims []Claim
+	Claims []Claim `json:"claims,omitempty"`
 	// Known says whether Value is the device's actual value.
-	Known bool
-	Value float64
+	Known bool    `json:"known,omitempty"`
+	Value float64 `json:"value,omitempty"`
 	// LastOn and LastOff are when the device last turned on and off. Zero means long ago.
-	LastOn, LastOff time.Time
+	LastOn  time.Time `json:"lastOn,omitzero"`
+	LastOff time.Time `json:"lastOff,omitzero"`
 	// Starts counts off-to-on transitions on the local day starting at Day.
-	Day    time.Time
-	Starts int
+	Day    time.Time `json:"day,omitzero"`
+	Starts int       `json:"starts,omitempty"`
 	// Tripped is set when MaximumOn stopped the device and there is no MinimumOff to rest for.
-	Tripped bool
+	Tripped bool `json:"tripped,omitempty"`
 	// Reverting is the outside change under ExternalRevert waiting to be written back.
-	Reverting *Revert
+	Reverting *Revert `json:"reverting,omitempty"`
 	// Reverted is the last outside change that was written back.
-	Reverted *Revert
+	Reverted *Revert `json:"reverted,omitempty"`
 }
 
 func (s State) clone() State {

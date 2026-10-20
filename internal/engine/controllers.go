@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -221,5 +222,115 @@ func (s *Scheduled) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("rule-scheduled").
 		WatchesRawSource(source.Channel(s.events, &handler.EnqueueRequestForObject{})).
+		Complete(s)
+}
+
+// latest keeps the latest value reported per object and queues a reconcile for it. It never
+// drops a write: when the queue is full, it queues from a goroutine.
+type latest[T any] struct {
+	mu     sync.Mutex
+	values map[types.NamespacedName]T
+	events chan event.GenericEvent
+}
+
+func (l *latest[T]) init() {
+	l.values = map[types.NamespacedName]T{}
+	l.events = make(chan event.GenericEvent, 256)
+}
+
+func (l *latest[T]) record(key types.NamespacedName, v T, obj client.Object) {
+	l.mu.Lock()
+	l.values[key] = v
+	l.mu.Unlock()
+	obj.SetName(key.Name)
+	obj.SetNamespace(key.Namespace)
+	ev := event.GenericEvent{Object: obj}
+	select {
+	case l.events <- ev:
+	default:
+		go func() { l.events <- ev }()
+	}
+}
+
+func (l *latest[T]) get(key types.NamespacedName) (T, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	v, ok := l.values[key]
+	return v, ok
+}
+
+// ControlStatus writes Device.status.control from what the engine reports.
+type ControlStatus struct {
+	client.Client
+	latest latest[[]homev1alpha1.CapabilityControlStatus]
+}
+
+// Record is an Engine.OnControl hook.
+func (c *ControlStatus) Record(dev types.NamespacedName, control []homev1alpha1.CapabilityControlStatus) {
+	c.latest.record(dev, control, &homev1alpha1.Device{})
+}
+
+// Reconcile writes the Device's control status. The runtime is its only writer.
+func (c *ControlStatus) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	control, ok := c.latest.get(req.NamespacedName)
+	if !ok {
+		return ctrl.Result{}, nil
+	}
+	var d homev1alpha1.Device
+	if err := c.Get(ctx, req.NamespacedName, &d); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if equality.Semantic.DeepEqual(d.Status.Control, control) {
+		return ctrl.Result{}, nil
+	}
+	orig := d.DeepCopy()
+	d.Status.Control = control
+	return ctrl.Result{}, c.Status().Patch(ctx, &d, client.MergeFrom(orig))
+}
+
+// SetupWithManager registers the status writer.
+func (c *ControlStatus) SetupWithManager(mgr ctrl.Manager) error {
+	c.latest.init()
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("device-control").
+		WatchesRawSource(source.Channel(c.latest.events, &handler.EnqueueRequestForObject{})).
+		Complete(c)
+}
+
+// Skipped writes Rule.status.skipped from what the engine reports.
+type Skipped struct {
+	client.Client
+	latest latest[[]string]
+}
+
+// Record is an Engine.OnSkipped hook.
+func (s *Skipped) Record(key types.NamespacedName, skipped []string) {
+	s.latest.record(key, skipped, &homev1alpha1.Rule{})
+}
+
+// Reconcile writes the Rule's skipped Room members.
+func (s *Skipped) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	skipped, ok := s.latest.get(req.NamespacedName)
+	if !ok {
+		return ctrl.Result{}, nil
+	}
+	var r homev1alpha1.Rule
+	if err := s.Get(ctx, req.NamespacedName, &r); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if slices.Equal(r.Status.Skipped, skipped) {
+		return ctrl.Result{}, nil
+	}
+	orig := r.DeepCopy()
+	r.Status.Skipped = skipped
+	return ctrl.Result{}, s.Status().Patch(ctx, &r, client.MergeFrom(orig))
+}
+
+// SetupWithManager registers the status writer.
+func (s *Skipped) SetupWithManager(mgr ctrl.Manager) error {
+	s.latest.init()
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("rule-skipped").
+		WatchesRawSource(source.Channel(s.latest.events, &handler.EnqueueRequestForObject{})).
 		Complete(s)
 }

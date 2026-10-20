@@ -12,6 +12,8 @@ import (
 	"k8s.io/utils/clock"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/sun"
@@ -85,6 +87,16 @@ type Engine struct {
 	Active *prometheus.GaugeVec
 	// States keeps holds' state across restarts. Nil keeps it in memory only.
 	States HoldStates
+	// Controls keeps arbitrated capabilities' state across restarts. Nil keeps it in memory only.
+	Controls ControlStates
+	// ControlLevel is the winning level of each arbitrated capability.
+	ControlLevel *prometheus.GaugeVec
+	// OnControl, if set, is called with e.mu held when a Device's arbitrated capabilities change
+	// at a transition. It must not block.
+	OnControl func(dev types.NamespacedName, control []homev1alpha1.CapabilityControlStatus)
+	// OnSkipped, if set, is called with the Room members a Rule's last run left out because they
+	// arbitrate the capability and the set had no end. It must not block.
+	OnSkipped func(key types.NamespacedName, skipped []string)
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key types.NamespacedName, t time.Time)
 	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
@@ -100,6 +112,15 @@ type Engine struct {
 	// loaded holds every Rule loaded since Init, so only the first load looks for missed fires.
 	loaded map[types.NamespacedName]bool
 	runs   sync.WaitGroup
+
+	// arbs are the arbitrated capabilities, and controlDue the devices to look at again.
+	arbs       map[arbKey]*arb
+	controlDue map[types.NamespacedName]bool
+	// saveDue are the devices whose arbiters saveControls saves next.
+	saveDue         map[types.NamespacedName]bool
+	saveWake        chan struct{}
+	reportedControl map[types.NamespacedName]string
+	skipped         map[types.NamespacedName][]string
 }
 
 type state struct {
@@ -153,8 +174,17 @@ func (e *Engine) Init() {
 		e.Location = time.Local
 	}
 	if e.States == nil {
-		e.States = &memoryStates{states: map[types.NamespacedName]HoldState{}}
+		e.States = newMemoryStates[HoldState]()
 	}
+	if e.Controls == nil {
+		e.Controls = newMemoryStates[ControlState]()
+	}
+	e.arbs = map[arbKey]*arb{}
+	e.controlDue = map[types.NamespacedName]bool{}
+	e.saveDue = map[types.NamespacedName]bool{}
+	e.saveWake = make(chan struct{}, 1)
+	e.reportedControl = map[types.NamespacedName]string{}
+	e.skipped = map[types.NamespacedName][]string{}
 }
 
 // Load adds or replaces a Rule. A run in progress for an older generation is cancelled;
@@ -183,7 +213,6 @@ func (e *Engine) Load(c *Compiled) {
 		s.hold = &holdState{}
 		if old != nil && old.hold != nil {
 			s.hold = old.hold
-			s.hold.warned = false
 		}
 		s.next = fire{At: e.Clock.Now()}
 	case len(c.timers) > 0:
@@ -257,12 +286,16 @@ func (e *Engine) signal() {
 // Remove drops a deleted Rule, cancels its run and forgets its hold's state. A hold that is
 // active leaves its device as it is.
 func (e *Engine) Remove(key types.NamespacedName) {
-	if s := e.unload(key); s != nil && s.hold != nil {
-		e.mu.Lock()
+	s := e.unload(key)
+	e.mu.Lock()
+	if s != nil && s.hold != nil {
 		// A write still running deletes the state again once it ends.
 		s.hold.deleted = true
-		e.mu.Unlock()
 	}
+	// A deleted Rule's claims end with it.
+	e.releaseSource(context.Background(), key.Namespace, ruleSource(key.Name))
+	delete(e.skipped, key)
+	e.mu.Unlock()
 	// A Rule unloaded as invalid before it was deleted has a state too.
 	if _, ok := e.States.Get(key); ok {
 		e.runs.Go(func() { e.deleteState(key) })
@@ -317,7 +350,15 @@ func (e *Engine) Changed(u driver.Update) {
 // Run processes changes and fires timers until ctx is cancelled, then waits for runs in progress
 // to stop. Changes don't touch the timer: only loads, removes and fires do.
 func (e *Engine) Run(ctx context.Context) {
-	defer e.runs.Wait()
+	// The saver outlives the runs, so it saves what their last writes changed.
+	saveCtx, stopSaving := context.WithCancel(context.WithoutCancel(ctx))
+	saverDone := make(chan struct{})
+	go func() { e.saveControls(saveCtx); close(saverDone) }()
+	defer func() {
+		e.runs.Wait()
+		stopSaving()
+		<-saverDone
+	}()
 	var timer clock.Timer
 	defer func() {
 		if timer != nil {
@@ -374,6 +415,14 @@ func (e *Engine) earliest() time.Time {
 			next = at
 		}
 	}
+	for _, ar := range e.arbs {
+		if at := ar.next; !at.IsZero() && (next.IsZero() || at.Before(next)) {
+			next = at
+		}
+	}
+	if len(e.controlDue) > 0 {
+		next = e.Clock.Now()
+	}
 	return next
 }
 
@@ -383,6 +432,16 @@ func (e *Engine) fireDue(ctx context.Context) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.Clock.Now()
+	for dev := range e.controlDue {
+		delete(e.controlDue, dev)
+		e.syncControls(ctx, dev)
+	}
+	for key, ar := range e.arbs {
+		if !ar.next.IsZero() && !now.Before(ar.next) {
+			ar.next = time.Time{}
+			e.decide(ctx, key, ar)
+		}
+	}
 	for key, s := range e.rules {
 		if s.hold != nil {
 			if !s.next.At.IsZero() && !now.Before(s.next.At) {
@@ -429,6 +488,7 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.outside(ctx, u)
 	now := e.Clock.Now()
 	evaluated := false
 	var devices map[string]map[string]any
@@ -505,6 +565,8 @@ func (e *Engine) start(ctx context.Context, key types.NamespacedName, s *state) 
 func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compiled) string {
 	log := e.Log.WithValues("rule", key)
 	failed := false
+	var skipped []string
+	defer func() { e.reportSkipped(key, skipped) }()
 	for _, a := range c.actions {
 		if a.delay > 0 {
 			select {
@@ -518,20 +580,33 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 			return ResultCancelled
 		}
 		if a.release != "" {
-			// until: Released claims are released with arbitration, in a later step (0060).
 			e.release(types.NamespacedName{Namespace: key.Namespace, Name: a.release})
+			e.mu.Lock()
+			e.releaseSource(ctx, key.Namespace, ruleSource(a.release))
+			e.mu.Unlock()
 			continue
 		}
 		if a.room != "" {
-			if !e.setRoom(ctx, key, a) {
+			ok, left := e.setRoom(ctx, key, a)
+			if !ok {
 				failed = true
 			}
+			skipped = append(skipped, left...)
 			if ctx.Err() != nil {
 				return ResultCancelled
 			}
 			continue
 		}
 		dev := types.NamespacedName{Namespace: key.Namespace, Name: a.device}
+		if e.arbitrated(dev, a.capability) {
+			if !a.ends() {
+				log.Info("Skipped set on an arbitrated capability; it needs for or until", "device", a.device, "capability", a.capability)
+				continue
+			}
+			if e.claim(ctx, dev, a.capability, e.setClaim(key, a)) {
+				continue
+			}
+		}
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
 			log.Error(err, "Failed to run Rule action", "device", a.device, "capability", a.capability)
 			return ResultFailed
@@ -545,8 +620,9 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 
 // setRoom sets a capability on every discovered device in a room that reports it, in name order.
 // Membership is read now, not when the run started. It tries every device and reports whether
-// all of them succeeded.
-func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action) bool {
+// all of them succeeded. A member that arbitrates the capability gets a claim, or, when the set
+// has no end, is left out and returned.
+func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action) (ok bool, skipped []string) {
 	log := e.Log.WithValues("rule", key)
 	ok, matched := true, false
 	for _, dev := range e.Store.Room(key.Namespace, a.room) {
@@ -555,9 +631,18 @@ func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action
 			continue
 		}
 		if ctx.Err() != nil {
-			return ok
+			return ok, skipped
 		}
 		matched = true
+		if snap.Controls(a.capability) {
+			if !a.ends() {
+				skipped = append(skipped, dev.Name)
+				continue
+			}
+			if e.claim(ctx, dev, a.capability, e.setClaim(key, a)) {
+				continue
+			}
+		}
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
 			log.Error(err, "Failed to run Rule action", "device", dev.Name, "room", a.room, "capability", a.capability)
 			ok = false
@@ -566,7 +651,37 @@ func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action
 	if !matched {
 		log.V(1).Info("Matched no Devices in Room", "room", a.room, "capability", a.capability)
 	}
-	return ok
+	return ok, skipped
+}
+
+// ends reports whether a set has an end, which a set on an arbitrated capability needs.
+func (a action) ends() bool { return a.claimFor > 0 || a.until != "" }
+
+// setClaim is a set's claim on an arbitrated capability.
+func (e *Engine) setClaim(key types.NamespacedName, a action) control.Claim {
+	c := control.Claim{
+		Source: ruleSource(key.Name), Level: claimLevel(a.priority), Value: capability.Float(a.value),
+		UntilNext: a.until == homev1alpha1.ClaimUntilNext,
+	}
+	if a.claimFor > 0 {
+		c.Expires = e.Clock.Now().Add(a.claimFor)
+	}
+	return c
+}
+
+// reportSkipped reports the Room members a run left out, when they changed.
+func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
+	slices.Sort(skipped)
+	skipped = slices.Compact(skipped)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if slices.Equal(e.skipped[key], skipped) {
+		return
+	}
+	e.skipped[key] = skipped
+	if e.OnSkipped != nil {
+		e.OnSkipped(key, skipped)
+	}
 }
 
 func (e *Engine) count(key types.NamespacedName, result string) {

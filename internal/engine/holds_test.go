@@ -37,6 +37,9 @@ var holdDevices = map[string][]string{
 	"bathroom-sensor": {capability.Humidity},
 	"workshop-heater": {capability.SwitchOn},
 	"workshop-temp":   {capability.Temperature},
+	"main-valve":      {capability.SwitchOn},
+	"leak-sensor":     {capability.ContactOpen},
+	"pump":            {capability.SwitchOn},
 	"hall-light":      {capability.LightOn, capability.LightLevel},
 	"hall-motion":     {capability.Occupancy},
 	"towel-rail":      {capability.SwitchOn},
@@ -44,14 +47,18 @@ var holdDevices = map[string][]string{
 
 // rig is an engine running holds against a fake clock, as one run of the runtime.
 type rig struct {
-	t      *testing.T
-	e      *Engine
-	clock  *clocktesting.FakeClock
-	setter *fakeSetter
-	store  *hub.Store
-	sched  *schedules
-	logs   *logLines
-	stop   func()
+	t       *testing.T
+	mu      sync.Mutex
+	control map[string][]homev1alpha1.CapabilityControlStatus
+	reports int
+	skipped map[string][]string
+	e       *Engine
+	clock   *clocktesting.FakeClock
+	setter  *fakeSetter
+	store   *hub.Store
+	sched   *schedules
+	logs    *logLines
+	stop    func()
 }
 
 type logLines struct {
@@ -65,40 +72,40 @@ func (l *logLines) add(_, args string) {
 	l.lines = append(l.lines, args)
 }
 
-func (l *logLines) count(s string) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	n := 0
-	for _, line := range l.lines {
-		if strings.Contains(line, s) {
-			n++
-		}
-	}
-	return n
+// startRig runs an engine from now with these saved states and device values, and loads the Rules.
+func startRig(t *testing.T, now time.Time, states HoldStates, values map[string]map[string]any, _ map[string]string, rules ...*homev1alpha1.Rule) *rig {
+	t.Helper()
+	return startRigWith(t, rigOptions{now: now, holds: states, values: values}, rules...)
 }
 
-// startRig runs an engine from now with these saved states and device values, and loads the Rules.
-// controlled lists device/capability pairs with a control entry.
-func startRig(t *testing.T, now time.Time, states HoldStates, values map[string]map[string]any, controlled map[string]string, rules ...*homev1alpha1.Rule) *rig {
+// rigOptions are what a run of the runtime starts from.
+type rigOptions struct {
+	now      time.Time
+	holds    HoldStates
+	controls ControlStates
+	values   map[string]map[string]any
+	// control is each device's control entries.
+	control map[string][]homev1alpha1.CapabilityControl
+}
+
+func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig {
 	t.Helper()
+	now, states, values := o.now, o.holds, o.values
 	logs := &logLines{}
 	r := &rig{t: t, clock: clocktesting.NewFakeClock(now), setter: &fakeSetter{}, sched: &schedules{}, logs: logs}
 	r.e = &Engine{
 		Setter: r.setter, Clock: r.clock, Location: london, Site: londonSite,
 		Log:  funcr.New(logs.add, funcr.Options{Verbosity: 1}),
 		Runs: NewRunsCounter(), NextChange: NewNextChangeGauge(), Active: NewActiveGauge(),
-		OnSchedule: r.sched.record, States: states,
+		OnSchedule: r.sched.record, States: states, Controls: o.controls, ControlLevel: NewControlLevelGauge(),
+		OnControl: r.recordControl, OnSkipped: r.recordSkipped,
 	}
 	r.e.Init()
 	r.store = hub.NewStore(logr.Discard(), r.e)
 	r.e.Store = r.store
 	metas := map[types.NamespacedName]hub.Meta{}
 	for name := range holdDevices {
-		m := hub.Meta{Instance: z2m}
-		if c, ok := controlled[name]; ok {
-			m.Controlled = []string{c}
-		}
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = m
+		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: o.control[name]}
 	}
 	r.store.SetDevices(z2m, metas)
 	for name, caps := range holdDevices {
@@ -132,14 +139,22 @@ func (r *rig) settle() {
 	r.t.Helper()
 	idle := func() bool {
 		r.e.mu.Lock()
-		empty := len(r.e.rules) == 0
+		empty := len(r.e.rules) == 0 && len(r.e.arbs) == 0
 		r.e.mu.Unlock()
-		if len(r.e.events) > 0 || !empty && !r.clock.HasWaiters() {
+		if len(r.e.events) > 0 || !empty && !r.e.earliest().IsZero() && !r.clock.HasWaiters() {
 			return false
 		}
 		r.e.mu.Lock()
 		defer r.e.mu.Unlock()
 		now := r.clock.Now()
+		if len(r.e.controlDue) > 0 {
+			return false
+		}
+		for _, ar := range r.e.arbs {
+			if ar.writing || !ar.next.IsZero() && !ar.next.After(now) {
+				return false
+			}
+		}
 		for _, s := range r.e.rules {
 			if s.hold != nil && (!s.hold.loaded || s.hold.writing || s.next.At.IsZero() || !s.next.At.After(now)) {
 				return false
@@ -173,6 +188,25 @@ func (r *rig) at(s string) {
 	}
 }
 
+func (r *rig) recordControl(dev types.NamespacedName, st []homev1alpha1.CapabilityControlStatus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.control == nil {
+		r.control = map[string][]homev1alpha1.CapabilityControlStatus{}
+	}
+	r.control[dev.Name] = st
+	r.reports++
+}
+
+func (r *rig) recordSkipped(key types.NamespacedName, skipped []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.skipped == nil {
+		r.skipped = map[string][]string{}
+	}
+	r.skipped[key.Name] = skipped
+}
+
 func (r *rig) change(dev, c string, v any) {
 	r.t.Helper()
 	r.store.Changed(driver.Update{Device: types.NamespacedName{Namespace: ns, Name: dev}, Capability: c, Value: v})
@@ -192,7 +226,7 @@ func (r *rig) active(name string) float64 {
 }
 
 // busStates returns hold states kept on the broker, as a runtime would load them on startup.
-func busStates(t *testing.T, url string) *BusStates {
+func busStates(t *testing.T, url string) *Retained[HoldState] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -201,7 +235,7 @@ func busStates(t *testing.T, url string) *BusStates {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
-	b := &BusStates{Bus: c, Log: logr.Discard()}
+	b := &Retained[HoldState]{Bus: c, Root: HoldStatesRoot, Log: logr.Discard()}
 	if err := b.Sync(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -362,21 +396,8 @@ func TestNumberHoldWritesNothingWhenItEnds(t *testing.T) {
 	}
 }
 
-func TestArbitratedHoldSetsNothing(t *testing.T) {
-	rail := `
-  while: {window: {start: "06:00", end: "08:00"}}
-  hold: {device: towel-rail, capability: switch.on, value: true}
-`
-	r := startRig(t, local("2026-10-21 07:00 BST"), nil, nil, map[string]string{"towel-rail": capability.SwitchOn}, holdRule(t, "towel-rail-mornings", rail))
-	r.at("2026-10-21 09:00 BST")
-	r.expect()
-	if n := r.logs.count("arbitration isn't in the runtime yet"); n != 1 {
-		t.Errorf("logged %d times, want once", n)
-	}
-}
-
 func TestEditingTheTargetEndsTheOldOne(t *testing.T) {
-	states := &memoryStates{states: map[types.NamespacedName]HoldState{}}
+	states := newMemoryStates[HoldState]()
 	r := startRig(t, local("2026-10-21 23:00 BST"), states, nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect(call{"water-heater", capability.SwitchOn, true})
 	edited := holdRule(t, "water-heater-night", strings.ReplaceAll(heaterNight, "water-heater", "bathroom-fan"))
@@ -392,7 +413,7 @@ func TestEditingTheTargetEndsTheOldOne(t *testing.T) {
 }
 
 func TestFailedHoldWriteRetries(t *testing.T) {
-	states := &memoryStates{states: map[types.NamespacedName]HoldState{}}
+	states := newMemoryStates[HoldState]()
 	r := startRig(t, local("2026-10-21 21:59 BST"), states, nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.setter.mu.Lock()
 	r.setter.fail = map[string]bool{"water-heater": true}
@@ -409,7 +430,7 @@ func TestFailedHoldWriteRetries(t *testing.T) {
 }
 
 func TestRemoveForgetsTheHold(t *testing.T) {
-	states := &memoryStates{states: map[types.NamespacedName]HoldState{}}
+	states := newMemoryStates[HoldState]()
 	key := types.NamespacedName{Namespace: ns, Name: "water-heater-night"}
 	r := startRig(t, local("2026-10-21 23:00 BST"), states, nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.e.Unload(key)

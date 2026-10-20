@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 )
@@ -24,8 +26,13 @@ type Meta struct {
 	Instance driver.InstanceKey
 	// HomeKitService is the optional HomeKit service override.
 	HomeKitService string
-	// Controlled lists the capabilities the Device arbitrates: those with a control entry.
-	Controlled []string
+	// Control is the Device's control entries: the capabilities it arbitrates, and how.
+	Control []homev1alpha1.CapabilityControl
+}
+
+// Controls reports whether the Device arbitrates the capability.
+func (m Meta) Controls(name string) bool {
+	return slices.ContainsFunc(m.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == name })
 }
 
 // Snapshot is a copy of one device's state.
@@ -71,11 +78,14 @@ func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
 // moved from another instance starts afresh.
 func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.NamespacedName]Meta) {
 	s.mu.Lock()
-	var reassigned []types.NamespacedName
+	var reassigned, controls []types.NamespacedName
 	for key, e := range s.devices {
 		if _, keep := devices[key]; e.Instance == instance && !keep {
 			delete(s.devices, key)
 			reassigned = append(reassigned, key)
+			if len(e.Control) > 0 {
+				controls = append(controls, key)
+			}
 		}
 	}
 	for key, m := range devices {
@@ -84,6 +94,9 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.Namesp
 			e = &entry{Snapshot{Values: map[string]any{}, Changes: map[string]uint64{}}}
 			s.devices[key] = e
 			reassigned = append(reassigned, key)
+		}
+		if !equality.Semantic.DeepEqual(e.Control, m.Control) {
+			controls = append(controls, key)
 		}
 		e.Meta = m
 	}
@@ -94,7 +107,18 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.Namesp
 				r.Reassigned(key)
 			}
 		}
+		if c, ok := l.(ControlWatcher); ok {
+			for _, key := range controls {
+				c.ControlChanged(key)
+			}
+		}
 	}
+}
+
+// ControlWatcher is an optional Listener interface. It hears when a device's control entries
+// change, including when it joins or leaves with some.
+type ControlWatcher interface {
+	ControlChanged(dev types.NamespacedName)
 }
 
 // Reassigner is an optional Listener interface. It hears when a device joins, leaves or moves
