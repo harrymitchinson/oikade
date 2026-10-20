@@ -90,7 +90,8 @@ spec:
 
 `internal/control` implements the arbitration above. These choices weren't reviewed in #60, and are cheap to change before the runtime uses them:
 
-- A `Revert` write back is exempt from the limits, and neither the outside change nor the write back counts towards them, since together they leave the device as it was.
+- A `Revert` writes back the device's earlier value, exempt from the limits, and neither the outside change nor the write back counts towards them, since together they leave the device as it was. If the winner has changed to something else before the write back, the outside change stands and the limits apply as usual.
+- A device first seen on isn't counted as a start, and its run counts from when it was first seen. A report of the value the device already has is no outside change.
 - After `maximumOn` stops a device, it rests for `minimumOff`. Without a `minimumOff`, it stays off until the winner is off, so it can't cycle with no rest.
 - Holding a number capability on (`minimumOn`) keeps its current value. Any non-zero value is on.
 - A new outside change replaces earlier outside claims, so the latest one wins even within the Override level.

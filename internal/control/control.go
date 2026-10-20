@@ -25,6 +25,7 @@ package control
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -165,6 +166,9 @@ func (s Settings) Validate() error {
 	if s.MinimumOn < 0 || s.MaximumOn < 0 || s.MinimumOff < 0 || s.OverrideHold < 0 || s.MaximumStartsPerDay < 0 {
 		errs = append(errs, errors.New("limits and the override hold must not be negative"))
 	}
+	if s.MaximumOn > 0 && s.MaximumOn < s.MinimumOn {
+		errs = append(errs, errors.New("maximumOn must not be shorter than minimumOn"))
+	}
 	return errors.Join(errs...)
 }
 
@@ -271,6 +275,9 @@ func New(s Settings, c clock.PassiveClock, st State) (*Arbiter, error) {
 func (a *Arbiter) State() State { return a.st.clone() }
 
 func (a *Arbiter) checkValue(v float64) error {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("value %v is not a finite number", v)
+	}
 	if a.settings.Kind == Bool && v != 0 && v != 1 {
 		return fmt.Errorf("value %v is not 0 or 1", v)
 	}
@@ -294,10 +301,13 @@ func (a *Arbiter) Claim(c Claim) error {
 }
 
 func (a *Arbiter) add(c Claim) {
+	now := a.clock.Now()
 	a.drop(c.Source)
+	// Expired claims mustn't count towards the baseline.
+	a.settle(now)
 	c.Baseline, _, _ = a.winner(-1)
 	a.st.Claims = append(a.st.Claims, c)
-	a.settle(a.clock.Now())
+	a.settle(now)
 }
 
 // Release ends the source's claim, if it has one.
@@ -325,14 +335,18 @@ func (a *Arbiter) Wrote(v float64) {
 
 // Outside records a change the arbiter didn't decide, from source ("HomeKit" or "Device"). It
 // counts towards the limits and isn't fought by them. Under ExternalOverride it replaces any
-// earlier outside claim with an Override claim; under ExternalRevert the next decision writes
-// the winner back.
+// earlier outside claim with an Override claim. Under ExternalRevert, the next decision writes
+// the device's earlier value back, exempt from the limits, if that is still the winner;
+// otherwise the change is accepted. A value the device already has is no change.
 func (a *Arbiter) Outside(source string, v float64) error {
 	if source == "" {
 		return errors.New("outside change has no source")
 	}
 	if err := a.checkValue(v); err != nil {
 		return err
+	}
+	if a.st.Known && v == a.st.Value {
+		return nil
 	}
 	now := a.clock.Now()
 	if a.settings.External == ExternalRevert && a.st.Known {
@@ -363,8 +377,12 @@ func (a *Arbiter) record(v float64) {
 	wasOn := a.st.Known && a.st.Value != 0
 	switch {
 	case v != 0 && !wasOn:
+		// A device first seen on started at an unknown time, so it isn't counted as a start
+		// today, and its run counts from now.
 		a.st.LastOn = now
-		a.st.Starts++
+		if a.st.Known {
+			a.st.Starts++
+		}
 	case v == 0 && wasOn:
 		a.st.LastOff = now
 	}
@@ -389,16 +407,16 @@ func (a *Arbiter) Decide() Decision {
 	a.rollDay(now)
 	wanted, level, source := a.winner(-1)
 	d := Decision{Wanted: wanted, Level: level, Source: source}
-	if a.st.Reverting != nil {
-		// A write back restores the device and is exempt from the limits.
+	if r := a.st.Reverting; r != nil && wanted != r.From {
+		// The winner has moved on from the value the change undid, so there is nothing to
+		// restore: the change stands and counts, and the limits apply as usual.
+		a.st.Reverting, a.st.Value = nil, r.From
+		a.record(r.Value)
+	}
+	if r := a.st.Reverting; r != nil {
+		// Writing the earlier value back restores the device, so it is exempt from the limits.
 		d.Value = wanted
-		if r := a.st.Reverting; a.st.Value == wanted {
-			// The outside change agrees with the winner, so it stands and counts after all.
-			a.st.Reverting, a.st.Value = nil, r.From
-			a.record(wanted)
-		} else {
-			a.st.Reverted = cloneRevert(a.st.Reverting)
-		}
+		a.st.Reverted = cloneRevert(r)
 	} else {
 		d.Value, d.Limit, d.Next = a.limit(now, wanted)
 	}
@@ -484,7 +502,10 @@ func (a *Arbiter) limit(now time.Time, wanted float64) (float64, Limit, time.Tim
 		var next time.Time
 		if s.MaximumOn > 0 {
 			end := a.st.LastOn.Add(s.MaximumOn)
-			if on && !now.Before(end) {
+			if !now.Before(end) {
+				if !on {
+					return wanted, NoLimit, time.Time{}
+				}
 				a.st.Tripped = s.MinimumOff == 0
 				return 0, MaximumOn, time.Time{}
 			}
@@ -493,6 +514,7 @@ func (a *Arbiter) limit(now time.Time, wanted float64) (float64, Limit, time.Tim
 		if on {
 			return wanted, NoLimit, next
 		}
+		// Validate keeps minimumOn within maximumOn, so this hold ends first.
 		if until := a.st.LastOn.Add(s.MinimumOn); now.Before(until) {
 			return a.st.Value, MinimumOn, until
 		}

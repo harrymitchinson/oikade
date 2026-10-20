@@ -18,6 +18,7 @@ package control
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,7 @@ func TestValidate(t *testing.T) {
 		"no external":           {Kind: Bool, Resolve: On},
 		"override without hold": {Kind: Bool, Resolve: On, External: ExternalOverride},
 		"negative minimum":      {Kind: Bool, Resolve: On, External: ExternalRevert, MinimumOn: -time.Minute},
+		"maximum under minimum": {Kind: Bool, Resolve: On, External: ExternalRevert, MinimumOn: time.Hour, MaximumOn: time.Minute},
 	} {
 		if err := s.Validate(); err == nil {
 			t.Errorf("%s: Validate passed", name)
@@ -167,6 +169,8 @@ func TestClaimRejectsBadInput(t *testing.T) {
 		"no source":     {Level: Normal, Value: on},
 		"default level": {Source: "Rule/a", Level: LevelDefault, Value: on},
 		"bool value 2":  {Source: "Rule/a", Level: Normal, Value: 2},
+		"NaN":           {Source: "Rule/a", Level: Normal, Value: math.NaN()},
+		"infinity":      {Source: "Rule/a", Level: Normal, Value: math.Inf(1)},
 	} {
 		if err := h.a.Claim(c); err == nil {
 			t.Errorf("%s: Claim passed", name)
@@ -348,8 +352,9 @@ func TestOutsideChangeIsNotFoughtByLimits(t *testing.T) {
 	h.want("off inside minimumOn", h.outside("Device", off), off, Override, "Device", NoLimit)
 	h.to("10:20")
 	h.want("on inside minimumOff", h.outside("Device", on), on, Override, "Device", NoLimit)
-	if st := h.a.State(); st.Starts != 2 || !st.LastOff.Equal(at("10:10")) {
-		t.Errorf("got %d starts, last off %v; want 2 and 10:10", st.Starts, st.LastOff)
+	// The first write at 10:00 finds the device unknown, so only 10:20 is a start.
+	if st := h.a.State(); st.Starts != 1 || !st.LastOff.Equal(at("10:10")) {
+		t.Errorf("got %d starts, last off %v; want 1 and 10:10", st.Starts, st.LastOff)
 	}
 }
 
@@ -475,4 +480,80 @@ func TestStateIsACopy(t *testing.T) {
 	if d := h.apply(); d.Value != on {
 		t.Error("changing a State changed the arbiter")
 	}
+}
+
+func TestUntilNextBaselineIgnoresExpiredClaims(t *testing.T) {
+	h := newHarness(t, boolSettings, "12:00")
+	h.claim(Claim{Source: "Rule/a", Level: Normal, Value: on, Expires: at("12:01")})
+	// Rule/a has expired, but nothing has decided since.
+	h.clock.SetTime(at("12:02"))
+	d := h.claim(Claim{Source: "Rule/boost", Level: Normal, Value: on, UntilNext: true})
+	h.want("12:02", d, on, Normal, "Rule/boost", NoLimit)
+}
+
+func TestFirstSeenOnIsNotAStart(t *testing.T) {
+	s := boolSettings
+	s.MaximumStartsPerDay = 1
+	h := newHarness(t, s, "10:00")
+	if err := h.a.Outside("Device", on); err != nil {
+		t.Fatal(err)
+	}
+	if st := h.a.State(); st.Starts != 0 || !st.LastOn.Equal(at("10:00")) {
+		t.Errorf("got %d starts, last on %v; want 0 and 10:00", st.Starts, st.LastOn)
+	}
+}
+
+func TestRepeatedValueIsNoOutsideChange(t *testing.T) {
+	for _, ext := range []External{ExternalOverride, ExternalRevert} {
+		h := newHarness(t, Settings{Kind: Bool, Resolve: On, External: ext, OverrideHold: time.Hour}, "10:00")
+		h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
+		if err := h.a.Outside("Device", on); err != nil {
+			t.Fatal(err)
+		}
+		if d := h.a.Decide(); d.Write || d.Source != "Rule/n" || d.Reverted != nil || len(d.Claims) != 1 {
+			t.Errorf("external %v: got %+v, want the repeat ignored", ext, d)
+		}
+	}
+}
+
+func TestRevertDoesNotBypassLimitsForANewWinner(t *testing.T) {
+	// The device is resting, and a winner wants it on. An outside change can't get past the rest.
+	s := Settings{Kind: Bool, Resolve: On, External: ExternalRevert, MinimumOff: time.Hour}
+	h := newHarness(t, s, "10:00")
+	h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
+	h.to("10:10")
+	h.release("Rule/n")
+	h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
+	if err := h.a.Outside("Device", 0); err != nil {
+		t.Fatal(err)
+	}
+	h.want("resting", h.apply(), off, Normal, "Rule/n", MinimumOff)
+}
+
+func TestRevertedChangeThatStandsKeepsLimitDeadlines(t *testing.T) {
+	// The winner changes to the outside value before the write back, so the change stands, and
+	// Next still shows when maximumOn stops the device.
+	s := Settings{Kind: Bool, Resolve: On, External: ExternalRevert, MaximumOn: time.Hour, MinimumOff: time.Minute}
+	h := newHarness(t, s, "10:00")
+	h.apply()
+	if err := h.a.Outside("HomeKit", on); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.a.Claim(Claim{Source: "Rule/n", Level: Normal, Value: on}); err != nil {
+		t.Fatal(err)
+	}
+	d := h.a.Decide()
+	if d.Write || d.Value != on || !d.Next.Equal(at("11:00")) {
+		t.Errorf("got %+v; want on with no write, next at 11:00", d)
+	}
+}
+
+func TestMinimumOnStaysWithinMaximumOn(t *testing.T) {
+	s := boolSettings
+	s.MinimumOn, s.MaximumOn = 30*time.Minute, 30*time.Minute
+	h := newHarness(t, s, "10:00")
+	h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
+	h.to("10:05")
+	h.want("held", h.release("Rule/n"), on, LevelDefault, "", MinimumOn)
+	h.want("10:30", h.to("10:30"), off, LevelDefault, "", NoLimit)
 }
