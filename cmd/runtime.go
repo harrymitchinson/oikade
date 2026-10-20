@@ -36,7 +36,12 @@ func runRuntime(args []string) int {
 		"Minimum interval between Rule lastTriggered updates.")
 	var logLevel slog.Level
 	fs.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
+	showVersion := versionFlag(fs)
 	_ = fs.Parse(args)
+	if *showVersion {
+		printVersion(os.Stdout)
+		return 0
+	}
 	configureLogging(logLevel)
 	log := ctrl.Log.WithName("runtime")
 

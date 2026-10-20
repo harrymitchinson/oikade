@@ -329,9 +329,11 @@ func homeScenario() {
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
 				{"-n", homeNamespace, "logs", "deploy/main-hap"},
 			} {
-				out, err := utils.Run(exec.Command("kubectl", args...))
-				Expect(err).NotTo(HaveOccurred())
-				Expect(out).To(ContainSubstring(`"version":"`+managerVersion+`"`), "kubectl %s", strings.Join(args, " "))
+				Eventually(func(g Gomega) {
+					out, err := utils.Run(exec.Command("kubectl", args...))
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(out).To(ContainSubstring(`"version":"`+managerVersion+`"`), "kubectl %s", strings.Join(args, " "))
+				}).Should(Succeed())
 			}
 		})
 
