@@ -44,6 +44,9 @@ type holdState struct {
 	reported *Schedule
 	// deleted is set when the Rule is deleted, so a write still running doesn't save its state.
 	deleted bool
+	// claimed is the claim an active hold last made on arbitrated targets, without its value.
+	// Nil means none since the hold loaded.
+	claimed *control.Claim
 }
 
 // NewActiveGauge returns the gauge Engine.Active expects.
@@ -136,10 +139,12 @@ func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *stat
 	if e.Active != nil {
 		e.Active.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(st.Active)))
 	}
-	if active != st.Active || st != hs.saved || hs.dirty || end != nil {
-		hs.writing, hs.dirty = true, false
-		claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
-		e.runs.Go(func() { e.write(ctx, key, hs, st, active, end, claim) })
+	// An active hold claims again when its priority or latch changed, or it has just loaded.
+	claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
+	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)
+	if active != st.Active || st != hs.saved || hs.dirty || end != nil || reclaim {
+		hs.writing, hs.dirty, hs.claimed = true, false, &claim
+		e.runs.Go(func() { e.write(ctx, key, hs, st, active, end, claim, reclaim) })
 		s.next = fire{}
 	} else {
 		s.next = fire{At: lookAgain(h, st, next, now)}
@@ -203,7 +208,7 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 
 // write ends an edited hold's old target, writes the hold's start or end, and saves its state.
 // A failed write isn't saved as done, so it's tried again.
-func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdState, st HoldState, active bool, end *HoldTarget, claim control.Claim) {
+func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdState, st HoldState, active bool, end *HoldTarget, claim control.Claim, reclaim bool) {
 	var retry time.Duration
 	ended := true
 	if end != nil {
@@ -217,6 +222,8 @@ func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdSt
 		} else {
 			st.Active = active
 		}
+	} else if ended && reclaim {
+		e.claimHold(ctx, key, st.Target, claim)
 	}
 	// When the old target couldn't be ended, nothing is saved, and the next look loads the saved
 	// state again and retries.
@@ -295,7 +302,7 @@ func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t Hold
 	for _, dev := range devices {
 		snap, ok := e.Store.Get(dev)
 		if ok && snap.Controls(t.Capability) {
-			if start && e.claim(ctx, dev, t.Capability, claim) || !start && e.releaseClaim(ctx, dev, t.Capability, claim.Source) {
+			if start && e.claim(ctx, key, dev, t.Capability, claim) || !start && e.releaseClaim(ctx, dev, t.Capability, claim.Source) {
 				continue
 			}
 		}
@@ -315,6 +322,20 @@ func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t Hold
 		}
 	}
 	return retry, failed
+}
+
+// claimHold makes an active hold's claim again on its arbitrated targets, and writes nothing.
+func (e *Engine) claimHold(ctx context.Context, key types.NamespacedName, t HoldTarget, claim control.Claim) {
+	claim.Value = capability.Float(t.Value)
+	devices := e.Store.Room(key.Namespace, t.Room)
+	if t.Device != "" {
+		devices = []types.NamespacedName{{Namespace: key.Namespace, Name: t.Device}}
+	}
+	for _, dev := range devices {
+		if e.arbitrated(dev, t.Capability) {
+			e.claim(ctx, key, dev, t.Capability, claim)
+		}
+	}
 }
 
 // reportHold reports a hold's state and next change: the window's next change, or a delay's

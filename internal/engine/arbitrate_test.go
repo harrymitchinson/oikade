@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -292,4 +293,115 @@ func (r *rig) eventually(what string, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	r.t.Fatalf("timed out waiting for %s", what)
+}
+
+// gate holds every Set until it's opened.
+type gate struct {
+	*fakeSetter
+	open chan struct{}
+}
+
+func (g *gate) Set(ctx context.Context, dev types.NamespacedName, c string, v any) error {
+	<-g.open
+	return g.fakeSetter.Set(ctx, dev, c, v)
+}
+
+var railEntry = entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "1h")
+
+func railRig(t *testing.T, rules ...*homev1alpha1.Rule) *rig {
+	return startRigWith(t, rigOptions{
+		now:     local("2026-10-21 12:00 BST"),
+		values:  map[string]map[string]any{"towel-rail": {capability.SwitchOn: false}},
+		control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {railEntry}},
+	}, rules...)
+}
+
+var railHold = `
+  while: {window: {start: "00:00", end: "00:00"}}
+  hold: {device: towel-rail, capability: switch.on, value: true}
+`
+
+func (r *rig) setControl(entries ...homev1alpha1.CapabilityControl) {
+	metas := map[types.NamespacedName]hub.Meta{}
+	for name := range holdDevices {
+		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+	}
+	metas[types.NamespacedName{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: entries}
+	r.store.SetDevices(z2m, metas)
+}
+
+func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
+	r := railRig(t)
+	g := &gate{fakeSetter: r.setter, open: make(chan struct{})}
+	r.e.Setter = g
+	c, err := Compile(holdRule(t, "rail", railHold))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.e.Load(c)
+	r.eventually("the write to start", func() bool {
+		r.e.mu.Lock()
+		defer r.e.mu.Unlock()
+		ar := r.e.arbs[types.NamespacedName{Namespace: ns, Name: "towel-rail"}][capability.SwitchOn]
+		return ar != nil && ar.writing
+	})
+	edited := railEntry
+	edited.MinimumOff = &metav1.Duration{Duration: time.Minute}
+	r.setControl(edited)
+	time.Sleep(50 * time.Millisecond)
+	close(g.open)
+	r.settle()
+	r.expect(call{"towel-rail", capability.SwitchOn, true})
+	// The arbiter still writes: removing the hold turns the rail back to its default.
+	r.e.Remove(c.Key)
+	r.settle()
+	r.expect(call{"towel-rail", capability.SwitchOn, true}, call{"towel-rail", capability.SwitchOn, false})
+}
+
+func TestAReportDuringAWriteIsLookedAtAgain(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.SwitchOn, true})
+	// A wall switch turns it off two seconds after the write: too soon to tell from a stale report.
+	r.clock.Step(2 * time.Second)
+	r.change("towel-rail", capability.SwitchOn, false)
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Normal" {
+		t.Fatalf("winner %q straight after", w)
+	}
+	r.at("2026-10-21 12:01 BST")
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
+		t.Errorf("winner %q once the write settled, want the device's override", w)
+	}
+}
+
+func TestEditingAHoldsPriorityClaimsAgain(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	safety := holdRule(t, "rail", "  priority: Safety\n"+railHold)
+	safety.Generation = 2
+	c, err := Compile(safety)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.e.Load(c)
+	r.settle()
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Safety" {
+		t.Errorf("winner %q, want the hold at Safety", w)
+	}
+}
+
+func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	controls := r.e.Controls
+	r.store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{})
+	r.settle()
+	// Give the saver its turn: it mustn't delete the state.
+	time.Sleep(100 * time.Millisecond)
+	if _, ok := controls.Get(types.NamespacedName{Namespace: ns, Name: "towel-rail"}); !ok {
+		t.Fatal("a device that left the store lost its saved state")
+	}
+	r.setControl(railEntry)
+	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "towel-rail"}, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
+	r.settle()
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Normal" {
+		t.Errorf("winner %q after it came back", w)
+	}
 }

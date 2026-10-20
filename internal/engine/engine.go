@@ -113,8 +113,8 @@ type Engine struct {
 	loaded map[types.NamespacedName]bool
 	runs   sync.WaitGroup
 
-	// arbs are the arbitrated capabilities, and controlDue the devices to look at again.
-	arbs       map[arbKey]*arb
+	// arbs are the arbitrated capabilities by device, and controlDue the devices to look at again.
+	arbs       map[types.NamespacedName]map[string]*arb
 	controlDue map[types.NamespacedName]bool
 	// saveDue are the devices whose arbiters saveControls saves next.
 	saveDue         map[types.NamespacedName]bool
@@ -179,7 +179,7 @@ func (e *Engine) Init() {
 	if e.Controls == nil {
 		e.Controls = newMemoryStates[ControlState]()
 	}
-	e.arbs = map[arbKey]*arb{}
+	e.arbs = map[types.NamespacedName]map[string]*arb{}
 	e.controlDue = map[types.NamespacedName]bool{}
 	e.saveDue = map[types.NamespacedName]bool{}
 	e.saveWake = make(chan struct{}, 1)
@@ -415,9 +415,11 @@ func (e *Engine) earliest() time.Time {
 			next = at
 		}
 	}
-	for _, ar := range e.arbs {
-		if at := ar.next; !at.IsZero() && (next.IsZero() || at.Before(next)) {
-			next = at
+	for _, arbs := range e.arbs {
+		for _, ar := range arbs {
+			if at := ar.next; !at.IsZero() && (next.IsZero() || at.Before(next)) {
+				next = at
+			}
 		}
 	}
 	if len(e.controlDue) > 0 {
@@ -436,10 +438,12 @@ func (e *Engine) fireDue(ctx context.Context) {
 		delete(e.controlDue, dev)
 		e.syncControls(ctx, dev)
 	}
-	for key, ar := range e.arbs {
-		if !ar.next.IsZero() && !now.Before(ar.next) {
-			ar.next = time.Time{}
-			e.decide(ctx, key, ar)
+	for dev, arbs := range e.arbs {
+		for name, ar := range arbs {
+			if !ar.next.IsZero() && !now.Before(ar.next) {
+				ar.next = time.Time{}
+				e.decide(ctx, dev, name, ar)
+			}
 		}
 	}
 	for key, s := range e.rules {
@@ -603,7 +607,7 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 				log.Info("Skipped set on an arbitrated capability; it needs for or until", "device", a.device, "capability", a.capability)
 				continue
 			}
-			if e.claim(ctx, dev, a.capability, e.setClaim(key, a)) {
+			if e.claim(ctx, key, dev, a.capability, e.setClaim(key, a)) {
 				continue
 			}
 		}
@@ -639,7 +643,7 @@ func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action
 				skipped = append(skipped, dev.Name)
 				continue
 			}
-			if e.claim(ctx, dev, a.capability, e.setClaim(key, a)) {
+			if e.claim(ctx, key, dev, a.capability, e.setClaim(key, a)) {
 				continue
 			}
 		}
@@ -675,7 +679,8 @@ func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
 	skipped = slices.Compact(skipped)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if slices.Equal(e.skipped[key], skipped) {
+	if e.rules[key] == nil || slices.Equal(e.skipped[key], skipped) {
+		// A Rule deleted during its run keeps no entry.
 		return
 	}
 	e.skipped[key] = skipped
