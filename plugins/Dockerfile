@@ -14,13 +14,14 @@ ARG TARGETARCH
 ARG PLUGIN=example-switch
 WORKDIR /workspace
 COPY go.mod go.sum ./
-RUN go mod download
+# go build fetches only the modules the plugin imports, so there's no go mod download step.
 COPY api api
 COPY contract contract
 COPY internal internal
 COPY sdk sdk
 COPY plugins plugins
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /plugin ./plugins/${PLUGIN}
 
 FROM gcr.io/distroless/static:nonroot
