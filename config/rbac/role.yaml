@@ -66,6 +66,15 @@ rules:
 - apiGroups:
   - home.oikade.dev
   resources:
+  - devices/status
+  - rules/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - home.oikade.dev
+  resources:
   - rules
   verbs:
   - create
@@ -80,14 +89,6 @@ rules:
   resources:
   - rules/finalizers
   verbs:
-  - update
-- apiGroups:
-  - home.oikade.dev
-  resources:
-  - rules/status
-  verbs:
-  - get
-  - patch
   - update
 - apiGroups:
   - homekit.oikade.dev
