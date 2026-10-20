@@ -32,7 +32,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
 
-// Run results, as reported in oikade_automation_runs_total.
+// Run results, as reported in oikade_rule_runs_total.
 const (
 	ResultSucceeded      = "succeeded"
 	ResultFailed         = "failed"
@@ -42,7 +42,7 @@ const (
 	ResultConditionError = "condition_error"
 )
 
-// Engine is a driver.Sink that runs Automations on capability changes.
+// Engine is a driver.Sink that runs Rules on capability changes.
 type Engine struct {
 	hub.NopSink
 	Store    *hub.Store
@@ -50,18 +50,18 @@ type Engine struct {
 	Clock    clock.Clock
 	Location *time.Location
 	Log      logr.Logger
-	// Runs counts trigger outcomes by namespace, automation and result.
+	// Runs counts trigger outcomes by namespace, rule and result.
 	Runs *prometheus.CounterVec
 	// Dropped counts changes dropped because the engine fell behind.
 	Dropped prometheus.Counter
-	// OnStart, if set, is called when an Automation's actions start. It must not block.
+	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key types.NamespacedName, t time.Time)
 
 	events chan driver.Update
 
-	mu          sync.Mutex
-	automations map[types.NamespacedName]*state
-	runs        sync.WaitGroup
+	mu    sync.Mutex
+	rules map[types.NamespacedName]*state
+	runs  sync.WaitGroup
 }
 
 type state struct {
@@ -75,23 +75,23 @@ type state struct {
 // NewRunsCounter returns the counter Engine.Runs expects.
 func NewRunsCounter() *prometheus.CounterVec {
 	return prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "oikade_automation_runs_total",
-		Help: "Automation trigger outcomes.",
-	}, []string{"namespace", "automation", "result"})
+		Name: "oikade_rule_runs_total",
+		Help: "Rule trigger outcomes.",
+	}, []string{"namespace", "rule", "result"})
 }
 
 // NewDroppedCounter returns the counter Engine.Dropped expects.
 func NewDroppedCounter() prometheus.Counter {
 	return prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "oikade_automation_events_dropped_total",
-		Help: "Capability changes the automation engine dropped because it fell behind.",
+		Name: "oikade_rule_events_dropped_total",
+		Help: "Capability changes the rule engine dropped because it fell behind.",
 	})
 }
 
 // Init prepares the engine. Call it before Load, Changed or Run.
 func (e *Engine) Init() {
 	e.events = make(chan driver.Update, 1024)
-	e.automations = map[types.NamespacedName]*state{}
+	e.rules = map[types.NamespacedName]*state{}
 	if e.Clock == nil {
 		e.Clock = clock.RealClock{}
 	}
@@ -100,12 +100,12 @@ func (e *Engine) Init() {
 	}
 }
 
-// Load adds or replaces an Automation. A run in progress for an older generation is cancelled;
+// Load adds or replaces a Rule. A run in progress for an older generation is cancelled;
 // loading the same generation again is a no-op.
 func (e *Engine) Load(c *Compiled) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if s := e.automations[c.Key]; s != nil {
+	if s := e.rules[c.Key]; s != nil {
 		if s.c.Generation == c.Generation {
 			return
 		}
@@ -113,19 +113,19 @@ func (e *Engine) Load(c *Compiled) {
 			s.cancel()
 		}
 	}
-	e.automations[c.Key] = &state{c: c}
+	e.rules[c.Key] = &state{c: c}
 }
 
-// Remove drops an Automation and cancels its run.
+// Remove drops a Rule and cancels its run.
 func (e *Engine) Remove(key types.NamespacedName) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if s := e.automations[key]; s != nil && s.cancel != nil {
+	if s := e.rules[key]; s != nil && s.cancel != nil {
 		s.cancel()
 	}
-	delete(e.automations, key)
+	delete(e.rules, key)
 	if e.Runs != nil {
-		e.Runs.DeletePartialMatch(prometheus.Labels{"namespace": key.Namespace, "automation": key.Name})
+		e.Runs.DeletePartialMatch(prometheus.Labels{"namespace": key.Namespace, "rule": key.Name})
 	}
 }
 
@@ -137,7 +137,7 @@ func (e *Engine) Changed(u driver.Update) {
 		if e.Dropped != nil {
 			e.Dropped.Inc()
 		}
-		e.Log.Info("Dropped capability change; the automation engine is behind", "device", u.Device, "capability", u.Capability)
+		e.Log.Info("Dropped capability change; the rule engine is behind", "device", u.Device, "capability", u.Capability)
 	}
 }
 
@@ -170,14 +170,14 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for key, s := range e.automations {
+	for key, s := range e.rules {
 		if key.Namespace != u.Device.Namespace || !s.c.matches(u.Device.Name, room, u.Capability) {
 			continue
 		}
 		ok, err := s.c.eval(vars)
 		switch {
 		case err != nil:
-			e.Log.Error(err, "Failed to evaluate Automation condition", "automation", key)
+			e.Log.Error(err, "Failed to evaluate Rule condition", "rule", key)
 			e.count(key, ResultConditionError)
 			continue
 		case !ok:
@@ -185,7 +185,7 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 			continue
 		}
 		if s.cancel != nil {
-			if s.c.Mode == homev1alpha1.AutomationModeSingle {
+			if s.c.Mode == homev1alpha1.RuleModeSingle {
 				e.count(key, ResultBusy)
 				continue
 			}
@@ -211,7 +211,7 @@ func (e *Engine) start(ctx context.Context, key types.NamespacedName, s *state) 
 
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		if cur := e.automations[key]; cur == s && s.run == run {
+		if cur := e.rules[key]; cur == s && s.run == run {
 			s.cancel = nil
 		}
 	})
@@ -221,7 +221,7 @@ func (e *Engine) start(ctx context.Context, key types.NamespacedName, s *state) 
 // fails on some devices lets the run continue, so a dead bulb can't leave the rest of the room on,
 // and the run counts as failed at the end.
 func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compiled) string {
-	log := e.Log.WithValues("automation", key)
+	log := e.Log.WithValues("rule", key)
 	failed := false
 	for _, a := range c.actions {
 		if a.delay > 0 {
@@ -246,7 +246,7 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 		}
 		dev := types.NamespacedName{Namespace: key.Namespace, Name: a.device}
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
-			log.Error(err, "Failed to run Automation action", "device", a.device, "capability", a.capability)
+			log.Error(err, "Failed to run Rule action", "device", a.device, "capability", a.capability)
 			return ResultFailed
 		}
 	}
@@ -260,7 +260,7 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 // Membership is read now, not when the run started. It tries every device and reports whether
 // all of them succeeded.
 func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action) bool {
-	log := e.Log.WithValues("automation", key)
+	log := e.Log.WithValues("rule", key)
 	ok, matched := true, false
 	for _, dev := range e.Store.Room(key.Namespace, a.room) {
 		snap, found := e.Store.Get(dev)
@@ -272,7 +272,7 @@ func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action
 		}
 		matched = true
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
-			log.Error(err, "Failed to run Automation action", "device", dev.Name, "room", a.room, "capability", a.capability)
+			log.Error(err, "Failed to run Rule action", "device", dev.Name, "room", a.room, "capability", a.capability)
 			ok = false
 		}
 	}

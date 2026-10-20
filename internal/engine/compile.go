@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package engine runs Automations: when a trigger fires and the condition holds, run the actions.
+// Package engine runs Rules: when a trigger fires and the condition holds, run the actions.
 package engine
 
 import (
@@ -47,13 +47,14 @@ func mustEnv() *cel.Env {
 	return e
 }
 
-// Compiled is a validated Automation, ready to run.
+// Compiled is a validated Rule, ready to run.
 type Compiled struct {
 	Key types.NamespacedName
-	// Generation is the Automation generation this was compiled from.
+	// Generation is the Rule generation this was compiled from.
 	Generation int64
-	Mode       homev1alpha1.AutomationMode
-	Trigger    []homev1alpha1.Trigger
+	Mode       homev1alpha1.RuleMode
+	// changes are the Rule's change triggers.
+	changes []homev1alpha1.ChangeTrigger
 	// program is nil when there is no condition.
 	program cel.Program
 	actions []action
@@ -67,27 +68,32 @@ type action struct {
 	delay      time.Duration
 }
 
-// Compile validates an Automation: the condition must be boolean CEL, triggers must name known
+// Compile validates a Rule: the condition must be boolean CEL, triggers must name known
 // capabilities, and set actions must target writable capabilities with values of the right kind.
-// Whether the devices and rooms exist is only checked when the Automation runs.
-func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
+// Whether the devices and rooms exist is only checked when the Rule runs.
+func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 	c := &Compiled{
 		Key:        types.NamespacedName{Namespace: a.Namespace, Name: a.Name},
 		Generation: a.Generation,
 		Mode:       a.Spec.Mode,
-		Trigger:    a.Spec.Triggers,
 	}
 	if c.Mode == "" {
-		c.Mode = homev1alpha1.AutomationModeSingle
+		c.Mode = homev1alpha1.RuleModeSingle
 	}
 	var errs []error
-	for i, t := range a.Spec.Triggers {
+	for i, on := range a.Spec.On {
+		t := on.Change
+		if t == nil {
+			errs = append(errs, fmt.Errorf("on[%d]: change is required", i))
+			continue
+		}
 		if (t.Device == "") == (t.Room == "") {
-			errs = append(errs, fmt.Errorf("triggers[%d]: exactly one of device or room is required", i))
+			errs = append(errs, fmt.Errorf("on[%d].change: exactly one of device or room is required", i))
 		}
 		if _, ok := capability.Lookup(t.Capability); !ok {
-			errs = append(errs, fmt.Errorf("triggers[%d]: unknown capability %q", i, t.Capability))
+			errs = append(errs, fmt.Errorf("on[%d].change: unknown capability %q", i, t.Capability))
 		}
+		c.changes = append(c.changes, *t)
 	}
 	if a.Spec.Condition != "" {
 		ast, iss := env.Compile(a.Spec.Condition)
@@ -104,42 +110,42 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 			c.program = prg
 		}
 	}
-	for i, act := range a.Spec.Actions {
+	for i, act := range a.Spec.Do {
 		switch {
 		case act.Set != nil:
 			s := act.Set
 			if (s.Device == "") == (s.Room == "") {
-				errs = append(errs, fmt.Errorf("actions[%d]: exactly one of device or room is required", i))
+				errs = append(errs, fmt.Errorf("do[%d]: exactly one of device or room is required", i))
 				continue
 			}
 			spec, ok := capability.Lookup(s.Capability)
 			if !ok {
-				errs = append(errs, fmt.Errorf("actions[%d]: unknown capability %q", i, s.Capability))
+				errs = append(errs, fmt.Errorf("do[%d]: unknown capability %q", i, s.Capability))
 				continue
 			}
 			if !spec.Writable {
-				errs = append(errs, fmt.Errorf("actions[%d]: capability %s is read-only", i, s.Capability))
+				errs = append(errs, fmt.Errorf("do[%d]: capability %s is read-only", i, s.Capability))
 				continue
 			}
 			var raw any
 			if err := json.Unmarshal(s.Value.Raw, &raw); err != nil {
-				errs = append(errs, fmt.Errorf("actions[%d]: value: %w", i, err))
+				errs = append(errs, fmt.Errorf("do[%d]: value: %w", i, err))
 				continue
 			}
 			v, err := capability.Validate(s.Capability, raw)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("actions[%d]: %w", i, err))
+				errs = append(errs, fmt.Errorf("do[%d]: %w", i, err))
 				continue
 			}
 			c.actions = append(c.actions, action{device: s.Device, room: s.Room, capability: s.Capability, value: v})
 		case act.Delay != nil:
 			if act.Delay.Duration <= 0 {
-				errs = append(errs, fmt.Errorf("actions[%d]: delay must be positive", i))
+				errs = append(errs, fmt.Errorf("do[%d]: delay must be positive", i))
 				continue
 			}
 			c.actions = append(c.actions, action{delay: act.Delay.Duration})
 		default:
-			errs = append(errs, fmt.Errorf("actions[%d]: one of set or delay is required", i))
+			errs = append(errs, fmt.Errorf("do[%d]: one of set or delay is required", i))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -149,9 +155,9 @@ func Compile(a *homev1alpha1.Automation) (*Compiled, error) {
 }
 
 // matches reports whether a capability change on a device, currently in room, triggers the
-// Automation. room is empty when the device has none.
+// Rule. room is empty when the device has none.
 func (c *Compiled) matches(device, room, name string) bool {
-	for _, t := range c.Trigger {
+	for _, t := range c.changes {
 		if t.Capability != name {
 			continue
 		}

@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
-  name: automations.home.oikade.dev
+  name: rules.home.oikade.dev
 spec:
   group: home.oikade.dev
   names:
-    kind: Automation
-    listKind: AutomationList
-    plural: automations
-    singular: automation
+    kind: Rule
+    listKind: RuleList
+    plural: rules
+    singular: rule
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -27,7 +27,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Automation is a rule run by the Oikade runtime.
+        description: 'Rule is run by the Oikade runtime: when one of its triggers
+          fires and the condition holds, it runs its actions.'
         properties:
           apiVersion:
             description: |-
@@ -47,13 +48,22 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Automation
+            description: spec defines the desired state of Rule
             properties:
-              actions:
-                description: actions run in order.
+              condition:
+                description: |-
+                  condition is a CEL expression that must evaluate to true for the actions to run.
+                  Variables: devices (map of device name to map of capability to value),
+                  trigger (device, capability, value, previous), now (timestamp) and tz (the runtime's
+                  timezone). Timestamp accessors default to UTC, so pass tz for local time.
+                  For example: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
+                maxLength: 4096
+                type: string
+              do:
+                description: do are the actions, run in order.
                 items:
-                  description: Action is one step of an Automation. Exactly one field
-                    must be set.
+                  description: Action is one step of a Rule. Exactly one field must
+                    be set.
                   properties:
                     delay:
                       description: delay waits before the next action, e.g. 5m.
@@ -95,15 +105,6 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: atomic
-              condition:
-                description: |-
-                  condition is a CEL expression that must evaluate to true for the actions to run.
-                  Variables: devices (map of device name to map of capability to value),
-                  trigger (device, capability, value, previous), now (timestamp) and tz (the runtime's
-                  timezone). Timestamp accessors default to UTC, so pass tz for local time.
-                  For example: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
-                maxLength: 4096
-                type: string
               mode:
                 default: Single
                 description: mode decides what happens when a trigger fires while
@@ -112,43 +113,50 @@ spec:
                 - Single
                 - Restart
                 type: string
-              triggers:
-                description: triggers are the capability changes that start the Automation.
+              "on":
+                description: on are the moments that start the Rule.
                 items:
-                  description: Trigger fires the Automation when a capability of a
-                    device, or of any device in a room, changes value.
+                  description: Trigger is a moment that fires the Rule. Exactly one
+                    field must be set.
                   properties:
-                    capability:
-                      description: capability is the canonical capability to watch,
-                        e.g. sensor.occupancy-detected.
-                      minLength: 1
-                      type: string
-                    device:
-                      description: device names a Device in the same namespace.
-                      minLength: 1
-                      type: string
-                    room:
-                      description: |-
-                        room names a Room in the same namespace. The trigger matches a change from any Device whose
-                        roomRef is this room at the time of the change.
-                      minLength: 1
-                      type: string
-                  required:
-                  - capability
+                    change:
+                      description: change fires when a capability changes value.
+                      properties:
+                        capability:
+                          description: capability is the canonical capability to watch,
+                            e.g. sensor.occupancy-detected.
+                          minLength: 1
+                          type: string
+                        device:
+                          description: device names a Device in the same namespace.
+                          minLength: 1
+                          type: string
+                        room:
+                          description: |-
+                            room names a Room in the same namespace. The trigger matches a change from any Device whose
+                            roomRef is this room at the time of the change.
+                          minLength: 1
+                          type: string
+                      required:
+                      - capability
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of device or room must be specified
+                        rule: has(self.device) != has(self.room)
                   type: object
                   x-kubernetes-validations:
-                  - message: exactly one of device or room must be specified
-                    rule: has(self.device) != has(self.room)
+                  - message: exactly one of change must be specified
+                    rule: has(self.change)
                 maxItems: 16
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: atomic
             required:
-            - actions
-            - triggers
+            - do
+            - "on"
             type: object
           status:
-            description: status defines the observed state of Automation
+            description: status defines the observed state of Rule
             properties:
               conditions:
                 description: 'conditions: Ready.'

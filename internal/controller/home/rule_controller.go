@@ -35,21 +35,21 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
-// AutomationReconciler validates Automations. The runtime compiles them again to run them.
-type AutomationReconciler struct {
+// RuleReconciler validates Rules. The runtime compiles them again to run them.
+type RuleReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=automations,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=automations/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=home.oikade.dev,resources=automations/finalizers,verbs=update
+// +kubebuilder:rbac:groups=home.oikade.dev,resources=rules,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=home.oikade.dev,resources=rules/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=home.oikade.dev,resources=rules/finalizers,verbs=update
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=rooms,verbs=get;list;watch
 
-// Reconcile sets the Ready condition from compiling the Automation and checking that the Rooms it
+// Reconcile sets the Ready condition from compiling the Rule and checking that the Rooms it
 // names exist. A spec that doesn't compile is reported first.
-func (r *AutomationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var a homev1alpha1.Automation
+func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var a homev1alpha1.Rule
 	if err := r.Get(ctx, req.NamespacedName, &a); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -77,16 +77,16 @@ func (r *AutomationReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, r.Status().Patch(ctx, &a, client.MergeFrom(orig))
 }
 
-// missingRooms returns the Rooms named by the Automation's triggers and set actions that don't
+// missingRooms returns the Rooms named by the Rule's triggers and set actions that don't
 // exist in its namespace, sorted.
-func (r *AutomationReconciler) missingRooms(ctx context.Context, a *homev1alpha1.Automation) ([]string, error) {
+func (r *RuleReconciler) missingRooms(ctx context.Context, a *homev1alpha1.Rule) ([]string, error) {
 	var named []string
-	for _, t := range a.Spec.Triggers {
-		if t.Room != "" {
-			named = append(named, t.Room)
+	for _, t := range a.Spec.On {
+		if t.Change != nil && t.Change.Room != "" {
+			named = append(named, t.Change.Room)
 		}
 	}
-	for _, act := range a.Spec.Actions {
+	for _, act := range a.Spec.Do {
 		if act.Set != nil && act.Set.Room != "" {
 			named = append(named, act.Set.Room)
 		}
@@ -109,21 +109,21 @@ func (r *AutomationReconciler) missingRooms(ctx context.Context, a *homev1alpha1
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AutomationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *RuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&homev1alpha1.Automation{}).
-		Watches(&homev1alpha1.Room{}, handler.EnqueueRequestsFromMapFunc(r.automationsInNamespace)).
-		Named("home-automation").
+		For(&homev1alpha1.Rule{}).
+		Watches(&homev1alpha1.Room{}, handler.EnqueueRequestsFromMapFunc(r.rulesInNamespace)).
+		Named("home-rule").
 		Complete(r)
 }
 
-// automationsInNamespace maps a Room to every Automation in its namespace, so creating or deleting
-// a Room updates RoomNotFound without the Automation being edited. Automations are few, so this is
+// rulesInNamespace maps a Room to every Rule in its namespace, so creating or deleting
+// a Room updates RoomNotFound without the Rule being edited. Rules are few, so this is
 // cheaper than an index.
-func (r *AutomationReconciler) automationsInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
-	var list homev1alpha1.AutomationList
+func (r *RuleReconciler) rulesInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list homev1alpha1.RuleList
 	if err := r.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
-		logf.FromContext(ctx).Error(err, "Failed to list Automations")
+		logf.FromContext(ctx).Error(err, "Failed to list Rules")
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(list.Items))

@@ -22,7 +22,7 @@ import (
 )
 
 // RoomSpec defines a room. HomeKit can't receive rooms from a bridge, so rooms label
-// metrics and group devices for automations; assign them once in the Home app as well.
+// metrics and group devices for rules; assign them once in the Home app as well.
 type RoomSpec struct {
 	// displayName is the human-friendly name. Defaults to the object name.
 	// +kubebuilder:validation:MaxLength=64

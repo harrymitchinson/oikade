@@ -4,6 +4,6 @@ resources:
 - zigbee_v1alpha1_zigbee2mqtt.yaml
 - home_v1alpha1_device.yaml
 - homekit_v1alpha1_bridge.yaml
-- home_v1alpha1_automation.yaml
 - plugins_v1alpha1_plugin.yaml
+- home_v1alpha1_rule.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

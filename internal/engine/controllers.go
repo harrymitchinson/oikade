@@ -35,15 +35,15 @@ import (
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
 
-// Loader keeps the engine's Automations in sync with the API.
+// Loader keeps the engine's Rules in sync with the API.
 type Loader struct {
 	client.Client
 	Engine *Engine
 }
 
-// Reconcile compiles and loads one Automation. Invalid ones are unloaded; the operator reports why.
+// Reconcile compiles and loads one Rule. Invalid ones are unloaded; the operator reports why.
 func (l *Loader) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var a homev1alpha1.Automation
+	var a homev1alpha1.Rule
 	if err := l.Get(ctx, req.NamespacedName, &a); err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
@@ -53,7 +53,7 @@ func (l *Loader) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, 
 	}
 	c, err := Compile(&a)
 	if err != nil {
-		logf.FromContext(ctx).Info("Unloaded invalid Automation", "automation", req.NamespacedName, "error", err.Error())
+		logf.FromContext(ctx).Info("Unloaded invalid Rule", "rule", req.NamespacedName, "error", err.Error())
 		l.Engine.Remove(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
@@ -64,14 +64,14 @@ func (l *Loader) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, 
 // SetupWithManager registers the loader.
 func (l *Loader) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		// Status updates must not reload (and so cancel) a running Automation.
-		For(&homev1alpha1.Automation{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Named("automation-loader").
+		// Status updates must not reload (and so cancel) a running Rule.
+		For(&homev1alpha1.Rule{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Named("rule-loader").
 		Complete(l)
 }
 
-// Triggered records when Automations last started and writes status.lastTriggered, at most once
-// per Interval per Automation.
+// Triggered records when Rules last started and writes status.lastTriggered, at most once
+// per Interval per Rule.
 type Triggered struct {
 	client.Client
 	Interval time.Duration
@@ -86,7 +86,7 @@ func (t *Triggered) Record(key types.NamespacedName, at time.Time) {
 	t.mu.Lock()
 	t.latest[key] = at
 	t.mu.Unlock()
-	obj := &homev1alpha1.Automation{}
+	obj := &homev1alpha1.Rule{}
 	obj.Name, obj.Namespace = key.Name, key.Namespace
 	select {
 	case t.events <- event.GenericEvent{Object: obj}:
@@ -102,7 +102,7 @@ func (t *Triggered) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	if !ok {
 		return ctrl.Result{}, nil
 	}
-	var a homev1alpha1.Automation
+	var a homev1alpha1.Rule
 	if err := t.Get(ctx, req.NamespacedName, &a); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -123,7 +123,7 @@ func (t *Triggered) SetupWithManager(mgr ctrl.Manager) error {
 	t.latest = map[types.NamespacedName]time.Time{}
 	t.events = make(chan event.GenericEvent, 256)
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("automation-triggered").
+		Named("rule-triggered").
 		WatchesRawSource(source.Channel(t.events, &handler.EnqueueRequestForObject{})).
 		Complete(t)
 }

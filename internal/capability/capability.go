@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package capability is the registry of protocol-neutral capabilities. Drivers translate to and
-// from these; HomeKit, metrics and automations only ever see them.
+// from these; HomeKit, metrics and rules only ever see them.
 package capability
 
 import (

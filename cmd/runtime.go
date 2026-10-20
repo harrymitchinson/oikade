@@ -22,7 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"time"
-	_ "time/tzdata" // distroless images may lack zone data; automations need it
+	_ "time/tzdata" // distroless images may lack zone data; rules need it
 
 	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,16 +35,16 @@ import (
 )
 
 // runRuntime is the `manager runtime` subcommand: the data plane. It follows every driver on the
-// MQTT bus, writes Device status, exports metrics and runs Automations.
+// MQTT bus, writes Device status, exports metrics and runs Rules.
 func runRuntime(args []string) int {
 	fs := flag.NewFlagSet("runtime", flag.ExitOnError)
 	mqttURL := fs.String("mqtt-url", "mqtt://oikade-mosquitto.oikade-system.svc:1883", "MQTT broker.")
-	tz := fs.String("timezone", envOr("TZ", "UTC"), "IANA timezone automations see as tz, e.g. Europe/London.")
+	tz := fs.String("timezone", envOr("TZ", "UTC"), "IANA timezone rules see as tz, e.g. Europe/London.")
 	metricsAddr := fs.String("metrics-bind-address", ":8080", "Address for the Prometheus endpoint.")
 	probeAddr := fs.String("health-probe-bind-address", ":8081", "Address for health probes.")
 	seen := fs.Duration("seen-interval", 5*time.Minute, "Minimum interval between Device lastSeen updates.")
 	triggered := fs.Duration("triggered-interval", time.Minute,
-		"Minimum interval between Automation lastTriggered updates.")
+		"Minimum interval between Rule lastTriggered updates.")
 	var logLevel slog.Level
 	fs.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
 	_ = fs.Parse(args)

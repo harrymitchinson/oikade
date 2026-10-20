@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package hub holds live device state from drivers and routes commands back to them. It is shared
-// by the runtime (metrics, status, automations) and the HomeKit bridge.
+// by the runtime (metrics, status, rules) and the HomeKit bridge.
 package hub
 
 import (

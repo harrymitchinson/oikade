@@ -22,12 +22,20 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// ConditionReady is True when an Automation's condition compiles and its actions are valid.
+// ConditionReady is True when a Rule's condition compiles and its actions are valid.
 const ConditionReady = "Ready"
 
-// Trigger fires the Automation when a capability of a device, or of any device in a room, changes value.
-// +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
+// Trigger is a moment that fires the Rule. Exactly one field must be set.
+// +kubebuilder:validation:XValidation:rule="has(self.change)",message="exactly one of change must be specified"
 type Trigger struct {
+	// change fires when a capability changes value.
+	// +optional
+	Change *ChangeTrigger `json:"change,omitempty"`
+}
+
+// ChangeTrigger fires the Rule when a capability of a device, or of any device in a room, changes value.
+// +kubebuilder:validation:XValidation:rule="has(self.device) != has(self.room)",message="exactly one of device or room must be specified"
+type ChangeTrigger struct {
 	// device names a Device in the same namespace.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
@@ -72,7 +80,7 @@ type SetAction struct {
 	Value apiextensionsv1.JSON `json:"value"`
 }
 
-// Action is one step of an Automation. Exactly one field must be set.
+// Action is one step of a Rule. Exactly one field must be set.
 // +kubebuilder:validation:XValidation:rule="has(self.set) != has(self.delay)",message="exactly one of set or delay must be specified"
 type Action struct {
 	// set sets a capability on a device.
@@ -84,26 +92,26 @@ type Action struct {
 	Delay *metav1.Duration `json:"delay,omitempty"`
 }
 
-// AutomationMode decides what happens when a trigger fires while a run is in progress.
+// RuleMode decides what happens when a trigger fires while a run is in progress.
 // +kubebuilder:validation:Enum=Single;Restart
-type AutomationMode string
+type RuleMode string
 
 const (
-	// AutomationModeSingle ignores triggers while a run is in progress.
-	AutomationModeSingle AutomationMode = "Single"
-	// AutomationModeRestart cancels the run in progress and starts again, e.g. to keep a
+	// RuleModeSingle ignores triggers while a run is in progress.
+	RuleModeSingle RuleMode = "Single"
+	// RuleModeRestart cancels the run in progress and starts again, e.g. to keep a
 	// light on until five minutes after the last motion.
-	AutomationModeRestart AutomationMode = "Restart"
+	RuleModeRestart RuleMode = "Restart"
 )
 
-// AutomationSpec is an event-driven rule: when a trigger fires and the condition holds, run the actions.
-type AutomationSpec struct {
-	// triggers are the capability changes that start the Automation.
+// RuleSpec is a moment rule: when a trigger fires and the condition holds, run the actions.
+type RuleSpec struct {
+	// on are the moments that start the Rule.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=atomic
 	// +required
-	Triggers []Trigger `json:"triggers"`
+	On []Trigger `json:"on"`
 
 	// condition is a CEL expression that must evaluate to true for the actions to run.
 	// Variables: devices (map of device name to map of capability to value),
@@ -114,21 +122,21 @@ type AutomationSpec struct {
 	// +optional
 	Condition string `json:"condition,omitempty"`
 
-	// actions run in order.
+	// do are the actions, run in order.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +listType=atomic
 	// +required
-	Actions []Action `json:"actions"`
+	Do []Action `json:"do"`
 
 	// mode decides what happens when a trigger fires while a run is in progress.
 	// +kubebuilder:default=Single
 	// +optional
-	Mode AutomationMode `json:"mode,omitempty"`
+	Mode RuleMode `json:"mode,omitempty"`
 }
 
-// AutomationStatus defines the observed state of Automation.
-type AutomationStatus struct {
+// RuleStatus defines the observed state of Rule.
+type RuleStatus struct {
 	// lastTriggered is when the actions last started (updated at most every minute).
 	// +optional
 	LastTriggered metav1.Time `json:"lastTriggered,omitzero"`
@@ -150,35 +158,35 @@ type AutomationStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Last Triggered",type=date,JSONPath=`.status.lastTriggered`
 
-// Automation is a rule run by the Oikade runtime.
-type Automation struct {
+// Rule is run by the Oikade runtime: when one of its triggers fires and the condition holds, it runs its actions.
+type Rule struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// metadata is a standard object metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitzero"`
 
-	// spec defines the desired state of Automation
+	// spec defines the desired state of Rule
 	// +required
-	Spec AutomationSpec `json:"spec"`
+	Spec RuleSpec `json:"spec"`
 
-	// status defines the observed state of Automation
+	// status defines the observed state of Rule
 	// +optional
-	Status AutomationStatus `json:"status,omitzero"`
+	Status RuleStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// AutomationList contains a list of Automation
-type AutomationList struct {
+// RuleList contains a list of Rule
+type RuleList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitzero"`
-	Items           []Automation `json:"items"`
+	Items           []Rule `json:"items"`
 }
 
 func init() {
 	SchemeBuilder.Register(func(s *runtime.Scheme) error {
-		s.AddKnownTypes(SchemeGroupVersion, &Automation{}, &AutomationList{})
+		s.AddKnownTypes(SchemeGroupVersion, &Rule{}, &RuleList{})
 		return nil
 	})
 }

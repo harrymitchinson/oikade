@@ -96,23 +96,23 @@ func TestRuntimeEndToEnd(t *testing.T) {
 	must(t, c.Create(ctx, device("desk-plug", "0x00124b0000000004", "hallway")))
 	must(t, c.Create(ctx, device("front-door", "0x00158d0000000003", "porch")))
 	must(t, c.Create(ctx, device("not-paired", "0x00158d00000000ff", "hallway")))
-	must(t, c.Create(ctx, &homev1alpha1.Automation{
+	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "motion-light", Namespace: ns},
-		Spec: homev1alpha1.AutomationSpec{
-			Triggers:  []homev1alpha1.Trigger{{Device: "hallway-motion", Capability: capability.Occupancy}},
+		Spec: homev1alpha1.RuleSpec{
+			On:        []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: capability.Occupancy}}},
 			Condition: "trigger.value",
-			Actions: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
 				Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
 			}}},
 		},
 	}))
 
 	// Opening the front door turns off every light in the hallway.
-	must(t, c.Create(ctx, &homev1alpha1.Automation{
+	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "hallway-off", Namespace: ns},
-		Spec: homev1alpha1.AutomationSpec{
-			Triggers: []homev1alpha1.Trigger{{Room: "porch", Capability: capability.ContactOpen}},
-			Actions: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+		Spec: homev1alpha1.RuleSpec{
+			On: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Room: "porch", Capability: capability.ContactOpen}}},
+			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
 				Room: "hallway", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("false")},
 			}}},
 		},
@@ -149,7 +149,7 @@ func TestRuntimeEndToEnd(t *testing.T) {
 			meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionAvailable)
 	})
 
-	// Motion turns the light on through the automation.
+	// Motion turns the light on through the rule.
 	must(t, fakeZ2M.Publish(ctx, "z2m/hallway-motion", []byte(`{"occupancy":true,"temperature":19.5}`), false))
 	eventually(t, "light command", func() bool {
 		mu.Lock()
@@ -167,7 +167,7 @@ func TestRuntimeEndToEnd(t *testing.T) {
 	expectMetric(t, reg, "oikade_capability_changes_total", labels, capability.Occupancy, 1)
 
 	eventually(t, "lastTriggered", func() bool {
-		var a homev1alpha1.Automation
+		var a homev1alpha1.Rule
 		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "motion-light"}, &a) == nil && !a.Status.LastTriggered.IsZero()
 	})
 
@@ -195,7 +195,7 @@ func TestRuntimeEndToEnd(t *testing.T) {
 	}
 }
 
-// A plugin's retained topics feed Device status, metrics and automations, and automations reach the
+// A plugin's retained topics feed Device status, metrics and rules, and rules reach the
 // plugin through /set.
 func TestRuntimePluginDevices(t *testing.T) {
 	ctx, c, url, reg := startRuntime(t)
@@ -250,12 +250,12 @@ func TestRuntimePluginDevices(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "sonoff", Namespace: ns},
 		Spec:       pluginsv1alpha1.PluginSpec{Image: "example.com/oikade-plugin-sonoff:v0.1.0"},
 	}))
-	must(t, c.Create(ctx, &homev1alpha1.Automation{
+	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "button-light", Namespace: ns},
-		Spec: homev1alpha1.AutomationSpec{
-			Triggers:  []homev1alpha1.Trigger{{Device: "porch-button", Capability: capability.SwitchOn}},
+		Spec: homev1alpha1.RuleSpec{
+			On:        []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "porch-button", Capability: capability.SwitchOn}}},
 			Condition: "trigger.value",
-			Actions: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
+			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
 				Device: "porch-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
 			}}},
 		},
@@ -286,7 +286,7 @@ func TestRuntimePluginDevices(t *testing.T) {
 			meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionResolved)
 	})
 
-	// Pressing the button turns the light on through the automation.
+	// Pressing the button turns the light on through the rule.
 	must(t, fakePlugin.Publish(ctx, root+"/button/state", []byte(`{"switch.on":true}`), true))
 	eventually(t, "light command", func() bool {
 		mu.Lock()

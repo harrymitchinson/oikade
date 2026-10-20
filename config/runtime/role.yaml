@@ -9,10 +9,10 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 rules:
 - apiGroups: [home.oikade.dev]
-  resources: [devices, rooms, automations]
+  resources: [devices, rooms, rules]
   verbs: [get, list, watch]
 - apiGroups: [home.oikade.dev]
-  resources: [devices/status, automations/status]
+  resources: [devices/status, rules/status]
   verbs: [get, update, patch]
 - apiGroups: [zigbee.oikade.dev]
   resources: [zigbee2mqtts]

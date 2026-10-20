@@ -57,7 +57,16 @@ rules:
 - apiGroups:
   - home.oikade.dev
   resources:
-  - automations
+  - devices
+  - rooms
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - home.oikade.dev
+  resources:
+  - rules
   verbs:
   - create
   - delete
@@ -69,26 +78,17 @@ rules:
 - apiGroups:
   - home.oikade.dev
   resources:
-  - automations/finalizers
+  - rules/finalizers
   verbs:
   - update
 - apiGroups:
   - home.oikade.dev
   resources:
-  - automations/status
+  - rules/status
   verbs:
   - get
   - patch
   - update
-- apiGroups:
-  - home.oikade.dev
-  resources:
-  - devices
-  - rooms
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - homekit.oikade.dev
   resources:
