@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -53,8 +52,8 @@ const statesRoot = "oikade/v1/_runtime/rules/"
 // syncNamespace carries BusStates' sync marker. It's no namespace, for the same reason.
 const syncNamespace = "_sync"
 
-// syncTimeout bounds how long Sync waits for the broker.
-const syncTimeout = 10 * time.Second
+// syncRetry is how long Sync waits for its marker before publishing another.
+const syncRetry = 10 * time.Second
 
 // BusStates keeps hold states as retained MQTT messages, one per Rule, at
 // oikade/v1/_runtime/rules/<namespace>/<rule>.
@@ -70,28 +69,33 @@ type BusStates struct {
 
 var _ HoldStates = (*BusStates)(nil)
 
-// Sync subscribes to the saved states and returns once the broker has delivered them. Call it
-// once, before the engine runs. The broker delivers retained messages before a message published
-// after the subscription, so a marker published then arrives after every state.
+// Sync subscribes to the saved states and returns once the broker has delivered them, or ctx
+// ends. Call it once, before the engine runs. The broker delivers retained messages before a
+// message published after the subscription, so a marker published then arrives after every
+// state. Messages after the marker are the engine's own saves, which Put has already recorded.
 func (b *BusStates) Sync(ctx context.Context) error {
 	b.mu.Lock()
 	b.states = map[types.NamespacedName]HoldState{}
 	b.synced = make(chan struct{})
 	b.marker = strconv.FormatInt(time.Now().UnixNano(), 36)
 	b.mu.Unlock()
-	if _, err := b.Bus.Subscribe(ctx, statesRoot+"+/+", b.received); err != nil {
+	unsubscribe, err := b.Bus.Subscribe(ctx, statesRoot+"+/+", b.received)
+	if err != nil {
 		return fmt.Errorf("subscribe to hold states: %w", err)
 	}
-	if err := b.Bus.Publish(ctx, statesRoot+syncNamespace+"/"+b.marker, nil, false); err != nil {
-		return fmt.Errorf("publish hold state marker: %w", err)
-	}
-	select {
-	case <-b.synced:
-		return nil
-	case <-time.After(syncTimeout):
-		return errors.New("timed out waiting for hold states")
-	case <-ctx.Done():
-		return ctx.Err()
+	defer unsubscribe()
+	for {
+		if err := b.Bus.Publish(ctx, statesRoot+syncNamespace+"/"+b.marker, nil, false); err != nil && ctx.Err() == nil {
+			b.Log.Error(err, "Failed to publish hold state marker")
+		}
+		select {
+		case <-b.synced:
+			return nil
+		case <-time.After(syncRetry):
+			b.Log.Info("Still waiting for saved hold states from the broker")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
@@ -102,13 +106,14 @@ func (b *BusStates) received(m mqtt.Message) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	select {
+	case <-b.synced:
+		return
+	default:
+	}
 	if ns == syncNamespace {
 		if name == b.marker {
-			select {
-			case <-b.synced:
-			default:
-				close(b.synced)
-			}
+			close(b.synced)
 		}
 		return
 	}

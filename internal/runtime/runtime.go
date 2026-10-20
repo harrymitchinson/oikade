@@ -76,7 +76,8 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 		}
 	}
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-		// Holds compare against their saved state, so it must be in before any is evaluated.
+		// Holds compare against their saved state, so it must be in before any is evaluated. Sync
+		// waits as long as the broker takes, and returns only when ctx ends.
 		if err := states.Sync(ctx); err != nil {
 			return err
 		}

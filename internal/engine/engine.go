@@ -178,8 +178,13 @@ func (e *Engine) Load(c *Compiled) {
 	e.loaded[c.Key] = true
 	switch {
 	case c.hold != nil:
-		// Run evaluates it, once the saved states are in.
+		// Run evaluates it, once the saved states are in. A new generation keeps the old one's
+		// state, and any write it has running.
 		s.hold = &holdState{}
+		if old != nil && old.hold != nil {
+			s.hold = old.hold
+			s.hold.warned = false
+		}
 		s.next = fire{At: e.Clock.Now()}
 	case len(c.timers) > 0:
 		e.schedule(c.Key, s, first)
@@ -252,20 +257,26 @@ func (e *Engine) signal() {
 // Remove drops a deleted Rule, cancels its run and forgets its hold's state. A hold that is
 // active leaves its device as it is.
 func (e *Engine) Remove(key types.NamespacedName) {
-	e.Unload(key)
+	if s := e.unload(key); s != nil && s.hold != nil {
+		e.mu.Lock()
+		// A write still running deletes the state again once it ends.
+		s.hold.deleted = true
+		e.mu.Unlock()
+	}
 	// A Rule unloaded as invalid before it was deleted has a state too.
 	if _, ok := e.States.Get(key); ok {
-		e.runs.Go(func() {
-			if err := e.States.Delete(context.Background(), key); err != nil {
-				e.Log.Error(err, "Failed to delete hold state", "rule", key)
-			}
-		})
+		e.runs.Go(func() { e.deleteState(key) })
 	}
 }
 
 // Unload drops a Rule that is no longer valid and cancels its run. Its hold's state is kept, so
-// a fixed Rule carries on. It reports whether the Rule had a hold.
-func (e *Engine) Unload(key types.NamespacedName) bool {
+// a fixed Rule carries on.
+func (e *Engine) Unload(key types.NamespacedName) {
+	e.unload(key)
+}
+
+// unload drops a Rule and returns its state, if it was loaded.
+func (e *Engine) unload(key types.NamespacedName) *state {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.rules[key]
@@ -288,7 +299,7 @@ func (e *Engine) Unload(key types.NamespacedName) bool {
 		e.Active.DeleteLabelValues(key.Namespace, key.Name)
 	}
 	e.signal()
-	return s != nil && s.c.hold != nil
+	return s
 }
 
 // Changed implements driver.Sink. It never blocks the driver.
@@ -375,7 +386,7 @@ func (e *Engine) fireDue(ctx context.Context) {
 	for key, s := range e.rules {
 		if s.hold != nil {
 			if !s.next.At.IsZero() && !now.Before(s.next.At) {
-				e.evaluate(ctx, key, s, now)
+				e.evaluate(ctx, key, s, now, nil)
 			}
 			continue
 		}
@@ -420,13 +431,17 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 	defer e.mu.Unlock()
 	now := e.Clock.Now()
 	evaluated := false
+	var devices map[string]map[string]any
 	for key, s := range e.rules {
 		if key.Namespace != u.Device.Namespace {
 			continue
 		}
 		// A hold with when may read any device in its namespace.
 		if s.hold != nil && s.c.hold.when != nil && s.hold.loaded {
-			e.evaluate(ctx, key, s, now)
+			if devices == nil {
+				devices = e.Store.Values(u.Device.Namespace)
+			}
+			e.evaluate(ctx, key, s, now, devices)
 			evaluated = true
 			continue
 		}
