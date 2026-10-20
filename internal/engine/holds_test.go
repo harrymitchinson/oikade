@@ -150,9 +150,11 @@ func (r *rig) settle() {
 		if len(r.e.controlDue) > 0 {
 			return false
 		}
-		for _, ar := range r.e.arbs {
-			if ar.writing || !ar.next.IsZero() && !ar.next.After(now) {
-				return false
+		for _, arbs := range r.e.arbs {
+			for _, ar := range arbs {
+				if ar.writing || !ar.next.IsZero() && !ar.next.After(now) {
+					return false
+				}
 			}
 		}
 		for _, s := range r.e.rules {

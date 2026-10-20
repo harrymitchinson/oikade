@@ -45,11 +45,6 @@ func NewControlLevelGauge() *prometheus.GaugeVec {
 	}, []string{labelNamespace, "device", "capability"})
 }
 
-type arbKey struct {
-	dev        types.NamespacedName
-	capability string
-}
-
 // arb is one arbitrated capability. Use it with e.mu held.
 type arb struct {
 	spec homev1alpha1.CapabilityControl
@@ -63,6 +58,9 @@ type arb struct {
 	wrote, retry time.Time
 	// next is when the decision can next change without new input. Zero means never.
 	next time.Time
+	// dropped is set when a report was ignored while a write settled, so the device's value is
+	// looked at again once it has.
+	dropped bool
 }
 
 func ruleSource(name string) string { return rulePrefix + name }
@@ -85,20 +83,34 @@ func (e *Engine) ControlChanged(dev types.NamespacedName) {
 	e.signal()
 }
 
-// Discovered implements driver.Sink: a device that has reported can be written.
+// Discovered implements driver.Sink: an arbitrated device that has reported can be written.
 func (e *Engine) Discovered(dev types.NamespacedName, _ driver.Info) {
-	e.ControlChanged(dev)
+	if snap, ok := e.Store.Get(dev); ok && len(snap.Control) > 0 {
+		e.ControlChanged(dev)
+	}
 }
 
 // ensure creates or updates the device's arbiters from its control entries, and drops those
 // whose entry has gone. Call with e.mu held.
 func (e *Engine) ensure(dev types.NamespacedName) {
-	snap, _ := e.Store.Get(dev)
+	snap, ok := e.Store.Get(dev)
+	if !ok {
+		// The device left the store, as when it moves between driver instances. Its arbiters go,
+		// but their saved state stays for when it comes back.
+		for name := range e.arbs[dev] {
+			e.dropArb(dev, name, false)
+		}
+		return
+	}
+	arbs := e.arbs[dev]
+	if arbs == nil {
+		arbs = map[string]*arb{}
+		e.arbs[dev] = arbs
+	}
 	var saved ControlState
 	loaded := false
 	for _, c := range snap.Control {
-		key := arbKey{dev, c.Capability}
-		old := e.arbs[key]
+		old := arbs[c.Capability]
 		if old != nil && equality.Semantic.DeepEqual(old.spec, c) {
 			continue
 		}
@@ -106,7 +118,7 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 		if err != nil {
 			// The operator reports it on the Device; the capability stays unarbitrated.
 			e.Log.Info("Ignored invalid control entry", "device", dev, "error", err.Error())
-			e.dropArb(key)
+			e.dropArb(dev, c.Capability, true)
 			continue
 		}
 		var st control.State
@@ -122,33 +134,43 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 		a, err := control.New(settings, e.Clock, st)
 		if err != nil {
 			e.Log.Error(err, "Failed to start arbiter", "device", dev, "capability", c.Capability)
-			e.dropArb(key)
+			e.dropArb(dev, c.Capability, true)
 			continue
 		}
 		ar := &arb{spec: *c.DeepCopy(), a: a}
 		if old != nil {
-			ar.writing, ar.wrote, ar.retry = old.writing, old.wrote, old.retry
+			// A write in progress finishes on the new arbiter.
+			ar.writing, ar.pending, ar.wrote, ar.retry, ar.dropped = old.writing, old.pending, old.wrote, old.retry, old.dropped
 		}
-		e.arbs[key] = ar
+		arbs[c.Capability] = ar
 	}
-	for key := range e.arbs {
-		if key.dev == dev && !snap.Controls(key.capability) {
-			e.dropArb(key)
+	for name := range arbs {
+		if !snap.Controls(name) {
+			e.dropArb(dev, name, true)
 		}
+	}
+	if len(arbs) == 0 {
+		delete(e.arbs, dev)
 	}
 }
 
-// dropArb forgets an arbiter whose control entry has gone. Call with e.mu held.
-func (e *Engine) dropArb(key arbKey) {
-	if _, ok := e.arbs[key]; !ok {
+// dropArb forgets an arbiter. forget also drops its saved state, as when its control entry has
+// gone. Call with e.mu held.
+func (e *Engine) dropArb(dev types.NamespacedName, name string, forget bool) {
+	if _, ok := e.arbs[dev][name]; !ok {
 		return
 	}
-	delete(e.arbs, key)
-	if e.ControlLevel != nil {
-		e.ControlLevel.DeleteLabelValues(key.dev.Namespace, key.dev.Name, key.capability)
+	delete(e.arbs[dev], name)
+	if len(e.arbs[dev]) == 0 {
+		delete(e.arbs, dev)
 	}
-	e.markSave(key.dev)
-	e.reportControl(key.dev)
+	if e.ControlLevel != nil {
+		e.ControlLevel.DeleteLabelValues(dev.Namespace, dev.Name, name)
+	}
+	if forget {
+		e.markSave(dev)
+	}
+	e.reportControl(dev)
 }
 
 // markSave asks saveControls to save the device's arbiters. Call with e.mu held.
@@ -164,43 +186,50 @@ func (e *Engine) markSave(dev types.NamespacedName) {
 // each. Call with e.mu held.
 func (e *Engine) syncControls(ctx context.Context, dev types.NamespacedName) {
 	e.ensure(dev)
-	for key, ar := range e.arbs {
-		if key.dev == dev {
-			e.decide(ctx, key, ar)
-		}
+	for name, ar := range e.arbs[dev] {
+		e.decide(ctx, dev, name, ar)
 	}
-	e.markSave(dev)
-	e.reportControl(dev)
 }
 
 // arbiter returns the capability's arbiter, or nil when it isn't arbitrated. Call with e.mu held.
-func (e *Engine) arbiter(key arbKey) *arb {
-	if ar := e.arbs[key]; ar != nil {
+func (e *Engine) arbiter(dev types.NamespacedName, name string) *arb {
+	if ar := e.arbs[dev][name]; ar != nil {
 		return ar
 	}
-	if snap, ok := e.Store.Get(key.dev); !ok || !snap.Controls(key.capability) {
+	if snap, ok := e.Store.Get(dev); !ok || !snap.Controls(name) {
 		return nil
 	}
-	e.ensure(key.dev)
-	return e.arbs[key]
+	e.ensure(dev)
+	return e.arbs[dev][name]
 }
 
 // decide works out what the device should be and starts writing it. Call with e.mu held.
-func (e *Engine) decide(ctx context.Context, key arbKey, ar *arb) {
+func (e *Engine) decide(ctx context.Context, dev types.NamespacedName, name string, ar *arb) {
 	if ar.writing {
 		ar.pending = true
 		return
 	}
 	now := e.Clock.Now()
-	snap, ok := e.Store.Get(key.dev)
-	if v, reported := snap.Values[key.capability]; ok && reported && !ar.a.State().Known {
+	snap, ok := e.Store.Get(dev)
+	v, reported := snap.Values[name]
+	switch st := ar.a.State(); {
+	case ok && reported && !st.Known:
 		// The device reported before the arbiter knew it, as on a first start.
 		ar.a.Wrote(capability.Float(v))
+	case ar.dropped && !now.Before(ar.wrote.Add(staleReport)):
+		// A report ignored while the write settled may have been a real change.
+		ar.dropped = false
+		if f := capability.Float(v); reported && f != st.Value {
+			e.recordOutside(dev, name, ar, f)
+		}
 	}
 	d := ar.a.Decide()
 	ar.d, ar.next = d, d.Next
-	e.markSave(key.dev)
-	e.reportControl(key.dev)
+	if ar.dropped {
+		ar.next = earliestOf(ar.next, ar.wrote.Add(staleReport))
+	}
+	e.markSave(dev)
+	e.reportControl(dev)
 	if !d.Write {
 		return
 	}
@@ -209,38 +238,47 @@ func (e *Engine) decide(ctx context.Context, key arbKey, ar *arb) {
 		// Discovered decides again.
 		return
 	case now.Before(ar.retry):
-		if ar.next.IsZero() || ar.retry.Before(ar.next) {
-			ar.next = ar.retry
-		}
+		ar.next = earliestOf(ar.next, ar.retry)
 		return
 	}
 	ar.writing = true
 	value := d.Value
-	e.runs.Go(func() { e.writeControl(ctx, key, ar, value) })
+	e.runs.Go(func() { e.writeControl(ctx, dev, name, ar, value) })
+}
+
+// earliestOf returns the earlier of two times, where zero means none.
+func earliestOf(a, b time.Time) time.Time {
+	if a.IsZero() || !b.IsZero() && b.Before(a) {
+		return b
+	}
+	return a
 }
 
 // writeControl writes a decision, records it, and decides again.
-func (e *Engine) writeControl(ctx context.Context, key arbKey, ar *arb, value float64) {
-	err := e.Setter.Set(ctx, key.dev, key.capability, valueOf(key.capability, value))
+func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, name string, ar *arb, value float64) {
+	err := e.Setter.Set(ctx, dev, name, valueOf(name, value))
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ar.writing = false
-	if e.arbs[key] != ar {
+	// An edited control entry replaced the arbiter meanwhile: the write is its.
+	cur := e.arbs[dev][name]
+	if cur == nil {
 		return
 	}
+	cur.writing = false
 	now := e.Clock.Now()
 	if err != nil {
 		if ctx.Err() != nil {
 			return
 		}
-		e.Log.Error(err, "Failed to write arbitrated capability", "device", key.dev, "capability", key.capability)
-		ar.retry = now.Add(retryFailed)
+		e.Log.Error(err, "Failed to write arbitrated capability", "device", dev, "capability", name)
+		cur.retry = now.Add(retryFailed)
 	} else {
-		ar.a.Wrote(value)
-		ar.wrote, ar.retry = now, time.Time{}
+		cur.a.Wrote(value)
+		cur.wrote, cur.retry = now, time.Time{}
 	}
-	ar.pending = false
-	e.decide(ctx, key, ar)
+	cur.pending = false
+	e.decide(ctx, dev, name, cur)
 	e.signal()
 }
 
@@ -255,10 +293,15 @@ func valueOf(name string, v float64) any {
 // outside records a reported value on an arbitrated capability. A value the runtime didn't
 // write is an outside change. Call with e.mu held.
 func (e *Engine) outside(ctx context.Context, u driver.Update) {
-	key := arbKey{u.Device, u.Capability}
-	ar := e.arbiter(key)
+	ar := e.arbs[u.Device][u.Capability]
 	if ar == nil {
-		return
+		if !e.controlDue[u.Device] {
+			return
+		}
+		// The device's arbiters are due to be set up: do it now, so this report counts.
+		if ar = e.arbiter(u.Device, u.Capability); ar == nil {
+			return
+		}
 	}
 	v := capability.Float(u.Value)
 	st := ar.a.State()
@@ -270,31 +313,42 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 		return
 	case ar.writing || e.Clock.Since(ar.wrote) < staleReport:
 		e.Log.V(1).Info("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
+		ar.dropped = true
+		if !ar.writing {
+			ar.next = earliestOf(ar.next, ar.wrote.Add(staleReport))
+			e.signal()
+		}
 		return
 	default:
-		if err := ar.a.Outside(SourceDevice, v); err != nil {
-			e.Log.Error(err, "Failed to record outside change", "device", u.Device, "capability", u.Capability)
-			return
-		}
+		e.recordOutside(u.Device, u.Capability, ar, v)
 	}
-	e.decide(ctx, key, ar)
+	e.decide(ctx, u.Device, u.Capability, ar)
 }
 
-// claim makes a claim on an arbitrated capability. It reports false when the capability isn't
-// arbitrated, so the caller writes it as usual.
-func (e *Engine) claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) bool {
+func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v float64) {
+	if err := ar.a.Outside(SourceDevice, v); err != nil {
+		e.Log.Error(err, "Failed to record outside change", "device", dev, "capability", name)
+	}
+}
+
+// claim makes a Rule's claim on an arbitrated capability. It reports false when the capability
+// isn't arbitrated, so the caller writes it as usual. A Rule that is no longer loaded, or a run
+// that was cancelled, claims nothing.
+func (e *Engine) claim(ctx context.Context, rule, dev types.NamespacedName, name string, c control.Claim) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	key := arbKey{dev, name}
-	ar := e.arbiter(key)
+	ar := e.arbiter(dev, name)
 	if ar == nil {
 		return false
+	}
+	if ctx.Err() != nil || e.rules[rule] == nil {
+		return true
 	}
 	if err := ar.a.Claim(c); err != nil {
 		e.Log.Error(err, "Failed to claim", "device", dev, "capability", name, "source", c.Source)
 		return true
 	}
-	e.decide(ctx, key, ar)
+	e.decide(ctx, dev, name, ar)
 	e.signal()
 	return true
 }
@@ -304,13 +358,12 @@ func (e *Engine) claim(ctx context.Context, dev types.NamespacedName, name strin
 func (e *Engine) releaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	key := arbKey{dev, name}
-	ar := e.arbiter(key)
+	ar := e.arbiter(dev, name)
 	if ar == nil {
 		return false
 	}
 	ar.a.Release(source)
-	e.decide(ctx, key, ar)
+	e.decide(ctx, dev, name, ar)
 	e.signal()
 	return true
 }
@@ -318,12 +371,16 @@ func (e *Engine) releaseClaim(ctx context.Context, dev types.NamespacedName, nam
 // releaseSource ends a source's claims on every arbitrated capability in the namespace. Call with
 // e.mu held.
 func (e *Engine) releaseSource(ctx context.Context, namespace, source string) {
-	for key, ar := range e.arbs {
-		if key.dev.Namespace != namespace || !slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool { return c.Source == source }) {
+	for dev, arbs := range e.arbs {
+		if dev.Namespace != namespace {
 			continue
 		}
-		ar.a.Release(source)
-		e.decide(ctx, key, ar)
+		for name, ar := range arbs {
+			if slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool { return c.Source == source }) {
+				ar.a.Release(source)
+				e.decide(ctx, dev, name, ar)
+			}
+		}
 	}
 	e.signal()
 }
@@ -337,27 +394,25 @@ func (e *Engine) arbitrated(dev types.NamespacedName, name string) bool {
 // reportControl reports the device's arbitrated capabilities, if they changed at a transition.
 // Call with e.mu held.
 func (e *Engine) reportControl(dev types.NamespacedName) {
-	var out []homev1alpha1.CapabilityControlStatus
-	for key, ar := range e.arbs {
-		if key.dev != dev {
-			continue
-		}
-		out = append(out, controlStatus(key.capability, ar.d))
+	out := make([]homev1alpha1.CapabilityControlStatus, 0, len(e.arbs[dev]))
+	for name, ar := range e.arbs[dev] {
+		out = append(out, controlStatus(name, ar.d))
 		if e.ControlLevel != nil {
-			e.ControlLevel.WithLabelValues(dev.Namespace, dev.Name, key.capability).Set(float64(ar.d.Level))
+			e.ControlLevel.WithLabelValues(dev.Namespace, dev.Name, name).Set(float64(ar.d.Level))
 		}
 	}
 	slices.SortFunc(out, func(a, b homev1alpha1.CapabilityControlStatus) int {
 		return strings.Compare(a.Capability, b.Capability)
 	})
+	prev, reported := e.reportedControl[dev]
+	if !reported && len(out) == 0 {
+		return
+	}
 	sig, _ := json.Marshal(out)
-	if e.reportedControl[dev] == string(sig) {
+	if prev == string(sig) {
 		return
 	}
 	e.reportedControl[dev] = string(sig)
-	if len(out) == 0 {
-		delete(e.reportedControl, dev)
-	}
 	if e.OnControl != nil {
 		e.OnControl(dev, out)
 	}
@@ -406,9 +461,10 @@ func controlStatus(name string, d control.Decision) homev1alpha1.CapabilityContr
 const saveTimeout = 5 * time.Second
 
 // saveControls saves the arbiters' state of every device that changed. It runs until ctx ends,
-// then saves what's left.
+// then saves what's left. A failed save is tried again.
 func (e *Engine) saveControls(ctx context.Context) {
 	saved := map[types.NamespacedName]string{}
+	var retry <-chan time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -417,26 +473,39 @@ func (e *Engine) saveControls(ctx context.Context) {
 			e.saveDevices(last, saved)
 			return
 		case <-e.saveWake:
+		case <-retry:
 		}
-		e.saveDevices(ctx, saved)
+		retry = nil
+		if failed := e.saveDevices(ctx, saved); len(failed) > 0 {
+			e.mu.Lock()
+			for _, dev := range failed {
+				e.saveDue[dev] = true
+			}
+			e.mu.Unlock()
+			retry = time.After(retryFailed)
+		}
 	}
 }
 
-// saveDevices saves the devices marked for saving, unless their state is as last saved.
-func (e *Engine) saveDevices(ctx context.Context, saved map[types.NamespacedName]string) {
+// saveDevices saves the devices marked for saving, unless their state is as last saved, and
+// returns those it couldn't save. A device whose arbiters have all gone has its saved state
+// deleted, unless it has left the store, as when it moves between driver instances.
+func (e *Engine) saveDevices(ctx context.Context, saved map[types.NamespacedName]string) []types.NamespacedName {
 	e.mu.Lock()
 	states := map[types.NamespacedName]ControlState{}
 	for dev := range e.saveDue {
+		if _, present := e.Store.Get(dev); !present && len(e.arbs[dev]) == 0 {
+			continue
+		}
 		st := ControlState{}
-		for key, ar := range e.arbs {
-			if key.dev == dev {
-				st[key.capability] = ar.a.State()
-			}
+		for name, ar := range e.arbs[dev] {
+			st[name] = ar.a.State()
 		}
 		states[dev] = st
 	}
 	clear(e.saveDue)
 	e.mu.Unlock()
+	var failed []types.NamespacedName
 	for dev, st := range states {
 		raw, _ := json.Marshal(st)
 		if saved[dev] == string(raw) {
@@ -454,8 +523,10 @@ func (e *Engine) saveDevices(ctx context.Context, saved map[types.NamespacedName
 			if ctx.Err() == nil {
 				e.Log.Error(err, "Failed to save control state", "device", dev)
 			}
+			failed = append(failed, dev)
 			continue
 		}
 		saved[dev] = string(raw)
 	}
+	return failed
 }
