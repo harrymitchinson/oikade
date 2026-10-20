@@ -20,9 +20,9 @@ Done looks like this. Each case is written in Git with one mental model, is corr
 
 ## Decision
 
-**One `Rule` kind, replacing `Automation`, with two verbs, plus opt-in arbitration per capability on `Device`.** (Option B of the issue. A: keep the split; C: B plus a `Signal` kind.) `while` is an embedded struct, so C's `while: {signal: …}` can be added later without changing any rule in Git.
+**One `Rule` kind, replacing `Automation`, with two shapes, plus opt-in arbitration per capability on `Device`.** (Option B of the issue. A: keep the split; C: B plus a `Signal` kind.) `while` is an embedded struct, so C's `while: {signal: …}` can be added later without changing any rule in Git.
 
-- **`on`: moments.** `at`, `sun` or `change` triggers, with `condition`, `do`, `mode` and `startingDeadline`.
+- **`triggers`: moments.** `at`, `sun` or `change` triggers, with `condition`, `do`, `mode` and `startingDeadline`.
 - **`while`: holds.** `window` (times or `{sun, offset}`), `when` (CEL), `budget` (the #53 planner, built in #19), `onDelay`, `offDelay` and `latch`, all ANDed, plus `hold: {device|room, capability, value}` and `priority`. Holds are recomputed from the clock and device state rather than timed in memory, so restarts are correct.
 - **Arbitration.** A capability with a `Device.spec.control` entry is arbitrated. Rules, HomeKit and the device itself make claims, and the device takes the winner. Capabilities without an entry keep last-write-wins.
 
@@ -77,10 +77,11 @@ spec:
 14. **Long `until: Next`:** may be combined with `for`, ending at whichever comes first.
 15. **Latching:** `latch: true` on `while` holds.
 16. **Sun times in windows:** `window.start`/`end` take `{sun: Sunrise|Sunset, offset}`.
+17. **`triggers`, not `on`** (answered while building): kubectl decodes YAML 1.1, which reads a bare `on` key as the boolean `true`, so `spec.on` arrived as `spec.true`. Moments are `triggers[]`, as Automation's field was, and the issue's `on` reads as `triggers`.
 
 ## Consequences
 
-- **Public API:** `Rule.spec.on`/`while`/`hold`/`priority`; `do[].set.for`/`until`/`priority` and `do[].release`; `Device.spec.control[]`. `Automation` is renamed, with a migration note (nothing is deployed outside Kind).
+- **Public API:** `Rule.spec.triggers`/`while`/`hold`/`priority`; `do[].set.for`/`until`/`priority` and `do[].release`; `Device.spec.control[]`. `Automation` is renamed, with a migration note (nothing is deployed outside Kind).
 - **State that must survive:** hold active flags, latches, off-delay deadlines, claims with their expiries and `until: Next` baselines, released claims, limit counters and today's budget plan. They live in retained MQTT under `oikade/v1/_runtime/…`, and the plan in `status.today`.
 - **Component boundaries:** the runtime owns arbitration and timers; the manager only validates. hap publishes its writes as HomeKit claims, and still writes devices directly, so HomeKit works when the runtime is down.
 - **Metrics:** `oikade_automation_*` becomes `oikade_rule_*`; new `oikade_rule_active`, `oikade_rule_next_change_timestamp_seconds` and `oikade_device_control_level`.
