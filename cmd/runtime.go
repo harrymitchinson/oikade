@@ -87,7 +87,7 @@ func runRuntime(args []string) int {
 		return 1
 	}
 
-	log.Info("Starting runtime", "mqtt", *mqttURL, "timezone", loc.String())
+	log.Info("Starting runtime", "version", version, "mqtt", *mqttURL, "timezone", loc.String())
 	if err := mgr.Start(ctx); err != nil {
 		log.Error(err, "Runtime stopped")
 		return 1

@@ -323,6 +323,18 @@ func homeScenario() {
 			}).Should(Succeed())
 		})
 
+		It("logs the build version on startup in every role", func() {
+			for _, args := range [][]string{
+				{"-n", namespace, "logs", "deploy/oikade-controller-manager"},
+				{"-n", namespace, "logs", "deploy/oikade-runtime"},
+				{"-n", homeNamespace, "logs", "deploy/main-hap"},
+			} {
+				out, err := utils.Run(exec.Command("kubectl", args...))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring(`"version":"`+managerVersion+`"`), "kubectl %s", strings.Join(args, " "))
+			}
+		})
+
 		// The rest run last: they declare more devices, which changes the bridge and undeclared counts.
 		It("turns off every light in a Room with one action", func() {
 			By("naming a Room that doesn't exist yet")
