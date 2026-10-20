@@ -271,6 +271,8 @@ While the major version is 0, the API is still settling, and versions follow the
 
 `1.0.0` is a deliberate decision, not something a commit triggers.
 
+Releases are cut by merging the release PR that [release-please](https://github.com/googleapis/release-please) keeps open on `main`. That gives the tag, a GitHub Release with notes and `install.yaml`, and the image `ghcr.io/harrymitchinson/oikade:<tag>` for arm64 and amd64. CI doesn't run on the release PR, because it's opened with `GITHUB_TOKEN`. That's fine, since it only changes `CHANGELOG.md` and `.release-please-manifest.json`. To ship a milestone, merge a commit whose message has a `Release-As: 0.1.0` footer, then one with `Release-As: 0.2.0-alpha.1` to start the next cycle.
+
 ## Development
 
 ```sh
