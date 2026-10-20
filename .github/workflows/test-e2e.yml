@@ -1,8 +1,6 @@
 name: E2E Tests
 
 on:
-  push:
-    branches: [main]
   pull_request:
     # Kind e2e takes ~8 minutes; skip it for PRs that cannot change cluster behaviour
     paths:
@@ -20,6 +18,11 @@ on:
       - "Makefile"
       - "Dockerfile"
       - ".github/workflows/test-e2e.yml"
+  # Main isn't tested on every merge (see test.yml): nightly and on release tags
+  schedule:
+    - cron: "0 3 * * *"
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions: {}
