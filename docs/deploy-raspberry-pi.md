@@ -118,7 +118,7 @@ You have two options:
 
 ## 6. Choose a release
 
-Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the HAP pods.
+Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the HAP pods. The image and `install.yaml` are added after the release's tests pass, about fifteen minutes after it appears. Pick a release that lists `install.yaml` under its assets.
 
 Versions between milestones are pre-releases, such as `v0.1.0-alpha.3`. Any of them may change the API, so read the release notes before you upgrade (README, "Versioning").
 
@@ -129,17 +129,18 @@ On your Mac, in this repo:
 
 ```sh
 echo <github-token> | docker login ghcr.io -u <github-user> --password-stdin
-make docker-buildx IMG=ghcr.io/<github-user>/oikade:dev VERSION=dev PLATFORMS=linux/arm64
-make build-installer IMG=ghcr.io/<github-user>/oikade:dev
+TAG=v0.0.0-$(git rev-parse --short HEAD)   # a new tag per build, so nodes pull it
+make docker-buildx IMG=ghcr.io/<github-user>/oikade:$TAG VERSION=$TAG PLATFORMS=linux/arm64
+make build-installer IMG=ghcr.io/<github-user>/oikade:$TAG
 ```
 
-Then use `dist/install.yaml` wherever this guide uses the Release's URL. Either make your package public in GitHub's package settings, or add an `imagePullSecret` to the `oikade-system` service accounts.
+Copy `dist/install.yaml` into the `oikade/` directory of step 7, and list it as `- install.yaml` in place of the Release's URL. For monitoring (step 14), use `config/prometheus` and `config/grafana` from the same checkout. `make build-installer` writes the image name into `config/manager/kustomization.yaml` and `config/runtime/kustomization.yaml`, so revert those two files afterwards. Either make your package public in GitHub's package settings, or add an `imagePullSecret` to the `oikade-system` service accounts.
 
 </details>
 
 ## 7. Install Oikade
 
-The Release's `install.yaml` runs the runtime with `--timezone=UTC`. Rules see the timezone as `tz`, and time and sun triggers use it, so patch in yours. Create a directory for it, which becomes part of your home repo in step 8:
+The Release's `install.yaml` runs the runtime with `--timezone=UTC` and no location. Rules see the timezone as `tz`, and time triggers use it. Sun triggers need your latitude and longitude, and without them they don't fire. Patch all three in from a directory of your own, which becomes part of your home repo in step 8:
 
 `oikade/kustomization.yaml`:
 
@@ -147,12 +148,18 @@ The Release's `install.yaml` runs the runtime with `--timezone=UTC`. Rules see t
 resources:
 - https://github.com/harrymitchinson/oikade/releases/download/v0.1.0-alpha.1/install.yaml
 patches:
-# Appends a second --timezone. The last one wins, so this overrides the UTC default.
+# Appends to the runtime's flags. A second --timezone wins over the UTC default.
 - target: {kind: Deployment, name: oikade-runtime}
   patch: |
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --timezone=Europe/London    # your IANA timezone
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --latitude=51.5074          # north positive
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --longitude=-0.1278         # east positive
 ```
 
 Then apply it:
@@ -224,7 +231,7 @@ brew install fluxcd/tap/flux
 flux bootstrap github --owner=<github-user> --repository=home-infra --path=clusters/pi --personal
 ```
 
-`clusters/pi/oikade.yaml` installs Oikade itself, from the Release named in `oikade/kustomization.yaml`:
+`clusters/pi/oikade.yaml` installs Oikade itself, from the Release named in `oikade/kustomization.yaml`. It has `prune: false` because it owns Oikade's CRDs. If Flux pruned them, say after this file was renamed or a URL failed to build, every Device, Rule and Bridge would be deleted with them, and the accessory IDs kept in each Bridge's status with them, so the Home app would forget your rooms, scenes and automations.
 
 ```yaml
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -235,7 +242,7 @@ metadata:
 spec:
   interval: 1h
   path: ./oikade
-  prune: true
+  prune: false
   wait: true
   sourceRef:
     kind: GitRepository
@@ -547,7 +554,7 @@ resources:
 - https://github.com/harrymitchinson/oikade/releases/download/v0.1.0-alpha.2/install.yaml
 ```
 
-Commit it and let Flux apply it, or run `kubectl apply -k oikade/`. Your timezone patch carries over. Renovate's regex manager can open these PRs for you. Pre-releases count as newer, so a range has to include them (`>=0.1.0-0`).
+If you added monitoring (step 14), change `?ref=` in `oikade/monitoring/kustomization.yaml` to the same version. Commit it and let Flux apply it, or run `kubectl apply -k oikade/`. Your timezone and location patch carries over.
 
 The operator and runtime roll over. HAP pods pick up the new image the next time the operator applies them, keeping their pairings. They use the Recreate strategy, so expect a few seconds when HomeKit shows "No Response".
 
