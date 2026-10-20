@@ -31,7 +31,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 | `Room` | `home.oikade.dev` | Labels metrics and groups devices. HomeKit can't receive rooms from a bridge, so you also assign them once in the Home app. |
 | `Automation` | `home.oikade.dev` | Triggers, a CEL condition and actions (`set`, `delay`). |
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
-| `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device family Oikade doesn't speak natively. See [Plugins](#plugins). |
+| `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device platform Oikade doesn't speak natively. See [Plugins](#plugins). |
 | `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
 
 Illustrative output:
@@ -143,16 +143,16 @@ Drivers translate to and from a protocol-neutral set of capabilities. HomeKit, m
 
 ## Plugins
 
-A plugin connects a device family that isn't Zigbee, such as SONOFF LAN relays or Cozytouch heaters, without changing Oikade. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up in HomeKit, Grafana and automations like Zigbee ones, and keep working in HomeKit while the runtime is down.
+A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up in HomeKit, Grafana and automations like Zigbee ones, and keep working in HomeKit while the runtime is down.
 
 ```yaml
 apiVersion: plugins.oikade.dev/v1alpha1
 kind: Plugin
-metadata: {name: sonoff}
+metadata: {name: ewelink-lan}
 spec:
-  image: ghcr.io/harrymitchinson/oikade-plugin-sonoff:v0.1.0   # illustrative: plugins/example-switch is the only plugin so far
+  image: ghcr.io/harrymitchinson/oikade-plugin-ewelink-lan:v0.1.0   # illustrative: plugins/example-switch is the only plugin so far
   hostNetwork: true              # for plugins that need mDNS or multicast
-  secretRef: {name: sonoff-keys} # mounted at /etc/oikade/secrets, one key per device id
+  secretRef: {name: ewelink-lan-keys} # mounted at /etc/oikade/secrets, one key per device id
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
@@ -160,7 +160,7 @@ metadata: {name: porch-light}
 spec:
   roomRef: {name: porch}
   plugin:
-    pluginRef: {name: sonoff}
+    pluginRef: {name: ewelink-lan}
     id: 1000aabbcc               # plugin-local and stable
     parameters: {capability: light.on}   # passed through; the plugin validates them
 ```
