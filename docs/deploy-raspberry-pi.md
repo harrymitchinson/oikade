@@ -298,7 +298,7 @@ Turn **Permit join** off again when you're done. Changes made in the Zigbee2MQTT
 
 Devices that aren't Zigbee, such as SONOFF LAN relays, are served by a [plugin](../README.md#plugins): a separate pod that speaks Oikade's capabilities over MQTT. Skip this step if you only have Zigbee devices.
 
-Plugin images must be arm64. Build one from this repo, the same way as the Oikade image:
+Plugin images must be arm64. Plugins in this repo are static Go binaries on a distroless base, so the build cross-compiles without emulation. Build one the same way as the Oikade image:
 
 ```sh
 make docker-buildx-plugin PLUGIN=example-switch \
