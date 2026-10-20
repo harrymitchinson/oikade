@@ -18,6 +18,9 @@ spec:
     - jsonPath: .spec.mode
       name: Mode
       type: string
+    - jsonPath: .status.active
+      name: Active
+      type: boolean
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
@@ -30,8 +33,9 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: 'Rule is run by the Oikade runtime: when one of its triggers
-          fires and the condition holds, it runs its actions.'
+        description: |-
+          Rule is run by the Oikade runtime. A moment runs its actions when a trigger fires and the
+          condition holds; a hold keeps a capability at a value while its while is true.
         properties:
           apiVersion:
             description: |-
@@ -72,6 +76,17 @@ spec:
                     delay:
                       description: delay waits before the next action, e.g. 5m.
                       type: string
+                    release:
+                      description: 'release ends another Rule''s latched hold, or
+                        its until: Released claims.'
+                      properties:
+                        rule:
+                          description: rule names a Rule in the same namespace.
+                          minLength: 1
+                          type: string
+                      required:
+                      - rule
+                      type: object
                     set:
                       description: set sets a capability on a device.
                       properties:
@@ -84,11 +99,33 @@ spec:
                           description: device names a Device in the same namespace.
                           minLength: 1
                           type: string
+                        for:
+                          description: |-
+                            for ends the claim after this long. A set on an arbitrated capability is a claim and must
+                            end, with for, until or both; on any other capability it's a plain write, and for and until
+                            have no effect.
+                          type: string
+                        priority:
+                          description: priority is the claim's level. Defaults to
+                            Normal.
+                          enum:
+                          - Safety
+                          - Override
+                          - Normal
+                          type: string
                         room:
                           description: |-
                             room names a Room in the same namespace. Every discovered Device in it that reports the capability is set,
                             in name order.
                           minLength: 1
+                          type: string
+                        until:
+                          description: |-
+                            until ends the claim when the result without it next changes (Next), or at a release
+                            action (Released). With for as well, Next ends the claim at whichever comes first.
+                          enum:
+                          - Next
+                          - Released
                           type: string
                         value:
                           description: value is a bool or number matching the capability's
@@ -101,14 +138,50 @@ spec:
                       x-kubernetes-validations:
                       - message: exactly one of device or room must be specified
                         rule: has(self.device) != has(self.room)
+                      - message: for must be positive
+                        rule: '!has(self.for) || duration(self.for) > duration(''0s'')'
+                      - message: 'for can''t be combined with until: Released'
+                        rule: '!has(self.for) || !has(self.until) || self.until !=
+                          ''Released'''
                   type: object
                   x-kubernetes-validations:
-                  - message: exactly one of set or delay must be specified
-                    rule: has(self.set) != has(self.delay)
+                  - message: exactly one of set, delay or release must be specified
+                    rule: '[has(self.set), has(self.delay), has(self.release)].exists_one(x,
+                      x)'
                 maxItems: 32
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: atomic
+              hold:
+                description: hold is the capability the Rule keeps at a value while
+                  it's active.
+                properties:
+                  capability:
+                    description: capability is the writable capability to hold, e.g.
+                      switch.on.
+                    minLength: 1
+                    type: string
+                  device:
+                    description: device names a Device in the same namespace.
+                    minLength: 1
+                    type: string
+                  room:
+                    description: |-
+                      room names a Room in the same namespace. Every discovered Device in it that reports the
+                      capability is held.
+                    minLength: 1
+                    type: string
+                  value:
+                    description: value is a bool or number matching the capability's
+                      kind.
+                    x-kubernetes-preserve-unknown-fields: true
+                required:
+                - capability
+                - value
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of device or room must be specified
+                  rule: has(self.device) != has(self.room)
               mode:
                 default: Single
                 description: mode decides what happens when a trigger fires while
@@ -116,6 +189,14 @@ spec:
                 enum:
                 - Single
                 - Restart
+                type: string
+              priority:
+                description: priority is the level of the hold's claim on an arbitrated
+                  capability. Defaults to Normal.
+                enum:
+                - Safety
+                - Override
+                - Normal
                 type: string
               startingDeadline:
                 description: |-
@@ -231,13 +312,89 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: atomic
-            required:
-            - do
-            - triggers
+              while:
+                description: 'while is when the hold is active: a window, a when expression,
+                  or both.'
+                properties:
+                  latch:
+                    description: latch keeps the hold active once when has been true,
+                      until a release action.
+                    type: boolean
+                  offDelay:
+                    description: offDelay is how long the hold stays active after
+                      the rest stops being true.
+                    type: string
+                  onDelay:
+                    description: onDelay is how long the rest must stay true before
+                      the hold starts.
+                    type: string
+                  when:
+                    description: |-
+                      when is a CEL expression over devices, now and tz, as in a Rule's condition.
+                      For example: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+                    maxLength: 4096
+                    type: string
+                  window:
+                    description: window is a span of local time each day.
+                    properties:
+                      days:
+                        description: days limits the window to those starting on these
+                          days. Empty means every day.
+                        items:
+                          description: Weekday is a day of the week.
+                          enum:
+                          - Mon
+                          - Tue
+                          - Wed
+                          - Thu
+                          - Fri
+                          - Sat
+                          - Sun
+                          type: string
+                        maxItems: 7
+                        type: array
+                        x-kubernetes-list-type: set
+                      end:
+                        description: end is "HH:MM", or {sun, offset}. An end at or
+                          before the start is the next day.
+                        x-kubernetes-preserve-unknown-fields: true
+                      start:
+                        description: start is "HH:MM", or {sun, offset}.
+                        x-kubernetes-preserve-unknown-fields: true
+                    required:
+                    - end
+                    - start
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: while needs a window or when
+                  rule: has(self.window) || has(self.when)
+                - message: latch needs when
+                  rule: '!has(self.latch) || !self.latch || has(self.when)'
+                - message: onDelay must not be negative
+                  rule: '!has(self.onDelay) || duration(self.onDelay) >= duration(''0s'')'
+                - message: offDelay must not be negative
+                  rule: '!has(self.offDelay) || duration(self.offDelay) >= duration(''0s'')'
             type: object
+            x-kubernetes-validations:
+            - message: exactly one of triggers or while must be specified
+              rule: has(self.triggers) != has(self.while)
+            - message: do is required with triggers, and only with triggers
+              rule: has(self.triggers) == has(self.do)
+            - message: hold is required with while, and only with while
+              rule: has(self.while) == has(self.hold)
+            - message: priority applies to a hold; a set action takes its own
+              rule: '!has(self.priority) || has(self.while)'
+            - message: condition applies to triggers; a hold uses while.when
+              rule: '!has(self.condition) || has(self.triggers)'
+            - message: startingDeadline applies to triggers
+              rule: '!has(self.startingDeadline) || has(self.triggers)'
           status:
             description: status defines the observed state of Rule
             properties:
+              active:
+                description: active is true while a hold is active.
+                type: boolean
               conditions:
                 description: 'conditions: Ready, set by the operator, and Scheduled,
                   set by the runtime.'
@@ -310,6 +467,11 @@ spec:
                   at most every minute).
                 format: date-time
                 type: string
+              nextChange:
+                description: nextChange is when a hold next starts or ends, if that's
+                  known from the clock.
+                format: date-time
+                type: string
               nextFire:
                 description: nextFire is when the next at or sun trigger fires.
                 format: date-time
@@ -319,6 +481,14 @@ spec:
                   was computed for.
                 format: int64
                 type: integer
+              skipped:
+                description: |-
+                  skipped lists the Room members a set or hold left out, because the capability is
+                  arbitrated on them and the set has no end.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
             type: object
         required:
         - spec

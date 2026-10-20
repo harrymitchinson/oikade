@@ -441,6 +441,10 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 		if ctx.Err() != nil {
 			return ResultCancelled
 		}
+		if a.release != "" {
+			// Latches and claims don't run yet, so there's nothing to release (0060).
+			continue
+		}
 		if a.room != "" {
 			if !e.setRoom(ctx, key, a) {
 				failed = true

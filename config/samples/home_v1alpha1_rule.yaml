@@ -1,19 +1,15 @@
-# Hallway light on with motion after dark, off five minutes after the last motion.
-# Restart mode starts the five minutes again on every new motion event.
+# Hallway light on while there's motion after dark, off five minutes after the last motion.
+# A hold, so the five minutes survive a runtime restart. The light's light.on is arbitrated (see
+# the Device samples): a wall switch or Home app change wins until the hold next changes.
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata:
   name: hallway-motion-light
 spec:
-  mode: Restart
-  triggers:
-  - change: {device: hallway-motion, capability: sensor.occupancy-detected}
-  condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
-  do:
-  - set: {device: hallway-light, capability: light.level, value: 40}
-  - set: {device: hallway-light, capability: light.on, value: true}
-  - delay: 5m
-  - set: {device: hallway-light, capability: light.on, value: false}
+  while:
+    when: devices["hallway-motion"]["sensor.occupancy-detected"] && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
+    offDelay: 5m
+  hold: {device: hallway-light, capability: light.on, value: true}
 ---
 # Every light in the living room off when the front door is shut after 23:00.
 # A room action covers lamps added to the living room later without editing this.
@@ -40,3 +36,53 @@ spec:
   startingDeadline: 10m
   do:
   - set: {device: porch-light, capability: light.on, value: true}
+---
+# The hallway light on for ten minutes when the front door opens after dark. The light is
+# arbitrated, so the set is a claim and must end: after ten minutes, or sooner if what the other
+# rules want changes first.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata:
+  name: front-door-welcome
+spec:
+  triggers:
+  - change: {device: front-door, capability: sensor.contact-open}
+  condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
+  do:
+  - set: {device: hallway-light, capability: light.on, value: true, for: 10m, until: Next}
+---
+# The towel rail on from 06:00 to 08:00 on weekdays. Times are quoted: YAML reads a bare 06:00
+# as a number.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata:
+  name: towel-rail-mornings
+spec:
+  while:
+    window: {start: "06:00", end: "08:00", days: [Mon, Tue, Wed, Thu, Fri]}
+  hold: {device: towel-rail, capability: switch.on, value: true}
+---
+# The workshop heater off if the workshop gets too hot, and kept off until someone opens the
+# door to check. Latched, so it acts even if the runtime was down when it overheated, and Safety,
+# so no other rule or a Home app tap turns it back on.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata:
+  name: workshop-overheat
+spec:
+  priority: Safety
+  while:
+    when: devices["workshop-temperature"]["sensor.temperature"] > 45
+    latch: true
+  hold: {device: workshop-heater, capability: switch.on, value: false}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata:
+  name: workshop-overheat-reset
+spec:
+  triggers:
+  - change: {device: workshop-door, capability: sensor.contact-open}
+  condition: trigger.value
+  do:
+  - release: {rule: workshop-overheat}

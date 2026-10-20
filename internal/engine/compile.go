@@ -48,6 +48,8 @@ type Compiled struct {
 	// program is nil when there is no condition.
 	program cel.Program
 	actions []action
+	// hold is nil for a moment.
+	hold *hold
 }
 
 type action struct {
@@ -56,6 +58,12 @@ type action struct {
 	capability string
 	value      any
 	delay      time.Duration
+	// release names the Rule a release action releases.
+	release string
+	// claimFor, until and priority shape a set on an arbitrated capability as a claim.
+	claimFor time.Duration
+	until    homev1alpha1.ClaimUntil
+	priority homev1alpha1.RulePriority
 }
 
 // Compile validates a Rule: the condition must be boolean CEL, triggers must name known
@@ -82,6 +90,18 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 		c.Mode = homev1alpha1.RuleModeSingle
 	}
 	var errs []error
+	if (len(a.Spec.Triggers) == 0) == (a.Spec.While == nil) {
+		errs = append(errs, errors.New("exactly one of triggers or while is required"))
+	}
+	if a.Spec.While != nil {
+		h, err := compileHold(a.Spec.While, a.Spec.Hold, a.Spec.Priority)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		c.hold = h
+	} else if a.Spec.Hold != nil {
+		errs = append(errs, errors.New("hold is only allowed with while"))
+	}
 	for i, trig := range a.Spec.Triggers {
 		if n := btoi(trig.Change != nil) + btoi(trig.At != nil) + btoi(trig.Sun != nil); n != 1 {
 			errs = append(errs, fmt.Errorf("triggers[%d]: exactly one of change, at or sun is required", i))
@@ -126,7 +146,26 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 			c.program = prg
 		}
 	}
-	for i, act := range a.Spec.Do {
+	actions, actErrs := compileActions(a.Spec.Do)
+	c.actions = actions
+	errs = append(errs, actErrs...)
+	if len(a.Spec.Triggers) > 0 && len(a.Spec.Do) == 0 {
+		errs = append(errs, errors.New("do is required with triggers"))
+	}
+	if a.Spec.While != nil && len(a.Spec.Do) > 0 {
+		errs = append(errs, errors.New("do is only allowed with triggers"))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// compileActions validates a moment's actions.
+func compileActions(do []homev1alpha1.Action) ([]action, []error) {
+	var actions []action
+	var errs []error
+	for i, act := range do {
 		switch {
 		case act.Set != nil:
 			s := act.Set
@@ -153,21 +192,49 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 				errs = append(errs, fmt.Errorf("do[%d]: %w", i, err))
 				continue
 			}
-			c.actions = append(c.actions, action{device: s.Device, room: s.Room, capability: s.Capability, value: v})
+			set := action{device: s.Device, room: s.Room, capability: s.Capability, value: v, until: s.Until, priority: s.Priority}
+			if err := compileClaim(s, &set); err != nil {
+				errs = append(errs, fmt.Errorf("do[%d]: %w", i, err))
+				continue
+			}
+			actions = append(actions, set)
+		case act.Release != nil:
+			if act.Release.Rule == "" {
+				errs = append(errs, fmt.Errorf("do[%d]: release needs a rule", i))
+				continue
+			}
+			actions = append(actions, action{release: act.Release.Rule})
 		case act.Delay != nil:
 			if act.Delay.Duration <= 0 {
 				errs = append(errs, fmt.Errorf("do[%d]: delay must be positive", i))
 				continue
 			}
-			c.actions = append(c.actions, action{delay: act.Delay.Duration})
+			actions = append(actions, action{delay: act.Delay.Duration})
 		default:
-			errs = append(errs, fmt.Errorf("do[%d]: one of set or delay is required", i))
+			errs = append(errs, fmt.Errorf("do[%d]: one of set, delay or release is required", i))
 		}
 	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
+	return actions, errs
+}
+
+// compileClaim checks a set's for, until and priority, which make it a claim on an arbitrated
+// capability.
+func compileClaim(s *homev1alpha1.SetAction, act *action) error {
+	if s.For != nil {
+		if act.claimFor = s.For.Duration; act.claimFor <= 0 {
+			return errors.New("for must be positive")
+		}
 	}
-	return c, nil
+	switch s.Until {
+	case "", homev1alpha1.ClaimUntilNext:
+	case homev1alpha1.ClaimUntilReleased:
+		if s.For != nil {
+			return errors.New("for can't be combined with until: Released")
+		}
+	default:
+		return fmt.Errorf("unknown until %q", s.Until)
+	}
+	return checkPriority(s.Priority)
 }
 
 // matches reports whether a capability change on a device, currently in room, triggers the

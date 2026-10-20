@@ -56,3 +56,61 @@ spec:
     id: porch-light-1
     parameters:
       capability: light.on
+---
+# A heated towel rail on a plugin relay, arbitrated so a Home app tap holds until the morning
+# window next starts or ends.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: towel-rail
+spec:
+  displayName: Towel Rail
+  plugin:
+    pluginRef: {name: example-switch}
+    id: towel-rail-1
+    parameters:
+      capability: switch.on
+  control:
+  - capability: switch.on
+    default: false
+    resolve: PreferOn
+    external: Override
+    overrideHold: Next
+---
+# The workshop heater is on unless a rule says otherwise. An outside change is written straight
+# back, and it rests at least 10 minutes between runs.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: workshop-heater
+spec:
+  displayName: Workshop Heater
+  zigbee2mqtt:
+    instanceRef: {name: z2m}
+    ieeeAddress: "0x000b57fffe000004"
+  control:
+  - capability: switch.on
+    default: true
+    resolve: PreferOff
+    external: Revert
+    minimumOff: 10m
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: workshop-temperature
+spec:
+  displayName: Workshop Temperature
+  zigbee2mqtt:
+    instanceRef: {name: z2m}
+    ieeeAddress: "0x00158d0000000005"
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: workshop-door
+spec:
+  displayName: Workshop Door
+  zigbee2mqtt:
+    instanceRef: {name: z2m}
+    ieeeAddress: "0x00158d0000000006"
