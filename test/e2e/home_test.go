@@ -137,6 +137,76 @@ spec:
   - set: {device: porch-light, capability: light.on, value: false}
 `
 
+// readmeNamespace is where the README's Rules examples are applied, apart from the home the
+// other tests drive.
+const readmeNamespace = "e2e-readme"
+
+// controlManifests adds two plugin plugs: a fan held on all day by a window hold, and a towel rail
+// that arbitrates switch.on, with no Rule claiming it.
+const controlManifests = `
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: fan-plug}
+spec:
+  plugin: {pluginRef: {name: example-switch}, id: fan-relay, parameters: {capability: switch.on}}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: fan-all-day}
+spec:
+  while: {window: {start: "00:00", end: "00:00"}}
+  hold: {device: fan-plug, capability: switch.on, value: true}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: rail-plug}
+spec:
+  plugin: {pluginRef: {name: example-switch}, id: rail-relay, parameters: {capability: switch.on}}
+  control:
+  - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
+`
+
+// pluginDevices is the plugin's devices topic with every relay found.
+const pluginDevices = `{"devices":[` +
+	`{"id":"porch-relay","found":true,"capabilities":["light.on"]},` +
+	`{"id":"fan-relay","found":true,"capabilities":["switch.on"]},` +
+	`{"id":"rail-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
+
+// readmeManifests returns every YAML block in the README's Rules section that is a complete
+// manifest, as one stream.
+func readmeManifests() string {
+	root, err := utils.GetProjectDir()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	raw, err := os.ReadFile(filepath.Join(root, "README.md"))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	readme := string(raw)
+	start := strings.Index(readme, "\n## Rules\n")
+	end := strings.Index(readme, "\n## Capabilities\n")
+	ExpectWithOffset(1, start).To(BeNumerically(">=", 0))
+	ExpectWithOffset(1, end).To(BeNumerically(">", start))
+	var docs []string
+	for _, m := range regexp.MustCompile("(?s)```yaml\n(.*?)```").FindAllStringSubmatch(readme[start:end], -1) {
+		if strings.HasPrefix(m[1], "apiVersion:") {
+			docs = append(docs, m[1])
+		}
+	}
+	return strings.Join(docs, "---\n")
+}
+
+// subscribe starts listening for one message on topic, and returns a func that waits for it.
+func subscribe(topic string) func() string {
+	var out bytes.Buffer
+	sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
+		"mosquitto_sub", "-h", mqttHost, "-t", topic, "-v", "-C", "1", "-W", "90")
+	sub.Stdout = &out
+	ExpectWithOffset(1, sub.Start()).To(Succeed())
+	time.Sleep(3 * time.Second) // let the subscription land before publishing
+	return func() string {
+		ExpectWithOffset(1, sub.Wait()).To(Succeed())
+		return out.String()
+	}
+}
+
 func kubectl(args ...string) (string, error) {
 	return utils.Run(exec.Command("kubectl", append([]string{"-n", homeNamespace}, args...)...))
 }
@@ -219,10 +289,14 @@ func homeScenario() {
 
 		AfterAll(func() {
 			// The broker outlives the namespace; don't leave a fake plugin retained on it.
-			for _, sub := range []string{"status", "devices", "porch-relay/availability", "porch-relay/state"} {
+			subs := []string{"status", "devices"}
+			for _, id := range []string{"porch-relay", "fan-relay", "rail-relay"} {
+				subs = append(subs, id+"/availability", id+"/state")
+			}
+			for _, sub := range subs {
 				_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t", pluginRoot+"/"+sub)
 			}
-			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", homeNamespace, "--wait=false"))
+			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", homeNamespace, readmeNamespace, "--wait=false"))
 		})
 
 		AfterEach(func() {
@@ -233,6 +307,7 @@ func homeScenario() {
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
 				{"-n", homeNamespace, "logs", "deploy/main-hap"},
 				{"-n", homeNamespace, "get", "devices,rules,bridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
+				{"-n", readmeNamespace, "get", "devices,rules", "-o", "yaml"},
 			} {
 				out, _ := utils.Run(exec.Command("kubectl", args...))
 				_, _ = fmt.Fprintf(GinkgoWriter, "kubectl %s:\n%s\n", strings.Join(args, " "), out)
@@ -289,21 +364,6 @@ func homeScenario() {
 					`oikade_rule_runs_total{namespace="e2e-home",result="succeeded",rule="motion-light"} 1`))
 				g.Expect(out).To(MatchRegexp(`oikade_undeclared_devices\{instance="z2m",namespace="e2e-home"\} 3`))
 			}).Should(Succeed())
-		})
-
-		It("serves the Rule metrics the dashboard queries", func() {
-			root, err := utils.GetProjectDir()
-			Expect(err).NotTo(HaveOccurred())
-			dashboard, err := os.ReadFile(filepath.Join(root, "config", "grafana", "oikade-home.json"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(string(dashboard)).NotTo(ContainSubstring("oikade_automation_"))
-			queried := regexp.MustCompile(`oikade_rule_[a-z_]+`).FindAllString(string(dashboard), -1)
-			Expect(queried).NotTo(BeEmpty())
-			out, err := mqttExec("wget", "-qO-", runtimeURL)
-			Expect(err).NotTo(HaveOccurred())
-			for _, name := range queried {
-				Expect(out).To(MatchRegexp(`(?m)^`+name+`[{ ]`), "the dashboard queries %s", name)
-			}
 		})
 
 		It("has no Automation kind left", func() {
@@ -442,6 +502,73 @@ func homeScenario() {
 				Should(Equal("PluginError"))
 			Expect(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].message}`)()).
 				To(Equal("no LAN key for porch-relay"))
+		})
+
+		// This needs the plugin from the test above.
+		It("drives a plug from a window hold", func() {
+			apply(controlManifests)
+			Eventually(jsonpath("rule", "fan-all-day", `{.status.conditions[?(@.type=="Ready")].status}`)).
+				Should(Equal("True"))
+
+			// The hold writes once the plugin has announced the fan, so listen first.
+			wait := subscribe(pluginRoot + "/fan-relay/set")
+			publish(pluginRoot+"/devices", pluginDevices, true)
+			publish(pluginRoot+"/fan-relay/availability", "online", true)
+			publish(pluginRoot+"/fan-relay/state", `{"switch.on":false}`, true)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/fan-relay/set {"switch.on":true}`))
+			Eventually(jsonpath("rule", "fan-all-day", "{.status.active}")).Should(Equal("true"))
+			Expect(jsonpath("rule", "fan-all-day", "{.status.nextChange}")()).NotTo(BeEmpty())
+		})
+
+		It("shows an outside change on an arbitrated plug as an Override claim", func() {
+			publish(pluginRoot+"/rail-relay/availability", "online", true)
+			publish(pluginRoot+"/rail-relay/state", `{"switch.on":false}`, true)
+			Eventually(jsonpath("device", "rail-plug", "{.status.control[0].level}")).Should(Equal("Default"))
+
+			By("switching the rail on at the plug")
+			publish(pluginRoot+"/rail-relay/state", `{"switch.on":true}`, true)
+			Eventually(jsonpath("device", "rail-plug", "{.status.control[0].level}")).Should(Equal("Override"))
+			Expect(jsonpath("device", "rail-plug",
+				`{.status.control[0].claims[?(@.winner==true)].source}`)()).To(Equal("Device"))
+			Expect(jsonpath("device", "rail-plug", "{.status.control[0].claims[0].expires}")()).NotTo(BeEmpty())
+		})
+
+		It("applies the README's Rules examples as written", func() {
+			_, err := utils.Run(exec.Command("kubectl", "create", "ns", readmeNamespace))
+			Expect(err).NotTo(HaveOccurred())
+			cmd := exec.Command("kubectl", "-n", readmeNamespace, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(readmeManifests())
+			out, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(ContainSubstring("rule.home.oikade.dev/garage-overheat"), "the README examples weren't found")
+
+			for _, kind := range []string{"rules", "devices"} {
+				Eventually(func(g Gomega) {
+					out, err := utils.Run(exec.Command("kubectl", "-n", readmeNamespace, "get", kind, "-o",
+						`jsonpath={range .items[*]}{.metadata.name}={.status.conditions[?(@.type=="Ready")].status} {end}`))
+					g.Expect(err).NotTo(HaveOccurred())
+					for _, entry := range strings.Fields(out) {
+						g.Expect(entry).To(HaveSuffix("=True"))
+					}
+					g.Expect(strings.Fields(out)).NotTo(BeEmpty())
+				}).Should(Succeed(), "every %s in the README is Ready", kind)
+			}
+		})
+
+		// This needs the holds, claims and time triggers from the tests above.
+		It("serves the Rule metrics the dashboard queries", func() {
+			root, err := utils.GetProjectDir()
+			Expect(err).NotTo(HaveOccurred())
+			dashboard, err := os.ReadFile(filepath.Join(root, "config", "grafana", "oikade-home.json"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(dashboard)).NotTo(ContainSubstring("oikade_automation_"))
+			queried := regexp.MustCompile(`oikade_(rule|device_control)_[a-z_]+`).FindAllString(string(dashboard), -1)
+			Expect(queried).NotTo(BeEmpty())
+			out, err := mqttExec("wget", "-qO-", runtimeURL)
+			Expect(err).NotTo(HaveOccurred())
+			for _, name := range queried {
+				Expect(out).To(MatchRegexp(`(?m)^`+name+`[{ ]`), "the dashboard queries %s", name)
+			}
 		})
 	})
 }
