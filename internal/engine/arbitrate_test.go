@@ -256,6 +256,8 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 	for dev := range metas {
 		r.store.Discovered(dev, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn, capability.Occupancy}})
 	}
+	// Let the bath rail's default write land before the run, so the order below is fixed.
+	r.settle()
 	c, err := Compile(holdRule(t, "bathroom-on", `
   triggers: [{change: {device: hall-motion, capability: sensor.occupancy-detected}}]
   do:
