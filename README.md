@@ -283,7 +283,7 @@ A `set` on an arbitrated capability of a single device with no `for` or `until` 
 
 ### Latched Safety holds
 
-A latched hold stays active once `when` has been true, until another Rule releases it. It's worked out from state rather than from a change, so if the garage is still too hot when the runtime starts, it acts then, even though the change happened while the runtime was down:
+A latched hold stays active once `when` has been true, until another Rule releases it. It's worked out from state rather than from a change. So if the garage overheated while the runtime was down and is still too hot when the runtime next sees its temperature, it latches then. That's at startup for a plugin device, which retains its state, and at the sensor's next report for a Zigbee2MQTT one:
 
 ```yaml
 apiVersion: home.oikade.dev/v1alpha1
@@ -315,7 +315,7 @@ spec:
   - release: {rule: garage-overheat}
 ```
 
-Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. Rules run only while the runtime is up. If the garage overheats and cools again while the runtime is down, nothing latches. A `release` naming a Rule that doesn't exist, or that has nothing to release, sets `Ready=False` with reason `InvalidRelease`.
+Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. Rules run only while the runtime is up. If the garage overheats and cools again while the runtime is down, nothing latches. Editing the hold's device, room, capability or value starts it afresh, and drops the latch. A `release` naming a Rule that doesn't exist, or that has nothing to release, sets `Ready=False` with reason `InvalidRelease`.
 
 ### Reading Device status
 
