@@ -245,19 +245,33 @@ drop_pr() {
 # approved it, or it needs no design, or it builds part of a design the user
 # approved in another feature, named by a "Design: #M" line in its body.
 # INFO, if given, is the labels joined with commas, a newline, then the body.
+#
+# approved counts only if the user added it: the repo's owner, since agents act
+# as oikade-agent[bot] (docs/design/0108-agent-identity.md). The approved
+# guard workflow removes anyone else's, and this covers a run it missed.
 gate() {
-	local n="$1" info="${2:-}" design
+	local n="$1" info="${2:-}" labels design
 	[[ -n "$info" ]] || info=$(gh issue view "$n" --json labels,body -q '([.labels[].name] | join(",")) + "\n" + .body')
-	case ",$(head -1 <<<"$info")," in
-	*,approved,*) echo "approved"; return ;;
-	*,no-design,*) echo "needs no design"; return ;;
-	esac
+	labels=",$(head -1 <<<"$info"),"
+	if [[ "$labels" == *,approved,* ]] && user_approved "$n"; then echo "approved"; return; fi
+	if [[ "$labels" == *,no-design,* ]]; then echo "needs no design"; return; fi
 	design=$(sed -nE 's/^Design:[^#]*#([0-9]+).*/\1/p' <<<"$info" | head -1)
 	if [[ -n "$design" && "$design" != "$n" ]] &&
-		[[ "$(gh issue view "$design" --json labels -q '[.labels[].name] | index("approved") != null')" == true ]]; then
+		[[ "$(gh issue view "$design" --json labels -q '[.labels[].name] | index("approved") != null')" == true ]] &&
+		user_approved "$design"; then
 		echo "builds the design approved in #$design"
 	fi
 }
+
+owner() { local r; r=$(repo); echo "${r%%/*}"; }
+
+# approver N: who last added approved to issue N.
+approver() {
+	gh api --paginate "repos/$(repo)/issues/$1/events" |
+		jq -rs '[.[][] | select(.event == "labeled" and (.label.name | ascii_downcase) == "approved") | .actor.login] | last // empty'
+}
+
+user_approved() { [[ "$(approver "$1")" == "$(owner)" ]]; }
 
 # --- Claims and stacks ----------------------------------------------------------
 
@@ -404,13 +418,16 @@ cmd_ready() {
 }
 
 cmd_show() {
-	local n="${1:?usage: plan show N}" b blockers why
+	local n="${1:?usage: plan show N}" info blockers why
 	gh issue view "$n" --comments
-	b=$(body "$n")
+	info=$(gh issue view "$n" --json labels,body -q '([.labels[].name] | join(",")) + "\n" + .body')
 	echo
-	echo "Next step:  $(next_step <<<"$b" | sed -E 's/^- \[ \] //')"
-	why=$(gate "$n")
+	echo "Next step:  $(tail -n +2 <<<"$info" | next_step | sed -E 's/^- \[ \] //')"
+	why=$(gate "$n" "$info")
 	echo "May build:  ${why:-no: it needs the approved or no-design label, or a Design: #M line naming an approved feature}"
+	if [[ ",$(head -1 <<<"$info")," == *,approved,* ]] && ! user_approved "$n"; then
+		echo "Approved:   by $(approver "$n"), not $(owner), so it doesn't count"
+	fi
 	blockers=$(open_blockers "$n")
 	echo "Blocked by: ${blockers:-nothing open}"
 	if is_claimed "$n"; then echo "Claimed:    branch work/$n"; else echo "Claimed:    no"; fi
