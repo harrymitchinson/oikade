@@ -32,10 +32,11 @@ jobs:
     name: Approved by the owner
     runs-on: ubuntu-latest
     steps:
+      # Credentials stay, read-only, so the check can fetch an approved
+      # commit that a restack left on no branch. It runs no code from the PR.
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
           fetch-depth: 0
 
       - name: Check for the owner's Approve on a needs-review PR
@@ -90,7 +91,7 @@ jobs:
             exit 0
           fi
           patch() { git diff "$(git merge-base "origin/$base" "$1")" "$1" | git patch-id --stable | cut -d' ' -f1; }
-          if ! git fetch -q origin "$approved" "$head"; then
+          if ! { git cat-file -e "$approved^{commit}" 2>/dev/null || git fetch -q origin "$approved"; }; then
             echo "::error::$held. @$OWNER approved $approved, which can't be fetched to compare with the head, so approve it again"
             exit 1
           fi
