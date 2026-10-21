@@ -105,6 +105,11 @@ example-switch: ## Build the example-switch plugin into bin/.
 test-conformance: example-switch ## Drive a plugin through the oikade/v1 contract (default: example-switch).
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 
+.PHONY: test-hack
+test-hack: ## Check the hack/ scripts: shellcheck, and hack/plan's agent identity with gh stubbed.
+	shellcheck hack/plan hack/agent-token hack/test/*.sh
+	hack/test/agent-identity.sh
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
