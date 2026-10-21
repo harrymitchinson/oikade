@@ -107,8 +107,9 @@ test-conformance: example-switch ## Drive a plugin through the oikade/v1 contrac
 
 .PHONY: test-hack
 test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity with gh stubbed, and no raw gh writes in skills.
-	shellcheck hack/plan hack/agent-token hack/test/*.sh
+	shellcheck hack/plan hack/agent-token hack/owner-approval hack/test/*.sh
 	hack/test/agent-identity.sh
+	hack/test/merge-on-approval.sh
 	hack/test/no-raw-gh-writes.sh
 
 .PHONY: lint

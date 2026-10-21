@@ -7,7 +7,7 @@ description: Pick up Oikade work and build it. Take the next ready feature from 
 
 Several agents may run this skill at once, each in its own session. The claim keeps them apart: a feature belongs to whoever holds the branch `work/N`, and `hack/plan` is the only safe way to take it. How the workflow fits together is in `docs/design/0009-planning-workflow.md`.
 
-You work on **one feature**. You build its steps one at a time, one PR each, on branches named `work/N-S`. You don't wait for the user to merge. A low-risk step you merge yourself once its checks pass. Any other step waits for review, and the next one stacks on it, so the user reviews the stack bottom first. You stop when the feature has no steps left, when three of its steps are waiting for review, or when a step needs the user's decision. Then you release the claim.
+You work on **one feature**. You build its steps one at a time, one PR each, on branches named `work/N-S`. You don't wait for the user to merge. A low-risk step you merge yourself once its checks pass. Any other step waits for the user's Approve, and the next one stacks on it, so the user reviews the stack bottom first. Once they've approved a step, you merge it too. You stop when the feature has no steps left, when three of its steps are waiting for review, or when a step needs the user's decision. Then you release the claim.
 
 ## 1. Choose and claim
 
@@ -45,7 +45,7 @@ Run `hack/plan show N`. It prints the issue, its comments, the next step and why
 1. Run the `code-review` skill on the step. When it's stacked, review only the step's own commits: `git diff <base>...HEAD`. Fix each finding, or explain in the PR why you didn't.
 2. Write the PR body to a file in your scratchpad. It has `Part of #N`, or `Closes #N` if this is the feature's last unticked step. Then the step, what you tested and how, anything left for manual testing, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first.
 3. Open it with `hack/plan pr N "<conventional title>" <body file>`. It pushes `work/N-S`, opens the PR against the step below it (or main) and records it against the step. Don't open it any other way.
-4. **Merge it yourself if it's low risk.** It is when the step's acceptance needs no manual testing, and the step changes nothing in `.claude/skills/design/references/surfaces.md` (public API, state that must survive, component boundaries, dependencies). It also has to be the bottom of its stack. Wait for CI with `gh pr checks <PR> --watch`, then run `hack/plan merge N <PR>`. That checks again: it refuses a PR that touches a protected path, labels it `needs-review` and leaves it for the user. If you judge a step risky though it touches no protected path, label it yourself: `hack/plan label <PR> +needs-review`. **Never work around a refusal,** and never merge any other way.
+4. **Merge it yourself if it's low risk.** It is when the step's acceptance needs no manual testing, and the step changes nothing in `.claude/skills/design/references/surfaces.md` (public API, state that must survive, component boundaries, dependencies). It also has to be the bottom of its stack. Wait for CI with `gh pr checks <PR> --watch`, then run `hack/plan merge N <PR>`. That checks again: it refuses a PR that touches a protected path, labels it `needs-review` and leaves it for the user's Approve. Once they've approved it, `hack/plan merge` merges it: it reads their review itself. If you judge a step risky though it touches no protected path, label it yourself: `hack/plan label <PR> +needs-review`. **Never work around a refusal,** and never merge any other way.
    - If a check fails, fix it on the branch and push, rather than leaving it red.
 5. If a later step needs to know something that isn't in the code or the PR, leave it with `hack/plan note N "…"`.
 
@@ -53,8 +53,9 @@ Run `hack/plan show N`. It prints the issue, its comments, the next step and why
 
 ## 5. Stop
 
-1. **Release the claim:** `hack/plan release N`. Your PRs and step branches stay, and the next session continues from them. Don't hold a claim you aren't building under.
-2. **Reply** with the PR links in stack order, what's verified and what isn't, and anything that needs the user. Don't claim another feature unless the user asked you to keep going, as with a `/loop`.
+1. **Merge what the user approved:** for each step waiting for review, bottom first, run `hack/plan merge N <PR>`. It merges a step whose head the user's Approve covers, restacks the rest, and refuses the others. Stop at the first refusal.
+2. **Release the claim:** `hack/plan release N`. Your PRs and step branches stay, and the next session continues from them. Don't hold a claim you aren't building under.
+3. **Reply** with the PR links in stack order, what's verified and what isn't, and anything that needs the user. Don't claim another feature unless the user asked you to keep going, as with a `/loop`.
 
 - **If the user asks you to address comments on a step's PR,** you don't need a claim, because the PR's branch belongs to that step. If `hack/plan claims` shows another session holding the feature, ask the user first, so you don't rewrite a branch it's building on. Check out the branch in your own worktree (`git worktree add <path> origin/work/N-S`, then `git switch -c work/N-S`), fix it, and `git push`. If it's low in a stack, rebase each step above it onto the one below (`git rebase --onto <new tip> <old tip>`) and push each with `--force-with-lease`.
 - **Before `hack/plan step`,** push any commits you've added to the current step since its PR opened. The next step builds on the pushed branch, and `step` refuses while it's behind.

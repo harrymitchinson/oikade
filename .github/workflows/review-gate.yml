@@ -33,7 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Credentials stay, read-only, so the check can fetch an approved
-      # commit that a restack left on no branch. It runs no code from the PR.
+      # commit that a restack left on no branch. It runs the PR's own
+      # hack/owner-approval, as it runs the PR's own copy of this file: a PR
+      # that changes either touches a protected path and waits for the owner.
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -72,32 +74,12 @@ jobs:
             exit 0
           fi
 
-          # The owner's latest Approve, Request changes or dismissal decides.
-          # Comments don't.
-          review=$(gh api --paginate "repos/$GH_REPO/pulls/$PR/reviews" |
-            jq -cs --arg owner "$OWNER" '[.[][] | select(.user.login == $owner and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED"))] | last // {state: "none"}')
-          state=$(jq -r .state <<<"$review")
-          if [ "$state" != APPROVED ]; then
-            echo "::error::$held, and waits for @$OWNER to approve it (latest review: $state)"
-            exit 1
-          fi
-
-          # An Approve covers the code it saw. A restack moves the step onto a
-          # new base without changing it, so compare the step's own diff, from
-          # where it leaves its base, at the approved commit and at the head.
-          approved=$(jq -r .commit_id <<<"$review")
-          if [ "$approved" = "$head" ]; then
-            echo "@$OWNER approved #$PR at its head, $head"
+          # hack/owner-approval decides, as it does for hack/plan merge: the
+          # owner's latest decisive review must approve this code, at the head
+          # or before a restack. It exits 2 when it can't tell, which fails too.
+          if why=$(OWNER="$OWNER" hack/owner-approval "$PR" "$head" "$base"); then
+            echo "$why"
             exit 0
           fi
-          patch() { git diff "$(git merge-base "origin/$base" "$1")" "$1" | git patch-id --stable | cut -d' ' -f1; }
-          if ! { git cat-file -e "$approved^{commit}" 2>/dev/null || git fetch -q origin "$approved"; }; then
-            echo "::error::$held. @$OWNER approved $approved, which can't be fetched to compare with the head, so approve it again"
-            exit 1
-          fi
-          if [ "$(patch "$approved")" = "$(patch "$head")" ]; then
-            echo "@$OWNER approved #$PR at $approved, and the head $head changes the same lines (a restack)"
-            exit 0
-          fi
-          echo "::error::$held. @$OWNER approved $approved, but the head $head changes more since, so approve it again"
+          echo "::error::$held. $why"
           exit 1

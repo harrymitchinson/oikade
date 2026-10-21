@@ -76,8 +76,7 @@ Before this revision a feature waited on you twice: once to approve it, and once
   - the session merging it holds the claim;
   - it's the bottom of its stack, and up to date with main;
   - its Tests and Lint checks, and any others, all passed;
-  - neither it nor the feature has the `needs-review` label;
-  - its diff touches no protected path, counting both sides of a rename.
+  - neither it nor the feature has the `needs-review` label, and its diff touches no protected path, counting both sides of a rename. Or, if either does, your latest review approves the code at its head, or the same diff before a restack (since #115).
 
   The protected paths are:
   - public API, state and boundaries: `api/`, `cmd/`, `config/`, capability, HAP, hub, identity, metrics, status, the CEL environment, the Driver interface, the homekit and zigbee controllers, and the plugin contract, decoder, SDK and conformance suite;
@@ -85,7 +84,7 @@ Before this revision a feature waited on you twice: once to approve it, and once
   - what the checks run: `Makefile`, Dockerfiles, `.golangci.yml` and `.github/`;
   - the rules agents work under: `.claude/`, `hack/`, `AGENTS.md` and the design docs.
 
-  `.claude/settings.json` denies agents `gh pr merge` and every other raw `gh` write, so they can't merge any other way. A PR that touches one gets `needs-review` and waits for you. A merged one gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules, and a feature's first step, which commits its design doc, always waits for you. Add `needs-review` to a feature to review all of its steps yourself.
+  `.claude/settings.json` denies agents `gh pr merge` and every other raw `gh` write, so they can't merge any other way. A PR that touches one gets `needs-review` and waits for your Approve. The agent merges it once your Approve covers its head, as `hack/owner-approval` on main decides, never the PR's own copy. A PR merged without your review gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules without your Approve, and a feature's first step, which commits its design doc, always waits for it. Add `needs-review` to a feature to review all of its steps yourself.
 
 That also changes claims. A claim lasts while an agent is building, not until you merge. Claims taken before this revision, with their PR on `work/N` itself, still work: merging that PR deletes `work/N` and frees the claim as before. `hack/plan merge` refuses those, since merging one would delete a claim.
 
@@ -97,7 +96,7 @@ Until this revision every agent action showed up as you, so the two gates above 
 
 - **Agents write as `oikade-agent[bot]`.** Inside Claude Code, `hack/plan` writes to issues and PRs through the `oikade-agent` GitHub App, and agent commits name the bot as committer, with you as author. Board moves and pushes still act as you. Agents make every GitHub write through `hack/plan`, and `.claude/settings.json` denies them raw `gh` writes and `gh api`. Run `hack/plan` yourself from a terminal, not with `!` inside Claude Code, which acts as the bot.
 - **`approved` counts only when you add it.** The Approved guard workflow removes it, with a comment, when anyone else adds it. `hack/plan`'s gate also checks who added it last, so a missed run can't make a feature ready. `hack/plan` never adds or removes `approved`, never removes `needs-review` or `agent-merged`, and edits only `## Steps` and below on an approved feature.
-- **You review a `needs-review` PR by approving it.** Agents open PRs as the bot, so you can approve them. The required check "Approved by the owner" fails on a PR labelled `needs-review`, or whose feature is, until your latest review is an Approve of the code at its head. A restack doesn't reset it, since the step's own diff is unchanged, but new commits do. A PR you opened yourself passes, since GitHub won't let you approve it. Low-risk steps without the label still merge with `hack/plan merge`.
+- **You review a `needs-review` PR by approving it.** Agents open PRs as the bot, so you can approve them. The required check "Approved by the owner" fails on a PR labelled `needs-review`, or whose feature is, until your latest review is an Approve of the code at its head. A restack doesn't reset it, since the step's own diff is unchanged, but new commits do. A PR you opened yourself passes, since GitHub won't let you approve it. Low-risk steps without the label still merge with `hack/plan merge`, and since #115 so do approved ones: approving is the whole review, and the agent merges.
 
 ## Migration
 

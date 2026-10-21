@@ -103,7 +103,8 @@ Work
                         (default DIR .claude/worktrees/work-N)
   step N                In N's worktree, once the current step has a PR: start the next step on its own branch
   pr N TITLE BODY_FILE  Push the current step's branch, open its PR on the right base and record it
-  merge N PR            Merge a step's PR without the user, if 0009 allows it, then restack
+  merge N PR            Merge a step's PR if 0009 allows it, then restack. One the user reviews
+                        merges once their Approve covers its head
   restack N             Rebase the steps stacked on a step that merged onto main
   link N PR             Record PR against feature N's next unrecorded step
   release N [--force]   Give up a claim: delete branch work/N and set the card back to Todo. Step branches
@@ -530,12 +531,11 @@ cmd_pr() {
 }
 
 cmd_merge() {
-	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing workflow files try
+	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing workflow files try held=() approval checker
 	pr="${pr#\#}"
 	is_claimed "$n" || die "#$n isn't claimed: merging restacks its branches, so only the session building it merges"
 	body "$n" | steps | grep -qF "(PR #$pr)" || die "PR #$pr isn't recorded against a step of #$n"
-	[[ "$(gh issue view "$n" --json labels -q '[.labels[].name] | index("needs-review") != null')" != true ]] ||
-		die "#$n has the needs-review label: the user merges its steps"
+	if has_label needs-review "$(issue_info "$n")"; then held+=("#$n has the needs-review label"); fi
 	restack "$n"
 	git fetch -q "$REMOTE" main
 	# GitHub reports UNKNOWN for a few seconds after a push to the PR or main.
@@ -551,7 +551,7 @@ cmd_merge() {
 	[[ "$head" =~ ^work/$n-[0-9]+$ ]] || die "PR #$pr isn't from one of #$n's step branches"
 	[[ "$base" == main ]] || die "PR #$pr is stacked on $base: the step below it has to merge first"
 	[[ "$draft" == false ]] || die "PR #$pr is a draft"
-	[[ "$labels" != *,needs-review,* ]] || die "PR #$pr has the needs-review label: the user merges it"
+	if [[ "$labels" == *,needs-review,* ]]; then held+=("PR #$pr has the needs-review label"); fi
 	[[ "$mergeable" != CONFLICTING ]] || die "PR #$pr conflicts with main: rebase it on main"
 	[[ "$mergeable" == MERGEABLE ]] || die "PR #$pr isn't mergeable yet ($mergeable). Try again in a minute"
 	# The checks only vouch for the merge if they ran on code that has all of
@@ -572,8 +572,28 @@ cmd_merge() {
 	[[ -n "$files" ]] || die "PR #$pr changes no files"
 	files=$(grep -E "$PROTECTED" <<<"$files" | sort -u || true)
 	if [[ -n "$files" ]]; then
-		add_label "$pr" needs-review
-		die "PR #$pr changes paths the user reviews, so it's labelled needs-review:"$'\n'"$files"
+		[[ "$labels" == *,needs-review,* ]] || add_label "$pr" needs-review
+		held+=("PR #$pr changes paths the user reviews:"$'\n'"$files")
+	fi
+	# Held for the user: it merges only once their Approve covers the code as
+	# it is now. That's read from the reviews, not the Approved by the owner
+	# check, since a PR can change the workflow behind that check.
+	if (( ${#held[@]} )); then
+		# main's copy decides, not this worktree's: the PR could change it.
+		checker=$(mktemp)
+		git show "$REMOTE/main:hack/owner-approval" >"$checker" 2>/dev/null ||
+			{ rm -f "$checker"; die "$(printf '%s\n' "${held[@]}")"$'\n'"and main has no hack/owner-approval yet, so the user merges it"; }
+		approval=$(OWNER="$PROJECT_OWNER" PLAN_REMOTE="$REMOTE" bash "$checker" "$pr" "$oid" main) ||
+			{ rm -f "$checker"; die "$(printf '%s\n' "${held[@]}")"$'\n'"so it merges once the user approves it: $approval"; }
+		rm -f "$checker"
+		if ! as_agent api -X PUT "repos/$(repo)/pulls/$pr/merge" -f merge_method=squash -f sha="$oid" >/dev/null; then
+			die "couldn't merge PR #$pr"
+		fi
+		comment "$pr" "Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/design/0009-planning-workflow.md)." || true
+		cmd_sync "$n" >/dev/null
+		restack "$n"
+		echo "Merged PR #$pr on the user's Approve"
+		return
 	fi
 	# Label first, so a merged PR can't be missing it. --match-head-commit
 	# merges exactly what the checks ran on.
