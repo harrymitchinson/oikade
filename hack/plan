@@ -81,7 +81,18 @@ Work
                         stay. Refuses if work/N itself has an open PR or commits, unless --force
   claims                Every claimed feature, with its open PRs and how long since its last commit
   sync [N]              Tick steps whose PR merged and set unclaimed open cards back to Todo
-  note N TEXT           Comment on issue N
+  note N TEXT           Comment on issue or PR N
+
+Issues and milestones (agents use these, never raw gh writes)
+  issue TITLE BODY_FILE [LABEL...]
+                        Open an issue and print its number
+  edit N BODY_FILE      Replace issue N's body
+  label N +L|-L...      Add (+) or remove (-) labels on issue or PR N. Never approved: only the user adds it
+  block N M             Record that feature N is blocked by feature M
+  milestone set N TITLE           Put issue N in milestone TITLE
+  milestone new TITLE DESC_FILE   Create a milestone
+  milestone edit TITLE DESC_FILE  Replace a milestone's description
+  milestone close TITLE           Close a milestone
 
 Ideas (Project draft items: they aren't issues and notify nobody)
   ideas                 List the ideas
@@ -599,6 +610,90 @@ cmd_note() {
 	echo "Commented on #$n"
 }
 
+cmd_issue() {
+	local title="${1:?usage: plan issue TITLE BODY_FILE [LABEL...]}" file="${2:?usage: plan issue TITLE BODY_FILE [LABEL...]}" l args=()
+	shift 2
+	[[ -f "$file" ]] || die "no such file: $file"
+	for l in "$@"; do
+		[[ "$l" != approved ]] || die "only the user adds the approved label"
+		args+=(-f "labels[]=$l")
+	done
+	as_agent api "repos/$(repo)/issues" -f title="$title" -F body=@"$file" "${args[@]}" -q .number
+}
+
+cmd_edit() {
+	local n="${1:?usage: plan edit N BODY_FILE}" file="${2:?usage: plan edit N BODY_FILE}"
+	[[ -f "$file" ]] || die "no such file: $file"
+	as_agent api -X PATCH "repos/$(repo)/issues/$n" -F body=@"$file" >/dev/null
+	echo "Edited #$n"
+}
+
+# label N +L -L: the user decides by adding approved, so agents neither add nor
+# remove it. The approved guard (docs/design/0108-agent-identity.md) backs this up.
+cmd_label() {
+	local n="${1:?usage: plan label N +LABEL|-LABEL...}" l
+	shift
+	[[ $# -gt 0 ]] || die "usage: plan label N +LABEL|-LABEL..."
+	for l in "$@"; do
+		[[ "$l" =~ ^[+-].+ ]] || die "say +$l to add it or -$l to remove it"
+		[[ "${l:1}" != approved ]] || die "only the user adds or removes the approved label"
+	done
+	for l in "$@"; do
+		case "$l" in
+		+*) add_label "$n" "${l:1}" ;;
+		-*) remove_label "$n" "$(jq -rn --arg l "${l:1}" '$l | @uri')" ;;
+		esac
+	done
+	echo "#$n: $*"
+}
+
+cmd_block() {
+	local n="${1:?usage: plan block N M}" m="${2:?usage: plan block N M}" id
+	id=$(gh api "repos/$(repo)/issues/$m" -q .id) || die "no issue #$m"
+	as_agent api "repos/$(repo)/issues/$n/dependencies/blocked_by" -F issue_id="$id" >/dev/null
+	echo "#$n is blocked by #$m"
+}
+
+# milestone_number TITLE: assign it to a variable before use, so a missing
+# milestone stops the command under set -e.
+milestone_number() {
+	local num
+	num=$(gh api --paginate "repos/$(repo)/milestones?state=all" | jq -rs --arg t "$1" '[.[][] | select(.title == $t) | .number][0] // empty')
+	[[ -n "$num" ]] || die "no milestone is titled \"$1\""
+	echo "$num"
+}
+
+cmd_milestone() {
+	local sub="${1:-}" n title file num
+	case "$sub" in
+	set)
+		n="${2:?usage: plan milestone set N TITLE}" title="${3:?usage: plan milestone set N TITLE}"
+		num=$(milestone_number "$title")
+		as_agent api -X PATCH "repos/$(repo)/issues/$n" -F milestone="$num" >/dev/null
+		echo "#$n is in $title"
+		;;
+	new)
+		title="${2:?usage: plan milestone new TITLE DESC_FILE}" file="${3:?usage: plan milestone new TITLE DESC_FILE}"
+		[[ -f "$file" ]] || die "no such file: $file"
+		as_agent api "repos/$(repo)/milestones" -f title="$title" -F description=@"$file" -q .html_url
+		;;
+	edit)
+		title="${2:?usage: plan milestone edit TITLE DESC_FILE}" file="${3:?usage: plan milestone edit TITLE DESC_FILE}"
+		[[ -f "$file" ]] || die "no such file: $file"
+		num=$(milestone_number "$title")
+		as_agent api -X PATCH "repos/$(repo)/milestones/$num" -F description=@"$file" >/dev/null
+		echo "Edited $title"
+		;;
+	close)
+		title="${2:?usage: plan milestone close TITLE}"
+		num=$(milestone_number "$title")
+		as_agent api -X PATCH "repos/$(repo)/milestones/$num" -f state=closed >/dev/null
+		echo "Closed $title"
+		;;
+	*) die "usage: plan milestone set N TITLE | new TITLE DESC_FILE | edit TITLE DESC_FILE | close TITLE" ;;
+	esac
+}
+
 cmd_ideas() {
 	gh project item-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --limit 500 --format json \
 		-q '.items[] | select(.content.type == "DraftIssue") | "\(.id)\t\(.title)"'
@@ -630,7 +725,7 @@ cmd="${1:-help}"
 [[ $# -gt 0 ]] && shift
 case "$cmd" in
 	# Commands that write to issues or PRs.
-	claim | step | pr | merge | restack | link | release | sync | note) agent_token; "cmd_$cmd" "$@" ;;
+	claim | step | pr | merge | restack | link | release | sync | note | issue | edit | label | block | milestone) agent_token; "cmd_$cmd" "$@" ;;
 	ready | show | claims | ideas | idea | promote) "cmd_$cmd" "$@" ;;
 	help | -h | --help) usage ;;
 	*) usage >&2; exit 2 ;;

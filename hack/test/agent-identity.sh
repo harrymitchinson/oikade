@@ -81,5 +81,32 @@ unb64 "$sig" >"$tmp/sig"
 printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -verify "$tmp/pub.pem" -signature "$tmp/sig" >/dev/null ||
 	fail "the JWT doesn't verify against the App's public key"
 
+# The other write commands go out as the App too.
+run() { : >"$STUB_LOG"; CLAUDECODE=1 "$root/hack/plan" "$@" >/dev/null 2>"$tmp/err"; }
+echo "body" >"$tmp/body.md"
+run issue "A bug" "$tmp/body.md" bug || fail "issue failed: $(cat "$tmp/err")"
+grep -qx "ghs_agent|api repos/o/r/issues -f title=A bug -F body=@$tmp/body.md -f labels\[\]=bug -q .number" "$STUB_LOG" ||
+	fail "issue didn't open the issue as the App: $(cat "$STUB_LOG")"
+run edit 7 "$tmp/body.md" || fail "edit failed: $(cat "$tmp/err")"
+grep -q '^ghs_agent|api -X PATCH repos/o/r/issues/7 ' "$STUB_LOG" || fail "edit didn't edit as the App: $(cat "$STUB_LOG")"
+run label 7 +no-design -needs-design || fail "label failed: $(cat "$tmp/err")"
+grep -qx 'ghs_agent|api repos/o/r/issues/7/labels -f labels\[\]=no-design' "$STUB_LOG" ||
+	fail "label didn't add a label as the App: $(cat "$STUB_LOG")"
+grep -qx 'ghs_agent|api -X DELETE repos/o/r/issues/7/labels/needs-design' "$STUB_LOG" ||
+	fail "label didn't remove a label as the App: $(cat "$STUB_LOG")"
+! grep -q '^user|api' "$STUB_LOG" || fail "a write ran as the user: $(cat "$STUB_LOG")"
+
+# Nobody but the user adds or removes approved, and a refusal writes nothing.
+for args in "label 7 +approved" "label 7 +bug -approved" "issue X $tmp/body.md approved"; do
+	# shellcheck disable=SC2086 # split args into words
+	if run $args; then fail "plan $args succeeded"; fi
+	grep -q 'approved' "$tmp/err" || fail "plan $args didn't say why: $(cat "$tmp/err")"
+	! grep -q '|api ' "$STUB_LOG" || fail "plan $args wrote something: $(cat "$STUB_LOG")"
+done
+
+# A milestone that doesn't exist stops before writing.
+if run milestone set 7 "v9.9.9"; then fail "milestone set succeeded for a missing milestone"; fi
+! grep -q '^ghs_agent|' "$STUB_LOG" || fail "milestone set wrote for a missing milestone: $(cat "$STUB_LOG")"
+
 (( failed == 0 )) && echo "ok: agent identity"
 exit "$failed"
