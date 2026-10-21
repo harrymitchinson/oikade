@@ -924,8 +924,8 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (rule) (oikade_rule_active{namespace=~\"$namespace\"})",
-          "legendFormat": "{{rule}}"
+          "expr": "max by (namespace, rule) (oikade_rule_active{namespace=~\"$namespace\"})",
+          "legendFormat": "{{namespace}}/{{rule}}"
         }
       ],
       "options": {
@@ -984,7 +984,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (rule) (oikade_rule_next_change_timestamp_seconds{namespace=~\"$namespace\"}) * 1000",
+          "expr": "max by (namespace, rule) (oikade_rule_next_change_timestamp_seconds{namespace=~\"$namespace\"}) * 1000",
           "format": "table",
           "instant": true
         }
@@ -1053,8 +1053,8 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (device, capability) (oikade_device_control_level{namespace=~\"$namespace\"})",
-          "legendFormat": "{{device}} {{capability}}"
+          "expr": "max by (namespace, device, capability) (oikade_device_control_level{namespace=~\"$namespace\"})",
+          "legendFormat": "{{namespace}}/{{device}} {{capability}}"
         }
       ],
       "options": {
