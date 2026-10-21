@@ -67,3 +67,11 @@ type Sink interface {
 type Setter interface {
 	Set(ctx context.Context, dev types.NamespacedName, capability string, value any) error
 }
+
+// SetterFunc is a func as a Setter.
+type SetterFunc func(ctx context.Context, dev types.NamespacedName, capability string, value any) error
+
+// Set implements Setter.
+func (f SetterFunc) Set(ctx context.Context, dev types.NamespacedName, capability string, value any) error {
+	return f(ctx, dev, capability, value)
+}

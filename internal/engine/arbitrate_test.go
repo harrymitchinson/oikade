@@ -485,3 +485,41 @@ func TestAnOverrideExpiresWithNoRules(t *testing.T) {
 	r.at("2026-10-21 13:00 BST")
 	r.expect(call{"towel-rail", capability.SwitchOn, false})
 }
+
+func TestAHomeKitDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
+	r := startRigWith(t, rigOptions{
+		now:    local("2026-10-21 20:00 BST"),
+		values: map[string]map[string]any{"hall-light": {capability.LightLevel: 0.0}},
+		control: map[string][]homev1alpha1.CapabilityControl{"hall-light": {
+			entry(capability.LightLevel, "0", homev1alpha1.ControlResolveHighest, homev1alpha1.ControlExternalOverride, "1h"),
+		}},
+	})
+	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, then
+	// 40.2, as Zigbee2MQTT rounds 40 to 102 of 254.
+	r.homekit("hall-light", capability.LightLevel, 40.0)
+	r.change("hall-light", capability.LightLevel, 10.2)
+	if w := winner(r.status("hall-light", capability.LightLevel)); w != "Device Override" {
+		t.Errorf("winner %q on the way, want the device's", w)
+	}
+	r.change("hall-light", capability.LightLevel, 40.2)
+	if w := winner(r.status("hall-light", capability.LightLevel)); w != "HomeKit Override" {
+		t.Errorf("winner %q at 40.2, want HomeKit's", w)
+	}
+	r.expect()
+}
+
+func TestAHomeKitWriteThatChangesNothingIsForgotten(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.SwitchOn, true})
+	r.change("towel-rail", capability.SwitchOn, true)
+	// The Home app turns on a rail that's already on: no change will come.
+	r.at("2026-10-21 12:01 BST")
+	r.homekit("towel-rail", capability.SwitchOn, true)
+	// A wall switch turns it off, and on again, soon after.
+	r.clock.Step(time.Second)
+	r.change("towel-rail", capability.SwitchOn, false)
+	r.change("towel-rail", capability.SwitchOn, true)
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
+		t.Errorf("winner %q, want the device's", w)
+	}
+}

@@ -34,6 +34,7 @@ import (
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hap"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
@@ -644,8 +645,9 @@ func tapLamp(ctx context.Context, t *testing.T, c client.Client, url string, fak
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = fakeHAP.Disconnect(context.Background()) })
 	tap := &hap.Announcer{Bus: fakeHAP, Bridge: types.NamespacedName{Namespace: ns, Name: "living-room"},
-		Setter: setterFunc(func(ctx context.Context, _ types.NamespacedName, _ string, _ any) error {
+		Setter: driver.SetterFunc(func(ctx context.Context, _ types.NamespacedName, _ string, _ any) error {
 			return fakeZ2M.Publish(ctx, "z2m/"+secondLamp, []byte(`{"state":"ON"}`), false)
 		})}
 	must(t, tap.Set(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, capability.LightOn, true))
@@ -658,13 +660,6 @@ func tapLamp(ctx context.Context, t *testing.T, c client.Client, url string, fak
 		return st.Level == homev1alpha1.ControlLevelOverride && len(st.Claims) == 1 &&
 			st.Claims[0].Source == "HomeKit" && st.Claims[0].Winner && string(st.Claims[0].Value.Raw) == "true"
 	})
-}
-
-// setterFunc is a driver.Setter.
-type setterFunc func(ctx context.Context, dev types.NamespacedName, name string, value any) error
-
-func (f setterFunc) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
-	return f(ctx, dev, name, value)
 }
 
 func must(t *testing.T, err error) {
