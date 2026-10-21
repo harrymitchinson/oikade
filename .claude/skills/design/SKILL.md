@@ -27,7 +27,7 @@ It does if the work changes anything expensive to reverse:
 
 It doesn't need its own if it only builds part of a design the user has already approved in another feature, and makes no decision that design doesn't. Then put a `Design: #M` line in the body, naming that feature, and skip to step 5. Agents may build it on that approval. Don't use this to cover a new decision: if anything in the list above isn't settled by #M's design, this feature needs its own review.
 
-**If it doesn't need one,** add the `no-design` label, comment on the issue with one line on why, and skip to step 5. Agents may then build it without the user's approval, and the user vetoes by removing the label. Typical cases:
+**If it doesn't need one,** add the `no-design` label (`hack/plan label N +no-design`), comment on the issue with one line on why (`hack/plan note N "…"`), and skip to step 5. Agents may then build it without the user's approval, and the user vetoes by removing the label. Typical cases:
 
 - a plugin built on the existing plugin contract, which ships as its own image and touches nothing in core
 - CI, release tooling and docs that change no public name
@@ -36,6 +36,8 @@ It doesn't need its own if it only builds part of a design the user has already 
 A plugin that needs a contract change, or a new capability in the registry, does need a design.
 
 **If you're unsure,** it needs one: add the `needs-design` label and ask the user in the issue.
+
+Every write to GitHub goes through `hack/plan`, so it shows as `oikade-agent[bot]` rather than as the user (`docs/design/0108-agent-identity.md`). Raw `gh` writes are denied.
 
 ## 3. Options and recommendation
 
@@ -55,12 +57,12 @@ Constraints:
 
 The design lives in the feature's issue, where the user reviews it in comments.
 
-- **The issue:** reuse one if it exists (`gh issue list --search "<topic>"`). If the work is an idea on the board, promote it with `hack/plan promote <item id>`. Otherwise create it with `gh issue create`.
-- **The body:** `## Why`, then `## Design` with Problem, Options (each with its cost of reversing), Recommendation, Consequences (the public names it adds, state, what breaks, the upgrade path) and Open questions. Add the `needs-design` label.
+- **The issue:** reuse one if it exists (`gh issue list --search "<topic>"`). If the work is an idea on the board, promote it with `hack/plan promote <item id>`. Otherwise write the body to a file in your scratchpad and create it with `hack/plan issue "<title>" <body file> needs-design`.
+- **The body:** `## Why`, then `## Design` with Problem, Options (each with its cost of reversing), Recommendation, Consequences (the public names it adds, state, what breaks, the upgrade path) and Open questions. Add the `needs-design` label. To change the body later, edit your file and run `hack/plan edit N <body file>`.
 - **The length:** about one page, so the user can disagree with it in five minutes. Add an API sketch only when the names are the decision.
 - **If the user asks to review it in a Claude Doc,** write it there instead, and put the link in the issue.
 
-Then stop, and tell the user it's ready for review. Update the design from their comments: edit the body, and reply to say what changed. **Only the user decides.** They do it by adding the `approved` label. Never add it yourself, and never write "accepted", however clear the discussion looks. When they've approved it, remove `needs-design`.
+Then stop, and tell the user it's ready for review. Update the design from their comments: edit the body (`hack/plan edit`), and reply to say what changed (`hack/plan note`). **Only the user decides.** They do it by adding the `approved` label. Never add it yourself, and never write "accepted", however clear the discussion looks. When they've approved it, remove `needs-design` (`hack/plan label N -needs-design`).
 
 ## 5. Write the Steps
 
