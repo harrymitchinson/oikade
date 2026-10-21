@@ -27,6 +27,11 @@ jobs:
           ISSUE: ${{ github.event.issue.number }}
           SENDER: ${{ github.event.sender.login }}
           OWNER: ${{ github.repository_owner }}
+        # A re-run, or a second labeled event, finds the label gone already.
         run: |
+          if ! gh issue view "$ISSUE" --json labels -q '.labels[].name' | grep -qx approved; then
+            echo "approved is already gone from #$ISSUE"
+            exit 0
+          fi
           gh issue edit "$ISSUE" --remove-label approved
           gh issue comment "$ISSUE" --body "Removed \`approved\`: @$OWNER adds it, and this time it was \`$SENDER\`. See docs/design/0108-agent-identity.md."
