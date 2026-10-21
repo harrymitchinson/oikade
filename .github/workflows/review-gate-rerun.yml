@@ -1,0 +1,35 @@
+name: Review gate rerun
+
+# A review changes what "Approved by the owner" should say, but a run started
+# by the review would add a second check of that name to the head commit,
+# beside the old one. Rerun the gate's own run instead, so there's only one.
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  rerun:
+    permissions:
+      actions: write
+    name: Rerun the review gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun the gate for the head commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          run=$(gh run list --workflow review-gate.yml --event pull_request --commit "$HEAD_SHA" --limit 1 --json databaseId -q '.[0].databaseId // empty')
+          if [ -z "$run" ]; then
+            echo "::error::no Review gate run for $HEAD_SHA to rerun"
+            exit 1
+          fi
+          # A run still going can't be rerun, and it may have read the state
+          # from before this review.
+          gh run watch "$run" >/dev/null || true
+          gh run rerun "$run"
+          echo "Reran Review gate run $run for $HEAD_SHA"
