@@ -250,28 +250,32 @@ drop_pr() {
 # as oikade-agent[bot] (docs/design/0108-agent-identity.md). The approved
 # guard workflow removes anyone else's, and this covers a run it missed.
 gate() {
-	local n="$1" info="${2:-}" labels design
-	[[ -n "$info" ]] || info=$(gh issue view "$n" --json labels,body -q '([.labels[].name] | join(",")) + "\n" + .body')
-	labels=",$(head -1 <<<"$info"),"
-	if [[ "$labels" == *,approved,* ]] && user_approved "$n"; then echo "approved"; return; fi
-	if [[ "$labels" == *,no-design,* ]]; then echo "needs no design"; return; fi
+	local n="$1" info="${2:-}" design
+	[[ -n "$info" ]] || info=$(issue_info "$n")
+	if has_label approved "$info" && user_approved "$n"; then echo "approved"; return; fi
+	if has_label no-design "$info"; then echo "needs no design"; return; fi
 	design=$(sed -nE 's/^Design:[^#]*#([0-9]+).*/\1/p' <<<"$info" | head -1)
-	if [[ -n "$design" && "$design" != "$n" ]] &&
-		[[ "$(gh issue view "$design" --json labels -q '[.labels[].name] | index("approved") != null')" == true ]] &&
-		user_approved "$design"; then
+	if [[ -n "$design" && "$design" != "$n" ]] && has_label approved "$(issue_info "$design")" && user_approved "$design"; then
 		echo "builds the design approved in #$design"
 	fi
 }
 
-owner() { local r; r=$(repo); echo "${r%%/*}"; }
+# issue_info N: its labels joined with commas, a newline, then its body.
+issue_info() { gh issue view "$1" --json labels,body -q '([.labels[].name] | join(",")) + "\n" + .body'; }
 
-# approver N: who last added approved to issue N.
+# has_label LABEL INFO: GitHub matches label names without case.
+has_label() { [[ ",$(head -1 <<<"$2" | tr '[:upper:]' '[:lower:]')," == *",$1,"* ]]; }
+
+# approver N: who last added approved to issue N. A failed read stops the
+# command rather than passing for "nobody approved it".
 approver() {
-	gh api --paginate "repos/$(repo)/issues/$1/events" |
-		jq -rs '[.[][] | select(.event == "labeled" and (.label.name | ascii_downcase) == "approved") | .actor.login] | last // empty'
+	local events
+	events=$(gh api --paginate "repos/$(repo)/issues/$1/events") || die "couldn't read #$1's events, so who approved it is unknown"
+	jq -rs '[.[][] | select(.event == "labeled" and (.label.name | ascii_downcase) == "approved") | .actor.login] | last // empty' <<<"$events"
 }
 
-user_approved() { [[ "$(approver "$1")" == "$(owner)" ]]; }
+# The user is the board's owner, PROJECT_OWNER.
+user_approved() { [[ "$(approver "$1")" == "$PROJECT_OWNER" ]]; }
 
 # --- Claims and stacks ----------------------------------------------------------
 
@@ -407,9 +411,9 @@ cmd_ready() {
 	while IFS=$'\t' read -r n milestone title; do
 		[[ "$claimed" == *" $n "* ]] && continue
 		info=$(jq -r --argjson n "$n" '.[] | select(.number == $n) | ([.labels[].name] | join(",")) + "\n" + .body' <<<"$all")
-		[[ -n "$(gate "$n" "$info")" ]] || continue
 		# A feature with nothing left to build: its steps are done or in review.
 		[[ -n "$(tail -n +2 <<<"$info" | next_step)" ]] || continue
+		[[ -n "$(gate "$n" "$info")" ]] || continue
 		blockers=$(open_blockers "$n")
 		[[ -n "$blockers" ]] && continue
 		(( $(stack_size "$n") < MAX_STACK )) || continue
@@ -418,15 +422,17 @@ cmd_ready() {
 }
 
 cmd_show() {
-	local n="${1:?usage: plan show N}" info blockers why
+	local n="${1:?usage: plan show N}" info blockers why who
 	gh issue view "$n" --comments
-	info=$(gh issue view "$n" --json labels,body -q '([.labels[].name] | join(",")) + "\n" + .body')
+	info=$(issue_info "$n")
 	echo
 	echo "Next step:  $(tail -n +2 <<<"$info" | next_step | sed -E 's/^- \[ \] //')"
 	why=$(gate "$n" "$info")
 	echo "May build:  ${why:-no: it needs the approved or no-design label, or a Design: #M line naming an approved feature}"
-	if [[ ",$(head -1 <<<"$info")," == *,approved,* ]] && ! user_approved "$n"; then
-		echo "Approved:   by $(approver "$n"), not $(owner), so it doesn't count"
+	if has_label approved "$info"; then
+		who=$(approver "$n")
+		[[ "$who" == "$PROJECT_OWNER" ]] ||
+			echo "Approved:   by ${who:-nobody GitHub recorded}, not $PROJECT_OWNER, so it doesn't count"
 	fi
 	blockers=$(open_blockers "$n")
 	echo "Blocked by: ${blockers:-nothing open}"

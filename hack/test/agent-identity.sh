@@ -14,8 +14,8 @@ failed=0
 fail() { echo "FAIL: $*" >&2; failed=1; }
 
 # gh logs each call with the token it ran under. repo view answers o/r, issue
-# view answers $STUB_ISSUE (labels on one line, then the body), #7's events
-# are $STUB_EVENTS, and deleting the label "gone" fails as GitHub does for a
+# view answers $STUB_ISSUE (labels on one line, then the body), issue N's
+# events are the file $STUB_EVENTS/N (and fail without it), and deleting the label "gone" fails as GitHub does for a
 # label the issue doesn't have.
 cat >"$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -23,7 +23,10 @@ echo "${GH_TOKEN:-user}|$*" >>"$STUB_LOG"
 [[ "$1 $2" == "repo view" ]] && echo o/r
 [[ "$1 $2" == "issue view" ]] && printf '%s\n' "${STUB_ISSUE:-}"
 [[ "$*" == *"-X DELETE "*/labels/gone ]] && { echo "gh: Label does not exist (HTTP 404)" >&2; exit 1; }
-[[ "$1 $2 $3" == "api --paginate repos/o/r/issues/7/events" ]] && printf '%s\n' "${STUB_EVENTS:-[]}"
+if [[ "$1 $2" == "api --paginate" && "$3" =~ ^repos/o/r/issues/([0-9]+)/events$ ]]; then
+	[[ -f "$STUB_EVENTS/${BASH_REMATCH[1]}" ]] || { echo "gh: HTTP 502" >&2; exit 1; }
+	cat "$STUB_EVENTS/${BASH_REMATCH[1]}"
+fi
 exit 0
 STUB
 
@@ -48,8 +51,9 @@ esac
 STUB
 chmod +x "$tmp/bin/"*
 
-export PATH="$tmp/bin:$PATH" STUB_LOG="$tmp/gh.log" STUB_JWT="$tmp/jwt" KEYCHAIN_DIR="$tmp/keychain" AGENT_REPO=o/r
-mkdir "$KEYCHAIN_DIR"
+export PATH="$tmp/bin:$PATH" STUB_LOG="$tmp/gh.log" STUB_JWT="$tmp/jwt" KEYCHAIN_DIR="$tmp/keychain" AGENT_REPO=o/r \
+	STUB_EVENTS="$tmp/events" PLAN_PROJECT_OWNER=o
+mkdir "$KEYCHAIN_DIR" "$STUB_EVENTS"
 
 note() { : >"$STUB_LOG"; "$root/hack/plan" note 7 "hello" 2>"$tmp/err"; }
 
@@ -134,21 +138,39 @@ STUB_ISSUE="needs-design
 $(cat "$tmp/approved.md")"
 run edit 7 "$tmp/redesigned.md" || fail "edit refused a design under review: $(cat "$tmp/err")"
 
-# approved counts only if the repo's owner, o, added it last.
+# approved counts only if the user (PLAN_PROJECT_OWNER, o) added it last.
 labeled() { printf '{"event":"labeled","label":{"name":"%s"},"actor":{"login":"%s"}}' "$1" "$2"; }
-export STUB_EVENTS
-show() { STUB_ISSUE="approved
+events() { local n="$1"; shift; local IFS=,; echo "[$*]" >"$STUB_EVENTS/$n"; }
+show() { STUB_ISSUE="${1:-approved}
+${2:-}
 ## Steps
 - [ ] one" PLAN_REMOTE=none "$root/hack/plan" show 7 2>/dev/null | grep -E '^(May build|Approved):'; }
-STUB_EVENTS="[$(labeled approved 'oikade-agent[bot]')]"
+events 7 "$(labeled approved 'oikade-agent[bot]')"
 show | grep -q '^May build:  no' || fail "show counts approved added by the bot: $(show)"
 show | grep -qF 'Approved:   by oikade-agent[bot], not o' || fail "show doesn't say who added approved: $(show)"
-STUB_EVENTS="[$(labeled approved o)]"
-show | grep -qx 'May build:  approved' || fail "show doesn't count approved added by the owner: $(show)"
-STUB_EVENTS="[$(labeled approved o),$(labeled Approved 'oikade-agent[bot]')]"
-show | grep -q '^May build:  no' || fail "show counts approved re-added by the bot after the owner: $(show)"
-STUB_EVENTS="[$(labeled approved o),$(labeled bug 'oikade-agent[bot]')]"
-show | grep -qx 'May build:  approved' || fail "another label by the bot unseated the owner's approved: $(show)"
+events 7 "$(labeled approved o)"
+show | grep -qx 'May build:  approved' || fail "show doesn't count approved added by the user: $(show)"
+show Approved | grep -qx 'May build:  approved' || fail "show doesn't match the label without case: $(show Approved)"
+events 7 "$(labeled approved o)" "$(labeled Approved 'oikade-agent[bot]')"
+show | grep -q '^May build:  no' || fail "show counts approved re-added by the bot after the user: $(show)"
+events 7 "$(labeled approved o)" "$(labeled bug 'oikade-agent[bot]')"
+show | grep -qx 'May build:  approved' || fail "another label by the bot unseated the user's approved: $(show)"
+events 7
+show | grep -qF 'Approved:   by nobody GitHub recorded' || fail "show doesn't say when no event records approved: $(show)"
+
+# Design: #M counts only if the user approved #M. Here the stub gives #8 the
+# same labels as #7, approved; #7's own approved is the bot's.
+events 7 "$(labeled approved 'oikade-agent[bot]')"
+events 8 "$(labeled approved o)"
+show approved 'Design: #8' | grep -qx 'May build:  builds the design approved in #8' ||
+	fail "show doesn't count a Design: line naming a feature the user approved: $(show approved 'Design: #8')"
+events 8 "$(labeled approved 'oikade-agent[bot]')"
+show approved 'Design: #8' | grep -q '^May build:  no' || fail "show counts a Design: line naming a feature the bot approved: $(show approved 'Design: #8')"
+
+# A failed events read stops the command rather than reading as "not approved".
+rm "$STUB_EVENTS/7"
+if STUB_ISSUE="approved" PLAN_REMOTE=none "$root/hack/plan" show 7 >/dev/null 2>"$tmp/err"; then fail "show succeeded with no events"; fi
+grep -q "couldn't read #7's events" "$tmp/err" || fail "show didn't say the events read failed: $(cat "$tmp/err")"
 
 # A milestone that doesn't exist stops before writing.
 if run milestone set 7 "v9.9.9"; then fail "milestone set succeeded for a missing milestone"; fi
