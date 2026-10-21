@@ -4,9 +4,9 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 *Revised on 2026-10-19, because you had become the bottleneck: agents stopped at every approval and every merge. An approved design now covers the features that build it, work with nothing expensive to reverse needs no approval, a feature's steps stack while they wait for review, and agents merge steps that touch nothing you review first. See [Revision: fewer waits](#revision-fewer-waits).*
 
-*Revised on 2026-10-21 by [0108](0108-agent-identity.md): agents act on GitHub as `oikade-agent[bot]`, `approved` counts only when you add it, and you review a `needs-review` PR by approving it. See [Revision: agent identity](#revision-agent-identity).*
-
 *Revised on 2026-10-20, at your request: `docs/roadmap.md` is gone, because the milestones already held most of it. Each milestone's description now says why it sits where it does, the version numbers give the order, and "Not doing" is in the README.*
+
+*Revised on 2026-10-21 by [0108](0108-agent-identity.md): agents act on GitHub as `oikade-agent[bot]`, `approved` counts only when you add it, and you review a `needs-review` PR by approving it. See [Revision: agent identity](#revision-agent-identity).*
 
 ## Problem
 
@@ -97,7 +97,7 @@ Until this revision every agent action showed up as you, so the two gates above 
 
 - **Agents write as `oikade-agent[bot]`.** Inside Claude Code, `hack/plan` writes to issues and PRs through the `oikade-agent` GitHub App, and agent commits name the bot as committer, with you as author. Board moves and pushes still act as you. Agents make every GitHub write through `hack/plan`, and `.claude/settings.json` denies them raw `gh` writes and `gh api`. Run `hack/plan` yourself from a terminal, not with `!` inside Claude Code, which acts as the bot.
 - **`approved` counts only when you add it.** The Approved guard workflow removes it, with a comment, when anyone else adds it. `hack/plan`'s gate also checks who added it last, so a missed run can't make a feature ready. `hack/plan` never adds or removes `approved`, never removes `needs-review` or `agent-merged`, and edits only `## Steps` and below on an approved feature.
-- **You review a `needs-review` PR by approving it.** Agents open PRs as the bot, so you can approve them. The required check "Approved by the owner" fails on a `needs-review` PR until your latest review is an Approve. A restack doesn't reset it. Low-risk steps without the label still merge with `hack/plan merge`.
+- **You review a `needs-review` PR by approving it.** Agents open PRs as the bot, so you can approve them. The required check "Approved by the owner" fails on a PR labelled `needs-review`, or whose feature is, until your latest review is an Approve of the code at its head. A restack doesn't reset it, since the step's own diff is unchanged, but new commits do. A PR you opened yourself passes, since GitHub won't let you approve it. Low-risk steps without the label still merge with `hack/plan merge`.
 
 ## Migration
 
