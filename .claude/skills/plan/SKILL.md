@@ -20,7 +20,7 @@ How the workflow fits together is in `docs/design/0009-planning-workflow.md`. Ea
 | Order between releases | The version numbers, with each milestone's "Why here" line |
 | What the user ruled out, and why | The README's "Not doing" |
 
-Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. Bookkeeping (ideas, issues, labels, milestones) is done directly and never needs a PR. Only "Not doing" is a file, in the README. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
+Use `hack/plan` for everything it covers (`hack/plan help`), and for every write to GitHub: issues, comments, labels, milestones and blocked-by links. Its writes show as `oikade-agent[bot]` (`docs/design/0108-agent-identity.md`), and raw `gh` writes are denied. Reads, such as `gh issue list`, are fine. Bookkeeping never needs a PR. Only "Not doing" is a file, in the README. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
 
 ## Answering "what's next"
 
@@ -44,7 +44,7 @@ Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. B
 
 - **A new idea:** `hack/plan idea "<title>" "<a few lines: the problem, and where it came from>"`. Don't open an issue for it.
 - **Committing to an idea:** when the user wants it built, `hack/plan promote <item id>` turns it into an issue. Then use the design skill: it decides whether a design is needed, and writes the Steps.
-- **A bug:** an issue with the `bug` label, written as a feature with one step unless it needs more.
+- **A bug:** an issue with the `bug` label (`hack/plan issue "<title>" <body file> bug`), written as a feature with one step unless it needs more.
 - **A feature issue's body:**
 
   ```markdown
@@ -68,18 +68,18 @@ Use `hack/plan` for everything it covers (`hack/plan help`), not raw `gh api`. B
 - **Order between features:**
 
   ```sh
-  gh api -X POST repos/{owner}/{repo}/issues/<blocked>/dependencies/blocked_by -F issue_id=$(gh api repos/{owner}/{repo}/issues/<blocker> -q .id)
+  hack/plan block <blocked> <blocker>
   ```
 
 - **Milestones:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "in Kind, X reaches `Ready=True`". Avoid criteria like "code written". To create one:
 
   ```sh
-  gh api -X POST repos/{owner}/{repo}/milestones -f title=… -f description=…
+  hack/plan milestone new "<title>" <description file>
   ```
 
-  Put a feature in one with `gh issue edit N -m "<title>"`. Assign milestones only when the user asks, or after agreeing an order with them.
+  Change its description with `hack/plan milestone edit "<title>" <file>`. Put a feature in one with `hack/plan milestone set N "<title>"`. Assign milestones only when the user asks, or after agreeing an order with them.
 - **Order of milestones:** the version numbers give it, and each milestone's description ends with a "Why here" line. Changes come from the user. Propose one; don't just make it.
-- **Shipped:** check the milestone's exit criteria against what's actually observable, and close it on GitHub.
+- **Shipped:** check the milestone's exit criteria against what's actually observable, and close it with `hack/plan milestone close "<title>"`.
 - **"Not doing":** add an entry only when the user rules something out, and say who ruled it out and why.
 
 ## Rules

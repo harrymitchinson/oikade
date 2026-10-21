@@ -1,7 +1,38 @@
 {
+  "env": {
+    "GIT_COMMITTER_NAME": "oikade-agent[bot]",
+    "GIT_COMMITTER_EMAIL": "345763921+oikade-agent[bot]@users.noreply.github.com"
+  },
   "permissions": {
     "deny": [
-      "Bash(gh pr merge:*)"
+      "Bash(gh issue create:*)",
+      "Bash(gh issue comment:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh issue reopen:*)",
+      "Bash(gh issue delete:*)",
+      "Bash(gh issue transfer:*)",
+      "Bash(gh issue lock:*)",
+      "Bash(gh issue unlock:*)",
+      "Bash(gh issue pin:*)",
+      "Bash(gh issue unpin:*)",
+      "Bash(gh issue develop:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr close:*)",
+      "Bash(gh pr reopen:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh pr ready:*)",
+      "Bash(gh pr lock:*)",
+      "Bash(gh pr unlock:*)",
+      "Bash(gh label create:*)",
+      "Bash(gh label edit:*)",
+      "Bash(gh label delete:*)",
+      "Bash(gh label clone:*)",
+      "Bash(gh api -X:*)",
+      "Bash(gh api --method:*)"
     ]
   }
 }
