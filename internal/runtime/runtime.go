@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/hap"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/metrics"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
@@ -82,6 +83,11 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 		}
 	}
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		// The subscription stays registered if it fails, and is restored on reconnect. Until then,
+		// Home app writes are recorded as from the device.
+		if _, err := hap.SubscribeWrites(ctx, bus, eng.HomeKitWrote); err != nil && ctx.Err() == nil {
+			log.Error(err, "Failed to subscribe to HomeKit writes")
+		}
 		// Holds and arbiters continue from their saved state, so it must be in before any is
 		// evaluated. Sync waits as long as the broker takes, and returns early only when ctx ends.
 		for _, s := range []interface{ Sync(context.Context) error }{holds, controls} {

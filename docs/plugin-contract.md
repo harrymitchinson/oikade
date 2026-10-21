@@ -26,6 +26,15 @@ Retain everything the plugin publishes. Oikade's runtime and every HomeKit bridg
 
 Other topics under the root are reserved. Oikade ignores them.
 
+### Oikade's own topics
+
+Oikade keeps its own topics under `oikade/v1/` in roots that start with `_`. No namespace starts with `_`, so they never collide with a plugin's root. Don't publish to them or depend on them. They aren't part of the contract, and they may change within `oikade/v1`.
+
+| Root | Retained | What it holds |
+|---|---|---|
+| `_runtime/` | yes | The runtime's state that must survive a restart, such as holds and claims. |
+| `_homekit/<namespace>/<bridge>` | no | Each Home app write a HomeKit bridge makes, announced just before it writes the device. The runtime uses it to record the change as from HomeKit rather than from the device. |
+
 ### `status`
 
 Publish `{"state":"online","contract":1}` once connected, and set the Last Will so that the broker publishes `{"state":"offline","contract":1}` if the plugin dies. While the status is offline, Oikade treats every device of the plugin as unavailable and refuses to send it commands.

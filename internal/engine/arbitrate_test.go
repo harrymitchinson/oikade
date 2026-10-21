@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -404,4 +405,83 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Normal" {
 		t.Errorf("winner %q after it came back", w)
 	}
+}
+
+// homekit announces a HomeKit write, as hap does before writing the device.
+func (r *rig) homekit(dev, c string, v any) {
+	r.e.HomeKitWrote(types.NamespacedName{Namespace: ns, Name: dev}, c, v)
+}
+
+func TestAHomeKitWriteIsAnOverrideFromHomeKit(t *testing.T) {
+	r := railRig(t)
+	r.homekit("towel-rail", capability.SwitchOn, true)
+	r.clock.Step(2 * time.Second)
+	r.change("towel-rail", capability.SwitchOn, true)
+	s := r.status("towel-rail", capability.SwitchOn)
+	if w := winner(s); w != "HomeKit Override" || !s.Claims[0].Expires.Time.Equal(local("2026-10-21 13:00 BST").Add(2*time.Second)) {
+		t.Errorf("status %+v, want a HomeKit override for an hour", s)
+	}
+	r.expect()
+	// The write is used up: a wall switch afterwards is the device's.
+	r.at("2026-10-21 12:10 BST")
+	r.change("towel-rail", capability.SwitchOn, false)
+	r.change("towel-rail", capability.SwitchOn, true)
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
+		t.Errorf("winner %q after a wall switch, want the device's", w)
+	}
+}
+
+func TestAHomeKitWriteDuringARuntimeWriteIsFromHomeKit(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.SwitchOn, true})
+	// The Home app turns it off two seconds after the runtime's write. The report is held back
+	// until the write settles, and still matches.
+	r.clock.Step(2 * time.Second)
+	r.homekit("towel-rail", capability.SwitchOn, false)
+	r.change("towel-rail", capability.SwitchOn, false)
+	r.clock.Step(staleReport)
+	r.settle()
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "HomeKit Override" {
+		t.Errorf("winner %q once the write settled, want HomeKit's override", w)
+	}
+}
+
+func TestChangesThatDontMatchAHomeKitWriteAreTheDevices(t *testing.T) {
+	for name, tc := range map[string]struct {
+		device   string
+		from, to bool
+		after    time.Duration
+	}{
+		// The rail was already on, and a wall switch turns it off.
+		"another value":  {"towel-rail", true, false, time.Second},
+		"too late":       {"towel-rail", false, true, homekitMatch},
+		"another device": {"fan", false, true, time.Second},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := startRigWith(t, rigOptions{
+				now:    local("2026-10-21 12:00 BST"),
+				values: map[string]map[string]any{"towel-rail": {capability.SwitchOn: tc.from}},
+				// Its default is what it starts as, so the runtime doesn't write it.
+				control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {
+					entry(capability.SwitchOn, fmt.Sprint(tc.from), homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "1h"),
+				}},
+			})
+			r.expect()
+			r.homekit(tc.device, capability.SwitchOn, true)
+			r.clock.Step(tc.after)
+			r.change("towel-rail", capability.SwitchOn, tc.to)
+			if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
+				t.Errorf("winner %q, want the device's override", w)
+			}
+		})
+	}
+}
+
+func TestAnOverrideExpiresWithNoRules(t *testing.T) {
+	r := railRig(t)
+	r.change("towel-rail", capability.SwitchOn, true)
+	r.at("2026-10-21 12:59 BST")
+	r.expect()
+	r.at("2026-10-21 13:00 BST")
+	r.expect(call{"towel-rail", capability.SwitchOn, false})
 }

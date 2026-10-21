@@ -34,6 +34,7 @@ import (
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/hap"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 	"github.com/harrymitchinson/oikade/internal/runtime"
@@ -191,6 +192,8 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		prometheus.Labels{"namespace": ns, "device": "hallway-lamp", "capability": capability.LightOn}); !ok || got != 0 {
 		t.Errorf("oikade_device_control_level = %v (%v), want 0", got, ok)
 	}
+
+	tapLamp(ctx, t, c, url, fakeZ2M)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -629,6 +632,39 @@ func metricValue(t *testing.T, reg *prometheus.Registry, name string, labels pro
 		}
 	}
 	return 0, false
+}
+
+// tapLamp turns the second lamp on from the Home app: the bridge announces it, then writes the
+// device, which reports the change. Its control status then shows an Override from HomeKit, not
+// from the device.
+func tapLamp(ctx context.Context, t *testing.T, c client.Client, url string, fakeZ2M *mqtt.Client) {
+	t.Helper()
+	must(t, fakeZ2M.Publish(ctx, "z2m/"+secondLamp, []byte(`{"state":"OFF"}`), false))
+	fakeHAP, err := mqtt.Connect(ctx, url, "fake-hap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tap := &hap.Announcer{Bus: fakeHAP, Bridge: types.NamespacedName{Namespace: ns, Name: "living-room"},
+		Setter: setterFunc(func(ctx context.Context, _ types.NamespacedName, _ string, _ any) error {
+			return fakeZ2M.Publish(ctx, "z2m/"+secondLamp, []byte(`{"state":"ON"}`), false)
+		})}
+	must(t, tap.Set(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, capability.LightOn, true))
+	eventually(t, "lamp HomeKit claim", func() bool {
+		var d homev1alpha1.Device
+		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, &d) != nil || len(d.Status.Control) != 1 {
+			return false
+		}
+		st := d.Status.Control[0]
+		return st.Level == homev1alpha1.ControlLevelOverride && len(st.Claims) == 1 &&
+			st.Claims[0].Source == "HomeKit" && st.Claims[0].Winner && string(st.Claims[0].Value.Raw) == "true"
+	})
+}
+
+// setterFunc is a driver.Setter.
+type setterFunc func(ctx context.Context, dev types.NamespacedName, name string, value any) error
+
+func (f setterFunc) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+	return f(ctx, dev, name, value)
 }
 
 func must(t *testing.T, err error) {
