@@ -19,9 +19,11 @@ A second GitHub user account was ruled out.
 |---|---|
 | Issue/PR comments, claims, opening PRs, labels, merges | `oikade-agent[bot]` |
 | Board item moves (`gh project ...`) | the user: Apps can't access a personal account's Projects |
+| Promoting a board idea to an issue (`hack/plan promote`) | the user: it's a Projects mutation |
 | Commits | author the user, committer `oikade-agent[bot]`, with the Claude trailer |
 | Pushes | the user's git credentials |
 
+- **The switch is `CLAUDECODE=1`.** Commands the user runs with `!` inside Claude Code inherit it and act as the bot, so the user runs `hack/plan` from their own terminal. There's deliberately no override, since an agent could set it too.
 - **A missing key fails loudly.** An agent's write stops before it writes anything, with an error naming the fix. It never falls back to the user's login.
 - **The `approved` guard.** A workflow on `issues: labeled` removes `approved`, and comments, when anyone other than the user added it. `hack/plan ready` also checks who added it, so a missed workflow run can't make a feature ready.
 - **The `needs-review` gate.** A required check fails while a PR has `needs-review` and no approving review from the user. Low-risk steps still merge with `hack/plan merge`.

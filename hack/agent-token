@@ -7,10 +7,13 @@
 #
 # The App's ID and private key live in the macOS Keychain, under the service
 # "oikade-agent". The key is stored base64-encoded, because the Keychain prints
-# a value with newlines in hex:
+# a value with newlines in hex. Give it at the prompt rather than as an
+# argument, where other processes could read it:
 #
 #   security add-generic-password -U -s oikade-agent -a app-id -w <App ID>
-#   security add-generic-password -U -s oikade-agent -a private-key -w "$(base64 -i key.pem)"
+#   base64 -i key.pem | pbcopy
+#   security add-generic-password -U -s oikade-agent -a private-key -w   # paste at the prompt
+#   pbcopy </dev/null
 #
 # Usage: hack/agent-token
 set -euo pipefail
@@ -32,16 +35,15 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 command -v security >/dev/null || missing "Keychain (the security command)"
 app_id=$(keychain app-id) || missing "app-id"
 [[ -n "$app_id" ]] || missing "app-id"
-key=$(mktemp)
-trap 'rm -f "$key"' EXIT
-keychain private-key | openssl base64 -d -A >"$key" 2>/dev/null || missing "private-key"
-[[ -s "$key" ]] || missing "private-key"
+# The key stays in memory and reaches openssl through a pipe, never a file.
+key=$(keychain private-key | openssl base64 -d -A 2>/dev/null) || missing "private-key"
+[[ -n "$key" ]] || missing "private-key"
 
 # A JWT for the App itself, valid for nine minutes. iat is a minute in the past
 # to allow for clock drift, as GitHub recommends.
 now=$(date +%s)
 unsigned="$(printf '{"alg":"RS256","typ":"JWT"}' | b64url).$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now - 60)) $((now + 540)) "$app_id" | b64url)"
-sig=$(printf '%s' "$unsigned" | openssl dgst -sha256 -sign "$key" -binary | b64url) || die "couldn't sign a JWT with the Keychain's private-key"
+sig=$(printf '%s' "$unsigned" | openssl dgst -sha256 -sign <(printf '%s\n' "$key") -binary | b64url) || die "couldn't sign a JWT with the Keychain's private-key"
 jwt="$unsigned.$sig"
 
 api() {
@@ -51,7 +53,7 @@ api() {
 	printf '%s' "$out"
 }
 
-repo="${AGENT_REPO:-$(git remote get-url "${PLAN_REMOTE:-origin}" | sed -E 's#^(git@[^:]+:|https://[^/]+/)##; s#\.git$##')}"
+repo="${AGENT_REPO:-$(git remote get-url "${PLAN_REMOTE:-origin}" | sed -E 's#^(git@[^:]+:|[a-z+]+://([^@/]+@)?[^/]+/)##; s#/$##; s#\.git$##')}"
 installation=$(api "$API/repos/$repo/installation" | jq -r .id)
 [[ "$installation" =~ ^[0-9]+$ ]] || die "the oikade-agent App isn't installed on $repo"
 api -X POST "$API/app/installations/$installation/access_tokens" | jq -er .token ||
