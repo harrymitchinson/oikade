@@ -27,9 +27,9 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 
 | Kind | Group | Purpose |
 |------|-------|---------|
-| `Device` | `home.oikade.dev` | A device that should exist: name, room and driver source (a Zigbee IEEE address, or a Plugin and a plugin-local id). Status shows its capabilities and availability. |
+| `Device` | `home.oikade.dev` | A device that should exist: name, room and driver source (a Zigbee IEEE address, or a Plugin and a plugin-local id), and which capabilities it arbitrates. Status shows its capabilities, availability and claims. |
 | `Room` | `home.oikade.dev` | Labels metrics and groups devices. HomeKit can't receive rooms from a bridge, so you also assign them once in the Home app. |
-| `Rule` | `home.oikade.dev` | Triggers, a CEL condition and actions (`do`: `set`, `delay`). |
+| `Rule` | `home.oikade.dev` | A moment (`triggers`, a CEL condition and `do`) or a hold (`while` and `hold`). See [Rules](#rules). |
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
 | `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device platform Oikade doesn't speak natively. See [Plugins](#plugins). |
 | `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
@@ -76,6 +76,17 @@ kubectl -n home get zigbee2mqtts,devices,bridges,rules
 
 ## Rules
 
+A `Rule` has one of two shapes ([0060](docs/design/0060-rule-model.md)):
+
+- **Moments** (`triggers`) do something when a trigger fires: a capability changes, a time of day comes, or the sun rises or sets.
+- **Holds** (`while`) keep a capability at a value for as long as a window or a condition holds. The runtime works out from the clock and the devices' state whether a hold is active, so it stays right across a restart.
+
+Capabilities are last-write-wins unless the Device **arbitrates** them with a [`control`](#arbitration) entry. Then rules, HomeKit and the device itself make claims, the device takes the winner, and `kubectl get device` says why.
+
+The Kind e2e applies every complete manifest in this section, and expects each Rule and Device to be `Ready`.
+
+### Moments
+
 ```yaml
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -100,11 +111,16 @@ The condition is [CEL](https://cel.dev). It can use these variables:
 | `now` | timestamp | |
 | `tz` | string | The runtime's `--timezone`. CEL's accessors default to UTC, so write `now.getHours(tz)`. |
 
+The 5 minutes in this example live in the runtime's memory, so a restart during them leaves the light on. The [hold](#holds) version below doesn't have that problem.
+
 ### Time and sun triggers
 
 A trigger can be a time of day (`at`) or sunrise or sunset (`sun`) instead of a `change`:
 
 ```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: downstairs-bedtime}
 spec:
   triggers:
   - at: {time: "23:30", days: [Sun, Mon, Tue, Wed, Thu]}   # weeknights
@@ -112,7 +128,7 @@ spec:
   - sun: {event: Sunset, offset: -15m}                     # 15 minutes before sunset
   startingDeadline: 10m
   do:
-  - set: {room: downstairs, capability: light.on, value: false}
+  - set: {device: porch-light, capability: light.on, value: false}
 ```
 
 - **Times are local,** in the runtime's `--timezone`. A time the clocks skip when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
@@ -123,7 +139,7 @@ spec:
 
 ### Rooms
 
-A `change` trigger or a `set` action can name a `room` instead of a `device`, but not both. A Device is in a room when its `roomRef` names it, so a lamp added to the room later is covered without editing the Rule.
+A `change` trigger, a `set` action or a `hold` can name a `room` instead of a `device`, but not both. A Device is in a room when its `roomRef` names it, so a lamp added to the room later is covered without editing the Rule.
 
 ```yaml
 spec:
@@ -137,13 +153,200 @@ spec:
 - **Room actions** set every Device in the room that has reported the capability, in name order, and skip the rest. So `light.on` on a room leaves the motion sensor and the thermostat alone, and a Device that hasn't been discovered yet is skipped. Membership is read when the action runs, so a lamp added to the room during a `delay` is included in the actions after it.
 - **If some Devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`, and the runtime logs `Matched no Devices in Room` with `--log-level=debug`.
 - **Restart mode with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `delay` longer than the time your sensor holds `occupancy: true` after the last movement.
+- **A room `set` with no end skips arbitrated members,** because a claim must end (see [one-off claims](#one-off-claims)). The Rule lists them in `status.skipped`.
 
-The operator compiles every Rule and sets `Ready=False` with the reason:
+### Holds
 
-- `Invalid` when the condition doesn't compile, a capability is unknown or read-only, or a value has the wrong type.
+A hold keeps a capability at `hold.value` while everything in `while` is true:
+
+```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: water-heater-night}
+spec:
+  while:
+    window: {start: "22:00", end: "06:00"}   # an end at or before the start is the next morning
+  hold: {device: water-heater, capability: switch.on, value: true}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: bathroom-humid}
+spec:
+  while:
+    when: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+    offDelay: 10m                            # run on for 10 minutes after it drops
+  hold: {device: bathroom-fan, capability: switch.on, value: true}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: porch-evening}
+spec:
+  while:
+    window: {start: {sun: Sunset, offset: -15m}, end: "23:30"}
+  hold: {device: porch-light, capability: light.on, value: true}
+```
+
+| Field | |
+|---|---|
+| `window` | `start` and `end` are quoted `"HH:MM"` local times, or `{sun: Sunrise\|Sunset, offset}`. `days` limits it to windows that start on those days. |
+| `when` | CEL over `devices`, `now` and `tz`, as in a condition. |
+| `onDelay` | How long the rest must stay true before the hold starts. |
+| `offDelay` | How long the hold stays active after the rest stops being true. |
+| `latch` | Stays active once `when` has been true, until a `release`. See [below](#latched-safety-holds). |
+
+A `while` needs a `window` or a `when`, and everything in it must be true together.
+
+- **When a hold starts,** the runtime writes `hold.value`. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `control` entry: its `default` is what's left when the hold ends.
+- **Without a `control` entry, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
+- **Restarts are safe.** The runtime saves each hold's state, and on startup it writes only if the hold started or ended while it was down. A restart at 02:00 doesn't undo the 23:00 tap, but a runtime down from 21:50 to 02:00 turns the heater on when it comes back. `offDelay` deadlines are saved too, so the fan still stops on time.
+- `status.active` and `status.nextChange` say whether the hold is active and when that next changes. `kubectl get rules` shows `ACTIVE`.
+- **Two holds on one capability need a `control` entry** to decide between them. Without one, both Rules show `Ready=False` with reason `ConflictingHolds`.
+
+### Arbitration
+
+A Device arbitrates a capability when it has a `control` entry for it:
+
+```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: hall-light}
+spec:
+  zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x000b57fffe0000a1"}
+  control:
+  - capability: light.on
+    default: false          # what's left when nobody claims it
+    resolve: PreferOn       # two claims at one level: on wins
+    external: Override      # a wall switch or Home app tap becomes a claim...
+    overrideHold: Next      # ...until what the rules want next changes
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: hall-motion-light}
+spec:
+  while:
+    when: devices["hall-motion"]["sensor.occupancy-detected"]
+    offDelay: 5m
+  hold: {device: hall-light, capability: light.on, value: true}
+```
+
+Rules, HomeKit and the device itself make **claims**. The highest level with a claim wins:
+
+| Level | Who claims | Ends |
+|---|---|---|
+| Safety | Rules with `priority: Safety` | When the hold ends, or the set's `for`/`until` |
+| Override | Outside changes (HomeKit, or the device by itself), and Rules with `priority: Override` | After `overrideHold`, or when its `until` says |
+| Normal | Ordinary Rules | When the hold ends, or the set's `for`/`until` |
+| Default | Nobody | Never |
+
+| Field | |
+|---|---|
+| `default` | Required. The value when nothing claims the capability. |
+| `resolve` | Required. Which claim wins within a level: `PreferOn` or `PreferOff` for bools, `Highest` or `Lowest` for numbers. Rules have no numeric priorities. |
+| `external` | Required. What an outside change does. `Override` makes it a claim for `overrideHold`. `Revert` writes the winner straight back, as for a valve that must stay closed. |
+| `overrideHold` | With `Override`: a duration such as `1h`, or `Next`, which ends the override when the winner without it next changes. |
+| `minimumOn`, `maximumOn`, `minimumOff`, `maximumStartsPerDay` | Equipment limits. They apply after the winner is picked and beat every Rule, Safety included. An outside change is accepted and counted, but not fought. |
+
+In this example, motion turns the light on, and it goes off 5 minutes after the motion stops. A wall switch turned off during that is an Override, so the light stays off until the motion hold ends. A wall switch turned on with nobody about lasts until the next motion starts, and the light then goes off 5 minutes after the motion stops. The motion hold's off-delay is saved, so a restart doesn't leave the light on.
+
+An outside change is recorded by the path it came in by: `HomeKit` for a Home app tap, and `Device` for anything else, such as a wall switch. A Rule's claim is `Rule/<name>`. Oikade can't tell what a person did, so nothing is called "manual".
+
+### One-off claims
+
+A `set` on an arbitrated capability is a claim, so it must say when it ends:
+
+```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: towel-rail}
+spec:
+  zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x000b57fffe0000a2"}
+  control:
+  - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: towel-rail-boost}
+spec:
+  triggers:
+  - at: {time: "21:30", days: [Sun]}
+  do:
+  - set: {device: towel-rail, capability: switch.on, value: true, for: 1h, until: Next}
+```
+
+- `for: <duration>` ends it after that long.
+- `until: Next` ends it when the winner without it next changes, such as when the rail's evening hold starts.
+- `for` together with `until: Next` ends it at whichever comes first, so this boost at 21:30 runs for an hour rather than until the morning hold.
+- `until: Released` ends it at a `release: {rule: <name>}` action in another Rule.
+- `priority: Safety` or `Override` on the `set` raises the claim's level. It's `Normal` otherwise.
+
+A `set` on an arbitrated capability of a single device with no `for` or `until` sets `Ready=False` with reason `UnendedClaim`. A `set` on a capability that isn't arbitrated is a plain write, and `for` and `until` don't apply to it.
+
+### Latched Safety holds
+
+A latched hold stays active once `when` has been true, until another Rule releases it. It's worked out from state rather than from a change, so it acts on startup even if the heater overheated while the runtime was down:
+
+```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: garage-heater}
+spec:
+  zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x000b57fffe0000a3"}
+  control:
+  - {capability: switch.on, default: true, resolve: PreferOff, external: Revert}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: garage-overheat}
+spec:
+  priority: Safety
+  while:
+    when: devices["garage-temperature"]["sensor.temperature"] > 40
+    latch: true
+  hold: {device: garage-heater, capability: switch.on, value: false}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: garage-overheat-reset}
+spec:
+  triggers:
+  - change: {device: garage-door, capability: sensor.contact-open}
+  condition: trigger.value
+  do:
+  - release: {rule: garage-overheat}
+```
+
+Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. Rules run only while the runtime is up, so overheating while it's down is acted on when it starts. A `release` naming a Rule that doesn't exist, or that has nothing to release, sets `Ready=False` with reason `InvalidRelease`.
+
+### Reading Device status
+
+`Device.status.control` lists each arbitrated capability's value, the level that won, and every claim:
+
+```console
+$ kubectl -n home get device hall-light -o jsonpath='{.status.control}' | jq
+[
+  {
+    "capability": "light.on",
+    "value": false,
+    "level": "Override",
+    "claims": [
+      {"source": "Rule/hall-motion-light", "level": "Normal", "value": true},
+      {"source": "Device", "level": "Override", "value": false, "winner": true}
+    ]
+  }
+]
+```
+
+A claim also shows `expires` when it ends at a set time, `latched` for a latched hold, and `reverted` for an outside change that `Revert` wrote back. Status changes when a claim starts or ends, not on every value. `oikade_device_control_level` has the winning level over time.
+
+### When a Rule isn't Ready
+
+The operator compiles every Rule and sets `Ready=False` with the first problem it finds, in this order:
+
+- `Invalid` when the Rule doesn't compile: a bad condition or `when`, an unknown or read-only capability, or a value of the wrong type.
 - `RoomNotFound` when a trigger or action names a Room that doesn't exist in the namespace. The message lists the missing Rooms. Creating them sets `Ready=True` without editing the Rule. The runtime doesn't check Rooms: until the Room exists it still runs the Rule, matching any Devices whose `roomRef` names it. For a misspelled room that's none. After a Room is deleted, Devices still pointing at it keep matching.
+- `UnendedClaim`, `ConflictingHolds` and `InvalidRelease`, as above. These follow the Devices and other Rules, so adding a `control` entry or the missing Rule clears them without editing this one.
 
-`Invalid` is reported before `RoomNotFound`. `status.lastTriggered` is updated at most once a minute.
+A Device whose `control` entry doesn't fit its capability, such as `resolve: Highest` on a bool, shows `Ready=False` with reason `InvalidControl`, and that capability stays last-write-wins. `status.lastTriggered` is updated at most once a minute.
 
 ### Migrating from Automation
 
@@ -224,7 +427,9 @@ The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/d
 | `oikade_plugin_up{namespace,plugin}` | 1 while the plugin reports itself online with contract 1 |
 | `oikade_plugin_rejected_messages_total{namespace,plugin,reason}` | Plugin messages dropped as `malformed`, `wrong_contract`, `unknown_capability`, `invalid_value`, `undeclared_device` or `unannounced_capability` |
 | `oikade_rule_runs_total{namespace,rule,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error`, `missed` |
-| `oikade_rule_next_change_timestamp_seconds{namespace,rule}` | When a Rule's next `at` or `sun` trigger fires |
+| `oikade_rule_next_change_timestamp_seconds{namespace,rule}` | When a Rule's next `at` or `sun` trigger fires, or its hold next starts or ends |
+| `oikade_rule_active{namespace,rule}` | 1 while a Rule's hold is active, 0 otherwise |
+| `oikade_device_control_level{namespace,device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.
@@ -237,6 +442,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - **Accessory IDs** live in `Bridge.status.accessories`. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
 - **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git. Changes made in its frontend don't survive a restart.
+- **The runtime's state** lives in retained MQTT messages under `oikade/v1/_runtime/`, kept on Mosquitto's `oikade-mosquitto` PVC: which holds are active, latches, off-delay deadlines, claims and their expiries, and equipment-limit counters. Losing it is safe but noticeable. Holds and claims are worked out again from the clock and the devices, but latched holds whose condition has passed are released, overrides end early, and limits start counting again.
 - **A plugin's credentials** (the `spec.secretRef` Secret, such as LAN keys) belong to you. The operator never creates, changes or deletes them, so keep them in Git, encrypted with SOPS or similar. Everything else a plugin needs is rendered from Git, and plugins keep no state of their own.
 
 To really forget a Bridge or Zigbee2MQTT instance, delete those objects yourself:
@@ -251,6 +457,7 @@ kubectl delete secret,pvc -l zigbee.oikade.dev/instance=<name>
 - Mosquitto allows anonymous access inside the cluster. Anything that can reach it can control your devices. Restrict it with a NetworkPolicy, or bring your own broker and set `--mqtt-url` on the operator, runtime and Bridge pods.
 - HAP pods use the host network, run as non-root and only have read access to the API. Each one can read only its own setup code and identity Secret.
 - Plugins publish on the same anonymous broker, so anything on the cluster network could also publish as a plugin, just as it could as Zigbee2MQTT.
+- HomeKit bridges announce each Home app write on `oikade/v1/_homekit/`, so status can say a change came from HomeKit. Anything on the broker could publish a false announcement. That only changes the source shown on a claim, not what Oikade does.
 
 ## Logging
 
@@ -284,7 +491,7 @@ To ship a milestone:
 ```sh
 make test          # unit tests, envtest, and an in-process MQTT broker for the runtime integration test
 make lint
-make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, metrics and the HAP pod
+make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, holds, claims, metrics and the HAP pod
 
 make test-conformance   # builds plugins/example-switch and drives it through the plugin contract
 ```

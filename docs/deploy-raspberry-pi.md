@@ -476,11 +476,24 @@ spec:
   - set: {device: hallway-light, capability: light.on, value: false}
 ```
 
-```sh
-kubectl -n home get rules           # READY False explains what's wrong with the condition or actions
+A hold keeps something on for as long as a window or a condition holds, and stays right across a restart. `home/rules/water-heater-night.yaml`:
+
+```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata:
+  name: water-heater-night
+spec:
+  while:
+    window: {start: "22:00", end: "06:00"}
+  hold: {device: water-heater, capability: switch.on, value: true}
 ```
 
-The README describes the CEL variables and the capability names.
+```sh
+kubectl -n home get rules           # READY False explains what's wrong; ACTIVE shows which holds are on
+```
+
+Sun triggers and windows need the `--latitude` and `--longitude` from step 7. The README's [Rules](../README.md#rules) section covers the CEL variables, holds, Safety rules, and arbitration: what happens when rules, the Home app and a wall switch disagree.
 
 ## 14. Monitoring
 
@@ -512,7 +525,7 @@ kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}
 kubectl -n monitoring port-forward svc/kps-grafana 3000:80
 ```
 
-The **Oikade home** dashboard shows temperature and humidity per room, light and door timelines, motion events, battery levels, availability and rule runs. On a Pi 4, consider a Prometheus memory limit and an SSD for the Prometheus PVC.
+The **Oikade home** dashboard shows temperature and humidity per room, light and door timelines, motion events, battery levels, availability, rule runs, active holds, their next changes, and which level wins each arbitrated capability. On a Pi 4, consider a Prometheus memory limit and an SSD for the Prometheus PVC.
 
 ## 15. Back up what Git can't rebuild
 
@@ -524,6 +537,7 @@ Everything in your home repo can be rebuilt from Git. These can't:
 | HomeKit identity | Secret `home/main-identity` | The Home app sees a new bridge |
 | HomeKit pairings and keys | PVC `home/main-hap` | You must re-pair, and the Home app forgets rooms, scenes and automations |
 | Zigbee database and coordinator backup | PVC `home/z2m-data` | zigbee2mqtt rebuilds what it can; devices may need re-interviewing |
+| The runtime's state: active holds, latches, claims and limit counters | PVC `oikade-system/oikade-mosquitto`, as retained MQTT messages | Holds are worked out again from the clock, but latched Safety holds whose condition has passed are released, overrides end early, and equipment limits start counting again |
 | Plugin credentials | Your `spec.secretRef` Secrets, such as `home/sonoff-keys` | The plugin reports an error for every device. If they're in Git with SOPS, they come back with Flux. |
 | SOPS age key | `age.agekey`, and Secret `flux-system/sops-age` | Nothing encrypted in Git can be decrypted. Keep `age.agekey` in a password manager. |
 
@@ -538,6 +552,7 @@ For the PVCs on `local-path`, copy the directories off the Pi they live on. Find
 
 ```sh
 kubectl -n home get pod -o wide                       # main-hap and z2m pods show their node
+kubectl -n oikade-system get pod -o wide              # and oikade-mosquitto
 ssh pi-1 sudo ls /var/lib/rancher/k3s/storage/        # e.g. pvc-3f2..._home_main-hap
 ```
 
