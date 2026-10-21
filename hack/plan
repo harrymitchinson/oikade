@@ -29,7 +29,11 @@ PROTECTED='^api/|^cmd/|^config/|^PROJECT$|^internal/(capability|hap|hub|identity
 
 die() { echo "plan: $*" >&2; exit 1; }
 
-repo() { gh repo view --json nameWithOwner -q .nameWithOwner; }
+# The dispatch at the bottom looks the repo up once, into REPO.
+REPO=""
+repo() { if [[ -n "$REPO" ]]; then echo "$REPO"; else gh repo view --json nameWithOwner -q .nameWithOwner; fi; }
+
+need_file() { [[ -f "$1" ]] || die "no such file: $1"; }
 
 # --- Acting as the agent --------------------------------------------------------
 
@@ -60,8 +64,33 @@ as_agent() {
 }
 
 comment() { as_agent api "repos/$(repo)/issues/$1/comments" -f body="$2" >/dev/null; }
-add_label() { as_agent api "repos/$(repo)/issues/$1/labels" -f "labels[]=$2" >/dev/null; }
-remove_label() { as_agent api -X DELETE "repos/$(repo)/issues/$1/labels/$2" >/dev/null; }
+# add_label N LABEL...: one request for all of them.
+add_label() {
+	local n="$1" l args=()
+	shift
+	for l in "$@"; do args+=(-f "labels[]=$l"); done
+	as_agent api "repos/$(repo)/issues/$n/labels" "${args[@]}" >/dev/null
+}
+
+# remove_label N LABEL: a label that's already gone counts as removed.
+remove_label() {
+	local err
+	err=$(as_agent api -X DELETE "repos/$(repo)/issues/$1/labels/$(jq -rn --arg l "$2" '$l | @uri')" 2>&1 >/dev/null) ||
+		[[ "$err" == *"HTTP 404"* ]] || { echo "plan: couldn't remove $2 from #$1: $err" >&2; return 1; }
+}
+
+# Labels that record the user's decisions. Agents never add or remove approved,
+# and never remove needs-review (the user's review gate) or agent-merged (the
+# user's record of what to look at). GitHub matches label names without case.
+label_refusal() {
+	local op="$1" l
+	l=$(tr '[:upper:]' '[:lower:]' <<<"$2")
+	case "$op$l" in
+	[+-]approved) echo "only the user adds or removes the approved label" ;;
+	-needs-review) echo "only the user removes needs-review: it holds a PR for their review" ;;
+	-agent-merged) echo "only the user removes agent-merged, once they've reviewed the PR" ;;
+	esac
+}
 
 usage() {
 	cat <<'EOF'
@@ -87,7 +116,9 @@ Issues and milestones (agents use these, never raw gh writes)
   issue TITLE BODY_FILE [LABEL...]
                         Open an issue and print its number
   edit N BODY_FILE      Replace issue N's body
-  label N +L|-L...      Add (+) or remove (-) labels on issue or PR N. Never approved: only the user adds it
+  label N +L|-L...      Add (+) or remove (-) labels on issue or PR N. Never approved, and never
+                        removes needs-review or agent-merged: those are the user's
+  milestones            Every milestone, with its description
   block N M             Record that feature N is blocked by feature M
   milestone set N TITLE           Put issue N in milestone TITLE
   milestone new TITLE DESC_FILE   Create a milestone
@@ -448,7 +479,7 @@ cmd_step() {
 cmd_pr() {
 	local n="${1:?usage: plan pr N TITLE BODY_FILE}" title="${2:?usage: plan pr N TITLE BODY_FILE}" file="${3:?usage: plan pr N TITLE BODY_FILE}"
 	local branch base oid url pr
-	[[ -f "$file" ]] || die "no such file: $file"
+	need_file "$file"
 	branch=$(git branch --show-current)
 	[[ "$branch" =~ ^work/$n-[0-9]+$ ]] || die "run this in #$n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
 	[[ -z "$(git status --porcelain)" ]] || die "the worktree has uncommitted changes"
@@ -611,39 +642,47 @@ cmd_note() {
 }
 
 cmd_issue() {
-	local title="${1:?usage: plan issue TITLE BODY_FILE [LABEL...]}" file="${2:?usage: plan issue TITLE BODY_FILE [LABEL...]}" l args=()
+	local title="${1:?usage: plan issue TITLE BODY_FILE [LABEL...]}" file="${2:?usage: plan issue TITLE BODY_FILE [LABEL...]}" l why args=()
 	shift 2
-	[[ -f "$file" ]] || die "no such file: $file"
+	need_file "$file"
 	for l in "$@"; do
-		[[ "$l" != approved ]] || die "only the user adds the approved label"
+		why=$(label_refusal + "$l")
+		[[ -z "$why" ]] || die "$why"
 		args+=(-f "labels[]=$l")
 	done
-	as_agent api "repos/$(repo)/issues" -f title="$title" -F body=@"$file" "${args[@]}" -q .number
+	# ${a[@]+...}: bash 3.2, as macOS ships, calls an empty array unbound.
+	as_agent api "repos/$(repo)/issues" -f title="$title" -F body=@"$file" ${args[@]+"${args[@]}"} -q .number
 }
 
+# above_steps: a body up to its "## Steps" heading, which is the design.
+above_steps() { awk '/^## Steps[[:space:]]*$/ {exit} {print}'; }
+
+# edit N FILE: once the user has approved a feature, its design is what they
+# decided, so only the Steps and below may change.
 cmd_edit() {
-	local n="${1:?usage: plan edit N BODY_FILE}" file="${2:?usage: plan edit N BODY_FILE}"
-	[[ -f "$file" ]] || die "no such file: $file"
+	local n="${1:?usage: plan edit N BODY_FILE}" file="${2:?usage: plan edit N BODY_FILE}" info
+	need_file "$file"
+	info=$(gh issue view "$n" --json labels,body -q '([.labels[].name | ascii_downcase] | join(",")) + "\n" + .body')
+	if [[ ",$(head -1 <<<"$info")," == *,approved,* ]] &&
+		[[ "$(tail -n +2 <<<"$info" | above_steps)" != "$(above_steps <"$file")" ]]; then
+		die "#$n is approved, so its design is the user's decision: only ## Steps and below may change. Ask the user in a comment instead"
+	fi
 	as_agent api -X PATCH "repos/$(repo)/issues/$n" -F body=@"$file" >/dev/null
 	echo "Edited #$n"
 }
 
-# label N +L -L: the user decides by adding approved, so agents neither add nor
-# remove it. The approved guard (docs/design/0108-agent-identity.md) backs this up.
 cmd_label() {
-	local n="${1:?usage: plan label N +LABEL|-LABEL...}" l
+	local n="${1:?usage: plan label N +LABEL|-LABEL...}" l why add=() remove=()
 	shift
 	[[ $# -gt 0 ]] || die "usage: plan label N +LABEL|-LABEL..."
 	for l in "$@"; do
 		[[ "$l" =~ ^[+-].+ ]] || die "say +$l to add it or -$l to remove it"
-		[[ "${l:1}" != approved ]] || die "only the user adds or removes the approved label"
+		why=$(label_refusal "${l:0:1}" "${l:1}")
+		[[ -z "$why" ]] || die "$why"
+		if [[ "$l" == +* ]]; then add+=("${l:1}"); else remove+=("${l:1}"); fi
 	done
-	for l in "$@"; do
-		case "$l" in
-		+*) add_label "$n" "${l:1}" ;;
-		-*) remove_label "$n" "$(jq -rn --arg l "${l:1}" '$l | @uri')" ;;
-		esac
-	done
+	if (( ${#add[@]} )); then add_label "$n" "${add[@]}"; fi
+	for l in ${remove[@]+"${remove[@]}"}; do remove_label "$n" "$l"; done
 	echo "#$n: $*"
 }
 
@@ -663,6 +702,11 @@ milestone_number() {
 	echo "$num"
 }
 
+cmd_milestones() {
+	gh api --paginate "repos/$(repo)/milestones?state=all&sort=title" |
+		jq -rs '.[][] | "## \(.title) (\(.state), \(.open_issues) open, \(.closed_issues) closed)\n\(.description // "")\n"'
+}
+
 cmd_milestone() {
 	local sub="${1:-}" n title file num
 	case "$sub" in
@@ -674,12 +718,12 @@ cmd_milestone() {
 		;;
 	new)
 		title="${2:?usage: plan milestone new TITLE DESC_FILE}" file="${3:?usage: plan milestone new TITLE DESC_FILE}"
-		[[ -f "$file" ]] || die "no such file: $file"
+		need_file "$file"
 		as_agent api "repos/$(repo)/milestones" -f title="$title" -F description=@"$file" -q .html_url
 		;;
 	edit)
 		title="${2:?usage: plan milestone edit TITLE DESC_FILE}" file="${3:?usage: plan milestone edit TITLE DESC_FILE}"
-		[[ -f "$file" ]] || die "no such file: $file"
+		need_file "$file"
 		num=$(milestone_number "$title")
 		as_agent api -X PATCH "repos/$(repo)/milestones/$num" -F description=@"$file" >/dev/null
 		echo "Edited $title"
@@ -725,8 +769,14 @@ cmd="${1:-help}"
 [[ $# -gt 0 ]] && shift
 case "$cmd" in
 	# Commands that write to issues or PRs.
-	claim | step | pr | merge | restack | link | release | sync | note | issue | edit | label | block | milestone) agent_token; "cmd_$cmd" "$@" ;;
-	ready | show | claims | ideas | idea | promote) "cmd_$cmd" "$@" ;;
+	# Commands that write to issues or PRs mint the App token first, before
+	# anything else, so a missing key stops them before they touch GitHub.
+	claim | step | pr | merge | restack | link | release | sync | note | issue | edit | label | block | milestone)
+		agent_token
+		REPO=$(repo)
+		"cmd_$cmd" "$@"
+		;;
+	ready | show | claims | milestones | ideas | idea | promote) REPO=$(repo); "cmd_$cmd" "$@" ;;
 	help | -h | --help) usage ;;
 	*) usage >&2; exit 2 ;;
 esac

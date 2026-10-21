@@ -27,7 +27,8 @@ A second GitHub user account was ruled out.
 - **A missing key fails loudly.** An agent's write stops before it writes anything, with an error naming the fix. It never falls back to the user's login.
 - **The `approved` guard.** A workflow on `issues: labeled` removes `approved`, and comments, when anyone other than the user added it. `hack/plan ready` also checks who added it, so a missed workflow run can't make a feature ready.
 - **The `needs-review` gate.** A required check fails while a PR has `needs-review` and no approving review from the user. Low-risk steps still merge with `hack/plan merge`.
-- **No raw `gh` writes.** Skills write through `hack/plan` (`note`, `issue`, `edit`, `label`, `block` and `milestone`, beside the claim and step commands), and `.claude/settings.json` denies the raw write forms. The deny rules match a command's start, so they catch `gh api -X …` but not a `gh api` that writes with `-f` alone. `make test-hack` checks that no skill or `AGENTS.md` names a denied form.
+- **No raw `gh` writes.** Skills write through `hack/plan` (`note`, `issue`, `edit`, `label`, `block` and `milestone`, beside the claim and step commands), and `.claude/settings.json` denies the raw write forms. The deny rules match a command's start, and a `gh api` call can write without saying so up front, so agents get no `gh api` at all: they read with `gh issue`/`gh pr` and `hack/plan`. `make test-hack` checks that no skill or `AGENTS.md` names a denied form.
+- **Labels that record the user's decisions.** `hack/plan` never adds or removes `approved`, and never removes `needs-review` or `agent-merged`. `hack/plan edit` changes only `## Steps` and below once a feature is approved, since the design above it is what the user decided.
 
 ### Options not taken
 

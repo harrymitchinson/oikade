@@ -29,7 +29,7 @@ Use `hack/plan` for everything it covers (`hack/plan help`), and for every write
    - `hack/plan ready` lists what an agent can start now
    - `hack/plan claims` lists what's in flight, and what's stale
    - `gh issue list --label needs-design` and `gh pr list` show what's waiting on the user
-   - `git log --oneline -20`, and the milestones with `gh api repos/{owner}/{repo}/milestones`
+   - `git log --oneline -20`, and the milestones with `hack/plan milestones`
 2. **Reconcile it:**
    - Close features whose last step merged without closing them.
    - Flag stale claims. Release one only if the user agrees.
