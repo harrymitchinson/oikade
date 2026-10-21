@@ -166,7 +166,8 @@ spec:
   - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
 `
 
-// pluginDevices is the plugin's devices topic with every relay found.
+// pluginDevices is the plugin's devices topic with every relay found. It clears the device error
+// that "serves a plugin Device fed over MQTT" reports, so it's published only after that test.
 const pluginDevices = `{"devices":[` +
 	`{"id":"porch-relay","found":true,"capabilities":["light.on"]},` +
 	`{"id":"fan-relay","found":true,"capabilities":["switch.on"]},` +
@@ -193,11 +194,12 @@ func readmeManifests() string {
 	return strings.Join(docs, "---\n")
 }
 
-// subscribe starts listening for one message on topic, and returns a func that waits for it.
-func subscribe(topic string) func() string {
+// subscribe starts listening for count messages on topic, and returns a func that waits for them
+// and returns them, one "topic payload" per line.
+func subscribe(topic string, count int) func() string {
 	var out bytes.Buffer
 	sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
-		"mosquitto_sub", "-h", mqttHost, "-t", topic, "-v", "-C", "1", "-W", "90")
+		"mosquitto_sub", "-h", mqttHost, "-t", topic, "-v", "-C", fmt.Sprint(count), "-W", "90")
 	sub.Stdout = &out
 	ExpectWithOffset(1, sub.Start()).To(Succeed())
 	time.Sleep(3 * time.Second) // let the subscription land before publishing
@@ -339,17 +341,11 @@ func homeScenario() {
 
 		It("turns the light on when motion is detected", func() {
 			By("listening for commands to Zigbee2MQTT")
-			var out bytes.Buffer
-			sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
-				"mosquitto_sub", "-h", mqttHost, "-t", "z2m/+/set", "-v", "-C", "1", "-W", "90")
-			sub.Stdout = &out
-			Expect(sub.Start()).To(Succeed())
-			time.Sleep(3 * time.Second) // let the subscription land before publishing
+			wait := subscribe("z2m/+/set", 1)
 
 			By("reporting motion")
 			publish("z2m/hallway-motion", `{"occupancy":true,"temperature":19.5}`, false)
-			Expect(sub.Wait()).To(Succeed())
-			Expect(out.String()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"ON"}`))
+			Expect(wait()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"ON"}`))
 
 			Eventually(jsonpath("rule", "motion-light", "{.status.lastTriggered}")).ShouldNot(BeEmpty())
 		})
@@ -419,18 +415,13 @@ func homeScenario() {
 				Should(Equal("True"))
 
 			By("listening for commands to Zigbee2MQTT")
-			var out bytes.Buffer
-			sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
-				"mosquitto_sub", "-h", mqttHost, "-t", "z2m/+/set", "-v", "-C", "2", "-W", "90")
-			sub.Stdout = &out
-			Expect(sub.Start()).To(Succeed())
-			time.Sleep(3 * time.Second) // let the subscription land before publishing
+			wait := subscribe("z2m/+/set", 2)
 
 			By("opening the porch door")
 			publish("z2m/front-door", `{"contact":false}`, false)
-			Expect(sub.Wait()).To(Succeed())
-			Expect(out.String()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"OFF"}`))
-			Expect(out.String()).To(ContainSubstring("z2m/" + secondLamp + `/set {"state":"OFF"}`))
+			out := wait()
+			Expect(out).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"OFF"}`))
+			Expect(out).To(ContainSubstring("z2m/" + secondLamp + `/set {"state":"OFF"}`))
 		})
 
 		// This needs the porch Room from the test above.
@@ -484,16 +475,10 @@ func homeScenario() {
 			By("switching the plugin Device from a Rule")
 			Eventually(jsonpath("rule", "porch-light-off", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
-			var out bytes.Buffer
-			sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
-				"mosquitto_sub", "-h", mqttHost, "-t", pluginRoot+"/porch-relay/set", "-v", "-C", "1", "-W", "90")
-			sub.Stdout = &out
-			Expect(sub.Start()).To(Succeed())
-			time.Sleep(3 * time.Second) // let the subscription land before publishing
+			wait := subscribe(pluginRoot+"/porch-relay/set", 1)
 			// The test above left the door open; closing it is a change.
 			publish("z2m/front-door", `{"contact":true}`, false)
-			Expect(sub.Wait()).To(Succeed())
-			Expect(out.String()).To(ContainSubstring(pluginRoot + `/porch-relay/set {"light.on":false}`))
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/porch-relay/set {"light.on":false}`))
 
 			By("reporting a device error")
 			publish(pluginRoot+"/devices", `{"devices":[{"id":"porch-relay","found":false,`+
@@ -511,7 +496,7 @@ func homeScenario() {
 				Should(Equal("True"))
 
 			// The hold writes once the plugin has announced the fan, so listen first.
-			wait := subscribe(pluginRoot + "/fan-relay/set")
+			wait := subscribe(pluginRoot+"/fan-relay/set", 1)
 			publish(pluginRoot+"/devices", pluginDevices, true)
 			publish(pluginRoot+"/fan-relay/availability", "online", true)
 			publish(pluginRoot+"/fan-relay/state", `{"switch.on":false}`, true)
@@ -530,7 +515,7 @@ func homeScenario() {
 			Eventually(jsonpath("device", "rail-plug", "{.status.control[0].level}")).Should(Equal("Override"))
 			Expect(jsonpath("device", "rail-plug",
 				`{.status.control[0].claims[?(@.winner==true)].source}`)()).To(Equal("Device"))
-			Expect(jsonpath("device", "rail-plug", "{.status.control[0].claims[0].expires}")()).NotTo(BeEmpty())
+			Expect(jsonpath("device", "rail-plug", `{.status.control[0].claims[?(@.winner==true)].expires}`)()).NotTo(BeEmpty())
 		})
 
 		It("applies the README's Rules examples as written", func() {

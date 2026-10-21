@@ -151,7 +151,7 @@ func NewRunsCounter() *prometheus.CounterVec {
 func NewNextChangeGauge() *prometheus.GaugeVec {
 	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "oikade_rule_next_change_timestamp_seconds",
-		Help: "When a Rule's next at or sun trigger fires, as a Unix time.",
+		Help: "When a Rule's next at or sun trigger fires, or its hold next starts or ends, as a Unix time.",
 	}, []string{labelNamespace, labelRule})
 }
 

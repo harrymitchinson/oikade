@@ -233,9 +233,9 @@ Rules, HomeKit and the device itself make **claims**. The highest level with a c
 
 | Level | Who claims | Ends |
 |---|---|---|
-| Safety | Rules with `priority: Safety` | When the hold ends, or the set's `for`/`until` |
-| Override | Outside changes (HomeKit, or the device by itself), and Rules with `priority: Override` | After `overrideHold`, or when its `until` says |
-| Normal | Ordinary Rules | When the hold ends, or the set's `for`/`until` |
+| Safety | Rules with `priority: Safety` | A Rule's claim ends when its hold ends (for a latched hold, at a `release`), or at the set's `for`/`until` |
+| Override | Outside changes (HomeKit, or the device by itself), and Rules with `priority: Override` | An outside change ends after `overrideHold`. A Rule's claim ends as above. |
+| Normal | Ordinary Rules | As above |
 | Default | Nobody | Never |
 
 | Field | |
@@ -274,8 +274,8 @@ spec:
 ```
 
 - `for: <duration>` ends it after that long.
-- `until: Next` ends it when the winner without it next changes, such as when the rail's evening hold starts.
-- `for` together with `until: Next` ends it at whichever comes first, so this boost at 21:30 runs for an hour rather than until the morning hold.
+- `until: Next` ends it when the winner without it next changes. If the rail also had a hold from 06:00 to 08:00, that's when the hold starts the next morning.
+- `for` together with `until: Next` ends it at whichever comes first. This boost ends after an hour, unless what the other claims want changes sooner.
 - `until: Released` ends it at a `release: {rule: <name>}` action in another Rule.
 - `priority: Safety` or `Override` on the `set` raises the claim's level. It's `Normal` otherwise.
 
@@ -283,7 +283,7 @@ A `set` on an arbitrated capability of a single device with no `for` or `until` 
 
 ### Latched Safety holds
 
-A latched hold stays active once `when` has been true, until another Rule releases it. It's worked out from state rather than from a change, so it acts on startup even if the heater overheated while the runtime was down:
+A latched hold stays active once `when` has been true, until another Rule releases it. It's worked out from state rather than from a change, so if the garage is still too hot when the runtime starts, it acts then, even though the change happened while the runtime was down:
 
 ```yaml
 apiVersion: home.oikade.dev/v1alpha1
@@ -315,7 +315,7 @@ spec:
   - release: {rule: garage-overheat}
 ```
 
-Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. Rules run only while the runtime is up, so overheating while it's down is acted on when it starts. A `release` naming a Rule that doesn't exist, or that has nothing to release, sets `Ready=False` with reason `InvalidRelease`.
+Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. Rules run only while the runtime is up. If the garage overheats and cools again while the runtime is down, nothing latches. A `release` naming a Rule that doesn't exist, or that has nothing to release, sets `Ready=False` with reason `InvalidRelease`.
 
 ### Reading Device status
 
