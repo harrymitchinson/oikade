@@ -4,6 +4,8 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: GitHub holds t
 
 *Revised on 2026-10-19, because you had become the bottleneck: agents stopped at every approval and every merge. An approved design now covers the features that build it, work with nothing expensive to reverse needs no approval, a feature's steps stack while they wait for review, and agents merge steps that touch nothing you review first. See [Revision: fewer waits](#revision-fewer-waits).*
 
+*Revised on 2026-10-21 by [0108](0108-agent-identity.md): agents act on GitHub as `oikade-agent[bot]`, `approved` counts only when you add it, and you review a `needs-review` PR by approving it. See [Revision: agent identity](#revision-agent-identity).*
+
 *Revised on 2026-10-20, at your request: `docs/roadmap.md` is gone, because the milestones already held most of it. Each milestone's description now says why it sits where it does, the version numbers give the order, and "Not doing" is in the README.*
 
 ## Problem
@@ -83,9 +85,19 @@ Before this revision a feature waited on you twice: once to approve it, and once
   - what the checks run: `Makefile`, Dockerfiles, `.golangci.yml` and `.github/`;
   - the rules agents work under: `.claude/`, `hack/`, `AGENTS.md` and the design docs.
 
-  `.claude/settings.json` denies agents `gh pr merge`, so they can't merge any other way. A PR that touches one gets `needs-review` and waits for you. A merged one gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules, and a feature's first step, which commits its design doc, always waits for you. Add `needs-review` to a feature to review all of its steps yourself.
+  `.claude/settings.json` denies agents `gh pr merge` and every other raw `gh` write, so they can't merge any other way. A PR that touches one gets `needs-review` and waits for you. A merged one gets `agent-merged`, so you can review it afterwards and remove the label. Agents can't merge changes to their own rules, and a feature's first step, which commits its design doc, always waits for you. Add `needs-review` to a feature to review all of its steps yourself.
 
 That also changes claims. A claim lasts while an agent is building, not until you merge. Claims taken before this revision, with their PR on `work/N` itself, still work: merging that PR deletes `work/N` and frees the claim as before. `hack/plan merge` refuses those, since merging one would delete a claim.
+
+## Revision: agent identity
+
+*2026-10-21, from [0108](0108-agent-identity.md), approved in #108.*
+
+Until this revision every agent action showed up as you, so the two gates above held only because agents behaved. Now:
+
+- **Agents write as `oikade-agent[bot]`.** Inside Claude Code, `hack/plan` writes to issues and PRs through the `oikade-agent` GitHub App, and agent commits name the bot as committer, with you as author. Board moves and pushes still act as you. Agents make every GitHub write through `hack/plan`, and `.claude/settings.json` denies them raw `gh` writes and `gh api`. Run `hack/plan` yourself from a terminal, not with `!` inside Claude Code, which acts as the bot.
+- **`approved` counts only when you add it.** The Approved guard workflow removes it, with a comment, when anyone else adds it. `hack/plan`'s gate also checks who added it last, so a missed run can't make a feature ready. `hack/plan` never adds or removes `approved`, never removes `needs-review` or `agent-merged`, and edits only `## Steps` and below on an approved feature.
+- **You review a `needs-review` PR by approving it.** Agents open PRs as the bot, so you can approve them. The required check "Approved by the owner" fails on a `needs-review` PR until your latest review is an Approve. A restack doesn't reset it. Low-risk steps without the label still merge with `hack/plan merge`.
 
 ## Migration
 

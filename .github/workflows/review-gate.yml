@@ -1,0 +1,45 @@
+name: Review gate
+
+# A PR labelled needs-review waits for the user's Approve
+# (docs/design/0108-agent-identity.md). Agents open PRs as oikade-agent[bot],
+# so the user can approve them. Make "Approved by the owner" a required check
+# on main, and this fails until they do. A PR without the label passes, so
+# hack/plan merge still merges low-risk steps.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  gate:
+    permissions:
+      pull-requests: read
+    name: Approved by the owner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for the owner's Approve on a needs-review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          OWNER: ${{ github.repository_owner }}
+        # The labels are read now, not from the event, which a review event
+        # carries from before any later label change. The owner's latest
+        # Approve, Request changes or dismissal decides. Comments don't, and a
+        # restack's force-push doesn't reset it.
+        run: |
+          if ! gh pr view "$PR" --json labels -q '.labels[].name' | grep -qx needs-review; then
+            echo "#$PR isn't labelled needs-review, so it needs no Approve here"
+            exit 0
+          fi
+          state=$(gh api --paginate "repos/$GH_REPO/pulls/$PR/reviews" |
+            jq -rs --arg owner "$OWNER" '[.[][] | select(.user.login == $owner and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")) | .state] | last // "none"')
+          if [ "$state" = APPROVED ]; then
+            echo "@$OWNER approved #$PR"
+            exit 0
+          fi
+          echo "::error::#$PR is labelled needs-review and waits for @$OWNER to approve it (latest review: $state)"
+          exit 1
