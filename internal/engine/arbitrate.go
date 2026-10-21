@@ -29,6 +29,8 @@ type ControlStates = States[ControlState]
 const (
 	// SourceDevice is a change the runtime didn't write, as from a wall switch.
 	SourceDevice = "Device"
+	// SourceHomeKit is a change a HomeKit bridge announced writing, as from a Home app tap.
+	SourceHomeKit = "HomeKit"
 	// rulePrefix starts a Rule's source, Rule/<name>.
 	rulePrefix = "Rule/"
 )
@@ -36,6 +38,17 @@ const (
 // staleReport is how long after a write a report of a different value is taken as the device
 // catching up, rather than an outside change.
 const staleReport = 5 * time.Second
+
+// homekitMatch is how long after a HomeKit bridge announces a write the device's change to that
+// value is taken as the write. It allows for slow plugins and for a report held back by
+// staleReport.
+const homekitMatch = 30 * time.Second
+
+// homekitWrite is a HomeKit write waiting for the device to report it.
+type homekitWrite struct {
+	value float64
+	at    time.Time
+}
 
 // NewControlLevelGauge returns the gauge Engine.ControlLevel expects.
 func NewControlLevelGauge() *prometheus.GaugeVec {
@@ -323,11 +336,43 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 		e.recordOutside(u.Device, u.Capability, ar, v)
 	}
 	e.decide(ctx, u.Device, u.Capability, ar)
+	// The decision may end later, as an Override does after overrideHold.
+	e.signal()
 }
 
 func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v float64) {
-	if err := ar.a.Outside(SourceDevice, v); err != nil {
-		e.Log.Error(err, "Failed to record outside change", "device", dev, "capability", name)
+	source := SourceDevice
+	if w, ok := e.homekit[dev][name]; ok {
+		e.forgetHomeKit(dev, name)
+		if w.value == v && e.Clock.Since(w.at) < homekitMatch {
+			source = SourceHomeKit
+		}
+	}
+	if err := ar.a.Outside(source, v); err != nil {
+		e.Log.Error(err, "Failed to record outside change", "device", dev, "capability", name, "source", source)
+	}
+}
+
+// HomeKitWrote records that a HomeKit bridge is writing value to an arbitrated capability, so the
+// device's change to it is recorded as from HomeKit rather than the device. Bridges announce a
+// write before making it, and the bus delivers in order, so this comes before the change.
+func (e *Engine) HomeKitWrote(dev types.NamespacedName, name string, value any) {
+	if !e.arbitrated(dev, name) {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.homekit[dev] == nil {
+		e.homekit[dev] = map[string]homekitWrite{}
+	}
+	e.homekit[dev][name] = homekitWrite{value: capability.Float(value), at: e.Clock.Now()}
+}
+
+// forgetHomeKit drops a HomeKit write. Call with e.mu held.
+func (e *Engine) forgetHomeKit(dev types.NamespacedName, name string) {
+	delete(e.homekit[dev], name)
+	if len(e.homekit[dev]) == 0 {
+		delete(e.homekit, dev)
 	}
 }
 
