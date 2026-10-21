@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -43,6 +44,11 @@ const staleReport = 5 * time.Second
 // value is taken as the write. It allows for slow plugins and for a report held back by
 // staleReport.
 const homekitMatch = 30 * time.Second
+
+// homekitTolerance is how far a reported number may be from a HomeKit write and still match it.
+// Drivers round on the way to and from the device: a light.level of 40 comes back from
+// Zigbee2MQTT as 40.2. Bools are 0 and 1, so it can't confuse them.
+const homekitTolerance = 0.5
 
 // homekitWrite is a HomeKit write waiting for the device to report it.
 type homekitWrite struct {
@@ -342,11 +348,10 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 
 func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v float64) {
 	source := SourceDevice
-	if w, ok := e.homekit[dev][name]; ok {
+	if w, ok := e.homekit[dev][name]; ok && w.matches(v, e.Clock.Now()) {
+		// A report on the way, as while a dimmer ramps, leaves the write for the final value.
 		e.forgetHomeKit(dev, name)
-		if w.value == v && e.Clock.Since(w.at) < homekitMatch {
-			source = SourceHomeKit
-		}
+		source = SourceHomeKit
 	}
 	if err := ar.a.Outside(source, v); err != nil {
 		e.Log.Error(err, "Failed to record outside change", "device", dev, "capability", name, "source", source)
@@ -362,10 +367,32 @@ func (e *Engine) HomeKitWrote(dev types.NamespacedName, name string, value any) 
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	now := e.Clock.Now()
+	// Writes nobody reported go once they're too old to match.
+	for d, ws := range e.homekit {
+		for n, w := range ws {
+			if !now.Before(w.at.Add(homekitMatch)) {
+				e.forgetHomeKit(d, n)
+			}
+		}
+	}
+	w := homekitWrite{value: capability.Float(value), at: now}
+	if ar := e.arbs[dev][name]; ar != nil {
+		if st := ar.a.State(); st.Known && w.matches(st.Value, now) {
+			// The device already has it, so no change will come.
+			e.forgetHomeKit(dev, name)
+			return
+		}
+	}
 	if e.homekit[dev] == nil {
 		e.homekit[dev] = map[string]homekitWrite{}
 	}
-	e.homekit[dev][name] = homekitWrite{value: capability.Float(value), at: e.Clock.Now()}
+	e.homekit[dev][name] = w
+}
+
+// matches reports whether a value reported at now is the write's.
+func (w homekitWrite) matches(v float64, now time.Time) bool {
+	return math.Abs(w.value-v) <= homekitTolerance && now.Before(w.at.Add(homekitMatch))
 }
 
 // forgetHomeKit drops a HomeKit write. Call with e.mu held.

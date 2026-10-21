@@ -65,7 +65,7 @@ func runHAP(args []string) int {
 	}
 	store := hub.NewStore(log.WithName("store"), b)
 	h := &hub.Hub{Client: mgr.GetClient(), Bus: bus, Store: store}
-	b.Store, b.Setter = store, &hap.Announcer{Setter: h, Bus: bus, Bridge: b.Key}
+	b.Store, b.Setter = store, &hap.Announcer{Setter: h, Bus: bus, Store: store, Bridge: b.Key}
 	if err := h.SetupWithManager(ctx, mgr, "hub"); err != nil {
 		log.Error(err, "Failed to create controller", "controller", "hub")
 		return 1

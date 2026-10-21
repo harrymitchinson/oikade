@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
@@ -17,13 +22,6 @@ var (
 	kitchen    = types.NamespacedName{Namespace: "home", Name: "kitchen"}
 	ceilingFan = types.NamespacedName{Namespace: "home", Name: "ceiling-fan"}
 )
-
-// setterFunc is a driver.Setter.
-type setterFunc func(ctx context.Context, dev types.NamespacedName, name string, value any) error
-
-func (f setterFunc) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
-	return f(ctx, dev, name, value)
-}
 
 // failingBus fails every publish.
 type failingBus struct{ mqtt.Bus }
@@ -35,7 +33,7 @@ func (failingBus) Publish(context.Context, string, []byte, bool) error {
 func TestAnnouncerAnnouncesBeforeWriting(t *testing.T) {
 	bus := mqtt.NewMemory()
 	var announced []string
-	a := &Announcer{Bus: bus, Bridge: kitchen, Setter: setterFunc(func(_ context.Context, dev types.NamespacedName, c string, v any) error {
+	a := &Announcer{Bus: bus, Bridge: kitchen, Setter: driver.SetterFunc(func(_ context.Context, dev types.NamespacedName, c string, v any) error {
 		for _, m := range bus.Published {
 			announced = append(announced, m.Topic+" "+string(m.Payload))
 		}
@@ -58,7 +56,7 @@ func TestAnnouncerAnnouncesBeforeWriting(t *testing.T) {
 
 func TestAnnouncerWritesWhenItCantAnnounce(t *testing.T) {
 	wrote := false
-	a := &Announcer{Bus: failingBus{}, Bridge: kitchen, Setter: setterFunc(func(context.Context, types.NamespacedName, string, any) error {
+	a := &Announcer{Bus: failingBus{}, Bridge: kitchen, Setter: driver.SetterFunc(func(context.Context, types.NamespacedName, string, any) error {
 		wrote = true
 		return nil
 	})}
@@ -84,7 +82,7 @@ func TestAnnouncerWritesWithNoRuntime(t *testing.T) {
 	if _, err := plugin.Subscribe(ctx, "oikade/v1/home/lan/fan-1/set", func(m mqtt.Message) { got <- string(m.Payload) }); err != nil {
 		t.Fatal(err)
 	}
-	a := &Announcer{Bus: hapBus, Bridge: kitchen, Setter: setterFunc(func(ctx context.Context, _ types.NamespacedName, c string, v any) error {
+	a := &Announcer{Bus: hapBus, Bridge: kitchen, Setter: driver.SetterFunc(func(ctx context.Context, _ types.NamespacedName, c string, v any) error {
 		return hapBus.Publish(ctx, "oikade/v1/home/lan/fan-1/set", fmt.Appendf(nil, `{%q:%v}`, c, v), false)
 	})}
 	if err := a.Set(ctx, ceilingFan, capability.SwitchOn, true); err != nil {
@@ -103,7 +101,7 @@ func TestSubscribeWrites(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	a := &Announcer{Bus: bus, Bridge: kitchen, Setter: setterFunc(func(context.Context, types.NamespacedName, string, any) error { return nil })}
+	a := &Announcer{Bus: bus, Bridge: kitchen, Setter: driver.SetterFunc(func(context.Context, types.NamespacedName, string, any) error { return nil })}
 	for _, v := range []any{true, 40.0} {
 		name := capability.SwitchOn
 		if v == 40.0 {
@@ -125,5 +123,42 @@ func TestSubscribeWrites(t *testing.T) {
 	want := "[home/ceiling-fan switch.on true home/ceiling-fan light.level 40]"
 	if fmt.Sprint(got) != want {
 		t.Errorf("writes = %v, want %s", got, want)
+	}
+}
+
+func TestAnnouncerAnnouncesArbitratedWritesOnly(t *testing.T) {
+	porchLight := types.NamespacedName{Namespace: "home", Name: "porch-light"}
+	store := hub.NewStore(logr.Discard())
+	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: types.NamespacedName{Namespace: "home", Name: "z2m"}}
+	store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{
+		ceilingFan: {Instance: z2m, Control: []homev1alpha1.CapabilityControl{{
+			Capability: capability.SwitchOn, Default: apiextensionsv1.JSON{Raw: []byte("false")},
+		}}},
+		porchLight: {Instance: z2m, Control: []homev1alpha1.CapabilityControl{{
+			Capability: capability.LightOn, Default: apiextensionsv1.JSON{Raw: []byte("false")},
+		}}},
+	})
+	store.Availability(porchLight, false)
+	bus := mqtt.NewMemory()
+	writes := 0
+	a := &Announcer{Bus: bus, Store: store, Bridge: kitchen, Setter: driver.SetterFunc(func(context.Context, types.NamespacedName, string, any) error {
+		writes++
+		return nil
+	})}
+	for _, w := range []struct {
+		dev   types.NamespacedName
+		name  string
+		value any
+	}{
+		{ceilingFan, capability.SwitchOn, true},                                            // announced
+		{ceilingFan, capability.LightLevel, 40.0},                                          // not arbitrated
+		{ceilingFan, capability.SwitchOn, 1.0},                                             // invalid
+		{porchLight, capability.LightOn, true},                                             // offline
+		{types.NamespacedName{Namespace: "home", Name: "gone"}, capability.SwitchOn, true}, // undeclared
+	} {
+		_ = a.Set(t.Context(), w.dev, w.name, w.value)
+	}
+	if len(bus.Published) != 1 || writes != 5 {
+		t.Errorf("announced %v and wrote %d times, want the fan's switch.on announced and every write made", bus.Published, writes)
 	}
 }

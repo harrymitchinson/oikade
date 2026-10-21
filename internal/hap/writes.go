@@ -12,6 +12,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -34,12 +35,16 @@ type Write struct {
 	Value any `json:"value"`
 }
 
-// Announcer is a driver.Setter that announces each write on the bus before passing it to Setter,
-// so the runtime can tell a Home app write from other outside changes. The write doesn't depend
-// on the announcement, or on the runtime: it reaches the device even when neither gets through.
+// Announcer is a driver.Setter that announces each write to an arbitrated capability on the bus
+// before passing it to Setter, so the runtime can tell a Home app write from other outside
+// changes. The write doesn't depend on the announcement, or on the runtime: it reaches the device
+// even when neither gets through.
 type Announcer struct {
 	Setter driver.Setter
 	Bus    mqtt.Bus
+	// Store says which capabilities are arbitrated. Only writes to those are announced, since the
+	// runtime ignores the rest. Nil announces every write.
+	Store *hub.Store
 	// Bridge is the Bridge the writes come from.
 	Bridge types.NamespacedName
 }
@@ -49,26 +54,44 @@ var _ driver.Setter = (*Announcer)(nil)
 // Set implements driver.Setter. The announcement goes first, so the runtime has it before the
 // device reports the change: the bus delivers messages to it in the order the broker took them.
 func (a *Announcer) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
-	raw, err := json.Marshal(Write{Bridge: a.Bridge.Name, Device: dev.Name, Capability: name, Value: value})
-	if err == nil {
-		actx, cancel := context.WithTimeout(ctx, announceTimeout)
-		err = a.Bus.Publish(actx, WritesRoot+dev.Namespace+"/"+a.Bridge.Name, raw, false)
-		cancel()
-	}
-	if err != nil {
-		logf.FromContext(ctx).Error(err, "Failed to announce HomeKit write", "device", dev, "capability", name)
+	if a.announces(dev, name, value) {
+		raw, err := json.Marshal(Write{Bridge: a.Bridge.Name, Device: dev.Name, Capability: name, Value: value})
+		if err == nil {
+			actx, cancel := context.WithTimeout(ctx, announceTimeout)
+			err = a.Bus.Publish(actx, WritesRoot+dev.Namespace+"/"+a.Bridge.Name, raw, false)
+			cancel()
+		}
+		if err != nil {
+			logf.FromContext(ctx).Error(err, "Failed to announce HomeKit write", "device", dev, "capability", name)
+		}
 	}
 	return a.Setter.Set(ctx, dev, name, value)
 }
 
+// announces reports whether a write is worth announcing: a valid value for an arbitrated
+// capability of a device that isn't offline. The others can't reach the device, and announcing
+// them could pass a later change off as the Home app's.
+func (a *Announcer) announces(dev types.NamespacedName, name string, value any) bool {
+	if _, err := capability.Validate(name, value); err != nil {
+		return false
+	}
+	if a.Store == nil {
+		return true
+	}
+	snap, ok := a.Store.Get(dev)
+	return ok && (snap.Online == nil || *snap.Online) && snap.Controls(name)
+}
+
 // SubscribeWrites calls f with every Home app write any bridge announces. f runs on the bus's
-// receive goroutine, so it must not block. Malformed announcements are logged and dropped.
+// receive goroutine, so it must not block. Malformed announcements are logged to ctx's logger
+// and dropped.
 func SubscribeWrites(ctx context.Context, bus mqtt.Bus, f func(dev types.NamespacedName, name string, value any)) (func(), error) {
 	log := logf.FromContext(ctx)
 	return bus.Subscribe(ctx, WritesRoot+"+/+", func(m mqtt.Message) {
 		dev, name, value, err := parseWrite(m)
 		if err != nil {
-			log.Info("Ignored malformed HomeKit write", "topic", m.Topic, "error", err.Error())
+			// Any client can publish here, so this is verbose.
+			log.V(1).Info("Ignored malformed HomeKit write", "topic", m.Topic, "error", err.Error())
 			return
 		}
 		f(dev, name, value)
