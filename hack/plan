@@ -562,7 +562,7 @@ cmd_claims() {
 		age=$(( ($(date +%s) - ${last:-0}) / 3600 ))
 		printf '#%s\t%sh since last commit\t%s%s\n' "$n" "$age" \
 			"$(jq -r --arg re "^work/$n(-[0-9]+)?$" '[.[] | select(.headRefName | test($re)) | "#\(.number)\(if .isDraft then " draft" else "" end)"] | if length > 0 then join(" ") else "no PR" end' <<<"$prs")" \
-			"$( (( age >= STALE_HOURS )) && echo $'\tSTALE' || true)"
+			"$(if (( age >= STALE_HOURS )); then echo $'\tSTALE'; fi)"
 	done
 }
 
