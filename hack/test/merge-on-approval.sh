@@ -122,6 +122,18 @@ touch "$tmp/fx/fail-api_repos_o_r_pulls_12_reviews.json"
 expect 2 "the reviews can't be read"
 rm "$tmp/fx/fail-api_repos_o_r_pulls_12_reviews.json"
 
+# Whitespace is a change: re-indenting a YAML key after the Approve moves it.
+git switch -q -c indented main
+printf 'a:\n  c: 2\n' >conf.yaml && git add conf.yaml && git commit -qm conf
+indented=$(git rev-parse HEAD)
+git switch -q -c dedented main
+printf 'a:\nc: 2\n' >conf.yaml && git add conf.yaml && git commit -qm conf
+dedented=$(git rev-parse HEAD)
+git push -q origin "$indented:refs/heads/indented" "$dedented:refs/heads/dedented"
+git switch -q --detach main
+reviews "$(review o APPROVED "$indented")"
+expect 1 "a whitespace-only change after the Approve" "$dedented"
+
 # hack/plan merge. It runs main's hack/owner-approval, so a copy that
 # approves everything, as a PR's branch could have, changes nothing.
 plan="$tmp/rigged/hack/plan"
@@ -138,12 +150,37 @@ grep -q 'merges once the user approves it' "$tmp/out" || fail "merge didn't say 
 reviews "$(review 'oikade-agent[bot]' APPROVED "$s2r")"
 if merge; then fail "merge succeeded on the bot's Approve"; fi
 
+touch "$tmp/fx/fail-api_repos_o_r_pulls_12_reviews.json"
 reviews "$(review o APPROVED "$s2")"
+if merge; then fail "merge succeeded when the Approve couldn't be read"; fi
+grep -q "couldn't read PR #12's reviews" "$tmp/out" || fail "merge didn't say why: $(cat "$tmp/out")"
+! grep -q '^PUT' "$tmp/fx/writes.log" || fail "merge merged when the Approve couldn't be read"
+rm "$tmp/fx/fail-api_repos_o_r_pulls_12_reviews.json"
+
 merge || fail "merge refused an Approve that covers the head: $(cat "$tmp/out")"
 grep -qx "PUT api repos/o/r/pulls/12/merge -f merge_method=squash -f sha=$s2r" "$tmp/fx/writes.log" ||
 	fail "merge didn't squash-merge the head: $(cat "$tmp/fx/writes.log")"
 ! grep -q 'agent-merged' "$tmp/fx/writes.log" || fail "merge labelled an approved PR agent-merged"
 grep -q 'on your Approve' "$tmp/fx/writes.log" || fail "merge's comment doesn't say it merged on the Approve"
+
+# A feature labelled needs-review holds a PR that's otherwise low risk.
+fx pr-12.json <<EOF
+{"state":"OPEN","headRefName":"work/9-2","baseRefName":"main","isDraft":false,"mergeable":"MERGEABLE",
+ "headRefOid":"$s2r","labels":[],"body":"Part of #9"}
+EOF
+fx issue-9.json <<<'{"labels":[{"name":"needs-review"}],"body":"## Steps\n- [x] One (PR #11)\n- [ ] Two (PR #12)\n"}'
+fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"internal/rule/rule.go"}]'
+reviews
+if merge; then fail "merge succeeded on a feature labelled needs-review with no Approve"; fi
+grep -q '#9 has the needs-review label' "$tmp/out" || fail "merge didn't name the feature's hold: $(cat "$tmp/out")"
+reviews "$(review o APPROVED "$s2r")"
+merge || fail "merge refused an approved PR on a feature labelled needs-review: $(cat "$tmp/out")"
+
+# With no hold at all it merges as before, labelled agent-merged.
+fx issue-9.json <<<'{"labels":[],"body":"## Steps\n- [x] One (PR #11)\n- [ ] Two (PR #12)\n"}'
+reviews
+merge || fail "merge refused a low-risk PR: $(cat "$tmp/out")"
+grep -q 'labels\[\]=agent-merged' "$tmp/fx/writes.log" || fail "a low-risk merge isn't labelled agent-merged: $(cat "$tmp/fx/writes.log")"
 
 (( failed == 0 )) && echo "ok: merge on approval"
 exit "$failed"

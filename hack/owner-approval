@@ -12,6 +12,8 @@
 # that's BASE, or, if the user approved it while it was stacked, the step
 # below it: the PR before this one in its feature's ## Steps.
 #
+# The diffs must match byte for byte, whitespace included.
+#
 # Usage: OWNER=<login> hack/owner-approval PR HEAD_SHA BASE_REF
 # Prints why, and exits 0 if the Approve covers HEAD_SHA, 1 if it doesn't, and
 # 2 if it couldn't tell.
@@ -47,14 +49,18 @@ done
 git fetch -q "$remote" "+refs/heads/$base:refs/remotes/$remote/$base" || unsure "couldn't fetch $base"
 bases=("$remote/$base")
 
-# The step below: "Part of #N" or "Closes #N" names the feature, and its
-# ## Steps line before this PR's names that step's PR.
-feature=$(gh pr view "$pr" --json body -q .body | sed -nE 's/^(Part of|Closes) #([0-9]+).*/\2/p' | head -1) ||
+# The step below: "Part of #N" or "Closes #N" names the feature, and the
+# nearest ## Steps line above this PR's that records a PR names it. Trying a
+# base that wasn't really the one only ever compares one more diff.
+# No reader here stops early, so pipefail can't trip on a SIGPIPE.
+feature=$(gh pr view "$pr" --json body -q .body | sed -nE '/^(Part of|Closes) #[0-9]+/{s/^(Part of|Closes) #([0-9]+).*/\2/p;q;}') ||
 	unsure "couldn't read PR #$pr"
 if [[ -n "$feature" ]]; then
 	below=$(gh issue view "$feature" --json body -q .body |
 		awk -v me="(PR #$pr)" '/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/); next}
-			in_steps && /^- \[[ xX]\] / {if (index($0, me)) {print prev; exit} prev = ""; if (match($0, /\(PR #[0-9]+\)[[:space:]]*$/)) {prev = substr($0, RSTART + 5); sub(/\).*/, "", prev)}}') ||
+			done || !in_steps || !/^- \[[ xX]\] / {next}
+			index($0, me) {print prev; done = 1; next}
+			match($0, /\(PR #[0-9]+\)[[:space:]]*$/) {prev = substr($0, RSTART + 5); sub(/\).*/, "", prev)}') ||
 		unsure "couldn't read #$feature's steps"
 	if [[ -n "$below" ]]; then
 		git fetch -q "$remote" "refs/pull/$below/head" || unsure "couldn't fetch PR #$below, the step below"
@@ -62,10 +68,17 @@ if [[ -n "$feature" ]]; then
 	fi
 fi
 
-patch() { git diff "$(git merge-base "$1" "$2")" "$2" | git patch-id --stable | cut -d' ' -f1; }
-now=$(patch "$remote/$base" "$head")
+# --verbatim: whitespace is meaning in YAML and Makefiles, so re-indenting
+# after the Approve is a change.
+patch() {
+	local mb
+	mb=$(git merge-base "$1" "$2") || return 1
+	git diff "$mb" "$2" | git patch-id --verbatim | cut -d' ' -f1
+}
+now=$(patch "$remote/$base" "$head") || unsure "couldn't diff PR #$pr's head against $base"
 for b in "${bases[@]}"; do
-	if [[ "$(patch "$b" "$approved")" == "$now" ]]; then
+	then_=$(patch "$b" "$approved") || continue
+	if [[ "$then_" == "$now" ]]; then
 		echo "@$owner approved PR #$pr at $approved, and its head $head changes the same lines (a restack)"
 		exit 0
 	fi

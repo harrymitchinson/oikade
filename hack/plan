@@ -275,8 +275,9 @@ approver() {
 	jq -rs '[.[][] | select(.event == "labeled" and (.label.name | ascii_downcase) == "approved") | .actor.login] | last // empty' <<<"$events"
 }
 
-# The user is the board's owner, PROJECT_OWNER.
-user_approved() { [[ "$(approver "$1")" == "$PROJECT_OWNER" ]]; }
+# The user is the repo's owner, as the workflows take it (github.repository_owner).
+owner() { echo "${REPO%%/*}"; }
+user_approved() { [[ "$(approver "$1")" == "$(owner)" ]]; }
 
 # --- Claims and stacks ----------------------------------------------------------
 
@@ -432,8 +433,8 @@ cmd_show() {
 	echo "May build:  ${why:-no: it needs the approved or no-design label, or a Design: #M line naming an approved feature}"
 	if has_label approved "$info"; then
 		who=$(approver "$n")
-		[[ "$who" == "$PROJECT_OWNER" ]] ||
-			echo "Approved:   by ${who:-nobody GitHub recorded}, not $PROJECT_OWNER, so it doesn't count"
+		[[ "$who" == "$(owner)" ]] ||
+			echo "Approved:   by ${who:-nobody GitHub recorded}, not $(owner), so it doesn't count"
 	fi
 	blockers=$(open_blockers "$n")
 	echo "Blocked by: ${blockers:-nothing open}"
@@ -531,7 +532,7 @@ cmd_pr() {
 }
 
 cmd_merge() {
-	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing workflow files try held=() approval checker
+	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing workflow files try held=() approval
 	pr="${pr#\#}"
 	is_claimed "$n" || die "#$n isn't claimed: merging restacks its branches, so only the session building it merges"
 	body "$n" | steps | grep -qF "(PR #$pr)" || die "PR #$pr isn't recorded against a step of #$n"
@@ -577,35 +578,27 @@ cmd_merge() {
 	fi
 	# Held for the user: it merges only once their Approve covers the code as
 	# it is now. That's read from the reviews, not the Approved by the owner
-	# check, since a PR can change the workflow behind that check.
+	# check, and by main's hack/owner-approval, not this worktree's, since
+	# the PR could change either.
+	local label=agent-merged note="Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have."
 	if (( ${#held[@]} )); then
-		# main's copy decides, not this worktree's: the PR could change it.
-		checker=$(mktemp)
-		git show "$REMOTE/main:hack/owner-approval" >"$checker" 2>/dev/null ||
-			{ rm -f "$checker"; die "$(printf '%s\n' "${held[@]}")"$'\n'"and main has no hack/owner-approval yet, so the user merges it"; }
-		approval=$(OWNER="$PROJECT_OWNER" PLAN_REMOTE="$REMOTE" bash "$checker" "$pr" "$oid" main) ||
-			{ rm -f "$checker"; die "$(printf '%s\n' "${held[@]}")"$'\n'"so it merges once the user approves it: $approval"; }
-		rm -f "$checker"
-		if ! as_agent api -X PUT "repos/$(repo)/pulls/$pr/merge" -f merge_method=squash -f sha="$oid" >/dev/null; then
-			die "couldn't merge PR #$pr"
-		fi
-		comment "$pr" "Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/design/0009-planning-workflow.md)." || true
-		cmd_sync "$n" >/dev/null
-		restack "$n"
-		echo "Merged PR #$pr on the user's Approve"
-		return
+		git cat-file -e "$REMOTE/main:hack/owner-approval" 2>/dev/null ||
+			die "$(printf '%s\n' "${held[@]}")"$'\n'"and main has no hack/owner-approval yet, so the user merges it"
+		approval=$(OWNER="$(owner)" PLAN_REMOTE="$REMOTE" bash <(git show "$REMOTE/main:hack/owner-approval") "$pr" "$oid" main) ||
+			die "$(printf '%s\n' "${held[@]}")"$'\n'"so it merges once the user approves it: ${approval:-hack/owner-approval said nothing}"
+		label="" note="Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/design/0009-planning-workflow.md)."
 	fi
-	# Label first, so a merged PR can't be missing it. --match-head-commit
-	# merges exactly what the checks ran on.
-	add_label "$pr" agent-merged
+	# Label first, so a merged PR can't be missing it. sha= merges exactly
+	# what the checks ran on.
+	if [[ -n "$label" ]]; then add_label "$pr" "$label"; fi
 	if ! as_agent api -X PUT "repos/$(repo)/pulls/$pr/merge" -f merge_method=squash -f sha="$oid" >/dev/null; then
-		remove_label "$pr" agent-merged || true
+		if [[ -n "$label" ]]; then remove_label "$pr" "$label" || true; fi
 		die "couldn't merge PR #$pr"
 	fi
-	comment "$pr" "Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." || true
+	comment "$pr" "$note" || true
 	cmd_sync "$n" >/dev/null
 	restack "$n"
-	echo "Merged PR #$pr"
+	echo "Merged PR #$pr${label:+ (labelled $label)}"
 }
 
 cmd_restack() { restack "${1:?usage: plan restack N}"; }
