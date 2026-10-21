@@ -10,11 +10,12 @@ name: Review gate
 # that does touches .github/, which hack/plan treats as protected: it's always
 # needs-review, and the user reads that change before approving it. Agents
 # can't merge, since they have no gh write but hack/plan, which refuses.
+#
+# A review doesn't start a run of its own: review-gate-rerun.yml reruns this
+# one, so the head commit only ever has one "Approved by the owner" result.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, labeled, unlabeled]
-  pull_request_review:
-    types: [submitted, dismissed]
 
 permissions: {}
 
@@ -43,8 +44,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           OWNER: ${{ github.repository_owner }}
-        # Everything is read now, not from the event, which a review event
-        # carries from before any later change.
+        # Everything is read now, not from the event, since a rerun after a
+        # review carries the event from before it.
         run: |
           set -euo pipefail
           pr=$(gh pr view "$PR" --json labels,body,author,headRefOid,baseRefName)
