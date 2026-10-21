@@ -54,3 +54,19 @@ jobs:
         run: make lint-config
       - name: Run linter
         run: make lint
+
+  # Not behind changes: hack/ is the planning scripts, which changes.yml counts
+  # as docs and planning, and this job is quick.
+  hack:
+    permissions:
+      contents: read
+    name: Check the hack scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run shellcheck and the hack tests
+        run: make test-hack
