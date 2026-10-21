@@ -1,0 +1,32 @@
+name: Approved guard
+
+# Only the user decides, by adding the approved label (docs/design/0009-planning-workflow.md).
+# Agents act on GitHub as oikade-agent[bot] (docs/design/0108-agent-identity.md),
+# so anyone else adding approved is removed here. hack/plan's gate checks who
+# added it too, so a run this misses can't make a feature ready.
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  guard:
+    permissions:
+      issues: write
+    name: Remove approved added by anyone but the owner
+    if: >-
+      github.event.label.name == 'approved' &&
+      github.event.sender.login != github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove the label and say why
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          SENDER: ${{ github.event.sender.login }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gh issue edit "$ISSUE" --remove-label approved
+          gh issue comment "$ISSUE" --body "Removed \`approved\`: @$OWNER adds it, and this time it was \`$SENDER\`. See docs/design/0108-agent-identity.md."

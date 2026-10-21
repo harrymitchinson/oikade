@@ -14,14 +14,16 @@ failed=0
 fail() { echo "FAIL: $*" >&2; failed=1; }
 
 # gh logs each call with the token it ran under. repo view answers o/r, issue
-# view answers $STUB_ISSUE (labels on one line, then the body), and deleting
-# the label "gone" fails as GitHub does for a label the issue doesn't have.
+# view answers $STUB_ISSUE (labels on one line, then the body), #7's events
+# are $STUB_EVENTS, and deleting the label "gone" fails as GitHub does for a
+# label the issue doesn't have.
 cat >"$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "${GH_TOKEN:-user}|$*" >>"$STUB_LOG"
 [[ "$1 $2" == "repo view" ]] && echo o/r
 [[ "$1 $2" == "issue view" ]] && printf '%s\n' "${STUB_ISSUE:-}"
 [[ "$*" == *"-X DELETE "*/labels/gone ]] && { echo "gh: Label does not exist (HTTP 404)" >&2; exit 1; }
+[[ "$1 $2 $3" == "api --paginate repos/o/r/issues/7/events" ]] && printf '%s\n' "${STUB_EVENTS:-[]}"
 exit 0
 STUB
 
@@ -131,6 +133,22 @@ run edit 7 "$tmp/restepped.md" || fail "edit refused new Steps on an approved fe
 STUB_ISSUE="needs-design
 $(cat "$tmp/approved.md")"
 run edit 7 "$tmp/redesigned.md" || fail "edit refused a design under review: $(cat "$tmp/err")"
+
+# approved counts only if the repo's owner, o, added it last.
+labeled() { printf '{"event":"labeled","label":{"name":"%s"},"actor":{"login":"%s"}}' "$1" "$2"; }
+export STUB_EVENTS
+show() { STUB_ISSUE="approved
+## Steps
+- [ ] one" PLAN_REMOTE=none "$root/hack/plan" show 7 2>/dev/null | grep -E '^(May build|Approved):'; }
+STUB_EVENTS="[$(labeled approved 'oikade-agent[bot]')]"
+show | grep -q '^May build:  no' || fail "show counts approved added by the bot: $(show)"
+show | grep -qF 'Approved:   by oikade-agent[bot], not o' || fail "show doesn't say who added approved: $(show)"
+STUB_EVENTS="[$(labeled approved o)]"
+show | grep -qx 'May build:  approved' || fail "show doesn't count approved added by the owner: $(show)"
+STUB_EVENTS="[$(labeled approved o),$(labeled Approved 'oikade-agent[bot]')]"
+show | grep -q '^May build:  no' || fail "show counts approved re-added by the bot after the owner: $(show)"
+STUB_EVENTS="[$(labeled approved o),$(labeled bug 'oikade-agent[bot]')]"
+show | grep -qx 'May build:  approved' || fail "another label by the bot unseated the owner's approved: $(show)"
 
 # A milestone that doesn't exist stops before writing.
 if run milestone set 7 "v9.9.9"; then fail "milestone set succeeded for a missing milestone"; fi
