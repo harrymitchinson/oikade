@@ -8,6 +8,8 @@ Replaces [0008](0008-planning-workflow.md). It keeps 0008's base: a tracker hold
 
 *Revised on 2026-10-21 by [0108](0108-agent-identity.md): agents act on GitHub as `oikade-agent[bot]`, and you review a `needs-review` PR by approving it. See [Revision: agent identity](#revision-agent-identity).*
 
+*Revised on 2026-10-24, at your request: you review designs, not diffs. Agents merge every step once its checks pass, except a small floor of changes to their own guardrails and to state whose loss means re-pairing. See [Revision: review designs, not diffs](#revision-review-designs-not-diffs).*
+
 *Revised on 2026-10-24, at your request: the plan moved from GitHub issues and Projects to Linear, and you approve a design by moving it out of Design Review instead of adding a label. Every GitHub issue and the board were deleted, so `#N` references in older PRs, commits and docs no longer resolve. See [Revision: Linear](#revision-linear).*
 
 ## Problem
@@ -108,6 +110,22 @@ Until this revision every agent action showed up as you, so the two gates above 
 - **Raw MCP writes are denied** where they would skip `hack/plan`'s rules: changing issues, projects and labels, and merging or reviewing PRs from Linear. Agents may still comment and write documents through MCP.
 - **Approval is a status move, read from history.** A Linear workspace can't stop an app from moving an issue, so `hack/plan` checks who made the move instead. A move it didn't make, such as one through MCP, still doesn't count unless it was yours.
 - **Imported, not linked.** The open issues and drafts were copied to OIK-5 to OIK-58, with their comments. The Manual testing checklist became a Linear document in the `v0.2.0` project.
+
+## Revision: review designs, not diffs
+
+*2026-10-24. You asked whether you'd realistically review agents' PRs. Of the 21 PRs labelled `needs-review` until then, 20 merged, a median of two hours after opening, and 4 had a review on GitHub. You chose to keep Design Review and drop `needs-review` as the default. The paths in the floor are the agent's.*
+
+- **Your review is the design,** in Design Review, before any code. Code is vouched for by CI, the code-review skill and e2e.
+- **Agents merge every step** once its checks pass, with `hack/plan merge`, which still requires the claim, the bottom of the stack, up to date with main, and every check green.
+- **The floor that waits for you** (`PROTECTED` in `hack/plan`):
+  - the agents' own guardrails, so an agent can't loosen its rules or checks and then merge: `.github/`, `.claude/settings.json`, `.mcp.json`, `hack/plan`, its token helpers and tests, the `Makefile` and `.golangci.yml`;
+  - the code that keeps state whose loss means re-pairing every HomeKit accessory or Zigbee device: `internal/identity/`, `internal/hap/`, the HAP and Zigbee2MQTT renderers, the homekit and zigbee controllers, and `cmd/hap.go`.
+
+  Public API, dependencies, skills and design docs are no longer in it: a design you approved covers them.
+- **`agent-merged` still marks every agent merge,** and `hack/plan digest` lists the last week's, so you can skim what changed when you want to. You don't need to remove the label.
+- **`needs-review` on a feature in Linear** still holds all of its PRs for you, if you want to read one feature's code.
+
+This replaces the protected list in [Revision: fewer waits](#revision-fewer-waits).
 
 ## Not doing
 

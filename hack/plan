@@ -29,12 +29,12 @@ MAX_STACK="${PLAN_MAX_STACK:-3}"
 # that move is the approval.
 DESIGN_REVIEW="Design Review"
 
-# Paths an agent may never merge without the user (hack/plan merge): public
-# API, state that must survive, dependencies, and the rules agents work under.
-# It backs up the agent's own reading of .claude/skills/design/references/surfaces.md.
-# The build and CI files are here too, so an agent can't weaken the checks it
-# is then merged on.
-PROTECTED='^api/|^cmd/|^config/|^PROJECT$|^internal/(capability|hap|hub|identity|metrics|status)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/(driver\.go|plugin/)|^docs/(plugin-contract\.md|design/)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock|Dockerfile[^/]*)$|^Makefile$|^\.golangci\.ya?ml$|^\.github/|^\.claude/|^\.mcp\.json$|^hack/|^(AGENTS|CLAUDE)\.md$'
+# Paths an agent may never merge without the user (hack/plan merge). It's a
+# small floor, since the user reviews designs, not diffs: the agents' own
+# guardrails, so an agent can't loosen its rules or checks and then merge, and
+# the code that keeps state whose loss means re-pairing every HomeKit
+# accessory or Zigbee device (.claude/skills/design/references/surfaces.md).
+PROTECTED='^\.github/|^\.claude/settings(\.local)?\.json$|^\.mcp\.json$|^hack/(plan|agent-token|linear-token|test/)|^Makefile$|^\.golangci\.ya?ml$|^internal/(identity|hap)/|^internal/render/(hap|zigbee2mqtt)\.go$|^internal/controller/(homekit|zigbee)/|^cmd/hap\.go$'
 
 die() { echo "plan: $*" >&2; exit 1; }
 
@@ -236,6 +236,7 @@ Work
   release ID [--force]  Give up a claim: delete branch claim/ID and set the feature back to Todo. Step
                         branches stay. Refuses if claim/ID itself has commits, unless --force
   claims                Every claimed feature, with its open PRs and how long since its last commit
+  digest [DAYS]         What agents merged in the last DAYS days (default 7), for the user to skim
   sync [ID]             Set steps and features from their PRs, and unclaimed features back to Todo
   note ID|PR TEXT       Comment on a Linear issue or a GitHub PR
 
@@ -719,6 +720,15 @@ cmd_release() {
 	echo "Released $n"
 }
 
+cmd_digest() {
+	local days="${1:-7}" since
+	[[ "$days" =~ ^[0-9]+$ ]] || die "usage: plan digest [DAYS]"
+	since=$(date -u -v-"${days}"d +%F 2>/dev/null || date -u -d "$days days ago" +%F)
+	gh pr list --state merged --limit 200 --search "label:agent-merged merged:>=$since" \
+		--json number,title,url,mergedAt,additions,deletions,files \
+		-q 'sort_by(.mergedAt)[] | "\(.mergedAt[:10])  #\(.number) \(.title)  (+\(.additions)/-\(.deletions), \([.files[].path | split("/")[0:2] | join("/")] | unique | join(" ")))\n    \(.url)"'
+}
+
 cmd_claims() {
 	local n json last age refs prs s
 	git fetch -q --prune "$REMOTE" '+refs/heads/claim/*:refs/remotes/'"$REMOTE"'/claim/*' '+refs/heads/work/*:refs/remotes/'"$REMOTE"'/work/*' || true
@@ -973,6 +983,7 @@ case "$cmd" in
 		if [[ "$cmd" != note && "$cmd" != label ]] || [[ ! "${1#\#}" =~ ^[0-9]+$ ]]; then prime; fi
 		"cmd_$cmd" "$@"
 		;;
+	digest) "cmd_$cmd" "$@" ;;
 	ready | show | claims | issue | edit | state | block | projects | project | ideas | idea | promote)
 		prime
 		REPO=$(repo)
