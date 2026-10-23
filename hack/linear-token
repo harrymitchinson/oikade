@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# linear-token: print an access token for the Oikade Agent Linear app, so agents
+# act in Linear as the app's own user rather than as the user. It's a
+# client-credentials token, which Linear issues to an app actor for 30 days
+# with no refresh token. This caches it in the Keychain and asks Linear for a
+# new one a day before it expires.
+#
+# The app's client ID and secret live in the macOS Keychain, under the service
+# "oikade-agent". Give the secret at the prompt rather than as an argument,
+# where other processes could read it:
+#
+#   security add-generic-password -U -s oikade-agent -a linear-client-id -w <Client ID>
+#   security add-generic-password -U -s oikade-agent -a linear-client-secret -w   # paste at the prompt
+#
+# Usage: hack/linear-token [--header]
+#   --header  print {"Authorization": "Bearer <token>"}, for an MCP headersHelper
+set -euo pipefail
+
+SERVICE="${AGENT_KEYCHAIN_SERVICE:-oikade-agent}"
+TOKEN_URL="${LINEAR_TOKEN_URL:-https://api.linear.app/oauth/token}"
+SCOPES="${LINEAR_AGENT_SCOPES:-read,write}"
+
+die() { echo "linear-token: $*" >&2; exit 1; }
+
+missing() {
+	die "no $1 for the Oikade Agent Linear app in the Keychain (service \"$SERVICE\"), so agents can't act as it.
+Set it up as the header of hack/linear-token says. Agents never fall back to your login"
+}
+
+keychain() { security find-generic-password -s "$SERVICE" -a "$1" -w 2>/dev/null; }
+
+command -v security >/dev/null || missing "Keychain (the security command)"
+
+# The cache is "<expiry epoch> <token>".
+now=$(date +%s)
+token=""
+if cached=$(keychain linear-access-token) && [[ "$cached" =~ ^([0-9]+)\ (.+)$ ]] &&
+	((BASH_REMATCH[1] - 86400 > now)); then
+	token="${BASH_REMATCH[2]}"
+fi
+
+if [[ -z "$token" ]]; then
+	id=$(keychain linear-client-id) && [[ -n "$id" ]] || missing "linear-client-id"
+	secret=$(keychain linear-client-secret) && [[ -n "$secret" ]] || missing "linear-client-secret"
+	# The credentials reach curl on stdin, never in its arguments.
+	out=$(printf 'user = "%s:%s"\n' "$id" "$secret" | curl -sS --fail-with-body -K - \
+		-d grant_type=client_credentials --data-urlencode "scope=$SCOPES" "$TOKEN_URL") ||
+		die "Linear refused the client credentials: $out"
+	token=$(jq -er .access_token <<<"$out") || die "Linear returned no access token: $out"
+	expires_in=$(jq -er .expires_in <<<"$out") || die "Linear returned no expiry: $out"
+	# Through security's own command reader, so the token isn't in any process's arguments.
+	printf 'add-generic-password -U -s "%s" -a linear-access-token -w "%s %s"\n' \
+		"$SERVICE" "$((now + expires_in))" "$token" | security -i >/dev/null
+fi
+
+if [[ "${1:-}" == "--header" ]]; then
+	jq -cn --arg t "$token" '{Authorization: ("Bearer " + $t)}'
+else
+	printf '%s\n' "$token"
+fi
