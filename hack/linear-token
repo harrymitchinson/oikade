@@ -40,8 +40,10 @@ if cached=$(keychain linear-access-token) && [[ "$cached" =~ ^([0-9]+)\ (.+)$ ]]
 fi
 
 if [[ -z "$token" ]]; then
-	id=$(keychain linear-client-id) && [[ -n "$id" ]] || missing "linear-client-id"
-	secret=$(keychain linear-client-secret) && [[ -n "$secret" ]] || missing "linear-client-secret"
+	id=$(keychain linear-client-id) || missing "linear-client-id"
+	[[ -n "$id" ]] || missing "linear-client-id"
+	secret=$(keychain linear-client-secret) || missing "linear-client-secret"
+	[[ -n "$secret" ]] || missing "linear-client-secret"
 	# The credentials reach curl on stdin, never in its arguments.
 	# curl's config reads \ and " as escapes inside quotes.
 	esc() { sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' <<<"$1"; }
