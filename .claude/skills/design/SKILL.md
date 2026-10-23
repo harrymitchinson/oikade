@@ -1,13 +1,13 @@
 ---
 name: design
-description: Decide how to build an Oikade feature before anyone writes code, and get the user's decision on anything expensive to reverse. First decide whether a design doc is needed at all (public API, state that must survive, component boundaries, a new kind, driver or dependency). If it is, compare two or three real options with their cost of reversing and write the design into the feature's Linear issue, in Design Review, for the user to review in comments; the user decides by moving it out of Design Review to Todo. Then write the feature's steps as sub-issues, one PR each, with scope and acceptance, so agents can build it with the work skill. Use this whenever the user floats an idea or asks "how should we…", "what's the best way to…", "I want Oikade to…", "thinking about adding…", "spec out", "flesh out", "plan the implementation of", or wants to talk through scenes, presence, a new driver, MQTT auth, backups or any other change that needs a decision, even if they never say "design". If the request is only a new capability on an existing driver, use add-capability instead.
+description: Decide how to build an Oikade feature before anyone writes code, and get the user's decision on anything expensive to reverse. First decide whether a design is needed at all (public API, state that must survive, component boundaries, a new kind, driver or dependency). If it is, compare two or three real options with their cost of reversing and write the design into the feature's Linear issue, in Design Review, for the user to review in comments; the user decides by moving it out of Design Review to Todo. Then write the feature's steps as sub-issues, one PR each, with scope and acceptance, so agents can build it with the work skill. Use this whenever the user floats an idea or asks "how should we…", "what's the best way to…", "I want Oikade to…", "thinking about adding…", "spec out", "flesh out", "plan the implementation of", or wants to talk through scenes, presence, a new driver, MQTT auth, backups or any other change that needs a decision, even if they never say "design". If the request is only a new capability on an existing driver, use add-capability instead.
 ---
 
 # Designing an Oikade feature
 
 The user is an SRE building their own home on Oikade. A design that reads well but quietly breaks an invariant can cost them a re-pair of every HomeKit accessory or Zigbee device later. This skill exists to make that kind of consequence visible, and to make sure **the user** makes the call, not you.
 
-How the workflow fits together is in `docs/design/0009-planning-workflow.md`. Read `references/surfaces.md` for the planes, the public API surfaces, the state that must survive, the component boundaries, the hardware and the test layers. Then read just enough of the code the feature touches to cite real files and types.
+How the workflow fits together is in `docs/planning.md`. Read `references/surfaces.md` for the planes, the public API surfaces, the state that must survive, the component boundaries, the hardware and the test layers. Then read just enough of the code the feature touches to cite real files and types.
 
 ## 1. Frame the problem
 
@@ -15,7 +15,7 @@ Restate the request as a problem with a concrete scenario from the user's home (
 
 If anything important is unclear, ask, but no more than three sharp questions at a time. Keep platform designs vendor-neutral: use "a device whose best library is in Python", not a specific product.
 
-## 2. Does it need a design doc?
+## 2. Does it need a design?
 
 It does if the work changes anything expensive to reverse:
 
@@ -37,7 +37,7 @@ A plugin that needs a contract change, or a new capability in the registry, does
 
 **If you're unsure,** it needs one: move it to Design Review (`hack/plan state OIK-N "Design Review"`) and ask the user in the issue.
 
-Every change to Linear goes through `hack/plan`, which acts as the Oikade Agent rather than as the user (`docs/design/0108-agent-identity.md`). Read with the Linear MCP tools; the ones that would change issues are denied.
+Every change to Linear goes through `hack/plan`, which acts as the Oikade Agent rather than as the user (`docs/planning.md`). Read with the Linear MCP tools; the ones that would change issues are denied.
 
 ## 3. Options and recommendation
 
@@ -50,12 +50,12 @@ Then recommend one option and say what it gives up. Sketch the public names it i
 Constraints:
 
 - Never propose Home Assistant as a driver.
-- Plugins are Go first, in this repo (see 0006).
-- When an earlier design constrains this one, check who decided it. An agent-written doc is the user's decision only if the user moved its issue out of Design Review (`hack/plan show` says so), was approved on GitHub before the move to Linear, or was merged from a design PR they reviewed (0008's process). Otherwise, say so.
+- Plugins are Go first, in this repo (see OIK-62).
+- When an earlier design constrains this one, check who decided it. An agent-written doc is the user's decision only if the user moved its issue out of Design Review (`hack/plan show` says so), was approved on GitHub before the move to Linear, or was merged from a design PR they reviewed. Otherwise, say so.
 
 ## 4. Write the design into the issue
 
-The design lives in the feature's issue, where the user reviews it in comments.
+The design lives in the feature's issue, where the user reviews it in comments. The issue is its only record: nothing is committed for it, and code or docs that cite it link the issue. Designs from before the move to Linear are in OIK-5 and the Done issues OIK-60 to OIK-64.
 
 - **The issue:** reuse one if it exists (search with the Linear MCP tools). If the work is an idea in Triage, promote it with `hack/plan promote OIK-N "Design Review"`. Otherwise write the description to a file in your scratchpad and create it with `hack/plan issue "<title>" <file> --state "Design Review"`.
 - **The description:** `## Why`, then `## Design` with Problem, Options (each with its cost of reversing), Recommendation, Consequences (the public names it adds, state, what breaks, the upgrade path) and Open questions. To change it later, edit your file and run `hack/plan edit OIK-N <file>`.
@@ -69,7 +69,6 @@ Then stop, and tell the user it's ready for review. Update the design from their
 Once the user has approved the design, or if it didn't need one of its own:
 
 - **Steps are one PR each,** and an agent running the work skill builds them in order, stacking each on the last until the user reviews them. Keep each one reviewable on its own. Each must leave `CGO_ENABLED=0 make test` green and deliver something reviewable: the API and generated code, then the controller, then the runtime, then HAP, then the docs. Put the risky or uncertain step first.
-- **If the decision is expensive to reverse,** the first step commits `docs/design/NNNN-slug.md` with the code: the approved design condensed to a page, as the lasting record. NNNN is 1000 plus the feature's Linear issue number (`1072-…` for OIK-72), so agents working in parallel can't pick the same number, and it can't collide with the earlier docs. Designs up to 0009 kept their old sequence, and later ones up to 0108 used GitHub issue numbers. The doc has a `# NNNN: Title` heading and no status line.
 - **Each step is a sub-issue,** created in order with `hack/plan issue "<step>" <file> --parent OIK-N`, using the layout in the plan skill: its Scope and Acceptance. Acceptance is plain bullets of observable outcomes, each naming the test layer that proves it (unit, integration, envtest, Kind e2e or manual). A manual line reads `(manual, in the Manual testing doc)`: add its check, with a pass condition, to the Linear document "Manual testing" under a heading for the feature, so every manual check is in one place. Detail like exact types, failure modes and test names goes in the step it affects.
 - **Separate features** if parts of the work don't depend on each other, so agents can build them in parallel. Link them with "blocked by" only where one really needs the other (the plan skill shows how).
 - **If the user hasn't approved it yet,** you can draft the steps, but the work skill won't touch the feature until the user moves it out of Design Review.

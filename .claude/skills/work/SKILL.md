@@ -5,7 +5,7 @@ description: Pick up Oikade work and build it. Take the next ready feature from 
 
 # Working on an Oikade feature
 
-Several agents may run this skill at once, each in its own session. The claim keeps them apart: a feature belongs to whoever holds the branch `claim/OIK-N`, and `hack/plan` is the only safe way to take it. How the workflow fits together is in `docs/design/0009-planning-workflow.md`.
+Several agents may run this skill at once, each in its own session. The claim keeps them apart: a feature belongs to whoever holds the branch `claim/OIK-N`, and `hack/plan` is the only safe way to take it. How the workflow fits together is in `docs/planning.md`.
 
 You work on **one feature**. Its steps are its sub-issues, in order (a feature with none is a single step). You build them one at a time, one PR each, on branches named `work/OIK-S` after each step. You don't wait for the user to merge. A low-risk step you merge yourself once its checks pass. Any other step waits for review, and the next one stacks on it, so the user reviews the stack bottom first. You stop when the feature has no steps left, when three of its steps are waiting for review, or when a step needs the user's decision. Then you release the claim.
 
@@ -21,7 +21,7 @@ You work on **one feature**. Its steps are its sub-issues, in order (a feature w
 Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the next step and why it may be built. Then read, through the Linear MCP tools:
 
 - the feature's **Why**, and the step's sub-issue: its scope and acceptance
-- the design (in the feature, the feature its `Design: OIK-M` line names, or the `docs/design/` file it links), and the comments on both, which may hold notes from earlier steps
+- the design (in the feature, the feature its `Design: OIK-M` line names), and the comments on both, which may hold notes from earlier steps
 - the code the step touches, plus `.claude/skills/design/references/surfaces.md` if the step touches public API or state that must survive
 
 **If building the step needs a decision the design doesn't make,** and that decision is expensive to reverse (public API, state that must survive, component boundaries, a new dependency), don't make it. Ask with `hack/plan note OIK-N "<the question and the options>"`, then go to step 5. A feature that never went through Design Review, or builds under a `Design: OIK-M` line, has no review of its own, so be strict about this there. A cheap, local choice is yours to make. Say what you chose in the PR.

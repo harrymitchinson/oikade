@@ -3,7 +3,7 @@
 # App, so agents act on GitHub as oikade-agent[bot] rather than as the user.
 # hack/plan uses it for its issue and PR writes when it runs inside Claude
 # Code. Why, and what still acts as the user, is in
-# docs/design/0108-agent-identity.md.
+# docs/planning.md.
 #
 # The App's ID and private key live in the macOS Keychain, under the service
 # "oikade-agent". The key is stored base64-encoded, because the Keychain prints
