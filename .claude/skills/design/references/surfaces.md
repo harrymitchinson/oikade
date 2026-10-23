@@ -75,7 +75,7 @@ Say which layer proves each behaviour. Don't just write "add tests".
 | Integration | Part of `make test`, with an in-process broker (`internal/mqtt/mqtttest`) | Bus → status, metrics, and engine `/set` |
 | envtest | `CGO_ENABLED=0 make test` | Controllers: AID stability, identity restore, rendered z2m config, `Ready=False` on a bad CEL |
 | Kind e2e | `make test-e2e` | The deployed system with z2m faked by `mosquitto_pub` |
-| Manual, in #27 | Real devices and the Home app | HomeKit pairing, real Zigbee payloads, the Home app's rendering, arm64 resource use |
+| Manual, in the Manual testing doc | Real devices and the Home app | HomeKit pairing, real Zigbee payloads, the Home app's rendering, arm64 resource use |
 
 Lint with `GOTOOLCHAIN=go1.26.0 make lint`.
 
