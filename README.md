@@ -500,7 +500,7 @@ The plugin SDK and plugins are Go, in the same module, so `make test` and `make 
 
 ## Not yet
 
-Planned work is tracked as [GitHub issues](https://github.com/harrymitchinson/oikade/issues) on the [Oikade board](https://github.com/users/harrymitchinson/projects/5). Releases are [milestones](https://github.com/harrymitchinson/oikade/milestones), and each one's description gives its goal, exit criteria and why it sits where it does. Designs live in [docs/design](docs/design/).
+Planned work is tracked in [Linear](https://linear.app/oikade). Each release is a project there, and its description gives its goal, exit criteria and why it sits where it does. Designs live in [docs/design](docs/design/).
 
 ## Not doing
 

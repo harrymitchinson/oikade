@@ -1,6 +1,8 @@
 # 0108: Agent identity on GitHub
 
-> Approved in [#108](https://github.com/harrymitchinson/oikade/issues/108), which has the discussion. It changes how [0009](0009-planning-workflow.md)'s two gates are enforced, not what they are.
+> Approved in #108 on GitHub, which had the discussion. It changes how [0009](0009-planning-workflow.md)'s two gates are enforced, not what they are.
+
+*Revised on 2026-10-24, when the plan moved to Linear ([0009, Revision: Linear](0009-planning-workflow.md#revision-linear)). Issues, the board and the `approved` label are gone, so the Approved guard workflow has nothing left to guard. In Linear, agents act as the Oikade Agent app, and a design is approved by the user moving it out of Design Review, which `hack/plan` checks in the issue's history. PRs no longer name a GitHub feature, so the review gate decides on the PR's own `needs-review` label, which `hack/plan pr` copies from the feature in Linear. The GitHub side below still holds for PRs.*
 
 ## Problem
 

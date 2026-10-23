@@ -43,7 +43,9 @@ if [[ -z "$token" ]]; then
 	id=$(keychain linear-client-id) && [[ -n "$id" ]] || missing "linear-client-id"
 	secret=$(keychain linear-client-secret) && [[ -n "$secret" ]] || missing "linear-client-secret"
 	# The credentials reach curl on stdin, never in its arguments.
-	out=$(printf 'user = "%s:%s"\n' "$id" "$secret" | curl -sS --fail-with-body -K - \
+	# curl's config reads \ and " as escapes inside quotes.
+	esc() { sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' <<<"$1"; }
+	out=$(printf 'user = "%s:%s"\n' "$(esc "$id")" "$(esc "$secret")" | curl -sS --fail-with-body -K - \
 		-d grant_type=client_credentials --data-urlencode "scope=$SCOPES" "$TOKEN_URL") ||
 		die "Linear refused the client credentials: $out"
 	token=$(jq -er .access_token <<<"$out") || die "Linear returned no access token: $out"

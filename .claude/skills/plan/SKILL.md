@@ -1,89 +1,95 @@
 ---
 name: plan
-description: Keep Oikade's plan on GitHub honest and answer what to do next. Manage ideas (board drafts), features (issues with a Steps checklist), blocked-by links between features, milestones with observable exit criteria, the Oikade Project board, claims by parallel agents, and the README's "Not doing" list, reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
+description: Keep Oikade's plan in Linear honest and answer what to do next. Manage ideas (issues in Triage), features (issues whose steps are sub-issues), blocked-by links between features, releases (Linear projects) with observable exit criteria, claims by parallel agents, and the README's "Not doing" list, reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "releases", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
 ---
 
 # Planning Oikade
 
-How the workflow fits together is in `docs/design/0009-planning-workflow.md`. Each fact has one owner, so don't copy facts between them:
+How the workflow fits together is in `docs/design/0009-planning-workflow.md`. The plan is in Linear, team `OIK`. Each fact has one owner, so don't copy facts between them:
 
 | Fact | Owner |
 |---|---|
-| An idea nobody has committed to | A draft item on the [Oikade board](https://github.com/users/harrymitchinson/projects/5) |
-| A feature: why, its design, its steps and their acceptance | The GitHub issue. Its `## Steps` checklist is the order. |
-| That the user decided it, and agents may start | The `approved` label. **Only the user adds it.** |
-| That agents may start without the user's approval | The `no-design` label (nothing expensive to reverse), or a `Design: #M` line naming an approved feature whose design it builds. The design skill sets these. |
+| An idea nobody has committed to | An issue in Triage |
+| A feature: why and its design | A top-level issue's description |
+| Its steps and their acceptance | Its sub-issues, in order. A feature with none is a single step. |
+| That a design waits for the user | The status **Design Review** |
+| That the user decided it, and agents may start | The user moving it out of Design Review to Todo. **Only the user does that.** |
+| That agents may start without the user's approval | Never having been in Design Review (nothing expensive to reverse), or a `Design: OIK-M` line naming an approved feature whose design it builds. The design skill decides which. |
 | Order between features | "Blocked by" relationships |
-| Who's working on it | The branch `work/N` (`hack/plan claims`). Its steps are on `work/N-S`, stacked while they wait for review. |
-| Status | The board. Claiming moves it to In Progress, and closing moves it to Done. |
-| What's in a release | The GitHub milestone. Its description holds the goal, the exit criteria and a "Why here" line. |
-| Order between releases | The version numbers, with each milestone's "Why here" line |
+| Who's working on it | The branch `claim/OIK-N` (`hack/plan claims`). Its steps are on `work/OIK-S`, stacked while they wait for review. |
+| Status | The issue's status. Claiming moves it to In Progress, and Linear's GitHub integration moves each step as its PR opens and merges. |
+| What's in a release | The Linear project (`v0.1.0`, …). Its description holds the goal, the exit criteria and a "Why here" line. |
+| Order between releases | The version numbers, with each project's "Why here" line |
 | What the user ruled out, and why | The README's "Not doing" |
 
-Use `hack/plan` for everything it covers (`hack/plan help`), and for every write to GitHub: issues, comments, labels, milestones and blocked-by links. Its writes show as `oikade-agent[bot]` (`docs/design/0108-agent-identity.md`), and raw `gh` writes are denied. Reads, such as `gh issue list`, are fine. Bookkeeping never needs a PR. Only "Not doing" is a file, in the README. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
+Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and the like), which act as the Oikade Agent. Use `hack/plan` for everything it covers (`hack/plan help`), and for every change to issues, statuses, labels, projects and blocked-by links: the MCP tools that would change them are denied, so `hack/plan`'s rules always apply. Comments can go through either. Bookkeeping never needs a PR. Only "Not doing" is a file, in the README. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
 
 ## Answering "what's next"
 
 1. **Read the current state:**
-   - `hack/plan sync` ticks steps whose PRs merged, and resets cards nobody holds
+   - `hack/plan sync` sets steps from their PRs, and sends features nobody holds back to Todo
    - `hack/plan ready` lists what an agent can start now
    - `hack/plan claims` lists what's in flight, and what's stale
-   - `gh issue list --label needs-design` and `gh pr list` show what's waiting on the user
-   - `git log --oneline -20`, and the milestones with `hack/plan milestones`
+   - issues in Design Review, and `gh pr list`, show what's waiting on the user
+   - `git log --oneline -20`, and the releases with `hack/plan projects`
 2. **Reconcile it:**
-   - Close features whose last step merged without closing them.
    - Flag stale claims. Release one only if the user agrees.
-   - Flag any milestone whose exit criteria no feature covers.
+   - Flag any release whose exit criteria no feature covers.
 3. **Answer in this order:**
-   - what's waiting on the user (designs to decide, `needs-review` PR stacks to merge bottom first, questions in issue comments), since that unblocks the most
+   - what's waiting on the user (designs in Design Review, `needs-review` PR stacks to merge bottom first, questions in comments), since that unblocks the most
    - what agents merged that the user hasn't looked at yet: `gh pr list --state merged --label agent-merged`
    - what's ready, with the first item and a one-line reason
    - what's in flight
 
 ## Changing the plan
 
-- **A new idea:** `hack/plan idea "<title>" "<a few lines: the problem, and where it came from>"`. Don't open an issue for it.
-- **Committing to an idea:** when the user wants it built, `hack/plan promote <item id>` turns it into an issue. Then use the design skill: it decides whether a design is needed, and writes the Steps.
-- **A bug:** an issue with the `bug` label (`hack/plan issue "<title>" <body file> bug`), written as a feature with one step unless it needs more.
-- **A feature issue's body:**
+- **A new idea:** `hack/plan idea "<title>" "<a few lines: the problem, and where it came from>"`. It lands in Triage.
+- **Committing to an idea:** when the user wants it built, `hack/plan promote OIK-N` moves it to Backlog. Then use the design skill: it decides whether a design is needed, and writes the steps.
+- **A bug:** `hack/plan issue "<title>" <body file> --label Bug`, written as a feature with one step unless it needs more.
+- **A feature's description:**
 
   ```markdown
   ## Why
   One or two lines.
 
-  ## Steps
-  - [ ] <step one>
-  - [ ] <step two>
+  ## Design
+  (only if it needs one: see the design skill)
+  ```
 
-  ### <step one>
+  Each step is a sub-issue, created in order:
+
+  ```sh
+  hack/plan issue "<step one>" <file> --parent OIK-N
+  ```
+
+  A step's description holds its scope and acceptance:
+
+  ```markdown
   Scope: the files, commands (`kubebuilder create …`, `make manifests generate`) and risks.
   Acceptance:
   - <observable outcome> (unit / integration / envtest / Kind e2e / manual)
-
-  ### <step two>
-  …
   ```
 
-  Only steps are checkboxes. Acceptance lines are plain bullets, so GitHub's "N of M tasks" counts steps. Acceptance that needs real devices or the Home app, which CI and Kind can't provide, reads `(manual, in #27)`. Its check goes in #27, Manual testing, under a heading for the feature. The feature closes when its last step merges, and the check stays open in #27 until the user has done it. Only #27 carries the `manual` label.
+  Acceptance that needs real devices or the Home app, which CI and Kind can't provide, reads `(manual, in the Manual testing doc)`. Its check goes in the Linear document "Manual testing" (project `v0.2.0`), under a heading for the feature. The feature is done when its last step merges, and the check stays open in the document until the user has done it.
 - **Order between features:**
 
   ```sh
   hack/plan block <blocked> <blocker>
   ```
 
-- **Milestones:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "in Kind, X reaches `Ready=True`". Avoid criteria like "code written". To create one:
+- **Releases:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "in Kind, X reaches `Ready=True`". Avoid criteria like "code written". To create one:
 
   ```sh
-  hack/plan milestone new "<title>" <description file>
+  hack/plan project new "<version>" <description file>
   ```
 
-  Change its description with `hack/plan milestone edit "<title>" <file>`. Put a feature in one with `hack/plan milestone set N "<title>"`. Assign milestones only when the user asks, or after agreeing an order with them.
-- **Order of milestones:** the version numbers give it, and each milestone's description ends with a "Why here" line. Changes come from the user. Propose one; don't just make it.
-- **Shipped:** check the milestone's exit criteria against what's actually observable, and close it with `hack/plan milestone close "<title>"`.
+  Change its description with `hack/plan project edit "<version>" <file>`. Put a feature in one with `hack/plan project set OIK-N "<version>"`. Assign releases only when the user asks, or after agreeing an order with them.
+- **Order of releases:** the version numbers give it, and each project's description ends with a "Why here" line. Changes come from the user. Propose one; don't just make it.
+- **Shipped:** check the release's exit criteria against what's actually observable, and close it with `hack/plan project close "<version>"`.
 - **"Not doing":** add an entry only when the user rules something out, and say who ruled it out and why.
 
 ## Rules
 
-- Never add `approved`, and never present an agent's choice as the user's decision.
+- Never move an issue out of Design Review, and never present an agent's choice as the user's decision.
 - Stage explicit paths. Never run `git add` on a directory: other sessions share the checkout.
 - Keep the plan vendor-neutral. A specific device family is a feature or an idea, not a direction.
