@@ -56,6 +56,19 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("giving the runtime a home for sun triggers, in a timezone that isn't UTC")
+		cmd = exec.Command("kubectl", "-n", namespace, "patch", "deployment", "oikade-runtime", "--type=json", "-p",
+			fmt.Sprintf(`[{"op":"test","path":"/spec/template/spec/containers/0/args/1","value":"--timezone=UTC"},`+
+				`{"op":"replace","path":"/spec/template/spec/containers/0/args/1","value":"--timezone=%s"},`+
+				`{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--latitude=%v"},`+
+				`{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--longitude=%v"}]`,
+				runtimeTimezone, runtimeSite.Latitude, runtimeSite.Longitude))
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to set the runtime's location")
+		cmd = exec.Command("kubectl", "-n", namespace, "rollout", "status", "deployment/oikade-runtime", "--timeout=3m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to roll out the runtime")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,

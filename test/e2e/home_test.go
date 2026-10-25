@@ -18,6 +18,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/test/utils"
 )
 
@@ -187,13 +188,103 @@ spec:
   hold: {device: dryer-plug, capability: switch.on, value: true}
 `
 
+// runtimeTimezone and runtimeSite are the runtime's --timezone, --latitude and --longitude. The zone
+// isn't UTC, so a Rule that used UTC instead would fail.
+const runtimeTimezone = "Australia/Sydney"
+
+var runtimeSite = sun.Site{Latitude: -33.8688, Longitude: 151.2093}
+
+// timetableManifests turns a plug off at a time of day on the given days, and on at the same time
+// on the other days.
+func timetableManifests(at time.Time) string {
+	today := at.Weekday().String()[:3]
+	var others []string
+	for d := range 7 {
+		if day := time.Weekday(d).String()[:3]; day != today {
+			others = append(others, day)
+		}
+	}
+	return fmt.Sprintf(`
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: downstairs-plug}
+spec:
+  plugin: {pluginRef: {name: example-switch}, id: downstairs-relay, parameters: {capability: switch.on}}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: downstairs-off}
+spec:
+  triggers: [{at: {time: "%[1]s", days: [%[2]s]}}]
+  do:
+  - set: {device: downstairs-plug, capability: switch.on, value: false}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: downstairs-on-other-days}
+spec:
+  triggers: [{at: {time: "%[1]s", days: [%[3]s]}}]
+  do:
+  - set: {device: downstairs-plug, capability: switch.on, value: true}
+`, at.Format("15:04"), today, strings.Join(others, ", "))
+}
+
+// sunsetManifests turns the porch light on 15 minutes before sunset, and holds it on from an hour
+// to two hours after.
+const sunsetManifests = `
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: porch-dusk}
+spec:
+  triggers: [{sun: {event: Sunset, offset: -15m}}]
+  do:
+  - set: {device: porch-light, capability: light.on, value: true}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: porch-evening}
+spec:
+  while: {window: {start: {sun: Sunset, offset: 1h}, end: {sun: Sunset, offset: 2h}}}
+  hold: {device: porch-light, capability: light.on, value: true}
+`
+
+// nextSunset returns the first sunset after now, moved by each offset in turn, in the runtime's
+// zone: the times a sun trigger or sun window edge next fires.
+func nextSunset(now time.Time, offsets ...time.Duration) time.Time {
+	loc, err := time.LoadLocation(runtimeTimezone)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	var next time.Time
+	local := now.In(loc)
+	for i := -2; i <= 2; i++ {
+		day := local.AddDate(0, 0, i)
+		set, ok := runtimeSite.Time(sun.Sunset, day.Year(), day.Month(), day.Day(), loc)
+		ExpectWithOffset(1, ok).To(BeTrue())
+		for _, off := range offsets {
+			if t := set.Add(off); t.After(now) && (next.IsZero() || t.Before(next)) {
+				next = t
+			}
+		}
+	}
+	return next
+}
+
+// statusTime parses a time jsonpath read from a status, or returns the zero time.
+func statusTime(s string, err error) time.Time {
+	if err != nil {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
+}
+
 // pluginDevices is the plugin's devices topic with every relay found. It clears the device error
 // that "serves a plugin Device fed over MQTT" reports, so it's published only after that test.
 const pluginDevices = `{"devices":[` +
 	`{"id":"porch-relay","found":true,"capabilities":["light.on"]},` +
 	`{"id":"fan-relay","found":true,"capabilities":["switch.on"]},` +
 	`{"id":"rail-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"dryer-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
+	`{"id":"dryer-relay","found":true,"capabilities":["switch.on"]},` +
+	`{"id":"downstairs-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
 
 // readmeManifests returns every YAML block in the README's Rules section that is a complete
 // manifest, as one stream.
@@ -314,7 +405,7 @@ func homeScenario() {
 		AfterAll(func() {
 			// The broker outlives the namespace; don't leave a fake plugin retained on it.
 			subs := []string{"status", "devices"}
-			for _, id := range []string{"porch-relay", "fan-relay", "rail-relay", "dryer-relay"} {
+			for _, id := range []string{"porch-relay", "fan-relay", "rail-relay", "dryer-relay", "downstairs-relay"} {
 				subs = append(subs, id+"/availability", id+"/state")
 			}
 			for _, sub := range subs {
@@ -561,6 +652,52 @@ func homeScenario() {
 			Eventually(jsonpath("device", "dryer-plug", `{.status.control[0].claims[?(@.winner==true)].source}`)).
 				Should(Equal("Rule/dryer-daily"))
 			Eventually(jsonpath("rule", "dryer-daily", "{.status.today.starts}")).Should(Equal("1"))
+		})
+
+		// This needs the plugin and its devices from the tests above. Kind can't fake the clock, so the
+		// timetable fires a couple of minutes from now.
+		It("runs a timetable on the days it names", func() {
+			loc, err := time.LoadLocation(runtimeTimezone)
+			Expect(err).NotTo(HaveOccurred())
+			publish(pluginRoot+"/downstairs-relay/availability", "online", true)
+			publish(pluginRoot+"/downstairs-relay/state", `{"switch.on":true}`, true)
+			at := time.Now().In(loc).Add(150 * time.Second).Truncate(time.Minute)
+			apply(timetableManifests(at))
+			for _, rule := range []string{"downstairs-off", "downstairs-on-other-days"} {
+				Eventually(jsonpath("rule", rule, `{.status.conditions[?(@.type=="Ready")].status}`)).Should(Equal("True"))
+				Eventually(jsonpath("rule", rule, `{.status.conditions[?(@.type=="Scheduled")].status}`)).
+					Should(Equal("True"))
+			}
+			Expect(statusTime(jsonpath("rule", "downstairs-off", "{.status.nextFire}")())).To(BeTemporally("==", at))
+			tomorrow := time.Date(at.Year(), at.Month(), at.Day()+1, at.Hour(), at.Minute(), 0, 0, loc)
+			Expect(statusTime(jsonpath("rule", "downstairs-on-other-days", "{.status.nextFire}")())).
+				To(BeTemporally("==", tomorrow))
+
+			By("waiting for " + at.Format("15:04") + " in " + runtimeTimezone)
+			time.Sleep(time.Until(at) - 30*time.Second) // subscribe gives up after 90s
+			wait := subscribe(pluginRoot+"/downstairs-relay/set", 1)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/downstairs-relay/set {"switch.on":false}`))
+			Eventually(func() time.Time {
+				return statusTime(jsonpath("rule", "downstairs-off", "{.status.lastFire}")())
+			}).Should(BeTemporally("==", at))
+			Expect(statusTime(jsonpath("rule", "downstairs-off", "{.status.nextFire}")())).
+				To(BeTemporally("==", time.Date(at.Year(), at.Month(), at.Day()+7, at.Hour(), at.Minute(), 0, 0, loc)))
+			Consistently(jsonpath("rule", "downstairs-on-other-days", "{.status.lastFire}"), 10*time.Second).
+				Should(BeEmpty())
+		})
+
+		// This needs the porch light from the tests above.
+		It("schedules a porch light from sunset", func() {
+			now := time.Now()
+			apply(sunsetManifests)
+			Eventually(jsonpath("rule", "porch-dusk", `{.status.conditions[?(@.type=="Scheduled")].status}`)).
+				Should(Equal("True"))
+			Eventually(func() time.Time { return statusTime(jsonpath("rule", "porch-dusk", "{.status.nextFire}")()) }).
+				Should(BeTemporally("==", nextSunset(now, -15*time.Minute)))
+			Eventually(jsonpath("rule", "porch-evening", `{.status.conditions[?(@.type=="Scheduled")].status}`)).
+				Should(Equal("True"))
+			Eventually(func() time.Time { return statusTime(jsonpath("rule", "porch-evening", "{.status.nextChange}")()) }).
+				Should(BeTemporally("==", nextSunset(now, time.Hour, 2*time.Hour)))
 		})
 
 		It("applies the README's Rules examples as written", func() {
