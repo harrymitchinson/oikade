@@ -166,9 +166,9 @@ spec:
   - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
 `
 
-// budgetManifests adds a plugin plug run by a budget hold. Its budget is the whole day, so every
-// slot left today is planned, and it runs from now whatever time the test runs.
-const budgetManifests = `
+// budgetDevice and budgetRule add a plugin plug run by a budget hold. Its budget is the whole day,
+// so every slot left today is planned, and it runs from now whatever time the test runs.
+const budgetDevice = `
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: dryer-plug}
@@ -176,7 +176,9 @@ spec:
   plugin: {pluginRef: {name: example-switch}, id: dryer-relay, parameters: {capability: switch.on}}
   control:
   - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
----
+`
+
+const budgetRule = `
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: dryer-daily}
@@ -540,12 +542,14 @@ func homeScenario() {
 
 		// This needs the plugin and its devices from the tests above.
 		It("plans a budget and drives a plug from it", func() {
-			// The plug reports first, so the runtime knows it's already at its default and the only
-			// write is the budget's.
+			// The plug is declared, and reports it's at its default, before the budget claims it, so
+			// the only write after that is the budget's.
 			publish(pluginRoot+"/dryer-relay/availability", "online", true)
 			publish(pluginRoot+"/dryer-relay/state", `{"switch.on":false}`, true)
+			apply(budgetDevice)
+			Eventually(jsonpath("device", "dryer-plug", "{.status.control[0].level}")).Should(Equal("Default"))
 			wait := subscribe(pluginRoot+"/dryer-relay/set", 1)
-			apply(budgetManifests)
+			apply(budgetRule)
 			Eventually(jsonpath("rule", "dryer-daily", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
 			Eventually(jsonpath("rule", "dryer-daily", `{.status.conditions[?(@.type=="Planned")].status}`)).

@@ -57,7 +57,9 @@ type BudgetMetrics struct {
 	Target    *prometheus.GaugeVec
 	Scheduled *prometheus.GaugeVec
 	Run       *prometheus.CounterVec
-	Desired   *prometheus.GaugeVec
+	// TodayRun is today's run minutes, as in status.today, to compare with Target.
+	TodayRun *prometheus.GaugeVec
+	Desired  *prometheus.GaugeVec
 }
 
 // NewBudgetMetrics returns the metrics Engine.Budget expects.
@@ -76,6 +78,10 @@ func NewBudgetMetrics() *BudgetMetrics {
 			Name: "oikade_rule_budget_run_minutes_total",
 			Help: "Minutes a budget hold's target has been on and available.",
 		}, labels),
+		TodayRun: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "oikade_rule_budget_today_run_minutes",
+			Help: "Minutes a budget hold's target has been on and available in the current planning day.",
+		}, labels),
 		Desired: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "oikade_rule_budget_desired",
 			Help: "Whether a budget hold's plan wants its target on now: 1 or 0.",
@@ -85,7 +91,29 @@ func NewBudgetMetrics() *BudgetMetrics {
 
 // Collectors returns the metrics to register.
 func (m *BudgetMetrics) Collectors() []prometheus.Collector {
-	return []prometheus.Collector{m.Target, m.Scheduled, m.Run, m.Desired}
+	return []prometheus.Collector{m.Target, m.Scheduled, m.Run, m.TodayRun, m.Desired}
+}
+
+// planned sets a budget's metrics from its plan, and whether the plan wants the target on now.
+func (m *BudgetMetrics) planned(key types.NamespacedName, p *budgetPlan, on bool) {
+	if m == nil {
+		return
+	}
+	m.Target.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.TargetMinutes))
+	m.Scheduled.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.ScheduledMinutes))
+	m.Desired.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(on)))
+	m.TodayRun.WithLabelValues(key.Namespace, key.Name).Set(math.Floor(p.run.Minutes()))
+}
+
+// unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
+// run is kept for when it can plan again.
+func (m *BudgetMetrics) unplanned(key types.NamespacedName) {
+	if m == nil {
+		return
+	}
+	m.Target.DeleteLabelValues(key.Namespace, key.Name)
+	m.Scheduled.DeleteLabelValues(key.Namespace, key.Name)
+	m.Desired.WithLabelValues(key.Namespace, key.Name).Set(0)
 }
 
 func (m *BudgetMetrics) delete(key types.NamespacedName) {
@@ -95,6 +123,7 @@ func (m *BudgetMetrics) delete(key types.NamespacedName) {
 	m.Target.DeleteLabelValues(key.Namespace, key.Name)
 	m.Scheduled.DeleteLabelValues(key.Namespace, key.Name)
 	m.Run.DeleteLabelValues(key.Namespace, key.Name)
+	m.TodayRun.DeleteLabelValues(key.Namespace, key.Name)
 	m.Desired.DeleteLabelValues(key.Namespace, key.Name)
 }
 
@@ -150,6 +179,7 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 	}
 	b, report := e.compileBudget(s, snap)
 	if b == nil {
+		e.Budget.unplanned(key)
 		e.reportBudget(key, s, now, report)
 		return false, time.Time{}
 	}
@@ -190,6 +220,10 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 			p.credit(now, targetOn, e.Budget, key)
 		}
 		bs.plan = p
+		if e.Budget != nil {
+			// Exported at 0 before any run is credited.
+			e.Budget.Run.WithLabelValues(key.Namespace, key.Name)
+		}
 	}
 
 	next = p.end
@@ -205,13 +239,7 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 		}
 	}
 
-	if e.Budget != nil {
-		e.Budget.Target.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.TargetMinutes))
-		e.Budget.Scheduled.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.ScheduledMinutes))
-		e.Budget.Desired.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(on)))
-		// Exported at 0 before any run is credited.
-		e.Budget.Run.WithLabelValues(key.Namespace, key.Name)
-	}
+	e.Budget.planned(key, p, on)
 	report = BudgetReport{Today: p.status(), Planned: metav1.ConditionTrue, Reason: ReasonPlanned,
 		Message: planMessage(p.day)}
 	if p.failure != "" {

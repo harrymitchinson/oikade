@@ -1103,7 +1103,7 @@
       "id": 23,
       "type": "timeseries",
       "title": "Budget minutes",
-      "description": "Each budget hold's minutes for today, how many the plan places, and how long its device has run in the last 24 hours.",
+      "description": "Each budget hold's minutes for the current planning day, how many the plan places, and how long its device has been on and available so far.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1121,7 +1121,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (rule) (oikade_rule_budget_target_minutes{namespace=~\"$namespace\"})",
+          "expr": "max by (namespace, rule) (oikade_rule_budget_target_minutes{namespace=~\"$namespace\"})",
           "legendFormat": "{{rule}} target"
         },
         {
@@ -1130,7 +1130,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "max by (rule) (oikade_rule_budget_scheduled_minutes{namespace=~\"$namespace\"})",
+          "expr": "max by (namespace, rule) (oikade_rule_budget_scheduled_minutes{namespace=~\"$namespace\"})",
           "legendFormat": "{{rule}} scheduled"
         },
         {
@@ -1139,8 +1139,8 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "sum by (rule) (increase(oikade_rule_budget_run_minutes_total{namespace=~\"$namespace\"}[24h]))",
-          "legendFormat": "{{rule}} run (24h)"
+          "expr": "max by (namespace, rule) (oikade_rule_budget_today_run_minutes{namespace=~\"$namespace\"})",
+          "legendFormat": "{{rule}} run"
         }
       ],
       "options": {
@@ -1173,7 +1173,7 @@
       "id": 24,
       "type": "state-timeline",
       "title": "Budgets wanted and running",
-      "description": "Whether each budget's plan wants its device on, and whether the device is on and available, as its run minutes are credited.",
+      "description": "Whether each budget's plan wants its device on, and whether its device has been on and available in the last 5 minutes, as its run is credited. Running lags the device by up to 5 minutes.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1191,7 +1191,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (rule) (oikade_rule_budget_desired{namespace=~\"$namespace\"})",
+          "expr": "max by (namespace, rule) (oikade_rule_budget_desired{namespace=~\"$namespace\"})",
           "legendFormat": "{{rule}} wanted"
         },
         {
@@ -1200,7 +1200,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "max by (rule) (rate(oikade_rule_budget_run_minutes_total{namespace=~\"$namespace\"}[5m]) > bool 0)",
+          "expr": "max by (namespace, rule) (rate(oikade_rule_budget_run_minutes_total{namespace=~\"$namespace\"}[5m]) > bool 0)",
           "legendFormat": "{{rule}} running"
         }
       ],

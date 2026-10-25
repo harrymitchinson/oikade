@@ -204,7 +204,6 @@ A `budget` runs a device for a number of minutes a day instead, in the slots tha
 - `status.active` and `status.nextChange` say whether the hold is active and when that next changes. `kubectl get rules` shows `ACTIVE`.
 - **Two holds on one capability need a `control` entry** to decide between them. Without one, both Rules show `Ready=False` with reason `ConflictingHolds`.
 
-
 ### Budgets
 
 A budget hold runs a device for a number of minutes a day, and plans when. Here a loft fan runs one to five hours a day depending on how humid the loft was at midnight, overnight where it can, and never in the evening:
@@ -260,6 +259,7 @@ spec:
 Budget windows are `"HH:MM"` only, not sun times. A budget is the only field of its `while`, and it holds one Device's bool capability at `true`. That capability needs a `control` entry: its `minimumOn`, `minimumOff` and `maximumStartsPerDay` shape the planned runs, and `minimumOn` and `minimumOff` must be whole numbers of slots. Something that must run whatever the budget says, such as frost protection, is a separate `priority: Safety` hold on the same capability, which wins over the budget.
 
 At `planningTime` the runtime plans the day and freezes the plan. The hold is active in the planned blocks, as a Normal claim, so a Safety hold or a Home app tap still beats it. `status.today` shows the plan (`targetMinutes`, `scheduledMinutes`, `shortfallMinutes` and the `blocks`) and the progress: `runMinutes`, counted only while the device reports on and is available and updated at most every 5 minutes, and `starts`. After a restart the same day, the runtime carries on from `status.today` rather than planning again. Editing a budget takes effect at the next `planningTime`. A runtime that starts with no plan for today plans from then, so the hours already gone are lost to the day. The `Planned` condition is `False` with reason `NoControl`, `InvalidBudget` or `EvaluationFailed` when the day can't be planned. `kubectl get rules -o wide` shows each budget's minutes and run.
+
 ### Arbitration
 
 A Device arbitrates a capability when it has a `control` entry for it:
@@ -491,6 +491,7 @@ The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/d
 | `oikade_rule_budget_target_minutes{namespace,rule}` | A budget hold's minutes for the current planning day |
 | `oikade_rule_budget_scheduled_minutes{namespace,rule}` | How many of them today's plan places |
 | `oikade_rule_budget_run_minutes_total{namespace,rule}` | Minutes a budget hold's device has been on and available |
+| `oikade_rule_budget_today_run_minutes{namespace,rule}` | Those minutes in the current planning day, as in `status.today` |
 | `oikade_rule_budget_desired{namespace,rule}` | 1 while a budget hold's plan wants its device on, 0 otherwise |
 | `oikade_device_control_level{namespace,device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |

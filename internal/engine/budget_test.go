@@ -12,6 +12,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
@@ -45,6 +46,16 @@ const pumpFrost = `
   while: {when: 'devices["outdoor-temp"]["sensor.temperature"] < 1.0'}
   hold: {device: pump, capability: switch.on, value: true}
 `
+
+// setControlOf replaces one device's control entries, leaving the others' empty.
+func (r *rig) setControlOf(dev string, entries ...homev1alpha1.CapabilityControl) {
+	metas := map[types.NamespacedName]hub.Meta{}
+	for name := range holdDevices {
+		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+	}
+	metas[types.NamespacedName{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: entries}
+	r.store.SetDevices(z2m, metas)
+}
 
 // report reports a device value, as a driver does: seen, then changed.
 func (r *rig) report(dev, c string, v any) {
@@ -192,6 +203,20 @@ func TestBudgetMetricsAreExportedBeforeAnyRun(t *testing.T) {
 		if n := testutil.CollectAndCount(c); n != 1 {
 			t.Errorf("%d series for a metric, want 1 before any run is credited", n)
 		}
+	}
+	r.expectBudgetMetrics("pump-daily", 240, 240, 0)
+	if got := testutil.ToFloat64(r.e.Budget.TodayRun.WithLabelValues(ns, "pump-daily")); got != 0 {
+		t.Errorf("oikade_rule_budget_today_run_minutes %v, want 0", got)
+	}
+
+	// The control entry goes: nothing is planned or wanted any more.
+	r.setControlOf("pump")
+	r.at("2026-10-21 14:01 BST")
+	if n := testutil.CollectAndCount(r.e.Budget.Target); n != 0 {
+		t.Errorf("%d target series once it can't plan, want none", n)
+	}
+	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues(ns, "pump-daily")); got != 0 {
+		t.Errorf("oikade_rule_budget_desired %v once it can't plan, want 0", got)
 	}
 }
 
