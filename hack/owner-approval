@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# owner-approval: whether the user's Approve covers a PR's code as it is now.
+# hack/plan merge uses it to merge a needs-review PR, and review-gate.yml to
+# pass "Approved by the owner" (docs/planning.md). It reads only GitHub, so
+# it runs in CI too, where there's no Linear token.
+#
+# The user's latest decisive review (an Approve, Request changes or dismissal;
+# comments don't count) must approve the head commit, or a commit whose own
+# diff is the same as the head's. A restack moves a step onto a new base
+# without changing it, so it keeps the Approve. New commits don't.
+#
+# A step's own diff is from where it leaves its base. For the approved commit
+# that's BASE, or, if the user approved it while it was stacked, the step
+# below it: the PR whose head branch was once this PR's base. GitHub keeps a
+# merged PR's head at refs/pull/N/head after its branch is deleted.
+#
+# The diffs must match byte for byte, whitespace included.
+#
+# Usage: OWNER=<login> hack/owner-approval PR HEAD_SHA BASE_REF
+# Prints why, and exits 0 if the Approve covers HEAD_SHA, 1 if it doesn't, and
+# 2 if it couldn't tell.
+set -euo pipefail
+
+pr="${1:?usage: OWNER=<login> hack/owner-approval PR HEAD_SHA BASE_REF}"
+head="${2:?usage: OWNER=<login> hack/owner-approval PR HEAD_SHA BASE_REF}"
+base="${3:?usage: OWNER=<login> hack/owner-approval PR HEAD_SHA BASE_REF}"
+owner="${OWNER:?OWNER must name the user whose Approve counts}"
+remote="${PLAN_REMOTE:-origin}"
+
+unsure() { echo "$*"; exit 2; }
+
+reviews=$(gh api --paginate "repos/{owner}/{repo}/pulls/$pr/reviews") || unsure "couldn't read PR #$pr's reviews"
+review=$(jq -cs --arg owner "$owner" '[.[][] | select(.user.login == $owner and (.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED"))] | last // {state: "none"}' <<<"$reviews")
+state=$(jq -r .state <<<"$review")
+if [[ "$state" != APPROVED ]]; then
+	echo "@$owner hasn't approved PR #$pr (latest review: $state)"
+	exit 1
+fi
+
+approved=$(jq -r .commit_id <<<"$review")
+if [[ "$approved" == "$head" ]]; then
+	echo "@$owner approved PR #$pr at its head, $head"
+	exit 0
+fi
+
+# A restack can leave the approved commit on no branch, so fetch it by id.
+for c in "$approved" "$head"; do
+	git cat-file -e "$c^{commit}" 2>/dev/null || git fetch -q "$remote" "$c" ||
+		unsure "couldn't fetch $c to compare what @$owner approved with PR #$pr's head"
+done
+git fetch -q "$remote" "+refs/heads/$base:refs/remotes/$remote/$base" || unsure "couldn't fetch $base"
+bases=("$remote/$base")
+
+# The steps below: every branch this PR was based on before BASE, as GitHub
+# recorded each change of base (a restack, or GitHub retargeting it when the
+# branch below was deleted). Trying a base that wasn't the one the Approve saw
+# only ever compares one more diff.
+# shellcheck disable=SC2016 # $owner, $name and $n are GraphQL variables
+earlier=$(gh api graphql -F owner='{owner}' -F name='{repo}' -F n="$pr" -f query='query($owner: String!, $name: String!, $n: Int!) {
+	repository(owner: $owner, name: $name) {
+	pullRequest(number: $n) { timelineItems(itemTypes: [BASE_REF_CHANGED_EVENT], first: 100) {
+	nodes { ... on BaseRefChangedEvent { previousRefName } } } } } }' \
+	-q '.data.repository.pullRequest.timelineItems.nodes[].previousRefName') ||
+	unsure "couldn't read PR #$pr's earlier bases"
+while read -r ref; do
+	[[ -n "$ref" && "$ref" != "$base" ]] || continue
+	below=$(gh pr list --head "$ref" --state all --limit 1 --json number -q '.[0].number // empty') ||
+		unsure "couldn't find the PR for $ref, an earlier base of PR #$pr"
+	[[ -n "$below" ]] || continue
+	git fetch -q "$remote" "refs/pull/$below/head" || unsure "couldn't fetch PR #$below, the step below"
+	bases+=("$(git rev-parse FETCH_HEAD)")
+done < <(sort -u <<<"$earlier")
+
+# --verbatim: whitespace is meaning in YAML and Makefiles, so re-indenting
+# after the Approve is a change.
+patch() {
+	local mb
+	mb=$(git merge-base "$1" "$2") || return 1
+	git diff "$mb" "$2" | git patch-id --verbatim | cut -d' ' -f1
+}
+now=$(patch "$remote/$base" "$head") || unsure "couldn't diff PR #$pr's head against $base"
+for b in "${bases[@]}"; do
+	then_=$(patch "$b" "$approved") || continue
+	# An empty diff has no patch-id, and two of them prove nothing.
+	if [[ -n "$now" && "$then_" == "$now" ]]; then
+		echo "@$owner approved PR #$pr at $approved, and its head $head changes the same lines (a restack)"
+		exit 0
+	fi
+done
+echo "@$owner approved PR #$pr at $approved, but its head $head changes more since"
+exit 1

@@ -34,13 +34,16 @@ DESIGN_REVIEW="Design Review"
 # guardrails, so an agent can't loosen its rules or checks and then merge, and
 # the code that keeps state whose loss means re-pairing every HomeKit
 # accessory or Zigbee device (.claude/skills/design/references/surfaces.md).
-PROTECTED='^\.github/|^\.claude/settings(\.local)?\.json$|^\.mcp\.json$|^hack/(plan|agent-token|linear-token|test/)|^Makefile$|^\.golangci\.ya?ml$|^internal/(identity|hap)/|^internal/render/(hap|zigbee2mqtt)\.go$|^internal/controller/(homekit|zigbee)/|^cmd/hap\.go$'
+PROTECTED='^\.github/|^\.claude/settings(\.local)?\.json$|^\.mcp\.json$|^hack/(plan|agent-token|linear-token|owner-approval|test/)|^Makefile$|^\.golangci\.ya?ml$|^internal/(identity|hap)/|^internal/render/(hap|zigbee2mqtt)\.go$|^internal/controller/(homekit|zigbee)/|^cmd/hap\.go$'
 
 die() { echo "plan: $*" >&2; exit 1; }
 
 # The dispatch at the bottom looks the repo up once, into REPO.
 REPO=""
 repo() { if [[ -n "$REPO" ]]; then echo "$REPO"; else gh repo view --json nameWithOwner -q .nameWithOwner; fi; }
+
+# The user on GitHub: the repo's owner, as the workflows take it (github.repository_owner).
+gh_owner() { local r; r=$(repo); echo "${r%%/*}"; }
 
 need_file() { [[ -f "$1" ]] || die "no such file: $1"; }
 
@@ -231,7 +234,8 @@ Work
                         (default DIR .claude/worktrees/work-ID)
   step ID               In ID's worktree, once the current step has a PR: start the next step on its own branch
   pr ID TITLE BODY_FILE Push the current step's branch and open its PR on the right base
-  merge ID PR           Merge a step's PR without the user, if docs/planning.md allows it, then restack
+  merge ID PR           Merge a step's PR if docs/planning.md allows it, then restack. One held for the
+                        user merges once their Approve covers its head
   restack ID            Rebase the steps stacked on a step that merged onto main
   release ID [--force]  Give up a claim: delete branch claim/ID and set the feature back to Todo. Step
                         branches stay. Refuses if claim/ID itself has commits, unless --force
@@ -645,12 +649,12 @@ cmd_pr() {
 }
 
 cmd_merge() {
-	local n pr="${2:?usage: plan merge ID PR}" json info state head base draft mergeable oid labels checks failing workflow files s
+	local n pr="${2:?usage: plan merge ID PR}" json info state head base draft mergeable oid labels checks failing workflow files s held=() approval
 	n=$(id "${1:?usage: plan merge ID PR}")
 	pr="${pr#\#}"
 	is_claimed "$n" || die "$n isn't claimed: merging restacks its branches, so only the session building it merges"
 	json=$(issue "$n")
-	! has_label needs-review "$json" || die "$n has the needs-review label: the user merges its steps"
+	if has_label needs-review "$json"; then held+=("$n has the needs-review label"); fi
 	restack "$n"
 	git fetch -q "$REMOTE" main
 	# GitHub reports UNKNOWN for a few seconds after a push to the PR or main.
@@ -666,7 +670,7 @@ cmd_merge() {
 	[[ -n "$s" ]] || die "PR #$pr isn't from one of $n's step branches"
 	[[ "$base" == main ]] || die "PR #$pr is stacked on $base: the step below it has to merge first"
 	[[ "$draft" == false ]] || die "PR #$pr is a draft"
-	[[ "$labels" != *,needs-review,* ]] || die "PR #$pr has the needs-review label: the user merges it"
+	if [[ "$labels" == *,needs-review,* ]]; then held+=("PR #$pr has the needs-review label"); fi
 	[[ "$mergeable" != CONFLICTING ]] || die "PR #$pr conflicts with main: rebase it on main"
 	[[ "$mergeable" == MERGEABLE ]] || die "PR #$pr isn't mergeable yet ($mergeable). Try again in a minute"
 	# The checks only vouch for the merge if they ran on code that has all of
@@ -679,28 +683,43 @@ cmd_merge() {
 		grep -qE "^[a-z]+"$'\t'"$workflow"$'\t' <<<"$checks" ||
 			die "PR #$pr has no $workflow checks yet. Wait with: gh pr checks $pr --watch"
 	done
-	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
-	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
 	# Both sides of a rename, so moving a file out of a protected path counts.
 	files=$(gh api --paginate "repos/$(repo)/pulls/$pr/files" -q '.[] | .filename, (.previous_filename // empty)') ||
 		die "couldn't list PR #$pr's files, so it can't be checked: the user merges it"
 	[[ -n "$files" ]] || die "PR #$pr changes no files"
 	files=$(grep -E "$PROTECTED" <<<"$files" | sort -u || true)
-	if [[ -n "$files" ]]; then
+	if [[ -n "$files" && "$labels" != *,needs-review,* ]]; then
+		# Labelling it reruns Approved by the owner, so it can't merge now.
 		add_pr_label "$pr" needs-review
-		die "PR #$pr changes paths the user reviews, so it's labelled needs-review:"$'\n'"$files"
+		die "PR #$pr changes paths the user reviews, so it's labelled needs-review and waits for their Approve:"$'\n'"$files"
 	fi
+	if [[ -n "$files" ]]; then held+=("PR #$pr changes paths the user reviews:"$'\n'"$files"); fi
+	# Held for the user: it merges only once their Approve covers the code as
+	# it is now. That's read from the reviews, not the Approved by the owner
+	# check, and by main's hack/owner-approval, not this worktree's, since
+	# the PR could change either. It's asked before the checks, which fail
+	# until the user approves, so the refusal says what it's waiting for.
+	local label=agent-merged note="Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/planning.md). Review it whenever you like, and remove the \`agent-merged\` label once you have."
+	if (( ${#held[@]} )); then
+		git cat-file -e "$REMOTE/main:hack/owner-approval" 2>/dev/null ||
+			die "$(printf '%s\n' "${held[@]}")"$'\n'"and main has no hack/owner-approval yet, so the user merges it"
+		approval=$(OWNER="$(gh_owner)" PLAN_REMOTE="$REMOTE" bash <(git show "$REMOTE/main:hack/owner-approval") "$pr" "$oid" main) ||
+			die "$(printf '%s\n' "${held[@]}")"$'\n'"so it merges once the user approves it: ${approval:-hack/owner-approval said nothing}"
+		label="" note="Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/planning.md)."
+	fi
+	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
+	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
 	# Label first, so a merged PR can't be missing it. The sha merges exactly
 	# what the checks ran on.
-	add_pr_label "$pr" agent-merged
+	if [[ -n "$label" ]]; then add_pr_label "$pr" "$label"; fi
 	if ! as_agent api -X PUT "repos/$(repo)/pulls/$pr/merge" -f merge_method=squash -f sha="$oid" >/dev/null; then
-		remove_pr_label "$pr" agent-merged || true
+		if [[ -n "$label" ]]; then remove_pr_label "$pr" "$label" || true; fi
 		die "couldn't merge PR #$pr"
 	fi
-	gh_comment "$pr" "Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/planning.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." || true
+	gh_comment "$pr" "$note" || true
 	cmd_sync "$n" >/dev/null
 	restack "$n"
-	echo "Merged PR #$pr"
+	echo "Merged PR #$pr${label:+ (labelled $label)}"
 }
 
 cmd_restack() { restack "$(id "${1:?usage: plan restack ID}")"; }
