@@ -495,6 +495,49 @@ func TestRuntimeSchedulesTimeTriggers(t *testing.T) {
 	}
 }
 
+func TestRuntimePlansBudgets(t *testing.T) {
+	ctx, c, _, reg := startRuntime(t)
+	must(t, c.Create(ctx, &zigbeev1alpha1.Zigbee2MQTT{
+		ObjectMeta: metav1.ObjectMeta{Name: "z2m", Namespace: ns},
+		Spec:       zigbeev1alpha1.Zigbee2MQTTSpec{Serial: zigbeev1alpha1.SerialSpec{Port: "tcp://slzb:6638", Adapter: "zstack"}},
+	}))
+	must(t, c.Create(ctx, &homev1alpha1.Device{
+		ObjectMeta: metav1.ObjectMeta{Name: "cellar-dehumidifier", Namespace: ns},
+		Spec: homev1alpha1.DeviceSpec{
+			Zigbee2MQTT: &homev1alpha1.ZigbeeDeviceSource{
+				InstanceRef: corev1.LocalObjectReference{Name: "z2m"}, IEEEAddress: "0x00158d00000000c1",
+			},
+			Control: []homev1alpha1.CapabilityControl{{
+				Capability: capability.SwitchOn, Default: apiextensionsv1.JSON{Raw: []byte("false")},
+				Resolve: homev1alpha1.ControlResolvePreferOn, External: homev1alpha1.ControlExternalRevert,
+			}},
+		},
+	}))
+	must(t, c.Create(ctx, &homev1alpha1.Rule{
+		ObjectMeta: metav1.ObjectMeta{Name: "cellar-drying", Namespace: ns},
+		Spec: homev1alpha1.RuleSpec{
+			While: &homev1alpha1.While{Budget: &homev1alpha1.Budget{
+				Minutes: homev1alpha1.BudgetMinutes{Expression: "90"},
+			}},
+			Hold: &homev1alpha1.Hold{Device: "cellar-dehumidifier", Capability: capability.SwitchOn, Value: apiextensionsv1.JSON{Raw: []byte("true")}},
+		},
+	}))
+
+	eventually(t, "cellar-drying status.today", func() bool {
+		var r homev1alpha1.Rule
+		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "cellar-drying"}, &r) != nil || r.Status.Today == nil {
+			return false
+		}
+		today := r.Status.Today
+		return today.Date == time.Now().UTC().Format(time.DateOnly) && today.TargetSource == "Expression" &&
+			today.TargetMinutes == 90 && meta.IsStatusConditionTrue(r.Status.Conditions, homev1alpha1.ConditionPlanned)
+	})
+	if got, ok := metricValue(t, reg, "oikade_rule_budget_target_minutes",
+		prometheus.Labels{"namespace": ns, "rule": "cellar-drying"}); !ok || got != 90 {
+		t.Errorf("oikade_rule_budget_target_minutes = %v (%v), want 90", got, ok)
+	}
+}
+
 func startRuntime(t *testing.T) (context.Context, client.Client, string, *prometheus.Registry) {
 	t.Helper()
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))

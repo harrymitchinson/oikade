@@ -1,0 +1,323 @@
+package engine
+
+import (
+	"math"
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/schedule"
+)
+
+// checkpointEvery is how often a budget's run minutes alone are reported to status.today.
+const checkpointEvery = 5 * time.Minute
+
+// Reasons for the Planned condition.
+const (
+	ReasonPlanned = "Planned"
+	// ReasonNoControl: the budget's target has no control entry, which its limits come from.
+	ReasonNoControl = "NoControl"
+	// ReasonInvalidBudget: the budget doesn't fit its target's control entry.
+	ReasonInvalidBudget = "InvalidBudget"
+	// ReasonEvaluationFailed: the minutes expression failed, so the day's budget is zero.
+	ReasonEvaluationFailed = "EvaluationFailed"
+)
+
+// budgetHold is a compiled while.budget: the Rule to compile against its target's control entry,
+// which only the runtime has, and the plan its status held when it loaded.
+type budgetHold struct {
+	rule  *homev1alpha1.Rule
+	today *homev1alpha1.BudgetDay
+}
+
+// BudgetReport is what the engine reports about a budget hold: status.today and the Planned
+// condition.
+type BudgetReport struct {
+	Generation int64
+	// Cleared is set when the Rule no longer has a budget, or is gone.
+	Cleared bool
+	// Today is nil until a plan is made.
+	Today   *homev1alpha1.BudgetDay
+	Planned metav1.ConditionStatus
+	Reason  string
+	Message string
+}
+
+// BudgetMetrics are the budget holds' gauges and counter, by namespace and rule.
+type BudgetMetrics struct {
+	Target    *prometheus.GaugeVec
+	Scheduled *prometheus.GaugeVec
+	Run       *prometheus.CounterVec
+	Desired   *prometheus.GaugeVec
+}
+
+// NewBudgetMetrics returns the metrics Engine.Budget expects.
+func NewBudgetMetrics() *BudgetMetrics {
+	labels := []string{labelNamespace, labelRule}
+	return &BudgetMetrics{
+		Target: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "oikade_rule_budget_target_minutes",
+			Help: "A budget hold's minutes for the current planning day.",
+		}, labels),
+		Scheduled: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "oikade_rule_budget_scheduled_minutes",
+			Help: "How many of a budget hold's minutes the current day's plan places.",
+		}, labels),
+		Run: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "oikade_rule_budget_run_minutes_total",
+			Help: "Minutes a budget hold's target has been on and available.",
+		}, labels),
+		Desired: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "oikade_rule_budget_desired",
+			Help: "Whether a budget hold's plan wants its target on now: 1 or 0.",
+		}, labels),
+	}
+}
+
+// Collectors returns the metrics to register.
+func (m *BudgetMetrics) Collectors() []prometheus.Collector {
+	return []prometheus.Collector{m.Target, m.Scheduled, m.Run, m.Desired}
+}
+
+func (m *BudgetMetrics) delete(key types.NamespacedName) {
+	if m == nil {
+		return
+	}
+	m.Target.DeleteLabelValues(key.Namespace, key.Name)
+	m.Scheduled.DeleteLabelValues(key.Namespace, key.Name)
+	m.Run.DeleteLabelValues(key.Namespace, key.Name)
+	m.Desired.DeleteLabelValues(key.Namespace, key.Name)
+}
+
+// budgetPlan is a budget hold's plan for one planning day, and its progress. Use it with e.mu held.
+type budgetPlan struct {
+	date string
+	// end is when the planning day ends.
+	end time.Time
+	day schedule.Day
+	run time.Duration
+	// starts counts the blocks the hold has started, and started is the start of the last one.
+	starts  int
+	started time.Time
+	// credited is when run was last brought up to date, and on whether the target was on and
+	// available then.
+	credited time.Time
+	on       bool
+}
+
+// budgetState is a budget hold's state beyond its HoldState. Use it with e.mu held.
+type budgetState struct {
+	plan *budgetPlan
+	// reported is the last BudgetReport, and checkpointed when its run minutes were reported.
+	reported     *BudgetReport
+	checkpointed time.Time
+}
+
+// budgetCondition plans the day if it hasn't been, credits the target's run, and reports
+// whether the plan wants the target on now, and when that next changes. It never returns
+// unknown: a budget that can't be planned keeps the target off. Call with e.mu held.
+func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Time, devices map[string]map[string]any) (on bool, next time.Time) {
+	h, hs := s.c.hold, s.hold
+	if hs.budget == nil {
+		hs.budget = &budgetState{}
+	}
+	bs := hs.budget
+	dev := types.NamespacedName{Namespace: key.Namespace, Name: h.device}
+	snap, _ := e.Store.Get(dev)
+	i := slices.IndexFunc(snap.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == h.capability })
+	if i < 0 {
+		e.reportBudget(key, s, now, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonNoControl,
+			Message: "Device " + h.device + " has no control entry for " + h.capability + ", which a budget needs"})
+		return false, time.Time{}
+	}
+	b, err := schedule.Compile(h.budget.rule, &snap.Control[i])
+	if err != nil {
+		e.reportBudget(key, s, now, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonInvalidBudget, Message: err.Error()})
+		return false, time.Time{}
+	}
+
+	// A driver that never reports availability counts as available.
+	targetOn := snap.Discovered && (snap.Online == nil || *snap.Online) && capability.Float(snap.Values[h.capability]) != 0
+	y, m, d, end := planningDay(now, e.Location, b.PlanningMinute)
+	date := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+	p := bs.plan
+	if p != nil {
+		p.credit(now, targetOn, e.Budget, key)
+	}
+	if p == nil || p.date != date {
+		p = e.restorePlan(h.budget.today, date, end, now)
+		if p == nil {
+			read := func(device, name string) *schedule.Reading {
+				in, ok := e.Store.Get(types.NamespacedName{Namespace: key.Namespace, Name: device})
+				v, has := in.Values[name]
+				if !ok || !has {
+					return nil
+				}
+				return &schedule.Reading{Value: capability.Float(v), At: in.LastSeen}
+			}
+			if devices == nil {
+				devices = e.Store.Values(key.Namespace)
+			}
+			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, devices, read))}
+			for _, err := range p.day.Errors {
+				e.Log.Info("Budget planned with an error", "rule", key, "error", err.Error())
+			}
+			e.Log.Info("Planned budget", "rule", key, "date", date, "source", p.day.TargetSource,
+				"target", p.day.TargetMinutes, "scheduled", p.day.ScheduledMinutes, "blocks", len(p.day.Blocks))
+		}
+		p.credited, p.on = now, targetOn
+		bs.plan = p
+	}
+
+	next = p.end
+	for _, blk := range p.day.Blocks {
+		switch {
+		case !now.Before(blk.Start) && now.Before(blk.End):
+			on, next = true, blk.End
+			if !blk.Start.Equal(p.started) {
+				p.starts, p.started = p.starts+1, blk.Start
+			}
+		case blk.Start.After(now) && blk.Start.Before(next):
+			next = blk.Start
+		}
+	}
+
+	if e.Budget != nil {
+		e.Budget.Target.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.TargetMinutes))
+		e.Budget.Scheduled.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.ScheduledMinutes))
+		e.Budget.Desired.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(on)))
+	}
+	report := BudgetReport{Today: p.status(), Planned: metav1.ConditionTrue, Reason: ReasonPlanned,
+		Message: planMessage(p.day)}
+	if len(p.day.Errors) > 0 {
+		report.Planned, report.Reason, report.Message = metav1.ConditionFalse, ReasonEvaluationFailed, p.day.Errors[0].Error()
+	}
+	e.reportBudget(key, s, now, report)
+	return on, next
+}
+
+// restorePlan returns the plan status.today held when the Rule loaded, if it's for this planning
+// day. The block in progress counts as started already. It returns nil otherwise.
+func (e *Engine) restorePlan(today *homev1alpha1.BudgetDay, date string, end, now time.Time) *budgetPlan {
+	if today == nil || today.Date != date {
+		return nil
+	}
+	p := &budgetPlan{date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute, starts: int(today.Starts)}
+	p.day = schedule.Day{
+		TargetSource:     schedule.TargetSource(today.TargetSource),
+		TargetMinutes:    int(today.TargetMinutes),
+		ScheduledMinutes: int(today.ScheduledMinutes),
+		ShortfallMinutes: int(today.ShortfallMinutes),
+	}
+	for _, b := range today.Blocks {
+		p.day.Blocks = append(p.day.Blocks, schedule.Block{Start: b.Start.Time, End: b.End.Time})
+		if !now.Before(b.Start.Time) && now.Before(b.End.Time) {
+			p.started = b.Start.Time
+		}
+	}
+	return p
+}
+
+// credit adds the time since the last credit to run, if the target was on and available then,
+// and records whether it is now. The engine credits when the target changes, so its state between
+// credits is the one recorded at the last.
+func (p *budgetPlan) credit(now time.Time, on bool, m *BudgetMetrics, key types.NamespacedName) {
+	if p.on && now.After(p.credited) {
+		until := now
+		if p.end.Before(until) {
+			until = p.end
+		}
+		d := until.Sub(p.credited)
+		if d > 0 {
+			p.run += d
+			if m != nil {
+				m.Run.WithLabelValues(key.Namespace, key.Name).Add(d.Minutes())
+			}
+		}
+	}
+	p.credited, p.on = now, on
+}
+
+func (p *budgetPlan) status() *homev1alpha1.BudgetDay {
+	today := &homev1alpha1.BudgetDay{
+		Date:             p.date,
+		TargetSource:     string(p.day.TargetSource),
+		TargetMinutes:    int32(p.day.TargetMinutes),
+		ScheduledMinutes: int32(p.day.ScheduledMinutes),
+		ShortfallMinutes: int32(p.day.ShortfallMinutes),
+		RunMinutes:       int32(math.Floor(p.run.Minutes())),
+		Starts:           int32(p.starts),
+	}
+	for _, b := range p.day.Blocks {
+		today.Blocks = append(today.Blocks, homev1alpha1.BudgetBlock{Start: metav1.NewTime(b.Start), End: metav1.NewTime(b.End)})
+	}
+	return today
+}
+
+func planMessage(d schedule.Day) string {
+	msg := "Planned " + strconv.Itoa(d.ScheduledMinutes) + " of " + strconv.Itoa(d.TargetMinutes) + " minutes"
+	if d.ShortfallMinutes > 0 {
+		msg += ", " + strconv.Itoa(d.ShortfallMinutes) + " short"
+	}
+	return msg
+}
+
+// reportBudget reports a budget hold's status, unless only its run minutes changed and they were
+// reported less than checkpointEvery ago. Call with e.mu held.
+func (e *Engine) reportBudget(key types.NamespacedName, s *state, now time.Time, r BudgetReport) {
+	bs := s.hold.budget
+	r.Generation = s.c.Generation
+	if prev := bs.reported; prev != nil && sameBudget(*prev, r) {
+		if prev.Today == nil || prev.Today.RunMinutes == r.Today.RunMinutes || now.Sub(bs.checkpointed) < checkpointEvery {
+			return
+		}
+	}
+	bs.reported, bs.checkpointed = &r, now
+	if e.OnBudget != nil {
+		e.OnBudget(key, r)
+	}
+}
+
+// sameBudget compares two reports apart from run minutes.
+func sameBudget(a, b BudgetReport) bool {
+	if a.Generation != b.Generation || a.Planned != b.Planned || a.Reason != b.Reason || a.Message != b.Message ||
+		(a.Today == nil) != (b.Today == nil) {
+		return false
+	}
+	if a.Today == nil {
+		return true
+	}
+	x, y := *a.Today, *b.Today
+	x.RunMinutes, y.RunMinutes = 0, 0
+	return x.Date == y.Date && x.TargetSource == y.TargetSource && x.TargetMinutes == y.TargetMinutes &&
+		x.ScheduledMinutes == y.ScheduledMinutes && x.ShortfallMinutes == y.ShortfallMinutes &&
+		x.Starts == y.Starts && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q homev1alpha1.BudgetBlock) bool {
+		return p.Start.Equal(&q.Start) && p.End.Equal(&q.End)
+	})
+}
+
+// planningDay returns the date of the planning day that now is in, which starts at
+// planningMinute past local midnight, and when it ends.
+func planningDay(now time.Time, loc *time.Location, planningMinute int) (int, time.Month, int, time.Time) {
+	l := now.In(loc)
+	y, m, d := l.Date()
+	if now.Before(time.Date(y, m, d, 0, planningMinute, 0, 0, loc)) {
+		y, m, d = l.AddDate(0, 0, -1).Date()
+	}
+	return y, m, d, time.Date(y, m, d+1, 0, planningMinute, 0, 0, loc)
+}
+
+// clearBudget reports that a Rule no longer has a budget, and drops its metrics. Call with e.mu
+// held.
+func (e *Engine) clearBudget(key types.NamespacedName, generation int64) {
+	e.Budget.delete(key)
+	if e.OnBudget != nil {
+		e.OnBudget(key, BudgetReport{Generation: generation, Cleared: true})
+	}
+}

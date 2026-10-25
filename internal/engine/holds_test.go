@@ -43,6 +43,8 @@ var holdDevices = map[string][]string{
 	"hall-light":      {capability.LightOn, capability.LightLevel},
 	"hall-motion":     {capability.Occupancy},
 	"towel-rail":      {capability.SwitchOn},
+	"water-temp":      {capability.Temperature},
+	"outdoor-temp":    {capability.Temperature},
 }
 
 // rig is an engine running holds against a fake clock, as one run of the runtime.
@@ -52,6 +54,7 @@ type rig struct {
 	control map[string][]homev1alpha1.CapabilityControlStatus
 	reports int
 	skipped map[string][]string
+	budgets map[string]BudgetReport
 	e       *Engine
 	clock   *clocktesting.FakeClock
 	setter  *fakeSetter
@@ -99,6 +102,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig 
 		Runs: NewRunsCounter(), NextChange: NewNextChangeGauge(), Active: NewActiveGauge(),
 		OnSchedule: r.sched.record, States: states, Controls: o.controls, ControlLevel: NewControlLevelGauge(),
 		OnControl: r.recordControl, OnSkipped: r.recordSkipped,
+		OnBudget: r.recordBudget, Budget: NewBudgetMetrics(),
 	}
 	r.e.Init()
 	r.store = hub.NewStore(logr.Discard(), r.e)
@@ -198,6 +202,21 @@ func (r *rig) recordControl(dev types.NamespacedName, st []homev1alpha1.Capabili
 	}
 	r.control[dev.Name] = st
 	r.reports++
+}
+
+func (r *rig) recordBudget(key types.NamespacedName, b BudgetReport) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.budgets == nil {
+		r.budgets = map[string]BudgetReport{}
+	}
+	r.budgets[key.Name] = b
+}
+
+func (r *rig) budget(name string) BudgetReport {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.budgets[name]
 }
 
 func (r *rig) recordSkipped(key types.NamespacedName, skipped []string) {
@@ -599,19 +618,6 @@ func TestEditedTargetEndsTheOldOneOnce(t *testing.T) {
 	}
 	if heater != 2 || fan < 3 {
 		t.Fatalf("calls = %v, want the heater on and off once and the fan retried", r.setter.got())
-	}
-}
-
-// Until the runtime plans budgets (OIK-8), a budget hold must not hold its target all day.
-func TestBudgetHoldStaysInactive(t *testing.T) {
-	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, holdRule(t, "pump-daily", `
-  while: {budget: {minutes: {expression: "120"}}}
-  hold: {device: pump, capability: switch.on, value: true}
-`))
-	r.at("2026-10-21 23:00 BST")
-	r.expect()
-	if r.active("pump-daily") != 0 {
-		t.Error("oikade_rule_active isn't 0 for a budget hold")
 	}
 }
 

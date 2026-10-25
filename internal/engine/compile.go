@@ -98,6 +98,10 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 			errs = append(errs, err)
 		}
 		c.hold = h
+		if h != nil && a.Spec.While.Budget != nil {
+			// The budget compiles against its target's control entry when it plans.
+			h.budget = &budgetHold{rule: a.DeepCopy(), today: a.Status.Today.DeepCopy()}
+		}
 		if a.Spec.Condition != "" {
 			errs = append(errs, errors.New("condition applies to triggers; a hold uses while.when"))
 		}

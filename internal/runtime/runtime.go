@@ -45,11 +45,13 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	scheduled := &engine.Scheduled{Client: mgr.GetClient()}
 	controlStatus := &engine.ControlStatus{Client: mgr.GetClient()}
 	skipped := &engine.Skipped{Client: mgr.GetClient()}
+	budgets := &engine.Budgets{Client: mgr.GetClient()}
 	eng := &engine.Engine{
 		Location: opts.Location, Site: opts.Site, Log: log.WithName("engine"),
 		Runs: engine.NewRunsCounter(), Dropped: engine.NewDroppedCounter(), NextChange: engine.NewNextChangeGauge(),
 		Active: engine.NewActiveGauge(), ControlLevel: engine.NewControlLevelGauge(),
 		OnStart: triggered.Record, OnSchedule: scheduled.Record, OnControl: controlStatus.Record, OnSkipped: skipped.Record,
+		OnBudget: budgets.Record, Budget: engine.NewBudgetMetrics(),
 	}
 	holds := &engine.Retained[engine.HoldState]{Bus: bus, Root: engine.HoldStatesRoot, Log: log.WithName("holds")}
 	controls := &engine.Retained[engine.ControlState]{Bus: bus, Root: engine.ControlStatesRoot, Log: log.WithName("control")}
@@ -72,12 +74,13 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	if err := triggered.SetupWithManager(mgr); err != nil {
 		return nil, err
 	}
-	for _, r := range []interface{ SetupWithManager(ctrl.Manager) error }{scheduled, controlStatus, skipped} {
+	for _, r := range []interface{ SetupWithManager(ctrl.Manager) error }{scheduled, controlStatus, skipped, budgets} {
 		if err := r.SetupWithManager(mgr); err != nil {
 			return nil, err
 		}
 	}
-	for _, c := range []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped, eng.NextChange, eng.Active, eng.ControlLevel} {
+	collectors := []prometheus.Collector{metrics.Collector{Store: store, Plugins: h}, eng.Runs, eng.Dropped, eng.NextChange, eng.Active, eng.ControlLevel}
+	for _, c := range append(collectors, eng.Budget.Collectors()...) {
 		if err := opts.Registry.Register(c); err != nil {
 			return nil, err
 		}
