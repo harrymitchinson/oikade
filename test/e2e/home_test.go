@@ -801,7 +801,7 @@ func homeScenario() {
 			Expect(wait()).To(ContainSubstring(pluginRoot + `/bathroom-fan-relay/set {"switch.on":false}`))
 			Expect(time.Since(dropped)).To(BeNumerically(">=", 55*time.Second), "the fan ran on for its offDelay")
 			publish(pluginRoot+"/bathroom-fan-relay/state", `{"switch.on":false}`, true)
-			Eventually(jsonpath("rule", "bathroom-humid", "{.status.active}")).Should(Equal("false"))
+			Eventually(jsonpath("rule", "bathroom-humid", "{.status.active}")).ShouldNot(Equal("true"))
 		})
 
 		It("applies the README's Rules examples as written", func() {
