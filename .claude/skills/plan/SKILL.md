@@ -5,7 +5,7 @@ description: Keep Oikade's plan in Linear honest and answer what to do next. Man
 
 # Planning Oikade
 
-How the workflow fits together is in `docs/design/0009-planning-workflow.md`. The plan is in Linear, team `OIK`. Each fact has one owner, so don't copy facts between them:
+How the workflow fits together is in `docs/planning.md`. The plan is in Linear, team `OIK`. Each fact has one owner, so don't copy facts between them:
 
 | Fact | Owner |
 |---|---|

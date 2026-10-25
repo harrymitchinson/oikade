@@ -1,7 +1,8 @@
 name: Review gate
 
-# A PR labelled needs-review, or one for a feature labelled needs-review,
-# waits for the user's Approve (docs/design/0108-agent-identity.md). Agents open
+# A PR labelled needs-review waits for the user's Approve (docs/planning.md).
+# hack/plan pr copies a feature's needs-review label onto each of its PRs, and
+# hack/plan merge refuses while the feature has it. Agents open
 # PRs as oikade-agent[bot], so the user can approve them. "Approved by the
 # owner" is a required check on main, and it fails until they do. Any other PR
 # passes, so hack/plan merge still merges low-risk steps.

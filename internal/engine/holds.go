@@ -271,7 +271,7 @@ func (e *Engine) deleteState(key types.NamespacedName) {
 func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t HoldTarget, start bool, claim control.Claim) (time.Duration, error) {
 	claim.Value = capability.Float(t.Value)
 	value := t.Value
-	// An unarbitrated number hold leaves the device as it is when it ends (0060, answer 19).
+	// An unarbitrated number hold leaves the device as it is when it ends (OIK-64, answer 19).
 	plainEnd := !start
 	if b, ok := value.(bool); ok && !start {
 		value = !b

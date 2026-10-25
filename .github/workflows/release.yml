@@ -1,6 +1,6 @@
 name: Release
 
-# release-please keeps a release PR open on main (docs/design/0036-release-automation.md).
+# release-please keeps a release PR open on main (the design is in Linear, OIK-63).
 # Merging it tags the release and creates the GitHub Release, and the publish job
 # then builds the image and attaches install.yaml. Tags created with GITHUB_TOKEN
 # don't trigger other workflows, so publishing has to happen here.

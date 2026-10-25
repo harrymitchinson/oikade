@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # plan: Oikade's planning commands, so skills and agents never hand-write
-# GraphQL. How planning works is in docs/design/0009-planning-workflow.md.
+# GraphQL. How planning works is in docs/planning.md.
 #
 # The plan lives in Linear (team OIK). A feature is one top-level issue, and
 # each of its PR-sized steps is a sub-issue, in order. A feature with no
@@ -12,7 +12,7 @@
 #
 # Linear calls go out as the Oikade Agent app (hack/linear-token), and GitHub
 # writes as oikade-agent[bot] inside Claude Code (hack/agent-token), so an
-# agent's work never passes for the user's (docs/design/0108-agent-identity.md).
+# agent's work never passes for the user's (docs/planning.md).
 #
 # Usage: hack/plan <command> [args]   (hack/plan help lists the commands)
 # shellcheck disable=SC2016 # $t, $i and the like are GraphQL variables
@@ -231,7 +231,7 @@ Work
                         (default DIR .claude/worktrees/work-ID)
   step ID               In ID's worktree, once the current step has a PR: start the next step on its own branch
   pr ID TITLE BODY_FILE Push the current step's branch and open its PR on the right base
-  merge ID PR           Merge a step's PR without the user, if 0009 allows it, then restack
+  merge ID PR           Merge a step's PR without the user, if docs/planning.md allows it, then restack
   restack ID            Rebase the steps stacked on a step that merged onto main
   release ID [--force]  Give up a claim: delete branch claim/ID and set the feature back to Todo. Step
                         branches stay. Refuses if claim/ID itself has commits, unless --force
@@ -697,7 +697,7 @@ cmd_merge() {
 		remove_pr_label "$pr" agent-merged || true
 		die "couldn't merge PR #$pr"
 	fi
-	gh_comment "$pr" "Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." || true
+	gh_comment "$pr" "Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/planning.md). Review it whenever you like, and remove the \`agent-merged\` label once you have." || true
 	cmd_sync "$n" >/dev/null
 	restack "$n"
 	echo "Merged PR #$pr"

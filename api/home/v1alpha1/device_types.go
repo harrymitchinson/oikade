@@ -100,7 +100,7 @@ const (
 // OverrideHoldNext ends an outside change's claim when the result without it next changes.
 const OverrideHoldNext = "Next"
 
-// CapabilityControl makes one capability arbitrated (0060): rules, HomeKit and the device itself
+// CapabilityControl makes one capability arbitrated (OIK-64): rules, HomeKit and the device itself
 // make claims on it, and the device takes the winner.
 // +kubebuilder:validation:XValidation:rule="self.external != 'Override' || has(self.overrideHold)",message="overrideHold is required when external is Override"
 // +kubebuilder:validation:XValidation:rule="self.external != 'Revert' || !has(self.overrideHold)",message="overrideHold has no effect when external is Revert"

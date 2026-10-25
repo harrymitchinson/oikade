@@ -120,7 +120,7 @@ func (r *RuleReconciler) missingRooms(ctx context.Context, a *homev1alpha1.Rule)
 	return slices.Compact(missing), nil
 }
 
-// checkClaims checks the Rule against arbitration (0060): a set on an arbitrated capability of a
+// checkClaims checks the Rule against arbitration (OIK-64): a set on an arbitrated capability of a
 // device must end, two holds mustn't keep one capability that isn't arbitrated, and a release
 // must name a Rule that can be released. It returns an empty reason when all is well.
 func (r *RuleReconciler) checkClaims(ctx context.Context, a *homev1alpha1.Rule) (string, string, error) {
