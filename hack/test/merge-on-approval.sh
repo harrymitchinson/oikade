@@ -17,8 +17,10 @@ fail() { echo "FAIL: $*" >&2; failed=1; }
 # "pr list --head B" from list-B.json (with / as _), "repo view" from
 # repo.json, "api graphql" from graphql-N.json for the PR N it names, and
 # "api PATH" from PATH with / as _. Writes (-X other than GET, or fields on a
-# REST call) answer {} and are logged to writes.log. A fixture named
-# fail-<name> fails the call.
+# REST call) answer {} and are logged to writes.log. A merge fails as GitHub
+# does while a required check runs, as many times as the number in
+# gate-running, then fails with the message in merge-refused, if there is one.
+# A fixture named fail-<name> fails the call.
 mkdir "$tmp/bin" "$tmp/fx"
 cat >"$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -45,6 +47,15 @@ api*) name="api_$(sed 's#{owner}/{repo}#o/r#; s#/#_#g' <<<"$2").json" ;;
 esac
 if [[ "$method" != GET || ( "$1" == api && $fields == 1 ) ]]; then
 	echo "$method $*" >>"$fx/writes.log"
+	if [[ "$method" == PUT && "$2" == */merge ]]; then
+		left=$(cat "$fx/gate-running" 2>/dev/null || echo 0)
+		if ((left > 0)); then
+			echo $((left - 1)) >"$fx/gate-running"
+			echo 'gh: Repository rule violations found Required status check "Approved by the owner" is expected. (HTTP 405)' >&2
+			exit 1
+		fi
+		[[ ! -f "$fx/merge-refused" ]] || { cat "$fx/merge-refused" >&2; exit 1; }
+	fi
 	echo '{}'
 	exit 0
 fi
@@ -240,11 +251,28 @@ grep -q 'labels\[\]=needs-review' "$tmp/fx/writes.log" || fail "merge didn't lab
 ! grep -q '^PUT' "$tmp/fx/writes.log" || fail "merge merged a PR it had just labelled"
 fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"internal/rule/rule.go"}]'
 
-# With no hold at all it merges as before, labelled agent-merged.
+# With no hold at all it merges labelled agent-merged. The label reruns the
+# gate, so GitHub refuses the merge until that run ends, and merge retries.
 feature
 reviews
-merge || fail "merge refused a low-risk PR: $(cat "$tmp/out")"
+export PLAN_MERGE_TRIES=3 PLAN_MERGE_SLEEP=0
+echo 2 >"$tmp/fx/gate-running"
+merge || fail "merge refused a low-risk PR while the gate reran: $(cat "$tmp/out")"
 grep -q 'labels\[\]=agent-merged' "$tmp/fx/writes.log" || fail "a low-risk merge isn't labelled agent-merged: $(cat "$tmp/fx/writes.log")"
+[[ $(grep -c '^PUT' "$tmp/fx/writes.log") == 3 ]] || fail "merge didn't retry until the gate ended: $(cat "$tmp/fx/writes.log")"
+
+echo 5 >"$tmp/fx/gate-running"
+if merge; then fail "merge succeeded while the gate never ended"; fi
+grep -q 'is expected' "$tmp/out" || fail "merge didn't pass on GitHub's reason: $(cat "$tmp/out")"
+[[ $(grep -c '^PUT' "$tmp/fx/writes.log") == 3 ]] || fail "merge didn't stop after PLAN_MERGE_TRIES: $(cat "$tmp/fx/writes.log")"
+grep -q 'DELETE .*labels/agent-merged' "$tmp/fx/writes.log" || fail "merge left agent-merged on a PR it didn't merge"
+
+rm "$tmp/fx/gate-running"
+echo 'gh: Pull Request is not mergeable (HTTP 405)' >"$tmp/fx/merge-refused"
+if merge; then fail "merge succeeded when GitHub refused it"; fi
+[[ $(grep -c '^PUT' "$tmp/fx/writes.log") == 1 ]] || fail "merge retried a refusal that isn't a running check: $(cat "$tmp/fx/writes.log")"
+grep -q 'not mergeable' "$tmp/out" || fail "merge didn't say why GitHub refused it: $(cat "$tmp/out")"
+rm "$tmp/fx/merge-refused"
 
 (( failed == 0 )) && echo "ok: merge on approval"
 exit "$failed"

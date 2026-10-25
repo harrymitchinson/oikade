@@ -25,6 +25,10 @@ STALE_HOURS="${PLAN_STALE_HOURS:-24}"
 # How many of a feature's steps may wait for review at once. Each stacks on the
 # one before, so a change asked for low in the stack means rebasing the rest.
 MAX_STACK="${PLAN_MAX_STACK:-3}"
+# How many times, and how often, merge retries while GitHub refuses it because
+# a required check is still running: 60 times 5 seconds is 5 minutes.
+MERGE_TRIES="${PLAN_MERGE_TRIES:-60}"
+MERGE_SLEEP="${PLAN_MERGE_SLEEP:-5}"
 # The status a design waits in. Only the user moves an issue out of it, and
 # that move is the approval.
 DESIGN_REVIEW="Design Review"
@@ -649,7 +653,7 @@ cmd_pr() {
 }
 
 cmd_merge() {
-	local n pr="${2:?usage: plan merge ID PR}" json info state head base draft mergeable oid labels checks failing workflow files s held=() approval
+	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow files s held=() approval
 	n=$(id "${1:?usage: plan merge ID PR}")
 	pr="${pr#\#}"
 	is_claimed "$n" || die "$n isn't claimed: merging restacks its branches, so only the session building it merges"
@@ -712,14 +716,32 @@ cmd_merge() {
 	# Label first, so a merged PR can't be missing it. The sha merges exactly
 	# what the checks ran on.
 	if [[ -n "$label" ]]; then add_pr_label "$pr" "$label"; fi
-	if ! as_agent api -X PUT "repos/$(repo)/pulls/$pr/merge" -f merge_method=squash -f sha="$oid" >/dev/null; then
+	if ! err=$(squash_merge "$pr" "$oid"); then
 		if [[ -n "$label" ]]; then remove_pr_label "$pr" "$label" || true; fi
-		die "couldn't merge PR #$pr"
+		die "couldn't merge PR #$pr: $err"
 	fi
 	gh_comment "$pr" "$note" || true
 	cmd_sync "$n" >/dev/null
 	restack "$n"
 	echo "Merged PR #$pr${label:+ (labelled $label)}"
+}
+
+# squash_merge PR SHA: squash-merge the PR at SHA. Labelling a PR reruns
+# Approved by the owner, and GitHub refuses a merge while a required check is
+# running, so that refusal is retried until the run ends. It prints GitHub's
+# last error if it fails.
+squash_merge() {
+	local i err
+	for ((i = 1; ; i++)); do
+		err=$(as_agent api -X PUT "repos/$(repo)/pulls/$1/merge" -f merge_method=squash -f sha="$2" 2>&1 >/dev/null) && return 0
+		case "$err" in
+		*"Required status check"*"is expected"* | *"Required status check"*"in progress"*) ((i < MERGE_TRIES)) || break ;;
+		*) break ;;
+		esac
+		sleep "$MERGE_SLEEP"
+	done
+	echo "$err"
+	return 1
 }
 
 cmd_restack() { restack "$(id "${1:?usage: plan restack ID}")"; }
