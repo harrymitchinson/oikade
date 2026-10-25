@@ -196,9 +196,7 @@ spec:
 
 A `while` needs a `window`, a `when` or a `budget`, and everything in it must be true together. A `budget` is the only field of its `while`.
 
-`budget` makes a hold active for a number of minutes a day: `minutes` is `bands` over an input's value or a CEL `expression`, placed in `prefer` windows (by `score`) and never in `forbid` windows. It holds one Device's bool capability at `true`, and that capability needs a `control` entry, whose `minimumOn`, `minimumOff` and `maximumStartsPerDay` shape the runs. See `cellar-drying` in [the samples](config/samples/home_v1alpha1_rule.yaml).
-
-At `planningTime` the runtime plans the day in slots and freezes the plan. The hold is active in the planned blocks, as a Normal claim, so a Safety hold or a Home app tap still beats it. `status.today` shows the plan (`targetMinutes`, `scheduledMinutes`, `shortfallMinutes` and the `blocks`) and the progress: `runMinutes`, counted only while the device reports on and is available and updated at most every 5 minutes, and `starts`. After a restart the same day, the runtime carries on from `status.today` rather than planning again. The `Planned` condition is `False` with reason `NoControl`, `InvalidBudget` or `EvaluationFailed` when the day can't be planned. A runtime that starts with no plan for today plans from then, so the hours already gone are lost to the day. `kubectl get rules -o wide` shows each budget's minutes and run.
+A `budget` runs a device for a number of minutes a day instead, in the slots that suit it best. See [Budgets](#budgets).
 
 - **When a hold starts,** the runtime writes `hold.value`. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `control` entry: its `default` is what's left when the hold ends.
 - **Without a `control` entry, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
@@ -206,6 +204,62 @@ At `planningTime` the runtime plans the day in slots and freezes the plan. The h
 - `status.active` and `status.nextChange` say whether the hold is active and when that next changes. `kubectl get rules` shows `ACTIVE`.
 - **Two holds on one capability need a `control` entry** to decide between them. Without one, both Rules show `Ready=False` with reason `ConflictingHolds`.
 
+
+### Budgets
+
+A budget hold runs a device for a number of minutes a day, and plans when. Here a loft fan runs one to five hours a day depending on how humid the loft was at midnight, overnight where it can, and never in the evening:
+
+```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: loft-fan}
+spec:
+  zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x00158d00000000f1"}
+  control:
+  - capability: switch.on
+    default: false
+    resolve: PreferOn
+    external: Override
+    overrideHold: 1h
+    minimumOn: 1h          # each run at least an hour
+    minimumOff: 30m        # and half an hour's rest between runs
+    maximumStartsPerDay: 3
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: loft-airing}
+spec:
+  while:
+    budget:
+      planningTime: "00:00"
+      slotMinutes: 30
+      minutes:
+        bands:
+          input: {device: loft-humidity, capability: sensor.relative-humidity, maxAge: 1h}
+          missingMinutes: 180   # if the sensor hasn't reported in the last hour
+          ranges:
+          - {below: 55, minutes: 60}
+          - {below: 70, minutes: 180}
+          - {minutes: 300}
+      prefer:
+      - {window: {start: "23:00", end: "07:00"}, score: 3}
+      forbid:
+      - {window: {start: "18:00", end: "22:00"}}
+  hold: {device: loft-fan, capability: switch.on, value: true}
+```
+
+| Field | |
+|---|---|
+| `planningTime` | When each planning day starts, `"HH:MM"` local time. The day is planned then, and the plan is frozen until the next one. Defaults to `"00:00"`. |
+| `slotMinutes` | The day is planned in slots of 15, 30 or 60 minutes. Defaults to 30. |
+| `minutes.bands` | The day's minutes from the band the `input`'s value falls in at `planningTime`: the first whose `below` it's under, and the last band, with no `below`, for the rest. `missingMinutes` applies when the input hasn't reported within `maxAge` (default 30m). |
+| `minutes.expression` | Or CEL over `devices`, `now` and `tz` returning the minutes, such as `devices["loft-humidity"]["sensor.relative-humidity"] > 60.0 ? 240 : 90`. |
+| `prefer` | Windows the minutes go in first. Each slot a window touches gains its `score`, from -100 to 100, and overlapping windows add up. |
+| `forbid` | Windows the minutes never go in. |
+
+Budget windows are `"HH:MM"` only, not sun times. A budget is the only field of its `while`, and it holds one Device's bool capability at `true`. That capability needs a `control` entry: its `minimumOn`, `minimumOff` and `maximumStartsPerDay` shape the planned runs, and `minimumOn` and `minimumOff` must be whole numbers of slots. Something that must run whatever the budget says, such as frost protection, is a separate `priority: Safety` hold on the same capability, which wins over the budget.
+
+At `planningTime` the runtime plans the day and freezes the plan. The hold is active in the planned blocks, as a Normal claim, so a Safety hold or a Home app tap still beats it. `status.today` shows the plan (`targetMinutes`, `scheduledMinutes`, `shortfallMinutes` and the `blocks`) and the progress: `runMinutes`, counted only while the device reports on and is available and updated at most every 5 minutes, and `starts`. After a restart the same day, the runtime carries on from `status.today` rather than planning again. Editing a budget takes effect at the next `planningTime`. A runtime that starts with no plan for today plans from then, so the hours already gone are lost to the day. The `Planned` condition is `False` with reason `NoControl`, `InvalidBudget` or `EvaluationFailed` when the day can't be planned. `kubectl get rules -o wide` shows each budget's minutes and run.
 ### Arbitration
 
 A Device arbitrates a capability when it has a `control` entry for it:

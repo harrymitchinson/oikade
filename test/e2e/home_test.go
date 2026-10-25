@@ -166,12 +166,32 @@ spec:
   - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
 `
 
+// budgetManifests adds a plugin plug run by a budget hold. Its budget is the whole day, so every
+// slot left today is planned, and it runs from now whatever time the test runs.
+const budgetManifests = `
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: dryer-plug}
+spec:
+  plugin: {pluginRef: {name: example-switch}, id: dryer-relay, parameters: {capability: switch.on}}
+  control:
+  - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: dryer-daily}
+spec:
+  while: {budget: {minutes: {expression: "1440"}}}
+  hold: {device: dryer-plug, capability: switch.on, value: true}
+`
+
 // pluginDevices is the plugin's devices topic with every relay found. It clears the device error
 // that "serves a plugin Device fed over MQTT" reports, so it's published only after that test.
 const pluginDevices = `{"devices":[` +
 	`{"id":"porch-relay","found":true,"capabilities":["light.on"]},` +
 	`{"id":"fan-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"rail-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
+	`{"id":"rail-relay","found":true,"capabilities":["switch.on"]},` +
+	`{"id":"dryer-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
 
 // readmeManifests returns every YAML block in the README's Rules section that is a complete
 // manifest, as one stream.
@@ -292,7 +312,7 @@ func homeScenario() {
 		AfterAll(func() {
 			// The broker outlives the namespace; don't leave a fake plugin retained on it.
 			subs := []string{"status", "devices"}
-			for _, id := range []string{"porch-relay", "fan-relay", "rail-relay"} {
+			for _, id := range []string{"porch-relay", "fan-relay", "rail-relay", "dryer-relay"} {
 				subs = append(subs, id+"/availability", id+"/state")
 			}
 			for _, sub := range subs {
@@ -516,6 +536,25 @@ func homeScenario() {
 			Expect(jsonpath("device", "rail-plug",
 				`{.status.control[0].claims[?(@.winner==true)].source}`)()).To(Equal("Device"))
 			Expect(jsonpath("device", "rail-plug", `{.status.control[0].claims[?(@.winner==true)].expires}`)()).NotTo(BeEmpty())
+		})
+
+		// This needs the plugin and its devices from the tests above.
+		It("plans a budget and drives a plug from it", func() {
+			wait := subscribe(pluginRoot+"/dryer-relay/set", 1)
+			apply(budgetManifests)
+			publish(pluginRoot+"/dryer-relay/availability", "online", true)
+			publish(pluginRoot+"/dryer-relay/state", `{"switch.on":false}`, true)
+			Eventually(jsonpath("rule", "dryer-daily", `{.status.conditions[?(@.type=="Ready")].status}`)).
+				Should(Equal("True"))
+			Eventually(jsonpath("rule", "dryer-daily", `{.status.conditions[?(@.type=="Planned")].status}`)).
+				Should(Equal("True"))
+			Expect(jsonpath("rule", "dryer-daily", "{.status.today.targetSource} {.status.today.targetMinutes}")()).
+				To(Equal("Expression 1440"))
+			Expect(jsonpath("rule", "dryer-daily", "{.status.today.blocks[0].start}")()).NotTo(BeEmpty())
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/dryer-relay/set {"switch.on":true}`))
+			Eventually(jsonpath("device", "dryer-plug", `{.status.control[0].claims[?(@.winner==true)].source}`)).
+				Should(Equal("Rule/dryer-daily"))
+			Eventually(jsonpath("rule", "dryer-daily", "{.status.today.starts}")).Should(Equal("1"))
 		})
 
 		It("applies the README's Rules examples as written", func() {
