@@ -183,6 +183,18 @@ func TestBudgetWithoutAControlEntryStaysOff(t *testing.T) {
 	}
 }
 
+func TestBudgetMetricsAreExportedBeforeAnyRun(t *testing.T) {
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-21 14:00 BST"),
+		control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
+	}, holdRule(t, "pump-daily", pumpBudget))
+	for _, c := range r.e.Budget.Collectors() {
+		if n := testutil.CollectAndCount(c); n != 1 {
+			t.Errorf("%d series for a metric, want 1 before any run is credited", n)
+		}
+	}
+}
+
 func TestBudgetPlansLateAfterADownedStart(t *testing.T) {
 	// Started at 14:00 with no plan: today is planned from now, so the night is gone.
 	r := startRigWith(t, rigOptions{

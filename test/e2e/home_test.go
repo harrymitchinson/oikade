@@ -540,10 +540,12 @@ func homeScenario() {
 
 		// This needs the plugin and its devices from the tests above.
 		It("plans a budget and drives a plug from it", func() {
-			wait := subscribe(pluginRoot+"/dryer-relay/set", 1)
-			apply(budgetManifests)
+			// The plug reports first, so the runtime knows it's already at its default and the only
+			// write is the budget's.
 			publish(pluginRoot+"/dryer-relay/availability", "online", true)
 			publish(pluginRoot+"/dryer-relay/state", `{"switch.on":false}`, true)
+			wait := subscribe(pluginRoot+"/dryer-relay/set", 1)
+			apply(budgetManifests)
 			Eventually(jsonpath("rule", "dryer-daily", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
 			Eventually(jsonpath("rule", "dryer-daily", `{.status.conditions[?(@.type=="Planned")].status}`)).

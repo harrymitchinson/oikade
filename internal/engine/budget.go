@@ -209,6 +209,8 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 		e.Budget.Target.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.TargetMinutes))
 		e.Budget.Scheduled.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.ScheduledMinutes))
 		e.Budget.Desired.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(on)))
+		// Exported at 0 before any run is credited.
+		e.Budget.Run.WithLabelValues(key.Namespace, key.Name)
 	}
 	report = BudgetReport{Today: p.status(), Planned: metav1.ConditionTrue, Reason: ReasonPlanned,
 		Message: planMessage(p.day)}
