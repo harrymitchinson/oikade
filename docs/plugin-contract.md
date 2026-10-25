@@ -1,6 +1,6 @@
 # The oikade/v1 plugin contract
 
-A plugin is a separate process that connects a device platform Oikade doesn't speak natively (the eWeLink LAN protocol, the Overkiz cloud API) to the MQTT bus. It speaks **canonical capabilities**, not vendor payloads, so Oikade needs no code for the platform. The design is in [0002](design/0002-plugin-drivers.md).
+A plugin is a separate process that connects a device platform Oikade doesn't speak natively (the eWeLink LAN protocol, the Overkiz cloud API) to the MQTT bus. It speaks **canonical capabilities**, not vendor payloads, so Oikade needs no code for the platform. The design is in [OIK-61](https://linear.app/oikade/issue/OIK-61).
 
 This page is the contract. A plugin that follows it works with Oikade's runtime and HomeKit bridges unchanged.
 

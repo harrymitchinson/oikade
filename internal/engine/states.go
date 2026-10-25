@@ -48,8 +48,8 @@ type States[T any] interface {
 // HoldStates keeps HoldStates, by Rule.
 type HoldStates = States[HoldState]
 
-// Roots of the runtime's retained state. 0003 reserved oikade/v1/_runtime, and no namespace
-// starts with "_", so they can't collide with a plugin's root.
+// Roots of the runtime's retained state. The schedules design (OIK-5) reserved oikade/v1/_runtime,
+// and no namespace starts with "_", so they can't collide with a plugin's root.
 const (
 	// HoldStatesRoot keeps a HoldState per Rule, at <root><namespace>/<rule>.
 	HoldStatesRoot = "oikade/v1/_runtime/rules/"

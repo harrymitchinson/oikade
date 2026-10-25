@@ -1,31 +1,40 @@
 #!/usr/bin/env bash
-# plan: Oikade's planning commands, so skills and agents never hand-write gh
-# GraphQL. How planning works is in docs/design/0009-planning-workflow.md.
+# plan: Oikade's planning commands, so skills and agents never hand-write
+# GraphQL. How planning works is in docs/planning.md.
 #
-# A feature is one issue. Its "## Steps" section is a checklist with one line
-# per PR-sized step. A feature is claimed by creating the remote branch work/N:
-# the push only succeeds if that branch doesn't exist yet, so two agents can't
-# both claim it. The claim lasts while an agent is building, and release frees
-# it. Each step is built on its own branch work/N-S, where S is the step's line
-# in the checklist. While a step waits for review, the next one stacks on it.
+# The plan lives in Linear (team OIK). A feature is one top-level issue, and
+# each of its PR-sized steps is a sub-issue, in order. A feature with no
+# sub-issues is a single step. A feature is claimed by creating the remote
+# branch claim/OIK-N: the push only succeeds if that branch doesn't exist yet,
+# so two agents can't both claim it. Each step is built on the branch
+# work/OIK-S, named for its own sub-issue, which is how Linear links the PR to
+# it. While a step waits for review, the next one stacks on it.
+#
+# Linear calls go out as the Oikade Agent app (hack/linear-token), and GitHub
+# writes as oikade-agent[bot] inside Claude Code (hack/agent-token), so an
+# agent's work never passes for the user's (docs/planning.md).
 #
 # Usage: hack/plan <command> [args]   (hack/plan help lists the commands)
+# shellcheck disable=SC2016 # $t, $i and the like are GraphQL variables
 set -euo pipefail
 
-PROJECT_OWNER="${PLAN_PROJECT_OWNER:-harrymitchinson}"
-PROJECT_NUMBER="${PLAN_PROJECT_NUMBER:-5}"
+TEAM="${PLAN_TEAM:-OIK}"
+LINEAR_API="${LINEAR_API_URL:-https://api.linear.app/graphql}"
 REMOTE="${PLAN_REMOTE:-origin}"
 STALE_HOURS="${PLAN_STALE_HOURS:-24}"
 # How many of a feature's steps may wait for review at once. Each stacks on the
 # one before, so a change asked for low in the stack means rebasing the rest.
 MAX_STACK="${PLAN_MAX_STACK:-3}"
+# The status a design waits in. Only the user moves an issue out of it, and
+# that move is the approval.
+DESIGN_REVIEW="Design Review"
 
-# Paths an agent may never merge without the user (hack/plan merge): public
-# API, state that must survive, dependencies, and the rules agents work under.
-# It backs up the agent's own reading of .claude/skills/design/references/surfaces.md.
-# The build and CI files are here too, so an agent can't weaken the checks it
-# is then merged on.
-PROTECTED='^api/|^cmd/|^config/|^PROJECT$|^internal/(capability|hap|hub|identity|metrics|status)/|^internal/engine/compile\.go$|^internal/controller/(homekit|zigbee)/|^internal/driver/(driver\.go|plugin/)|^docs/(plugin-contract\.md|design/)|^sdk/|^test/conformance/|(^|/)(go\.(mod|sum)|package\.json|yarn\.lock|Dockerfile[^/]*)$|^Makefile$|^\.golangci\.ya?ml$|^\.github/|^\.claude/|^hack/|^(AGENTS|CLAUDE)\.md$'
+# Paths an agent may never merge without the user (hack/plan merge). It's a
+# small floor, since the user reviews designs, not diffs: the agents' own
+# guardrails, so an agent can't loosen its rules or checks and then merge, and
+# the code that keeps state whose loss means re-pairing every HomeKit
+# accessory or Zigbee device (.claude/skills/design/references/surfaces.md).
+PROTECTED='^\.github/|^\.claude/settings(\.local)?\.json$|^\.mcp\.json$|^hack/(plan|agent-token|linear-token|owner-approval|test/)|^Makefile$|^\.golangci\.ya?ml$|^internal/(identity|hap)/|^internal/render/(hap|zigbee2mqtt)\.go$|^internal/controller/(homekit|zigbee)/|^cmd/hap\.go$'
 
 die() { echo "plan: $*" >&2; exit 1; }
 
@@ -33,20 +42,142 @@ die() { echo "plan: $*" >&2; exit 1; }
 REPO=""
 repo() { if [[ -n "$REPO" ]]; then echo "$REPO"; else gh repo view --json nameWithOwner -q .nameWithOwner; fi; }
 
+# The user on GitHub: the repo's owner, as the workflows take it (github.repository_owner).
+gh_owner() { local r; r=$(repo); echo "${r%%/*}"; }
+
 need_file() { [[ -f "$1" ]] || die "no such file: $1"; }
 
-# --- Acting as the agent --------------------------------------------------------
+# id ARG: an issue identifier, upper-cased, such as OIK-12. Anything else stops.
+id() {
+	local i
+	i=$(tr '[:lower:]' '[:upper:]' <<<"$1")
+	[[ "$i" =~ ^[A-Z]+-[0-9]+$ ]] || die "\"$1\" isn't a Linear issue ID such as $TEAM-12"
+	echo "$i"
+}
 
-# Inside Claude Code (CLAUDECODE=1), plan's issue and PR writes go through the
-# oikade-agent GitHub App, so they show as oikade-agent[bot] and an agent's
-# comment, label or PR can't pass for the user's (docs/design/0108-agent-identity.md).
-# Reads, the board and git pushes stay as the user: Apps can't reach a
-# personal account's Projects. The writes use the REST API, which takes an
-# installation token where some gh subcommands look up the viewer first.
+# --- Linear -------------------------------------------------------------------
+
+LINEAR_TOKEN=""
+
+# linear_auth: get the Oikade Agent's token once. A missing credential stops
+# the command before it reads or writes anything, rather than acting as the user.
+linear_auth() {
+	[[ -n "$LINEAR_TOKEN" ]] && return 0
+	LINEAR_TOKEN=$("$(dirname "$0")/linear-token") ||
+		die "can't act as the Oikade Agent in Linear, so nothing was read or written. Fix it as the error above says"
+}
+
+# lin QUERY [VARS_JSON]: run a GraphQL call and print its data. Any error stops.
+# The token reaches curl through a file descriptor, not its arguments.
+lin() {
+	local out
+	linear_auth
+	out=$(jq -cn --arg q "$1" --argjson v "${2:-null}" '{query: $q, variables: ($v // {})}' |
+		curl -sS --fail-with-body "$LINEAR_API" -H 'Content-Type: application/json' \
+			-H @<(printf 'Authorization: Bearer %s\n' "$LINEAR_TOKEN") --data-binary @-) ||
+		die "Linear refused the request: $out"
+	jq -e '.errors == null' >/dev/null <<<"$out" || die "Linear: $(jq -r '[.errors[].message] | join("; ")' <<<"$out")"
+	jq -c .data <<<"$out"
+}
+
+# Read once per run.
+STATES=""
+states() {
+	[[ -n "$STATES" ]] || STATES=$(lin 'query($t: String!) { team(id: $t) { id states { nodes { id name type } } } }' \
+		"$(jq -cn --arg t "$TEAM" '{t: $t}')")
+	echo "$STATES"
+}
+team_id() { states | jq -r .team.id; }
+
+# state_id NAME: matched without case, so "todo" finds Todo.
+state_id() {
+	local s
+	s=$(states | jq -r --arg n "$1" '.team.states.nodes[] | select((.name | ascii_downcase) == ($n | ascii_downcase)) | .id')
+	[[ -n "$s" ]] || die "$TEAM has no status \"$1\""
+	echo "$s"
+}
+
+# The user: the workspace's one active admin who isn't an app.
+OWNER=""
+owner() {
+	local o
+	if [[ -z "$OWNER" ]]; then
+		o=$(lin '{ users(filter: {admin: {eq: true}, active: {eq: true}}) { nodes { id name app } } }' |
+			jq -c '[.users.nodes[] | select(.app | not)]')
+		[[ "$(jq length <<<"$o")" == 1 ]] || die "can't tell who the user is: Linear has $(jq length <<<"$o") active human admins"
+		OWNER=$(jq -c '.[0]' <<<"$o")
+	fi
+	echo "$OWNER"
+}
+owner_id() { owner | jq -r .id; }
+
+ISSUE_FIELDS='id identifier title url description priority
+	state { name type } project { name } parent { identifier } labels { nodes { name } }
+	children(first: 100) { nodes { identifier title subIssueSortOrder number state { name type } } }
+	inverseRelations(first: 100) { nodes { type issue { identifier state { type } } } }'
+
+# issue ID: the issue as JSON, with its steps and blockers.
+issue() {
+	lin "query(\$i: String!) { issue(id: \$i) { $ISSUE_FIELDS } }" "$(jq -cn --arg i "$1" '{i: $i}')" | jq -c .issue
+}
+
+# history ID: the issue's status changes, oldest first: "WHEN<TAB>FROM<TAB>TO<TAB>ACTOR_ID<TAB>ACTOR".
+history() {
+	local page after="" all="[]"
+	while :; do
+		page=$(lin 'query($i: String!, $a: String) { issue(id: $i) { history(first: 250, after: $a) {
+			nodes { createdAt fromState { name } toState { name } actor { id name } } pageInfo { hasNextPage endCursor } } } }' \
+			"$(jq -cn --arg i "$1" --arg a "$after" '{i: $i, a: (if $a == "" then null else $a end)}')") || exit 1
+		all=$(jq -c --argjson p "$page" '. + $p.issue.history.nodes' <<<"$all")
+		[[ "$(jq -r .issue.history.pageInfo.hasNextPage <<<"$page")" == true ]] || break
+		after=$(jq -r .issue.history.pageInfo.endCursor <<<"$page")
+	done
+	jq -r 'map(select(.toState != null)) | sort_by(.createdAt)[]
+		| [.createdAt, (.fromState.name // ""), .toState.name, (.actor.id // ""), (.actor.name // "Linear")] | @tsv' <<<"$all"
+}
+
+update_issue() {
+	lin 'mutation($i: String!, $in: IssueUpdateInput!) { issueUpdate(id: $i, input: $in) { success } }' \
+		"$(jq -cn --arg i "$1" --argjson in "$2" '{i: $i, in: $in}')" >/dev/null
+}
+
+set_state() { update_issue "$1" "$(jq -cn --arg s "$(state_id "$2")" '{stateId: $s}')"; }
+
+comment() {
+	lin 'mutation($in: CommentCreateInput!) { commentCreate(input: $in) { success } }' \
+		"$(jq -cn --arg i "$1" --arg b "$2" '{in: {issueId: $i, body: $b}}')" >/dev/null
+}
+
+label_id() {
+	local l
+	l=$(lin 'query($n: String!) { issueLabels(filter: {name: {eqIgnoreCase: $n}}) { nodes { id } } }' \
+		"$(jq -cn --arg n "$1" '{n: $n}')" | jq -r '.issueLabels.nodes[0].id // empty')
+	[[ -n "$l" ]] || die "Linear has no label \"$1\""
+	echo "$l"
+}
+
+project_id() {
+	local p
+	p=$(lin 'query($n: String!) { projects(filter: {name: {eqIgnoreCase: $n}}) { nodes { id } } }' \
+		"$(jq -cn --arg n "$1" '{n: $n}')" | jq -r '.projects.nodes[0].id // empty')
+	[[ -n "$p" ]] || die "Linear has no project \"$1\""
+	echo "$p"
+}
+
+has_label() { jq -e --arg l "$1" '[.labels.nodes[].name | ascii_downcase] | index($l) != null' >/dev/null <<<"$2"; }
+
+open_blockers() {
+	jq -r '[.inverseRelations.nodes[] | select(.type == "blocks" and (.issue.state.type | IN("completed", "canceled") | not)) | .issue.identifier] | join(" ")' <<<"$1"
+}
+
+# --- GitHub, as the agent ------------------------------------------------------
+
+# Inside Claude Code (CLAUDECODE=1), PR writes go through the oikade-agent
+# GitHub App, so they show as oikade-agent[bot]. Git pushes stay as the user.
+# The writes use the REST API, which takes an installation token where some gh
+# subcommands look up the viewer first.
 AGENT_TOKEN=""
 
-# agent_token: mint the App token for a command that writes. A missing key
-# stops the command before it writes anything, rather than writing as the user.
 agent_token() {
 	[[ "${CLAUDECODE:-}" == 1 ]] || return 0
 	AGENT_TOKEN=$("$(dirname "$0")/agent-token") ||
@@ -63,243 +194,211 @@ as_agent() {
 	fi
 }
 
-comment() { as_agent api "repos/$(repo)/issues/$1/comments" -f body="$2" >/dev/null; }
-# add_label N LABEL...: one request for all of them.
-add_label() {
+gh_comment() { as_agent api "repos/$(repo)/issues/$1/comments" -f body="$2" >/dev/null; }
+
+# add_pr_label PR LABEL...: one request for all of them.
+add_pr_label() {
 	local n="$1" l args=()
 	shift
 	for l in "$@"; do args+=(-f "labels[]=$l"); done
 	as_agent api "repos/$(repo)/issues/$n/labels" "${args[@]}" >/dev/null
 }
 
-# remove_label N LABEL: a label that's already gone counts as removed.
-remove_label() {
+# remove_pr_label PR LABEL: a label that's already gone counts as removed.
+remove_pr_label() {
 	local err
 	err=$(as_agent api -X DELETE "repos/$(repo)/issues/$1/labels/$(jq -rn --arg l "$2" '$l | @uri')" 2>&1 >/dev/null) ||
 		[[ "$err" == *"HTTP 404"* ]] || { echo "plan: couldn't remove $2 from #$1: $err" >&2; return 1; }
 }
 
-# Labels that record the user's decisions. Agents never add or remove approved,
-# and never remove needs-review (the user's review gate) or agent-merged (the
-# user's record of what to look at). GitHub matches label names without case.
+# Labels that record the user's decisions. Agents never remove needs-review
+# (the user's review gate) or agent-merged (the user's record of what to look
+# at), on a PR or a feature.
 label_refusal() {
-	local op="$1" l
+	local l
 	l=$(tr '[:upper:]' '[:lower:]' <<<"$2")
-	case "$op$l" in
-	[+-]approved) echo "only the user adds or removes the approved label" ;;
-	-needs-review) echo "only the user removes needs-review: it holds a PR for their review" ;;
+	case "$1$l" in
+	-needs-review) echo "only the user removes needs-review: it holds work for their review" ;;
 	-agent-merged) echo "only the user removes agent-merged, once they've reviewed the PR" ;;
 	esac
 }
 
 usage() {
 	cat <<'EOF'
-Usage: hack/plan <command> [args]
+Usage: hack/plan <command> [args]        IDs are Linear issues, such as OIK-12
 
 Work
-  ready                 Features agents may build that nobody has claimed and nothing blocks, earliest milestone first
-  show N                A feature: its body, next step, why it may be built, blockers, claim and open PRs
-  claim N [DIR]         Claim feature N and create a worktree on its next step's branch work/N-S
-                        (default DIR .claude/worktrees/work-N)
-  step N                In N's worktree, once the current step has a PR: start the next step on its own branch
-  pr N TITLE BODY_FILE  Push the current step's branch, open its PR on the right base and record it
-  merge N PR            Merge a step's PR if 0009 allows it, then restack. One the user reviews
-                        merges once their Approve covers its head
-  restack N             Rebase the steps stacked on a step that merged onto main
-  link N PR             Record PR against feature N's next unrecorded step
-  release N [--force]   Give up a claim: delete branch work/N and set the card back to Todo. Step branches
-                        stay. Refuses if work/N itself has an open PR or commits, unless --force
+  ready                 Features agents may build that nobody has claimed and nothing blocks, earliest release first
+  show ID               A feature: its description, steps and their PRs, why it may be built, blockers and claim
+  claim ID [DIR]        Claim feature ID and create a worktree on its next step's branch work/OIK-S
+                        (default DIR .claude/worktrees/work-ID)
+  step ID               In ID's worktree, once the current step has a PR: start the next step on its own branch
+  pr ID TITLE BODY_FILE Push the current step's branch and open its PR on the right base
+  merge ID PR           Merge a step's PR if docs/planning.md allows it, then restack. One held for the
+                        user merges once their Approve covers its head
+  restack ID            Rebase the steps stacked on a step that merged onto main
+  release ID [--force]  Give up a claim: delete branch claim/ID and set the feature back to Todo. Step
+                        branches stay. Refuses if claim/ID itself has commits, unless --force
   claims                Every claimed feature, with its open PRs and how long since its last commit
-  sync [N]              Tick steps whose PR merged and set unclaimed open cards back to Todo
-  note N TEXT           Comment on issue or PR N
+  digest [DAYS]         What agents merged in the last DAYS days (default 7), for the user to skim
+  sync [ID]             Set steps and features from their PRs, and unclaimed features back to Todo
+  note ID|PR TEXT       Comment on a Linear issue or a GitHub PR
 
-Issues and milestones (agents use these, never raw gh writes)
-  issue TITLE BODY_FILE [LABEL...]
-                        Open an issue and print its number
-  edit N BODY_FILE      Replace issue N's body
-  label N +L|-L...      Add (+) or remove (-) labels on issue or PR N. Never approved, and never
-                        removes needs-review or agent-merged: those are the user's
-  milestones            Every milestone, with its description
-  block N M             Record that feature N is blocked by feature M
-  milestone set N TITLE           Put issue N in milestone TITLE
-  milestone new TITLE DESC_FILE   Create a milestone
-  milestone edit TITLE DESC_FILE  Replace a milestone's description
-  milestone close TITLE           Close a milestone
+Issues (agents use these, never raw writes)
+  issue TITLE BODY_FILE [--state S] [--project P] [--parent ID] [--label L]...
+                        Create an issue (default state Backlog) and print its ID. A step is an
+                        issue with --parent, and gets its feature's project
+  edit ID BODY_FILE     Replace an issue's description. An approved design can't change above ## Steps
+  state ID STATE        Move an issue. Never out of Design Review, and never into Todo once it has
+                        been in Design Review: those are the user's decision
+  label ID|PR +L|-L...  Add (+) or remove (-) labels. Never removes needs-review or agent-merged
+  block ID BLOCKER      Record that ID is blocked by BLOCKER
 
-Ideas (Project draft items: they aren't issues and notify nobody)
+Releases (Linear projects)
+  projects              Every project, with its status and description
+  project new NAME FILE         Create a project
+  project edit NAME FILE        Replace a project's description
+  project set ID NAME           Put an issue in a project
+  project close NAME            Mark a project completed
+
+Ideas (issues in Triage)
   ideas                 List the ideas
   idea TITLE [BODY]     Add an idea
-  promote ITEM_ID       Turn an idea into an issue and print its number
+  promote ID [STATE]    Move an idea out of Triage (default Backlog)
 EOF
-}
-
-# --- Project board -----------------------------------------------------------
-
-project_id() {
-	gh project view "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json -q .id
-}
-
-# set_status ISSUE STATUS: STATUS is a Status option name, such as "Todo".
-set_status() {
-	local issue="$1" status="$2" url pid fields field_id option_id item_id
-	url="https://github.com/$(repo)/issues/$issue"
-	pid=$(project_id)
-	fields=$(gh project field-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json)
-	field_id=$(jq -r '.fields[] | select(.name == "Status") | .id' <<<"$fields")
-	option_id=$(jq -r --arg s "$status" '.fields[] | select(.name == "Status") | .options[] | select(.name == $s) | .id' <<<"$fields")
-	[[ -n "$option_id" ]] || die "the board has no Status option \"$status\""
-	# item-add returns the existing item when the issue is already on the board.
-	item_id=$(gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --url "$url" --format json -q .id)
-	gh project item-edit --project-id "$pid" --id "$item_id" --field-id "$field_id" --single-select-option-id "$option_id" >/dev/null
 }
 
 # --- Steps --------------------------------------------------------------------
 
-# A step's PR is recorded as a trailing "(PR #N)". That can't be confused with a
-# step that just mentions an issue, such as "… from the design (#19)".
-
-# steps: print the checklist lines in a body's "## Steps" section.
+# steps JSON: "IDX<TAB>STEP<TAB>STATE_TYPE<TAB>TITLE" for each step, in order.
+# A feature with no sub-issues is its own single step.
 steps() {
-	awk '/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/); next} in_steps && /^- \[[ xX]\] /'
+	jq -r 'if (.children.nodes | length) == 0 then [1, .identifier, .state.type, .title] | @tsv
+		else .children.nodes | sort_by(.subIssueSortOrder, .number) | to_entries[]
+			| [.key + 1, .value.identifier, .value.state.type, .value.title] | @tsv end' <<<"$1"
 }
 
-# next_step: the first unticked step that has no PR yet.
-next_step() {
-	steps | awk '/^- \[ \] / && !/\(PR #[0-9]+\)[[:space:]]*$/ {print; exit}'
+# step_pr STEP: "PR<TAB>STATE<TAB>BASE<TAB>HEAD_OID" for the latest PR from the
+# step's branch, or nothing.
+step_pr() {
+	gh pr list --head "work/$1" --state all --limit 1 --json number,state,baseRefName,headRefOid \
+		-q '.[0] | select(. != null) | "\(.number)\t\(.state)\t\(.baseRefName)\t\(.headRefOid)"'
 }
 
-# next_index: the next step's line number in ## Steps, which names its branch.
-next_index() {
-	steps | awk '{i++} /^- \[ \] / && !/\(PR #[0-9]+\)[[:space:]]*$/ {print i; exit}'
-}
-
-# step_prs: "S<TAB>PR<TAB>TICKED" for every step that has a PR, in order.
-# TICKED is x for a step whose PR merged into main, and - otherwise.
+# step_prs JSON: "IDX<TAB>PR<TAB>TICKED" for every step with an open or merged
+# PR, in order. TICKED is x for a step that's done, and - otherwise.
 step_prs() {
-	steps | awk '{i++; if (match($0, /\(PR #[0-9]+\)[[:space:]]*$/)) {pr = substr($0, RSTART + 5); sub(/\).*/, "", pr); print i "\t" pr "\t" (/^- \[ \] / ? "-" : "x")}}'
+	local i s type title pr st base oid
+	while IFS=$'\t' read -r i s type title; do
+		IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s")"
+		[[ "$st" == OPEN || "$st" == MERGED ]] || continue
+		# Not Linear's Done alone: it marks a step done when its PR merges into
+		# the step below it, before the change reaches main.
+		if [[ "$st $base" == "MERGED main" ]]; then
+			printf '%s\t%s\tx\n' "$i" "$pr"
+		else
+			printf '%s\t%s\t-\n' "$i" "$pr"
+		fi
+	done < <(steps "$1")
 }
 
-# stack_prs: step_prs from the last ticked step below the first step in
-# review, which is all restack needs, so it doesn't look up every step that
-# merged long ago.
+# next_step JSON: "IDX<TAB>STEP<TAB>TITLE" for the first step that isn't done
+# and has no open or merged PR.
+next_step() {
+	local i s type title st
+	while IFS=$'\t' read -r i s type title; do
+		[[ "$type" == completed || "$type" == canceled ]] && continue
+		st=$(step_pr "$s" | cut -f2)
+		[[ "$st" == OPEN || "$st" == MERGED ]] && continue
+		printf '%s\t%s\t%s\n' "$i" "$s" "$title"
+		return
+	done < <(steps "$1")
+}
+
+# stack_prs JSON: step_prs from the last ticked step below the first step in
+# review, which is all restack needs.
 stack_prs() {
-	step_prs | awk -F'\t' '{line[NR] = $0; t[NR] = $3} END {
+	step_prs "$1" | awk -F'\t' '{line[NR] = $0; t[NR] = $3} END {
 		for (f = 1; f <= NR && t[f] == "x"; f++) {}
 		for (i = (f > 1 ? f - 1 : 1); i <= NR; i++) print line[i]}'
 }
 
-body() { gh issue view "$1" --json body -q .body; }
-
-# edit_body N TRANSFORM [ARGS]: rewrite issue N's body with TRANSFORM, which
-# reads the body on stdin and prints the new one. GitHub has no conditional
-# issue update, so re-read just before writing and retry if someone else
-# changed it meanwhile. That leaves a window of one API call, not of the
-# whole transform.
-edit_body() {
-	local n="$1" fn="$2" b new try
-	shift 2
-	for try in 1 2 3; do
-		b=$(body "$n")
-		new=$("$fn" "$@" <<<"$b") || return 1
-		[[ "$new" == "$b" ]] && return 0
-		if [[ "$(body "$n")" == "$b" ]]; then
-			as_agent api -X PATCH "repos/$(repo)/issues/$n" -f body="$new" >/dev/null
-			return 0
-		fi
-		echo "plan: #$n changed while editing it, retrying ($try)" >&2
-	done
-	die "#$n kept changing, so its body wasn't edited"
-}
-
-# Transforms for edit_body.
-# add_pr_at S PR: record PR on step S, which must be unticked with no PR.
-add_pr_at() {
-	awk -v s="$1" -v pr="$2" '
-		/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
-		in_steps && /^- \[[ xX]\] / {i++; if (i == s) {if (!/^- \[ \] / || /\(PR #[0-9]+\)[[:space:]]*$/) exit 1; sub(/[[:space:]]*$/, " (PR #" pr ")"); done = 1}}
-		{print}
-		END {if (!done) exit 1}'
-}
-add_pr() {
-	awk -v pr="$1" '
-		/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
-		in_steps && !done && /^- \[ \] / && !/\(PR #[0-9]+\)[[:space:]]*$/ {sub(/[[:space:]]*$/, " (PR #" pr ")"); done = 1}
-		{print}
-		END {if (!done) exit 1}'
-}
-tick_pr() {
-	awk -v pr="(PR #$1)" '
-		/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
-		in_steps && /^- \[ \] / && index($0, pr) {sub(/^- \[ \] /, "- [x] ")}
-		{print}'
-}
-drop_pr() {
-	awk -v pr="(PR #$1)" '
-		/^## /{in_steps = ($0 ~ /^## Steps[[:space:]]*$/)}
-		in_steps && /^- \[ \] / && index($0, pr) {sub(/[[:space:]]*\(PR #[0-9]+\)[[:space:]]*$/, "")}
-		{print}'
+# step_of JSON BRANCH: the step whose branch BRANCH is, or nothing.
+step_of() {
+	local i s type title
+	while IFS=$'\t' read -r i s type title; do
+		if [[ "$2" == "work/$s" ]]; then echo "$s"; return; fi
+	done < <(steps "$1")
 }
 
 # --- Who may build it ---------------------------------------------------------
 
-# gate N: why agents may build feature N, or nothing if they may not. The user
-# approved it, or it needs no design, or it builds part of a design the user
-# approved in another feature, named by a "Design: #M" line in its body.
-# INFO, if given, is the labels joined with commas, a newline, then the body.
-#
-# approved counts only if the user added it: the repo's owner, since agents act
-# as oikade-agent[bot] (docs/design/0108-agent-identity.md). The approved
-# guard workflow removes anyone else's, and this covers a run it missed.
-gate() {
-	local n="$1" info="${2:-}" design
-	[[ -n "$info" ]] || info=$(issue_info "$n")
-	if has_label approved "$info" && user_approved "$n"; then echo "approved"; return; fi
-	if has_label no-design "$info"; then echo "needs no design"; return; fi
-	design=$(sed -nE 's/^Design:[^#]*#([0-9]+).*/\1/p' <<<"$info" | head -1)
-	if [[ -n "$design" && "$design" != "$n" ]] && has_label approved "$(issue_info "$design")" && user_approved "$design"; then
-		echo "builds the design approved in #$design"
+# approval ID: "approved<TAB>WHO" if the user moved ID out of Design Review,
+# "unapproved<TAB>WHO" if someone else did, "waiting" if it's still there, or
+# nothing if it never was. An issue created in Design Review has no move into
+# it in its history, so it's in its current status too. A failed read stops
+# the command: callers in a command substitution add || exit, since bash
+# doesn't carry set -e into one.
+approval() {
+	local h cur last o
+	h=$(history "$1") || die "couldn't read $1's history, so whether the user approved it is unknown"
+	cur=$(issue "$1" | jq -r .state.name) || die "couldn't read $1"
+	[[ "$cur" == "$DESIGN_REVIEW" ]] && { echo waiting; return; }
+	last=$(awk -F'\t' -v d="$DESIGN_REVIEW" '$2 == d {l = $0} END {print l}' <<<"$h")
+	if [[ -z "$last" ]]; then
+		return 0
+	elif [[ "$(cut -f3 <<<"$last")" =~ ^(Backlog|Triage|Canceled|Duplicate)$ ]]; then
+		printf 'returned\t%s\n' "$(cut -f5 <<<"$last")"
+	fi
+	o=$(owner_id) || exit 1
+	[[ -n "$o" ]] || die "couldn't tell who the user is"
+	if [[ "$(cut -f4 <<<"$last")" == "$o" ]]; then
+		printf 'approved\t%s\n' "$(cut -f5 <<<"$last")"
+	else
+		printf 'unapproved\t%s\n' "$(cut -f5 <<<"$last")"
 	fi
 }
 
-# issue_info N: its labels joined with commas, a newline, then its body.
-issue_info() { gh issue view "$1" --json labels,body -q '([.labels[].name] | join(",")) + "\n" + .body'; }
-
-# has_label LABEL INFO: GitHub matches label names without case.
-has_label() { [[ ",$(head -1 <<<"$2" | tr '[:upper:]' '[:lower:]')," == *",$1,"* ]]; }
-
-# approver N: who last added approved to issue N. A failed read stops the
-# command rather than passing for "nobody approved it".
-approver() {
-	local events
-	events=$(gh api --paginate "repos/$(repo)/issues/$1/events") || die "couldn't read #$1's events, so who approved it is unknown"
-	jq -rs '[.[][] | select(.event == "labeled" and (.label.name | ascii_downcase) == "approved") | .actor.login] | last // empty' <<<"$events"
+# gate JSON: why agents may build the feature, or nothing if they may not. The
+# user approved its design, or it never needed one, or it builds part of a
+# design the user approved in another feature, named by a "Design: OIK-M" line.
+gate() {
+	local i a="" design
+	i=$(jq -r .identifier <<<"$1")
+	case "$(jq -r .state.name <<<"$1")" in Todo | "In Progress") ;; *) return 0 ;; esac
+	a=$(approval "$i") || exit 1
+	case "$a" in
+	approved*) echo "approved"; return ;;
+	?*) return 0 ;;
+	esac
+	design=$(jq -r .description <<<"$1" | sed -nE 's/^Design:[^A-Za-z]*([A-Za-z]+-[0-9]+).*/\1/p' | head -1)
+	if [[ -n "$design" ]]; then
+		design=$(id "$design")
+		[[ "$design" != "$i" ]] || return 0
+		a=$(approval "$design") || exit 1
+		[[ "$a" != approved* ]] || echo "builds the design approved in $design"
+		return 0
+	fi
+	echo "needs no design"
 }
-
-# The user is the repo's owner, as the workflows take it (github.repository_owner).
-owner() { echo "${REPO%%/*}"; }
-user_approved() { [[ "$(approver "$1")" == "$(owner)" ]]; }
 
 # --- Claims and stacks ----------------------------------------------------------
 
-claimed_numbers() {
-	git ls-remote --heads "$REMOTE" 'refs/heads/work/*' | sed -E 's#.*refs/heads/work/##' | grep -E '^[0-9]+$' || true
+claimed_ids() {
+	git ls-remote --heads "$REMOTE" 'refs/heads/claim/*' | sed -E 's#.*refs/heads/claim/##' || true
 }
 
-is_claimed() { git ls-remote --exit-code --heads "$REMOTE" "refs/heads/work/$1" >/dev/null; }
+is_claimed() { git ls-remote --exit-code --heads "$REMOTE" "refs/heads/claim/$1" >/dev/null; }
 
-open_blockers() {
-	gh api "repos/$(repo)/issues/$1/dependencies/blocked_by" -q '[.[] | select(.state == "open") | "#\(.number)"] | join(" ")'
-}
-
-# open_stack N: "S<TAB>PR<TAB>BRANCH" for each of N's steps whose PR is open,
-# in order. The last one is the base for the next step.
+# open_stack JSON: "IDX<TAB>PR<TAB>BRANCH" for each step whose PR is open, in
+# order. The last one is the base for the next step.
 open_stack() {
-	local s pr ticked info
-	while IFS=$'\t' read -r s pr ticked; do
-		[[ -n "$pr" && "$ticked" == - ]] || continue
-		info=$(gh pr view "$pr" --json state,headRefName -q '"\(.state)\t\(.headRefName)"')
-		if [[ "$info" == OPEN$'\t'* ]]; then printf '%s\t%s\t%s\n' "$s" "$pr" "${info#*$'\t'}"; fi
-	done < <(body "$1" | step_prs)
+	local i s type title pr st base oid
+	while IFS=$'\t' read -r i s type title; do
+		IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s")"
+		[[ "$st" == OPEN ]] && printf '%s\t%s\twork/%s\n' "$i" "$pr" "$s"
+	done < <(steps "$1")
+	return 0
 }
 
 stack_base() { local b; b=$(open_stack "$1" | tail -1 | cut -f3); echo "${b:-main}"; }
@@ -308,20 +407,22 @@ stack_size() { open_stack "$1" | grep -c . || true; }
 
 fetch_branch() { git fetch -q "$REMOTE" "+refs/heads/$1:refs/remotes/$REMOTE/$1"; }
 
-# start_step N [DIR]: put N's next step on its branch work/N-S, based on the
-# last step still in review, or on main. With DIR it's a new worktree there,
-# otherwise the current worktree switches to it. A branch pushed by an earlier
-# session that has no PR yet is resumed. It sets STEP_BASE rather than
-# printing it, so it never runs in a command substitution, where bash ignores
-# set -e.
+# start_step ID [DIR]: put ID's next step on its branch work/OIK-S, based on
+# the last step still in review, or on main. With DIR it's a new worktree
+# there, otherwise the current worktree switches to it. A branch pushed by an
+# earlier session that has no PR yet is resumed. It sets STEP_BASE and STEP
+# rather than printing them, so it never runs in a command substitution, where
+# bash ignores set -e.
 start_step() {
-	local n="$1" dir="${2:-}" s base branch oid start closed prev
-	s=$(body "$n" | next_index)
-	[[ -n "$s" ]] || die "#$n has no step left to build: each unticked step in ## Steps already has a PR"
+	local n="$1" dir="${2:-}" json next idx base branch oid start closed prev
 	restack "$n"
-	(( $(stack_size "$n") < MAX_STACK )) || die "$MAX_STACK steps of #$n are waiting for review. Stop until the user merges one"
-	base=$(stack_base "$n")
-	branch="work/$n-$s"
+	json=$(issue "$n")
+	next=$(next_step "$json")
+	[[ -n "$next" ]] || die "$n has no step left to build: each step is done or has a PR"
+	idx=$(cut -f1 <<<"$next") STEP=$(cut -f2 <<<"$next")
+	(( $(stack_size "$json") < MAX_STACK )) || die "$MAX_STACK steps of $n are waiting for review. Stop until the user merges one"
+	base=$(stack_base "$json")
+	branch="work/$STEP"
 	git show-ref --verify --quiet "refs/heads/$branch" &&
 		die "a local branch $branch exists. If it's left from an earlier session and pushed, delete it: git branch -D $branch"
 	fetch_branch "$base"
@@ -334,7 +435,7 @@ start_step() {
 		# If the step below was squash-merged since, the branch still holds its
 		# original commits. Start from that step's last commit, so pr replays
 		# only this step's own.
-		prev=$(body "$n" | step_prs | awk -F'\t' -v s="$s" '$1 < s && $3 == "x" {pr = $2} END {print pr}')
+		prev=$(step_prs "$json" | awk -F'\t' -v s="$idx" '$1 < s && $3 == "x" {pr = $2} END {print pr}')
 		if [[ -n "$prev" && "$base" == main ]]; then
 			git fetch -q "$REMOTE" "refs/pull/$prev/head"
 			prev=$(git rev-parse FETCH_HEAD)
@@ -355,13 +456,14 @@ start_step() {
 	STEP_BASE="$base"
 }
 
-# restack N: after a step in review merges, rebase the steps stacked on it onto
+# restack ID: after a step in review merges, rebase the steps stacked on it onto
 # main, and each later step onto the rewritten one before it. Squash merging
 # gives main a new commit, so otherwise their PRs still show the merged step.
 restack() {
-	local n="$1" s pr ticked info state head head_oid base old="" new="" tmp first
+	local n="$1" json s pr info state head head_oid base old="" new="" tmp first
+	json=$(issue "$n")
 	git fetch -q "$REMOTE" main
-	while IFS=$'\t' read -r s pr ticked; do
+	while IFS=$'\t' read -r s pr _; do
 		[[ -n "$pr" ]] || continue
 		info=$(gh pr view "$pr" --json state,headRefName,headRefOid,baseRefName -q '"\(.state) \(.headRefName) \(.headRefOid) \(.baseRefName)"')
 		read -r state head head_oid base <<<"$info"
@@ -391,71 +493,76 @@ restack() {
 			git push -q --force-with-lease="refs/heads/$head:$head_oid" "$REMOTE" "$new:refs/heads/$head"
 			# GitHub retargets a PR whose base branch was deleted on merge, but
 			# not always before this runs.
-			first=$(open_stack "$n" | head -1 | cut -f1)
+			first=$(open_stack "$json" | head -1 | cut -f1)
 			if [[ "$s" == "$first" && "$base" != main ]]; then as_agent api -X PATCH "repos/$(repo)/pulls/$pr" -f base=main >/dev/null; fi
 			echo "plan: restacked PR #$pr ($head)" >&2
 			;;
 		*) old="" new="" ;;
 		esac
-	done < <(body "$n" | stack_prs)
+	done < <(stack_prs "$json")
 }
 
 # --- Commands -------------------------------------------------------------------
 
 cmd_ready() {
-	local claimed all issues n milestone title info blockers
-	claimed=" $(claimed_numbers | tr '\n' ' ') "
-	all=$(gh issue list --state open --limit 200 --json number,title,labels,milestone,body)
-	issues=$(jq -r '[.[] | select([.labels[].name] | (index("needs-design") or index("manual")) | not)]
-		    | sort_by(.milestone.number // 1e9, .number) | .[]
-		    | "\(.number)\t\(.milestone.title // "-")\t\(.title)"' <<<"$all")
-	[[ -n "$issues" ]] || return 0
-	while IFS=$'\t' read -r n milestone title; do
+	local claimed features n json
+	claimed=" $(claimed_ids | tr '\n' ' ') "
+	features=$(lin 'query($t: String!) { issues(first: 250, filter: {team: {key: {eq: $t}}, parent: {null: true},
+		state: {name: {in: ["Todo", "In Progress"]}}}) { nodes { identifier number title project { name } } } }' \
+		"$(jq -cn --arg t "$TEAM" '{t: $t}')" |
+		jq -r '.issues.nodes
+			| sort_by([((.project.name // "v9999") | ltrimstr("v") | split(".") | map(tonumber? // 9999)), .number])[]
+			| [.identifier, (.project.name // "-"), .title] | @tsv')
+	[[ -n "$features" ]] || return 0
+	while IFS=$'\t' read -r n _ _; do
 		[[ "$claimed" == *" $n "* ]] && continue
-		info=$(jq -r --argjson n "$n" '.[] | select(.number == $n) | ([.labels[].name] | join(",")) + "\n" + .body' <<<"$all")
-		# A feature with nothing left to build: its steps are done or in review.
-		[[ -n "$(tail -n +2 <<<"$info" | next_step)" ]] || continue
-		[[ -n "$(gate "$n" "$info")" ]] || continue
-		blockers=$(open_blockers "$n")
-		[[ -n "$blockers" ]] && continue
-		(( $(stack_size "$n") < MAX_STACK )) || continue
-		printf '#%s\t%s\t%s\n' "$n" "$milestone" "$title"
-	done <<<"$issues"
+		json=$(issue "$n")
+		[[ -n "$(next_step "$json")" ]] || continue
+		[[ -n "$(gate "$json")" ]] || continue
+		[[ -z "$(open_blockers "$json")" ]] || continue
+		(( $(stack_size "$json") < MAX_STACK )) || continue
+		grep -F "$n"$'\t' <<<"$features"
+	done <<<"$features"
 }
 
 cmd_show() {
-	local n="${1:?usage: plan show N}" info blockers why who
-	gh issue view "$n" --comments
-	info=$(issue_info "$n")
+	local n json why a="" blockers i s type title pr st base oid
+	n=$(id "${1:?usage: plan show ID}")
+	json=$(issue "$n")
+	jq -r '"\(.identifier) \(.title)\n\(.url)\nStatus:     \(.state.name)\nRelease:    \(.project.name // "none")\nLabels:     \([.labels.nodes[].name] | join(", "))\n\n\(.description // "")\n"' <<<"$json"
+	echo "Steps:"
+	while IFS=$'\t' read -r i s type title; do
+		IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s")"
+		printf '  %s. %s %s [%s]%s\n' "$i" "$s" "$title" "$type" "${pr:+ PR #$pr $st${base:+ → $base}}"
+	done < <(steps "$json")
 	echo
-	echo "Next step:  $(tail -n +2 <<<"$info" | next_step | sed -E 's/^- \[ \] //')"
-	why=$(gate "$n" "$info")
-	echo "May build:  ${why:-no: it needs the approved or no-design label, or a Design: #M line naming an approved feature}"
-	if has_label approved "$info"; then
-		who=$(approver "$n")
-		[[ "$who" == "$(owner)" ]] ||
-			echo "Approved:   by ${who:-nobody GitHub recorded}, not $(owner), so it doesn't count"
-	fi
-	blockers=$(open_blockers "$n")
+	echo "Next step:  $(next_step "$json" | cut -f2,3 | tr '\t' ' ')"
+	why=$(gate "$json")
+	[[ -n "$why" ]] || why="no: it must be in Todo, and if it was ever in $DESIGN_REVIEW, the user must have moved it out"
+	echo "May build:  $why"
+	a=$(approval "$n") || exit 1
+	case "$a" in
+	approved*) echo "Approved:   by $(cut -f2 <<<"$a")" ;;
+	unapproved*) echo "Approved:   moved out of $DESIGN_REVIEW by $(cut -f2 <<<"$a"), not the user, so it doesn't count" ;;
+	returned*) echo "Approved:   no: $(cut -f2 <<<"$a") moved it back out of $DESIGN_REVIEW without approving it" ;;
+	waiting) echo "Approved:   not yet: it waits in $DESIGN_REVIEW" ;;
+	esac
+	blockers=$(open_blockers "$json")
 	echo "Blocked by: ${blockers:-nothing open}"
-	if is_claimed "$n"; then echo "Claimed:    branch work/$n"; else echo "Claimed:    no"; fi
-	echo "Open PRs:"
-	gh pr list --state open --search "#$n in:body" --json number,title,isDraft,headRefName,baseRefName \
-		-q '.[] | "  #\(.number) \(.title) [\(.headRefName) → \(.baseRefName)\(if .isDraft then ", draft" else "" end)]"'
+	if is_claimed "$n"; then echo "Claimed:    branch claim/$n"; else echo "Claimed:    no"; fi
 }
 
 cmd_claim() {
-	local n="${1:?usage: plan claim N [DIR]}" dir="${2:-}" state labels claim err
-	state=$(gh issue view "$n" --json state,labels -q '.state + " " + ([.labels[].name] | join(","))')
-	[[ "$state" == OPEN* ]] || die "#$n isn't open"
-	labels=",${state#* },"
-	[[ "$labels" != *,needs-design,* ]] || die "#$n still needs a design"
-	[[ "$labels" != *,manual,* ]] || die "#$n has the manual label: what's left can only be checked by hand"
-	[[ -n "$(gate "$n")" ]] || die "#$n may not be built yet: it needs the approved or no-design label, or a Design: #M line naming an approved feature"
-	[[ -z "$(open_blockers "$n")" ]] || die "#$n is blocked by $(open_blockers "$n")"
-	is_claimed "$n" && die "#$n is already claimed (branch work/$n exists). See: hack/plan claims"
-	cmd_sync "$n" >/dev/null
-	[[ -n "$(body "$n" | next_step)" ]] || die "#$n has no step left to build: each unticked step in ## Steps already has a PR"
+	local n dir="${2:-}" json claim err
+	n=$(id "${1:?usage: plan claim ID [DIR]}")
+	json=$(issue "$n")
+	[[ "$(jq -r '.parent.identifier // empty' <<<"$json")" == "" ]] ||
+		die "$n is a step of $(jq -r .parent.identifier <<<"$json"): claim the feature"
+	[[ -n "$(gate "$json")" ]] ||
+		die "$n may not be built yet: it must be in Todo, and out of $DESIGN_REVIEW by the user's move, if it was ever there. See: hack/plan show $n"
+	[[ -z "$(open_blockers "$json")" ]] || die "$n is blocked by $(open_blockers "$json")"
+	is_claimed "$n" && die "$n is already claimed (branch claim/$n exists). See: hack/plan claims"
+	[[ -n "$(next_step "$json")" ]] || die "$n has no step left to build: each step is done or has a PR"
 
 	dir="${dir:-$(git rev-parse --path-format=absolute --git-common-dir | sed 's#/.git$##')/.claude/worktrees/work-$n}"
 	[[ ! -e "$dir" ]] || die "$dir already exists. If it's left from an earlier session: git worktree remove $dir"
@@ -463,32 +570,36 @@ cmd_claim() {
 	git fetch -q "$REMOTE" main
 	# Each claim pushes its own empty commit. If two claims pushed the same
 	# commit, the second would be a no-op "up to date" push and succeed too.
-	# The empty expected value means "only if work/N doesn't exist", and the
+	# The empty expected value means "only if claim/ID doesn't exist", and the
 	# server checks it atomically, so exactly one of two racing claims wins.
 	# Nothing builds on the claim commit: steps have their own branches.
 	claim=$(git commit-tree "$REMOTE/main^{tree}" -p "$REMOTE/main" \
-		-m "chore: claim #$n" -m "$(hostname -s) $$ $(date -u +%FT%TZ) $RANDOM")
-	if ! err=$(git push -q --force-with-lease="refs/heads/work/$n:" "$REMOTE" "$claim:refs/heads/work/$n" 2>&1); then
-		is_claimed "$n" && die "#$n was claimed by someone else just now. See: hack/plan claims"
-		die "couldn't push work/$n: $err"
+		-m "chore: claim $n" -m "$(hostname -s) $$ $(date -u +%FT%TZ) $RANDOM")
+	if ! err=$(git push -q --force-with-lease="refs/heads/claim/$n:" "$REMOTE" "$claim:refs/heads/claim/$n" 2>&1); then
+		is_claimed "$n" && die "$n was claimed by someone else just now. See: hack/plan claims"
+		die "couldn't push claim/$n: $err"
 	fi
 	# Starting the step restacks branches, so it runs only once the claim is
 	# held. If it fails, give the claim back rather than leave one nobody holds.
 	# shellcheck disable=SC2064 # expand $n now
-	trap "echo 'plan: gave the claim on #$n back' >&2; git push -q '$REMOTE' --delete 'work/$n' || true" EXIT
+	trap "echo 'plan: gave the claim on $n back' >&2; git push -q '$REMOTE' --delete 'claim/$n' || true" EXIT
 	start_step "$n" "$dir"
 	trap - EXIT
-	set_status "$n" "In Progress"
-	comment "$n" "Claimed on branch \`work/$n\` ($(hostname -s), $(date -u +%FT%TZ)). Next step: $(body "$n" | next_step | sed -E 's/^- \[ \] //'), on top of \`$STEP_BASE\`."
+	set_state "$n" "In Progress"
+	[[ "$STEP" == "$n" ]] || set_state "$STEP" "In Progress"
+	comment "$n" "Claimed on branch \`claim/$n\` ($(hostname -s), $(date -u +%FT%TZ)). Building $STEP on \`work/$STEP\`, on top of \`$STEP_BASE\`."
 	echo "$dir"
 }
 
 cmd_step() {
-	local n="${1:?usage: plan step N}" branch state
-	is_claimed "$n" || die "#$n isn't claimed. Claim it first: hack/plan claim $n"
+	local n branch json s state
+	n=$(id "${1:?usage: plan step ID}")
+	is_claimed "$n" || die "$n isn't claimed. Claim it first: hack/plan claim $n"
 	branch=$(git branch --show-current)
-	[[ "$branch" =~ ^work/$n-[0-9]+$ ]] || die "run this in #$n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
-	state=$(gh pr list --head "$branch" --state all --json state -q '.[0].state // empty')
+	json=$(issue "$n")
+	s=$(step_of "$json" "$branch")
+	[[ -n "$s" ]] || die "run this in $n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
+	state=$(step_pr "$s" | cut -f2)
 	[[ -n "$state" ]] || die "$branch has no PR yet. Open it first: hack/plan pr $n TITLE BODY_FILE"
 	[[ -z "$(git status --porcelain)" ]] || die "the worktree has uncommitted changes"
 	# A merged step's branch is gone from GitHub, and the next step builds on main.
@@ -498,20 +609,25 @@ cmd_step() {
 			die "$branch has commits that aren't pushed, and the next step builds on the pushed branch. Push first: git push"
 	fi
 	start_step "$n"
+	[[ "$STEP" == "$n" ]] || set_state "$STEP" "In Progress"
 	echo "On $(git branch --show-current), on top of $STEP_BASE"
 }
 
 cmd_pr() {
-	local n="${1:?usage: plan pr N TITLE BODY_FILE}" title="${2:?usage: plan pr N TITLE BODY_FILE}" file="${3:?usage: plan pr N TITLE BODY_FILE}"
-	local branch base oid url pr
+	local n title="${2:?usage: plan pr ID TITLE BODY_FILE}" file="${3:?usage: plan pr ID TITLE BODY_FILE}"
+	local branch json s base oid url pr body
+	n=$(id "${1:?usage: plan pr ID TITLE BODY_FILE}")
 	need_file "$file"
 	branch=$(git branch --show-current)
-	[[ "$branch" =~ ^work/$n-[0-9]+$ ]] || die "run this in #$n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
+	json=$(issue "$n")
+	s=$(step_of "$json" "$branch")
+	[[ -n "$s" ]] || die "run this in $n's worktree, on a step branch (this is ${branch:-a detached HEAD})"
 	[[ -z "$(git status --porcelain)" ]] || die "the worktree has uncommitted changes"
 	pr=$(gh pr list --head "$branch" --state open --json number -q '.[0].number // empty')
 	[[ -z "$pr" ]] || die "$branch already has PR #$pr"
 	restack "$n"
-	base=$(stack_base "$n")
+	json=$(issue "$n")
+	base=$(stack_base "$json")
 	fetch_branch "$base"
 	# If the step this one stacked on has merged or been restacked since, move
 	# this step's own commits onto where its base is now.
@@ -521,26 +637,28 @@ cmd_pr() {
 	fi
 	git config "branch.$branch.plan-base-oid" "$(git rev-parse "$REMOTE/$base")"
 	git push -q --force-with-lease -u "$REMOTE" "$branch"
-	url=$(as_agent api "repos/$(repo)/pulls" -f head="$branch" -f base="$base" -f title="$title" -F body=@"$file" -q .html_url)
+	# The branch name links the PR to its step in Linear. The trailer names both.
+	body="$(cat "$file")"$'\n\n'"Linear: $s"
+	[[ "$s" == "$n" ]] || body+=", part of $n"
+	url=$(as_agent api "repos/$(repo)/pulls" -f head="$branch" -f base="$base" -f title="$title" -f body="$body" -q .html_url)
 	pr="${url##*/}"
-	# The board's "Pull requests" and "Waiting on me" views list PRs too.
-	gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --url "$url" >/dev/null ||
-		echo "plan: opened $url, but couldn't add it to the board" >&2
-	edit_body "$n" add_pr_at "${branch##*-}" "$pr" ||
-		die "opened $url, but step ${branch##*-} of #$n isn't an unticked step without a PR, so it isn't recorded. Check the Steps, then: hack/plan link $n $pr"
+	# A feature the user wants to review holds every one of its PRs for them.
+	if has_label needs-review "$json"; then add_pr_label "$pr" needs-review; fi
+	set_state "$s" "In Review"
 	echo "$url"
 }
 
 cmd_merge() {
-	local n="${1:?usage: plan merge N PR}" pr="${2:?usage: plan merge N PR}" info state head base draft mergeable oid labels checks failing workflow files try held=() approval
+	local n pr="${2:?usage: plan merge ID PR}" json info state head base draft mergeable oid labels checks failing workflow files s held=() approval
+	n=$(id "${1:?usage: plan merge ID PR}")
 	pr="${pr#\#}"
-	is_claimed "$n" || die "#$n isn't claimed: merging restacks its branches, so only the session building it merges"
-	body "$n" | steps | grep -qF "(PR #$pr)" || die "PR #$pr isn't recorded against a step of #$n"
-	if has_label needs-review "$(issue_info "$n")"; then held+=("#$n has the needs-review label"); fi
+	is_claimed "$n" || die "$n isn't claimed: merging restacks its branches, so only the session building it merges"
+	json=$(issue "$n")
+	if has_label needs-review "$json"; then held+=("$n has the needs-review label"); fi
 	restack "$n"
 	git fetch -q "$REMOTE" main
 	# GitHub reports UNKNOWN for a few seconds after a push to the PR or main.
-	for try in 1 2 3 4 5 6; do
+	for _ in 1 2 3 4 5 6; do
 		info=$(gh pr view "$pr" --json state,headRefName,baseRefName,isDraft,mergeable,headRefOid,labels \
 			-q '"\(.state) \(.headRefName) \(.baseRefName) \(.isDraft) \(.mergeable) \(.headRefOid) ,\([.labels[].name] | join(",")),"')
 		read -r state head base draft mergeable oid labels <<<"$info"
@@ -548,8 +666,8 @@ cmd_merge() {
 		sleep 5
 	done
 	[[ "$state" == OPEN ]] || die "PR #$pr is $state"
-	# Not work/N itself: merging deletes the branch, and that one is the claim.
-	[[ "$head" =~ ^work/$n-[0-9]+$ ]] || die "PR #$pr isn't from one of #$n's step branches"
+	s=$(step_of "$json" "$head")
+	[[ -n "$s" ]] || die "PR #$pr isn't from one of $n's step branches"
 	[[ "$base" == main ]] || die "PR #$pr is stacked on $base: the step below it has to merge first"
 	[[ "$draft" == false ]] || die "PR #$pr is a draft"
 	if [[ "$labels" == *,needs-review,* ]]; then held+=("PR #$pr has the needs-review label"); fi
@@ -565,254 +683,331 @@ cmd_merge() {
 		grep -qE "^[a-z]+"$'\t'"$workflow"$'\t' <<<"$checks" ||
 			die "PR #$pr has no $workflow checks yet. Wait with: gh pr checks $pr --watch"
 	done
-	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
-	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
 	# Both sides of a rename, so moving a file out of a protected path counts.
 	files=$(gh api --paginate "repos/$(repo)/pulls/$pr/files" -q '.[] | .filename, (.previous_filename // empty)') ||
 		die "couldn't list PR #$pr's files, so it can't be checked: the user merges it"
 	[[ -n "$files" ]] || die "PR #$pr changes no files"
 	files=$(grep -E "$PROTECTED" <<<"$files" | sort -u || true)
-	if [[ -n "$files" ]]; then
-		[[ "$labels" == *,needs-review,* ]] || add_label "$pr" needs-review
-		held+=("PR #$pr changes paths the user reviews:"$'\n'"$files")
+	if [[ -n "$files" && "$labels" != *,needs-review,* ]]; then
+		# Labelling it reruns Approved by the owner, so it can't merge now.
+		add_pr_label "$pr" needs-review
+		die "PR #$pr changes paths the user reviews, so it's labelled needs-review and waits for their Approve:"$'\n'"$files"
 	fi
+	if [[ -n "$files" ]]; then held+=("PR #$pr changes paths the user reviews:"$'\n'"$files"); fi
 	# Held for the user: it merges only once their Approve covers the code as
 	# it is now. That's read from the reviews, not the Approved by the owner
 	# check, and by main's hack/owner-approval, not this worktree's, since
-	# the PR could change either.
-	local label=agent-merged note="Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/design/0009-planning-workflow.md). Review it whenever you like, and remove the \`agent-merged\` label once you have."
+	# the PR could change either. It's asked before the checks, which fail
+	# until the user approves, so the refusal says what it's waiting for.
+	local label=agent-merged note="Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/planning.md). Review it whenever you like, and remove the \`agent-merged\` label once you have."
 	if (( ${#held[@]} )); then
 		git cat-file -e "$REMOTE/main:hack/owner-approval" 2>/dev/null ||
 			die "$(printf '%s\n' "${held[@]}")"$'\n'"and main has no hack/owner-approval yet, so the user merges it"
-		approval=$(OWNER="$(owner)" PLAN_REMOTE="$REMOTE" bash <(git show "$REMOTE/main:hack/owner-approval") "$pr" "$oid" main) ||
+		approval=$(OWNER="$(gh_owner)" PLAN_REMOTE="$REMOTE" bash <(git show "$REMOTE/main:hack/owner-approval") "$pr" "$oid" main) ||
 			die "$(printf '%s\n' "${held[@]}")"$'\n'"so it merges once the user approves it: ${approval:-hack/owner-approval said nothing}"
-		label="" note="Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/design/0009-planning-workflow.md)."
+		label="" note="Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/planning.md)."
 	fi
-	# Label first, so a merged PR can't be missing it. sha= merges exactly
+	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
+	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
+	# Label first, so a merged PR can't be missing it. The sha merges exactly
 	# what the checks ran on.
-	if [[ -n "$label" ]]; then add_label "$pr" "$label"; fi
+	if [[ -n "$label" ]]; then add_pr_label "$pr" "$label"; fi
 	if ! as_agent api -X PUT "repos/$(repo)/pulls/$pr/merge" -f merge_method=squash -f sha="$oid" >/dev/null; then
-		if [[ -n "$label" ]]; then remove_label "$pr" "$label" || true; fi
+		if [[ -n "$label" ]]; then remove_pr_label "$pr" "$label" || true; fi
 		die "couldn't merge PR #$pr"
 	fi
-	comment "$pr" "$note" || true
+	gh_comment "$pr" "$note" || true
 	cmd_sync "$n" >/dev/null
 	restack "$n"
 	echo "Merged PR #$pr${label:+ (labelled $label)}"
 }
 
-cmd_restack() { restack "${1:?usage: plan restack N}"; }
-
-cmd_link() {
-	local n="${1:?usage: plan link N PR}" pr="${2:?usage: plan link N PR}"
-	pr="${pr#\#}"
-	if body "$n" | steps | grep -qF "(PR #$pr)"; then
-		echo "#$n: $(body "$n" | steps | grep -F "(PR #$pr)") (already recorded)"
-		return
-	fi
-	edit_body "$n" add_pr "$pr" || die "#$n has no unticked step without a PR"
-	echo "#$n: $(body "$n" | steps | grep -F "(PR #$pr)")"
-}
+cmd_restack() { restack "$(id "${1:?usage: plan restack ID}")"; }
 
 cmd_release() {
-	local n="${1:?usage: plan release N}" force="${2:-}" pr ahead
-	git fetch -q "$REMOTE" main "+refs/heads/work/$n:refs/remotes/$REMOTE/work/$n" 2>/dev/null || die "#$n isn't claimed"
-	# Claims taken before step branches built on work/N itself. Commits beyond
-	# the claim commit there are real work.
-	pr=$(gh pr list --head "work/$n" --state open --json number -q '.[0].number // empty')
-	ahead=$(git rev-list --count "$REMOTE/main..$REMOTE/work/$n")
-	if [[ "$force" != --force ]] && { [[ -n "$pr" ]] || (( ahead > 1 )); }; then
-		die "work/$n has ${pr:+open PR #$pr and }$((ahead - 1)) commit(s) of work. Deleting it closes the PR and drops the work from GitHub. To do it anyway: hack/plan release $n --force"
+	local n force="${2:-}" ahead
+	n=$(id "${1:?usage: plan release ID}")
+	git fetch -q "$REMOTE" main "+refs/heads/claim/$n:refs/remotes/$REMOTE/claim/$n" 2>/dev/null || die "$n isn't claimed"
+	# Commits beyond the claim commit are real work.
+	ahead=$(git rev-list --count "$REMOTE/main..$REMOTE/claim/$n")
+	if [[ "$force" != --force ]] && (( ahead > 1 )); then
+		die "claim/$n has $((ahead - 1)) commit(s) of work. Deleting it drops them from GitHub. To do it anyway: hack/plan release $n --force"
 	fi
-	git push -q "$REMOTE" --delete "work/$n" || die "couldn't delete branch work/$n"
-	set_status "$n" "Todo"
-	comment "$n" "Released the claim on \`work/$n\`."
-	echo "Released #$n"
+	git push -q "$REMOTE" --delete "claim/$n" || die "couldn't delete branch claim/$n"
+	[[ "$(issue "$n" | jq -r .state.name)" != "In Progress" ]] || set_state "$n" "Todo"
+	comment "$n" "Released the claim on \`claim/$n\`."
+	echo "Released $n"
+}
+
+cmd_digest() {
+	local days="${1:-7}" since
+	[[ "$days" =~ ^[0-9]+$ ]] || die "usage: plan digest [DAYS]"
+	since=$(date -u -v-"${days}"d +%F 2>/dev/null || date -u -d "$days days ago" +%F)
+	gh pr list --state merged --limit 200 --search "label:agent-merged merged:>=$since" \
+		--json number,title,url,mergedAt,additions,deletions,files \
+		-q 'sort_by(.mergedAt)[] | "\(.mergedAt[:10])  #\(.number) \(.title)  (+\(.additions)/-\(.deletions), \([.files[].path | split("/")[0:2] | join("/")] | unique | join(" ")))\n    \(.url)"'
 }
 
 cmd_claims() {
-	local n last age prs
-	git fetch -q --prune "$REMOTE" '+refs/heads/work/*:refs/remotes/'"$REMOTE"'/work/*' || true
+	local n json last age refs prs s
+	git fetch -q --prune "$REMOTE" '+refs/heads/claim/*:refs/remotes/'"$REMOTE"'/claim/*' '+refs/heads/work/*:refs/remotes/'"$REMOTE"'/work/*' || true
 	prs=$(gh pr list --state open --limit 200 --json number,headRefName,isDraft)
-	for n in $(claimed_numbers); do
-		last=$(git for-each-ref --sort=-committerdate --count=1 --format='%(committerdate:unix)' \
-			"refs/remotes/$REMOTE/work/$n" "refs/remotes/$REMOTE/work/$n-*")
+	for n in $(claimed_ids); do
+		json=$(issue "$n")
+		refs=("refs/remotes/$REMOTE/claim/$n")
+		for s in $(steps "$json" | cut -f2); do refs+=("refs/remotes/$REMOTE/work/$s"); done
+		last=$(git for-each-ref --sort=-committerdate --count=1 --format='%(committerdate:unix)' "${refs[@]}")
 		age=$(( ($(date +%s) - ${last:-0}) / 3600 ))
-		printf '#%s\t%sh since last commit\t%s%s\n' "$n" "$age" \
-			"$(jq -r --arg re "^work/$n(-[0-9]+)?$" '[.[] | select(.headRefName | test($re)) | "#\(.number)\(if .isDraft then " draft" else "" end)"] | if length > 0 then join(" ") else "no PR" end' <<<"$prs")" \
+		printf '%s\t%sh since last commit\t%s%s\n' "$n" "$age" \
+			"$(jq -r --arg re "^work/($(steps "$json" | cut -f2 | paste -sd'|' -))$" '[.[] | select(.headRefName | test($re)) | "#\(.number)\(if .isDraft then " draft" else "" end)"] | if length > 0 then join(" ") else "no PR" end' <<<"$prs")" \
 			"$(if (( age >= STALE_HOURS )); then echo $'\tSTALE'; fi)"
 	done
 }
 
+# merged_to_main PR BASE: whether a merged PR's change has reached main, either
+# directly or through the step below it.
+merged_to_main() {
+	[[ "$2" == main ]] && return 0
+	[[ "$(gh pr list --head "$2" --state merged --json baseRefName -q '.[0].baseRefName // empty')" == main ]]
+}
+
 cmd_sync() {
-	local numbers n pr claimed state
-	# Closed features too: the last step's PR closes its issue when it merges,
-	# and that step still needs ticking.
-	if [[ $# -gt 0 ]]; then numbers="$1"; else
-		numbers=$(gh issue list --state all --limit 300 --json number,body -q '.[] | select(.body | test("\\(PR #[0-9]+\\)")) | .number')
+	local ids n json claimed i s type title pr st base oid open
+	if [[ $# -gt 0 ]]; then ids=$(id "$1"); else
+		ids=$(lin 'query($t: String!) { issues(first: 250, filter: {team: {key: {eq: $t}}, parent: {null: true},
+			state: {type: {eq: "started"}}}) { nodes { identifier } } }' "$(jq -cn --arg t "$TEAM" '{t: $t}')" |
+			jq -r '.issues.nodes[].identifier')
 	fi
-	claimed=" $(claimed_numbers | tr '\n' ' ') "
-	for n in $numbers; do
-		for pr in $(body "$n" | steps | grep -E '^- \[ \] .*\(PR #[0-9]+\)[[:space:]]*$' | sed -E 's/.*\(PR #([0-9]+)\)[[:space:]]*$/\1/'); do
-			case "$(gh pr view "$pr" --json state,baseRefName -q '.state + " " + .baseRefName')" in
-			"MERGED main") edit_body "$n" tick_pr "$pr" && echo "#$n: ticked the step for #$pr" ;;
-			MERGED*)
-				# Merged into the step below it: done once that one reaches main.
-				if [[ "$(gh pr list --head "$(gh pr view "$pr" --json baseRefName -q .baseRefName)" --state merged --json baseRefName -q '.[0].baseRefName // empty')" == main ]]; then
-					edit_body "$n" tick_pr "$pr" && echo "#$n: ticked the step for #$pr"
-				fi
-				;;
-			CLOSED) edit_body "$n" drop_pr "$pr" && echo "#$n: #$pr was closed unmerged, so its step is open again" ;;
-			esac
-		done
-		state=$(gh issue view "$n" --json state -q .state)
-		if [[ "$state" == OPEN && "$claimed" != *" $n "* ]]; then set_status "$n" "Todo"; fi
+	claimed=" $(claimed_ids | tr '\n' ' ') "
+	for n in $ids; do
+		json=$(issue "$n")
+		open=0
+		while IFS=$'\t' read -r i s type title; do
+			IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s")"
+			if [[ "$st" == MERGED ]] && merged_to_main "$pr" "$base"; then
+				if [[ "$type" != completed && "$s" != "$n" ]]; then set_state "$s" Done && echo "$s: done, PR #$pr merged"; fi
+				continue
+			fi
+			# Merged into the step below it, or open: not done, whatever Linear says.
+			if [[ "$st" != MERGED && ( "$type" == completed || "$type" == canceled ) ]]; then continue; fi
+			open=1
+			if [[ "$st" == OPEN && "$type" != started && "$s" != "$n" ]]; then set_state "$s" "In Review" && echo "$s: in review, PR #$pr"; fi
+		done < <(steps "$json")
+		if (( open == 0 )); then
+			set_state "$n" Done && echo "$n: done, every step merged"
+		elif [[ "$(jq -r .state.name <<<"$json")" == "In Progress" && "$claimed" != *" $n "* ]]; then
+			set_state "$n" Todo && echo "$n: back to Todo, nobody claims it"
+		fi
 	done
 }
 
 cmd_note() {
-	local n="${1:?usage: plan note N TEXT}"
+	local t="${1:?usage: plan note ID|PR TEXT}"
 	shift
-	comment "$n" "$*"
-	echo "Commented on #$n"
+	if [[ "${t#\#}" =~ ^[0-9]+$ ]]; then
+		gh_comment "${t#\#}" "$*"
+		echo "Commented on PR #${t#\#}"
+	else
+		t=$(id "$t")
+		comment "$t" "$*"
+		echo "Commented on $t"
+	fi
+}
+
+# may_move ID STATE: why an agent may not move ID to STATE, or nothing.
+may_move() {
+	local cur a
+	cur=$(issue "$1" | jq -r .state.name) || exit 1
+	[[ "$cur" != "$DESIGN_REVIEW" ]] || { echo "only the user moves an issue out of $DESIGN_REVIEW: that's their approval"; return; }
+	case "$(tr '[:upper:]' '[:lower:]' <<<"$2")" in
+	todo | "in progress")
+		a=$(approval "$1") || exit 1
+		[[ -z "$a" || "$a" == approved* ]] || echo "$1 has been in $DESIGN_REVIEW, so only the user's move makes it buildable"
+		;;
+	esac
 }
 
 cmd_issue() {
-	local title="${1:?usage: plan issue TITLE BODY_FILE [LABEL...]}" file="${2:?usage: plan issue TITLE BODY_FILE [LABEL...]}" l why args=()
+	local title="${1:?usage: plan issue TITLE BODY_FILE [--state S] [--project P] [--parent ID] [--label L]...}" file="${2:?usage: plan issue TITLE BODY_FILE ...}"
+	local in st="Backlog" parent="" project="" labels=()
 	shift 2
 	need_file "$file"
-	for l in "$@"; do
-		why=$(label_refusal + "$l")
-		[[ -z "$why" ]] || die "$why"
-		args+=(-f "labels[]=$l")
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--state) st="${2:?--state needs a status}"; shift 2 ;;
+		--project) project="${2:?--project needs a name}"; shift 2 ;;
+		--parent) parent=$(id "${2:?--parent needs an ID}"); shift 2 ;;
+		--label) labels+=("$(label_id "${2:?--label needs a name}")"); shift 2 ;;
+		*) die "unknown option $1" ;;
+		esac
 	done
-	# ${a[@]+...}: bash 3.2, as macOS ships, calls an empty array unbound.
-	as_agent api "repos/$(repo)/issues" -f title="$title" -F body=@"$file" ${args[@]+"${args[@]}"} -q .number
+	in=$(jq -cn --arg t "$(team_id)" --arg title "$title" --rawfile d "$file" --arg s "$(state_id "$st")" \
+		'{teamId: $t, title: $title, description: $d, stateId: $s}')
+	if [[ -n "$parent" ]]; then
+		in=$(jq -c --arg p "$(issue "$parent" | jq -r .id)" '. + {parentId: $p}' <<<"$in")
+		[[ -n "$project" ]] || project=$(issue "$parent" | jq -r '.project.name // empty')
+	fi
+	[[ -z "$project" ]] || in=$(jq -c --arg p "$(project_id "$project")" '. + {projectId: $p}' <<<"$in")
+	(( ${#labels[@]} )) && in=$(jq -c --args '. + {labelIds: $ARGS.positional}' "${labels[@]}" <<<"$in")
+	lin 'mutation($in: IssueCreateInput!) { issueCreate(input: $in) { issue { identifier } } }' \
+		"$(jq -cn --argjson in "$in" '{in: $in}')" | jq -r .issueCreate.issue.identifier
 }
 
-# above_steps: a body up to its "## Steps" heading, which is the design.
+# above_steps: a description up to its "## Steps" heading, which is the design.
 above_steps() { awk '/^## Steps[[:space:]]*$/ {exit} {print}'; }
 
-# edit N FILE: once the user has approved a feature, its design is what they
-# decided, so only the Steps and below may change.
+# edit ID FILE: once the user has approved a design, it's what they decided,
+# so only ## Steps and below may change.
 cmd_edit() {
-	local n="${1:?usage: plan edit N BODY_FILE}" file="${2:?usage: plan edit N BODY_FILE}" info
+	local n file="${2:?usage: plan edit ID BODY_FILE}" a cur
+	n=$(id "${1:?usage: plan edit ID BODY_FILE}")
 	need_file "$file"
-	info=$(gh issue view "$n" --json labels,body -q '([.labels[].name | ascii_downcase] | join(",")) + "\n" + .body')
-	if [[ ",$(head -1 <<<"$info")," == *,approved,* ]] &&
-		[[ "$(tail -n +2 <<<"$info" | above_steps)" != "$(above_steps <"$file")" ]]; then
-		die "#$n is approved, so its design is the user's decision: only ## Steps and below may change. Ask the user in a comment instead"
+	a=$(approval "$n")
+	cur=$(issue "$n" | jq -r '.description // ""')
+	if [[ "$a" == approved* ]] && [[ "$(above_steps <<<"$cur")" != "$(above_steps <"$file")" ]]; then
+		die "$n's design is approved, so it's the user's decision: only ## Steps and below may change. Ask the user in a comment instead"
 	fi
-	as_agent api -X PATCH "repos/$(repo)/issues/$n" -F body=@"$file" >/dev/null
-	echo "Edited #$n"
+	update_issue "$n" "$(jq -cn --rawfile d "$file" '{description: $d}')"
+	echo "Edited $n"
+}
+
+cmd_state() {
+	local n st="${2:?usage: plan state ID STATE}" why
+	n=$(id "${1:?usage: plan state ID STATE}")
+	why=$(may_move "$n" "$st")
+	[[ -z "$why" ]] || die "$why"
+	set_state "$n" "$st"
+	echo "$n: $st"
 }
 
 cmd_label() {
-	local n="${1:?usage: plan label N +LABEL|-LABEL...}" l why add=() remove=()
+	local t="${1:?usage: plan label ID|PR +LABEL|-LABEL...}" l why add=() remove=() i
 	shift
-	[[ $# -gt 0 ]] || die "usage: plan label N +LABEL|-LABEL..."
+	[[ $# -gt 0 ]] || die "usage: plan label ID|PR +LABEL|-LABEL..."
 	for l in "$@"; do
 		[[ "$l" =~ ^[+-].+ ]] || die "say +$l to add it or -$l to remove it"
 		why=$(label_refusal "${l:0:1}" "${l:1}")
 		[[ -z "$why" ]] || die "$why"
 		if [[ "$l" == +* ]]; then add+=("${l:1}"); else remove+=("${l:1}"); fi
 	done
-	if (( ${#add[@]} )); then add_label "$n" "${add[@]}"; fi
-	for l in ${remove[@]+"${remove[@]}"}; do remove_label "$n" "$l"; done
-	echo "#$n: $*"
+	if [[ "${t#\#}" =~ ^[0-9]+$ ]]; then
+		t="${t#\#}"
+		if (( ${#add[@]} )); then add_pr_label "$t" "${add[@]}"; fi
+		for l in ${remove[@]+"${remove[@]}"}; do remove_pr_label "$t" "$l"; done
+		echo "#$t: $*"
+		return
+	fi
+	t=$(id "$t")
+	i=$(issue "$t" | jq -r .id)
+	for l in ${add[@]+"${add[@]}"}; do
+		lin 'mutation($i: String!, $l: String!) { issueAddLabel(id: $i, labelId: $l) { success } }' \
+			"$(jq -cn --arg i "$i" --arg l "$(label_id "$l")" '{i: $i, l: $l}')" >/dev/null
+	done
+	for l in ${remove[@]+"${remove[@]}"}; do
+		lin 'mutation($i: String!, $l: String!) { issueRemoveLabel(id: $i, labelId: $l) { success } }' \
+			"$(jq -cn --arg i "$i" --arg l "$(label_id "$l")" '{i: $i, l: $l}')" >/dev/null
+	done
+	echo "$t: $*"
 }
 
 cmd_block() {
-	local n="${1:?usage: plan block N M}" m="${2:?usage: plan block N M}" id
-	id=$(gh api "repos/$(repo)/issues/$m" -q .id) || die "no issue #$m"
-	as_agent api "repos/$(repo)/issues/$n/dependencies/blocked_by" -F issue_id="$id" >/dev/null
-	echo "#$n is blocked by #$m"
+	local n m
+	n=$(id "${1:?usage: plan block ID BLOCKER}") m=$(id "${2:?usage: plan block ID BLOCKER}")
+	lin 'mutation($in: IssueRelationCreateInput!) { issueRelationCreate(input: $in) { success } }' \
+		"$(jq -cn --arg a "$(issue "$m" | jq -r .id)" --arg b "$(issue "$n" | jq -r .id)" '{in: {issueId: $a, relatedIssueId: $b, type: "blocks"}}')" >/dev/null
+	echo "$n is blocked by $m"
 }
 
-# milestone_number TITLE: assign it to a variable before use, so a missing
-# milestone stops the command under set -e.
-milestone_number() {
-	local num
-	num=$(gh api --paginate "repos/$(repo)/milestones?state=all" | jq -rs --arg t "$1" '[.[][] | select(.title == $t) | .number][0] // empty')
-	[[ -n "$num" ]] || die "no milestone is titled \"$1\""
-	echo "$num"
+cmd_projects() {
+	lin '{ projects(first: 100) { nodes { name status { name } progress content description } } }' |
+		jq -r '.projects.nodes | sort_by(.name)[]
+			| "## \(.name) (\(.status.name // "-"), \(.progress * 100 | floor)% done)\n\(.content // .description // "")\n"'
 }
 
-cmd_milestones() {
-	gh api --paginate "repos/$(repo)/milestones?state=all&sort=title" |
-		jq -rs '.[][] | "## \(.title) (\(.state), \(.open_issues) open, \(.closed_issues) closed)\n\(.description // "")\n"'
-}
-
-cmd_milestone() {
-	local sub="${1:-}" n title file num
+cmd_project() {
+	local sub="${1:-}" name file n s
 	case "$sub" in
-	set)
-		n="${2:?usage: plan milestone set N TITLE}" title="${3:?usage: plan milestone set N TITLE}"
-		num=$(milestone_number "$title")
-		as_agent api -X PATCH "repos/$(repo)/issues/$n" -F milestone="$num" >/dev/null
-		echo "#$n is in $title"
-		;;
 	new)
-		title="${2:?usage: plan milestone new TITLE DESC_FILE}" file="${3:?usage: plan milestone new TITLE DESC_FILE}"
+		name="${2:?usage: plan project new NAME FILE}" file="${3:?usage: plan project new NAME FILE}"
 		need_file "$file"
-		as_agent api "repos/$(repo)/milestones" -f title="$title" -F description=@"$file" -q .html_url
+		lin 'mutation($in: ProjectCreateInput!) { projectCreate(input: $in) { project { url } } }' \
+			"$(jq -cn --arg n "$name" --arg t "$(team_id)" --rawfile c "$file" \
+				'{in: {name: $n, teamIds: [$t], content: $c, description: ($c | capture("Goal: (?<g>[^\n]*)").g // "" | .[:255])}}')" |
+			jq -r .projectCreate.project.url
 		;;
 	edit)
-		title="${2:?usage: plan milestone edit TITLE DESC_FILE}" file="${3:?usage: plan milestone edit TITLE DESC_FILE}"
+		name="${2:?usage: plan project edit NAME FILE}" file="${3:?usage: plan project edit NAME FILE}"
 		need_file "$file"
-		num=$(milestone_number "$title")
-		as_agent api -X PATCH "repos/$(repo)/milestones/$num" -F description=@"$file" >/dev/null
-		echo "Edited $title"
+		lin 'mutation($i: String!, $in: ProjectUpdateInput!) { projectUpdate(id: $i, input: $in) { success } }' \
+			"$(jq -cn --arg i "$(project_id "$name")" --rawfile c "$file" '{i: $i, in: {content: $c}}')" >/dev/null
+		echo "Edited $name"
+		;;
+	set)
+		n=$(id "${2:?usage: plan project set ID NAME}") name="${3:?usage: plan project set ID NAME}"
+		update_issue "$n" "$(jq -cn --arg p "$(project_id "$name")" '{projectId: $p}')"
+		echo "$n is in $name"
 		;;
 	close)
-		title="${2:?usage: plan milestone close TITLE}"
-		num=$(milestone_number "$title")
-		as_agent api -X PATCH "repos/$(repo)/milestones/$num" -f state=closed >/dev/null
-		echo "Closed $title"
+		name="${2:?usage: plan project close NAME}"
+		s=$(lin '{ projectStatuses { nodes { id type } } }' | jq -r '[.projectStatuses.nodes[] | select(.type == "completed")][0].id // empty')
+		[[ -n "$s" ]] || die "Linear has no completed project status"
+		lin 'mutation($i: String!, $in: ProjectUpdateInput!) { projectUpdate(id: $i, input: $in) { success } }' \
+			"$(jq -cn --arg i "$(project_id "$name")" --arg s "$s" '{i: $i, in: {statusId: $s}}')" >/dev/null
+		echo "Closed $name"
 		;;
-	*) die "usage: plan milestone set N TITLE | new TITLE DESC_FILE | edit TITLE DESC_FILE | close TITLE" ;;
+	*) die "usage: plan project new NAME FILE | edit NAME FILE | set ID NAME | close NAME" ;;
 	esac
 }
 
 cmd_ideas() {
-	gh project item-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --limit 500 --format json \
-		-q '.items[] | select(.content.type == "DraftIssue") | "\(.id)\t\(.title)"'
+	lin 'query($t: String!) { issues(first: 250, filter: {team: {key: {eq: $t}}, state: {type: {eq: "triage"}}}) {
+		nodes { identifier title project { name } } } }' "$(jq -cn --arg t "$TEAM" '{t: $t}')" |
+		jq -r '.issues.nodes | sort_by(.identifier)[] | [.identifier, (.project.name // "-"), .title] | @tsv'
 }
 
 cmd_idea() {
-	local title="${1:?usage: plan idea TITLE [BODY]}" body="${2:-}" item field_id
-	item=$(gh project item-create "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --title "$title" --body "$body" --format json -q .id)
-	# The board files new items under Todo. Ideas aren't work yet, so they go
-	# under No Status instead.
-	field_id=$(gh project field-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json -q '.fields[] | select(.name == "Status") | .id')
-	gh project item-edit --project-id "$(project_id)" --id "$item" --field-id "$field_id" --clear >/dev/null
-	echo "$item"
+	local title="${1:?usage: plan idea TITLE [BODY]}" f
+	f=$(mktemp)
+	printf '%s\n' "${2:-}" >"$f"
+	cmd_issue "$title" "$f" --state Triage
+	rm -f "$f"
 }
 
 cmd_promote() {
-	local item="${1:?usage: plan promote ITEM_ID}" repo_id
-	repo_id=$(gh repo view --json id -q .id)
-	# shellcheck disable=SC2016 # $itemId and $repositoryId are GraphQL variables
-	gh api graphql -f itemId="$item" -f repositoryId="$repo_id" -q .data.convertProjectV2DraftIssueItemToIssue.item.content.number -f query='
-		mutation($itemId: ID!, $repositoryId: ID!) {
-			convertProjectV2DraftIssueItemToIssue(input: {itemId: $itemId, repositoryId: $repositoryId}) {
-				item { content { ... on Issue { number } } }
-			}
-		}'
+	local n st="${2:-Backlog}"
+	n=$(id "${1:?usage: plan promote ID [STATE]}")
+	[[ "$(issue "$n" | jq -r .state.type)" == triage ]] || die "$n isn't in Triage"
+	cmd_state "$n" "$st"
+}
+
+# prime: fill the run-once caches in this shell. Most uses are in command
+# substitutions, which can't fill them for later calls.
+prime() {
+	linear_auth
+	states >/dev/null
+	owner >/dev/null
 }
 
 cmd="${1:-help}"
 [[ $# -gt 0 ]] && shift
 case "$cmd" in
-	# Commands that write to issues or PRs.
-	# Commands that write to issues or PRs mint the App token first, before
-	# anything else, so a missing key stops them before they touch GitHub.
-	claim | step | pr | merge | restack | link | release | sync | note | issue | edit | label | block | milestone)
+	# Commands that write to GitHub mint the App token first, before anything
+	# else, so a missing key stops them before they touch GitHub. Linear's
+	# token comes with the first Linear call (lin), which is always before a
+	# Linear write, and note and label on a PR never need it.
+	claim | step | pr | merge | restack | release | sync | note | label)
 		agent_token
+		REPO=$(repo)
+		# note and label on a PR never need Linear.
+		if [[ "$cmd" != note && "$cmd" != label ]] || [[ ! "${1#\#}" =~ ^[0-9]+$ ]]; then prime; fi
+		"cmd_$cmd" "$@"
+		;;
+	digest) "cmd_$cmd" "$@" ;;
+	ready | show | claims | issue | edit | state | block | projects | project | ideas | idea | promote)
+		prime
 		REPO=$(repo)
 		"cmd_$cmd" "$@"
 		;;
-	ready | show | claims | milestones | ideas | idea | promote) REPO=$(repo); "cmd_$cmd" "$@" ;;
 	help | -h | --help) usage ;;
 	*) usage >&2; exit 2 ;;
 esac

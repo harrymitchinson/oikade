@@ -1,7 +1,9 @@
 name: Review gate
 
-# A PR labelled needs-review, or one for a feature labelled needs-review,
-# waits for the user's Approve (docs/design/0108-agent-identity.md). Agents open
+# A PR labelled needs-review waits for the user's Approve (docs/planning.md).
+# hack/plan pr copies a feature's needs-review label onto each of its PRs.
+# hack/plan merge merges a held PR only once main's hack/owner-approval says
+# the user's Approve covers its head, as this check does. Agents open
 # PRs as oikade-agent[bot], so the user can approve them. "Approved by the
 # owner" is a required check on main, and it fails until they do. Any other PR
 # passes, so hack/plan merge still merges low-risk steps.
@@ -9,7 +11,7 @@ name: Review gate
 # GitHub runs this from the PR's own branch, so a PR could change it. One
 # that does touches .github/, which hack/plan treats as protected: it's always
 # needs-review, and the user reads that change before approving it. Agents
-# can't merge, since they have no gh write but hack/plan, which refuses.
+# can't merge any other way, since they have no gh write but hack/plan.
 #
 # A review doesn't start a run of its own: review-gate-rerun.yml reruns this
 # one, so the head commit only ever has one "Approved by the owner" result.
@@ -56,13 +58,8 @@ jobs:
 
           held=""
           if jq -e '[.labels[].name] | index("needs-review")' <<<"$pr" >/dev/null; then held="#$PR is labelled needs-review"; fi
-          feature=$(jq -r '.body' <<<"$pr" | sed -nE 's/^(Part of|Closes) #([0-9]+).*/\2/p' | head -1)
-          if [ -z "$held" ] && [ -n "$feature" ] &&
-            gh issue view "$feature" --json labels -q '.labels[].name' | grep -qx needs-review; then
-            held="its feature #$feature is labelled needs-review"
-          fi
           if [ -z "$held" ]; then
-            echo "#$PR needs no Approve here: neither it nor its feature is labelled needs-review"
+            echo "#$PR needs no Approve here: it isn't labelled needs-review"
             exit 0
           fi
 

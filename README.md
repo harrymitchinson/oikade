@@ -76,7 +76,7 @@ kubectl -n home get zigbee2mqtts,devices,bridges,rules
 
 ## Rules
 
-A `Rule` has one of two shapes ([0060](docs/design/0060-rule-model.md)):
+A `Rule` has one of two shapes ([OIK-64](https://linear.app/oikade/issue/OIK-64)):
 
 - **Moments** (`triggers`) do something when a trigger fires: a capability changes, a time of day comes, or the sun rises or sets.
 - **Holds** (`while`) keep a capability at a value for as long as a window or a condition holds. The runtime works out from the clock and the devices' state whether a hold is active, so it stays right across a restart.
@@ -350,7 +350,7 @@ A Device whose `control` entry doesn't fit its capability, such as `resolve: Hig
 
 ### Migrating from Automation
 
-`Rule` replaces the `Automation` kind, with the same behaviour ([0060](docs/design/0060-rule-model.md)). To move an Automation over:
+`Rule` replaces the `Automation` kind, with the same behaviour ([OIK-64](https://linear.app/oikade/issue/OIK-64)). To move an Automation over:
 
 - Change `kind: Automation` to `kind: Rule`.
 - Wrap each entry of `triggers` in `change:`. For example, `- {device: m, capability: c}` becomes `- change: {device: m, capability: c}`.
@@ -496,11 +496,11 @@ make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks s
 make test-conformance   # builds plugins/example-switch and drives it through the plugin contract
 ```
 
-The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them.
+The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them. How the components, rule engine and HomeKit bridge work inside is in [docs/architecture.md](docs/architecture.md).
 
 ## Not yet
 
-Planned work is tracked as [GitHub issues](https://github.com/harrymitchinson/oikade/issues) on the [Oikade board](https://github.com/users/harrymitchinson/projects/5). Releases are [milestones](https://github.com/harrymitchinson/oikade/milestones), and each one's description gives its goal, exit criteria and why it sits where it does. Designs live in [docs/design](docs/design/).
+Planned work is tracked in [Linear](https://linear.app/oikade). Each release is a project there, and its description gives its goal, exit criteria and why it sits where it does. Designs live in their features' issues there, and [docs/planning.md](docs/planning.md) says how planning works.
 
 ## Not doing
 
@@ -508,7 +508,7 @@ Oikade isn't a general-purpose hub. It has no Home Assistant driver and no UI fo
 
 - **Home Assistant as a driver.** Standalone device libraries that Home Assistant also uses are fine inside plugins.
 - **Runtime replicas or leader election.** A single replica is deliberate, because two would run every automation twice.
-- **Homebridge as a driver.** It would make Homebridge, rather than Git, the source of device identity ([0002](docs/design/0002-plugin-drivers.md)).
+- **Homebridge as a driver.** It would make Homebridge, rather than Git, the source of device identity ([OIK-61](https://linear.app/oikade/issue/OIK-61)).
 - **Go `plugin` or WASM plugins.** The first needs CGO, and neither can do LAN multicast usefully.
 - **Configuration from a UI.** Changes made in the zigbee2mqtt frontend count as drift, by design.
 

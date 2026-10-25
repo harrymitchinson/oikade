@@ -62,7 +62,7 @@ spec:
                   last-write-wins.
                 items:
                   description: |-
-                    CapabilityControl makes one capability arbitrated (0060): rules, HomeKit and the device itself
+                    CapabilityControl makes one capability arbitrated (OIK-64): rules, HomeKit and the device itself
                     make claims on it, and the device takes the winner.
                   properties:
                     capability:
