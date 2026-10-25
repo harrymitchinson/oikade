@@ -102,6 +102,11 @@ type Engine struct {
 	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
 	// fires. It must not block.
 	OnSchedule func(key types.NamespacedName, s Schedule)
+	// OnBudget, if set, is called with e.mu held when a budget hold plans, or its status changes.
+	// It must not block.
+	OnBudget func(key types.NamespacedName, r BudgetReport)
+	// Budget are the budget holds' metrics. Nil exports none.
+	Budget *BudgetMetrics
 
 	events chan driver.Update
 	// wake makes Run look at the timers again.
@@ -226,6 +231,12 @@ func (e *Engine) Load(c *Compiled) {
 	if old != nil && old.c.hold != nil && c.hold == nil && e.Active != nil {
 		e.Active.DeleteLabelValues(c.Key.Namespace, c.Key.Name)
 	}
+	if c.staleBudget || old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
+		e.clearBudget(c.Key, c.Generation)
+		if s.hold != nil {
+			s.hold.budget = nil
+		}
+	}
 	e.signal()
 }
 
@@ -322,6 +333,8 @@ func (e *Engine) unload(key types.NamespacedName) *state {
 	if s != nil && (len(s.c.timers) > 0 || s.c.hold != nil) {
 		e.report(key, Schedule{Generation: s.c.Generation, Cleared: true})
 	}
+	// status.today stays, so a Rule fixed the same day carries on with its plan.
+	e.Budget.delete(key)
 	delete(e.rules, key)
 	// A Rule loaded again, after a delete or an invalid edit, looks for missed fires again.
 	delete(e.loaded, key)
@@ -503,8 +516,9 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 		if key.Namespace != u.Device.Namespace {
 			continue
 		}
-		// A hold with when may read any device in its namespace.
-		if s.hold != nil && s.c.hold.when != nil && s.hold.loaded {
+		// A hold with when may read any device in its namespace, and a budget credits its target's
+		// run as it changes.
+		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.budget != nil && s.c.hold.device == u.Device.Name) {
 			if devices == nil {
 				devices = e.Store.Values(u.Device.Namespace)
 			}

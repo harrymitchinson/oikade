@@ -19,6 +19,10 @@ const ConditionReady = "Ready"
 // as a sun trigger or sun window on a runtime without a location.
 const ConditionScheduled = "Scheduled"
 
+// ConditionPlanned is set by the runtime on a budget hold. It is True once today's plan is made,
+// and False when the budget can't be planned, such as when its target has no control entry.
+const ConditionPlanned = "Planned"
+
 // Trigger is a moment that fires the Rule. Exactly one field must be set.
 // +kubebuilder:validation:XValidation:rule="[has(self.change), has(self.at), has(self.sun)].exists_one(x, x)",message="exactly one of change, at or sun must be specified"
 type Trigger struct {
@@ -381,6 +385,44 @@ type Budget struct {
 	Forbid []BudgetForbid `json:"forbid,omitempty"`
 }
 
+// BudgetBlock is a planned run, from start to end.
+type BudgetBlock struct {
+	Start metav1.Time `json:"start"`
+	End   metav1.Time `json:"end"`
+}
+
+// BudgetDay is a planning day's frozen plan, and how much of it has run.
+type BudgetDay struct {
+	// date is the planning day, YYYY-MM-DD, local time.
+	Date string `json:"date"`
+
+	// targetSource is where the day's minutes came from: Bands, Missing (the bands input hadn't
+	// reported, or was too old), Expression or None.
+	TargetSource string `json:"targetSource"`
+
+	// targetMinutes is the day's budget, rounded up to whole slots.
+	TargetMinutes int32 `json:"targetMinutes"`
+
+	// scheduledMinutes is how much of it the plan places.
+	ScheduledMinutes int32 `json:"scheduledMinutes"`
+
+	// shortfallMinutes is how much of it doesn't fit, within the forbid windows and the control
+	// entry's limits.
+	ShortfallMinutes int32 `json:"shortfallMinutes"`
+
+	// blocks are the planned runs.
+	// +listType=atomic
+	// +optional
+	Blocks []BudgetBlock `json:"blocks,omitempty"`
+
+	// runMinutes is how long the target has been on and available today, updated at most every
+	// 5 minutes.
+	RunMinutes int32 `json:"runMinutes"`
+
+	// starts counts the planned runs the hold has started today.
+	Starts int32 `json:"starts"`
+}
+
 // While is when a hold is active: all of its conditions together, or a budget on its own.
 // +kubebuilder:validation:XValidation:rule="has(self.window) || has(self.when) || has(self.budget)",message="while needs a window, when or budget"
 // +kubebuilder:validation:XValidation:rule="!has(self.budget) || !(has(self.window) || has(self.when) || has(self.onDelay) || has(self.offDelay) || (has(self.latch) && self.latch))",message="budget must be the only field of while"
@@ -536,6 +578,11 @@ type RuleStatus struct {
 	// +optional
 	NextChange metav1.Time `json:"nextChange,omitzero"`
 
+	// today is a budget hold's plan for the current planning day, and its progress. The runtime
+	// writes it, and reads it back after a restart the same day rather than planning again.
+	// +optional
+	Today *BudgetDay `json:"today,omitempty"`
+
 	// skipped lists the Room members a set or hold left out, because the capability is
 	// arbitrated on them and the set has no end.
 	// +listType=atomic
@@ -560,6 +607,8 @@ type RuleStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Last Triggered",type=date,JSONPath=`.status.lastTriggered`
 // +kubebuilder:printcolumn:name="Next Fire",type=date,JSONPath=`.status.nextFire`
+// +kubebuilder:printcolumn:name="Budget",type=integer,JSONPath=`.status.today.targetMinutes`,priority=1
+// +kubebuilder:printcolumn:name="Run",type=integer,JSONPath=`.status.today.runMinutes`,priority=1
 
 // Rule is run by the Oikade runtime. A moment runs its actions when a trigger fires and the
 // condition holds; a hold keeps a capability at a value while its while is true.

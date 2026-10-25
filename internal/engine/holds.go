@@ -47,6 +47,8 @@ type holdState struct {
 	// claimed is the claim an active hold last made on arbitrated targets, without its value.
 	// Nil means none since the hold loaded.
 	claimed *control.Claim
+	// budget is a budget hold's plan and progress. Nil until a budget hold is first evaluated.
+	budget *budgetState
 }
 
 // NewActiveGauge returns the gauge Engine.Active expects.
@@ -73,11 +75,6 @@ func sameTarget(a, b HoldTarget) bool {
 // known is false when when can't be evaluated, as before a device it reads has reported. devices
 // are the namespace's values, or nil to read them.
 func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, devices map[string]map[string]any) (on, known bool, next time.Time) {
-	if h.budget {
-		// Until the runtime plans budgets (OIK-8), a budget hold stays inactive rather than
-		// holding its target all day.
-		return false, true, time.Time{}
-	}
 	on = true
 	if h.window != nil {
 		on, next = h.window.at(now, e.Location, e.Site)
@@ -130,7 +127,14 @@ func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *stat
 	if hs.released {
 		st.Latched, hs.released = false, false
 	}
-	on, known, next := e.condition(key, h, now, devices)
+	var on, known bool
+	var next time.Time
+	if h.budget != nil {
+		on, next = e.budgetCondition(key, s, now, devices)
+		known = true
+	} else {
+		on, known, next = e.condition(key, h, now, devices)
+	}
 	st, active := h.step(st, on, known, now)
 	switch {
 	case hs.retry.IsZero():
@@ -205,7 +209,8 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 			at = t
 		}
 	}
-	if every := now.Add(whenEvery); h.when != nil && !st.Latched && every.Before(at) {
+	// A budget looks every minute too, to credit its target's run.
+	if every := now.Add(whenEvery); (h.when != nil || h.budget != nil) && !st.Latched && every.Before(at) {
 		at = every
 	}
 	return at

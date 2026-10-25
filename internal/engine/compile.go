@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/cel-go/cel"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -49,6 +50,8 @@ type Compiled struct {
 	actions []action
 	// hold is nil for a moment.
 	hold *hold
+	// staleBudget is set when the Rule's status has a budget's plan, but it has no budget.
+	staleBudget bool
 }
 
 type action struct {
@@ -160,7 +163,20 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
+	keepBudget(a, c)
 	return c, nil
+}
+
+// keepBudget keeps a budget hold's spec, to compile against its target's control entry when it
+// plans, and the plan its status holds. A Rule with no budget but a plan in its status, left by
+// one it no longer has, is marked to clear it.
+func keepBudget(a *homev1alpha1.Rule, c *Compiled) {
+	planned := meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionPlanned)
+	if c.hold == nil || a.Spec.While.Budget == nil {
+		c.staleBudget = a.Status.Today != nil || planned != nil
+		return
+	}
+	c.hold.budget = &budgetHold{spec: *a.Spec.DeepCopy(), today: a.Status.Today.DeepCopy(), planned: planned.DeepCopy()}
 }
 
 // compileActions validates a moment's actions.

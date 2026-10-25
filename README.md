@@ -196,7 +196,9 @@ spec:
 
 A `while` needs a `window`, a `when` or a `budget`, and everything in it must be true together. A `budget` is the only field of its `while`.
 
-`budget` makes a hold active for a number of minutes a day: `minutes` is `bands` over an input's value or a CEL `expression`, placed in `prefer` windows (by `score`) and never in `forbid` windows. It holds one Device's bool capability at `true`, and that capability needs a `control` entry, whose `minimumOn`, `minimumOff` and `maximumStartsPerDay` shape the runs. See `cellar-drying` in [the samples](config/samples/home_v1alpha1_rule.yaml). **The operator validates budgets, but the runtime doesn't plan them yet:** a budget hold stays inactive until it does (OIK-5).
+`budget` makes a hold active for a number of minutes a day: `minutes` is `bands` over an input's value or a CEL `expression`, placed in `prefer` windows (by `score`) and never in `forbid` windows. It holds one Device's bool capability at `true`, and that capability needs a `control` entry, whose `minimumOn`, `minimumOff` and `maximumStartsPerDay` shape the runs. See `cellar-drying` in [the samples](config/samples/home_v1alpha1_rule.yaml).
+
+At `planningTime` the runtime plans the day in slots and freezes the plan. The hold is active in the planned blocks, as a Normal claim, so a Safety hold or a Home app tap still beats it. `status.today` shows the plan (`targetMinutes`, `scheduledMinutes`, `shortfallMinutes` and the `blocks`) and the progress: `runMinutes`, counted only while the device reports on and is available and updated at most every 5 minutes, and `starts`. After a restart the same day, the runtime carries on from `status.today` rather than planning again. The `Planned` condition is `False` with reason `NoControl`, `InvalidBudget` or `EvaluationFailed` when the day can't be planned. A runtime that starts with no plan for today plans from then, so the hours already gone are lost to the day. `kubectl get rules -o wide` shows each budget's minutes and run.
 
 - **When a hold starts,** the runtime writes `hold.value`. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `control` entry: its `default` is what's left when the hold ends.
 - **Without a `control` entry, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
@@ -432,6 +434,10 @@ The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/d
 | `oikade_rule_runs_total{namespace,rule,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error`, `missed` |
 | `oikade_rule_next_change_timestamp_seconds{namespace,rule}` | When a Rule's next `at` or `sun` trigger fires, or its hold next starts or ends |
 | `oikade_rule_active{namespace,rule}` | 1 while a Rule's hold is active, 0 otherwise |
+| `oikade_rule_budget_target_minutes{namespace,rule}` | A budget hold's minutes for the current planning day |
+| `oikade_rule_budget_scheduled_minutes{namespace,rule}` | How many of them today's plan places |
+| `oikade_rule_budget_run_minutes_total{namespace,rule}` | Minutes a budget hold's device has been on and available |
+| `oikade_rule_budget_desired{namespace,rule}` | 1 while a budget hold's plan wants its device on, 0 otherwise |
 | `oikade_device_control_level{namespace,device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 

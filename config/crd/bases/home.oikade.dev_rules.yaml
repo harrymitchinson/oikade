@@ -30,6 +30,14 @@ spec:
     - jsonPath: .status.nextFire
       name: Next Fire
       type: date
+    - jsonPath: .status.today.targetMinutes
+      name: Budget
+      priority: 1
+      type: integer
+    - jsonPath: .status.today.runMinutes
+      name: Run
+      priority: 1
+      type: integer
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -694,6 +702,71 @@ spec:
                   type: string
                 type: array
                 x-kubernetes-list-type: atomic
+              today:
+                description: |-
+                  today is a budget hold's plan for the current planning day, and its progress. The runtime
+                  writes it, and reads it back after a restart the same day rather than planning again.
+                properties:
+                  blocks:
+                    description: blocks are the planned runs.
+                    items:
+                      description: BudgetBlock is a planned run, from start to end.
+                      properties:
+                        end:
+                          format: date-time
+                          type: string
+                        start:
+                          format: date-time
+                          type: string
+                      required:
+                      - end
+                      - start
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  date:
+                    description: date is the planning day, YYYY-MM-DD, local time.
+                    type: string
+                  runMinutes:
+                    description: |-
+                      runMinutes is how long the target has been on and available today, updated at most every
+                      5 minutes.
+                    format: int32
+                    type: integer
+                  scheduledMinutes:
+                    description: scheduledMinutes is how much of it the plan places.
+                    format: int32
+                    type: integer
+                  shortfallMinutes:
+                    description: |-
+                      shortfallMinutes is how much of it doesn't fit, within the forbid windows and the control
+                      entry's limits.
+                    format: int32
+                    type: integer
+                  starts:
+                    description: starts counts the planned runs the hold has started
+                      today.
+                    format: int32
+                    type: integer
+                  targetMinutes:
+                    description: targetMinutes is the day's budget, rounded up to
+                      whole slots.
+                    format: int32
+                    type: integer
+                  targetSource:
+                    description: |-
+                      targetSource is where the day's minutes came from: Bands, Missing (the bands input hadn't
+                      reported, or was too old), Expression or None.
+                    type: string
+                required:
+                - date
+                - runMinutes
+                - scheduledMinutes
+                - shortfallMinutes
+                - starts
+                - targetMinutes
+                - targetSource
+                type: object
             type: object
         required:
         - spec

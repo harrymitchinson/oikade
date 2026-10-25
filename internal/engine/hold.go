@@ -41,8 +41,8 @@ type hold struct {
 	when              cel.Program
 	onDelay, offDelay time.Duration
 	latch             bool
-	// budget is set for a budget hold, which the runtime doesn't run yet (OIK-8).
-	budget bool
+	// budget is nil when the hold has none.
+	budget *budgetHold
 }
 
 // window is a compiled while.window. Its start and end are at or sun times with no days.
@@ -95,7 +95,7 @@ func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alp
 	if h == nil {
 		return nil, errors.New("hold is required with while")
 	}
-	c := &hold{device: h.Device, room: h.Room, capability: h.Capability, priority: priority, latch: w.Latch, budget: w.Budget != nil}
+	c := &hold{device: h.Device, room: h.Room, capability: h.Capability, priority: priority, latch: w.Latch}
 	var errs []error
 	if (h.Device == "") == (h.Room == "") {
 		errs = append(errs, errors.New("hold: exactly one of device or room is required"))
