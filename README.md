@@ -194,7 +194,9 @@ spec:
 | `offDelay` | How long the hold stays active after the rest stops being true. |
 | `latch` | Stays active once `when` has been true, until a `release`. See [below](#latched-safety-holds). |
 
-A `while` needs a `window` or a `when`, and everything in it must be true together.
+A `while` needs a `window`, a `when` or a `budget`, and everything in it must be true together. A `budget` is the only field of its `while`.
+
+`budget` makes a hold active for a number of minutes a day: `minutes` is `bands` over an input's value or a CEL `expression`, placed in `prefer` windows (by `score`) and never in `forbid` windows. It holds one Device's bool capability at `true`, and that capability needs a `control` entry, whose `minimumOn`, `minimumOff` and `maximumStartsPerDay` shape the runs. See `cellar-drying` in [the samples](config/samples/home_v1alpha1_rule.yaml). **The operator validates budgets, but the runtime doesn't plan them yet:** a budget hold stays inactive until it does (OIK-5).
 
 - **When a hold starts,** the runtime writes `hold.value`. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `control` entry: its `default` is what's left when the hold ends.
 - **Without a `control` entry, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
@@ -345,6 +347,7 @@ The operator compiles every Rule and sets `Ready=False` with the first problem i
 - `Invalid` when the Rule doesn't compile: a bad condition or `when`, an unknown or read-only capability, or a value of the wrong type.
 - `RoomNotFound` when a trigger or action names a Room that doesn't exist in the namespace. The message lists the missing Rooms. Creating them sets `Ready=True` without editing the Rule. The runtime doesn't check Rooms: until the Room exists it still runs the Rule, matching any Devices whose `roomRef` names it. For a misspelled room that's none. After a Room is deleted, Devices still pointing at it keep matching.
 - `UnendedClaim`, `ConflictingHolds` and `InvalidRelease`, as above. These follow the Devices and other Rules, so adding a `control` entry or the missing Rule clears them without editing this one.
+- `NoControl` when a budget's Device doesn't exist or has no `control` entry for the capability, and `InvalidBudget` when the budget doesn't fit it, such as a `minimumOn` that isn't a whole number of slots, or bands out of order.
 
 A Device whose `control` entry doesn't fit its capability, such as `resolve: Highest` on a bool, shows `Ready=False` with reason `InvalidControl`, and that capability stays last-write-wins. `status.lastTriggered` is updated at most once a minute.
 

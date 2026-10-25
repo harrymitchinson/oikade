@@ -41,6 +41,8 @@ type hold struct {
 	when              cel.Program
 	onDelay, offDelay time.Duration
 	latch             bool
+	// budget is set for a budget hold, which the runtime doesn't run yet (OIK-8).
+	budget bool
 }
 
 // window is a compiled while.window. Its start and end are at or sun times with no days.
@@ -93,7 +95,7 @@ func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alp
 	if h == nil {
 		return nil, errors.New("hold is required with while")
 	}
-	c := &hold{device: h.Device, room: h.Room, capability: h.Capability, priority: priority, latch: w.Latch}
+	c := &hold{device: h.Device, room: h.Room, capability: h.Capability, priority: priority, latch: w.Latch, budget: w.Budget != nil}
 	var errs []error
 	if (h.Device == "") == (h.Room == "") {
 		errs = append(errs, errors.New("hold: exactly one of device or room is required"))
@@ -106,8 +108,14 @@ func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alp
 	if err := checkPriority(priority); err != nil {
 		errs = append(errs, err)
 	}
-	if w.Window == nil && w.When == "" {
-		errs = append(errs, errors.New("while: a window or when is required"))
+	switch {
+	case w.Budget != nil:
+		// The budget itself is checked against the target's control entry (schedule.Compile).
+		if w.Window != nil || w.When != "" || w.OnDelay != nil || w.OffDelay != nil || w.Latch {
+			errs = append(errs, errors.New("while: budget must be the only field"))
+		}
+	case w.Window == nil && w.When == "":
+		errs = append(errs, errors.New("while: a window, when or budget is required"))
 	}
 	if w.Latch && w.When == "" {
 		errs = append(errs, errors.New("while: latch needs when"))

@@ -88,3 +88,30 @@ spec:
   condition: trigger.value
   do:
   - release: {rule: workshop-overheat}
+---
+# The cellar dehumidifier runs for a daily budget that depends on the cellar's humidity at
+# midnight: 1 to 6 hours, or 3 if the sensor hasn't reported in the last hour. The runtime
+# places the hours in cheap night slots where it can, never during the evening.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata:
+  name: cellar-drying
+spec:
+  while:
+    budget:
+      planningTime: "00:00"
+      slotMinutes: 30
+      minutes:
+        bands:
+          input: {device: cellar-humidity, capability: sensor.relative-humidity, maxAge: 1h}
+          missingMinutes: 180
+          ranges:
+          - {below: 55, minutes: 60}
+          - {below: 65, minutes: 180}
+          - {minutes: 360}
+      prefer:
+      - {window: {start: "23:00", end: "07:00"}, score: 3}
+      - {window: {start: "12:00", end: "15:00", days: [Sat, Sun]}, score: 1}
+      forbid:
+      - {window: {start: "18:00", end: "22:00"}}
+  hold: {device: cellar-dehumidifier, capability: switch.on, value: true}

@@ -106,3 +106,37 @@ spec:
   zigbee2mqtt:
     instanceRef: {name: z2m}
     ieeeAddress: "0x00158d0000000006"
+---
+# A cellar dehumidifier on a plugin relay. Its budget Rule needs the control entry: minimumOn,
+# minimumOff and maximumStartsPerDay shape the runs the budget plans. A Home app tap holds for
+# an hour.
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: cellar-dehumidifier
+spec:
+  displayName: Cellar Dehumidifier
+  plugin:
+    pluginRef: {name: example-switch}
+    id: cellar-dehumidifier-1
+    parameters:
+      capability: switch.on
+  control:
+  - capability: switch.on
+    default: false
+    resolve: PreferOn
+    external: Override
+    overrideHold: 1h
+    minimumOn: 1h
+    minimumOff: 30m
+    maximumStartsPerDay: 4
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: cellar-humidity
+spec:
+  displayName: Cellar Humidity
+  zigbee2mqtt:
+    instanceRef: {name: z2m}
+    ieeeAddress: "0x00158d0000000007"

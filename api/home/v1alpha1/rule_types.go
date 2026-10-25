@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -261,8 +262,128 @@ type Window struct {
 	Days []Weekday `json:"days,omitempty"`
 }
 
-// While is when a hold is active: all of its conditions together.
-// +kubebuilder:validation:XValidation:rule="has(self.window) || has(self.when)",message="while needs a window or when"
+// MinutesInput is the capability a budget's bands read at planningTime.
+type MinutesInput struct {
+	// device names a Device in the same namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Device string `json:"device"`
+
+	// capability is a number capability, e.g. sensor.temperature.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Capability string `json:"capability"`
+
+	// maxAge is how old the value may be. An older value counts as missing.
+	// +kubebuilder:default="30m"
+	// +optional
+	MaxAge *metav1.Duration `json:"maxAge,omitempty"`
+}
+
+// MinutesBand gives the budget for input values below a threshold.
+type MinutesBand struct {
+	// below is the band's upper bound, e.g. "12" or "-0.5". Only the last band omits it, and it
+	// takes every value the others don't.
+	// +optional
+	Below *resource.Quantity `json:"below,omitempty"`
+
+	// minutes is the day's budget for values in the band.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1440
+	// +required
+	Minutes int32 `json:"minutes"`
+}
+
+// MinutesBands picks the budget from the band an input's value falls in.
+type MinutesBands struct {
+	// input is the capability read at planningTime.
+	// +required
+	Input MinutesInput `json:"input"`
+
+	// missingMinutes is the budget when the input hasn't reported, or is older than maxAge.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1440
+	// +required
+	MissingMinutes int32 `json:"missingMinutes"`
+
+	// ranges ascend by below, and the first that the value is below wins.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +required
+	Ranges []MinutesBand `json:"ranges"`
+}
+
+// BudgetMinutes is how many minutes a day the hold is active. Exactly one field must be set.
+// +kubebuilder:validation:XValidation:rule="has(self.bands) != has(self.expression)",message="exactly one of bands or expression must be specified"
+type BudgetMinutes struct {
+	// bands picks the minutes from an input's value.
+	// +optional
+	Bands *MinutesBands `json:"bands,omitempty"`
+
+	// expression is CEL over devices, now and tz, returning the minutes. A fraction is rounded.
+	// +kubebuilder:validation:MaxLength=4096
+	// +optional
+	Expression string `json:"expression,omitempty"`
+}
+
+// BudgetPrefer weights the slots in a window.
+type BudgetPrefer struct {
+	// window is the span of local time, "HH:MM" to "HH:MM".
+	// +required
+	Window Window `json:"window"`
+
+	// score is added to each slot the window touches. Negative avoids them.
+	// +kubebuilder:validation:Minimum=-100
+	// +kubebuilder:validation:Maximum=100
+	// +required
+	Score int32 `json:"score"`
+}
+
+// BudgetForbid keeps the budget out of a window.
+type BudgetForbid struct {
+	// window is the span of local time, "HH:MM" to "HH:MM".
+	// +required
+	Window Window `json:"window"`
+}
+
+// Budget makes a hold active for a number of minutes a day. At planningTime the runtime plans the
+// day in slots: it places the minutes in the best-scoring slots outside forbid windows, within
+// the target's control entry's minimumOn, minimumOff and maximumStartsPerDay, and freezes the plan
+// for the day.
+type Budget struct {
+	// planningTime starts each planning day: local time, HH:MM.
+	// +kubebuilder:validation:Pattern=`^([01][0-9]|2[0-3]):[0-5][0-9]$`
+	// +kubebuilder:default="00:00"
+	// +optional
+	PlanningTime string `json:"planningTime,omitempty"`
+
+	// slotMinutes is the length of the slots the day is planned in.
+	// +kubebuilder:validation:Enum=15;30;60
+	// +kubebuilder:default=30
+	// +optional
+	SlotMinutes int32 `json:"slotMinutes,omitempty"`
+
+	// minutes is the day's budget.
+	// +required
+	Minutes BudgetMinutes `json:"minutes"`
+
+	// prefer weights windows for the budget. Scores of overlapping windows add up.
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +optional
+	Prefer []BudgetPrefer `json:"prefer,omitempty"`
+
+	// forbid keeps the budget out of windows.
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +optional
+	Forbid []BudgetForbid `json:"forbid,omitempty"`
+}
+
+// While is when a hold is active: all of its conditions together, or a budget on its own.
+// +kubebuilder:validation:XValidation:rule="has(self.window) || has(self.when) || has(self.budget)",message="while needs a window, when or budget"
+// +kubebuilder:validation:XValidation:rule="!has(self.budget) || !(has(self.window) || has(self.when) || has(self.onDelay) || has(self.offDelay) || (has(self.latch) && self.latch))",message="budget must be the only field of while"
 // +kubebuilder:validation:XValidation:rule="!has(self.latch) || !self.latch || has(self.when)",message="latch needs when"
 // +kubebuilder:validation:XValidation:rule="!has(self.onDelay) || duration(self.onDelay) >= duration('0s')",message="onDelay must not be negative"
 // +kubebuilder:validation:XValidation:rule="!has(self.offDelay) || duration(self.offDelay) >= duration('0s')",message="offDelay must not be negative"
@@ -288,6 +409,11 @@ type While struct {
 	// latch keeps the hold active once when has been true, until a release action.
 	// +optional
 	Latch bool `json:"latch,omitempty"`
+
+	// budget makes the hold active for a number of minutes a day, in planned slots. It holds one
+	// Device's bool capability on, and that capability needs a control entry.
+	// +optional
+	Budget *Budget `json:"budget,omitempty"`
 }
 
 // Hold is the value a hold keeps a capability at while it's active.
@@ -337,6 +463,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(self.priority) || has(self.while)",message="priority applies to a hold; a set action takes its own"
 // +kubebuilder:validation:XValidation:rule="!has(self.condition) || has(self.triggers)",message="condition applies to triggers; a hold uses while.when"
 // +kubebuilder:validation:XValidation:rule="!has(self.startingDeadline) || has(self.triggers)",message="startingDeadline applies to triggers"
+// +kubebuilder:validation:XValidation:rule="!has(self.while) || !has(self.while.budget) || (has(self.hold) && has(self.hold.device))",message="a budget holds a device, not a room"
 type RuleSpec struct {
 	// triggers are the moments that start the Rule.
 	// +kubebuilder:validation:MinItems=1
@@ -373,7 +500,7 @@ type RuleSpec struct {
 	// +optional
 	StartingDeadline *metav1.Duration `json:"startingDeadline,omitempty"`
 
-	// while is when the hold is active: a window, a when expression, or both.
+	// while is when the hold is active: a window, a when expression, or both, or a budget.
 	// +optional
 	While *While `json:"while,omitempty"`
 

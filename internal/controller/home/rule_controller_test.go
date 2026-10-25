@@ -183,7 +183,7 @@ var _ = Describe("Rule Controller", func() {
 			names = append(names, rule.Name)
 		}
 		Expect(names).To(ConsistOf("hallway-motion-light", "goodnight-living-room", "porch-light-sunset",
-			"towel-rail-boost", "towel-rail-mornings", "workshop-overheat", "workshop-overheat-reset"))
+			"towel-rail-boost", "towel-rail-mornings", "workshop-overheat", "workshop-overheat-reset", "cellar-drying"))
 	})
 
 	It("brings every sample Rule to Ready next to the sample Devices and Rooms", func() {
@@ -335,7 +335,7 @@ var _ = Describe("Rule Controller", func() {
   triggers: [{at: {time: "07:00"}}]` + held + `
   do: [{delay: 1m}]`: "hold is required with while, and only with while",
 				`
-  while: {}` + held: "while needs a window or when",
+  while: {}` + held: "while needs a window, when or budget",
 				`
   while: {window: {start: "06:00", end: "08:00"}, latch: true}` + held: "latch needs when",
 				`
@@ -362,6 +362,19 @@ var _ = Describe("Rule Controller", func() {
 				`
   while: {when: "true"}
   hold: {capability: switch.on, value: true}`: "exactly one of device or room",
+				`
+  while: {budget: {minutes: {expression: "60"}}, window: {start: "06:00", end: "08:00"}}` + held: "budget must be the only field of while",
+				`
+  while: {budget: {minutes: {expression: "60"}}}
+  hold: {room: r, capability: switch.on, value: true}`: "a budget holds a device, not a room",
+				`
+  while: {budget: {minutes: {expression: "60", bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 0, ranges: [{minutes: 1}]}}}}` + held: "exactly one of bands or expression",
+				`
+  while: {budget: {slotMinutes: 20, minutes: {expression: "60"}}}` + held: "spec.while.budget.slotMinutes",
+				`
+  while: {budget: {planningTime: "24:00", minutes: {expression: "60"}}}` + held: "spec.while.budget.planningTime",
+				`
+  while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 2000, ranges: [{minutes: 1}]}}}}` + held: "missingMinutes",
 			} {
 				Expect(create("malformed", spec)).To(MatchError(ContainSubstring(want)), spec)
 			}
@@ -463,6 +476,58 @@ var _ = Describe("Rule Controller", func() {
 			setControl(fan, switchControl)
 			Expect(ready("fan-humid").Status).To(Equal(metav1.ConditionTrue))
 			Expect(ready("bathroom-quiet").Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("needs a budget's target to have a control entry the budget fits", func() {
+			rule("cellar-drying", `
+  while:
+    budget:
+      minutes:
+        bands:
+          input: {device: cellar-humidity, capability: sensor.relative-humidity}
+          missingMinutes: 180
+          ranges: [{below: 55, minutes: 60}, {below: 65, minutes: 180}, {minutes: 360}]
+      prefer: [{window: {start: "23:00", end: "07:00"}, score: 3}]
+      forbid: [{window: {start: "18:00", end: "22:00"}}]
+  hold: {device: cellar-dehumidifier, capability: switch.on, value: true}`)
+			cond := ready("cellar-drying")
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(ReasonNoControl))
+			Expect(cond.Message).To(Equal("Device cellar-dehumidifier not found"))
+
+			dehumidifier := device("cellar-dehumidifier", "")
+			cond = ready("cellar-drying")
+			Expect(cond.Reason).To(Equal(ReasonNoControl))
+			Expect(cond.Message).To(Equal("Device cellar-dehumidifier has no control entry for switch.on, which a budget needs"))
+
+			uneven := switchControl
+			uneven.MinimumOn = &metav1.Duration{Duration: 45 * time.Minute}
+			setControl(dehumidifier, uneven)
+			cond = ready("cellar-drying")
+			Expect(cond.Reason).To(Equal(ReasonInvalidBudget))
+			Expect(cond.Message).To(ContainSubstring("minimumOn 45m0s isn't a multiple of budget.slotMinutes (30)"))
+
+			even := switchControl
+			even.MinimumOn, even.MinimumOff = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: 30 * time.Minute}
+			setControl(dehumidifier, even)
+			Expect(ready("cellar-drying").Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("reports bands out of order on the Rule", func() {
+			device("loft-fan", "", switchControl)
+			rule("loft-airing", `
+  while:
+    budget:
+      minutes:
+        bands:
+          input: {device: loft-temperature, capability: sensor.temperature}
+          missingMinutes: 60
+          ranges: [{below: 20, minutes: 30}, {below: 15, minutes: 60}, {minutes: 120}]
+  hold: {device: loft-fan, capability: switch.on, value: true}`)
+			cond := ready("loft-airing")
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(ReasonInvalidBudget))
+			Expect(cond.Message).To(ContainSubstring("ranges[1]: below must be greater than the band before"))
 		})
 
 		It("doesn't count holds on a Device that doesn't exist as a conflict", func() {
