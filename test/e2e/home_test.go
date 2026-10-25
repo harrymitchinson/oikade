@@ -277,6 +277,49 @@ func statusTime(s string, err error) time.Time {
 	return t
 }
 
+// bathroomManifests runs a fan while a humidity sensor reads over 70, and for a minute after.
+const bathroomManifests = `
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: bathroom-sensor}
+spec:
+  plugin: {pluginRef: {name: example-switch}, id: bathroom-humidity, parameters: {capability: sensor.relative-humidity}}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: bathroom-fan}
+spec:
+  plugin: {pluginRef: {name: example-switch}, id: bathroom-fan-relay, parameters: {capability: switch.on}}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: bathroom-humid}
+spec:
+  while:
+    when: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+    offDelay: 1m
+  hold: {device: bathroom-fan, capability: switch.on, value: true}
+`
+
+// heaterManifests holds a water heater on in a window from an hour before from to two hours after.
+// The heater has no control entry, so the last write wins.
+func heaterManifests(from time.Time) string {
+	return fmt.Sprintf(`
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata: {name: water-heater}
+spec:
+  plugin: {pluginRef: {name: example-switch}, id: heater-relay, parameters: {capability: switch.on}}
+---
+apiVersion: home.oikade.dev/v1alpha1
+kind: Rule
+metadata: {name: water-heater-now}
+spec:
+  while: {window: {start: "%s", end: "%s"}}
+  hold: {device: water-heater, capability: switch.on, value: true}
+`, from.Add(-time.Hour).Format("15:04"), from.Add(2*time.Hour).Format("15:04"))
+}
+
 // pluginDevices is the plugin's devices topic with every relay found. It clears the device error
 // that "serves a plugin Device fed over MQTT" reports, so it's published only after that test.
 const pluginDevices = `{"devices":[` +
@@ -284,7 +327,10 @@ const pluginDevices = `{"devices":[` +
 	`{"id":"fan-relay","found":true,"capabilities":["switch.on"]},` +
 	`{"id":"rail-relay","found":true,"capabilities":["switch.on"]},` +
 	`{"id":"dryer-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"downstairs-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
+	`{"id":"downstairs-relay","found":true,"capabilities":["switch.on"]},` +
+	`{"id":"bathroom-humidity","found":true,"capabilities":["sensor.relative-humidity"]},` +
+	`{"id":"bathroom-fan-relay","found":true,"capabilities":["switch.on"]},` +
+	`{"id":"heater-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
 
 // timetableDevices is the plugin's devices topic with the porch and downstairs relays found. The
 // timetable needs the downstairs relay before "drives a plug from a window hold" announces the fan.
@@ -311,6 +357,21 @@ func readmeManifests() string {
 		}
 	}
 	return strings.Join(docs, "---\n")
+}
+
+// listen starts listening on topic for d, and returns a func that waits that long and returns
+// whatever came, one "topic payload" per line. Unlike subscribe, it expects nothing.
+func listen(topic string, d time.Duration) func() string {
+	var out bytes.Buffer
+	sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
+		"mosquitto_sub", "-h", mqttHost, "-t", topic, "-v", "-W", fmt.Sprint(int(d.Seconds())))
+	sub.Stdout = &out
+	ExpectWithOffset(1, sub.Start()).To(Succeed())
+	time.Sleep(3 * time.Second) // let the subscription land before publishing
+	return func() string {
+		_ = sub.Wait() // mosquitto_sub fails when -W runs out
+		return out.String()
+	}
 }
 
 // subscribe starts listening for count messages on topic, and returns a func that waits for them
@@ -421,7 +482,8 @@ func homeScenario() {
 		AfterAll(func() {
 			// The broker outlives the namespace; don't leave a fake plugin retained on it.
 			subs := []string{"status", "devices"}
-			for _, id := range []string{"porch-relay", "fan-relay", "rail-relay", "dryer-relay", "downstairs-relay"} {
+			for _, id := range []string{"porch-relay", "fan-relay", "rail-relay", "dryer-relay", "downstairs-relay",
+				"bathroom-humidity", "bathroom-fan-relay", "heater-relay"} {
 				subs = append(subs, id+"/availability", id+"/state")
 			}
 			for _, sub := range subs {
@@ -712,6 +774,36 @@ func homeScenario() {
 				To(BeEmpty())
 		})
 
+		// This needs the plugin and its devices from the tests above.
+		It("runs a bathroom fan while it's humid, and for its offDelay after", func() {
+			publish(pluginRoot+"/bathroom-humidity/availability", "online", true)
+			publish(pluginRoot+"/bathroom-humidity/state", `{"sensor.relative-humidity":55}`, true)
+			publish(pluginRoot+"/bathroom-fan-relay/availability", "online", true)
+			publish(pluginRoot+"/bathroom-fan-relay/state", `{"switch.on":false}`, true)
+			apply(bathroomManifests)
+			Eventually(jsonpath("rule", "bathroom-humid", `{.status.conditions[?(@.type=="Ready")].status}`)).
+				Should(Equal("True"))
+			Eventually(jsonpath("device", "bathroom-sensor", `{.status.conditions[?(@.type=="Available")].status}`)).
+				Should(Equal("True"))
+			Expect(jsonpath("rule", "bathroom-humid", "{.status.active}")()).NotTo(Equal("true"))
+
+			By("someone running a shower")
+			wait := subscribe(pluginRoot+"/bathroom-fan-relay/set", 1)
+			publish(pluginRoot+"/bathroom-humidity/state", `{"sensor.relative-humidity":78}`, true)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/bathroom-fan-relay/set {"switch.on":true}`))
+			publish(pluginRoot+"/bathroom-fan-relay/state", `{"switch.on":true}`, true)
+			Eventually(jsonpath("rule", "bathroom-humid", "{.status.active}")).Should(Equal("true"))
+
+			By("the humidity dropping")
+			wait = subscribe(pluginRoot+"/bathroom-fan-relay/set", 1)
+			dropped := time.Now()
+			publish(pluginRoot+"/bathroom-humidity/state", `{"sensor.relative-humidity":62}`, true)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/bathroom-fan-relay/set {"switch.on":false}`))
+			Expect(time.Since(dropped)).To(BeNumerically(">=", 55*time.Second), "the fan ran on for its offDelay")
+			publish(pluginRoot+"/bathroom-fan-relay/state", `{"switch.on":false}`, true)
+			Eventually(jsonpath("rule", "bathroom-humid", "{.status.active}")).Should(Equal("false"))
+		})
+
 		It("applies the README's Rules examples as written", func() {
 			_, err := utils.Run(exec.Command("kubectl", "create", "ns", readmeNamespace))
 			Expect(err).NotTo(HaveOccurred())
@@ -762,6 +854,43 @@ func homeScenario() {
 			for _, name := range queried {
 				Expect(out).To(MatchRegexp(`(?m)^`+name+`[{ ]`), "the dashboard queries %s", name)
 			}
+		})
+
+		// This needs the plugin and its devices from the tests above. It restarts the runtime, which
+		// drops the counters the dashboard test reads until they count again, so it runs last.
+		It("keeps a Home app tap on a held water heater across a runtime restart", func() {
+			loc, err := time.LoadLocation(runtimeTimezone)
+			Expect(err).NotTo(HaveOccurred())
+			publish(pluginRoot+"/heater-relay/availability", "online", true)
+			publish(pluginRoot+"/heater-relay/state", `{"switch.on":false}`, true)
+			wait := subscribe(pluginRoot+"/heater-relay/set", 1)
+			apply(heaterManifests(time.Now().In(loc)))
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/heater-relay/set {"switch.on":true}`))
+			publish(pluginRoot+"/heater-relay/state", `{"switch.on":true}`, true)
+			Eventually(jsonpath("rule", "water-heater-now", "{.status.active}")).Should(Equal("true"))
+
+			By("turning the heater off in the Home app")
+			// The bridge announces the write, then the plug reports it.
+			_, err = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-t", "oikade/v1/_homekit/"+homeNamespace+"/main",
+				"-m", `{"bridge":"main","device":"water-heater","capability":"switch.on","value":false}`)
+			Expect(err).NotTo(HaveOccurred())
+			publish(pluginRoot+"/heater-relay/state", `{"switch.on":false}`, true)
+			Eventually(func(g Gomega) {
+				out, err := mqttExec("wget", "-qO-", runtimeURL)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(MatchRegexp(`oikade_capability_value\{capability="switch.on",` +
+					`device="water-heater",namespace="e2e-home"[^}]*\} 0\n`))
+			}).Should(Succeed())
+
+			By("restarting the runtime mid-window")
+			heard := listen(pluginRoot+"/heater-relay/set", 100*time.Second)
+			_, err = utils.Run(exec.Command("kubectl", "-n", namespace, "rollout", "restart", "deployment/oikade-runtime"))
+			Expect(err).NotTo(HaveOccurred())
+			_, err = utils.Run(exec.Command("kubectl", "-n", namespace, "rollout", "status", "deployment/oikade-runtime",
+				"--timeout=3m"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(heard()).To(BeEmpty(), "the restarted runtime wrote to the heater")
+			Expect(jsonpath("rule", "water-heater-now", "{.status.active}")()).To(Equal("true"))
 		})
 	})
 }
