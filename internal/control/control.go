@@ -1,4 +1,4 @@
-// Package control arbitrates one capability of a device (0060). Rules, HomeKit and the device
+// Package control arbitrates one capability of a device (OIK-64). Rules, HomeKit and the device
 // itself make claims on it; the arbiter picks the winner by level, breaks ties with the device's
 // resolve setting, then holds the winner back by the device's equipment limits.
 //

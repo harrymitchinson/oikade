@@ -50,13 +50,12 @@ Losing any of these means re-pairing. Then the Home app forgets rooms, scenes an
 
 ## 4. Component boundaries
 
-There is one binary with three roles:
+The roles (`manager`, `manager runtime`, `manager hap`), the data path and the drivers are in `docs/architecture.md`. The boundaries a design must not cross without saying so:
 
-- **`manager`**: the operator. It only talks to Kubernetes, and never to MQTT.
-- **`manager runtime`**: exactly one replica, because two would run every rule twice. It runs the drivers on the bus, the Device status writer, `/metrics` on `:8080`, and the CEL rule engine. A feature that assumes runtime HA, or needs leader election, is a big decision.
-- **`manager hap --bridge <name>`**: one per Bridge, with `hostNetwork`. It follows the bus itself so HomeKit keeps working if the runtime is down. It has **read-only** API access and can only read its own Secrets.
-
-The data path is: driver ↔ MQTT ↔ hub ↔ {status writer, exporter, engine, HAP}. Writes go through `driver.Set`. A new driver (ESPHome, Matter, Homebridge) implements `internal/driver.Driver` and joins the Device spec's driver union.
+- **`manager`** only talks to Kubernetes, never to MQTT.
+- **`manager runtime`** is exactly one replica, because two would run every rule twice. A feature that assumes runtime HA, or needs leader election, is a big decision.
+- **`manager hap`** keeps HomeKit working while the runtime is down. It has **read-only** API access and can only read its own Secrets.
+- **A new driver** (ESPHome, Matter) reports to a `driver.Sink`, takes writes as a `driver.Setter`, and joins the Device spec's driver union.
 
 ## 5. Hardware and environment
 

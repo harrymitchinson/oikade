@@ -496,7 +496,7 @@ make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks s
 make test-conformance   # builds plugins/example-switch and drives it through the plugin contract
 ```
 
-The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them.
+The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them. How the components, rule engine and HomeKit bridge work inside is in [docs/architecture.md](docs/architecture.md).
 
 ## Not yet
 

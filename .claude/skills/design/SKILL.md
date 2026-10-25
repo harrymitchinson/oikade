@@ -55,7 +55,7 @@ Constraints:
 
 ## 4. Write the design into the issue
 
-The design lives in the feature's issue, where the user reviews it in comments. The issue is its only record: nothing is committed for it, and code or docs that cite it link the issue. Designs from before the move to Linear are in OIK-5 and the Done issues OIK-60 to OIK-64.
+The design lives in the feature's issue, where the user reviews it in comments. The issue is its only record of why: nothing is committed for it, and code or docs that cite it link the issue. How things work now is in the repo's docs, which the steps keep up to date. Designs from before the move to Linear are in OIK-5 and the Done issues OIK-60 to OIK-64.
 
 - **The issue:** reuse one if it exists (search with the Linear MCP tools). If the work is an idea in Triage, promote it with `hack/plan promote OIK-N "Design Review"`. Otherwise write the description to a file in your scratchpad and create it with `hack/plan issue "<title>" <file> --state "Design Review"`.
 - **The description:** `## Why`, then `## Design` with Problem, Options (each with its cost of reversing), Recommendation, Consequences (the public names it adds, state, what breaks, the upgrade path) and Open questions. To change it later, edit your file and run `hack/plan edit OIK-N <file>`.
@@ -69,6 +69,7 @@ Then stop, and tell the user it's ready for review. Update the design from their
 Once the user has approved the design, or if it didn't need one of its own:
 
 - **Steps are one PR each,** and an agent running the work skill builds them in order, stacking each on the last until the user reviews them. Keep each one reviewable on its own. Each must leave `CGO_ENABLED=0 make test` green and deliver something reviewable: the API and generated code, then the controller, then the runtime, then HAP, then the docs. Put the risky or uncertain step first.
+- **Each step updates the docs it changes,** in the same PR: the README for what users write and see, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Say which in the step's scope. The docs describe the present and link the feature for why; they never copy the design.
 - **Each step is a sub-issue,** created in order with `hack/plan issue "<step>" <file> --parent OIK-N`, using the layout in the plan skill: its Scope and Acceptance. Acceptance is plain bullets of observable outcomes, each naming the test layer that proves it (unit, integration, envtest, Kind e2e or manual). A manual line reads `(manual, in the Manual testing doc)`: add its check, with a pass condition, to the Linear document "Manual testing" under a heading for the feature, so every manual check is in one place. Detail like exact types, failure modes and test names goes in the step it affects.
 - **Separate features** if parts of the work don't depend on each other, so agents can build them in parallel. Link them with "blocked by" only where one really needs the other (the plan skill shows how).
 - **If the user hasn't approved it yet,** you can draft the steps, but the work skill won't touch the feature until the user moves it out of Design Review.

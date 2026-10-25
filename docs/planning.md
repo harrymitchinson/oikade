@@ -13,9 +13,10 @@ The base is the same as it always was: a tracker holds the plan, and the user de
 | Manual checks on real devices | The Linear document "Manual testing" |
 | PRs, code review and CI | GitHub |
 | "Not doing" | The README |
+| How Oikade works now | The README for users, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for plugins |
 | This workflow, and the rules agents work under | This file, `AGENTS.md`, `.claude/` and `hack/` |
 
-Linear is the source of truth for the plan and for every design. The repo keeps no copy of a design: the feature's issue, with its comments, is the record. `#N` references in older PRs, commits and docs point at GitHub issues that were deleted when the plan moved to Linear.
+Linear is the source of truth for the plan and for every design. The repo keeps no copy of a design: the feature's issue, with its comments, is the record of why. The docs in the repo say how things work now, and link the issue for why. `#N` references in older PRs, commits and docs point at GitHub issues that were deleted when the plan moved to Linear.
 
 ## Ideas, features and releases
 
@@ -42,6 +43,7 @@ How it works:
 - **An approved design covers the features that build it.** A feature whose description has a `Design: OIK-M` line, where the user approved OIK-M, may be built without a review of its own, as long as it makes no decision that OIK-M's design doesn't.
 - **Work with nothing expensive to reverse needs no review.** An agent files it in Backlog and may move it to Todo itself, saying why in one comment. Examples are a plugin built on the existing contract that ships as its own image, CI, and docs. The user vetoes by moving it to Design Review.
 - **Nothing is committed for a design.** Code, docs and comments that need to cite a design link its Linear issue.
+- **The docs follow the code instead.** A step that changes how something works updates the doc that describes it in the same PR: the README for what users write and see, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. These docs describe the present, with no options or history, so they never drift from the code. A design goes stale once it's built; the docs don't.
 
 Designs from before the move to Linear are in Done issues: room-targeted automations (OIK-60), plugin drivers (OIK-61), the Go plugin SDK (OIK-62), release automation (OIK-63) and the rule model (OIK-64). The schedules design is in its feature, OIK-5. Each says at the top who decided which parts of it. An agent-written design is the user's decision only where it says so.
 
