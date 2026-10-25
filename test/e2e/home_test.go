@@ -694,10 +694,13 @@ func homeScenario() {
 				Should(Equal("True"))
 			Eventually(func() time.Time { return statusTime(jsonpath("rule", "porch-dusk", "{.status.nextFire}")()) }).
 				Should(BeTemporally("==", nextSunset(now, -15*time.Minute)))
-			Eventually(jsonpath("rule", "porch-evening", `{.status.conditions[?(@.type=="Scheduled")].status}`)).
+			Eventually(jsonpath("rule", "porch-evening", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
 			Eventually(func() time.Time { return statusTime(jsonpath("rule", "porch-evening", "{.status.nextChange}")()) }).
 				Should(BeTemporally("==", nextSunset(now, time.Hour, 2*time.Hour)))
+			// A hold reports Scheduled only when its sun times can't be computed.
+			Expect(jsonpath("rule", "porch-evening", `{.status.conditions[?(@.type=="Scheduled")].status}`)()).
+				To(BeEmpty())
 		})
 
 		It("applies the README's Rules examples as written", func() {
