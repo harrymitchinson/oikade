@@ -735,7 +735,9 @@ squash_merge() {
 	for ((i = 1; ; i++)); do
 		err=$(as_agent api -X PUT "repos/$(repo)/pulls/$1/merge" -f merge_method=squash -f sha="$2" 2>&1 >/dev/null) && return 0
 		case "$err" in
-		*"Required status check"*"is expected"* | *"Required status check"*"in progress"*) ((i < MERGE_TRIES)) || break ;;
+		*"Required status check"*"is expected"* | *"Required status check"*"is queued"* | *"Required status check"*"in progress"*)
+			((i < MERGE_TRIES)) || break
+			;;
 		*) break ;;
 		esac
 		sleep "$MERGE_SLEEP"

@@ -51,7 +51,12 @@ if [[ "$method" != GET || ( "$1" == api && $fields == 1 ) ]]; then
 		left=$(cat "$fx/gate-running" 2>/dev/null || echo 0)
 		if ((left > 0)); then
 			echo $((left - 1)) >"$fx/gate-running"
-			echo 'gh: Repository rule violations found Required status check "Approved by the owner" is expected. (HTTP 405)' >&2
+			# GitHub says "expected" before the run starts, and "queued" once it's waiting for a runner.
+			if ((left % 2)); then
+				echo 'gh: Repository rule violations found Required status check "Approved by the owner" is expected. (HTTP 405)' >&2
+			else
+				echo 'gh: Repository rule violations found Required status check "Approved by the owner" is queued. (HTTP 405)' >&2
+			fi
 			exit 1
 		fi
 		[[ ! -f "$fx/merge-refused" ]] || { cat "$fx/merge-refused" >&2; exit 1; }
