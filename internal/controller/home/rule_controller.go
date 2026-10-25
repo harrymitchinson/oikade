@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,6 +22,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
 // RuleReconciler validates Rules. The runtime compiles them again to run them.
@@ -43,6 +45,12 @@ const (
 	ReasonConflictingHolds = "ConflictingHolds"
 	// ReasonInvalidRelease: a release names a Rule that doesn't exist or can't be released.
 	ReasonInvalidRelease = "InvalidRelease"
+	// ReasonNoControl: a budget's target Device doesn't exist, or has no control entry for the
+	// capability, which the budget's constraints come from.
+	ReasonNoControl = "NoControl"
+	// ReasonInvalidBudget: a budget doesn't fit its target's control entry, or is malformed in a
+	// way the CRD can't check, such as bands out of order.
+	ReasonInvalidBudget = "InvalidBudget"
 )
 
 // Reconcile sets the Ready condition from compiling the Rule, then checking it against the
@@ -71,6 +79,11 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			reason, msg, err := r.checkClaims(ctx, &a)
 			if err != nil {
 				return ctrl.Result{}, err
+			}
+			if reason == "" {
+				if reason, msg, err = r.checkBudget(ctx, &a); err != nil {
+					return ctrl.Result{}, err
+				}
 			}
 			if reason != "" {
 				cond.Status, cond.Reason, cond.Message = metav1.ConditionFalse, reason, msg
@@ -197,6 +210,30 @@ func (r *RuleReconciler) checkClaims(ctx context.Context, a *homev1alpha1.Rule) 
 	}
 	if len(bad) > 0 {
 		return ReasonInvalidRelease, "Can't release: " + strings.Join(bad, "; "), nil
+	}
+	return "", "", nil
+}
+
+// checkBudget compiles a budget hold against its target's control entry, which must exist. It
+// returns an empty reason when all is well, or when the Rule has no budget.
+func (r *RuleReconciler) checkBudget(ctx context.Context, a *homev1alpha1.Rule) (string, string, error) {
+	if a.Spec.While == nil || a.Spec.While.Budget == nil {
+		return "", "", nil
+	}
+	h := a.Spec.Hold
+	var d homev1alpha1.Device
+	if err := r.Get(ctx, client.ObjectKey{Namespace: a.Namespace, Name: h.Device}, &d); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ReasonNoControl, fmt.Sprintf("Device %s not found", h.Device), nil
+		}
+		return "", "", err
+	}
+	i := slices.IndexFunc(d.Spec.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == h.Capability })
+	if i < 0 {
+		return ReasonNoControl, fmt.Sprintf("Device %s has no control entry for %s, which a budget needs", h.Device, h.Capability), nil
+	}
+	if _, err := schedule.Compile(a, &d.Spec.Control[i]); err != nil {
+		return ReasonInvalidBudget, err.Error(), nil
 	}
 	return "", "", nil
 }

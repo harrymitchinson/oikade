@@ -314,8 +314,206 @@ spec:
                 x-kubernetes-list-type: atomic
               while:
                 description: 'while is when the hold is active: a window, a when expression,
-                  or both.'
+                  or both, or a budget.'
                 properties:
+                  budget:
+                    description: |-
+                      budget makes the hold active for a number of minutes a day, in planned slots. It holds one
+                      Device's bool capability on, and that capability needs a control entry.
+                    properties:
+                      forbid:
+                        description: forbid keeps the budget out of windows.
+                        items:
+                          description: BudgetForbid keeps the budget out of a window.
+                          properties:
+                            window:
+                              description: window is the span of local time, "HH:MM"
+                                to "HH:MM".
+                              properties:
+                                days:
+                                  description: days limits the window to those starting
+                                    on these days. Empty means every day.
+                                  items:
+                                    description: Weekday is a day of the week.
+                                    enum:
+                                    - Mon
+                                    - Tue
+                                    - Wed
+                                    - Thu
+                                    - Fri
+                                    - Sat
+                                    - Sun
+                                    type: string
+                                  maxItems: 7
+                                  type: array
+                                  x-kubernetes-list-type: set
+                                end:
+                                  description: end is "HH:MM", or {sun, offset}. An
+                                    end at or before the start is the next day.
+                                  x-kubernetes-preserve-unknown-fields: true
+                                start:
+                                  description: start is "HH:MM", or {sun, offset}.
+                                  x-kubernetes-preserve-unknown-fields: true
+                              required:
+                              - end
+                              - start
+                              type: object
+                          required:
+                          - window
+                          type: object
+                        maxItems: 16
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      minutes:
+                        description: minutes is the day's budget.
+                        properties:
+                          bands:
+                            description: bands picks the minutes from an input's value.
+                            properties:
+                              input:
+                                description: input is the capability read at planningTime.
+                                properties:
+                                  capability:
+                                    description: capability is a number capability,
+                                      e.g. sensor.temperature.
+                                    minLength: 1
+                                    type: string
+                                  device:
+                                    description: device names a Device in the same
+                                      namespace.
+                                    minLength: 1
+                                    type: string
+                                  maxAge:
+                                    default: 30m
+                                    description: maxAge is how old the value may be.
+                                      An older value counts as missing.
+                                    type: string
+                                required:
+                                - capability
+                                - device
+                                type: object
+                              missingMinutes:
+                                description: missingMinutes is the budget when the
+                                  input hasn't reported, or is older than maxAge.
+                                format: int32
+                                maximum: 1440
+                                minimum: 0
+                                type: integer
+                              ranges:
+                                description: ranges ascend by below, and the first
+                                  that the value is below wins.
+                                items:
+                                  description: MinutesBand gives the budget for input
+                                    values below a threshold.
+                                  properties:
+                                    below:
+                                      anyOf:
+                                      - type: integer
+                                      - type: string
+                                      description: |-
+                                        below is the band's upper bound, e.g. "12" or "-0.5". Only the last band omits it, and it
+                                        takes every value the others don't.
+                                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                      x-kubernetes-int-or-string: true
+                                    minutes:
+                                      description: minutes is the day's budget for
+                                        values in the band.
+                                      format: int32
+                                      maximum: 1440
+                                      minimum: 0
+                                      type: integer
+                                  required:
+                                  - minutes
+                                  type: object
+                                maxItems: 16
+                                minItems: 1
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - input
+                            - missingMinutes
+                            - ranges
+                            type: object
+                          expression:
+                            description: expression is CEL over devices, now and tz,
+                              returning the minutes as an int.
+                            maxLength: 4096
+                            type: string
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of bands or expression must be specified
+                          rule: has(self.bands) != has(self.expression)
+                      planningTime:
+                        default: "00:00"
+                        description: 'planningTime starts each planning day: local
+                          time, HH:MM.'
+                        pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                        type: string
+                      prefer:
+                        description: prefer weights windows for the budget. Scores
+                          of overlapping windows add up.
+                        items:
+                          description: BudgetPrefer weights the slots in a window.
+                          properties:
+                            score:
+                              description: score is added to each slot the window
+                                touches. Negative avoids them.
+                              format: int32
+                              maximum: 100
+                              minimum: -100
+                              type: integer
+                            window:
+                              description: window is the span of local time, "HH:MM"
+                                to "HH:MM".
+                              properties:
+                                days:
+                                  description: days limits the window to those starting
+                                    on these days. Empty means every day.
+                                  items:
+                                    description: Weekday is a day of the week.
+                                    enum:
+                                    - Mon
+                                    - Tue
+                                    - Wed
+                                    - Thu
+                                    - Fri
+                                    - Sat
+                                    - Sun
+                                    type: string
+                                  maxItems: 7
+                                  type: array
+                                  x-kubernetes-list-type: set
+                                end:
+                                  description: end is "HH:MM", or {sun, offset}. An
+                                    end at or before the start is the next day.
+                                  x-kubernetes-preserve-unknown-fields: true
+                                start:
+                                  description: start is "HH:MM", or {sun, offset}.
+                                  x-kubernetes-preserve-unknown-fields: true
+                              required:
+                              - end
+                              - start
+                              type: object
+                          required:
+                          - score
+                          - window
+                          type: object
+                        maxItems: 16
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      slotMinutes:
+                        default: 30
+                        description: slotMinutes is the length of the slots the day
+                          is planned in.
+                        enum:
+                        - 15
+                        - 30
+                        - 60
+                        format: int32
+                        type: integer
+                    required:
+                    - minutes
+                    type: object
                   latch:
                     description: latch keeps the hold active once when has been true,
                       until a release action.
@@ -367,8 +565,12 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: while needs a window or when
-                  rule: has(self.window) || has(self.when)
+                - message: while needs a window, when or budget
+                  rule: has(self.window) || has(self.when) || has(self.budget)
+                - message: budget must be the only field of while
+                  rule: '!has(self.budget) || !(has(self.window) || has(self.when)
+                    || has(self.onDelay) || has(self.offDelay) || (has(self.latch)
+                    && self.latch))'
                 - message: latch needs when
                   rule: '!has(self.latch) || !self.latch || has(self.when)'
                 - message: onDelay must not be negative
@@ -389,6 +591,9 @@ spec:
               rule: '!has(self.condition) || has(self.triggers)'
             - message: startingDeadline applies to triggers
               rule: '!has(self.startingDeadline) || has(self.triggers)'
+            - message: a budget holds a device, not a room
+              rule: '!has(self.while) || !has(self.while.budget) || (has(self.hold)
+                && has(self.hold.device))'
           status:
             description: status defines the observed state of Rule
             properties:

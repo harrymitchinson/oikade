@@ -73,6 +73,11 @@ func sameTarget(a, b HoldTarget) bool {
 // known is false when when can't be evaluated, as before a device it reads has reported. devices
 // are the namespace's values, or nil to read them.
 func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, devices map[string]map[string]any) (on, known bool, next time.Time) {
+	if h.budget {
+		// Until the runtime plans budgets (OIK-8), a budget hold stays inactive rather than
+		// holding its target all day.
+		return false, true, time.Time{}
+	}
 	on = true
 	if h.window != nil {
 		on, next = h.window.at(now, e.Location, e.Site)

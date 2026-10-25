@@ -601,3 +601,31 @@ func TestEditedTargetEndsTheOldOneOnce(t *testing.T) {
 		t.Fatalf("calls = %v, want the heater on and off once and the fan retried", r.setter.got())
 	}
 }
+
+// Until the runtime plans budgets (OIK-8), a budget hold must not hold its target all day.
+func TestBudgetHoldStaysInactive(t *testing.T) {
+	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, holdRule(t, "pump-daily", `
+  while: {budget: {minutes: {expression: "120"}}}
+  hold: {device: pump, capability: switch.on, value: true}
+`))
+	r.at("2026-10-21 23:00 BST")
+	r.expect()
+	if r.active("pump-daily") != 0 {
+		t.Error("oikade_rule_active isn't 0 for a budget hold")
+	}
+}
+
+func TestCompileBudgetHold(t *testing.T) {
+	for spec, want := range map[string]string{
+		`
+  while: {budget: {minutes: {expression: "120"}}, when: "true"}
+  hold: {device: pump, capability: switch.on, value: true}`: "budget must be the only field",
+		`
+  while: {budget: {minutes: {expression: "120"}}}
+  hold: {room: cellar, capability: switch.on, value: true}`: "a budget holds a device",
+	} {
+		if _, err := Compile(holdRule(t, "x", spec)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Compile(%s) = %v, want %q", spec, err, want)
+		}
+	}
+}
