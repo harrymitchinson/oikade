@@ -95,20 +95,12 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 	if (len(a.Spec.Triggers) == 0) == (a.Spec.While == nil) {
 		errs = append(errs, errors.New("exactly one of triggers or while is required"))
 	}
-	// A plan left in status by a budget this Rule no longer has is cleared when it loads.
-	c.staleBudget = (a.Status.Today != nil || meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionPlanned) != nil) &&
-		(a.Spec.While == nil || a.Spec.While.Budget == nil)
 	if a.Spec.While != nil {
 		h, err := compileHold(a.Spec.While, a.Spec.Hold, a.Spec.Priority)
 		if err != nil {
 			errs = append(errs, err)
 		}
 		c.hold = h
-		if h != nil && a.Spec.While.Budget != nil {
-			// The budget compiles against its target's control entry when it plans.
-			h.budget = &budgetHold{spec: *a.Spec.DeepCopy(), today: a.Status.Today.DeepCopy(),
-				planned: meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionPlanned).DeepCopy()}
-		}
 		if a.Spec.Condition != "" {
 			errs = append(errs, errors.New("condition applies to triggers; a hold uses while.when"))
 		}
@@ -171,7 +163,20 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
+	keepBudget(a, c)
 	return c, nil
+}
+
+// keepBudget keeps a budget hold's spec, to compile against its target's control entry when it
+// plans, and the plan its status holds. A Rule with no budget but a plan in its status, left by
+// one it no longer has, is marked to clear it.
+func keepBudget(a *homev1alpha1.Rule, c *Compiled) {
+	planned := meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionPlanned)
+	if c.hold == nil || a.Spec.While.Budget == nil {
+		c.staleBudget = a.Status.Today != nil || planned != nil
+		return
+	}
+	c.hold.budget = &budgetHold{spec: *a.Spec.DeepCopy(), today: a.Status.Today.DeepCopy(), planned: planned.DeepCopy()}
 }
 
 // compileActions validates a moment's actions.
