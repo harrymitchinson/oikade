@@ -616,13 +616,11 @@ func TestBudgetHoldStaysInactive(t *testing.T) {
 }
 
 func TestCompileBudgetHold(t *testing.T) {
+	// The rest of a budget is checked against its target's control entry, by schedule.Compile.
 	for spec, want := range map[string]string{
 		`
   while: {budget: {minutes: {expression: "120"}}, when: "true"}
   hold: {device: pump, capability: switch.on, value: true}`: "budget must be the only field",
-		`
-  while: {budget: {minutes: {expression: "120"}}}
-  hold: {room: cellar, capability: switch.on, value: true}`: "a budget holds a device",
 	} {
 		if _, err := Compile(holdRule(t, "x", spec)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Compile(%s) = %v, want %q", spec, err, want)

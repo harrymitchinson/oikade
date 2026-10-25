@@ -321,7 +321,7 @@ type BudgetMinutes struct {
 	// +optional
 	Bands *MinutesBands `json:"bands,omitempty"`
 
-	// expression is CEL over devices, now and tz, returning the minutes as an int.
+	// expression is CEL over devices, now and tz, returning the minutes. A fraction is rounded.
 	// +kubebuilder:validation:MaxLength=4096
 	// +optional
 	Expression string `json:"expression,omitempty"`

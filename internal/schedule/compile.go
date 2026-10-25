@@ -3,6 +3,7 @@ package schedule
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"time"
@@ -147,8 +148,10 @@ func (out *Budget) compileMinutes(m *homev1alpha1.BudgetMinutes) []error {
 		if iss.Err() != nil {
 			return []error{fmt.Errorf("budget.minutes.expression: %w", iss.Err())}
 		}
-		if ast.OutputType() != cel.IntType && ast.OutputType() != cel.DynType {
-			return []error{fmt.Errorf("budget.minutes.expression must evaluate to an int, not %s", ast.OutputType())}
+		switch ast.OutputType() {
+		case cel.IntType, cel.UintType, cel.DoubleType, cel.DynType:
+		default:
+			return []error{fmt.Errorf("budget.minutes.expression must evaluate to a number, not %s", ast.OutputType())}
 		}
 		prg, err := minutesEnv.Program(ast)
 		if err != nil {
@@ -218,11 +221,18 @@ func (out *Budget) Input(year int, month time.Month, day int, now time.Time, loc
 			if err != nil {
 				return 0, err
 			}
-			n, ok := v.Value().(int64)
-			if !ok {
-				return 0, fmt.Errorf("evaluated to %v, not an int", v.Value())
+			// A dyn expression, such as one reading a device value, may give any number.
+			switch n := v.Value().(type) {
+			case int64:
+				return int(n), nil
+			case uint64:
+				return int(min(n, math.MaxInt32)), nil
+			case float64:
+				if !math.IsNaN(n) && !math.IsInf(n, 0) {
+					return int(math.Round(n)), nil
+				}
 			}
-			return int(n), nil
+			return 0, fmt.Errorf("evaluated to %v, not a number of minutes", v.Value())
 		}}
 	}
 	return in

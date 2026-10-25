@@ -436,7 +436,7 @@ spec:
                             type: object
                           expression:
                             description: expression is CEL over devices, now and tz,
-                              returning the minutes as an int.
+                              returning the minutes. A fraction is rounded.
                             maxLength: 4096
                             type: string
                         type: object

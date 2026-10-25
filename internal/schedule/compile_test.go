@@ -105,6 +105,23 @@ hold: {device: cellar-dehumidifier, capability: switch.on, value: true}
 	if n, err := in.Minutes.Expression(); n != 240 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 240", n, err)
 	}
+	in = b.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{
+		"cellar-humidity": {"sensor.relative-humidity": 50.0},
+	}, nil)
+	if n, err := in.Minutes.Expression(); n != 90 || err != nil {
+		t.Errorf("Expression() = %d, %v; want 90", n, err)
+	}
+	dyn, err := Compile(budgetRule(t, `
+while: {budget: {minutes: {expression: 'devices["boiler"]["sensor.temperature"] * 2.0'}}}
+hold: {device: d, capability: switch.on, value: true}
+`), &homev1alpha1.CapabilityControl{Capability: "switch.on"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dynIn := dyn.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{"boiler": {"sensor.temperature": 60.4}}, nil)
+	if n, err := dynIn.Minutes.Expression(); n != 121 || err != nil {
+		t.Errorf("Expression() of a double = %d, %v; want 121", n, err)
+	}
 	if got := in.Slots[0].Start; !got.Equal(time.Date(2026, time.July, 4, 6, 30, 0, 0, paris)) {
 		t.Errorf("first slot starts %s, want 06:30", got)
 	}
@@ -144,8 +161,8 @@ while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.tempera
 		"a bool input": {`
 while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.contact-open}, missingMinutes: 0, ranges: [{minutes: 2}]}}}}` + hold,
 			nil, `"sensor.contact-open" isn't a number capability`},
-		"an expression that isn't an int": {`
-while: {budget: {minutes: {expression: '"two hours"'}}}` + hold, nil, "must evaluate to an int"},
+		"an expression that isn't a number": {`
+while: {budget: {minutes: {expression: '"two hours"'}}}` + hold, nil, "must evaluate to a number"},
 		"a sun window": {`
 while: {budget: {minutes: {expression: "60"}, prefer: [{window: {start: {sun: Sunset}, end: "23:00"}, score: 1}]}}` + hold,
 			nil, `budget.prefer[0].window: a budget window's start and end are "HH:MM", not sun times`},

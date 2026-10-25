@@ -114,9 +114,6 @@ func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alp
 		if w.Window != nil || w.When != "" || w.OnDelay != nil || w.OffDelay != nil || w.Latch {
 			errs = append(errs, errors.New("while: budget must be the only field"))
 		}
-		if h.Device == "" {
-			errs = append(errs, errors.New("hold: a budget holds a device, not a room"))
-		}
 	case w.Window == nil && w.When == "":
 		errs = append(errs, errors.New("while: a window, when or budget is required"))
 	}
