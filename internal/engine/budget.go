@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
@@ -29,11 +31,12 @@ const (
 	ReasonEvaluationFailed = "EvaluationFailed"
 )
 
-// budgetHold is a compiled while.budget: the Rule to compile against its target's control entry,
-// which only the runtime has, and the plan its status held when it loaded.
+// budgetHold is a compiled while.budget: the spec to compile against its target's control entry,
+// which only the runtime has, and the plan and Planned condition its status held when it loaded.
 type budgetHold struct {
-	rule  *homev1alpha1.Rule
-	today *homev1alpha1.BudgetDay
+	spec    homev1alpha1.RuleSpec
+	today   *homev1alpha1.BudgetDay
+	planned *metav1.Condition
 }
 
 // BudgetReport is what the engine reports about a budget hold: status.today and the Planned
@@ -98,6 +101,10 @@ func (m *BudgetMetrics) delete(key types.NamespacedName) {
 // budgetPlan is a budget hold's plan for one planning day, and its progress. Use it with e.mu held.
 type budgetPlan struct {
 	date string
+	// device and capability are the target the plan was made for.
+	device, capability string
+	// failure is why the day's budget couldn't be evaluated. Empty when it could.
+	failure string
 	// end is when the planning day ends.
 	end time.Time
 	day schedule.Day
@@ -117,6 +124,10 @@ type budgetState struct {
 	// reported is the last BudgetReport, and checkpointed when its run minutes were reported.
 	reported     *BudgetReport
 	checkpointed time.Time
+	// compiled is the budget compiled for the Rule's compiledGeneration against compiledControl.
+	compiled           *schedule.Budget
+	compiledGeneration int64
+	compiledControl    homev1alpha1.CapabilityControl
 }
 
 // budgetCondition plans the day if it hasn't been, credits the target's run, and reports
@@ -130,28 +141,25 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 	bs := hs.budget
 	dev := types.NamespacedName{Namespace: key.Namespace, Name: h.device}
 	snap, _ := e.Store.Get(dev)
-	i := slices.IndexFunc(snap.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == h.capability })
-	if i < 0 {
-		e.reportBudget(key, s, now, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonNoControl,
-			Message: "Device " + h.device + " has no control entry for " + h.capability + ", which a budget needs"})
-		return false, time.Time{}
+	// A driver that never reports availability counts as available.
+	targetOn := snap.Discovered && (snap.Online == nil || *snap.Online) && capability.Float(snap.Values[h.capability]) != 0
+	p := bs.plan
+	if p != nil {
+		// Credited even when the budget can't plan, so the run isn't lost meanwhile.
+		p.credit(now, targetOn, e.Budget, key)
 	}
-	b, err := schedule.Compile(h.budget.rule, &snap.Control[i])
-	if err != nil {
-		e.reportBudget(key, s, now, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonInvalidBudget, Message: err.Error()})
+	b, report := e.compileBudget(s, snap)
+	if b == nil {
+		e.reportBudget(key, s, now, report)
 		return false, time.Time{}
 	}
 
-	// A driver that never reports availability counts as available.
-	targetOn := snap.Discovered && (snap.Online == nil || *snap.Online) && capability.Float(snap.Values[h.capability]) != 0
 	y, m, d, end := planningDay(now, e.Location, b.PlanningMinute)
 	date := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
-	p := bs.plan
-	if p != nil {
-		p.credit(now, targetOn, e.Budget, key)
-	}
-	if p == nil || p.date != date {
-		p = e.restorePlan(h.budget.today, date, end, now)
+	// Editing the budget waits for the next planning day, but a new target is planned for at once.
+	if p == nil || p.date != date || p.device != h.device || p.capability != h.capability {
+		prev := p
+		p = e.restorePlan(h.budget, date, end, now)
 		if p == nil {
 			read := func(device, name string) *schedule.Reading {
 				in, ok := e.Store.Get(types.NamespacedName{Namespace: key.Namespace, Name: device})
@@ -168,10 +176,19 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 			for _, err := range p.day.Errors {
 				e.Log.Info("Budget planned with an error", "rule", key, "error", err.Error())
 			}
+			if len(p.day.Errors) > 0 {
+				p.failure = p.day.Errors[0].Error()
+			}
 			e.Log.Info("Planned budget", "rule", key, "date", date, "source", p.day.TargetSource,
 				"target", p.day.TargetMinutes, "scheduled", p.day.ScheduledMinutes, "blocks", len(p.day.Blocks))
 		}
+		p.device, p.capability = h.device, h.capability
 		p.credited, p.on = now, targetOn
+		if prev != nil && prev.device == h.device && prev.capability == h.capability && !now.Before(prev.end) {
+			// The run since the last day ended belongs to this one.
+			p.credited, p.on = prev.end, prev.on
+			p.credit(now, targetOn, e.Budget, key)
+		}
 		bs.plan = p
 	}
 
@@ -193,22 +210,52 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 		e.Budget.Scheduled.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.ScheduledMinutes))
 		e.Budget.Desired.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(on)))
 	}
-	report := BudgetReport{Today: p.status(), Planned: metav1.ConditionTrue, Reason: ReasonPlanned,
+	report = BudgetReport{Today: p.status(), Planned: metav1.ConditionTrue, Reason: ReasonPlanned,
 		Message: planMessage(p.day)}
-	if len(p.day.Errors) > 0 {
-		report.Planned, report.Reason, report.Message = metav1.ConditionFalse, ReasonEvaluationFailed, p.day.Errors[0].Error()
+	if p.failure != "" {
+		report.Planned, report.Reason, report.Message = metav1.ConditionFalse, ReasonEvaluationFailed, p.failure
 	}
 	e.reportBudget(key, s, now, report)
 	return on, next
 }
 
+// compileBudget compiles the budget against its target's control entry, reusing the last one
+// while neither changes. When it can't, it returns nil and the report to make. Call with e.mu
+// held.
+func (e *Engine) compileBudget(s *state, snap hub.Snapshot) (*schedule.Budget, BudgetReport) {
+	h, bs := s.c.hold, s.hold.budget
+	i := slices.IndexFunc(snap.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == h.capability })
+	if i < 0 {
+		bs.compiled = nil
+		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonNoControl,
+			Message: "Device " + h.device + " has no control entry for " + h.capability + ", which a budget needs"}
+	}
+	control := snap.Control[i]
+	if bs.compiled != nil && bs.compiledGeneration == s.c.Generation && equality.Semantic.DeepEqual(bs.compiledControl, control) {
+		return bs.compiled, BudgetReport{}
+	}
+	b, err := schedule.Compile(&homev1alpha1.Rule{Spec: h.budget.spec}, &control)
+	if err != nil {
+		bs.compiled = nil
+		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonInvalidBudget, Message: err.Error()}
+	}
+	bs.compiled, bs.compiledGeneration, bs.compiledControl = b, s.c.Generation, *control.DeepCopy()
+	return b, BudgetReport{}
+}
+
 // restorePlan returns the plan status.today held when the Rule loaded, if it's for this planning
-// day. The block in progress counts as started already. It returns nil otherwise.
-func (e *Engine) restorePlan(today *homev1alpha1.BudgetDay, date string, end, now time.Time) *budgetPlan {
+// day. The block in progress counts as started already. It returns nil otherwise. Run minutes not
+// yet checkpointed, at most checkpointEvery of them, are lost.
+func (e *Engine) restorePlan(bh *budgetHold, date string, end, now time.Time) *budgetPlan {
+	today := bh.today
 	if today == nil || today.Date != date {
 		return nil
 	}
 	p := &budgetPlan{date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute, starts: int(today.Starts)}
+	// The Planned condition was written with status.today, so a failed day stays failed.
+	if c := bh.planned; c != nil && c.Reason == ReasonEvaluationFailed {
+		p.failure = c.Message
+	}
 	p.day = schedule.Day{
 		TargetSource:     schedule.TargetSource(today.TargetSource),
 		TargetMinutes:    int(today.TargetMinutes),

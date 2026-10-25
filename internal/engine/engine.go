@@ -231,7 +231,7 @@ func (e *Engine) Load(c *Compiled) {
 	if old != nil && old.c.hold != nil && c.hold == nil && e.Active != nil {
 		e.Active.DeleteLabelValues(c.Key.Namespace, c.Key.Name)
 	}
-	if old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
+	if c.staleBudget || old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
 		e.clearBudget(c.Key, c.Generation)
 		if s.hold != nil {
 			s.hold.budget = nil

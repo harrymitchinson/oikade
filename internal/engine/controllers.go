@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -252,6 +253,14 @@ func (l *latest[T]) record(key types.NamespacedName, v T, obj client.Object) {
 	}
 }
 
+// forget drops the value kept for an object that's gone. A newer report for one of the same
+// name, created again, records it again.
+func (l *latest[T]) forget(key types.NamespacedName) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.values, key)
+}
+
 func (l *latest[T]) get(key types.NamespacedName) (T, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -356,6 +365,9 @@ func (b *Budgets) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 	}
 	var a homev1alpha1.Rule
 	if err := b.Get(ctx, req.NamespacedName, &a); err != nil {
+		if apierrors.IsNotFound(err) {
+			b.latest.forget(req.NamespacedName)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	orig := a.DeepCopy()
@@ -364,7 +376,8 @@ func (b *Budgets) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		meta.RemoveStatusCondition(&a.Status.Conditions, homev1alpha1.ConditionPlanned)
 	} else {
 		if r.Today != nil {
-			a.Status.Today = r.Today
+			// A copy, since decoding the patch's response writes into it.
+			a.Status.Today = r.Today.DeepCopy()
 		}
 		meta.SetStatusCondition(&a.Status.Conditions, metav1.Condition{
 			Type: homev1alpha1.ConditionPlanned, Status: r.Planned, Reason: r.Reason, Message: r.Message,

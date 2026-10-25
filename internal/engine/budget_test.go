@@ -274,3 +274,71 @@ func TestPlanningDay(t *testing.T) {
 		}
 	}
 }
+
+func TestAStalePlanIsClearedOnLoad(t *testing.T) {
+	// The budget was removed while the runtime was down: its plan is still in status.
+	rule := holdRule(t, "pump-daily", `
+  while: {window: {start: "22:00", end: "06:00"}}
+  hold: {device: pump, capability: switch.on, value: true}
+`)
+	rule.Status.Today = &homev1alpha1.BudgetDay{Date: "2026-10-21", TargetMinutes: 120}
+	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, rule)
+	if b := r.budget("pump-daily"); !b.Cleared {
+		t.Errorf("report %+v, want cleared", b)
+	}
+}
+
+func TestAFailedDayStaysFailedAfterARestart(t *testing.T) {
+	rule := holdRule(t, "pump-daily", `
+  while: {budget: {minutes: {expression: 'devices["water-temp"]["sensor.temperature"] > 10.0 ? 60 : 30'}}}
+  hold: {device: pump, capability: switch.on, value: true}
+`)
+	start := func(today *homev1alpha1.BudgetDay, planned *metav1.Condition) *rig {
+		r := rule.DeepCopy()
+		r.Status.Today = today
+		if planned != nil {
+			r.Status.Conditions = []metav1.Condition{*planned}
+		}
+		return startRigWith(t, rigOptions{
+			now:     local("2026-10-21 08:00 BST"),
+			control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
+		}, r)
+	}
+	// water-temp has never reported, so the expression fails.
+	r := start(nil, nil)
+	b := r.budget("pump-daily")
+	if b.Planned != metav1.ConditionFalse || b.Reason != ReasonEvaluationFailed {
+		t.Fatalf("report %+v, want EvaluationFailed", b)
+	}
+	r.stop()
+	r = start(b.Today, &metav1.Condition{Type: homev1alpha1.ConditionPlanned, Status: b.Planned, Reason: b.Reason, Message: b.Message})
+	if got := r.budget("pump-daily"); got.Reason != ReasonEvaluationFailed || got.Message != b.Message {
+		t.Errorf("after a restart, report %+v, want the same failure", got)
+	}
+}
+
+func TestANewTargetIsPlannedForAtOnce(t *testing.T) {
+	r := startRigWith(t, rigOptions{
+		now: local("2026-10-21 08:00 BST"),
+		control: map[string][]homev1alpha1.CapabilityControl{
+			"pump": {pumpEntry()}, "towel-rail": {pumpEntry()},
+		},
+	}, holdRule(t, "pump-daily", pumpBudget))
+	r.e.mu.Lock()
+	planned := r.e.rules[types.NamespacedName{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
+	r.e.mu.Unlock()
+	edited := holdRule(t, "pump-daily", strings.Replace(pumpBudget, "device: pump,", "device: towel-rail,", 1))
+	edited.Generation = 2
+	c, err := Compile(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.e.Load(c)
+	r.settle()
+	r.e.mu.Lock()
+	p := r.e.rules[types.NamespacedName{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
+	r.e.mu.Unlock()
+	if p == planned || p.device != "towel-rail" {
+		t.Errorf("plan for %s, want a new one for towel-rail", p.device)
+	}
+}

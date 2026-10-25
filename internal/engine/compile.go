@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/cel-go/cel"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -49,6 +50,8 @@ type Compiled struct {
 	actions []action
 	// hold is nil for a moment.
 	hold *hold
+	// staleBudget is set when the Rule's status has a budget's plan, but it has no budget.
+	staleBudget bool
 }
 
 type action struct {
@@ -92,6 +95,9 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 	if (len(a.Spec.Triggers) == 0) == (a.Spec.While == nil) {
 		errs = append(errs, errors.New("exactly one of triggers or while is required"))
 	}
+	// A plan left in status by a budget this Rule no longer has is cleared when it loads.
+	c.staleBudget = (a.Status.Today != nil || meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionPlanned) != nil) &&
+		(a.Spec.While == nil || a.Spec.While.Budget == nil)
 	if a.Spec.While != nil {
 		h, err := compileHold(a.Spec.While, a.Spec.Hold, a.Spec.Priority)
 		if err != nil {
@@ -100,7 +106,8 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 		c.hold = h
 		if h != nil && a.Spec.While.Budget != nil {
 			// The budget compiles against its target's control entry when it plans.
-			h.budget = &budgetHold{rule: a.DeepCopy(), today: a.Status.Today.DeepCopy()}
+			h.budget = &budgetHold{spec: *a.Spec.DeepCopy(), today: a.Status.Today.DeepCopy(),
+				planned: meta.FindStatusCondition(a.Status.Conditions, homev1alpha1.ConditionPlanned).DeepCopy()}
 		}
 		if a.Spec.Condition != "" {
 			errs = append(errs, errors.New("condition applies to triggers; a hold uses while.when"))
