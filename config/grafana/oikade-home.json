@@ -1098,6 +1098,145 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Budget minutes",
+      "description": "Each budget hold's minutes for the current planning day, how many the plan places, and how long its device has been on and available so far.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 67,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max by (namespace, rule) (oikade_rule_budget_target_minutes{namespace=~\"$namespace\"})",
+          "legendFormat": "{{rule}} target"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "max by (namespace, rule) (oikade_rule_budget_scheduled_minutes{namespace=~\"$namespace\"})",
+          "legendFormat": "{{rule}} scheduled"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "max by (namespace, rule) (oikade_rule_budget_today_run_minutes{namespace=~\"$namespace\"})",
+          "legendFormat": "{{rule}} run"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": true,
+            "drawStyle": "bars"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "type": "state-timeline",
+      "title": "Budgets wanted and running",
+      "description": "Whether each budget's plan wants its device on, and whether its device has been on and available in the last 5 minutes, as its run is credited. Running lags the device by up to 5 minutes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 67,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "max by (namespace, rule) (oikade_rule_budget_desired{namespace=~\"$namespace\"})",
+          "legendFormat": "{{rule}} wanted"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "max by (namespace, rule) (rate(oikade_rule_budget_run_minutes_total{namespace=~\"$namespace\"}[5m]) > bool 0)",
+          "legendFormat": "{{rule}} running"
+        }
+      ],
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Inactive",
+                  "color": "transparent"
+                },
+                "1": {
+                  "text": "Active",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      }
     }
   ]
 }
