@@ -68,8 +68,13 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # kubectl kuberc is disabled by default for test isolation; enable with:
 # - KUBECTL_KUBERC=true
 # make test-e2e keeps the cluster, so a rerun only rebuilds and redeploys the manager;
-# make cleanup-test-e2e deletes it.
+# make cleanup-test-e2e deletes it (do that after upgrading Kind, too).
 KIND_CLUSTER ?= oikade-test-e2e
+
+# The e2e targets use their own kubeconfig unless KUBECONFIG is set, so the kept cluster
+# never becomes the current context of ~/.kube/config.
+E2E_KUBECONFIG ?= $(LOCALBIN)/$(KIND_CLUSTER).kubeconfig
+setup-test-e2e test-e2e cleanup-test-e2e: export KUBECONFIG ?= $(E2E_KUBECONFIG)
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist, and point kubectl at it
@@ -77,14 +82,14 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist, and
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@if $(KIND) get clusters | grep -qx "$(KIND_CLUSTER)"; then \
+	@if $(KIND) get clusters | grep -qxF "$(KIND_CLUSTER)"; then \
 		echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation."; \
 	else \
 		echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-		$(KIND) create cluster --name $(KIND_CLUSTER) || exit 1; \
+		$(KIND) create cluster --name $(KIND_CLUSTER); \
 	fi
-	@# kind create switches the kube context, but a reused cluster wouldn't: the suite
-	@# runs against the current context, which mustn't be some other cluster.
+	@# kind create switches KUBECONFIG's context, but a reused cluster wouldn't: the
+	@# suite runs against the current context, which mustn't be some other cluster.
 	@$(KIND) export kubeconfig --name $(KIND_CLUSTER)
 
 # The manager image the e2e suite deploys. make test-e2e builds it with E2E_IMAGE_BUILD

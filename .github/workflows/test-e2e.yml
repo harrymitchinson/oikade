@@ -71,7 +71,10 @@ jobs:
         run: |
           go mod tidy
           make test-e2e E2E_IMAGE_BUILD=docker-build-prebuilt
-          make cleanup-test-e2e
+
+      - name: Delete the Kind cluster
+        if: always()
+        run: make cleanup-test-e2e
 
   # e2e builds the manager outside Docker, so this checks that the root Dockerfile,
   # which releases build, still builds. It runs beside e2e, not before it.
