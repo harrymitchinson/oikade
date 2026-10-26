@@ -56,8 +56,9 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 ## 5. Stop
 
 1. **Merge what the user approved:** for each step waiting for review, bottom first, run `hack/plan merge OIK-N <PR>`. It merges a step whose head the user's Approve covers, restacks the rest, and refuses the others. Stop at the first refusal.
-2. **Release the claim:** `hack/plan release OIK-N`. Your PRs and step branches stay, and the next session continues from them. Don't hold a claim you aren't building under.
-3. **Reply** with the PR links in stack order, what's verified and what isn't, and anything that needs the user. Don't claim another feature unless the user asked you to keep going, as with a `/loop`.
+2. **Delete your e2e cluster** if you made one: `make cleanup-test-e2e` with the same `KIND_CLUSTER` and `KUBECONFIG`.
+3. **Release the claim:** `hack/plan release OIK-N`. Your PRs and step branches stay, and the next session continues from them. Don't hold a claim you aren't building under.
+4. **Reply** with the PR links in stack order, what's verified and what isn't, and anything that needs the user. Don't claim another feature unless the user asked you to keep going, as with a `/loop`.
 
 - **If the user asks you to address comments on a step's PR,** you don't need a claim, because the PR's branch belongs to that step. If `hack/plan claims` shows another session holding the feature, ask the user first, so you don't rewrite a branch it's building on. Check out the branch in your own worktree (`git worktree add <path> origin/work/OIK-S`, then `git switch -c work/OIK-S`), fix it, and `git push`. If it's low in a stack, rebase each step above it onto the one below (`git rebase --onto <new tip> <old tip>`) and push each with `--force-with-lease`.
 - **Before `hack/plan step`,** push any commits you've added to the current step since its PR opened. The next step builds on the pushed branch, and `step` refuses while it's behind.

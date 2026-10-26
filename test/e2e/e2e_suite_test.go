@@ -50,7 +50,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
 
 	configureKubectlKubeRC()
-	waitForLastRunsNamespaces()
+	resetCluster()
 })
 
 // envOr returns the environment variable key, or def if it's unset or empty.
@@ -76,12 +76,15 @@ func configureKubectlKubeRC() {
 	}
 }
 
-// waitForLastRunsNamespaces waits until the namespaces a previous run deleted on a
-// reused cluster are gone, so this run can create them again.
-func waitForLastRunsNamespaces() {
-	By("waiting for the last run's namespaces to be deleted")
-	cmd := exec.Command("kubectl", "wait", "--for=delete", "--timeout=3m",
-		"ns/"+namespace, "ns/"+homeNamespace, "ns/"+readmeNamespace)
+// resetCluster removes whatever a previous run left on a reused cluster, including a
+// run that never reached its AfterAll, so this run starts from a clean cluster.
+func resetCluster() {
+	By("removing what a previous run left on the cluster")
+	_, _ = utils.Run(exec.Command("make", "undeploy", "uninstall", "ignore-not-found=true"))
+	_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName,
+		"--ignore-not-found"))
+	cmd := exec.Command("kubectl", "delete", "ns", namespace, homeNamespace, readmeNamespace,
+		"--ignore-not-found", "--wait", "--timeout=3m")
 	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "The last run's namespaces are still there")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to delete the previous run's namespaces")
 }
