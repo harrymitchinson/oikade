@@ -58,6 +58,7 @@ Always use `kubebuilder create api` and `kubebuilder create webhook` to scaffold
 ### E2E Tests Require an Isolated Kind Cluster
 The e2e tests are designed to validate the solution in an isolated environment (similar to GitHub Actions CI).
 Ensure you run them against a dedicated [Kind](https://kind.sigs.k8s.io/) cluster (not your “real” dev/prod cluster).
+`make test-e2e` keeps its Kind cluster (`KIND_CLUSTER`) and reuses it on the next run; `make cleanup-test-e2e` deletes it.
 
 ## After Making Changes
 
