@@ -619,15 +619,16 @@ func homeScenario() {
 		})
 
 		// This needs the plugin from the test above. Kind can't fake the clock, so the timetable fires
-		// at the first minute at least 30s from now, and "runs a timetable on the days it names"
-		// checks it fired after the tests in between have run.
+		// at the first minute at least 45s from now, and "runs a timetable on the days it names"
+		// checks it fired after the tests in between have run. It listens from before the Rules
+		// exist: nothing else writes to the downstairs relay, so the one write it reads is theirs.
 		It("schedules a timetable on the days it names", func() {
 			loc, err := time.LoadLocation(runtimeTimezone)
 			Expect(err).NotTo(HaveOccurred())
 			publish(pluginRoot+"/devices", timetableDevices, true)
 			publish(pluginRoot+"/downstairs-relay/availability", "online", true)
 			publish(pluginRoot+"/downstairs-relay/state", `{"switch.on":true}`, true)
-			timetableAt = time.Now().In(loc).Add(90 * time.Second).Truncate(time.Minute)
+			timetableAt = time.Now().In(loc).Add(105 * time.Second).Truncate(time.Minute)
 			timetableWrites = subscribeFor(pluginRoot+"/downstairs-relay/set", 1, time.Until(timetableAt)+time.Minute)
 			apply(timetableManifests(timetableAt))
 			for _, rule := range []string{"downstairs-off", "downstairs-on-other-days"} {
@@ -642,7 +643,7 @@ func homeScenario() {
 				To(BeTemporally("==", tomorrow))
 		})
 
-		// This needs the plugin from the test above.
+		// This needs the plugin from the tests above, and the fan not yet announced on the devices topic.
 		It("drives a plug from a window hold", func() {
 			apply(controlManifests)
 			Eventually(jsonpath("rule", "fan-all-day", `{.status.conditions[?(@.type=="Ready")].status}`)).
@@ -735,9 +736,7 @@ func homeScenario() {
 
 		// This checks the timetable "schedules a timetable on the days it names" applied.
 		It("runs a timetable on the days it names", func() {
-			loc, err := time.LoadLocation(runtimeTimezone)
-			Expect(err).NotTo(HaveOccurred())
-			at := timetableAt
+			at, loc := timetableAt, timetableAt.Location()
 			By("waiting for " + at.Format("15:04") + " in " + runtimeTimezone)
 			Expect(timetableWrites()).To(ContainSubstring(pluginRoot + `/downstairs-relay/set {"switch.on":false}`))
 			Eventually(func() time.Time {
