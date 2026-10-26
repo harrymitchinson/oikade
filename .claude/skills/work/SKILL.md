@@ -35,7 +35,8 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 
   ```sh
   export KIND_CLUSTER=oikade-e2e-N KUBECONFIG="$TMPDIR/oikade-e2e-N.kubeconfig"
-  make test-e2e && make cleanup-test-e2e
+  make test-e2e         # keeps the cluster, so a rerun only rebuilds and redeploys
+  make cleanup-test-e2e  # when you're done with the step
   ```
 
 - **Manual acceptance** (`(manual, in the Manual testing doc)`, such as real HomeKit pairing and devices) can't be checked here. Leave it for the user, check that the Linear document "Manual testing" lists it, and say so in the PR.
