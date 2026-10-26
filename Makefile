@@ -85,9 +85,22 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
 	esac
 
+# The manager image the e2e suite deploys. make test-e2e builds it with E2E_IMAGE_BUILD
+# while Kind creates the cluster. CI sets E2E_IMAGE_BUILD=docker-build-prebuilt so the
+# runner's warm Go cache applies.
+E2E_IMG ?= example.com/oikade:v0.0.1
+E2E_VERSION ?= v0.0.0-e2e
+E2E_IMAGE_BUILD ?= docker-build
+
+.PHONY: e2e-image
+e2e-image: ## Build the manager image for the e2e tests.
+	$(MAKE) $(E2E_IMAGE_BUILD) IMG=$(E2E_IMG) VERSION=$(E2E_VERSION)
+
 .PHONY: test-e2e
-test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+	$(MAKE) -j2 setup-test-e2e e2e-image
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) E2E_IMG=$(E2E_IMG) E2E_VERSION=$(E2E_VERSION) E2E_IMAGE_BUILT=true \
+		go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 	$(MAKE) cleanup-test-e2e
 
 .PHONY: cleanup-test-e2e
@@ -142,6 +155,19 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) -t ${IMG} .
+
+# docker-build-prebuilt builds the manager on this machine, for the Docker server's
+# architecture, so the local Go cache applies. It then builds the root Dockerfile with
+# that binary in place of its builder stage, so the image is otherwise the same.
+# Only e2e uses it: releases build inside Docker with docker-buildx.
+PREBUILT_DIR ?= $(LOCALBIN)/prebuilt
+.PHONY: docker-build-prebuilt
+docker-build-prebuilt: ## Build docker image with a manager binary built outside Docker.
+	mkdir -p "$(PREBUILT_DIR)/workspace"
+	arch=$$($(CONTAINER_TOOL) version -f '{{.Server.Arch}}') && \
+	CGO_ENABLED=0 GOOS=linux GOARCH="$$arch" \
+		go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/workspace/manager" ./cmd
+	$(CONTAINER_TOOL) build --build-context builder="$(PREBUILT_DIR)" -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
