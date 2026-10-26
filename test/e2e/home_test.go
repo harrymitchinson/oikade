@@ -286,6 +286,12 @@ const pluginDevices = `{"devices":[` +
 	`{"id":"dryer-relay","found":true,"capabilities":["switch.on"]},` +
 	`{"id":"downstairs-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
 
+// timetableDevices is the plugin's devices topic with the porch and downstairs relays found. The
+// timetable needs the downstairs relay before "drives a plug from a window hold" announces the fan.
+const timetableDevices = `{"devices":[` +
+	`{"id":"porch-relay","found":true,"capabilities":["light.on"]},` +
+	`{"id":"downstairs-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
+
 // readmeManifests returns every YAML block in the README's Rules section that is a complete
 // manifest, as one stream.
 func readmeManifests() string {
@@ -308,11 +314,17 @@ func readmeManifests() string {
 }
 
 // subscribe starts listening for count messages on topic, and returns a func that waits for them
-// and returns them, one "topic payload" per line.
+// and returns them, one "topic payload" per line. It gives up after 90s.
 func subscribe(topic string, count int) func() string {
+	return subscribeFor(topic, count, 90*time.Second)
+}
+
+// subscribeFor is subscribe, giving up after timeout.
+func subscribeFor(topic string, count int, timeout time.Duration) func() string {
 	var out bytes.Buffer
 	sub := exec.Command("kubectl", "-n", homeNamespace, "exec", mqttClient, "--",
-		"mosquitto_sub", "-h", mqttHost, "-t", topic, "-v", "-C", fmt.Sprint(count), "-W", "90")
+		"mosquitto_sub", "-h", mqttHost, "-t", topic, "-v", "-C", fmt.Sprint(count),
+		"-W", fmt.Sprint(int(timeout.Seconds())))
 	sub.Stdout = &out
 	ExpectWithOffset(1, sub.Start()).To(Succeed())
 	time.Sleep(3 * time.Second) // let the subscription land before publishing
@@ -388,6 +400,10 @@ func jsonpath(kind, name, path string) func() (string, error) {
 // homeScenario runs inside the ordered Manager container, after the controller is deployed.
 func homeScenario() {
 	Context("Home", Ordered, func() {
+		// The timetable's fire time, and its write to the plug, which a later test waits for.
+		var timetableAt time.Time
+		var timetableWrites func() string
+
 		BeforeAll(func() {
 			By("creating the home namespace and an MQTT client pod")
 			_, err := utils.Run(exec.Command("kubectl", "create", "ns", homeNamespace))
@@ -602,6 +618,30 @@ func homeScenario() {
 				To(Equal("no LAN key for porch-relay"))
 		})
 
+		// This needs the plugin from the test above. Kind can't fake the clock, so the timetable fires
+		// at the first minute at least 30s from now, and "runs a timetable on the days it names"
+		// checks it fired after the tests in between have run.
+		It("schedules a timetable on the days it names", func() {
+			loc, err := time.LoadLocation(runtimeTimezone)
+			Expect(err).NotTo(HaveOccurred())
+			publish(pluginRoot+"/devices", timetableDevices, true)
+			publish(pluginRoot+"/downstairs-relay/availability", "online", true)
+			publish(pluginRoot+"/downstairs-relay/state", `{"switch.on":true}`, true)
+			timetableAt = time.Now().In(loc).Add(90 * time.Second).Truncate(time.Minute)
+			timetableWrites = subscribeFor(pluginRoot+"/downstairs-relay/set", 1, time.Until(timetableAt)+time.Minute)
+			apply(timetableManifests(timetableAt))
+			for _, rule := range []string{"downstairs-off", "downstairs-on-other-days"} {
+				Eventually(jsonpath("rule", rule, `{.status.conditions[?(@.type=="Ready")].status}`)).Should(Equal("True"))
+				Eventually(jsonpath("rule", rule, `{.status.conditions[?(@.type=="Scheduled")].status}`)).
+					Should(Equal("True"))
+			}
+			at := timetableAt
+			Expect(statusTime(jsonpath("rule", "downstairs-off", "{.status.nextFire}")())).To(BeTemporally("==", at))
+			tomorrow := time.Date(at.Year(), at.Month(), at.Day()+1, at.Hour(), at.Minute(), 0, 0, loc)
+			Expect(statusTime(jsonpath("rule", "downstairs-on-other-days", "{.status.nextFire}")())).
+				To(BeTemporally("==", tomorrow))
+		})
+
 		// This needs the plugin from the test above.
 		It("drives a plug from a window hold", func() {
 			apply(controlManifests)
@@ -654,38 +694,6 @@ func homeScenario() {
 			Eventually(jsonpath("rule", "dryer-daily", "{.status.today.starts}")).Should(Equal("1"))
 		})
 
-		// This needs the plugin and its devices from the tests above. Kind can't fake the clock, so the
-		// timetable fires a couple of minutes from now.
-		It("runs a timetable on the days it names", func() {
-			loc, err := time.LoadLocation(runtimeTimezone)
-			Expect(err).NotTo(HaveOccurred())
-			publish(pluginRoot+"/downstairs-relay/availability", "online", true)
-			publish(pluginRoot+"/downstairs-relay/state", `{"switch.on":true}`, true)
-			at := time.Now().In(loc).Add(150 * time.Second).Truncate(time.Minute)
-			apply(timetableManifests(at))
-			for _, rule := range []string{"downstairs-off", "downstairs-on-other-days"} {
-				Eventually(jsonpath("rule", rule, `{.status.conditions[?(@.type=="Ready")].status}`)).Should(Equal("True"))
-				Eventually(jsonpath("rule", rule, `{.status.conditions[?(@.type=="Scheduled")].status}`)).
-					Should(Equal("True"))
-			}
-			Expect(statusTime(jsonpath("rule", "downstairs-off", "{.status.nextFire}")())).To(BeTemporally("==", at))
-			tomorrow := time.Date(at.Year(), at.Month(), at.Day()+1, at.Hour(), at.Minute(), 0, 0, loc)
-			Expect(statusTime(jsonpath("rule", "downstairs-on-other-days", "{.status.nextFire}")())).
-				To(BeTemporally("==", tomorrow))
-
-			By("waiting for " + at.Format("15:04") + " in " + runtimeTimezone)
-			time.Sleep(time.Until(at) - 30*time.Second) // subscribe gives up after 90s
-			wait := subscribe(pluginRoot+"/downstairs-relay/set", 1)
-			Expect(wait()).To(ContainSubstring(pluginRoot + `/downstairs-relay/set {"switch.on":false}`))
-			Eventually(func() time.Time {
-				return statusTime(jsonpath("rule", "downstairs-off", "{.status.lastFire}")())
-			}).Should(BeTemporally("==", at))
-			Expect(statusTime(jsonpath("rule", "downstairs-off", "{.status.nextFire}")())).
-				To(BeTemporally("==", time.Date(at.Year(), at.Month(), at.Day()+7, at.Hour(), at.Minute(), 0, 0, loc)))
-			Consistently(jsonpath("rule", "downstairs-on-other-days", "{.status.lastFire}"), 10*time.Second).
-				Should(BeEmpty())
-		})
-
 		// This needs the porch light from the tests above.
 		It("schedules a porch light from sunset", func() {
 			now := time.Now()
@@ -723,6 +731,22 @@ func homeScenario() {
 					g.Expect(strings.Fields(out)).NotTo(BeEmpty())
 				}).Should(Succeed(), "every %s in the README is Ready", kind)
 			}
+		})
+
+		// This checks the timetable "schedules a timetable on the days it names" applied.
+		It("runs a timetable on the days it names", func() {
+			loc, err := time.LoadLocation(runtimeTimezone)
+			Expect(err).NotTo(HaveOccurred())
+			at := timetableAt
+			By("waiting for " + at.Format("15:04") + " in " + runtimeTimezone)
+			Expect(timetableWrites()).To(ContainSubstring(pluginRoot + `/downstairs-relay/set {"switch.on":false}`))
+			Eventually(func() time.Time {
+				return statusTime(jsonpath("rule", "downstairs-off", "{.status.lastFire}")())
+			}).Should(BeTemporally("==", at))
+			Expect(statusTime(jsonpath("rule", "downstairs-off", "{.status.nextFire}")())).
+				To(BeTemporally("==", time.Date(at.Year(), at.Month(), at.Day()+7, at.Hour(), at.Minute(), 0, 0, loc)))
+			Consistently(jsonpath("rule", "downstairs-on-other-days", "{.status.lastFire}"), 10*time.Second).
+				Should(BeEmpty())
 		})
 
 		// This needs the holds, claims and time triggers from the tests above.
