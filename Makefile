@@ -156,16 +156,18 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) -t ${IMG} .
 
-# docker-build-prebuilt builds the manager on this machine, for the Docker host's
-# architecture, and copies it into the same distroless image, so the local Go cache
-# applies. Only e2e uses it: releases build inside Docker with docker-buildx.
+# docker-build-prebuilt builds the manager on this machine, for the Docker server's
+# architecture, so the local Go cache applies. It then builds the root Dockerfile with
+# that binary in place of its builder stage, so the image is otherwise the same.
+# Only e2e uses it: releases build inside Docker with docker-buildx.
 PREBUILT_DIR ?= $(LOCALBIN)/prebuilt
 .PHONY: docker-build-prebuilt
 docker-build-prebuilt: ## Build docker image with a manager binary built outside Docker.
-	mkdir -p "$(PREBUILT_DIR)"
-	CGO_ENABLED=0 GOOS=linux GOARCH=$$($(CONTAINER_TOOL) version -f '{{.Server.Arch}}') \
-		go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/manager" ./cmd
-	$(CONTAINER_TOOL) build -f test/e2e/manager.Dockerfile -t ${IMG} "$(PREBUILT_DIR)"
+	mkdir -p "$(PREBUILT_DIR)/workspace"
+	arch=$$($(CONTAINER_TOOL) version -f '{{.Server.Arch}}') && \
+	CGO_ENABLED=0 GOOS=linux GOARCH="$$arch" \
+		go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/workspace/manager" ./cmd
+	$(CONTAINER_TOOL) build --build-context builder="$(PREBUILT_DIR)" -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.

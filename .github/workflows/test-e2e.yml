@@ -47,17 +47,16 @@ jobs:
           # first wins and the e2e build is never saved. This job keeps its own.
           cache: false
 
-      # Keyed on the Go source too, so a run that compiled something new saves it.
+      # Keyed on go.sum only, so each dependency change saves one entry rather than
+      # every commit adding a multi-GB one. The dependencies are most of the build.
       - name: Cache Go modules and builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-e2e-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
-          restore-keys: |
-            go-e2e-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-e2e-${{ runner.os }}-
+          key: go-e2e-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-e2e-${{ runner.os }}-
 
       - name: Install the latest version of kind
         run: |
@@ -72,3 +71,19 @@ jobs:
         run: |
           go mod tidy
           make test-e2e E2E_IMAGE_BUILD=docker-build-prebuilt
+
+  # e2e builds the manager outside Docker, so this checks that the root Dockerfile,
+  # which releases build, still builds. It runs beside e2e, not before it.
+  docker-build:
+    permissions:
+      contents: read
+    name: Build the manager image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build the manager image from the Dockerfile
+        run: make docker-build IMG=oikade:ci
