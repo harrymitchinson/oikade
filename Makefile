@@ -67,23 +67,30 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # kubectl kuberc is disabled by default for test isolation; enable with:
 # - KUBECTL_KUBERC=true
-# CertManager is installed by default; skip with:
-# - CERT_MANAGER_INSTALL_SKIP=true
+# make test-e2e keeps the cluster, so a rerun only rebuilds and redeploys the manager;
+# make cleanup-test-e2e deletes it (do that after upgrading Kind, too).
 KIND_CLUSTER ?= oikade-test-e2e
 
+# The e2e targets use their own kubeconfig unless KUBECONFIG is set, so the kept cluster
+# never becomes the current context of ~/.kube/config.
+E2E_KUBECONFIG ?= $(LOCALBIN)/$(KIND_CLUSTER).kubeconfig
+setup-test-e2e test-e2e cleanup-test-e2e: export KUBECONFIG ?= $(E2E_KUBECONFIG)
+
 .PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
+setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist, and point kubectl at it
 	@command -v $(KIND) >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
-	esac
+	@if $(KIND) get clusters | grep -qxF "$(KIND_CLUSTER)"; then \
+		echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation."; \
+	else \
+		echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
+		$(KIND) create cluster --name $(KIND_CLUSTER); \
+	fi
+	@# kind create switches KUBECONFIG's context, but a reused cluster wouldn't: the
+	@# suite runs against the current context, which mustn't be some other cluster.
+	@$(KIND) export kubeconfig --name $(KIND_CLUSTER)
 
 # The manager image the e2e suite deploys. make test-e2e builds it with E2E_IMAGE_BUILD
 # while Kind creates the cluster. CI sets E2E_IMAGE_BUILD=docker-build-prebuilt so the
@@ -97,11 +104,10 @@ e2e-image: ## Build the manager image for the e2e tests.
 	$(MAKE) $(E2E_IMAGE_BUILD) IMG=$(E2E_IMG) VERSION=$(E2E_VERSION)
 
 .PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+test-e2e: manifests generate ## Run the e2e tests on a Kind cluster, which it keeps for the next run.
 	$(MAKE) -j2 setup-test-e2e e2e-image
 	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) E2E_IMG=$(E2E_IMG) E2E_VERSION=$(E2E_VERSION) E2E_IMAGE_BUILT=true \
 		go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
