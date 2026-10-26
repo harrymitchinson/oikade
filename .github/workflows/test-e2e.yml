@@ -43,6 +43,21 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version-file: go.mod
+          # setup-go's cache key is shared with every workflow, so whichever job saves
+          # first wins and the e2e build is never saved. This job keeps its own.
+          cache: false
+
+      # Keyed on the Go source too, so a run that compiled something new saves it.
+      - name: Cache Go modules and builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-e2e-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            go-e2e-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-e2e-${{ runner.os }}-
 
       - name: Install the latest version of kind
         run: |
@@ -56,4 +71,4 @@ jobs:
       - name: Running Test e2e
         run: |
           go mod tidy
-          make test-e2e
+          make test-e2e E2E_IMAGE_BUILD=docker-build-prebuilt

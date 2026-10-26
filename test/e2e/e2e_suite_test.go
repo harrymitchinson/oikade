@@ -17,9 +17,9 @@ import (
 
 var (
 	// managerImage is the manager image to be built and loaded for testing.
-	managerImage = "example.com/oikade:v0.0.1"
+	managerImage = envOr("E2E_IMG", "example.com/oikade:v0.0.1")
 	// managerVersion is baked into the manager image, and every role logs it on startup.
-	managerVersion = "v0.0.0-e2e"
+	managerVersion = envOr("E2E_VERSION", "v0.0.0-e2e")
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -37,16 +37,19 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the manager image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage),
-		fmt.Sprintf("VERSION=%s", managerVersion))
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
+	// make test-e2e builds the image while Kind creates the cluster.
+	if os.Getenv("E2E_IMAGE_BUILT") != "true" {
+		By("building the manager image")
+		cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage),
+			fmt.Sprintf("VERSION=%s", managerVersion))
+		_, err := utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
+	}
 
 	// TODO(user): If you want to change the e2e test vendor from Kind,
 	// ensure the image is built and available, then remove the following block.
 	By("loading the manager image on Kind")
-	err = utils.LoadImageToKindClusterWithName(managerImage)
+	err := utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
 
 	configureKubectlKubeRC()
@@ -56,6 +59,14 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	teardownCertManager()
 })
+
+// envOr returns the environment variable key, or def if it's unset or empty.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
 
 // Disable kubectl kuberc by default for test isolation.
 // This prevents local kubectl configurations from affecting test behavior.
