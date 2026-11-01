@@ -72,6 +72,8 @@ hap (`internal/hap`) maps capabilities to HomeKit services and characteristics. 
 
 The bridge's identity is in `internal/identity`. It and the pairings are state that must survive (see the README).
 
+brutella/hap serves HAP itself, except for one route. Its `/pairings` handler can't decode List Pairings, which the Home app sends before it adds a home hub, so `internal/hap/pairings.go` answers List Pairings from the pairing store and passes Add and Remove Pairing to the library unchanged ([OIK-75](https://linear.app/oikade/issue/OIK-75)). Unlike the HAP specification, it lets any verified controller list pairings, not only admins, because the library doesn't say which controller a session belongs to.
+
 ## Releases
 
 release-please keeps a release PR open on main. Merging it tags the release, and `.github/workflows/release.yml` builds the arm64 and amd64 images and attaches `install.yaml` to the GitHub Release. Versions are `0.x` pre-releases (`0.1.0-alpha.N`) between milestones. Design: [OIK-63](https://linear.app/oikade/issue/OIK-63).

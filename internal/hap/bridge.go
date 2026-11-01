@@ -176,6 +176,9 @@ func (b *Bridge) restart(br *homekitv1alpha1.Bridge, pin string, devices []Devic
 	if err != nil {
 		return fmt.Errorf("creating HAP server: %w", err)
 	}
+	if err := fixListPairings(server, store); err != nil {
+		return fmt.Errorf("wrapping HAP pairings: %w", err)
+	}
 	server.Pin = Pin(pin)
 	server.Addr = fmt.Sprintf(":%d", br.Status.Port)
 

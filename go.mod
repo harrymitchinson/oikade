@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/brutella/hap v0.0.35
 	github.com/eclipse/paho.golang v0.23.0
+	github.com/go-chi/chi v1.5.4
 	github.com/go-logr/logr v1.4.3
 	github.com/google/cel-go v0.30.0
 	github.com/mochi-mqtt/server/v2 v2.7.9
@@ -35,7 +36,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/go-chi/chi v1.5.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect
