@@ -176,8 +176,9 @@ func (b *Bridge) restart(br *homekitv1alpha1.Bridge, pin string, devices []Devic
 	if err != nil {
 		return fmt.Errorf("creating HAP server: %w", err)
 	}
-	if err := fixListPairings(server, store); err != nil {
-		return fmt.Errorf("wrapping HAP pairings: %w", err)
+	if err := fixListPairings(server, store, log); err != nil {
+		// Serve anyway: only List Pairings, and so adding a home hub, is broken.
+		log.Error(err, "Could not wrap HAP pairings; List Pairings will fail", "bridge", b.Key)
 	}
 	server.Pin = Pin(pin)
 	server.Addr = fmt.Sprintf(":%d", br.Status.Port)
