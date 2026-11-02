@@ -5,7 +5,7 @@ package clusters
 
 import (
 	"errors"
-	"slices"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
@@ -256,12 +256,12 @@ type Bridge struct {
 	Aggregator *im.Endpoint
 }
 
-// NewBridge returns a bridge with no devices. rootClusters join Basic Information and the
-// Descriptor on the root endpoint, such as the commissioning clusters.
+// NewBridge returns a bridge with no devices. rootClusters join the Descriptor, Basic Information
+// and General Diagnostics on the root endpoint, such as the commissioning clusters.
 func NewBridge(info Info, rootClusters ...*im.Cluster) *Bridge {
 	b := &Bridge{Node: &im.Node{}}
 	b.Root = &im.Endpoint{ID: 0, DeviceTypes: []im.DeviceType{DeviceRootNode}}
-	b.Root.Clusters = append([]*im.Cluster{Descriptor(b.Node, b.Root), BasicInformation(info)}, rootClusters...)
+	b.Root.Clusters = append([]*im.Cluster{Descriptor(b.Node, b.Root), BasicInformation(info), GeneralDiagnostics(time.Now())}, rootClusters...)
 	b.Aggregator = &im.Endpoint{ID: 1, DeviceTypes: []im.DeviceType{DeviceAggregator}}
 	b.Aggregator.Clusters = []*im.Cluster{Descriptor(b.Node, b.Aggregator)}
 	_ = b.Node.AddEndpoint(b.Root) // a new Node: the IDs are free
@@ -269,13 +269,13 @@ func NewBridge(info Info, rootClusters ...*im.Cluster) *Bridge {
 	return b
 }
 
-// AddDevice adds a bridged device on endpoint id, with its own clusters after Descriptor and
+// AddDevice adds a bridged device on endpoint id, with Identify, its own clusters, Descriptor and
 // Bridged Device Basic Information, and returns its BridgedInfo. It fails if the endpoint is
 // taken.
 func (b *Bridge) AddDevice(id uint16, deviceType im.DeviceType, label, uniqueID string, clusters ...*im.Cluster) (*BridgedInfo, error) {
 	info := NewBridgedInfo(label, uniqueID)
 	e := &im.Endpoint{ID: id, Parent: b.Aggregator, DeviceTypes: []im.DeviceType{deviceType, DeviceBridgedNode}}
-	e.Clusters = append(slices.Clone(clusters), Descriptor(b.Node, e), info.Cluster())
+	e.Clusters = append(append([]*im.Cluster{newIdentify()}, clusters...), Descriptor(b.Node, e), info.Cluster())
 	if err := b.Node.AddEndpoint(e); err != nil {
 		return nil, err
 	}

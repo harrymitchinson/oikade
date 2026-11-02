@@ -12,3 +12,6 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# Re-include files that Go source embeds
+!internal/matter/attestation/testcreds/*.pem

@@ -59,6 +59,8 @@ func main() {
 			os.Exit(runRuntime(os.Args[2:]))
 		case "hap":
 			os.Exit(runHAP(os.Args[2:]))
+		case "matter-spike":
+			os.Exit(runMatterSpike(os.Args[2:]))
 		}
 	}
 

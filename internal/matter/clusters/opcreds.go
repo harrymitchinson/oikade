@@ -330,6 +330,9 @@ func (c *Commissioning) addNOC(req *im.Request, fields *tlv.Reader) (*im.Respons
 		req.Session.SetFabricIndex(index)
 	}
 	c.fabricsChanged()
+	if c.hooks.FabricAdded != nil {
+		c.hook(func() { c.hooks.FabricAdded(index) })
+	}
 	return nocResponse(nocOK, index), nil
 }
 

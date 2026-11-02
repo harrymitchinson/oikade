@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"net"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,7 @@ type node struct {
 	resumption *securechannel.ResumptionStore
 
 	mu        sync.Mutex
+	added     []uint8
 	removed   []uint8
 	endedPASE int
 }
@@ -63,6 +65,11 @@ func newNode(t *testing.T, dir string) *node {
 	n.comm, err = NewCommissioning(CommissioningConfig{
 		Fabrics: n.table, Attestation: creds, Log: testr.New(t),
 		Hooks: Hooks{
+			FabricAdded: func(i uint8) {
+				n.mu.Lock()
+				defer n.mu.Unlock()
+				n.added = append(n.added, i)
+			},
 			FabricRemoved: func(i uint8) {
 				n.resumption.RemoveFabric(i)
 				n.mu.Lock()
@@ -313,6 +320,11 @@ func TestCommission(t *testing.T) {
 	if index != 1 {
 		t.Errorf("fabric index %d", index)
 	}
+	waitFor(t, "FabricAdded after AddNOC", func() bool {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		return slices.Equal(n.added, []uint8{1})
+	})
 	if st := writeACL(t, paseClient); st != im.StatusSuccess {
 		t.Fatalf("ACL write: %#x", st)
 	}
