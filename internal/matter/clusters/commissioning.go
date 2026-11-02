@@ -2,6 +2,7 @@ package clusters
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -38,8 +39,9 @@ const (
 	commissioningBusyWithOther = 4
 )
 
-// Hooks are what commissioning asks of the rest of the node. Each is optional, and each is called
-// in its own goroutine, after the change, so it may use the Node and the Transport.
+// Hooks are what commissioning asks of the rest of the node. Each is optional. They're called
+// after the change, one at a time in the order of the changes, outside the Node's lock, so they
+// may use the Node and the Transport.
 type Hooks struct {
 	// OpenWindow starts accepting PASE with w and advertising it, for Administrator
 	// Commissioning; CloseWindow stops.
@@ -78,6 +80,40 @@ type Commissioning struct {
 	regulatory uint64
 	failSafe   failSafe
 	window     window
+
+	queue hookQueue
+}
+
+// hookQueue runs hooks one at a time, in order, in a goroutine that lives while there are any.
+type hookQueue struct {
+	mu      sync.Mutex
+	pending []func()
+	running bool
+}
+
+func (q *hookQueue) push(f func()) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.pending = append(q.pending, f)
+	if !q.running {
+		q.running = true
+		go q.run()
+	}
+}
+
+func (q *hookQueue) run() {
+	for {
+		q.mu.Lock()
+		if len(q.pending) == 0 {
+			q.running = false
+			q.mu.Unlock()
+			return
+		}
+		f := q.pending[0]
+		q.pending = q.pending[1:]
+		q.mu.Unlock()
+		f()
+	}
 }
 
 // failSafe is the fail-safe context (Core spec, 11.10.7.2). The Node's lock guards it.
@@ -126,7 +162,7 @@ func (c *Commissioning) update(f func()) {
 
 func (c *Commissioning) hook(f func()) {
 	if f != nil {
-		go f()
+		c.queue.push(f)
 	}
 }
 
