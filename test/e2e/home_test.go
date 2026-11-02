@@ -76,6 +76,12 @@ kind: Bridge
 metadata: {name: main}
 spec:
   pinSecretRef: {name: homekit-pin, key: pin}
+---
+apiVersion: matter.oikade.dev/v1alpha1
+kind: Bridge
+metadata: {name: main}
+spec:
+  displayName: E2E bridge
 `
 
 // secondLamp is a copy of the fixture's IKEA lamp, so the hallway has two lights.
@@ -499,7 +505,8 @@ func homeScenario() {
 			for _, args := range [][]string{
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
 				{"-n", homeNamespace, "logs", "deploy/main-hap"},
-				{"-n", homeNamespace, "get", "devices,rules,bridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
+				{"-n", homeNamespace, "logs", "deploy/main-matter"},
+				{"-n", homeNamespace, "get", "devices,rules,bridges.homekit.oikade.dev,matterbridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
 				{"-n", readmeNamespace, "get", "devices,rules", "-o", "yaml"},
 			} {
 				out, _ := utils.Run(exec.Command("kubectl", args...))
@@ -559,9 +566,9 @@ func homeScenario() {
 		})
 
 		It("runs a HomeKit bridge", func() {
-			Eventually(jsonpath("bridge", "main", "{.status.accessories[*].device}")).
+			Eventually(jsonpath("bridges.homekit.oikade.dev", "main", "{.status.accessories[*].device}")).
 				Should(Equal("hallway-light hallway-motion"))
-			Eventually(jsonpath("bridge", "main", `{.status.conditions[?(@.type=="Ready")].status}`), 4*time.Minute).
+			Eventually(jsonpath("bridges.homekit.oikade.dev", "main", `{.status.conditions[?(@.type=="Ready")].status}`), 4*time.Minute).
 				Should(Equal("True"))
 			Eventually(func(g Gomega) {
 				out, err := kubectl("logs", "deploy/main-hap")
@@ -570,11 +577,26 @@ func homeScenario() {
 			}).Should(Succeed())
 		})
 
+		It("runs a Matter bridge that shows its pairing code", func() {
+			Eventually(jsonpath("matterbridge", "main", "{.status.endpoints[*].device}")).
+				Should(Equal("hallway-light hallway-motion"))
+			Eventually(jsonpath("matterbridge", "main", `{.status.conditions[?(@.type=="Ready")].status}`), 4*time.Minute).
+				Should(Equal("True"))
+			Expect(jsonpath("matterbridge", "main", "{.status.manualPairingCode}")()).To(MatchRegexp(`^[0-9]{11}$`))
+			Expect(jsonpath("matterbridge", "main", "{.status.qrCode}")()).To(HavePrefix("MT:"))
+			Eventually(func(g Gomega) {
+				out, err := kubectl("logs", "deploy/main-matter")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(ContainSubstring(`"msg":"Advertised commissionable service"`))
+			}).Should(Succeed())
+		})
+
 		It("logs the build version on startup in every role", func() {
 			for _, args := range [][]string{
 				{"-n", namespace, "logs", "deploy/oikade-controller-manager"},
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
 				{"-n", homeNamespace, "logs", "deploy/main-hap"},
+				{"-n", homeNamespace, "logs", "deploy/main-matter"},
 			} {
 				Eventually(func(g Gomega) {
 					out, err := utils.Run(exec.Command("kubectl", args...))

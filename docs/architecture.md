@@ -16,13 +16,14 @@ Live state never goes into etcd. `Device.status` is deliberately coarse: capabil
 
 ## Components
 
-One binary, `cmd/`, has three roles:
+One binary, `cmd/`, has four roles:
 
 | Role | Talks to | Runs |
 |---|---|---|
 | `manager` | Kubernetes only | The controllers in `internal/controller/<group>`, which validate objects and render what they manage with `internal/render` |
 | `manager runtime` | MQTT, and the API for status | One replica. The drivers, the hub, the status writer, `/metrics` on `:8080`, and the rule engine with arbitration |
 | `manager hap --bridge <name>` | MQTT, and the API read-only | One per Bridge, with `hostNetwork`. A HomeKit accessory server for that Bridge's Devices |
+| `manager matter` | Nothing but its mounted Secret and PVC | One per Matter Bridge, with `hostNetwork`. A Matter bridge node, with no bridged Devices yet ([OIK-84](https://linear.app/oikade/issue/OIK-84)) |
 
 The runtime is a single replica because two would run every rule twice. Anything that assumes it's highly available, or needs leader election, is a design decision. hap follows the bus itself, so HomeKit keeps working while the runtime is down. It can read only its own Secrets.
 
@@ -71,6 +72,14 @@ hap (`internal/hap`) maps capabilities to HomeKit services and characteristics. 
 - **Service and characteristic IDs are positional.** `hap.NewServer` numbers them in the order they're added, so the mapping must only ever add at the end.
 
 The bridge's identity is in `internal/identity`. It and the pairings are state that must survive (see the README).
+
+## Matter
+
+The Matter stack is Oikade's own, in `internal/matter`, built from the Matter Core Specification: TLV, the message layer with MRP over UDP, PASE and CASE, operational certificates, the Interaction Model, the commissioning clusters, attestation with connectedhomeip's test DAC, and an mDNS responder. `internal/matter/node` wires them into a node serving a bridge, and `manager matter` runs one.
+
+- **The matter Bridge controller** (`internal/controller/matter`) creates the `<bridge>-matter` Secret once, with a random setup passcode and discriminator, a unique ID and the test DAC and key, and shows the pairing codes in status. It allocates endpoint IDs densely from 2 in `status.endpoints`, append-only, and keeps a copy in the Secret, written before status, so a Bridge applied again gets them back. It allocates the UDP port, and renders the `<bridge>-matter` PVC and Deployment.
+- **The pod** reads the setup code and attestation from the Secret, mounted as files, and keeps its fabric table on the PVC. It has no service account token.
+- **Commissioning** (`internal/matter/clusters`) owns every commissioning window, including the initial one the node opens while it's on no fabric, which closes after 15 minutes, on RevokeCommissioning, or once commissioned. The node advertises each fabric's operational service when AddNOC or UpdateNOC changes it, and again when the fail-safe rolls it back. Ending a session sends CloseSession, and a peer's CloseSession ends its session.
 
 ## Releases
 

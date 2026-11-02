@@ -352,6 +352,29 @@ func (ex *Exchange) Send(ctx context.Context, m Message) error {
 	return nil
 }
 
+// SendUnreliable sends m once, without asking the peer to acknowledge it, for messages such as
+// CloseSession that the spec sends that way. Any acknowledgement the exchange owes rides along.
+func (ex *Exchange) SendUnreliable(m Message) error {
+	t := ex.s.t
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if ex.closed || ex.s.closed {
+		return ErrClosed
+	}
+	ph := ProtocolHeader{
+		Initiator: ex.key.initiator,
+		Opcode:    m.Opcode, ExchangeID: ex.key.id, Protocol: m.Protocol,
+		Ack: ex.pendingAck, AckCounter: ex.ackCounter,
+	}
+	pkt, _, err := ex.s.encode(&ph, m.Payload)
+	if err != nil {
+		return err
+	}
+	ex.clearAck()
+	t.write(pkt, ex.s.peer)
+	return nil
+}
+
 // Recv waits for the next message on the exchange.
 func (ex *Exchange) Recv(ctx context.Context) (Message, error) {
 	t := ex.s.t

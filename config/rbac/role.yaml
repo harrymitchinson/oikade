@@ -92,6 +92,7 @@ rules:
   - update
 - apiGroups:
   - homekit.oikade.dev
+  - matter.oikade.dev
   resources:
   - bridges
   verbs:
@@ -104,12 +105,14 @@ rules:
   - watch
 - apiGroups:
   - homekit.oikade.dev
+  - matter.oikade.dev
   resources:
   - bridges/finalizers
   verbs:
   - update
 - apiGroups:
   - homekit.oikade.dev
+  - matter.oikade.dev
   resources:
   - bridges/status
   verbs:
