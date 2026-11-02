@@ -8,6 +8,9 @@ on:
       - "contract/**"
       - "cmd/**"
       - "internal/**"
+      # The Matter packages aren't in a deployed role yet, so Kind can't exercise them.
+      # The step that wires Matter into the manager (OIK-83) removes this line.
+      - "!internal/matter/**"
       - "config/**"
       - "test/**"
       - "sdk/**"
