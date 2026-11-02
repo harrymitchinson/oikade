@@ -70,6 +70,29 @@ type DeviceHomeKit struct {
 	Service HomeKitService `json:"service,omitempty"`
 }
 
+// MatterDeviceType chooses the family of Matter device type a switch.on Device is shown as. Whether
+// it's the on/off or dimmable member of the family follows from the Device's capabilities.
+// +kubebuilder:validation:Enum=Light;PlugInUnit;MountedControl
+type MatterDeviceType string
+
+const (
+	// MatterDeviceTypeLight is an On/Off Light or a Dimmable Light.
+	MatterDeviceTypeLight MatterDeviceType = "Light"
+	// MatterDeviceTypePlugInUnit is an On/Off Plug-in Unit or a Dimmable Plug-In Unit: an outlet.
+	MatterDeviceTypePlugInUnit MatterDeviceType = "PlugInUnit"
+	// MatterDeviceTypeMountedControl is a Mounted On/Off Control or a Mounted Dimmable Load
+	// Control: a switch wired into the wall.
+	MatterDeviceTypeMountedControl MatterDeviceType = "MountedControl"
+)
+
+// DeviceMatter tunes how a device appears on a Matter bridge.
+type DeviceMatter struct {
+	// deviceType overrides the device type chosen from the device's capabilities, e.g.
+	// PlugInUnit for a smart plug that reports itself as a switch.
+	// +required
+	DeviceType MatterDeviceType `json:"deviceType"`
+}
+
 // ControlResolve picks between claims at the same level. The bool values aren't On and Off,
 // because YAML 1.1, which kubectl decodes, reads those unquoted as booleans.
 // +kubebuilder:validation:Enum=PreferOn;PreferOff;Highest;Lowest
@@ -180,6 +203,10 @@ type DeviceSpec struct {
 	// homekit tunes how the device appears in HomeKit.
 	// +optional
 	HomeKit *DeviceHomeKit `json:"homekit,omitempty"`
+
+	// matter tunes how the device appears on a Matter bridge.
+	// +optional
+	Matter *DeviceMatter `json:"matter,omitempty"`
 
 	// control lists the capabilities that are arbitrated. Capabilities without an entry keep
 	// last-write-wins.

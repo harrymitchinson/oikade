@@ -8,6 +8,7 @@ resources:
 - bases/zigbee.oikade.dev_zigbee2mqtts.yaml
 - bases/plugins.oikade.dev_plugins.yaml
 - bases/home.oikade.dev_rules.yaml
+- bases/matter.oikade.dev_bridges.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

@@ -6,4 +6,5 @@ resources:
 - homekit_v1alpha1_bridge.yaml
 - plugins_v1alpha1_plugin.yaml
 - home_v1alpha1_rule.yaml
+- matter_v1alpha1_bridge.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

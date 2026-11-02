@@ -163,6 +163,21 @@ spec:
                     - OccupancySensor
                     type: string
                 type: object
+              matter:
+                description: matter tunes how the device appears on a Matter bridge.
+                properties:
+                  deviceType:
+                    description: |-
+                      deviceType overrides the device type chosen from the device's capabilities, e.g.
+                      PlugInUnit for a smart plug that reports itself as a switch.
+                    enum:
+                    - Light
+                    - PlugInUnit
+                    - MountedControl
+                    type: string
+                required:
+                - deviceType
+                type: object
               plugin:
                 description: plugin sources the device from a Plugin.
                 properties:

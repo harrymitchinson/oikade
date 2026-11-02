@@ -1,0 +1,411 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: bridges.matter.oikade.dev
+spec:
+  group: matter.oikade.dev
+  names:
+    kind: Bridge
+    listKind: BridgeList
+    plural: bridges
+    singular: bridge
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.port
+      name: Port
+      type: integer
+    - jsonPath: .status.devices
+      name: Devices
+      type: integer
+    - jsonPath: .status.manualPairingCode
+      name: Pairing Code
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Bridge is a Matter bridge that exposes Devices to Matter controllers
+          such as Apple Home.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of Bridge
+            properties:
+              deviceSelector:
+                description: deviceSelector picks the Devices in this namespace to
+                  expose. Empty selects every Device.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              displayName:
+                description: |-
+                  displayName is the bridge's name (its NodeLabel) shown while commissioning. Defaults to the
+                  object name.
+                maxLength: 32
+                type: string
+              network:
+                default:
+                  mode: HostNetwork
+                description: network configures how the bridge pod reaches the LAN.
+                properties:
+                  mode:
+                    default: HostNetwork
+                    description: mode is how the pod attaches to the LAN. Only HostNetwork
+                      is supported in v1alpha1.
+                    enum:
+                    - HostNetwork
+                    type: string
+                type: object
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: nodeSelector pins the bridge pod, e.g. to a node on the
+                  same L2 network as your controllers.
+                type: object
+              portRange:
+                default:
+                  end: 5640
+                  start: 5540
+                description: |-
+                  portRange is the pool the Matter UDP port is allocated from. Ports are unique across the
+                  whole cluster because host-networked pods share each node's port space.
+                properties:
+                  end:
+                    format: int32
+                    maximum: 65535
+                    minimum: 1024
+                    type: integer
+                  start:
+                    format: int32
+                    maximum: 65535
+                    minimum: 1024
+                    type: integer
+                required:
+                - end
+                - start
+                type: object
+                x-kubernetes-validations:
+                - message: start must be <= end
+                  rule: self.start <= self.end
+              storage:
+                default:
+                  size: 100Mi
+                description: storage configures the PersistentVolumeClaim that holds
+                  the bridge's fabrics.
+                properties:
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 100Mi
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClassName:
+                    type: string
+                type: object
+              tolerations:
+                description: tolerations for the bridge pod.
+                items:
+                  description: |-
+                    The pod this Toleration is attached to tolerates any taint that matches
+                    the triple <key,value,effect> using the matching operator <operator>.
+                  properties:
+                    effect:
+                      description: |-
+                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: |-
+                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      type: string
+                    operator:
+                      description: |-
+                        Operator represents a key's relationship to the value.
+                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod can
+                        tolerate all taints of a particular category.
+                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                      type: string
+                    tolerationSeconds:
+                      description: |-
+                        TolerationSeconds represents the period of time the toleration (which must be
+                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                        negative values will be treated as 0 (evict immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: |-
+                        Value is the taint value the toleration matches to.
+                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+            type: object
+          status:
+            description: status defines the observed state of Bridge
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              devices:
+                description: devices is the number of Devices currently exposed.
+                format: int32
+                type: integer
+              discriminator:
+                description: discriminator is the 12-bit discriminator commissioners
+                  find the bridge by.
+                format: int32
+                maximum: 4095
+                minimum: 0
+                type: integer
+              endpoints:
+                description: |-
+                  endpoints maps every Device ever exposed by this Bridge to its endpoint ID. Entries are
+                  never removed or changed.
+                items:
+                  description: |-
+                    Endpoint records the endpoint ID handed to a Device. Controllers key rooms, scenes and
+                    automations by it, so it is never reused or reordered, and survives the Device being deleted.
+                  properties:
+                    device:
+                      description: device is the Device name.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    endpoint:
+                      description: endpoint is the Matter endpoint ID.
+                      format: int32
+                      maximum: 65534
+                      minimum: 2
+                      type: integer
+                  required:
+                  - device
+                  - endpoint
+                  type: object
+                  x-kubernetes-validations:
+                  - message: a Device's endpoint never changes
+                    rule: self.endpoint == oldSelf.endpoint
+                maxItems: 1000
+                type: array
+                x-kubernetes-list-map-keys:
+                - device
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: endpoint IDs must be unique
+                  rule: self.all(e, self.exists_one(f, f.endpoint == e.endpoint))
+              fabrics:
+                description: fabrics lists the fabrics the bridge has been commissioned
+                  into.
+                items:
+                  description: 'Fabric is a fabric the bridge has been commissioned
+                    into: one controller ecosystem.'
+                  properties:
+                    fabricID:
+                      description: fabricID is the fabric ID, as 16 upper-case hex
+                        digits.
+                      pattern: ^[0-9A-F]{16}$
+                      type: string
+                    fabricIndex:
+                      description: fabricIndex is the bridge's local index for the
+                        fabric.
+                      format: int32
+                      maximum: 254
+                      minimum: 1
+                      type: integer
+                    label:
+                      description: label is the label the controller gave the fabric,
+                        if any.
+                      maxLength: 32
+                      type: string
+                    nodeID:
+                      description: nodeID is the bridge's node ID in the fabric, as
+                        16 upper-case hex digits.
+                      pattern: ^[0-9A-F]{16}$
+                      type: string
+                    vendorID:
+                      description: vendorID is the vendor ID of the controller that
+                        commissioned the fabric.
+                      format: int32
+                      maximum: 65535
+                      minimum: 0
+                      type: integer
+                  required:
+                  - fabricID
+                  - fabricIndex
+                  - nodeID
+                  - vendorID
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - fabricIndex
+                x-kubernetes-list-type: map
+              manualPairingCode:
+                description: manualPairingCode is the 11-digit code to type in when
+                  commissioning.
+                pattern: ^[0-9]{11}$
+                type: string
+              nextEndpoint:
+                description: nextEndpoint is the next endpoint ID to hand out.
+                format: int32
+                maximum: 65535
+                minimum: 2
+                type: integer
+              observedGeneration:
+                description: observedGeneration is the generation the conditions were
+                  computed for.
+                format: int64
+                type: integer
+              port:
+                description: port is the allocated Matter UDP port.
+                format: int32
+                type: integer
+              qrCode:
+                description: qrCode is the setup payload a QR code encodes (MT:...).
+                maxLength: 64
+                pattern: ^MT:[0-9A-Z.\-]+$
+                type: string
+            type: object
+            x-kubernetes-validations:
+            - message: 'endpoints are allocated densely: nextEndpoint must be 2 plus
+                the number of endpoints'
+              rule: '(has(self.endpoints) ? self.endpoints.size() : 0) + 2 == (has(self.nextEndpoint)
+                ? self.nextEndpoint : 2)'
+            - message: every endpoint must be below nextEndpoint
+              rule: '!has(self.endpoints) || self.endpoints.all(e, e.endpoint < self.nextEndpoint)'
+            - message: 'endpoints are append-only: nextEndpoint never decreases'
+              rule: '(has(self.nextEndpoint) ? self.nextEndpoint : 2) >= (has(oldSelf.nextEndpoint)
+                ? oldSelf.nextEndpoint : 2)'
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

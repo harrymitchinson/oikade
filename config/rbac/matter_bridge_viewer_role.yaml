@@ -1,0 +1,29 @@
+# This rule is not used by the project oikade itself.
+# It is provided to allow the cluster admin to help manage permissions for users.
+#
+# Grants read-only access to matter.oikade.dev resources.
+# This role is intended for users who need visibility into these resources
+# without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: oikade
+    app.kubernetes.io/managed-by: kustomize
+  name: matter-bridge-viewer-role
+rules:
+- apiGroups:
+  - matter.oikade.dev
+  resources:
+  - bridges
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - matter.oikade.dev
+  resources:
+  - bridges/status
+  verbs:
+  - get
