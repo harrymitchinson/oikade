@@ -84,6 +84,29 @@ spec:
   displayName: E2E bridge
 `
 
+// chipToolManifest runs chip-tool on the host network, beside the bridge, with the Avahi daemon it
+// browses DNS-SD through.
+var chipToolManifest = `
+apiVersion: v1
+kind: Pod
+metadata: {name: chip-tool}
+spec:
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  containers:
+  - name: chip-tool
+    image: ` + chipToolImage + `
+    imagePullPolicy: Never
+    readinessProbe:
+      exec: {command: [avahi-daemon, --check]}
+      periodSeconds: 2
+`
+
+// chipNode is the node ID chip-tool gives the bridge when it commissions it.
+const chipNode = "0x1122"
+
 // secondLamp is a copy of the fixture's IKEA lamp, so the hallway has two lights.
 const secondLamp = "0x000b57fffe000006"
 
@@ -460,6 +483,38 @@ func secretKey(name, key string) (string, error) {
 	return string(decoded), err
 }
 
+// chipTool runs one chip-tool command in the chip-tool pod.
+func chipTool(args ...string) (string, error) {
+	return kubectl(append([]string{"exec", "chip-tool", "--", "chip-tool"}, args...)...)
+}
+
+// chipValue matches the value chip-tool logs for an attribute it reads.
+var chipValue = regexp.MustCompile(`\[TOO\]\s+[A-Za-z]+: ([A-Za-z0-9.-]+)`)
+
+// chipRead reads one attribute with chip-tool and returns its last logged value, or "" if it can't.
+func chipRead(cluster, attribute, endpoint string) string {
+	out, _ := chipTool(cluster, "read", attribute, chipNode, endpoint)
+	m := chipValue.FindAllStringSubmatch(out, -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return m[len(m)-1][1]
+}
+
+// endpointOf returns the Matter endpoint the bridge gave a Device.
+func endpointOf(device string) string {
+	ep, err := jsonpath("matterbridge", "main", `{.status.endpoints[?(@.device=="`+device+`")].endpoint}`)()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, ep).NotTo(BeEmpty())
+	return ep
+}
+
+// chipLog returns the interactive chip-tool's log.
+func chipLog() string {
+	out, _ := kubectl("exec", "chip-tool", "--", "cat", "/tmp/subscription.log")
+	return out
+}
+
 func jsonpath(kind, name, path string) func() (string, error) {
 	return func() (string, error) { return kubectl("get", kind, name, "-o", "jsonpath="+path) }
 }
@@ -483,6 +538,13 @@ func homeScenario() {
 
 			By("declaring the home")
 			apply(homeManifests)
+
+			// A run that was cut short may have left a fabric retained on the broker.
+			_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t",
+				"oikade/v1/_matter/"+homeNamespace+"/main/fabrics")
+
+			By("starting chip-tool")
+			apply(chipToolManifest)
 		})
 
 		AfterAll(func() {
@@ -495,6 +557,8 @@ func homeScenario() {
 			for _, sub := range subs {
 				_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t", pluginRoot+"/"+sub)
 			}
+			_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t",
+				"oikade/v1/_matter/"+homeNamespace+"/main/fabrics")
 			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", homeNamespace, readmeNamespace, "--wait=false"))
 		})
 
@@ -593,6 +657,91 @@ func homeScenario() {
 			}).Should(Succeed())
 			Expect(jsonpath("matterbridge", "main", `{.status.conditions[?(@.type=="DevicesSupported")].status}`)()).
 				To(Equal("True"))
+		})
+
+		It("is commissioned by chip-tool", func() {
+			By("waiting for chip-tool")
+			Eventually(func(g Gomega) {
+				phase, _ := jsonpath("pod", "chip-tool", "{.status.phase}")()
+				if phase == "Failed" || phase == "Succeeded" {
+					StopTrying("chip-tool's pod stopped: " + phase).Now()
+				}
+				ready, _ := jsonpath("pod", "chip-tool", `{.status.conditions[?(@.type=="Ready")].status}`)()
+				g.Expect(ready).To(Equal("True"))
+			}, 3*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("restarting the bridge, so its 15-minute commissioning window is open however long the suite took")
+			_, err := kubectl("rollout", "restart", "deploy/main-matter")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = kubectl("rollout", "status", "deploy/main-matter", "--timeout=3m")
+			Expect(err).NotTo(HaveOccurred())
+
+			// The discriminator picks this bridge, not one in another Kind cluster on the same network.
+			passcode, err := secretKey("main-matter", "passcode")
+			Expect(err).NotTo(HaveOccurred())
+			discriminator, err := secretKey("main-matter", "discriminator")
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(func(g Gomega) {
+				out, err := chipTool("pairing", "onnetwork-long", chipNode, passcode, discriminator)
+				g.Expect(err).NotTo(HaveOccurred(), out)
+				g.Expect(out).To(ContainSubstring("Device commissioning completed with success"))
+			}, time.Minute, 5*time.Second).Should(Succeed())
+			Eventually(jsonpath("matterbridge", "main", "{.status.fabrics[*].vendorID}")).Should(Equal("65521"))
+		})
+
+		It("toggles a light from chip-tool, through the bus", func() {
+			light := endpointOf("hallway-light")
+			publish("z2m/0x000b57fffe000001", `{"state":"OFF","brightness":128}`, false)
+			Eventually(func() string { return chipRead("onoff", "on-off", light) }).Should(Equal("FALSE"))
+
+			wait := subscribe("z2m/+/set", 1)
+			out, err := chipTool("onoff", "toggle", chipNode, light)
+			Expect(err).NotTo(HaveOccurred(), out)
+			Expect(wait()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"ON"}`))
+		})
+
+		It("reports a bus change to chip-tool's subscription", func() {
+			// Temperature, since no Rule watches it. Matter reports hundredths of a degree.
+			sensor := endpointOf("hallway-motion")
+			publish("z2m/hallway-motion", `{"temperature":20}`, false)
+			Eventually(func() string { return chipRead("temperaturemeasurement", "measured-value", sensor) }).Should(Equal("2000"))
+
+			// A subscription outlives a command only in interactive mode, fed here from a pipe. It
+			// quits once the spec touches /tmp/subscription.stop, so it doesn't share chip-tool's
+			// storage with later commands.
+			_, err := kubectl("exec", "chip-tool", "--", "sh", "-c",
+				`rm -f /tmp/subscription.stop /tmp/subscription.done
+				 ((echo "temperaturemeasurement subscribe measured-value 0 30 `+chipNode+` `+sensor+`"
+				   while [ ! -e /tmp/subscription.stop ]; do sleep 1; done; echo quit) |
+				  chip-tool interactive start; touch /tmp/subscription.done) >/tmp/subscription.log 2>&1 </dev/null &`)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() {
+				_, _ = kubectl("exec", "chip-tool", "--", "touch", "/tmp/subscription.stop")
+				Eventually(func() error {
+					_, err := kubectl("exec", "chip-tool", "--", "test", "-e", "/tmp/subscription.done")
+					return err
+				}, time.Minute).Should(Succeed())
+			})
+			Eventually(chipLog).Should(ContainSubstring("Subscription established"))
+			Expect(chipLog()).To(MatchRegexp(`MeasuredValue: 2000\b`), "the priming report")
+
+			publish("z2m/hallway-motion", `{"temperature":21.5}`, false)
+			Eventually(chipLog).Should(MatchRegexp(`MeasuredValue: 2150\b`))
+		})
+
+		It("is read by chip-tool after the bridge pod restarts, without commissioning again", func() {
+			light := endpointOf("hallway-light")
+			_, err := kubectl("rollout", "restart", "deploy/main-matter")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = kubectl("rollout", "status", "deploy/main-matter", "--timeout=3m")
+			Expect(err).NotTo(HaveOccurred())
+			// The state isn't retained, so the new pod learns it only from a report after it starts.
+			Eventually(func() string {
+				publish("z2m/0x000b57fffe000001", `{"state":"ON","brightness":128}`, false)
+				return chipRead("onoff", "on-off", light)
+			}, 2*time.Minute, 5*time.Second).Should(Equal("TRUE"))
+			Expect(kubectl("logs", "deploy/main-matter")).To(ContainSubstring(`"msg":"Established CASE session"`))
+			Expect(kubectl("logs", "deploy/main-matter")).NotTo(ContainSubstring(`"msg":"Commissioned"`))
 		})
 
 		It("logs the build version on startup in every role", func() {

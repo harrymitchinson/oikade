@@ -20,6 +20,8 @@ var (
 	managerImage = envOr("E2E_IMG", "example.com/oikade:v0.0.1")
 	// managerVersion is baked into the manager image, and every role logs it on startup.
 	managerVersion = envOr("E2E_VERSION", "v0.0.0-e2e")
+	// chipToolImage is test/e2e/chip-tool, which make test-e2e builds.
+	chipToolImage = envOr("E2E_CHIP_TOOL_IMG", "oikade-chip-tool:e2e")
 )
 
 // TestE2E runs the e2e test suite to validate the solution in an isolated environment.
@@ -48,6 +50,14 @@ var _ = BeforeSuite(func() {
 	By("loading the manager image on Kind")
 	err := utils.LoadImageToKindClusterWithName(managerImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+	if os.Getenv("E2E_IMAGE_BUILT") != "true" {
+		By("building the chip-tool image")
+		_, err := utils.Run(exec.Command("make", "e2e-chip-tool-image", "E2E_CHIP_TOOL_IMG="+chipToolImage))
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the chip-tool image")
+	}
+	By("loading the chip-tool image on Kind")
+	err = utils.LoadImageToKindClusterWithName(chipToolImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the chip-tool image into Kind")
 
 	configureKubectlKubeRC()
 	resetCluster()
