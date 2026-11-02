@@ -18,6 +18,7 @@ type subscription struct {
 	session  *transport.Session
 	paths    []AttributePath
 	min, max time.Duration
+	filtered bool // fabric filtered
 
 	mu     sync.Mutex
 	dirty  map[Path]bool
@@ -40,7 +41,7 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 
 	maxInterval := max(req.maxCeiling, req.minFloor, 1)
 	sub := &subscription{
-		id: randomSubscriptionID(), session: session, paths: req.attributes,
+		id: randomSubscriptionID(), session: session, paths: req.attributes, filtered: req.fabricFiltered,
 		min: time.Duration(req.minFloor) * time.Second, max: time.Duration(maxInterval) * time.Second,
 		dirty: map[Path]bool{}, wake: make(chan struct{}, 1),
 	}
@@ -63,7 +64,8 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 
 	// The priming report: everything subscribed to, then the Subscribe Response.
 	var reports [][]byte
-	s.Node.View(func() { reports = s.reports(req.attributes, req.filters) })
+	rq := newRequest(session, req.fabricFiltered)
+	s.Node.View(func() { reports = s.reports(rq, req.attributes, req.filters) })
 	err = sendReports(ctx, ex, reports, &sub.id, false)
 	if err == nil {
 		var w tlv.Writer
@@ -141,10 +143,11 @@ func (s *Server) runSubscription(ctx context.Context, sub *subscription) error {
 		sub.dirty = map[Path]bool{}
 		sub.mu.Unlock()
 		var reports [][]byte
+		rq := newRequest(sub.session, sub.filtered)
 		s.Node.View(func() {
 			for p := range changed {
-				if s.check(Concrete(p)) == StatusSuccess {
-					reports = append(reports, dataReports(s.Node.Endpoint(p.Endpoint).Cluster(p.Cluster), p)...)
+				if s.check(Concrete(p)) == StatusSuccess && s.canRead(rq, p) {
+					reports = append(reports, dataReports(rq, s.Node.Endpoint(p.Endpoint).Cluster(p.Cluster), p)...)
 				}
 			}
 		})

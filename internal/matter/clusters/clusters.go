@@ -37,7 +37,7 @@ const (
 
 // readOnly returns an attribute whose value write puts.
 func readOnly(id uint32, write func(w *tlv.Writer, tag tlv.Tag)) im.Attribute {
-	return im.Attribute{ID: id, Read: func(w *tlv.Writer, tag tlv.Tag) error { write(w, tag); return nil }}
+	return im.Attribute{ID: id, Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error { write(w, tag); return nil }}
 }
 
 func uintAttr(id uint32, v uint64) im.Attribute {
@@ -48,10 +48,11 @@ func stringAttr(id uint32, v *string) im.Attribute {
 	return readOnly(id, func(w *tlv.Writer, tag tlv.Tag) { w.PutUTF8(tag, *v) })
 }
 
-// writableString is a string attribute a client may set, of minLen to limit bytes.
-func writableString(c **im.Cluster, id uint32, v *string, minLen, limit int) im.Attribute {
+// writableString is a string attribute a client with priv may set, of minLen to limit bytes.
+func writableString(c **im.Cluster, id uint32, v *string, minLen, limit int, priv im.Privilege) im.Attribute {
 	a := stringAttr(id, v)
-	a.Write = func(r *tlv.Reader, op im.WriteOp) im.Status {
+	a.WritePrivilege = priv
+	a.Write = func(_ *im.Request, r *tlv.Reader, op im.WriteOp) im.Status {
 		if op != im.Replace {
 			return im.StatusInvalidAction
 		}
@@ -138,8 +139,8 @@ func BasicInformation(info Info) *im.Cluster {
 			uintAttr(0x02, uint64(info.VendorID)),
 			stringAttr(0x03, &info.ProductName),
 			uintAttr(0x04, uint64(info.ProductID)),
-			writableString(&c, 0x05, &info.NodeLabel, 0, maxStringLength),
-			writableString(&c, 0x06, &location, 2, 2), // an ISO 3166-1 alpha-2 code
+			writableString(&c, 0x05, &info.NodeLabel, 0, maxStringLength, im.PrivilegeManage),
+			writableString(&c, 0x06, &location, 2, 2, im.PrivilegeAdminister), // an ISO 3166-1 alpha-2 code
 			uintAttr(0x07, uint64(info.HardwareVersion)),
 			stringAttr(0x08, &info.HardwareVersionString),
 			uintAttr(0x09, uint64(info.SoftwareVersion)),
@@ -203,10 +204,10 @@ type OnOff struct {
 // NewOnOff returns an On/Off cluster.
 func NewOnOff() *OnOff {
 	o := &OnOff{}
-	set := func(on bool) func(*tlv.Reader) (*im.Response, im.Status) {
-		return func(*tlv.Reader) (*im.Response, im.Status) {
+	set := func(on bool) func(*im.Request, *tlv.Reader) (*im.Response, error) {
+		return func(*im.Request, *tlv.Reader) (*im.Response, error) {
 			o.command(on)
-			return nil, im.StatusSuccess
+			return nil, nil
 		}
 	}
 	o.cluster = &im.Cluster{
@@ -217,9 +218,9 @@ func NewOnOff() *OnOff {
 		Commands: []im.Command{
 			{ID: 0x00, Invoke: set(false)}, // Off
 			{ID: 0x01, Invoke: set(true)},  // On
-			{ID: 0x02, Invoke: func(*tlv.Reader) (*im.Response, im.Status) { // Toggle
+			{ID: 0x02, Invoke: func(*im.Request, *tlv.Reader) (*im.Response, error) { // Toggle
 				o.command(!o.on)
-				return nil, im.StatusSuccess
+				return nil, nil
 			}},
 		},
 	}

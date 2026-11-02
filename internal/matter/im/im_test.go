@@ -61,15 +61,23 @@ func pair(t *testing.T, node *Node) (*Client, *countingConn) {
 	return c, conn
 }
 
+// pairServer pairs over a session the device sees as PASE, which may do anything.
 func pairServer(t *testing.T, node *Node) (*Client, *countingConn, *Server, *transport.Transport) {
+	return pairAs(t, node, nil, transport.SecureSessionConfig{Auth: transport.AuthPASE})
+}
+
+// pairAs pairs over a session that the device sees as dev describes, served with access.
+func pairAs(t *testing.T, node *Node, access AccessControl, devCfg transport.SecureSessionConfig) (*Client, *countingConn, *Server, *transport.Transport) {
 	t.Helper()
 	conn := &countingConn{PacketConn: listen(t)}
 	dev, cli := serveOn(t, conn), serveOn(t, listen(t))
-	srv := &Server{Node: node}
+	srv := &Server{Node: node, Access: access}
 	srv.Register(dev)
 	did, _ := dev.AllocateSessionID()
 	cid, _ := cli.AllocateSessionID()
-	dev.AddSecureSession(transport.SecureSessionConfig{LocalSessionID: did, PeerSessionID: cid, Peer: cli.Addr().(*net.UDPAddr).AddrPort(), Security: plain{}})
+	devCfg.LocalSessionID, devCfg.PeerSessionID = did, cid
+	devCfg.Peer, devCfg.Security = cli.Addr().(*net.UDPAddr).AddrPort(), plain{}
+	dev.AddSecureSession(devCfg)
 	s := cli.AddSecureSession(transport.SecureSessionConfig{LocalSessionID: cid, PeerSessionID: did, Peer: dev.Addr().(*net.UDPAddr).AddrPort(), Security: plain{}})
 	c := &Client{Session: s}
 	c.Register(cli)
@@ -80,7 +88,7 @@ func TestReadIsChunked(t *testing.T) {
 	long := strings.Repeat("x", 30)
 	c := &Cluster{ID: 0xFFF1FC00, Revision: 1}
 	for i := range 100 {
-		c.Attributes = append(c.Attributes, Attribute{ID: uint32(i), Read: func(w *tlv.Writer, tag tlv.Tag) error {
+		c.Attributes = append(c.Attributes, Attribute{ID: uint32(i), Read: func(_ *Request, w *tlv.Writer, tag tlv.Tag) error {
 			w.PutUTF8(tag, long)
 			return nil
 		}})
@@ -114,7 +122,7 @@ func TestReadIsChunked(t *testing.T) {
 // then one append per item, and the client puts it back together.
 func TestLargeListIsSplit(t *testing.T) {
 	item := strings.Repeat("y", 30)
-	c := &Cluster{ID: 0xFFF1FC00, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(w *tlv.Writer, tag tlv.Tag) error {
+	c := &Cluster{ID: 0xFFF1FC00, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(_ *Request, w *tlv.Writer, tag tlv.Tag) error {
 		w.StartArray(tag)
 		for range 100 {
 			w.PutUTF8(tlv.Anonymous, item)
@@ -145,7 +153,7 @@ func TestLargeListIsSplit(t *testing.T) {
 }
 
 func TestOversizedAttribute(t *testing.T) {
-	c := &Cluster{ID: 0xFFF1FC00, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(w *tlv.Writer, tag tlv.Tag) error {
+	c := &Cluster{ID: 0xFFF1FC00, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(_ *Request, w *tlv.Writer, tag tlv.Tag) error {
 		w.PutBytes(tag, make([]byte, 2000))
 		return nil
 	}}}}
@@ -207,7 +215,7 @@ func FuzzDecoders(f *testing.F) {
 
 func onOffNode() (*Node, *Cluster) {
 	on := false
-	c := &Cluster{ID: 6, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(w *tlv.Writer, tag tlv.Tag) error {
+	c := &Cluster{ID: 6, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(_ *Request, w *tlv.Writer, tag tlv.Tag) error {
 		w.PutBool(tag, on)
 		return nil
 	}}}}

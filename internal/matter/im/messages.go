@@ -185,6 +185,7 @@ type readRequest struct {
 	attributes []AttributePath
 	filters    []dataVersionFilter
 	// subscribe only
+	fabricFiltered    bool
 	keepSubscriptions bool
 	minFloor          uint16
 	maxCeiling        uint16
@@ -193,9 +194,9 @@ type readRequest struct {
 // decodeReadRequest decodes a Read Request, or a Subscribe Request if subscribe.
 func decodeReadRequest(b []byte, subscribe bool) (*readRequest, error) {
 	m := &readRequest{}
-	tagAttrs, tagFilters := uint8(0), uint8(4)
+	tagAttrs, tagFilters, tagFabricFiltered := uint8(0), uint8(4), uint8(3)
 	if subscribe {
-		tagAttrs, tagFilters = 3, 8
+		tagAttrs, tagFilters, tagFabricFiltered = 3, 8, 7
 	}
 	err := message(b, func(r *tlv.Reader, tag uint8) error {
 		switch {
@@ -211,6 +212,10 @@ func decodeReadRequest(b []byte, subscribe bool) (*readRequest, error) {
 				m.filters = append(m.filters, f)
 				return err
 			})
+		case tag == tagFabricFiltered:
+			v, err := r.Bool()
+			m.fabricFiltered = v
+			return err
 		case subscribe && tag == 0:
 			v, err := r.Bool()
 			m.keepSubscriptions = v
@@ -224,7 +229,7 @@ func decodeReadRequest(b []byte, subscribe bool) (*readRequest, error) {
 			m.maxCeiling = uint16(v)
 			return err
 		}
-		return nil // events, event filters and fabric filtering: we have no events or fabric data yet
+		return nil // events and event filters: we have no events
 	})
 	return m, err
 }

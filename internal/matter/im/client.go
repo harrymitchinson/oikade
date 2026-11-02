@@ -99,7 +99,9 @@ func (c *Client) Write(ctx context.Context, path AttributePath, value func(w *tl
 
 // InvokeResult is a command's response: a status, or a response command and its fields.
 type InvokeResult struct {
-	Status   Status
+	Status Status
+	// ClusterStatus is the cluster-specific status that came with Status, if one did.
+	ClusterStatus *uint8
 	Response *CommandPath
 	Fields   []byte // the encoded fields structure
 }
@@ -177,10 +179,20 @@ func (c *Client) Invoke(ctx context.Context, path CommandPath, fieldsFn func(w *
 					})
 				case 1: // CommandStatusIB
 					return fields(r, func(r *tlv.Reader, tag uint8) error {
-						if tag == 1 {
-							return readStatusIB(r, &res.Status)
+						if tag != 1 {
+							return nil
 						}
-						return nil
+						return fields(r, func(r *tlv.Reader, tag uint8) error {
+							v, err := uintField(r, 0xFF)
+							switch tag {
+							case 0:
+								res.Status = Status(v)
+							case 1:
+								c := uint8(v)
+								res.ClusterStatus = &c
+							}
+							return err
+						})
 					})
 				}
 				return nil
