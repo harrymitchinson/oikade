@@ -20,6 +20,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/render"
 )
 
@@ -119,8 +120,12 @@ var _ = Describe("Bridge Controller", func() {
 		disc, err := strconv.Atoi(string(secret.Data[render.MatterDiscriminatorKey]))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(b.Status.Discriminator).To(HaveValue(Equal(int32(disc))))
-		Expect(b.Status.ManualPairingCode).To(MatchRegexp(`^[0-9]{11}$`))
-		Expect(b.Status.QRCode).To(HavePrefix("MT:"))
+		manual, qr := expectedCodes(secret)
+		Expect(manual).To(MatchRegexp(`^[0-9]{11}$`))
+		Expect(qr).To(HavePrefix("MT:"))
+		Expect(string(secret.Data[render.MatterManualCodeKey])).To(Equal(manual))
+		Expect(string(secret.Data[render.MatterQRCodeKey])).To(Equal(qr))
+		Expect(render.MatterSetupKeys).NotTo(ContainElement(BeElementOf(render.MatterManualCodeKey, render.MatterQRCodeKey)))
 
 		pvc := get(t.key("main-matter"), &corev1.PersistentVolumeClaim{})
 		Expect(pvc.OwnerReferences).To(BeEmpty())
@@ -146,9 +151,31 @@ var _ = Describe("Bridge Controller", func() {
 		Expect(pod.Volumes).To(ContainElement(HaveField("Secret.SecretName", "main-matter")))
 		Expect(pod.Volumes).To(ContainElement(HaveField("PersistentVolumeClaim.ClaimName", "main-matter")))
 
-		By("keeping the setup code on the next reconcile")
-		again := reconcileBridge(r, t.key("main"))
-		Expect(again.Status.ManualPairingCode).To(Equal(b.Status.ManualPairingCode))
+		By("keeping the setup code on the next reconcile, without writing the Secret")
+		reconcileBridge(r, t.key("main"))
+		unchanged := get(t.key("main-matter"), &corev1.Secret{})
+		Expect(unchanged.ResourceVersion).To(Equal(secret.ResourceVersion))
+		Expect(unchanged.Data[render.MatterManualCodeKey]).To(BeEquivalentTo(manual))
+
+		By("following a passcode the user changes in the Secret")
+		secret.Data[render.MatterPasscodeKey] = []byte("20202021")
+		secret.Data[render.MatterDiscriminatorKey] = []byte("3840")
+		Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+		b = reconcileBridge(r, t.key("main"))
+		Expect(b.Status.Discriminator).To(HaveValue(Equal(int32(3840))))
+		secret = get(t.key("main-matter"), &corev1.Secret{})
+		Expect(string(secret.Data[render.MatterManualCodeKey])).To(Equal("34970112332"))
+		_, qr = expectedCodes(secret)
+		Expect(string(secret.Data[render.MatterQRCodeKey])).To(Equal(qr))
+
+		By("dropping the codes while the passcode is invalid")
+		secret.Data[render.MatterPasscodeKey] = []byte("12345678")
+		Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+		b = reconcileBridge(r, t.key("main"))
+		Expect(readyReason(b)).To(Equal("InvalidSecret"))
+		secret = get(t.key("main-matter"), &corev1.Secret{})
+		Expect(secret.Data).NotTo(HaveKey(render.MatterManualCodeKey))
+		Expect(secret.Data).NotTo(HaveKey(render.MatterQRCodeKey))
 	})
 
 	It("never reuses or moves endpoint IDs", func() {
@@ -223,7 +250,7 @@ var _ = Describe("Bridge Controller", func() {
 		t.createDevice("door", nil) // sorts first, but must not take the others' IDs
 		t.createBridge("main", 10)
 		second := reconcileBridge(r, t.key("main"))
-		Expect(second.Status.ManualPairingCode).To(Equal(first.Status.ManualPairingCode))
+		Expect(second.Status.Discriminator).To(Equal(first.Status.Discriminator))
 		Expect(endpoints(second)).To(Equal(map[string]int32{"lamp": 2, "plug": 3, "door": 4}))
 	})
 
@@ -340,3 +367,15 @@ var _ = Describe("endpoint allocation", func() {
 		Expect(err).To(MatchError(ContainSubstring("no endpoint ID left for new")))
 	})
 })
+
+// expectedCodes derives the codes a commissioner takes from the Secret's passcode and discriminator.
+func expectedCodes(secret *corev1.Secret) (manual, qr string) {
+	cfg, err := render.MatterSetup(func(key string) ([]byte, error) { return secret.Data[key], nil })
+	Expect(err).NotTo(HaveOccurred())
+	p := node.PayloadFor(cfg.Setup)
+	manual, err = p.ManualCode()
+	Expect(err).NotTo(HaveOccurred())
+	qr, err = p.QRCode()
+	Expect(err).NotTo(HaveOccurred())
+	return manual, qr
+}

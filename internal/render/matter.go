@@ -34,6 +34,10 @@ const (
 	// MatterEndpointsKey backs up Bridge.status.endpoints, so a Bridge that's deleted and
 	// applied again gives its Devices the same endpoint IDs. The role doesn't read it.
 	MatterEndpointsKey = "endpoints.json"
+	// MatterManualCodeKey and MatterQRCodeKey hold the pairing codes derived from the passcode
+	// and discriminator, for the user to read. The role doesn't read them.
+	MatterManualCodeKey = "manual-code"
+	MatterQRCodeKey     = "qr-code"
 )
 
 // MatterSetupKeys are the Secret keys mounted into the bridge pod.
