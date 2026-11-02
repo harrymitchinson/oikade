@@ -89,6 +89,14 @@ type Cluster struct {
 	endpoint *Endpoint
 }
 
+// Node returns the Node the cluster was added to, or nil before it's added.
+func (c *Cluster) Node() *Node {
+	if c.endpoint == nil {
+		return nil
+	}
+	return c.endpoint.node
+}
+
 // DataVersion returns the cluster's data version, which changes whenever an attribute does.
 func (c *Cluster) DataVersion() uint32 { return c.version }
 

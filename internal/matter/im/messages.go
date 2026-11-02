@@ -600,3 +600,10 @@ func copyElement(r *tlv.Reader, w *tlv.Writer, tag tlv.Tag) error {
 	w.End()
 	return r.Exit()
 }
+
+// Fields enters the structure r is on, such as a command's fields, and calls field for each
+// context-tagged element. It fails if a tag repeats, and leaves the structure.
+func Fields(r *tlv.Reader, field func(r *tlv.Reader, tag uint8) error) error { return fields(r, field) }
+
+// Items enters the array or list r is on and calls item for each element.
+func Items(r *tlv.Reader, item func(r *tlv.Reader) error) error { return items(r, item) }

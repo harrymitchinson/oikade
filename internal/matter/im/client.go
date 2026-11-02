@@ -102,8 +102,8 @@ type InvokeResult struct {
 	Status Status
 	// ClusterStatus is the cluster-specific status that came with Status, if one did.
 	ClusterStatus *uint8
-	Response *CommandPath
-	Fields   []byte // the encoded fields structure
+	Response      *CommandPath
+	Fields        []byte // the encoded fields structure
 }
 
 // Invoke invokes a command, with fields writing its fields inside their structure (nil for
