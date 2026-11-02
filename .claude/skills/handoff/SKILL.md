@@ -11,7 +11,7 @@ The repo and git history already record *what* changed. The handoff records what
 
 ## Steps
 
-1. **Get the date and pick a filename.** Run `date +%F`. Write to `.claude/handoffs/<date>-<topic>.md` at the repo root, where `<topic>` is a 2–5 word kebab-case slug for the work (for example `2026-10-17-homekit-thermostat-mapping.md`). If that file already exists, add `-2`, `-3` and so on. Don't overwrite older handoffs, because they're the history.
+1. **Get the date and pick a filename.** Run `date +%F`. Write to `.claude/handoffs/<date>-<topic>.md` at the repo root, where `<topic>` is a 2–5 word kebab-case slug for the work (for example `2026-10-17-matter-thermostat-mapping.md`). If that file already exists, add `-2`, `-3` and so on. Don't overwrite older handoffs, because they're the history.
 
 2. **Look before you write.** Read the conversation back from the start, not just the last few turns. Early decisions and abandoned approaches are the easiest to lose. Run `git status --short` to see which files are actually modified. That keeps "done" honest, but it isn't a section of the note.
 
@@ -69,7 +69,7 @@ Leave out any section that would be empty except Goal, Status and Next steps, an
 
 ## Writing it well
 
-**Write for a cold reader.** The next session doesn't know what "the mapping issue" or "option B" means. Name things fully: file paths (`internal/hap/mapping.go:142`), types, commands, CRD fields, topic names. Quote error messages exactly instead of paraphrasing them. A short code snippet is fine when it saves the reader rediscovering something.
+**Write for a cold reader.** The next session doesn't know what "the mapping issue" or "option B" means. Name things fully: file paths (`internal/matterbridge/mapping.go:142`), types, commands, CRD fields, topic names. Quote error messages exactly instead of paraphrasing them. A short code snippet is fine when it saves the reader rediscovering something.
 
 **Separate verified from believed.** "Tests pass" is only useful if it's true now. If the last test run came before later edits, say so. Wrong confidence in a handoff costs more than admitted uncertainty, because the next session acts on it without checking.
 
@@ -90,7 +90,7 @@ The user pastes this as the first message of the next session. It should:
 Example:
 
 ```
-Read .claude/handoffs/2026-10-17-homekit-thermostat-mapping.md first, as it's the handoff from my last session. We're adding thermostat setpoint support to the HomeKit bridge. The capability and zigbee2mqtt binding are done; next is the HAP characteristic mapping in internal/hap/mapping.go, then the unit tests. Check the "Dead ends" section before trying anything with the TargetHeatingCoolingState characteristic.
+Read .claude/handoffs/2026-10-17-matter-thermostat-mapping.md first, as it's the handoff from my last session. We're adding thermostat setpoint support to the Matter bridge. The capability and zigbee2mqtt binding are done; next is the Thermostat cluster mapping in internal/matterbridge/mapping.go, then the unit tests. Check the "Dead ends" section before trying anything with the SystemMode attribute.
 ```
 
 ## When something is missing

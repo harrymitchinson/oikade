@@ -118,7 +118,7 @@ You have two options:
 
 ## 6. Choose a release
 
-Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the HAP pods. The image and `install.yaml` are added after the release's tests pass, about fifteen minutes after it appears. Pick a release that lists `install.yaml` under its assets.
+Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the Matter bridge pods. The image and `install.yaml` are added after the release's tests pass, about fifteen minutes after it appears. Pick a release that lists `install.yaml` under its assets.
 
 Versions between milestones are pre-releases, such as `v0.1.0-alpha.3`. Any of them may change the API, so read the release notes before you upgrade (README, "Versioning").
 

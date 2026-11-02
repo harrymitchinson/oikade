@@ -438,7 +438,7 @@ Drivers translate to and from a protocol-neutral set of capabilities. Matter, me
 
 ## Plugins
 
-A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up in HomeKit, Grafana and rules like Zigbee ones, and keep working in HomeKit while the runtime is down.
+A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up on the Matter bridge, in Grafana and in rules like Zigbee ones, and keep working through the bridge while the runtime is down.
 
 ```yaml
 apiVersion: plugins.oikade.dev/v1alpha1
@@ -548,13 +548,6 @@ To really forget a Bridge or Zigbee2MQTT instance, delete those objects yourself
 ```sh
 kubectl delete secret,pvc -l matter.oikade.dev/bridge=<name>
 kubectl delete secret,pvc -l zigbee.oikade.dev/instance=<name>
-```
-
-**Upgrading from the HomeKit bridge.** Oikade no longer has a HomeKit bridge, and `kubectl apply` doesn't remove its CRD. Delete it, which also deletes its Bridges and their pods, then its Secrets and PVCs, and pair the Matter bridge instead. Rooms, scenes and automations in the Home app have to be set up again.
-
-```sh
-kubectl delete crd bridges.homekit.oikade.dev
-kubectl delete secret,pvc -l homekit.oikade.dev/bridge
 ```
 
 ## Security notes

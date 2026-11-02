@@ -17,7 +17,7 @@ This is the checklist the `design` and `plan` skills use. Oikade is small, but e
 
 | Plane | Owner | Holds |
 |---|---|---|
-| Control | Git, as CRDs (`home.oikade.dev`, `homekit.oikade.dev`, `zigbee.oikade.dev`) | What should exist: Devices, Rooms, Rules, Bridges, Zigbee2MQTT instances |
+| Control | Git, as CRDs (`home.oikade.dev`, `matter.oikade.dev`, `zigbee.oikade.dev`, `plugins.oikade.dev`) | What should exist: Devices, Rooms, Rules, Bridges, Zigbee2MQTT instances |
 | Data | MQTT (Mosquitto) | Live state and commands: "light is on", "21.4°C", `/set` |
 | History | Prometheus, Grafana, Loki | Values over time, changes, rule runs |
 
@@ -36,31 +36,31 @@ These appear in users' Git repos, dashboards, alert rules and Home app setups. C
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.
 - **The CEL environment** for Rules: `trigger`, `devices`, `now`, `tz`. Its variables and types are a language contract.
 - **Log messages that are queried**, for example `"Changed capability"` in Loki.
-- **Object names and labels**: `<bridge>-identity`, `<bridge>-hap`, `<instance>-network`, `<instance>-data`, and the labels `homekit.oikade.dev/bridge` and `zigbee.oikade.dev/instance`. Backup and cleanup docs depend on them.
-- **HomeKit instance IDs.** AIDs are append-only in `Bridge.status.accessories`. Service and characteristic IIDs are positional: `hap.NewServer` numbers them in the order they're added. Reordering silently remaps users' Home app scenes.
+- **Object names and labels**: `<bridge>-matter` (Secret and PVC), `<instance>-network`, `<instance>-data`, and the labels `matter.oikade.dev/bridge` and `zigbee.oikade.dev/instance`. Backup and cleanup docs depend on them.
+- **Matter endpoint IDs.** They're append-only in `Bridge.status.endpoints`, with a copy in the `<bridge>-matter` Secret: never reused or reordered, and kept for deleted Devices. Controllers key rooms, scenes and automations on them.
 
 ## 3. State that must survive
 
 Losing any of these means re-pairing. Then the Home app forgets rooms, scenes and automations, or every Zigbee device has to be paired again. A feature that touches one of them needs an explicit "what happens on upgrade, delete, and restore" answer.
 
-- HomeKit identity Secret and the pairings PVC. Neither has an owner reference. The Secret is restored from `Bridge.status.username`.
-- AID allocations: never reused or reordered, and kept for deleted Devices.
+- The Matter bridge's `<bridge>-matter` Secret (setup code, unique ID, attestation key, and the endpoint ID backup) and its PVC (the fabric table). Neither has an owner reference.
+- Endpoint ID allocations: never reused or reordered, and kept for deleted Devices.
 - The Zigbee network key Secret and the z2m database PVC. Neither has an owner reference.
 - Anything new that would be painful to lose follows the same pattern: no owner reference, a predictable name and label, restorable from status or Git where possible, and listed in README "State that must survive" and in the Pi guide's backup section.
 
 ## 4. Component boundaries
 
-The roles (`manager`, `manager runtime`, `manager hap`), the data path and the drivers are in `docs/architecture.md`. The boundaries a design must not cross without saying so:
+The roles (`manager`, `manager runtime`, `manager matter`), the data path and the drivers are in `docs/architecture.md`. The boundaries a design must not cross without saying so:
 
 - **`manager`** only talks to Kubernetes, never to MQTT.
 - **`manager runtime`** is exactly one replica, because two would run every rule twice. A feature that assumes runtime HA, or needs leader election, is a big decision.
-- **`manager hap`** keeps HomeKit working while the runtime is down. It has **read-only** API access and can only read its own Secrets.
-- **A new driver** (ESPHome, Matter) reports to a `driver.Sink`, takes writes as a `driver.Setter`, and joins the Device spec's driver union.
+- **`manager matter`** keeps controllers working while the runtime is down. It has **read-only** API access and can read no Secrets: its own are mounted.
+- **A new driver** (ESPHome, say) reports to a `driver.Sink`, takes writes as a `driver.Setter`, and joins the Device spec's driver union.
 
 ## 5. Hardware and environment
 
 - The real target is the user's **arm64 Raspberry Pi cluster** running k3s. Images must build for arm64, and memory and CPU are tight.
-- HAP needs **L2 adjacency and mDNS** with Apple devices. Kind on macOS can't do mDNS, so anything user-visible in HomeKit can only be checked manually, against real devices and the Home app.
+- The Matter bridge needs **L2 adjacency, mDNS and IPv6** with controllers. In-process node tests and chip-tool cover the protocol; how the Home app shows things can only be checked manually, against real devices.
 - The Zigbee coordinator is either networked (`tcp://host:6638`), so the pod can run anywhere, or USB, so the pod is pinned with `nodeSelector` and runs privileged.
 - Mosquitto is anonymous inside the cluster today. MQTT auth and TLS are listed under "Not yet".
 
@@ -70,11 +70,11 @@ Say which layer proves each behaviour. Don't just write "add tests".
 
 | Layer | Command | Proves |
 |---|---|---|
-| Unit | `CGO_ENABLED=0 go test ./internal/...` | Registry, z2m exposes against fixture JSON, HAP mapping, CEL compile and evaluation, engine timing with a fake clock |
+| Unit | `CGO_ENABLED=0 go test ./internal/...` | Registry, z2m exposes against fixture JSON, the Matter mapping and coalescer, CEL compile and evaluation, engine timing with a fake clock, Matter commissioning in an in-process node test |
 | Integration | Part of `make test`, with an in-process broker (`internal/mqtt/mqtttest`) | Bus → status, metrics, and engine `/set` |
-| envtest | `CGO_ENABLED=0 make test` | Controllers: AID stability, identity restore, rendered z2m config, `Ready=False` on a bad CEL |
-| Kind e2e | `make test-e2e` | The deployed system with z2m faked by `mosquitto_pub` |
-| Manual, in the Manual testing doc | Real devices and the Home app | HomeKit pairing, real Zigbee payloads, the Home app's rendering, arm64 resource use |
+| envtest | `CGO_ENABLED=0 make test` | Controllers: endpoint ID stability, the Secret backup, rendered z2m config, `Ready=False` on a bad CEL |
+| Kind e2e | `make test-e2e`, on main and nightly only: agents don't run it | A few journeys across the deployed system, with z2m faked by `mosquitto_pub` and chip-tool as the controller |
+| Manual, in the Manual testing doc | Real devices and the Home app | Pairing with the Home app, real Zigbee payloads, the Home app's rendering, arm64 resource use |
 
 Lint with `GOTOOLCHAIN=go1.26.0 make lint`.
 

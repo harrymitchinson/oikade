@@ -29,9 +29,9 @@ Linear is the source of truth for the plan and for every design. The repo keeps 
 
 A design is needed only when the work changes something expensive to reverse:
 
-- **public API:** CRD fields, capability names and semantics, metric names and labels, the CEL environment, the plugin contract, HomeKit IIDs
-- **state that must survive:** identity, pairings, network keys, AIDs
-- **component boundaries:** manager, runtime and hap
+- **public API:** CRD fields, capability names and semantics, metric names and labels, the CEL environment, the plugin contract, Matter endpoint IDs
+- **state that must survive:** the Matter bridge's setup code and fabrics, network keys
+- **component boundaries:** manager, runtime and matter
 - **a new kind, a new driver, or a new runtime dependency**
 - **anything else** an agent can't cheaply undo
 
@@ -57,15 +57,15 @@ Designs from before the move to Linear are in Done issues: room-targeted automat
 - **Steps stack while they wait.** An agent doesn't stop at a PR: `hack/plan step` starts the next step on top of it, and its PR's base is the step below. When a step merges, `hack/plan restack` rebases the steps above it onto main, because a squash merge gives main a new commit. At most three of a feature's steps wait at once, so a change asked for low in the stack doesn't ripple far.
 - **Parallelism comes from features and stacks.** One feature's steps are built in order, because each builds on the last. Different features run at the same time.
 - **Stale claims are visible.** `hack/plan claims` flags any claim with no commit on it or its step branches for 24 hours. `hack/plan release` gives one up, and refuses to delete a claim branch that has commits unless it's forced.
-- **Kind is per feature.** Each agent runs e2e with `KIND_CLUSTER=oikade-e2e-<N>` and its own `KUBECONFIG`, so parallel e2e runs don't collide or touch the user's current context.
 - **Shared checkout.** Sessions share one checkout and its git index, so each works in its own worktree and stages explicit paths only.
 - **Branches named `claim/*` and `work/*` are reserved** for claims and their steps. PRs merge with squash, bottom of a stack first.
 
 ## Merging
 
-The user's review is the design, before any code. Code is vouched for by CI, the code-review skill and e2e.
+The user's review is the design, before any code. Code is vouched for by CI, the code-review skill and unit tests and envtest.
 
-- **Kind e2e doesn't block PRs.** It takes about 9 minutes, so CI doesn't run it on PRs. Main runs it after each merge, nightly and before a release, so a break shows up there, and the user can run it on a branch by hand. When a step changes what e2e covers and no cheaper test can check it, run `make test-e2e` locally and say so in the PR.
+- **Agents never run Kind e2e within a step.** The bar for every PR is unit tests and envtest. CI doesn't run e2e on PRs: main runs it after each merge, nightly and before a release. If main's e2e breaks, fix it forward in a new PR.
+- **Test at the lowest level that shows the behaviour.** Mappings, coalescing and endpoint IDs in unit tests, controllers in envtest, Matter commissioning in an in-process node test (a Go controller talking to the node, no Kind). Don't add e2e specs per feature: e2e keeps a few journeys across components.
 
 - **Agents merge every step** once its checks pass, with `hack/plan merge OIK-N PR`. It merges only if the session holds the claim, the PR is the bottom of its stack and up to date with main, and every check passed. If neither it nor the feature has `needs-review`, and its diff touches no protected path (counting both sides of a rename), that's all. Otherwise it's held for the user, and merges only once their Approve covers its head.
 - **The protected paths** (`PROTECTED` in `hack/plan`) are a small floor that waits for the user:
