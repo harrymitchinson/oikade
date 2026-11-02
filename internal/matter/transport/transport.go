@@ -253,6 +253,7 @@ func (t *Transport) newSession(peer netip.AddrPort) *Session {
 		mrp:       t.mrp,
 		exchanges: map[exchangeKey]*Exchange{},
 		nextEx:    uint16(mrand.Uint32()),
+		done:      make(chan struct{}),
 	}
 }
 
