@@ -77,7 +77,7 @@ var _ = Describe("Matter validation", func() {
 
 		It("rejects a duplicate endpoint", func() {
 			Expect(setEndpoints(4, ep("desk-lamp", 2), ep("hall-sensor", 2))).
-				To(MatchError(ContainSubstring("endpoint IDs must be unique")))
+				To(MatchError(ContainSubstring("Duplicate value")))
 		})
 
 		It("rejects endpoints that aren't allocated densely", func() {
@@ -104,9 +104,23 @@ var _ = Describe("Matter validation", func() {
 				To(MatchError(ContainSubstring("nextEndpoint never decreases")))
 			reset()
 			Expect(setEndpoints(5, ep("desk-lamp", 4), ep("hall-sensor", 3), ep("porch-plug", 2))).
-				To(MatchError(ContainSubstring("a Device's endpoint never changes")))
+				To(MatchError(ContainSubstring("an endpoint's Device never changes")))
+			reset()
+			// A removed Device's ID handed to a new one.
+			Expect(setEndpoints(5, ep("new-lamp", 2), ep("hall-sensor", 3), ep("porch-plug", 4))).
+				To(MatchError(ContainSubstring("an endpoint's Device never changes")))
 			reset()
 			Expect(setEndpoints(6, ep("desk-lamp", 2), ep("hall-sensor", 3), ep("porch-plug", 4), ep("desk-lamp-2", 5))).To(Succeed())
+		})
+
+		It("rejects a displayName over 32 bytes, and cuts the name fallback to 32 bytes", func() {
+			bridge.Spec.DisplayName = "Wohnzimmer Brücke Erdgeschoß 🏠" // 30 characters, 35 bytes
+			Expect(k8sClient.Update(ctx, bridge)).To(MatchError(ContainSubstring("at most 32 bytes")))
+
+			b := matterv1alpha1.Bridge{ObjectMeta: metav1.ObjectMeta{Name: "living-room-matter-bridge-upstairs"}}
+			Expect(b.Title()).To(Equal("living-room-matter-bridge-upstai"))
+			b.Spec.DisplayName = "Brücke"
+			Expect(b.Title()).To(Equal("Brücke"))
 		})
 
 		It("rejects a malformed fabric", func() {

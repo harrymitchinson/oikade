@@ -1,5 +1,5 @@
 # A Matter bridge. The controller generates its setup passcode and discriminator, and shows the
-# pairing code and QR payload in its status: kubectl get bridges.matter.oikade.dev main
+# pairing code and QR payload in its status: kubectl get matterbridge main
 apiVersion: matter.oikade.dev/v1alpha1
 kind: Bridge
 metadata:
