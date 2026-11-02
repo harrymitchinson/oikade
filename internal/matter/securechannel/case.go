@@ -496,7 +496,7 @@ func (r *CASEResponder) full(ctx context.Context, ex *transport.Exchange, s1Byte
 	established = true
 	s, err := r.establish(ctx, ex, transport.SecureSessionConfig{
 		LocalSessionID: localID, PeerSessionID: s1.initiatorSessionID, Peer: ex.Session().Peer(),
-		LocalNodeID: f.nodeID, PeerNodeID: p.nodeID, FabricIndex: f.Index, PeerCATs: p.cats,
+		LocalNodeID: f.nodeID, PeerNodeID: p.nodeID, FabricIndex: f.Index, CATs: p.cats, Auth: transport.AuthCASE, AttestationChallenge: sk.AttestationChallenge,
 		Security: sec, PeerMRP: s1.params.MRP(),
 	})
 	if err != nil {
@@ -540,7 +540,7 @@ func (r *CASEResponder) resume(ctx context.Context, ex *transport.Exchange, s1 *
 	// acknowledged it.
 	s := tr.AddSecureSession(transport.SecureSessionConfig{
 		LocalSessionID: localID, PeerSessionID: s1.initiatorSessionID, Peer: ex.Session().Peer(),
-		LocalNodeID: f.nodeID, PeerNodeID: res.node, FabricIndex: f.Index, PeerCATs: res.cats,
+		LocalNodeID: f.nodeID, PeerNodeID: res.node, FabricIndex: f.Index, CATs: res.cats, Auth: transport.AuthCASE, AttestationChallenge: sk.AttestationChallenge,
 		Security: sec, PeerMRP: s1.params.MRP(),
 	})
 	established = true
@@ -760,7 +760,7 @@ func (i *caseInitiator) full(ctx context.Context, eph *ecdh.PrivateKey, s1Bytes,
 	i.c.Resumption.save(res)
 	return i.tr.AddSecureSession(transport.SecureSessionConfig{
 		LocalSessionID: i.localID, PeerSessionID: s2.responderSessionID, Peer: i.addr,
-		LocalNodeID: f.nodeID, PeerNodeID: p.nodeID, FabricIndex: f.Index, PeerCATs: p.cats,
+		LocalNodeID: f.nodeID, PeerNodeID: p.nodeID, FabricIndex: f.Index, CATs: p.cats, Auth: transport.AuthCASE, AttestationChallenge: sk.AttestationChallenge,
 		Security: sec, PeerMRP: s2.params.MRP(),
 	}), nil
 }
@@ -800,7 +800,7 @@ func (i *caseInitiator) resumed(ctx context.Context, initiatorRandom []byte, res
 	i.c.Resumption.save(res)
 	return i.tr.AddSecureSession(transport.SecureSessionConfig{
 		LocalSessionID: i.localID, PeerSessionID: m.responderSessionID, Peer: i.addr,
-		LocalNodeID: f.nodeID, PeerNodeID: res.node, FabricIndex: f.Index, PeerCATs: res.cats,
+		LocalNodeID: f.nodeID, PeerNodeID: res.node, FabricIndex: f.Index, CATs: res.cats, Auth: transport.AuthCASE, AttestationChallenge: sk.AttestationChallenge,
 		Security: sec, PeerMRP: m.params.MRP(),
 	}), nil
 }

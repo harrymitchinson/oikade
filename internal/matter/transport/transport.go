@@ -192,16 +192,27 @@ func (t *Transport) NewUnsecuredSession(peer netip.AddrPort) *Session {
 	}
 }
 
+// AuthMode is how a secure session's peer authenticated.
+type AuthMode uint8
+
+const (
+	AuthPASE AuthMode = 1 // with the setup passcode
+	AuthCASE AuthMode = 2 // with its operational certificate
+)
+
 // SecureSessionConfig describes a secure session that PASE or CASE established.
 type SecureSessionConfig struct {
 	LocalSessionID uint16 // from AllocateSessionID
 	PeerSessionID  uint16
 	Peer           netip.AddrPort
-	LocalNodeID    uint64   // 0 for PASE
-	PeerNodeID     uint64   // 0 for PASE
-	FabricIndex    uint8    // the local fabric CASE ran on; 0 for PASE
-	PeerCATs       []uint32 // the CASE Authenticated Tags in the peer's NOC
-	Security       Security
+	LocalNodeID    uint64 // 0 for PASE
+	PeerNodeID     uint64 // 0 for PASE
+	Auth           AuthMode
+	FabricIndex    uint8    // the local fabric CASE ran on; 0 for PASE until AddNOC binds it
+	CATs           []uint32 // the CASE Authenticated Tags in the peer's NOC
+	// AttestationChallenge is the session's attestation challenge, from its key derivation.
+	AttestationChallenge []byte
+	Security             Security
 	// PeerMRP is what the peer said of its MRP intervals. Zero fields keep the Transport's.
 	PeerMRP MRPConfig
 }
@@ -241,7 +252,8 @@ func (t *Transport) AddSecureSession(c SecureSessionConfig) *Session {
 	s := t.newSession(c.Peer)
 	s.localID, s.peerID = c.LocalSessionID, c.PeerSessionID
 	s.localNode, s.peerNode = c.LocalNodeID, c.PeerNodeID
-	s.fabric, s.peerCATs = c.FabricIndex, slices.Clone(c.PeerCATs)
+	s.auth, s.fabric, s.cats = c.Auth, c.FabricIndex, slices.Clone(c.CATs)
+	s.challenge = slices.Clone(c.AttestationChallenge)
 	s.security = c.Security
 	s.mrp = c.PeerMRP.or(t.mrp)
 	s.counter = initialCounter()

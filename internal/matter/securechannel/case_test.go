@@ -278,11 +278,15 @@ func TestCASE(t *testing.T) {
 				t.Fatalf("EstablishCASE: %v", err)
 			}
 			ds := dev.session(t)
-			if s.PeerNodeID() != deviceNode || s.FabricIndex() != 1 || len(s.PeerCATs()) != 0 {
-				t.Errorf("controller's session: node %x, fabric %d, CATs %v", s.PeerNodeID(), s.FabricIndex(), s.PeerCATs())
+			if s.PeerNodeID() != deviceNode || s.FabricIndex() != 1 || len(s.CATs()) != 0 {
+				t.Errorf("controller's session: node %x, fabric %d, CATs %v", s.PeerNodeID(), s.FabricIndex(), s.CATs())
 			}
-			if ds.PeerNodeID() != controllerNode || ds.FabricIndex() != 3 || !slices.Equal(ds.PeerCATs(), cats) {
-				t.Errorf("device's session: node %x, fabric %d, CATs %v", ds.PeerNodeID(), ds.FabricIndex(), ds.PeerCATs())
+			if ds.PeerNodeID() != controllerNode || ds.FabricIndex() != 3 || !slices.Equal(ds.CATs(), cats) {
+				t.Errorf("device's session: node %x, fabric %d, CATs %v", ds.PeerNodeID(), ds.FabricIndex(), ds.CATs())
+			}
+			if s.AuthMode() != transport.AuthCASE || ds.AuthMode() != transport.AuthCASE ||
+				len(s.AttestationChallenge()) != 16 || !bytes.Equal(s.AttestationChallenge(), ds.AttestationChallenge()) {
+				t.Errorf("auth modes %d/%d, attestation challenges %x/%x", s.AuthMode(), ds.AuthMode(), s.AttestationChallenge(), ds.AttestationChallenge())
 			}
 			readVendor(t, ctl.t, s)
 		})
@@ -410,8 +414,8 @@ func TestCASEResumption(t *testing.T) {
 	if !dev.conn.sent(OpSigma2Resume) || dev.conn.sent(OpSigma2) {
 		t.Fatalf("the device sent %x, want Sigma2_Resume", dev.conn.ops)
 	}
-	if ds.PeerNodeID() != controllerNode || ds.FabricIndex() != 2 || !slices.Equal(ds.PeerCATs(), []uint32{0x0002_0001}) {
-		t.Errorf("device's resumed session: node %x, fabric %d, CATs %v", ds.PeerNodeID(), ds.FabricIndex(), ds.PeerCATs())
+	if ds.PeerNodeID() != controllerNode || ds.FabricIndex() != 2 || !slices.Equal(ds.CATs(), []uint32{0x0002_0001}) {
+		t.Errorf("device's resumed session: node %x, fabric %d, CATs %v", ds.PeerNodeID(), ds.FabricIndex(), ds.CATs())
 	}
 	if again, _ := store.byPeer(1, deviceNode); again.id == first.id {
 		t.Error("resumption didn't rotate the resumption ID")
@@ -517,8 +521,16 @@ func TestPASEAndCASEShareTransport(t *testing.T) {
 	}
 	(&Responder{Transport: dev.t, Verifier: v, Salt: testSalt, Iterations: 1000, Log: testr.New(t)}).Register()
 	ctl := newCASENode(t)
-	if _, err := EstablishPASE(timeout(t), ctl.t, dev.addr(), testPasscode, nil); err != nil {
+	ps, err := EstablishPASE(timeout(t), ctl.t, dev.addr(), testPasscode, nil)
+	if err != nil {
 		t.Fatalf("EstablishPASE: %v", err)
+	}
+	if ps.AuthMode() != transport.AuthPASE || len(ps.AttestationChallenge()) != 16 || ps.FabricIndex() != 0 {
+		t.Errorf("PASE session: auth %d, challenge %x, fabric %d", ps.AuthMode(), ps.AttestationChallenge(), ps.FabricIndex())
+	}
+	ps.SetFabricIndex(4)
+	if ps.FabricIndex() != 4 {
+		t.Errorf("FabricIndex %d after SetFabricIndex(4)", ps.FabricIndex())
 	}
 	if _, err := EstablishCASE(timeout(t), ctl.t, dev.addr(), ca.fabric(t, 1, controllerNode, nil, time.Time{}), deviceNode, CASEConfig{}); err != nil {
 		t.Fatalf("EstablishCASE: %v", err)

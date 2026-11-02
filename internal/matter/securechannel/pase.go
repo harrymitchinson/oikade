@@ -185,6 +185,7 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 	s := tr.AddSecureSession(transport.SecureSessionConfig{
 		LocalSessionID: localID, PeerSessionID: req.initiatorSessionID,
 		Peer: ex.Session().Peer(), Security: sec, PeerMRP: req.params.MRP(),
+		Auth: transport.AuthPASE, AttestationChallenge: sk.AttestationChallenge,
 	})
 	established = true
 	// Keep the session only if the commissioner hears that it was established.
@@ -321,6 +322,7 @@ func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.Ad
 	return tr.AddSecureSession(transport.SecureSessionConfig{
 		LocalSessionID: localID, PeerSessionID: resp.responderSessionID,
 		Peer: device, Security: sec, PeerMRP: resp.params.MRP(),
+		Auth: transport.AuthPASE, AttestationChallenge: sk.AttestationChallenge,
 	}), nil
 }
 

@@ -11,7 +11,8 @@ const DefaultResumptions = 64
 // ResumptionStore remembers, in memory, what a node needs to resume CASE sessions with the peers
 // it recently established one with (Core spec, 4.14.2.2): one entry per peer, the oldest dropped
 // first once it's full. A responder looks entries up by resumption ID, and an initiator by peer.
-// Both sides keep their own store. It's safe for concurrent use.
+// Both sides keep their own store. It's safe for concurrent use, and a nil store remembers
+// nothing.
 type ResumptionStore struct {
 	max int
 
@@ -93,6 +94,9 @@ func (s *ResumptionStore) forget(fabric uint8, node uint64) {
 // RemoveFabric forgets every resumption on a fabric, for when the fabric is removed or its index
 // reused.
 func (s *ResumptionStore) RemoveFabric(fabric uint8) {
+	if s == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries = slices.DeleteFunc(s.entries, func(e resumption) bool { return e.fabric == fabric })
@@ -100,6 +104,9 @@ func (s *ResumptionStore) RemoveFabric(fabric uint8) {
 
 // Len returns how many peers the store remembers.
 func (s *ResumptionStore) Len() int {
+	if s == nil {
+		return 0
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.entries)
