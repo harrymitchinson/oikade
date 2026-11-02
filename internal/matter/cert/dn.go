@@ -157,8 +157,12 @@ func parseUpperHex(s string, n int) (uint64, bool) {
 // DN is a distinguished name, its attributes in order.
 type DN []Attribute
 
-// Get returns the value of the first Matter attribute of type t, and false if there is none.
+// Get returns the value of the first Matter attribute of type t, and false if there is none or t
+// isn't a Matter attribute.
 func (d DN) Get(t AttributeType) (uint64, bool) {
+	if !t.IsMatter() {
+		return 0, false
+	}
 	for _, a := range d {
 		if a.Type == t {
 			return a.Value, true

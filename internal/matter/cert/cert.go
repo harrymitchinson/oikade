@@ -41,8 +41,10 @@ type Certificate struct {
 	// SerialNumber is the contents of the DER INTEGER, as the TLV form holds it.
 	SerialNumber []byte
 	Issuer       DN
-	// NotBefore and NotAfter bound the validity period, to the second. A zero NotAfter means the
-	// certificate has no expiry (X.509's 99991231235959Z, Matter's epoch time 0).
+	// NotBefore and NotAfter bound the validity period, to the second, from 2000 to 2136. A zero
+	// NotAfter means the certificate has no expiry (X.509's 99991231235959Z, Matter's epoch time
+	// 0). Matter's form can't tell a zero NotBefore from that either, so it too becomes
+	// 99991231235959Z in X.509, as in connectedhomeip; certificates made here always set it.
 	NotBefore time.Time
 	NotAfter  time.Time
 	Subject   DN

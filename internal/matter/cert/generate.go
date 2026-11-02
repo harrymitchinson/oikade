@@ -17,36 +17,36 @@ import (
 
 // Sign fills in c's issuer, key identifiers and serial number, and signs it with key. An empty
 // serial number becomes a random one, and an empty subject key ID the SHA-1 of the public key, as
-// RFC 5280 suggests and connectedhomeip does.
+// RFC 5280 suggests and connectedhomeip does. If Sign fails, c is unchanged.
 //
 // If issuer is nil, c is self-signed: its issuer is its own subject, and key must be its own key.
 // Otherwise key must be issuer's key.
 func Sign(c, issuer *Certificate, key crypto.Signer) error {
-	pub, ok := key.Public().(*ecdsa.PublicKey)
-	if !ok || pub.Curve != elliptic.P256() {
-		return invalid("signing key isn't ECDSA P-256")
-	}
-	pubBytes, err := pub.Bytes()
+	pubBytes, err := signerKey(key)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalid, err)
+		return err
 	}
-	if len(c.SubjectKeyID) == 0 {
-		c.SubjectKeyID = keyID(c.PublicKey)
+	d := *c // filled in, and copied back only on success
+	if len(d.SubjectKeyID) == 0 {
+		d.SubjectKeyID = keyID(d.PublicKey)
 	}
 	if issuer == nil {
-		issuer = c
+		issuer = &d
 	}
 	if !bytes.Equal(pubBytes, issuer.PublicKey) {
 		return invalid("signing key isn't the issuer's")
 	}
-	c.Issuer = append(DN(nil), issuer.Subject...)
-	c.AuthorityKeyID = bytes.Clone(issuer.SubjectKeyID)
-	if len(c.SerialNumber) == 0 {
-		if c.SerialNumber, err = randomSerial(); err != nil {
+	if len(issuer.SubjectKeyID) == 0 {
+		return invalid("issuer has no subject key ID")
+	}
+	d.Issuer = append(DN(nil), issuer.Subject...)
+	d.AuthorityKeyID = bytes.Clone(issuer.SubjectKeyID)
+	if len(d.SerialNumber) == 0 {
+		if d.SerialNumber, err = randomSerial(); err != nil {
 			return err
 		}
 	}
-	tbs, err := c.tbs()
+	tbs, err := d.tbs()
 	if err != nil {
 		return err
 	}
@@ -56,12 +56,14 @@ func Sign(c, issuer *Certificate, key crypto.Signer) error {
 		return fmt.Errorf("matter: signing certificate: %w", err)
 	}
 	var rs struct{ R, S *big.Int }
-	if rest, err := asn1.Unmarshal(sig, &rs); err != nil || len(rest) > 0 {
-		return fmt.Errorf("matter: signer returned a malformed ECDSA signature")
+	if rest, err := asn1.Unmarshal(sig, &rs); err != nil || len(rest) > 0 ||
+		rs.R.Sign() <= 0 || rs.S.Sign() <= 0 || rs.R.BitLen() > 256 || rs.S.BitLen() > 256 {
+		return fmt.Errorf("matter: signer returned a malformed ECDSA P-256 signature")
 	}
-	c.Signature = make([]byte, signatureLength)
-	rs.R.FillBytes(c.Signature[:signatureLength/2])
-	rs.S.FillBytes(c.Signature[signatureLength/2:])
+	d.Signature = make([]byte, signatureLength)
+	rs.R.FillBytes(d.Signature[:signatureLength/2])
+	rs.S.FillBytes(d.Signature[signatureLength/2:])
+	*c = d
 	return nil
 }
 
@@ -80,9 +82,10 @@ func randomSerial() ([]byte, error) {
 	return b, nil
 }
 
+// publicKeyBytes returns a P-256 public key in uncompressed form.
 func publicKeyBytes(pub *ecdsa.PublicKey) ([]byte, error) {
 	if pub == nil || pub.Curve != elliptic.P256() {
-		return nil, invalid("public key isn't ECDSA P-256")
+		return nil, invalid("key isn't ECDSA P-256")
 	}
 	b, err := pub.Bytes()
 	if err != nil {
@@ -91,12 +94,17 @@ func publicKeyBytes(pub *ecdsa.PublicKey) ([]byte, error) {
 	return b, nil
 }
 
+// signerKey returns a signer's P-256 public key in uncompressed form.
+func signerKey(key crypto.Signer) ([]byte, error) {
+	pub, _ := key.Public().(*ecdsa.PublicKey)
+	return publicKeyBytes(pub)
+}
+
 func caCertificate(subject DN, key crypto.Signer, notBefore, notAfter time.Time) (*Certificate, error) {
-	pub, ok := key.Public().(*ecdsa.PublicKey)
-	if !ok {
-		return nil, invalid("key isn't ECDSA")
+	if notBefore.IsZero() {
+		return nil, invalid("no notBefore")
 	}
-	pubBytes, err := publicKeyBytes(pub)
+	pubBytes, err := signerKey(key)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +127,7 @@ func withFabric(dn DN, fabricID uint64) DN {
 }
 
 // NewRCAC makes a self-signed root CA certificate for key, with the given RCAC ID and, unless it is
-// 0, fabric ID. A zero notAfter means no expiry.
+// 0, fabric ID. notBefore must be set; a zero notAfter means no expiry.
 func NewRCAC(key crypto.Signer, rcacID, fabricID uint64, notBefore, notAfter time.Time) (*Certificate, error) {
 	c, err := caCertificate(withFabric(DN{{Type: AttrRCACID, Value: rcacID}}, fabricID), key, notBefore, notAfter)
 	if err != nil {
@@ -128,12 +136,15 @@ func NewRCAC(key crypto.Signer, rcacID, fabricID uint64, notBefore, notAfter tim
 	if err := Sign(c, nil, key); err != nil {
 		return nil, err
 	}
+	if err := checkRoot(c); err != nil {
+		return nil, err
+	}
 	return c, nil
 }
 
 // NewICAC makes an intermediate CA certificate for the key icacKey, issued by root and signed with
-// rootKey, with the given ICAC ID and, unless it is 0, fabric ID. A zero notAfter means no
-// expiry.
+// rootKey, with the given ICAC ID and, unless it is 0, fabric ID. notBefore must be set; a zero
+// notAfter means no expiry.
 func NewICAC(root *Certificate, rootKey, icacKey crypto.Signer, icacID, fabricID uint64, notBefore, notAfter time.Time) (*Certificate, error) {
 	c, err := caCertificate(withFabric(DN{{Type: AttrICACID, Value: icacID}}, fabricID), icacKey, notBefore, notAfter)
 	if err != nil {
@@ -141,6 +152,12 @@ func NewICAC(root *Certificate, rootKey, icacKey crypto.Signer, icacID, fabricID
 	}
 	if err := Sign(c, root, rootKey); err != nil {
 		return nil, err
+	}
+	if err := checkIssued(c, root, KindICA); err != nil {
+		return nil, err
+	}
+	if rootFabric, ok := root.FabricID(); ok && fabricID != 0 && fabricID != rootFabric {
+		return nil, fmt.Errorf("%w: fabric ID %#016x isn't the root's %#016x", ErrChain, fabricID, rootFabric)
 	}
 	return c, nil
 }
@@ -154,8 +171,11 @@ type NOCSubject struct {
 }
 
 // NewNOC makes a node operational certificate for the public key pub, issued by issuer (the RCAC
-// or ICAC) and signed with issuerKey. A zero notAfter means no expiry.
+// or ICAC) and signed with issuerKey. notBefore must be set; a zero notAfter means no expiry.
 func NewNOC(issuer *Certificate, issuerKey crypto.Signer, pub *ecdsa.PublicKey, subject NOCSubject, notBefore, notAfter time.Time) (*Certificate, error) {
+	if notBefore.IsZero() {
+		return nil, invalid("no notBefore")
+	}
 	pubBytes, err := publicKeyBytes(pub)
 	if err != nil {
 		return nil, err
@@ -178,6 +198,9 @@ func NewNOC(issuer *Certificate, issuerKey crypto.Signer, pub *ecdsa.PublicKey, 
 	}
 	if err := checkKind(c, KindNode); err != nil {
 		return nil, err
+	}
+	if id, ok := issuer.FabricID(); ok && id != subject.FabricID {
+		return nil, fmt.Errorf("%w: fabric ID %#016x isn't the issuer's %#016x", ErrChain, subject.FabricID, id)
 	}
 	return c, nil
 }

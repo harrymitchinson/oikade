@@ -58,6 +58,9 @@ func (c *Certificate) CheckSignatureFrom(parent *Certificate) error {
 // The trust decision is the caller's: Verify checks the chain up to rcac, not whether rcac is one
 // the caller trusts.
 func Verify(rcac, icac, noc *Certificate, now time.Time) error {
+	if rcac == nil || noc == nil {
+		return fmt.Errorf("%w: root or node certificate missing", ErrChain)
+	}
 	if err := checkRoot(rcac); err != nil {
 		return err
 	}
@@ -99,6 +102,7 @@ func checkRoot(rcac *Certificate) error {
 	if !rcac.Issuer.Equal(rcac.Subject) || !bytes.Equal(rcac.AuthorityKeyID, rcac.SubjectKeyID) {
 		return fmt.Errorf("%w: root isn't self-issued", ErrChain)
 	}
+	// As connectedhomeip's ValidateChipRCAC: a Matter chain has at most one intermediate.
 	if p := rcac.BasicConstraints.MaxPathLen; p != nil && *p > 1 {
 		return fmt.Errorf("%w: root's path length constraint is %d, more than 1", ErrChain, *p)
 	}

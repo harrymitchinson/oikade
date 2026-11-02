@@ -95,6 +95,10 @@ var (
 		return m
 	}()
 
+	// attributeTypes and keyPurposes look up a DER object identifier.
+	attributeTypes = reverse(attributeOIDsDER)
+	keyPurposes    = reverse(keyPurposeOIDs)
+
 	derTrue = []byte{tagBoolean, 1, 0xFF}
 )
 
@@ -166,4 +170,12 @@ func (r *derReader) end(what string) error {
 		return invalid("unexpected data after %s", what)
 	}
 	return nil
+}
+
+func reverse[K comparable](m map[K][]byte) map[string]K {
+	r := make(map[string]K, len(m))
+	for k, v := range m {
+		r[string(v)] = k
+	}
+	return r
 }

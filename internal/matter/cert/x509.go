@@ -284,12 +284,7 @@ func parseName(r *derReader) (DN, error) {
 		if err != nil {
 			return nil, err
 		}
-		a := Attribute{}
-		for t, o := range attributeOIDsDER {
-			if bytes.Equal(o, oid) {
-				a.Type = t
-			}
-		}
+		a := Attribute{Type: attributeTypes[string(oid)]}
 		if a.Type == 0 {
 			return nil, invalid("unsupported distinguished name attribute")
 		}
@@ -498,12 +493,7 @@ func parseExtKeyUsage(r *derReader, c *Certificate) error {
 		if err != nil {
 			return err
 		}
-		var purpose KeyPurpose
-		for p, o := range keyPurposeOIDs {
-			if bytes.Equal(o, oid) {
-				purpose = p
-			}
-		}
+		purpose := keyPurposes[string(oid)]
 		if purpose == 0 {
 			return invalid("unsupported key purpose")
 		}

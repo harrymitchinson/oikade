@@ -336,6 +336,22 @@ func TestGenerateRejects(t *testing.T) {
 	if _, err := NewRCAC(rootKey, 1, 0, time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC), time.Time{}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("NewRCAC before 2000 = %v", err)
 	}
+	if _, err := NewRCAC(rootKey, 1, 0, time.Time{}, time.Time{}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("NewRCAC with no notBefore = %v", err)
+	}
+	fabricRoot, err := NewRCAC(rootKey, 1, 5, start, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewNOC(fabricRoot, rootKey, &nodeKey.PublicKey, NOCSubject{NodeID: 1, FabricID: 6}, start, time.Time{}); !errors.Is(err, ErrChain) {
+		t.Errorf("NewNOC on another fabric = %v", err)
+	}
+	if _, err := NewICAC(fabricRoot, rootKey, nodeKey, 2, 6, start, time.Time{}); !errors.Is(err, ErrChain) {
+		t.Errorf("NewICAC on another fabric = %v", err)
+	}
+	if err := Verify(nil, nil, root, start); !errors.Is(err, ErrChain) {
+		t.Errorf("Verify with no root = %v", err)
+	}
 }
 
 // TestVerifyNoNodeID checks a certificate with a fabric ID but no node ID isn't accepted as a NOC.
