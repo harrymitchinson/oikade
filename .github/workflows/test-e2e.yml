@@ -1,11 +1,10 @@
 name: E2E Tests
 
 on:
-  # Kind e2e takes ~9 minutes, so PRs don't wait for it: on a PR it runs only once the
-  # PR has the e2e label (adding the label starts it). Main runs it after each merge.
-  # Both skip changes that cannot change cluster behaviour.
+  # Kind e2e takes ~9 minutes, so PRs don't wait for it: on a PR only the image build
+  # runs. Main runs e2e after each merge, skipping changes that cannot change cluster
+  # behaviour. Run it on a branch by hand (workflow_dispatch), or locally with make test-e2e.
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
     paths:
       - "api/**"
       - "contract/**"
@@ -51,11 +50,7 @@ jobs:
     permissions:
       contents: read
     name: Run on Ubuntu
-    # On a PR: only with the e2e label, and not again when some other label is added
-    if: >-
-      github.event_name != 'pull_request' ||
-      (contains(github.event.pull_request.labels.*.name, 'e2e') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'e2e'))
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -106,8 +101,6 @@ jobs:
     permissions:
       contents: read
     name: Build the manager image
-    # Adding a label doesn't change the code, so it needs no new image build
-    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
