@@ -159,7 +159,7 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 		if ph.Reliable {
 			ex.needAck(counter)
 		}
-		go h.serve(s.t.ctx, ex, msg)
+		s.t.handling.Go(func() { h.serve(s.t.ctx, ex, msg) })
 		return true
 	}
 	if ex.closed {

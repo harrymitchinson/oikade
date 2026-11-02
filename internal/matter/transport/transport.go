@@ -87,6 +87,7 @@ type Transport struct {
 	secure    map[uint16]*Session // by local session ID
 	counter   uint32              // the global unencrypted message counter
 	ctx       context.Context     // Serve's, for Handlers
+	handling  sync.WaitGroup      // running Handlers
 }
 
 type unsecuredKey struct {
@@ -139,10 +140,13 @@ func (t *Transport) Handle(p ProtocolID, opcodes []uint8, h Handler) {
 }
 
 // Serve reads and dispatches messages until ctx is done or the socket fails. It closes the
-// socket when it returns.
+// socket and every session, and waits for the Handlers it started to return.
 func (t *Transport) Serve(ctx context.Context) error {
+	defer t.handling.Wait() // only this goroutine starts Handlers, so none start after this
+	handlers, cancel := context.WithCancel(ctx)
+	defer cancel() // Handlers stop when Serve does, whatever stopped it
 	t.mu.Lock()
-	t.ctx = ctx
+	t.ctx = handlers
 	t.mu.Unlock()
 	stop := context.AfterFunc(ctx, func() { _ = t.conn.Close() })
 	defer stop()
@@ -381,6 +385,19 @@ func (t *Transport) roomForResponder() bool {
 	t.log.V(1).Info("Evicted unsecured session", "peer", oldest.peer)
 	oldest.closeLocked()
 	return true
+}
+
+// SecureSessions returns how many secure sessions the Transport holds.
+func (t *Transport) SecureSessions() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for _, s := range t.secure {
+		if s != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // RemoveSession closes s and all its exchanges.

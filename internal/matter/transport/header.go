@@ -60,6 +60,22 @@ type Header struct {
 	Extensions []byte
 }
 
+// SecurityFlags returns the header's security flags byte, which a secure session's nonce
+// starts with.
+func (h *Header) SecurityFlags() byte {
+	sec := byte(h.SessionType) & secTypeMask
+	if h.Privacy {
+		sec |= secPrivacy
+	}
+	if h.Control {
+		sec |= secControl
+	}
+	if h.Extensions != nil {
+		sec |= secExtensions
+	}
+	return sec
+}
+
 // Append appends the encoded header to b. It panics if both destinations are set.
 func (h *Header) Append(b []byte) []byte {
 	if h.HasDestNode && h.HasDestGroup {
@@ -75,16 +91,7 @@ func (h *Header) Append(b []byte) []byte {
 	case h.HasDestGroup:
 		flags |= dsizGroup
 	}
-	sec := byte(h.SessionType) & secTypeMask
-	if h.Privacy {
-		sec |= secPrivacy
-	}
-	if h.Control {
-		sec |= secControl
-	}
-	if h.Extensions != nil {
-		sec |= secExtensions
-	}
+	sec := h.SecurityFlags()
 	b = append(b, flags)
 	b = binary.LittleEndian.AppendUint16(b, h.SessionID)
 	b = append(b, sec)
