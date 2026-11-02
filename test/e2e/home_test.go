@@ -584,6 +584,7 @@ func homeScenario() {
 				Should(Equal("True"))
 			Eventually(func() (string, error) { return secretKey("main-matter", "manual-code") }).
 				Should(MatchRegexp(`^[0-9]{11}$`))
+			Expect(secretKey("main-matter", "qr-code")).To(HavePrefix("MT:"))
 			Eventually(func(g Gomega) {
 				out, err := kubectl("logs", "deploy/main-matter")
 				g.Expect(err).NotTo(HaveOccurred())

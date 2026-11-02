@@ -120,12 +120,12 @@ var _ = Describe("Bridge Controller", func() {
 		disc, err := strconv.Atoi(string(secret.Data[render.MatterDiscriminatorKey]))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(b.Status.Discriminator).To(HaveValue(Equal(int32(disc))))
-		manual, qr := pairingCodes(secret)
+		manual, qr := expectedCodes(secret)
 		Expect(manual).To(MatchRegexp(`^[0-9]{11}$`))
 		Expect(qr).To(HavePrefix("MT:"))
 		Expect(string(secret.Data[render.MatterManualCodeKey])).To(Equal(manual))
 		Expect(string(secret.Data[render.MatterQRCodeKey])).To(Equal(qr))
-		Expect(render.MatterSetupKeys).NotTo(ContainElements(render.MatterManualCodeKey, render.MatterQRCodeKey))
+		Expect(render.MatterSetupKeys).NotTo(ContainElement(BeElementOf(render.MatterManualCodeKey, render.MatterQRCodeKey)))
 
 		pvc := get(t.key("main-matter"), &corev1.PersistentVolumeClaim{})
 		Expect(pvc.OwnerReferences).To(BeEmpty())
@@ -151,9 +151,11 @@ var _ = Describe("Bridge Controller", func() {
 		Expect(pod.Volumes).To(ContainElement(HaveField("Secret.SecretName", "main-matter")))
 		Expect(pod.Volumes).To(ContainElement(HaveField("PersistentVolumeClaim.ClaimName", "main-matter")))
 
-		By("keeping the setup code on the next reconcile")
+		By("keeping the setup code on the next reconcile, without writing the Secret")
 		reconcileBridge(r, t.key("main"))
-		Expect(get(t.key("main-matter"), &corev1.Secret{}).Data[render.MatterManualCodeKey]).To(BeEquivalentTo(manual))
+		unchanged := get(t.key("main-matter"), &corev1.Secret{})
+		Expect(unchanged.ResourceVersion).To(Equal(secret.ResourceVersion))
+		Expect(unchanged.Data[render.MatterManualCodeKey]).To(BeEquivalentTo(manual))
 
 		By("following a passcode the user changes in the Secret")
 		secret.Data[render.MatterPasscodeKey] = []byte("20202021")
@@ -163,8 +165,17 @@ var _ = Describe("Bridge Controller", func() {
 		Expect(b.Status.Discriminator).To(HaveValue(Equal(int32(3840))))
 		secret = get(t.key("main-matter"), &corev1.Secret{})
 		Expect(string(secret.Data[render.MatterManualCodeKey])).To(Equal("34970112332"))
-		_, qr = pairingCodes(secret)
+		_, qr = expectedCodes(secret)
 		Expect(string(secret.Data[render.MatterQRCodeKey])).To(Equal(qr))
+
+		By("dropping the codes while the passcode is invalid")
+		secret.Data[render.MatterPasscodeKey] = []byte("12345678")
+		Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+		b = reconcileBridge(r, t.key("main"))
+		Expect(readyReason(b)).To(Equal("InvalidSecret"))
+		secret = get(t.key("main-matter"), &corev1.Secret{})
+		Expect(secret.Data).NotTo(HaveKey(render.MatterManualCodeKey))
+		Expect(secret.Data).NotTo(HaveKey(render.MatterQRCodeKey))
 	})
 
 	It("never reuses or moves endpoint IDs", func() {
@@ -357,8 +368,8 @@ var _ = Describe("endpoint allocation", func() {
 	})
 })
 
-// pairingCodes derives the codes a commissioner takes from the Secret's passcode and discriminator.
-func pairingCodes(secret *corev1.Secret) (manual, qr string) {
+// expectedCodes derives the codes a commissioner takes from the Secret's passcode and discriminator.
+func expectedCodes(secret *corev1.Secret) (manual, qr string) {
 	cfg, err := render.MatterSetup(func(key string) ([]byte, error) { return secret.Data[key], nil })
 	Expect(err).NotTo(HaveOccurred())
 	p := node.PayloadFor(cfg.Setup)
