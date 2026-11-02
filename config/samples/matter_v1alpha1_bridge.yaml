@@ -1,0 +1,10 @@
+# A Matter bridge. The controller generates its setup passcode and discriminator, and shows the
+# pairing code and QR payload in its status: kubectl get matterbridge main
+apiVersion: matter.oikade.dev/v1alpha1
+kind: Bridge
+metadata:
+  name: main
+spec:
+  displayName: Oikade
+  # Expose every Device in the namespace. Narrow it with matchLabels if needed.
+  deviceSelector: {}

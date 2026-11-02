@@ -50,7 +50,7 @@ spec:
 ---
 # A heated towel rail on a plugin relay. switch.on is arbitrated: rules, HomeKit and the relay
 # itself make claims, and the rail takes the winner. A Home app tap holds until what the rules
-# want next changes.
+# want next changes. On a Matter bridge it's shown as a plug-in unit (an outlet).
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata:
@@ -62,6 +62,8 @@ spec:
     id: towel-rail-1
     parameters:
       capability: switch.on
+  matter:
+    deviceType: PlugInUnit
   control:
   - capability: switch.on
     default: false

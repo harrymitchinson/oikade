@@ -8,7 +8,7 @@ This page says how things work, not why they were chosen. Each section links the
 
 | Plane | Owner | Holds |
 |---|---|---|
-| Control | Git, as CRDs (`home.oikade.dev`, `homekit.oikade.dev`, `zigbee.oikade.dev`, `plugins.oikade.dev`) | What should exist: Devices, Rooms, Rules, Bridges, Zigbee2MQTT instances and Plugins |
+| Control | Git, as CRDs (`home.oikade.dev`, `homekit.oikade.dev`, `matter.oikade.dev`, `zigbee.oikade.dev`, `plugins.oikade.dev`) | What should exist: Devices, Rooms, Rules, Bridges, Zigbee2MQTT instances and Plugins |
 | Data | MQTT (Mosquitto) | Live state and commands |
 | History | Prometheus, Grafana and Loki | Values over time, changes and rule runs |
 

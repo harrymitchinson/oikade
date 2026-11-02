@@ -33,6 +33,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
 | `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device platform Oikade doesn't speak natively. See [Plugins](#plugins). |
 | `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
+| `Bridge` | `matter.oikade.dev` | A Matter bridge that will expose a set of Devices, one bridged endpoint each, replacing the HomeKit bridge ([OIK-76](https://linear.app/oikade/issue/OIK-76)). Only the API exists so far: nothing serves it yet. See [Matter bridge](#matter-bridge). |
 
 Illustrative output:
 
@@ -497,6 +498,20 @@ The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/d
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.
+
+## Matter bridge
+
+Oikade is moving from HomeKit to Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The `matter.oikade.dev` `Bridge` and `Device.spec.matter` are in the API, but no controller acts on them yet, so applying them has no effect.
+
+A `Bridge` picks Devices with `deviceSelector`, like the HomeKit one. `kubectl get matterbridges` lists them, since plain `bridges` is ambiguous while the HomeKit kind exists. Its status will carry the 11-digit `manualPairingCode` and the `qrCode` payload to commission it with, the `fabrics` it has been commissioned into (one per ecosystem, such as Apple Home), and `endpoints`, the endpoint ID each Device was given. Endpoint IDs start at 2, are handed out in order and are never reused or given to another Device, and the API rejects a status that breaks that.
+
+`spec.matter.deviceType` says what a `switch.on` Device is shown as: `Light`, `PlugInUnit` (an outlet) or `MountedControl` (a wall switch). Whether it's the on/off or dimmable member of that family follows from the Device's capabilities.
+
+```yaml
+spec:
+  matter:
+    deviceType: PlugInUnit
+```
 
 ## State that must survive
 

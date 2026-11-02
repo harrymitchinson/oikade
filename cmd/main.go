@@ -27,6 +27,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
+	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 	homecontroller "github.com/harrymitchinson/oikade/internal/controller/home"
@@ -48,6 +49,7 @@ func init() {
 	utilruntime.Must(homekitv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(zigbeev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(pluginsv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(matterv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

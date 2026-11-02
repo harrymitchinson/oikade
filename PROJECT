@@ -63,4 +63,12 @@ resources:
   kind: Rule
   path: github.com/harrymitchinson/oikade/api/home/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: oikade.dev
+  group: matter
+  kind: Bridge
+  path: github.com/harrymitchinson/oikade/api/matter/v1alpha1
+  version: v1alpha1
 version: "3"
