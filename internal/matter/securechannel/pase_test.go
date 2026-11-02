@@ -158,7 +158,7 @@ func TestPASEDeviceRejectsConfirmation(t *testing.T) {
 	if err := ex.Send(ctx, message(OpPBKDFParamRequest, req)); err != nil {
 		t.Fatal(err)
 	}
-	respBytes, err := expect(ctx, ex, OpPBKDFParamResponse)
+	respBytes, err := expect(ctx, ex, OpPBKDFParamResponse, ErrPASEFailed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestPASEDeviceRejectsConfirmation(t *testing.T) {
 	if err := ex.Send(ctx, message(OpPake1, encodePake(shareX))); err != nil {
 		t.Fatal(err)
 	}
-	pake2, err := expect(ctx, ex, OpPake2)
+	pake2, err := expect(ctx, ex, OpPake2, ErrPASEFailed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestPASEDeviceRejectsConfirmation(t *testing.T) {
 	if err := ex.Send(ctx, message(OpPake3, encodePake(keys.CA))); err != nil {
 		t.Fatal(err)
 	}
-	_, err = expect(ctx, ex, OpStatusReport+1) // anything but the status report it sends
+	_, err = expect(ctx, ex, OpStatusReport+1, ErrPASEFailed) // anything but the status report it sends
 	var sr StatusReport
 	if !errors.As(err, &sr) {
 		t.Fatalf("after Pake3: %v, want a status report", err)
@@ -203,7 +203,7 @@ func TestPASEBusy(t *testing.T) {
 	if err := ex.Send(timeout(t), message(OpPBKDFParamRequest, req.encode())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := expect(timeout(t), ex, OpPBKDFParamResponse); err != nil {
+	if _, err := expect(timeout(t), ex, OpPBKDFParamResponse, ErrPASEFailed); err != nil {
 		t.Fatal(err)
 	}
 

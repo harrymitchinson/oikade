@@ -74,6 +74,10 @@ type Session struct {
 	// Secure sessions.
 	localID, peerID     uint16
 	localNode, peerNode uint64
+	auth                AuthMode
+	fabric              uint8
+	cats                []uint32
+	challenge           []byte
 	security            Security
 	counter             uint32
 
@@ -108,6 +112,32 @@ func (s *Session) LocalSessionID() uint16 { return s.localID }
 
 // PeerNodeID returns the peer's operational node ID, 0 if it has none (unsecured and PASE).
 func (s *Session) PeerNodeID() uint64 { return s.peerNode }
+
+// AuthMode returns how a secure session's peer authenticated, 0 for an unsecured session.
+func (s *Session) AuthMode() AuthMode { return s.auth }
+
+// FabricIndex returns the local fabric a secure session is bound to: the one CASE ran on, or the
+// one AddNOC added over PASE. 0 for none.
+func (s *Session) FabricIndex() uint8 {
+	s.t.mu.Lock()
+	defer s.t.mu.Unlock()
+	return s.fabric
+}
+
+// SetFabricIndex binds a session to a local fabric, as AddNOC does to the PASE session it arrives
+// on.
+func (s *Session) SetFabricIndex(index uint8) {
+	s.t.mu.Lock()
+	defer s.t.mu.Unlock()
+	s.fabric = index
+}
+
+// CATs returns the CASE Authenticated Tags in a CASE peer's NOC. The caller mustn't modify them.
+func (s *Session) CATs() []uint32 { return s.cats }
+
+// AttestationChallenge returns the secure session's attestation challenge. The caller mustn't
+// modify it.
+func (s *Session) AttestationChallenge() []byte { return s.challenge }
 
 // NewExchange starts an exchange on the session, as its initiator.
 func (s *Session) NewExchange() (*Exchange, error) {
@@ -146,8 +176,8 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 		return true
 	}
 	if ex == nil {
-		h, ok := s.t.handlers[ph.Protocol]
-		if !ph.Initiator || !ok || !h.opcodes[ph.Opcode] {
+		h, ok := s.t.handlers[handlerKey{ph.Protocol, ph.Opcode}]
+		if !ph.Initiator || !ok {
 			// Nothing will ever take it: acknowledge it, so the peer stops sending it.
 			if ph.Reliable {
 				s.sendStandaloneAck(key, counter)
@@ -163,7 +193,7 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 		if ph.Reliable {
 			ex.needAck(counter)
 		}
-		s.t.handling.Go(func() { h.serve(s.t.ctx, ex, msg) })
+		s.t.handling.Go(func() { h(s.t.ctx, ex, msg) })
 		return true
 	}
 	if ex.closed {
