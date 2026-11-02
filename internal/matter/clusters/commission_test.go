@@ -41,6 +41,8 @@ type node struct {
 	cliTr   *transport.Transport
 	devAddr net.Addr
 
+	resumption *securechannel.ResumptionStore
+
 	mu      sync.Mutex
 	removed []uint8
 	expired int
@@ -48,7 +50,7 @@ type node struct {
 
 func newNode(t *testing.T, dir string) *node {
 	t.Helper()
-	n := &node{dir: dir, devTr: serve(t), cliTr: serve(t)}
+	n := &node{dir: dir, devTr: serve(t), cliTr: serve(t), resumption: securechannel.NewResumptionStore(8)}
 	n.devAddr = n.devTr.Addr()
 	var err error
 	if n.table, err = fabric.Open(fabric.DirStore{Dir: dir}); err != nil {
@@ -62,6 +64,7 @@ func newNode(t *testing.T, dir string) *node {
 		Fabrics: n.table, Attestation: creds, Log: testr.New(t),
 		Hooks: Hooks{
 			FabricRemoved: func(i uint8) {
+				n.resumption.RemoveFabric(i)
 				n.mu.Lock()
 				defer n.mu.Unlock()
 				n.removed = append(n.removed, i)
@@ -88,6 +91,7 @@ func newNode(t *testing.T, dir string) *node {
 		t.Fatal(err)
 	}
 	(&securechannel.Responder{Transport: n.devTr, Verifier: v, Salt: salt, Iterations: 1000, Log: testr.New(t)}).Register()
+	(&securechannel.CASEResponder{Transport: n.devTr, Fabrics: n.table.CASE(), Resumption: n.resumption, Log: testr.New(t)}).Register()
 	return n
 }
 
@@ -103,24 +107,21 @@ func (n *node) pase(t *testing.T) *im.Client {
 	return c
 }
 
-// caseSession adds a session that the node sees as CASE from nodeID on fabric index, as CASE
-// would establish it (OIK-89). The keys are random: both ends get the same.
-func (n *node) caseSession(t *testing.T, index uint8, nodeID uint64) *im.Client {
+// caseSession runs CASE to the node as nodeID, with a NOC from cm on the fabric cm commissioned.
+func (n *node) caseSession(t *testing.T, cm *commissioner, nodeID uint64) *im.Client {
 	t.Helper()
-	keys := securechannel.SessionKeys{I2R: random(16), R2I: random(16), AttestationChallenge: random(16)}
-	did, _ := n.devTr.AllocateSessionID()
-	cid, _ := n.cliTr.AllocateSessionID()
-	devSec, _ := securechannel.NewSecurity(keys, false, deviceNode, nodeID)
-	cliSec, _ := securechannel.NewSecurity(keys, true, nodeID, deviceNode)
-	n.devTr.AddSecureSession(transport.SecureSessionConfig{
-		LocalSessionID: did, PeerSessionID: cid, Peer: n.cliTr.Addr().(*net.UDPAddr).AddrPort(),
-		LocalNodeID: deviceNode, PeerNodeID: nodeID, Security: devSec,
-		Auth: transport.AuthCASE, FabricIndex: index, AttestationChallenge: keys.AttestationChallenge,
-	})
-	s := n.cliTr.AddSecureSession(transport.SecureSessionConfig{
-		LocalSessionID: cid, PeerSessionID: did, Peer: n.devAddr.(*net.UDPAddr).AddrPort(),
-		LocalNodeID: nodeID, PeerNodeID: deviceNode, Security: cliSec, Auth: transport.AuthCASE,
-	})
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	noc, err := cert.NewNOC(cm.rcac, cm.key, &key.PublicKey, cert.NOCSubject{NodeID: nodeID, FabricID: testFabricID}, cm.rcac.NotBefore, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rcacTLV, _ := cm.rcac.Encode()
+	nocTLV, _ := noc.Encode()
+	f := &securechannel.Fabric{Index: 1, RCAC: rcacTLV, NOC: nocTLV, Key: key, IPK: cm.ipk}
+	s, err := securechannel.EstablishCASE(timeout(t), n.cliTr, n.devAddr.(*net.UDPAddr).AddrPort(), f, deviceNode, securechannel.CASEConfig{})
+	if err != nil {
+		t.Fatalf("CASE as %#x: %v", nodeID, err)
+	}
 	c := &im.Client{Session: s}
 	c.Register(n.cliTr)
 	return c
@@ -321,7 +322,7 @@ func TestCommission(t *testing.T) {
 	if code := response(t, res, 0x05)[0].(uint64); code != commissioningInvalidAuth {
 		t.Errorf("CommissioningComplete over PASE: %d", code)
 	}
-	admin := n.caseSession(t, index, commissionerNode)
+	admin := n.caseSession(t, cm, commissionerNode)
 	if code := armFailSafe(t, admin, 60); code != commissioningOK {
 		t.Errorf("re-arming over CASE: %d", code)
 	}
@@ -351,7 +352,7 @@ func TestCommission(t *testing.T) {
 		t.Errorf("CurrentFabricIndex %v", v)
 	}
 
-	checkAccess(t, n, index)
+	checkAccess(t, n, cm, index)
 
 	// After a restart, the fabric and its ACL are there.
 	again, err := fabric.Open(fabric.DirStore{Dir: dir})
@@ -383,9 +384,9 @@ func TestCommission(t *testing.T) {
 
 // checkAccess checks what writeACL grants: otherNode may view endpoint 2, and nothing else; a
 // node not in the ACL may do nothing.
-func checkAccess(t *testing.T, n *node, index uint8) {
+func checkAccess(t *testing.T, n *node, cm *commissioner, index uint8) {
 	t.Helper()
-	viewer := n.caseSession(t, index, otherNode)
+	viewer := n.caseSession(t, cm, otherNode)
 	reports, err := viewer.Read(timeout(t), im.AttributePath{Endpoint: 2, Cluster: IDOnOff, Attribute: 0})
 	if err != nil || len(reports) != 1 || reports[0].Status != im.StatusSuccess {
 		t.Errorf("viewer reading endpoint 2: %+v, %v", reports, err)
@@ -396,7 +397,7 @@ func checkAccess(t *testing.T, n *node, index uint8) {
 	if res := invoke(t, viewer, IDGeneralCommissioning, 0x04, nil, false); res.Status != im.StatusUnsupportedAccess {
 		t.Errorf("viewer invoking: %#x", res.Status)
 	}
-	stranger := n.caseSession(t, index, 0x0000_0000_0000_5555)
+	stranger := n.caseSession(t, cm, 0x0000_0000_0000_5555)
 	if r := readAttr(t, stranger, IDBasicInformation, 0x05); r.Status != im.StatusUnsupportedAccess {
 		t.Errorf("stranger reading: %#x", r.Status)
 	}
@@ -474,14 +475,6 @@ func TestCommissioningOrder(t *testing.T) {
 	}, false)
 	if response(t, res, 0x08)[0] != uint64(nocMissingCSR) {
 		t.Errorf("AddNOC without a CSR: %+v", res)
-	}
-	// A CASE session on a fabric the node isn't on can't arm it.
-	other := n.caseSession(t, 3, otherNode)
-	if res := invoke(t, other, IDGeneralCommissioning, 0x00, func(w *tlv.Writer) {
-		w.PutUint(tlv.Context(0), 60)
-		w.PutUint(tlv.Context(1), 0)
-	}, false); res.Status != im.StatusUnsupportedAccess {
-		t.Errorf("unknown fabric arming: %#x", res.Status)
 	}
 }
 

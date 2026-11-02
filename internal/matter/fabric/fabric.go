@@ -23,6 +23,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
+	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
 
@@ -174,6 +175,8 @@ type Table struct {
 	root    []byte            // from AddTrustedRoot
 	added   *Fabric           // from AddNOC
 	updated *Fabric           // from UpdateNOC: the fabric as it will be
+
+	caseCache map[uint8]*securechannel.Fabric // what CASE() last returned
 }
 
 // Open loads a table from store.

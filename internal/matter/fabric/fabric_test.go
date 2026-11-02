@@ -223,3 +223,32 @@ func TestOperationalIPK(t *testing.T) {
 		t.Errorf("OperationalIPK: %x, %v", got, err)
 	}
 }
+
+// TestCASEFabrics: CASE gets the same *Fabric while a fabric is unchanged, and a new one once
+// its NOC is.
+func TestCASEFabrics(t *testing.T) {
+	tb, _ := Open(DirStore{Dir: t.TempDir()})
+	c := newCA(t, 1)
+	index := commission(t, tb, c, 0x0A)
+	first := tb.CASE().Fabrics()
+	if len(first) != 1 || first[0].Index != index {
+		t.Fatalf("CASE fabrics %+v", first)
+	}
+	if again := tb.CASE().Fabrics(); again[0] != first[0] {
+		t.Error("unchanged fabric came back as a new pointer")
+	}
+	if err := tb.SetLabel(index, "Home"); err != nil {
+		t.Fatal(err)
+	}
+	if again := tb.CASE().Fabrics(); again[0] != first[0] {
+		t.Error("a label change gave CASE a new fabric")
+	}
+	key, _ := tb.NewOperationalKey()
+	if err := tb.UpdateNOC(index, c.noc(t, &key.PublicKey, 0x0A), nil); err != nil {
+		t.Fatal(err)
+	}
+	updated := tb.CASE().Fabrics()
+	if updated[0] == first[0] || updated[0].Key != key || first[0].Key == key {
+		t.Error("updated NOC didn't give CASE a new fabric, or changed the old one")
+	}
+}
