@@ -128,7 +128,8 @@ type handlerKey struct {
 }
 
 // Handle registers h for exchanges that peers start in protocol p with one of the given opcodes,
-// such as a Read Request, replacing any Handler registered for them before. Only these start an
+// such as a Read Request, replacing any Handler registered for them before; other opcodes keep
+// theirs, so several Handlers can share a protocol. Only these start an
 // exchange: any other message without one, such as a late Status Response to an exchange that
 // has ended, is acknowledged and dropped.
 func (t *Transport) Handle(p ProtocolID, opcodes []uint8, h Handler) {

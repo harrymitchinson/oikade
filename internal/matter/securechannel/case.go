@@ -85,7 +85,9 @@ type Fabric struct {
 	IPK []byte
 }
 
-// FabricTable is the fabrics a CASEResponder answers for.
+// FabricTable is the fabrics a CASEResponder answers for. Fabrics is called for each handshake,
+// and must be safe for concurrent use. It returns a new *Fabric when a fabric changes, and never
+// modifies one it has returned: CASE keeps what it derives from each *Fabric.
 type FabricTable interface {
 	Fabrics() []*Fabric
 }
@@ -271,6 +273,12 @@ type CASEResponder struct {
 
 	mu     sync.Mutex
 	active int
+	keys   map[*Fabric]cachedKeys // what CASE derived from each fabric Fabrics returned
+}
+
+type cachedKeys struct {
+	keys *fabricKeys
+	err  error
 }
 
 // Register starts answering Sigma1 on the Transport.
@@ -291,9 +299,7 @@ func (r *CASEResponder) serve(ctx context.Context, ex *transport.Exchange, first
 	if r.active >= maxCASEHandshakes {
 		r.mu.Unlock()
 		log.Info("Refused CASE while busy")
-		busy := secureChannelStatus(GeneralBusy, CodeBusy)
-		busy.Data = binary.LittleEndian.AppendUint16(nil, uint16(caseBusyWait.Milliseconds()))
-		r.status(ctx, ex, busy)
+		r.status(ctx, ex, busyStatus())
 		return
 	}
 	r.active++
@@ -332,13 +338,44 @@ func (r *CASEResponder) fail(ctx context.Context, ex *transport.Exchange, code u
 	return err
 }
 
+// busyStatus tells an initiator to try again after caseBusyWait.
+func busyStatus() StatusReport {
+	sr := secureChannelStatus(GeneralBusy, CodeBusy)
+	sr.Data = binary.LittleEndian.AppendUint16(nil, uint16(caseBusyWait.Milliseconds()))
+	return sr
+}
+
+// fabricKeys returns the fabrics CASE can use, derived once for each *Fabric the table returns:
+// a FabricTable returns a new *Fabric when a fabric changes, and never modifies one it returned.
+// A fabric CASE can't use is logged once.
+func (r *CASEResponder) fabricKeys() []*fabricKeys {
+	fabrics := r.Fabrics.Fabrics()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cache := make(map[*Fabric]cachedKeys, len(fabrics))
+	var out []*fabricKeys
+	for _, f := range fabrics {
+		c, ok := r.keys[f]
+		if !ok {
+			c.keys, c.err = f.keys()
+			if c.err != nil {
+				r.Log.Error(c.err, "Could not use fabric for CASE", "fabric", f.Index)
+			}
+		}
+		cache[f] = c
+		if c.err == nil {
+			out = append(out, c.keys)
+		}
+	}
+	r.keys = cache
+	return out
+}
+
 // fabric returns the fabric with the given index, ready for CASE.
 func (r *CASEResponder) fabric(index uint8) *fabricKeys {
-	for _, f := range r.Fabrics.Fabrics() {
-		if f.Index == index {
-			if k, err := f.keys(); err == nil {
-				return k
-			}
+	for _, k := range r.fabricKeys() {
+		if k.Index == index {
+			return k
 		}
 	}
 	return nil
@@ -346,12 +383,7 @@ func (r *CASEResponder) fabric(index uint8) *fabricKeys {
 
 // match finds the fabric and node a Sigma1's destination ID names.
 func (r *CASEResponder) match(dest, initiatorRandom []byte) *fabricKeys {
-	for _, f := range r.Fabrics.Fabrics() {
-		k, err := f.keys()
-		if err != nil {
-			r.Log.Error(err, "Could not use fabric for CASE", "fabric", f.Index)
-			continue
-		}
+	for _, k := range r.fabricKeys() {
 		want := destinationID(k.ipk, initiatorRandom, k.rcac.PublicKey, k.fabricID, k.nodeID)
 		if subtle.ConstantTimeCompare(want, dest) == 1 {
 			return k
@@ -366,13 +398,17 @@ func (r *CASEResponder) handshake(ctx context.Context, ex *transport.Exchange, f
 		return nil, false, r.fail(ctx, ex, CodeInvalidParameter, err)
 	}
 	if s1.resumptionID != nil {
-		if res, ok := r.Resumption.byID(s1.resumptionID); ok {
+		// A resumption ID is good for one resumption: take it, so a replayed or concurrent
+		// Sigma1 with it falls back to a full CASE. Only a Sigma1 with the right MIC takes it,
+		// so one that merely names it, as anyone watching can, doesn't spend it.
+		res, ok := r.Resumption.take(s1.resumptionID, func(res resumption) bool {
 			mic, err := resumeMIC(res.secret, s1.initiatorRandom, s1.resumptionID, sigma1ResumeInfo, resume1Nonce)
-			if err == nil && subtle.ConstantTimeCompare(mic, s1.resumeMIC) == 1 {
-				if f := r.fabric(res.fabric); f != nil {
-					s, err := r.resume(ctx, ex, s1, res, f)
-					return s, true, err
-				}
+			return err == nil && subtle.ConstantTimeCompare(mic, s1.resumeMIC) == 1
+		})
+		if ok {
+			if f := r.fabric(res.fabric); f != nil && res.on(f) {
+				s, err := r.resume(ctx, ex, s1, res, f)
+				return s, true, err
 			}
 		}
 		// An unknown or stale resumption falls back to a full CASE.
@@ -420,7 +456,7 @@ func (r *CASEResponder) full(ctx context.Context, ex *transport.Exchange, s1Byte
 	tr := r.Transport
 	localID, err := tr.AllocateSessionID()
 	if err != nil {
-		r.status(ctx, ex, secureChannelStatus(GeneralBusy, CodeBusy))
+		r.status(ctx, ex, busyStatus())
 		return nil, err
 	}
 	established := false
@@ -502,7 +538,7 @@ func (r *CASEResponder) full(ctx context.Context, ex *transport.Exchange, s1Byte
 	if err != nil {
 		return nil, err
 	}
-	res := resumption{fabric: f.Index, node: p.nodeID, cats: p.cats, secret: secret}
+	res := resumption{fabric: f.Index, rootKey: f.rcac.PublicKey, fabricID: f.fabricID, node: p.nodeID, cats: p.cats, secret: secret}
 	copy(res.id[:], resumptionID)
 	r.Resumption.save(res)
 	return s, nil
@@ -512,7 +548,7 @@ func (r *CASEResponder) resume(ctx context.Context, ex *transport.Exchange, s1 *
 	tr := r.Transport
 	localID, err := tr.AllocateSessionID()
 	if err != nil {
-		r.status(ctx, ex, secureChannelStatus(GeneralBusy, CodeBusy))
+		r.status(ctx, ex, busyStatus())
 		return nil, err
 	}
 	established := false
@@ -630,6 +666,7 @@ func EstablishCASE(ctx context.Context, tr *transport.Transport, addr netip.Addr
 		initiatorEphPubKey: ephPub, params: c.Params,
 	}
 	res, resuming := c.Resumption.byPeer(f.Index, peerNode)
+	resuming = resuming && res.on(fk)
 	if resuming {
 		s1.resumptionID = res.id[:]
 		if s1.resumeMIC, err = resumeMIC(res.secret, initiatorRandom, s1.resumptionID, sigma1ResumeInfo, resume1Nonce); err != nil {
@@ -671,6 +708,8 @@ func EstablishCASE(ctx context.Context, tr *transport.Transport, addr netip.Addr
 	}
 	if err == nil {
 		established = true
+	} else if !errors.Is(err, ErrCASEFailed) && errors.Is(err, ErrInvalidMessage) {
+		err = fmt.Errorf("%w: %w", ErrCASEFailed, err)
 	}
 	return s, err
 }
@@ -755,7 +794,7 @@ func (i *caseInitiator) full(ctx context.Context, eph *ecdh.PrivateKey, s1Bytes,
 	if err != nil {
 		return nil, err
 	}
-	res := resumption{fabric: f.Index, node: p.nodeID, cats: p.cats, secret: secret}
+	res := resumption{fabric: f.Index, rootKey: f.rcac.PublicKey, fabricID: f.fabricID, node: p.nodeID, cats: p.cats, secret: secret}
 	copy(res.id[:], t2.resumptionID)
 	i.c.Resumption.save(res)
 	return i.tr.AddSecureSession(transport.SecureSessionConfig{

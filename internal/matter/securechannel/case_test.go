@@ -422,6 +422,17 @@ func TestCASEResumption(t *testing.T) {
 	}
 	readVendor(t, ctl.t, s)
 
+	// A resumption ID is good once: offering the first one again gets a full CASE.
+	store.save(first)
+	dev.conn.reset()
+	if _, err := EstablishCASE(timeout(t), ctl.t, dev.addr(), ctlFabric, deviceNode, cfg); err != nil {
+		t.Fatalf("CASE with a spent resumption ID: %v", err)
+	}
+	dev.session(t)
+	if !dev.conn.sent(OpSigma2) || dev.conn.sent(OpSigma2Resume) {
+		t.Fatalf("the device sent %x, want Sigma2", dev.conn.ops)
+	}
+
 	// A device that forgot us falls back to a full CASE.
 	dev.responder.Resumption.RemoveFabric(2)
 	dev.conn.reset()
@@ -452,6 +463,24 @@ func TestCASEResumption(t *testing.T) {
 	}
 }
 
+// TestResumptionOtherFabric checks a resumption doesn't carry over to another fabric that took
+// its index.
+func TestResumptionOtherFabric(t *testing.T) {
+	a, b := newCA(t, false), newCA(t, false)
+	fa, err := a.fabric(t, 1, deviceNode, nil, time.Time{}).keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb, err := b.fabric(t, 1, deviceNode, nil, time.Time{}).keys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := resumption{fabric: 1, rootKey: fa.rcac.PublicKey, fabricID: fa.fabricID}
+	if !res.on(fa) || res.on(fb) {
+		t.Errorf("on(own fabric) %v, on(other root, same index) %v", res.on(fa), res.on(fb))
+	}
+}
+
 func TestCASEBusy(t *testing.T) {
 	ca := newCA(t, false)
 	dev := newCASEDevice(t, ca.fabric(t, 1, deviceNode, nil, time.Time{}))
@@ -477,8 +506,14 @@ func TestResumptionStore(t *testing.T) {
 		t.Error("the oldest entry wasn't dropped")
 	}
 	s.save(resumption{id: [16]byte{9}, fabric: 1, node: 2})
-	if _, ok := s.byID([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}); ok || s.Len() != 2 {
+	if _, ok := s.take([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, func(resumption) bool { return true }); ok || s.Len() != 2 {
 		t.Error("a peer's new resumption didn't replace its old one")
+	}
+	if _, ok := s.take([]byte{9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, func(resumption) bool { return false }); ok || s.Len() != 2 {
+		t.Error("take took an entry it didn't accept")
+	}
+	if _, ok := s.take([]byte{9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, func(resumption) bool { return true }); !ok || s.Len() != 1 {
+		t.Error("take didn't remove the entry")
 	}
 	s.RemoveFabric(1)
 	if s.Len() != 0 {
