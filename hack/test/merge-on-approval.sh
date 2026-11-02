@@ -279,5 +279,21 @@ if merge; then fail "merge succeeded when GitHub refused it"; fi
 grep -q 'not mergeable' "$tmp/out" || fail "merge didn't say why GitHub refused it: $(cat "$tmp/out")"
 rm "$tmp/fx/merge-refused"
 
+# Nobody holds the claim, as once the session that built the steps released
+# it: merge takes it while it runs and gives it back, whether or not it merged.
+claimed() { git ls-remote --exit-code --heads origin refs/heads/claim/OIK-9 >/dev/null; }
+git push -q origin --delete claim/OIK-9
+echo 'gh: Pull Request is not mergeable (HTTP 405)' >"$tmp/fx/merge-refused"
+if merge; then fail "merge succeeded when GitHub refused it, unclaimed"; fi
+! claimed || fail "a refused merge kept the claim it took"
+rm "$tmp/fx/merge-refused"
+merge || fail "merge refused a low-risk PR nobody had claimed: $(cat "$tmp/out")"
+grep -q "nobody held OIK-9's claim" "$tmp/out" || fail "merge didn't say it took the claim: $(cat "$tmp/out")"
+! claimed || fail "merge kept the claim it took"
+# Someone else's claim isn't given back.
+git push -q origin main:refs/heads/claim/OIK-9
+merge || fail "merge refused a claimed low-risk PR: $(cat "$tmp/out")"
+claimed || fail "merge gave back a claim it didn't take"
+
 (( failed == 0 )) && echo "ok: merge on approval"
 exit "$failed"
