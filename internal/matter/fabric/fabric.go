@@ -115,7 +115,7 @@ func (f *Fabric) derive(now time.Time) error {
 		return fmt.Errorf("%w: root: %w", ErrInvalidNOC, err)
 	}
 	var icac *cert.Certificate
-	if f.ICAC != nil {
+	if len(f.ICAC) > 0 {
 		if icac, err = cert.Decode(f.ICAC); err != nil {
 			return fmt.Errorf("%w: ICAC: %w", ErrInvalidNOC, err)
 		}

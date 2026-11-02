@@ -118,7 +118,7 @@ func (c *Commissioning) readNOCs(req *im.Request, w *tlv.Writer, tag tlv.Tag) er
 		w.StartStructure(tlv.Anonymous)
 		if f.Index == req.FabricIndex { // NOCStruct's certificates are fabric-sensitive
 			w.PutBytes(tlv.Context(1), f.NOC)
-			if f.ICAC != nil {
+			if len(f.ICAC) > 0 {
 				w.PutBytes(tlv.Context(2), f.ICAC)
 			} else {
 				w.PutNull(tlv.Context(2))

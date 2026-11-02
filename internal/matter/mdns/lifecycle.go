@@ -189,9 +189,14 @@ func (r *Responder) multicast(build func(ifIndex int) ([]byte, error)) {
 			continue
 		}
 		for _, c := range r.conns {
-			// EADDRNOTAVAIL: the interface has no address of this family, as with macOS's
-			// utun, awdl and llw interfaces. Nothing can be sent there, so it isn't worth a log.
-			if err := c.WriteMulticast(b, ifIndex); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, syscall.EADDRNOTAVAIL) {
+			err := c.WriteMulticast(b, ifIndex)
+			switch {
+			case err == nil || errors.Is(err, net.ErrClosed):
+			case errors.Is(err, syscall.EADDRNOTAVAIL):
+				// The interface has no address of this family yet, or ever, as with macOS's
+				// utun, awdl and llw interfaces, which would log on every send.
+				r.log.V(2).Info("Could not send mDNS message", "interface", ifIndex, "error", err.Error())
+			default:
 				r.log.V(1).Info("Could not send mDNS message", "interface", ifIndex, "error", err.Error())
 			}
 		}
