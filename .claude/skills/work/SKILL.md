@@ -31,6 +31,7 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 - **Only this step.** If you find work for later, mention it in the PR, or add it with `hack/plan idea` if it's new.
 - **Follow AGENTS.md:** scaffold with `kubebuilder`, run `make manifests generate` after editing types, and `make lint-fix test` after Go changes. After changing the plugin contract, the SDK or a plugin, also run `make test-conformance`.
 - **Keep the docs true.** If the step changes how something works, update the doc that says so in the same PR: the README for what users write and see, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Describe the present and link the feature for why. Don't copy the design.
+- **Skip e2e unless the step needs it.** Kind e2e is slow, so rely on unit tests and envtest. Run it only when the step changes what e2e covers and nothing cheaper can check it. CI doesn't run it on PRs, only on main after the merge, so a local run is the only check before merging. Say in the PR whether you ran it.
 - **e2e gets its own cluster,** so parallel agents don't collide and nothing touches the user's current context:
 
   ```sh
