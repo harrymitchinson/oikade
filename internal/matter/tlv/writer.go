@@ -109,6 +109,31 @@ func (w *Writer) StartArray(tag Tag) { w.start(tag, Array, typeArray) }
 // StartList opens a list, whose elements may be tagged or not. End closes it.
 func (w *Writer) StartList(tag Tag) { w.start(tag, List, typeList) }
 
+// PutRaw appends one element that is already encoded, such as one built by another Writer. Its
+// tag must suit the open container: anonymous in an array, tagged in a structure. It panics if
+// it doesn't.
+func (w *Writer) PutRaw(element []byte) {
+	if len(element) == 0 {
+		panic("tlv: PutRaw of nothing")
+	}
+	tag, _, err := parseTag(element, 1, element[0]&tagMask)
+	if err != nil {
+		panic(fmt.Sprintf("tlv: PutRaw of a malformed element: %v", err))
+	}
+	if len(w.stack) > 0 {
+		switch parent := w.stack[len(w.stack)-1]; {
+		case parent == Structure && tag.Kind == AnonymousTag:
+			panic("tlv: anonymous element in a structure")
+		case parent == Array && tag.Kind != AnonymousTag:
+			panic(fmt.Sprintf("tlv: tagged element %s in an array", tag))
+		}
+	}
+	w.buf = append(w.buf, element...)
+}
+
+// Len returns how many bytes the Writer holds.
+func (w *Writer) Len() int { return len(w.buf) }
+
 // End closes the container opened last.
 func (w *Writer) End() {
 	if len(w.stack) == 0 {

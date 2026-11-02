@@ -467,3 +467,27 @@ func visit(r *Reader, each func(*Reader) error, end func()) error {
 		}
 	}
 }
+
+func TestPutRaw(t *testing.T) {
+	var item Writer
+	item.StartStructure(Anonymous)
+	item.PutUint(Context(1), 42)
+	item.End()
+
+	var w Writer
+	w.StartArray(Anonymous)
+	w.PutRaw(item.Bytes())
+	w.PutRaw(item.Bytes())
+	w.End()
+	if want := unhex(t, "16 15 24 01 2a 18 15 24 01 2a 18 18"); !bytes.Equal(w.Bytes(), want) {
+		t.Errorf("encoded % x, want % x", w.Bytes(), want)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("PutRaw of a tagged element into an array didn't panic")
+		}
+	}()
+	var bad Writer
+	bad.StartArray(Anonymous)
+	bad.PutRaw(unhex(t, "24 01 2a"))
+}
