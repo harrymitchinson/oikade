@@ -98,7 +98,7 @@ func (a *Attribute) writePrivilege() Privilege {
 }
 
 func (c *Command) privilege() Privilege {
-	if c.Privilege == 0 {
+	if c == nil || c.Privilege == 0 {
 		return PrivilegeOperate
 	}
 	return c.Privilege

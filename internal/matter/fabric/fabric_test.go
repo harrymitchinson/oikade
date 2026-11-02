@@ -252,3 +252,22 @@ func TestCASEFabrics(t *testing.T) {
 		t.Error("updated NOC didn't give CASE a new fabric, or changed the old one")
 	}
 }
+
+// TestLabelConflictWithPending: a pending fabric's label conflicts like a committed one's.
+func TestLabelConflictWithPending(t *testing.T) {
+	tb, _ := Open(DirStore{Dir: t.TempDir()})
+	one := commission(t, tb, newCA(t, 1), 0x0A)
+	c := newCA(t, 2)
+	key, _ := tb.NewOperationalKey()
+	_ = tb.AddTrustedRoot(c.der)
+	two, err := tb.AddNOC(c.noc(t, &key.PublicKey, 0x0B), nil, ipk, 0x1122, 0xFFF1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tb.SetLabel(two, "Home"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tb.SetLabel(one, "Home"); !errors.Is(err, ErrLabelConflict) {
+		t.Errorf("SetLabel: %v", err)
+	}
+}

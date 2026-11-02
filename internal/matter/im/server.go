@@ -94,9 +94,14 @@ func (s *Server) reports(req *Request, paths []AttributePath, filters []dataVers
 	seen := map[Path]bool{}
 	for _, p := range paths {
 		if !p.wild() {
-			st := s.check(p)
+			// Access is checked before the attribute's existence, so a client may not learn
+			// what it can't read (Core spec, 8.4.3.2).
+			st := s.checkCluster(p.Endpoint, p.Cluster)
 			if st == StatusSuccess && !s.canRead(req, Path{p.Endpoint, p.Cluster, p.Attribute}) {
 				st = StatusUnsupportedAccess
+			}
+			if st == StatusSuccess {
+				st = s.check(p)
 			}
 			if st != StatusSuccess {
 				out = append(out, statusReport(p, st))
@@ -131,16 +136,24 @@ func (s *Server) reports(req *Request, paths []AttributePath, filters []dataVers
 	return out
 }
 
-// check says whether a concrete path names an attribute.
-func (s *Server) check(p AttributePath) Status {
-	e := s.Node.Endpoint(p.Endpoint)
+// checkCluster says whether an endpoint has a cluster.
+func (s *Server) checkCluster(endpoint uint16, cluster uint32) Status {
+	e := s.Node.Endpoint(endpoint)
 	if e == nil {
 		return StatusUnsupportedEndpoint
 	}
-	c := e.Cluster(p.Cluster)
-	if c == nil {
+	if e.Cluster(cluster) == nil {
 		return StatusUnsupportedCluster
 	}
+	return StatusSuccess
+}
+
+// check says whether a concrete path names an attribute.
+func (s *Server) check(p AttributePath) Status {
+	if st := s.checkCluster(p.Endpoint, p.Cluster); st != StatusSuccess {
+		return st
+	}
+	c := s.Node.Endpoint(p.Endpoint).Cluster(p.Cluster)
 	if c.attribute(p.Attribute) == nil && !isGlobal(p.Attribute) {
 		return StatusUnsupportedAttribute
 	}
@@ -306,6 +319,10 @@ func expectStatus(ctx context.Context, ex *transport.Exchange) error {
 }
 
 func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, timed bool) error {
+	rq := newRequest(ex.Session(), false)
+	// Access to each path is decided once for the whole write, chunks included, as a write that
+	// replaces the ACL in chunks would otherwise lose access after its first chunk.
+	granted := map[Path]bool{}
 	for {
 		req, err := decodeWriteRequest(b)
 		if err != nil {
@@ -315,10 +332,9 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 			return fail(ctx, ex, StatusTimedRequestMismatch, errors.New("timed flag doesn't match the interaction"))
 		}
 		statuses := make([]Status, len(req.writes))
-		rq := newRequest(ex.Session(), false)
 		s.Node.Update(func() {
 			for i, d := range req.writes {
-				statuses[i] = s.apply(rq, d)
+				statuses[i] = s.apply(rq, d, granted)
 			}
 		})
 		if !req.suppressResponse {
@@ -356,24 +372,34 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 }
 
 // apply performs one attribute write. Call it with the Node's lock.
-func (s *Server) apply(req *Request, d attributeData) Status {
+func (s *Server) apply(req *Request, d attributeData, granted map[Path]bool) Status {
 	if d.path.wild() {
 		return StatusInvalidAction // writes name one attribute
 	}
-	if st := s.check(d.path); st != StatusSuccess {
+	if st := s.checkCluster(d.path.Endpoint, d.path.Cluster); st != StatusSuccess {
 		return st
 	}
 	e := s.Node.Endpoint(d.path.Endpoint)
 	c := e.Cluster(d.path.Cluster)
 	a := c.attribute(d.path.Attribute)
-	if a == nil || a.Write == nil {
-		if !s.allowed(req, e, c.ID, a.readPrivilege()) {
-			return StatusUnsupportedAccess
+	path := Path{d.path.Endpoint, d.path.Cluster, d.path.Attribute}
+	ok, decided := granted[path]
+	if !decided {
+		if a == nil || a.Write == nil {
+			ok = s.allowed(req, e, c.ID, a.readPrivilege())
+		} else {
+			ok = s.allowed(req, e, c.ID, a.writePrivilege()) && (!a.FabricScoped || req.FabricIndex != 0)
 		}
-		return StatusUnsupportedWrite
+		granted[path] = ok
 	}
-	if !s.allowed(req, e, c.ID, a.writePrivilege()) || (a.FabricScoped && req.FabricIndex == 0) {
+	if !ok {
 		return StatusUnsupportedAccess
+	}
+	if st := s.check(d.path); st != StatusSuccess {
+		return st
+	}
+	if a == nil || a.Write == nil {
+		return StatusUnsupportedWrite
 	}
 	if d.hasVersion && d.version != c.version {
 		return StatusDataVersionMismatch
@@ -450,11 +476,11 @@ func (s *Server) run(req *Request, cmd commandData, timed bool) (*Response, erro
 		return nil, StatusUnsupportedCluster
 	}
 	command := c.command(cmd.path.Command)
+	if !s.allowed(req, e, c.ID, command.privilege()) {
+		return nil, StatusUnsupportedAccess // before the command's existence, as for reads
+	}
 	if command == nil {
 		return nil, StatusUnsupportedCommand
-	}
-	if !s.allowed(req, e, c.ID, command.privilege()) {
-		return nil, StatusUnsupportedAccess
 	}
 	if command.Timed && !timed {
 		return nil, StatusNeedsTimedInteraction

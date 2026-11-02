@@ -89,6 +89,15 @@ func TestAccessDenied(t *testing.T) {
 			if err != nil || res.Status != StatusUnsupportedAccess {
 				t.Errorf("invoke: %+v, %v", res, err)
 			}
+			// What doesn't exist looks the same as what may not be used.
+			reports, err = client.Read(ctx, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0x42})
+			if err != nil || len(reports) != 1 || reports[0].Status != StatusUnsupportedAccess {
+				t.Errorf("read of a missing attribute: %+v, %v", reports, err)
+			}
+			res, err = client.Invoke(ctx, CommandPath{Endpoint: 1, Cluster: 6, Command: 0x42}, nil, false, 0)
+			if err != nil || res.Status != StatusUnsupportedAccess {
+				t.Errorf("invoke of a missing command: %+v, %v", res, err)
+			}
 		})
 	}
 }
@@ -114,4 +123,56 @@ func timeoutCtx(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+// revocable grants everything until its attribute is written false, as a write that replaces the
+// ACL can take away the writer's own entry.
+type revocable struct{ granted *bool }
+
+func (r revocable) Allowed(*Subject, *Endpoint, uint32, Privilege) bool { return *r.granted }
+
+// TestWriteDecidesAccessOnce: a write whose first item takes the writer's access away still
+// applies its later items to the same path, as a chunked ACL write does.
+func TestWriteDecidesAccessOnce(t *testing.T) {
+	granted, writes := true, 0
+	c := &Cluster{ID: 0x1F, Revision: 1, Attributes: []Attribute{{ID: 0,
+		Read: func(_ *Request, w *tlv.Writer, tag tlv.Tag) error { w.PutBool(tag, granted); return nil },
+		Write: func(_ *Request, r *tlv.Reader, _ WriteOp) Status {
+			granted, _ = r.Bool()
+			writes++
+			return StatusSuccess
+		},
+	}}}
+	node := &Node{}
+	_ = node.AddEndpoint(&Endpoint{ID: 0, Clusters: []*Cluster{c}})
+	client, _, _, _ := pairAs(t, node, revocable{&granted}, transport.SecureSessionConfig{Auth: transport.AuthCASE, FabricIndex: 1, PeerNodeID: 7})
+	ex, err := client.Session.NewExchange()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ex.Close()
+	var w tlv.Writer
+	w.StartStructure(tlv.Anonymous)
+	w.StartArray(tlv.Context(2))
+	for _, v := range []bool{false, true} {
+		w.StartStructure(tlv.Anonymous)
+		AttributePath{Endpoint: 0, Cluster: 0x1F, Attribute: 0}.put(&w, tlv.Context(1))
+		w.PutBool(tlv.Context(2), v)
+		w.End()
+	}
+	w.End()
+	w.PutUint(tagRevision, revision)
+	w.End()
+	ctx := timeoutCtx(t)
+	if err := ex.Send(ctx, imMessage(OpWriteRequest, w.Bytes())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recvIM(ctx, ex); err != nil {
+		t.Fatal(err)
+	}
+	node.View(func() {
+		if writes != 2 || !granted {
+			t.Errorf("%d writes applied, granted %v", writes, granted)
+		}
+	})
 }

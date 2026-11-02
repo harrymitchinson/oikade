@@ -128,7 +128,7 @@ func (f *Fabric) derive(now time.Time) error {
 		return fmt.Errorf("%w: %w", ErrInvalidNOC, err)
 	}
 	nodeID, err := noc.NodeID()
-	if err != nil || nodeID == 0 || nodeID > 0xFFFF_FFEF_FFFF_FFFF {
+	if err != nil || !cert.IsOperationalNodeID(nodeID) {
 		return ErrInvalidNodeID
 	}
 	fabricID, ok := noc.FabricID()
@@ -218,28 +218,42 @@ func (t *Table) save() error {
 func (t *Table) Fabrics() []Fabric {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	out := make([]Fabric, 0, len(t.fabrics)+1)
-	for i := range t.fabrics {
-		f := &t.fabrics[i]
-		if t.updated != nil && t.updated.Index == f.Index {
-			f = t.updated
-		}
+	cur := t.current()
+	out := make([]Fabric, 0, len(cur))
+	for _, f := range cur {
 		out = append(out, f.clone())
-	}
-	if t.added != nil {
-		out = append(out, t.added.clone())
 	}
 	return out
 }
 
 // Fabric returns the fabric with index, as Fabrics would.
 func (t *Table) Fabric(index uint8) (Fabric, bool) {
-	for _, f := range t.Fabrics() {
-		if f.Index == index {
-			return f, true
-		}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if f := t.find(index); f != nil {
+		return f.clone(), true
 	}
 	return Fabric{}, false
+}
+
+// Count returns how many fabrics Fabrics would return.
+func (t *Table) Count() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.current())
+}
+
+// current returns the fabrics as they stand, pending changes applied, without copying them. Call
+// it with the lock held.
+func (t *Table) current() []*Fabric {
+	out := make([]*Fabric, 0, len(t.fabrics)+1)
+	for i := range t.fabrics {
+		out = append(out, t.find(t.fabrics[i].Index))
+	}
+	if t.added != nil {
+		out = append(out, t.added)
+	}
+	return out
 }
 
 // find returns the fabric with index as it stands, pending changes applied. Call it with the lock
@@ -374,7 +388,7 @@ func (t *Table) UpdateNOC(index uint8, noc, icac []byte) error {
 // SetLabel sets a fabric's label, which no other fabric may have.
 func (t *Table) SetLabel(index uint8, label string) error {
 	return t.change(index, func(f *Fabric) error {
-		for _, o := range t.fabrics {
+		for _, o := range t.current() {
 			if o.Index != index && label != "" && o.Label == label {
 				return ErrLabelConflict
 			}

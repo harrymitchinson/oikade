@@ -50,8 +50,10 @@ type Hooks struct {
 	// FabricRemoved is called when a fabric is removed, or a pending one rolled back: end its
 	// sessions and subscriptions.
 	FabricRemoved func(index uint8)
-	// FailSafeExpired is called after an expired fail-safe rolled back: end the PASE sessions.
-	FailSafeExpired func()
+	// EndPASE is called when commissioning ends, completed or rolled back: end every PASE
+	// session. A PASE session holds Administer for as long as it lasts, so a node that doesn't
+	// end them leaves the commissioner in charge.
+	EndPASE func()
 	// Commissioned is called when CommissioningComplete commits a fabric or NOC update.
 	Commissioned func(index uint8)
 }
@@ -303,7 +305,7 @@ func (c *Commissioning) expireFailSafe() {
 			}
 		})
 	}
-	c.hook(c.hooks.FailSafeExpired)
+	c.hook(c.hooks.EndPASE)
 }
 
 // disarm ends the fail-safe without rolling back. Call it with the Node's lock.
@@ -367,6 +369,7 @@ func (c *Commissioning) commissioningComplete(req *im.Request, _ *tlv.Reader) (*
 	c.setBreadcrumb(0)
 	c.closeWindow()
 	c.fabricsChanged()
+	c.hook(c.hooks.EndPASE)
 	if added || updated {
 		c.log.Info("Commissioned", "fabric", index)
 		if c.hooks.Commissioned != nil {

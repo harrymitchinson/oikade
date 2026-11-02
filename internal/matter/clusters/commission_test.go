@@ -43,9 +43,9 @@ type node struct {
 
 	resumption *securechannel.ResumptionStore
 
-	mu      sync.Mutex
-	removed []uint8
-	expired int
+	mu        sync.Mutex
+	removed   []uint8
+	endedPASE int
 }
 
 func newNode(t *testing.T, dir string) *node {
@@ -69,10 +69,10 @@ func newNode(t *testing.T, dir string) *node {
 				defer n.mu.Unlock()
 				n.removed = append(n.removed, i)
 			},
-			FailSafeExpired: func() {
+			EndPASE: func() {
 				n.mu.Lock()
 				defer n.mu.Unlock()
-				n.expired++
+				n.endedPASE++
 			},
 		},
 	})
@@ -330,6 +330,11 @@ func TestCommission(t *testing.T) {
 	if code := response(t, res, 0x05)[0].(uint64); code != commissioningOK {
 		t.Fatalf("CommissioningComplete: %d", code)
 	}
+	waitFor(t, "EndPASE after CommissioningComplete", func() bool {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		return n.endedPASE == 1
+	})
 
 	// The fabric, as the admin reads it.
 	fabrics, err := im.DecodeValue(readAttr(t, admin, IDOperationalCredentials, 0x0001).Data)
@@ -367,7 +372,10 @@ func TestCommission(t *testing.T) {
 		t.Errorf("reloaded fabric %+v", f)
 	}
 
-	// RemoveFabric removes it, and says so.
+	// RemoveFabric removes it, and says so. It ends the fail-safe its admin armed.
+	if code := armFailSafe(t, admin, 60); code != commissioningOK {
+		t.Fatalf("ArmFailSafe: %d", code)
+	}
 	res = invoke(t, admin, IDOperationalCredentials, 0x0A, func(w *tlv.Writer) { w.PutUint(tlv.Context(0), uint64(index)) }, false)
 	if response(t, res, 0x08)[0] != uint64(nocOK) {
 		t.Errorf("RemoveFabric: %+v", res)
@@ -380,6 +388,11 @@ func TestCommission(t *testing.T) {
 	if again, _ := fabric.Open(fabric.DirStore{Dir: dir}); len(again.Fabrics()) != 0 {
 		t.Error("removed fabric is still saved")
 	}
+	n.bridge.Node.View(func() {
+		if n.comm.failSafe.armed {
+			t.Error("the removed fabric's fail-safe is still armed")
+		}
+	})
 }
 
 // checkAccess checks what writeACL grants: otherNode may view endpoint 2, and nothing else; a
@@ -433,7 +446,7 @@ func TestFailSafeRollsBack(t *testing.T) {
 	waitFor(t, "the fail-safe to expire", func() bool {
 		n.mu.Lock()
 		defer n.mu.Unlock()
-		return n.expired == 1 && reflect.DeepEqual(n.removed, []uint8{index})
+		return n.endedPASE == 1 && reflect.DeepEqual(n.removed, []uint8{index})
 	})
 	if f := n.table.Fabrics(); len(f) != 0 {
 		t.Errorf("fabrics after rollback: %+v", f)
@@ -567,5 +580,27 @@ func TestACLMatching(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestEmptyACLListsGrantAll: an entry's empty subjects or targets are read as null, which grants
+// every subject or target, so they mean the same before and after a restart.
+func TestEmptyACLListsGrantAll(t *testing.T) {
+	var w tlv.Writer
+	w.StartStructure(tlv.Anonymous)
+	w.PutUint(tlv.Context(1), uint64(im.PrivilegeOperate))
+	w.PutUint(tlv.Context(2), uint64(transport.AuthCASE))
+	w.StartArray(tlv.Context(3))
+	w.End()
+	w.StartArray(tlv.Context(4))
+	w.End()
+	w.End()
+	r := tlv.NewReader(w.Bytes())
+	if err := r.Next(); err != nil {
+		t.Fatal(err)
+	}
+	e, st := readACE(r)
+	if st != im.StatusSuccess || e.Subjects != nil || e.Targets != nil {
+		t.Errorf("readACE: %+v, %#x", e, st)
 	}
 }

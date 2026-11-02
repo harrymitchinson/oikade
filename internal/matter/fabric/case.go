@@ -18,13 +18,7 @@ func (c caseFabrics) Fabrics() []*securechannel.Fabric {
 	t := c.t
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	var current []*Fabric
-	for i := range t.fabrics {
-		current = append(current, t.find(t.fabrics[i].Index))
-	}
-	if t.added != nil {
-		current = append(current, t.added)
-	}
+	current := t.current()
 	cache := make(map[uint8]*securechannel.Fabric, len(current))
 	out := make([]*securechannel.Fabric, 0, len(current))
 	for _, f := range current {

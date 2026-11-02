@@ -159,10 +159,11 @@ func (d DirStore) Save(b []byte) (err error) {
 	if err = os.Rename(f.Name(), filepath.Join(d.Dir, storeFile)); err != nil {
 		return err
 	}
-	dir, err := os.Open(d.Dir)
-	if err != nil {
-		return err
+	// The new state is in place: Load returns it from now on. Syncing the directory makes the
+	// rename durable, but failing to doesn't make the save undone, so it isn't an error.
+	if dir, err := os.Open(d.Dir); err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
 	}
-	defer func() { _ = dir.Close() }()
-	return dir.Sync()
+	return nil
 }

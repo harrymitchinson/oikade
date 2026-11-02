@@ -187,6 +187,13 @@ func readACE(r *tlv.Reader) (fabric.ACE, im.Status) {
 		seen[tag] = true
 		return nil
 	})
+	// An empty list of subjects or targets grants all, as null does.
+	if len(e.Subjects) == 0 {
+		e.Subjects = nil
+	}
+	if len(e.Targets) == 0 {
+		e.Targets = nil
+	}
 	switch {
 	case err != nil || !seen[1] || !seen[2] || !seen[3] || !seen[4]:
 		return e, im.StatusInvalidDataType

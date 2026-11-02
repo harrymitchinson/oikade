@@ -69,7 +69,7 @@ func (c *Commissioning) operationalCredentials() *im.Cluster {
 			{ID: 0x0001, Read: c.readFabrics, FabricScoped: true},
 			uintAttr(0x0002, fabric.MaxFabrics), // SupportedFabrics
 			{ID: 0x0003, Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error { // CommissionedFabrics
-				w.PutUint(tag, uint64(len(c.fabrics.Fabrics())))
+				w.PutUint(tag, uint64(c.fabrics.Count()))
 				return nil
 			}},
 			{ID: 0x0004, Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error { // TrustedRootCertificates
@@ -282,7 +282,7 @@ func validAdminSubject(s uint64) bool {
 	if isCAT(s) {
 		return s&0xFFFF != 0
 	}
-	return s != 0 && s <= 0xFFFF_FFEF_FFFF_FFFF
+	return cert.IsOperationalNodeID(s)
 }
 
 func (c *Commissioning) addNOC(req *im.Request, fields *tlv.Reader) (*im.Response, error) {
@@ -407,6 +407,10 @@ func (c *Commissioning) removeFabric(_ *im.Request, fields *tlv.Reader) (*im.Res
 		// Removing the fabric being commissioned rolls the commissioning back.
 		c.expireFailSafe()
 		return nocResponse(nocOK, i), nil
+	}
+	if c.failSafe.armed && c.failSafe.fabricIndex == i {
+		// The fabric's admin is gone: so is what its fail-safe guards, such as an UpdateNOC.
+		c.expireFailSafe()
 	}
 	if err := c.fabrics.Remove(i); err != nil {
 		if !errors.Is(err, fabric.ErrInvalidIndex) {
