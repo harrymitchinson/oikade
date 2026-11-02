@@ -65,10 +65,17 @@ func freePort(t *testing.T) uint16 {
 	return uint16(pc.LocalAddr().(*net.UDPAddr).Port)
 }
 
-// start runs a node in dir until the test ends.
-func start(t *testing.T, dir string) (*Node, *fakeMDNS) {
+// testSetup is the setup code of the nodes the tests start.
+var testSetup = Setup{Passcode: 20202021, Discriminator: 3840}
+
+// start runs a node in dir until the test ends, or until it calls the returned stop.
+func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	t.Helper()
-	n, err := New(Config{DataDir: dir, Port: freePort(t), Log: testr.New(t), Info: clusters.Info{VendorName: "Oikade"}})
+	if cfg.Port == 0 {
+		cfg.Port = freePort(t)
+	}
+	cfg.Setup, cfg.Log, cfg.Info = testSetup, testr.New(t), clusters.Info{VendorName: "Oikade"}
+	n, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,15 +83,20 @@ func start(t *testing.T, dir string) (*Node, *fakeMDNS) {
 	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- n.Run(ctx, false) }()
-	t.Cleanup(func() {
+	go func() { done <- n.Run(ctx) }()
+	stopped := false
+	stop := func() {
+		if stopped {
+			return
+		}
+		stopped = true
 		cancel()
 		if err := <-done; err != nil && ctx.Err() == nil {
 			t.Error(err)
 		}
-	})
-	waitFor(t, "the window to open", func() bool { return fake.commissionable() != nil })
-	return n, fake
+	}
+	t.Cleanup(stop)
+	return n, fake, stop
 }
 
 func client(t *testing.T) *transport.Transport {
@@ -118,33 +130,25 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// TestSetupPersists keeps the setup code across restarts, so the pairing code doesn't change.
-func TestSetupPersists(t *testing.T) {
-	dir := t.TempDir()
-	a, err := loadSetup(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !setup.ValidPasscode(a.Passcode) || a.Discriminator > 0xFFF {
-		t.Errorf("invalid setup %+v", a)
-	}
-	b, err := loadSetup(dir)
-	if err != nil || b != a {
-		t.Errorf("reloaded %+v, %v; want %+v", b, err, a)
+func TestNeedsSetup(t *testing.T) {
+	if _, err := New(Config{DataDir: t.TempDir(), Setup: Setup{Passcode: 12345678}}); err == nil {
+		t.Error("New took a trivial passcode")
 	}
 }
 
 // TestWindow opens the initial window on a node on no fabric, answers PASE with the node's
-// passcode while it's open, refuses PASE once it's closed, and ends PASE sessions on EndPASE.
+// passcode while it's open, ends PASE sessions on EndPASE, and refuses PASE once the window times
+// out.
 func TestWindow(t *testing.T) {
-	n, fake := start(t, t.TempDir())
+	n, fake, _ := start(t, Config{DataDir: t.TempDir(), WindowTimeout: time.Second})
+	waitFor(t, "the window to open", func() bool { return fake.commissionable() != nil })
 	if txt := fake.commissionable(); !slices.Contains(txt, "CM=1") || !slices.ContainsFunc(txt, func(s string) bool {
-		return s == "D="+strconv.Itoa(int(n.setup.Discriminator))
+		return s == "D="+strconv.Itoa(int(testSetup.Discriminator))
 	}) {
 		t.Errorf("commissionable TXT %v", txt)
 	}
 	cli := client(t)
-	if err := pase(t, cli, n, n.setup.Passcode); err != nil {
+	if err := pase(t, cli, n, testSetup.Passcode); err != nil {
 		t.Fatalf("PASE in the initial window: %v", err)
 	}
 	paseSessions := func() int {
@@ -160,11 +164,8 @@ func TestWindow(t *testing.T) {
 	n.endPASE()
 	waitFor(t, "EndPASE to end the PASE session", func() bool { return paseSessions() == 0 })
 
-	n.closeWindow()
-	if txt := fake.commissionable(); txt != nil {
-		t.Errorf("still advertising %v after the window closed", txt)
-	}
-	if err := pase(t, cli, n, n.setup.Passcode); err == nil {
+	waitFor(t, "the window to time out", func() bool { return fake.commissionable() == nil && !n.WindowOpen() })
+	if err := pase(t, cli, n, testSetup.Passcode); err == nil {
 		t.Error("PASE succeeded with the window closed")
 	}
 
@@ -175,7 +176,7 @@ func TestWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n.openWindowHook(clusters.Window{Verifier: v, Salt: salt, Iterations: 2000, Discriminator: 0x123, Timeout: 3 * time.Minute})
+	n.openWindow(clusters.Window{Verifier: v, Salt: salt, Iterations: 2000, Discriminator: 0x123, Timeout: 3 * time.Minute})
 	if txt := fake.commissionable(); !slices.Contains(txt, "CM=2") || !slices.Contains(txt, "D=291") {
 		t.Errorf("enhanced window TXT %v", txt)
 	}
@@ -185,7 +186,7 @@ func TestWindow(t *testing.T) {
 }
 
 func TestPayload(t *testing.T) {
-	n, err := New(Config{DataDir: t.TempDir(), Log: testr.New(t)})
+	n, err := New(Config{DataDir: t.TempDir(), Setup: testSetup, Log: testr.New(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func TestPayload(t *testing.T) {
 	if err != nil || !strings.HasPrefix(qr, "MT:") {
 		t.Errorf("QR %q, %v", qr, err)
 	}
-	if p.Discovery != setup.DiscoveryOnNetwork || p.Passcode != n.setup.Passcode {
+	if p.Discovery != setup.DiscoveryOnNetwork || p.Passcode != testSetup.Passcode || p.Discriminator != testSetup.Discriminator {
 		t.Errorf("payload %+v", p)
 	}
 }

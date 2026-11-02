@@ -138,6 +138,49 @@ var test = sync.OnceValues(func() (*Credentials, error) {
 // for them signed with its test CD key.
 func Test() (*Credentials, error) { return test() }
 
+// TestDACPEM returns connectedhomeip's test DAC and its private key as PEM, for a node's
+// attestation Secret.
+func TestDACPEM() (cert, key []byte, err error) {
+	if cert, err = testcreds.ReadFile("testcreds/Chip-Test-DAC-FFF1-8000-0000-Cert.pem"); err != nil {
+		return nil, nil, err
+	}
+	key, err = testcreds.ReadFile("testcreds/Chip-Test-DAC-FFF1-8000-0000-Key.pem")
+	return cert, key, err
+}
+
+// WithDAC returns the test credentials with the DAC and key given as PEM instead. The DAC must
+// be issued by the test PAI, and the key must be its.
+func WithDAC(certPEM, keyPEM []byte) (*Credentials, error) {
+	t, err := Test()
+	if err != nil {
+		return nil, err
+	}
+	cb, _ := pem.Decode(certPEM)
+	kb, _ := pem.Decode(keyPEM)
+	if cb == nil || kb == nil {
+		return nil, errors.New("matter: the DAC and its key must be PEM")
+	}
+	dac, err := x509.ParseCertificate(cb.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("matter: parsing the DAC: %w", err)
+	}
+	key, err := x509.ParseECPrivateKey(kb.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("matter: parsing the DAC key: %w", err)
+	}
+	pai, err := x509.ParseCertificate(t.PAI)
+	if err != nil {
+		return nil, err
+	}
+	if err := dac.CheckSignatureFrom(pai); err != nil {
+		return nil, fmt.Errorf("matter: the DAC isn't issued by the test PAI: %w", err)
+	}
+	if pub, ok := dac.PublicKey.(*ecdsa.PublicKey); !ok || !pub.Equal(&key.PublicKey) {
+		return nil, errors.New("matter: the key isn't the DAC's")
+	}
+	return &Credentials{DAC: cb.Bytes, PAI: t.PAI, Key: key, CD: t.CD}, nil
+}
+
 // TestPAA returns connectedhomeip's test PAA for vendor 0xFFF1, which the test PAI chains to.
 func TestPAA() (*x509.Certificate, error) { return pemCert("Chip-Test-PAA-FFF1-Cert.pem") }
 

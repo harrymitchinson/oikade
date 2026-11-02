@@ -365,6 +365,10 @@ func (c *Commissioning) updateNOC(req *im.Request, fields *tlv.Reader) (*im.Resp
 	}
 	fs.nocUpdated = true
 	c.fabricsChanged()
+	if c.hooks.FabricUpdated != nil {
+		index := req.FabricIndex
+		c.hook(func() { c.hooks.FabricUpdated(index) })
+	}
 	return nocResponse(nocOK, req.FabricIndex), nil
 }
 

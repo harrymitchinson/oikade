@@ -7,14 +7,10 @@ package node
 import (
 	"context"
 	"crypto/rand"
-	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -38,10 +34,25 @@ const pbkdfIterations = 1000
 // RemoveFabric response still reaches an admin that removed its own fabric.
 const fabricSessionGrace = 2 * time.Second
 
+// The initial commissioning window's limits (Core spec, 5.4.2.3.1). DefaultWindowTimeout, the
+// longest, is how long it stays open unless configured.
+const (
+	MinWindowTimeout     = 3 * time.Minute
+	DefaultWindowTimeout = 15 * time.Minute
+)
+
 // Config configures a Node.
 type Config struct {
-	// DataDir holds the fabric table and the setup code. Losing it means re-commissioning.
+	// DataDir holds the fabric table. Losing it means re-commissioning.
 	DataDir string
+	// Setup is the node's own passcode and discriminator. It must stay the same across
+	// restarts, or the pairing code changes.
+	Setup Setup
+	// Attestation is what the node attests with; nil means connectedhomeip's test credentials.
+	Attestation *attestation.Credentials
+	// WindowTimeout is how long the initial commissioning window stays open; 0 means
+	// DefaultWindowTimeout.
+	WindowTimeout time.Duration
 	// Port is the Matter UDP port; 0 means 5540.
 	Port uint16
 	// Info is what the node says of itself. Its vendor and product IDs are replaced by the test
@@ -63,18 +74,21 @@ type advertiser interface {
 
 func listenMDNS(opts mdns.Options) (advertiser, error) { return mdns.Listen(opts) }
 
-// Setup is the node's own setup passcode and discriminator, kept in the data directory so that
-// its pairing code doesn't change.
+// Setup is the node's own setup passcode and discriminator.
 type Setup struct {
-	Passcode      uint32 `json:"passcode"`
-	Discriminator uint16 `json:"discriminator"`
+	Passcode      uint32
+	Discriminator uint16
+}
+
+// Valid reports whether s may be a node's setup code.
+func (s Setup) Valid() bool {
+	return setup.ValidPasscode(s.Passcode) && s.Discriminator <= setup.MaxDiscriminator
 }
 
 // Node is a Matter node serving a bridge.
 type Node struct {
 	cfg        Config
 	log        logr.Logger
-	setup      Setup
 	salt       []byte
 	verifier   mcrypto.Verifier
 	table      *fabric.Table
@@ -91,19 +105,27 @@ type Node struct {
 
 	sessions sessionSet
 
+	// mu guards the advertisements. It's never held while the responder probes, which takes
+	// about a second.
 	mu             sync.Mutex
 	commissionable *mdns.Service           // advertised while a window is open
 	operational    map[uint8]*mdns.Service // advertised per fabric
 }
 
-// New loads the node's state from cfg.DataDir and builds its bridge, with no bridged devices.
-// Add them through Bridge before Run.
+// New loads the node's fabric table from cfg.DataDir and builds its bridge, with no bridged
+// devices. Add them through Bridge before Run.
 func New(cfg Config) (*Node, error) {
 	if cfg.DataDir == "" {
 		return nil, errors.New("matter: node needs a data directory")
 	}
+	if !cfg.Setup.Valid() {
+		return nil, errors.New("matter: node needs a valid setup passcode and discriminator")
+	}
 	if cfg.Port == 0 {
 		cfg.Port = transport.Port
+	}
+	if cfg.WindowTimeout == 0 {
+		cfg.WindowTimeout = DefaultWindowTimeout
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
@@ -113,30 +135,30 @@ func New(cfg Config) (*Node, error) {
 		operational: map[uint8]*mdns.Service{}, listenMDNS: listenMDNS,
 	}
 	var err error
-	if n.setup, err = loadSetup(cfg.DataDir); err != nil {
-		return nil, err
-	}
 	n.salt = make([]byte, 32)
 	_, _ = rand.Read(n.salt)
-	if n.verifier, err = mcrypto.NewVerifier(n.setup.Passcode, n.salt, pbkdfIterations); err != nil {
+	if n.verifier, err = mcrypto.NewVerifier(cfg.Setup.Passcode, n.salt, pbkdfIterations); err != nil {
 		return nil, err
 	}
 	if n.table, err = fabric.Open(fabric.DirStore{Dir: cfg.DataDir}); err != nil {
 		return nil, err
 	}
-	creds, err := attestation.Test()
-	if err != nil {
-		return nil, err
+	creds := cfg.Attestation
+	if creds == nil {
+		if creds, err = attestation.Test(); err != nil {
+			return nil, err
+		}
 	}
 	n.comm, err = clusters.NewCommissioning(clusters.CommissioningConfig{
 		Fabrics: n.table, Attestation: creds, Log: cfg.Log.WithName("commissioning"),
 		Hooks: clusters.Hooks{
-			OpenWindow:    n.openWindowHook,
+			OpenWindow:    n.openWindow,
 			CloseWindow:   n.closeWindow,
 			FabricAdded:   n.advertiseFabric,
+			FabricUpdated: n.advertiseFabric,
 			FabricRemoved: n.fabricRemoved,
 			EndPASE:       n.endPASE,
-			Commissioned:  n.commissioned,
+			Commissioned:  n.advertiseFabric,
 		},
 	})
 	if err != nil {
@@ -158,16 +180,21 @@ func (n *Node) Fabrics() *fabric.Table { return n.table }
 
 // Payload returns the node's onboarding payload, for its QR and manual pairing codes.
 func (n *Node) Payload() setup.Payload {
+	return PayloadFor(n.cfg.Setup)
+}
+
+// PayloadFor returns the onboarding payload of a node with setup code s.
+func PayloadFor(s Setup) setup.Payload {
 	return setup.Payload{
 		VendorID: attestation.TestVendorID, ProductID: attestation.TestProductID,
 		Flow: setup.FlowStandard, Discovery: setup.DiscoveryOnNetwork,
-		Discriminator: n.setup.Discriminator, Passcode: n.setup.Passcode,
+		Discriminator: s.Discriminator, Passcode: s.Passcode,
 	}
 }
 
 // Run serves the node until ctx is done. It advertises the node on each fabric it's on, and
-// opens the commissioning window if it's on none, or if openWindow is set.
-func (n *Node) Run(ctx context.Context, openWindow bool) error {
+// opens the initial commissioning window if it's on none.
+func (n *Node) Run(ctx context.Context) error {
 	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{Log: n.log.WithName("transport")})
 	if err != nil {
 		return err
@@ -187,31 +214,31 @@ func (n *Node) Run(ctx context.Context, openWindow bool) error {
 		OnSession: n.sessions.add, Log: n.log.WithName("case"),
 	}).Register()
 	tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
+	tr.Handle(transport.SecureChannel, []uint8{securechannel.OpStatusReport}, n.statusReport)
 
 	served := make(chan error, 1)
 	go func() { served <- tr.Serve(ctx) }()
 
+	// Each fabric's controllers look for the node as soon as it's back, so advertise them all at
+	// once rather than probing one after another.
 	for _, f := range n.table.Fabrics() {
-		n.advertiseFabric(f.Index)
+		go n.advertiseFabric(f.Index)
 	}
-	if n.table.Count() == 0 || openWindow {
-		n.openWindow(clusters.Window{Basic: true})
+	if n.table.Count() == 0 {
+		n.comm.OpenInitialWindow(n.cfg.WindowTimeout)
 	}
 	return <-served
 }
 
-// openWindowHook opens a window that an administrator asked for.
-func (n *Node) openWindowHook(w clusters.Window) {
-	n.openWindow(w)
-	n.log.Info("Opened commissioning window for an administrator", "basic", w.Basic, "timeout", w.Timeout)
-}
+// WindowOpen reports whether a commissioning window is open.
+func (n *Node) WindowOpen() bool { return n.comm.WindowOpen() }
 
 // openWindow starts answering PASE with w's verifier, or the node's own for a basic window,
 // and advertises the commissionable service.
 func (n *Node) openWindow(w clusters.Window) {
 	mode := mdns.CommissioningEnhanced
 	if w.Basic {
-		w.Verifier, w.Salt, w.Iterations, w.Discriminator = n.verifier, n.salt, pbkdfIterations, n.setup.Discriminator
+		w.Verifier, w.Salt, w.Iterations, w.Discriminator = n.verifier, n.salt, pbkdfIterations, n.cfg.Setup.Discriminator
 		mode = mdns.CommissioningBasic
 	}
 	(&securechannel.Responder{
@@ -232,34 +259,40 @@ func (n *Node) openWindow(w clusters.Window) {
 		return
 	}
 	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.commissionable != nil {
-		_ = n.mdns.Remove(*n.commissionable)
-		n.commissionable = nil
+	old := n.commissionable
+	n.commissionable = &svc
+	n.mu.Unlock()
+	if old != nil {
+		_ = n.mdns.Remove(*old)
 	}
 	if err := n.mdns.Add(n.ctx, svc); err != nil {
 		// Without the advertisement the window isn't open: refuse PASE, so the state agrees.
 		n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
+		n.mu.Lock()
+		if n.commissionable == &svc {
+			n.commissionable = nil
+		}
+		n.mu.Unlock()
 		n.log.Error(err, "Could not advertise the commissionable service")
 		return
 	}
-	n.commissionable = &svc
-	n.log.Info("Opened commissioning window", "discriminator", w.Discriminator, "instance", svc.Instance)
+	n.log.Info("Advertised commissionable service", "discriminator", w.Discriminator, "instance", svc.Instance)
 }
 
 // closeWindow stops answering PASE, and stops advertising the commissionable service.
 func (n *Node) closeWindow() {
 	n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.commissionable == nil {
+	old := n.commissionable
+	n.commissionable = nil
+	n.mu.Unlock()
+	if old == nil {
 		return
 	}
-	if err := n.mdns.Remove(*n.commissionable); err != nil {
+	if err := n.mdns.Remove(*old); err != nil {
 		n.log.Error(err, "Could not stop advertising the commissionable service")
 	}
-	n.commissionable = nil
-	n.log.Info("Closed commissioning window")
+	n.log.Info("Stopped advertising commissionable service")
 }
 
 // refusePASE answers PASE while no commissioning window is open.
@@ -271,7 +304,7 @@ func refusePASE(ctx context.Context, ex *transport.Exchange, _ transport.Message
 }
 
 // advertiseFabric advertises the node's operational service on a fabric, which AddNOC may have
-// just added.
+// just added, or UpdateNOC given a new node ID.
 func (n *Node) advertiseFabric(index uint8) {
 	f, ok := n.table.Fabric(index)
 	if !ok {
@@ -279,40 +312,65 @@ func (n *Node) advertiseFabric(index uint8) {
 	}
 	svc := mdns.Operational{CompressedFabricID: f.CompressedFabricID, NodeID: f.NodeID, Port: n.cfg.Port}.Service()
 	n.mu.Lock()
-	defer n.mu.Unlock()
-	if old := n.operational[index]; old != nil {
-		if old.Instance == svc.Instance {
-			return
-		}
-		_ = n.mdns.Remove(*old)
-		delete(n.operational, index)
-	}
-	if err := n.mdns.Add(n.ctx, svc); err != nil {
-		n.log.Error(err, "Could not advertise the operational service", "fabric", index)
+	old := n.operational[index]
+	if old != nil && old.Instance == svc.Instance {
+		n.mu.Unlock()
 		return
 	}
 	n.operational[index] = &svc
+	n.mu.Unlock()
+	if old != nil {
+		_ = n.mdns.Remove(*old)
+	}
+	if err := n.mdns.Add(n.ctx, svc); err != nil {
+		n.mu.Lock()
+		if n.operational[index] == &svc {
+			delete(n.operational, index)
+		}
+		n.mu.Unlock()
+		n.log.Error(err, "Could not advertise the operational service", "fabric", index)
+		return
+	}
 	n.log.Info("Advertised operational service", "fabric", index, "instance", svc.Instance)
-}
-
-// commissioned closes the initial window, which Commissioning doesn't track, and advertises the
-// fabric (again, for an UpdateNOC that changed the node ID).
-func (n *Node) commissioned(index uint8) {
-	n.closeWindow()
-	n.advertiseFabric(index)
 }
 
 // endPASE ends every PASE session.
 func (n *Node) endPASE() {
 	for _, s := range n.sessions.list() {
 		if s.AuthMode() == transport.AuthPASE {
-			n.tr.RemoveSession(s)
+			n.endSession(s)
 		}
 	}
 }
 
+// endSession tells the peer that s is closing, then closes it. CloseSession isn't acknowledged
+// (Core spec, 4.11.1.3), so it's sent once.
+func (n *Node) endSession(s *transport.Session) {
+	if ex, err := s.NewExchange(); err == nil {
+		ctx, cancel := context.WithTimeout(n.ctx, time.Second)
+		_ = ex.Send(ctx, securechannel.StatusReport{
+			General: securechannel.GeneralSuccess, Protocol: transport.SecureChannel, Code: securechannel.CodeCloseSession,
+		}.Message())
+		cancel()
+	}
+	n.tr.RemoveSession(s)
+}
+
+// statusReport handles a status report a peer sends on a new exchange: CloseSession ends the
+// session it came on.
+func (n *Node) statusReport(_ context.Context, ex *transport.Exchange, m transport.Message) {
+	defer ex.Close()
+	s := ex.Session()
+	r, err := securechannel.ParseStatusReport(m.Payload)
+	if err != nil || !s.Secure() || r.Protocol != transport.SecureChannel || r.Code != securechannel.CodeCloseSession {
+		return
+	}
+	n.log.V(1).Info("Peer closed session", "session", s.LocalSessionID(), "peer", s.Peer())
+	n.tr.RemoveSession(s)
+}
+
 // fabricRemoved ends a fabric's sessions and resumptions, and its advertisement. A node left on
-// no fabric opens its window again.
+// no fabric opens its initial window again.
 func (n *Node) fabricRemoved(index uint8) {
 	n.resumption.RemoveFabric(index)
 	var ending []*transport.Session
@@ -323,21 +381,21 @@ func (n *Node) fabricRemoved(index uint8) {
 	}
 	time.AfterFunc(fabricSessionGrace, func() {
 		for _, s := range ending {
-			n.tr.RemoveSession(s)
+			n.endSession(s)
 		}
 	})
 	n.mu.Lock()
-	if svc := n.operational[index]; svc != nil {
+	svc := n.operational[index]
+	delete(n.operational, index)
+	n.mu.Unlock()
+	if svc != nil {
 		if err := n.mdns.Remove(*svc); err != nil {
 			n.log.Error(err, "Could not stop advertising the operational service", "fabric", index)
 		}
-		delete(n.operational, index)
 	}
-	reopen := n.commissionable == nil && n.table.Count() == 0
-	n.mu.Unlock()
 	n.log.Info("Ended fabric's sessions", "fabric", index, "sessions", len(ending))
-	if reopen {
-		n.openWindow(clusters.Window{Basic: true})
+	if n.table.Count() == 0 {
+		n.comm.OpenInitialWindow(n.cfg.WindowTimeout)
 	}
 }
 
@@ -370,45 +428,6 @@ func (s *sessionSet) list() []*transport.Session {
 		l = append(l, sess)
 	}
 	return l
-}
-
-const setupFile = "setup.json"
-
-// loadSetup reads the setup code from dir, or makes and saves a random one.
-func loadSetup(dir string) (Setup, error) {
-	path := filepath.Join(dir, setupFile)
-	b, err := os.ReadFile(path)
-	if err == nil {
-		var s Setup
-		if err := json.Unmarshal(b, &s); err != nil {
-			return Setup{}, fmt.Errorf("matter: reading %s: %w", path, err)
-		}
-		if !setup.ValidPasscode(s.Passcode) || s.Discriminator > 0xFFF {
-			return Setup{}, fmt.Errorf("matter: %s has an invalid passcode or discriminator", path)
-		}
-		return s, nil
-	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		return Setup{}, err
-	}
-	var s Setup
-	for !setup.ValidPasscode(s.Passcode) {
-		s.Passcode = randomUint32() % 100000000
-	}
-	s.Discriminator = uint16(randomUint32() & 0xFFF)
-	if b, err = json.Marshal(s); err != nil {
-		return Setup{}, err
-	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return Setup{}, err
-	}
-	return s, nil
-}
-
-func randomUint32() uint32 {
-	var b [4]byte
-	_, _ = rand.Read(b[:])
-	return binary.LittleEndian.Uint32(b[:])
 }
 
 // cancelled returns a context that's already done.

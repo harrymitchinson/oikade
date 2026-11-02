@@ -58,6 +58,10 @@ type Hooks struct {
 	// session. A PASE session holds Administer for as long as it lasts, so a node that doesn't
 	// end them leaves the commissioner in charge.
 	EndPASE func()
+	// FabricUpdated is called when UpdateNOC changes a fabric's NOC, still pending until
+	// CommissioningComplete, and when the fail-safe rolls that back: the node ID may have changed,
+	// so advertise the operational service again.
+	FabricUpdated func(index uint8)
 	// Commissioned is called when CommissioningComplete commits a fabric or NOC update.
 	Commissioned func(index uint8)
 }
@@ -296,18 +300,21 @@ func (c *Commissioning) expireFailSafe() {
 		fs.timer.Stop()
 	}
 	added := c.fabrics.Revert()
+	updated := uint8(0)
+	if fs.nocUpdated {
+		updated = fs.fabricIndex
+	}
 	if fs.session != nil && fs.session.AuthMode() == transport.AuthPASE {
 		fs.session.SetFabricIndex(0)
 	}
 	*fs = failSafe{generation: fs.generation + 1}
 	c.setBreadcrumb(0)
 	c.fabricsChanged()
-	if added != 0 {
-		c.hook(func() {
-			if c.hooks.FabricRemoved != nil {
-				c.hooks.FabricRemoved(added)
-			}
-		})
+	if added != 0 && c.hooks.FabricRemoved != nil {
+		c.hook(func() { c.hooks.FabricRemoved(added) })
+	}
+	if updated != 0 && c.hooks.FabricUpdated != nil {
+		c.hook(func() { c.hooks.FabricUpdated(updated) })
 	}
 	c.hook(c.hooks.EndPASE)
 }

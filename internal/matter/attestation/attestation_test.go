@@ -1,6 +1,7 @@
 package attestation
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"testing"
@@ -99,5 +100,31 @@ func TestCDOtherProduct(t *testing.T) {
 	sig, _ := creds.Sign(append(append([]byte(nil), elements...), challenge...))
 	if _, err := trust.Verify(creds.DAC, creds.PAI, elements, sig, challenge, n); !errors.Is(err, ErrInvalid) {
 		t.Errorf("Verify: %v", err)
+	}
+}
+
+func TestWithDAC(t *testing.T) {
+	cert, key, err := TestDACPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := WithDAC(cert, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	test, _ := Test()
+	if !bytes.Equal(c.DAC, test.DAC) || !bytes.Equal(c.PAI, test.PAI) || !bytes.Equal(c.CD, test.CD) {
+		t.Error("WithDAC of the test DAC isn't the test credentials")
+	}
+	cdKey, _ := testcreds.ReadFile("testcreds/Chip-Test-CD-Signing-Key.pem")
+	if _, err := WithDAC(cert, cdKey); err == nil {
+		t.Error("took another key")
+	}
+	paa, _ := testcreds.ReadFile("testcreds/Chip-Test-PAA-FFF1-Cert.pem")
+	if _, err := WithDAC(paa, key); err == nil {
+		t.Error("took a certificate the PAI didn't issue")
+	}
+	if _, err := WithDAC([]byte("not PEM"), key); err == nil {
+		t.Error("took a DAC that isn't PEM")
 	}
 }

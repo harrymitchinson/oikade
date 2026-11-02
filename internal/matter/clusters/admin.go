@@ -41,7 +41,10 @@ type Window struct {
 
 // window is Administrator Commissioning's state. The Node's lock guards it.
 type window struct {
-	status      uint8
+	status uint8
+	// initial is set for the window the node opens itself while it's on no fabric. The cluster
+	// reports it as not open, since no administrator opened it, but RevokeCommissioning closes it.
+	initial     bool
 	adminFabric uint8
 	adminVendor uint16
 	timer       *time.Timer
@@ -63,7 +66,7 @@ func (c *Commissioning) administratorCommissioning() *im.Cluster {
 	return &im.Cluster{
 		ID: IDAdministratorCommissioning, Revision: 1, FeatureMap: featureBasic,
 		Attributes: []im.Attribute{
-			readOnly(0x0000, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, uint64(c.window.status)) }),
+			readOnly(0x0000, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, uint64(c.windowStatus())) }),
 			nullable(0x0001, func() (uint64, bool) { return uint64(c.window.adminFabric), c.window.adminFabric != 0 }),
 			nullable(0x0002, func() (uint64, bool) { return uint64(c.window.adminVendor), c.window.adminFabric != 0 }),
 		},
@@ -112,7 +115,7 @@ func (c *Commissioning) openCommissioningWindow(req *im.Request, fields *tlv.Rea
 	if err != nil || iterations < 1000 || iterations > 100000 || len(salt) < 16 || len(salt) > 32 {
 		return nil, im.ClusterStatus{Status: im.StatusFailure, Code: adminPAKEParameterError}
 	}
-	c.openWindow(req, Window{
+	c.openWindow(req.FabricIndex, false, Window{
 		Verifier: v, Salt: append([]byte(nil), salt...), Iterations: uint32(iterations),
 		Discriminator: uint16(discriminator), Timeout: d,
 	})
@@ -138,24 +141,56 @@ func (c *Commissioning) openBasicCommissioningWindow(req *im.Request, fields *tl
 	if d < minWindowTimeout || d > maxWindowTimeout {
 		return nil, im.StatusInvalidCommand
 	}
-	c.openWindow(req, Window{Basic: true, Timeout: d})
+	c.openWindow(req.FabricIndex, false, Window{Basic: true, Timeout: d})
 	return nil, nil
 }
 
-// openWindow opens w, and closes it when it times out. Call it with the Node's lock.
-func (c *Commissioning) openWindow(req *im.Request, w Window) {
+// OpenInitialWindow opens a basic commissioning window with the node's own passcode, as a node
+// does while it's on no fabric, and closes it after timeout (Core spec, 5.4.2.3). It does nothing
+// while a window is open or the fail-safe is armed. RevokeCommissioning, a fabric being
+// commissioned and the timeout all close it.
+func (c *Commissioning) OpenInitialWindow(timeout time.Duration) {
+	c.update(func() {
+		if c.window.status != windowClosed || c.failSafe.armed {
+			return
+		}
+		c.openWindow(0, true, Window{Basic: true, Timeout: timeout})
+	})
+}
+
+// WindowOpen reports whether a commissioning window is open, the initial one included.
+func (c *Commissioning) WindowOpen() bool {
+	open := false
+	if n := c.general.Node(); n != nil {
+		n.View(func() { open = c.window.status != windowClosed })
+	}
+	return open
+}
+
+// windowStatus is the WindowStatus attribute: the initial window wasn't opened through the
+// cluster, so it reads as not open.
+func (c *Commissioning) windowStatus() uint8 {
+	if c.window.initial {
+		return windowClosed
+	}
+	return c.window.status
+}
+
+// openWindow opens w for the administrator on fabric (0 for the initial window), and closes it
+// when it times out. Call it with the Node's lock.
+func (c *Commissioning) openWindow(fabric uint8, initial bool, w Window) {
 	status := uint8(windowEnhanced)
 	if w.Basic {
 		status = windowBasic
 	}
 	var vendor uint16
-	if f, ok := c.fabrics.Fabric(req.FabricIndex); ok {
+	if f, ok := c.fabrics.Fabric(fabric); ok {
 		vendor = f.VendorID
 	}
 	c.window.generation++
 	gen := c.window.generation
 	c.window = window{
-		status: status, adminFabric: req.FabricIndex, adminVendor: vendor, generation: gen,
+		status: status, initial: initial, adminFabric: fabric, adminVendor: vendor, generation: gen,
 		timer: time.AfterFunc(w.Timeout, func() {
 			c.update(func() {
 				if c.window.generation == gen {
@@ -166,7 +201,7 @@ func (c *Commissioning) openWindow(req *im.Request, w Window) {
 		}),
 	}
 	c.windowChanged()
-	c.log.Info("Opened commissioning window", "basic", w.Basic, "timeout", w.Timeout, "fabric", req.FabricIndex)
+	c.log.Info("Opened commissioning window", "basic", w.Basic, "initial", initial, "timeout", w.Timeout, "fabric", fabric)
 	if c.hooks.OpenWindow != nil {
 		c.hook(func() { c.hooks.OpenWindow(w) })
 	}

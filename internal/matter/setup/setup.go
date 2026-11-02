@@ -4,6 +4,8 @@
 package setup
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -176,4 +178,14 @@ func Verhoeff(digits string) int {
 		c = verhoeffD[c][verhoeffP[(i+1)%8][d]]
 	}
 	return int(verhoeffInv[c])
+}
+
+// Random returns a random valid passcode and discriminator, for a node's own setup code.
+func Random() (passcode uint32, discriminator uint16) {
+	var b [6]byte
+	for !ValidPasscode(passcode) {
+		_, _ = rand.Read(b[:])
+		passcode = binary.LittleEndian.Uint32(b[:4]) % (MaxPasscode + 1)
+	}
+	return passcode, binary.LittleEndian.Uint16(b[4:]) & MaxDiscriminator
 }

@@ -47,6 +47,7 @@ type node struct {
 	mu        sync.Mutex
 	added     []uint8
 	removed   []uint8
+	updated   []uint8
 	endedPASE int
 }
 
@@ -75,6 +76,11 @@ func newNode(t *testing.T, dir string) *node {
 				n.mu.Lock()
 				defer n.mu.Unlock()
 				n.removed = append(n.removed, i)
+			},
+			FabricUpdated: func(i uint8) {
+				n.mu.Lock()
+				defer n.mu.Unlock()
+				n.updated = append(n.updated, i)
 			},
 			EndPASE: func() {
 				n.mu.Lock()
@@ -614,5 +620,115 @@ func TestEmptyACLListsGrantAll(t *testing.T) {
 	e, st := readACE(r)
 	if st != im.StatusSuccess || e.Subjects != nil || e.Targets != nil {
 		t.Errorf("readACE: %+v, %#x", e, st)
+	}
+}
+
+// TestInitialWindow: the node's own window reads as not open in Administrator Commissioning,
+// refuses an administrator's second window, and RevokeCommissioning or its timeout closes it.
+func TestInitialWindow(t *testing.T) {
+	n := newNode(t, t.TempDir())
+	var mu sync.Mutex
+	var opened []Window
+	closed := 0
+	n.comm.hooks.OpenWindow = func(w Window) { mu.Lock(); opened = append(opened, w); mu.Unlock() }
+	n.comm.hooks.CloseWindow = func() { mu.Lock(); closed++; mu.Unlock() }
+	hooks := func(o, c int) func() bool {
+		return func() bool { mu.Lock(); defer mu.Unlock(); return len(opened) == o && closed == c }
+	}
+
+	n.comm.OpenInitialWindow(time.Minute)
+	waitFor(t, "the window to open", hooks(1, 0))
+	if !opened[0].Basic || !n.comm.WindowOpen() {
+		t.Errorf("opened %+v, open %v", opened[0], n.comm.WindowOpen())
+	}
+	n.comm.OpenInitialWindow(time.Minute) // already open: nothing happens
+	c := n.pase(t)
+	if v, _ := im.DecodeValue(readAttr(t, c, IDAdministratorCommissioning, 0).Data); v != uint64(windowClosed) {
+		t.Errorf("WindowStatus %v", v)
+	}
+	if v, _ := im.DecodeValue(readAttr(t, c, IDAdministratorCommissioning, 1).Data); v != nil {
+		t.Errorf("AdminFabricIndex %v", v)
+	}
+	if res := invoke(t, c, IDAdministratorCommissioning, 0x01, func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 180) }, true); res.ClusterStatus == nil || *res.ClusterStatus != adminBusy {
+		t.Errorf("an administrator's window while the initial one is open: %+v", res)
+	}
+	if res := invoke(t, c, IDAdministratorCommissioning, 0x02, nil, true); res.Status != im.StatusSuccess {
+		t.Errorf("revoke: %+v", res)
+	}
+	waitFor(t, "the window to close", hooks(1, 1))
+	if n.comm.WindowOpen() {
+		t.Error("open after revoke")
+	}
+
+	n.comm.OpenInitialWindow(50 * time.Millisecond)
+	waitFor(t, "the window to time out", hooks(2, 2))
+}
+
+// TestUpdateNOC: UpdateNOC asks the node to advertise the new node ID, and so does the fail-safe
+// rolling it back.
+func TestUpdateNOC(t *testing.T) {
+	n := newNode(t, t.TempDir())
+	cm := newCommissioner(t)
+	c := n.pase(t)
+	index := cm.commission(t, c)
+	if st := writeACL(t, c); st != im.StatusSuccess {
+		t.Fatalf("ACL write: %#x", st)
+	}
+	admin := n.caseSession(t, cm, commissionerNode)
+	if code := armFailSafe(t, admin, 60); code != commissioningOK {
+		t.Fatalf("ArmFailSafe: %d", code)
+	}
+	if code := response(t, invoke(t, admin, IDGeneralCommissioning, 0x04, nil, false), 0x05)[0].(uint64); code != commissioningOK {
+		t.Fatalf("CommissioningComplete: %d", code)
+	}
+
+	const newNode = 0x0000_0000_0000_0B0C
+	if code := armFailSafe(t, admin, 60); code != commissioningOK {
+		t.Fatalf("ArmFailSafe: %d", code)
+	}
+	nonce := random(attestation.NonceSize)
+	res := invoke(t, admin, IDOperationalCredentials, 0x04, func(w *tlv.Writer) {
+		w.PutBytes(tlv.Context(0), nonce)
+		w.PutBool(tlv.Context(1), true)
+	}, false)
+	elements := response(t, res, 0x05)[0].([]byte)
+	decoded, err := im.DecodeValue(elements)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr := decoded.(map[uint8]any)[1].([]byte)
+	pub, err := cert.ParseCSR(csr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noc, err := cert.NewNOC(cm.rcac, cm.key, pub, cert.NOCSubject{NodeID: newNode, FabricID: testFabricID}, cm.rcac.NotBefore, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nocTLV, _ := noc.Encode()
+	res = invoke(t, admin, IDOperationalCredentials, 0x07, func(w *tlv.Writer) { w.PutBytes(tlv.Context(0), nocTLV) }, false)
+	if f := response(t, res, 0x08); f[0] != uint64(nocOK) {
+		t.Fatalf("UpdateNOC: %+v", f)
+	}
+	waitFor(t, "FabricUpdated after UpdateNOC", func() bool {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		return slices.Equal(n.updated, []uint8{index})
+	})
+	if f, _ := n.table.Fabric(index); f.NodeID != newNode {
+		t.Errorf("pending node ID %#x", f.NodeID)
+	}
+
+	// Rolling back restores the old node ID, and says so.
+	if code := armFailSafe(t, admin, 0); code != commissioningOK {
+		t.Fatalf("ArmFailSafe(0): %d", code)
+	}
+	waitFor(t, "FabricUpdated after the rollback", func() bool {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		return slices.Equal(n.updated, []uint8{index, index})
+	})
+	if f, _ := n.table.Fabric(index); f.NodeID != deviceNode {
+		t.Errorf("node ID after the rollback %#x", f.NodeID)
 	}
 }
