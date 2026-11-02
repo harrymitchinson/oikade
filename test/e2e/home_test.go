@@ -84,6 +84,33 @@ spec:
   displayName: E2E bridge
 `
 
+// chipToolImage is connectedhomeip's published chip-tool (tag 8862cba105e5351fcd0ff695c331214d90376070,
+// 2026-10-29), pinned by digest. It's about 6 GB, so the pod is started early and waited for late.
+const chipToolImage = "connectedhomeip/chip-cert-bins@sha256:92951d7ad7c00357ce3e1971e53ed6e4b458188ed966cf2f210a6eb6a45011e2"
+
+// chipToolManifest runs chip-tool on the host network, beside the bridge, with the Avahi daemon it
+// browses DNS-SD through.
+const chipToolManifest = `
+apiVersion: v1
+kind: Pod
+metadata: {name: chip-tool}
+spec:
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  containers:
+  - name: chip-tool
+    image: ` + chipToolImage + `
+    command: [sh, -c, "mkdir -p /run/dbus && dbus-daemon --system && avahi-daemon -D --no-chroot --no-drop-root && exec sleep infinity"]
+    readinessProbe:
+      exec: {command: [avahi-daemon, --check]}
+      periodSeconds: 2
+`
+
+// chipNode is the node ID chip-tool gives the bridge when it commissions it.
+const chipNode = "0x1122"
+
 // secondLamp is a copy of the fixture's IKEA lamp, so the hallway has two lights.
 const secondLamp = "0x000b57fffe000006"
 
@@ -460,6 +487,42 @@ func secretKey(name, key string) (string, error) {
 	return string(decoded), err
 }
 
+// chipTool runs one chip-tool command in the chip-tool pod.
+func chipTool(args ...string) (string, error) {
+	return kubectl(append([]string{"exec", "chip-tool", "--", "/root/chip-tool"}, args...)...)
+}
+
+// chipOnOff reads an endpoint's OnOff attribute with chip-tool: TRUE, FALSE, or "" if it can't.
+func chipOnOff(endpoint int) string {
+	out, _ := chipTool("onoff", "read", "on-off", chipNode, fmt.Sprint(endpoint))
+	m := regexp.MustCompile(`OnOff: (TRUE|FALSE)`).FindAllStringSubmatch(out, -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return m[len(m)-1][1]
+}
+
+// chipOccupancy reads the motion sensor's Occupancy attribute with chip-tool, or "" if it can't.
+func chipOccupancy() string {
+	out, _ := chipTool("occupancysensing", "read", "occupancy", chipNode, "3")
+	m := regexp.MustCompile(`(?i)Occupancy: (\d)`).FindAllStringSubmatch(out, -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return m[len(m)-1][1]
+}
+
+// chipLog returns the interactive chip-tool's log.
+func chipLog() string {
+	out, _ := kubectl("exec", "chip-tool", "--", "cat", "/tmp/subscription.log")
+	return out
+}
+
+// occupancyReports counts the Occupancy reports in a chip-tool log with the given value.
+func occupancyReports(log string, value int) int {
+	return len(regexp.MustCompile(fmt.Sprintf(`(?i)Occupancy: %d\b`, value)).FindAllString(log, -1))
+}
+
 func jsonpath(kind, name, path string) func() (string, error) {
 	return func() (string, error) { return kubectl("get", kind, name, "-o", "jsonpath="+path) }
 }
@@ -483,6 +546,9 @@ func homeScenario() {
 
 			By("declaring the home")
 			apply(homeManifests)
+
+			By("starting chip-tool, whose image takes a while to pull")
+			apply(chipToolManifest)
 		})
 
 		AfterAll(func() {
@@ -495,6 +561,8 @@ func homeScenario() {
 			for _, sub := range subs {
 				_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t", pluginRoot+"/"+sub)
 			}
+			_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t",
+				"oikade/v1/_matter/"+homeNamespace+"/main/fabrics")
 			_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", homeNamespace, readmeNamespace, "--wait=false"))
 		})
 
@@ -593,6 +661,57 @@ func homeScenario() {
 			}).Should(Succeed())
 			Expect(jsonpath("matterbridge", "main", `{.status.conditions[?(@.type=="DevicesSupported")].status}`)()).
 				To(Equal("True"))
+		})
+
+		It("is commissioned by chip-tool", func() {
+			_, err := kubectl("wait", "--for=condition=Ready", "pod/chip-tool", "--timeout=15m")
+			Expect(err).NotTo(HaveOccurred())
+			passcode, err := secretKey("main-matter", "passcode")
+			Expect(err).NotTo(HaveOccurred())
+
+			out, err := chipTool("pairing", "onnetwork", chipNode, passcode)
+			Expect(err).NotTo(HaveOccurred(), out)
+			Expect(out).To(ContainSubstring("Device commissioning completed with success"))
+			Eventually(jsonpath("matterbridge", "main", "{.status.fabrics[*].vendorID}")).Should(Equal("65521"))
+		})
+
+		It("toggles a light from chip-tool, through the bus", func() {
+			publish("z2m/0x000b57fffe000001", `{"state":"OFF","brightness":128}`, false)
+			Eventually(func() string { return chipOnOff(2) }).Should(Equal("FALSE"))
+
+			wait := subscribe("z2m/+/set", 1)
+			out, err := chipTool("onoff", "toggle", chipNode, "2")
+			Expect(err).NotTo(HaveOccurred(), out)
+			Expect(wait()).To(ContainSubstring(`{"state":"ON"}`))
+		})
+
+		It("reports a bus change to chip-tool's subscription", func() {
+			// A subscription outlives a command only in interactive mode, fed here from a pipe.
+			publish("z2m/hallway-motion", `{"occupancy":false}`, false)
+			Eventually(func() string { return chipOccupancy() }).Should(Equal("0"))
+			_, err := kubectl("exec", "chip-tool", "--", "sh", "-c",
+				`((echo "occupancysensing subscribe occupancy 0 30 `+chipNode+` 3"; sleep 120) |
+				  /root/chip-tool interactive start) >/tmp/subscription.log 2>&1 </dev/null &`)
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(chipLog).Should(ContainSubstring("Subscription established"))
+			Expect(occupancyReports(chipLog(), 0)).To(BeNumerically(">=", 1), "the priming report")
+
+			publish("z2m/hallway-motion", `{"occupancy":true}`, false)
+			Eventually(func() int { return occupancyReports(chipLog(), 1) }).Should(BeNumerically(">=", 1))
+		})
+
+		It("is read by chip-tool after the bridge pod restarts, without commissioning again", func() {
+			_, err := kubectl("rollout", "restart", "deploy/main-matter")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = kubectl("rollout", "status", "deploy/main-matter", "--timeout=3m")
+			Expect(err).NotTo(HaveOccurred())
+			// The state isn't retained, so the new pod learns it only from a report after it starts.
+			Eventually(func() string {
+				publish("z2m/0x000b57fffe000001", `{"state":"ON","brightness":128}`, false)
+				return chipOnOff(2)
+			}, 2*time.Minute, 5*time.Second).Should(Equal("TRUE"))
+			Expect(kubectl("logs", "deploy/main-matter")).To(ContainSubstring(`"msg":"Established CASE session"`))
+			Expect(kubectl("logs", "deploy/main-matter")).NotTo(ContainSubstring(`"msg":"Commissioned"`))
 		})
 
 		It("logs the build version on startup in every role", func() {
