@@ -51,7 +51,8 @@ jobs:
       contents: read
     name: Run on Ubuntu
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    # arm64, because the chip-tool the Matter specs drive is published for linux/arm64 only.
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -74,8 +75,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-e2e-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-e2e-${{ runner.os }}-
+          key: go-e2e-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-e2e-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install the latest version of kind
         run: |
@@ -85,6 +86,27 @@ jobs:
 
       - name: Verify kind installation
         run: kind version
+
+      # Building the chip-tool image pulls connectedhomeip's 6 GB image, so the 35 MB result is
+      # cached until its Dockerfile changes.
+      - name: Cache the chip-tool image
+        id: chip-tool
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/chip-tool.tar
+          key: chip-tool-${{ runner.arch }}-${{ hashFiles('test/e2e/chip-tool/Dockerfile') }}
+
+      - name: Load or build the chip-tool image
+        env:
+          TARBALL: ${{ runner.temp }}/chip-tool.tar
+          CACHED: ${{ steps.chip-tool.outputs.cache-hit }}
+        run: |
+          if [ "$CACHED" = true ]; then
+            docker load -i "$TARBALL"
+          else
+            make e2e-chip-tool-image
+            docker save -o "$TARBALL" $(docker images --filter 'reference=oikade-chip-tool:*' --format '{{.Repository}}:{{.Tag}}')
+          fi
 
       - name: Running Test e2e
         run: |

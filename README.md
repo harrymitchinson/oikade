@@ -593,7 +593,7 @@ To ship a milestone:
 ```sh
 make test          # unit tests, envtest, and an in-process MQTT broker for the runtime integration test
 make lint
-make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, holds, claims, metrics and the HAP pod, and commissions and drives the Matter bridge with chip-tool (a 6 GB image)
+make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, holds, claims, metrics and the HAP pod, and commissions and drives the Matter bridge with chip-tool (`test/e2e/chip-tool`, linux/arm64 only)
 
 make test-conformance   # builds plugins/example-switch and drives it through the plugin contract
 ```

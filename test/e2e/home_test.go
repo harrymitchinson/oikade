@@ -84,13 +84,9 @@ spec:
   displayName: E2E bridge
 `
 
-// chipToolImage is connectedhomeip's published chip-tool (tag 8862cba105e5351fcd0ff695c331214d90376070,
-// 2026-10-29), pinned by digest. It's about 6 GB, so the pod is started early and waited for late.
-const chipToolImage = "connectedhomeip/chip-cert-bins@sha256:92951d7ad7c00357ce3e1971e53ed6e4b458188ed966cf2f210a6eb6a45011e2"
-
 // chipToolManifest runs chip-tool on the host network, beside the bridge, with the Avahi daemon it
 // browses DNS-SD through.
-const chipToolManifest = `
+var chipToolManifest = `
 apiVersion: v1
 kind: Pod
 metadata: {name: chip-tool}
@@ -102,7 +98,7 @@ spec:
   containers:
   - name: chip-tool
     image: ` + chipToolImage + `
-    command: [sh, -c, "mkdir -p /run/dbus && dbus-daemon --system && avahi-daemon -D --no-chroot --no-drop-root && exec sleep infinity"]
+    imagePullPolicy: Never
     readinessProbe:
       exec: {command: [avahi-daemon, --check]}
       periodSeconds: 2
@@ -489,7 +485,7 @@ func secretKey(name, key string) (string, error) {
 
 // chipTool runs one chip-tool command in the chip-tool pod.
 func chipTool(args ...string) (string, error) {
-	return kubectl(append([]string{"exec", "chip-tool", "--", "/root/chip-tool"}, args...)...)
+	return kubectl(append([]string{"exec", "chip-tool", "--", "chip-tool"}, args...)...)
 }
 
 // chipValue matches the value chip-tool logs for an attribute it reads.
@@ -547,7 +543,7 @@ func homeScenario() {
 			_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t",
 				"oikade/v1/_matter/"+homeNamespace+"/main/fabrics")
 
-			By("starting chip-tool, whose image takes a while to pull")
+			By("starting chip-tool")
 			apply(chipToolManifest)
 		})
 
@@ -664,7 +660,7 @@ func homeScenario() {
 		})
 
 		It("is commissioned by chip-tool", func() {
-			By("waiting for chip-tool's image")
+			By("waiting for chip-tool")
 			Eventually(func(g Gomega) {
 				phase, _ := jsonpath("pod", "chip-tool", "{.status.phase}")()
 				if phase == "Failed" || phase == "Succeeded" {
@@ -672,9 +668,9 @@ func homeScenario() {
 				}
 				ready, _ := jsonpath("pod", "chip-tool", `{.status.conditions[?(@.type=="Ready")].status}`)()
 				g.Expect(ready).To(Equal("True"))
-			}, 15*time.Minute, 5*time.Second).Should(Succeed())
+			}, 3*time.Minute, 2*time.Second).Should(Succeed())
 
-			By("restarting the bridge, so its 15-minute commissioning window is open however long the pull took")
+			By("restarting the bridge, so its 15-minute commissioning window is open however long the suite took")
 			_, err := kubectl("rollout", "restart", "deploy/main-matter")
 			Expect(err).NotTo(HaveOccurred())
 			_, err = kubectl("rollout", "status", "deploy/main-matter", "--timeout=3m")
@@ -717,7 +713,7 @@ func homeScenario() {
 				`rm -f /tmp/subscription.stop /tmp/subscription.done
 				 ((echo "temperaturemeasurement subscribe measured-value 0 30 `+chipNode+` `+sensor+`"
 				   while [ ! -e /tmp/subscription.stop ]; do sleep 1; done; echo quit) |
-				  /root/chip-tool interactive start; touch /tmp/subscription.done) >/tmp/subscription.log 2>&1 </dev/null &`)
+				  chip-tool interactive start; touch /tmp/subscription.done) >/tmp/subscription.log 2>&1 </dev/null &`)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() {
 				_, _ = kubectl("exec", "chip-tool", "--", "touch", "/tmp/subscription.stop")

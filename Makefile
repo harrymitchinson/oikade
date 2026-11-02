@@ -98,15 +98,24 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist, and
 E2E_IMG ?= example.com/oikade:v0.0.1
 E2E_VERSION ?= v0.0.0-e2e
 E2E_IMAGE_BUILD ?= docker-build
+# The chip-tool image is tagged by its Dockerfile's hash, so it's built once per change to it.
+# Building it pulls connectedhomeip's 6 GB image, which is linux/arm64 only.
+E2E_CHIP_TOOL_IMG ?= oikade-chip-tool:$(shell git hash-object test/e2e/chip-tool/Dockerfile | cut -c1-12)
 
 .PHONY: e2e-image
 e2e-image: ## Build the manager image for the e2e tests.
 	$(MAKE) $(E2E_IMAGE_BUILD) IMG=$(E2E_IMG) VERSION=$(E2E_VERSION)
 
+.PHONY: e2e-chip-tool-image
+e2e-chip-tool-image: ## Build the chip-tool image for the e2e tests, unless it's already there.
+	$(CONTAINER_TOOL) image inspect $(E2E_CHIP_TOOL_IMG) >/dev/null 2>&1 || \
+		$(CONTAINER_TOOL) build -t $(E2E_CHIP_TOOL_IMG) test/e2e/chip-tool
+
 .PHONY: test-e2e
 test-e2e: manifests generate ## Run the e2e tests on a Kind cluster, which it keeps for the next run.
-	$(MAKE) -j2 setup-test-e2e e2e-image
+	$(MAKE) -j3 setup-test-e2e e2e-image e2e-chip-tool-image
 	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) E2E_IMG=$(E2E_IMG) E2E_VERSION=$(E2E_VERSION) E2E_IMAGE_BUILT=true \
+		E2E_CHIP_TOOL_IMG=$(E2E_CHIP_TOOL_IMG) \
 		go test -tags=e2e -timeout=45m ./test/e2e/ -v -ginkgo.v
 
 .PHONY: cleanup-test-e2e
