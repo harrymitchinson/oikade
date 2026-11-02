@@ -1,6 +1,7 @@
 package matterbridge
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -11,6 +12,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
@@ -108,4 +110,35 @@ func TestBridgeFollowsDevices(t *testing.T) {
 func readAttr(t *testing.T, e *im.Endpoint, cluster, attr uint32) any {
 	t.Helper()
 	return read(t, e.Cluster(cluster), attr)
+}
+
+// Only changes that can move endpoints wake the bridge, not each reading's status update.
+func TestDeviceShapeChanged(t *testing.T) {
+	old := device("desk-lamp", capability.LightOn, capability.LightLevel)
+	for name, change := range map[string]struct {
+		edit func(d *homev1alpha1.Device)
+		want bool
+	}{
+		"reading":    {func(d *homev1alpha1.Device) { d.Status.Capabilities[0].Kind = "number" }, false},
+		"same names": {func(d *homev1alpha1.Device) { slices.Reverse(d.Status.Capabilities) }, false},
+		"capability added": {func(d *homev1alpha1.Device) {
+			d.Status.Capabilities = append(d.Status.Capabilities, homev1alpha1.DeviceCapability{Name: capability.Battery})
+		}, true},
+		"label":      {func(d *homev1alpha1.Device) { d.Labels = map[string]string{"room": "study"} }, true},
+		"generation": {func(d *homev1alpha1.Device) { d.Generation++ }, true},
+	} {
+		n := old.DeepCopy()
+		change.edit(n)
+		if got := deviceShapeChanged.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: n}); got != change.want {
+			t.Errorf("%s: %v, want %v", name, got, change.want)
+		}
+	}
+}
+
+// Changed never blocks, however often the node calls it before Run starts.
+func TestFabricsChangedDoesNotBlock(t *testing.T) {
+	p := &FabricsPublisher{}
+	for range 3 {
+		p.Changed()
+	}
 }

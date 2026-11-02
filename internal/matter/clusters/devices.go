@@ -60,9 +60,9 @@ type Level struct {
 	level   uint8
 	options uint64
 	// OnChange is called, under the Node's lock, when a client sets the level. withOnOff is set
-	// for the commands that also turn the device on, or off at the minimum level. It must not
-	// block.
-	OnChange func(percent float64, withOnOff bool)
+	// for the commands that also turn the device on, or off at the minimum level, which atMinimum
+	// says. It must not block.
+	OnChange func(percent float64, withOnOff, atMinimum bool)
 }
 
 const (
@@ -189,7 +189,7 @@ func (l *Level) command(level uint8, withOnOff bool) {
 		l.cluster.Changed(0x0000)
 	}
 	if l.OnChange != nil {
-		l.OnChange(levelToPercent(level), withOnOff)
+		l.OnChange(levelToPercent(level), withOnOff, level == minLevel)
 	}
 }
 
@@ -198,8 +198,13 @@ func percentToLevel(p float64) uint8 {
 	return uint8(math.Round(minLevel + p/100*(maxLevel-minLevel)))
 }
 
+// levelToPercent never rounds a level above the minimum down to 0%, which would read as off.
 func levelToPercent(l uint8) float64 {
-	return math.Round(float64(l-minLevel) / (maxLevel - minLevel) * 100)
+	p := math.Round(float64(l-minLevel) / (maxLevel - minLevel) * 100)
+	if p == 0 && l > minLevel {
+		p = 1
+	}
+	return p
 }
 
 // Occupancy is an Occupancy Sensing cluster for a passive infrared sensor.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -13,9 +14,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -175,8 +179,31 @@ func (b *Bridge) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("matter-bridge").
 		Watches(&matterv1alpha1.Bridge{}, toBridge).
-		Watches(&homev1alpha1.Device{}, toBridge).
+		Watches(&homev1alpha1.Device{}, toBridge, builder.WithPredicates(deviceShapeChanged)).
 		Complete(b)
+}
+
+// deviceShapeChanged passes Device events that can change the bridge's endpoints: not the status
+// updates that every reading makes, which reach the bridge through the Store.
+var deviceShapeChanged = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		o, ok1 := e.ObjectOld.(*homev1alpha1.Device)
+		n, ok2 := e.ObjectNew.(*homev1alpha1.Device)
+		if !ok1 || !ok2 {
+			return true
+		}
+		return o.Generation != n.Generation || !maps.Equal(o.Labels, n.Labels) ||
+			!slices.Equal(capabilityNames(o), capabilityNames(n))
+	},
+}
+
+func capabilityNames(d *homev1alpha1.Device) []string {
+	names := make([]string, 0, len(d.Status.Capabilities))
+	for _, c := range d.Status.Capabilities {
+		names = append(names, c.Name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // Fabrics converts the fabric table to what status shows.
@@ -200,8 +227,23 @@ type FabricsPublisher struct {
 	Bridge types.NamespacedName
 	Table  *fabric.Table
 
-	mu   sync.Mutex
-	last string
+	mu      sync.Mutex
+	last    string
+	changed chan struct{}
+}
+
+// Changed asks Run to publish soon. It doesn't block, so the node can call it under its lock.
+func (p *FabricsPublisher) Changed() {
+	p.mu.Lock()
+	if p.changed == nil {
+		p.changed = make(chan struct{}, 1)
+	}
+	c := p.changed
+	p.mu.Unlock()
+	select {
+	case c <- struct{}{}:
+	default:
+	}
 }
 
 // Publish publishes the fabrics if they changed since the last publish.
@@ -224,8 +266,15 @@ func (p *FabricsPublisher) Publish(ctx context.Context) {
 	p.last = string(raw)
 }
 
-// Run publishes now, then every interval, which catches label changes that have no hook.
+// Run publishes now, after each Changed, and every interval, which catches label changes that
+// have no hook.
 func (p *FabricsPublisher) Run(ctx context.Context, interval time.Duration) {
+	p.mu.Lock()
+	if p.changed == nil {
+		p.changed = make(chan struct{}, 1)
+	}
+	changed := p.changed
+	p.mu.Unlock()
 	p.Publish(ctx)
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -233,9 +282,10 @@ func (p *FabricsPublisher) Run(ctx context.Context, interval time.Duration) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-changed:
 		case <-t.C:
-			p.Publish(ctx)
 		}
+		p.Publish(ctx)
 	}
 }
 

@@ -109,12 +109,17 @@ func Map(d Device, set SetFunc) *Mapped {
 		}
 		if dimmable {
 			level := clusters.NewLevel()
-			level.OnChange = func(percent float64, withOnOff bool) {
+			level.OnChange = func(percent float64, withOnOff, atMinimum bool) {
+				// The WithOnOff commands turn the device off at the minimum level, and on above it.
+				if withOnOff && atMinimum {
+					onoff.Set(false)
+					set(actuator, false)
+					return
+				}
 				set(capability.LightLevel, percent)
 				if withOnOff {
-					on := percent > 0
-					onoff.Set(on)
-					set(actuator, on)
+					onoff.Set(true)
+					set(actuator, true)
 				}
 			}
 			m.Clusters = append(m.Clusters, level.Cluster())
@@ -198,5 +203,5 @@ func UniqueID(key types.NamespacedName) string {
 
 // Signature summarises what controllers see of a Device. A change means its endpoint is rebuilt.
 func (d Device) Signature() string {
-	return fmt.Sprintf("%d|%s|%s|%s", d.Endpoint, d.Name, d.Type, strings.Join(d.Capabilities, ","))
+	return fmt.Sprintf("%d|%s|%s|%s", d.Endpoint, d.Name, d.Type, strings.Join(slices.Sorted(slices.Values(d.Capabilities)), ","))
 }

@@ -85,19 +85,28 @@ func runMatter(args []string) int {
 	cfg.Info.SoftwareVersion, cfg.Info.SoftwareVersionString = 1, version
 	ctx, cancel := context.WithCancel(logr.NewContext(ctrl.SetupSignalHandler(), log))
 	defer cancel()
-	bus, err := mqtt.Connect(ctx, *mqttURL, clientID("oikade-matter"))
-	if err != nil {
-		log.Error(err, "Failed to connect to MQTT broker")
-		return 1
-	}
-	var fabrics *matterbridge.FabricsPublisher
-	cfg.FabricsChanged = func() { fabrics.Publish(ctx) }
+	fabrics := &matterbridge.FabricsPublisher{Bridge: key}
+	cfg.FabricsChanged = fabrics.Changed
 	n, err := node.New(cfg)
 	if err != nil {
 		log.Error(err, "Failed to create Matter node")
 		return 1
 	}
-	fabrics = &matterbridge.FabricsPublisher{Bus: bus, Bridge: key, Table: n.Fabrics()}
+	fabrics.Table = n.Fabrics()
+	served := make(chan error, 1)
+	go func() {
+		// The node serves its fabrics while the broker is down. It stopping, say because its port
+		// is taken, stops the role.
+		served <- n.Run(ctx)
+		cancel()
+	}()
+	// The bridge's namespace and name keep the ID unique among bridges sharing a node's hostname.
+	bus, err := mqtt.Connect(ctx, *mqttURL, clientID("oikade-matter-"+ns+"-"+*bridge))
+	if err != nil {
+		log.Error(err, "Failed to connect to MQTT broker")
+		return 1
+	}
+	fabrics.Bus = bus
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -138,12 +147,6 @@ func runMatter(args []string) int {
 	log.Info("Starting Matter bridge", "version", version, "bridge", key, "port", *port, "mqtt", *mqttURL,
 		"fabrics", n.Fabrics().Count())
 	go fabrics.Run(ctx, time.Minute)
-	served := make(chan error, 1)
-	go func() {
-		// The node stopping, say because its port is taken, stops the role.
-		served <- n.Run(ctx)
-		cancel()
-	}()
 	if err := mgr.Start(ctx); err != nil {
 		log.Error(err, "Matter bridge stopped")
 		return 1

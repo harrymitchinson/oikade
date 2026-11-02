@@ -113,6 +113,55 @@ func TestCoalescerSkipsNoChange(t *testing.T) {
 	}
 }
 
+// A burst that ends where the last write left the device writes again, even before the device
+// reports that write: the device's stale state isn't the baseline.
+func TestCoalescerComparesWithWhatItSent(t *testing.T) {
+	rec := &recorder{}
+	now := time.Now()
+	c := &Coalescer{Setter: rec, Window: 10 * time.Millisecond, Timeout: time.Second,
+		Current: func(types.NamespacedName, string) (any, bool) { return false, true },
+		Now:     func() time.Time { return now }}
+	c.Start(t.Context())
+	c.Add(porchFan, capability.SwitchOn, true)
+	time.Sleep(60 * time.Millisecond)
+	c.Add(porchFan, capability.SwitchOn, false) // the device still reports false
+	time.Sleep(60 * time.Millisecond)
+	c.Add(porchFan, capability.SwitchOn, false) // already sent: skipped
+	time.Sleep(60 * time.Millisecond)
+	want := []string{"porch-fan switch.on=true", "porch-fan switch.on=false"}
+	if got := rec.list(); !slices.Equal(got, want) {
+		t.Errorf("writes %v, want %v", got, want)
+	}
+
+	// Once the device has had time to report, its state is the baseline again.
+	now = now.Add(sentFor)
+	c.Add(porchFan, capability.SwitchOn, false)
+	time.Sleep(60 * time.Millisecond)
+	if got := rec.list(); len(got) != 2 {
+		t.Errorf("writes %v, want no more", got)
+	}
+}
+
+// Turning on sends the level first, and turning off sends off first, so a light doesn't flash.
+func TestCoalescerOrdersWrites(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		rec := &recorder{}
+		c := &Coalescer{Setter: rec, Window: 10 * time.Millisecond, Timeout: time.Second,
+			Current: func(types.NamespacedName, string) (any, bool) { return nil, false }}
+		c.Start(t.Context())
+		c.Add(deskLamp, capability.LightOn, on)
+		c.Add(deskLamp, capability.LightLevel, 40.0)
+		time.Sleep(60 * time.Millisecond)
+		want := []string{"desk-lamp light.level=40", "desk-lamp light.on=true"}
+		if !on {
+			want = []string{"desk-lamp light.on=false", "desk-lamp light.level=40"}
+		}
+		if got := rec.list(); !slices.Equal(got, want) {
+			t.Errorf("on=%v: writes %v, want %v", on, got, want)
+		}
+	}
+}
+
 func contains(list []string, s string) bool {
 	return slices.Contains(list, s)
 }

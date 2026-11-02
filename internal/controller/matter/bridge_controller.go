@@ -14,6 +14,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -402,6 +403,9 @@ func (r *BridgeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&matterv1alpha1.Bridge{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.ServiceAccount{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
 		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(r.bridgesInNamespace)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.bridgeForSecret)).
 		Named("matter-bridge").

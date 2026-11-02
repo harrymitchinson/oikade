@@ -161,10 +161,17 @@ func TestDimmableLight(t *testing.T) {
 		w.PutUint(tlv.Context(2), 0)
 		w.PutUint(tlv.Context(3), 0)
 	})
+	invoke(t, level, 0x04, func(w *tlv.Writer) { // MoveToLevelWithOnOff, one step above the minimum
+		w.PutUint(tlv.Context(0), 2)
+		w.PutUint(tlv.Context(1), 0)
+		w.PutUint(tlv.Context(2), 0)
+		w.PutUint(tlv.Context(3), 0)
+	})
 	want := []setCall{
 		{capability.LightOn, false},
-		{capability.LightLevel, 0.0}, {capability.LightOn, false},
+		{capability.LightOn, false}, // the minimum level with On/Off turns the light off, at its old level
 		{capability.LightLevel, 100.0},
+		{capability.LightLevel, 1.0}, {capability.LightOn, true}, // not 0%, which would read as off
 	}
 	if !reflect.DeepEqual(*calls, want) {
 		t.Errorf("writes %v, want %v", *calls, want)
