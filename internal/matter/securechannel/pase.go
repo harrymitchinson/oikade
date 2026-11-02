@@ -30,8 +30,11 @@ import (
 const (
 	paseContextPrefix = "CHIP PAKE V1 Commissioning"
 	paseKeysInfo      = "SessionKeys"
-	// paseTimeout bounds a whole PASE handshake.
+	// paseTimeout bounds a whole PASE handshake for the commissioner.
 	paseTimeout = time.Minute
+	// stepTimeout bounds how long the device waits for each of the commissioner's messages, so a
+	// commissioner that goes quiet holds the one handshake slot only briefly.
+	stepTimeout = 15 * time.Second
 )
 
 // ErrPASEFailed is returned by EstablishPASE when the device rejects the passcode or the
@@ -62,8 +65,6 @@ func (r *Responder) Register() {
 
 func (r *Responder) serve(ctx context.Context, ex *transport.Exchange, first transport.Message) {
 	defer ex.Close()
-	ctx, cancel := context.WithTimeout(ctx, paseTimeout)
-	defer cancel()
 	log := r.Log.WithValues("peer", ex.Session().Peer())
 
 	if ex.Session().Secure() {
@@ -135,7 +136,7 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 	}
 	t := mcrypto.Transcript{Context: paseContext(first.Payload, respBytes)}
 
-	pake1, err := expect(ctx, ex, OpPake1)
+	pake1, err := expectWithin(ctx, ex, OpPake1)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +158,7 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 		return nil, err
 	}
 
-	pake3, err := expect(ctx, ex, OpPake3)
+	pake3, err := expectWithin(ctx, ex, OpPake3)
 	if err != nil {
 		return nil, err
 	}
@@ -186,11 +187,25 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 		Peer: ex.Session().Peer(), Security: sec, PeerMRP: req.params.MRP(),
 	})
 	established = true
-	if err := ex.Send(ctx, secureChannelStatus(GeneralSuccess, CodeSessionEstablishmentSuccess).Message()); err != nil {
+	// Keep the session only if the commissioner hears that it was established.
+	ackCtx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	if err := ex.Send(ackCtx, secureChannelStatus(GeneralSuccess, CodeSessionEstablishmentSuccess).Message()); err != nil {
 		tr.RemoveSession(s)
 		return nil, err
 	}
+	if err := ex.WaitAck(ackCtx); err != nil {
+		tr.RemoveSession(s)
+		return nil, fmt.Errorf("the commissioner didn't acknowledge success: %w", err)
+	}
 	return s, nil
+}
+
+// expectWithin is expect, waiting at most stepTimeout.
+func expectWithin(ctx context.Context, ex *transport.Exchange, op uint8) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	return expect(ctx, ex, op)
 }
 
 func (r *Responder) status(ctx context.Context, ex *transport.Exchange, general, code uint16) {
@@ -201,7 +216,7 @@ func (r *Responder) status(ctx context.Context, ex *transport.Exchange, general,
 
 // EstablishPASE runs PASE with a device as the commissioner, and returns the secure session.
 // Params are the commissioner's MRP intervals, sent to the device; nil sends none.
-func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.AddrPort, passcode uint32, params *SessionParams) (*transport.Session, error) {
+func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.AddrPort, passcode uint32, params *SessionParams) (s *transport.Session, err error) {
 	ctx, cancel := context.WithTimeout(ctx, paseTimeout)
 	defer cancel()
 	unsecured := tr.NewUnsecuredSession(device)
@@ -232,6 +247,13 @@ func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.Ad
 	if err != nil {
 		return nil, err
 	}
+	// From here the device holds a handshake for us. If we give up, tell it, so it's free for
+	// the next attempt, unless it gave up first.
+	defer func() {
+		if err != nil && !errors.As(err, new(StatusReport)) {
+			abort(ex)
+		}
+	}()
 	resp, err := decodePBKDFParamResponse(respBytes)
 	if err != nil {
 		return nil, err
@@ -269,7 +291,6 @@ func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.Ad
 		return nil, err
 	}
 	if subtle.ConstantTimeCompare(f[1], keys.CB) != 1 {
-		_ = ex.Send(ctx, secureChannelStatus(GeneralFailure, CodeInvalidParameter).Message())
 		return nil, fmt.Errorf("%w: the device's confirmation doesn't match", ErrPASEFailed)
 	}
 	if err := ex.Send(ctx, message(OpPake3, encodePake(keys.CA))); err != nil {
@@ -301,6 +322,16 @@ func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.Ad
 		LocalSessionID: localID, PeerSessionID: resp.responderSessionID,
 		Peer: device, Security: sec, PeerMRP: resp.params.MRP(),
 	}), nil
+}
+
+// abort tells the peer that the handshake failed, and waits briefly for its acknowledgement so
+// that MRP has a chance to deliver it.
+func abort(ex *transport.Exchange) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if ex.Send(ctx, secureChannelStatus(GeneralFailure, CodeInvalidParameter).Message()) == nil {
+		_ = ex.WaitAck(ctx)
+	}
 }
 
 // paseContext is SPAKE2+'s context for PASE: a hash of the two PBKDF parameter messages.

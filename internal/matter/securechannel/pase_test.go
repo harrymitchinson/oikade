@@ -97,6 +97,10 @@ func TestPASE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EstablishPASE: %v", err)
 	}
+	// The device reports the session once the commissioner acknowledges its success status.
+	for deadline := time.Now().Add(3 * time.Second); sessions.Load() == 0 && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if !s.Secure() || sessions.Load() != 1 || dev.t.SecureSessions() != 1 {
 		t.Fatalf("secure %v, device sessions %d/%d", s.Secure(), sessions.Load(), dev.t.SecureSessions())
 	}
@@ -211,20 +215,31 @@ func TestPASEBusy(t *testing.T) {
 }
 
 // TestSessionNonce checks the nonce layout (security flags, counter, sender's node ID) against
-// connectedhomeip's Matter AES-CCM vector, whose nonce is one: flags 0, counter 0x01000080, node
-// 0x7856341200000112.
+// connectedhomeip's Matter AES-CCM vector, whose nonce is one: flags 0, counter 0x01000080 and
+// node 0x7856341200000112.
 func TestSessionNonce(t *testing.T) {
-	key, _ := hex.DecodeString("0953fa93e7caac9638f58820220a398e")
-	pt, _ := hex.DecodeString("fffd034b50057e400000010000")
-	want, _ := hex.DecodeString("b5e5bfdacbaf6cb7fb6bff871f" + "b0d6dd827d35bf372fa6425dcd17d356")
-	sec, err := NewSecurity(SessionKeys{I2R: key, R2I: make([]byte, 16)}, true, 0x7856341200000112, 0)
+	want, _ := hex.DecodeString("00800000011201000012345678")
+	if got := nonce(0, 0x01000080, 0x7856341200000112); !bytes.Equal(got, want) {
+		t.Errorf("nonce = % x, want % x", got, want)
+	}
+}
+
+// TestSessionReservedFlags checks that a peer setting reserved security flag bits, which
+// receivers must ignore, still authenticates: the nonce uses the byte as sent.
+func TestSessionReservedFlags(t *testing.T) {
+	keys := SessionKeys{I2R: make([]byte, 16), R2I: make([]byte, 16)}
+	sender, _ := NewSecurity(keys, true, 0, 0)
+	receiver, _ := NewSecurity(keys, false, 0, 0)
+	h := &transport.Header{SessionID: 5, Counter: 9}
+	hdr := h.Append(nil)
+	hdr[3] |= 0x18 // reserved bits
+	sealed, _ := sender.Seal(h, hdr, []byte("payload"))
+	parsed, _, err := transport.ParseHeader(hdr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &transport.Header{Counter: 0x01000080}
-	got, _ := sec.Seal(h, nil, pt)
-	if !bytes.Equal(got, want) {
-		t.Errorf("Seal = % x, want % x", got, want)
+	if got, err := receiver.Open(&parsed, hdr, sealed); err != nil || string(got) != "payload" {
+		t.Errorf("Open = %q, %v", got, err)
 	}
 }
 
@@ -255,6 +270,7 @@ func TestMessagesRejected(t *testing.T) {
 		"session ID 0":    zeroID.encode(),
 		"missing fields":  encodePake(make([]byte, 32)),
 		"repeated field":  {0x15, 0x30, 0x01, 0x00, 0x30, 0x01, 0x00, 0x18},
+		"trailing bytes":  append((&pbkdfParamRequest{initiatorRandom: random(), initiatorSessionID: 1}).encode(), 0x04, 0x01),
 		"few iterations":  (&pbkdfParamResponse{initiatorRandom: random(), responderRandom: random(), responderSessionID: 1, iterations: 999, salt: testSalt}).encode(),
 		"salt too short":  (&pbkdfParamResponse{initiatorRandom: random(), responderRandom: random(), responderSessionID: 1, iterations: 1000, salt: testSalt[:15]}).encode(),
 	} {

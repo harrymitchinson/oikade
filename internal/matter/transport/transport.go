@@ -142,12 +142,14 @@ func (t *Transport) Handle(p ProtocolID, opcodes []uint8, h Handler) {
 // Serve reads and dispatches messages until ctx is done or the socket fails. It closes the
 // socket and every session, and waits for the Handlers it started to return.
 func (t *Transport) Serve(ctx context.Context) error {
+	defer t.handling.Wait() // only this goroutine starts Handlers, so none start after this
+	handlers, cancel := context.WithCancel(ctx)
+	defer cancel() // Handlers stop when Serve does, whatever stopped it
 	t.mu.Lock()
-	t.ctx = ctx
+	t.ctx = handlers
 	t.mu.Unlock()
 	stop := context.AfterFunc(ctx, func() { _ = t.conn.Close() })
 	defer stop()
-	defer t.handling.Wait() // only this goroutine starts Handlers, so none start after this
 	defer t.shutdown()
 
 	buf := make([]byte, MaxMessageSize+1)

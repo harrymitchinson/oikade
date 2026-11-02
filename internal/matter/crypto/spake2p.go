@@ -43,9 +43,12 @@ const (
 var (
 	curve = elliptic.P256()
 	order = curve.Params().N
+	prime = curve.Params().P
 	// The SPAKE2+ constants for P-256 (RFC 9383, 4).
-	pointM = mustDecompress("02886e2f97ace46e55ba9dd7242579f2993b64e16ef3dcab95afd497333d8fa12f")
-	pointN = mustDecompress("03d8bbd6c639c62937b04d997f38c3770719c629d7014d49a24b4f98baa1292b49")
+	pointM      = mustDecompress("02886e2f97ace46e55ba9dd7242579f2993b64e16ef3dcab95afd497333d8fa12f")
+	pointN      = mustDecompress("03d8bbd6c639c62937b04d997f38c3770719c629d7014d49a24b4f98baa1292b49")
+	pointMBytes = pointM.bytes()
+	pointNBytes = pointN.bytes()
 )
 
 var errBadPoint = errors.New("matter: SPAKE2+ share is not a point on P-256")
@@ -100,7 +103,10 @@ func add(p, q point) point {
 }
 
 func neg(p point) point {
-	return point{p.x, new(big.Int).Sub(curve.Params().P, p.y)}
+	if isIdentity(p) {
+		return p
+	}
+	return point{p.x, new(big.Int).Sub(prime, p.y)}
 }
 
 func isIdentity(p point) bool { return p.x.Sign() == 0 && p.y.Sign() == 0 }
@@ -149,10 +155,22 @@ func ParseVerifier(b []byte) (Verifier, error) {
 	if len(b) != VerifierSize {
 		return Verifier{}, fmt.Errorf("matter: verifier of %d bytes, want %d", len(b), VerifierSize)
 	}
-	if _, err := parsePoint(b[ScalarSize:]); err != nil {
-		return Verifier{}, err
+	v := Verifier{W0: b[:ScalarSize:ScalarSize], L: b[ScalarSize:]}
+	return v, v.validate()
+}
+
+// validate checks that w0 is in [1, n-1] and L is a point on the curve.
+func (v Verifier) validate() error {
+	if !validScalar(v.W0) {
+		return errors.New("matter: verifier's w0 is not in [1, n-1]")
 	}
-	return Verifier{W0: b[:ScalarSize:ScalarSize], L: b[ScalarSize:]}, nil
+	_, err := parsePoint(v.L)
+	return err
+}
+
+func validScalar(k []byte) bool {
+	n := new(big.Int).SetBytes(k)
+	return len(k) == ScalarSize && n.Sign() > 0 && n.Cmp(order) < 0
 }
 
 // Transcript identifies one SPAKE2+ run: its context and the parties' identities, which Matter
@@ -187,6 +205,9 @@ func ProverShare(w0, x []byte) []byte {
 
 // ProverFinish completes the run for the prover, from its secrets and both shares.
 func (t Transcript) ProverFinish(w0, w1, x, shareX, shareY []byte) (*Keys, error) {
+	if !validScalar(w0) || !validScalar(w1) || !validScalar(x) {
+		return nil, errors.New("matter: SPAKE2+ scalars are not in [1, n-1]")
+	}
 	y, err := parsePoint(shareY)
 	if err != nil {
 		return nil, err
@@ -202,14 +223,17 @@ func (t Transcript) ProverFinish(w0, w1, x, shareX, shareY []byte) (*Keys, error
 // VerifierFinish answers the prover's share X with the verifier's share Y = y·P + w0·N, and
 // completes the run for the verifier.
 func (t Transcript) VerifierFinish(v Verifier, y, shareX []byte) (shareY []byte, k *Keys, err error) {
+	if err := v.validate(); err != nil {
+		return nil, nil, err
+	}
+	if !validScalar(y) {
+		return nil, nil, errors.New("matter: SPAKE2+ y is not in [1, n-1]")
+	}
 	x, err := parsePoint(shareX)
 	if err != nil {
 		return nil, nil, err
 	}
-	l, err := parsePoint(v.L)
-	if err != nil {
-		return nil, nil, err
-	}
+	l, _ := parsePoint(v.L)
 	shareY = add(baseMul(y), mul(pointN, v.W0)).bytes()
 	z := mul(add(x, neg(mul(pointM, v.W0))), y) // y·(X - w0·M)
 	vv := mul(l, y)
@@ -221,7 +245,7 @@ func (t Transcript) VerifierFinish(v Verifier, y, shareX []byte) (shareY []byte,
 
 func (t Transcript) keys(w0, shareX, shareY, z, v []byte) *Keys {
 	var tt []byte
-	for _, item := range [][]byte{t.Context, t.IDProver, t.IDVerifier, pointM.bytes(), pointN.bytes(), shareX, shareY, z, v, w0} {
+	for _, item := range [][]byte{t.Context, t.IDProver, t.IDVerifier, pointMBytes, pointNBytes, shareX, shareY, z, v, w0} {
 		tt = binary.LittleEndian.AppendUint64(tt, uint64(len(item)))
 		tt = append(tt, item...)
 	}

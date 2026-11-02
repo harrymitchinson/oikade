@@ -52,12 +52,12 @@ func (p *SessionParams) put(w *tlv.Writer, tag uint8) {
 
 func readSessionParams(r *tlv.Reader) (*SessionParams, error) {
 	p := &SessionParams{}
-	ms := func(r *tlv.Reader, max uint64) (time.Duration, error) {
+	ms := func(r *tlv.Reader, limit uint64) (time.Duration, error) {
 		v, err := r.Uint()
 		if err != nil {
 			return 0, err
 		}
-		if v > max {
+		if v > limit {
 			return 0, fmt.Errorf("%w: session parameter %d ms", ErrInvalidMessage, v)
 		}
 		return time.Duration(v) * time.Millisecond, nil
@@ -224,6 +224,9 @@ func decodeStruct(b []byte, required []uint8, field func(r *tlv.Reader, tag uint
 	})
 	if err != nil {
 		return err
+	}
+	if err := r.Next(); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%w: bytes after the structure", ErrInvalidMessage)
 	}
 	for _, tag := range required {
 		if !seen[tag] {

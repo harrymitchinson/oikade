@@ -678,3 +678,36 @@ func TestAddSecureSessionReplaces(t *testing.T) {
 		t.Errorf("the new session: %v", err)
 	}
 }
+
+// TestServeStopsHandlersOnSocketFailure closes the socket under a running Handler: Serve must
+// cancel the Handler's context and return, not wait for it forever.
+func TestServeStopsHandlersOnSocketFailure(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := New(pc, Options{MRP: fastMRP})
+	started := make(chan struct{})
+	dev.Handle(echo, echoOps, func(ctx context.Context, _ *Exchange, _ Message) {
+		close(started)
+		<-ctx.Done() // blocked on something other than its exchange
+	})
+	done := make(chan error, 1)
+	go func() { done <- dev.Serve(context.Background()) }()
+
+	cli := newNode(t)
+	ex, _ := cli.t.NewUnsecuredSession(pc.LocalAddr().(*net.UDPAddr).AddrPort()).NewExchange()
+	if err := ex.Send(ctx(t), Message{Protocol: echo}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	_ = pc.Close()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("Serve returned no error for a failed socket")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve didn't return")
+	}
+}

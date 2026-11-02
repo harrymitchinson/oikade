@@ -51,17 +51,22 @@ func NewSecurity(keys SessionKeys, initiator bool, localNode, peerNode uint64) (
 	return &aeadSecurity{seal: seal, open: open, localNode: localNode, peerNode: peerNode}, nil
 }
 
-func nonce(h *transport.Header, node uint64) []byte {
+// securityFlagsOffset is where the security flags byte sits in an encoded message header.
+const securityFlagsOffset = 3
+
+// nonce builds a message nonce. The flags are the byte as sent, reserved bits included, so a
+// peer that sets them still agrees with us.
+func nonce(flags byte, counter uint32, node uint64) []byte {
 	n := make([]byte, 0, mcrypto.NonceSize)
-	n = append(n, h.SecurityFlags())
-	n = binary.LittleEndian.AppendUint32(n, h.Counter)
+	n = append(n, flags)
+	n = binary.LittleEndian.AppendUint32(n, counter)
 	return binary.LittleEndian.AppendUint64(n, node)
 }
 
 func (a *aeadSecurity) Seal(h *transport.Header, hdr, payload []byte) ([]byte, error) {
-	return a.seal.Seal(nil, nonce(h, a.localNode), payload, hdr), nil
+	return a.seal.Seal(nil, nonce(hdr[securityFlagsOffset], h.Counter, a.localNode), payload, hdr), nil
 }
 
 func (a *aeadSecurity) Open(h *transport.Header, hdr, sealed []byte) ([]byte, error) {
-	return a.open.Open(nil, nonce(h, a.peerNode), sealed, hdr)
+	return a.open.Open(nil, nonce(hdr[securityFlagsOffset], h.Counter, a.peerNode), sealed, hdr)
 }

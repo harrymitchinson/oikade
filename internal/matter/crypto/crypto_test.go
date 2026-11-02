@@ -216,3 +216,22 @@ func TestSpake2pWrongPasscode(t *testing.T) {
 		t.Error("a wrong passcode agreed on keys")
 	}
 }
+
+func TestVerifierRejectsBadW0(t *testing.T) {
+	good, _ := NewVerifier(20202021, []byte("SPAKE2P Key Salt"), 1000)
+	y, _ := RandomScalar()
+	x, _ := RandomScalar()
+	shareX := ProverShare(good.W0, x)
+	for name, w0 := range map[string][]byte{
+		"zero":  make([]byte, ScalarSize),
+		"order": scalar(order),
+		"short": good.W0[:31],
+	} {
+		if _, err := ParseVerifier(append(append([]byte(nil), w0...), good.L...)); err == nil && len(w0) == ScalarSize {
+			t.Errorf("%s: ParseVerifier accepted it", name)
+		}
+		if _, _, err := (Transcript{}).VerifierFinish(Verifier{W0: w0, L: good.L}, y, shareX); err == nil {
+			t.Errorf("%s: VerifierFinish accepted it", name)
+		}
+	}
+}
