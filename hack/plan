@@ -239,7 +239,8 @@ Work
   step ID               In ID's worktree, once the current step has a PR: start the next step on its own branch
   pr ID TITLE BODY_FILE Push the current step's branch and open its PR on the right base
   merge ID PR           Merge a step's PR if docs/planning.md allows it, then restack. One held for the
-                        user merges once their Approve covers its head
+                        user merges once their Approve covers its head. If nobody holds ID's claim, it
+                        holds it while it runs
   restack ID            Rebase the steps stacked on a step that merged onto main
   release ID [--force]  Give up a claim: delete branch claim/ID and set the feature back to Todo. Step
                         branches stay. Refuses if claim/ID itself has commits, unless --force
@@ -556,8 +557,27 @@ cmd_show() {
 	if is_claimed "$n"; then echo "Claimed:    branch claim/$n"; else echo "Claimed:    no"; fi
 }
 
+# take_claim ID MESSAGE: push branch claim/ID, or stop if anyone else has it.
+# Each claim pushes its own empty commit. If two claims pushed the same commit,
+# the second would be a no-op "up to date" push and succeed too. The empty
+# expected value means "only if claim/ID doesn't exist", and the server checks
+# it atomically, so exactly one of two racing claims wins. Nothing builds on
+# the claim commit: steps have their own branches. It sets CLAIM_OID to the
+# commit it pushed, so giving the claim back can't delete a later one.
+take_claim() {
+	local n="$1" claim err
+	git fetch -q "$REMOTE" main
+	claim=$(git commit-tree "$REMOTE/main^{tree}" -p "$REMOTE/main" \
+		-m "$2" -m "$(hostname -s) $$ $(date -u +%FT%TZ) $RANDOM")
+	if ! err=$(git push -q --force-with-lease="refs/heads/claim/$n:" "$REMOTE" "$claim:refs/heads/claim/$n" 2>&1); then
+		is_claimed "$n" && die "$n was claimed by someone else just now. See: hack/plan claims"
+		die "couldn't push claim/$n: $err"
+	fi
+	CLAIM_OID="$claim"
+}
+
 cmd_claim() {
-	local n dir="${2:-}" json claim err
+	local n dir="${2:-}" json
 	n=$(id "${1:?usage: plan claim ID [DIR]}")
 	json=$(issue "$n")
 	[[ "$(jq -r '.parent.identifier // empty' <<<"$json")" == "" ]] ||
@@ -571,18 +591,7 @@ cmd_claim() {
 	dir="${dir:-$(git rev-parse --path-format=absolute --git-common-dir | sed 's#/.git$##')/.claude/worktrees/work-$n}"
 	[[ ! -e "$dir" ]] || die "$dir already exists. If it's left from an earlier session: git worktree remove $dir"
 
-	git fetch -q "$REMOTE" main
-	# Each claim pushes its own empty commit. If two claims pushed the same
-	# commit, the second would be a no-op "up to date" push and succeed too.
-	# The empty expected value means "only if claim/ID doesn't exist", and the
-	# server checks it atomically, so exactly one of two racing claims wins.
-	# Nothing builds on the claim commit: steps have their own branches.
-	claim=$(git commit-tree "$REMOTE/main^{tree}" -p "$REMOTE/main" \
-		-m "chore: claim $n" -m "$(hostname -s) $$ $(date -u +%FT%TZ) $RANDOM")
-	if ! err=$(git push -q --force-with-lease="refs/heads/claim/$n:" "$REMOTE" "$claim:refs/heads/claim/$n" 2>&1); then
-		is_claimed "$n" && die "$n was claimed by someone else just now. See: hack/plan claims"
-		die "couldn't push claim/$n: $err"
-	fi
+	take_claim "$n" "chore: claim $n"
 	# Starting the step restacks branches, so it runs only once the claim is
 	# held. If it fails, give the claim back rather than leave one nobody holds.
 	# shellcheck disable=SC2064 # expand $n now
@@ -656,8 +665,24 @@ cmd_merge() {
 	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow files s held=() approval
 	n=$(id "${1:?usage: plan merge ID PR}")
 	pr="${pr#\#}"
-	is_claimed "$n" || die "$n isn't claimed: merging restacks its branches, so only the session building it merges"
 	json=$(issue "$n")
+	# Merging restacks the feature's branches, so it needs the claim. If nobody
+	# holds it, as once the session that built the steps has released it, the
+	# merge takes it for as long as it runs, so no session builds on a branch
+	# it's moving, and gives it back however it ends. Taking it asks what claim
+	# does: a feature the user has stopped can't be claimed to merge either.
+	if ! is_claimed "$n"; then
+		[[ "$(jq -r '.parent.identifier // empty' <<<"$json")" == "" ]] ||
+			die "$n is a step of $(jq -r .parent.identifier <<<"$json"): merge with the feature's ID"
+		[[ -n "$(gate "$json")" ]] ||
+			die "$n isn't claimed, and may not be built, so its PRs don't merge: it must be in Todo or In Progress, and out of $DESIGN_REVIEW by the user's move, if it was ever there. See: hack/plan show $n"
+		take_claim "$n" "chore: claim $n to merge PR #$pr"
+		# The lease deletes only the claim this merge pushed.
+		# shellcheck disable=SC2064 # expand $n and CLAIM_OID now
+		trap "git push -q --force-with-lease='refs/heads/claim/$n:$CLAIM_OID' '$REMOTE' --delete 'claim/$n' ||
+			echo 'plan: couldn'\''t give back claim/$n. If it is still the merge'\''s: hack/plan release $n' >&2" EXIT
+		echo "plan: nobody held $n's claim, so it's held while PR #$pr merges" >&2
+	fi
 	if has_label needs-review "$json"; then held+=("$n has the needs-review label"); fi
 	restack "$n"
 	git fetch -q "$REMOTE" main
