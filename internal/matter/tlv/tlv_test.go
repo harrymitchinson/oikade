@@ -168,9 +168,27 @@ func TestExitSkipsTheRest(t *testing.T) {
 		t.Fatalf("after the array: %s %s, want 1 utf8", r.Tag(), r.Type())
 	}
 	must(t, r.Exit())
+	if r.Tag() != Anonymous || r.Size() != 0 || r.Type() != 0 {
+		t.Errorf("between elements: Tag() %s, Size() %d, Type() %s; want nothing", r.Tag(), r.Size(), r.Type())
+	}
 	must(t, r.Next())
 	if v, err := r.Uint(); err != nil || v != 7 {
 		t.Errorf("Uint() = %d, %v; want 7", v, err)
+	}
+}
+
+func TestSkipDoesNotAllocate(t *testing.T) {
+	in := unhex(t, "16 15 36 00 00 01 18 18 18 04 07")
+	allocs := testing.AllocsPerRun(100, func() {
+		var r Reader
+		r.buf = in
+		first, second := r.Next(), r.Next()
+		if first != nil || second != nil || r.Type() != Uint {
+			t.Fatal("didn't skip to the 7U after the array")
+		}
+	})
+	if allocs != 0 {
+		t.Errorf("skipping a container allocated %v times", allocs)
 	}
 }
 

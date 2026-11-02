@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 )
 
-// Reader walks TLV elements one at a time without copying or allocating per element.
+// Reader walks TLV elements one at a time. It doesn't allocate per element, and only UTF8 copies.
 //
 // Next moves to the next element in the current container, or returns io.EOF at its end. Enter
 // steps into a container element, and Exit leaves the container, skipping whatever is left in it.
@@ -33,7 +33,7 @@ type Reader struct {
 	val  []byte // the value's bytes: an int or float, or a string's contents
 }
 
-// NewReader returns a Reader over b. The byte and UTF-8 strings it returns alias b.
+// NewReader returns a Reader over b. The octet strings it returns alias b.
 func NewReader(b []byte) *Reader { return &Reader{buf: b} }
 
 // Next moves to the next element in the current container. It returns io.EOF at the end of the
@@ -60,7 +60,7 @@ func (r *Reader) Next() error {
 		return io.EOF
 	}
 	if r.buf[r.off]&typeMask == typeEnd {
-		if err := r.checkEnd(r.buf[r.off], len(r.stack)); err != nil {
+		if err := checkEnd(r.buf[r.off], len(r.stack)); err != nil {
 			return r.fail(err)
 		}
 		r.end = true // Exit consumes it
@@ -123,12 +123,23 @@ func (r *Reader) Type() Type {
 	return r.typ
 }
 
-// Tag returns the current element's tag.
-func (r *Reader) Tag() Tag { return r.tag }
+// Tag returns the current element's tag, or Anonymous if the Reader isn't on an element.
+func (r *Reader) Tag() Tag {
+	if !r.have {
+		return Anonymous
+	}
+	return r.tag
+}
 
 // Size returns the width in bytes of the current element's value for an integer or a float, and
-// of its length field for a string. It is 0 for other types.
-func (r *Reader) Size() int { return r.size }
+// of its length field for a string. It is 0 for other types, and if the Reader isn't on an
+// element.
+func (r *Reader) Size() int {
+	if !r.have {
+		return 0
+	}
+	return r.size
+}
 
 // IsNull reports whether the current element is null.
 func (r *Reader) IsNull() bool { return r.Type() == Null }
@@ -236,7 +247,7 @@ func (r *Reader) parent() Type {
 }
 
 // checkEnd validates an end-of-container byte at the given depth.
-func (r *Reader) checkEnd(ctl byte, depth int) error {
+func checkEnd(ctl byte, depth int) error {
 	if ctl != typeEnd {
 		return fmt.Errorf("%w: end of container with a tag", ErrInvalid)
 	}
@@ -249,30 +260,33 @@ func (r *Reader) checkEnd(ctl byte, depth int) error {
 // skipContainer moves past the current container element, which hasn't been entered, checking
 // the elements it skips as strictly as Next would.
 func (r *Reader) skipContainer() error {
-	stack := []Type{r.typ}
+	var stack [MaxDepth]Type // a fixed array, so skipping doesn't allocate
+	stack[0] = r.typ
+	depth := 1
 	off := r.off
-	for len(stack) > 0 {
+	for depth > 0 {
 		if off >= len(r.buf) {
-			return fmt.Errorf("%w: %s not closed", ErrTruncate, stack[len(stack)-1])
+			return fmt.Errorf("%w: %s not closed", ErrTruncate, stack[depth-1])
 		}
 		if r.buf[off]&typeMask == typeEnd {
-			if err := r.checkEnd(r.buf[off], len(stack)); err != nil {
+			if err := checkEnd(r.buf[off], depth); err != nil {
 				return err
 			}
 			off++
-			stack = stack[:len(stack)-1]
+			depth--
 			continue
 		}
-		e, next, err := parse(r.buf, off, stack[len(stack)-1])
+		e, next, err := parse(r.buf, off, stack[depth-1])
 		if err != nil {
 			return err
 		}
 		off = next
 		if e.typ.IsContainer() {
-			if len(r.stack)+len(stack)+1 > MaxDepth {
+			if len(r.stack)+depth+1 > MaxDepth {
 				return ErrTooDeep
 			}
-			stack = append(stack, e.typ)
+			stack[depth] = e.typ
+			depth++
 		}
 	}
 	r.off = off
@@ -342,14 +356,8 @@ func parse(b []byte, off int, parent Type) (element, int, error) {
 	case code == typeNull:
 		e.typ = Null
 		return e, off, nil
-	case code == typeStructure:
-		e.typ = Structure
-		return e, off, nil
-	case code == typeArray:
-		e.typ = Array
-		return e, off, nil
-	case code == typeList:
-		e.typ = List
+	case code >= typeStructure && code <= typeList:
+		e.typ = Structure + Type(code-typeStructure) // Structure, Array and List are in code order
 		return e, off, nil
 	default:
 		return e, 0, fmt.Errorf("%w: reserved element type 0x%02x", ErrInvalid, code)
