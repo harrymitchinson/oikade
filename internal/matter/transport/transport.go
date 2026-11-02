@@ -17,6 +17,7 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -82,7 +83,7 @@ type Transport struct {
 	mrp  MRPConfig
 
 	mu        sync.Mutex
-	handlers  map[ProtocolID]handler
+	handlers  map[handlerKey]Handler
 	unsecured map[unsecuredKey]*Session
 	secure    map[uint16]*Session // by local session ID
 	counter   uint32              // the global unencrypted message counter
@@ -110,7 +111,7 @@ func New(conn net.PacketConn, opts Options) *Transport {
 		conn:      conn,
 		log:       opts.Log,
 		mrp:       opts.MRP.withDefaults(),
-		handlers:  map[ProtocolID]handler{},
+		handlers:  map[handlerKey]Handler{},
 		unsecured: map[unsecuredKey]*Session{},
 		secure:    map[uint16]*Session{},
 		counter:   initialCounter(),
@@ -121,22 +122,21 @@ func New(conn net.PacketConn, opts Options) *Transport {
 // Addr returns the address the Transport listens on.
 func (t *Transport) Addr() net.Addr { return t.conn.LocalAddr() }
 
-type handler struct {
-	opcodes map[uint8]bool
-	serve   Handler
+type handlerKey struct {
+	protocol ProtocolID
+	opcode   uint8
 }
 
 // Handle registers h for exchanges that peers start in protocol p with one of the given opcodes,
-// such as a Read Request. Only these start an exchange: any other message without one, such as
-// a late Status Response to an exchange that has ended, is acknowledged and dropped.
+// such as a Read Request, replacing any Handler registered for them before. Only these start an
+// exchange: any other message without one, such as a late Status Response to an exchange that
+// has ended, is acknowledged and dropped.
 func (t *Transport) Handle(p ProtocolID, opcodes []uint8, h Handler) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	ops := map[uint8]bool{}
 	for _, op := range opcodes {
-		ops[op] = true
+		t.handlers[handlerKey{p, op}] = h
 	}
-	t.handlers[p] = handler{opcodes: ops, serve: h}
 }
 
 // Serve reads and dispatches messages until ctx is done or the socket fails. It closes the
@@ -197,8 +197,10 @@ type SecureSessionConfig struct {
 	LocalSessionID uint16 // from AllocateSessionID
 	PeerSessionID  uint16
 	Peer           netip.AddrPort
-	LocalNodeID    uint64 // 0 for PASE
-	PeerNodeID     uint64 // 0 for PASE
+	LocalNodeID    uint64   // 0 for PASE
+	PeerNodeID     uint64   // 0 for PASE
+	FabricIndex    uint8    // the local fabric CASE ran on; 0 for PASE
+	PeerCATs       []uint32 // the CASE Authenticated Tags in the peer's NOC
 	Security       Security
 	// PeerMRP is what the peer said of its MRP intervals. Zero fields keep the Transport's.
 	PeerMRP MRPConfig
@@ -239,6 +241,7 @@ func (t *Transport) AddSecureSession(c SecureSessionConfig) *Session {
 	s := t.newSession(c.Peer)
 	s.localID, s.peerID = c.LocalSessionID, c.PeerSessionID
 	s.localNode, s.peerNode = c.LocalNodeID, c.PeerNodeID
+	s.fabric, s.peerCATs = c.FabricIndex, slices.Clone(c.PeerCATs)
 	s.security = c.Security
 	s.mrp = c.PeerMRP.or(t.mrp)
 	s.counter = initialCounter()

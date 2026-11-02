@@ -136,7 +136,7 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 	}
 	t := mcrypto.Transcript{Context: paseContext(first.Payload, respBytes)}
 
-	pake1, err := expectWithin(ctx, ex, OpPake1)
+	pake1, err := expectWithin(ctx, ex, OpPake1, ErrPASEFailed)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 		return nil, err
 	}
 
-	pake3, err := expectWithin(ctx, ex, OpPake3)
+	pake3, err := expectWithin(ctx, ex, OpPake3, ErrPASEFailed)
 	if err != nil {
 		return nil, err
 	}
@@ -202,10 +202,10 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 }
 
 // expectWithin is expect, waiting at most stepTimeout.
-func expectWithin(ctx context.Context, ex *transport.Exchange, op uint8) ([]byte, error) {
+func expectWithin(ctx context.Context, ex *transport.Exchange, op uint8, failed error) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
-	return expect(ctx, ex, op)
+	return expect(ctx, ex, op, failed)
 }
 
 func (r *Responder) status(ctx context.Context, ex *transport.Exchange, general, code uint16) {
@@ -243,7 +243,7 @@ func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.Ad
 	if err := ex.Send(ctx, message(OpPBKDFParamRequest, reqBytes)); err != nil {
 		return nil, err
 	}
-	respBytes, err := expect(ctx, ex, OpPBKDFParamResponse)
+	respBytes, err := expect(ctx, ex, OpPBKDFParamResponse, ErrPASEFailed)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +278,7 @@ func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.Ad
 	if err := ex.Send(ctx, message(OpPake1, encodePake(shareX))); err != nil {
 		return nil, err
 	}
-	pake2, err := expect(ctx, ex, OpPake2)
+	pake2, err := expect(ctx, ex, OpPake2, ErrPASEFailed)
 	if err != nil {
 		return nil, err
 	}
@@ -344,8 +344,8 @@ func paseContext(req, resp []byte) []byte {
 }
 
 // expect waits for a Secure Channel message with the given opcode. A status report instead is
-// the peer giving up, and is returned as an error.
-func expect(ctx context.Context, ex *transport.Exchange, op uint8) ([]byte, error) {
+// the peer giving up, and is returned as an error wrapping failed and the StatusReport.
+func expect(ctx context.Context, ex *transport.Exchange, op uint8, failed error) ([]byte, error) {
 	m, err := ex.Recv(ctx)
 	if err != nil {
 		return nil, err
@@ -358,7 +358,7 @@ func expect(ctx context.Context, ex *transport.Exchange, op uint8) ([]byte, erro
 		if err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("%w: %w", ErrPASEFailed, sr)
+		return nil, fmt.Errorf("%w: %w", failed, sr)
 	}
 	if m.Opcode != op {
 		return nil, fmt.Errorf("%w: opcode %#x, want %#x", ErrInvalidMessage, m.Opcode, op)

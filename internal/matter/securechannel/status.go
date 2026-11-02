@@ -1,6 +1,7 @@
 // Package securechannel is Matter's Secure Channel protocol (Matter Core Specification, 4.11 to
-// 4.14): status reports, the AES-CCM security of established sessions, and PASE, which opens a
-// session from a setup passcode for commissioning.
+// 4.14): status reports, the AES-CCM security of established sessions, PASE, which opens a
+// session from a setup passcode for commissioning, and CASE, which opens one between two nodes of
+// a fabric from their operational certificates.
 package securechannel
 
 import (
@@ -18,6 +19,10 @@ const (
 	OpPake1              uint8 = 0x22
 	OpPake2              uint8 = 0x23
 	OpPake3              uint8 = 0x24
+	OpSigma1             uint8 = 0x30
+	OpSigma2             uint8 = 0x31
+	OpSigma3             uint8 = 0x32
+	OpSigma2Resume       uint8 = 0x33
 	OpStatusReport       uint8 = 0x40
 )
 

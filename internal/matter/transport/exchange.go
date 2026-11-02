@@ -74,6 +74,8 @@ type Session struct {
 	// Secure sessions.
 	localID, peerID     uint16
 	localNode, peerNode uint64
+	fabric              uint8
+	peerCATs            []uint32
 	security            Security
 	counter             uint32
 
@@ -108,6 +110,13 @@ func (s *Session) LocalSessionID() uint16 { return s.localID }
 
 // PeerNodeID returns the peer's operational node ID, 0 if it has none (unsecured and PASE).
 func (s *Session) PeerNodeID() uint64 { return s.peerNode }
+
+// FabricIndex returns the local fabric a CASE session was established on, 0 for others.
+func (s *Session) FabricIndex() uint8 { return s.fabric }
+
+// PeerCATs returns the CASE Authenticated Tags in a CASE peer's NOC. The caller mustn't modify
+// them.
+func (s *Session) PeerCATs() []uint32 { return s.peerCATs }
 
 // NewExchange starts an exchange on the session, as its initiator.
 func (s *Session) NewExchange() (*Exchange, error) {
@@ -146,8 +155,8 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 		return true
 	}
 	if ex == nil {
-		h, ok := s.t.handlers[ph.Protocol]
-		if !ph.Initiator || !ok || !h.opcodes[ph.Opcode] {
+		h, ok := s.t.handlers[handlerKey{ph.Protocol, ph.Opcode}]
+		if !ph.Initiator || !ok {
 			// Nothing will ever take it: acknowledge it, so the peer stops sending it.
 			if ph.Reliable {
 				s.sendStandaloneAck(key, counter)
@@ -163,7 +172,7 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 		if ph.Reliable {
 			ex.needAck(counter)
 		}
-		s.t.handling.Go(func() { h.serve(s.t.ctx, ex, msg) })
+		s.t.handling.Go(func() { h(s.t.ctx, ex, msg) })
 		return true
 	}
 	if ex.closed {
