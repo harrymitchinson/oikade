@@ -588,7 +588,10 @@ func homeScenario() {
 				out, err := kubectl("logs", "deploy/main-matter")
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(out).To(ContainSubstring(`"msg":"Advertised commissionable service"`))
+				g.Expect(strings.Count(out, `"msg":"Added bridged device"`)).To(Equal(2))
 			}).Should(Succeed())
+			Expect(jsonpath("matterbridge", "main", `{.status.conditions[?(@.type=="DevicesSupported")].status}`)()).
+				To(Equal("True"))
 		})
 
 		It("logs the build version on startup in every role", func() {

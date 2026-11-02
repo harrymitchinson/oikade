@@ -32,6 +32,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/matter/setup"
+	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/ports"
 	"github.com/harrymitchinson/oikade/internal/render"
 )
@@ -39,6 +40,9 @@ import (
 const (
 	ConditionReady         = "Ready"
 	ConditionPortAllocated = "PortAllocated"
+	// ConditionDevicesSupported is False when a selected Device has nothing Matter can show. It
+	// keeps its endpoint ID, but isn't on the bridge.
+	ConditionDevicesSupported = "DevicesSupported"
 
 	reasonInvalidSecret = "InvalidSecret"
 )
@@ -49,7 +53,8 @@ type BridgeReconciler struct {
 	Scheme *runtime.Scheme
 
 	// Image runs the Matter bridge (the operator's own image).
-	Image string
+	Image   string
+	MQTTURL string
 
 	ports ports.Reserver
 }
@@ -57,7 +62,12 @@ type BridgeReconciler struct {
 // +kubebuilder:rbac:groups=matter.oikade.dev,resources=bridges,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=matter.oikade.dev,resources=bridges/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=matter.oikade.dev,resources=bridges/finalizers,verbs=update
+// The operator must hold every permission it grants to the bridge pod's Role.
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=devices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=zigbee.oikade.dev,resources=zigbee2mqtts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=plugins.oikade.dev,resources=plugins,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
@@ -137,8 +147,14 @@ func (r *BridgeReconciler) reconcileObjects(ctx context.Context, b *matterv1alph
 	if err := r.Create(ctx, render.MatterPVC(b)); client.IgnoreAlreadyExists(err) != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring pvc: %w", err)
 	}
+	sa, role, rb := render.MatterRBAC(b)
+	for _, obj := range []runtime.ApplyConfiguration{sa, role, rb} {
+		if err := shared.Apply(ctx, r.Client, obj); err != nil {
+			return ctrl.Result{}, fmt.Errorf("applying RBAC: %w", err)
+		}
+	}
 	if err := shared.Apply(ctx, r.Client, render.MatterDeployment(render.MatterInput{
-		Bridge: b, Image: r.Image,
+		Bridge: b, Image: r.Image, MQTTURL: r.MQTTURL,
 		ConfigHash: render.MatterConfigHash(secret.Data),
 	})); err != nil {
 		return ctrl.Result{}, fmt.Errorf("applying deployment: %w", err)
@@ -280,6 +296,25 @@ func (r *BridgeReconciler) assignEndpoints(ctx context.Context, b *matterv1alpha
 	b.Status.Endpoints = endpoints
 	b.Status.NextEndpoint = matterv1alpha1.FirstEndpoint + int32(len(endpoints))
 	b.Status.Devices = int32(len(list.Items))
+
+	var unsupported []string
+	for _, d := range list.Items {
+		caps := make([]string, 0, len(d.Status.Capabilities))
+		for _, c := range d.Status.Capabilities {
+			caps = append(caps, c.Name)
+		}
+		// A Device with no capabilities yet hasn't been resolved, so nothing is known.
+		if len(caps) > 0 && !matterbridge.Supported(caps) {
+			unsupported = append(unsupported, d.Name)
+		}
+	}
+	slices.Sort(unsupported)
+	if len(unsupported) > 0 {
+		r.setCondition(b, ConditionDevicesSupported, metav1.ConditionFalse, "Unsupported",
+			"no capability maps to a Matter device type: "+strings.Join(unsupported, ", "))
+	} else {
+		r.setCondition(b, ConditionDevicesSupported, metav1.ConditionTrue, "Supported", "every Device with capabilities maps to Matter")
+	}
 	return nil
 }
 

@@ -402,3 +402,41 @@ func TestSubscriberSeesNewDevice(t *testing.T) {
 		t.Error("the root's PartsList wasn't reported")
 	}
 }
+
+// TestSubscriberSeesRemovedDevice removes a device at runtime: a wildcard subscriber hears of the
+// PartsLists that no longer include it, and reads no longer return it.
+func TestSubscriberSeesRemovedDevice(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.bridge.AddDevice(3, DeviceOnOffLight, "Hall light", "hall-1", NewOnOff().Cluster()); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, reports, err := f.client.Subscribe(timeout(t), 0, 60, wildcard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.bridge.RemoveDevice(3) || f.bridge.RemoveDevice(3) {
+		t.Fatal("RemoveDevice should remove endpoint 3 once")
+	}
+	var got []im.AttributeReport
+	deadline := time.After(3 * time.Second)
+	for find(got, im.Path{Endpoint: 1, Cluster: IDDescriptor, Attribute: 3}) == nil || find(got, im.Path{Endpoint: 0, Cluster: IDDescriptor, Attribute: 3}) == nil {
+		select {
+		case r := <-reports:
+			got = append(got, r...)
+		case <-deadline:
+			t.Fatalf("reports after removing a device: %+v", got)
+		}
+	}
+	if parts := value(t, *find(got, im.Path{Endpoint: 1, Cluster: IDDescriptor, Attribute: 3})).([]any); !slices.Equal(parts, []any{uint64(2)}) {
+		t.Errorf("aggregator PartsList = %v, want [2]", parts)
+	}
+	all, err := f.client.Read(timeout(t), wildcard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range all {
+		if r.Path.Endpoint == 3 {
+			t.Fatalf("read returned the removed endpoint: %+v", r)
+		}
+	}
+}

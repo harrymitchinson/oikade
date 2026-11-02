@@ -8,13 +8,18 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
+	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 )
@@ -76,17 +81,39 @@ func MatterPVC(b *matterv1alpha1.Bridge) *corev1.PersistentVolumeClaim {
 	return pvc(MatterName(b), b.Namespace, MatterLabels(b), b.Spec.Storage.StorageClassName, size)
 }
 
+// MatterRBAC lets the bridge pod read what it exposes. It never writes to the API, and reads no
+// Secrets: its own is mounted.
+func MatterRBAC(b *matterv1alpha1.Bridge) (
+	*corev1ac.ServiceAccountApplyConfiguration, *rbacv1ac.RoleApplyConfiguration, *rbacv1ac.RoleBindingApplyConfiguration,
+) {
+	name := MatterName(b)
+	read := []string{"get", "list", "watch"}
+	sa := corev1ac.ServiceAccount(name, b.Namespace).WithLabels(MatterLabels(b)).WithOwnerReferences(matterOwner(b))
+	role := rbacv1ac.Role(name, b.Namespace).WithLabels(MatterLabels(b)).WithOwnerReferences(matterOwner(b)).
+		WithRules(
+			rbacv1ac.PolicyRule().WithAPIGroups(matterv1alpha1.GroupVersion.Group).WithResources("bridges").WithVerbs(read...),
+			rbacv1ac.PolicyRule().WithAPIGroups(homev1alpha1.GroupVersion.Group).WithResources("devices").WithVerbs(read...),
+			rbacv1ac.PolicyRule().WithAPIGroups(zigbeev1alpha1.GroupVersion.Group).WithResources("zigbee2mqtts").WithVerbs(read...),
+			rbacv1ac.PolicyRule().WithAPIGroups(pluginsv1alpha1.GroupVersion.Group).WithResources("plugins").WithVerbs(read...),
+		)
+	rb := rbacv1ac.RoleBinding(name, b.Namespace).WithLabels(MatterLabels(b)).WithOwnerReferences(matterOwner(b)).
+		WithRoleRef(rbacv1ac.RoleRef().WithAPIGroup(rbacv1.GroupName).WithKind("Role").WithName(name)).
+		WithSubjects(rbacv1ac.Subject().WithKind(rbacv1.ServiceAccountKind).WithName(name).WithNamespace(b.Namespace))
+	return sa, role, rb
+}
+
 // MatterInput is everything needed to render a Bridge's Deployment.
 type MatterInput struct {
-	Bridge *matterv1alpha1.Bridge
-	Image  string
+	Bridge  *matterv1alpha1.Bridge
+	Image   string
+	MQTTURL string
 	// ConfigHash covers inputs the pod only reads at start (port, name, setup code).
 	ConfigHash string
 }
 
 // MatterDeployment runs the Matter bridge for a Bridge. It uses the host network because
 // controllers find it over mDNS and reach it over IPv6. Recreate guarantees two pods never serve
-// the same fabrics. The pod doesn't use the Kubernetes API.
+// the same fabrics.
 func MatterDeployment(in MatterInput) *appsv1ac.DeploymentApplyConfiguration {
 	b := in.Bridge
 	port := b.Status.Port
@@ -99,8 +126,10 @@ func MatterDeployment(in MatterInput) *appsv1ac.DeploymentApplyConfiguration {
 		WithImage(in.Image).
 		WithImagePullPolicy(corev1.PullIfNotPresent).
 		WithCommand("/manager", "matter").
-		WithArgs("--bridge="+b.Namespace+"/"+b.Name, "--name="+b.Title(), "--port="+strconv.Itoa(int(port)),
+		WithArgs("--bridge="+b.Name, "--mqtt-url="+in.MQTTURL, "--name="+b.Title(), "--port="+strconv.Itoa(int(port)),
 			"--data-dir="+MatterDataPath, "--setup-dir="+MatterSetupPath).
+		WithEnv(corev1ac.EnvVar().WithName("POD_NAMESPACE").WithValueFrom(corev1ac.EnvVarSource().
+			WithFieldRef(corev1ac.ObjectFieldSelector().WithFieldPath("metadata.namespace")))).
 		WithPorts(corev1ac.ContainerPort().WithName("matter").WithProtocol(corev1.ProtocolUDP).
 			WithContainerPort(port).WithHostPort(port)).
 		WithVolumeMounts(
@@ -117,7 +146,7 @@ func MatterDeployment(in MatterInput) *appsv1ac.DeploymentApplyConfiguration {
 	pod := corev1ac.PodSpec().
 		WithHostNetwork(true).
 		WithDNSPolicy(corev1.DNSClusterFirstWithHostNet).
-		WithAutomountServiceAccountToken(false).
+		WithServiceAccountName(MatterName(b)).
 		WithSecurityContext(podSecurityContext(matterUserID)).
 		WithContainers(c).
 		WithVolumes(

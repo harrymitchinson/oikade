@@ -62,7 +62,10 @@ type Config struct {
 	DeviceName string
 	// MDNS configures the mDNS responder.
 	MDNS mdns.Options
-	Log  logr.Logger
+	// FabricsChanged, if set, is called after a fabric is committed or removed. It runs in the
+	// order of the changes, and may block briefly.
+	FabricsChanged func()
+	Log            logr.Logger
 }
 
 // advertiser is what the node needs of an mDNS responder.
@@ -158,7 +161,7 @@ func New(cfg Config) (*Node, error) {
 			FabricUpdated: n.advertiseFabric,
 			FabricRemoved: n.fabricRemoved,
 			EndPASE:       n.endPASE,
-			Commissioned:  n.advertiseFabric,
+			Commissioned:  n.commissioned,
 		},
 	})
 	if err != nil {
@@ -354,6 +357,14 @@ func (n *Node) advertiseFabric(index uint8) {
 	n.log.Info("Advertised operational service", "fabric", index, "instance", svc.Instance)
 }
 
+// commissioned advertises a fabric CommissioningComplete committed, again for an UpdateNOC.
+func (n *Node) commissioned(index uint8) {
+	n.advertiseFabric(index)
+	if n.cfg.FabricsChanged != nil {
+		n.cfg.FabricsChanged()
+	}
+}
+
 // endPASE ends every PASE session.
 func (n *Node) endPASE() {
 	for _, s := range n.sessions.list() {
@@ -413,6 +424,9 @@ func (n *Node) fabricRemoved(index uint8) {
 		}
 	}
 	n.log.Info("Ended fabric's sessions", "fabric", index, "sessions", len(ending))
+	if n.cfg.FabricsChanged != nil {
+		n.cfg.FabricsChanged()
+	}
 	if n.table.Count() == 0 {
 		n.comm.OpenInitialWindow(n.cfg.WindowTimeout)
 	}
