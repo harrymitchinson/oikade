@@ -20,6 +20,13 @@ cleanup() {
 }
 trap cleanup EXIT
 cleanup_logs() { docker logs "$NAME" 2>&1 | tail -50 || true; }
+# spike_log reports whether the spike's log matches an extended regexp. It captures the log first,
+# so grep -q exiting early can't fail the pipeline.
+spike_log() {
+	local log
+	log=$(docker logs "$NAME" 2>&1)
+	grep -qE "$1" <<<"$log"
+}
 fail() { echo "FAIL: $*" >&2; cleanup_logs >&2; exit 1; }
 
 arch=$(docker version --format '{{.Server.Arch}}')
@@ -34,7 +41,7 @@ start_spike() {
 		-v "$work/manager:/manager:ro" -v "$work/data:/data" \
 		--entrypoint /manager "$CHIP_IMAGE" matter-spike --data-dir /data >/dev/null
 	for _ in $(seq 50); do
-		if docker logs "$NAME" 2>&1 | grep -qE 'Advertised operational service|Opened commissioning window'; then
+		if spike_log 'Advertised operational service|Opened commissioning window'; then
 			return
 		fi
 		sleep 0.2
@@ -42,7 +49,7 @@ start_spike() {
 	fail "the spike didn't start"
 }
 start_spike
-passcode=$(docker logs "$NAME" 2>&1 | sed -n 's/.*"passcode":\([0-9]*\).*/\1/p' | head -1)
+passcode=$(docker logs "$NAME" 2>&1 | sed -n 's/.*"passcode":\([0-9]*\).*/\1/p' | sed -n 1p)
 [ -n "$passcode" ] || fail "no passcode in the spike's log"
 
 # chip-tool browses DNS-SD through Avahi, over D-Bus.
@@ -55,7 +62,7 @@ done
 chip() { docker exec "$NAME-chip-tool" /root/chip-tool "$@" 2>&1; }
 # onoff reads the switch's OnOff attribute.
 onoff() {
-	chip onoff read on-off "$NODE_ID" "$ENDPOINT" | tee -a "$work/chip-tool.log" |
+	{ chip onoff read on-off "$NODE_ID" "$ENDPOINT" || true; } | tee -a "$work/chip-tool.log" |
 		sed -nE 's/.*OnOff: (TRUE|FALSE).*/\1/p' | tail -1
 }
 
@@ -72,15 +79,15 @@ before=$(onoff)
 chip onoff toggle "$NODE_ID" "$ENDPOINT" >>"$work/chip-tool.log" || fail "chip-tool onoff toggle"
 after=$(onoff)
 [ -n "$after" ] && [ "$after" != "$before" ] || fail "OnOff was $before, and $after after the toggle"
-docker logs "$NAME" 2>&1 | grep -q 'Switched bridged switch' || fail "the spike didn't log the toggle"
+spike_log 'Switched bridged switch' || fail "the spike didn't log the toggle"
 echo "PASS: OnOff $before, then $after after toggle"
 
 echo "Restarting the spike"
 docker rm -f "$NAME" >/dev/null
 start_spike
-docker logs "$NAME" 2>&1 | grep -q '"fabrics":1' || fail "the spike lost its fabric"
-! docker logs "$NAME" 2>&1 | grep -q 'Opened commissioning window' || fail "the spike opened its window, though it's on a fabric"
+spike_log '"fabrics":1' || fail "the spike lost its fabric"
+! spike_log 'Opened commissioning window' || fail "the spike opened its window, though it's on a fabric"
 again=$(onoff)
 [ -n "$again" ] || fail "couldn't read OnOff over CASE after the restart"
-docker logs "$NAME" 2>&1 | grep -q 'Established CASE session' || fail "no CASE session after the restart"
+spike_log 'Established CASE session' || fail "no CASE session after the restart"
 echo "PASS: read OnOff ($again, the restart reset the state in memory) over CASE after the restart, with no re-commissioning"

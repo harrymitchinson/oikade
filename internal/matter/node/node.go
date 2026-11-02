@@ -227,6 +227,7 @@ func (n *Node) openWindow(w clusters.Window) {
 	}
 	svc, err := c.Service()
 	if err != nil {
+		n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 		n.log.Error(err, "Could not build the commissionable service")
 		return
 	}
@@ -237,6 +238,8 @@ func (n *Node) openWindow(w clusters.Window) {
 		n.commissionable = nil
 	}
 	if err := n.mdns.Add(n.ctx, svc); err != nil {
+		// Without the advertisement the window isn't open: refuse PASE, so the state agrees.
+		n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 		n.log.Error(err, "Could not advertise the commissionable service")
 		return
 	}

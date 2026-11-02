@@ -40,7 +40,7 @@ func runMatterSpike(args []string) int {
 	configureLogging(logLevel)
 	log := ctrl.Log.WithName("matter-spike")
 	if *dataDir == "" || *port == 0 || *port > 0xFFFF {
-		log.Error(fmt.Errorf("missing configuration"), "--data-dir is required, and --port must be a UDP port")
+		log.Error(fmt.Errorf("missing configuration"), "Missing --data-dir, or --port isn't a UDP port")
 		return 2
 	}
 
