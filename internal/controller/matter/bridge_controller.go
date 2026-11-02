@@ -122,7 +122,9 @@ func (r *BridgeReconciler) reconcileObjects(ctx context.Context, b *matterv1alph
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := setPairing(b, s); err != nil {
+	d := int32(s.Discriminator)
+	b.Status.Discriminator = &d
+	if err := r.writePairingCodes(ctx, secret, s); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -231,8 +233,9 @@ func setupOf(s *corev1.Secret) (node.Setup, error) {
 	return cfg.Setup, nil
 }
 
-// setPairing shows the codes a commissioner takes.
-func setPairing(b *matterv1alpha1.Bridge, s node.Setup) error {
+// writePairingCodes keeps the codes a commissioner takes in the Secret, in step with the passcode
+// and discriminator they're derived from. They sit behind the Secret's RBAC, not in status.
+func (r *BridgeReconciler) writePairingCodes(ctx context.Context, secret *corev1.Secret, s node.Setup) error {
 	p := node.PayloadFor(s)
 	qr, err := p.QRCode()
 	if err != nil {
@@ -242,8 +245,17 @@ func setPairing(b *matterv1alpha1.Bridge, s node.Setup) error {
 	if err != nil {
 		return err
 	}
-	d := int32(s.Discriminator)
-	b.Status.Discriminator, b.Status.QRCode, b.Status.ManualPairingCode = &d, qr, manual
+	if string(secret.Data[render.MatterManualCodeKey]) == manual && string(secret.Data[render.MatterQRCodeKey]) == qr {
+		return nil
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	if secret.Data == nil {
+		secret.Data = map[string][]byte{}
+	}
+	secret.Data[render.MatterManualCodeKey], secret.Data[render.MatterQRCodeKey] = []byte(manual), []byte(qr)
+	if err := r.Patch(ctx, secret, patch); err != nil {
+		return fmt.Errorf("writing pairing codes: %w", err)
+	}
 	return nil
 }
 

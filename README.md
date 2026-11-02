@@ -506,11 +506,18 @@ Oikade is moving from HomeKit to Matter ([OIK-76](https://linear.app/oikade/issu
 
 ```console
 $ kubectl get matterbridges
-NAME   PORT   DEVICES   PAIRING CODE   READY   AGE
-main   5540   4         34970112332    True    2m
+NAME   PORT   DEVICES   READY   AGE
+main   5540   4         True    2m
 ```
 
-`kubectl get matterbridges` lists them, since plain `bridges` is ambiguous while the HomeKit kind exists. Add the bridge to a controller, such as the Home app, with the 11-digit `manualPairingCode`, or a QR code of the `qrCode` payload. Apple Home warns that it's an uncertified accessory: choose Add Anyway. It needs a home hub.
+`kubectl get matterbridges` lists them, since plain `bridges` is ambiguous while the HomeKit kind exists. The pairing codes are in the bridge's `<bridge>-matter` Secret, behind the same RBAC as its setup passcode:
+
+```sh
+kubectl get secret main-matter -o jsonpath='{.data.manual-code}' | base64 -d   # 11 digits
+kubectl get secret main-matter -o jsonpath='{.data.qr-code}' | base64 -d       # MT:... for a QR code
+```
+
+Add the bridge to a controller, such as the Home app, with the 11-digit manual code, or a QR code of the `MT:` payload. Apple Home warns that it's an uncertified accessory: choose Add Anyway. It needs a home hub. The operator derives both codes from the Secret's `passcode` and `discriminator`, and rewrites them if you change those.
 
 - **The pairing window** is open for 15 minutes after the bridge starts on no fabric. If it closes first, restart the pod: `kubectl rollout restart deploy/<bridge>-matter`. To add the bridge to a second controller, open a window from the first one (in the Home app: the bridge's settings, Turn On Pairing Mode).
 - **Endpoints:** `status.endpoints` records the endpoint ID each Device was given. IDs start at 2, are handed out in name order and are never reused or given to another Device, and the API rejects a status that breaks that.

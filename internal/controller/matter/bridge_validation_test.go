@@ -39,8 +39,6 @@ var _ = Describe("Bridge validation", func() {
 		disc := int32(3840)
 		bridge.Status.Port = 5540
 		bridge.Status.Discriminator = &disc
-		bridge.Status.ManualPairingCode = "34970112332"
-		bridge.Status.QRCode = "MT:Y.K9042C00KA0648G00"
 		bridge.Status.Fabrics = []matterv1alpha1.Fabric{
 			{FabricIndex: 1, FabricID: "0000000000000001", NodeID: "00000000DEADBEEF", VendorID: 0x1349, Label: "Home"},
 		}

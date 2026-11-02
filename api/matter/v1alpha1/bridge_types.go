@@ -169,17 +169,6 @@ type BridgeStatus struct {
 	// +optional
 	Discriminator *int32 `json:"discriminator,omitempty"`
 
-	// manualPairingCode is the 11-digit code to type in when commissioning.
-	// +kubebuilder:validation:Pattern=`^[0-9]{11}$`
-	// +optional
-	ManualPairingCode string `json:"manualPairingCode,omitempty"`
-
-	// qrCode is the setup payload a QR code encodes (MT:...).
-	// +kubebuilder:validation:Pattern=`^MT:[0-9A-Z.\-]+$`
-	// +kubebuilder:validation:MaxLength=64
-	// +optional
-	QRCode string `json:"qrCode,omitempty"`
-
 	// fabrics lists the fabrics the bridge has been commissioned into.
 	// +listType=map
 	// +listMapKey=fabricIndex
@@ -230,7 +219,6 @@ func (s *BridgeStatus) Endpoint(device string) int32 {
 // +kubebuilder:resource:shortName=matterbridge;matterbridges
 // +kubebuilder:printcolumn:name="Port",type=integer,JSONPath=`.status.port`
 // +kubebuilder:printcolumn:name="Devices",type=integer,JSONPath=`.status.devices`
-// +kubebuilder:printcolumn:name="Pairing Code",type=string,JSONPath=`.status.manualPairingCode`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

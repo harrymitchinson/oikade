@@ -582,8 +582,8 @@ func homeScenario() {
 				Should(Equal("hallway-light hallway-motion"))
 			Eventually(jsonpath("matterbridge", "main", `{.status.conditions[?(@.type=="Ready")].status}`), 4*time.Minute).
 				Should(Equal("True"))
-			Expect(jsonpath("matterbridge", "main", "{.status.manualPairingCode}")()).To(MatchRegexp(`^[0-9]{11}$`))
-			Expect(jsonpath("matterbridge", "main", "{.status.qrCode}")()).To(HavePrefix("MT:"))
+			Eventually(func() (string, error) { return secretKey("main-matter", "manual-code") }).
+				Should(MatchRegexp(`^[0-9]{11}$`))
 			Eventually(func(g Gomega) {
 				out, err := kubectl("logs", "deploy/main-matter")
 				g.Expect(err).NotTo(HaveOccurred())

@@ -24,9 +24,6 @@ spec:
     - jsonPath: .status.devices
       name: Devices
       type: integer
-    - jsonPath: .status.manualPairingCode
-      name: Pairing Code
-      type: string
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
@@ -369,11 +366,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - fabricIndex
                 x-kubernetes-list-type: map
-              manualPairingCode:
-                description: manualPairingCode is the 11-digit code to type in when
-                  commissioning.
-                pattern: ^[0-9]{11}$
-                type: string
               nextEndpoint:
                 description: nextEndpoint is the next endpoint ID to hand out.
                 format: int32
@@ -389,11 +381,6 @@ spec:
                 description: port is the allocated Matter UDP port.
                 format: int32
                 type: integer
-              qrCode:
-                description: qrCode is the setup payload a QR code encodes (MT:...).
-                maxLength: 64
-                pattern: ^MT:[0-9A-Z.\-]+$
-                type: string
             type: object
             x-kubernetes-validations:
             - message: 'endpoints are allocated densely: nextEndpoint must be 2 plus
