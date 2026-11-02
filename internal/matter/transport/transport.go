@@ -41,7 +41,7 @@ var (
 
 // Limits on what a peer can make a Transport hold.
 const (
-	maxUnsecuredSessions = 16
+	maxUnsecuredSessions = 16 // that peers start
 	maxExchanges         = 32 // per session
 	maxInbox             = 8  // messages waiting for an exchange's Recv
 )
@@ -82,7 +82,7 @@ type Transport struct {
 	mrp  MRPConfig
 
 	mu        sync.Mutex
-	handlers  map[ProtocolID]Handler
+	handlers  map[ProtocolID]handler
 	unsecured map[unsecuredKey]*Session
 	secure    map[uint16]*Session // by local session ID
 	counter   uint32              // the global unencrypted message counter
@@ -109,7 +109,7 @@ func New(conn net.PacketConn, opts Options) *Transport {
 		conn:      conn,
 		log:       opts.Log,
 		mrp:       opts.MRP.withDefaults(),
-		handlers:  map[ProtocolID]Handler{},
+		handlers:  map[ProtocolID]handler{},
 		unsecured: map[unsecuredKey]*Session{},
 		secure:    map[uint16]*Session{},
 		counter:   initialCounter(),
@@ -120,11 +120,22 @@ func New(conn net.PacketConn, opts Options) *Transport {
 // Addr returns the address the Transport listens on.
 func (t *Transport) Addr() net.Addr { return t.conn.LocalAddr() }
 
-// Handle registers h for exchanges that peers start in protocol p.
-func (t *Transport) Handle(p ProtocolID, h Handler) {
+type handler struct {
+	opcodes map[uint8]bool
+	serve   Handler
+}
+
+// Handle registers h for exchanges that peers start in protocol p with one of the given opcodes,
+// such as a Read Request. Only these start an exchange: any other message without one, such as
+// a late Status Response to an exchange that has ended, is acknowledged and dropped.
+func (t *Transport) Handle(p ProtocolID, opcodes []uint8, h Handler) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.handlers[p] = h
+	ops := map[uint8]bool{}
+	for _, op := range opcodes {
+		ops[op] = true
+	}
+	t.handlers[p] = handler{opcodes: ops, serve: h}
 }
 
 // Serve reads and dispatches messages until ctx is done or the socket fails. It closes the
@@ -218,6 +229,9 @@ func (t *Transport) ReleaseSessionID(id uint16) {
 func (t *Transport) AddSecureSession(c SecureSessionConfig) *Session {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if old := t.secure[c.LocalSessionID]; old != nil {
+		old.closeLocked() // a caller reusing an ID: don't orphan the session that had it
+	}
 	s := t.newSession(c.Peer)
 	s.localID, s.peerID = c.LocalSessionID, c.PeerSessionID
 	s.localNode, s.peerNode = c.LocalNodeID, c.PeerNodeID
@@ -257,35 +271,42 @@ func (t *Transport) receive(pkt []byte, from netip.AddrPort) {
 		return
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	var s *Session
 	payload := pkt[n:]
-	if h.SessionID == 0 {
-		if s = t.unsecuredSession(&h, from); s == nil {
-			return
-		}
-	} else {
+	if h.SessionID != 0 {
+		t.mu.Lock()
 		s = t.secure[h.SessionID]
+		t.mu.Unlock()
 		if s == nil {
 			t.drop(from, "unknown session", "session", h.SessionID)
 			return
 		}
+		// Decrypt outside the lock: only this goroutine opens, and a session's Security is fixed.
 		if payload, err = s.security.Open(&h, pkt[:n], payload); err != nil {
 			t.drop(from, "message failed authentication", "session", h.SessionID)
 			return
 		}
 	}
+	ph, m, err := ParseProtocolHeader(payload)
+	if err != nil {
+		t.drop(from, err.Error(), "session", h.SessionID)
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if s == nil {
+		if s = t.unsecuredSession(&h, from); s == nil {
+			return
+		}
+	} else if s.closed {
+		t.drop(from, "session closed", "session", h.SessionID)
+		return
+	}
 
 	verdict := s.recv.check(h.Counter)
 	if verdict == counterTooOld {
 		t.drop(from, "message counter behind the window", "session", h.SessionID, "counter", h.Counter)
-		return
-	}
-	ph, m, err := ParseProtocolHeader(payload)
-	if err != nil {
-		t.drop(from, err.Error(), "session", h.SessionID)
 		return
 	}
 	if verdict == counterDuplicate {
@@ -295,12 +316,14 @@ func (t *Transport) receive(pkt []byte, from netip.AddrPort) {
 		t.log.V(1).Info("Dropped duplicate message", "peer", from, "session", h.SessionID, "counter", h.Counter)
 		return
 	}
-	s.recv.accept(h.Counter)
-	s.heard = time.Now()
 	if s.security != nil {
 		s.peer = from // a secure session follows its peer's address
 	}
-	s.dispatch(&ph, h.Counter, Message{Protocol: ph.Protocol, Opcode: ph.Opcode, Payload: payload[m:]})
+	if !s.dispatch(&ph, h.Counter, Message{Protocol: ph.Protocol, Opcode: ph.Opcode, Payload: payload[m:]}) {
+		return // not recorded or acknowledged, so the peer retransmits it
+	}
+	s.recv.accept(h.Counter)
+	s.heard = time.Now()
 }
 
 // unsecuredSession finds or creates the unsecured session that h belongs to.
@@ -312,8 +335,9 @@ func (t *Transport) unsecuredSession(h *Header, from netip.AddrPort) *Session {
 		if s := t.unsecured[key]; s != nil {
 			return s
 		}
-		if len(t.unsecured) >= maxUnsecuredSessions {
-			t.evictUnsecured()
+		if !t.roomForResponder() {
+			t.drop(from, "too many unsecured sessions")
+			return nil
 		}
 		s := t.newSession(from)
 		s.unsecured, s.ephemeral = &key, h.Source
@@ -332,18 +356,31 @@ func (t *Transport) unsecuredSession(h *Header, from netip.AddrPort) *Session {
 	return nil
 }
 
-// evictUnsecured closes the responder session heard from least recently.
-func (t *Transport) evictUnsecured() {
+// roomForResponder makes room for one more unsecured session that a peer starts, by evicting
+// the idle one heard from least recently if there are maxUnsecuredSessions. Sessions with an
+// exchange in progress, such as a PASE, are never evicted, so a flood of unauthenticated
+// messages can't interrupt one: it reports false instead.
+func (t *Transport) roomForResponder() bool {
 	var oldest *Session
+	n := 0
 	for k, s := range t.unsecured {
-		if !k.initiator && (oldest == nil || s.heard.Before(oldest.heard)) {
+		if k.initiator {
+			continue
+		}
+		n++
+		if len(s.exchanges) == 0 && (oldest == nil || s.heard.Before(oldest.heard)) {
 			oldest = s
 		}
 	}
-	if oldest != nil {
-		t.log.V(1).Info("Evicted unsecured session", "peer", oldest.peer)
-		oldest.closeLocked()
+	if n < maxUnsecuredSessions {
+		return true
 	}
+	if oldest == nil {
+		return false
+	}
+	t.log.V(1).Info("Evicted unsecured session", "peer", oldest.peer)
+	oldest.closeLocked()
+	return true
 }
 
 // RemoveSession closes s and all its exchanges.

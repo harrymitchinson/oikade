@@ -20,6 +20,9 @@ import (
 
 var echo = ProtocolID{Vendor: 0xFFF1, ID: 0x0042}
 
+// echoOps are the opcodes that start an echo exchange.
+var echoOps = []uint8{0, 1}
+
 // fastMRP keeps the tests quick: retransmissions after about 55 ms, not 330, and still well
 // after a standalone ack.
 var fastMRP = MRPConfig{Idle: 50 * time.Millisecond, Active: 50 * time.Millisecond, StandaloneAckTimeout: 10 * time.Millisecond}
@@ -139,7 +142,7 @@ func echoHandler(calls *atomic.Int32) Handler {
 func TestExchangeRequestResponse(t *testing.T) {
 	dev, cli := newNode(t), newNode(t)
 	var calls atomic.Int32
-	dev.t.Handle(echo, echoHandler(&calls))
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
 
 	ex, err := cli.t.NewUnsecuredSession(dev.addr()).NewExchange()
 	if err != nil {
@@ -184,7 +187,7 @@ func TestExchangeRequestResponse(t *testing.T) {
 func TestStandaloneAck(t *testing.T) {
 	dev, cli := newNode(t), newNode(t)
 	release := make(chan struct{})
-	dev.t.Handle(echo, func(ctx context.Context, ex *Exchange, _ Message) {
+	dev.t.Handle(echo, echoOps, func(ctx context.Context, ex *Exchange, _ Message) {
 		<-release // no reply to piggyback on
 		ex.Close()
 	})
@@ -213,7 +216,7 @@ func TestStandaloneAck(t *testing.T) {
 func TestRetransmitsDroppedMessage(t *testing.T) {
 	dev, cli := newNode(t), newNode(t)
 	var calls atomic.Int32
-	dev.t.Handle(echo, echoHandler(&calls))
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
 	cli.conn.fault = func(n int, _ []byte) int {
 		if n == 0 {
 			return 0 // lose the first request
@@ -242,7 +245,7 @@ func TestRetransmitsDroppedMessage(t *testing.T) {
 func TestDropsDuplicate(t *testing.T) {
 	dev, cli := newNode(t), newNode(t)
 	var calls atomic.Int32
-	dev.t.Handle(echo, echoHandler(&calls))
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
 	cli.conn.fault = func(n int, _ []byte) int {
 		if n == 0 {
 			return 2 // the network repeats the request
@@ -379,7 +382,7 @@ func securePair(t *testing.T, cli, dev *node) *Session {
 func TestSecureSession(t *testing.T) {
 	dev, cli := newNode(t), newNode(t)
 	var calls atomic.Int32
-	dev.t.Handle(echo, echoHandler(&calls))
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
 	s := securePair(t, cli, dev)
 
 	ex, _ := s.NewExchange()
@@ -401,7 +404,7 @@ func TestSecureSession(t *testing.T) {
 func TestDropsTamperedSecureMessage(t *testing.T) {
 	dev, cli := newNode(t), newNode(t)
 	var calls atomic.Int32
-	dev.t.Handle(echo, echoHandler(&calls))
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
 	s := securePair(t, cli, dev)
 	cli.conn.fault = func(_ int, p []byte) int {
 		p[len(p)-1] ^= 1 // corrupt every send
@@ -422,7 +425,7 @@ func TestDropsTamperedSecureMessage(t *testing.T) {
 func TestSecureCounterWindow(t *testing.T) {
 	dev, cli := newNode(t), newNode(t)
 	var calls atomic.Int32
-	dev.t.Handle(echo, echoHandler(&calls))
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
 	s := securePair(t, cli, dev)
 
 	request := func() []byte { // one exchange; returns the request's datagram
@@ -498,7 +501,7 @@ func TestDualStack(t *testing.T) {
 		t.Skipf("no IPv6: %v", err)
 	}
 	var calls atomic.Int32
-	dev.Handle(echo, echoHandler(&calls))
+	dev.Handle(echo, echoOps, echoHandler(&calls))
 	c, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- dev.Serve(c) }()
@@ -534,5 +537,144 @@ func TestDualStack(t *testing.T) {
 	}
 	if calls.Load() == 0 {
 		t.Skip("neither loopback address was available")
+	}
+}
+
+func TestLateMessageDoesNotStartAnExchange(t *testing.T) {
+	dev, cli := newNode(t), newNode(t)
+	var calls atomic.Int32
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
+
+	ex, _ := cli.t.NewUnsecuredSession(dev.addr()).NewExchange()
+	if err := ex.Send(ctx(t), Message{Protocol: echo, Opcode: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ex.Recv(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the device to close its exchange", func() bool {
+		dev.t.mu.Lock()
+		defer dev.t.mu.Unlock()
+		for _, s := range dev.t.unsecured {
+			return len(s.exchanges) == 0
+		}
+		return false
+	})
+	// A follow-up on the ended exchange, with an opcode that doesn't start one.
+	if err := ex.Send(ctx(t), Message{Protocol: echo, Opcode: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ex.WaitAck(ctx(t)); err != nil {
+		t.Errorf("the late message wasn't acknowledged: %v", err)
+	}
+	ex.Close()
+	if calls.Load() != 1 {
+		t.Errorf("handler ran %d times, want once", calls.Load())
+	}
+}
+
+func TestFullInboxIsRetransmittedLater(t *testing.T) {
+	dev, cli := newNode(t), newNode(t)
+	drain := make(chan struct{})
+	got := make(chan []byte, 2*maxInbox)
+	dev.t.Handle(echo, echoOps, func(ctx context.Context, ex *Exchange, m Message) {
+		got <- m.Payload
+		<-drain
+		for range maxInbox + 1 {
+			m, err := ex.Recv(ctx)
+			if err != nil {
+				return
+			}
+			got <- m.Payload
+		}
+		ex.Close()
+	})
+
+	ex, _ := cli.t.NewUnsecuredSession(dev.addr()).NewExchange()
+	// The first starts the exchange, maxInbox fill its inbox, and one more doesn't fit.
+	for i := range maxInbox + 2 {
+		if err := ex.Send(ctx(t), Message{Protocol: echo, Payload: []byte{byte(i)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eventually(t, "the inbox to fill", func() bool { return strings.Contains(dev.log.String(), "exchange inbox full") })
+	close(drain)
+	if err := ex.WaitAck(ctx(t)); err != nil {
+		t.Fatalf("the last message was never acknowledged: %v", err)
+	}
+	ex.Close()
+	for i := range maxInbox + 2 {
+		select {
+		case p := <-got:
+			if p[0] != byte(i) {
+				t.Fatalf("message %d arrived as %d", i, p[0])
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("message %d never arrived", i)
+		}
+	}
+}
+
+func TestBusyUnsecuredSessionsAreNotEvicted(t *testing.T) {
+	dev := newNode(t)
+	release := make(chan struct{})
+	var calls atomic.Int32
+	dev.t.Handle(echo, echoOps, func(ctx context.Context, ex *Exchange, _ Message) {
+		calls.Add(1)
+		<-release // a PASE in progress, say
+		ex.Close()
+	})
+	raw, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(dev.addr()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	start := func(node uint64) {
+		h := Header{Counter: 1, HasSource: true, Source: node}
+		ph := ProtocolHeader{Initiator: true, Reliable: true, Protocol: echo, ExchangeID: 1}
+		if _, err := raw.Write(ph.Append(h.Append(nil))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range maxUnsecuredSessions {
+		start(uint64(i + 1))
+	}
+	eventually(t, "every session to start", func() bool { return calls.Load() == maxUnsecuredSessions })
+	start(1000)
+	eventually(t, "the extra session to be refused", func() bool {
+		return strings.Contains(dev.log.String(), "too many unsecured sessions")
+	})
+	if calls.Load() != maxUnsecuredSessions {
+		t.Errorf("a busy session was evicted for a new one")
+	}
+
+	close(release) // every exchange ends, so their sessions become idle
+	eventually(t, "the sessions to go idle", func() bool {
+		dev.t.mu.Lock()
+		defer dev.t.mu.Unlock()
+		for _, s := range dev.t.unsecured {
+			if len(s.exchanges) > 0 {
+				return false
+			}
+		}
+		return true
+	})
+	start(1001)
+	eventually(t, "an idle session to make room", func() bool { return calls.Load() == maxUnsecuredSessions+1 })
+}
+
+func TestAddSecureSessionReplaces(t *testing.T) {
+	dev, cli := newNode(t), newNode(t)
+	first := securePair(t, cli, dev)
+	ex, _ := first.NewExchange()
+	second := cli.t.AddSecureSession(SecureSessionConfig{LocalSessionID: first.LocalSessionID(), PeerSessionID: 1, Peer: dev.addr(), Security: xorSecurity{}})
+	if _, err := ex.Recv(ctx(t)); !errors.Is(err, ErrClosed) {
+		t.Errorf("an exchange on the replaced session: %v, want ErrClosed", err)
+	}
+	if _, err := first.NewExchange(); !errors.Is(err, ErrClosed) {
+		t.Errorf("the replaced session still takes exchanges: %v", err)
+	}
+	if _, err := second.NewExchange(); err != nil {
+		t.Errorf("the new session: %v", err)
 	}
 }

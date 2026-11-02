@@ -129,47 +129,56 @@ func (s *Session) newExchange(id uint16, initiator bool) *Exchange {
 	return ex
 }
 
-// dispatch hands a new message to its exchange, or to a Handler if it starts one.
-func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) {
+// dispatch hands a new message to its exchange, or to a Handler if it starts one. It returns
+// false if the message can't be taken now: it is then neither recorded nor acknowledged, so the
+// peer retransmits it.
+func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool {
 	key := exchangeKey{id: ph.ExchangeID, initiator: !ph.Initiator}
 	ex := s.exchanges[key]
 	if ph.Ack && ex != nil {
 		ex.acked(ph.AckCounter)
 	}
 	if ph.Protocol == SecureChannel && ph.Opcode == OpStandaloneAck {
-		return
+		return true
 	}
 	if ex == nil {
-		var h Handler
-		if ph.Initiator {
-			h = s.t.handlers[ph.Protocol]
-		}
-		if h == nil || len(s.exchanges) >= maxExchanges {
+		h, ok := s.t.handlers[ph.Protocol]
+		if !ph.Initiator || !ok || !h.opcodes[ph.Opcode] {
+			// Nothing will ever take it: acknowledge it, so the peer stops sending it.
 			if ph.Reliable {
 				s.sendStandaloneAck(key, counter)
 			}
 			s.t.drop(s.peer, "no exchange for message", "exchange", ph.ExchangeID, "protocol", ph.Protocol.ID, "opcode", ph.Opcode)
-			return
+			return true
+		}
+		if len(s.exchanges) >= maxExchanges {
+			s.t.drop(s.peer, "too many exchanges", "exchange", ph.ExchangeID)
+			return false
 		}
 		ex = s.newExchange(ph.ExchangeID, false)
 		if ph.Reliable {
 			ex.needAck(counter)
 		}
-		go h(s.t.ctx, ex, msg)
-		return
+		go h.serve(s.t.ctx, ex, msg)
+		return true
 	}
-	if ex.closed || len(ex.inbox) >= maxInbox {
+	if ex.closed {
 		if ph.Reliable {
 			s.sendStandaloneAck(key, counter)
 		}
-		s.t.drop(s.peer, "exchange not receiving", "exchange", ph.ExchangeID)
-		return
+		s.t.drop(s.peer, "exchange closed", "exchange", ph.ExchangeID)
+		return true
+	}
+	if len(ex.inbox) >= maxInbox {
+		s.t.drop(s.peer, "exchange inbox full", "exchange", ph.ExchangeID)
+		return false
 	}
 	if ph.Reliable {
 		ex.needAck(counter)
 	}
 	ex.inbox = append(ex.inbox, msg)
 	ex.signal()
+	return true
 }
 
 // encode builds a message on the session, with the next message counter.
@@ -187,7 +196,10 @@ func (s *Session) encode(ph *ProtocolHeader, app []byte) ([]byte, uint32, error)
 		h.Counter, h.SessionID = s.counter, s.peerID
 	}
 	pkt := h.Append(make([]byte, 0, MaxMessageSize))
-	payload := append(ph.Append(nil), app...)
+	payload := append(ph.Append(make([]byte, 0, 32+len(app))), app...)
+	if len(pkt)+len(payload) > MaxMessageSize {
+		return nil, 0, ErrTooLarge // before sealing, which only adds to it
+	}
 	if s.security == nil {
 		pkt = append(pkt, payload...)
 	} else {

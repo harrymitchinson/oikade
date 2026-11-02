@@ -60,8 +60,11 @@ type Header struct {
 	Extensions []byte
 }
 
-// Append appends the encoded header to b.
+// Append appends the encoded header to b. It panics if both destinations are set.
 func (h *Header) Append(b []byte) []byte {
+	if h.HasDestNode && h.HasDestGroup {
+		panic("matter: a message header with both a node and a group destination")
+	}
 	flags := byte(headerVersion << versionShift)
 	if h.HasSource {
 		flags |= flagSource
