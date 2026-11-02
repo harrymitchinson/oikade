@@ -2,7 +2,7 @@
 
 A plugin is a separate process that connects a device platform Oikade doesn't speak natively (the eWeLink LAN protocol, the Overkiz cloud API) to the MQTT bus. It speaks **canonical capabilities**, not vendor payloads, so Oikade needs no code for the platform. The design is in [OIK-61](https://linear.app/oikade/issue/OIK-61).
 
-This page is the contract. A plugin that follows it works with Oikade's runtime and HomeKit bridges unchanged.
+This page is the contract. A plugin that follows it works with Oikade's runtime and Matter bridges unchanged.
 
 ## Topics
 
@@ -22,7 +22,7 @@ oikade/v1/<namespace>/<plugin>
 | `<id>/availability` | plugin → Oikade | yes | `online` or `offline`, as a bare string. |
 | `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"switch.on":false}`. |
 
-Retain everything the plugin publishes. Oikade's runtime and every HomeKit bridge pod rebuild their picture from retained topics when they start or reconnect, and they may receive those topics in any order.
+Retain everything the plugin publishes. Oikade's runtime and every Matter bridge pod rebuild their picture from retained topics when they start or reconnect, and they may receive those topics in any order.
 
 Other topics under the root are reserved. Oikade ignores them.
 
@@ -33,8 +33,7 @@ Oikade keeps its own topics under `oikade/v1/` in roots that start with `_`. No 
 | Root | Retained | What it holds |
 |---|---|---|
 | `_runtime/` | yes | The runtime's state that must survive a restart, such as holds and claims. |
-| `_homekit/<namespace>/<bridge>` | no | Each Home app write a HomeKit bridge makes, announced just before it writes the device. The runtime uses it to record the change as from HomeKit rather than from the device. |
-| `_matter/<namespace>/<bridge>/writes` | no | The same for each write a Matter bridge makes for a controller. The change is recorded as from Matter. |
+| `_matter/<namespace>/<bridge>/writes` | no | Each write a Matter bridge makes for a controller, such as the Home app, announced just before it writes the device. The runtime uses it to record the change as from Matter rather than from the device. |
 | `_matter/<namespace>/<bridge>/fabrics` | yes | The fabrics a Matter bridge is commissioned into. The runtime copies them into the Bridge's status. |
 
 ### `status`
@@ -75,7 +74,7 @@ Oikade sends one capability per message, already validated against the registry 
 
 ## Relay-like devices
 
-Relays don't know what they switch. Report `switch.on` by default. If a device's `parameters.capability` is `light.on` or `outlet.on`, report that instead, so HomeKit shows a light or an outlet. Reject any other value by setting `error` in `devices`.
+Relays don't know what they switch. Report `switch.on` by default. If a device's `parameters.capability` is `light.on` or `outlet.on`, report that instead, so Matter controllers show a light or an outlet. Reject any other value by setting `error` in `devices`.
 
 ## Environment
 

@@ -5,7 +5,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// RoomSpec defines a room. HomeKit can't receive rooms from a bridge, so rooms label
+// RoomSpec defines a room. Matter controllers such as the Home app don't take rooms from a bridge, so rooms label
 // metrics and group devices for rules; assign them once in the Home app as well.
 type RoomSpec struct {
 	// displayName is the human-friendly name. Defaults to the object name.

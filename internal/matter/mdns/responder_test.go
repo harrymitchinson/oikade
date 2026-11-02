@@ -318,7 +318,7 @@ func TestAnswer(t *testing.T) {
 	}
 
 	t.Run("unknown name", func(t *testing.T) {
-		r.handle(c, testIf, peer, query(t, "_hap._tcp.local.", dnsmessage.TypePTR, false))
+		r.handle(c, testIf, peer, query(t, "_ipp._tcp.local.", dnsmessage.TypePTR, false))
 		c.none()
 	})
 

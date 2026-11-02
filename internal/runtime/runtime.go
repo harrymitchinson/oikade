@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/hap"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/metrics"
@@ -98,10 +97,7 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	}
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		// The subscription stays registered if it fails, and is restored on reconnect. Until then,
-		// Home app writes are recorded as from the device.
-		if _, err := hap.SubscribeWrites(logr.NewContext(ctx, log.WithName("homekit")), bus, eng.HomeKitWrote); err != nil && ctx.Err() == nil {
-			log.Error(err, "Failed to subscribe to HomeKit writes")
-		}
+		// Matter controllers' writes are recorded as from the device.
 		if _, err := matterbridge.SubscribeWrites(logr.NewContext(ctx, log.WithName("matter")), bus, eng.MatterWrote); err != nil && ctx.Err() == nil {
 			log.Error(err, "Failed to subscribe to Matter writes")
 		}

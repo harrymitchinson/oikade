@@ -297,8 +297,8 @@ func TestOutsideChangeOverridesForHold(t *testing.T) {
 	h := newHarness(t, boolSettings, "10:00")
 	h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
 	h.to("10:30")
-	d := h.outside("HomeKit", off)
-	h.want("10:30", d, off, Override, "HomeKit", NoLimit)
+	d := h.outside("Matter", off)
+	h.want("10:30", d, off, Override, "Matter", NoLimit)
 	if c := d.Claims[0]; !c.External || !c.Expires.Equal(at("11:30")) {
 		t.Errorf("got claim %+v, want an external claim expiring at 11:30", c)
 	}
@@ -309,10 +309,10 @@ func TestOutsideChangeReplacesEarlierOutsideChange(t *testing.T) {
 	h := newHarness(t, boolSettings, "10:00")
 	h.outside("Device", off)
 	h.claim(Claim{Source: "Rule/o", Level: Override, Value: off})
-	d := h.outside("HomeKit", on)
-	h.want("latest outside change", d, on, Override, "HomeKit", NoLimit)
+	d := h.outside("Matter", on)
+	h.want("latest outside change", d, on, Override, "Matter", NoLimit)
 	if len(d.Claims) != 2 {
-		t.Errorf("got %d claims, want the rule's and HomeKit's", len(d.Claims))
+		t.Errorf("got %d claims, want the rule's and Matter's", len(d.Claims))
 	}
 }
 
@@ -343,7 +343,7 @@ func TestOutsideChangeIsNotFoughtByLimits(t *testing.T) {
 }
 
 func TestRevertWritesWinnerBack(t *testing.T) {
-	// Counting HomeKit's change would make 10:05 the last start, so minimumOn would keep the
+	// Counting Matter's change would make 10:05 the last start, so minimumOn would keep the
 	// valve open, and the reopening at 10:30 would be the third start of the day.
 	s := Settings{Kind: Bool, Default: on, Resolve: Off, External: ExternalRevert, MinimumOn: time.Hour, MaximumStartsPerDay: 2}
 	h := newHarness(t, s, "09:00")
@@ -352,15 +352,15 @@ func TestRevertWritesWinnerBack(t *testing.T) {
 	h.claim(Claim{Source: "Rule/leak", Level: Safety, Value: off})
 	before := h.a.State()
 	h.to("10:05")
-	if err := h.a.Outside("HomeKit", on); err != nil {
+	if err := h.a.Outside("Matter", on); err != nil {
 		t.Fatal(err)
 	}
 	d := h.a.Decide()
 	if !d.Write || d.Value != off || d.Limit != NoLimit {
 		t.Fatalf("got %+v; want a write back to off past minimumOn", d)
 	}
-	if d.Reverted == nil || d.Reverted.Source != "HomeKit" || d.Reverted.Value != on || !d.Reverted.At.Equal(at("10:05")) {
-		t.Errorf("got reverted %+v, want HomeKit's on at 10:05", d.Reverted)
+	if d.Reverted == nil || d.Reverted.Source != "Matter" || d.Reverted.Value != on || !d.Reverted.At.Equal(at("10:05")) {
+		t.Errorf("got reverted %+v, want Matter's on at 10:05", d.Reverted)
 	}
 	h.a.Wrote(d.Value)
 	if st := h.a.State(); st.Starts != before.Starts || !st.LastOn.Equal(before.LastOn) || !st.LastOff.Equal(before.LastOff) || st.Reverting != nil {
@@ -445,9 +445,9 @@ func TestStateSurvivesRestart(t *testing.T) {
 	h.claim(Claim{Source: "Rule/boost", Level: Normal, Value: on, UntilNext: true})
 	h.claim(Claim{Source: "Rule/sched", Level: Normal, Value: off})
 	h.to("10:20")
-	h.outside("HomeKit", off)
+	h.outside("Matter", off)
 	h.restart(s)
-	h.want("after restart", h.to("10:30"), off, Override, "HomeKit", NoLimit)
+	h.want("after restart", h.to("10:30"), off, Override, "Matter", NoLimit)
 	h.want("override ends", h.to("12:20"), on, Normal, "Rule/boost", NoLimit)
 	h.restart(s)
 	h.claim(Claim{Source: "Rule/sched", Level: Normal, Value: on})
@@ -520,7 +520,7 @@ func TestRevertedChangeThatStandsKeepsLimitDeadlines(t *testing.T) {
 	s := Settings{Kind: Bool, Resolve: On, External: ExternalRevert, MaximumOn: time.Hour, MinimumOff: time.Minute}
 	h := newHarness(t, s, "10:00")
 	h.apply()
-	if err := h.a.Outside("HomeKit", on); err != nil {
+	if err := h.a.Outside("Matter", on); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.a.Claim(Claim{Source: "Rule/n", Level: Normal, Value: on}); err != nil {

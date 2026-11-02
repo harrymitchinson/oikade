@@ -50,26 +50,6 @@ type PluginDeviceSource struct {
 	Parameters map[string]string `json:"parameters,omitempty"`
 }
 
-// HomeKitService overrides which HomeKit service a device is exposed as.
-// +kubebuilder:validation:Enum=Lightbulb;Switch;Outlet;MotionSensor;OccupancySensor
-type HomeKitService string
-
-const (
-	HomeKitServiceLightbulb       HomeKitService = "Lightbulb"
-	HomeKitServiceSwitch          HomeKitService = "Switch"
-	HomeKitServiceOutlet          HomeKitService = "Outlet"
-	HomeKitServiceMotionSensor    HomeKitService = "MotionSensor"
-	HomeKitServiceOccupancySensor HomeKitService = "OccupancySensor"
-)
-
-// DeviceHomeKit tunes how a device appears in HomeKit.
-type DeviceHomeKit struct {
-	// service overrides the default service chosen from the device's capabilities,
-	// e.g. Outlet for a smart plug that reports itself as a switch.
-	// +optional
-	Service HomeKitService `json:"service,omitempty"`
-}
-
 // MatterDeviceType chooses the family of Matter device type a switch.on Device is shown as. Whether
 // it's the on/off or dimmable member of the family follows from the Device's capabilities.
 // +kubebuilder:validation:Enum=Light;PlugInUnit;MountedControl
@@ -123,7 +103,7 @@ const (
 // OverrideHoldNext ends an outside change's claim when the result without it next changes.
 const OverrideHoldNext = "Next"
 
-// CapabilityControl makes one capability arbitrated (OIK-64): rules, HomeKit and the device itself
+// CapabilityControl makes one capability arbitrated (OIK-64): rules, Matter and the device itself
 // make claims on it, and the device takes the winner.
 // +kubebuilder:validation:XValidation:rule="self.external != 'Override' || has(self.overrideHold)",message="overrideHold is required when external is Override"
 // +kubebuilder:validation:XValidation:rule="self.external != 'Revert' || !has(self.overrideHold)",message="overrideHold has no effect when external is Revert"
@@ -149,7 +129,7 @@ type CapabilityControl struct {
 	// +required
 	Resolve ControlResolve `json:"resolve"`
 
-	// external says what a change from outside the rules, through HomeKit or on the device
+	// external says what a change from outside the rules, through Matter or on the device
 	// itself, does. Override makes it a claim for overrideHold; Revert writes the winner back.
 	// +required
 	External ControlExternal `json:"external"`
@@ -183,7 +163,7 @@ type CapabilityControl struct {
 // DeviceSpec declares a device that should exist in the home. Exactly one driver source must be set.
 // +kubebuilder:validation:XValidation:rule="[has(self.zigbee2mqtt), has(self.plugin)].filter(x, x).size() == 1",message="exactly one driver source (zigbee2mqtt or plugin) is required"
 type DeviceSpec struct {
-	// displayName is the human-friendly name shown in HomeKit and Grafana. Defaults to the object name.
+	// displayName is the human-friendly name shown in Matter controllers and Grafana. Defaults to the object name.
 	// +kubebuilder:validation:MaxLength=64
 	// +optional
 	DisplayName string `json:"displayName,omitempty"`
@@ -199,10 +179,6 @@ type DeviceSpec struct {
 	// plugin sources the device from a Plugin.
 	// +optional
 	Plugin *PluginDeviceSource `json:"plugin,omitempty"`
-
-	// homekit tunes how the device appears in HomeKit.
-	// +optional
-	HomeKit *DeviceHomeKit `json:"homekit,omitempty"`
 
 	// matter tunes how the device appears on a Matter bridge.
 	// +optional
@@ -255,7 +231,7 @@ const (
 
 // ControlClaim is one source's claim on an arbitrated capability.
 type ControlClaim struct {
-	// source is the path the claim came in by: HomeKit, Device or Rule/<name>.
+	// source is the path the claim came in by: Matter, Device or Rule/<name>.
 	// +required
 	Source string `json:"source"`
 

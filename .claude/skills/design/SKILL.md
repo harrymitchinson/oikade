@@ -5,7 +5,7 @@ description: Decide how to build an Oikade feature before anyone writes code, an
 
 # Designing an Oikade feature
 
-The user is an SRE building their own home on Oikade. A design that reads well but quietly breaks an invariant can cost them a re-pair of every HomeKit accessory or Zigbee device later. This skill exists to make that kind of consequence visible, and to make sure **the user** makes the call, not you.
+The user is an SRE building their own home on Oikade. A design that reads well but quietly breaks an invariant can cost them re-pairing the Matter bridge or every Zigbee device later. This skill exists to make that kind of consequence visible, and to make sure **the user** makes the call, not you.
 
 How the workflow fits together is in `docs/planning.md`. Read `references/surfaces.md` for the planes, the public API surfaces, the state that must survive, the component boundaries, the hardware and the test layers. Then read just enough of the code the feature touches to cite real files and types.
 
@@ -19,9 +19,9 @@ If anything important is unclear, ask, but no more than three sharp questions at
 
 It does if the work changes anything expensive to reverse:
 
-- **public API:** CRD fields and enums, capability names and semantics, `oikade_*` metric names and labels, the CEL environment, the plugin contract, HomeKit IIDs
-- **state that must survive:** identity, pairings, network keys, AIDs
-- **component boundaries:** manager, runtime and hap
+- **public API:** CRD fields and enums, capability names and semantics, `oikade_*` metric names and labels, the CEL environment, the plugin contract, Matter endpoint IDs
+- **state that must survive:** the Matter bridge's setup code and fabrics, endpoint IDs, network keys
+- **component boundaries:** manager, runtime and matter
 - **a new kind, a new driver, or a new runtime dependency**
 - **anything else** you can't cheaply undo
 

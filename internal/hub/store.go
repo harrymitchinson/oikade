@@ -1,5 +1,5 @@
 // Package hub holds live device state from drivers and routes commands back to them. It is shared
-// by the runtime (metrics, status, rules) and the HomeKit bridge.
+// by the runtime (metrics, status, rules) and the Matter bridge.
 package hub
 
 import (
@@ -24,8 +24,6 @@ type Meta struct {
 	Room        string
 	// Instance is the driver instance the device belongs to.
 	Instance driver.InstanceKey
-	// HomeKitService is the optional HomeKit service override.
-	HomeKitService string
 	// Control is the Device's control entries: the capabilities it arbitrates, and how.
 	Control []homev1alpha1.CapabilityControl
 }

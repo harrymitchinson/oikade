@@ -2,11 +2,11 @@
 
 Home automation as reconciled, reviewable infrastructure.
 
-You declare your home in Git: devices, rooms, rules and the HomeKit bridge. Kubernetes reconciles it. Live state never touches etcd. It travels over MQTT, and Prometheus keeps its history.
+You declare your home in Git: devices, rooms, rules and the Matter bridge. Kubernetes reconciles it. Live state never touches etcd. It travels over MQTT, and Prometheus keeps its history.
 
 | | Owner | Examples |
 |---|---|---|
-| **Control plane** | Git, as CRDs | Which devices exist, their names and rooms, rules, the HomeKit bridge |
+| **Control plane** | Git, as CRDs | Which devices exist, their names and rooms, rules, the Matter bridge |
 | **Data plane** | MQTT (Mosquitto) | "the light is on", "motion detected", "21.4°C", "turn the light off" |
 | **History** | Prometheus and Grafana | Temperature over time, how often the door opened, rule runs |
 
@@ -18,7 +18,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
  drivers                           bus                        consumers
  ┌──────────────┐                                      ┌──────────────────────┐
  │ zigbee2mqtt  │◀──────▶  Mosquitto (MQTT)  ◀────────▶│ runtime              │ → Device status, /metrics, rules
- ├──────────────┤             ▲                    └──▶│ HAP bridge (per      │ → the Home app and Siri
+ ├──────────────┤             ▲                    └──▶│ Matter bridge (per   │ → the Home app, Google Home, …
  │ plugins      │◀────────────┘                        │   Bridge)            │
  └──────────────┘                                      └──────────────────────┘
         ▲
@@ -28,12 +28,11 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 | Kind | Group | Purpose |
 |------|-------|---------|
 | `Device` | `home.oikade.dev` | A device that should exist: name, room and driver source (a Zigbee IEEE address, or a Plugin and a plugin-local id), and which capabilities it arbitrates. Status shows its capabilities, availability and claims. |
-| `Room` | `home.oikade.dev` | Labels metrics and groups devices. HomeKit can't receive rooms from a bridge, so you also assign them once in the Home app. |
+| `Room` | `home.oikade.dev` | Labels metrics and groups devices. Matter controllers such as the Home app don't take rooms from a bridge, so you also assign them once there. |
 | `Rule` | `home.oikade.dev` | A moment (`triggers`, a CEL condition and `do`) or a hold (`while` and `hold`). See [Rules](#rules). |
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
 | `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device platform Oikade doesn't speak natively. See [Plugins](#plugins). |
-| `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
-| `Bridge` | `matter.oikade.dev` | A Matter bridge that exposes a set of Devices, one bridged endpoint each, and is replacing the HomeKit bridge ([OIK-76](https://linear.app/oikade/issue/OIK-76)). See [Matter bridge](#matter-bridge). |
+| `Bridge` | `matter.oikade.dev` | A Matter bridge that exposes a set of Devices to controllers such as the Home app, one bridged endpoint each. See [Matter bridge](#matter-bridge). |
 
 Illustrative output:
 
@@ -44,16 +43,16 @@ hallway-light    Hallway Light    hallway   ["light.on","light.level","link.qual
 hallway-motion   Hallway Motion   hallway   ["sensor.occupancy-detected",...]             True        1m
 ```
 
-There is one binary with four subcommands:
+There is one binary with three subcommands:
 
 - **`manager`** is the operator. It only talks to Kubernetes.
 - **`manager runtime`** is the data plane. It follows every driver on the bus, writes coarse Device status (capabilities, availability, and `lastSeen` at most every 5 minutes), serves Prometheus metrics on `:8080` and runs rules. It runs as one replica, because two would run every rule twice.
-- **`manager hap --bridge <name>`** is a HomeKit accessory server, started by the operator for each `Bridge`. It follows the bus itself, so HomeKit keeps working if the runtime is down. It never writes to the API.
-- **`manager matter`** is a Matter bridge, started by the operator for each `matter.oikade.dev` `Bridge`. See [Matter bridge](#matter-bridge).
+- **`manager matter --bridge <name>`** is a Matter bridge, started by the operator for each `Bridge`. It follows the bus itself, so controllers keep working if the runtime is down. It never writes to the API. See [Matter bridge](#matter-bridge).
 
 ## Requirements
 
-- **The HAP pod's node must be on the same L2 network as your Apple devices.** HomeKit finds bridges over mDNS, so the HAP pod uses `hostNetwork: true`. Kind or minikube on macOS run inside a VM, where the Home app can't see them. Use those for development, and a real Linux node (k3s, Talos, etc.) for pairing.
+- **The Matter bridge pod's node must be on the same L2 network as your controllers, with IPv6.** Controllers find the bridge over mDNS and reach it over IPv6, so the pod uses `hostNetwork: true`. Kind or minikube on macOS run inside a VM, where the Home app can't see them. Use those for development, and a real Linux node (k3s, Talos, etc.) for pairing.
+- **A Matter controller with a hub,** such as the Home app with an Apple TV or HomePod as its home hub.
 - **A Zigbee coordinator.** A network coordinator (`tcp://host:6638`, e.g. SLZB-06) lets the Zigbee2MQTT pod run anywhere. A USB stick (`/dev/ttyUSB0`) needs `nodeSelector` to pin the pod to that node, and the pod then runs privileged.
 - A default StorageClass.
 
@@ -66,14 +65,14 @@ make docker-build docker-push IMG=<registry>/oikade:dev
 make deploy IMG=<registry>/oikade:dev      # operator, runtime and Mosquitto in oikade-system
 
 kubectl create namespace home
-# Edit config/samples first: the coordinator address, IEEE addresses and the setup code.
+# Edit config/samples first: the coordinator address and IEEE addresses.
 kubectl -n home apply -k config/samples
 kubectl -n home get zigbee2mqtts,devices,bridges,rules
 ```
 
 1. **Pair devices.** Open the Zigbee2MQTT frontend (`kubectl -n home port-forward svc/z2m 8080`), permit joining, and pair. A paired device that isn't declared shows up in `oikade_undeclared_devices` and the runtime logs.
 2. **Declare them.** Add a `Device` for each IEEE address. The operator sets each device's Zigbee2MQTT friendly name to the Device name.
-3. **Pair the bridge.** In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the setup code from its Secret.
+3. **Pair the bridge.** Read its pairing code from its Secret (see [Matter bridge](#matter-bridge)). In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the code.
 4. **Set your timezone and location.** Edit `--timezone` in `config/runtime/deployment.yaml` so rules see local time, and `--latitude` and `--longitude` if you use sun triggers.
 
 ## Rules
@@ -83,7 +82,7 @@ A `Rule` has one of two shapes ([OIK-64](https://linear.app/oikade/issue/OIK-64)
 - **Moments** (`triggers`) do something when a trigger fires: a capability changes, a time of day comes, or the sun rises or sets.
 - **Holds** (`while`) keep a capability at a value for as long as a window or a condition holds. The runtime works out from the clock and the devices' state whether a hold is active, so it stays right across a restart.
 
-Capabilities are last-write-wins unless the Device **arbitrates** them with a [`control`](#arbitration) entry. Then rules, HomeKit and the device itself make claims, the device takes the winner, and `kubectl get device` says why.
+Capabilities are last-write-wins unless the Device **arbitrates** them with a [`control`](#arbitration) entry. Then rules, Matter controllers and the device itself make claims, the device takes the winner, and `kubectl get device` says why.
 
 The Kind e2e applies every complete manifest in this section, and expects each Rule and Device to be `Ready`.
 
@@ -289,12 +288,12 @@ spec:
   hold: {device: hall-light, capability: light.on, value: true}
 ```
 
-Rules, HomeKit and the device itself make **claims**. The highest level with a claim wins:
+Rules, Matter controllers and the device itself make **claims**. The highest level with a claim wins:
 
 | Level | Who claims | Ends |
 |---|---|---|
 | Safety | Rules with `priority: Safety` | A Rule's claim ends when its hold ends (for a latched hold, at a `release`), or at the set's `for`/`until` |
-| Override | Outside changes (HomeKit, or the device by itself), and Rules with `priority: Override` | An outside change ends after `overrideHold`. A Rule's claim ends as above. |
+| Override | Outside changes (a Matter controller, or the device by itself), and Rules with `priority: Override` | An outside change ends after `overrideHold`. A Rule's claim ends as above. |
 | Normal | Ordinary Rules | As above |
 | Default | Nobody | Never |
 
@@ -308,7 +307,7 @@ Rules, HomeKit and the device itself make **claims**. The highest level with a c
 
 In this example, motion turns the light on, and it goes off 5 minutes after the motion stops. A wall switch turned off during that is an Override, so the light stays off until the motion hold ends. A wall switch turned on with nobody about lasts until the next motion starts, and the light then goes off 5 minutes after the motion stops. The motion hold's off-delay is saved, so a restart doesn't leave the light on.
 
-An outside change is recorded by the path it came in by: `HomeKit` for a Home app tap through the HomeKit bridge, `Matter` for a command through a Matter bridge, and `Device` for anything else, such as a wall switch. A Rule's claim is `Rule/<name>`. Oikade can't tell what a person did, so nothing is called "manual".
+An outside change is recorded by the path it came in by: `Matter` for a command through a Matter bridge, such as a Home app tap, and `Device` for anything else, such as a wall switch. A Rule's claim is `Rule/<name>`. Oikade can't tell what a person did, so nothing is called "manual".
 
 ### One-off claims
 
@@ -422,24 +421,24 @@ Apply the Rules, then delete the old Automation CRD with `kubectl delete crd aut
 
 ## Capabilities
 
-Drivers translate to and from a protocol-neutral set of capabilities. HomeKit, Matter, metrics and rules only ever see these. A Device with several sensors is one Matter endpoint with several device types, and a battery is a Power Source on it.
+Drivers translate to and from a protocol-neutral set of capabilities. Matter, metrics and rules only ever see these. A Device with several sensors is one Matter endpoint with several device types, and a battery is a Power Source on it.
 
-| Capability | Type | Writable | HomeKit | Matter |
-|---|---|---|---|---|
-| `light.on` | bool | ✓ | Lightbulb | On/Off Light, or Dimmable Light with `light.level` |
-| `light.level` | 0–100 | ✓ | Lightbulb brightness. Independent of `light.on`. | Level Control on a Dimmable Light |
-| `switch.on` | bool | ✓ | Switch, or Outlet/Lightbulb with `spec.homekit.service` | On/Off Plug-in Unit, or as `spec.matter.deviceType` says |
-| `outlet.on` | bool | ✓ | Outlet | On/Off Plug-in Unit |
-| `sensor.temperature` | °C | | Temperature sensor | Temperature Sensor |
-| `sensor.relative-humidity` | % | | Humidity sensor | Humidity Sensor |
-| `sensor.contact-open` | bool | | Contact sensor. `true` means open, the inverse of Zigbee2MQTT's `contact`. | Contact Sensor (Boolean State, `true` for closed) |
-| `sensor.occupancy-detected` | bool | | Motion sensor, or Occupancy sensor with `spec.homekit.service` | Occupancy Sensor (passive infrared) |
-| `battery.level` | % | | Battery, with a low-battery warning below 20% | Power Source, with a warning below 20% |
-| `link.quality` | 0–255 | | (metrics only) |  |
+| Capability | Type | Writable | Matter |
+|---|---|---|---|
+| `light.on` | bool | ✓ | On/Off Light, or Dimmable Light with `light.level` |
+| `light.level` | 0–100 | ✓ | Level Control on a Dimmable Light |
+| `switch.on` | bool | ✓ | On/Off Plug-in Unit, or as `spec.matter.deviceType` says |
+| `outlet.on` | bool | ✓ | On/Off Plug-in Unit |
+| `sensor.temperature` | °C | | Temperature Sensor |
+| `sensor.relative-humidity` | % | | Humidity Sensor |
+| `sensor.contact-open` | bool | | Contact Sensor (Boolean State, `true` for closed). `true` means open, the inverse of Zigbee2MQTT's `contact`. |
+| `sensor.occupancy-detected` | bool | | Occupancy Sensor (passive infrared) |
+| `battery.level` | % | | Power Source, with a warning below 20% |
+| `link.quality` | 0–255 | | (metrics only) |
 
 ## Plugins
 
-A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up in HomeKit, Grafana and rules like Zigbee ones, and keep working in HomeKit while the runtime is down.
+A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. It's a separate process that speaks Oikade's capabilities over MQTT, following the [oikade/v1 plugin contract](docs/plugin-contract.md). Devices it serves are ordinary `Device`s: they show up on the Matter bridge, in Grafana and in rules like Zigbee ones, and keep working through the bridge while the runtime is down.
 
 ```yaml
 apiVersion: plugins.oikade.dev/v1alpha1
@@ -502,15 +501,15 @@ Every capability change is also logged as `"Changed capability"` with structured
 
 ## Matter bridge
 
-Oikade is moving from HomeKit to Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The operator runs **`manager matter`** for each `matter.oikade.dev` `Bridge`: one pod with `hostNetwork`, which controllers find over mDNS and reach over IPv6 on a UDP port allocated from `spec.portRange` (5540 to 5640 by default). It follows the bus itself, so controllers keep working while the runtime is down, and only reads the API. Each selected Device with something Matter can show is a bridged endpoint, mapped as in [Capabilities](#capabilities).
+Oikade reaches the Home app and other controllers through Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The operator runs **`manager matter`** for each `matter.oikade.dev` `Bridge`: one pod with `hostNetwork`, which controllers find over mDNS and reach over IPv6 on a UDP port allocated from `spec.portRange` (5540 to 5640 by default). It follows the bus itself, so controllers keep working while the runtime is down, and only reads the API. Each selected Device with something Matter can show is a bridged endpoint, mapped as in [Capabilities](#capabilities).
 
 ```console
-$ kubectl get matterbridges
+$ kubectl get bridges
 NAME   PORT   DEVICES   READY   AGE
 main   5540   4         True    2m
 ```
 
-`kubectl get matterbridges` lists them, since plain `bridges` is ambiguous while the HomeKit kind exists. The pairing codes are in the bridge's `<bridge>-matter` Secret, behind the same RBAC as its setup passcode:
+The pairing codes are in the bridge's `<bridge>-matter` Secret, behind the same RBAC as its setup passcode:
 
 ```sh
 kubectl get secret main-matter -o jsonpath='{.data.manual-code}' | base64 -d   # 11 digits
@@ -537,10 +536,8 @@ spec:
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
-- **The HomeKit identity** (`<bridge>-identity` Secret) and **pairings** (`<bridge>-hap` PVC) have no owner reference. Deleting a Bridge keeps them. If the Secret is deleted, it is restored from `Bridge.status.username`.
 - **The Matter bridge's Secret** (`<bridge>-matter`: the setup code, unique ID and attestation key, and a copy of the endpoint IDs) and **fabrics** (`<bridge>-matter` PVC: operational keys and certificates, and access control) have no owner reference. Deleting a Bridge keeps them, and a Bridge applied again gets its old pairing code and endpoint IDs back. If the PVC is lost, commission the bridge again.
-- **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. Like accessory IDs, they're only ever appended.
-- **Accessory IDs** live in `Bridge.status.accessories`. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
+- **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
 - **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git. Changes made in its frontend don't survive a restart.
 - **The runtime's state** lives in retained MQTT messages under `oikade/v1/_runtime/`, kept on Mosquitto's `oikade-mosquitto` PVC: which holds are active, latches, off-delay deadlines, claims and their expiries, and equipment-limit counters. Losing it is safe but noticeable. Holds and claims are worked out again from the clock and the devices, but latched holds whose condition has passed are released, overrides end early, and limits start counting again.
@@ -549,7 +546,6 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 To really forget a Bridge or Zigbee2MQTT instance, delete those objects yourself:
 
 ```sh
-kubectl delete secret,pvc -l homekit.oikade.dev/bridge=<name>
 kubectl delete secret,pvc -l matter.oikade.dev/bridge=<name>
 kubectl delete secret,pvc -l zigbee.oikade.dev/instance=<name>
 ```
@@ -557,20 +553,20 @@ kubectl delete secret,pvc -l zigbee.oikade.dev/instance=<name>
 ## Security notes
 
 - Mosquitto allows anonymous access inside the cluster. Anything that can reach it can control your devices. Restrict it with a NetworkPolicy, or bring your own broker and set `--mqtt-url` on the operator, runtime and Bridge pods.
-- HAP pods use the host network, run as non-root and only have read access to the API. Each one can read only its own setup code and identity Secret.
+- Matter bridge pods use the host network, run as non-root and only have read access to the API, with no access to Secrets: the operator mounts each one's own setup code and attestation key.
 - Plugins publish on the same anonymous broker, so anything on the cluster network could also publish as a plugin, just as it could as Zigbee2MQTT.
-- HomeKit and Matter bridges announce each write on `oikade/v1/_homekit/` and `oikade/v1/_matter/`, so status can say where a change came from. Anything on the broker could publish a false announcement. That only changes the source shown on a claim, not what Oikade does. It could also publish false fabrics, which only changes what `status.fabrics` shows.
+- Matter bridges announce each write on `oikade/v1/_matter/`, so status can say where a change came from. Anything on the broker could publish a false announcement. That only changes the source shown on a claim, not what Oikade does. It could also publish false fabrics, which only changes what `status.fabrics` shows.
 
 ## Logging
 
-The operator, `runtime` and `hap` commands write structured JSON logs to stderr using
+The operator, `runtime` and `matter` commands write structured JSON logs to stderr using
 Go's `log/slog`, including controller-runtime logs. Use `--log-level=debug|info|warn|error`
 to set the minimum level (default: `info`). Errors are always logged.
 The former `--zap-*` flags are no longer supported.
 
 ## Versioning
 
-Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is the CRDs, capability names, CEL variables, metric names and labels, and HomeKit accessory IDs.
+Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is the CRDs, capability names, CEL variables, metric names and labels, and Matter endpoint IDs.
 
 While the major version is 0, the API is still settling, and versions follow the [milestones](https://github.com/harrymitchinson/oikade/milestones):
 
@@ -593,12 +589,12 @@ To ship a milestone:
 ```sh
 make test          # unit tests, envtest, and an in-process MQTT broker for the runtime integration test
 make lint
-make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, holds, claims, metrics and the HAP pod, and commissions and drives the Matter bridge with chip-tool (`test/e2e/chip-tool`, linux/arm64 only)
+make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, holds, claims, metrics, and commissions and drives the Matter bridge with chip-tool (`test/e2e/chip-tool`, linux/arm64 only)
 
 make test-conformance   # builds plugins/example-switch and drives it through the plugin contract
 ```
 
-The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them. How the components, rule engine and HomeKit bridge work inside is in [docs/architecture.md](docs/architecture.md).
+The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them. How the components, rule engine and Matter bridge work inside is in [docs/architecture.md](docs/architecture.md).
 
 ## Not yet
 

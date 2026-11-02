@@ -26,7 +26,7 @@ func TestVersionFromLdflags(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
-	for _, args := range [][]string{{"--version"}, {"runtime", "--version"}, {"hap", "--version"}} {
+	for _, args := range [][]string{{"--version"}, {"runtime", "--version"}, {"matter", "--version"}} {
 		out, err := exec.Command(bin, args...).Output()
 		if err != nil {
 			t.Fatalf("manager %s: %v", strings.Join(args, " "), err)

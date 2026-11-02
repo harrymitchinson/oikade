@@ -159,7 +159,7 @@ var _ = Describe("Device Controller", func() {
 			Level:      homev1alpha1.ControlLevelSafety,
 			Claims: []homev1alpha1.ControlClaim{
 				{Source: "Rule/leak-shutoff", Level: homev1alpha1.ControlLevelSafety, Value: apiextensionsv1.JSON{Raw: []byte("false")}, Latched: true, Winner: true},
-				{Source: "HomeKit", Level: homev1alpha1.ControlLevelOverride, Value: apiextensionsv1.JSON{Raw: []byte("true")}, Reverted: true,
+				{Source: "Matter", Level: homev1alpha1.ControlLevelOverride, Value: apiextensionsv1.JSON{Raw: []byte("true")}, Reverted: true,
 					Expires: metav1.NewTime(time.Date(2026, 10, 20, 22, 0, 0, 0, time.UTC))},
 			},
 		}}

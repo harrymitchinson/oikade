@@ -3,7 +3,6 @@ resources:
 - home_v1alpha1_room.yaml
 - zigbee_v1alpha1_zigbee2mqtt.yaml
 - home_v1alpha1_device.yaml
-- homekit_v1alpha1_bridge.yaml
 - plugins_v1alpha1_plugin.yaml
 - home_v1alpha1_rule.yaml
 - matter_v1alpha1_bridge.yaml

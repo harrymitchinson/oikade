@@ -26,12 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
-	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
 	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 	homecontroller "github.com/harrymitchinson/oikade/internal/controller/home"
-	homekitcontroller "github.com/harrymitchinson/oikade/internal/controller/homekit"
 	mattercontroller "github.com/harrymitchinson/oikade/internal/controller/matter"
 	pluginscontroller "github.com/harrymitchinson/oikade/internal/controller/plugins"
 	zigbeecontroller "github.com/harrymitchinson/oikade/internal/controller/zigbee"
@@ -47,7 +45,6 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(homev1alpha1.AddToScheme(scheme))
-	utilruntime.Must(homekitv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(zigbeev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(pluginsv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(matterv1alpha1.AddToScheme(scheme))
@@ -60,14 +57,12 @@ func main() {
 		switch os.Args[1] {
 		case "runtime":
 			os.Exit(runRuntime(os.Args[2:]))
-		case "hap":
-			os.Exit(runHAP(os.Args[2:]))
 		case "matter":
 			os.Exit(runMatter(os.Args[2:]))
 		}
 	}
 
-	var mqttURL, zigbeeImage, hapImage string
+	var mqttURL, zigbeeImage, matterImage string
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -100,8 +95,8 @@ func main() {
 		"MQTT broker that Zigbee2MQTT instances connect to.")
 	flag.StringVar(&zigbeeImage, "zigbee2mqtt-image", "koenkk/zigbee2mqtt:2.14.2",
 		"Default Zigbee2MQTT image, overridable per instance.")
-	flag.StringVar(&hapImage, "hap-image", "",
-		"Image for HomeKit and Matter bridge pods. Defaults to the operator's own image (via $POD_NAME/$POD_NAMESPACE).")
+	flag.StringVar(&matterImage, "matter-image", "",
+		"Image for Matter bridge pods. Defaults to the operator's own image (via $POD_NAME/$POD_NAMESPACE).")
 	var logLevel slog.Level
 	flag.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
 	showVersion := versionFlag(flag.CommandLine)
@@ -212,20 +207,11 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "home-rule")
 		os.Exit(1)
 	}
-	if hapImage == "" {
-		if hapImage, err = ownImage(context.Background(), mgr.GetAPIReader()); err != nil {
-			setupLog.Error(err, "Failed to determine HAP image; set --hap-image")
+	if matterImage == "" {
+		if matterImage, err = ownImage(context.Background(), mgr.GetAPIReader()); err != nil {
+			setupLog.Error(err, "Failed to determine Matter image; set --matter-image")
 			os.Exit(1)
 		}
-	}
-	if err := (&homekitcontroller.BridgeReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Image:   hapImage,
-		MQTTURL: mqttURL,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "homekit-bridge")
-		os.Exit(1)
 	}
 	if err := (&zigbeecontroller.Zigbee2MQTTReconciler{
 		Client:  mgr.GetClient(),
@@ -254,7 +240,7 @@ func main() {
 	if err := (&mattercontroller.BridgeReconciler{
 		Client:  mgr.GetClient(),
 		Scheme:  mgr.GetScheme(),
-		Image:   hapImage,
+		Image:   matterImage,
 		MQTTURL: mqttURL,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "matter-bridge")

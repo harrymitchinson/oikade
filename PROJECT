@@ -32,15 +32,6 @@ resources:
     namespaced: true
   controller: true
   domain: oikade.dev
-  group: homekit
-  kind: Bridge
-  path: github.com/harrymitchinson/oikade/api/homekit/v1alpha1
-  version: v1alpha1
-- api:
-    crdVersion: v1
-    namespaced: true
-  controller: true
-  domain: oikade.dev
   group: zigbee
   kind: Zigbee2MQTT
   path: github.com/harrymitchinson/oikade/api/zigbee/v1alpha1

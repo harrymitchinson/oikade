@@ -31,16 +31,10 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 - **Only this step.** If you find work for later, mention it in the PR, or add it with `hack/plan idea` if it's new.
 - **Follow AGENTS.md:** scaffold with `kubebuilder`, run `make manifests generate` after editing types, and `make lint-fix test` after Go changes. After changing the plugin contract, the SDK or a plugin, also run `make test-conformance`.
 - **Keep the docs true.** If the step changes how something works, update the doc that says so in the same PR: the README for what users write and see, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Describe the present and link the feature for why. Don't copy the design.
-- **Skip e2e unless the step needs it.** Kind e2e is slow, so rely on unit tests and envtest. Run it only when the step changes what e2e covers and nothing cheaper can check it. CI doesn't run it on PRs, only on main after the merge, so a local run is the only check before merging. Say in the PR whether you ran it.
-- **e2e gets its own cluster,** so parallel agents don't collide and nothing touches the user's current context:
+- **Never run Kind e2e within a step.** The bar for a PR is unit tests and envtest. CI runs e2e only on main after a merge and nightly. If main's e2e breaks, fix it forward in a new PR. Say in the PR that e2e wasn't run.
+- **Test at the lowest level that shows the behaviour:** mappings, coalescing and IDs in unit tests, controllers in envtest, Matter commissioning in an in-process node test (a Go controller talking to the node, no Kind). Don't add e2e specs per feature: e2e keeps a few journeys across components.
 
-  ```sh
-  export KIND_CLUSTER=oikade-e2e-N KUBECONFIG="$TMPDIR/oikade-e2e-N.kubeconfig"
-  make test-e2e         # keeps the cluster, so a rerun only rebuilds and redeploys
-  make cleanup-test-e2e  # when you're done with the step
-  ```
-
-- **Manual acceptance** (`(manual, in the Manual testing doc)`, such as real HomeKit pairing and devices) can't be checked here. Leave it for the user, check that the Linear document "Manual testing" lists it, and say so in the PR.
+- **Manual acceptance** (`(manual, in the Manual testing doc)`, such as pairing with the Home app and real devices) can't be checked here. Leave it for the user, check that the Linear document "Manual testing" lists it, and say so in the PR.
 - **Commit as you go,** with conventional commits like the git log (`feat(schedule): …`). Stage explicit paths only.
 
 ## 4. Review and open the PR
@@ -57,9 +51,8 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 ## 5. Stop
 
 1. **Merge what the user approved:** for each step waiting for review, bottom first, run `hack/plan merge OIK-N <PR>`. It merges a step whose head the user's Approve covers, restacks the rest, and refuses the others. Stop at the first refusal.
-2. **Delete your e2e cluster** if you made one: `make cleanup-test-e2e` with the same `KIND_CLUSTER` and `KUBECONFIG`.
-3. **Release the claim:** `hack/plan release OIK-N`. Your PRs and step branches stay, and the next session continues from them. Don't hold a claim you aren't building under.
-4. **Reply** with the PR links in stack order, what's verified and what isn't, and anything that needs the user. Don't claim another feature unless the user asked you to keep going, as with a `/loop`.
+2. **Release the claim:** `hack/plan release OIK-N`. Your PRs and step branches stay, and the next session continues from them. Don't hold a claim you aren't building under.
+3. **Reply** with the PR links in stack order, what's verified and what isn't, and anything that needs the user. Don't claim another feature unless the user asked you to keep going, as with a `/loop`.
 
 - **If the user asks you to address comments on a step's PR,** you don't need a claim, because the PR's branch belongs to that step. If `hack/plan claims` shows another session holding the feature, ask the user first, so you don't rewrite a branch it's building on. Check out the branch in your own worktree (`git worktree add <path> origin/work/OIK-S`, then `git switch -c work/OIK-S`), fix it, and `git push`. If it's low in a stack, rebase each step above it onto the one below (`git rebase --onto <new tip> <old tip>`) and push each with `--force-with-lease`.
 - **Before `hack/plan step`,** push any commits you've added to the current step since its PR opened. The next step builds on the pushed branch, and `step` refuses while it's behind.

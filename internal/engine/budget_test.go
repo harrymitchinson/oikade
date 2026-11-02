@@ -130,11 +130,11 @@ func TestScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T) {
 		t.Errorf("oikade_rule_budget_desired %v at 00:00, want 1", got)
 	}
 
-	// The Home app turns it off at 01:00: a HomeKit override, which beats the budget.
+	// The Home app turns it off at 01:00: a Matter override, which beats the budget.
 	r.at("2026-10-22 01:00 BST")
-	r.homekit("pump", capability.SwitchOn, false)
+	r.matter("pump", capability.SwitchOn, false)
 	r.report("pump", capability.SwitchOn, false)
-	if w := winner(r.status("pump", capability.SwitchOn)); w != "HomeKit Override" {
+	if w := winner(r.status("pump", capability.SwitchOn)); w != "Matter Override" {
 		t.Errorf("01:00 winner %q, want the Home app's override", w)
 	}
 

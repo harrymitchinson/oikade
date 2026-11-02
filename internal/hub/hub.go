@@ -189,9 +189,6 @@ func metaFor(d *homev1alpha1.Device, instance driver.InstanceKey) Meta {
 	if d.Spec.RoomRef != nil {
 		m.Room = d.Spec.RoomRef.Name
 	}
-	if d.Spec.HomeKit != nil {
-		m.HomeKitService = string(d.Spec.HomeKit.Service)
-	}
 	m.Control = d.Spec.Control
 	return m
 }

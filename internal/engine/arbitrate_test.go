@@ -409,19 +409,19 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 	}
 }
 
-// homekit announces a HomeKit write, as hap does before writing the device.
-func (r *rig) homekit(dev, c string, v any) {
-	r.e.HomeKitWrote(types.NamespacedName{Namespace: ns, Name: dev}, c, v)
+// matter announces a Matter write, as the matter role does before writing the device.
+func (r *rig) matter(dev, c string, v any) {
+	r.e.MatterWrote(types.NamespacedName{Namespace: ns, Name: dev}, c, v)
 }
 
-func TestAHomeKitWriteIsAnOverrideFromHomeKit(t *testing.T) {
+func TestAMatterWriteIsAnOverrideFromMatter(t *testing.T) {
 	r := railRig(t)
-	r.homekit("towel-rail", capability.SwitchOn, true)
+	r.matter("towel-rail", capability.SwitchOn, true)
 	r.clock.Step(2 * time.Second)
 	r.change("towel-rail", capability.SwitchOn, true)
 	s := r.status("towel-rail", capability.SwitchOn)
-	if w := winner(s); w != "HomeKit Override" || !s.Claims[0].Expires.Time.Equal(local("2026-10-21 13:00 BST").Add(2*time.Second)) {
-		t.Errorf("status %+v, want a HomeKit override for an hour", s)
+	if w := winner(s); w != "Matter Override" || !s.Claims[0].Expires.Time.Equal(local("2026-10-21 13:00 BST").Add(2*time.Second)) {
+		t.Errorf("status %+v, want a Matter override for an hour", s)
 	}
 	r.expect()
 	// The write is used up: a wall switch afterwards is the device's.
@@ -433,33 +433,22 @@ func TestAHomeKitWriteIsAnOverrideFromHomeKit(t *testing.T) {
 	}
 }
 
-func TestAMatterWriteIsAnOverrideFromMatter(t *testing.T) {
-	r := railRig(t)
-	r.e.MatterWrote(types.NamespacedName{Namespace: ns, Name: "towel-rail"}, capability.SwitchOn, true)
-	r.clock.Step(time.Second)
-	r.change("towel-rail", capability.SwitchOn, true)
-	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Matter Override" {
-		t.Errorf("winner %q, want a Matter override", w)
-	}
-	r.expect()
-}
-
-func TestAHomeKitWriteDuringARuntimeWriteIsFromHomeKit(t *testing.T) {
+func TestAMatterWriteDuringARuntimeWriteIsFromMatter(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.SwitchOn, true})
 	// The Home app turns it off two seconds after the runtime's write. The report is held back
 	// until the write settles, and still matches.
 	r.clock.Step(2 * time.Second)
-	r.homekit("towel-rail", capability.SwitchOn, false)
+	r.matter("towel-rail", capability.SwitchOn, false)
 	r.change("towel-rail", capability.SwitchOn, false)
 	r.clock.Step(staleReport)
 	r.settle()
-	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "HomeKit Override" {
-		t.Errorf("winner %q once the write settled, want HomeKit's override", w)
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Matter Override" {
+		t.Errorf("winner %q once the write settled, want Matter's override", w)
 	}
 }
 
-func TestChangesThatDontMatchAHomeKitWriteAreTheDevices(t *testing.T) {
+func TestChangesThatDontMatchAMatterWriteAreTheDevices(t *testing.T) {
 	for name, tc := range map[string]struct {
 		device   string
 		from, to bool
@@ -467,7 +456,7 @@ func TestChangesThatDontMatchAHomeKitWriteAreTheDevices(t *testing.T) {
 	}{
 		// The rail was already on, and a wall switch turns it off.
 		"another value":  {"towel-rail", true, false, time.Second},
-		"too late":       {"towel-rail", false, true, homekitMatch},
+		"too late":       {"towel-rail", false, true, bridgeMatch},
 		"another device": {"fan", false, true, time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -480,7 +469,7 @@ func TestChangesThatDontMatchAHomeKitWriteAreTheDevices(t *testing.T) {
 				}},
 			})
 			r.expect()
-			r.homekit(tc.device, capability.SwitchOn, true)
+			r.matter(tc.device, capability.SwitchOn, true)
 			r.clock.Step(tc.after)
 			r.change("towel-rail", capability.SwitchOn, tc.to)
 			if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
@@ -499,7 +488,7 @@ func TestAnOverrideExpiresWithNoRules(t *testing.T) {
 	r.expect(call{"towel-rail", capability.SwitchOn, false})
 }
 
-func TestAHomeKitDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
+func TestAMatterDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now:    local("2026-10-21 20:00 BST"),
 		values: map[string]map[string]any{"hall-light": {capability.LightLevel: 0.0}},
@@ -509,25 +498,25 @@ func TestAHomeKitDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
 	})
 	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, then
 	// 40.2, as Zigbee2MQTT rounds 40 to 102 of 254.
-	r.homekit("hall-light", capability.LightLevel, 40.0)
+	r.matter("hall-light", capability.LightLevel, 40.0)
 	r.change("hall-light", capability.LightLevel, 10.2)
 	if w := winner(r.status("hall-light", capability.LightLevel)); w != "Device Override" {
 		t.Errorf("winner %q on the way, want the device's", w)
 	}
 	r.change("hall-light", capability.LightLevel, 40.2)
-	if w := winner(r.status("hall-light", capability.LightLevel)); w != "HomeKit Override" {
-		t.Errorf("winner %q at 40.2, want HomeKit's", w)
+	if w := winner(r.status("hall-light", capability.LightLevel)); w != "Matter Override" {
+		t.Errorf("winner %q at 40.2, want Matter's", w)
 	}
 	r.expect()
 }
 
-func TestAHomeKitWriteThatChangesNothingIsForgotten(t *testing.T) {
+func TestAMatterWriteThatChangesNothingIsForgotten(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.SwitchOn, true})
 	r.change("towel-rail", capability.SwitchOn, true)
 	// The Home app turns on a rail that's already on: no change will come.
 	r.at("2026-10-21 12:01 BST")
-	r.homekit("towel-rail", capability.SwitchOn, true)
+	r.matter("towel-rail", capability.SwitchOn, true)
 	// A wall switch turns it off, and on again, soon after.
 	r.clock.Step(time.Second)
 	r.change("towel-rail", capability.SwitchOn, false)

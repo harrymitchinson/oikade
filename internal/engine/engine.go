@@ -126,8 +126,8 @@ type Engine struct {
 	saveWake        chan struct{}
 	reportedControl map[types.NamespacedName]string
 	skipped         map[types.NamespacedName][]string
-	// homekit are the HomeKit writes waiting for their device to report them.
-	homekit map[types.NamespacedName]map[string]homekitWrite
+	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
+	bridgeWrites map[types.NamespacedName]map[string]bridgeWrite
 }
 
 type state struct {
@@ -192,7 +192,7 @@ func (e *Engine) Init() {
 	e.saveWake = make(chan struct{}, 1)
 	e.reportedControl = map[types.NamespacedName]string{}
 	e.skipped = map[types.NamespacedName][]string{}
-	e.homekit = map[types.NamespacedName]map[string]homekitWrite{}
+	e.bridgeWrites = map[types.NamespacedName]map[string]bridgeWrite{}
 }
 
 // Load adds or replaces a Rule. A run in progress for an older generation is cancelled;

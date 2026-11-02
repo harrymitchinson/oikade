@@ -576,7 +576,7 @@
       "id": 13,
       "type": "bargauge",
       "title": "Battery level",
-      "description": "Lowest first. Below 20% HomeKit also shows a low battery warning.",
+      "description": "Lowest first. Below 20% Matter controllers also show a low battery warning.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1035,7 +1035,7 @@
       "id": 22,
       "type": "state-timeline",
       "title": "Control levels",
-      "description": "The level that wins each arbitrated capability: Default, Normal (a rule), Override (a rule, HomeKit or the device) or Safety. kubectl get device -o yaml shows the claims.",
+      "description": "The level that wins each arbitrated capability: Default, Normal (a rule), Override (a rule, a Matter controller or the device) or Safety. kubectl get device -o yaml shows the claims.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"

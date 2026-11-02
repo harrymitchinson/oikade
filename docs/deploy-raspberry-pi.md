@@ -1,13 +1,13 @@
 # Deploying Oikade on a Raspberry Pi cluster
 
-This guide takes you from blank Pis to a paired HomeKit bridge, Zigbee devices declared in Git, and dashboards in Grafana. It assumes k3s, but any distribution works as long as you keep the networking requirements in step 3.
+This guide takes you from blank Pis to a paired Matter bridge, Zigbee devices declared in Git, and dashboards in Grafana. It assumes k3s, but any distribution works as long as you keep the networking requirements in step 3.
 
 **Contents**
 
 1. [What you need](#1-what-you-need)
 2. [Prepare the Pis](#2-prepare-the-pis)
 3. [Install k3s](#3-install-k3s)
-4. [Choose nodes for HomeKit and Zigbee](#4-choose-nodes-for-homekit-and-zigbee)
+4. [Choose nodes for Matter and Zigbee](#4-choose-nodes-for-matter-and-zigbee)
 5. [Storage](#5-storage)
 6. [Choose a release](#6-choose-a-release)
 7. [Install Oikade](#7-install-oikade)
@@ -15,7 +15,7 @@ This guide takes you from blank Pis to a paired HomeKit bridge, Zigbee devices d
 9. [Run Zigbee2MQTT](#9-run-zigbee2mqtt)
 10. [Pair and declare Zigbee devices](#10-pair-and-declare-zigbee-devices)
 11. [Run plugins](#11-run-plugins)
-12. [Pair the HomeKit bridge](#12-pair-the-homekit-bridge)
+12. [Pair the Matter bridge](#12-pair-the-matter-bridge)
 13. [Add rules](#13-add-rules)
 14. [Monitoring](#14-monitoring)
 15. [Back up what Git can't rebuild](#15-back-up-what-git-cant-rebuild)
@@ -80,18 +80,18 @@ export KUBECONFIG=~/.kube/pi.yaml
 kubectl get nodes -o wide
 ```
 
-## 4. Choose nodes for HomeKit and Zigbee
+## 4. Choose nodes for Matter and Zigbee
 
-**HomeKit.** The HAP pod uses the host network, because HomeKit finds bridges over mDNS, and mDNS does not cross subnets or VLANs. Choose a Pi that is on the same subnet as your iPhone and label it:
+**Matter.** The Matter bridge pod uses the host network, because controllers find it over mDNS, which does not cross subnets or VLANs, and reach it over IPv6. Choose a Pi that is on the same subnet as your iPhone and your home hub (an Apple TV or HomePod), with IPv6 enabled (Raspberry Pi OS has it on by default), and label it:
 
 ```sh
-kubectl label node pi-1 oikade.dev/homekit=true
+kubectl label node pi-1 oikade.dev/matter=true
 ```
 
-If that Pi runs a firewall (Raspberry Pi OS doesn't by default), open the HAP port pool and mDNS:
+If that Pi runs a firewall (Raspberry Pi OS doesn't by default), open the Matter port pool and mDNS:
 
 ```sh
-sudo ufw allow 51830:51930/tcp
+sudo ufw allow 5540:5640/udp
 sudo ufw allow 5353/udp
 ```
 
@@ -108,7 +108,7 @@ Use the `/dev/serial/by-id/...` path rather than `/dev/ttyUSB0`, which can chang
 
 k3s ships with the `local-path` StorageClass. It's the default and it works, but each PersistentVolumeClaim then lives on one Pi's disk, under `/var/lib/rancher/k3s/storage`. If that Pi dies, you lose:
 
-- the HomeKit pairing (the `<bridge>-hap` PVC), which means re-pairing, and the Home app forgets every room, scene and automation;
+- the Matter fabrics (the `<bridge>-matter` PVC), which means commissioning the bridge again, and the Home app forgets every room, scene and automation;
 - the Zigbee database (the `<instance>-data` PVC), which zigbee2mqtt can rebuild from the coordinator's own backup, though devices may need re-interviewing.
 
 You have two options:
@@ -118,7 +118,7 @@ You have two options:
 
 ## 6. Choose a release
 
-Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the HAP pods. The image and `install.yaml` are added after the release's tests pass, about fifteen minutes after it appears. Pick a release that lists `install.yaml` under its assets.
+Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the Matter bridge pods. The image and `install.yaml` are added after the release's tests pass, about fifteen minutes after it appears. Pick a release that lists `install.yaml` under its assets.
 
 Versions between milestones are pre-releases, such as `v0.1.0-alpha.3`. Any of them may change the API, so read the release notes before you upgrade (README, "Versioning").
 
@@ -215,14 +215,11 @@ resources:
 
 `config/samples` in this repo has a starting point for every file.
 
-**Don't commit the HomeKit setup code in plain text.** Create that Secret by hand:
+The Matter bridge's setup code isn't in Git: the operator generates it into the bridge's Secret (step 12).
 
 ```sh
 kubectl create namespace home
-kubectl -n home create secret generic homekit-pin --from-literal=pin=482-91-736   # choose your own
 ```
-
-Alternatively, encrypt it in the repo with [SOPS](https://fluxcd.io/flux/guides/mozilla-sops/) or [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets).
 
 To reconcile the repo with Flux:
 
@@ -325,13 +322,13 @@ The operator generates the Zigbee network key, PAN ID and extended PAN ID once, 
    metadata:
      name: hallway-light          # becomes the device's Zigbee2MQTT friendly name
    spec:
-     displayName: Hallway Light   # shown in HomeKit and Grafana
+     displayName: Hallway Light   # shown in the Home app and Grafana
      roomRef: {name: hallway}
      zigbee2mqtt:
        instanceRef: {name: z2m}
        ieeeAddress: "0x000b57fffe000001"
    ```
-   Smart plugs report themselves as switches. Add `homekit: {service: Outlet}` to show one as an outlet.
+   Smart plugs report themselves as switches, which the Matter bridge shows as a plug-in unit (an outlet). Add `matter: {deviceType: Light}` or `matter: {deviceType: MountedControl}` to show one as a light or a wall switch.
 5. Commit, then check that the device resolves:
    ```sh
    kubectl -n home get devices
@@ -368,7 +365,7 @@ sops --encrypt --age <age-public-key> --encrypted-regex '^(data|stringData)$' \
   --in-place home/plugins/sonoff-keys.yaml
 ```
 
-Then add `decryption: {provider: sops, secretRef: {name: sops-age}}` to the `spec` of `clusters/pi/home.yaml`. The `homekit-pin` Secret from step 8 can now live in Git the same way.
+Then add `decryption: {provider: sops, secretRef: {name: sops-age}}` to the `spec` of `clusters/pi/home.yaml`.
 
 `home/plugins/sonoff.yaml`:
 
@@ -395,7 +392,7 @@ spec:
     parameters: {capability: light.on}   # relays report switch.on unless told otherwise
 ```
 
-**`hostNetwork`.** Plugins that find devices with mDNS or multicast, such as SONOFF LAN, must run on the host network, like the HAP pod. They then need a node on the same L2 network as the devices, as the HAP pod does with your iPhone (step 4). Label one, and pin the plugin to it with `nodeSelector` as above:
+**`hostNetwork`.** Plugins that find devices with mDNS or multicast, such as SONOFF LAN, must run on the host network, like the Matter bridge pod. They then need a node on the same L2 network as the devices, as the Matter bridge pod does with your iPhone (step 4). Label one, and pin the plugin to it with `nodeSelector` as above:
 
 ```sh
 kubectl label node pi-1 oikade.dev/devices-lan=true
@@ -412,49 +409,55 @@ kubectl -n home get device porch-light \
 kubectl -n home logs deploy/sonoff-plugin
 ```
 
-`oikade_plugin_up{plugin="sonoff"}` is 1 while the plugin is connected. If it crashes, the broker marks it offline and its devices show "No Response" in HomeKit until Kubernetes restarts it.
+`oikade_plugin_up{plugin="sonoff"}` is 1 while the plugin is connected. If it crashes, the broker marks it offline and its devices show "No Response" in the Home app until Kubernetes restarts it.
 
-## 12. Pair the HomeKit bridge
+## 12. Pair the Matter bridge
 
 `home/bridge.yaml`:
 
 ```yaml
-apiVersion: homekit.oikade.dev/v1alpha1
+apiVersion: matter.oikade.dev/v1alpha1
 kind: Bridge
 metadata:
   name: main
 spec:
   displayName: Oikade
-  pinSecretRef: {name: homekit-pin, key: pin}
+  deviceSelector: {}                 # every Device; narrow it with matchLabels if needed
   nodeSelector:
-    oikade.dev/homekit: "true"
-  # deviceSelector: {matchLabels: {homekit: "true"}}   # optional: expose only some Devices
+    oikade.dev/matter: "true"
 ```
 
 Apply it and check:
 
 ```sh
-kubectl -n home get bridge main                    # READY True, PORT 51830
-kubectl -n home logs deploy/main-hap               # "Starting HAP server" with the accessory count
+kubectl -n home get bridge main                    # READY True, PORT 5540
+kubectl -n home logs deploy/main-matter            # "Advertised commissionable service", "Added bridged device"
+```
+
+The operator generates the setup code into the `main-matter` Secret. Read the 11-digit pairing code from it:
+
+```sh
+kubectl -n home get secret main-matter -o jsonpath='{.data.manual-code}' | base64 -d
 ```
 
 Check that the bridge is advertised. On your Mac, on the same network:
 
 ```sh
-dns-sd -B _hap._tcp
+dns-sd -B _matterc._udp
 ```
 
-`Oikade` should appear in the list. Then on your iPhone:
+A commissionable node should appear. The bridge accepts commissioning for 15 minutes after it starts; if that has passed, `kubectl -n home rollout restart deploy/main-matter`. Then on your iPhone:
 
 1. In the Home app, tap **+**, then **Add Accessory**, then **More options…**.
-2. Choose **Oikade** and enter the setup code from your `homekit-pin` Secret.
-3. Assign each accessory to a room. HomeKit can't receive rooms from a bridge, so you do this once in the app.
+2. Choose **Oikade** and enter the pairing code. The Home app warns that it's an uncertified accessory: choose **Add Anyway**.
+3. Assign each accessory to a room. The Home app doesn't take rooms from a bridge, so you do this once there.
 
 From now on:
 
 - **Adding or removing a Device** updates the bridge automatically, and the Home app picks up the change.
-- **Accessory IDs never change**, so rooms, scenes and favourites survive restarts, and even deleting and re-creating a Device.
-- **Restarting the HAP pod** (`kubectl -n home rollout restart deploy/main-hap`) keeps the pairing.
+- **Endpoint IDs never change**, so rooms, scenes and favourites survive restarts, and even deleting and re-creating a Device.
+- **Restarting the bridge pod** (`kubectl -n home rollout restart deploy/main-matter`) keeps the pairing.
+- `kubectl -n home get bridge main -o yaml` lists the controllers it's paired with under `status.fabrics`.
 
 ## 13. Add rules
 
@@ -534,8 +537,8 @@ Everything in your home repo can be rebuilt from Git. These can't:
 | What | Where | If you lose it |
 |---|---|---|
 | Zigbee network identity | Secret `home/z2m-network` | Every Zigbee device must be paired again |
-| HomeKit identity | Secret `home/main-identity` | The Home app sees a new bridge |
-| HomeKit pairings and keys | PVC `home/main-hap` | You must re-pair, and the Home app forgets rooms, scenes and automations |
+| Matter bridge setup code, unique ID and endpoint IDs | Secret `home/main-matter` | The Home app sees a new bridge |
+| Matter fabrics and keys | PVC `home/main-matter` | You must pair again, and the Home app forgets rooms, scenes and automations |
 | Zigbee database and coordinator backup | PVC `home/z2m-data` | zigbee2mqtt rebuilds what it can; devices may need re-interviewing |
 | The runtime's state: active holds, latches, claims and limit counters | PVC `oikade-system/oikade-mosquitto`, as retained MQTT messages | Holds are worked out again from the clock, but latched Safety holds whose condition has passed are released, overrides end early, and equipment limits start counting again |
 | Plugin credentials | Your `spec.secretRef` Secrets, such as `home/sonoff-keys` | The plugin reports an error for every device. If they're in Git with SOPS, they come back with Flux. |
@@ -544,19 +547,19 @@ Everything in your home repo can be rebuilt from Git. These can't:
 Export the Secrets now, and again whenever you create a new Bridge or Zigbee2MQTT instance. Store them somewhere safe, such as a password manager. Don't put them in Git unencrypted.
 
 ```sh
-kubectl -n home get secret z2m-network main-identity -o yaml > oikade-secrets-backup.yaml
+kubectl -n home get secret z2m-network main-matter -o yaml > oikade-secrets-backup.yaml
 kubectl -n flux-system get secret sops-age -o yaml >> oikade-secrets-backup.yaml   # if you use SOPS
 ```
 
 For the PVCs on `local-path`, copy the directories off the Pi they live on. Find which Pi holds each one, then list its directories, which are named `pvc-<uid>_<namespace>_<claim>`:
 
 ```sh
-kubectl -n home get pod -o wide                       # main-hap and z2m pods show their node
+kubectl -n home get pod -o wide                       # main-matter and z2m pods show their node
 kubectl -n oikade-system get pod -o wide              # and oikade-mosquitto
-ssh pi-1 sudo ls /var/lib/rancher/k3s/storage/        # e.g. pvc-3f2..._home_main-hap
+ssh pi-1 sudo ls /var/lib/rancher/k3s/storage/        # e.g. pvc-3f2..._home_main-matter
 ```
 
-Copy them to another machine from a nightly cron, e.g. `rsync -a --rsync-path="sudo rsync" pi-1:/var/lib/rancher/k3s/storage/pvc-3f2..._home_main-hap/ backups/main-hap/`. If you use Longhorn, use its scheduled backups to NFS or S3 instead.
+Copy them to another machine from a nightly cron, e.g. `rsync -a --rsync-path="sudo rsync" pi-1:/var/lib/rancher/k3s/storage/pvc-3f2..._home_main-matter/ backups/main-matter/`. If you use Longhorn, use its scheduled backups to NFS or S3 instead.
 
 **To restore:** apply the Secrets *before* the Bridge and Zigbee2MQTT objects. The operator never overwrites existing ones, so it picks them up. If you use SOPS, create `flux-system/sops-age` before Flux reconciles `home`: until it exists, Flux can't decrypt anything in the tree and applies none of it.
 
@@ -571,7 +574,7 @@ resources:
 
 If you added monitoring (step 14), change `?ref=` in `oikade/monitoring/kustomization.yaml` to the same version. Commit it and let Flux apply it, or run `kubectl apply -k oikade/`. Your timezone and location patch carries over.
 
-The operator and runtime roll over. HAP pods pick up the new image the next time the operator applies them, keeping their pairings. They use the Recreate strategy, so expect a few seconds when HomeKit shows "No Response".
+The operator and runtime roll over. Matter bridge pods pick up the new image the next time the operator applies them, keeping their pairings. They use the Recreate strategy, so expect a few seconds when the Home app shows "No Response".
 
 To upgrade Zigbee2MQTT, set `spec.image` on the Zigbee2MQTT object, or change the operator's `--zigbee2mqtt-image` default.
 
@@ -581,14 +584,14 @@ Plugins are versioned separately. Build and push the new plugin image (step 11),
 
 | Symptom | Check |
 |---|---|
-| Bridge doesn't appear in the Home app | `dns-sd -B _hap._tcp` from a Mac on the same network. If it's missing: is the HAP pod on the labelled node (`kubectl -n home get pod -o wide`)? Same subnet as the iPhone? Is UDP 5353 open? Does the router or access point block multicast between Wi-Fi and Ethernet? |
-| "Accessory not found" or pairing fails | `kubectl -n home logs deploy/main-hap`. A port conflict on the node shows up there. |
+| Bridge doesn't appear in the Home app | `dns-sd -B _matterc._udp` from a Mac on the same network. If it's missing: has the 15-minute window passed (`Closed the commissioning window` in `kubectl -n home logs deploy/main-matter`)? Is the pod on the labelled node (`kubectl -n home get pod -o wide`)? Same subnet as the iPhone and home hub? Is UDP 5353 open? Does the router or access point block multicast between Wi-Fi and Ethernet? |
+| "Accessory not found" or pairing fails | `kubectl -n home logs deploy/main-matter`. Is IPv6 on for the Pi and the network? Is there a home hub? |
 | Device stays `Resolved=False` (`NotPaired`) | The IEEE address in Git doesn't match the paired device. Compare with the Zigbee2MQTT frontend. |
 | Device stays `Resolved=False` (`NoDriver`) | `instanceRef` or `pluginRef` names a Zigbee2MQTT or Plugin that doesn't exist, or another Device already claims that IEEE address or plugin id (see the Zigbee2MQTT or Plugin `Ready` condition). |
 | Device stays `Resolved=False` (`PluginError`) | The plugin rejected the Device's `parameters` or has no key for its id. The condition message says which. |
 | Plugin isn't `READY` | `kubectl -n home get plugin <name> -o yaml` shows the reason: `SecretNotFound`, `DuplicateDevice`, `NameConflict`, or `Progressing` while the pod starts. Check `kubectl -n home logs deploy/<name>-plugin`. |
 | A capability is missing | Oikade doesn't map that expose yet, e.g. colour, colour temperature or multi-gang switches (`state_l2`). |
-| HomeKit shows "No Response" | Is the device `Available=False` in `kubectl get devices`? Does `kubectl -n home logs deploy/main-hap` show `Failed to set capability`? |
+| The Home app shows "No Response" | Is the device `Available=False` in `kubectl get devices`? Does `kubectl -n home logs deploy/main-matter` show `Failed to set capability from Matter`? |
 | Rule never fires | Is it `READY` in `kubectl get rules`? `oikade_rule_runs_total` shows whether it's hitting `condition_false`. Check `--timezone` if the condition uses the time. |
 | zigbee2mqtt crash-loops | `kubectl -n home logs deploy/z2m`. Check the coordinator address or USB path, and that `adapter` matches the coordinator's chip. |
 | Something is wrong with MQTT | Watch the bus: `kubectl -n home run mqtt --rm -it --image=eclipse-mosquitto:2.1.2-alpine -- mosquitto_sub -h oikade-mosquitto.oikade-system.svc -t '#' -v` |
