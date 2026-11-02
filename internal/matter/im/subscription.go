@@ -37,12 +37,6 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	if !req.keepSubscriptions {
 		s.cancelSubscriptions(session)
 	}
-	s.mu.Lock()
-	full := len(s.subs) >= maxSubscriptions
-	s.mu.Unlock()
-	if full {
-		return fail(ctx, ex, StatusResourceExhausted, errors.New("too many subscriptions"))
-	}
 
 	maxInterval := max(req.maxCeiling, req.minFloor, 1)
 	sub := &subscription{
@@ -50,6 +44,21 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 		min: time.Duration(req.minFloor) * time.Second, max: time.Duration(maxInterval) * time.Second,
 		dirty: map[Path]bool{}, wake: make(chan struct{}, 1),
 	}
+	runCtx, cancel := context.WithCancel(ctx)
+	sub.cancel = cancel
+	// Take a slot before answering, so the cap holds and the client never hears of a
+	// subscription the server doesn't have yet.
+	s.mu.Lock()
+	if len(s.subs) >= maxSubscriptions {
+		s.mu.Unlock()
+		cancel()
+		return fail(ctx, ex, StatusResourceExhausted, errors.New("too many subscriptions"))
+	}
+	if s.subs == nil {
+		s.subs = map[uint32]*subscription{}
+	}
+	s.subs[sub.id] = sub
+	s.mu.Unlock()
 	stop := s.Node.listen(sub.changed)
 
 	// The priming report: everything subscribed to, then the Subscribe Response.
@@ -67,17 +76,10 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	}
 	if err != nil {
 		stop()
+		cancel()
+		s.endSubscription(sub)
 		return err
 	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	sub.cancel = cancel
-	s.mu.Lock()
-	if s.subs == nil {
-		s.subs = map[uint32]*subscription{}
-	}
-	s.subs[sub.id] = sub
-	s.mu.Unlock()
 	go func() {
 		defer stop()
 		defer s.endSubscription(sub)
@@ -127,6 +129,8 @@ func (s *Server) runSubscription(ctx context.Context, sub *subscription) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-sub.session.Done():
+			return transport.ErrClosed
 		case <-sub.wake:
 			continue // recompute when to report
 		case <-timer.C:
@@ -140,7 +144,7 @@ func (s *Server) runSubscription(ctx context.Context, sub *subscription) error {
 		s.Node.View(func() {
 			for p := range changed {
 				if s.check(Concrete(p)) == StatusSuccess {
-					reports = append(reports, dataReport(s.Node.Endpoint(p.Endpoint).Cluster(p.Cluster), p))
+					reports = append(reports, dataReports(s.Node.Endpoint(p.Endpoint).Cluster(p.Cluster), p)...)
 				}
 			}
 		})
@@ -169,13 +173,14 @@ func (s *Server) endSubscription(sub *subscription) {
 	}
 }
 
-// cancelSubscriptions ends every subscription on session, for a client that asked for a fresh
-// start.
+// cancelSubscriptions ends the subscriptions of the client on session, for a client that asked
+// for a fresh start: those on the session, and those on its other sessions from the same node.
 func (s *Server) cancelSubscriptions(session *transport.Session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	node := session.PeerNodeID()
 	for id, sub := range s.subs {
-		if sub.session == session {
+		if sub.session == session || (node != 0 && sub.session.PeerNodeID() == node) {
 			sub.cancel()
 			delete(s.subs, id)
 		}

@@ -120,14 +120,7 @@ func (w *Writer) PutRaw(element []byte) {
 	if err != nil {
 		panic(fmt.Sprintf("tlv: PutRaw of a malformed element: %v", err))
 	}
-	if len(w.stack) > 0 {
-		switch parent := w.stack[len(w.stack)-1]; {
-		case parent == Structure && tag.Kind == AnonymousTag:
-			panic("tlv: anonymous element in a structure")
-		case parent == Array && tag.Kind != AnonymousTag:
-			panic(fmt.Sprintf("tlv: tagged element %s in an array", tag))
-		}
-	}
+	w.checkTag(tag)
 	w.buf = append(w.buf, element...)
 }
 
@@ -157,16 +150,22 @@ func (w *Writer) putLength(tag Tag, base byte, n int) {
 	w.buf = appendLE(w.buf, uint64(n), size)
 }
 
+// checkTag panics if tag doesn't suit the open container.
+func (w *Writer) checkTag(tag Tag) {
+	if len(w.stack) == 0 {
+		return
+	}
+	switch parent := w.stack[len(w.stack)-1]; {
+	case parent == Structure && tag.Kind == AnonymousTag:
+		panic("tlv: anonymous element in a structure")
+	case parent == Array && tag.Kind != AnonymousTag:
+		panic(fmt.Sprintf("tlv: tagged element %s in an array", tag))
+	}
+}
+
 // head writes an element's control byte and tag.
 func (w *Writer) head(tag Tag, code byte) {
-	if len(w.stack) > 0 {
-		switch parent := w.stack[len(w.stack)-1]; {
-		case parent == Structure && tag.Kind == AnonymousTag:
-			panic("tlv: anonymous element in a structure")
-		case parent == Array && tag.Kind != AnonymousTag:
-			panic(fmt.Sprintf("tlv: tagged element %s in an array", tag))
-		}
-	}
+	w.checkTag(tag)
 	switch tag.Kind {
 	case AnonymousTag:
 		w.buf = append(w.buf, tagAnonymous|code)

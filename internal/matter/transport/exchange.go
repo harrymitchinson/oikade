@@ -82,6 +82,7 @@ type Session struct {
 	exchanges map[exchangeKey]*Exchange
 	nextEx    uint16
 	closed    bool
+	done      chan struct{} // closed when the session is
 }
 
 type exchangeKey struct {
@@ -95,6 +96,9 @@ func (s *Session) Peer() netip.AddrPort {
 	defer s.t.mu.Unlock()
 	return s.peer
 }
+
+// Done returns a channel that's closed when the session is.
+func (s *Session) Done() <-chan struct{} { return s.done }
 
 // Secure reports whether the session encrypts its messages.
 func (s *Session) Secure() bool { return s.security != nil }
@@ -244,6 +248,7 @@ func (s *Session) closeLocked() {
 		return
 	}
 	s.closed = true
+	close(s.done)
 	for _, ex := range s.exchanges {
 		ex.fail(ErrClosed)
 	}

@@ -58,7 +58,10 @@ func newFixture(t *testing.T) *fixture {
 	})
 	f.onoff = NewOnOff()
 	f.onoff.OnChange = func(bool) { f.changes.Add(1) }
-	f.info = f.bridge.AddDevice(2, DeviceOnOffPlug, "Desk lamp", "lamp-1", f.onoff.Cluster())
+	var err error
+	if f.info, err = f.bridge.AddDevice(2, DeviceOnOffPlug, "Desk lamp", "lamp-1", f.onoff.Cluster()); err != nil {
+		t.Fatal(err)
+	}
 	f.server = &im.Server{Node: f.bridge.Node, Log: testr.New(t)}
 	f.server.Register(f.devTr)
 
@@ -345,5 +348,57 @@ func TestRefusesUnsecuredSession(t *testing.T) {
 	defer cancel()
 	if _, err := c.Read(ctx, wildcard()); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("read over an unsecured session: %v, want no answer", err)
+	}
+}
+
+func TestLocationMustBeTwoLetters(t *testing.T) {
+	f := newFixture(t)
+	loc := im.AttributePath{Endpoint: 0, Cluster: IDBasicInformation, Attribute: 6}
+	for v, want := range map[string]im.Status{"G": im.StatusConstraintError, "": im.StatusConstraintError, "GBR": im.StatusConstraintError, "GB": im.StatusSuccess} {
+		st, err := f.client.Write(timeout(t), loc, func(w *tlv.Writer, tag tlv.Tag) { w.PutUTF8(tag, v) })
+		if err != nil || st != want {
+			t.Errorf("Location %q: %#x, %v; want %#x", v, st, err, want)
+		}
+	}
+}
+
+func TestDuplicateEndpoint(t *testing.T) {
+	b := NewBridge(Info{})
+	if _, err := b.AddDevice(2, DeviceOnOffPlug, "a", "a", NewOnOff().Cluster()); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uint16{0, 1, 2} {
+		if _, err := b.AddDevice(id, DeviceOnOffPlug, "b", "b", NewOnOff().Cluster()); err == nil {
+			t.Errorf("endpoint %d added twice", id)
+		}
+	}
+}
+
+// TestSubscriberSeesNewDevice adds a device at runtime: a wildcard subscriber hears of its
+// attributes and the PartsLists that now include it.
+func TestSubscriberSeesNewDevice(t *testing.T) {
+	f := newFixture(t)
+	_, _, _, reports, err := f.client.Subscribe(timeout(t), 0, 60, wildcard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.bridge.AddDevice(3, DeviceOnOffLight, "Hall light", "hall-1", NewOnOff().Cluster()); err != nil {
+		t.Fatal(err)
+	}
+	var got []im.AttributeReport
+	deadline := time.After(3 * time.Second)
+	for find(got, im.Path{Endpoint: 3, Cluster: IDOnOff, Attribute: 0}) == nil || find(got, im.Path{Endpoint: 1, Cluster: IDDescriptor, Attribute: 3}) == nil {
+		select {
+		case r := <-reports:
+			got = append(got, r...)
+		case <-deadline:
+			t.Fatalf("reports after adding a device: %+v", got)
+		}
+	}
+	if parts := value(t, *find(got, im.Path{Endpoint: 1, Cluster: IDDescriptor, Attribute: 3})).([]any); !slices.Equal(parts, []any{uint64(2), uint64(3)}) {
+		t.Errorf("aggregator PartsList = %v, want [2 3]", parts)
+	}
+	if find(got, im.Path{Endpoint: 0, Cluster: IDDescriptor, Attribute: 3}) == nil {
+		t.Error("the root's PartsList wasn't reported")
 	}
 }

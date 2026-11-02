@@ -48,8 +48,8 @@ func stringAttr(id uint32, v *string) im.Attribute {
 	return readOnly(id, func(w *tlv.Writer, tag tlv.Tag) { w.PutUTF8(tag, *v) })
 }
 
-// writableString is a string attribute a client may set, of at most limit bytes.
-func writableString(c **im.Cluster, id uint32, v *string, limit int) im.Attribute {
+// writableString is a string attribute a client may set, of minLen to limit bytes.
+func writableString(c **im.Cluster, id uint32, v *string, minLen, limit int) im.Attribute {
 	a := stringAttr(id, v)
 	a.Write = func(r *tlv.Reader, op im.WriteOp) im.Status {
 		if op != im.Replace {
@@ -62,7 +62,7 @@ func writableString(c **im.Cluster, id uint32, v *string, limit int) im.Attribut
 			return im.StatusInvalidDataType
 		case err != nil:
 			return im.StatusConstraintError
-		case len(s) > limit:
+		case len(s) < minLen || len(s) > limit:
 			return im.StatusConstraintError
 		}
 		if s != *v {
@@ -138,8 +138,8 @@ func BasicInformation(info Info) *im.Cluster {
 			uintAttr(0x02, uint64(info.VendorID)),
 			stringAttr(0x03, &info.ProductName),
 			uintAttr(0x04, uint64(info.ProductID)),
-			writableString(&c, 0x05, &info.NodeLabel, maxStringLength),
-			writableString(&c, 0x06, &location, 2),
+			writableString(&c, 0x05, &info.NodeLabel, 0, maxStringLength),
+			writableString(&c, 0x06, &location, 2, 2), // an ISO 3166-1 alpha-2 code
 			uintAttr(0x07, uint64(info.HardwareVersion)),
 			stringAttr(0x08, &info.HardwareVersionString),
 			uintAttr(0x09, uint64(info.SoftwareVersion)),
@@ -253,8 +253,6 @@ type Bridge struct {
 	Node       *im.Node
 	Root       *im.Endpoint
 	Aggregator *im.Endpoint
-
-	descriptors []*im.Cluster // of the root and the aggregator, whose PartsList grows
 }
 
 // NewBridge returns a bridge with no devices. rootClusters join Basic Information and the
@@ -262,28 +260,23 @@ type Bridge struct {
 func NewBridge(info Info, rootClusters ...*im.Cluster) *Bridge {
 	b := &Bridge{Node: &im.Node{}}
 	b.Root = &im.Endpoint{ID: 0, DeviceTypes: []im.DeviceType{DeviceRootNode}}
-	rootDesc := Descriptor(b.Node, b.Root)
-	b.Root.Clusters = append([]*im.Cluster{rootDesc, BasicInformation(info)}, rootClusters...)
+	b.Root.Clusters = append([]*im.Cluster{Descriptor(b.Node, b.Root), BasicInformation(info)}, rootClusters...)
 	b.Aggregator = &im.Endpoint{ID: 1, DeviceTypes: []im.DeviceType{DeviceAggregator}}
-	aggDesc := Descriptor(b.Node, b.Aggregator)
-	b.Aggregator.Clusters = []*im.Cluster{aggDesc}
-	b.descriptors = []*im.Cluster{rootDesc, aggDesc}
-	b.Node.AddEndpoint(b.Root)
-	b.Node.AddEndpoint(b.Aggregator)
+	b.Aggregator.Clusters = []*im.Cluster{Descriptor(b.Node, b.Aggregator)}
+	_ = b.Node.AddEndpoint(b.Root) // a new Node: the IDs are free
+	_ = b.Node.AddEndpoint(b.Aggregator)
 	return b
 }
 
 // AddDevice adds a bridged device on endpoint id, with its own clusters after Descriptor and
-// Bridged Device Basic Information, and returns its BridgedInfo.
-func (b *Bridge) AddDevice(id uint16, deviceType im.DeviceType, label, uniqueID string, clusters ...*im.Cluster) *BridgedInfo {
+// Bridged Device Basic Information, and returns its BridgedInfo. It fails if the endpoint is
+// taken.
+func (b *Bridge) AddDevice(id uint16, deviceType im.DeviceType, label, uniqueID string, clusters ...*im.Cluster) (*BridgedInfo, error) {
 	info := NewBridgedInfo(label, uniqueID)
 	e := &im.Endpoint{ID: id, Parent: b.Aggregator, DeviceTypes: []im.DeviceType{deviceType, DeviceBridgedNode}}
 	e.Clusters = append(slices.Clone(clusters), Descriptor(b.Node, e), info.Cluster())
-	b.Node.AddEndpoint(e)
-	b.Node.Update(func() {
-		for _, d := range b.descriptors {
-			d.Changed(3) // PartsList
-		}
-	})
-	return info
+	if err := b.Node.AddEndpoint(e); err != nil {
+		return nil, err
+	}
+	return info, nil
 }

@@ -44,7 +44,7 @@ func (c *Client) Read(ctx context.Context, paths ...AttributePath) ([]AttributeR
 	if err := ex.Send(ctx, imMessage(OpReadRequest, w.Bytes())); err != nil {
 		return nil, err
 	}
-	reports, _, err := receiveReports(ctx, ex)
+	reports, _, err := receiveReports(ctx, ex, nil)
 	return reports, err
 }
 
@@ -211,8 +211,25 @@ func (c *Client) Subscribe(ctx context.Context, minFloor, maxCeiling uint16, pat
 	if err := ex.Send(ctx, imMessage(OpSubscribeRequest, w.Bytes())); err != nil {
 		return nil, 0, 0, nil, err
 	}
-	priming, id, err := receiveReports(ctx, ex)
+	// Register for reports before acknowledging the priming report: the server may report a
+	// change as soon as it has the acknowledgement.
+	ch := make(chan []AttributeReport, 16)
+	priming, id, err := receiveReports(ctx, ex, func(id uint32) bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.subs == nil {
+			c.subs = map[uint32]chan []AttributeReport{}
+		}
+		c.subs[id] = ch
+		return true
+	})
+	forget := func() {
+		c.mu.Lock()
+		delete(c.subs, id)
+		c.mu.Unlock()
+	}
 	if err != nil {
+		forget()
 		return nil, 0, 0, nil, err
 	}
 	m, err := recvIM(ctx, ex)
@@ -220,6 +237,7 @@ func (c *Client) Subscribe(ctx context.Context, minFloor, maxCeiling uint16, pat
 		return nil, 0, 0, nil, err
 	}
 	if m.Opcode != OpSubscribeResponse {
+		forget()
 		return nil, 0, 0, nil, fmt.Errorf("%w: opcode %#x instead of a subscribe response", errInvalid, m.Opcode)
 	}
 	var gotID uint32
@@ -237,19 +255,13 @@ func (c *Client) Subscribe(ctx context.Context, minFloor, maxCeiling uint16, pat
 		}
 		return nil
 	})
+	if err == nil && gotID != id {
+		err = fmt.Errorf("%w: subscribe response for %d, reports for %d", errInvalid, gotID, id)
+	}
 	if err != nil {
+		forget()
 		return nil, 0, 0, nil, err
 	}
-	if gotID != id {
-		return nil, 0, 0, nil, fmt.Errorf("%w: subscribe response for %d, reports for %d", errInvalid, gotID, id)
-	}
-	ch := make(chan []AttributeReport, 16)
-	c.mu.Lock()
-	if c.subs == nil {
-		c.subs = map[uint32]chan []AttributeReport{}
-	}
-	c.subs[id] = ch
-	c.mu.Unlock()
 	return priming, id, maxInterval, ch, nil
 }
 
@@ -257,14 +269,14 @@ func (c *Client) Subscribe(ctx context.Context, minFloor, maxCeiling uint16, pat
 func (c *Client) Register(tr *transport.Transport) {
 	tr.Handle(transport.InteractionModel, []uint8{OpReportData}, func(ctx context.Context, ex *transport.Exchange, first transport.Message) {
 		defer ex.Close()
-		reports, id, err := handleReports(ctx, ex, first)
+		var ch chan []AttributeReport
+		reports, _, err := handleReports(ctx, ex, first, func(id uint32) bool {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			ch = c.subs[id]
+			return ch != nil // an unknown subscription is told so, and the server ends it
+		})
 		if err != nil {
-			return
-		}
-		c.mu.Lock()
-		ch := c.subs[id]
-		c.mu.Unlock()
-		if ch == nil {
 			return
 		}
 		select {
@@ -275,15 +287,17 @@ func (c *Client) Register(tr *transport.Transport) {
 }
 
 // receiveReports reads Report Data messages until the last chunk, answering each as needed.
-func receiveReports(ctx context.Context, ex *transport.Exchange) ([]AttributeReport, uint32, error) {
+// accept, if set, sees the subscription ID before the first answer: false answers
+// INVALID_SUBSCRIPTION and stops.
+func receiveReports(ctx context.Context, ex *transport.Exchange, accept func(id uint32) bool) ([]AttributeReport, uint32, error) {
 	m, err := recvIM(ctx, ex)
 	if err != nil {
 		return nil, 0, err
 	}
-	return handleReports(ctx, ex, m)
+	return handleReports(ctx, ex, m, accept)
 }
 
-func handleReports(ctx context.Context, ex *transport.Exchange, m transport.Message) ([]AttributeReport, uint32, error) {
+func handleReports(ctx context.Context, ex *transport.Exchange, m transport.Message, accept func(id uint32) bool) ([]AttributeReport, uint32, error) {
 	var all []AttributeReport
 	for {
 		if m.Opcode == OpStatusResponse {
@@ -301,18 +315,60 @@ func handleReports(ctx context.Context, ex *transport.Exchange, m transport.Mess
 			return nil, 0, err
 		}
 		all = append(all, reports...)
+		if accept != nil {
+			if !accept(id) {
+				_ = ex.Send(ctx, statusResponse(StatusInvalidSubscription))
+				return nil, 0, StatusInvalidSubscription
+			}
+			accept = nil
+		}
 		if !suppress {
 			if err := ex.Send(ctx, statusResponse(StatusSuccess)); err != nil {
 				return nil, 0, err
 			}
 		}
 		if !more {
-			return all, id, nil
+			return mergeAppends(all), id, nil
 		}
 		if m, err = recvIM(ctx, ex); err != nil {
 			return nil, 0, err
 		}
 	}
+}
+
+// mergeAppends folds list items reported one by one, as a list too large for one report is,
+// into the list reported before them.
+func mergeAppends(in []AttributeReport) []AttributeReport {
+	out := make([]AttributeReport, 0, len(in))
+	last := map[Path]int{}
+	extra := map[int][][]byte{}
+	for _, r := range in {
+		p := Path{r.Path.Endpoint, r.Path.Cluster, r.Path.Attribute}
+		if i, ok := last[p]; ok && r.Path.Append && r.Data != nil {
+			extra[i] = append(extra[i], r.Data)
+			continue
+		}
+		last[p] = len(out)
+		out = append(out, r)
+	}
+	for i, items := range extra {
+		var w tlv.Writer
+		w.StartArray(tlv.Anonymous)
+		r := tlv.NewReader(out[i].Data)
+		if r.Next() == nil && r.Enter() == nil {
+			for r.Next() == nil {
+				if item, err := element(r); err == nil {
+					w.PutRaw(item)
+				}
+			}
+		}
+		for _, item := range items {
+			w.PutRaw(item)
+		}
+		w.End()
+		out[i].Data = w.Bytes()
+	}
+	return out
 }
 
 func decodeReportData(b []byte) (reports []AttributeReport, id uint32, more, suppress bool, err error) {

@@ -57,17 +57,23 @@ func listen(t *testing.T) net.PacketConn {
 
 // pair serves node and returns a client on a plain secure session to it.
 func pair(t *testing.T, node *Node) (*Client, *countingConn) {
+	c, conn, _, _ := pairServer(t, node)
+	return c, conn
+}
+
+func pairServer(t *testing.T, node *Node) (*Client, *countingConn, *Server, *transport.Transport) {
 	t.Helper()
 	conn := &countingConn{PacketConn: listen(t)}
 	dev, cli := serveOn(t, conn), serveOn(t, listen(t))
-	(&Server{Node: node}).Register(dev)
+	srv := &Server{Node: node}
+	srv.Register(dev)
 	did, _ := dev.AllocateSessionID()
 	cid, _ := cli.AllocateSessionID()
 	dev.AddSecureSession(transport.SecureSessionConfig{LocalSessionID: did, PeerSessionID: cid, Peer: cli.Addr().(*net.UDPAddr).AddrPort(), Security: plain{}})
 	s := cli.AddSecureSession(transport.SecureSessionConfig{LocalSessionID: cid, PeerSessionID: did, Peer: dev.Addr().(*net.UDPAddr).AddrPort(), Security: plain{}})
 	c := &Client{Session: s}
 	c.Register(cli)
-	return c, conn
+	return c, conn, srv, dev
 }
 
 func TestReadIsChunked(t *testing.T) {
@@ -80,7 +86,7 @@ func TestReadIsChunked(t *testing.T) {
 		}})
 	}
 	node := &Node{}
-	node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}})
+	_ = node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}})
 	client, conn := pair(t, node)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -104,13 +110,47 @@ func TestReadIsChunked(t *testing.T) {
 	}
 }
 
+// TestLargeListIsSplit reads a list too large for one report: it arrives as an empty list and
+// then one append per item, and the client puts it back together.
+func TestLargeListIsSplit(t *testing.T) {
+	item := strings.Repeat("y", 30)
+	c := &Cluster{ID: 0xFFF1FC00, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(w *tlv.Writer, tag tlv.Tag) error {
+		w.StartArray(tag)
+		for range 100 {
+			w.PutUTF8(tlv.Anonymous, item)
+		}
+		w.End()
+		return nil
+	}}}}
+	node := &Node{}
+	if err := node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}}); err != nil {
+		t.Fatal(err)
+	}
+	client, conn := pair(t, node)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	reports, err := client.Read(ctx, AttributePath{Endpoint: 1, Cluster: c.ID, Attribute: 0})
+	if err != nil || len(reports) != 1 || reports[0].Status != StatusSuccess {
+		t.Fatalf("%+v, %v", reports, err)
+	}
+	v, err := DecodeValue(reports[0].Data)
+	if list, ok := v.([]any); err != nil || !ok || len(list) != 100 || list[99] != item {
+		t.Errorf("list of %d, %v", len(list), err)
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if conn.reports < 3 {
+		t.Errorf("a 3 KB list took %d Report Data messages", conn.reports)
+	}
+}
+
 func TestOversizedAttribute(t *testing.T) {
 	c := &Cluster{ID: 0xFFF1FC00, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(w *tlv.Writer, tag tlv.Tag) error {
 		w.PutBytes(tag, make([]byte, 2000))
 		return nil
 	}}}}
 	node := &Node{}
-	node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}})
+	_ = node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}})
 	client, _ := pair(t, node)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -163,4 +203,66 @@ func FuzzDecoders(f *testing.F) {
 		_, _, _, _, _ = decodeReportData(b)
 		_, _ = DecodeValue(b)
 	})
+}
+
+func onOffNode() (*Node, *Cluster) {
+	on := false
+	c := &Cluster{ID: 6, Revision: 1, Attributes: []Attribute{{ID: 0, Read: func(w *tlv.Writer, tag tlv.Tag) error {
+		w.PutBool(tag, on)
+		return nil
+	}}}}
+	node := &Node{}
+	_ = node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}})
+	return node, c
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if cond() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+// TestUnknownSubscriptionIsEnded: a client that has forgotten a subscription answers its next
+// report with INVALID_SUBSCRIPTION, and the server ends it.
+func TestUnknownSubscriptionIsEnded(t *testing.T) {
+	node, c := onOffNode()
+	client, _, srv, _ := pairServer(t, node)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, id, _, _, err := client.Subscribe(ctx, 0, 60, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	delete(client.subs, id)
+	client.mu.Unlock()
+	node.Update(func() { c.Changed(0) })
+	waitFor(t, "the server to end the subscription", func() bool { return srv.Subscriptions() == 0 })
+}
+
+// TestSubscriptionEndsWithItsSession closes the server's end of the session: its subscriptions
+// end at once, not at the next report.
+func TestSubscriptionEndsWithItsSession(t *testing.T) {
+	node, _ := onOffNode()
+	client, _, srv, dev := pairServer(t, node)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, _, _, err := client.Subscribe(ctx, 0, 3600, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if srv.Subscriptions() != 1 {
+		t.Fatalf("%d subscriptions right after Subscribe returned", srv.Subscriptions())
+	}
+	srv.mu.Lock()
+	var s *transport.Session
+	for _, sub := range srv.subs {
+		s = sub.session
+	}
+	srv.mu.Unlock()
+	dev.RemoveSession(s)
+	waitFor(t, "the subscription to end", func() bool { return srv.Subscriptions() == 0 })
 }

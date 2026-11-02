@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"slices"
 	"sync"
 
@@ -20,6 +21,12 @@ const (
 	AttrAttributeList        uint32 = 0xFFFB
 	AttrFeatureMap           uint32 = 0xFFFC
 	AttrClusterRevision      uint32 = 0xFFFD
+)
+
+// The Descriptor cluster's PartsList, which lists the endpoints under an endpoint.
+const (
+	descriptorCluster uint32 = 0x001D
+	attrPartsList     uint32 = 3
 )
 
 var globalAttributes = []uint32{AttrGeneratedCommandList, AttrAcceptedCommandList, AttrAttributeList, AttrFeatureMap, AttrClusterRevision}
@@ -188,19 +195,46 @@ type Node struct {
 	listenMu  sync.Mutex
 }
 
-// AddEndpoint adds e and its clusters to the Node.
-func (n *Node) AddEndpoint(e *Endpoint) {
+// AddEndpoint adds e and its clusters to the Node. Subscribers hear of every attribute of e, and
+// of the PartsList of the root endpoint and of each of e's ancestors, in one change.
+func (n *Node) AddEndpoint(e *Endpoint) error {
+	var err error
 	n.Update(func() {
+		i, found := slices.BinarySearchFunc(n.endpoints, e.ID, func(x *Endpoint, id uint16) int { return cmp.Compare(x.ID, id) })
+		if found {
+			err = fmt.Errorf("matter: endpoint %d already exists", e.ID)
+			return
+		}
 		e.node = n
 		slices.SortFunc(e.Clusters, func(a, b *Cluster) int { return cmp.Compare(a.ID, b.ID) })
 		for _, c := range e.Clusters {
 			c.endpoint = e
 			slices.SortFunc(c.Attributes, func(a, b Attribute) int { return cmp.Compare(a.ID, b.ID) })
 			c.version = randomVersion()
+			for _, id := range c.attributeIDs() {
+				n.pending = append(n.pending, Path{e.ID, c.ID, id})
+			}
 		}
-		i, _ := slices.BinarySearchFunc(n.endpoints, e.ID, func(x *Endpoint, id uint16) int { return cmp.Compare(x.ID, id) })
 		n.endpoints = slices.Insert(n.endpoints, i, e)
+		for _, x := range n.endpoints {
+			if x == e || (x.ID != 0 && !isAncestor(x, e)) {
+				continue
+			}
+			if d := x.Cluster(descriptorCluster); d != nil {
+				d.Changed(attrPartsList)
+			}
+		}
 	})
+	return err
+}
+
+func isAncestor(a, e *Endpoint) bool {
+	for p := e.Parent; p != nil; p = p.Parent {
+		if p == a {
+			return true
+		}
+	}
+	return false
 }
 
 // Endpoint returns endpoint id, or nil. Call it with the lock held.

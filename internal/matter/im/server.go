@@ -103,7 +103,7 @@ func (s *Server) reports(paths []AttributePath, filters []dataVersionFilter) [][
 				if !p.WildCluster && c.ID != p.Cluster {
 					continue
 				}
-				if p.wild() && filtered(filters, e.ID, c) {
+				if filtered(filters, e.ID, c) {
 					continue
 				}
 				for _, id := range c.attributeIDs() {
@@ -115,7 +115,7 @@ func (s *Server) reports(paths []AttributePath, filters []dataVersionFilter) [][
 						continue
 					}
 					seen[path] = true
-					out = append(out, dataReport(c, path))
+					out = append(out, dataReports(c, path)...)
 				}
 			}
 		}
@@ -153,26 +153,57 @@ func filtered(filters []dataVersionFilter, ep uint16, c *Cluster) bool {
 	return false
 }
 
-// dataReport encodes an AttributeReportIB with the attribute's value, or a failure status if it
-// can't be read or is too large for a report.
-func dataReport(c *Cluster, p Path) []byte {
+// dataReports encodes the AttributeReportIBs for an attribute's value. A list too large for one
+// report becomes an empty list and then one report per item, each appending it (Core spec,
+// 8.4.3.2). An attribute that can't be read, or with an item too large for a report, gets a
+// failure status.
+func dataReports(c *Cluster, p Path) [][]byte {
+	var v tlv.Writer
+	if !c.readGlobal(p.Attribute, &v, tlv.Anonymous) {
+		a := c.attribute(p.Attribute)
+		if a == nil || a.Read == nil || a.Read(&v, tlv.Anonymous) != nil {
+			return [][]byte{statusReport(Concrete(p), StatusFailure)}
+		}
+	}
+	value := v.Bytes()
+	if ib := encodeData(c.version, Concrete(p), value); len(ib) <= reportBudget {
+		return [][]byte{ib}
+	}
+	r := tlv.NewReader(value)
+	if r.Next() != nil || (r.Type() != tlv.Array && r.Type() != tlv.List) || r.Enter() != nil {
+		return [][]byte{statusReport(Concrete(p), StatusResourceExhausted)}
+	}
+	out := [][]byte{encodeData(c.version, Concrete(p), []byte{0x16, 0x18})} // an empty array
+	appendPath := Concrete(p)
+	appendPath.Append = true
+	for r.Next() == nil {
+		item, err := element(r)
+		if err != nil {
+			return [][]byte{statusReport(Concrete(p), StatusFailure)}
+		}
+		ib := encodeData(c.version, appendPath, item)
+		if len(ib) > reportBudget {
+			return [][]byte{statusReport(Concrete(p), StatusResourceExhausted)}
+		}
+		out = append(out, ib)
+	}
+	return out
+}
+
+// encodeData encodes an AttributeReportIB holding an AttributeDataIB with value, which is one
+// element with an anonymous tag.
+func encodeData(version uint32, p AttributePath, value []byte) []byte {
 	var w tlv.Writer
 	w.StartStructure(tlv.Anonymous)
 	w.StartStructure(tlv.Context(1)) // AttributeDataIB
-	w.PutUint(tlv.Context(0), uint64(c.version))
-	Concrete(p).put(&w, tlv.Context(1))
-	ok := c.readGlobal(p.Attribute, &w, tlv.Context(2))
-	if !ok {
-		a := c.attribute(p.Attribute)
-		if a == nil || a.Read == nil || a.Read(&w, tlv.Context(2)) != nil {
-			return statusReport(Concrete(p), StatusFailure)
-		}
+	w.PutUint(tlv.Context(0), uint64(version))
+	p.put(&w, tlv.Context(1))
+	r := tlv.NewReader(value)
+	if r.Next() != nil || copyElement(r, &w, tlv.Context(2)) != nil {
+		panic("matter: an attribute's own encoding didn't read back") // value came from a Writer
 	}
 	w.End()
 	w.End()
-	if w.Len() > reportBudget {
-		return statusReport(Concrete(p), StatusResourceExhausted)
-	}
 	return w.Bytes()
 }
 
