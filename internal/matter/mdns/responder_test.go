@@ -141,12 +141,18 @@ func TestAddConflict(t *testing.T) {
 	go func() { errc <- r.Add(context.Background(), testService()) }()
 	c.next() // the first probe
 
-	// Our own records, and anything from our own address, aren't conflicts.
+	// Our own records, as multicast loopback brings them back, aren't conflicts.
 	ours := mustRecords(t, r.host, testService())
-	r.handle(c, testIf, peer, pack(t, dnsmessage.Message{
+	self := &net.UDPAddr{IP: testAddr4.AsSlice(), Port: Port}
+	r.handle(c, testIf, self, pack(t, dnsmessage.Message{
 		Header:  dnsmessage.Header{Response: true},
 		Answers: []dnsmessage.Resource{ours[len(ours)-1].resource(otherTTL, true)},
 	}))
+	select {
+	case err := <-errc:
+		t.Fatalf("Add returned %v before a conflict", err)
+	case <-time.After(5 * time.Millisecond):
+	}
 	other := dnsmessage.Message{
 		Header: dnsmessage.Header{Response: true},
 		Answers: []dnsmessage.Resource{{
@@ -154,15 +160,8 @@ func TestAddConflict(t *testing.T) {
 			Body:   &dnsmessage.SRVResource{Port: 1234, Target: mustName("other.local.")},
 		}},
 	}
-	self := &net.UDPAddr{IP: testAddr4.AsSlice(), Port: Port}
+	// Another responder, even one on this host, that holds other data for the name is.
 	r.handle(c, testIf, self, pack(t, other))
-	select {
-	case err := <-errc:
-		t.Fatalf("Add returned %v before a conflict", err)
-	case <-time.After(5 * time.Millisecond):
-	}
-
-	r.handle(c, testIf, peer, pack(t, other))
 	if err := <-errc; !errors.Is(err, ErrConflict) {
 		t.Fatalf("Add returned %v, want ErrConflict", err)
 	}
@@ -416,4 +415,40 @@ func TestLateAnnouncement(t *testing.T) {
 	}
 	c.next() // the goodbye
 	c.none()
+}
+
+// TestNothingAfterClose checks that a multicast answer waiting out its delay isn't sent once Close
+// has said goodbye.
+func TestNothingAfterClose(t *testing.T) {
+	r, c := newTestResponder(t)
+	r.timing.minDelay, r.timing.maxDelay = 50*time.Millisecond, 50*time.Millisecond
+	addReady(t, r, testService())
+	r.handle(c, testIf, peer, query(t, "_matterc._udp.local.", dnsmessage.TypePTR, false))
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c.next() // the services' goodbye
+	c.next() // the host's
+	c.none()
+}
+
+// TestRemoveWhileAnotherProbes checks that the services listing gets its goodbye when the only
+// other service of the type hasn't been announced yet.
+func TestRemoveWhileAnotherProbes(t *testing.T) {
+	r, c := newTestResponder(t)
+	defer func() { _ = r.Close() }()
+	addReady(t, r, testService())
+	probing := testService()
+	probing.Instance = "0123456789ABCDEF"
+	recs := mustRecords(t, r.host, probing)
+	name, _ := probing.instanceName()
+	r.mu.Lock()
+	r.services[strings.ToLower(name.String())] = &entry{svc: probing, name: name, records: recs}
+	r.mu.Unlock()
+	if err := r.Remove(testService()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(c.next().msg.Answers, func(a dnsmessage.Resource) bool { return a.Header.Name.String() == servicesName }) {
+		t.Error("no goodbye to the services listing")
+	}
 }

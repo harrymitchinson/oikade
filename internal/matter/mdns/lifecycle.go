@@ -64,10 +64,12 @@ func (r *Responder) Remove(svc Service) error {
 		return err
 	}
 	delete(r.services, strings.ToLower(name.String()))
-	// Keep the services listing's record while another service of the type is left.
+	// Keep the services listing's record while another announced service of the type is left.
 	var keep []record
 	for _, o := range r.services {
-		keep = append(keep, o.records...)
+		if o.ready {
+			keep = append(keep, o.records...)
+		}
 	}
 	r.mu.Unlock()
 
@@ -159,6 +161,13 @@ func (r *Responder) goodbye(recs []record) {
 
 // after runs f after d, unless the Responder closes first.
 func (r *Responder) after(d time.Duration, f func()) {
+	// Close sets closed before it waits for wg, so checking it under mu keeps wg.Go from racing
+	// that Wait.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
 	r.wg.Go(func() {
 		t := time.NewTimer(d)
 		defer t.Stop()

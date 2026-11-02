@@ -4,7 +4,6 @@ import (
 	"errors"
 	mrand "math/rand/v2"
 	"net"
-	"net/netip"
 	"slices"
 	"time"
 
@@ -21,6 +20,11 @@ func (r *Responder) serve(c packetConn) {
 				return
 			}
 			r.log.V(1).Info("Could not read mDNS packet", "error", err.Error())
+			select { // don't spin on an error that persists
+			case <-r.done:
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
 			continue
 		}
 		if !slices.Contains(r.ifaces, ifIndex) {
@@ -45,7 +49,7 @@ func (r *Responder) handle(c packetConn, ifIndex int, src *net.UDPAddr, b []byte
 	if m.Response {
 		// Responses from a port other than 5353 aren't mDNS (6).
 		if src.Port == Port {
-			r.checkConflicts(src, &m)
+			r.checkConflicts(&m)
 		}
 		return
 	}
@@ -54,6 +58,13 @@ func (r *Responder) handle(c packetConn, ifIndex int, src *net.UDPAddr, b []byte
 
 // answer replies to the query m, if we hold any of the records it asks for.
 func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsmessage.Message) {
+	if !r.asksForUs(m.Questions) {
+		return // most queries on a link are for other hosts: don't look up our addresses for them
+	}
+	// Hold sendMu from reading the records to sending them, so that the reply can't follow
+	// a goodbye to one of them.
+	r.sendMu.Lock()
+	defer r.sendMu.Unlock()
 	recs := r.answerable(ifIndex)
 	if len(recs) == 0 {
 		return
@@ -139,10 +150,33 @@ func (r *Responder) write(err error, to *net.UDPAddr) {
 	}
 }
 
+// asksForUs reports whether a question names one of our records or the host, so that answering it
+// is worth looking up the host's addresses.
+func (r *Responder) asksForUs(qs []dnsmessage.Question) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, q := range qs {
+		if r.hostReady && nameEqual(q.Name, r.host) {
+			return true
+		}
+		for _, e := range r.services {
+			if e.ready && slices.ContainsFunc(e.records, func(rec record) bool { return nameEqual(q.Name, rec.name) }) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // answerable returns the records the Responder answers with on an interface: those of its
-// announced services, and the host's addresses there once the host name has been probed.
+// announced services, and the host's addresses there once the host name has been probed. It
+// returns none once the Responder is closing.
 func (r *Responder) answerable(ifIndex int) []record {
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return nil
+	}
 	var recs []record
 	for _, e := range r.services {
 		if e.ready {
@@ -226,9 +260,14 @@ func legacyReply(q *dnsmessage.Message, answers, additionals []record) ([]byte, 
 
 // checkConflicts reports to each probe a record in the response m that has a name it's probing
 // but isn't one of ours (RFC 6762, 9). Our own packets, which multicast loopback and other
-// interfaces on the same link bring back, aren't conflicts.
-func (r *Responder) checkConflicts(src *net.UDPAddr, m *dnsmessage.Message) {
+// interfaces on the same link bring back, hold only records identical to ours, so they aren't
+// conflicts; another responder on this host that claims one of our names with other data is.
+func (r *Responder) checkConflicts(m *dnsmessage.Message) {
 	r.mu.Lock()
+	if len(r.probes) == 0 {
+		r.mu.Unlock()
+		return
+	}
 	probes := make([]*probe, 0, len(r.probes))
 	for p := range r.probes {
 		probes = append(probes, p)
@@ -238,9 +277,6 @@ func (r *Responder) checkConflicts(src *net.UDPAddr, m *dnsmessage.Message) {
 		ours = append(ours, e.records...)
 	}
 	r.mu.Unlock()
-	if len(probes) == 0 || r.isOwn(src) {
-		return
-	}
 	for _, ifIndex := range r.ifaces {
 		ours = append(ours, addressRecords(r.host, r.addrs(ifIndex))...)
 	}
@@ -259,19 +295,4 @@ func (r *Responder) checkConflicts(src *net.UDPAddr, m *dnsmessage.Message) {
 			}
 		}
 	}
-}
-
-// isOwn reports whether src is one of the host's addresses.
-func (r *Responder) isOwn(src *net.UDPAddr) bool {
-	ip, ok := netip.AddrFromSlice(src.IP)
-	if !ok {
-		return false
-	}
-	ip = ip.Unmap()
-	for _, ifIndex := range r.ifaces {
-		if slices.Contains(r.addrs(ifIndex), ip) {
-			return true
-		}
-	}
-	return false
 }
