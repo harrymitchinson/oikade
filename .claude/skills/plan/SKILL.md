@@ -83,7 +83,7 @@ Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and t
   hack/plan project new "<version>" <description file>
   ```
 
-  Change its description with `hack/plan project edit "<version>" <file>`. Put a feature in one with `hack/plan project set OIK-N "<version>"`. Assign releases only when the user asks, or after agreeing an order with them.
+  Change its description with `hack/plan project edit "<version>" <file>`, and its name with `hack/plan project rename "<version>" "<new>"`. Put a feature in one with `hack/plan project set OIK-N "<version>"`. Assign releases only when the user asks, or after agreeing an order with them.
 - **Order of releases:** the version numbers give it, and each project's description ends with a "Why here" line. Changes come from the user. Propose one; don't just make it.
 - **Shipped:** check the release's exit criteria against what's actually observable, and close it with `hack/plan project close "<version>"`.
 - **"Not doing":** add an entry only when the user rules something out, and say who ruled it out and why.

@@ -252,6 +252,7 @@ Issues (agents use these, never raw writes)
                         Create an issue (default state Backlog) and print its ID. A step is an
                         issue with --parent, and gets its feature's project
   edit ID BODY_FILE     Replace an issue's description. An approved design can't change above ## Steps
+  title ID TITLE        Replace an issue's title
   state ID STATE        Move an issue. Never out of Design Review, and never into Todo once it has
                         been in Design Review: those are the user's decision
   label ID|PR +L|-L...  Add (+) or remove (-) labels. Never removes needs-review or agent-merged
@@ -263,6 +264,7 @@ Releases (Linear projects)
   project edit NAME FILE        Replace a project's description
   project set ID NAME           Put an issue in a project
   project close NAME            Mark a project completed
+  project rename NAME NEW       Rename a project
 
 Ideas (issues in Triage)
   ideas                 List the ideas
@@ -927,6 +929,13 @@ cmd_state() {
 	echo "$n: $st"
 }
 
+cmd_title() {
+	local n t="${2:?usage: plan title ID TITLE}"
+	n=$(id "${1:?usage: plan title ID TITLE}")
+	update_issue "$n" "$(jq -cn --arg t "$t" '{title: $t}')"
+	echo "$n: $t"
+}
+
 cmd_label() {
 	local t="${1:?usage: plan label ID|PR +LABEL|-LABEL...}" l why add=() remove=() i
 	shift
@@ -1002,7 +1011,13 @@ cmd_project() {
 			"$(jq -cn --arg i "$(project_id "$name")" --arg s "$s" '{i: $i, in: {statusId: $s}}')" >/dev/null
 		echo "Closed $name"
 		;;
-	*) die "usage: plan project new NAME FILE | edit NAME FILE | set ID NAME | close NAME" ;;
+	rename)
+		name="${2:?usage: plan project rename NAME NEW}" n="${3:?usage: plan project rename NAME NEW}"
+		lin 'mutation($i: String!, $in: ProjectUpdateInput!) { projectUpdate(id: $i, input: $in) { success } }' \
+			"$(jq -cn --arg i "$(project_id "$name")" --arg n "$n" '{i: $i, in: {name: $n}}')" >/dev/null
+		echo "Renamed $name to $n"
+		;;
+	*) die "usage: plan project new NAME FILE | edit NAME FILE | set ID NAME | close NAME | rename NAME NEW" ;;
 	esac
 }
 
@@ -1050,7 +1065,7 @@ case "$cmd" in
 		"cmd_$cmd" "$@"
 		;;
 	digest) "cmd_$cmd" "$@" ;;
-	ready | show | claims | issue | edit | state | block | projects | project | ideas | idea | promote)
+	ready | show | claims | issue | edit | title | state | block | projects | project | ideas | idea | promote)
 		prime
 		REPO=$(repo)
 		"cmd_$cmd" "$@"
