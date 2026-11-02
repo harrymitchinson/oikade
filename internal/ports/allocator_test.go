@@ -3,12 +3,9 @@ package ports
 import (
 	"errors"
 	"testing"
-
-	homekitv1alpha1 "github.com/harrymitchinson/oikade/api/homekit/v1alpha1"
 )
 
 func TestAllocate(t *testing.T) {
-	r := homekitv1alpha1.PortRange{Start: 100, End: 102}
 	tests := []struct {
 		name string
 		used map[int32]bool
@@ -22,7 +19,7 @@ func TestAllocate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Allocate(r, tt.used)
+			got, err := Allocate(100, 102, tt.used)
 			if got != tt.want || !errors.Is(err, tt.err) {
 				t.Fatalf("Allocate() = %d, %v; want %d, %v", got, err, tt.want, tt.err)
 			}

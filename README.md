@@ -33,7 +33,7 @@ Toggling a light from your phone is state, so it goes over the bus and Git doesn
 | `Zigbee2MQTT` | `zigbee.oikade.dev` | A Zigbee2MQTT instance the operator configures and runs. |
 | `Plugin` | `plugins.oikade.dev` | A plugin process the operator runs for a device platform Oikade doesn't speak natively. See [Plugins](#plugins). |
 | `Bridge` | `homekit.oikade.dev` | A HomeKit bridge that exposes a set of Devices. |
-| `Bridge` | `matter.oikade.dev` | A Matter bridge that will expose a set of Devices, one bridged endpoint each, replacing the HomeKit bridge ([OIK-76](https://linear.app/oikade/issue/OIK-76)). Only the API exists so far: nothing serves it yet. See [Matter bridge](#matter-bridge). |
+| `Bridge` | `matter.oikade.dev` | A Matter bridge that will expose a set of Devices, one bridged endpoint each, replacing the HomeKit bridge ([OIK-76](https://linear.app/oikade/issue/OIK-76)). It can be commissioned, but has no devices on it yet. See [Matter bridge](#matter-bridge). |
 
 Illustrative output:
 
@@ -44,11 +44,12 @@ hallway-light    Hallway Light    hallway   ["light.on","light.level","link.qual
 hallway-motion   Hallway Motion   hallway   ["sensor.occupancy-detected",...]             True        1m
 ```
 
-There is one binary with three subcommands:
+There is one binary with four subcommands:
 
 - **`manager`** is the operator. It only talks to Kubernetes.
 - **`manager runtime`** is the data plane. It follows every driver on the bus, writes coarse Device status (capabilities, availability, and `lastSeen` at most every 5 minutes), serves Prometheus metrics on `:8080` and runs rules. It runs as one replica, because two would run every rule twice.
 - **`manager hap --bridge <name>`** is a HomeKit accessory server, started by the operator for each `Bridge`. It follows the bus itself, so HomeKit keeps working if the runtime is down. It never writes to the API.
+- **`manager matter`** is a Matter bridge, started by the operator for each `matter.oikade.dev` `Bridge`. See [Matter bridge](#matter-bridge).
 
 ## Requirements
 
@@ -501,9 +502,19 @@ Every capability change is also logged as `"Changed capability"` with structured
 
 ## Matter bridge
 
-Oikade is moving from HomeKit to Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The `matter.oikade.dev` `Bridge` and `Device.spec.matter` are in the API, but no controller acts on them yet, so applying them has no effect.
+Oikade is moving from HomeKit to Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The operator runs **`manager matter`** for each `matter.oikade.dev` `Bridge`: one pod with `hostNetwork`, which controllers find over mDNS and reach over IPv6 on a UDP port allocated from `spec.portRange` (5540 to 5640 by default). It doesn't use the Kubernetes API. A controller can commission it today, but its Devices aren't on it yet: they come with [OIK-84](https://linear.app/oikade/issue/OIK-84).
 
-A `Bridge` picks Devices with `deviceSelector`, like the HomeKit one. `kubectl get matterbridges` lists them, since plain `bridges` is ambiguous while the HomeKit kind exists. Its status will carry the 11-digit `manualPairingCode` and the `qrCode` payload to commission it with, the `fabrics` it has been commissioned into (one per ecosystem, such as Apple Home), and `endpoints`, the endpoint ID each Device was given. Endpoint IDs start at 2, are handed out in order and are never reused or given to another Device, and the API rejects a status that breaks that.
+```console
+$ kubectl get matterbridges
+NAME   PORT   DEVICES   PAIRING CODE   READY   AGE
+main   5540   4         34970112332    True    2m
+```
+
+`kubectl get matterbridges` lists them, since plain `bridges` is ambiguous while the HomeKit kind exists. Add the bridge to a controller, such as the Home app, with the 11-digit `manualPairingCode`, or a QR code of the `qrCode` payload. Apple Home warns that it's an uncertified accessory: choose Add Anyway. It needs a home hub.
+
+- **The pairing window** is open for 15 minutes after the bridge starts on no fabric. If it closes first, restart the pod: `kubectl rollout restart deploy/<bridge>-matter`. To add the bridge to a second controller, open a window from the first one (in the Home app: the bridge's settings, Turn On Pairing Mode).
+- **Endpoints:** `status.endpoints` records the endpoint ID each Device was given. IDs start at 2, are handed out in name order and are never reused or given to another Device, and the API rejects a status that breaks that.
+- `status.fabrics` is in the API but isn't filled in yet.
 
 `spec.matter.deviceType` says what a `switch.on` Device is shown as: `Light`, `PlugInUnit` (an outlet) or `MountedControl` (a wall switch). Whether it's the on/off or dimmable member of that family follows from the Device's capabilities.
 
@@ -518,6 +529,8 @@ spec:
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
 - **The HomeKit identity** (`<bridge>-identity` Secret) and **pairings** (`<bridge>-hap` PVC) have no owner reference. Deleting a Bridge keeps them. If the Secret is deleted, it is restored from `Bridge.status.username`.
+- **The Matter bridge's Secret** (`<bridge>-matter`: the setup code, unique ID and attestation key, and a copy of the endpoint IDs) and **fabrics** (`<bridge>-matter` PVC: operational keys and certificates, and access control) have no owner reference. Deleting a Bridge keeps them, and a Bridge applied again gets its old pairing code and endpoint IDs back. If the PVC is lost, commission the bridge again.
+- **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. Like accessory IDs, they're only ever appended.
 - **Accessory IDs** live in `Bridge.status.accessories`. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
 - **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git. Changes made in its frontend don't survive a restart.
@@ -528,6 +541,7 @@ To really forget a Bridge or Zigbee2MQTT instance, delete those objects yourself
 
 ```sh
 kubectl delete secret,pvc -l homekit.oikade.dev/bridge=<name>
+kubectl delete secret,pvc -l matter.oikade.dev/bridge=<name>
 kubectl delete secret,pvc -l zigbee.oikade.dev/instance=<name>
 ```
 

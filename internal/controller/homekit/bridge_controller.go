@@ -270,7 +270,7 @@ func (r *BridgeReconciler) allocatePort(ctx context.Context, b *homekitv1alpha1.
 		}
 	}
 
-	port, err := ports.Allocate(b.Spec.PortRange, used)
+	port, err := ports.Allocate(b.Spec.PortRange.Start, b.Spec.PortRange.End, used)
 	if err != nil {
 		return 0, err
 	}

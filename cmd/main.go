@@ -32,6 +32,7 @@ import (
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 	homecontroller "github.com/harrymitchinson/oikade/internal/controller/home"
 	homekitcontroller "github.com/harrymitchinson/oikade/internal/controller/homekit"
+	mattercontroller "github.com/harrymitchinson/oikade/internal/controller/matter"
 	pluginscontroller "github.com/harrymitchinson/oikade/internal/controller/plugins"
 	zigbeecontroller "github.com/harrymitchinson/oikade/internal/controller/zigbee"
 	// +kubebuilder:scaffold:imports
@@ -61,8 +62,8 @@ func main() {
 			os.Exit(runRuntime(os.Args[2:]))
 		case "hap":
 			os.Exit(runHAP(os.Args[2:]))
-		case "matter-spike":
-			os.Exit(runMatterSpike(os.Args[2:]))
+		case "matter":
+			os.Exit(runMatter(os.Args[2:]))
 		}
 	}
 
@@ -100,7 +101,7 @@ func main() {
 	flag.StringVar(&zigbeeImage, "zigbee2mqtt-image", "koenkk/zigbee2mqtt:2.14.2",
 		"Default Zigbee2MQTT image, overridable per instance.")
 	flag.StringVar(&hapImage, "hap-image", "",
-		"Image for HomeKit bridge pods. Defaults to the operator's own image (via $POD_NAME/$POD_NAMESPACE).")
+		"Image for HomeKit and Matter bridge pods. Defaults to the operator's own image (via $POD_NAME/$POD_NAMESPACE).")
 	var logLevel slog.Level
 	flag.TextVar(&logLevel, "log-level", slog.LevelInfo, "Minimum log level: debug, info, warn, or error.")
 	showVersion := versionFlag(flag.CommandLine)
@@ -248,6 +249,14 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "home-device")
+		os.Exit(1)
+	}
+	if err := (&mattercontroller.BridgeReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Image:  hapImage,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "matter-bridge")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
