@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -96,7 +97,7 @@ var _ = Describe("Bridge Controller", func() {
 	var r *BridgeReconciler
 
 	BeforeEach(func() {
-		r = &BridgeReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Image: "oikade:test"}
+		r = &BridgeReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Image: "oikade:test", MQTTURL: "mqtt://broker:1883"}
 	})
 
 	It("provisions the Secret, port, PVC and Deployment, and shows the pairing code", func() {
@@ -130,11 +131,16 @@ var _ = Describe("Bridge Controller", func() {
 		Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
 		pod := dep.Spec.Template.Spec
 		Expect(pod.HostNetwork).To(BeTrue())
-		Expect(*pod.AutomountServiceAccountToken).To(BeFalse())
+		Expect(pod.ServiceAccountName).To(Equal("main-matter"))
+		role := get(t.key("main-matter"), &rbacv1.Role{})
+		for _, rule := range role.Rules {
+			Expect(rule.Verbs).To(ConsistOf("get", "list", "watch"))
+			Expect(rule.Resources).NotTo(ContainElement("secrets"))
+		}
 		c := pod.Containers[0]
 		Expect(c.Image).To(Equal("oikade:test"))
 		Expect(c.Command).To(Equal([]string{"/manager", "matter"}))
-		Expect(c.Args).To(ContainElements("--name=Upstairs", fmt.Sprintf("--port=%d", t.start)))
+		Expect(c.Args).To(ContainElements("--bridge=main", "--mqtt-url=mqtt://broker:1883", "--name=Upstairs", fmt.Sprintf("--port=%d", t.start)))
 		Expect(c.Ports[0].Protocol).To(Equal(corev1.ProtocolUDP))
 		Expect(c.Ports[0].HostPort).To(Equal(t.start))
 		Expect(pod.Volumes).To(ContainElement(HaveField("Secret.SecretName", "main-matter")))
@@ -172,6 +178,26 @@ var _ = Describe("Bridge Controller", func() {
 		var backup []matterv1alpha1.Endpoint
 		Expect(json.Unmarshal(get(t.key("main-matter"), &corev1.Secret{}).Data[render.MatterEndpointsKey], &backup)).To(Succeed())
 		Expect(backup).To(Equal(b.Status.Endpoints))
+	})
+
+	It("reports Devices with nothing Matter can show", func() {
+		t := newTestNS()
+		t.createDevice("router", nil)
+		t.createDevice("lamp", nil)
+		t.createDevice("new", nil)
+		for name, caps := range map[string][]string{"router": {"link.quality"}, "lamp": {"light.on"}} {
+			d := get(t.key(name), &homev1alpha1.Device{})
+			for _, c := range caps {
+				d.Status.Capabilities = append(d.Status.Capabilities, homev1alpha1.DeviceCapability{Name: c, Kind: homev1alpha1.CapabilityKindBool})
+			}
+			Expect(k8sClient.Status().Update(ctx, d)).To(Succeed())
+		}
+		t.createBridge("main", 10)
+		b := reconcileBridge(r, t.key("main"))
+		c := meta.FindStatusCondition(b.Status.Conditions, ConditionDevicesSupported)
+		Expect(c.Status).To(Equal(metav1.ConditionFalse))
+		Expect(c.Message).To(HaveSuffix(": router"))
+		Expect(endpoints(b)).To(HaveKey("router")) // it keeps an ID for when it's supported
 	})
 
 	It("only exposes Devices matching the selector", func() {

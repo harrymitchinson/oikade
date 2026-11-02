@@ -433,6 +433,17 @@ func TestAHomeKitWriteIsAnOverrideFromHomeKit(t *testing.T) {
 	}
 }
 
+func TestAMatterWriteIsAnOverrideFromMatter(t *testing.T) {
+	r := railRig(t)
+	r.e.MatterWrote(types.NamespacedName{Namespace: ns, Name: "towel-rail"}, capability.SwitchOn, true)
+	r.clock.Step(time.Second)
+	r.change("towel-rail", capability.SwitchOn, true)
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Matter Override" {
+		t.Errorf("winner %q, want a Matter override", w)
+	}
+	r.expect()
+}
+
 func TestAHomeKitWriteDuringARuntimeWriteIsFromHomeKit(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.SwitchOn, true})

@@ -243,6 +243,29 @@ func (n *Node) AddEndpoint(e *Endpoint) error {
 	return err
 }
 
+// RemoveEndpoint removes endpoint id and the endpoints under it. Subscribers hear of the PartsList
+// of the root endpoint and of each of its ancestors. It reports whether the endpoint was there.
+func (n *Node) RemoveEndpoint(id uint16) bool {
+	found := false
+	n.Update(func() {
+		e := n.Endpoint(id)
+		if e == nil || id == 0 {
+			return
+		}
+		found = true
+		for _, x := range n.endpoints {
+			if x != e && !isAncestor(e, x) && (x.ID == 0 || isAncestor(x, e)) {
+				if d := x.Cluster(descriptorCluster); d != nil {
+					d.Changed(attrPartsList)
+				}
+			}
+		}
+		n.endpoints = slices.DeleteFunc(n.endpoints, func(x *Endpoint) bool { return x == e || isAncestor(e, x) })
+		n.pending = slices.DeleteFunc(n.pending, func(p Path) bool { return n.Endpoint(p.Endpoint) == nil })
+	})
+	return found
+}
+
 func isAncestor(a, e *Endpoint) bool {
 	for p := e.Parent; p != nil; p = p.Parent {
 		if p == a {

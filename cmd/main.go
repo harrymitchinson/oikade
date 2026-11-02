@@ -252,9 +252,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&mattercontroller.BridgeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Image:  hapImage,
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Image:   hapImage,
+		MQTTURL: mqttURL,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "matter-bridge")
 		os.Exit(1)

@@ -1,12 +1,24 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"time"
+
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
 	"flag"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/matterbridge"
+	"github.com/harrymitchinson/oikade/internal/mqtt"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -17,10 +29,12 @@ import (
 
 // runMatter is the `manager matter` subcommand: the Matter bridge for one Bridge object. It reads
 // its setup code and attestation from files the operator mounts from the Bridge's Secret, keeps
-// its fabric table in --data-dir, and doesn't use the Kubernetes API.
+// its fabric table in --data-dir, reads its Bridge and Devices from the API, and follows the bus
+// itself, so controllers keep working while the runtime is down. It never writes to the API.
 func runMatter(args []string) int {
 	fs := flag.NewFlagSet("matter", flag.ExitOnError)
-	bridge := fs.String("bridge", "", "The Bridge served, as namespace/name, for logs.")
+	bridge := fs.String("bridge", "", "Name of the Bridge to serve, in $POD_NAMESPACE.")
+	mqttURL := fs.String("mqtt-url", "mqtt://oikade-mosquitto.oikade-system.svc:1883", "MQTT broker.")
 	name := fs.String("name", "Oikade", "The bridge's name (NodeLabel), at most 32 bytes.")
 	port := fs.Uint("port", 5540, "Matter UDP port.")
 	dataDir := fs.String("data-dir", "/data", "Directory for the fabric table. Losing it means commissioning again.")
@@ -46,6 +60,12 @@ func runMatter(args []string) int {
 			"--port must be a UDP port, --name at most 32 bytes, and --window-timeout from 3m to 15m")
 		return 2
 	}
+	ns := os.Getenv("POD_NAMESPACE")
+	if *bridge == "" || ns == "" {
+		log.Error(errors.New("missing configuration"), "--bridge and $POD_NAMESPACE are required")
+		return 2
+	}
+	key := types.NamespacedName{Namespace: ns, Name: *bridge}
 	cfg, err := readMatterSetup(*setupDir)
 	if err != nil {
 		log.Error(err, "Failed to read setup", "dir", *setupDir)
@@ -63,18 +83,79 @@ func runMatter(args []string) int {
 	cfg.DataDir, cfg.Port, cfg.WindowTimeout, cfg.DeviceName, cfg.Log = *dataDir, uint16(*port), *window, *name, log
 	cfg.Info.VendorName, cfg.Info.ProductName, cfg.Info.NodeLabel = "Oikade", "Oikade bridge", *name
 	cfg.Info.SoftwareVersion, cfg.Info.SoftwareVersionString = 1, version
+	ctx, cancel := context.WithCancel(logr.NewContext(ctrl.SetupSignalHandler(), log))
+	defer cancel()
+	fabrics := &matterbridge.FabricsPublisher{Bridge: key}
+	cfg.FabricsChanged = fabrics.Changed
 	n, err := node.New(cfg)
 	if err != nil {
 		log.Error(err, "Failed to create Matter node")
 		return 1
 	}
+	fabrics.Table = n.Fabrics()
+	served := make(chan error, 1)
+	go func() {
+		// The node serves its fabrics while the broker is down. It stopping, say because its port
+		// is taken, stops the role.
+		served <- n.Run(ctx)
+		cancel()
+	}()
+	// The bridge's namespace and name keep the ID unique among bridges sharing a node's hostname.
+	bus, err := mqtt.Connect(ctx, *mqttURL, clientID("oikade-matter-"+ns+"-"+*bridge))
+	if err != nil {
+		log.Error(err, "Failed to connect to MQTT broker")
+		return 1
+	}
+	fabrics.Bus = bus
 
-	log.Info("Starting Matter bridge", "version", version, "bridge", *bridge, "port", *port,
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:                 scheme,
+		Cache:                  cache.Options{DefaultNamespaces: map[string]cache.Config{ns: {}}},
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+	})
+	if err != nil {
+		log.Error(err, "Failed to create manager")
+		return 1
+	}
+	b := &matterbridge.Bridge{Client: mgr.GetClient(), Key: key, Matter: n.Bridge()}
+	store := hub.NewStore(log.WithName("store"), b)
+	h := &hub.Hub{Client: mgr.GetClient(), Bus: bus, Store: store}
+	b.Store = store
+	b.Writes = &matterbridge.Coalescer{
+		Setter: &matterbridge.Announcer{Setter: h, Bus: bus, Store: store, Bridge: key},
+		Current: func(dev types.NamespacedName, name string) (any, bool) {
+			snap, ok := store.Get(dev)
+			if !ok {
+				return nil, false
+			}
+			v, ok := snap.Values[name]
+			return v, ok
+		},
+		Timeout: 5 * time.Second,
+	}
+	b.Writes.Start(ctx)
+	if err := h.SetupWithManager(ctx, mgr, "hub"); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "hub")
+		return 1
+	}
+	if err := b.SetupWithManager(mgr); err != nil {
+		log.Error(err, "Failed to create controller", "controller", "matter-bridge")
+		return 1
+	}
+
+	log.Info("Starting Matter bridge", "version", version, "bridge", key, "port", *port, "mqtt", *mqttURL,
 		"fabrics", n.Fabrics().Count())
-	if err := n.Run(ctrl.SetupSignalHandler()); err != nil {
+	go fabrics.Run(ctx, time.Minute)
+	if err := mgr.Start(ctx); err != nil {
 		log.Error(err, "Matter bridge stopped")
 		return 1
 	}
+	if err := <-served; err != nil {
+		log.Error(err, "Matter node stopped")
+		return 1
+	}
+	<-bus.Done()
 	return 0
 }
 

@@ -32,6 +32,9 @@ const (
 	SourceDevice = "Device"
 	// SourceHomeKit is a change a HomeKit bridge announced writing, as from a Home app tap.
 	SourceHomeKit = "HomeKit"
+	// SourceMatter is a change a Matter bridge announced writing, for a Matter controller such as
+	// the Home app.
+	SourceMatter = "Matter"
 	// rulePrefix starts a Rule's source, Rule/<name>.
 	rulePrefix = "Rule/"
 )
@@ -50,10 +53,11 @@ const homekitMatch = 30 * time.Second
 // Zigbee2MQTT as 40.2. Bools are 0 and 1, so it can't confuse them.
 const homekitTolerance = 0.5
 
-// homekitWrite is a HomeKit write waiting for the device to report it.
+// homekitWrite is a bridge's write, from HomeKit or Matter, waiting for the device to report it.
 type homekitWrite struct {
-	value float64
-	at    time.Time
+	source string
+	value  float64
+	at     time.Time
 }
 
 // NewControlLevelGauge returns the gauge Engine.ControlLevel expects.
@@ -351,7 +355,7 @@ func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v
 	if w, ok := e.homekit[dev][name]; ok && w.matches(v, e.Clock.Now()) {
 		// A report on the way, as while a dimmer ramps, leaves the write for the final value.
 		e.forgetHomeKit(dev, name)
-		source = SourceHomeKit
+		source = w.source
 	}
 	if err := ar.a.Outside(source, v); err != nil {
 		e.Log.Error(err, "Failed to record outside change", "device", dev, "capability", name, "source", source)
@@ -362,6 +366,15 @@ func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v
 // device's change to it is recorded as from HomeKit rather than the device. Bridges announce a
 // write before making it, and the bus delivers in order, so this comes before the change.
 func (e *Engine) HomeKitWrote(dev types.NamespacedName, name string, value any) {
+	e.bridgeWrote(SourceHomeKit, dev, name, value)
+}
+
+// MatterWrote is HomeKitWrote for a Matter bridge: the change is recorded as from Matter.
+func (e *Engine) MatterWrote(dev types.NamespacedName, name string, value any) {
+	e.bridgeWrote(SourceMatter, dev, name, value)
+}
+
+func (e *Engine) bridgeWrote(source string, dev types.NamespacedName, name string, value any) {
 	if !e.arbitrated(dev, name) {
 		return
 	}
@@ -376,7 +389,7 @@ func (e *Engine) HomeKitWrote(dev types.NamespacedName, name string, value any) 
 			}
 		}
 	}
-	w := homekitWrite{value: capability.Float(value), at: now}
+	w := homekitWrite{source: source, value: capability.Float(value), at: now}
 	if ar := e.arbs[dev][name]; ar != nil {
 		if st := ar.a.State(); st.Known && w.matches(st.Value, now) {
 			// The device already has it, so no change will come.

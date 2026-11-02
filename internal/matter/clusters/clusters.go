@@ -5,6 +5,7 @@ package clusters
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -273,11 +274,25 @@ func NewBridge(info Info, rootClusters ...*im.Cluster) *Bridge {
 // Bridged Device Basic Information, and returns its BridgedInfo. It fails if the endpoint is
 // taken.
 func (b *Bridge) AddDevice(id uint16, deviceType im.DeviceType, label, uniqueID string, clusters ...*im.Cluster) (*BridgedInfo, error) {
+	return b.AddDeviceTypes(id, []im.DeviceType{deviceType}, label, uniqueID, clusters...)
+}
+
+// AddDeviceTypes is AddDevice for a device that is several device types on one endpoint, such as
+// an occupancy sensor that also measures temperature and runs on a battery.
+func (b *Bridge) AddDeviceTypes(id uint16, deviceTypes []im.DeviceType, label, uniqueID string, clusters ...*im.Cluster) (*BridgedInfo, error) {
 	info := NewBridgedInfo(label, uniqueID)
-	e := &im.Endpoint{ID: id, Parent: b.Aggregator, DeviceTypes: []im.DeviceType{deviceType, DeviceBridgedNode}}
+	e := &im.Endpoint{ID: id, Parent: b.Aggregator, DeviceTypes: append(slices.Clone(deviceTypes), DeviceBridgedNode)}
 	e.Clusters = append(append([]*im.Cluster{newIdentify()}, clusters...), Descriptor(b.Node, e), info.Cluster())
 	if err := b.Node.AddEndpoint(e); err != nil {
 		return nil, err
 	}
 	return info, nil
+}
+
+// RemoveDevice removes the bridged device on endpoint id, and reports whether there was one.
+func (b *Bridge) RemoveDevice(id uint16) bool {
+	if id <= b.Aggregator.ID {
+		return false
+	}
+	return b.Node.RemoveEndpoint(id)
 }

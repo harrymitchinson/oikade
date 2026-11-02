@@ -34,6 +34,8 @@ Oikade keeps its own topics under `oikade/v1/` in roots that start with `_`. No 
 |---|---|---|
 | `_runtime/` | yes | The runtime's state that must survive a restart, such as holds and claims. |
 | `_homekit/<namespace>/<bridge>` | no | Each Home app write a HomeKit bridge makes, announced just before it writes the device. The runtime uses it to record the change as from HomeKit rather than from the device. |
+| `_matter/<namespace>/<bridge>/writes` | no | The same for each write a Matter bridge makes for a controller. The change is recorded as from Matter. |
+| `_matter/<namespace>/<bridge>/fabrics` | yes | The fabrics a Matter bridge is commissioned into. The runtime copies them into the Bridge's status. |
 
 ### `status`
 
