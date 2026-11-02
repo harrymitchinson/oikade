@@ -47,6 +47,10 @@ type Hooks struct {
 	// Commissioning; CloseWindow stops.
 	OpenWindow  func(w Window)
 	CloseWindow func()
+	// FabricAdded is called when AddNOC adds a fabric, still pending until CommissioningComplete:
+	// advertise the node's operational service on it. The commissioner finds the node by that
+	// service to establish the CASE session it completes commissioning over.
+	FabricAdded func(index uint8)
 	// FabricRemoved is called when a fabric is removed, or a pending one rolled back: end its
 	// sessions and subscriptions.
 	FabricRemoved func(index uint8)

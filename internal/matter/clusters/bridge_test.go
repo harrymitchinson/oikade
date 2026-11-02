@@ -161,7 +161,7 @@ func TestReadEverything(t *testing.T) {
 		t.Errorf("bridged DeviceTypeList = %v", types)
 	}
 	servers := value(t, *find(reports, im.Path{Endpoint: 2, Cluster: IDDescriptor, Attribute: 1})).([]any)
-	if !slices.Equal(servers, []any{uint64(IDOnOff), uint64(IDDescriptor), uint64(IDBridgedDeviceBasicInformation)}) {
+	if !slices.Equal(servers, []any{uint64(IDIdentify), uint64(IDOnOff), uint64(IDDescriptor), uint64(IDBridgedDeviceBasicInformation)}) {
 		t.Errorf("bridged ServerList = %v", servers)
 	}
 	if got := value(t, *find(reports, im.Path{Endpoint: 0, Cluster: IDBasicInformation, Attribute: 1})); got != "Oikade" {
