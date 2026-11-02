@@ -492,35 +492,31 @@ func chipTool(args ...string) (string, error) {
 	return kubectl(append([]string{"exec", "chip-tool", "--", "/root/chip-tool"}, args...)...)
 }
 
-// chipOnOff reads an endpoint's OnOff attribute with chip-tool: TRUE, FALSE, or "" if it can't.
-func chipOnOff(endpoint int) string {
-	out, _ := chipTool("onoff", "read", "on-off", chipNode, fmt.Sprint(endpoint))
-	m := regexp.MustCompile(`OnOff: (TRUE|FALSE)`).FindAllStringSubmatch(out, -1)
+// chipValue matches the value chip-tool logs for an attribute it reads.
+var chipValue = regexp.MustCompile(`\[TOO\]\s+[A-Za-z]+: ([A-Za-z0-9.-]+)`)
+
+// chipRead reads one attribute with chip-tool and returns its last logged value, or "" if it can't.
+func chipRead(cluster, attribute, endpoint string) string {
+	out, _ := chipTool(cluster, "read", attribute, chipNode, endpoint)
+	m := chipValue.FindAllStringSubmatch(out, -1)
 	if len(m) == 0 {
 		return ""
 	}
 	return m[len(m)-1][1]
 }
 
-// chipOccupancy reads the motion sensor's Occupancy attribute with chip-tool, or "" if it can't.
-func chipOccupancy() string {
-	out, _ := chipTool("occupancysensing", "read", "occupancy", chipNode, "3")
-	m := regexp.MustCompile(`(?i)Occupancy: (\d)`).FindAllStringSubmatch(out, -1)
-	if len(m) == 0 {
-		return ""
-	}
-	return m[len(m)-1][1]
+// endpointOf returns the Matter endpoint the bridge gave a Device.
+func endpointOf(device string) string {
+	ep, err := jsonpath("matterbridge", "main", `{.status.endpoints[?(@.device=="`+device+`")].endpoint}`)()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, ep).NotTo(BeEmpty())
+	return ep
 }
 
 // chipLog returns the interactive chip-tool's log.
 func chipLog() string {
 	out, _ := kubectl("exec", "chip-tool", "--", "cat", "/tmp/subscription.log")
 	return out
-}
-
-// occupancyReports counts the Occupancy reports in a chip-tool log with the given value.
-func occupancyReports(log string, value int) int {
-	return len(regexp.MustCompile(fmt.Sprintf(`(?i)Occupancy: %d\b`, value)).FindAllString(log, -1))
 }
 
 func jsonpath(kind, name, path string) func() (string, error) {
@@ -546,6 +542,10 @@ func homeScenario() {
 
 			By("declaring the home")
 			apply(homeManifests)
+
+			// A run that was cut short may have left a fabric retained on the broker.
+			_, _ = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-r", "-n", "-t",
+				"oikade/v1/_matter/"+homeNamespace+"/main/fabrics")
 
 			By("starting chip-tool, whose image takes a while to pull")
 			apply(chipToolManifest)
@@ -664,43 +664,77 @@ func homeScenario() {
 		})
 
 		It("is commissioned by chip-tool", func() {
-			_, err := kubectl("wait", "--for=condition=Ready", "pod/chip-tool", "--timeout=15m")
+			By("waiting for chip-tool's image")
+			Eventually(func(g Gomega) {
+				phase, _ := jsonpath("pod", "chip-tool", "{.status.phase}")()
+				if phase == "Failed" || phase == "Succeeded" {
+					StopTrying("chip-tool's pod stopped: " + phase).Now()
+				}
+				ready, _ := jsonpath("pod", "chip-tool", `{.status.conditions[?(@.type=="Ready")].status}`)()
+				g.Expect(ready).To(Equal("True"))
+			}, 15*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("restarting the bridge, so its 15-minute commissioning window is open however long the pull took")
+			_, err := kubectl("rollout", "restart", "deploy/main-matter")
 			Expect(err).NotTo(HaveOccurred())
-			passcode, err := secretKey("main-matter", "passcode")
+			_, err = kubectl("rollout", "status", "deploy/main-matter", "--timeout=3m")
 			Expect(err).NotTo(HaveOccurred())
 
-			out, err := chipTool("pairing", "onnetwork", chipNode, passcode)
-			Expect(err).NotTo(HaveOccurred(), out)
-			Expect(out).To(ContainSubstring("Device commissioning completed with success"))
+			// The discriminator picks this bridge, not one in another Kind cluster on the same network.
+			passcode, err := secretKey("main-matter", "passcode")
+			Expect(err).NotTo(HaveOccurred())
+			discriminator, err := secretKey("main-matter", "discriminator")
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(func(g Gomega) {
+				out, err := chipTool("pairing", "onnetwork-long", chipNode, passcode, discriminator)
+				g.Expect(err).NotTo(HaveOccurred(), out)
+				g.Expect(out).To(ContainSubstring("Device commissioning completed with success"))
+			}, time.Minute, 5*time.Second).Should(Succeed())
 			Eventually(jsonpath("matterbridge", "main", "{.status.fabrics[*].vendorID}")).Should(Equal("65521"))
 		})
 
 		It("toggles a light from chip-tool, through the bus", func() {
+			light := endpointOf("hallway-light")
 			publish("z2m/0x000b57fffe000001", `{"state":"OFF","brightness":128}`, false)
-			Eventually(func() string { return chipOnOff(2) }).Should(Equal("FALSE"))
+			Eventually(func() string { return chipRead("onoff", "on-off", light) }).Should(Equal("FALSE"))
 
 			wait := subscribe("z2m/+/set", 1)
-			out, err := chipTool("onoff", "toggle", chipNode, "2")
+			out, err := chipTool("onoff", "toggle", chipNode, light)
 			Expect(err).NotTo(HaveOccurred(), out)
-			Expect(wait()).To(ContainSubstring(`{"state":"ON"}`))
+			Expect(wait()).To(ContainSubstring(`z2m/0x000b57fffe000001/set {"state":"ON"}`))
 		})
 
 		It("reports a bus change to chip-tool's subscription", func() {
-			// A subscription outlives a command only in interactive mode, fed here from a pipe.
-			publish("z2m/hallway-motion", `{"occupancy":false}`, false)
-			Eventually(func() string { return chipOccupancy() }).Should(Equal("0"))
-			_, err := kubectl("exec", "chip-tool", "--", "sh", "-c",
-				`((echo "occupancysensing subscribe occupancy 0 30 `+chipNode+` 3"; sleep 120) |
-				  /root/chip-tool interactive start) >/tmp/subscription.log 2>&1 </dev/null &`)
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(chipLog).Should(ContainSubstring("Subscription established"))
-			Expect(occupancyReports(chipLog(), 0)).To(BeNumerically(">=", 1), "the priming report")
+			// Temperature, since no Rule watches it. Matter reports hundredths of a degree.
+			sensor := endpointOf("hallway-motion")
+			publish("z2m/hallway-motion", `{"temperature":20}`, false)
+			Eventually(func() string { return chipRead("temperaturemeasurement", "measured-value", sensor) }).Should(Equal("2000"))
 
-			publish("z2m/hallway-motion", `{"occupancy":true}`, false)
-			Eventually(func() int { return occupancyReports(chipLog(), 1) }).Should(BeNumerically(">=", 1))
+			// A subscription outlives a command only in interactive mode, fed here from a pipe. It
+			// quits once the spec touches /tmp/subscription.stop, so it doesn't share chip-tool's
+			// storage with later commands.
+			_, err := kubectl("exec", "chip-tool", "--", "sh", "-c",
+				`rm -f /tmp/subscription.stop /tmp/subscription.done
+				 ((echo "temperaturemeasurement subscribe measured-value 0 30 `+chipNode+` `+sensor+`"
+				   while [ ! -e /tmp/subscription.stop ]; do sleep 1; done; echo quit) |
+				  /root/chip-tool interactive start; touch /tmp/subscription.done) >/tmp/subscription.log 2>&1 </dev/null &`)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() {
+				_, _ = kubectl("exec", "chip-tool", "--", "touch", "/tmp/subscription.stop")
+				Eventually(func() error {
+					_, err := kubectl("exec", "chip-tool", "--", "test", "-e", "/tmp/subscription.done")
+					return err
+				}, time.Minute).Should(Succeed())
+			})
+			Eventually(chipLog).Should(ContainSubstring("Subscription established"))
+			Expect(chipLog()).To(MatchRegexp(`MeasuredValue: 2000\b`), "the priming report")
+
+			publish("z2m/hallway-motion", `{"temperature":21.5}`, false)
+			Eventually(chipLog).Should(MatchRegexp(`MeasuredValue: 2150\b`))
 		})
 
 		It("is read by chip-tool after the bridge pod restarts, without commissioning again", func() {
+			light := endpointOf("hallway-light")
 			_, err := kubectl("rollout", "restart", "deploy/main-matter")
 			Expect(err).NotTo(HaveOccurred())
 			_, err = kubectl("rollout", "status", "deploy/main-matter", "--timeout=3m")
@@ -708,7 +742,7 @@ func homeScenario() {
 			// The state isn't retained, so the new pod learns it only from a report after it starts.
 			Eventually(func() string {
 				publish("z2m/0x000b57fffe000001", `{"state":"ON","brightness":128}`, false)
-				return chipOnOff(2)
+				return chipRead("onoff", "on-off", light)
 			}, 2*time.Minute, 5*time.Second).Should(Equal("TRUE"))
 			Expect(kubectl("logs", "deploy/main-matter")).To(ContainSubstring(`"msg":"Established CASE session"`))
 			Expect(kubectl("logs", "deploy/main-matter")).NotTo(ContainSubstring(`"msg":"Commissioned"`))

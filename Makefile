@@ -107,7 +107,7 @@ e2e-image: ## Build the manager image for the e2e tests.
 test-e2e: manifests generate ## Run the e2e tests on a Kind cluster, which it keeps for the next run.
 	$(MAKE) -j2 setup-test-e2e e2e-image
 	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) E2E_IMG=$(E2E_IMG) E2E_VERSION=$(E2E_VERSION) E2E_IMAGE_BUILT=true \
-		go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+		go test -tags=e2e -timeout=45m ./test/e2e/ -v -ginkgo.v
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
