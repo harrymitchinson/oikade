@@ -96,24 +96,41 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 		r.write(c.WriteUnicast(b, src), src)
 		return
 	}
-	b, err := reply(answers, additionals)
-	if err != nil {
-		r.log.Error(err, "Failed to build mDNS reply")
-		return
-	}
-	if unicast {
-		r.write(c.WriteUnicast(b, src), src)
-		return
-	}
 	// A multicast answer that holds shared records waits 20 to 120 ms, so that the answers
 	// of the hosts that share them don't collide (6).
-	if !slices.ContainsFunc(answers, func(rec record) bool { return !rec.unique }) {
-		r.write(c.WriteMulticast(b, ifIndex), src)
+	if unicast || !slices.ContainsFunc(answers, func(rec record) bool { return !rec.unique }) {
+		b, err := reply(answers, additionals)
+		if err != nil {
+			r.log.Error(err, "Failed to build mDNS reply")
+			return
+		}
+		if unicast {
+			r.write(c.WriteUnicast(b, src), src)
+		} else {
+			r.write(c.WriteMulticast(b, ifIndex), src)
+		}
 		return
 	}
 	spread := int64(r.timing.maxDelay - r.timing.minDelay)
 	delay := r.timing.minDelay + time.Duration(mrand.Int64N(spread+1))
-	r.after(delay, func() { r.write(c.WriteMulticast(b, ifIndex), src) })
+	r.after(delay, func() {
+		r.sendMu.Lock()
+		defer r.sendMu.Unlock()
+		// Leave out what was withdrawn in the meantime.
+		now := r.answerable(ifIndex)
+		still := func(rec record) bool { return slices.ContainsFunc(now, rec.equal) }
+		answers = slices.DeleteFunc(answers, func(rec record) bool { return !still(rec) })
+		additionals = slices.DeleteFunc(additionals, func(rec record) bool { return !still(rec) })
+		if len(answers) == 0 {
+			return
+		}
+		b, err := reply(answers, additionals)
+		if err != nil {
+			r.log.Error(err, "Failed to build mDNS reply")
+			return
+		}
+		r.write(c.WriteMulticast(b, ifIndex), src)
+	})
 }
 
 func (r *Responder) write(err error, to *net.UDPAddr) {

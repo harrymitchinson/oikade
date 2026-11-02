@@ -42,7 +42,7 @@ func (r *Responder) Update(svc Service) error {
 
 	r.log.Info("Updating mDNS service", "instance", name.String())
 	r.goodbye(without(old, recs))
-	r.announce(recs)
+	r.announce(e)
 	return nil
 }
 
@@ -109,9 +109,11 @@ func (r *Responder) Close() error {
 		r.goodbye(all)
 	}
 	if hostReady {
+		r.sendMu.Lock()
 		r.multicast(func(ifIndex int) ([]byte, error) {
 			return response(addressRecords(r.host, r.addrs(ifIndex)), 0)
 		})
+		r.sendMu.Unlock()
 	}
 	close(r.done)
 	var errs []error
@@ -122,9 +124,20 @@ func (r *Responder) Close() error {
 	return errors.Join(errs...)
 }
 
-// announce sends recs, with the host's addresses, twice, a second apart (RFC 6762, 8.3).
-func (r *Responder) announce(recs []record) {
+// announce sends e's records, with the host's addresses, twice, a second apart (RFC 6762, 8.3).
+// Each time, it sends the records e has then, and nothing once e has been removed, so that a late
+// announcement can't undo a goodbye.
+func (r *Responder) announce(e *entry) {
 	send := func() {
+		r.sendMu.Lock()
+		defer r.sendMu.Unlock()
+		r.mu.Lock()
+		current := !r.closed && r.services[strings.ToLower(e.name.String())] == e
+		recs := e.records
+		r.mu.Unlock()
+		if !current {
+			return
+		}
 		r.multicast(func(ifIndex int) ([]byte, error) {
 			return response(slices.Concat(recs, addressRecords(r.host, r.addrs(ifIndex))), -1)
 		})
@@ -133,11 +146,14 @@ func (r *Responder) announce(recs []record) {
 	r.after(r.timing.announceGap, send)
 }
 
-// goodbye sends recs with TTL 0, so that caches drop them (RFC 6762, 10.1).
+// goodbye sends recs with TTL 0, so that caches drop them (RFC 6762, 10.1). The caller has
+// already stopped answering with them.
 func (r *Responder) goodbye(recs []record) {
 	if len(recs) == 0 {
 		return
 	}
+	r.sendMu.Lock()
+	defer r.sendMu.Unlock()
 	r.multicast(func(int) ([]byte, error) { return response(recs, 0) })
 }
 

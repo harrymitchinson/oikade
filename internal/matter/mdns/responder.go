@@ -68,6 +68,10 @@ type Responder struct {
 	addrs  func(ifIndex int) []netip.Addr // the host's addresses on an interface
 	timing timing
 
+	// sendMu orders announcements, delayed answers and goodbyes, so that a record that has
+	// been said goodbye to isn't sent again after it.
+	sendMu sync.Mutex
+
 	mu        sync.Mutex
 	services  map[string]*entry // by lower-case instance name
 	probes    map[*probe]struct{}
@@ -217,7 +221,7 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 	r.mu.Unlock()
 
 	r.log.Info("Announcing mDNS service", "instance", name.String())
-	r.announce(e.records)
+	r.announce(e)
 	return nil
 }
 

@@ -386,3 +386,34 @@ func TestServiceValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestLateAnnouncement checks that the second announcement of a service sends the records it has
+// then, not those it had when it was added, so that it can't undo a goodbye.
+func TestLateAnnouncement(t *testing.T) {
+	r, c := newTestResponder(t)
+	defer func() { _ = r.Close() }()
+	if err := r.Add(context.Background(), testService()); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 { // three probes and the first announcement
+		c.next()
+	}
+	closed := testService()
+	closed.Subtypes = []string{"_L3840", "_S15"}
+	if err := r.Update(closed); err != nil {
+		t.Fatal(err)
+	}
+	c.next() // the goodbye to _CM
+	for range 3 {
+		for _, a := range c.next().msg.Answers {
+			if strings.HasPrefix(a.Header.Name.String(), "_CM.") {
+				t.Fatalf("announced %v after its goodbye", a.Header.Name)
+			}
+		}
+	}
+	if err := r.Remove(closed); err != nil {
+		t.Fatal(err)
+	}
+	c.next() // the goodbye
+	c.none()
+}
