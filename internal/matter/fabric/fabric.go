@@ -326,7 +326,7 @@ func (t *Table) AddNOC(noc, icac, ipk []byte, adminSubject uint64, adminVendor u
 		return 0, ErrTableFull
 	}
 	f := Fabric{
-		RCAC: t.root, ICAC: slices.Clone(icac), NOC: slices.Clone(noc), Key: t.key,
+		RCAC: t.root, ICAC: optionalCert(icac), NOC: slices.Clone(noc), Key: t.key,
 		IPK: slices.Clone(ipk), VendorID: adminVendor,
 		ACL: []ACE{{Privilege: im.PrivilegeAdminister, AuthMode: transport.AuthCASE, Subjects: []uint64{adminSubject}}},
 	}
@@ -341,6 +341,15 @@ func (t *Table) AddNOC(noc, icac, ipk []byte, adminSubject uint64, adminVendor u
 	f.Index = t.allocateIndex()
 	t.added, t.key = &f, nil
 	return f.Index, nil
+}
+
+// optionalCert returns a copy of an optional certificate, or nil for an empty one. Commissioners
+// such as Apple Home send an empty ICACValue to mean that there is no ICAC.
+func optionalCert(c []byte) []byte {
+	if len(c) == 0 {
+		return nil
+	}
+	return slices.Clone(c)
 }
 
 // allocateIndex returns the next free fabric index. Call it with the lock held, and fewer than
@@ -374,7 +383,7 @@ func (t *Table) UpdateNOC(index uint8, noc, icac []byte) error {
 		return ErrInvalidIndex
 	}
 	f := old.clone()
-	f.NOC, f.ICAC, f.Key = slices.Clone(noc), slices.Clone(icac), t.key
+	f.NOC, f.ICAC, f.Key = slices.Clone(noc), optionalCert(icac), t.key
 	if err := f.derive(t.now()); err != nil {
 		return err
 	}

@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -188,7 +189,9 @@ func (r *Responder) multicast(build func(ifIndex int) ([]byte, error)) {
 			continue
 		}
 		for _, c := range r.conns {
-			if err := c.WriteMulticast(b, ifIndex); err != nil && !errors.Is(err, net.ErrClosed) {
+			// EADDRNOTAVAIL: the interface has no address of this family, as with macOS's
+			// utun, awdl and llw interfaces. Nothing can be sent there, so it isn't worth a log.
+			if err := c.WriteMulticast(b, ifIndex); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, syscall.EADDRNOTAVAIL) {
 				r.log.V(1).Info("Could not send mDNS message", "interface", ifIndex, "error", err.Error())
 			}
 		}

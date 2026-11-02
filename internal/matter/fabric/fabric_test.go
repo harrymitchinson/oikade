@@ -271,3 +271,23 @@ func TestLabelConflictWithPending(t *testing.T) {
 		t.Errorf("SetLabel: %v", err)
 	}
 }
+
+// TestEmptyICAC adds a NOC with an empty ICAC, as Apple Home sends when it has no ICAC, and
+// expects a fabric without one.
+func TestEmptyICAC(t *testing.T) {
+	tb, _ := Open(DirStore{Dir: t.TempDir()})
+	c := newCA(t, 1)
+	key, _ := tb.NewOperationalKey()
+	if err := tb.AddTrustedRoot(c.der); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tb.AddNOC(c.noc(t, &key.PublicKey, 0x0A), []byte{}, ipk, 0x1122, 0xFFF1); err != nil {
+		t.Fatalf("AddNOC with an empty ICAC: %v", err)
+	}
+	if err := tb.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if fs := tb.Fabrics(); len(fs) != 1 || fs[0].ICAC != nil {
+		t.Errorf("fabrics: %+v", fs)
+	}
+}
