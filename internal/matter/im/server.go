@@ -27,11 +27,13 @@ const (
 	maxSubscriptions = 32
 )
 
-// Server serves a Node's Interaction Model on secure sessions. Access control isn't checked yet:
-// every secure session may read, write and invoke everything.
+// Server serves a Node's Interaction Model on secure sessions. A PASE session may do anything,
+// a CASE session what Access grants it, and other sessions nothing.
 type Server struct {
 	Node *Node
-	Log  logr.Logger
+	// Access decides what CASE sessions may do. nil grants them nothing.
+	Access AccessControl
+	Log    logr.Logger
 
 	mu   sync.Mutex
 	subs map[uint32]*subscription
@@ -79,18 +81,29 @@ func (s *Server) read(ctx context.Context, ex *transport.Exchange, b []byte) err
 		return fail(ctx, ex, StatusInvalidAction, err)
 	}
 	var reports [][]byte
-	s.Node.View(func() { reports = s.reports(req.attributes, req.filters) })
+	rq := newRequest(ex.Session(), req.fabricFiltered)
+	s.Node.View(func() { reports = s.reports(rq, req.attributes, req.filters) })
 	return sendReports(ctx, ex, reports, nil, true)
 }
 
 // reports builds an AttributeReportIB for each attribute the paths name. A concrete path that
-// names nothing gets a status; wildcards skip what's missing. Call it with the Node's read lock.
-func (s *Server) reports(paths []AttributePath, filters []dataVersionFilter) [][]byte {
+// names nothing, or that the subject may not read, gets a status; wildcards skip both. Call it
+// with the Node's read lock.
+func (s *Server) reports(req *Request, paths []AttributePath, filters []dataVersionFilter) [][]byte {
 	var out [][]byte
 	seen := map[Path]bool{}
 	for _, p := range paths {
 		if !p.wild() {
-			if st := s.check(p); st != StatusSuccess {
+			// Access is checked before the attribute's existence, so a client may not learn
+			// what it can't read (Core spec, 8.4.3.2).
+			st := s.checkCluster(p.Endpoint, p.Cluster)
+			if st == StatusSuccess && !s.canRead(req, Path{p.Endpoint, p.Cluster, p.Attribute}) {
+				st = StatusUnsupportedAccess
+			}
+			if st == StatusSuccess {
+				st = s.check(p)
+			}
+			if st != StatusSuccess {
 				out = append(out, statusReport(p, st))
 				continue
 			}
@@ -111,11 +124,11 @@ func (s *Server) reports(paths []AttributePath, filters []dataVersionFilter) [][
 						continue
 					}
 					path := Path{e.ID, c.ID, id}
-					if seen[path] {
+					if seen[path] || !s.canRead(req, path) {
 						continue
 					}
 					seen[path] = true
-					out = append(out, dataReports(c, path)...)
+					out = append(out, dataReports(req, c, path)...)
 				}
 			}
 		}
@@ -123,20 +136,35 @@ func (s *Server) reports(paths []AttributePath, filters []dataVersionFilter) [][
 	return out
 }
 
-// check says whether a concrete path names an attribute.
-func (s *Server) check(p AttributePath) Status {
-	e := s.Node.Endpoint(p.Endpoint)
+// checkCluster says whether an endpoint has a cluster.
+func (s *Server) checkCluster(endpoint uint16, cluster uint32) Status {
+	e := s.Node.Endpoint(endpoint)
 	if e == nil {
 		return StatusUnsupportedEndpoint
 	}
-	c := e.Cluster(p.Cluster)
-	if c == nil {
+	if e.Cluster(cluster) == nil {
 		return StatusUnsupportedCluster
 	}
+	return StatusSuccess
+}
+
+// check says whether a concrete path names an attribute.
+func (s *Server) check(p AttributePath) Status {
+	if st := s.checkCluster(p.Endpoint, p.Cluster); st != StatusSuccess {
+		return st
+	}
+	c := s.Node.Endpoint(p.Endpoint).Cluster(p.Cluster)
 	if c.attribute(p.Attribute) == nil && !isGlobal(p.Attribute) {
 		return StatusUnsupportedAttribute
 	}
 	return StatusSuccess
+}
+
+// canRead reports whether the subject may read an attribute that exists. Call it with the Node's
+// read lock.
+func (s *Server) canRead(req *Request, p Path) bool {
+	e := s.Node.Endpoint(p.Endpoint)
+	return s.allowed(req, e, p.Cluster, e.Cluster(p.Cluster).attribute(p.Attribute).readPrivilege())
 }
 
 func isGlobal(id uint32) bool {
@@ -157,11 +185,11 @@ func filtered(filters []dataVersionFilter, ep uint16, c *Cluster) bool {
 // report becomes an empty list and then one report per item, each appending it (Core spec,
 // 8.4.3.2). An attribute that can't be read, or with an item too large for a report, gets a
 // failure status.
-func dataReports(c *Cluster, p Path) [][]byte {
+func dataReports(req *Request, c *Cluster, p Path) [][]byte {
 	var v tlv.Writer
 	if !c.readGlobal(p.Attribute, &v, tlv.Anonymous) {
 		a := c.attribute(p.Attribute)
-		if a == nil || a.Read == nil || a.Read(&v, tlv.Anonymous) != nil {
+		if a == nil || a.Read == nil || a.Read(req, &v, tlv.Anonymous) != nil {
 			return [][]byte{statusReport(Concrete(p), StatusFailure)}
 		}
 	}
@@ -291,6 +319,10 @@ func expectStatus(ctx context.Context, ex *transport.Exchange) error {
 }
 
 func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, timed bool) error {
+	rq := newRequest(ex.Session(), false)
+	// Access to each path is decided once for the whole write, chunks included, as a write that
+	// replaces the ACL in chunks would otherwise lose access after its first chunk.
+	granted := map[Path]bool{}
 	for {
 		req, err := decodeWriteRequest(b)
 		if err != nil {
@@ -302,7 +334,7 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 		statuses := make([]Status, len(req.writes))
 		s.Node.Update(func() {
 			for i, d := range req.writes {
-				statuses[i] = s.apply(d)
+				statuses[i] = s.apply(rq, d, granted)
 			}
 		})
 		if !req.suppressResponse {
@@ -340,15 +372,32 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 }
 
 // apply performs one attribute write. Call it with the Node's lock.
-func (s *Server) apply(d attributeData) Status {
+func (s *Server) apply(req *Request, d attributeData, granted map[Path]bool) Status {
 	if d.path.wild() {
 		return StatusInvalidAction // writes name one attribute
+	}
+	if st := s.checkCluster(d.path.Endpoint, d.path.Cluster); st != StatusSuccess {
+		return st
+	}
+	e := s.Node.Endpoint(d.path.Endpoint)
+	c := e.Cluster(d.path.Cluster)
+	a := c.attribute(d.path.Attribute)
+	path := Path{d.path.Endpoint, d.path.Cluster, d.path.Attribute}
+	ok, decided := granted[path]
+	if !decided {
+		if a == nil || a.Write == nil {
+			ok = s.allowed(req, e, c.ID, a.readPrivilege())
+		} else {
+			ok = s.allowed(req, e, c.ID, a.writePrivilege()) && (!a.FabricScoped || req.FabricIndex != 0)
+		}
+		granted[path] = ok
+	}
+	if !ok {
+		return StatusUnsupportedAccess
 	}
 	if st := s.check(d.path); st != StatusSuccess {
 		return st
 	}
-	c := s.Node.Endpoint(d.path.Endpoint).Cluster(d.path.Cluster)
-	a := c.attribute(d.path.Attribute)
 	if a == nil || a.Write == nil {
 		return StatusUnsupportedWrite
 	}
@@ -363,7 +412,7 @@ func (s *Server) apply(d attributeData) Status {
 	if d.path.Append {
 		op = Append
 	}
-	return a.Write(r, op)
+	return a.Write(req, r, op)
 }
 
 func (s *Server) invoke(ctx context.Context, ex *transport.Exchange, b []byte, timed bool) error {
@@ -380,8 +429,9 @@ func (s *Server) invoke(ctx context.Context, ex *transport.Exchange, b []byte, t
 	}
 	cmd := req.commands[0]
 	var resp *Response
-	var st Status
-	s.Node.Update(func() { resp, st = s.run(cmd, timed) })
+	var st error
+	rq := newRequest(ex.Session(), false)
+	s.Node.Update(func() { resp, st = s.run(rq, cmd, timed) })
 	if req.suppressResponse {
 		return nil
 	}
@@ -391,7 +441,7 @@ func (s *Server) invoke(ctx context.Context, ex *transport.Exchange, b []byte, t
 	w.PutBool(tlv.Context(0), false)
 	w.StartArray(tlv.Context(1))
 	w.StartStructure(tlv.Anonymous) // InvokeResponseIB
-	if resp != nil && st == StatusSuccess {
+	if resp != nil && st == nil {
 		w.StartStructure(tlv.Context(0)) // CommandDataIB
 		CommandPath{cmd.path.Endpoint, cmd.path.Cluster, resp.Command}.put(&w, tlv.Context(0))
 		w.StartStructure(tlv.Context(1))
@@ -402,7 +452,7 @@ func (s *Server) invoke(ctx context.Context, ex *transport.Exchange, b []byte, t
 	} else {
 		w.StartStructure(tlv.Context(1)) // CommandStatusIB
 		cmd.path.put(&w, tlv.Context(0))
-		putStatus(&w, tlv.Context(1), st)
+		putCommandStatus(&w, tlv.Context(1), st)
 	}
 	if cmd.ref != nil {
 		w.PutUint(tlv.Context(2), uint64(*cmd.ref))
@@ -416,7 +466,7 @@ func (s *Server) invoke(ctx context.Context, ex *transport.Exchange, b []byte, t
 }
 
 // run invokes one command. Call it with the Node's lock.
-func (s *Server) run(cmd commandData, timed bool) (*Response, Status) {
+func (s *Server) run(req *Request, cmd commandData, timed bool) (*Response, error) {
 	e := s.Node.Endpoint(cmd.path.Endpoint)
 	if e == nil {
 		return nil, StatusUnsupportedEndpoint
@@ -426,6 +476,9 @@ func (s *Server) run(cmd commandData, timed bool) (*Response, Status) {
 		return nil, StatusUnsupportedCluster
 	}
 	command := c.command(cmd.path.Command)
+	if !s.allowed(req, e, c.ID, command.privilege()) {
+		return nil, StatusUnsupportedAccess // before the command's existence, as for reads
+	}
 	if command == nil {
 		return nil, StatusUnsupportedCommand
 	}
@@ -439,7 +492,26 @@ func (s *Server) run(cmd commandData, timed bool) (*Response, Status) {
 			return nil, StatusInvalidCommand
 		}
 	}
-	return command.Invoke(fields)
+	return command.Invoke(req, fields)
+}
+
+// putCommandStatus writes a StatusIB for a command's result: nil, a Status or a ClusterStatus.
+func putCommandStatus(w *tlv.Writer, tag tlv.Tag, err error) {
+	var cs ClusterStatus
+	var st Status
+	switch {
+	case err == nil:
+		putStatus(w, tag, StatusSuccess)
+	case errors.As(err, &cs):
+		w.StartStructure(tag)
+		w.PutUint(tlv.Context(0), uint64(cs.Status))
+		w.PutUint(tlv.Context(1), uint64(cs.Code))
+		w.End()
+	case errors.As(err, &st):
+		putStatus(w, tag, st)
+	default:
+		putStatus(w, tag, StatusFailure)
+	}
 }
 
 // timed handles a Timed Request: the Write or Invoke that follows on the exchange must arrive

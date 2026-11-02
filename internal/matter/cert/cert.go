@@ -124,6 +124,9 @@ const (
 	MaxCATs = 3
 )
 
+// IsOperationalNodeID reports whether id is in the operational node ID range (Core spec, 2.5.5).
+func IsOperationalNodeID(id uint64) bool { return id != 0 && id <= maxOperationalNodeID }
+
 // Kind returns what the certificate is for. It returns an error wrapping ErrInvalid if the subject
 // mixes kinds or carries an invalid Matter attribute, as connectedhomeip's GetCertType does.
 func (c *Certificate) Kind() (Kind, error) {

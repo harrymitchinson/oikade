@@ -45,20 +45,27 @@ const (
 type Attribute struct {
 	ID uint32
 	// Read writes the value with tag. It runs under the Node's read lock.
-	Read func(w *tlv.Writer, tag tlv.Tag) error
+	Read func(req *Request, w *tlv.Writer, tag tlv.Tag) error
 	// Write sets the value from r, which is on it. nil makes the attribute read-only. It runs
 	// under the Node's lock, and calls Cluster.Changed if the value changed.
-	Write func(r *tlv.Reader, op WriteOp) Status
+	Write func(req *Request, r *tlv.Reader, op WriteOp) Status
+	// The privileges reading and writing need: View and Operate if zero.
+	ReadPrivilege, WritePrivilege Privilege
+	// FabricScoped attributes are lists whose entries each belong to a fabric. Only a subject
+	// on a fabric may write them.
+	FabricScoped bool
 }
 
 // Command is one command a cluster accepts.
 type Command struct {
 	ID uint32
 	// Invoke runs the command. fields is on its fields structure, or nil if it had none. It runs
-	// under the Node's lock.
-	Invoke func(fields *tlv.Reader) (*Response, Status)
+	// under the Node's lock. It returns nil, a Status or a ClusterStatus.
+	Invoke func(req *Request, fields *tlv.Reader) (*Response, error)
 	// Timed commands must come in a timed interaction.
 	Timed bool
+	// Privilege is what invoking the command needs: Operate if zero.
+	Privilege Privilege
 }
 
 // Response is a command's response: another command, from server to client, with fields.
@@ -80,6 +87,14 @@ type Cluster struct {
 
 	version  uint32
 	endpoint *Endpoint
+}
+
+// Node returns the Node the cluster was added to, or nil before it's added.
+func (c *Cluster) Node() *Node {
+	if c.endpoint == nil {
+		return nil
+	}
+	return c.endpoint.node
 }
 
 // DataVersion returns the cluster's data version, which changes whenever an attribute does.

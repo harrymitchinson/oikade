@@ -19,9 +19,9 @@ import (
 	"github.com/go-logr/logr/testr"
 
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
+	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
 
@@ -206,11 +206,15 @@ type caseDevice struct {
 func newCASEDevice(t *testing.T, fs ...*Fabric) *caseDevice {
 	t.Helper()
 	d := &caseDevice{caseNode: newCASENode(t), sessions: make(chan *transport.Session, 10)}
-	bridge := clusters.NewBridge(clusters.Info{
-		VendorName: "Oikade", VendorID: 0xFFF1, ProductName: "Bridge", ProductID: 0x8000,
-		NodeLabel: "Oikade", SoftwareVersion: 1, SoftwareVersionString: "0.1.0", UniqueID: "bridge-1",
-	})
-	(&im.Server{Node: bridge.Node, Log: testr.New(t)}).Register(d.t)
+	node := &im.Node{}
+	_ = node.AddEndpoint(&im.Endpoint{ID: 0, Clusters: []*im.Cluster{{
+		ID: basicInformation, Revision: 1,
+		Attributes: []im.Attribute{{ID: 1, Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error {
+			w.PutUTF8(tag, "Oikade") // VendorName
+			return nil
+		}}},
+	}}})
+	(&im.Server{Node: node, Access: allowAll{}, Log: testr.New(t)}).Register(d.t)
 	d.responder = &CASEResponder{
 		Transport: d.t, Fabrics: fabrics(fs), Resumption: NewResumptionStore(0), Log: testr.New(t),
 		Params:    &SessionParams{Idle: 500 * time.Millisecond},
@@ -245,12 +249,20 @@ func (d *caseDevice) session(t *testing.T) *transport.Session {
 	}
 }
 
+// basicInformation is the Basic Information cluster's ID.
+const basicInformation = 0x0028
+
+// allowAll lets every CASE session do anything.
+type allowAll struct{}
+
+func (allowAll) Allowed(*im.Subject, *im.Endpoint, uint32, im.Privilege) bool { return true }
+
 // readVendor reads the bridge's vendor name over s.
 func readVendor(t *testing.T, tr *transport.Transport, s *transport.Session) {
 	t.Helper()
 	c := &im.Client{Session: s}
 	c.Register(tr)
-	reports, err := c.Read(timeout(t), im.AttributePath{Endpoint: 0, Cluster: clusters.IDBasicInformation, Attribute: 1})
+	reports, err := c.Read(timeout(t), im.AttributePath{Endpoint: 0, Cluster: basicInformation, Attribute: 1})
 	if err != nil || len(reports) != 1 {
 		t.Fatalf("Read: %v, %v", reports, err)
 	}
