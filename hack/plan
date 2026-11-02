@@ -562,7 +562,8 @@ cmd_show() {
 # the second would be a no-op "up to date" push and succeed too. The empty
 # expected value means "only if claim/ID doesn't exist", and the server checks
 # it atomically, so exactly one of two racing claims wins. Nothing builds on
-# the claim commit: steps have their own branches.
+# the claim commit: steps have their own branches. It sets CLAIM_OID to the
+# commit it pushed, so giving the claim back can't delete a later one.
 take_claim() {
 	local n="$1" claim err
 	git fetch -q "$REMOTE" main
@@ -572,6 +573,7 @@ take_claim() {
 		is_claimed "$n" && die "$n was claimed by someone else just now. See: hack/plan claims"
 		die "couldn't push claim/$n: $err"
 	fi
+	CLAIM_OID="$claim"
 }
 
 cmd_claim() {
@@ -663,17 +665,24 @@ cmd_merge() {
 	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow files s held=() approval
 	n=$(id "${1:?usage: plan merge ID PR}")
 	pr="${pr#\#}"
+	json=$(issue "$n")
 	# Merging restacks the feature's branches, so it needs the claim. If nobody
 	# holds it, as once the session that built the steps has released it, the
 	# merge takes it for as long as it runs, so no session builds on a branch
-	# it's moving, and gives it back however it ends.
+	# it's moving, and gives it back however it ends. Taking it asks what claim
+	# does: a feature the user has stopped can't be claimed to merge either.
 	if ! is_claimed "$n"; then
+		[[ "$(jq -r '.parent.identifier // empty' <<<"$json")" == "" ]] ||
+			die "$n is a step of $(jq -r .parent.identifier <<<"$json"): merge with the feature's ID"
+		[[ -n "$(gate "$json")" ]] ||
+			die "$n isn't claimed, and may not be built, so its PRs don't merge: it must be in Todo or In Progress, and out of $DESIGN_REVIEW by the user's move, if it was ever there. See: hack/plan show $n"
 		take_claim "$n" "chore: claim $n to merge PR #$pr"
-		# shellcheck disable=SC2064 # expand $n now
-		trap "git push -q '$REMOTE' --delete 'claim/$n' || echo 'plan: couldn'\''t give back claim/$n: hack/plan release $n' >&2" EXIT
+		# The lease deletes only the claim this merge pushed.
+		# shellcheck disable=SC2064 # expand $n and CLAIM_OID now
+		trap "git push -q --force-with-lease='refs/heads/claim/$n:$CLAIM_OID' '$REMOTE' --delete 'claim/$n' ||
+			echo 'plan: couldn'\''t give back claim/$n. If it is still the merge'\''s: hack/plan release $n' >&2" EXIT
 		echo "plan: nobody held $n's claim, so it's held while PR #$pr merges" >&2
 	fi
-	json=$(issue "$n")
 	if has_label needs-review "$json"; then held+=("$n has the needs-review label"); fi
 	restack "$n"
 	git fetch -q "$REMOTE" main

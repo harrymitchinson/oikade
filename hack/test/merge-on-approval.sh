@@ -60,6 +60,12 @@ if [[ "$method" != GET || ( "$1" == api && $fields == 1 ) ]]; then
 			exit 1
 		fi
 		[[ ! -f "$fx/merge-refused" ]] || { cat "$fx/merge-refused" >&2; exit 1; }
+		# Who held the feature's claim when it merged.
+		git ls-remote --heads origin refs/heads/claim/OIK-9 | cut -f1 >"$fx/claim-at-merge"
+		# Someone releases the claim mid-merge and another session claims it.
+		if [[ -f "$fx/reclaim" ]]; then
+			git push -q -f origin "$(git commit-tree -m reclaim "$(git rev-parse 'origin/main^{tree}')"):refs/heads/claim/OIK-9"
+		fi
 	fi
 	echo '{}'
 	exit 0
@@ -87,10 +93,10 @@ export PATH="$tmp/bin:$PATH" STUB_FX="$tmp/fx" CLAUDECODE='' \
 fx() { cat >"$tmp/fx/$1"; }
 fx repo.json <<<'{"nameWithOwner":"o/r"}'
 
-# feature LABEL...: OIK-9, with steps OIK-10 (PR #11) and OIK-11 (PR #12).
+# feature LABEL...: OIK-9, in FEATURE_STATE (default In Progress), with steps OIK-10 (PR #11) and OIK-11 (PR #12).
 feature() {
-	jq -n --args '{id: "uuid-9", identifier: "OIK-9", title: "F", url: "u", description: "", priority: 0,
-		state: {name: "In Progress", type: "started"}, project: null, parent: null,
+	jq -n --arg state "${FEATURE_STATE:-In Progress}" --args '{id: "uuid-9", identifier: "OIK-9", title: "F", url: "u", description: "", priority: 0,
+		state: {name: $state, type: "started"}, project: null, parent: null,
 		labels: {nodes: [$ARGS.positional[] | {name: .}]}, inverseRelations: {nodes: []},
 		children: {nodes: [
 			{identifier: "OIK-10", title: "One", subIssueSortOrder: 1, number: 10, state: {name: "Done", type: "completed"}},
@@ -286,10 +292,25 @@ git push -q origin --delete claim/OIK-9
 echo 'gh: Pull Request is not mergeable (HTTP 405)' >"$tmp/fx/merge-refused"
 if merge; then fail "merge succeeded when GitHub refused it, unclaimed"; fi
 ! claimed || fail "a refused merge kept the claim it took"
-rm "$tmp/fx/merge-refused"
+rm "$tmp/fx/merge-refused" "$tmp/fx/claim-at-merge"
 merge || fail "merge refused a low-risk PR nobody had claimed: $(cat "$tmp/out")"
 grep -q "nobody held OIK-9's claim" "$tmp/out" || fail "merge didn't say it took the claim: $(cat "$tmp/out")"
+[[ -s "$tmp/fx/claim-at-merge" ]] || fail "merge merged without holding the claim"
 ! claimed || fail "merge kept the claim it took"
+# A feature the user has stopped isn't claimed to merge.
+FEATURE_STATE=Backlog feature
+if merge; then fail "merge succeeded, unclaimed, on a feature in Backlog"; fi
+grep -q "may not be built" "$tmp/out" || fail "merge didn't say the feature may not be built: $(cat "$tmp/out")"
+! claimed || fail "a merge refused by the gate left a claim"
+! grep -q '^PUT' "$tmp/fx/writes.log" || fail "merge merged a feature in Backlog"
+feature
+# A claim another session took while the merge ran isn't the merge's to give back.
+touch "$tmp/fx/reclaim"
+merge || fail "merge refused a low-risk PR nobody had claimed: $(cat "$tmp/out")"
+rm "$tmp/fx/reclaim"
+claimed || fail "merge deleted a claim another session took while it ran"
+git push -q origin --delete claim/OIK-9
+
 # Someone else's claim isn't given back.
 git push -q origin main:refs/heads/claim/OIK-9
 merge || fail "merge refused a claimed low-risk PR: $(cat "$tmp/out")"
