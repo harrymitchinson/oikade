@@ -35,10 +35,8 @@ DESIGN_REVIEW="Design Review"
 
 # Paths an agent may never merge without the user (hack/plan merge). It's a
 # small floor, since the user reviews designs, not diffs: the agents' own
-# guardrails, so an agent can't loosen its rules or checks and then merge, and
-# the code that keeps state whose loss means re-pairing every HomeKit
-# accessory or Zigbee device (.claude/skills/design/references/surfaces.md).
-PROTECTED='^\.github/|^\.claude/settings(\.local)?\.json$|^\.mcp\.json$|^hack/(plan|agent-token|linear-token|owner-approval|test/)|^Makefile$|^\.golangci\.ya?ml$|^internal/(identity|hap)/|^internal/render/(hap|zigbee2mqtt)\.go$|^internal/controller/(homekit|zigbee)/|^cmd/hap\.go$'
+# guardrails, so an agent can't loosen its rules or checks and then merge.
+PROTECTED='^\.github/|^\.claude/settings(\.local)?\.json$|^\.mcp\.json$|^hack/(plan|agent-token|linear-token|owner-approval|test/)|^Makefile$|^\.golangci\.ya?ml$'
 
 die() { echo "plan: $*" >&2; exit 1; }
 

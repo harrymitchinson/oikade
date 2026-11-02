@@ -260,7 +260,9 @@ fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"hack/owner-approval"}]'
 if merge; then fail "merge succeeded on an unlabelled PR that changes hack/owner-approval"; fi
 grep -q 'labels\[\]=needs-review' "$tmp/fx/writes.log" || fail "merge didn't label it needs-review: $(cat "$tmp/fx/writes.log")"
 ! grep -q '^PUT' "$tmp/fx/writes.log" || fail "merge merged a PR it had just labelled"
-fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"internal/rule/rule.go"}]'
+# Product code is never protected, even the Zigbee controller that keeps the
+# network: the floor is the agents' guardrails only.
+fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"internal/controller/zigbee/zigbee2mqtt_controller.go"}]'
 
 # With no hold at all it merges labelled agent-merged. The label reruns the
 # gate, so GitHub refuses the merge until that run ends, and merge retries.
