@@ -265,15 +265,24 @@ func (n *Node) openWindow(w clusters.Window) {
 	if old != nil {
 		_ = n.mdns.Remove(*old)
 	}
-	if err := n.mdns.Add(n.ctx, svc); err != nil {
+	err = n.mdns.Add(n.ctx, svc)
+	n.mu.Lock()
+	current := n.commissionable == &svc
+	if err != nil && current {
+		n.commissionable = nil
+	}
+	n.mu.Unlock()
+	if err != nil {
 		// Without the advertisement the window isn't open: refuse PASE, so the state agrees.
-		n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
-		n.mu.Lock()
-		if n.commissionable == &svc {
-			n.commissionable = nil
+		if current {
+			n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 		}
-		n.mu.Unlock()
 		n.log.Error(err, "Could not advertise the commissionable service")
+		return
+	}
+	if !current {
+		// The window closed, or opened anew, while this one probed.
+		_ = n.mdns.Remove(svc)
 		return
 	}
 	n.log.Info("Advertised commissionable service", "discriminator", w.Discriminator, "instance", svc.Instance)
@@ -293,6 +302,10 @@ func (n *Node) closeWindow() {
 		n.log.Error(err, "Could not stop advertising the commissionable service")
 	}
 	n.log.Info("Stopped advertising commissionable service")
+	if n.table.Count() == 0 {
+		n.log.Info("Closed the commissioning window while on no fabric: restart the pod to open it again",
+			"timeout", n.cfg.WindowTimeout)
+	}
 }
 
 // refusePASE answers PASE while no commissioning window is open.
@@ -322,13 +335,20 @@ func (n *Node) advertiseFabric(index uint8) {
 	if old != nil {
 		_ = n.mdns.Remove(*old)
 	}
-	if err := n.mdns.Add(n.ctx, svc); err != nil {
-		n.mu.Lock()
-		if n.operational[index] == &svc {
-			delete(n.operational, index)
-		}
-		n.mu.Unlock()
+	err := n.mdns.Add(n.ctx, svc)
+	n.mu.Lock()
+	current := n.operational[index] == &svc
+	if err != nil && current {
+		delete(n.operational, index)
+	}
+	n.mu.Unlock()
+	if err != nil {
 		n.log.Error(err, "Could not advertise the operational service", "fabric", index)
+		return
+	}
+	if !current {
+		// The fabric was removed, or advertised anew, while this one probed.
+		_ = n.mdns.Remove(svc)
 		return
 	}
 	n.log.Info("Advertised operational service", "fabric", index, "instance", svc.Instance)
@@ -347,11 +367,10 @@ func (n *Node) endPASE() {
 // (Core spec, 4.11.1.3), so it's sent once.
 func (n *Node) endSession(s *transport.Session) {
 	if ex, err := s.NewExchange(); err == nil {
-		ctx, cancel := context.WithTimeout(n.ctx, time.Second)
-		_ = ex.Send(ctx, securechannel.StatusReport{
+		_ = ex.SendUnreliable(securechannel.StatusReport{
 			General: securechannel.GeneralSuccess, Protocol: transport.SecureChannel, Code: securechannel.CodeCloseSession,
 		}.Message())
-		cancel()
+		ex.Close()
 	}
 	n.tr.RemoveSession(s)
 }

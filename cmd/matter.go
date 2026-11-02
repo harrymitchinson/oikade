@@ -3,16 +3,13 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/mdns"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/render"
@@ -83,46 +80,5 @@ func runMatter(args []string) int {
 
 // readMatterSetup reads the files mounted from a Bridge's Secret.
 func readMatterSetup(dir string) (node.Config, error) {
-	read := func(key string) ([]byte, error) { return os.ReadFile(filepath.Join(dir, key)) }
-	number := func(key string, bits int) (uint64, error) {
-		b, err := read(key)
-		if err != nil {
-			return 0, err
-		}
-		v, err := strconv.ParseUint(strings.TrimSpace(string(b)), 10, bits)
-		if err != nil {
-			return 0, fmt.Errorf("%s: %w", key, err)
-		}
-		return v, nil
-	}
-	var cfg node.Config
-	passcode, err := number(render.MatterPasscodeKey, 32)
-	if err != nil {
-		return cfg, err
-	}
-	discriminator, err := number(render.MatterDiscriminatorKey, 16)
-	if err != nil {
-		return cfg, err
-	}
-	cfg.Setup = node.Setup{Passcode: uint32(passcode), Discriminator: uint16(discriminator)}
-	if !cfg.Setup.Valid() {
-		return cfg, errors.New("invalid passcode or discriminator")
-	}
-	id, err := read(render.MatterUniqueIDKey)
-	if err != nil {
-		return cfg, err
-	}
-	cfg.Info.UniqueID = strings.TrimSpace(string(id))
-	dac, err := read(render.MatterDACKey)
-	if err != nil {
-		return cfg, err
-	}
-	key, err := read(render.MatterDACPrivateKey)
-	if err != nil {
-		return cfg, err
-	}
-	if cfg.Attestation, err = attestation.WithDAC(dac, key); err != nil {
-		return cfg, err
-	}
-	return cfg, nil
+	return render.MatterSetup(func(key string) ([]byte, error) { return os.ReadFile(filepath.Join(dir, key)) })
 }

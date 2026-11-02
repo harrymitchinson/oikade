@@ -1,7 +1,10 @@
 package render
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -12,6 +15,8 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 
 	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/matter/attestation"
+	"github.com/harrymitchinson/oikade/internal/matter/node"
 )
 
 // The Matter bridge Secret's keys. The role reads the setup ones from files of the same names.
@@ -136,13 +141,69 @@ func MatterDeployment(in MatterInput) *appsv1ac.DeploymentApplyConfiguration {
 				WithSpec(pod)))
 }
 
-// MatterConfigHash hashes the inputs the bridge pod reads only at start: its port, name and the
-// mounted Secret keys.
-func MatterConfigHash(port int32, name string, secret map[string][]byte) string {
-	b := []byte(strconv.Itoa(int(port)) + "/" + name)
+// MatterConfigHash hashes the mounted Secret keys, which the bridge pod reads only at start. The
+// rest of what it reads is in its arguments.
+func MatterConfigHash(secret map[string][]byte) string {
+	var b []byte
 	for _, k := range MatterSetupKeys {
-		b = append(b, '/')
 		b = append(b, secret[k]...)
+		b = append(b, '/')
 	}
 	return Hash(b)
+}
+
+// MatterSetup reads what a bridge needs from its Secret's keys, through get: the setup code, the
+// unique ID and the attestation. The operator checks a Secret with it, and the pod reads its
+// mounted files with it.
+func MatterSetup(get func(key string) ([]byte, error)) (node.Config, error) {
+	var cfg node.Config
+	value := func(key string) (string, error) {
+		b, err := get(key)
+		if err != nil {
+			return "", err
+		}
+		if len(b) == 0 {
+			return "", fmt.Errorf("%s is empty", key)
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	number := func(key string, bits int) (uint64, error) {
+		v, err := value(key)
+		if err != nil {
+			return 0, err
+		}
+		n, err := strconv.ParseUint(v, 10, bits)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", key, err)
+		}
+		return n, nil
+	}
+	passcode, err := number(MatterPasscodeKey, 32)
+	if err != nil {
+		return cfg, err
+	}
+	discriminator, err := number(MatterDiscriminatorKey, 16)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Setup = node.Setup{Passcode: uint32(passcode), Discriminator: uint16(discriminator)}
+	if !cfg.Setup.Valid() {
+		return cfg, errors.New("invalid passcode or discriminator")
+	}
+	if cfg.Info.UniqueID, err = value(MatterUniqueIDKey); err != nil {
+		return cfg, err
+	}
+	if len(cfg.Info.UniqueID) > 32 {
+		return cfg, fmt.Errorf("%s is over 32 characters", MatterUniqueIDKey)
+	}
+	dac, err := get(MatterDACKey)
+	if err != nil {
+		return cfg, err
+	}
+	key, err := get(MatterDACPrivateKey)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Attestation, err = attestation.WithDAC(dac, key)
+	return cfg, err
 }

@@ -238,8 +238,30 @@ var _ = Describe("Bridge Controller", func() {
 		})).To(Succeed())
 		b := reconcileBridge(r, t.key("main"))
 		Expect(readyReason(b)).To(Equal("InvalidSecret"))
-		Expect(meta.FindStatusCondition(b.Status.Conditions, ConditionReady).Message).To(ContainSubstring(render.MatterDACKey))
+		Expect(meta.FindStatusCondition(b.Status.Conditions, ConditionReady).Message).
+			To(Equal("Secret main-matter: invalid passcode or discriminator"))
+
+		By("a Secret without its attestation")
+		secret := get(t.key("main-matter"), &corev1.Secret{})
+		secret.Data[render.MatterPasscodeKey] = []byte("20202021")
+		Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+		b = reconcileBridge(r, t.key("main"))
+		Expect(meta.FindStatusCondition(b.Status.Conditions, ConditionReady).Message).
+			To(Equal("Secret main-matter: no " + render.MatterUniqueIDKey))
 		Expect(k8sClient.Get(ctx, t.key("main-matter"), &appsv1.Deployment{})).NotTo(Succeed())
+	})
+
+	It("moves the port when the range no longer holds it", func() {
+		t := newTestNS()
+		t.createBridge("main", 10)
+		b := reconcileBridge(r, t.key("main"))
+		Expect(b.Status.Port).To(Equal(t.start))
+		b.Spec.PortRange = matterv1alpha1.PortRange{Start: t.start + 5, End: t.start + 9}
+		Expect(k8sClient.Update(ctx, b)).To(Succeed())
+		b = reconcileBridge(r, t.key("main"))
+		Expect(b.Status.Port).To(Equal(t.start + 5))
+		Expect(get(t.key("main-matter"), &appsv1.Deployment{}).Spec.Template.Spec.Containers[0].Ports[0].HostPort).
+			To(Equal(t.start + 5))
 	})
 
 	It("allocates distinct ports and reports exhaustion", func() {

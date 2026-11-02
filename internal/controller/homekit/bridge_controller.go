@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,10 +44,7 @@ type BridgeReconciler struct {
 	Image   string
 	MQTTURL string
 
-	// reserved remembers ports handed out before the Bridge's status write is visible in the
-	// cache, so two Bridges reconciled back to back can't get the same port.
-	mu       sync.Mutex
-	reserved map[types.NamespacedName]int32
+	ports ports.Reserver
 }
 
 // +kubebuilder:rbac:groups=homekit.oikade.dev,resources=bridges,verbs=get;list;watch;create;update;patch;delete
@@ -245,47 +241,24 @@ func (r *BridgeReconciler) ensureIdentity(ctx context.Context, b *homekitv1alpha
 }
 
 func (r *BridgeReconciler) allocatePort(ctx context.Context, b *homekitv1alpha1.Bridge) (int32, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	self := client.ObjectKeyFromObject(b)
-	if port, ok := r.reserved[self]; ok && b.Spec.PortRange.Contains(port) {
-		return port, nil
-	}
-
-	// Host-networked pods share each node's ports, so ports are unique cluster-wide.
-	var all homekitv1alpha1.BridgeList
-	if err := r.List(ctx, &all); err != nil {
-		return 0, err
-	}
-	used := map[int32]bool{}
-	for _, o := range all.Items {
-		if client.ObjectKeyFromObject(&o) != self && o.Status.Port != 0 {
-			used[o.Status.Port] = true
+	return r.ports.Allocate(self, b.Spec.PortRange.Start, b.Spec.PortRange.End, func() (map[int32]bool, error) {
+		// Host-networked pods share each node's ports, so ports are unique cluster-wide.
+		var all homekitv1alpha1.BridgeList
+		if err := r.List(ctx, &all); err != nil {
+			return nil, err
 		}
-	}
-	for k, port := range r.reserved {
-		if k != self {
-			used[port] = true
+		used := map[int32]bool{}
+		for _, o := range all.Items {
+			if client.ObjectKeyFromObject(&o) != self && o.Status.Port != 0 {
+				used[o.Status.Port] = true
+			}
 		}
-	}
-
-	port, err := ports.Allocate(b.Spec.PortRange.Start, b.Spec.PortRange.End, used)
-	if err != nil {
-		return 0, err
-	}
-	if r.reserved == nil {
-		r.reserved = map[types.NamespacedName]int32{}
-	}
-	r.reserved[self] = port
-	return port, nil
+		return used, nil
+	})
 }
 
-func (r *BridgeReconciler) release(key types.NamespacedName) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.reserved, key)
-}
+func (r *BridgeReconciler) release(key types.NamespacedName) { r.ports.Release(key) }
 
 func (r *BridgeReconciler) apply(ctx context.Context, obj runtime.ApplyConfiguration) error {
 	return shared.Apply(ctx, r.Client, obj)

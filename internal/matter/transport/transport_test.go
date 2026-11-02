@@ -711,3 +711,44 @@ func TestServeStopsHandlersOnSocketFailure(t *testing.T) {
 		t.Fatal("Serve didn't return")
 	}
 }
+
+// TestSendUnreliable sends once, without the R flag, and the receiver doesn't acknowledge it.
+func TestSendUnreliable(t *testing.T) {
+	dev, cli := newNode(t), newNode(t)
+	got := make(chan Message, 1)
+	dev.t.Handle(echo, []uint8{9}, func(_ context.Context, ex *Exchange, m Message) {
+		defer ex.Close()
+		got <- m
+	})
+	ex, err := cli.t.NewUnsecuredSession(dev.addr()).NewExchange()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ex.SendUnreliable(Message{Protocol: echo, Opcode: 9, Payload: []byte("bye")}); err != nil {
+		t.Fatal(err)
+	}
+	ex.Close()
+	select {
+	case m := <-got:
+		if string(m.Payload) != "bye" {
+			t.Errorf("got %+v", m)
+		}
+	case <-ctx(t).Done():
+		t.Fatal("not delivered")
+	}
+	time.Sleep(300 * time.Millisecond) // longer than the first retransmission would take
+	if n := cli.conn.writes.Load(); n != 1 {
+		t.Errorf("client sent %d datagrams, want 1", n)
+	}
+	if n := dev.conn.writes.Load(); n != 0 {
+		t.Errorf("device sent %d datagrams, want none (no ack)", n)
+	}
+	pkt := cli.conn.packets()[0]
+	_, n, err := ParseHeader(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ph, _, err := ParseProtocolHeader(pkt[n:]); err != nil || ph.Reliable {
+		t.Errorf("protocol header %+v, %v: want no R flag", ph, err)
+	}
+}

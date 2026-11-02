@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -52,10 +51,7 @@ type BridgeReconciler struct {
 	// Image runs the Matter bridge (the operator's own image).
 	Image string
 
-	// reserved remembers ports handed out before the Bridge's status write is visible in the
-	// cache, so two Bridges reconciled back to back can't get the same port.
-	mu       sync.Mutex
-	reserved map[types.NamespacedName]int32
+	ports ports.Reserver
 }
 
 // +kubebuilder:rbac:groups=matter.oikade.dev,resources=bridges,verbs=get;list;watch;create;update;patch;delete
@@ -119,7 +115,7 @@ func (r *BridgeReconciler) reconcileObjects(ctx context.Context, b *matterv1alph
 		return ctrl.Result{}, err
 	}
 
-	if b.Status.Port == 0 {
+	if b.Status.Port == 0 || !b.Spec.PortRange.Contains(b.Status.Port) {
 		port, err := r.allocatePort(ctx, b)
 		if errors.Is(err, ports.ErrExhausted) {
 			msg := fmt.Sprintf("no free port in %d-%d", b.Spec.PortRange.Start, b.Spec.PortRange.End)
@@ -143,7 +139,7 @@ func (r *BridgeReconciler) reconcileObjects(ctx context.Context, b *matterv1alph
 	}
 	if err := shared.Apply(ctx, r.Client, render.MatterDeployment(render.MatterInput{
 		Bridge: b, Image: r.Image,
-		ConfigHash: render.MatterConfigHash(b.Status.Port, b.Title(), secret.Data),
+		ConfigHash: render.MatterConfigHash(secret.Data),
 	})); err != nil {
 		return ctrl.Result{}, fmt.Errorf("applying deployment: %w", err)
 	}
@@ -203,28 +199,19 @@ func (r *BridgeReconciler) ensureSecret(ctx context.Context, b *matterv1alpha1.B
 	return created, nil
 }
 
-// setupOf reads the setup code from the Bridge's Secret, and checks that every key the pod
-// mounts is there.
+// setupOf reads the setup code from the Bridge's Secret, and checks everything else the pod
+// reads from it, as the pod does.
 func setupOf(s *corev1.Secret) (node.Setup, error) {
-	var missing []string
-	for _, k := range render.MatterSetupKeys {
-		if len(s.Data[k]) == 0 {
-			missing = append(missing, k)
+	cfg, err := render.MatterSetup(func(key string) ([]byte, error) {
+		if v, ok := s.Data[key]; ok {
+			return v, nil
 		}
-	}
-	if len(missing) > 0 {
-		return node.Setup{}, &userError{reasonInvalidSecret, fmt.Sprintf("Secret %s has no %s", s.Name, strings.Join(missing, ", "))}
-	}
-	passcode, perr := strconv.ParseUint(strings.TrimSpace(string(s.Data[render.MatterPasscodeKey])), 10, 32)
-	discriminator, derr := strconv.ParseUint(strings.TrimSpace(string(s.Data[render.MatterDiscriminatorKey])), 10, 16)
-	ns := node.Setup{Passcode: uint32(passcode), Discriminator: uint16(discriminator)}
-	if perr != nil || derr != nil || !ns.Valid() {
-		return node.Setup{}, &userError{reasonInvalidSecret, fmt.Sprintf("Secret %s has an invalid passcode or discriminator", s.Name)}
-	}
-	if _, err := attestation.WithDAC(s.Data[render.MatterDACKey], s.Data[render.MatterDACPrivateKey]); err != nil {
+		return nil, fmt.Errorf("no %s", key)
+	})
+	if err != nil {
 		return node.Setup{}, &userError{reasonInvalidSecret, fmt.Sprintf("Secret %s: %v", s.Name, err)}
 	}
-	return ns, nil
+	return cfg.Setup, nil
 }
 
 // setPairing shows the codes a commissioner takes.
@@ -350,47 +337,24 @@ func allocate(endpoints []matterv1alpha1.Endpoint, devices []string) ([]matterv1
 }
 
 func (r *BridgeReconciler) allocatePort(ctx context.Context, b *matterv1alpha1.Bridge) (int32, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	self := client.ObjectKeyFromObject(b)
-	if port, ok := r.reserved[self]; ok && b.Spec.PortRange.Contains(port) {
-		return port, nil
-	}
-
-	// Host-networked pods share each node's ports, so ports are unique cluster-wide.
-	var all matterv1alpha1.BridgeList
-	if err := r.List(ctx, &all); err != nil {
-		return 0, err
-	}
-	used := map[int32]bool{}
-	for _, o := range all.Items {
-		if client.ObjectKeyFromObject(&o) != self && o.Status.Port != 0 {
-			used[o.Status.Port] = true
+	return r.ports.Allocate(self, b.Spec.PortRange.Start, b.Spec.PortRange.End, func() (map[int32]bool, error) {
+		// Host-networked pods share each node's ports, so ports are unique cluster-wide.
+		var all matterv1alpha1.BridgeList
+		if err := r.List(ctx, &all); err != nil {
+			return nil, err
 		}
-	}
-	for k, port := range r.reserved {
-		if k != self {
-			used[port] = true
+		used := map[int32]bool{}
+		for _, o := range all.Items {
+			if client.ObjectKeyFromObject(&o) != self && o.Status.Port != 0 {
+				used[o.Status.Port] = true
+			}
 		}
-	}
-
-	port, err := ports.Allocate(b.Spec.PortRange.Start, b.Spec.PortRange.End, used)
-	if err != nil {
-		return 0, err
-	}
-	if r.reserved == nil {
-		r.reserved = map[types.NamespacedName]int32{}
-	}
-	r.reserved[self] = port
-	return port, nil
+		return used, nil
+	})
 }
 
-func (r *BridgeReconciler) release(key types.NamespacedName) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.reserved, key)
-}
+func (r *BridgeReconciler) release(key types.NamespacedName) { r.ports.Release(key) }
 
 func (r *BridgeReconciler) setCondition(b *matterv1alpha1.Bridge, typ string, status metav1.ConditionStatus, reason, msg string) {
 	meta.SetStatusCondition(&b.Status.Conditions, metav1.Condition{
@@ -426,7 +390,8 @@ func (r *BridgeReconciler) bridgesInNamespace(ctx context.Context, obj client.Ob
 // bridgeForSecret maps a Bridge's own Secret to the Bridge.
 func (r *BridgeReconciler) bridgeForSecret(_ context.Context, obj client.Object) []reconcile.Request {
 	owner := obj.GetLabels()[matterv1alpha1.LabelBridge]
-	if owner == "" || obj.GetName() != owner+"-matter" {
+	b := &matterv1alpha1.Bridge{ObjectMeta: metav1.ObjectMeta{Name: owner}}
+	if owner == "" || obj.GetName() != render.MatterName(b) {
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: obj.GetNamespace(), Name: owner}}}
