@@ -140,8 +140,9 @@ func signatureDER(sig []byte) []byte {
 }
 
 // FromX509 converts an X.509 DER certificate to Matter's form. The certificate must be within
-// Matter's profile, and convert back to exactly the same DER; otherwise its signature couldn't be
-// checked from the TLV form, and FromX509 returns an error wrapping ErrInvalid.
+// Matter's profile, fit Matter's size limit, and convert back to exactly the same DER; otherwise
+// its signature couldn't be checked from the TLV form, and FromX509 returns an error wrapping
+// ErrInvalid.
 func FromX509(b []byte) (*Certificate, error) {
 	if len(b) > MaxDERLength {
 		return nil, invalid("%d bytes, more than %d", len(b), MaxDERLength)
@@ -156,6 +157,9 @@ func FromX509(b []byte) (*Certificate, error) {
 	}
 	if !bytes.Equal(again, b) {
 		return nil, invalid("X.509 encoding isn't the one Matter's TLV form converts to")
+	}
+	if _, err := c.Encode(); err != nil { // too long for Matter's TLV form, say
+		return nil, err
 	}
 	return c, nil
 }
