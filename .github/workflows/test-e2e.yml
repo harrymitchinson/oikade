@@ -1,8 +1,11 @@
 name: E2E Tests
 
 on:
+  # Kind e2e takes ~9 minutes, so PRs don't wait for it: on a PR it runs only once the
+  # PR has the e2e label (adding the label starts it). Main runs it after each merge.
+  # Both skip changes that cannot change cluster behaviour.
   pull_request:
-    # Kind e2e takes ~8 minutes; skip it for PRs that cannot change cluster behaviour
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "api/**"
       - "contract/**"
@@ -18,8 +21,24 @@ on:
       - "Makefile"
       - "Dockerfile"
       - ".github/workflows/test-e2e.yml"
-  # Main isn't tested on every merge (see test.yml): nightly, and release.yml
-  # calls this before it publishes a release
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "contract/**"
+      - "cmd/**"
+      - "internal/**"
+      - "config/**"
+      - "test/**"
+      - "sdk/**"
+      - "plugins/**"
+      - "hack/boilerplate.go.txt"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - "Dockerfile"
+      - ".github/workflows/test-e2e.yml"
+  # Nightly, and release.yml calls this before it publishes a release
   schedule:
     - cron: "0 3 * * *"
   workflow_call:
@@ -32,6 +51,11 @@ jobs:
     permissions:
       contents: read
     name: Run on Ubuntu
+    # On a PR: only with the e2e label, and not again when some other label is added
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'e2e') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e'))
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -82,6 +106,8 @@ jobs:
     permissions:
       contents: read
     name: Build the manager image
+    # Adding a label doesn't change the code, so it needs no new image build
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code

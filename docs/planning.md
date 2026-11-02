@@ -65,6 +65,8 @@ Designs from before the move to Linear are in Done issues: room-targeted automat
 
 The user's review is the design, before any code. Code is vouched for by CI, the code-review skill and e2e.
 
+- **Kind e2e doesn't block PRs.** It takes about 9 minutes, so on a PR it runs only once the PR has the `e2e` label (adding the label starts it). Add it when a step changes what e2e covers and no cheaper test can check it, or run `make test-e2e` locally instead. Main runs e2e after each merge, nightly and before a release, so a break shows up there.
+
 - **Agents merge every step** once its checks pass, with `hack/plan merge OIK-N PR`. It merges only if the session holds the claim, the PR is the bottom of its stack and up to date with main, and every check passed. If neither it nor the feature has `needs-review`, and its diff touches no protected path (counting both sides of a rename), that's all. Otherwise it's held for the user, and merges only once their Approve covers its head.
 - **The protected paths** (`PROTECTED` in `hack/plan`) are a small floor that waits for the user:
   - the agents' own guardrails, so an agent can't loosen its rules or checks and then merge: `.github/`, `.claude/settings.json`, `.mcp.json`, `hack/plan`, its token helpers, `hack/owner-approval` and their tests, the `Makefile` and `.golangci.yml`;
