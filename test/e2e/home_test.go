@@ -66,17 +66,6 @@ spec:
   do:
   - set: {device: hallway-light, capability: light.on, value: true}
 ---
-apiVersion: v1
-kind: Secret
-metadata: {name: homekit-pin}
-stringData: {pin: "031-45-154"}
----
-apiVersion: homekit.oikade.dev/v1alpha1
-kind: Bridge
-metadata: {name: main}
-spec:
-  pinSecretRef: {name: homekit-pin, key: pin}
----
 apiVersion: matter.oikade.dev/v1alpha1
 kind: Bridge
 metadata: {name: main}
@@ -568,9 +557,8 @@ func homeScenario() {
 			}
 			for _, args := range [][]string{
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
-				{"-n", homeNamespace, "logs", "deploy/main-hap"},
 				{"-n", homeNamespace, "logs", "deploy/main-matter"},
-				{"-n", homeNamespace, "get", "devices,rules,bridges.homekit.oikade.dev,matterbridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
+				{"-n", homeNamespace, "get", "devices,rules,matterbridges,zigbee2mqtts,plugins,pods", "-o", "wide"},
 				{"-n", readmeNamespace, "get", "devices,rules", "-o", "yaml"},
 			} {
 				out, _ := utils.Run(exec.Command("kubectl", args...))
@@ -627,18 +615,6 @@ func homeScenario() {
 		It("has no Automation kind left", func() {
 			_, err := utils.Run(exec.Command("kubectl", "get", "crd", "automations.home.oikade.dev"))
 			Expect(err).To(MatchError(ContainSubstring("NotFound")))
-		})
-
-		It("runs a HomeKit bridge", func() {
-			Eventually(jsonpath("bridges.homekit.oikade.dev", "main", "{.status.accessories[*].device}")).
-				Should(Equal("hallway-light hallway-motion"))
-			Eventually(jsonpath("bridges.homekit.oikade.dev", "main", `{.status.conditions[?(@.type=="Ready")].status}`), 4*time.Minute).
-				Should(Equal("True"))
-			Eventually(func(g Gomega) {
-				out, err := kubectl("logs", "deploy/main-hap")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(out).To(ContainSubstring(`"accessories":2`))
-			}).Should(Succeed())
 		})
 
 		It("runs a Matter bridge that shows its pairing code", func() {
@@ -748,7 +724,6 @@ func homeScenario() {
 			for _, args := range [][]string{
 				{"-n", namespace, "logs", "deploy/oikade-controller-manager"},
 				{"-n", namespace, "logs", "deploy/oikade-runtime"},
-				{"-n", homeNamespace, "logs", "deploy/main-hap"},
 				{"-n", homeNamespace, "logs", "deploy/main-matter"},
 			} {
 				Eventually(func(g Gomega) {
@@ -1046,7 +1021,7 @@ func homeScenario() {
 
 			By("turning the heater off in the Home app")
 			// The bridge announces the write, then the plug reports it.
-			_, err = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-t", "oikade/v1/_homekit/"+homeNamespace+"/main",
+			_, err = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-t", "oikade/v1/_matter/"+homeNamespace+"/main/writes",
 				"-m", `{"bridge":"main","device":"water-heater","capability":"switch.on","value":false}`)
 			Expect(err).NotTo(HaveOccurred())
 			publish(pluginRoot+"/heater-relay/state", `{"switch.on":false}`, true)

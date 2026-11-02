@@ -62,7 +62,7 @@ spec:
                   last-write-wins.
                 items:
                   description: |-
-                    CapabilityControl makes one capability arbitrated (OIK-64): rules, HomeKit and the device itself
+                    CapabilityControl makes one capability arbitrated (OIK-64): rules, Matter and the device itself
                     make claims on it, and the device takes the winner.
                   properties:
                     capability:
@@ -76,7 +76,7 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                     external:
                       description: |-
-                        external says what a change from outside the rules, through HomeKit or on the device
+                        external says what a change from outside the rules, through Matter or on the device
                         itself, does. Override makes it a claim for overrideHold; Revert writes the winner back.
                       enum:
                       - Override
@@ -144,25 +144,10 @@ spec:
                 - capability
                 x-kubernetes-list-type: map
               displayName:
-                description: displayName is the human-friendly name shown in HomeKit
-                  and Grafana. Defaults to the object name.
+                description: displayName is the human-friendly name shown in Matter
+                  controllers and Grafana. Defaults to the object name.
                 maxLength: 64
                 type: string
-              homekit:
-                description: homekit tunes how the device appears in HomeKit.
-                properties:
-                  service:
-                    description: |-
-                      service overrides the default service chosen from the device's capabilities,
-                      e.g. Outlet for a smart plug that reports itself as a switch.
-                    enum:
-                    - Lightbulb
-                    - Switch
-                    - Outlet
-                    - MotionSensor
-                    - OccupancySensor
-                    type: string
-                type: object
               matter:
                 description: matter tunes how the device appears on a Matter bridge.
                 properties:
@@ -401,7 +386,7 @@ spec:
                             type: boolean
                           source:
                             description: 'source is the path the claim came in by:
-                              HomeKit, Device or Rule/<name>.'
+                              Matter, Device or Rule/<name>.'
                             type: string
                           value:
                             description: value is the claimed value.

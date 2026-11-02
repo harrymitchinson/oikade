@@ -14,8 +14,8 @@ func TestScenario3WaterHeaterArbitrated(t *testing.T) {
 	h.want("22:00 hold starts", h.claim(Claim{Source: "Rule/water-heater-night", Level: Normal, Value: on}),
 		on, Normal, "Rule/water-heater-night", NoLimit)
 	h.to("23:00")
-	d := h.outside("HomeKit", off)
-	h.want("23:00 Home app tap", d, off, Override, "HomeKit", NoLimit)
+	d := h.outside("Matter", off)
+	h.want("23:00 Home app tap", d, off, Override, "Matter", NoLimit)
 	if !d.Claims[0].Expires.Equal(at("+1 00:00")) {
 		t.Errorf("got expiry %v, want 00:00", d.Claims[0].Expires)
 	}
@@ -47,9 +47,9 @@ func TestScenario5PumpWithoutBudget(t *testing.T) {
 		t.Errorf("00:00: got %+v, want on with no write", d)
 	}
 	h.to("01:40")
-	h.want("01:40 Home app tap", h.outside("HomeKit", off), off, Override, "HomeKit", NoLimit)
+	h.want("01:40 Home app tap", h.outside("Matter", off), off, Override, "Matter", NoLimit)
 	h.to("02:00")
-	h.want("02:00 slot ends", h.release(budget), off, Override, "HomeKit", NoLimit)
+	h.want("02:00 slot ends", h.release(budget), off, Override, "Matter", NoLimit)
 	h.to("02:50")
 	h.want("02:50 frost", h.claim(Claim{Source: frost, Level: Safety, Value: on}), on, Safety, frost, NoLimit)
 	if st := h.a.State(); st.Starts != 1 {
@@ -57,7 +57,7 @@ func TestScenario5PumpWithoutBudget(t *testing.T) {
 	}
 	h.to("03:30")
 	d := h.release(frost)
-	h.want("03:30 frost ends", d, on, Override, "HomeKit", MinimumOn)
+	h.want("03:30 frost ends", d, on, Override, "Matter", MinimumOn)
 	if !d.Next.Equal(at("03:40")) {
 		t.Errorf("03:30: got next %v, want 03:40 when the override expires", d.Next)
 	}
@@ -182,7 +182,7 @@ func TestScenario8LeakShutoff(t *testing.T) {
 	h.to("14:00")
 	h.want("14:00 leak", h.claim(Claim{Source: leak, Level: Safety, Value: off, Latched: true}), off, Safety, leak, NoLimit)
 	h.to("14:05")
-	if err := h.a.Outside("HomeKit", on); err != nil {
+	if err := h.a.Outside("Matter", on); err != nil {
 		t.Fatal(err)
 	}
 	d := h.a.Decide()
@@ -190,8 +190,8 @@ func TestScenario8LeakShutoff(t *testing.T) {
 		t.Fatalf("14:05: got %+v, want a write back to closed", d)
 	}
 	h.a.Wrote(d.Value)
-	if d.Reverted == nil || d.Reverted.Source != "HomeKit" || d.Reverted.Value != on {
-		t.Errorf("14:05: got reverted %+v, want HomeKit's open", d.Reverted)
+	if d.Reverted == nil || d.Reverted.Source != "Matter" || d.Reverted.Value != on {
+		t.Errorf("14:05: got reverted %+v, want Matter's open", d.Reverted)
 	}
 	if !d.Claims[0].Latched {
 		t.Error("14:05: the leak claim should show as latched")

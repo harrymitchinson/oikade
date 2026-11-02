@@ -1,4 +1,4 @@
-// Package control arbitrates one capability of a device (OIK-64). Rules, HomeKit and the device
+// Package control arbitrates one capability of a device (OIK-64). Rules, Matter and the device
 // itself make claims on it; the arbiter picks the winner by level, breaks ties with the device's
 // resolve setting, then holds the winner back by the device's equipment limits.
 //
@@ -158,7 +158,7 @@ func (s Settings) Validate() error {
 
 // Claim is one source's claim on the capability. A source has at most one claim.
 type Claim struct {
-	// Source is the path the claim came in by: "Rule/<name>", "HomeKit" or "Device".
+	// Source is the path the claim came in by: "Rule/<name>", "Matter" or "Device".
 	Source string  `json:"source"`
 	Level  Level   `json:"level"`
 	Value  float64 `json:"value"`
@@ -318,7 +318,7 @@ func (a *Arbiter) Wrote(v float64) {
 	a.record(v)
 }
 
-// Outside records a change the arbiter didn't decide, from source ("HomeKit" or "Device"). It
+// Outside records a change the arbiter didn't decide, from source ("Matter" or "Device"). It
 // counts towards the limits and isn't fought by them. Under ExternalOverride it replaces any
 // earlier outside claim with an Override claim. Under ExternalRevert, the next decision writes
 // the device's earlier value back, exempt from the limits, if that is still the winner;

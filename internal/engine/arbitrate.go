@@ -30,8 +30,6 @@ type ControlStates = States[ControlState]
 const (
 	// SourceDevice is a change the runtime didn't write, as from a wall switch.
 	SourceDevice = "Device"
-	// SourceHomeKit is a change a HomeKit bridge announced writing, as from a Home app tap.
-	SourceHomeKit = "HomeKit"
 	// SourceMatter is a change a Matter bridge announced writing, for a Matter controller such as
 	// the Home app.
 	SourceMatter = "Matter"
@@ -43,18 +41,18 @@ const (
 // catching up, rather than an outside change.
 const staleReport = 5 * time.Second
 
-// homekitMatch is how long after a HomeKit bridge announces a write the device's change to that
+// bridgeMatch is how long after a bridge announces a write the device's change to that
 // value is taken as the write. It allows for slow plugins and for a report held back by
 // staleReport.
-const homekitMatch = 30 * time.Second
+const bridgeMatch = 30 * time.Second
 
-// homekitTolerance is how far a reported number may be from a HomeKit write and still match it.
+// bridgeTolerance is how far a reported number may be from a bridge's write and still match it.
 // Drivers round on the way to and from the device: a light.level of 40 comes back from
 // Zigbee2MQTT as 40.2. Bools are 0 and 1, so it can't confuse them.
-const homekitTolerance = 0.5
+const bridgeTolerance = 0.5
 
-// homekitWrite is a bridge's write, from HomeKit or Matter, waiting for the device to report it.
-type homekitWrite struct {
+// bridgeWrite is a bridge's write, waiting for the device to report it.
+type bridgeWrite struct {
 	source string
 	value  float64
 	at     time.Time
@@ -352,9 +350,9 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 
 func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v float64) {
 	source := SourceDevice
-	if w, ok := e.homekit[dev][name]; ok && w.matches(v, e.Clock.Now()) {
+	if w, ok := e.bridgeWrites[dev][name]; ok && w.matches(v, e.Clock.Now()) {
 		// A report on the way, as while a dimmer ramps, leaves the write for the final value.
-		e.forgetHomeKit(dev, name)
+		e.forgetBridgeWrite(dev, name)
 		source = w.source
 	}
 	if err := ar.a.Outside(source, v); err != nil {
@@ -362,14 +360,9 @@ func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v
 	}
 }
 
-// HomeKitWrote records that a HomeKit bridge is writing value to an arbitrated capability, so the
-// device's change to it is recorded as from HomeKit rather than the device. Bridges announce a
+// MatterWrote records that a Matter bridge is writing value to an arbitrated capability, so the
+// device's change to it is recorded as from Matter rather than the device. Bridges announce a
 // write before making it, and the bus delivers in order, so this comes before the change.
-func (e *Engine) HomeKitWrote(dev types.NamespacedName, name string, value any) {
-	e.bridgeWrote(SourceHomeKit, dev, name, value)
-}
-
-// MatterWrote is HomeKitWrote for a Matter bridge: the change is recorded as from Matter.
 func (e *Engine) MatterWrote(dev types.NamespacedName, name string, value any) {
 	e.bridgeWrote(SourceMatter, dev, name, value)
 }
@@ -382,37 +375,37 @@ func (e *Engine) bridgeWrote(source string, dev types.NamespacedName, name strin
 	defer e.mu.Unlock()
 	now := e.Clock.Now()
 	// Writes nobody reported go once they're too old to match.
-	for d, ws := range e.homekit {
+	for d, ws := range e.bridgeWrites {
 		for n, w := range ws {
-			if !now.Before(w.at.Add(homekitMatch)) {
-				e.forgetHomeKit(d, n)
+			if !now.Before(w.at.Add(bridgeMatch)) {
+				e.forgetBridgeWrite(d, n)
 			}
 		}
 	}
-	w := homekitWrite{source: source, value: capability.Float(value), at: now}
+	w := bridgeWrite{source: source, value: capability.Float(value), at: now}
 	if ar := e.arbs[dev][name]; ar != nil {
 		if st := ar.a.State(); st.Known && w.matches(st.Value, now) {
 			// The device already has it, so no change will come.
-			e.forgetHomeKit(dev, name)
+			e.forgetBridgeWrite(dev, name)
 			return
 		}
 	}
-	if e.homekit[dev] == nil {
-		e.homekit[dev] = map[string]homekitWrite{}
+	if e.bridgeWrites[dev] == nil {
+		e.bridgeWrites[dev] = map[string]bridgeWrite{}
 	}
-	e.homekit[dev][name] = w
+	e.bridgeWrites[dev][name] = w
 }
 
 // matches reports whether a value reported at now is the write's.
-func (w homekitWrite) matches(v float64, now time.Time) bool {
-	return math.Abs(w.value-v) <= homekitTolerance && now.Before(w.at.Add(homekitMatch))
+func (w bridgeWrite) matches(v float64, now time.Time) bool {
+	return math.Abs(w.value-v) <= bridgeTolerance && now.Before(w.at.Add(bridgeMatch))
 }
 
-// forgetHomeKit drops a HomeKit write. Call with e.mu held.
-func (e *Engine) forgetHomeKit(dev types.NamespacedName, name string) {
-	delete(e.homekit[dev], name)
-	if len(e.homekit[dev]) == 0 {
-		delete(e.homekit, dev)
+// forgetBridgeWrite drops a bridge's write. Call with e.mu held.
+func (e *Engine) forgetBridgeWrite(dev types.NamespacedName, name string) {
+	delete(e.bridgeWrites[dev], name)
+	if len(e.bridgeWrites[dev]) == 0 {
+		delete(e.bridgeWrites, dev)
 	}
 }
 

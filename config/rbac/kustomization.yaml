@@ -34,9 +34,6 @@ resources:
 - zigbee_zigbee2mqtt_admin_role.yaml
 - zigbee_zigbee2mqtt_editor_role.yaml
 - zigbee_zigbee2mqtt_viewer_role.yaml
-- homekit_bridge_admin_role.yaml
-- homekit_bridge_editor_role.yaml
-- homekit_bridge_viewer_role.yaml
 - home_room_admin_role.yaml
 - home_room_editor_role.yaml
 - home_room_viewer_role.yaml
