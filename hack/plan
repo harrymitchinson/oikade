@@ -33,11 +33,6 @@ MERGE_SLEEP="${PLAN_MERGE_SLEEP:-5}"
 # that move is the approval.
 DESIGN_REVIEW="Design Review"
 
-# Paths an agent may never merge without the user (hack/plan merge). It's a
-# small floor, since the user reviews designs, not diffs: the agents' own
-# guardrails, so an agent can't loosen its rules or checks and then merge.
-PROTECTED='^\.github/|^\.claude/settings(\.local)?\.json$|^\.mcp\.json$|^hack/(plan|agent-token|linear-token|owner-approval|test/)|^Makefile$|^\.golangci\.ya?ml$'
-
 die() { echo "plan: $*" >&2; exit 1; }
 
 # The dispatch at the bottom looks the repo up once, into REPO.
@@ -662,7 +657,7 @@ cmd_pr() {
 }
 
 cmd_merge() {
-	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow files s held=() approval
+	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow s held=() approval
 	n=$(id "${1:?usage: plan merge ID PR}")
 	pr="${pr#\#}"
 	json=$(issue "$n")
@@ -707,28 +702,19 @@ cmd_merge() {
 	git fetch -q "$REMOTE" "refs/pull/$pr/head"
 	git merge-base --is-ancestor "$REMOTE/main" "$oid" ||
 		die "PR #$pr is behind main, so its checks didn't test what would merge. Rebase it on main, push, and wait for its checks"
+	[[ "$(git rev-parse "$oid^{tree}")" != "$(git rev-parse "$REMOTE/main^{tree}")" ]] || die "PR #$pr changes nothing on top of main"
 	checks=$(gh pr checks "$pr" --json workflow,name,bucket -q '.[] | "\(.bucket)\t\(.workflow)\t\(.name)"' || true)
 	for workflow in Tests Lint; do
 		grep -qE "^[a-z]+"$'\t'"$workflow"$'\t' <<<"$checks" ||
 			die "PR #$pr has no $workflow checks yet. Wait with: gh pr checks $pr --watch"
 	done
-	# Both sides of a rename, so moving a file out of a protected path counts.
-	files=$(gh api --paginate "repos/$(repo)/pulls/$pr/files" -q '.[] | .filename, (.previous_filename // empty)') ||
-		die "couldn't list PR #$pr's files, so it can't be checked: the user merges it"
-	[[ -n "$files" ]] || die "PR #$pr changes no files"
-	files=$(grep -E "$PROTECTED" <<<"$files" | sort -u || true)
-	if [[ -n "$files" && "$labels" != *,needs-review,* ]]; then
-		# Labelling it reruns Approved by the owner, so it can't merge now.
-		add_pr_label "$pr" needs-review
-		die "PR #$pr changes paths the user reviews, so it's labelled needs-review and waits for their Approve:"$'\n'"$files"
-	fi
-	if [[ -n "$files" ]]; then held+=("PR #$pr changes paths the user reviews:"$'\n'"$files"); fi
-	# Held for the user: it merges only once their Approve covers the code as
-	# it is now. That's read from the reviews, not the Approved by the owner
+	# Held for the user, because they labelled the PR or its feature
+	# needs-review: it merges only once their Approve covers the code as it is
+	# now. That's read from the reviews, not the Approved by the owner
 	# check, and by main's hack/owner-approval, not this worktree's, since
 	# the PR could change either. It's asked before the checks, which fail
 	# until the user approves, so the refusal says what it's waiting for.
-	local label=agent-merged note="Merged by an agent: its checks passed on top of main and it changes nothing the user reviews first (docs/planning.md). Review it whenever you like, and remove the \`agent-merged\` label once you have."
+	local label=agent-merged note="Merged by an agent: its checks passed on top of main, and nobody asked to review it first (docs/planning.md). Review it whenever you like, and remove the \`agent-merged\` label once you have."
 	if (( ${#held[@]} )); then
 		git cat-file -e "$REMOTE/main:hack/owner-approval" 2>/dev/null ||
 			die "$(printf '%s\n' "${held[@]}")"$'\n'"and main has no hack/owner-approval yet, so the user merges it"

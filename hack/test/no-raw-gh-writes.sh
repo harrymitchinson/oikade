@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # no-raw-gh-writes: check that no skill or agent guide tells an agent to run a
-# gh write that .claude/settings.json denies. Agents write through hack/plan,
-# so their writes show as oikade-agent[bot] (docs/planning.md).
+# gh write that .claude/settings.json denies. Agents make those writes through
+# hack/plan, so they show as oikade-agent[bot] (docs/planning.md).
 # Run by make test-hack.
 set -euo pipefail
 

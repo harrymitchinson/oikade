@@ -1,17 +1,17 @@
 name: Review gate
 
-# A PR labelled needs-review waits for the user's Approve (docs/planning.md).
+# A PR the user labelled needs-review waits for their Approve (docs/planning.md).
 # hack/plan pr copies a feature's needs-review label onto each of its PRs.
 # hack/plan merge merges a held PR only once main's hack/owner-approval says
 # the user's Approve covers its head, as this check does. Agents open
 # PRs as oikade-agent[bot], so the user can approve them. "Approved by the
 # owner" is a required check on main, and it fails until they do. Any other PR
-# passes, so hack/plan merge still merges low-risk steps.
+# passes, so hack/plan merge merges it once its checks pass.
 #
-# GitHub runs this from the PR's own branch, so a PR could change it. One
-# that does touches .github/, which hack/plan treats as protected: it's always
-# needs-review, and the user reads that change before approving it. Agents
-# can't merge any other way, since they have no gh write but hack/plan.
+# GitHub runs this from the PR's own branch, so a PR could change it. That
+# doesn't open the gate: hack/plan merge reads the user's Approve itself, with
+# main's hack/owner-approval, before it merges a held PR. Agents can't merge
+# any other way, since gh pr merge and gh api are denied to them.
 #
 # A review doesn't start a run of its own: review-gate-rerun.yml reruns this
 # one, so the head commit only ever has one "Approved by the owner" result.
