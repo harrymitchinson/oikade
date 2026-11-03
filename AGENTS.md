@@ -75,14 +75,14 @@ make lint-fix   # Auto-fix code style
 make test       # Run unit tests
 ```
 
-**After editing the plugin contract, the SDK or a plugin** (`contract/v1`, `sdk/plugin`, `internal/conformance`, `test/fixtures/simswitch`), as well as the Go steps above:
+**After editing the plugin contract, the SDK or the fixture** (`contract/v1`, `sdk/plugin`, `internal/conformance`, `test/fixtures/simswitch`), as well as the Go steps above:
 ```
 make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 contract
 ```
 
-The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. Plugins in other languages live in their own repos. An SDK for another language may live here only if it's generated from the contract (OIK-62).
+The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types, and neither may `cmd/oikade-conformance`'s flags change without a note, because plugin repos run it in CI. An SDK for another language may live here only if it's generated from the contract (OIK-62).
 
-**Plugins live in their own repos** (`oikade-plugin-<name>`), each with its own images and releases (OIK-108). This repo publishes no plugin image.
+**Plugins live in their own repos** (`oikade-plugin-<name>`, started from the `oikade-plugin-template` GitHub template), each with its own `go.mod`, images and releases (OIK-108). Never add a plugin here: `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end, and this repo publishes no plugin image.
 
 ## Before Opening a PR
 

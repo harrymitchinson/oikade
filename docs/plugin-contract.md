@@ -152,3 +152,5 @@ Everything after `--` is the plugin's start command, run without a shell in the 
 Inside this repo, `make test-conformance` runs the same suite under `go test` against the simulated-relay fixture in [`test/fixtures/simswitch`](../test/fixtures/simswitch), and CI runs it on every PR. `CONFORMANCE_PLUGIN` and `OIKADE_CONFORMANCE_DEVICES` point it at another plugin, relative to the repository root.
 
 Plugins written in Go can use [the SDK](../sdk/plugin), which implements this contract, and the payload types in [`contract/v1`](../contract/v1), which Oikade's own decoder uses. Plugins in other languages implement this document directly and pass the conformance suite above. Oikade maintains no SDK for them.
+
+Each plugin lives in its own repo, `oikade-plugin-<name>`, with its own releases and its image at `ghcr.io/<owner>/oikade-plugin-<name>`. Go plugins can start from the [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template) GitHub template: one `plugin.Run`, a distroless multi-arch Dockerfile that runs as UID 1000 like every plugin pod, and CI that runs `oikade-conformance`.
