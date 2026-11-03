@@ -250,16 +250,9 @@ reviews "$(review o APPROVED "$s2r")"
 gate pass
 merge || fail "merge refused an approved PR on a feature labelled needs-review: $(cat "$tmp/out")"
 
-# No path is held for the user: an unlabelled PR, whatever it changes,
-# merges once its checks pass, without labelling it needs-review.
-feature
-reviews
-merge || fail "merge refused an unlabelled PR that changes hack/owner-approval and CI: $(cat "$tmp/out")"
-! grep -q 'labels\[\]=needs-review' "$tmp/fx/writes.log" || fail "merge labelled it needs-review: $(cat "$tmp/fx/writes.log")"
-grep -q 'labels\[\]=agent-merged' "$tmp/fx/writes.log" || fail "merge didn't label it agent-merged: $(cat "$tmp/fx/writes.log")"
-
-# With no hold at all it merges labelled agent-merged. The label reruns the
-# gate, so GitHub refuses the merge until that run ends, and merge retries.
+# With no hold at all it merges labelled agent-merged, whatever it changes:
+# no path is held for the user. The label reruns the gate,
+# so GitHub refuses the merge until that run ends, and merge retries.
 feature
 reviews
 export PLAN_MERGE_TRIES=3 PLAN_MERGE_SLEEP=0

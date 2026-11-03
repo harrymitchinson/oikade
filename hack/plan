@@ -702,6 +702,7 @@ cmd_merge() {
 	git fetch -q "$REMOTE" "refs/pull/$pr/head"
 	git merge-base --is-ancestor "$REMOTE/main" "$oid" ||
 		die "PR #$pr is behind main, so its checks didn't test what would merge. Rebase it on main, push, and wait for its checks"
+	[[ "$(git rev-parse "$oid^{tree}")" != "$(git rev-parse "$REMOTE/main^{tree}")" ]] || die "PR #$pr changes nothing on top of main"
 	checks=$(gh pr checks "$pr" --json workflow,name,bucket -q '.[] | "\(.bucket)\t\(.workflow)\t\(.name)"' || true)
 	for workflow in Tests Lint; do
 		grep -qE "^[a-z]+"$'\t'"$workflow"$'\t' <<<"$checks" ||
