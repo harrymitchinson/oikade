@@ -341,15 +341,9 @@ Turn **Permit join** off again when you're done. Changes made in the Zigbee2MQTT
 
 Devices that aren't Zigbee, such as SONOFF LAN relays, are served by a [plugin](../README.md#plugins): a separate pod that speaks Oikade's capabilities over MQTT. Skip this step if you only have Zigbee devices.
 
-Plugin images must be arm64. Plugins in this repo are static Go binaries on a distroless base, so the build cross-compiles without emulation. Build one the same way as the Oikade image:
+Each plugin is released from its own repo, `oikade-plugin-<name>`, as an image for linux/arm64 and linux/amd64 at `ghcr.io/<github-user>/oikade-plugin-<name>:<tag>`. Use a released tag. Oikade doesn't build plugin images.
 
-```sh
-make docker-buildx-plugin PLUGIN=example-switch \
-  PLUGIN_IMG=ghcr.io/<github-user>/oikade-plugin-example-switch:v0.1.0 \
-  PLUGIN_PLATFORMS=linux/arm64 PLUGIN_BUILD_ARGS=--push
-```
-
-`example-switch` simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware. It's the only plugin that ships today. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
+`oikade-plugin-example-switch` simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware. Its repo and first image come with [OIK-113](https://linear.app/oikade/issue/OIK-113); until then, there's no published plugin to try. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
 
 **Credentials.** A plugin that needs per-device keys reads them from a Secret named in `spec.secretRef`, with one key per device id. The operator mounts it but never creates, changes or deletes it, so it's yours to keep in Git. Encrypt it with SOPS and let Flux decrypt it:
 

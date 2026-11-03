@@ -35,6 +35,7 @@ These appear in users' Git repos, dashboards, alert rules and Home app setups. C
 - **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `sensor.contact-open: true` means open. They appear in Rule YAML, PromQL and `Device.status`. The `add-capability` skill owns this procedure.
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.
 - **The CEL environment** for Rules: `trigger`, `devices`, `now`, `tz`. Its variables and types are a language contract.
+- **The plugin contract** (`docs/plugin-contract.md`, `contract/v1`, `sdk/plugin`) **and `oikade-conformance`'s name and flags.** Plugin repos depend on them through their `go.mod` and CI, and each plugin is released on its own schedule. A change reaches a Go plugin when it bumps `oikade`, and a plugin in another language when it changes the version it pins in `go install …@vX.Y.Z`.
 - **Log messages that are queried**, for example `"Changed capability"` in Loki.
 - **Object names and labels**: `<bridge>-matter` (Secret and PVC), `<instance>-network`, `<instance>-data`, and the labels `matter.oikade.dev/bridge` and `zigbee.oikade.dev/instance`. Backup and cleanup docs depend on them.
 - **Matter endpoint IDs.** They're append-only in `Bridge.status.endpoints`, with a copy in the `<bridge>-matter` Secret: never reused or reordered, and kept for deleted Devices. Controllers key rooms, scenes and automations on them.
@@ -87,5 +88,5 @@ Lint with `GOTOOLCHAIN=go1.26.0 make lint`.
 
 ## 8. Standing preferences
 
-- **No Home Assistant as a driver** or component. Standalone device libraries that Home Assistant also uses are fine inside plugins. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, or plugins, written in Go first ([OIK-62](https://linear.app/oikade/issue/OIK-62)).
+- **No Home Assistant as a driver** or component. Standalone device libraries that Home Assistant also uses are fine inside plugins. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, or plugins, written in Go first ([OIK-62](https://linear.app/oikade/issue/OIK-62)), each in its own repo ([OIK-108](https://linear.app/oikade/issue/OIK-108)).
 - The user is an SRE. GitOps reviewability, observability and boring operability beat cleverness.
