@@ -121,7 +121,7 @@ The contract version appears twice: in the topic root (`oikade/v1`) and in `stat
 
 ## Conformance
 
-`test/conformance` is a fake hub: an in-process broker and Oikade's own decoder for this contract. It starts the plugin with a devices file and checks that:
+The conformance suite is a fake hub: an in-process broker and Oikade's own decoder for this contract. It starts the plugin with a devices file and checks that:
 
 - `status` goes online with contract 1, and `devices` lists every declared device
 - every found device has availability, state and a value for each capability it announced
@@ -132,14 +132,23 @@ The contract version appears twice: in the topic root (`oikade/v1`) and in `stat
 - when the plugin is killed, its Last Will marks it offline with contract 1
 - Oikade rejected none of its messages at any point
 
-Oikade's CI runs it against [`plugins/example-switch`](../plugins/example-switch). To run it against a plugin built elsewhere, in any language, check out Oikade and pass the plugin's start command and a devices file for it. Paths are relative to the Oikade checkout unless absolute:
+A plugin repo runs it with `oikade-conformance`, which is versioned with the contract. A Go plugin adds it as a tool, so its version follows the `oikade` module the plugin already requires for the SDK, and a bump re-checks the plugin against the new contract:
 
 ```sh
-make test-conformance \
-  CONFORMANCE_PLUGIN="../my-plugin/bin/my-plugin" \
-  OIKADE_CONFORMANCE_DEVICES=../my-plugin/conformance-devices.json
+go get -tool github.com/harrymitchinson/oikade/cmd/oikade-conformance
+go build -o bin/my-plugin .
+go tool oikade-conformance --devices conformance-devices.json -- bin/my-plugin
 ```
 
-The command is split on spaces, without a shell. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `OIKADE_CONFORMANCE_SECRETS` names a directory to pass as `OIKADE_SECRETS_DIR`.
+A plugin in another language installs it in CI, which needs Go only there:
+
+```sh
+go install github.com/harrymitchinson/oikade/cmd/oikade-conformance@vX.Y.Z
+oikade-conformance --devices conformance-devices.json -- ./bin/my-plugin --simulate
+```
+
+Everything after `--` is the plugin's start command, run without a shell in the current directory. Build it first rather than use `go run` or a wrapper script: the suite signals and kills that process, and the plugin itself must be the one that gets it. Paths are absolute or relative to the current directory. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `--secrets DIR` passes a directory as `OIKADE_SECRETS_DIR`, `--timeout` sets how long the plugin has to react at each step (default 15s), and `-v` logs what the decoder sees. It prints a line per check and exits 0 when all pass, 1 when one fails and 2 on a usage error.
+
+Inside this repo, `make test-conformance` runs the same suite under `go test` against [`plugins/example-switch`](../plugins/example-switch), and CI runs it on every PR. `CONFORMANCE_PLUGIN` and `OIKADE_CONFORMANCE_DEVICES` point it at another plugin, relative to the repository root.
 
 Plugins written in Go can use [the SDK](../sdk/plugin), which implements this contract, and the payload types in [`contract/v1`](../contract/v1), which Oikade's own decoder uses. Plugins in other languages implement this document directly and pass the conformance suite above. Oikade maintains no SDK for them.

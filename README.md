@@ -471,7 +471,7 @@ The Plugin's `Ready` condition is `True` with reason `Available` once the pod ru
 
 A plugin reports problems with a device, such as bad parameters or a missing key, as `Resolved=False` with reason `PluginError` on the Device. Messages Oikade can't validate are dropped and counted in `oikade_plugin_rejected_messages_total`.
 
-To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. [`plugins/example-switch`](plugins/example-switch) is a complete example with simulated relays. `make docker-buildx-plugin PLUGIN=<dir>` builds a plugin image for arm64 and amd64, and `make test-conformance` checks a plugin against the contract. A plugin in another language implements the [contract](docs/plugin-contract.md) itself and can run the same conformance suite from an Oikade checkout.
+To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. [`plugins/example-switch`](plugins/example-switch) is a complete example with simulated relays. `make docker-buildx-plugin PLUGIN=<dir>` builds a plugin image for arm64 and amd64, and `make test-conformance` checks a plugin against the contract. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
 ## Metrics
 
