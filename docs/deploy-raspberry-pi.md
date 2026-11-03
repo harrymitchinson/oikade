@@ -343,7 +343,7 @@ Devices that aren't Zigbee, such as SONOFF LAN relays, are served by a [plugin](
 
 Each plugin is released from its own repo, `oikade-plugin-<name>`, as an image for linux/arm64 and linux/amd64 at `ghcr.io/<github-user>/oikade-plugin-<name>:<tag>`. Use a released tag. Oikade doesn't build plugin images.
 
-`oikade-plugin-example-switch` simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware. Its repo and first image come with [OIK-113](https://linear.app/oikade/issue/OIK-113); until then, there's no published plugin to try. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
+[`oikade-plugin-example-switch`](https://github.com/harrymitchinson/oikade-plugin-example-switch) simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware. Its README has a Plugin and a Device to apply, and its releases list the image tags. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
 
 **Credentials.** A plugin that needs per-device keys reads them from a Secret named in `spec.secretRef`, with one key per device id. The operator mounts it but never creates, changes or deletes it, so it's yours to keep in Git. Encrypt it with SOPS and let Flux decrypt it:
 
