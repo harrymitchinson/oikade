@@ -21,8 +21,6 @@ set -euo pipefail
 TEAM="${PLAN_TEAM:-OIK}"
 LINEAR_API="${LINEAR_API_URL:-https://api.linear.app/graphql}"
 REMOTE="${PLAN_REMOTE:-origin}"
-# Where other repos' git remotes point. Tests point it at local bare repos.
-GITHUB="${PLAN_GITHUB:-https://github.com}"
 STALE_HOURS="${PLAN_STALE_HOURS:-24}"
 # How many of a feature's steps may wait for review at once. Each stacks on the
 # one before, so a change asked for low in the stack means rebasing the rest.
@@ -48,12 +46,29 @@ repo() { if [[ -n "$REPO" ]]; then echo "$REPO"; else gh repo view --json nameWi
 # missing. This repo's own is REMOTE. Another repo's branches share this .git,
 # so its steps get worktrees like any other.
 remote_for() {
-	local r="$1" name
+	local r="$1" name url cur
 	if [[ -z "$r" || "$r" == "$HOME_REPO" ]]; then echo "$REMOTE"; return; fi
-	name="plan-${r//\//-}"
-	git remote get-url "$name" >/dev/null 2>&1 || git remote add "$name" "$GITHUB/$r.git" ||
-		{ echo "plan: couldn't add the git remote $name for $r" >&2; return 1; }
+	name="plan-${r//\//-}" url=$(github_url "$r")
+	if cur=$(git remote get-url "$name" 2>/dev/null); then
+		[[ "$cur" == "$url" ]] || git remote set-url "$name" "$url" ||
+			{ echo "plan: couldn't point the git remote $name at $url" >&2; return 1; }
+	else
+		git remote add "$name" "$url" || { echo "plan: couldn't add the git remote $name for $r" >&2; return 1; }
+	fi
 	echo "$name"
+}
+
+# github_url REPO: where REPO's git remote points. That's PLAN_GITHUB/REPO.git
+# if PLAN_GITHUB is set, as tests set it to local bare repos. Otherwise it's
+# GitHub, reached the way REMOTE is, so pushes use the same credentials: an SSH
+# key can push workflow files, but the OAuth token git uses over HTTPS may lack
+# the workflow scope.
+github_url() {
+	if [[ -n "${PLAN_GITHUB:-}" ]]; then echo "$PLAN_GITHUB/$1.git"; return; fi
+	case "$(git remote get-url "$REMOTE" 2>/dev/null)" in
+	git@github.com:* | ssh://git@github.com/*) echo "git@github.com:$1.git" ;;
+	*) echo "https://github.com/$1.git" ;;
+	esac
 }
 
 # on_repo REPO: act on REPO (empty: this repo) from now on.
@@ -763,7 +778,8 @@ cmd_merge() {
 	# A step in a plugin's own repo names its PR as OWNER/NAME#N. pr_ref
 	# checks it now, and merge points at its repo after the restack here.
 	pr_ref "$pr"
-	pr="$PR_NUM" r="${REPO#"$HOME_REPO"}"
+	pr="$PR_NUM" r="$REPO"
+	[[ "$r" != "$HOME_REPO" ]] || r=""
 	on_repo ""
 	json=$(issue "$n")
 	# Merging restacks the feature's branches, so it needs the claim. If nobody
@@ -916,7 +932,7 @@ cmd_digest() {
 other_repos() {
 	local name
 	for name in $(git remote | grep '^plan-' || true); do
-		git remote get-url "$name" | sed -E 's#\.git$##; s#^.*/([^/]+/[^/]+)$#\1#'
+		git remote get-url "$name" | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#'
 	done
 }
 
