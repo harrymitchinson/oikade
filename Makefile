@@ -134,10 +134,11 @@ test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract (de
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 
 .PHONY: test-hack
-test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity and merge on approval with gh stubbed, and no raw gh writes in skills.
+test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval and plugin-repo steps with gh stubbed, and no raw gh writes in skills.
 	shellcheck hack/plan hack/agent-token hack/linear-token hack/owner-approval hack/test/*.sh
 	hack/test/agent-identity.sh
 	hack/test/merge-on-approval.sh
+	hack/test/plugin-repo.sh
 	hack/test/no-raw-gh-writes.sh
 
 .PHONY: lint
