@@ -26,5 +26,6 @@
 // "Ignored set command", "Could not apply set command", "Could not start plugin", "Could not
 // serve plugin" and "Could not close plugin". It never logs secrets: ReadSecret's values are the plugin's to protect.
 //
-// plugins/example-switch in the Oikade repository is a complete plugin.
+// test/fixtures/simswitch in the Oikade repository is a complete plugin, and
+// github.com/harrymitchinson/oikade-plugin-template is a repo to start one from.
 package plugin

@@ -19,7 +19,7 @@ type relay struct {
 
 func (r *relay) state() contractv1.State { return contractv1.State{r.capability: r.on} }
 
-// switches is the example-switch handler: one simulated relay per declared device.
+// switches is the simswitch handler: one simulated relay per declared device.
 type switches struct {
 	mu sync.Mutex
 	// order is the declared order of the relays, so they're reported deterministically.

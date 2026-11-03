@@ -591,7 +591,7 @@ make test          # unit tests, envtest, and an in-process MQTT broker for the 
 make lint
 make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks status, rules, holds, claims, metrics, and commissions and drives the Matter bridge with chip-tool (`test/e2e/chip-tool`, linux/arm64 only)
 
-make test-conformance   # builds plugins/example-switch and drives it through the plugin contract
+make test-conformance   # builds the simswitch test fixture and drives it through the plugin contract
 ```
 
 The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them. How the components, rule engine and Matter bridge work inside is in [docs/architecture.md](docs/architecture.md).

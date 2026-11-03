@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-// examplePlugin builds plugins/example-switch and returns its absolute path.
-func examplePlugin(t *testing.T) string {
+// fixturePlugin builds the simswitch test fixture and returns its absolute path.
+func fixturePlugin(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "example-switch")
-	out, err := exec.Command("go", "build", "-o", bin, "../../plugins/example-switch").CombinedOutput()
+	bin := filepath.Join(t.TempDir(), "simswitch")
+	out, err := exec.Command("go", "build", "-o", bin, "../../test/fixtures/simswitch").CombinedOutput()
 	if err != nil {
-		t.Fatalf("building example-switch: %v\n%s", err, out)
+		t.Fatalf("building simswitch: %v\n%s", err, out)
 	}
 	return bin
 }
@@ -27,11 +27,11 @@ func fromTestdata(t *testing.T) {
 	t.Chdir("../../test/conformance/testdata")
 }
 
-func TestPassesAgainstExampleSwitchFromAnotherDirectory(t *testing.T) {
+func TestPassesAgainstTheFixtureFromAnotherDirectory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives a real plugin process")
 	}
-	bin := examplePlugin(t)
+	bin := fixturePlugin(t)
 	fromTestdata(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--devices", "devices.json", "--", bin}, &stdout, &stderr)

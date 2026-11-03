@@ -19,7 +19,8 @@ const (
 
 	pluginConfigPath = "/etc/oikade/config"
 	pluginSecretPath = "/etc/oikade/secrets"
-	// pluginUserID matches USER in plugins/Dockerfile. Images built elsewhere must run as it too.
+	// pluginUserID is the UID plugin pods run as. A plugin image must run as it: the USER in
+	// oikade-plugin-template's Dockerfile.
 	pluginUserID = 1000
 )
 
