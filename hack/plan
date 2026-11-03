@@ -51,7 +51,8 @@ remote_for() {
 	local r="$1" name
 	if [[ -z "$r" || "$r" == "$HOME_REPO" ]]; then echo "$REMOTE"; return; fi
 	name="plan-${r//\//-}"
-	git remote get-url "$name" >/dev/null 2>&1 || git remote add "$name" "$GITHUB/$r.git"
+	git remote get-url "$name" >/dev/null 2>&1 || git remote add "$name" "$GITHUB/$r.git" ||
+		{ echo "plan: couldn't add the git remote $name for $r" >&2; return 1; }
 	echo "$name"
 }
 
@@ -59,7 +60,19 @@ remote_for() {
 on_repo() {
 	REPO="${1:-$HOME_REPO}"
 	export GH_REPO="$REPO"
-	STEP_REMOTE=$(remote_for "$1")
+	STEP_REMOTE=$(remote_for "$1") || exit 1
+}
+
+# pr_ref PR: a PR given as N, #N or OWNER/NAME#N. It points on_repo at the
+# repo and sets PR_NUM, or stops if PR isn't one.
+pr_ref() {
+	local p="$1" r=""
+	if [[ "$p" == */*#* ]]; then r="${p%%#*}" p="${p##*#}"; fi
+	p="${p#\#}"
+	[[ "$p" =~ ^[0-9]+$ ]] || die "\"$1\" isn't a PR: give its number, or OWNER/NAME#N for one in another repo"
+	[[ "$r" != "$HOME_REPO" ]] || r=""
+	PR_NUM="$p"
+	on_repo "$r"
 }
 
 # The user on GitHub: the repo's owner, as the workflows take it (github.repository_owner).
@@ -258,9 +271,6 @@ Work
                         user merges once their Approve covers its head. If nobody holds ID's claim, it
                         holds it while it runs. A PR in another repo is OWNER/NAME#N
   repo init OWNER/NAME  Give an empty repo, such as a new plugin's, a main with a README to build on
-
-A step whose sub-issue has a line "Repo: OWNER/NAME" is built in that repo: its own worktree from
-that repo's main, and its PR and merge there. It never stacks.
   restack ID            Rebase the steps stacked on a step that merged onto main
   release ID [--force]  Give up a claim: delete branch claim/ID and set the feature back to Todo. Step
                         branches stay. Refuses if claim/ID itself has commits, unless --force
@@ -268,6 +278,9 @@ that repo's main, and its PR and merge there. It never stacks.
   digest [DAYS]         What agents merged in the last DAYS days (default 7), for the user to skim
   sync [ID]             Set steps and features from their PRs, and unclaimed features back to Todo
   note ID|PR TEXT       Comment on a Linear issue or a GitHub PR
+
+A step whose sub-issue has a line "Repo: OWNER/NAME" is built in that repo: its own worktree from
+that repo's main, and its PR opened and merged there. It never stacks. Name its PR as OWNER/NAME#N.
 
 Issues (agents use these, never raw writes)
   issue TITLE BODY_FILE [--state S] [--project P] [--parent ID] [--label L]...
@@ -301,7 +314,8 @@ EOF
 # order. REPO is the OWNER/NAME from a "Repo:" line in the step's description,
 # or - for this repo. A feature with no sub-issues is its own single step.
 steps() {
-	jq -r 'def repo: [(.description // "") | scan("(?m)^Repo:[ \t]*`?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`?[ \t]*$")[0]] | .[0] // "-";
+	jq -r 'def repo: [(.description // "") | gsub("[\\\\*`]"; "")
+			| scan("(?m)^[ \t]*Repo:[ \t]*\\[?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")[0]] | .[0] // "-";
 		if (.children.nodes | length) == 0 then [1, .identifier, .state.type, repo, .title] | @tsv
 		else .children.nodes | sort_by(.subIssueSortOrder, .number) | to_entries[]
 			| [.key + 1, .value.identifier, .value.state.type, (.value | repo), .value.title] | @tsv end' <<<"$1"
@@ -605,8 +619,7 @@ cmd_show() {
 	echo "Steps:"
 	while IFS=$'\t' read -r i s type repo title; do
 		IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s" "$repo")"
-		[[ "$repo" == - ]] || pr="${pr:+$repo#$pr}"
-		printf '  %s. %s %s [%s]%s%s\n' "$i" "$s" "$title" "$type" "${pr:+ PR #${pr#*#} $st${base:+ → $base}}" "$([[ "$repo" == - ]] || echo " (in $repo)")"
+		printf '  %s. %s %s [%s]%s%s\n' "$i" "$s" "$title" "$type" "${pr:+ PR #$pr $st${base:+ → $base}}" "$([[ "$repo" == - ]] || echo " (in $repo)")"
 	done < <(steps "$json")
 	echo
 	echo "Next step:  $(next_step "$json" | cut -f2,3 | tr '\t' ' ')"
@@ -656,7 +669,7 @@ cmd_claim() {
 	is_claimed "$n" && die "$n is already claimed (branch claim/$n exists). See: hack/plan claims"
 	[[ -n "$(next_step "$json")" ]] || die "$n has no step left to build: each step is done or has a PR"
 
-	dir="${dir:-$(git rev-parse --path-format=absolute --git-common-dir | sed 's#/.git$##')/.claude/worktrees/work-$n}"
+	dir="${dir:-$(worktree_dir "$n")}"
 	[[ ! -e "$dir" ]] || die "$dir already exists. If it's left from an earlier session: git worktree remove $dir"
 
 	take_claim "$n" "chore: claim $n"
@@ -747,10 +760,11 @@ cmd_pr() {
 cmd_merge() {
 	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow s sr held=() approval r="" rem
 	n=$(id "${1:?usage: plan merge ID PR}")
-	# A step in a plugin's own repo names its PR as OWNER/NAME#N.
-	if [[ "$pr" == */*#* ]]; then r="${pr%%#*}" pr="${pr##*#}"; fi
-	pr="${pr#\#}"
-	[[ "$pr" =~ ^[0-9]+$ ]] || die "\"$2\" isn't a PR: give its number, or OWNER/NAME#N for one in another repo"
+	# A step in a plugin's own repo names its PR as OWNER/NAME#N. pr_ref
+	# checks it now, and merge points at its repo after the restack here.
+	pr_ref "$pr"
+	pr="$PR_NUM" r="${REPO#"$HOME_REPO"}"
+	on_repo ""
 	json=$(issue "$n")
 	# Merging restacks the feature's branches, so it needs the claim. If nobody
 	# holds it, as once the session that built the steps has released it, the
@@ -813,7 +827,7 @@ cmd_merge() {
 	if (( ${#held[@]} )); then
 		git cat-file -e "$REMOTE/main:hack/owner-approval" 2>/dev/null ||
 			die "$(printf '%s\n' "${held[@]}")"$'\n'"and main has no hack/owner-approval yet, so the user merges it"
-		approval=$(OWNER="$(gh_owner)" PLAN_REMOTE="$rem" bash <(git show "$REMOTE/main:hack/owner-approval") "$pr" "$oid" main) ||
+		approval=$(OWNER="${HOME_REPO%%/*}" PLAN_REMOTE="$rem" bash <(git show "$REMOTE/main:hack/owner-approval") "$pr" "$oid" main) ||
 			die "$(printf '%s\n' "${held[@]}")"$'\n'"so it merges once the user approves it: ${approval:-hack/owner-approval said nothing}"
 		label="" note="Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/planning.md)."
 	fi
@@ -886,26 +900,52 @@ cmd_release() {
 }
 
 cmd_digest() {
-	local days="${1:-7}" since
+	local days="${1:-7}" since r
 	[[ "$days" =~ ^[0-9]+$ ]] || die "usage: plan digest [DAYS]"
 	since=$(date -u -v-"${days}"d +%F 2>/dev/null || date -u -d "$days days ago" +%F)
-	gh pr list --state merged --limit 200 --search "label:agent-merged merged:>=$since" \
-		--json number,title,url,mergedAt,additions,deletions,files \
-		-q 'sort_by(.mergedAt)[] | "\(.mergedAt[:10])  #\(.number) \(.title)  (+\(.additions)/-\(.deletions), \([.files[].path | split("/")[0:2] | join("/")] | unique | join(" ")))\n    \(.url)"'
+	# This repo, then each other repo a step was built in: its remote is plan-*.
+	for r in "$(repo)" $(other_repos); do
+		GH_REPO="$r" gh pr list --state merged --limit 200 --search "label:agent-merged merged:>=$since" \
+			--json number,title,url,mergedAt,additions,deletions,files \
+			-q 'sort_by(.mergedAt)[] | "\(.mergedAt[:10])  #\(.number) \(.title)  (+\(.additions)/-\(.deletions), \([.files[].path | split("/")[0:2] | join("/")] | unique | join(" ")))\n    \(.url)"'
+	done
+}
+
+# other_repos: OWNER/NAME of each other repo hack/plan has built a step in,
+# from the plan-* remotes remote_for added.
+other_repos() {
+	local name
+	for name in $(git remote | grep '^plan-' || true); do
+		git remote get-url "$name" | sed -E 's#\.git$##; s#^.*/([^/]+/[^/]+)$#\1#'
+	done
 }
 
 cmd_claims() {
-	local n json last age refs prs s
+	local n json last age refs prs s i type repo title rem name others pr st
 	git fetch -q --prune "$REMOTE" '+refs/heads/claim/*:refs/remotes/'"$REMOTE"'/claim/*' '+refs/heads/work/*:refs/remotes/'"$REMOTE"'/work/*' || true
+	for name in $(git remote | grep '^plan-' || true); do
+		git fetch -q --prune "$name" '+refs/heads/work/*:refs/remotes/'"$name"'/work/*' || true
+	done
 	prs=$(gh pr list --state open --limit 200 --json number,headRefName,isDraft)
 	for n in $(claimed_ids); do
 		json=$(issue "$n")
-		refs=("refs/remotes/$REMOTE/claim/$n")
-		for s in $(steps "$json" | cut -f2); do refs+=("refs/remotes/$REMOTE/work/$s"); done
+		refs=("refs/remotes/$REMOTE/claim/$n") others=""
+		while IFS=$'\t' read -r i s type repo title; do
+			if [[ "$repo" == - ]]; then
+				refs+=("refs/remotes/$REMOTE/work/$s")
+				continue
+			fi
+			# A step in another repo: its branch is under that repo's remote, and
+			# its PR is looked up there.
+			rem=$(remote_for "$repo") || exit 1
+			refs+=("refs/remotes/$rem/work/$s")
+			IFS=$'\t' read -r pr st _ <<<"$(step_pr "$s" "$repo")"
+			if [[ "$st" == OPEN ]]; then others+=" $repo#$pr"; fi
+		done < <(steps "$json")
 		last=$(git for-each-ref --sort=-committerdate --count=1 --format='%(committerdate:unix)' "${refs[@]}")
 		age=$(( ($(date +%s) - ${last:-0}) / 3600 ))
 		printf '%s\t%sh since last commit\t%s%s\n' "$n" "$age" \
-			"$(jq -r --arg re "^work/($(steps "$json" | cut -f2 | paste -sd'|' -))$" '[.[] | select(.headRefName | test($re)) | "#\(.number)\(if .isDraft then " draft" else "" end)"] | if length > 0 then join(" ") else "no PR" end' <<<"$prs")" \
+			"$(jq -r --arg re "^work/($(steps "$json" | cut -f2 | paste -sd'|' -))$" --arg others "${others# }" '[.[] | select(.headRefName | test($re)) | "#\(.number)\(if .isDraft then " draft" else "" end)"] + ($others | split(" ") | map(select(. != ""))) | if length > 0 then join(" ") else "no PR" end' <<<"$prs")" \
 			"$(if (( age >= STALE_HOURS )); then echo $'\tSTALE'; fi)"
 	done
 }
@@ -950,9 +990,10 @@ cmd_sync() {
 cmd_note() {
 	local t="${1:?usage: plan note ID|PR TEXT}"
 	shift
-	if [[ "${t#\#}" =~ ^[0-9]+$ ]]; then
-		gh_comment "${t#\#}" "$*"
-		echo "Commented on PR #${t#\#}"
+	if [[ "${t#\#}" =~ ^[0-9]+$ || "$t" == */*#* ]]; then
+		pr_ref "$t"
+		gh_comment "$PR_NUM" "$*"
+		echo "Commented on PR $t"
 	else
 		t=$(id "$t")
 		comment "$t" "$*"
@@ -1043,8 +1084,9 @@ cmd_label() {
 		[[ -z "$why" ]] || die "$why"
 		if [[ "$l" == +* ]]; then add+=("${l:1}"); else remove+=("${l:1}"); fi
 	done
-	if [[ "${t#\#}" =~ ^[0-9]+$ ]]; then
-		t="${t#\#}"
+	if [[ "${t#\#}" =~ ^[0-9]+$ || "$t" == */*#* ]]; then
+		pr_ref "$t"
+		t="$PR_NUM"
 		if (( ${#add[@]} )); then add_pr_label "$t" "${add[@]}"; fi
 		for l in ${remove[@]+"${remove[@]}"}; do remove_pr_label "$t" "$l"; done
 		echo "#$t: $*"
@@ -1159,7 +1201,7 @@ case "$cmd" in
 		HOME_REPO=$(repo) REPO="$HOME_REPO"
 		export GH_REPO="$HOME_REPO"
 		# note and label on a PR, and repo, never need Linear.
-		if [[ "$cmd" != repo ]] && { [[ "$cmd" != note && "$cmd" != label ]] || [[ ! "${1#\#}" =~ ^[0-9]+$ ]]; }; then prime; fi
+		if [[ "$cmd" != repo ]] && { [[ "$cmd" != note && "$cmd" != label ]] || [[ ! "${1#\#}" =~ ^([0-9]+|.*/.*#[0-9]+)$ ]]; }; then prime; fi
 		"cmd_$cmd" "$@"
 		;;
 	digest) "cmd_$cmd" "$@" ;;

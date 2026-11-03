@@ -72,7 +72,7 @@ jq -n '{id: "uuid-20", identifier: "OIK-20", title: "F", url: "u", description: 
 	labels: {nodes: []}, inverseRelations: {nodes: []},
 	children: {nodes: [
 		{identifier: "OIK-21", title: "Here", description: "Scope: here.", subIssueSortOrder: 1, number: 21, state: {name: "Done", type: "completed"}},
-		{identifier: "OIK-22", title: "There", description: "Scope: a plugin.\nRepo: `p/plug`\nAcceptance: it works.", subIssueSortOrder: 2, number: 22, state: {name: "In Progress", type: "started"}}]}}' \
+		{identifier: "OIK-22", title: "There", description: "Scope: a plugin.\n**Repo:** `p/plug` (its own)\nAcceptance: it works.", subIssueSortOrder: 2, number: 22, state: {name: "In Progress", type: "started"}}]}}' \
 	>"$tmp/fx/feature.json"
 
 # This repo, claimed, and the plugin's repo with a main.
@@ -127,6 +127,23 @@ cd "$tmp/work"
 grep -q "^\[p/plug\] PUT api repos/p/plug/pulls/5/merge -f merge_method=squash -f sha=$oid" "$tmp/fx/writes.log" ||
 	fail "merge didn't merge in p/plug: $(cat "$tmp/fx/writes.log")"
 ! grep -q 'repos/o/r/pulls' "$tmp/fx/writes.log" || fail "merge wrote to this repo's PRs: $(cat "$tmp/fx/writes.log")"
+
+# claims finds the step's PR and branch in p/plug.
+fx list-o_r-.json <<<'[]'
+"$plan" claims >"$tmp/out" 2>&1 || fail "claims failed: $(cat "$tmp/out")"
+grep -q $'^OIK-20\t0h since last commit\tp/plug#5$' "$tmp/out" || fail "claims didn't list p/plug#5 as fresh: $(cat "$tmp/out")"
+
+# note on p/plug#5 comments there, and on o/r#7, named in full, here.
+: >"$tmp/fx/writes.log"
+"$plan" note p/plug#5 hello >"$tmp/out" 2>&1 || fail "note on p/plug#5 failed: $(cat "$tmp/out")"
+"$plan" note o/r#7 hi >"$tmp/out" 2>&1 || fail "note on o/r#7 failed: $(cat "$tmp/out")"
+grep -q '^\[p/plug\] GET api repos/p/plug/issues/5/comments' "$tmp/fx/writes.log" || fail "note didn't comment in p/plug: $(cat "$tmp/fx/writes.log")"
+grep -q '^\[o/r\] GET api repos/o/r/issues/7/comments' "$tmp/fx/writes.log" || fail "note didn't comment here: $(cat "$tmp/fx/writes.log")"
+
+# digest lists agent merges in p/plug too.
+fx list-p_plug-.json <<<'[{"number":5,"title":"feat: plug","url":"https://x/p/plug/pull/5","mergedAt":"2026-11-03T00:00:00Z","additions":1,"deletions":0,"files":[{"path":"README.md"}]}]'
+"$plan" digest >"$tmp/out" 2>&1 || fail "digest failed: $(cat "$tmp/out")"
+grep -q '#5 feat: plug' "$tmp/out" || fail "digest didn't list p/plug#5: $(cat "$tmp/out")"
 
 # The same PR by number alone is looked up here, and refused as another repo's.
 fx pr-o_r-5.json <<<'{"state":"OPEN","headRefName":"work/OIK-22","baseRefName":"main","isDraft":false,"mergeable":"MERGEABLE","headRefOid":"'"$oid"'","labels":[]}'
