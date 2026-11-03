@@ -156,7 +156,6 @@ gate() {
  {"bucket":"$1","workflow":"Review gate","name":"Approved by the owner"}]
 EOF
 }
-fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"hack/plan"}]'
 
 # hack/owner-approval on its own.
 approval() { OWNER=o "$root/hack/owner-approval" 12 "${1:-$s2r}" main >"$tmp/out" 2>&1; }
@@ -243,7 +242,6 @@ grep -q 'on your Approve' "$tmp/fx/writes.log" || fail "merge's comment doesn't 
 # A feature labelled needs-review holds a PR that's otherwise low risk.
 pr12 ''
 feature needs-review
-fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"internal/rule/rule.go"}]'
 reviews
 gate fail
 if merge; then fail "merge succeeded on a feature labelled needs-review with no Approve"; fi
@@ -252,17 +250,13 @@ reviews "$(review o APPROVED "$s2r")"
 gate pass
 merge || fail "merge refused an approved PR on a feature labelled needs-review: $(cat "$tmp/out")"
 
-# A protected path on an unlabelled PR: labelled, and left for the Approve,
-# since the label reruns the gate.
+# No path is held for the user: an unlabelled PR, whatever it changes,
+# merges once its checks pass, without labelling it needs-review.
 feature
 reviews
-fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"hack/owner-approval"}]'
-if merge; then fail "merge succeeded on an unlabelled PR that changes hack/owner-approval"; fi
-grep -q 'labels\[\]=needs-review' "$tmp/fx/writes.log" || fail "merge didn't label it needs-review: $(cat "$tmp/fx/writes.log")"
-! grep -q '^PUT' "$tmp/fx/writes.log" || fail "merge merged a PR it had just labelled"
-# Product code is never protected, even the Zigbee controller that keeps the
-# network: the floor is the agents' guardrails only.
-fx api_repos_o_r_pulls_12_files.json <<<'[{"filename":"internal/controller/zigbee/zigbee2mqtt_controller.go"}]'
+merge || fail "merge refused an unlabelled PR that changes hack/owner-approval and CI: $(cat "$tmp/out")"
+! grep -q 'labels\[\]=needs-review' "$tmp/fx/writes.log" || fail "merge labelled it needs-review: $(cat "$tmp/fx/writes.log")"
+grep -q 'labels\[\]=agent-merged' "$tmp/fx/writes.log" || fail "merge didn't label it agent-merged: $(cat "$tmp/fx/writes.log")"
 
 # With no hold at all it merges labelled agent-merged. The label reruns the
 # gate, so GitHub refuses the merge until that run ends, and merge retries.
