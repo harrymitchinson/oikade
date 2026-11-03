@@ -50,7 +50,7 @@ Then recommend one option and say what it gives up. Sketch the public names it i
 Constraints:
 
 - Never propose Home Assistant as a driver.
-- Plugins are Go first, each in its own repo, `oikade-plugin-<name>`, started from `oikade-plugin-template` (OIK-108). This repo keeps only the contract, the Go SDK, the conformance suite and a test fixture. A design that adds a plugin plans its repo, not a directory here.
+- Plugins are Go first, each in its own repo, `oikade-plugin-<name>`, started from `oikade-plugin-template` (OIK-108). Of plugin code, this repo keeps only the contract, the Go SDK, the conformance suite and a test fixture. A design that adds a plugin plans its repo, not a directory here. Drivers, CRDs and the operator stay here.
 - When an earlier design constrains this one, check who decided it. An agent-written doc is the user's decision only if the user moved its issue out of Design Review (`hack/plan show` says so), was approved on GitHub before the move to Linear, or was merged from a design PR they reviewed. Otherwise, say so.
 
 ## 4. Write the design into the issue

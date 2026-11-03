@@ -341,9 +341,9 @@ Turn **Permit join** off again when you're done. Changes made in the Zigbee2MQTT
 
 Devices that aren't Zigbee, such as SONOFF LAN relays, are served by a [plugin](../README.md#plugins): a separate pod that speaks Oikade's capabilities over MQTT. Skip this step if you only have Zigbee devices.
 
-Each plugin is released from its own repo, `oikade-plugin-<name>`, as an image for linux/arm64 and linux/amd64 at `ghcr.io/<owner>/oikade-plugin-<name>`. Use a released tag. Oikade doesn't build plugin images.
+Each plugin is released from its own repo, `oikade-plugin-<name>`, as an image for linux/arm64 and linux/amd64 at `ghcr.io/<github-user>/oikade-plugin-<name>:<tag>`. Use a released tag. Oikade doesn't build plugin images.
 
-[`oikade-plugin-example-switch`](https://github.com/harrymitchinson/oikade-plugin-example-switch) simulates relays (`ghcr.io/harrymitchinson/oikade-plugin-example-switch`), so you can try the whole path, from the Home app to Grafana, before buying hardware. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
+`oikade-plugin-example-switch` simulates relays, so you can try the whole path, from the Home app to Grafana, before buying hardware. Its repo and first image come with [OIK-113](https://linear.app/oikade/issue/OIK-113); until then, there's no published plugin to try. The rest of this step shows a plugin that needs per-device keys and mDNS, using a SONOFF LAN plugin as the example; `example-switch` needs neither, so for it, leave out `hostNetwork`, `secretRef` and the Secret.
 
 **Credentials.** A plugin that needs per-device keys reads them from a Secret named in `spec.secretRef`, with one key per device id. The operator mounts it but never creates, changes or deletes it, so it's yours to keep in Git. Encrypt it with SOPS and let Flux decrypt it:
 

@@ -80,9 +80,9 @@ make test       # Run unit tests
 make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 contract
 ```
 
-The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types, and neither may `cmd/oikade-conformance`'s flags change without a note, because plugin repos run it in CI. An SDK for another language may live here only if it's generated from the contract (OIK-62).
+The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. `cmd/oikade-conformance`'s name and flags are public API too, because plugin repos run it in CI: removing or renaming one is a breaking change (`feat!:` with a `BREAKING CHANGE:` footer). An SDK for another language may live here only if it's generated from the contract (OIK-62).
 
-**Plugins live in their own repos** (`oikade-plugin-<name>`, started from the `oikade-plugin-template` GitHub template), each with its own `go.mod`, images and releases (OIK-108). Never add a plugin here: `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end, and this repo publishes no plugin image.
+**Plugins live in their own repos** (`oikade-plugin-<name>`, started from the `oikade-plugin-template` GitHub template once OIK-112 creates it), each with its own `go.mod`, images and releases (OIK-108). Never add a plugin here: `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end, and this repo publishes no plugin image.
 
 ## Before Opening a PR
 
