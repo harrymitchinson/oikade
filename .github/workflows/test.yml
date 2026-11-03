@@ -68,3 +68,10 @@ jobs:
 
       - name: Run the conformance suite against the simswitch fixture
         run: make test-conformance
+
+      # Plugins run on arm64 Pis from static distroless images, so the SDK must build that way.
+      - name: Build the simswitch fixture static for linux/arm64 and linux/amd64
+        run: |
+          for arch in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o /dev/null ./test/fixtures/simswitch
+          done

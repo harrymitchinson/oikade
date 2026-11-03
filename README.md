@@ -445,7 +445,7 @@ apiVersion: plugins.oikade.dev/v1alpha1
 kind: Plugin
 metadata: {name: ewelink-lan}
 spec:
-  image: ghcr.io/harrymitchinson/oikade-plugin-ewelink-lan:v0.1.0   # illustrative: plugins/example-switch is the only plugin so far
+  image: ghcr.io/harrymitchinson/oikade-plugin-ewelink-lan:v0.1.0   # illustrative: each plugin is released from its own repo
   hostNetwork: true              # for plugins that need mDNS or multicast
   secretRef: {name: ewelink-lan-keys} # mounted at /etc/oikade/secrets, one key per device id
 ---
@@ -471,7 +471,7 @@ The Plugin's `Ready` condition is `True` with reason `Available` once the pod ru
 
 A plugin reports problems with a device, such as bad parameters or a missing key, as `Resolved=False` with reason `PluginError` on the Device. Messages Oikade can't validate are dropped and counted in `oikade_plugin_rejected_messages_total`.
 
-To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. [`plugins/example-switch`](plugins/example-switch) is a complete example with simulated relays. `make docker-buildx-plugin PLUGIN=<dir>` builds a plugin image for arm64 and amd64, and `make test-conformance` checks a plugin against the contract. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
+To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. Each plugin lives in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
 ## Metrics
 
@@ -594,7 +594,7 @@ make test-e2e      # Kind: fakes Zigbee2MQTT and a plugin over MQTT and checks s
 make test-conformance   # builds the simswitch test fixture and drives it through the plugin contract
 ```
 
-The plugin SDK and plugins are Go, in the same module, so `make test` and `make lint` cover them. How the components, rule engine and Matter bridge work inside is in [docs/architecture.md](docs/architecture.md).
+The plugin SDK, the conformance suite and the simswitch fixture are Go, in the same module, so `make test` and `make lint` cover them. How the components, rule engine and Matter bridge work inside is in [docs/architecture.md](docs/architecture.md).
 
 ## Not yet
 
