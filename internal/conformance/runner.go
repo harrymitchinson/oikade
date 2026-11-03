@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -50,11 +51,17 @@ type runT struct {
 	cleanups []func()
 }
 
-// do runs f on its own goroutine, so a Fatal can end it with runtime.Goexit.
+// do runs f on its own goroutine, so a Fatal can end it with runtime.Goexit. A panic fails t
+// rather than the whole run, so the cleanups still stop the plugin.
 func (t *runT) do(f func()) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("panic: %v\n%s", r, debug.Stack())
+			}
+		}()
 		f()
 	}()
 	<-done

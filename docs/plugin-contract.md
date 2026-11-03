@@ -132,7 +132,7 @@ The conformance suite is a fake hub: an in-process broker and Oikade's own decod
 - when the plugin is killed, its Last Will marks it offline with contract 1
 - Oikade rejected none of its messages at any point
 
-A plugin repo runs it with `oikade-conformance`, which is versioned with the contract. A Go plugin adds it as a tool, so its version follows the `oikade` module the plugin already requires for the SDK, and a bump re-checks the plugin against the new contract:
+A plugin repo runs it with `oikade-conformance`, which is versioned with the contract. A Go plugin adds it as a tool, so its version follows the `oikade` module the plugin already requires for the SDK, and a bump re-checks the plugin against the new contract. As a tool it brings Oikade's own dependencies into the plugin's `go.sum`, and Oikade's minimum Go version into its `go.mod`:
 
 ```sh
 go get -tool github.com/harrymitchinson/oikade/cmd/oikade-conformance
@@ -147,7 +147,7 @@ go install github.com/harrymitchinson/oikade/cmd/oikade-conformance@vX.Y.Z
 oikade-conformance --devices conformance-devices.json -- ./bin/my-plugin --simulate
 ```
 
-Everything after `--` is the plugin's start command, run without a shell in the current directory. Build it first rather than use `go run` or a wrapper script: the suite signals and kills that process, and the plugin itself must be the one that gets it. Paths are absolute or relative to the current directory. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `--secrets DIR` passes a directory as `OIKADE_SECRETS_DIR`, `--timeout` sets how long the plugin has to react at each step (default 15s), and `-v` logs what the decoder sees. It prints a line per check and exits 0 when all pass, 1 when one fails and 2 on a usage error.
+Everything after `--` is the plugin's start command, run without a shell in the current directory: a bare name is looked up in `PATH`, so write `./my-plugin` for one in the current directory. Build it first rather than use `go run` or a wrapper script: the suite signals and kills that process, and the plugin itself must be the one that gets it. Paths are absolute or relative to the current directory. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `--secrets DIR` passes a directory as `OIKADE_SECRETS_DIR`, `--timeout` sets how long the plugin has to react at each step (default 15s), and `-v` logs what the decoder sees. It prints a line per check and exits 0 when all pass, 1 when one fails or the plugin can't start, and 2 on a usage error, such as a missing devices file.
 
 Inside this repo, `make test-conformance` runs the same suite under `go test` against [`plugins/example-switch`](../plugins/example-switch), and CI runs it on every PR. `CONFORMANCE_PLUGIN` and `OIKADE_CONFORMANCE_DEVICES` point it at another plugin, relative to the repository root.
 

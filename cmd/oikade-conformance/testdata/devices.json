@@ -1,8 +1,0 @@
-{
-  "contract": 1,
-  "devices": [
-    {"id": "hall-relay", "name": "hall-light", "displayName": "Hall light", "room": "hall", "parameters": {"capability": "light.on"}},
-    {"id": "pump-relay", "name": "pool-pump", "displayName": "Pool pump", "parameters": {}},
-    {"id": "bad-relay", "name": "mystery", "displayName": "Mystery", "parameters": {"capability": "fan.on"}}
-  ]
-}

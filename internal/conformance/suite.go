@@ -98,8 +98,8 @@ type Suite struct {
 	online map[string]time.Time
 }
 
-// New starts the fake hub for cfg, reporting setup failures and cleaning up through t. Run its
-// Checks in order, then t's cleanups stop everything.
+// New starts the fake hub and the plugin for cfg, reporting setup failures and cleaning up
+// through t. Run its Checks in order, then t's cleanups stop everything.
 func New(t T, cfg Config) *Suite {
 	t.Helper()
 	if len(cfg.Command) == 0 {
@@ -148,10 +148,11 @@ func New(t T, cfg Config) *Suite {
 	if cfg.Secrets != "" {
 		s.env = append(s.env, contractv1.EnvSecretsDir+"="+cfg.Secrets)
 	}
+	s.p = s.run()
 	return s
 }
 
-// Checks returns the suite's checks in the order they must run. The first starts the plugin.
+// Checks returns the suite's checks in the order they must run.
 func (s *Suite) Checks() []Check {
 	return []Check{
 		{"announces itself and every declared device", s.announces},
@@ -237,7 +238,6 @@ func (s *Suite) noRejections(t T) {
 func (s *Suite) up() bool { return s.inst.Stats().Up }
 
 func (s *Suite) announces(t T) {
-	s.p = s.run()
 	s.eventually(t, "status online with contract 1", s.up)
 	s.eventually(t, "a devices report listing every declared device", s.reported)
 	for id, dev := range s.devices {
@@ -318,16 +318,7 @@ func (s *Suite) appliesSet(t T) {
 	s.noRejections(t)
 }
 
-// started stops a check that needs the plugin running when the first check couldn't start it.
-func (s *Suite) started(t T) {
-	t.Helper()
-	if s.p == nil {
-		t.Fatal("the plugin never started")
-	}
-}
-
 func (s *Suite) stops(t T) {
-	s.started(t)
 	s.p.signal(t, syscall.SIGTERM)
 	select {
 	case <-s.p.done:
@@ -364,7 +355,6 @@ func (s *Suite) restarts(t T) {
 }
 
 func (s *Suite) crashes(t T) {
-	s.started(t)
 	s.p.signal(t, syscall.SIGKILL)
 	<-s.p.done
 	s.eventually(t, "the Last Will to mark the plugin offline", func() bool { return !s.up() })

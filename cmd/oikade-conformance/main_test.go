@@ -19,11 +19,12 @@ func examplePlugin(t *testing.T) string {
 	return bin
 }
 
-// fromTestdata runs the command from testdata, as a plugin repo runs it from its own checkout,
-// so relative paths must resolve against the working directory and not the repository root.
+// fromTestdata runs the command from the suite's testdata, as a plugin repo runs it from its own
+// checkout, so relative paths must resolve against the working directory and not the repository
+// root.
 func fromTestdata(t *testing.T) {
 	t.Helper()
-	t.Chdir("testdata")
+	t.Chdir("../../test/conformance/testdata")
 }
 
 func TestPassesAgainstExampleSwitchFromAnotherDirectory(t *testing.T) {
@@ -70,6 +71,18 @@ func TestFailsAPluginThatNeverComesOnline(t *testing.T) {
 	}
 }
 
+func TestFailsAPluginThatCannotStart(t *testing.T) {
+	fromTestdata(t)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--devices", "devices.json", "--", "./no-such-plugin"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
+	}
+	if out := stdout.String(); !strings.Contains(out, "--- FAIL: suite") || strings.Contains(out, "--- PASS") {
+		t.Errorf("want only the suite to fail, before any check:\n%s", out)
+	}
+}
+
 func TestUsageErrors(t *testing.T) {
 	fromTestdata(t)
 	for name, args := range map[string][]string{
@@ -81,12 +94,8 @@ func TestUsageErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			got := run(args, &stdout, &stderr)
-			want := 2
-			if name == "bad devices" {
-				want = 1 // the suite reports it, as a setup failure
-			}
-			if got != want {
-				t.Errorf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", got, want, &stdout, &stderr)
+			if got != 2 {
+				t.Errorf("exit %d, want 2\nstdout:\n%s\nstderr:\n%s", got, &stdout, &stderr)
 			}
 		})
 	}

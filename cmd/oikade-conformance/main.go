@@ -4,8 +4,9 @@
 //
 //	oikade-conformance --devices FILE [--secrets DIR] [--timeout D] [-v] -- COMMAND [ARG...]
 //
-// COMMAND starts the plugin, without a shell, in the current directory. It must be the plugin
-// itself, not go run or a wrapper script, because the suite signals and kills it. Paths are absolute or
+// COMMAND starts the plugin, without a shell, in the current directory. A bare name is looked up
+// in PATH, so use ./my-plugin for one in the current directory. It must be the plugin itself, not
+// go run or a wrapper script, because the suite signals and kills it. Paths are absolute or
 // relative to the current directory. It exits 0 when every check passes, 1 when one fails and
 // 2 on a usage error.
 //
@@ -59,9 +60,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return 2
 	}
+	if *timeout <= 0 {
+		_, _ = fmt.Fprintln(stderr, "--timeout must be positive")
+		return 2
+	}
 	cfg := conformance.Config{Command: command, Timeout: *timeout}
 	var err error
-	if cfg.Devices, err = filepath.Abs(*devices); err != nil {
+	if cfg.Devices, err = filepath.Abs(*devices); err == nil {
+		_, err = os.Stat(cfg.Devices)
+	}
+	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2
 	}
