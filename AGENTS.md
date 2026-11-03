@@ -79,7 +79,7 @@ make test       # Run unit tests
 make test-conformance    # Drive plugins/example-switch through the oikade/v1 contract
 ```
 
-The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `test/conformance` together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. Plugins in other languages live in their own repos. An SDK for another language may live here only if it's generated from the contract (OIK-62).
+The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. Plugins in other languages live in their own repos. An SDK for another language may live here only if it's generated from the contract (OIK-62).
 
 **Plugin images:** `make docker-buildx-plugin PLUGIN=<dir>` builds `plugins/<dir>` for linux/arm64 and linux/amd64 with `plugins/Dockerfile`.
 

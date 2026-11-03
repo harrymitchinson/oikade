@@ -34,37 +34,51 @@ func StartBroker(t testing.TB) string {
 // NewBroker starts a broker on a free localhost port. It is stopped when the test ends.
 func NewBroker(t testing.TB) *Broker {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	b, err := Listen()
 	if err != nil {
 		t.Fatal(err)
+	}
+	t.Cleanup(b.Close)
+	return b
+}
+
+// Listen starts a broker on a free localhost port, for callers outside a test such as the
+// conformance command. Close stops it.
+func Listen() (*Broker, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
 	}
 	addr := l.Addr().String()
 	_ = l.Close()
 
 	b := &Broker{URL: "mqtt://" + addr, addr: addr}
-	b.start(t)
-	t.Cleanup(func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		closed := make(chan struct{})
-		go func() {
-			closeServer(b.s)
-			close(closed)
-		}()
-		// If mochi deadlocks anyway, leave it rather than hang the test binary.
-		select {
-		case <-closed:
-		case <-time.After(5 * time.Second):
-		}
-	})
-	return b
+	if err := b.start(); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
-func (b *Broker) start(t testing.TB) {
-	t.Helper()
+// Close stops the broker.
+func (b *Broker) Close() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	closed := make(chan struct{})
+	go func() {
+		closeServer(b.s)
+		close(closed)
+	}()
+	// If mochi deadlocks anyway, leave it rather than hang.
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+	}
+}
+
+func (b *Broker) start() error {
 	s := mochi.New(&mochi.Options{Logger: slog.New(slog.DiscardHandler)})
 	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
-		t.Fatal(err)
+		return err
 	}
 	// After a Restart the old listener's port can take a moment to free up.
 	var err error
@@ -75,12 +89,13 @@ func (b *Broker) start(t testing.TB) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	go func() { _ = s.Serve() }()
 	b.mu.Lock()
 	b.s = s
 	b.mu.Unlock()
+	return nil
 }
 
 // Restart stops the broker, dropping every connection and retained message, and starts a new
@@ -90,7 +105,9 @@ func (b *Broker) Restart(t testing.TB) {
 	b.mu.Lock()
 	closeServer(b.s)
 	b.mu.Unlock()
-	b.start(t)
+	if err := b.start(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // closeServer closes s once no client is mid-disconnect. mochi v2.7.9's Close takes the clients'
