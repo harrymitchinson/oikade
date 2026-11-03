@@ -16,7 +16,8 @@ Makefile                       Build/test/deploy commands
 PROJECT                        Kubebuilder metadata Auto-generated (DO NOT EDIT)
 contract/v1/*                  The oikade/v1 plugin contract as Go types (public API)
 sdk/plugin/*                   The Go plugin SDK (public API)
-plugins/<name>/*               Plugins: one Go main package per directory
+cmd/oikade-conformance/*       The conformance checker plugin repos run (public API)
+test/fixtures/simswitch/*      Simulated-relay plugin the conformance suite drives
 ```
 
 **Multi-group layout** (for projects with multiple API groups):
@@ -74,14 +75,14 @@ make lint-fix   # Auto-fix code style
 make test       # Run unit tests
 ```
 
-**After editing the plugin contract, the SDK or a plugin** (`contract/v1`, `sdk/plugin`, `plugins/*`), as well as the Go steps above:
+**After editing the plugin contract, the SDK or a plugin** (`contract/v1`, `sdk/plugin`, `internal/conformance`, `test/fixtures/simswitch`), as well as the Go steps above:
 ```
-make test-conformance    # Drive plugins/example-switch through the oikade/v1 contract
+make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 contract
 ```
 
 The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. Plugins in other languages live in their own repos. An SDK for another language may live here only if it's generated from the contract (OIK-62).
 
-**Plugin images:** `make docker-buildx-plugin PLUGIN=<dir>` builds `plugins/<dir>` for linux/arm64 and linux/amd64 with `plugins/Dockerfile`.
+**Plugins live in their own repos** (`oikade-plugin-<name>`), each with its own images and releases (OIK-108). This repo publishes no plugin image.
 
 ## Before Opening a PR
 

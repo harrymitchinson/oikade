@@ -123,14 +123,14 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 # CONFORMANCE_PLUGIN is the command the conformance suite runs, from the repository root.
-CONFORMANCE_PLUGIN ?= bin/example-switch
+CONFORMANCE_PLUGIN ?= bin/simswitch
 
-.PHONY: example-switch
-example-switch: ## Build the example-switch plugin into bin/.
-	go build -o bin/example-switch ./plugins/example-switch
+.PHONY: simswitch
+simswitch: ## Build the simulated-relay test fixture into bin/.
+	go build -o bin/simswitch ./test/fixtures/simswitch
 
 .PHONY: test-conformance
-test-conformance: example-switch ## Drive a plugin through the oikade/v1 contract (default: example-switch).
+test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract (default: the simswitch fixture).
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 
 .PHONY: test-hack
@@ -206,19 +206,6 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	$(CONTAINER_TOOL) buildx rm oikade-builder; \
 	rm Dockerfile.cross; \
 	exit $$status
-
-# PLUGIN names a directory in plugins/. Plugin images are arm64 for the Pi and amd64 for Kind and CI.
-PLUGIN ?= example-switch
-PLUGIN_IMG ?= ghcr.io/harrymitchinson/oikade-plugin-$(PLUGIN):dev
-PLUGIN_PLATFORMS ?= linux/arm64,linux/amd64
-.PHONY: docker-buildx-plugin
-docker-buildx-plugin: ## Build a plugin image for PLUGIN_PLATFORMS (add PLUGIN_BUILD_ARGS=--push to push it).
-	$(CONTAINER_TOOL) buildx build --platform=$(PLUGIN_PLATFORMS) --build-arg PLUGIN=$(PLUGIN) \
-		-f plugins/Dockerfile --tag $(PLUGIN_IMG) $(PLUGIN_BUILD_ARGS) .
-
-.PHONY: docker-build-plugin
-docker-build-plugin: ## Build a plugin image for the local platform.
-	$(CONTAINER_TOOL) build --build-arg PLUGIN=$(PLUGIN) -f plugins/Dockerfile --tag $(PLUGIN_IMG) .
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
