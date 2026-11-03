@@ -86,7 +86,12 @@ git push -q origin HEAD:main HEAD:refs/heads/claim/OIK-20
 git clone -q "$tmp/github/p/plug.git" "$tmp/plug" 2>/dev/null
 (cd "$tmp/plug" && echo plug >README.md && git add README.md && git commit -qm plug && git push -q origin HEAD:main)
 
-plan="$root/hack/plan"
+# hack/plan with a stub linear-token: CI has no Keychain, and curl plays Linear.
+plan="$tmp/plan/hack/plan"
+mkdir -p "$tmp/plan/hack"
+cp "$root/hack/plan" "$root/hack/agent-token" "$tmp/plan/hack/"
+printf '#!/usr/bin/env bash\necho lin_test\n' >"$tmp/plan/hack/linear-token"
+chmod +x "$tmp/plan/hack/"*
 # OIK-21 merged here as PR #3.
 here=$(git rev-parse HEAD)
 git push -q origin "$here:refs/pull/3/head"
