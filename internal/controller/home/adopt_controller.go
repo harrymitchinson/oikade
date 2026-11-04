@@ -10,6 +10,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,18 +37,25 @@ const (
 // its app that no Device declares, when the instance's spec.discovery.adopt is set (OIK-123). It
 // writes a Device's spec once, then follows only a plugin device's name in its app. An adopted
 // Device has the instance as its controller owner; a Device declared elsewhere with the same ID,
-// or a spec written by anything but the operator, takes it over.
+// or a spec written by anything but the operator, takes it over. An adopted Device whose device is
+// removed from its app follows the instance's discovery.removalPolicy.
 type AdoptReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	// Driver is AdoptPlugin or AdoptZigbee2MQTT.
 	Driver string
+	// Recorder records removal events. Nil records none.
+	Recorder events.EventRecorder
+	// Clock times removal grace periods. Nil is the real clock.
+	Clock clock.PassiveClock
 }
 
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=devices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=home.oikade.dev,resources=rooms,verbs=get;list;watch
 // +kubebuilder:rbac:groups=plugins.oikade.dev,resources=plugins,verbs=get;list;watch
 // +kubebuilder:rbac:groups=zigbee.oikade.dev,resources=zigbee2mqtts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=home.oikade.dev,resources=devices/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile adopts one instance's discovered devices.
 func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -77,44 +86,22 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			byID[id] = append(byID[id], d)
 		}
 	}
-	names := map[string]string{} // id -> name in the app
+	names := map[string]string{} // id -> name in the app, for every device in it
 	for _, e := range discovered {
 		names[e.ID] = e.Name
 	}
 
-	for _, ds := range byID {
-		// Oldest first, so a second adopted copy, from a stale cache, is the one that goes.
-		slices.SortFunc(ds, func(a, b *homev1alpha1.Device) int {
-			if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
-				return c
-			}
-			return strings.Compare(a.Name, b.Name)
-		})
-		kept := slices.ContainsFunc(ds, func(d *homev1alpha1.Device) bool {
-			return !metav1.IsControlledBy(d, inst) || takenOver(d)
-		})
-		for _, d := range ds {
-			if !metav1.IsControlledBy(d, inst) {
-				continue
-			}
-			switch {
-			case takenOver(d):
-				if err := r.release(ctx, d, inst); err != nil {
-					return ctrl.Result{}, err
-				}
-				log.Info("Released adopted Device, its spec is managed elsewhere", "device", d.Name)
-			case kept:
-				// Another Device declares the same device: it wins, and this copy goes.
-				if err := r.Delete(ctx, d); client.IgnoreNotFound(err) != nil {
-					return ctrl.Result{}, err
-				}
-				log.Info("Deleted adopted Device, declared by another Device", "device", d.Name)
-			case r.Driver == AdoptPlugin:
-				if err := r.followName(ctx, d, names); err != nil {
-					return ctrl.Result{}, err
-				}
-			}
-			kept = true
+	var requeue time.Duration // until the next adopted Device is due for deletion
+	for id, ds := range byID {
+		_, present := names[id]
+		after, err := r.manage(ctx, inst, discovery, ds, names, present)
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: time.Second}, nil // the runtime wrote a Device's status meanwhile
+		} else if err != nil {
+			return ctrl.Result{}, err
+		}
+		if after > 0 && (requeue == 0 || after < requeue) {
+			requeue = after
 		}
 	}
 
@@ -139,7 +126,62 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		taken[d.Name] = true
 		log.Info("Adopted Device", "device", d.Name, "id", e.ID)
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: requeue}, nil
+}
+
+// manage looks after the Devices that declare one device on this instance: it releases an adopted
+// one taken over elsewhere, deletes an adopted copy when another Device declares the device, and
+// otherwise follows the device's name and applies the removal policy. present is whether the device
+// is in the instance's list of devices in its app. It returns how long until a Device is due for
+// deletion, or 0.
+func (r *AdoptReconciler) manage(ctx context.Context, inst client.Object, discovery *homev1alpha1.DiscoverySpec,
+	ds []*homev1alpha1.Device, names map[string]string, present bool,
+) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+	// Oldest first, so a second adopted copy, from a stale cache, is the one that goes.
+	slices.SortFunc(ds, func(a, b *homev1alpha1.Device) int {
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	kept := slices.ContainsFunc(ds, func(d *homev1alpha1.Device) bool {
+		return !metav1.IsControlledBy(d, inst) || takenOver(d)
+	})
+	var after time.Duration
+	for _, d := range ds {
+		if !metav1.IsControlledBy(d, inst) {
+			continue
+		}
+		switch {
+		case takenOver(d):
+			if err := r.release(ctx, d, inst); err != nil {
+				return 0, err
+			}
+			log.Info("Released adopted Device, its spec is managed elsewhere", "device", d.Name)
+			if err := r.clearRemoval(ctx, d); err != nil {
+				return 0, err
+			}
+		case kept:
+			// Another Device declares the same device: it wins, and this copy goes.
+			if err := r.Delete(ctx, d); client.IgnoreNotFound(err) != nil {
+				return 0, err
+			}
+			log.Info("Deleted adopted Device, declared by another Device", "device", d.Name)
+		default:
+			if r.Driver == AdoptPlugin {
+				if err := r.followName(ctx, d, names); err != nil {
+					return 0, err
+				}
+			}
+			var err error
+			if after, err = r.removal(ctx, inst, d, discovery, !present); err != nil {
+				return 0, err
+			}
+		}
+		kept = true
+	}
+	return after, nil
 }
 
 // newDevice builds the Device for a discovered device.

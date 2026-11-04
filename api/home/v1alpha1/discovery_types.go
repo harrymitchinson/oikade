@@ -24,6 +24,19 @@ func (d *Device) HiddenFromMatter() bool {
 	return strings.EqualFold(strings.TrimSpace(d.Annotations[AnnotationMatter]), MatterHide)
 }
 
+// AnnotationRemovalPolicy overrides its instance's discovery.removalPolicy for one adopted Device:
+// retain keeps it when its device is removed from its app, even under removalPolicy Delete.
+const AnnotationRemovalPolicy = "oikade.dev/removal-policy"
+
+// RemovalRetain is the value of AnnotationRemovalPolicy that keeps a Device.
+const RemovalRetain = "retain"
+
+// RetainedOnRemoval reports whether a Device's annotation keeps it when its device is removed from
+// its app. The value is compared ignoring case, so Retain works too.
+func (d *Device) RetainedOnRemoval() bool {
+	return strings.EqualFold(strings.TrimSpace(d.Annotations[AnnotationRemovalPolicy]), RemovalRetain)
+}
+
 // DiscoveryMatter says whether Devices created for discovered devices are shown on Matter bridges.
 // +kubebuilder:validation:Enum=Expose;Hide
 type DiscoveryMatter string
