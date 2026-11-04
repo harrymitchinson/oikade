@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,37 @@ func TestFailsAPluginThatNeverComesOnline(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real plugin process")
+	}
+	bin := fixturePlugin(t)
+	devices := filepath.Join(t.TempDir(), "devices.json")
+	unstable := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +
+		`"displayName":"Desk lamp","parameters":{"simulate":"unstable-id"}}]}`
+	if err := os.WriteFile(devices, []byte(unstable), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--devices", devices, "--timeout", "2s", "--", bin}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"--- PASS: goes offline on SIGTERM",
+		"--- FAIL: comes back after a restart",
+		"the plugin no longer discovers desk-relay-",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "spare-relay") {
+		t.Errorf("output blames spare-relay, whose ID is stable:\n%s", out)
 	}
 }
 

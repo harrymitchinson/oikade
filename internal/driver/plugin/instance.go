@@ -47,6 +47,10 @@ type Instance struct {
 	status *contractv1.Status
 	// announced is nil until the devices topic is seen.
 	announced map[string]driver.Info
+	// discovered is nil unless the plugin sends a discovered list.
+	discovered []contractv1.DiscoveredDevice
+	// undeclared is the plugin's own count, used while it sends no discovered list.
+	undeclared int
 	// last holds each id's latest state and availability, so they can be replayed once the id is
 	// declared and announced: the hub subscribes before it declares devices, and relays rarely re-report.
 	last     map[string]*lastSeen
@@ -98,8 +102,29 @@ func (i *Instance) SetDevices(declared map[string]types.NamespacedName) {
 	i.mu.Lock()
 	i.declared = maps.Clone(declared)
 	emit := i.discoveryLocked()
+	counted := i.announced != nil && i.discovered != nil
+	undeclared := i.undeclaredLocked()
 	i.mu.Unlock()
 	emit()
+	if counted {
+		i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}, undeclared)
+	}
+}
+
+// Discovered returns a copy of the devices the plugin sees in its app, validated, and false if it
+// sends no discovered list.
+func (i *Instance) Discovered() ([]contractv1.DiscoveredDevice, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.discovered == nil {
+		return nil, false
+	}
+	out := make([]contractv1.DiscoveredDevice, len(i.discovered))
+	for n, d := range i.discovered {
+		d.Capabilities = slices.Clone(d.Capabilities)
+		out[n] = d
+	}
+	return out, true
 }
 
 // Stats returns a snapshot of the plugin's health.
@@ -192,7 +217,7 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		i.rejectLocked(ReasonWrongContract, "", topic)
 		// Forget everything learned under a contract we may have misread. An empty, non-nil
 		// announcement reports every device as not found.
-		i.announced, i.values, i.last = map[string]driver.Info{}, nil, nil
+		i.announced, i.values, i.last, i.discovered = map[string]driver.Info{}, nil, nil, nil
 		events = append(events, i.discoveryLocked())
 		events = append(events, i.allAvailabilityLocked(false))
 	case !up:
@@ -237,7 +262,9 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 		}
 		i.announced[d.ID] = info
 	}
-	undeclared := max(msg.Undeclared, 0)
+	i.undeclared = max(msg.Undeclared, 0)
+	i.discovered = i.validDiscoveredLocked(msg.Discovered, topic)
+	undeclared := i.undeclaredLocked()
 	// Values of capabilities a device no longer announces must not linger.
 	for id, vals := range i.values {
 		maps.DeleteFunc(vals, func(c string, _ any) bool {
@@ -388,6 +415,51 @@ func (i *Instance) discoveryLocked() func() {
 		}
 		replay()
 	}
+}
+
+// validDiscoveredLocked drops discovered devices with an invalid or repeated ID, and capabilities
+// not in the registry, counting each as rejected. It keeps nil apart from empty.
+func (i *Instance) validDiscoveredLocked(discovered []contractv1.DiscoveredDevice, topic string) []contractv1.DiscoveredDevice {
+	if discovered == nil {
+		return nil
+	}
+	valid := make([]contractv1.DiscoveredDevice, 0, len(discovered))
+	seen := map[string]bool{}
+	for _, d := range discovered {
+		if !contractv1.ValidID(d.ID) || seen[d.ID] {
+			i.rejectLocked(ReasonMalformed, d.ID, topic)
+			continue
+		}
+		seen[d.ID] = true
+		var caps []string
+		for _, c := range d.Capabilities {
+			if _, ok := capability.Lookup(c); !ok {
+				i.rejectLocked(ReasonUnknownCapability, d.ID, topic)
+				continue
+			}
+			if !slices.Contains(caps, c) {
+				caps = append(caps, c)
+			}
+		}
+		d.Capabilities = caps
+		valid = append(valid, d)
+	}
+	return valid
+}
+
+// undeclaredLocked counts the discovered devices without a Device, or returns the plugin's own
+// count if it sends no discovered list.
+func (i *Instance) undeclaredLocked() int {
+	if i.discovered == nil {
+		return i.undeclared
+	}
+	n := 0
+	for _, d := range i.discovered {
+		if _, ok := i.declared[d.ID]; !ok {
+			n++
+		}
+	}
+	return n
 }
 
 func (i *Instance) allAvailabilityLocked(online bool) func() {

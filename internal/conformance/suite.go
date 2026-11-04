@@ -96,6 +96,10 @@ type Suite struct {
 	report map[string]bool // id -> found, from the raw devices topic
 	// online is when each id last published availability online live, not replayed from retain.
 	online map[string]time.Time
+	// liveDiscovered is the discovered list of the last devices report published live, not
+	// replayed from retain, and nil if it had none.
+	liveDiscovered map[string]bool
+	liveReportAt   time.Time
 }
 
 // New starts the fake hub and the plugin for cfg, reporting setup failures and cleaning up
@@ -196,9 +200,19 @@ func (s *Suite) recordReport(m mqtt.Message) {
 	for _, d := range msg.Devices {
 		r[d.ID] = d.Found
 	}
+	var discovered map[string]bool
+	if msg.Discovered != nil {
+		discovered = map[string]bool{}
+		for _, d := range msg.Discovered {
+			discovered[d.ID] = true
+		}
+	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.report = r
-	s.mu.Unlock()
+	if !m.Retained {
+		s.liveDiscovered, s.liveReportAt = discovered, time.Now()
+	}
 }
 
 func (s *Suite) recordAvailability(m mqtt.Message) {
@@ -335,9 +349,13 @@ func (s *Suite) stops(t T) {
 }
 
 func (s *Suite) restarts(t T) {
+	before, discovers := s.inst.Discovered()
 	since := time.Now()
 	s.p = s.run()
 	s.eventually(t, "status online", s.up)
+	if discovers {
+		s.keepsDiscoveredIDs(t, before, since)
+	}
 	// The decoder replays the availability retained before the restart, so only a fresh message
 	// shows the plugin republishes it after a Last Will.
 	for id, dev := range s.devices {
@@ -352,6 +370,32 @@ func (s *Suite) restarts(t T) {
 		s.eventually(t, id+" available again", func() bool { on, _ := s.sink.online(dev); return on })
 	}
 	s.noRejections(t)
+}
+
+// keepsDiscoveredIDs checks that a devices report published after since discovers every device
+// discovered before it, by the same ID: Oikade's Devices for adopted devices refer to them by it.
+func (s *Suite) keepsDiscoveredIDs(t T, before []contractv1.DiscoveredDevice, since time.Time) {
+	t.Helper()
+	missing := func() []string {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var m []string
+		for _, d := range before {
+			if !s.liveReportAt.After(since) || !s.liveDiscovered[d.ID] {
+				m = append(m, d.ID)
+			}
+		}
+		return m
+	}
+	deadline := time.Now().Add(s.wait)
+	for m := missing(); len(m) > 0; m = missing() {
+		if time.Now().After(deadline) {
+			t.Errorf("after a restart, the plugin no longer discovers %s within %s: "+
+				"a discovered device must keep its ID until it is reset or re-paired", strings.Join(m, ", "), s.wait)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func (s *Suite) crashes(t T) {

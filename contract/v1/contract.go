@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -88,11 +89,35 @@ type Status struct {
 	Contract int    `json:"contract"`
 }
 
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`)
+
+// ValidID reports whether id is a valid device ID: 1 to 63 letters, digits, '_', '.' or '-',
+// starting with a letter or digit. It never contains a '/', so it fits in a topic.
+func ValidID(id string) bool { return idPattern.MatchString(id) }
+
 // Devices is the retained devices payload.
 type Devices struct {
 	Devices []DeviceReport `json:"devices"`
-	// Undeclared counts devices the plugin can see that have no Device object.
+	// Undeclared counts devices the plugin can see that have no Device object. Oikade ignores it
+	// when Discovered is set, and counts them from Discovered instead.
 	Undeclared int `json:"undeclared"`
+	// Discovered lists every device the plugin sees in its app, declared or not. Nil means the
+	// plugin doesn't discover devices; an empty list means its app has none. A device leaving the
+	// list means it was removed from its app, not that it's offline.
+	Discovered []DiscoveredDevice `json:"discovered,omitzero"`
+}
+
+// DiscoveredDevice is one device the plugin sees in its app.
+type DiscoveredDevice struct {
+	// ID must stay the same across restarts of the plugin and of its hub or account, until the
+	// device is reset or re-paired. See ValidID.
+	ID           string   `json:"id"`
+	Manufacturer string   `json:"manufacturer,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	// Name and Room are as the user named them in the device's app, empty if it has none.
+	Name string `json:"name,omitempty"`
+	Room string `json:"room,omitempty"`
 }
 
 // DeviceReport is one declared device in the devices payload.

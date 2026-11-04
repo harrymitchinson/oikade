@@ -56,9 +56,29 @@ Publish `{"state":"online","contract":1}` once connected, and set the Last Will 
 - `found` is true once the plugin can reach the device. `manufacturer`, `model` and `capabilities` matter only when it's true.
 - `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `light.on`, `outlet.on`, `switch.on`, `light.level` or `sensor.temperature`. A plugin can't define new capabilities. Those go through Oikade's `add-capability` workflow.
 - `error` is a problem with the device's configuration, such as bad `parameters` or a missing key in the Secret. Oikade shows it on the Device as `Resolved=False` with reason `PluginError`. Leave it empty otherwise.
-- `undeclared` counts devices the plugin can see that have no Device object. Oikade reports it as `oikade_undeclared_devices`. It doesn't adopt them.
+- `undeclared` counts devices the plugin can see that have no Device object. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 
 Republish `devices` whenever any of this changes.
+
+#### `discovered`
+
+A plugin that can list the devices in its app (a hub, a cloud account, a LAN scan) adds them, so Oikade can adopt the ones you haven't declared ([OIK-123](https://linear.app/oikade/issue/OIK-123)):
+
+```json
+{
+  "devices": [],
+  "undeclared": 0,
+  "discovered": [
+    {"id": "3f2a9c71-0b1e-4c2d-9a8f-5e6d7c8b9a01", "manufacturer": "Signify", "model": "LCA001", "capabilities": ["light.on", "light.level"], "name": "Desk lamp", "room": "Study"}
+  ]
+}
+```
+
+- List every device in the app, **declared or not**, online or not. A device leaving the list means it was removed from its app. One that is unplugged stays in the list and is reported `found: false` in `devices` if it's declared.
+- Leave `discovered` out if the plugin can't list its app's devices. An empty list means the app has none.
+- `name` and `room` are as the user named them in the app. Leave them out if it has none.
+- `capabilities` are canonical names, as in `devices`.
+- **A discovered device's `id` is stable.** It stays the same across restarts of the plugin, and across restarts and restores of its hub or account, until the device is reset or re-paired. If the platform's own ID doesn't, build one from something that does, such as a MAC address, serial number or IEEE address. A Device that adopts it keeps that ID.
 
 ### `<id>/state`
 
@@ -108,7 +128,7 @@ Oikade never adopts what it can't validate. It drops the message, or the offendi
 
 | Reason | Cause |
 |---|---|
-| `malformed` | A payload that isn't the JSON or string described above. |
+| `malformed` | A payload that isn't the JSON or string described above, or a discovered device with an invalid or repeated `id`. |
 | `wrong_contract` | `status` names a contract other than 1. Oikade then ignores the plugin until it publishes contract 1 again. |
 | `unknown_capability` | A capability name not in Oikade's registry. |
 | `invalid_value` | A value of the wrong kind or out of range. |
@@ -128,7 +148,7 @@ The conformance suite is a fake hub: an in-process broker and Oikade's own decod
 - `status`, `devices`, `<id>/state` and `<id>/availability` are retained, and nothing is retained on `<id>/set`
 - a `/set` for each writable capability is applied and reported back as state
 - on SIGTERM the plugin exits 0 and leaves `status` offline
-- after a restart, the plugin and its devices come back online
+- after a restart, the plugin and its devices come back online, and it discovers every device it discovered before, by the same `id`
 - when the plugin is killed, its Last Will marks it offline with contract 1
 - Oikade rejected none of its messages at any point
 

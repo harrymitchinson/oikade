@@ -312,3 +312,51 @@ func TestStopUnsubscribes(t *testing.T) {
 		t.Errorf("changes after Stop: %+v", got)
 	}
 }
+
+func TestDiscoveredCountsUndeclared(t *testing.T) {
+	retained := online()
+	// 1000aa is declared, 1000cc isn't, and the plugin's own count is ignored.
+	retained["devices"] = `{"devices":[],"undeclared":7,"discovered":[
+		{"id":"1000aa","model":"MINIR4","capabilities":["light.on"],"name":"Porch light","room":"Porch"},
+		{"id":"1000cc","capabilities":["switch.on","colour.hue"],"name":"Desk lamp"},
+		{"id":"1000cc"},
+		{"id":"bad/id"}
+	]}`
+	i, bus, rec := setup(t, retained)
+
+	if rec.undeclared != 1 {
+		t.Errorf("undeclared = %d, want 1", rec.undeclared)
+	}
+	got, ok := i.Discovered()
+	if !ok || len(got) != 2 || got[0].Name != "Porch light" || got[0].Room != "Porch" ||
+		!slices.Equal(got[1].Capabilities, []string{capability.SwitchOn}) {
+		t.Errorf("Discovered() = %+v, %v", got, ok)
+	}
+	if r := i.Stats().Rejected; r[ReasonMalformed] != 2 || r[ReasonUnknownCapability] != 1 {
+		t.Errorf("rejected = %v, want 2 malformed and 1 unknown_capability", r)
+	}
+
+	// Declaring 1000cc leaves nothing undeclared.
+	i.SetDevices(map[string]types.NamespacedName{"1000aa": porch, "1000cc": hall})
+	if rec.undeclared != 0 {
+		t.Errorf("undeclared after declaring = %d, want 0", rec.undeclared)
+	}
+
+	// An empty list is still a list: the app has no devices.
+	publish(t, bus, root+"/devices", `{"devices":[],"undeclared":3,"discovered":[]}`)
+	if got, ok := i.Discovered(); !ok || len(got) != 0 {
+		t.Errorf("Discovered() = %+v, %v, want empty and true", got, ok)
+	}
+	if rec.undeclared != 0 {
+		t.Errorf("undeclared = %d, want 0", rec.undeclared)
+	}
+
+	// Without the list, the plugin's count is used.
+	publish(t, bus, root+"/devices", `{"devices":[],"undeclared":3}`)
+	if _, ok := i.Discovered(); ok {
+		t.Error("Discovered() is ok without a discovered list")
+	}
+	if rec.undeclared != 3 {
+		t.Errorf("undeclared = %d, want 3", rec.undeclared)
+	}
+}

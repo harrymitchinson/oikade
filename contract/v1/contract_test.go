@@ -200,3 +200,48 @@ func TestSetCommandPayloadRoundTrips(t *testing.T) {
 		t.Error("Payload without a capability should fail")
 	}
 }
+
+func TestDiscoveredTellsNoneFromEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		devices Devices
+		want    string
+	}{
+		{Devices{Devices: []DeviceReport{}}, `{"devices":[],"undeclared":0}`},
+		{
+			Devices{Devices: []DeviceReport{}, Discovered: []DiscoveredDevice{}},
+			`{"devices":[],"undeclared":0,"discovered":[]}`,
+		},
+	} {
+		got, err := json.Marshal(tc.devices)
+		if err != nil || string(got) != tc.want {
+			t.Errorf("encoded %s, %v; want %s", got, err, tc.want)
+		}
+		var back Devices
+		if err := json.Unmarshal(got, &back); err != nil {
+			t.Fatal(err)
+		}
+		if (back.Discovered == nil) != (tc.devices.Discovered == nil) {
+			t.Errorf("%s decoded discovered as %#v", got, back.Discovered)
+		}
+	}
+}
+
+func TestValidID(t *testing.T) {
+	for id, want := range map[string]bool{
+		"1000aabbcc":                           true,
+		"3f2a9c71-0b1e-4c2d-9a8f-5e6d7c8b9a01": true,
+		"0x00158d0001a2b3c4":                   true,
+		"a.b_c-d":                              true,
+		strings.Repeat("a", 63):                true,
+		"":                                     false,
+		"-lead":                                false,
+		"a/b":                                  false,
+		"a+b":                                  false,
+		"a b":                                  false,
+		strings.Repeat("a", 64):                false,
+	} {
+		if got := ValidID(id); got != want {
+			t.Errorf("ValidID(%q) = %v, want %v", id, got, want)
+		}
+	}
+}

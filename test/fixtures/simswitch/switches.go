@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 
@@ -26,12 +28,28 @@ type switches struct {
 	order   []*relay
 	relays  map[string]*relay
 	reports []contractv1.DeviceReport
+	// discovered is what the simulated app holds: every relay, and one spare nobody declared.
+	discovered []contractv1.DiscoveredDevice
+}
+
+// manufacturer and model are what every simulated relay reports.
+const (
+	manufacturer = "Oikade"
+	model        = "Simulated switch"
+)
+
+// spare is a relay in the simulated app that no Device declares.
+var spare = contractv1.DiscoveredDevice{
+	ID: "spare-relay", Manufacturer: manufacturer, Model: model,
+	Capabilities: []string{"switch.on"}, Name: "Spare relay",
 }
 
 var _ plugin.Handler = (*switches)(nil)
 
 // newSwitches turns the declared devices into relays and the devices report. A device with a bad
-// capability parameter is reported not found, with the reason.
+// capability parameter is reported not found, with the reason. A device with the parameter
+// simulate: unstable-id is discovered under a new ID each start, which breaks the contract, so the
+// conformance suite's own tests can see it fail.
 func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 	s := &switches{relays: map[string]*relay{}}
 	for _, d := range declared {
@@ -44,15 +62,29 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 		s.order = append(s.order, r)
 		s.relays[d.ID] = r
 		s.reports = append(s.reports, contractv1.DeviceReport{
-			ID: d.ID, Found: true, Manufacturer: "Oikade", Model: "Simulated switch", Capabilities: []string{c},
+			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
+		})
+		id := d.ID
+		if d.Parameters["simulate"] == "unstable-id" {
+			b := make([]byte, 4)
+			_, _ = rand.Read(b)
+			id = d.ID + "-" + hex.EncodeToString(b)
+		}
+		s.discovered = append(s.discovered, contractv1.DiscoveredDevice{
+			ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
+			Name: d.DisplayName, Room: d.Room,
 		})
 	}
+	s.discovered = append(s.discovered, spare)
 	return s
 }
 
-// Serve reports every relay as available and off. Simulated relays never change by themselves,
-// so there's nothing to follow afterwards.
+// Serve reports what the simulated app holds, then every relay as available and off. Simulated
+// relays never change by themselves, so there's nothing to follow afterwards.
 func (s *switches) Serve(ctx context.Context, p *plugin.Plugin) error {
+	if err := p.SetDiscovered(ctx, s.discovered); err != nil {
+		return err
+	}
 	if err := p.SetDevices(ctx, s.reports, 0); err != nil {
 		return err
 	}

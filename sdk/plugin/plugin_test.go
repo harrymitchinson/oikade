@@ -566,3 +566,47 @@ func TestSetHandlerFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestSetDiscovered(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	w := watchLive(ctx, t, b.URL) // first, as in TestSetStateValidates
+	p, _ := start(ctx, t, b.URL, Options{})
+	lamp := contractv1.DiscoveredDevice{
+		ID: "lamp-9c71", Model: "LCA001", Capabilities: []string{"light.on"}, Name: "Desk lamp", Room: "Study",
+	}
+
+	for _, bad := range [][]contractv1.DiscoveredDevice{
+		{{ID: "a/b"}},
+		{lamp, lamp},
+		{{ID: "x", Capabilities: []string{"light.sparkle"}}},
+	} {
+		if err := p.SetDiscovered(ctx, bad); err == nil {
+			t.Errorf("SetDiscovered(%+v) succeeded, want an error", bad)
+		}
+	}
+	// Before SetDevices, the list waits for it.
+	if err := p.SetDiscovered(ctx, []contractv1.DiscoveredDevice{lamp}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{}, 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetDiscovered(ctx, []contractv1.DiscoveredDevice{}); err != nil {
+		t.Fatal(err)
+	}
+	w.expect(
+		root.Status()+"="+online,
+		root.Devices()+`={"devices":[],"undeclared":5,"discovered":[{"id":"lamp-9c71","model":"LCA001",`+
+			`"capabilities":["light.on"],"name":"Desk lamp","room":"Study"}]}`,
+		root.Devices()+`={"devices":[],"undeclared":5,"discovered":[]}`,
+	)
+
+	// A reconnect republishes the list.
+	b.Kick(t, p.clientID)
+	w.expect(
+		root.Status()+"="+offline,
+		root.Status()+"="+online,
+		root.Devices()+`={"devices":[],"undeclared":5,"discovered":[]}`,
+	)
+}
