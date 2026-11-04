@@ -120,7 +120,7 @@ You have two options:
 
 Pick a version from [Releases](https://github.com/harrymitchinson/oikade/releases). Each one has an `install.yaml` with every manifest Oikade needs, and an image at `ghcr.io/harrymitchinson/oikade:<version>` for arm64 and amd64. The same image runs the operator, the runtime and the Matter bridge pods. The image and `install.yaml` are added after the release's tests pass, about fifteen minutes after it appears. Pick a release that lists `install.yaml` under its assets.
 
-Versions between milestones are pre-releases, such as `v0.1.0-alpha.3`. Any of them may change the API, so read the release notes before you upgrade (README, "Versioning").
+Milestones such as `v0.1.0` are full releases. Versions between them are pre-releases of the next one, such as `v0.2.0-alpha.1`. Any of them may change the API, so read the release notes before you upgrade (README, "Versioning").
 
 <details>
 <summary>Building from source instead</summary>
@@ -146,7 +146,7 @@ The Release's `install.yaml` runs the runtime with `--timezone=UTC` and no locat
 
 ```yaml
 resources:
-- https://github.com/harrymitchinson/oikade/releases/download/v0.1.0-alpha.1/install.yaml
+- https://github.com/harrymitchinson/oikade/releases/download/v0.1.0/install.yaml
 patches:
 # Appends to the runtime's flags. A second --timezone wins over the UTC default.
 - target: {kind: Deployment, name: oikade-runtime}
@@ -511,8 +511,8 @@ The ServiceMonitors and the dashboard aren't in `install.yaml`, so add them from
 namespace: oikade-system
 namePrefix: oikade-
 resources:
-- https://github.com/harrymitchinson/oikade//config/prometheus?ref=v0.1.0-alpha.1
-- https://github.com/harrymitchinson/oikade//config/grafana?ref=v0.1.0-alpha.1
+- https://github.com/harrymitchinson/oikade//config/prometheus?ref=v0.1.0
+- https://github.com/harrymitchinson/oikade//config/grafana?ref=v0.1.0
 ```
 
 Add `- monitoring` to the `resources` in `oikade/kustomization.yaml`, and keep its version in step with the `install.yaml` URL when you upgrade. Then run `kubectl apply -k oikade/`, or commit it for Flux.
@@ -563,7 +563,7 @@ Read the release notes, then change the version in the URL in `oikade/kustomizat
 
 ```yaml
 resources:
-- https://github.com/harrymitchinson/oikade/releases/download/v0.1.0-alpha.2/install.yaml
+- https://github.com/harrymitchinson/oikade/releases/download/v0.2.0-alpha.1/install.yaml
 ```
 
 If you added monitoring (step 14), change `?ref=` in `oikade/monitoring/kustomization.yaml` to the same version. Commit it and let Flux apply it, or run `kubectl apply -k oikade/`. Your timezone and location patch carries over.
