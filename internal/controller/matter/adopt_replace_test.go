@@ -4,7 +4,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -17,11 +16,10 @@ import (
 // Device keeps its name and with it its Matter endpoint.
 var _ = Describe("Replacing an adopted device's ID", func() {
 	It("keeps the old Device's Matter endpoint", func() {
-		Expect(pluginsv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 		t := newTestNS()
 		r := &BridgeReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Image: "oikade:test", MQTTURL: "mqtt://broker:1883"}
 		adopt := func() {
-			a := &homecontroller.AdoptReconciler{Client: k8sClient, Scheme: scheme.Scheme, Driver: homecontroller.AdoptPlugin}
+			a := &homecontroller.AdoptReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Driver: homecontroller.AdoptPlugin}
 			_, err := a.Reconcile(ctx, ctrl.Request{NamespacedName: t.key("hue")})
 			Expect(err).NotTo(HaveOccurred())
 		}

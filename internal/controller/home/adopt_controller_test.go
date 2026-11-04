@@ -407,6 +407,44 @@ var _ = Describe("Adopting discovered devices", func() {
 			Expect(deviceNames()).To(ConsistOf("desk-lamp"))
 		})
 
+		It("keeps the annotated Device even when it is the newer one, and works with adoption off", func() {
+			p := plugin(on, deskLamp)
+			adopt(AdoptPlugin)
+			setDiscovered(p, deskLamp, resetLamp)
+			adopt(AdoptPlugin)
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+			p.Spec.Discovery.Adopt = false
+			Expect(k8sClient.Update(ctx, p)).To(Succeed())
+
+			annotate("desk-lamp-2", "desk-lamp")
+			adopt(AdoptPlugin)
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ConsistOf("desk-lamp-2"))
+			Expect(device("desk-lamp-2").Spec.Plugin.ID).To(Equal(deskLamp.ID))
+		})
+
+		It("replaces a Zigbee2MQTT device's IEEE address", func() {
+			z := &zigbeev1alpha1.Zigbee2MQTT{
+				ObjectMeta: metav1.ObjectMeta{Name: "hue", Namespace: ns},
+				Spec: zigbeev1alpha1.Zigbee2MQTTSpec{
+					Serial:    zigbeev1alpha1.SerialSpec{Port: "tcp://slzb-06:6638", Adapter: "zstack"},
+					Discovery: on,
+				},
+			}
+			Expect(k8sClient.Create(ctx, z)).To(Succeed())
+			z.Status.Discovered = []homev1alpha1.DiscoveredDevice{
+				{ID: "0x00158d0001a2b3c4", Name: "Porch sensor"}, {ID: "0x00158d0001ffee01", Name: "Porch sensor"},
+			}
+			Expect(k8sClient.Status().Update(ctx, z)).To(Succeed())
+			adopt(AdoptZigbee2MQTT)
+			Expect(deviceNames()).To(ConsistOf("porch-sensor", "porch-sensor-2"))
+
+			annotate("porch-sensor", "porch-sensor-2")
+			adopt(AdoptZigbee2MQTT)
+			Expect(deviceNames()).To(ConsistOf("porch-sensor"))
+			Expect(device("porch-sensor").Spec.Zigbee2MQTT.IEEEAddress).To(Equal("0x00158d0001ffee01"))
+		})
+
 		It("refuses a target that is declared in Git, or adopted from another instance", func() {
 			plugin(on, deskLamp, resetLamp)
 			adopt(AdoptPlugin)
