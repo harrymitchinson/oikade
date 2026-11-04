@@ -9,6 +9,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -68,9 +69,10 @@ func (r *AdoptReconciler) removal(ctx context.Context, inst client.Object, d *ho
 	case client.IgnoreNotFound(err) != nil:
 		return 0, err
 	}
-	logf.FromContext(ctx).Info("Deleted adopted Device, its device was removed from its app", "device", d.Name, "gracePeriod", grace)
+	goneFor := now.Sub(pending.LastTransitionTime.Time).Truncate(time.Second)
+	logf.FromContext(ctx).Info("Deleted adopted Device, its device was removed from its app", "device", d.Name, "goneFor", goneFor)
 	r.event(inst, d, corev1.EventTypeNormal, reasonRemoved, "Delete",
-		"Deleted Device %s, its device was removed from the app %s ago", d.Name, grace)
+		"Deleted Device %s, its device was removed from the app %s ago", d.Name, goneFor)
 	return 0, nil
 }
 
@@ -98,12 +100,32 @@ func (r *AdoptReconciler) now() time.Time {
 }
 
 func (r *AdoptReconciler) event(regarding, related client.Object, eventtype, reason, action, note string, args ...any) {
-	if r.Recorder == nil {
-		return
+	if r.Recorder != nil {
+		r.Recorder.Eventf(regarding, related, eventtype, reason, action, note, args...)
 	}
-	if related == nil {
-		r.Recorder.Eventf(regarding, nil, eventtype, reason, action, note, args...)
-		return
+}
+
+// clearAllRemovals drops RemovalPending from every Device the instance has adopted.
+func (r *AdoptReconciler) clearAllRemovals(ctx context.Context, inst client.Object, devices []homev1alpha1.Device) (ctrl.Result, error) {
+	var result ctrl.Result
+	for i := range devices {
+		d := &devices[i]
+		if !metav1.IsControlledBy(d, inst) {
+			continue
+		}
+		if err := r.clearRemoval(ctx, d); apierrors.IsConflict(err) {
+			result.RequeueAfter = time.Second
+		} else if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
-	r.Recorder.Eventf(regarding, related, eventtype, reason, action, note, args...)
+	return result, nil
+}
+
+// sooner returns the shorter of two requeue delays, where 0 means none.
+func sooner(a, b time.Duration) time.Duration {
+	if a == 0 || (b > 0 && b < a) {
+		return b
+	}
+	return a
 }

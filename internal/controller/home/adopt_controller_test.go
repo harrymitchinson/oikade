@@ -245,7 +245,12 @@ var _ = Describe("Adopting discovered devices", func() {
 			p := plugin(discovery, deskLamp)
 			adopt(AdoptPlugin)
 
-			// Unplugged, it stays in the app's list, so it isn't gone.
+			// Unplugged, the runtime reports it offline, and it stays in the app's list, so it isn't gone.
+			d := device("desk-lamp")
+			meta.SetStatusCondition(&d.Status.Conditions, metav1.Condition{
+				Type: homev1alpha1.ConditionAvailable, Status: metav1.ConditionFalse, Reason: "Offline",
+			})
+			Expect(k8sClient.Status().Update(ctx, d)).To(Succeed())
 			clk.SetTime(clk.Now().Add(48 * time.Hour))
 			Expect(reconcile(AdoptPlugin).RequeueAfter).To(BeZero())
 			Expect(pending("desk-lamp")).To(BeNil())
@@ -320,6 +325,30 @@ var _ = Describe("Adopting discovered devices", func() {
 			setDiscovered(p, hallMotion)
 			Expect(reconcile(AdoptPlugin).RequeueAfter).To(Equal(time.Hour))
 			Expect(deviceNames()).To(ContainElement("desk-lamp"))
+		})
+
+		It("clears RemovalPending once the Device is taken over, or adoption is turned off", func() {
+			p := plugin(deleteAfterHour, deskLamp, hallMotion)
+			adopt(AdoptPlugin)
+			setDiscovered(p, homev1alpha1.DiscoveredDevice{ID: "other"})
+			adopt(AdoptPlugin)
+			Expect(pending("desk-lamp")).NotTo(BeNil())
+			Expect(pending("hall-motion")).NotTo(BeNil())
+
+			d := device("desk-lamp")
+			d.Spec.DisplayName = "Study lamp"
+			Expect(k8sClient.Update(ctx, d)).To(Succeed())
+			adopt(AdoptPlugin)
+			Expect(metav1.GetControllerOf(device("desk-lamp"))).To(BeNil())
+			Expect(pending("desk-lamp")).To(BeNil())
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+			p.Spec.Discovery.Adopt = false
+			Expect(k8sClient.Update(ctx, p)).To(Succeed())
+			clk.SetTime(clk.Now().Add(48 * time.Hour))
+			adopt(AdoptPlugin)
+			Expect(pending("hall-motion")).To(BeNil())
+			Expect(deviceNames()).To(ContainElements("desk-lamp", "hall-motion"))
 		})
 
 		It("keeps a Device annotated oikade.dev/removal-policy: retain under Delete", func() {

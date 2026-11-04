@@ -65,12 +65,17 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	discovery, discovered := r.discovery(inst)
-	if discovery == nil || !discovery.Adopt || discovered == nil {
-		return ctrl.Result{}, nil
-	}
 	var devices homev1alpha1.DeviceList
 	if err := r.List(ctx, &devices, client.InNamespace(req.Namespace)); err != nil {
 		return ctrl.Result{}, err
+	}
+	if discovery == nil || !discovery.Adopt {
+		// With adoption off nothing is removed, so no removal is pending either.
+		return r.clearAllRemovals(ctx, inst, devices.Items)
+	}
+	if discovered == nil {
+		// Not reported since the runtime started: a pending removal waits, and keeps its start.
+		return ctrl.Result{}, nil
 	}
 	var rooms homev1alpha1.RoomList
 	if err := r.List(ctx, &rooms, client.InNamespace(req.Namespace)); err != nil {
@@ -96,13 +101,11 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		_, present := names[id]
 		after, err := r.manage(ctx, inst, discovery, ds, names, present)
 		if apierrors.IsConflict(err) {
-			return ctrl.Result{RequeueAfter: time.Second}, nil // the runtime wrote a Device's status meanwhile
+			after = time.Second // the runtime wrote a Device's status meanwhile; the others go on
 		} else if err != nil {
 			return ctrl.Result{}, err
 		}
-		if after > 0 && (requeue == 0 || after < requeue) {
-			requeue = after
-		}
+		requeue = sooner(requeue, after)
 	}
 
 	for _, e := range discovered {
@@ -155,13 +158,14 @@ func (r *AdoptReconciler) manage(ctx context.Context, inst client.Object, discov
 		}
 		switch {
 		case takenOver(d):
+			// Cleared first: once released, the Device is no longer this controller's to clear.
+			if err := r.clearRemoval(ctx, d); err != nil {
+				return 0, err
+			}
 			if err := r.release(ctx, d, inst); err != nil {
 				return 0, err
 			}
 			log.Info("Released adopted Device, its spec is managed elsewhere", "device", d.Name)
-			if err := r.clearRemoval(ctx, d); err != nil {
-				return 0, err
-			}
 		case kept:
 			// Another Device declares the same device: it wins, and this copy goes.
 			if err := r.Delete(ctx, d); client.IgnoreNotFound(err) != nil {

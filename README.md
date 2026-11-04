@@ -518,7 +518,7 @@ spec:
 
 - **Removal.** A device counts as removed once it's gone from the instance's `status.discovered`. An offline or unplugged device stays in that list, so it's never removed, and nor is anything while the runtime hasn't reported the list since it started.
   - Under `removalPolicy: Retain`, the Device stays, with `Resolved=False`, for you to delete.
-  - Under `removalPolicy: Delete`, the Device gets the condition `RemovalPending` and a `RemovalPending` event. It's deleted once its device has been gone for `removalGracePeriod`, counted from the condition's `lastTransitionTime`, and the instance gets a `Removed` event. A device that comes back before then clears the condition, and the grace period starts over if it goes again.
+  - Under `removalPolicy: Delete`, the Device gets the condition `RemovalPending` and a `RemovalPending` event. It's deleted once its device has been gone for `removalGracePeriod`, counted from the condition's `lastTransitionTime`, and the instance gets a `Removed` event. A device that comes back before then clears the condition, and the grace period starts over if it goes again. Turning `adopt` off, or taking the Device over in Git, cancels a pending removal.
   - Annotate a Device `oikade.dev/removal-policy: retain` to keep it under `Delete`. The annotation isn't a takeover, so the Device stays adopted.
 
 ## Metrics
