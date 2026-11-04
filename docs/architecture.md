@@ -76,4 +76,4 @@ Oikade reaches the Home app and other controllers as a Matter bridge. It replace
 
 ## Releases
 
-release-please keeps a release PR open on main. Merging it tags the release, and `.github/workflows/release.yml` builds the arm64 and amd64 images and attaches `install.yaml` to the GitHub Release. Versions are `0.x` pre-releases (`0.1.0-alpha.N`) between milestones. Design: [OIK-63](https://linear.app/oikade/issue/OIK-63).
+release-please keeps a release PR open on main. Merging it tags the release, and `.github/workflows/release.yml` builds the arm64 and amd64 images and attaches `install.yaml` to the GitHub Release. A milestone is a full release (`0.1.0`), and the versions between milestones are pre-releases of the next one (`0.2.0-alpha.N`). Design: [OIK-63](https://linear.app/oikade/issue/OIK-63).
