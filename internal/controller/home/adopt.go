@@ -64,7 +64,10 @@ func adoptedName(d homev1alpha1.DiscoveredDevice, taken map[string]bool) string 
 		if model == "" {
 			model = "device"
 		}
-		base = trimName(model, maxNameLen-5) + "-" + lastFour(d.ID)
+		base = trimName(model, maxNameLen-5)
+		if tail := lastFour(d.ID); tail != "" {
+			base += "-" + tail
+		}
 	}
 	if !taken[base] {
 		return base
@@ -111,9 +114,16 @@ func displayName(s string) string {
 	return string([]rune(s)[:maxDisplayName])
 }
 
+// lastApplied is the annotation client-side kubectl apply, and tools built on it, leave.
+const lastApplied = "kubectl.kubernetes.io/last-applied-configuration"
+
 // takenOver reports whether something other than the operator, such as Flux, Argo CD or kubectl
-// apply, has written a Device's spec. The Device is then the user's, not adopted.
+// apply, has written a Device's spec. The Device is then the user's, not adopted. A client-side
+// apply of the same spec writes no spec field, but leaves its annotation.
 func takenOver(d *homev1alpha1.Device) bool {
+	if _, ok := d.Annotations[lastApplied]; ok {
+		return true
+	}
 	for _, f := range d.ManagedFields {
 		if f.Manager == shared.FieldOwner || f.Subresource != "" || f.FieldsV1 == nil {
 			continue

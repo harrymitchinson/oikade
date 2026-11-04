@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
@@ -149,6 +150,32 @@ var _ = Describe("Adopting discovered devices", func() {
 		setDiscovered(p, homev1alpha1.DiscoveredDevice{ID: "3f2a9c71", Name: "Lamp"})
 		adopt(AdoptPlugin)
 		Expect(device("desk-lamp").Spec.DisplayName).To(Equal("Study lamp"))
+	})
+
+	It("hands the Device over on a client-side kubectl apply of the same spec", func() {
+		p := plugin(on, deskLamp)
+		adopt(AdoptPlugin)
+		d := device("desk-lamp")
+		d.Annotations = map[string]string{"kubectl.kubernetes.io/last-applied-configuration": "{}"}
+		Expect(k8sClient.Update(ctx, d)).To(Succeed())
+		adopt(AdoptPlugin)
+		Expect(metav1.IsControlledBy(device("desk-lamp"), p)).To(BeFalse())
+	})
+
+	It("keeps only the oldest of two adopted copies of one device", func() {
+		p := plugin(on, deskLamp)
+		adopt(AdoptPlugin)
+		// A second copy, as a stale cache could create after a rename in the app.
+		dup := &homev1alpha1.Device{
+			ObjectMeta: metav1.ObjectMeta{Name: "reading-lamp", Namespace: ns},
+			Spec: homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{
+				PluginRef: corev1.LocalObjectReference{Name: "hue"}, ID: deskLamp.ID,
+			}},
+		}
+		Expect(controllerutil.SetControllerReference(p, dup, scheme.Scheme)).To(Succeed())
+		Expect(k8sClient.Create(ctx, dup, client.FieldOwner("oikade"))).To(Succeed())
+		adopt(AdoptPlugin)
+		Expect(deviceNames()).To(ConsistOf("desk-lamp"))
 	})
 
 	It("deletes its copy when another Device declares the same device", func() {

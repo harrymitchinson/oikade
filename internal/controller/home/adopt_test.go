@@ -39,8 +39,9 @@ func TestAdoptedName(t *testing.T) {
 		take(homev1alpha1.DiscoveredDevice{ID: "e", Name: "Lamp"}),
 		take(homev1alpha1.DiscoveredDevice{ID: "3f2a9c71", Model: "LCA001"}),
 		take(homev1alpha1.DiscoveredDevice{ID: "0x00158d0001a2b3c4"}),
+		take(homev1alpha1.DiscoveredDevice{ID: "::"}),
 	}
-	want := []string{"lamp", "hall-lamp", "study-lamp", "study-lamp-2", "lamp-2", "lca001-9c71", "device-b3c4"}
+	want := []string{"lamp", "hall-lamp", "study-lamp", "study-lamp-2", "lamp-2", "lca001-9c71", "device-b3c4", "device"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("names = %v, want %v", got, want)
@@ -65,5 +66,14 @@ func TestRoomFor(t *testing.T) {
 func TestDisplayName(t *testing.T) {
 	if got := displayName(" " + strings.Repeat("é", 70) + " "); got != strings.Repeat("é", 64) {
 		t.Errorf("displayName cut to %d characters", len([]rune(got)))
+	}
+}
+
+func TestHiddenFromMatter(t *testing.T) {
+	for value, want := range map[string]bool{"hide": true, "Hide": true, " HIDE ": true, "expose": false, "": false} {
+		d := &homev1alpha1.Device{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{homev1alpha1.AnnotationMatter: value}}}
+		if got := d.HiddenFromMatter(); got != want {
+			t.Errorf("HiddenFromMatter with %q = %v, want %v", value, got, want)
+		}
 	}
 }

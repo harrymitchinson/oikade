@@ -3,6 +3,7 @@ package home
 import (
 	"context"
 	"slices"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -10,10 +11,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -80,28 +83,38 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	for _, ds := range byID {
-		declared := slices.ContainsFunc(ds, func(d *homev1alpha1.Device) bool { return !metav1.IsControlledBy(d, inst) })
+		// Oldest first, so a second adopted copy, from a stale cache, is the one that goes.
+		slices.SortFunc(ds, func(a, b *homev1alpha1.Device) int {
+			if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+				return c
+			}
+			return strings.Compare(a.Name, b.Name)
+		})
+		kept := slices.ContainsFunc(ds, func(d *homev1alpha1.Device) bool {
+			return !metav1.IsControlledBy(d, inst) || takenOver(d)
+		})
 		for _, d := range ds {
 			if !metav1.IsControlledBy(d, inst) {
 				continue
 			}
 			switch {
-			case declared:
-				// Another Device declares the same device: it wins, and this copy goes.
-				if err := r.Delete(ctx, d); client.IgnoreNotFound(err) != nil {
-					return ctrl.Result{}, err
-				}
-				log.Info("Deleted adopted Device, declared by another Device", "device", d.Name)
 			case takenOver(d):
 				if err := r.release(ctx, d, inst); err != nil {
 					return ctrl.Result{}, err
 				}
 				log.Info("Released adopted Device, its spec is managed elsewhere", "device", d.Name)
+			case kept:
+				// Another Device declares the same device: it wins, and this copy goes.
+				if err := r.Delete(ctx, d); client.IgnoreNotFound(err) != nil {
+					return ctrl.Result{}, err
+				}
+				log.Info("Deleted adopted Device, declared by another Device", "device", d.Name)
 			case r.Driver == AdoptPlugin:
 				if err := r.followName(ctx, d, names); err != nil {
 					return ctrl.Result{}, err
 				}
 			}
+			kept = true
 		}
 	}
 
@@ -223,7 +236,10 @@ func (r *AdoptReconciler) instanceOf(_ context.Context, obj client.Object) []rec
 func (r *AdoptReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(r.newInstance()).
-		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(r.instanceOf)).
+		// Device status changes with every reading; only spec, annotations (a client-side apply's)
+		// and creation or deletion matter here.
+		Watches(&homev1alpha1.Device{}, handler.EnqueueRequestsFromMapFunc(r.instanceOf),
+			builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
 		Named(r.Driver + "-adopt").
 		Complete(r)
 }

@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,9 +18,10 @@ const (
 	MatterExpose = "expose"
 )
 
-// HiddenFromMatter reports whether a Device's annotation keeps it off every Matter bridge.
+// HiddenFromMatter reports whether a Device's annotation keeps it off every Matter bridge. The
+// value is compared ignoring case, so Hide works too.
 func (d *Device) HiddenFromMatter() bool {
-	return d.Annotations[AnnotationMatter] == MatterHide
+	return strings.EqualFold(strings.TrimSpace(d.Annotations[AnnotationMatter]), MatterHide)
 }
 
 // DiscoveryMatter says whether Devices created for discovered devices are shown on Matter bridges.

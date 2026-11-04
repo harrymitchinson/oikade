@@ -196,6 +196,7 @@ var deviceShapeChanged = predicate.Funcs{
 			return true
 		}
 		return o.Generation != n.Generation || !maps.Equal(o.Labels, n.Labels) ||
+			o.HiddenFromMatter() != n.HiddenFromMatter() ||
 			!slices.Equal(capabilityNames(o), capabilityNames(n))
 	},
 }

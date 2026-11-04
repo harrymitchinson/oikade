@@ -512,7 +512,8 @@ spec:
 - **Renames.** A plugin device's `displayName` follows its name in the app. A Zigbee2MQTT device's name is copied once: after that, the operator names it in Zigbee2MQTT after the Device, as for any declared device, so rename it on the Device.
 - **Rooms** are matched, never created. With no matching Room, `roomRef` stays empty.
 - **Matter.** `matter: Hide` annotates each adopted Device with `oikade.dev/matter: hide`, which keeps it off every bridge. The annotation works on any Device. Set it to `expose`, or remove it, to show the Device again.
-- **Taking it over in Git.** Once anything other than the operator writes a spec field of an adopted Device, such as `kubectl apply`, `kubectl edit`, Flux or Argo CD, the operator drops its owner reference and the Device is yours. Annotations alone don't count. A Device with another name that declares the same device wins, and the operator deletes its adopted copy.
+- **Taking it over in Git.** Once anything other than the operator writes a spec field of an adopted Device, or applies it with client-side `kubectl apply`, such as `kubectl edit`, Flux or Argo CD, the operator drops its owner reference and the Device is yours. Annotations alone don't count. A Device with another name that declares the same device wins, and the operator deletes its adopted copy.
+- **Deleting an adopted Device** while its device is still in the app adopts it again on the next pass. To keep it out of Matter, annotate it `oikade.dev/matter: hide` instead. There's no way yet to ignore one device.
 - **Deleting the Plugin or Zigbee2MQTT instance** deletes the Devices it adopted. As for any deleted Device, their Matter endpoint IDs are kept, so they get the same endpoints if they're adopted again.
 
 Removal (`removalPolicy`) isn't acted on yet: a device removed from its app leaves its adopted Device in place. An offline device is never removed: only one gone from its app is.
