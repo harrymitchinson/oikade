@@ -1,8 +1,6 @@
 package zigbee
 
 import (
-	"time"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,6 +9,7 @@ import (
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 )
 
+// The rules themselves are the shared DiscoverySpec's, covered for Plugin; this checks the wiring.
 var _ = Describe("Zigbee2MQTT discovery validation", func() {
 	create := func(discovery *homev1alpha1.DiscoverySpec) (*zigbeev1alpha1.Zigbee2MQTT, error) {
 		z := &zigbeev1alpha1.Zigbee2MQTT{
@@ -38,12 +37,5 @@ var _ = Describe("Zigbee2MQTT discovery validation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(z.Spec.Discovery.Matter).To(Equal(homev1alpha1.DiscoveryMatterExpose))
 		Expect(z.Spec.Discovery.RemovalPolicy).To(Equal(homev1alpha1.RemovalPolicyRetain))
-	})
-
-	It("rejects a grace period without removalPolicy Delete", func() {
-		_, err := create(&homev1alpha1.DiscoverySpec{
-			Adopt: true, RemovalGracePeriod: &metav1.Duration{Duration: time.Hour},
-		})
-		Expect(err).To(MatchError(ContainSubstring("removalGracePeriod applies only to removalPolicy Delete")))
 	})
 })

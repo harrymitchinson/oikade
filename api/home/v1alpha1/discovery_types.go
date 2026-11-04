@@ -6,10 +6,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// LabelDiscoveredBy is set on a Device that Oikade created for a discovered device, to the name of
-// the Plugin or Zigbee2MQTT instance that discovered it.
-const LabelDiscoveredBy = "oikade.dev/discovered-by"
-
 // DiscoveryMatter says whether Devices created for discovered devices are shown on Matter bridges.
 // +kubebuilder:validation:Enum=Expose;Hide
 type DiscoveryMatter string
@@ -57,6 +53,8 @@ type DiscoverySpec struct {
 
 	// removalGracePeriod is how long a device must be gone from its app before its Device is deleted.
 	// Only with removalPolicy Delete. Defaults to 24h.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s')",message="removalGracePeriod must be positive"
 	// +optional
 	RemovalGracePeriod *metav1.Duration `json:"removalGracePeriod,omitempty"`
