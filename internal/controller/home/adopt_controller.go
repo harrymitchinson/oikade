@@ -77,6 +77,14 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		// Not reported since the runtime started: a pending removal waits, and keeps its start.
 		return ctrl.Result{}, nil
 	}
+	// A replacement changes or deletes Devices, so the next pass starts from a fresh list.
+	if done, err := r.replaceAll(ctx, inst, devices.Items); apierrors.IsConflict(err) {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	} else if err != nil {
+		return ctrl.Result{}, err
+	} else if done {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
 	var rooms homev1alpha1.RoomList
 	if err := r.List(ctx, &rooms, client.InNamespace(req.Namespace)); err != nil {
 		return ctrl.Result{}, err

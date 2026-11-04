@@ -31,6 +31,12 @@ const AnnotationRemovalPolicy = "oikade.dev/removal-policy"
 // RemovalRetain is the value of AnnotationRemovalPolicy that keeps a Device.
 const RemovalRetain = "retain"
 
+// AnnotationReplaceWith, set on an adopted Device to the name of another Device adopted from the
+// same instance, moves that Device's ID onto this one and deletes it. A device that was reset or
+// re-paired comes back with a new ID; this keeps the old Device's name, and so its Rules, Matter
+// endpoint and metrics. The operator removes the annotation once done.
+const AnnotationReplaceWith = "oikade.dev/replace-with"
+
 // RetainedOnRemoval reports whether a Device's annotation keeps it when its device is removed from
 // its app. The value is compared ignoring case, so Retain works too.
 func (d *Device) RetainedOnRemoval() bool {

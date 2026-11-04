@@ -367,4 +367,112 @@ var _ = Describe("Adopting discovered devices", func() {
 			Expect(metav1.IsControlledBy(device("desk-lamp"), p)).To(BeTrue(), "an annotation isn't a takeover")
 		})
 	})
+
+	Describe("replacing a reset device's ID", func() {
+		resetLamp := homev1alpha1.DiscoveredDevice{ID: "9d01", Name: "Desk lamp"}
+		replaced := func(name string) *metav1.Condition {
+			return meta.FindStatusCondition(device(name).Status.Conditions, homev1alpha1.ConditionReplaced)
+		}
+		annotate := func(name, target string) {
+			d := device(name)
+			if d.Annotations == nil {
+				d.Annotations = map[string]string{}
+			}
+			d.Annotations[homev1alpha1.AnnotationReplaceWith] = target
+			Expect(k8sClient.Update(ctx, d)).To(Succeed())
+		}
+
+		It("moves the new ID onto the old Device and deletes the new one", func() {
+			p := plugin(on, deskLamp)
+			adopt(AdoptPlugin)
+			// Reset, the lamp comes back with a new ID and is adopted as a new Device.
+			setDiscovered(p, resetLamp)
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ConsistOf("desk-lamp", "desk-lamp-2"))
+			uid := device("desk-lamp").UID
+
+			annotate("desk-lamp", "desk-lamp-2")
+			Expect(reconcile(AdoptPlugin).RequeueAfter).NotTo(BeZero())
+			Expect(deviceNames()).To(ConsistOf("desk-lamp"))
+			d := device("desk-lamp")
+			Expect(d.UID).To(Equal(uid))
+			Expect(d.Spec.Plugin.ID).To(Equal("9d01"))
+			Expect(d.Annotations).NotTo(HaveKey(homev1alpha1.AnnotationReplaceWith))
+			Expect(metav1.IsControlledBy(d, p)).To(BeTrue(), "it stays adopted")
+			Expect(replaced("desk-lamp").Status).To(Equal(metav1.ConditionTrue))
+			Expect(recorder.Events).To(Receive(HavePrefix("Normal Replaced")))
+
+			// The new ID is declared now, so it isn't adopted again.
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ConsistOf("desk-lamp"))
+		})
+
+		It("refuses a target that is declared in Git, or adopted from another instance", func() {
+			plugin(on, deskLamp, resetLamp)
+			adopt(AdoptPlugin)
+			Expect(k8sClient.Create(ctx, &homev1alpha1.Device{
+				ObjectMeta: metav1.ObjectMeta{Name: "study-light", Namespace: ns},
+				Spec: homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{
+					PluginRef: corev1.LocalObjectReference{Name: "hue"}, ID: "c0ffee",
+				}},
+			})).To(Succeed())
+			other := &pluginsv1alpha1.Plugin{
+				ObjectMeta: metav1.ObjectMeta{Name: "ewelink", Namespace: ns},
+				Spec:       pluginsv1alpha1.PluginSpec{Image: "example.com/oikade-plugin-ewelink:test"},
+			}
+			Expect(k8sClient.Create(ctx, other)).To(Succeed())
+			fan := &homev1alpha1.Device{
+				ObjectMeta: metav1.ObjectMeta{Name: "fan", Namespace: ns},
+				Spec: homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{
+					PluginRef: corev1.LocalObjectReference{Name: "ewelink"}, ID: "1000aabbcc",
+				}},
+			}
+			Expect(controllerutil.SetControllerReference(other, fan, scheme.Scheme)).To(Succeed())
+			Expect(k8sClient.Create(ctx, fan, client.FieldOwner("oikade"))).To(Succeed())
+
+			for target, reason := range map[string]string{
+				"study-light": "TargetNotAdopted",
+				"fan":         "OtherInstance",
+				"nothing":     "TargetNotFound",
+				"desk-lamp":   "InvalidTarget",
+			} {
+				By(target)
+				annotate("desk-lamp", target)
+				adopt(AdoptPlugin)
+				c := replaced("desk-lamp")
+				Expect(c).NotTo(BeNil())
+				Expect(c.Status).To(Equal(metav1.ConditionFalse))
+				Expect(c.Reason).To(Equal(reason))
+				Expect(recorder.Events).To(Receive(HavePrefix("Warning ReplaceRefused")))
+				Expect(device("desk-lamp").Spec.Plugin.ID).To(Equal(deskLamp.ID))
+			}
+			Expect(deviceNames()).To(ConsistOf("desk-lamp", "desk-lamp-2", "study-light", "fan"))
+
+			// Refused again on the next pass, without another event.
+			adopt(AdoptPlugin)
+			Expect(recorder.Events).To(BeEmpty())
+
+			// Removing the annotation clears the refusal.
+			d := device("desk-lamp")
+			delete(d.Annotations, homev1alpha1.AnnotationReplaceWith)
+			Expect(k8sClient.Update(ctx, d)).To(Succeed())
+			adopt(AdoptPlugin)
+			Expect(replaced("desk-lamp")).To(BeNil())
+		})
+
+		It("refuses on a Device declared in Git", func() {
+			plugin(on, resetLamp)
+			adopt(AdoptPlugin)
+			Expect(k8sClient.Create(ctx, &homev1alpha1.Device{
+				ObjectMeta: metav1.ObjectMeta{Name: "study-light", Namespace: ns},
+				Spec: homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{
+					PluginRef: corev1.LocalObjectReference{Name: "hue"}, ID: "c0ffee",
+				}},
+			})).To(Succeed())
+			annotate("study-light", "desk-lamp")
+			adopt(AdoptPlugin)
+			Expect(replaced("study-light").Reason).To(Equal("NotAdopted"))
+			Expect(deviceNames()).To(ConsistOf("study-light", "desk-lamp"))
+		})
+	})
 })
