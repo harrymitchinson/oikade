@@ -8,7 +8,7 @@ import (
 )
 
 // Device condition types. The runtime writes Resolved and Available; the operator writes Ready
-// from validating the spec, and RemovalPending on an adopted Device.
+// from validating the spec, and RemovalPending and Replaced on an adopted Device.
 const (
 	// ConditionResolved is True once the driver has found the device and reported its capabilities.
 	ConditionResolved = "Resolved"
@@ -18,6 +18,9 @@ const (
 	// waits out its instance's removalGracePeriod before the operator deletes it. Its
 	// lastTransitionTime is when the device was first seen gone.
 	ConditionRemovalPending = "RemovalPending"
+	// ConditionReplaced reports the last oikade.dev/replace-with on the Device: True once it took
+	// over the other Device's ID, False while the annotation is refused.
+	ConditionReplaced = "Replaced"
 )
 
 // ZigbeeDeviceSource identifies a device paired with a Zigbee2MQTT instance.
@@ -317,8 +320,8 @@ type DeviceStatus struct {
 	// +optional
 	LastSeen metav1.Time `json:"lastSeen,omitzero"`
 
-	// conditions: Ready and, on an adopted Device that is about to be deleted, RemovalPending, set
-	// by the operator; Resolved and Available, set by the runtime.
+	// conditions: Ready and, on an adopted Device, RemovalPending and Replaced, set by the operator;
+	// Resolved and Available, set by the runtime.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

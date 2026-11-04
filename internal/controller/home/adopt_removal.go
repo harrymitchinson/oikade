@@ -78,11 +78,18 @@ func (r *AdoptReconciler) removal(ctx context.Context, inst client.Object, d *ho
 
 // clearRemoval drops a RemovalPending condition, once the device is back or the Device is kept.
 func (r *AdoptReconciler) clearRemoval(ctx context.Context, d *homev1alpha1.Device) error {
-	if meta.FindStatusCondition(d.Status.Conditions, homev1alpha1.ConditionRemovalPending) == nil {
+	return r.dropCondition(ctx, d, homev1alpha1.ConditionRemovalPending, "")
+}
+
+// dropCondition removes a condition from a Device's status, only when it has the given status
+// unless that is empty.
+func (r *AdoptReconciler) dropCondition(ctx context.Context, d *homev1alpha1.Device, condition string, status metav1.ConditionStatus) error {
+	c := meta.FindStatusCondition(d.Status.Conditions, condition)
+	if c == nil || (status != "" && c.Status != status) {
 		return nil
 	}
 	orig := d.DeepCopy()
-	meta.RemoveStatusCondition(&d.Status.Conditions, homev1alpha1.ConditionRemovalPending)
+	meta.RemoveStatusCondition(&d.Status.Conditions, condition)
 	return r.patchStatus(ctx, d, orig)
 }
 

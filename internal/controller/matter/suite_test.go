@@ -19,6 +19,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
+	pluginsv1alpha1 "github.com/harrymitchinson/oikade/api/plugins/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -49,6 +50,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	Expect(homev1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(pluginsv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	// +kubebuilder:scaffold:scheme
 

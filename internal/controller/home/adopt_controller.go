@@ -69,6 +69,15 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if err := r.List(ctx, &devices, client.InNamespace(req.Namespace)); err != nil {
 		return ctrl.Result{}, err
 	}
+	// Replacing needs neither adoption on nor the list. It changes or deletes Devices, so the next
+	// pass starts from a fresh list.
+	if done, err := r.replaceAll(ctx, inst, devices.Items); apierrors.IsConflict(err) {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	} else if err != nil {
+		return ctrl.Result{}, err
+	} else if done {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
 	if discovery == nil || !discovery.Adopt {
 		// With adoption off nothing is removed, so no removal is pending either.
 		return r.clearAllRemovals(ctx, inst, devices.Items)

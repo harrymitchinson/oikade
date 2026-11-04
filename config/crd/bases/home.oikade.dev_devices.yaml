@@ -286,8 +286,8 @@ spec:
                 x-kubernetes-list-type: map
               conditions:
                 description: |-
-                  conditions: Ready and, on an adopted Device that is about to be deleted, RemovalPending, set
-                  by the operator; Resolved and Available, set by the runtime.
+                  conditions: Ready and, on an adopted Device, RemovalPending and Replaced, set by the operator;
+                  Resolved and Available, set by the runtime.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

@@ -513,6 +513,13 @@ spec:
 - **Rooms** are matched, never created. With no matching Room, `roomRef` stays empty.
 - **Matter.** `matter: Hide` annotates each adopted Device with `oikade.dev/matter: hide`, which keeps it off every bridge. The annotation works on any Device. Set it to `expose`, or remove it, to show the Device again.
 - **Taking it over in Git.** Once anything other than the operator writes a spec field of an adopted Device, or applies it with client-side `kubectl apply`, such as `kubectl edit`, Flux or Argo CD, the operator drops its owner reference and the Device is yours. Annotations alone don't count. A Device with another name that declares the same device wins, and the operator deletes its adopted copy.
+- **A reset device** comes back from its app with a new ID, and is adopted as a new Device, such as `desk-lamp-2`. To keep the old Device, with its name, Rules, Matter endpoint and metrics, move the new ID onto it:
+
+  ```sh
+  kubectl annotate device desk-lamp oikade.dev/replace-with=desk-lamp-2
+  ```
+
+  The operator sets `desk-lamp`'s ID to `desk-lamp-2`'s, deletes `desk-lamp-2`, removes the annotation and sets the condition `Replaced=True`. It refuses with `Replaced=False` and a `ReplaceRefused` event unless both are adopted from the same instance: for a Device declared in Git, change its ID in Git.
 - **Deleting an adopted Device** while its device is still in the app adopts it again on the next pass. To keep it out of Matter, annotate it `oikade.dev/matter: hide` instead. There's no way yet to ignore one device.
 - **Deleting the Plugin or Zigbee2MQTT instance** deletes the Devices it adopted. As for any deleted Device, their Matter endpoint IDs are kept, so they get the same endpoints if they're adopted again.
 
