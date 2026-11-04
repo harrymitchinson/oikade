@@ -2,15 +2,17 @@ package status
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -47,17 +49,17 @@ func (w *Discovered) Inventory(instance driver.InstanceKey, _ []driver.AppDevice
 	}
 	obj.SetName(instance.Name)
 	obj.SetNamespace(instance.Namespace)
-	// Never block the driver. A dropped event is caught by the next inventory or a resync.
+	// Never block the driver. A dropped event is caught by the next inventory or the resync.
 	select {
 	case events <- event.GenericEvent{Object: obj}:
 	default:
 	}
 }
 
-// discovered converts an inventory to status. ok false means none, which clears the field; an
-// empty inventory is an empty list.
-func discovered(devices []driver.AppDevice, ok bool) []homev1alpha1.DiscoveredDevice {
-	if !ok {
+// discovered converts a reported inventory to status: nil devices (the instance doesn't list
+// them) clears the field, and an empty inventory is an empty list.
+func discovered(devices []driver.AppDevice) []homev1alpha1.DiscoveredDevice {
+	if devices == nil {
 		return nil
 	}
 	out := make([]homev1alpha1.DiscoveredDevice, 0, len(devices))
@@ -74,32 +76,35 @@ func discovered(devices []driver.AppDevice, ok bool) []homev1alpha1.DiscoveredDe
 // maxNameLen bounds a name from an app, as the CRD does.
 const maxNameLen = 128
 
-func (w *Discovered) reconcilePlugin(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var p pluginsv1alpha1.Plugin
-	if err := w.Get(ctx, req.NamespacedName, &p); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-	want := discovered(w.Store.InventoryOf(key(driver.Plugin, req.NamespacedName)))
-	if same(p.Status.Discovered, want) {
-		return ctrl.Result{}, nil
-	}
-	orig := p.DeepCopy()
-	p.Status.Discovered = want
-	return ctrl.Result{}, client.IgnoreNotFound(w.Status().Patch(ctx, &p, client.MergeFrom(orig)))
-}
+// resync rewrites the list now and then, in case an inventory event was dropped.
+const resync = 10 * time.Minute
 
-func (w *Discovered) reconcileZigbee2MQTT(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var z zigbeev1alpha1.Zigbee2MQTT
-	if err := w.Get(ctx, req.NamespacedName, &z); err != nil {
+// reconcile writes one instance's status.discovered. field points into obj's status.
+func (w *Discovered) reconcile(ctx context.Context, req ctrl.Request, drv string, obj client.Object,
+	field *[]homev1alpha1.DiscoveredDevice,
+) (ctrl.Result, error) {
+	if err := w.Get(ctx, req.NamespacedName, obj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	want := discovered(w.Store.InventoryOf(key(driver.Zigbee2MQTT, req.NamespacedName)))
-	if same(z.Status.Discovered, want) {
-		return ctrl.Result{}, nil
+	devices, reported := w.Store.InventoryOf(driver.InstanceKey{Driver: drv, NamespacedName: req.NamespacedName})
+	if !reported {
+		// The driver hasn't reported since the runtime started: keep what's there, rather than
+		// clear it on every restart.
+		return ctrl.Result{RequeueAfter: resync}, nil
 	}
-	orig := z.DeepCopy()
-	z.Status.Discovered = want
-	return ctrl.Result{}, client.IgnoreNotFound(w.Status().Patch(ctx, &z, client.MergeFrom(orig)))
+	want := discovered(devices)
+	if same(*field, want) {
+		return ctrl.Result{RequeueAfter: resync}, nil
+	}
+	orig, ok := obj.DeepCopyObject().(client.Object)
+	if !ok {
+		return ctrl.Result{}, fmt.Errorf("cannot copy %T", obj)
+	}
+	*field = want
+	if err := w.Status().Patch(ctx, obj, client.MergeFrom(orig)); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	return ctrl.Result{RequeueAfter: resync}, nil
 }
 
 // same is equality.Semantic, except that nil (no list) and empty (an app with no devices) differ.
@@ -107,8 +112,14 @@ func same(a, b []homev1alpha1.DiscoveredDevice) bool {
 	return (a == nil) == (b == nil) && equality.Semantic.DeepEqual(a, b)
 }
 
-func key(drv string, nn types.NamespacedName) driver.InstanceKey {
-	return driver.InstanceKey{Driver: drv, NamespacedName: nn}
+func (w *Discovered) reconcilePlugin(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var p pluginsv1alpha1.Plugin
+	return w.reconcile(ctx, req, driver.Plugin, &p, &p.Status.Discovered)
+}
+
+func (w *Discovered) reconcileZigbee2MQTT(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var z zigbeev1alpha1.Zigbee2MQTT
+	return w.reconcile(ctx, req, driver.Zigbee2MQTT, &z, &z.Status.Discovered)
 }
 
 // SetupWithManager registers a controller for each kind.
@@ -119,18 +130,12 @@ func (w *Discovered) SetupWithManager(mgr ctrl.Manager) error {
 		For(&pluginsv1alpha1.Plugin{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WatchesRawSource(source.Channel(w.plugins, &handler.EnqueueRequestForObject{})).
 		Named("plugin-discovered").
-		Complete(reconcile(w.reconcilePlugin)); err != nil {
+		Complete(reconcile.Func(w.reconcilePlugin)); err != nil {
 		return err
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zigbeev1alpha1.Zigbee2MQTT{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WatchesRawSource(source.Channel(w.zigbee, &handler.EnqueueRequestForObject{})).
 		Named("zigbee2mqtt-discovered").
-		Complete(reconcile(w.reconcileZigbee2MQTT))
-}
-
-type reconcile func(context.Context, ctrl.Request) (ctrl.Result, error)
-
-func (f reconcile) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return f(ctx, req)
+		Complete(reconcile.Func(w.reconcileZigbee2MQTT))
 }

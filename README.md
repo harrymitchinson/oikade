@@ -481,7 +481,7 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 kubectl get plugin hue -o jsonpath='{.status.discovered}'
 ```
 
-A Zigbee2MQTT instance lists its paired devices by IEEE address, except the coordinator, with their friendly name if you've set one. A plugin lists them only if it discovers devices ([the contract](docs/plugin-contract.md#discovered)).
+A Zigbee2MQTT instance lists its paired devices by IEEE address, except the coordinator and devices it doesn't support (yet: one still being interviewed appears once it's done), with their friendly name if you've set one. A plugin lists them only if it discovers devices ([the contract](docs/plugin-contract.md#discovered)).
 
 ```yaml
 spec:

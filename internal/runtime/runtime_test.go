@@ -328,8 +328,8 @@ func TestRuntimePluginDevices(t *testing.T) {
 	})
 }
 
-// TestHubIgnoresStatusPatches checks that the hub reconciles on Device spec changes, creates and
-// deletes, but not on the status patches the status writer makes.
+// TestRuntimeWritesDiscoveredDevices checks that the devices each instance sees in its app reach
+// its status.discovered.
 func TestRuntimeWritesDiscoveredDevices(t *testing.T) {
 	ctx, c, url, _ := startRuntime(t)
 	bus, err := mqtt.Connect(ctx, url, "fake-apps")
@@ -392,6 +392,8 @@ func TestRuntimeWritesDiscoveredDevices(t *testing.T) {
 	})
 }
 
+// TestHubIgnoresStatusPatches checks that the hub reconciles on Device spec changes, creates and
+// deletes, but not on the status patches the status writer makes.
 func TestHubIgnoresStatusPatches(t *testing.T) {
 	ctx, c, _, _ := startRuntime(t)
 

@@ -38,7 +38,7 @@ func TestDiscoveredPatchesOnlyChanges(t *testing.T) {
 	w := &Discovered{Client: c, Store: store}
 	nn := types.NamespacedName{Namespace: "home", Name: "hue"}
 	key := driver.InstanceKey{Driver: driver.Plugin, NamespacedName: nn}
-	reconcile := func() {
+	sync := func() {
 		t.Helper()
 		if _, err := w.reconcilePlugin(context.Background(), ctrl.Request{NamespacedName: nn}); err != nil {
 			t.Fatal(err)
@@ -46,10 +46,10 @@ func TestDiscoveredPatchesOnlyChanges(t *testing.T) {
 	}
 
 	// Nothing to write before the plugin lists devices.
-	reconcile()
+	sync()
 	store.Inventory(key, []driver.AppDevice{{ID: "a", Name: "Desk lamp", Capabilities: []string{"light.on"}}})
-	reconcile()
-	reconcile()
+	sync()
+	sync()
 	if patches != 1 {
 		t.Errorf("patched %d times, want 1", patches)
 	}
@@ -63,7 +63,7 @@ func TestDiscoveredPatchesOnlyChanges(t *testing.T) {
 
 	// An app with no devices is an empty list, kept apart from none.
 	store.Inventory(key, []driver.AppDevice{})
-	reconcile()
+	sync()
 	if err := c.Get(context.Background(), nn, &got); err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +73,23 @@ func TestDiscoveredPatchesOnlyChanges(t *testing.T) {
 
 	// No list clears the field.
 	store.Inventory(key, nil)
-	reconcile()
+	sync()
 	if err := c.Get(context.Background(), nn, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Status.Discovered != nil || patches != 3 {
 		t.Errorf("status.discovered = %+v after %d patches, want none after 3", got.Status.Discovered, patches)
+	}
+
+	// A restarted runtime whose driver hasn't reported yet keeps the list.
+	store.Inventory(key, []driver.AppDevice{{ID: "a"}})
+	sync()
+	w.Store = hub.NewStore(logr.Discard())
+	sync()
+	if err := c.Get(context.Background(), nn, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Status.Discovered) != 1 || patches != 4 {
+		t.Errorf("status.discovered = %+v after %d patches, want kept after 4", got.Status.Discovered, patches)
 	}
 }

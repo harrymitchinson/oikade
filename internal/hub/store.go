@@ -138,13 +138,14 @@ func (s *Store) Forget(instance driver.InstanceKey) {
 	delete(s.inventory, instance)
 }
 
-// InventoryOf returns a copy of the devices a driver instance sees in its app, and false if it
-// hasn't listed them.
-func (s *Store) InventoryOf(instance driver.InstanceKey) ([]driver.AppDevice, bool) {
+// InventoryOf returns a copy of the devices a driver instance sees in its app. reported is false
+// until the instance has reported since it started; nil devices with reported true means it
+// doesn't list them.
+func (s *Store) InventoryOf(instance driver.InstanceKey) (devices []driver.AppDevice, reported bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	devices, ok := s.inventory[instance]
-	return cloneApp(devices), ok
+	devices, reported = s.inventory[instance]
+	return cloneApp(devices), reported
 }
 
 func cloneApp(devices []driver.AppDevice) []driver.AppDevice {
@@ -303,18 +304,14 @@ func (s *Store) Undeclared(instance driver.InstanceKey, count int) {
 	}
 }
 
-// Inventory implements driver.Sink.
+// Inventory implements driver.Sink. Listeners get the stored list and must not change it.
 func (s *Store) Inventory(instance driver.InstanceKey, devices []driver.AppDevice) {
 	devices = cloneApp(devices)
 	s.mu.Lock()
-	if devices == nil {
-		delete(s.inventory, instance)
-	} else {
-		s.inventory[instance] = devices
-	}
+	s.inventory[instance] = devices
 	s.mu.Unlock()
 	for _, l := range s.Listeners {
-		l.Inventory(instance, cloneApp(devices))
+		l.Inventory(instance, devices)
 	}
 }
 
