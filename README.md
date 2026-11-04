@@ -475,13 +475,7 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 
 ## Discovery
 
-`spec.discovery`, on a Plugin or a Zigbee2MQTT instance, configures adopting the devices paired in their app as Devices, so you don't declare them again in Git ([OIK-123](https://linear.app/oikade/issue/OIK-123)). **It's accepted but doesn't adopt anything yet:** adoption lands in later steps. Until then, a paired but undeclared device counts in `oikade_undeclared_devices`, and the runtime lists every device the instance sees in its app, declared or not, in its `status.discovered`:
-
-```sh
-kubectl get plugin hue -o jsonpath='{.status.discovered}'
-```
-
-A Zigbee2MQTT instance lists its paired devices by IEEE address, except the coordinator and devices it doesn't support (yet: one still being interviewed appears once it's done), with their friendly name if you've set one. A plugin lists them only if it discovers devices ([the contract](docs/plugin-contract.md#discovered)).
+Pair a device in its own app, name it there, and Oikade can adopt it as a Device, so you don't declare it again in Git ([OIK-123](https://linear.app/oikade/issue/OIK-123)). Turn it on per Plugin or Zigbee2MQTT instance:
 
 ```yaml
 spec:
@@ -492,7 +486,36 @@ spec:
     # removalGracePeriod: 24h  # only with removalPolicy: Delete, which it defaults to 24h for
 ```
 
-An offline device is never removed: only one gone from its app is.
+The runtime lists every device the instance sees in its app, declared or not, in its `status.discovered`, whether or not `adopt` is set:
+
+```sh
+kubectl get plugin hue -o jsonpath='{.status.discovered}'
+```
+
+A Zigbee2MQTT instance lists its paired devices by IEEE address, except the coordinator and devices it doesn't support (yet: one still being interviewed appears once it's done), with their friendly name if you've set one. A plugin lists them only if it discovers devices ([the contract](docs/plugin-contract.md#discovered)).
+
+With `adopt: true`, the operator creates a Device for each listed device that no Device declares. "Desk lamp" in Study becomes:
+
+```yaml
+apiVersion: home.oikade.dev/v1alpha1
+kind: Device
+metadata:
+  name: desk-lamp                     # from the name in the app, chosen once and never changed
+  ownerReferences: [{kind: Plugin, name: hue, controller: true}]
+spec:
+  displayName: Desk lamp
+  roomRef: {name: study}              # only if a Room with that name or displayName exists
+  plugin: {pluginRef: {name: hue}, id: 3f2a9c71}
+```
+
+- **Names.** A clash gets the room as a prefix (`study-lamp`), then a number (`study-lamp-2`). A device with no name in its app is named after its model and the last four characters of its ID (`lca001-9c71`). Rules, Grafana and the Matter bridge use the Device's name, so it never changes by itself.
+- **Renames.** A plugin device's `displayName` follows its name in the app. A Zigbee2MQTT device's name is copied once: after that, the operator names it in Zigbee2MQTT after the Device, as for any declared device, so rename it on the Device.
+- **Rooms** are matched, never created. With no matching Room, `roomRef` stays empty.
+- **Matter.** `matter: Hide` annotates each adopted Device with `oikade.dev/matter: hide`, which keeps it off every bridge. The annotation works on any Device. Set it to `expose`, or remove it, to show the Device again.
+- **Taking it over in Git.** Once anything other than the operator writes a spec field of an adopted Device, such as `kubectl apply`, `kubectl edit`, Flux or Argo CD, the operator drops its owner reference and the Device is yours. Annotations alone don't count. A Device with another name that declares the same device wins, and the operator deletes its adopted copy.
+- **Deleting the Plugin or Zigbee2MQTT instance** deletes the Devices it adopted. As for any deleted Device, their Matter endpoint IDs are kept, so they get the same endpoints if they're adopted again.
+
+Removal (`removalPolicy`) isn't acted on yet: a device removed from its app leaves its adopted Device in place. An offline device is never removed: only one gone from its app is.
 
 ## Metrics
 
@@ -522,7 +545,7 @@ Every capability change is also logged as `"Changed capability"` with structured
 
 ## Matter bridge
 
-Oikade reaches the Home app and other controllers through Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The operator runs **`manager matter`** for each `matter.oikade.dev` `Bridge`: one pod with `hostNetwork`, which controllers find over mDNS and reach over IPv6 on a UDP port allocated from `spec.portRange` (5540 to 5640 by default). It follows the bus itself, so controllers keep working while the runtime is down, and only reads the API. Each selected Device with something Matter can show is a bridged endpoint, mapped as in [Capabilities](#capabilities).
+Oikade reaches the Home app and other controllers through Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The operator runs **`manager matter`** for each `matter.oikade.dev` `Bridge`: one pod with `hostNetwork`, which controllers find over mDNS and reach over IPv6 on a UDP port allocated from `spec.portRange` (5540 to 5640 by default). It follows the bus itself, so controllers keep working while the runtime is down, and only reads the API. Each Device the Bridge's `deviceSelector` selects (every Device, if empty) with something Matter can show is a bridged endpoint, mapped as in [Capabilities](#capabilities). A Device annotated `oikade.dev/matter: hide` is left out of every bridge.
 
 ```console
 $ kubectl get bridges

@@ -238,6 +238,24 @@ var _ = Describe("Bridge Controller", func() {
 		Expect(endpoints(b)).To(Equal(map[string]int32{"lamp": 2}))
 	})
 
+	It("leaves out Devices annotated oikade.dev/matter: hide, until they're shown", func() {
+		t := newTestNS()
+		t.createDevice("lamp", nil)
+		t.createDevice("router", nil)
+		var router homev1alpha1.Device
+		Expect(k8sClient.Get(ctx, t.key("router"), &router)).To(Succeed())
+		router.Annotations = map[string]string{homev1alpha1.AnnotationMatter: homev1alpha1.MatterHide}
+		Expect(k8sClient.Update(ctx, &router)).To(Succeed())
+		t.createBridge("main", 10)
+		b := reconcileBridge(r, t.key("main"))
+		Expect(endpoints(b)).To(Equal(map[string]int32{"lamp": 2}))
+
+		router.Annotations[homev1alpha1.AnnotationMatter] = homev1alpha1.MatterExpose
+		Expect(k8sClient.Update(ctx, &router)).To(Succeed())
+		b = reconcileBridge(r, t.key("main"))
+		Expect(endpoints(b)).To(Equal(map[string]int32{"lamp": 2, "router": 3}))
+	})
+
 	It("keeps the setup code and endpoint IDs when the Bridge is re-created", func() {
 		t := newTestNS()
 		t.createDevice("lamp", nil)

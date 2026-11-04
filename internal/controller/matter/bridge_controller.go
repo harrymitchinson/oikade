@@ -306,6 +306,9 @@ func (r *BridgeReconciler) assignEndpoints(ctx context.Context, b *matterv1alpha
 	if err := r.List(ctx, &list, client.InNamespace(b.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		return err
 	}
+	// A Device annotated oikade.dev/matter: hide isn't selected. One that's shown again later gets
+	// an endpoint then, or its old one back.
+	list.Items = slices.DeleteFunc(list.Items, func(d homev1alpha1.Device) bool { return d.HiddenFromMatter() })
 	var backup []matterv1alpha1.Endpoint
 	if raw := secret.Data[render.MatterEndpointsKey]; len(raw) > 0 {
 		if err := json.Unmarshal(raw, &backup); err != nil {

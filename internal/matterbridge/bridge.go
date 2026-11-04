@@ -151,6 +151,9 @@ func (b *Bridge) devices(ctx context.Context, br *matterv1alpha1.Bridge) (map[ui
 	}
 	out := map[uint16]Device{}
 	for _, d := range list.Items {
+		if d.HiddenFromMatter() {
+			continue
+		}
 		id := br.Status.Endpoint(d.Name)
 		if id == 0 {
 			continue // the operator hasn't assigned one yet

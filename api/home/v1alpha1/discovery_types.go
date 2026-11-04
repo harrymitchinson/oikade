@@ -6,6 +6,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// AnnotationMatter overrides whether a Device is shown on Matter bridges: hide keeps it off every
+// bridge, and expose, or no annotation, leaves it to each bridge's deviceSelector. An adopted Device
+// gets hide when its instance's discovery.matter is Hide.
+const AnnotationMatter = "oikade.dev/matter"
+
+// The values of AnnotationMatter.
+const (
+	MatterHide   = "hide"
+	MatterExpose = "expose"
+)
+
+// HiddenFromMatter reports whether a Device's annotation keeps it off every Matter bridge.
+func (d *Device) HiddenFromMatter() bool {
+	return d.Annotations[AnnotationMatter] == MatterHide
+}
+
 // DiscoveryMatter says whether Devices created for discovered devices are shown on Matter bridges.
 // +kubebuilder:validation:Enum=Expose;Hide
 type DiscoveryMatter string

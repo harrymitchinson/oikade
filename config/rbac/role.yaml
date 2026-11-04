@@ -58,10 +58,14 @@ rules:
   - home.oikade.dev
   resources:
   - devices
-  - rooms
+  - rules
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - home.oikade.dev
@@ -75,14 +79,10 @@ rules:
 - apiGroups:
   - home.oikade.dev
   resources:
-  - rules
+  - rooms
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - home.oikade.dev
