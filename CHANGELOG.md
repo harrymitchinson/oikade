@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.1.0](https://github.com/harrymitchinson/oikade/compare/v0.1.0-alpha.1...v0.1.0) (2026-11-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove HomeKit ([#150](https://github.com/harrymitchinson/oikade/issues/150))
+
+### Features
+
+* **conformance:** run the plugin contract suite as oikade-conformance ([#154](https://github.com/harrymitchinson/oikade/issues/154)) ([72b105b](https://github.com/harrymitchinson/oikade/commit/72b105bc7a2d6efc10f76bfc5c28dad05bbaa145))
+* **hack:** retitle issues and rename projects with hack/plan ([#153](https://github.com/harrymitchinson/oikade/issues/153)) ([51c940c](https://github.com/harrymitchinson/oikade/commit/51c940c0d91bba54454ecfdb8461087cf572064c))
+* **matter:** add an mDNS responder for commissionable and operational services ([#138](https://github.com/harrymitchinson/oikade/issues/138)) ([5cb9e2e](https://github.com/harrymitchinson/oikade/commit/5cb9e2eb27df9bc90ae35de31f7bc585c885e987))
+* **matter:** add operational certificates ([#139](https://github.com/harrymitchinson/oikade/issues/139)) ([4a6dca4](https://github.com/harrymitchinson/oikade/commit/4a6dca4f1bcd7d0eafdd0af25e2cba35f73c3d2c))
+* **matter:** add the matter.oikade.dev Bridge API and Device.spec.matter ([#144](https://github.com/harrymitchinson/oikade/issues/144)) ([f372cbf](https://github.com/harrymitchinson/oikade/commit/f372cbfb8a93ffc1ccef4fc1d9beecd7427b4674))
+* **matter:** CASE sessions with resumption ([#140](https://github.com/harrymitchinson/oikade/issues/140)) ([2ff9884](https://github.com/harrymitchinson/oikade/commit/2ff9884e71f93beceb6c08df3837f0ec60f5f437))
+* **matter:** commissioning clusters, device attestation and access control ([#141](https://github.com/harrymitchinson/oikade/issues/141)) ([70c4cb1](https://github.com/harrymitchinson/oikade/commit/70c4cb1662ac2f4f685188b95e65d292518a8c38))
+* **matter:** encode and decode Matter TLV ([#132](https://github.com/harrymitchinson/oikade/issues/132)) ([b5583fe](https://github.com/harrymitchinson/oikade/commit/b5583fe9c4008ba86691055a3454f1d90537ef19))
+* **matter:** keep the pairing codes in the Bridge's Secret, not its status ([#148](https://github.com/harrymitchinson/oikade/issues/148)) ([e802e73](https://github.com/harrymitchinson/oikade/commit/e802e73e7ac15cea9c488baeffef31ac0e78f9ca))
+* **matter:** manager matter-spike, commissioned by chip-tool ([#142](https://github.com/harrymitchinson/oikade/issues/142)) ([31df930](https://github.com/harrymitchinson/oikade/commit/31df930bcafce138fab955a35cd1b2f7e2425c57))
+* **matter:** map Devices to Matter device types, and take writes from controllers ([#147](https://github.com/harrymitchinson/oikade/issues/147)) ([2a024c6](https://github.com/harrymitchinson/oikade/commit/2a024c6998ae27a2188ebd9f59eaf9b36a435ec7))
+* **matter:** Matter Bridge controller and the manager matter role ([#145](https://github.com/harrymitchinson/oikade/issues/145)) ([75b4e5f](https://github.com/harrymitchinson/oikade/commit/75b4e5fd39a6fae5a817a2f42c6a86db0cb0bd15))
+* **matter:** PASE, AES-CCM sessions and the setup payload ([#135](https://github.com/harrymitchinson/oikade/issues/135)) ([e39e9ca](https://github.com/harrymitchinson/oikade/commit/e39e9ca22e5610404f98f78a840e7030b0558451))
+* **matter:** the Interaction Model, and a bridge with one on/off endpoint ([#136](https://github.com/harrymitchinson/oikade/issues/136)) ([f5f5f52](https://github.com/harrymitchinson/oikade/commit/f5f5f5208957e7a1a06f37351193674146a30a56))
+* **matter:** the message layer and MRP over UDP ([#134](https://github.com/harrymitchinson/oikade/issues/134)) ([9576edb](https://github.com/harrymitchinson/oikade/commit/9576edb4bf3d258158fcfe3b3a80053fa561ae93))
+* **plan:** build steps in plugin repos ([#158](https://github.com/harrymitchinson/oikade/issues/158)) ([29e55ad](https://github.com/harrymitchinson/oikade/commit/29e55ad53d824261a672ac48a6f32dc767c75884))
+* **plan:** drop the review floor and narrow the gh denials ([#157](https://github.com/harrymitchinson/oikade/issues/157)) ([bd5438c](https://github.com/harrymitchinson/oikade/commit/bd5438cc9e34ba95898221599482187213bbc749))
+* remove HomeKit ([#150](https://github.com/harrymitchinson/oikade/issues/150)) ([2b71429](https://github.com/harrymitchinson/oikade/commit/2b7142900ffd2836bb8557c5f11f4198c8e09bd1))
+
+
+### Bug Fixes
+
+* **matter:** accept an empty ICAC in AddNOC, as Apple Home sends ([#143](https://github.com/harrymitchinson/oikade/issues/143)) ([fa6903a](https://github.com/harrymitchinson/oikade/commit/fa6903a1beb0ec4d39afbc5bf72a6f8d7bb49875))
+* **plan:** merge approved steps after the feature's claim is released ([#152](https://github.com/harrymitchinson/oikade/issues/152)) ([26a4568](https://github.com/harrymitchinson/oikade/commit/26a4568c4a09ef736f7dd7b8937b798c59a0eacb))
+* **plan:** merge plugin repos named after this one, and reach them like origin ([#159](https://github.com/harrymitchinson/oikade/issues/159)) ([605ed32](https://github.com/harrymitchinson/oikade/commit/605ed32efc404268df09d3ea776e2666ab8c89a0))
+
+
+### Documentation
+
+* **versioning:** say what release-please proposes after a milestone ([#162](https://github.com/harrymitchinson/oikade/issues/162)) ([bb2beb7](https://github.com/harrymitchinson/oikade/commit/bb2beb73482d76bb2e1886d3bdad1a855d4dfadb))
+
 ## [0.1.0-alpha.1](https://github.com/harrymitchinson/oikade/compare/v0.1.0-alpha.0...v0.1.0-alpha.1) (2026-10-26)
 
 
