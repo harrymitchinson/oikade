@@ -110,7 +110,7 @@ type Zigbee2MQTTStatus struct {
 	// The runtime writes it. Absent until the runtime has seen the device list.
 	// +listType=atomic
 	// +optional
-	Discovered []homev1alpha1.DiscoveredDevice `json:"discovered,omitempty"`
+	Discovered []homev1alpha1.DiscoveredDevice `json:"discovered,omitzero"`
 
 	// configHash is the hash of the rendered configuration.yaml.
 	// +optional

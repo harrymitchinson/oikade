@@ -54,10 +54,10 @@ func (w *Discovered) Inventory(instance driver.InstanceKey, _ []driver.AppDevice
 	}
 }
 
-// discovered converts an inventory to status. ok false means none, so the field is cleared.
+// discovered converts an inventory to status. ok false means none, which clears the field; an
+// empty inventory is an empty list.
 func discovered(devices []driver.AppDevice, ok bool) []homev1alpha1.DiscoveredDevice {
-	if !ok || len(devices) == 0 {
-		// An empty list and none both clear the field: omitempty can't keep an empty list.
+	if !ok {
 		return nil
 	}
 	out := make([]homev1alpha1.DiscoveredDevice, 0, len(devices))
@@ -80,7 +80,7 @@ func (w *Discovered) reconcilePlugin(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	want := discovered(w.Store.InventoryOf(key(driver.Plugin, req.NamespacedName)))
-	if equality.Semantic.DeepEqual(p.Status.Discovered, want) {
+	if same(p.Status.Discovered, want) {
 		return ctrl.Result{}, nil
 	}
 	orig := p.DeepCopy()
@@ -94,12 +94,17 @@ func (w *Discovered) reconcileZigbee2MQTT(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	want := discovered(w.Store.InventoryOf(key(driver.Zigbee2MQTT, req.NamespacedName)))
-	if equality.Semantic.DeepEqual(z.Status.Discovered, want) {
+	if same(z.Status.Discovered, want) {
 		return ctrl.Result{}, nil
 	}
 	orig := z.DeepCopy()
 	z.Status.Discovered = want
 	return ctrl.Result{}, client.IgnoreNotFound(w.Status().Patch(ctx, &z, client.MergeFrom(orig)))
+}
+
+// same is equality.Semantic, except that nil (no list) and empty (an app with no devices) differ.
+func same(a, b []homev1alpha1.DiscoveredDevice) bool {
+	return (a == nil) == (b == nil) && equality.Semantic.DeepEqual(a, b)
 }
 
 func key(drv string, nn types.NamespacedName) driver.InstanceKey {

@@ -61,13 +61,23 @@ func TestDiscoveredPatchesOnlyChanges(t *testing.T) {
 		t.Errorf("status.discovered = %+v", got.Status.Discovered)
 	}
 
+	// An app with no devices is an empty list, kept apart from none.
+	store.Inventory(key, []driver.AppDevice{})
+	reconcile()
+	if err := c.Get(context.Background(), nn, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.Discovered == nil || len(got.Status.Discovered) != 0 || patches != 2 {
+		t.Errorf("status.discovered = %#v after %d patches, want empty after 2", got.Status.Discovered, patches)
+	}
+
 	// No list clears the field.
 	store.Inventory(key, nil)
 	reconcile()
 	if err := c.Get(context.Background(), nn, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Status.Discovered != nil || patches != 2 {
-		t.Errorf("status.discovered = %+v after %d patches, want none after 2", got.Status.Discovered, patches)
+	if got.Status.Discovered != nil || patches != 3 {
+		t.Errorf("status.discovered = %+v after %d patches, want none after 3", got.Status.Discovered, patches)
 	}
 }

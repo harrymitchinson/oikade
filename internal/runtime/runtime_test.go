@@ -365,6 +365,9 @@ func TestRuntimeWritesDiscoveredDevices(t *testing.T) {
 		d := pluginDiscovered()
 		return len(d) == 1 && d[0].Name == "Reading lamp"
 	})
+	// An app with no devices is an empty list.
+	must(t, bus.Publish(ctx, root+"/devices", []byte(`{"devices":[],"undeclared":0,"discovered":[]}`), true))
+	eventually(t, "an empty list", func() bool { d := pluginDiscovered(); return d != nil && len(d) == 0 })
 	// A plugin that stops discovering clears the list.
 	must(t, bus.Publish(ctx, root+"/devices", []byte(`{"devices":[],"undeclared":0}`), true))
 	eventually(t, "the list cleared", func() bool { return pluginDiscovered() == nil })

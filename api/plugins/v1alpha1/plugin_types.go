@@ -53,10 +53,10 @@ type PluginStatus struct {
 	Devices int32 `json:"devices,omitempty"`
 
 	// discovered lists every device the plugin sees in its app, declared or not, sorted by id.
-	// The runtime writes it. Absent while the plugin doesn't discover devices.
+	// The runtime writes it. Absent while the plugin doesn't discover devices, and empty if its app has none.
 	// +listType=atomic
 	// +optional
-	Discovered []homev1alpha1.DiscoveredDevice `json:"discovered,omitempty"`
+	Discovered []homev1alpha1.DiscoveredDevice `json:"discovered,omitzero"`
 
 	// configHash is the hash of the rendered device file the running pod was started with.
 	// +optional
