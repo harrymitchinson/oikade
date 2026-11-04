@@ -471,6 +471,21 @@ The Plugin's `Ready` condition is `True` with reason `Available` once the pod ru
 
 A plugin reports problems with a device, such as bad parameters or a missing key, as `Resolved=False` with reason `PluginError` on the Device. Messages Oikade can't validate are dropped and counted in `oikade_plugin_rejected_messages_total`.
 
+### Discovery
+
+`spec.discovery`, on a Plugin or a Zigbee2MQTT instance, configures adopting the devices paired in their app as Devices, so you don't declare them again in Git ([OIK-123](https://linear.app/oikade/issue/OIK-123)). **It's accepted but doesn't adopt anything yet:** adoption lands in the steps after this one, and until then a paired but undeclared device only counts in `oikade_undeclared_devices`.
+
+```yaml
+spec:
+  discovery:
+    adopt: true             # off unless set
+    matter: Expose          # Expose (default) or Hide: whether adopted Devices are shown on Matter bridges
+    removalPolicy: Retain   # Retain (default) or Delete: what happens once a device is removed from its app
+    removalGracePeriod: 24h # only with Delete; defaults to 24h
+```
+
+An offline device is never removed: only one gone from its app is.
+
 To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. Each plugin lives in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
 ## Metrics

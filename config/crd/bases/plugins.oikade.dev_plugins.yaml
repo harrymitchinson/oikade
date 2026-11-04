@@ -54,6 +54,43 @@ spec:
           spec:
             description: spec defines the desired state of Plugin
             properties:
+              discovery:
+                description: discovery adopts the devices the plugin discovers in
+                  its app as Devices. Off unless set.
+                properties:
+                  adopt:
+                    description: adopt creates a Device for each device paired in
+                      the app that no Device declares.
+                    type: boolean
+                  matter:
+                    default: Expose
+                    description: matter says whether the Devices it creates are shown
+                      on Matter bridges.
+                    enum:
+                    - Expose
+                    - Hide
+                    type: string
+                  removalGracePeriod:
+                    description: |-
+                      removalGracePeriod is how long a device must be gone from its app before its Device is deleted.
+                      Only with removalPolicy Delete. Defaults to 24h.
+                    type: string
+                    x-kubernetes-validations:
+                    - message: removalGracePeriod must be positive
+                      rule: duration(self) > duration('0s')
+                  removalPolicy:
+                    default: Retain
+                    description: |-
+                      removalPolicy says what happens to a created Device once its device is removed from its app.
+                      Retain keeps it with Resolved=False; Delete deletes it after removalGracePeriod.
+                    enum:
+                    - Retain
+                    - Delete
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: removalGracePeriod applies only to removalPolicy Delete
+                  rule: '!has(self.removalGracePeriod) || self.removalPolicy == ''Delete'''
               hostNetwork:
                 description: hostNetwork runs the plugin on the node's network, for
                   plugins that need mDNS or multicast.

@@ -5,6 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
@@ -39,6 +40,10 @@ type PluginSpec struct {
 	// resources for the plugin container.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitzero"`
+
+	// discovery adopts the devices the plugin discovers in its app as Devices. Off unless set.
+	// +optional
+	Discovery *homev1alpha1.DiscoverySpec `json:"discovery,omitempty"`
 }
 
 // PluginStatus is the observed state of a Plugin.

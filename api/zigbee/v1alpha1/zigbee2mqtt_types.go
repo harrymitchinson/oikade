@@ -5,6 +5,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
 
 // LabelInstance is set on objects that belong to a Zigbee2MQTT instance, including retained ones
@@ -87,6 +89,10 @@ type Zigbee2MQTTSpec struct {
 	// resources for the Zigbee2MQTT container.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitzero"`
+
+	// discovery adopts the devices paired in Zigbee2MQTT as Devices. Off unless set.
+	// +optional
+	Discovery *homev1alpha1.DiscoverySpec `json:"discovery,omitempty"`
 }
 
 // Zigbee2MQTTStatus defines the observed state of Zigbee2MQTT.
