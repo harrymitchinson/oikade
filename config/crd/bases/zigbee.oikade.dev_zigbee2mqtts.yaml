@@ -65,6 +65,44 @@ spec:
                 maximum: 26
                 minimum: 11
                 type: integer
+              discovery:
+                description: discovery adopts the devices paired in Zigbee2MQTT as
+                  Devices. Off unless set.
+                properties:
+                  adopt:
+                    description: adopt creates a Device for each device paired in
+                      the app that no Device declares.
+                    type: boolean
+                  matter:
+                    default: Expose
+                    description: matter says whether the Devices it creates are shown
+                      on Matter bridges.
+                    enum:
+                    - Expose
+                    - Hide
+                    type: string
+                  removalGracePeriod:
+                    description: |-
+                      removalGracePeriod is how long a device must be gone from its app before its Device is deleted.
+                      Only with removalPolicy Delete. Defaults to 24h.
+                    maxLength: 32
+                    type: string
+                    x-kubernetes-validations:
+                    - message: removalGracePeriod must be positive
+                      rule: duration(self) > duration('0s')
+                  removalPolicy:
+                    default: Retain
+                    description: |-
+                      removalPolicy says what happens to a created Device once its device is removed from its app.
+                      Retain keeps it with Resolved=False; Delete deletes it after removalGracePeriod.
+                    enum:
+                    - Retain
+                    - Delete
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: removalGracePeriod applies only to removalPolicy Delete
+                  rule: '!has(self.removalGracePeriod) || self.removalPolicy == ''Delete'''
               frontend:
                 description: frontend enables the Zigbee2MQTT web UI (useful for pairing)
                   behind a ClusterIP Service on port 8080.
