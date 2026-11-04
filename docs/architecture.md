@@ -12,7 +12,7 @@ This page says how things work, not why they were chosen. Each section links the
 | Data | MQTT (Mosquitto) | Live state and commands |
 | History | Prometheus, Grafana and Loki | Values over time, changes and rule runs |
 
-Live state never goes into etcd. `Device.status` is deliberately coarse: capabilities, conditions, claims at their transitions, and `lastSeen` at most every 5 minutes. Git owns names: the operator renders each driver's configuration from Devices and overwrites it on every start. Something that exists but isn't declared, such as a paired but undeclared device, is drift: a metric and a log line, never adopted.
+Live state never goes into etcd. `Device.status` is deliberately coarse: capabilities, conditions, claims at their transitions, and `lastSeen` at most every 5 minutes. Git owns names: the operator renders each driver's configuration from Devices and overwrites it on every start. Something that exists but isn't declared, such as a paired but undeclared device, is drift: a metric and a log line. The runtime also lists every device each driver instance sees in its app in that instance's `status.discovered`, which only changes when a device is paired, removed or renamed. Nothing adopts from it yet ([OIK-123](https://linear.app/oikade/issue/OIK-123)).
 
 ## Components
 
@@ -21,7 +21,7 @@ One binary, `cmd/`, has four roles:
 | Role | Talks to | Runs |
 |---|---|---|
 | `manager` | Kubernetes only | The controllers in `internal/controller/<group>`, which validate objects and render what they manage with `internal/render` |
-| `manager runtime` | MQTT, and the API for status | One replica. The drivers, the hub, the status writer, `/metrics` on `:8080`, and the rule engine with arbitration |
+| `manager runtime` | MQTT, and the API for status | One replica. The drivers, the hub, the status writers (Device status, and `status.discovered` on Plugins and Zigbee2MQTT instances), `/metrics` on `:8080`, and the rule engine with arbitration |
 | `manager matter --bridge <name>` | MQTT, and the API read-only | One per Bridge, with `hostNetwork`. A Matter bridge node for that Bridge's Devices |
 
 The runtime is a single replica because two would run every rule twice. Anything that assumes it's highly available, or needs leader election, is a design decision. The matter role follows the bus itself, so controllers keep working while the runtime is down. It can read no Secrets: its own are mounted.
@@ -34,7 +34,7 @@ driver ──▶ hub ──▶ status writer, metrics exporter, rule engine   (r
   └── Set ◀── engine (through arbitration), Matter bridge
 ```
 
-- **A driver** translates one integration to capabilities. It reports to a `driver.Sink` (`Discovered`, `Changed`, `Availability`, `Seen`, `Undeclared`) and takes writes as a `driver.Setter`. The drivers are `internal/driver/zigbee2mqtt` and `internal/driver/plugin`. A new kind of integration is a new driver and a new member of the Device spec's driver union, and usually its own API group.
+- **A driver** translates one integration to capabilities. It reports to a `driver.Sink` (`Discovered`, `Changed`, `Availability`, `Seen`, `Undeclared`, and `Inventory`: every device it sees in its app, declared or not) and takes writes as a `driver.Setter`. The drivers are `internal/driver/zigbee2mqtt` and `internal/driver/plugin`. A new kind of integration is a new driver and a new member of the Device spec's driver union, and usually its own API group.
 - **The hub** (`internal/hub`) holds the latest state of each device and fans updates out. Both the runtime and the matter role build one.
 - **Capabilities** (`internal/capability`) are the protocol-neutral names and value types every consumer uses. Drivers convert to them, and nothing after the driver knows about vendor payloads.
 

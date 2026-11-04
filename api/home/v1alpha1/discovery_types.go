@@ -59,3 +59,37 @@ type DiscoverySpec struct {
 	// +optional
 	RemovalGracePeriod *metav1.Duration `json:"removalGracePeriod,omitempty"`
 }
+
+// DiscoveredDevice is a device a driver instance sees in its app, declared or not, as the runtime
+// last saw it.
+type DiscoveredDevice struct {
+	// id is the driver's ID for the device: an IEEE address, or a plugin's discovered ID.
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	ID string `json:"id"`
+
+	// name is the device's name in its app, if it has one.
+	// +kubebuilder:validation:MaxLength=128
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// room is the room the device is in, in its app, if it has one.
+	// +kubebuilder:validation:MaxLength=128
+	// +optional
+	Room string `json:"room,omitempty"`
+
+	// manufacturer as reported by the app.
+	// +kubebuilder:validation:MaxLength=128
+	// +optional
+	Manufacturer string `json:"manufacturer,omitempty"`
+
+	// model as reported by the app.
+	// +kubebuilder:validation:MaxLength=128
+	// +optional
+	Model string `json:"model,omitempty"`
+
+	// capabilities the device has, by canonical name.
+	// +listType=atomic
+	// +optional
+	Capabilities []string `json:"capabilities,omitempty"`
+}

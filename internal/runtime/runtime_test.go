@@ -330,6 +330,65 @@ func TestRuntimePluginDevices(t *testing.T) {
 
 // TestHubIgnoresStatusPatches checks that the hub reconciles on Device spec changes, creates and
 // deletes, but not on the status patches the status writer makes.
+func TestRuntimeWritesDiscoveredDevices(t *testing.T) {
+	ctx, c, url, _ := startRuntime(t)
+	bus, err := mqtt.Connect(ctx, url, "fake-apps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const root = "oikade/v1/" + ns + "/hue"
+	publishDiscovered := func(name string) {
+		must(t, bus.Publish(ctx, root+"/devices", []byte(`{"devices":[],"undeclared":0,"discovered":[
+			{"id":"3f2a9c71","manufacturer":"Signify","model":"LCA001","capabilities":["light.on","light.level"],
+			 "name":"`+name+`","room":"Study"}]}`), true))
+	}
+	must(t, bus.Publish(ctx, root+"/status", []byte(`{"state":"online","contract":1}`), true))
+	publishDiscovered("Desk lamp")
+	must(t, c.Create(ctx, &pluginsv1alpha1.Plugin{
+		ObjectMeta: metav1.ObjectMeta{Name: "hue", Namespace: ns},
+		Spec:       pluginsv1alpha1.PluginSpec{Image: "example.com/oikade-plugin-hue:v0.1.0"},
+	}))
+	pluginDiscovered := func() []homev1alpha1.DiscoveredDevice {
+		var p pluginsv1alpha1.Plugin
+		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "hue"}, &p) != nil {
+			return nil
+		}
+		return p.Status.Discovered
+	}
+	eventually(t, "the plugin's discovered devices in its status", func() bool {
+		d := pluginDiscovered()
+		return len(d) == 1 && d[0].ID == "3f2a9c71" && d[0].Name == "Desk lamp" && d[0].Room == "Study" &&
+			d[0].Model == "LCA001" && slices.Equal(d[0].Capabilities, []string{capability.LightOn, capability.LightLevel})
+	})
+	publishDiscovered("Reading lamp")
+	eventually(t, "a rename in the app", func() bool {
+		d := pluginDiscovered()
+		return len(d) == 1 && d[0].Name == "Reading lamp"
+	})
+	// A plugin that stops discovering clears the list.
+	must(t, bus.Publish(ctx, root+"/devices", []byte(`{"devices":[],"undeclared":0}`), true))
+	eventually(t, "the list cleared", func() bool { return pluginDiscovered() == nil })
+
+	must(t, c.Create(ctx, &zigbeev1alpha1.Zigbee2MQTT{
+		ObjectMeta: metav1.ObjectMeta{Name: "z2m", Namespace: ns},
+		Spec:       zigbeev1alpha1.Zigbee2MQTTSpec{Serial: zigbeev1alpha1.SerialSpec{Port: "tcp://slzb:6638", Adapter: "zstack"}},
+	}))
+	must(t, bus.Publish(ctx, "z2m/bridge/devices", bridgeDevicesWithSecondLamp(t), true))
+	eventually(t, "Zigbee2MQTT's paired devices in its status", func() bool {
+		var z zigbeev1alpha1.Zigbee2MQTT
+		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "z2m"}, &z) != nil || len(z.Status.Discovered) == 0 {
+			return false
+		}
+		i := slices.IndexFunc(z.Status.Discovered, func(d homev1alpha1.DiscoveredDevice) bool {
+			return d.ID == "0x00124b0000000004"
+		})
+		return i >= 0 && z.Status.Discovered[i].Name == "desk-plug" &&
+			!slices.ContainsFunc(z.Status.Discovered, func(d homev1alpha1.DiscoveredDevice) bool {
+				return d.ID == "0x00124b0000000001" // the coordinator
+			})
+	})
+}
+
 func TestHubIgnoresStatusPatches(t *testing.T) {
 	ctx, c, _, _ := startRuntime(t)
 

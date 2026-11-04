@@ -117,8 +117,26 @@ func (i *Instance) SetDevices(declared map[string]types.NamespacedName) {
 	}
 }
 
-func (i *Instance) sendUndeclared(n int) {
-	i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}, n)
+func (i *Instance) key() driver.InstanceKey {
+	return driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}
+}
+
+func (i *Instance) sendUndeclared(n int) { i.Sink.Undeclared(i.key(), n) }
+
+// inventoryLocked is the discovered list for the Sink, sorted by ID, or nil.
+func (i *Instance) inventoryLocked() []driver.AppDevice {
+	if i.discovered == nil {
+		return nil
+	}
+	out := make([]driver.AppDevice, 0, len(i.discovered))
+	for _, d := range i.discovered {
+		out = append(out, driver.AppDevice{
+			ID: d.ID, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: slices.Clone(d.Capabilities),
+			Name: d.Name, Room: d.Room,
+		})
+	}
+	slices.SortFunc(out, func(a, b driver.AppDevice) int { return strings.Compare(a.ID, b.ID) })
+	return out
 }
 
 // Discovered returns a copy of the devices the plugin sees in its app, validated, and false if it
@@ -230,7 +248,10 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		// Forget everything learned under a contract we may have misread. An empty, non-nil
 		// announcement reports every device as not found.
 		i.announced, i.values, i.last, i.discovered, i.undeclared = map[string]driver.Info{}, nil, nil, nil, 0
-		events = append(events, i.discoveryLocked(), func() { i.sendUndeclared(0) })
+		events = append(events, i.discoveryLocked(), func() {
+			i.sendUndeclared(0)
+			i.Sink.Inventory(i.key(), nil)
+		})
 		events = append(events, i.allAvailabilityLocked(false))
 	case !up:
 		events = append(events, i.allAvailabilityLocked(false))
@@ -279,6 +300,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 	i.undeclared = max(msg.Undeclared, 0)
 	i.discovered = i.validDiscoveredLocked(msg.Discovered, topic)
 	undeclared := i.undeclaredLocked()
+	inventory := i.inventoryLocked()
 	// Values of capabilities a device no longer announces must not linger.
 	for id, vals := range i.values {
 		maps.DeleteFunc(vals, func(c string, _ any) bool {
@@ -289,6 +311,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 	i.mu.Unlock()
 	emit()
 	i.sendUndeclared(undeclared)
+	i.Sink.Inventory(i.key(), inventory)
 }
 
 func (i *Instance) handleState(id, topic string, payload []byte) {

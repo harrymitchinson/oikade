@@ -59,6 +59,7 @@ type Store struct {
 	mu         sync.RWMutex
 	devices    map[types.NamespacedName]*entry
 	undeclared map[driver.InstanceKey]int
+	inventory  map[driver.InstanceKey][]driver.AppDevice
 }
 
 var _ driver.Sink = (*Store)(nil)
@@ -68,6 +69,7 @@ func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
 	return &Store{
 		Log: log, Listeners: listeners,
 		devices: map[types.NamespacedName]*entry{}, undeclared: map[driver.InstanceKey]int{},
+		inventory: map[driver.InstanceKey][]driver.AppDevice{},
 	}
 }
 
@@ -126,12 +128,35 @@ type Reassigner interface {
 	Reassigned(dev types.NamespacedName)
 }
 
-// Forget drops a driver instance that no longer exists: its devices and its undeclared count.
+// Forget drops a driver instance that no longer exists: its devices, its undeclared count and its
+// inventory.
 func (s *Store) Forget(instance driver.InstanceKey) {
 	s.SetDevices(instance, nil)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.undeclared, instance)
+	delete(s.inventory, instance)
+}
+
+// InventoryOf returns a copy of the devices a driver instance sees in its app, and false if it
+// hasn't listed them.
+func (s *Store) InventoryOf(instance driver.InstanceKey) ([]driver.AppDevice, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	devices, ok := s.inventory[instance]
+	return cloneApp(devices), ok
+}
+
+func cloneApp(devices []driver.AppDevice) []driver.AppDevice {
+	if devices == nil {
+		return nil
+	}
+	out := make([]driver.AppDevice, len(devices))
+	for i, d := range devices {
+		d.Capabilities = slices.Clone(d.Capabilities)
+		out[i] = d
+	}
+	return out
 }
 
 // Get returns a copy of a device's state.
@@ -278,11 +303,27 @@ func (s *Store) Undeclared(instance driver.InstanceKey, count int) {
 	}
 }
 
+// Inventory implements driver.Sink.
+func (s *Store) Inventory(instance driver.InstanceKey, devices []driver.AppDevice) {
+	devices = cloneApp(devices)
+	s.mu.Lock()
+	if devices == nil {
+		delete(s.inventory, instance)
+	} else {
+		s.inventory[instance] = devices
+	}
+	s.mu.Unlock()
+	for _, l := range s.Listeners {
+		l.Inventory(instance, cloneApp(devices))
+	}
+}
+
 // NopSink ignores every event. Embed it to implement only some of driver.Sink.
 type NopSink struct{}
 
-func (NopSink) Discovered(types.NamespacedName, driver.Info) {}
-func (NopSink) Changed(driver.Update)                        {}
-func (NopSink) Availability(types.NamespacedName, bool)      {}
-func (NopSink) Seen(types.NamespacedName, time.Time)         {}
-func (NopSink) Undeclared(driver.InstanceKey, int)           {}
+func (NopSink) Discovered(types.NamespacedName, driver.Info)     {}
+func (NopSink) Changed(driver.Update)                            {}
+func (NopSink) Availability(types.NamespacedName, bool)          {}
+func (NopSink) Seen(types.NamespacedName, time.Time)             {}
+func (NopSink) Undeclared(driver.InstanceKey, int)               {}
+func (NopSink) Inventory(driver.InstanceKey, []driver.AppDevice) {}

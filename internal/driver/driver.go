@@ -41,6 +41,19 @@ type Info struct {
 	Error string
 }
 
+// AppDevice is a device a driver instance sees in its app, declared or not: a Zigbee2MQTT
+// instance's paired devices, or a plugin's discovered list.
+type AppDevice struct {
+	// ID is the driver's ID for the device: an IEEE address or a plugin's discovered ID.
+	ID           string
+	Manufacturer string
+	Model        string
+	Capabilities []string
+	// Name and Room are as named in the app, empty if it has none.
+	Name string
+	Room string
+}
+
 // Update is a capability changing value. Drivers only report actual changes.
 type Update struct {
 	Device     types.NamespacedName
@@ -61,6 +74,9 @@ type Sink interface {
 	Seen(dev types.NamespacedName, t time.Time)
 	// Undeclared reports how many paired devices have no Device object, per driver instance.
 	Undeclared(instance InstanceKey, count int)
+	// Inventory reports every device a driver instance sees in its app, sorted by ID. Nil means
+	// the instance doesn't list them, such as a plugin that doesn't discover.
+	Inventory(instance InstanceKey, devices []AppDevice)
 }
 
 // Setter writes capabilities.

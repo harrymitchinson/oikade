@@ -571,7 +571,8 @@ func (r *recorder) Seen(dev types.NamespacedName, _ time.Time) {
 	r.seen[dev] = true
 }
 
-func (r *recorder) Undeclared(driver.InstanceKey, int) {}
+func (r *recorder) Undeclared(driver.InstanceKey, int)               {}
+func (r *recorder) Inventory(driver.InstanceKey, []driver.AppDevice) {}
 
 func (r *recorder) info(dev types.NamespacedName) driver.Info {
 	r.mu.Lock()
