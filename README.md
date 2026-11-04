@@ -516,7 +516,10 @@ spec:
 - **Deleting an adopted Device** while its device is still in the app adopts it again on the next pass. To keep it out of Matter, annotate it `oikade.dev/matter: hide` instead. There's no way yet to ignore one device.
 - **Deleting the Plugin or Zigbee2MQTT instance** deletes the Devices it adopted. As for any deleted Device, their Matter endpoint IDs are kept, so they get the same endpoints if they're adopted again.
 
-Removal (`removalPolicy`) isn't acted on yet: a device removed from its app leaves its adopted Device in place. An offline device is never removed: only one gone from its app is.
+- **Removal.** A device counts as removed once it's gone from the instance's `status.discovered`. An offline or unplugged device stays in that list, so it's never removed, and nor is anything while the runtime hasn't reported the list since it started.
+  - Under `removalPolicy: Retain`, the Device stays, with `Resolved=False`, for you to delete.
+  - Under `removalPolicy: Delete`, the Device gets the condition `RemovalPending` and a `RemovalPending` event. It's deleted once its device has been gone for `removalGracePeriod`, counted from the condition's `lastTransitionTime`, and the instance gets a `Removed` event. A device that comes back before then clears the condition, and the grace period starts over if it goes again. Turning `adopt` off, or taking the Device over in Git, cancels a pending removal.
+  - Annotate a Device `oikade.dev/removal-policy: retain` to keep it under `Delete`. The annotation isn't a takeover, so the Device stays adopted.
 
 ## Metrics
 

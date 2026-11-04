@@ -3,13 +3,17 @@ package home
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/events"
+	clocktesting "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -22,8 +26,14 @@ import (
 var adoptSeq atomic.Int32
 
 var _ = Describe("Adopting discovered devices", func() {
-	var ns string
+	var (
+		ns       string
+		clk      *clocktesting.FakePassiveClock
+		recorder *events.FakeRecorder
+	)
 	BeforeEach(func() {
+		clk = clocktesting.NewFakePassiveClock(time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC))
+		recorder = events.NewFakeRecorder(16)
 		ns = fmt.Sprintf("adopt-%d", adoptSeq.Add(1))
 		Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})).To(Succeed())
 		Expect(k8sClient.Create(ctx, &homev1alpha1.Room{ObjectMeta: metav1.ObjectMeta{Name: "study", Namespace: ns}})).To(Succeed())
@@ -61,11 +71,13 @@ var _ = Describe("Adopting discovered devices", func() {
 		p.Status.Discovered = discovered
 		Expect(k8sClient.Status().Update(ctx, p)).To(Succeed())
 	}
-	adopt := func(driver string) {
-		r := &AdoptReconciler{Client: k8sClient, Scheme: scheme.Scheme, Driver: driver}
-		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key("hue")})
+	reconcile := func(driver string) ctrl.Result {
+		r := &AdoptReconciler{Client: k8sClient, Scheme: scheme.Scheme, Driver: driver, Recorder: recorder, Clock: clk}
+		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key("hue")})
 		Expect(err).NotTo(HaveOccurred())
+		return res
 	}
+	adopt := func(driver string) { reconcile(driver) }
 	on := &homev1alpha1.DiscoverySpec{Adopt: true}
 	deskLamp := homev1alpha1.DiscoveredDevice{
 		ID: "3f2a9c71", Manufacturer: "Signify", Model: "LCA001", Name: "Desk lamp", Room: "Study",
@@ -217,5 +229,142 @@ var _ = Describe("Adopting discovered devices", func() {
 		Expect(k8sClient.Status().Update(ctx, z)).To(Succeed())
 		adopt(AdoptZigbee2MQTT)
 		Expect(device("hall-motion").Spec.DisplayName).To(Equal("Hall motion"))
+	})
+
+	Describe("when a device is removed from its app", func() {
+		hallMotion := homev1alpha1.DiscoveredDevice{ID: "a71c", Name: "Hall motion"}
+		deleteAfterHour := &homev1alpha1.DiscoverySpec{
+			Adopt: true, RemovalPolicy: homev1alpha1.RemovalPolicyDelete,
+			RemovalGracePeriod: &metav1.Duration{Duration: time.Hour},
+		}
+		pending := func(name string) *metav1.Condition {
+			return meta.FindStatusCondition(device(name).Status.Conditions, homev1alpha1.ConditionRemovalPending)
+		}
+
+		DescribeTable("never removes an offline device", func(discovery *homev1alpha1.DiscoverySpec) {
+			p := plugin(discovery, deskLamp)
+			adopt(AdoptPlugin)
+
+			// Unplugged, the runtime reports it offline, and it stays in the app's list, so it isn't gone.
+			d := device("desk-lamp")
+			meta.SetStatusCondition(&d.Status.Conditions, metav1.Condition{
+				Type: homev1alpha1.ConditionAvailable, Status: metav1.ConditionFalse, Reason: "Offline",
+			})
+			Expect(k8sClient.Status().Update(ctx, d)).To(Succeed())
+			clk.SetTime(clk.Now().Add(48 * time.Hour))
+			Expect(reconcile(AdoptPlugin).RequeueAfter).To(BeZero())
+			Expect(pending("desk-lamp")).To(BeNil())
+
+			// A runtime that hasn't reported the list since it started says nothing either.
+			setDiscovered(p)
+			clk.SetTime(clk.Now().Add(48 * time.Hour))
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ConsistOf("desk-lamp"))
+			Expect(pending("desk-lamp")).To(BeNil())
+			Expect(recorder.Events).To(BeEmpty())
+		},
+			Entry("under Retain", &homev1alpha1.DiscoverySpec{Adopt: true, RemovalPolicy: homev1alpha1.RemovalPolicyRetain}),
+			Entry("under Delete", deleteAfterHour),
+		)
+
+		It("keeps the Device under Retain", func() {
+			p := plugin(&homev1alpha1.DiscoverySpec{Adopt: true, RemovalPolicy: homev1alpha1.RemovalPolicyRetain}, deskLamp)
+			adopt(AdoptPlugin)
+			setDiscovered(p, homev1alpha1.DiscoveredDevice{ID: "other"})
+			clk.SetTime(clk.Now().Add(30 * 24 * time.Hour))
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ContainElement("desk-lamp"))
+			Expect(pending("desk-lamp")).To(BeNil())
+		})
+
+		It("deletes the Device under Delete once the grace period has passed", func() {
+			p := plugin(deleteAfterHour, deskLamp, hallMotion)
+			adopt(AdoptPlugin)
+			setDiscovered(p, hallMotion)
+
+			start := clk.Now()
+			Expect(reconcile(AdoptPlugin).RequeueAfter).To(Equal(time.Hour))
+			cond := pending("desk-lamp")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.LastTransitionTime.Time).To(BeTemporally("==", start))
+			Expect(recorder.Events).To(Receive(HavePrefix("Warning RemovalPending")))
+			Expect(pending("hall-motion")).To(BeNil())
+
+			clk.SetTime(start.Add(40 * time.Minute))
+			Expect(reconcile(AdoptPlugin).RequeueAfter).To(Equal(20 * time.Minute))
+			Expect(deviceNames()).To(ContainElement("desk-lamp"))
+			Expect(recorder.Events).To(BeEmpty(), "the pending event is recorded once")
+
+			clk.SetTime(start.Add(time.Hour))
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ConsistOf("hall-motion"))
+			Expect(recorder.Events).To(Receive(HavePrefix("Normal Removed")))
+
+			// Gone from the app, it isn't adopted again.
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ConsistOf("hall-motion"))
+		})
+
+		It("keeps a Device whose device returns within the grace period", func() {
+			p := plugin(deleteAfterHour, deskLamp)
+			adopt(AdoptPlugin)
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+			p.Status.Discovered = []homev1alpha1.DiscoveredDevice{}
+			Expect(k8sClient.Status().Update(ctx, p)).To(Succeed())
+			adopt(AdoptPlugin)
+			Expect(pending("desk-lamp")).NotTo(BeNil(), "an empty list means the app has no devices")
+
+			clk.SetTime(clk.Now().Add(50 * time.Minute))
+			setDiscovered(p, deskLamp)
+			Expect(reconcile(AdoptPlugin).RequeueAfter).To(BeZero())
+			Expect(pending("desk-lamp")).To(BeNil())
+
+			// Gone again, the grace period starts over.
+			clk.SetTime(clk.Now().Add(20 * time.Minute))
+			setDiscovered(p, hallMotion)
+			Expect(reconcile(AdoptPlugin).RequeueAfter).To(Equal(time.Hour))
+			Expect(deviceNames()).To(ContainElement("desk-lamp"))
+		})
+
+		It("clears RemovalPending once the Device is taken over, or adoption is turned off", func() {
+			p := plugin(deleteAfterHour, deskLamp, hallMotion)
+			adopt(AdoptPlugin)
+			setDiscovered(p, homev1alpha1.DiscoveredDevice{ID: "other"})
+			adopt(AdoptPlugin)
+			Expect(pending("desk-lamp")).NotTo(BeNil())
+			Expect(pending("hall-motion")).NotTo(BeNil())
+
+			d := device("desk-lamp")
+			d.Spec.DisplayName = "Study lamp"
+			Expect(k8sClient.Update(ctx, d)).To(Succeed())
+			adopt(AdoptPlugin)
+			Expect(metav1.GetControllerOf(device("desk-lamp"))).To(BeNil())
+			Expect(pending("desk-lamp")).To(BeNil())
+
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(Succeed())
+			p.Spec.Discovery.Adopt = false
+			Expect(k8sClient.Update(ctx, p)).To(Succeed())
+			clk.SetTime(clk.Now().Add(48 * time.Hour))
+			adopt(AdoptPlugin)
+			Expect(pending("hall-motion")).To(BeNil())
+			Expect(deviceNames()).To(ContainElements("desk-lamp", "hall-motion"))
+		})
+
+		It("keeps a Device annotated oikade.dev/removal-policy: retain under Delete", func() {
+			p := plugin(deleteAfterHour, deskLamp)
+			adopt(AdoptPlugin)
+			d := device("desk-lamp")
+			d.Annotations = map[string]string{homev1alpha1.AnnotationRemovalPolicy: "Retain"}
+			Expect(k8sClient.Update(ctx, d)).To(Succeed())
+
+			setDiscovered(p, hallMotion)
+			adopt(AdoptPlugin)
+			clk.SetTime(clk.Now().Add(48 * time.Hour))
+			adopt(AdoptPlugin)
+			Expect(deviceNames()).To(ContainElement("desk-lamp"))
+			Expect(pending("desk-lamp")).To(BeNil())
+			Expect(metav1.IsControlledBy(device("desk-lamp"), p)).To(BeTrue(), "an annotation isn't a takeover")
+		})
 	})
 })

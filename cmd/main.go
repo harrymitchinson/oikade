@@ -232,9 +232,10 @@ func main() {
 	}
 	for _, drv := range []string{homecontroller.AdoptPlugin, homecontroller.AdoptZigbee2MQTT} {
 		if err := (&homecontroller.AdoptReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-			Driver: drv,
+			Client:   mgr.GetClient(),
+			Scheme:   mgr.GetScheme(),
+			Driver:   drv,
+			Recorder: mgr.GetEventRecorder("oikade-" + drv + "-adopt"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", drv+"-adopt")
 			os.Exit(1)
