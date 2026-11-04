@@ -359,4 +359,11 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 	if rec.undeclared != 3 {
 		t.Errorf("undeclared = %d, want 3", rec.undeclared)
 	}
+
+	// A contract Oikade doesn't speak forgets the list and the count.
+	publish(t, bus, root+"/devices", `{"devices":[],"discovered":[{"id":"1000dd"}]}`)
+	publish(t, bus, root+"/status", `{"state":"online","contract":2}`)
+	if _, ok := i.Discovered(); ok || rec.undeclared != 0 {
+		t.Errorf("after a wrong contract, Discovered() ok = %v and undeclared = %d, want false and 0", ok, rec.undeclared)
+	}
 }

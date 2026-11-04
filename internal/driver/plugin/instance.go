@@ -40,6 +40,9 @@ type Instance struct {
 	Now  func() time.Time
 	Log  logr.Logger
 
+	// counting is held from computing the undeclared count until it's sent, so an older count
+	// can't overtake a newer one. Take it before mu.
+	counting    sync.Mutex
 	mu          sync.Mutex
 	unsubscribe func()
 	declared    map[string]types.NamespacedName // id -> Device
@@ -99,16 +102,23 @@ func (i *Instance) Stop() {
 
 // SetDevices replaces the declared devices (plugin-local id -> Device) and re-reports discovery.
 func (i *Instance) SetDevices(declared map[string]types.NamespacedName) {
+	i.counting.Lock()
+	defer i.counting.Unlock()
 	i.mu.Lock()
 	i.declared = maps.Clone(declared)
 	emit := i.discoveryLocked()
-	counted := i.announced != nil && i.discovered != nil
+	// Only a discovered list's count depends on what's declared.
+	counted := i.discovered != nil
 	undeclared := i.undeclaredLocked()
 	i.mu.Unlock()
 	emit()
 	if counted {
-		i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}, undeclared)
+		i.sendUndeclared(undeclared)
 	}
+}
+
+func (i *Instance) sendUndeclared(n int) {
+	i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}, n)
 }
 
 // Discovered returns a copy of the devices the plugin sees in its app, validated, and false if it
@@ -207,6 +217,8 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		i.mu.Unlock()
 		return
 	}
+	i.counting.Lock()
+	defer i.counting.Unlock()
 	i.mu.Lock()
 	wasUp := i.upLocked()
 	i.status = &s
@@ -217,8 +229,8 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		i.rejectLocked(ReasonWrongContract, "", topic)
 		// Forget everything learned under a contract we may have misread. An empty, non-nil
 		// announcement reports every device as not found.
-		i.announced, i.values, i.last, i.discovered = map[string]driver.Info{}, nil, nil, nil
-		events = append(events, i.discoveryLocked())
+		i.announced, i.values, i.last, i.discovered, i.undeclared = map[string]driver.Info{}, nil, nil, nil, 0
+		events = append(events, i.discoveryLocked(), func() { i.sendUndeclared(0) })
 		events = append(events, i.allAvailabilityLocked(false))
 	case !up:
 		events = append(events, i.allAvailabilityLocked(false))
@@ -245,6 +257,8 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 		i.mu.Unlock()
 		return
 	}
+	i.counting.Lock()
+	defer i.counting.Unlock()
 	i.mu.Lock()
 	i.announced = map[string]driver.Info{}
 	for _, d := range msg.Devices {
@@ -274,7 +288,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 	emit := i.discoveryLocked()
 	i.mu.Unlock()
 	emit()
-	i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}, undeclared)
+	i.sendUndeclared(undeclared)
 }
 
 func (i *Instance) handleState(id, topic string, payload []byte) {
@@ -427,7 +441,8 @@ func (i *Instance) validDiscoveredLocked(discovered []contractv1.DiscoveredDevic
 	seen := map[string]bool{}
 	for _, d := range discovered {
 		if !contractv1.ValidID(d.ID) || seen[d.ID] {
-			i.rejectLocked(ReasonMalformed, d.ID, topic)
+			// Logged once per plugin, not per id: an invalid id may be anything, and new each time.
+			i.rejectLocked(ReasonMalformed, "", topic)
 			continue
 		}
 		seen[d.ID] = true

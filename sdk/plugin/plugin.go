@@ -225,11 +225,15 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 // hub or account, until the device is reset or re-paired: derive it from something that does,
 // such as a MAC address or serial number, if the app's own ID doesn't.
 //
-// It refuses an invalid or repeated ID and a capability Oikade doesn't know, and publishes
-// nothing. The list is published with the devices from SetDevices, and waits for the first
+// Pass nil to stop reporting the list, if the plugin can no longer see its app: an empty list
+// means the app has no devices. It refuses an invalid or repeated ID and a capability Oikade
+// doesn't know, and publishes nothing. The list is published with the devices from SetDevices, and waits for the first
 // SetDevices if that hasn't been called yet.
 func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.DiscoveredDevice) error {
-	next := make([]contractv1.DiscoveredDevice, len(discovered))
+	var next []contractv1.DiscoveredDevice
+	if discovered != nil {
+		next = make([]contractv1.DiscoveredDevice, len(discovered))
+	}
 	seen := map[string]bool{}
 	for i, d := range discovered {
 		if !contractv1.ValidID(d.ID) {

@@ -609,4 +609,10 @@ func TestSetDiscovered(t *testing.T) {
 		root.Status()+"="+online,
 		root.Devices()+`={"devices":[],"undeclared":5,"discovered":[]}`,
 	)
+
+	// nil stops reporting the list.
+	if err := p.SetDiscovered(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	w.expect(root.Devices() + `={"devices":[],"undeclared":5}`)
 }
