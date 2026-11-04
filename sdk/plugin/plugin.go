@@ -70,8 +70,10 @@ type Plugin struct {
 
 	mu sync.Mutex
 	// devices is nil until SetDevices.
-	devices      []contractv1.DeviceReport
-	undeclared   int
+	devices    []contractv1.DeviceReport
+	undeclared int
+	// discovered is nil until SetDiscovered.
+	discovered   []contractv1.DiscoveredDevice
 	states       map[string]contractv1.State
 	availability map[string]bool
 	queues       map[string][]contractv1.SetCommand
@@ -214,6 +216,54 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 		}
 	}
 	return nil
+}
+
+// SetDiscovered publishes every device the plugin sees in its app, declared or not, so Oikade
+// can adopt the undeclared ones. Once it's called, Oikade counts undeclared devices from this list
+// and ignores SetDevices' count. A device leaving the list means it was removed from its app, so
+// keep offline devices in it. Each ID must stay the same across restarts of the plugin and of its
+// hub or account, until the device is reset or re-paired: derive it from something that does,
+// such as a MAC address or serial number, if the app's own ID doesn't.
+//
+// Pass nil to stop reporting the list, if the plugin can no longer see its app: an empty list
+// means the app has no devices. It refuses an invalid or repeated ID and a capability Oikade
+// doesn't know, and publishes nothing. The list is published with the devices from SetDevices, and waits for the first
+// SetDevices if that hasn't been called yet.
+func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.DiscoveredDevice) error {
+	var next []contractv1.DiscoveredDevice
+	if discovered != nil {
+		next = make([]contractv1.DiscoveredDevice, len(discovered))
+	}
+	seen := map[string]bool{}
+	for i, d := range discovered {
+		if !contractv1.ValidID(d.ID) {
+			return fmt.Errorf("discovered device id %q is not valid", d.ID)
+		}
+		if seen[d.ID] {
+			return fmt.Errorf("discovered device %s is listed twice", d.ID)
+		}
+		seen[d.ID] = true
+		for _, c := range d.Capabilities {
+			if _, ok := capability.Lookup(c); !ok {
+				return fmt.Errorf("discovered device %s: unknown capability %s", d.ID, c)
+			}
+		}
+		d.Capabilities = slices.Clone(d.Capabilities)
+		next[i] = d
+	}
+
+	if err := p.lock(ctx); err != nil {
+		return err
+	}
+	defer p.unlock()
+	p.mu.Lock()
+	p.discovered = next
+	devicesSet := p.devices != nil
+	p.mu.Unlock()
+	if !devicesSet {
+		return nil
+	}
+	return p.publishDevices(ctx)
 }
 
 // SetState publishes a device's full current values. The device must be found, and the state
@@ -458,7 +508,9 @@ func (p *Plugin) unlock() { <-p.pub }
 
 func (p *Plugin) publishDevices(ctx context.Context) error {
 	p.mu.Lock()
-	payload, err := json.Marshal(contractv1.Devices{Devices: p.devices, Undeclared: p.undeclared})
+	payload, err := json.Marshal(contractv1.Devices{
+		Devices: p.devices, Undeclared: p.undeclared, Discovered: p.discovered,
+	})
 	p.mu.Unlock()
 	if err != nil {
 		return err

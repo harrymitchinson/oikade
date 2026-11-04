@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,5 +53,25 @@ func TestApply(t *testing.T) {
 		if _, err := s.apply(cmd); err == nil {
 			t.Fatalf("applied %+v", cmd)
 		}
+	}
+}
+
+func TestNewSwitchesDiscoversEveryRelayAndASpare(t *testing.T) {
+	den := contractv1.DeclaredDevice{
+		ID: "d", DisplayName: "Den", Room: "den", Parameters: map[string]string{"simulate": "unstable-id"},
+	}
+	s := newSwitches(append(slices.Clone(declared), den))
+	ids := make([]string, 0, len(s.discovered))
+	for _, d := range s.discovered {
+		ids = append(ids, d.ID)
+	}
+	if len(ids) != 4 || ids[0] != "a" || ids[1] != "b" || !strings.HasPrefix(ids[2], "d-") || ids[3] != spare.ID {
+		t.Fatalf("discovered %v, want a, b, d-<random> and %s", ids, spare.ID)
+	}
+	if d := s.discovered[2]; d.Name != "Den" || d.Room != "den" {
+		t.Errorf("got %+v, want the declared name and room", d)
+	}
+	if again := newSwitches(declared); !reflect.DeepEqual(again.discovered, newSwitches(declared).discovered) {
+		t.Error("discovered IDs change between starts")
 	}
 }
