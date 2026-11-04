@@ -106,6 +106,12 @@ type Zigbee2MQTTStatus struct {
 	// +optional
 	Devices int32 `json:"devices,omitempty"`
 
+	// discovered lists every device paired with the instance, except the coordinator and devices Zigbee2MQTT doesn't support, declared or not, sorted by id.
+	// The runtime writes it. Absent until the runtime has seen the device list.
+	// +listType=atomic
+	// +optional
+	Discovered []homev1alpha1.DiscoveredDevice `json:"discovered,omitzero"`
+
 	// configHash is the hash of the rendered configuration.yaml.
 	// +optional
 	ConfigHash string `json:"configHash,omitempty"`

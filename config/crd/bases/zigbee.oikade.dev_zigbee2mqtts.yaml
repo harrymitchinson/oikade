@@ -331,6 +331,49 @@ spec:
                 description: devices is the number of Devices declared for this instance.
                 format: int32
                 type: integer
+              discovered:
+                description: |-
+                  discovered lists every device paired with the instance, except the coordinator and devices Zigbee2MQTT doesn't support, declared or not, sorted by id.
+                  The runtime writes it. Absent until the runtime has seen the device list.
+                items:
+                  description: |-
+                    DiscoveredDevice is a device a driver instance sees in its app, declared or not, as the runtime
+                    last saw it.
+                  properties:
+                    capabilities:
+                      description: capabilities the device has, by canonical name.
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    id:
+                      description: 'id is the driver''s ID for the device: an IEEE
+                        address, or a plugin''s discovered ID.'
+                      maxLength: 63
+                      type: string
+                    manufacturer:
+                      description: manufacturer as reported by the app.
+                      maxLength: 128
+                      type: string
+                    model:
+                      description: model as reported by the app.
+                      maxLength: 128
+                      type: string
+                    name:
+                      description: name is the device's name in its app, if it has
+                        one.
+                      maxLength: 128
+                      type: string
+                    room:
+                      description: room is the room the device is in, in its app,
+                        if it has one.
+                      maxLength: 128
+                      type: string
+                  required:
+                  - id
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               observedGeneration:
                 description: observedGeneration is the generation the conditions were
                   computed for.

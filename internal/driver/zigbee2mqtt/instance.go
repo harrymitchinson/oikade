@@ -122,6 +122,7 @@ func (i *Instance) handleDevices(payload []byte) {
 		i.Log.Error(err, "Failed to parse Zigbee2MQTT device list", "instance", i.Key)
 		return
 	}
+	var inventory []driver.AppDevice
 	i.mu.Lock()
 	i.paired, i.byName = map[string]*paired{}, map[string]string{}
 	for _, d := range list {
@@ -138,10 +139,24 @@ func (i *Instance) handleDevices(payload []byte) {
 		i.paired[d.IEEEAddress] = p
 		i.byName[d.FriendlyName] = d.IEEEAddress
 		i.byName[d.IEEEAddress] = d.IEEEAddress
+		app := driver.AppDevice{
+			ID: d.IEEEAddress, Manufacturer: p.info.Manufacturer, Model: p.info.Model,
+			Capabilities: slices.Clone(p.info.Capabilities),
+		}
+		// Zigbee2MQTT names a device by its IEEE address until you rename it.
+		if d.FriendlyName != d.IEEEAddress {
+			app.Name = d.FriendlyName
+		}
+		inventory = append(inventory, app)
 	}
 	emit := i.discoveryLocked()
 	i.mu.Unlock()
 	emit()
+	if inventory == nil {
+		inventory = []driver.AppDevice{}
+	}
+	slices.SortFunc(inventory, func(a, b driver.AppDevice) int { return strings.Compare(a.ID, b.ID) })
+	i.Sink.Inventory(driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: i.Key}, inventory)
 }
 
 // discoveryLocked computes discovery events; call the returned func after unlocking.

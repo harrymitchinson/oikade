@@ -475,7 +475,13 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 
 ## Discovery
 
-`spec.discovery`, on a Plugin or a Zigbee2MQTT instance, configures adopting the devices paired in their app as Devices, so you don't declare them again in Git ([OIK-123](https://linear.app/oikade/issue/OIK-123)). **It's accepted but doesn't adopt anything yet:** adoption lands in the steps after this one, and until then a paired but undeclared device only counts in `oikade_undeclared_devices`.
+`spec.discovery`, on a Plugin or a Zigbee2MQTT instance, configures adopting the devices paired in their app as Devices, so you don't declare them again in Git ([OIK-123](https://linear.app/oikade/issue/OIK-123)). **It's accepted but doesn't adopt anything yet:** adoption lands in later steps. Until then, a paired but undeclared device counts in `oikade_undeclared_devices`, and the runtime lists every device the instance sees in its app, declared or not, in its `status.discovered`:
+
+```sh
+kubectl get plugin hue -o jsonpath='{.status.discovered}'
+```
+
+A Zigbee2MQTT instance lists its paired devices by IEEE address, except the coordinator and devices it doesn't support (yet: one still being interviewed appears once it's done), with their friendly name if you've set one. A plugin lists them only if it discovers devices ([the contract](docs/plugin-contract.md#discovered)).
 
 ```yaml
 spec:

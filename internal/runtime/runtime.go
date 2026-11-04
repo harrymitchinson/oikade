@@ -41,6 +41,7 @@ type Runtime struct {
 func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*Runtime, error) {
 	log := logr.FromContextOrDiscard(ctx)
 	writer := &status.Writer{Client: mgr.GetClient(), SeenInterval: opts.SeenInterval}
+	discovered := &status.Discovered{Client: mgr.GetClient()}
 	triggered := &engine.Triggered{Client: mgr.GetClient(), Interval: opts.TriggeredInterval}
 	scheduled := &engine.Scheduled{Client: mgr.GetClient()}
 	controlStatus := &engine.ControlStatus{Client: mgr.GetClient()}
@@ -57,8 +58,8 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 	controls := &engine.Retained[engine.ControlState]{Bus: bus, Root: engine.ControlStatesRoot, Log: log.WithName("control")}
 	eng.States, eng.Controls = holds, controls
 	eng.Init()
-	store := hub.NewStore(log.WithName("store"), writer, eng)
-	writer.Store, eng.Store = store, store
+	store := hub.NewStore(log.WithName("store"), writer, discovered, eng)
+	writer.Store, discovered.Store, eng.Store = store, store, store
 	h := &hub.Hub{Client: mgr.GetClient(), Bus: bus, Store: store}
 	eng.Setter = h
 
@@ -66,6 +67,9 @@ func Setup(ctx context.Context, mgr ctrl.Manager, bus mqtt.Bus, opts Options) (*
 		return nil, err
 	}
 	if err := writer.SetupWithManager(mgr); err != nil {
+		return nil, err
+	}
+	if err := discovered.SetupWithManager(mgr); err != nil {
 		return nil, err
 	}
 	if err := (&engine.Loader{Client: mgr.GetClient(), Engine: eng}).SetupWithManager(mgr); err != nil {

@@ -23,6 +23,8 @@ type recorder struct {
 	available  map[types.NamespacedName]bool
 	seen       map[types.NamespacedName]time.Time
 	undeclared int
+	inventory  []driver.AppDevice
+	inventoryN int // how many times Inventory was called
 }
 
 func newRecorder() *recorder {
@@ -57,6 +59,12 @@ func (r *recorder) Undeclared(_ driver.InstanceKey, n int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.undeclared = n
+}
+func (r *recorder) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.inventory = devices
+	r.inventoryN++
 }
 
 func dev(name string) types.NamespacedName {
@@ -209,5 +217,34 @@ func TestSet(t *testing.T) {
 	}
 	if err := i.Set(ctx, ghost, capability.LightOn, true); err == nil {
 		t.Error("Set accepted an unpaired device")
+	}
+}
+
+func TestInventory(t *testing.T) {
+	_, bus, rec := setup(t)
+
+	// Every paired device but the coordinator, sorted by IEEE address, declared or not. A device
+	// still named by its IEEE address has no name.
+	ids, names := make([]string, 0, len(rec.inventory)), make([]string, 0, len(rec.inventory))
+	for _, d := range rec.inventory {
+		ids, names = append(ids, d.ID), append(names, d.Name)
+	}
+	if !slices.Equal(ids, []string{"0x000b57fffe000001", "0x00124b0000000004", "0x00124b0000000005",
+		"0x00158d0000000002", "0x00158d0000000003"}) {
+		t.Errorf("inventory ids = %v", ids)
+	}
+	if !slices.Equal(names, []string{"", "desk-plug", "", "hallway-motion", "front-door"}) {
+		t.Errorf("inventory names = %q", names)
+	}
+	if d := rec.inventory[1]; d.Model == "" || !slices.Equal(d.Capabilities, []string{capability.SwitchOn}) {
+		t.Errorf("desk-plug = %+v", d)
+	}
+
+	// An empty network is an empty list, not none.
+	if err := bus.Publish(context.Background(), "z2m/bridge/devices", []byte(`[]`), true); err != nil {
+		t.Fatal(err)
+	}
+	if rec.inventory == nil || len(rec.inventory) != 0 {
+		t.Errorf("inventory after an empty list = %#v, want empty", rec.inventory)
 	}
 }

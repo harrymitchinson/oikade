@@ -220,6 +220,9 @@ func (h *Hub) ensure(key driver.InstanceKey, declared map[string]types.Namespace
 
 	if old != nil {
 		old.Stop()
+		// What the old instance saw in its app may not be what the new one sees, such as after a
+		// topic change. Until the new one reports, there's no list.
+		h.Store.Inventory(key, nil)
 	}
 	ctx, cancel := context.WithTimeout(h.ctx, subscribeTimeout)
 	defer cancel()

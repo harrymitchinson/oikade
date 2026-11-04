@@ -22,6 +22,8 @@ type recorder struct {
 	available  map[types.NamespacedName]bool
 	seen       map[types.NamespacedName]time.Time
 	undeclared int
+	inventory  []driver.AppDevice
+	inventoryN int // how many times Inventory was called
 }
 
 func newRecorder() *recorder {
@@ -57,6 +59,12 @@ func (r *recorder) Undeclared(_ driver.InstanceKey, n int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.undeclared = n
+}
+func (r *recorder) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.inventory = devices
+	r.inventoryN++
 }
 
 func (r *recorder) takeChanges() []driver.Update {
@@ -332,6 +340,10 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 		!slices.Equal(got[1].Capabilities, []string{capability.SwitchOn}) {
 		t.Errorf("Discovered() = %+v, %v", got, ok)
 	}
+	if len(rec.inventory) != 2 || rec.inventory[0].ID != "1000aa" || rec.inventory[0].Name != "Porch light" ||
+		rec.inventory[1].ID != "1000cc" {
+		t.Errorf("inventory = %+v", rec.inventory)
+	}
 	if r := i.Stats().Rejected; r[ReasonMalformed] != 2 || r[ReasonUnknownCapability] != 1 {
 		t.Errorf("rejected = %v, want 2 malformed and 1 unknown_capability", r)
 	}
@@ -356,6 +368,9 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 	if _, ok := i.Discovered(); ok {
 		t.Error("Discovered() is ok without a discovered list")
 	}
+	if rec.inventory != nil {
+		t.Errorf("inventory without a discovered list = %+v, want nil", rec.inventory)
+	}
 	if rec.undeclared != 3 {
 		t.Errorf("undeclared = %d, want 3", rec.undeclared)
 	}
@@ -363,6 +378,9 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 	// A contract Oikade doesn't speak forgets the list and the count.
 	publish(t, bus, root+"/devices", `{"devices":[],"discovered":[{"id":"1000dd"}]}`)
 	publish(t, bus, root+"/status", `{"state":"online","contract":2}`)
+	if rec.inventory != nil {
+		t.Errorf("inventory after a wrong contract = %+v, want nil", rec.inventory)
+	}
 	if _, ok := i.Discovered(); ok || rec.undeclared != 0 {
 		t.Errorf("after a wrong contract, Discovered() ok = %v and undeclared = %d, want false and 0", ok, rec.undeclared)
 	}
