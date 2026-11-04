@@ -568,7 +568,7 @@ The former `--zap-*` flags are no longer supported.
 
 Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is the CRDs, capability names, CEL variables, metric names and labels, and Matter endpoint IDs.
 
-While the major version is 0, the API is still settling, and versions follow the [milestones](https://github.com/harrymitchinson/oikade/milestones):
+While the major version is 0, the API is still settling, and versions follow the milestones, which are the releases in the plan (`docs/planning.md`):
 
 - Releases on the way to a milestone are pre-releases of it: `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, … Any of them may break the public API, so read the release notes before upgrading.
 - Shipping a milestone cuts its version (`v0.1.0`). Releases after it are `v0.2.0-alpha.N`, on the way to the next one.
@@ -582,7 +582,7 @@ To ship a milestone:
 
 1. Merge a commit whose message ends with a `Release-As: 0.1.0` footer, as its last paragraph. With a squash merge, put it last in the squashed message.
 2. Merge the release PR for `v0.1.0`.
-3. Before anything else merges, merge a commit with a `Release-As: 0.2.0-alpha.1` footer. Otherwise the next fix after a milestone is released as a stable `v0.1.1`.
+3. Before anything else merges, merge a commit with a `Release-As: 0.2.0-alpha.1` footer. Otherwise release-please's prerelease versioning proposes `v0.2.0-alpha` after a feature, or `v0.1.1-alpha` after a fix, rather than the next milestone's first alpha.
 
 ## Development
 
