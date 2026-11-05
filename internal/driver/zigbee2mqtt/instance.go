@@ -138,10 +138,7 @@ func (i *Instance) handleDevices(payload []byte) {
 			p.info.Capabilities = append(p.info.Capabilities, b.capability)
 		}
 		i.paired[d.IEEEAddress] = p
-		// A frontend name may be another device's IEEE address; the address wins (below).
-		if _, taken := i.byName[d.FriendlyName]; !taken {
-			i.byName[d.FriendlyName] = d.IEEEAddress
-		}
+		i.byName[d.FriendlyName] = d.IEEEAddress
 		app := driver.AppDevice{
 			ID: d.IEEEAddress, Manufacturer: p.info.Manufacturer, Model: p.info.Model,
 			Capabilities: slices.Clone(p.info.Capabilities),
@@ -152,6 +149,7 @@ func (i *Instance) handleDevices(payload []byte) {
 		}
 		inventory = append(inventory, app)
 	}
+	// Added after every name, so an address wins over a frontend name that equals it.
 	for ieee := range i.paired {
 		i.byName[ieee] = ieee
 	}
@@ -214,22 +212,13 @@ func (i *Instance) handleAvailability(name string, payload []byte) {
 }
 
 func (i *Instance) handleState(name string, payload []byte) {
-	i.mu.Lock()
-	_, ok := i.deviceLocked(name)
-	i.mu.Unlock()
-	if !ok {
-		// Most topics under the base, such as <name>/set, aren't a device's state.
-		return
-	}
-	var state map[string]any
-	if err := json.Unmarshal(payload, &state); err != nil {
-		return
-	}
 	now := i.Now()
-
 	i.mu.Lock()
+	// Most topics under the base, such as <name>/set, aren't a device's state: resolve before
+	// decoding.
 	dev, ok := i.deviceLocked(name)
-	if !ok {
+	var state map[string]any
+	if !ok || json.Unmarshal(payload, &state) != nil {
 		i.mu.Unlock()
 		return
 	}
