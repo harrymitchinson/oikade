@@ -18,8 +18,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
 // holdRule decodes a Rule spec in the test namespace.
@@ -246,31 +244,13 @@ func (r *rig) active(name string) float64 {
 	return testutil.ToFloat64(r.e.Active.WithLabelValues(ns, name))
 }
 
-// busStates returns hold states kept on the broker, as a runtime would load them on startup.
-func busStates(t *testing.T, url string) *Retained[HoldState] {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	c, err := mqtt.Connect(ctx, url, fmt.Sprintf("runtime-%d", time.Now().UnixNano()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
-	b := &Retained[HoldState]{Bus: c, Root: HoldStatesRoot, Log: logr.Discard()}
-	if err := b.Sync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
 var heaterNight = `
   while: {window: {start: "22:00", end: "06:00"}}
   hold: {device: water-heater, capability: switch.on, value: true}
 `
 
-func TestWindowHoldRestartRespectsATap(t *testing.T) {
-	url := mqtttest.StartBroker(t)
-	r := startRig(t, local("2026-10-21 21:59 BST"), busStates(t, url), nil, nil, holdRule(t, "water-heater-night", heaterNight))
+func testWindowHoldRestartRespectsATap(t *testing.T, states backend) {
+	r := startRig(t, local("2026-10-21 21:59 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect()
 	r.at("2026-10-21 22:00 BST")
 	r.expect(call{"water-heater", capability.SwitchOn, true})
@@ -286,25 +266,23 @@ func TestWindowHoldRestartRespectsATap(t *testing.T) {
 	r.stop()
 
 	// The runtime restarts at 02:00. The hold is still active, as saved, so it writes nothing.
-	r = startRig(t, local("2026-10-22 02:00 BST"), busStates(t, url), nil, nil, holdRule(t, "water-heater-night", heaterNight))
+	r = startRig(t, local("2026-10-22 02:00 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect()
 	r.at("2026-10-22 06:00 BST")
 	r.expect(call{"water-heater", capability.SwitchOn, false})
 }
 
-func TestWindowHoldStartsAfterDowntime(t *testing.T) {
-	url := mqtttest.StartBroker(t)
-	r := startRig(t, local("2026-10-21 21:50 BST"), busStates(t, url), nil, nil, holdRule(t, "water-heater-night", heaterNight))
+func testWindowHoldStartsAfterDowntime(t *testing.T, states backend) {
+	r := startRig(t, local("2026-10-21 21:50 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.stop()
 	r.expect()
 
 	// Down from 21:50 to 02:00: the hold started meanwhile, so it writes on.
-	r = startRig(t, local("2026-10-22 02:00 BST"), busStates(t, url), nil, nil, holdRule(t, "water-heater-night", heaterNight))
+	r = startRig(t, local("2026-10-22 02:00 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect(call{"water-heater", capability.SwitchOn, true})
 }
 
-func TestOffDelaySurvivesARestart(t *testing.T) {
-	url := mqtttest.StartBroker(t)
+func testOffDelaySurvivesARestart(t *testing.T, states backend) {
 	fan := holdRule(t, "bathroom-humid", `
   while: {when: 'devices["bathroom-sensor"]["sensor.relative-humidity"] > 70', offDelay: 10m}
   hold: {device: bathroom-fan, capability: switch.on, value: true}
@@ -312,7 +290,7 @@ func TestOffDelaySurvivesARestart(t *testing.T) {
 	humidity := func(v float64) map[string]map[string]any {
 		return map[string]map[string]any{"bathroom-sensor": {capability.Humidity: v}}
 	}
-	r := startRig(t, local("2026-10-21 08:00 BST"), busStates(t, url), humidity(72), nil, fan)
+	r := startRig(t, local("2026-10-21 08:00 BST"), states.holds(t), humidity(72), nil, fan)
 	r.expect(call{"bathroom-fan", capability.SwitchOn, true})
 	r.at("2026-10-21 08:04 BST")
 	r.change("bathroom-sensor", capability.Humidity, 69.0)
@@ -326,15 +304,14 @@ func TestOffDelaySurvivesARestart(t *testing.T) {
 	r.at("2026-10-21 08:15 BST")
 	r.stop()
 
-	r = startRig(t, local("2026-10-21 08:15 BST"), busStates(t, url), humidity(68), nil, fan)
+	r = startRig(t, local("2026-10-21 08:15 BST"), states.holds(t), humidity(68), nil, fan)
 	r.at("2026-10-21 08:18 BST")
 	r.expect()
 	r.at("2026-10-21 08:19 BST")
 	r.expect(call{"bathroom-fan", capability.SwitchOn, false})
 }
 
-func TestMotionOffDelaySurvivesARestart(t *testing.T) {
-	url := mqtttest.StartBroker(t)
+func testMotionOffDelaySurvivesARestart(t *testing.T, states backend) {
 	light := holdRule(t, "hall-motion-light", `
   while: {when: 'devices["hall-motion"]["sensor.occupancy-detected"]', offDelay: 5m}
   hold: {device: hall-light, capability: light.on, value: true}
@@ -342,7 +319,7 @@ func TestMotionOffDelaySurvivesARestart(t *testing.T) {
 	motion := func(v bool) map[string]map[string]any {
 		return map[string]map[string]any{"hall-motion": {capability.Occupancy: v}}
 	}
-	r := startRig(t, local("2026-10-21 20:00 BST"), busStates(t, url), motion(true), nil, light)
+	r := startRig(t, local("2026-10-21 20:00 BST"), states.holds(t), motion(true), nil, light)
 	r.expect(call{"hall-light", capability.LightOn, true})
 	r.at("2026-10-21 20:10 BST")
 	r.change("hall-motion", capability.Occupancy, false)
@@ -353,7 +330,7 @@ func TestMotionOffDelaySurvivesARestart(t *testing.T) {
 	r.at("2026-10-21 20:22 BST")
 	r.stop()
 
-	r = startRig(t, local("2026-10-21 20:22 BST"), busStates(t, url), motion(false), nil, light)
+	r = startRig(t, local("2026-10-21 20:22 BST"), states.holds(t), motion(false), nil, light)
 	r.at("2026-10-21 20:24 BST")
 	r.expect()
 	r.at("2026-10-21 20:25 BST")
@@ -366,14 +343,13 @@ var overheat = `
   hold: {device: workshop-heater, capability: switch.on, value: false}
 `
 
-func TestLatchedHoldActsOnStartupUntilReleased(t *testing.T) {
-	url := mqtttest.StartBroker(t)
+func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states backend) {
 	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}}
 	reset := holdRule(t, "workshop-overheat-reset", "  triggers: [{at: {time: \"09:00\"}}]\n  do: [{release: {rule: workshop-overheat}}]\n")
 	reset.CreationTimestamp.Time = local("2026-10-21 08:00 BST")
 
 	// It overheated while the runtime was down: the latch acts on startup.
-	r := startRig(t, local("2026-10-21 08:00 BST"), busStates(t, url), hot, nil, holdRule(t, "workshop-overheat", overheat), reset)
+	r := startRig(t, local("2026-10-21 08:00 BST"), states.holds(t), hot, nil, holdRule(t, "workshop-overheat", overheat), reset)
 	r.expect(call{"workshop-heater", capability.SwitchOn, false})
 	r.change("workshop-temp", capability.Temperature, 20.0)
 	r.at("2026-10-21 08:30 BST")
@@ -385,14 +361,14 @@ func TestLatchedHoldActsOnStartupUntilReleased(t *testing.T) {
 
 	// A restart keeps the latch, though it has cooled down.
 	cool := map[string]map[string]any{"workshop-temp": {capability.Temperature: 20.0}}
-	r = startRig(t, local("2026-10-21 08:30 BST"), busStates(t, url), cool, nil, holdRule(t, "workshop-overheat", overheat), reset)
+	r = startRig(t, local("2026-10-21 08:30 BST"), states.holds(t), cool, nil, holdRule(t, "workshop-overheat", overheat), reset)
 	r.expect()
 	r.at("2026-10-21 09:00 BST")
 	r.expect(call{"workshop-heater", capability.SwitchOn, true})
 	r.stop()
 
 	// The release is saved.
-	r = startRig(t, local("2026-10-21 09:05 BST"), busStates(t, url), cool, nil, holdRule(t, "workshop-overheat", overheat))
+	r = startRig(t, local("2026-10-21 09:05 BST"), states.holds(t), cool, nil, holdRule(t, "workshop-overheat", overheat))
 	r.expect()
 }
 

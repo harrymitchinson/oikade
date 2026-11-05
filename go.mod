@@ -10,6 +10,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.27.4
 	github.com/onsi/gomega v1.39.0
 	github.com/prometheus/client_golang v1.25.0
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	k8s.io/api v0.37.0

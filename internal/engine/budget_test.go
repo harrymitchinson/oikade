@@ -13,7 +13,6 @@ import (
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
 // pumpEntry is scenario 5's pump: on for at least an hour, resting half an hour, three starts a
@@ -86,13 +85,12 @@ func (r *rig) expectBudgetMetrics(name string, target, scheduled, run float64) {
 	}
 }
 
-func TestScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T) {
-	url := mqtttest.StartBroker(t)
+func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states backend) {
 	start := func(now string, today *homev1alpha1.BudgetDay, pumpOn bool) *rig {
 		budget := holdRule(t, "pump-daily", pumpBudget)
 		budget.Status.Today = today
 		return startRigWith(t, rigOptions{
-			now: local(now), holds: busStates(t, url), controls: controlStates(t, url),
+			now: local(now), holds: states.holds(t), controls: states.controls(t),
 			values:  map[string]map[string]any{"pump": {capability.SwitchOn: pumpOn}, "outdoor-temp": {capability.Temperature: 5.0}},
 			control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
 		}, budget, holdRule(t, "pump-frost", pumpFrost))

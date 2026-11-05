@@ -15,7 +15,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
 // entry is a bool control entry.
@@ -23,16 +22,6 @@ func entry(name, def string, resolve homev1alpha1.ControlResolve, external homev
 	return homev1alpha1.CapabilityControl{
 		Capability: name, Default: apiextensionsv1.JSON{Raw: []byte(def)}, Resolve: resolve, External: external, OverrideHold: hold,
 	}
-}
-
-func controlStates(t *testing.T, url string) *Retained[ControlState] {
-	t.Helper()
-	b := busStates(t, url)
-	c := &Retained[ControlState]{Bus: b.Bus, Root: ControlStatesRoot, Log: b.Log}
-	if err := c.Sync(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	return c
 }
 
 // status returns the device's reported control status for one capability.
@@ -94,8 +83,7 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 	r.expect(call{"hall-light", capability.LightOn, true}, call{"hall-light", capability.LightOn, true})
 }
 
-func TestScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T) {
-	url := mqtttest.StartBroker(t)
+func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states backend) {
 	rail := entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "Next")
 	rules := func() []*homev1alpha1.Rule {
 		evening := holdRule(t, "towel-rail-evenings", `
@@ -111,7 +99,7 @@ func TestScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T) {
 	}
 	start := func(now string, on bool) *rig {
 		return startRigWith(t, rigOptions{
-			now: local(now), holds: busStates(t, url), controls: controlStates(t, url),
+			now: local(now), holds: states.holds(t), controls: states.controls(t),
 			values:  map[string]map[string]any{"towel-rail": {capability.SwitchOn: on}},
 			control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {rail}},
 		}, rules()...)
@@ -134,8 +122,7 @@ func TestScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T) {
 	r.expect(call{"towel-rail", capability.SwitchOn, false})
 }
 
-func TestScenario8LeakClosesTheValveUntilReleased(t *testing.T) {
-	url := mqtttest.StartBroker(t)
+func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states backend) {
 	valve := entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalRevert, "")
 	shutoff := func() *homev1alpha1.Rule {
 		return holdRule(t, "leak-shutoff", `
@@ -151,7 +138,7 @@ func TestScenario8LeakClosesTheValveUntilReleased(t *testing.T) {
 	reset.CreationTimestamp = metav1.NewTime(local("2026-10-21 12:00 BST"))
 	start := func(now string, open bool, rules ...*homev1alpha1.Rule) *rig {
 		return startRigWith(t, rigOptions{
-			now: local(now), holds: busStates(t, url), controls: controlStates(t, url),
+			now: local(now), holds: states.holds(t), controls: states.controls(t),
 			values:  map[string]map[string]any{"leak-sensor": {capability.ContactOpen: false}, "main-valve": {capability.SwitchOn: open}},
 			control: map[string][]homev1alpha1.CapabilityControl{"main-valve": {valve}},
 		}, rules...)

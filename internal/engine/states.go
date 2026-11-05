@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/store"
 )
 
 // HoldState is what a hold needs across a runtime restart, beyond what the clock and device
@@ -55,6 +56,14 @@ const (
 	HoldStatesRoot = "oikade/v1/_runtime/rules/"
 	// ControlStatesRoot keeps a ControlState per Device, at <root><namespace>/<device>.
 	ControlStatesRoot = "oikade/v1/_runtime/control/"
+)
+
+// Namespaces of the store's saved state, the equivalent of the two roots above.
+const (
+	// HoldStatesNamespace keeps a HoldState per Rule.
+	HoldStatesNamespace = "holds"
+	// ControlStatesNamespace keeps a ControlState per Device.
+	ControlStatesNamespace = "controls"
 )
 
 // syncNamespace carries Retained's sync marker. It's no namespace, for the same reason.
@@ -165,6 +174,52 @@ func (b *Retained[T]) Delete(ctx context.Context, key types.NamespacedName) erro
 	delete(b.states, key)
 	b.mu.Unlock()
 	return b.Bus.Publish(ctx, b.Root+key.Namespace+"/"+key.Name, nil, true)
+}
+
+// Stored keeps states in a namespace of the embedded store, one per Rule or Device, at
+// <namespace>/<name>. Put and Delete return once the change is on disk.
+type Stored[T any] struct {
+	Values *store.Namespace
+	Log    logr.Logger
+}
+
+var _ HoldStates = (*Stored[HoldState])(nil)
+
+// Get implements States. A state it can't decode counts as none, as with Retained. The store fails
+// a read only once it's closed, when Put fails too, so that can't overwrite a state.
+func (s *Stored[T]) Get(key types.NamespacedName) (T, bool) {
+	var state T
+	payload, ok, err := s.Values.Get(key.String())
+	if err != nil {
+		s.Log.Error(err, "Failed to read saved state", "key", key.String())
+		return state, false
+	}
+	if !ok {
+		return state, false
+	}
+	if err := json.Unmarshal(payload, &state); err != nil {
+		s.Log.Error(err, "Ignored unreadable saved state", "key", key.String())
+		var none T
+		return none, false
+	}
+	return state, true
+}
+
+// Put implements States.
+//
+// It ignores ctx: the write is local, and a hold that has just written its device must save that
+// even during shutdown, or it would repeat the write after the restart.
+func (s *Stored[T]) Put(_ context.Context, key types.NamespacedName, state T) error {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.Values.Put(key.String(), payload)
+}
+
+// Delete implements States. It ignores ctx, as Put does.
+func (s *Stored[T]) Delete(_ context.Context, key types.NamespacedName) error {
+	return s.Values.Delete(key.String())
 }
 
 // memoryStates is States that doesn't survive a restart, for an engine without one.
