@@ -2,9 +2,12 @@ package mqtttest
 
 import (
 	"context"
+	"net"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/eclipse/paho.golang/paho"
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/packets"
 
@@ -89,11 +92,38 @@ func TestReconnectWaitsForTheOldConnection(t *testing.T) {
 			}
 
 			// Past the old connection's teardown, the new client still hears live messages.
-			time.Sleep(2 * slow)
+			time.Sleep(2 * tt.hook.unsubscribed)
 			if err := other.Publish(ctx, "q/live", nil, false); err != nil {
 				t.Fatal(err)
 			}
 			wait(heard, "a live message")
 		})
 	}
+}
+
+// A session that outlives its connection stays in the broker's list, so waiting for it to leave
+// would hold the reconnect up.
+func TestReconnectTakesOverALastingSession(t *testing.T) {
+	b := NewBroker(t)
+	expiry := uint32(60)
+	connect := func() *paho.Client {
+		t.Helper()
+		// Well inside oneSession's 5s.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		conn, err := net.Dial("tcp", strings.TrimPrefix(b.URL, "mqtt://"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := paho.NewClient(paho.ClientConfig{Conn: conn})
+		if _, err := c.Connect(ctx, &paho.Connect{
+			ClientID: "lasting", KeepAlive: 30, Properties: &paho.ConnectProperties{SessionExpiryInterval: &expiry},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	_ = connect().Disconnect(&paho.Disconnect{ReasonCode: 0})
+	connected := connect()
+	t.Cleanup(func() { _ = connected.Disconnect(&paho.Disconnect{ReasonCode: 0}) })
 }

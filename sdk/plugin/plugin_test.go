@@ -84,9 +84,9 @@ type watcher struct {
 	got chan mqtt.Message
 }
 
-// watch sees everything under root. Call it before start: the broker acks a publish before it
-// passes it on, so a watcher that subscribes straight after can get the message twice, retained
-// and live.
+// watch sees everything under root. To check exact messages, call it before start: the broker
+// acks a publish before it passes it on, so a watcher that subscribes straight after can get the
+// message twice, retained and live.
 func watch(ctx context.Context, t *testing.T, url string) *watcher {
 	t.Helper()
 	return watchFiltered(ctx, t, url, func(mqtt.Message) bool { return true })
