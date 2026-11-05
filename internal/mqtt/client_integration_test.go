@@ -19,8 +19,19 @@ func TestClientAgainstBroker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The broker acks a publish before it passes it on, so subscribing straight after can hear it
+	// twice: retained, then live. Once pub hears its own, there is nothing left to pass on.
+	sent := make(chan struct{}, 1)
+	if _, err := pub.Subscribe(ctx, "z2m/bridge/devices", func(mqtt.Message) { sent <- struct{}{} }); err != nil {
+		t.Fatal(err)
+	}
 	if err := pub.Publish(ctx, "z2m/bridge/devices", []byte("[]"), true); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-sent:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the publisher's own message")
 	}
 
 	sub, err := mqtt.Connect(ctx, url, "sub")

@@ -12,6 +12,7 @@ import (
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
+	"github.com/mochi-mqtt/server/v2/packets"
 )
 
 // Broker is an in-process broker on a fixed localhost port.
@@ -63,21 +64,15 @@ func Listen() (*Broker, error) {
 func (b *Broker) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	closed := make(chan struct{})
-	go func() {
-		closeServer(b.s)
-		close(closed)
-	}()
-	// If mochi deadlocks anyway, leave it rather than hang.
-	select {
-	case <-closed:
-	case <-time.After(5 * time.Second):
-	}
+	closeServer(b.s)
 }
 
 func (b *Broker) start() error {
 	s := mochi.New(&mochi.Options{Logger: slog.New(slog.DiscardHandler)})
 	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
+		return err
+	}
+	if err := s.AddHook(&oneSession{s: s}, nil); err != nil {
 		return err
 	}
 	// After a Restart the old listener's port can take a moment to free up.
@@ -113,7 +108,7 @@ func (b *Broker) Restart(t testing.TB) {
 // closeServer closes s once no client is mid-disconnect. mochi v2.7.9's Close takes the clients'
 // read lock twice (GetByListener calls Len), so a client being removed at the same moment, which
 // waits for the write lock, deadlocks it. Waiting until the client count holds still closes that
-// window.
+// window. A client that connects during Close can also leave it waiting forever, so it gets 5s.
 func closeServer(s *mochi.Server) {
 	last := s.Clients.Len()
 	for range 50 {
@@ -124,7 +119,55 @@ func closeServer(s *mochi.Server) {
 		}
 		last = n
 	}
-	_ = s.Close()
+	closed := make(chan struct{})
+	go func() {
+		_ = s.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+	}
+}
+
+// oneSession makes a reconnecting client wait until the broker has finished with its old
+// connection. mochi v2.7.9 tears that down on its own goroutine, so a client that reconnects at
+// once races it: the old Will can land after the new session announced itself, and the teardown
+// can delete the new client from the broker's list, which leaves it connected and subscribed, but
+// hearing nothing except retained messages.
+type oneSession struct {
+	mochi.HookBase
+	s *mochi.Server
+}
+
+// ID implements mochi.Hook.
+func (h *oneSession) ID() string { return "one-session" }
+
+// Provides implements mochi.Hook.
+func (h *oneSession) Provides(b byte) bool { return b == mochi.OnSessionEstablish }
+
+// OnSessionEstablish implements mochi.Hook. It ends the connection holding clientID and waits for
+// its teardown, Will included. A session that outlives its connection has no teardown to race,
+// and is left to mochi's takeover, as is one still here after 5s.
+func (h *oneSession) OnSessionEstablish(cl *mochi.Client, _ packets.Packet) {
+	for range 5000 {
+		old, ok := h.s.Clients.Get(cl.ID)
+		if !ok || !expiresOnDisconnect(old) {
+			return
+		}
+		if !old.Closed() {
+			_ = h.s.DisconnectClient(old, packets.ErrSessionTakenOver)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// expiresOnDisconnect reports whether mochi removes cl from its list when the connection ends.
+func expiresOnDisconnect(cl *mochi.Client) bool {
+	if cl.Properties.ProtocolVersion == 5 {
+		return cl.Properties.Props.SessionExpiryInterval == 0
+	}
+	return cl.Properties.Clean
 }
 
 // WaitGone waits until the broker has finished with clientID's connection, including any Will.
