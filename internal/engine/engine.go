@@ -208,6 +208,9 @@ func (e *Engine) Load(c *Compiled) {
 			s.cancel()
 		}
 	}
+	if c.sinceLoad {
+		c.Since, c.sinceLoad = e.Clock.Now(), false
+	}
 	old := e.rules[c.Key]
 	reported := old != nil && (len(old.c.timers) > 0 || old.c.hold != nil)
 	s := &state{c: c}

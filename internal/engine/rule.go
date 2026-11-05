@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -46,8 +47,35 @@ type Vars = map[string]any
 
 // Condition is a rule's condition. An error means it can't be evaluated yet, as before a device it
 // reads has reported: a moment doesn't run, and a hold keeps its state. It runs with the engine's
-// lock held, so it must not block.
+// lock held, so it must not block, and rules share its Vars, so it must not change them. A panic
+// counts as an error.
 type Condition func(Vars) (bool, error)
+
+// guarded turns a panic in a Go condition into an error. CEL can't panic, but one Go condition
+// reading a device that hasn't reported mustn't stop every other rule.
+func guarded(c Condition) Condition {
+	if c == nil {
+		return nil
+	}
+	return func(v Vars) (ok bool, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				ok, err = false, fmt.Errorf("condition panicked: %v", r)
+			}
+		}()
+		return c(v)
+	}
+}
+
+// checkDays rejects a value that isn't a weekday, which would never match.
+func checkDays(days []time.Weekday) error {
+	for _, d := range days {
+		if d < time.Sunday || d > time.Saturday {
+			return fmt.Errorf("unknown day %d", int(d))
+		}
+	}
+	return nil
+}
 
 // Change fires when a capability changes on a device, or on any device in a room.
 type Change struct {
@@ -80,8 +108,11 @@ type At struct {
 
 func (a At) timer() (timeTrigger, error) {
 	t, err := atTime(a.Time)
-	t.days = a.Days
-	return t, err
+	if err != nil {
+		return t, err
+	}
+	t.days = slices.Clone(a.Days)
+	return t, checkDays(a.Days)
 }
 
 // SunTime is a sunrise or sunset, moved by at most 6 hours. No days means every day.
@@ -95,7 +126,8 @@ func (s SunTime) timer() (timeTrigger, error) {
 	if s.Event != sun.Sunrise && s.Event != sun.Sunset {
 		return timeTrigger{}, fmt.Errorf("unknown event %v", s.Event)
 	}
-	return timeTrigger{typ: TypeSun, event: s.Event, offset: s.Offset, days: s.Days}, checkSunOffset(s.Offset)
+	t := timeTrigger{typ: TypeSun, event: s.Event, offset: s.Offset, days: slices.Clone(s.Days)}
+	return t, errors.Join(checkSunOffset(s.Offset), checkDays(s.Days))
 }
 
 // Action is a step of a moment: Set, Delay or Release.
@@ -114,8 +146,6 @@ type Set struct {
 	For      time.Duration
 	Until    Until
 	Priority Priority
-	// forSet makes a zero For an error, as it is in a CRD, rather than no for.
-	forSet bool
 }
 
 func (s Set) action() (action, error) {
@@ -126,7 +156,7 @@ func (s Set) action() (action, error) {
 	if err != nil {
 		return action{}, err
 	}
-	if s.forSet && s.For == 0 || s.For < 0 {
+	if s.For < 0 {
 		return action{}, errors.New("for must be positive")
 	}
 	switch s.Until {
@@ -172,15 +202,19 @@ type Trigger struct {
 	Condition Condition
 	// StartingDeadline is how late a missed timer may still fire on startup.
 	StartingDeadline time.Duration
-	// Since is when a missed timer was last accounted for. With a StartingDeadline it must be
-	// kept across restarts, or the same missed timer fires again on each one.
+	// Since is when a missed timer was last accounted for. Zero means when the rule loads, so
+	// nothing before that counts as missed. Keep it across restarts to catch up on what was
+	// missed while down.
 	Since time.Time
+	// Generation is the rule's version. Load ignores a rule with the same key and generation as
+	// the loaded one, so a changed rule needs a higher one. Zero means 1.
+	Generation int64
 }
 
 func (t Trigger) compile(key types.NamespacedName) (*Compiled, []error) {
 	c := &Compiled{
-		Key: key, Generation: 1, Mode: ModeSingle, condition: t.Condition,
-		StartingDeadline: t.StartingDeadline, Since: t.Since, changes: t.Changes,
+		Key: key, Generation: max(t.Generation, 1), Mode: ModeSingle, condition: guarded(t.Condition),
+		StartingDeadline: t.StartingDeadline, Since: t.Since, sinceLoad: t.Since.IsZero(), changes: slices.Clone(t.Changes),
 	}
 	var errs []error
 	if len(t.Changes) == 0 && len(t.Timers) == 0 {
@@ -270,7 +304,7 @@ func (w *Window) compile() (*window, error) {
 	if endErr != nil {
 		endErr = fmt.Errorf("end: %w", endErr)
 	}
-	return &window{start: start, end: end, days: w.Days}, errors.Join(startErr, endErr)
+	return &window{start: start, end: end, days: slices.Clone(w.Days)}, errors.Join(startErr, endErr, checkDays(w.Days))
 }
 
 func windowTime(t Timer) (timeTrigger, error) {
@@ -297,13 +331,15 @@ type Hold struct {
 	OnDelay, OffDelay time.Duration
 	// Latch keeps the hold active once it starts, until a Release. It needs When.
 	Latch bool
+	// Generation is the rule's version, as on a Trigger. Zero means 1.
+	Generation int64
 }
 
 // NewHold compiles a hold written in Go. It's checked as a Rule is.
 func NewHold(key types.NamespacedName, h Hold) (*Compiled, error) {
-	c := &Compiled{Key: key, Generation: 1, Mode: ModeSingle}
+	c := &Compiled{Key: key, Generation: max(h.Generation, 1), Mode: ModeSingle}
 	c.hold = &hold{
-		device: h.Device, room: h.Room, capability: h.Capability, priority: h.Priority, when: h.When,
+		device: h.Device, room: h.Room, capability: h.Capability, priority: h.Priority, when: guarded(h.When),
 		onDelay: h.OnDelay, offDelay: h.OffDelay, latch: h.Latch,
 	}
 	var errs []error

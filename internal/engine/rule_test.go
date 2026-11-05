@@ -143,6 +143,86 @@ func TestGoConditionErrorCountsAsAConditionError(t *testing.T) {
 	}
 }
 
+func TestGoConditionPanicIsAConditionError(t *testing.T) {
+	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
+	c, err := NewMoment(goKey("motion-light"), Moment{
+		Trigger: Trigger{
+			Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
+			Condition: func(Vars) (bool, error) { panic("no reading yet") },
+		},
+		Do: []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.e.Load(c)
+	h.motion(true)
+	h.eventually("a condition error", func() bool { return h.runs(ResultConditionError) == 1 })
+}
+
+func TestGoHoldWhenPanicKeepsItsState(t *testing.T) {
+	r := startRig(t, local("2026-06-15 12:00 BST"), nil, nil, nil)
+	c, err := NewHold(goKey("fan"), Hold{
+		Device: "bathroom-fan", Capability: capability.SwitchOn, Value: true,
+		When: func(Vars) (bool, error) { panic("no reading yet") },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.e.Load(c)
+	r.settle()
+	if got := r.setter.got(); len(got) != 0 {
+		t.Fatalf("calls = %v, want none", got)
+	}
+}
+
+func TestGoRuleReplacedByAHigherGeneration(t *testing.T) {
+	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
+	moment := func(generation int64, value bool) *Compiled {
+		c, err := NewMoment(goKey("motion-light"), Moment{
+			Trigger: Trigger{Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}}, Generation: generation},
+			Do:      []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: value}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	h.e.Load(moment(0, true))
+	h.e.Load(moment(2, false))
+	h.motion(true)
+	h.expectCalls(call{device: "hallway-light", capability: capability.LightOn, value: false})
+}
+
+func TestGoTimerIsNotMissedBeforeItLoads(t *testing.T) {
+	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
+	c, err := NewMoment(goKey("motion-light"), Moment{
+		Trigger: Trigger{Timers: []Timer{At{Time: "19:00"}}, StartingDeadline: 2 * time.Hour},
+		Do:      []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.e.Load(c)
+	h.eventually("the engine to arm", h.clock.HasWaiters)
+	if got, missed := h.setter.got(), h.runs(ResultMissed); len(got) != 0 || missed != 0 {
+		t.Fatalf("calls = %v, missed = %v, want neither", got, missed)
+	}
+}
+
+func TestGoRuleKeepsNoCallerSlices(t *testing.T) {
+	changes := []Change{{Device: "a", Capability: capability.Occupancy}}
+	days := []time.Weekday{time.Monday}
+	c, err := NewTrigger(goKey("flow"), Trigger{Changes: changes, Timers: []Timer{At{Time: "07:30", Days: days}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes[0].Device, days[0] = "b", time.Tuesday
+	if !c.matches("a", "", capability.Occupancy) || c.timers[0].days[0] != time.Monday {
+		t.Errorf("the compiled rule changed with its input: %+v", c)
+	}
+}
+
 func TestNewTriggerMatches(t *testing.T) {
 	c, err := NewTrigger(goKey("flow"), Trigger{
 		Changes: []Change{{Room: "hall", Capability: capability.Occupancy}},
@@ -185,6 +265,9 @@ func TestGoRulesAreChecked(t *testing.T) {
 		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilReleased}}}), "can't be combined"},
 		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, For: -time.Hour}}}), "for must be positive"},
 		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, Priority: "Top"}}}), `unknown priority "Top"`},
+		{moment(Moment{Trigger: Trigger{Timers: []Timer{At{Time: "19:00", Days: []time.Weekday{7}}}}, Do: []Action{set}}), "unknown day 7"},
+		{moment(Moment{Trigger: Trigger{Timers: []Timer{SunTime{Event: sun.Sunset, Days: []time.Weekday{-1}}}}, Do: []Action{set}}), "unknown day -1"},
+		{hold(Hold{Device: "d", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "06:00"}, End: At{Time: "07:00"}, Days: []time.Weekday{9}}}), "unknown day 9"},
 		{hold(Hold{Device: "d", Capability: capability.SwitchOn, Value: true}), "a window or when is required"},
 		{hold(Hold{Capability: capability.SwitchOn, Value: true, When: always}), "exactly one of device or room"},
 		{hold(Hold{Device: "d", Capability: capability.SwitchOn, Value: true, Latch: true, Window: &Window{Start: At{Time: "06:00"}, End: At{Time: "07:00"}}}), "latch needs when"},
@@ -195,6 +278,17 @@ func TestGoRulesAreChecked(t *testing.T) {
 		if tc.err == nil || !strings.Contains(tc.err.Error(), tc.want) {
 			t.Errorf("error = %v, want it to contain %q", tc.err, tc.want)
 		}
+	}
+}
+
+func TestCRDForOfZeroIsStillRejected(t *testing.T) {
+	_, err := Compile(ruleYAML(t, `
+  triggers: [{change: {device: d, capability: sensor.occupancy-detected}}]
+  do:
+  - set: {device: d, capability: switch.on, value: true, for: 0s}
+`))
+	if err == nil || !strings.Contains(err.Error(), "do[0]: for must be positive") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

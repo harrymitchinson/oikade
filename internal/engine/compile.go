@@ -45,6 +45,8 @@ type Compiled struct {
 	// Since is when a missed timer was last accounted for: the Rule's status.lastFire, or its
 	// creation when it has never fired.
 	Since time.Time
+	// sinceLoad makes Since the time of the first Load, for a Go rule with no Since of its own.
+	sinceLoad bool
 	// condition is nil when there is none.
 	condition Condition
 	actions   []action
@@ -213,10 +215,13 @@ func compileActions(do []homev1alpha1.Action) ([]action, []error) {
 func setAction(s *homev1alpha1.SetAction) (action, error) {
 	set := Set{
 		Device: s.Device, Room: s.Room, Capability: s.Capability, Value: json.RawMessage(s.Value.Raw),
-		Until: Until(s.Until), Priority: Priority(s.Priority), forSet: s.For != nil,
+		Until: Until(s.Until), Priority: Priority(s.Priority),
 	}
 	if s.For != nil {
-		set.For = s.For.Duration
+		// A CRD's for: 0s is an error, but a Set's zero For means none, so make it negative.
+		if set.For = s.For.Duration; set.For == 0 {
+			set.For = -1
+		}
 	}
 	return set.action()
 }
