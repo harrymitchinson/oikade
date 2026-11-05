@@ -13,8 +13,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/controller/shared"
 )
 
-// maxNameLen keeps a generated Device name short enough for a label value and the topics and
-// friendly names derived from it.
+// maxNameLen keeps a generated Device name short enough for a label value and the topics
+// derived from it.
 const maxNameLen = 63
 
 // slug turns a name from an app into a Device or Room name: lower case letters and digits, with
