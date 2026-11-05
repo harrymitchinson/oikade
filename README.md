@@ -509,7 +509,7 @@ spec:
 ```
 
 - **Names.** A clash gets the room as a prefix (`study-lamp`), then a number (`study-lamp-2`). A device with no name in its app is named after its model and the last four characters of its ID (`lca001-9c71`). Rules, Grafana and the Matter bridge use the Device's name, so it never changes by itself.
-- **Renames.** The app's name is copied once, into the new Device's name and `displayName`. A later rename in the app or the Zigbee2MQTT frontend changes nothing in Oikade, so rename a device's `displayName` on the Device ([OIK-130](https://linear.app/oikade/issue/OIK-130)).
+- **Renames.** The app's name is copied once, into the new Device's name and `displayName`. A later rename in the app or the Zigbee2MQTT frontend changes nothing in Oikade, so set `displayName` on the Device instead, which takes it over (below) ([OIK-130](https://linear.app/oikade/issue/OIK-130)). A device with no name in its app when it's adopted gets no `displayName`, and shows its Device name.
 - **Rooms** are matched, never created. With no matching Room, `roomRef` stays empty.
 - **Matter.** `matter: Hide` annotates each adopted Device with `oikade.dev/matter: hide`, which keeps it off every bridge. The annotation works on any Device. Set it to `expose`, or remove it, to show the Device again.
 - **Taking it over in Git.** Once anything other than the operator writes a spec field of an adopted Device, or applies it with client-side `kubectl apply`, such as `kubectl edit`, Flux or Argo CD, the operator drops its owner reference and the Device is yours. Annotations alone don't count. A Device with another name that declares the same device wins, and the operator deletes its adopted copy.

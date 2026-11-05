@@ -139,6 +139,12 @@ var _ = Describe("Adopting discovered devices", func() {
 		d := device("study-lamp")
 		Expect(d.Spec).To(Equal(before.Spec))
 		Expect(metav1.IsControlledBy(d, p)).To(BeTrue())
+
+		// Nor is a name given in the app after adoption: the copy was taken once, empty.
+		Expect(device("lca001-c").Spec.DisplayName).To(BeEmpty())
+		setDiscovered(p, homev1alpha1.DiscoveredDevice{ID: "c", Model: "LCA001", Name: "Hall lamp"})
+		adopt(AdoptPlugin)
+		Expect(device("lca001-c").Spec.DisplayName).To(BeEmpty())
 	})
 
 	It("keeps your annotations, and hands the Device over once you write its spec", func() {
@@ -225,12 +231,14 @@ var _ = Describe("Adopting discovered devices", func() {
 		}))
 		Expect(metav1.IsControlledBy(d, z)).To(BeTrue())
 
-		// A rename in the frontend isn't followed.
-		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(z), z)).To(Succeed())
-		z.Status.Discovered[0].Name = "Landing motion"
-		Expect(k8sClient.Status().Update(ctx, z)).To(Succeed())
-		adopt(AdoptZigbee2MQTT)
-		Expect(device("hall-motion").Spec.DisplayName).To(Equal("Hall motion"))
+		// Neither the Device's own name echoed back nor a rename in the frontend is followed.
+		for _, name := range []string{"hall-motion", "Landing motion"} {
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(z), z)).To(Succeed())
+			z.Status.Discovered[0].Name = name
+			Expect(k8sClient.Status().Update(ctx, z)).To(Succeed())
+			adopt(AdoptZigbee2MQTT)
+			Expect(device("hall-motion").Spec.DisplayName).To(Equal("Hall motion"))
+		}
 	})
 
 	Describe("when a device is removed from its app", func() {

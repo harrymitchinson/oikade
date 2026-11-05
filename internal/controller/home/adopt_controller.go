@@ -35,11 +35,11 @@ const (
 
 // AdoptReconciler creates a Device for each device a Plugin or Zigbee2MQTT instance discovers in
 // its app that no Device declares, when the instance's spec.discovery.adopt is set (OIK-123). It
-// writes a Device's spec once, from the device's name in its app, and never follows a rename there
-// (OIK-130). An adopted
-// Device has the instance as its controller owner; a Device declared elsewhere with the same ID,
-// or a spec written by anything but the operator, takes it over. An adopted Device whose device is
-// removed from its app follows the instance's discovery.removalPolicy.
+// writes a Device's spec once, from the device's name in its app, and never reads that name again
+// (OIK-130). An adopted Device has the instance as its controller owner; a Device declared
+// elsewhere with the same ID, or a spec written by anything but the operator, takes it over. An
+// adopted Device whose device is removed from its app follows the instance's
+// discovery.removalPolicy.
 type AdoptReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -143,9 +143,8 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 // manage looks after the Devices that declare one device on this instance: it releases an adopted
 // one taken over elsewhere, deletes an adopted copy when another Device declares the device, and
-// otherwise applies the removal policy. present is whether the device
-// is in the instance's list of devices in its app. It returns how long until a Device is due for
-// deletion, or 0.
+// otherwise applies the removal policy. present is whether the device is in the instance's list of
+// devices in its app. It returns how long until a Device is due for deletion, or 0.
 func (r *AdoptReconciler) manage(ctx context.Context, inst client.Object, discovery *homev1alpha1.DiscoverySpec,
 	ds []*homev1alpha1.Device, present bool,
 ) (time.Duration, error) {
