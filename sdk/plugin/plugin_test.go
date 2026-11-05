@@ -77,13 +77,16 @@ func start(ctx context.Context, t *testing.T, url string, o Options) (*Plugin, *
 	return p, logs
 }
 
-// watcher sees every message under root, live or retained, in order.
+// watcher sees the messages under root, live or retained, in order.
 type watcher struct {
 	t   *testing.T
 	ctx context.Context
 	got chan mqtt.Message
 }
 
+// watch sees everything under root. Call it before start: the broker acks a publish before it
+// passes it on, so a watcher that subscribes straight after can get the message twice, retained
+// and live.
 func watch(ctx context.Context, t *testing.T, url string) *watcher {
 	t.Helper()
 	return watchFiltered(ctx, t, url, func(mqtt.Message) bool { return true })
@@ -252,8 +255,8 @@ func retained(ctx context.Context, t *testing.T, url string) <-chan mqtt.Message
 func TestCloseWins(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	p, _ := start(ctx, t, b.URL, Options{})
 	w := watch(ctx, t, b.URL)
+	p, _ := start(ctx, t, b.URL, Options{})
 	w.expect(root.Status() + "=" + online)
 
 	// A reconnect's announcement waits behind a publish while Close starts.
@@ -287,8 +290,8 @@ func TestCloseWins(t *testing.T) {
 func TestCloseLeavesItToTheWill(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	p, _ := start(ctx, t, b.URL, Options{CloseTimeout: 50 * time.Millisecond})
 	w := watch(ctx, t, b.URL)
+	p, _ := start(ctx, t, b.URL, Options{CloseTimeout: 50 * time.Millisecond})
 	w.expect(root.Status() + "=" + online)
 
 	// A publish that never finishes holds the offline status up.

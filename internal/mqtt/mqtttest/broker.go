@@ -3,6 +3,7 @@ package mqtttest
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
+	"github.com/mochi-mqtt/server/v2/packets"
 )
 
 // Broker is an in-process broker on a fixed localhost port.
@@ -80,6 +82,9 @@ func (b *Broker) start() error {
 	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
 		return err
 	}
+	if err := s.AddHook(&oneSession{s: s}, nil); err != nil {
+		return err
+	}
 	// After a Restart the old listener's port can take a moment to free up.
 	var err error
 	for range 50 {
@@ -125,6 +130,39 @@ func closeServer(s *mochi.Server) {
 		last = n
 	}
 	_ = s.Close()
+}
+
+// oneSession makes a reconnecting client wait until the broker has finished with its old
+// connection. mochi v2.7.9 tears that down on its own goroutine, so a client that reconnects at
+// once races it: the old Will can land after the new session announced itself, and the teardown
+// can delete the new client from the broker's list, which leaves it connected and subscribed, but
+// hearing nothing except retained messages. Mosquitto ends the old session first.
+type oneSession struct {
+	mochi.HookBase
+	s *mochi.Server
+}
+
+// ID implements mochi.Hook.
+func (h *oneSession) ID() string { return "one-session" }
+
+// Provides implements mochi.Hook.
+func (h *oneSession) Provides(b byte) bool { return b == mochi.OnConnect }
+
+// OnConnect implements mochi.Hook. It ends clientID's old connection and waits for its teardown,
+// Will included. These sessions expire on disconnect, so the client always subscribes again.
+func (h *oneSession) OnConnect(cl *mochi.Client, _ packets.Packet) error {
+	old, ok := h.s.Clients.Get(cl.ID)
+	if !ok {
+		return nil
+	}
+	old.Stop(errors.New("replaced by a new connection"))
+	for range 5000 {
+		if current, ok := h.s.Clients.Get(cl.ID); !ok || current != old {
+			return nil
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return fmt.Errorf("client %s: old connection still closing", cl.ID)
 }
 
 // WaitGone waits until the broker has finished with clientID's connection, including any Will.
