@@ -185,7 +185,8 @@ type Stored[T any] struct {
 
 var _ HoldStates = (*Stored[HoldState])(nil)
 
-// Get implements States. A state it can't read counts as none, as with Retained.
+// Get implements States. A state it can't decode counts as none, as with Retained. The store fails
+// a read only once it's closed, when Put fails too, so that can't overwrite a state.
 func (s *Stored[T]) Get(key types.NamespacedName) (T, bool) {
 	var state T
 	payload, ok, err := s.Values.Get(key.String())
@@ -205,10 +206,10 @@ func (s *Stored[T]) Get(key types.NamespacedName) (T, bool) {
 }
 
 // Put implements States.
-func (s *Stored[T]) Put(ctx context.Context, key types.NamespacedName, state T) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+//
+// It ignores ctx: the write is local, and a hold that has just written its device must save that
+// even during shutdown, or it would repeat the write after the restart.
+func (s *Stored[T]) Put(_ context.Context, key types.NamespacedName, state T) error {
 	payload, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -216,11 +217,8 @@ func (s *Stored[T]) Put(ctx context.Context, key types.NamespacedName, state T) 
 	return s.Values.Put(key.String(), payload)
 }
 
-// Delete implements States.
-func (s *Stored[T]) Delete(ctx context.Context, key types.NamespacedName) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+// Delete implements States. It ignores ctx, as Put does.
+func (s *Stored[T]) Delete(_ context.Context, key types.NamespacedName) error {
 	return s.Values.Delete(key.String())
 }
 

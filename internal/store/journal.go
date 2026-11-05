@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 
@@ -13,7 +14,8 @@ var ErrNoRun = errors.New("journal run has no ID")
 
 // Entry is one record in a run's journal.
 type Entry struct {
-	// Seq is the entry's position in its run. It starts at 1 and only goes up.
+	// Seq is the entry's position in its run, starting at 1. Delete resets it, so a run ID must
+	// never be used again once its run is deleted.
 	Seq  uint64
 	Data []byte
 }
@@ -37,11 +39,7 @@ func (j *Journal) Append(run string, data []byte) (uint64, error) {
 	}
 	var seq uint64
 	err := j.db.Update(func(tx *bolt.Tx) error {
-		runs, err := tx.CreateBucketIfNotExists(journalBucket)
-		if err != nil {
-			return err
-		}
-		b, err := runs.CreateBucketIfNotExists([]byte(run))
+		b, err := tx.Bucket(journalBucket).CreateBucketIfNotExists([]byte(run))
 		if err != nil {
 			return err
 		}
@@ -63,18 +61,14 @@ func (j *Journal) Entries(run string) ([]Entry, error) {
 	}
 	var entries []Entry
 	err := j.db.View(func(tx *bolt.Tx) error {
-		runs := tx.Bucket(journalBucket)
-		if runs == nil {
-			return nil
-		}
-		b := runs.Bucket([]byte(run))
+		b := tx.Bucket(journalBucket).Bucket([]byte(run))
 		if b == nil {
 			return nil
 		}
 		return b.ForEach(func(k, v []byte) error {
 			entries = append(entries, Entry{
 				Seq:  binary.BigEndian.Uint64(k),
-				Data: append(make([]byte, 0, len(v)), v...),
+				Data: bytes.Clone(v),
 			})
 			return nil
 		})
@@ -82,15 +76,12 @@ func (j *Journal) Entries(run string) ([]Entry, error) {
 	return entries, err
 }
 
-// Runs returns every run with entries, which after a crash are the runs that hadn't finished.
+// Runs returns every run with entries, which after a crash are the runs that hadn't finished. They
+// are sorted by ID, which says nothing about when they started, so recovery can't rely on it.
 func (j *Journal) Runs() ([]string, error) {
 	var names []string
 	err := j.db.View(func(tx *bolt.Tx) error {
-		runs := tx.Bucket(journalBucket)
-		if runs == nil {
-			return nil
-		}
-		return runs.ForEachBucket(func(k []byte) error {
+		return tx.Bucket(journalBucket).ForEachBucket(func(k []byte) error {
 			names = append(names, string(k))
 			return nil
 		})
@@ -104,11 +95,7 @@ func (j *Journal) Delete(run string) error {
 		return ErrNoRun
 	}
 	return j.db.Update(func(tx *bolt.Tx) error {
-		runs := tx.Bucket(journalBucket)
-		if runs == nil {
-			return nil
-		}
-		err := runs.DeleteBucket([]byte(run))
+		err := tx.Bucket(journalBucket).DeleteBucket([]byte(run))
 		if errors.Is(err, bolterrors.ErrBucketNotFound) {
 			return nil
 		}

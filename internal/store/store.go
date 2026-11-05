@@ -4,6 +4,7 @@
 package store
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -34,8 +35,10 @@ var (
 var (
 	// ErrLocked means another process has the data directory open.
 	ErrLocked = errors.New("data directory is in use by another process")
-	// ErrFormat means the store was written by a version of Oikade with another layout.
+	// ErrFormat means the file isn't a store this version of Oikade can read.
 	ErrFormat = errors.New("store has an unsupported format")
+
+	errNotEmpty = errors.New("store isn't empty")
 )
 
 // Store is an open data directory. It is safe for concurrent use.
@@ -67,17 +70,22 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
-// init makes the file's name durable, and checks the format or writes it to a new store. The sync
-// runs on every open, because a crash can come between the two.
+// init makes the file's name durable, and checks the format or sets up a new store. The syncs run
+// on every open, because a crash can come between them and the setup. The parent is synced too, as
+// it holds the data directory's own name.
 func (s *Store) init(dir string) error {
-	if err := syncDir(dir); err != nil {
-		return err
+	for _, d := range []string{dir, filepath.Dir(dir)} {
+		if err := syncDir(d); err != nil {
+			return err
+		}
 	}
 	var format []byte
+	var empty bool
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		if b := tx.Bucket(metaBucket); b != nil {
-			format = b.Get(formatKey)
+			format = bytes.Clone(b.Get(formatKey))
 		}
+		empty = tx.ForEach(func([]byte, *bolt.Bucket) error { return errNotEmpty }) == nil
 		return nil
 	}); err != nil {
 		return fmt.Errorf("read store format: %w", err)
@@ -88,14 +96,22 @@ func (s *Store) init(dir string) error {
 		}
 		return nil
 	}
+	if !empty {
+		return fmt.Errorf("%w: it has data but no format", ErrFormat)
+	}
 	if err := s.db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(metaBucket)
+		for _, name := range [][]byte{kvBucket, journalBucket} {
+			if _, err := tx.CreateBucket(name); err != nil {
+				return err
+			}
+		}
+		meta, err := tx.CreateBucket(metaBucket)
 		if err != nil {
 			return err
 		}
-		return b.Put(formatKey, []byte(formatVersion))
+		return meta.Put(formatKey, []byte(formatVersion))
 	}); err != nil {
-		return fmt.Errorf("write store format: %w", err)
+		return fmt.Errorf("set up store: %w", err)
 	}
 	return nil
 }
@@ -118,8 +134,12 @@ func (s *Store) Close() error {
 }
 
 // Namespace returns the named set of values, such as a device registry or saved holds. Namespaces
-// share the store's file, and their keys don't collide.
+// share the store's file, and their keys don't collide. Names are constants in the code, so an
+// empty one is a bug, and it panics.
 func (s *Store) Namespace(name string) *Namespace {
+	if name == "" {
+		panic("store: namespace has no name")
+	}
 	return &Namespace{db: s.db, name: []byte(name)}
 }
 
@@ -133,16 +153,8 @@ type Namespace struct {
 func (n *Namespace) Get(key string) ([]byte, bool, error) {
 	var value []byte
 	err := n.db.View(func(tx *bolt.Tx) error {
-		kv := tx.Bucket(kvBucket)
-		if kv == nil {
-			return nil
-		}
-		b := kv.Bucket(n.name)
-		if b == nil {
-			return nil
-		}
-		if v := b.Get([]byte(key)); v != nil {
-			value = append(make([]byte, 0, len(v)), v...)
+		if b := tx.Bucket(kvBucket).Bucket(n.name); b != nil {
+			value = bytes.Clone(b.Get([]byte(key)))
 		}
 		return nil
 	})
@@ -152,11 +164,7 @@ func (n *Namespace) Get(key string) ([]byte, bool, error) {
 // Put sets the key's value, and returns once that's on disk.
 func (n *Namespace) Put(key string, value []byte) error {
 	return n.db.Update(func(tx *bolt.Tx) error {
-		kv, err := tx.CreateBucketIfNotExists(kvBucket)
-		if err != nil {
-			return err
-		}
-		b, err := kv.CreateBucketIfNotExists(n.name)
+		b, err := tx.Bucket(kvBucket).CreateBucketIfNotExists(n.name)
 		if err != nil {
 			return err
 		}
@@ -167,11 +175,7 @@ func (n *Namespace) Put(key string, value []byte) error {
 // Delete removes the key, if it's there, and returns once that's on disk.
 func (n *Namespace) Delete(key string) error {
 	return n.db.Update(func(tx *bolt.Tx) error {
-		kv := tx.Bucket(kvBucket)
-		if kv == nil {
-			return nil
-		}
-		b := kv.Bucket(n.name)
+		b := tx.Bucket(kvBucket).Bucket(n.name)
 		if b == nil {
 			return nil
 		}

@@ -112,6 +112,37 @@ func TestOpenRefusesAnotherFormat(t *testing.T) {
 	}
 }
 
+func TestOpenRefusesAFileThatIsntAStore(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	if err := s.db.Update(func(tx *bolt.Tx) error { return tx.DeleteBucket(metaBucket) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir); !errors.Is(err, ErrFormat) {
+		t.Fatalf("Open = %v, want ErrFormat", err)
+	}
+}
+
+func TestWritesAreSynced(t *testing.T) {
+	// Nothing else here would notice: SIGKILL leaves the page cache alone.
+	if s := open(t, t.TempDir()); s.db.NoSync {
+		t.Fatal("bbolt is set not to sync")
+	}
+}
+
+func TestNamespaceNeedsAName(t *testing.T) {
+	s := open(t, t.TempDir())
+	defer func() {
+		if recover() == nil {
+			t.Error("an empty namespace didn't panic")
+		}
+	}()
+	s.Namespace("")
+}
+
 func TestJournalKeepsRunsInOrder(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)

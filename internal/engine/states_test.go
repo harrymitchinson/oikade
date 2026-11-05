@@ -225,15 +225,21 @@ func TestStatesIgnoreAnUnreadableState(t *testing.T) {
 	})
 }
 
-func TestStoredRefusesACancelledContext(t *testing.T) {
+func TestStoredSavesDuringShutdown(t *testing.T) {
 	s := newStoreBackend(t).holds(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	key := types.NamespacedName{Namespace: ns, Name: "x"}
-	if err := s.Put(ctx, key, HoldState{}); err == nil {
-		t.Error("Put wrote with a cancelled context")
+	if err := s.Put(ctx, key, HoldState{Active: true}); err != nil {
+		t.Fatalf("Put: %v", err)
 	}
-	if err := s.Delete(ctx, key); err == nil {
-		t.Error("Delete ran with a cancelled context")
+	if got, ok := s.Get(key); !ok || !got.Active {
+		t.Fatalf("got %+v, %v", got, ok)
+	}
+	if err := s.Delete(ctx, key); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, ok := s.Get(key); ok {
+		t.Fatal("the deleted state is still there")
 	}
 }
