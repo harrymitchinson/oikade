@@ -217,11 +217,12 @@ func ZigbeeConfigSecret(z *zigbeev1alpha1.Zigbee2MQTT, config, devicesSeed []byt
 		WithData(map[string][]byte{zigbeeConfigKey: config, zigbeeDevicesKey: devicesSeed})
 }
 
-// zigbeeInitScript copies configuration.yaml over the PVC's at every start, and seeds devices.yaml
-// only when the PVC has none, so names set in the frontend survive restarts.
-func zigbeeInitScript() string {
-	return fmt.Sprintf("cp /config/%[1]s %[2]s/%[1]s && { [ -e %[2]s/%[3]s ] || cp /config/%[3]s %[2]s/%[3]s; }",
-		zigbeeConfigKey, zigbeeDataPath, zigbeeDevicesKey)
+// zigbeeInitScript copies configuration.yaml from configDir over dataDir's at every start, and seeds
+// devices.yaml only when dataDir has none (or an empty one), so names set in the frontend survive
+// restarts.
+func zigbeeInitScript(configDir, dataDir string) string {
+	return fmt.Sprintf("cp %[1]s/%[3]s %[2]s/%[3]s && { [ -s %[2]s/%[4]s ] || cp %[1]s/%[4]s %[2]s/%[4]s; }",
+		configDir, dataDir, zigbeeConfigKey, zigbeeDevicesKey)
 }
 
 // ZigbeeService exposes the frontend inside the cluster.
@@ -250,7 +251,7 @@ func ZigbeeDeployment(z *zigbeev1alpha1.Zigbee2MQTT, image, configHash string) *
 	initConfig := corev1ac.Container().
 		WithName("config").
 		WithImage(image).
-		WithCommand("sh", "-c", zigbeeInitScript()).
+		WithCommand("sh", "-c", zigbeeInitScript("/config", zigbeeDataPath)).
 		WithVolumeMounts(data, corev1ac.VolumeMount().WithName("config").WithMountPath("/config").WithReadOnly(true))
 
 	main := corev1ac.Container().

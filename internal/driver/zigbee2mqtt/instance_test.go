@@ -214,6 +214,24 @@ func TestRenamedInFrontend(t *testing.T) {
 	}
 }
 
+// TestNameIsAnotherAddress checks that a friendly name equal to another device's IEEE address
+// doesn't take that device's topic.
+func TestNameIsAnotherAddress(t *testing.T) {
+	ctx := context.Background()
+	_, bus, rec := setup(t)
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// desk-plug is listed after front-door, so a plain map write would give it the door's address.
+	renamed := strings.Replace(string(devices), `"friendly_name":"desk-plug"`, `"friendly_name":"0x00158d0000000003"`, 1)
+	_ = bus.Publish(ctx, "z2m/bridge/devices", []byte(renamed), true)
+	_ = bus.Publish(ctx, "z2m/0x00158d0000000003", []byte(`{"contact":true}`), false)
+	if len(rec.changes) != 1 || rec.changes[0].Device != door {
+		t.Errorf("changes = %+v, want the door's", rec.changes)
+	}
+}
+
 func TestAvailability(t *testing.T) {
 	ctx := context.Background()
 	_, bus, rec := setup(t)

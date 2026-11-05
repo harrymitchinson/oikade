@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -110,7 +111,7 @@ func TestZigbeeDevicesSeed(t *testing.T) {
 // TestZigbeeInitContainer runs the init container's script against a temporary data directory.
 func TestZigbeeInitContainer(t *testing.T) {
 	init := ZigbeeDeployment(zigbeeInstance("tcp://slzb:6638"), "img", "h").Spec.Template.Spec.InitContainers[0]
-	if len(init.Command) != 3 || init.Command[0] != "sh" || init.Command[1] != "-c" {
+	if !slices.Equal(init.Command, []string{"sh", "-c", zigbeeInitScript("/config", zigbeeDataPath)}) {
 		t.Fatalf("init command = %v", init.Command)
 	}
 	root := t.TempDir()
@@ -134,7 +135,7 @@ func TestZigbeeInitContainer(t *testing.T) {
 		}
 		return string(b)
 	}
-	script := strings.NewReplacer("/config/", config+"/", zigbeeDataPath, data).Replace(init.Command[2])
+	script := zigbeeInitScript(config, data)
 	run := func() {
 		t.Helper()
 		if out, err := exec.Command("sh", "-c", script).CombinedOutput(); err != nil {
@@ -159,6 +160,13 @@ func TestZigbeeInitContainer(t *testing.T) {
 	}
 	if got := read(filepath.Join(data, "devices.yaml")); got != "renamed: 1\n" {
 		t.Errorf("devices.yaml after a restart = %q, want the frontend's", got)
+	}
+
+	// An empty file, as left by a crash mid-write, is seeded again.
+	write(filepath.Join(data, "devices.yaml"), "")
+	run()
+	if got := read(filepath.Join(data, "devices.yaml")); got != "seed: 2\n" {
+		t.Errorf("empty devices.yaml = %q after a restart, want the seed", got)
 	}
 }
 
