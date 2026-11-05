@@ -101,7 +101,7 @@ type ChangeTrigger struct {
 	// +optional
 	Room string `json:"room,omitempty"`
 
-	// capability is the canonical capability to watch, e.g. sensor.occupancy-detected.
+	// capability is the canonical capability to watch, e.g. occupancy.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Capability string `json:"capability"`
@@ -123,7 +123,7 @@ type SetAction struct {
 	// +optional
 	Room string `json:"room,omitempty"`
 
-	// capability is the writable capability to set, e.g. light.level.
+	// capability is the writable capability to set, e.g. current-level.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Capability string `json:"capability"`
@@ -273,7 +273,7 @@ type MinutesInput struct {
 	// +required
 	Device string `json:"device"`
 
-	// capability is a number capability, e.g. sensor.temperature.
+	// capability is a number capability, e.g. temperature.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Capability string `json:"capability"`
@@ -435,7 +435,7 @@ type While struct {
 	Window *Window `json:"window,omitempty"`
 
 	// when is a CEL expression over devices, now and tz, as in a Rule's condition.
-	// For example: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+	// For example: devices["bathroom-sensor"]["relative-humidity"] > 70
 	// +kubebuilder:validation:MaxLength=4096
 	// +optional
 	When string `json:"when,omitempty"`
@@ -472,7 +472,7 @@ type Hold struct {
 	// +optional
 	Room string `json:"room,omitempty"`
 
-	// capability is the writable capability to hold, e.g. switch.on.
+	// capability is the writable capability to hold, e.g. on-off.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Capability string `json:"capability"`

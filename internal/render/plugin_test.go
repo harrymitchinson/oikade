@@ -23,13 +23,13 @@ func plugin() *pluginsv1alpha1.Plugin {
 func TestPluginConfig(t *testing.T) {
 	out, err := PluginConfig([]contractv1.DeclaredDevice{{
 		ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
-		Parameters: map[string]string{"capability": "light.on"},
+		Parameters: map[string]string{"model": "MINIR4"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := `{"contract":1,"devices":[{"id":"1000aabbcc","name":"porch-light","displayName":"Porch light",` +
-		`"room":"porch","parameters":{"capability":"light.on"}}]}`
+		`"room":"porch","parameters":{"model":"MINIR4"}}]}`
 	if string(out) != want {
 		t.Errorf("devices.json = %s, want %s", out, want)
 	}
@@ -119,7 +119,7 @@ func TestPluginConfigUnchanged(t *testing.T) {
 		{"testdata/plugin-devices-empty.json", nil},
 		{"testdata/plugin-devices.json", []contractv1.DeclaredDevice{
 			{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
-				Parameters: map[string]string{"model": "MINIR4", "capability": "light.on"}},
+				Parameters: map[string]string{"model": "MINIR4"}},
 			{ID: "1000ddeeff", Name: "fan", DisplayName: "Fan \"<big>\" & co"},
 			{ID: "1000ffeedd", Name: "heater", DisplayName: "Heater", Parameters: map[string]string{}},
 		}},

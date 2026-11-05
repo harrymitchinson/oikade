@@ -10,49 +10,59 @@ import (
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
 
-// Canonical capability names.
+// Canonical capability names. A capability is one Matter cluster attribute, named after that
+// attribute, or after what it measures where the attribute's name is generic (OIK-135). One that
+// Matter has no attribute for is named after its source. Values keep readable units: Matter's wire
+// encodings stay in internal/matterbridge.
 const (
-	// LightOn is a light's on/off state.
-	LightOn = "light.on"
-	// LightLevel is brightness in percent (0-100). It is independent of LightOn: setting level 0
-	// does not turn the light off, and drivers report LightOn changes separately.
-	LightLevel = "light.level"
-	// SwitchOn is a generic switch. Prefer LightOn or OutletOn when the physical class is known.
-	SwitchOn = "switch.on"
-	// OutletOn is a smart plug's relay.
-	OutletOn = "outlet.on"
+	// OnOff is whether a device is on. What kind of device it is, such as a light or a plug, isn't
+	// part of the capability.
+	OnOff = "on-off"
+	// CurrentLevel is the level in percent (0-100), such as a light's brightness. It is independent
+	// of OnOff: setting level 0 does not turn the device off, and drivers report OnOff changes
+	// separately.
+	CurrentLevel = "current-level"
 	// Temperature is in degrees Celsius.
-	Temperature = "sensor.temperature"
-	// Humidity is relative humidity in percent.
-	Humidity = "sensor.relative-humidity"
-	// ContactOpen is true when a door or window is open. Note Zigbee2MQTT's "contact" is the inverse.
-	ContactOpen = "sensor.contact-open"
+	Temperature = "temperature"
+	// RelativeHumidity is relative humidity in percent.
+	RelativeHumidity = "relative-humidity"
+	// Contact is true when a contact sensor's two parts touch: a door or window is shut. It's the
+	// same way round as Matter's Boolean State and Zigbee2MQTT's contact.
+	Contact = "contact"
 	// Occupancy is true while motion or presence is detected.
-	Occupancy = "sensor.occupancy-detected"
-	// Battery is battery charge in percent.
-	Battery = "battery.level"
-	// LinkQuality is the Zigbee link quality indicator (0-255).
-	LinkQuality = "link.quality"
+	Occupancy = "occupancy"
+	// BatPercentRemaining is battery charge in percent.
+	BatPercentRemaining = "bat-percent-remaining"
+	// LinkQuality is the Zigbee link quality indicator (0-255). Matter has no attribute for it.
+	LinkQuality = "zigbee.link-quality"
 )
 
-// Spec describes a capability's type and valid range.
+// Spec describes a capability's type and valid range, and the Matter attribute it is.
 type Spec struct {
 	Kind     homev1alpha1.CapabilityKind
 	Writable bool
 	// Min and Max bound numeric values (inclusive).
 	Min, Max float64
+	// Cluster and Attribute are the capability's Matter cluster and attribute, as the spec names
+	// them. They're empty for a capability Matter has no attribute for.
+	Cluster, Attribute string
 }
 
 var registry = map[string]Spec{
-	LightOn:     {Kind: homev1alpha1.CapabilityKindBool, Writable: true},
-	LightLevel:  {Kind: homev1alpha1.CapabilityKindNumber, Writable: true, Min: 0, Max: 100},
-	SwitchOn:    {Kind: homev1alpha1.CapabilityKindBool, Writable: true},
-	OutletOn:    {Kind: homev1alpha1.CapabilityKindBool, Writable: true},
-	Temperature: {Kind: homev1alpha1.CapabilityKindNumber, Min: -273.15, Max: 1000},
-	Humidity:    {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 100},
-	ContactOpen: {Kind: homev1alpha1.CapabilityKindBool},
-	Occupancy:   {Kind: homev1alpha1.CapabilityKindBool},
-	Battery:     {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 100},
+	OnOff: {Kind: homev1alpha1.CapabilityKindBool, Writable: true,
+		Cluster: "On/Off", Attribute: "OnOff"},
+	CurrentLevel: {Kind: homev1alpha1.CapabilityKindNumber, Writable: true, Min: 0, Max: 100,
+		Cluster: "Level Control", Attribute: "CurrentLevel"},
+	Temperature: {Kind: homev1alpha1.CapabilityKindNumber, Min: -273.15, Max: 1000,
+		Cluster: "Temperature Measurement", Attribute: "MeasuredValue"},
+	RelativeHumidity: {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 100,
+		Cluster: "Relative Humidity Measurement", Attribute: "MeasuredValue"},
+	Contact: {Kind: homev1alpha1.CapabilityKindBool,
+		Cluster: "Boolean State", Attribute: "StateValue"},
+	Occupancy: {Kind: homev1alpha1.CapabilityKindBool,
+		Cluster: "Occupancy Sensing", Attribute: "Occupancy"},
+	BatPercentRemaining: {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 100,
+		Cluster: "Power Source", Attribute: "BatPercentRemaining"},
 	LinkQuality: {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 255},
 }
 

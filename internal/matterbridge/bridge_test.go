@@ -59,9 +59,9 @@ func endpointIDs(b *Bridge) []uint16 {
 }
 
 func TestBridgeFollowsDevices(t *testing.T) {
-	lamp := device("desk-lamp", capability.LightOn, capability.LightLevel)
+	lamp := device("desk-lamp", capability.OnOff, capability.CurrentLevel)
 	b, c := newBridgeRig(t, lamp, device("hall-sensor", capability.Occupancy), device("router", capability.LinkQuality),
-		device("unallocated", capability.SwitchOn))
+		device("unallocated", capability.OnOff))
 	if _, err := b.Reconcile(t.Context(), ctrl.Request{}); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	b.Store.SetDevices(driver.InstanceKey{}, map[types.NamespacedName]hub.Meta{
 		{Namespace: "home", Name: "desk-lamp"}: {},
 	})
-	b.Changed(driver.Update{Device: types.NamespacedName{Namespace: "home", Name: "desk-lamp"}, Capability: capability.LightOn, Value: true})
+	b.Changed(driver.Update{Device: types.NamespacedName{Namespace: "home", Name: "desk-lamp"}, Capability: capability.OnOff, Value: true})
 	b.Availability(types.NamespacedName{Namespace: "home", Name: "desk-lamp"}, false)
 	b.Matter.Node.View(func() {
 		e := b.Matter.Node.Endpoint(2)
@@ -102,7 +102,7 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	}
 	b.Matter.Node.View(func() {
 		if b.Matter.Node.Endpoint(2).Cluster(clusters.IDLevelControl) != nil {
-			t.Error("the lamp kept Level Control after it lost light.level")
+			t.Error("the lamp kept Level Control after it lost current-level")
 		}
 	})
 }
@@ -161,7 +161,7 @@ func readAttr(t *testing.T, e *im.Endpoint, cluster, attr uint32) any {
 
 // Only changes that can move endpoints wake the bridge, not each reading's status update.
 func TestDeviceShapeChanged(t *testing.T) {
-	old := device("desk-lamp", capability.LightOn, capability.LightLevel)
+	old := device("desk-lamp", capability.OnOff, capability.CurrentLevel)
 	for name, change := range map[string]struct {
 		edit func(d *homev1alpha1.Device)
 		want bool
@@ -169,7 +169,7 @@ func TestDeviceShapeChanged(t *testing.T) {
 		"reading":    {func(d *homev1alpha1.Device) { d.Status.Capabilities[0].Kind = "number" }, false},
 		"same names": {func(d *homev1alpha1.Device) { slices.Reverse(d.Status.Capabilities) }, false},
 		"capability added": {func(d *homev1alpha1.Device) {
-			d.Status.Capabilities = append(d.Status.Capabilities, homev1alpha1.DeviceCapability{Name: capability.Battery})
+			d.Status.Capabilities = append(d.Status.Capabilities, homev1alpha1.DeviceCapability{Name: capability.BatPercentRemaining})
 		}, true},
 		"label":      {func(d *homev1alpha1.Device) { d.Labels = map[string]string{"room": "study"} }, true},
 		"generation": {func(d *homev1alpha1.Device) { d.Generation++ }, true},

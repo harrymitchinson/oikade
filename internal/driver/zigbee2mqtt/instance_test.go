@@ -113,17 +113,17 @@ func TestDiscovery(t *testing.T) {
 	_, _, rec := setup(t)
 
 	if got := rec.discovered[lamp]; !got.Found || got.Manufacturer != "IKEA" ||
-		!slices.Equal(got.Capabilities, []string{capability.LightOn, capability.LightLevel, capability.LinkQuality}) {
+		!slices.Equal(got.Capabilities, []string{capability.OnOff, capability.CurrentLevel, capability.LinkQuality}) {
 		t.Errorf("lamp = %+v", got)
 	}
 	if got := rec.discovered[motion].Capabilities; !slices.Equal(got,
-		[]string{capability.Occupancy, capability.Temperature, capability.Battery, capability.LinkQuality}) {
+		[]string{capability.Occupancy, capability.Temperature, capability.BatPercentRemaining, capability.LinkQuality}) {
 		t.Errorf("motion capabilities = %v", got)
 	}
-	if got := rec.discovered[door].Capabilities; !slices.Equal(got, []string{capability.ContactOpen, capability.Battery}) {
+	if got := rec.discovered[door].Capabilities; !slices.Equal(got, []string{capability.Contact, capability.BatPercentRemaining}) {
 		t.Errorf("door capabilities = %v", got)
 	}
-	if got := rec.discovered[plug].Capabilities; !slices.Equal(got, []string{capability.SwitchOn}) {
+	if got := rec.discovered[plug].Capabilities; !slices.Equal(got, []string{capability.OnOff}) {
 		t.Errorf("plug capabilities = %v", got)
 	}
 	if rec.discovered[ghost].Found {
@@ -155,12 +155,12 @@ func TestStateChanges(t *testing.T) {
 		got = append(got, change{u.Device, u.Capability, u.Value})
 	}
 	want := []change{
-		{lamp, capability.LightOn, true},
-		{lamp, capability.LightLevel, 50.0},
+		{lamp, capability.OnOff, true},
+		{lamp, capability.CurrentLevel, 50.0},
 		{lamp, capability.LinkQuality, 80.0},
 		// The repeat message changes nothing.
-		{door, capability.ContactOpen, true}, // Zigbee2MQTT contact=false means open.
-		{door, capability.Battery, 91.0},
+		{door, capability.Contact, false},
+		{door, capability.BatPercentRemaining, 91.0},
 		{motion, capability.Occupancy, true}, // The invalid battery value is dropped.
 	}
 	if !slices.Equal(got, want) {
@@ -200,13 +200,13 @@ func TestRenamedInFrontend(t *testing.T) {
 	// Nor do commands sent to the device by name.
 	_ = bus.Publish(ctx, "z2m/garden/side gate/set", []byte(`{"contact":false}`), false)
 
-	if len(rec.changes) != 1 || rec.changes[0].Device != door || rec.changes[0].Value != false {
+	if len(rec.changes) != 1 || rec.changes[0].Device != door || rec.changes[0].Value != true {
 		t.Errorf("changes = %+v, want the door closed once", rec.changes)
 	}
 	if !rec.available[door] {
 		t.Error("door should be online under its new name")
 	}
-	if err := i.Set(ctx, plug, capability.SwitchOn, true); err != nil {
+	if err := i.Set(ctx, plug, capability.OnOff, true); err != nil {
 		t.Fatal(err)
 	}
 	if sent := bus.Sent("z2m/0x00124b0000000004/set"); len(sent) != 1 {
@@ -254,10 +254,10 @@ func TestSet(t *testing.T) {
 		value any
 		want  string
 	}{
-		{lamp, capability.LightOn, true, `{"state":"ON"}`},
-		{lamp, capability.LightOn, false, `{"state":"OFF"}`},
-		{lamp, capability.LightLevel, 40.0, `{"brightness":102}`},
-		{plug, capability.SwitchOn, true, `{"state":"ON"}`},
+		{lamp, capability.OnOff, true, `{"state":"ON"}`},
+		{lamp, capability.OnOff, false, `{"state":"OFF"}`},
+		{lamp, capability.CurrentLevel, 40.0, `{"brightness":102}`},
+		{plug, capability.OnOff, true, `{"state":"ON"}`},
 	} {
 		if err := i.Set(ctx, tc.dev, tc.cap, tc.value); err != nil {
 			t.Fatal(err)
@@ -268,10 +268,10 @@ func TestSet(t *testing.T) {
 			t.Errorf("Set(%s, %s, %v) sent %v, want %s", tc.dev.Name, tc.cap, tc.value, sent, tc.want)
 		}
 	}
-	if err := i.Set(ctx, door, capability.LightOn, true); err == nil {
+	if err := i.Set(ctx, door, capability.OnOff, true); err == nil {
 		t.Error("Set accepted a capability the device doesn't have")
 	}
-	if err := i.Set(ctx, ghost, capability.LightOn, true); err == nil {
+	if err := i.Set(ctx, ghost, capability.OnOff, true); err == nil {
 		t.Error("Set accepted an unpaired device")
 	}
 }
@@ -292,7 +292,7 @@ func TestInventory(t *testing.T) {
 	if !slices.Equal(names, []string{"", "desk-plug", "", "hallway-motion", "front-door"}) {
 		t.Errorf("inventory names = %q", names)
 	}
-	if d := rec.inventory[1]; d.Model == "" || !slices.Equal(d.Capabilities, []string{capability.SwitchOn}) {
+	if d := rec.inventory[1]; d.Model == "" || !slices.Equal(d.Capabilities, []string{capability.OnOff}) {
 		t.Errorf("desk-plug = %+v", d)
 	}
 

@@ -21,7 +21,7 @@ func controlEntry(capability, def string, resolve homev1alpha1.ControlResolve) h
 }
 
 func TestControlSettingsBool(t *testing.T) {
-	c := controlEntry("switch.on", "true", homev1alpha1.ControlResolvePreferOff)
+	c := controlEntry("on-off", "true", homev1alpha1.ControlResolvePreferOff)
 	c.External, c.OverrideHold = homev1alpha1.ControlExternalOverride, "2h"
 	c.MinimumOn, c.MaximumOn = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: 6 * time.Hour}
 	c.MinimumOff, c.MaximumStartsPerDay = &metav1.Duration{Duration: 30 * time.Minute}, ptr.To[int32](4)
@@ -41,7 +41,7 @@ func TestControlSettingsBool(t *testing.T) {
 }
 
 func TestControlSettingsNumberUntilNext(t *testing.T) {
-	c := controlEntry("light.level", "40", homev1alpha1.ControlResolveHighest)
+	c := controlEntry("current-level", "40", homev1alpha1.ControlResolveHighest)
 	c.External, c.OverrideHold = homev1alpha1.ControlExternalOverride, homev1alpha1.OverrideHoldNext
 
 	got, err := ControlSettings(c, nil)
@@ -59,22 +59,22 @@ func TestControlSettingsRejects(t *testing.T) {
 		want  string
 	}{
 		"unknown capability": {controlEntry("light.hue", "1", homev1alpha1.ControlResolveHighest), "unknown capability"},
-		"read-only":          {controlEntry("sensor.temperature", "20", homev1alpha1.ControlResolveHighest), "read-only"},
+		"read-only":          {controlEntry("temperature", "20", homev1alpha1.ControlResolveHighest), "read-only"},
 		"number resolve on a bool": {
-			controlEntry("light.on", "false", homev1alpha1.ControlResolveHighest), "resolve must be PreferOn or PreferOff",
+			controlEntry("on-off", "false", homev1alpha1.ControlResolveHighest), "resolve must be PreferOn or PreferOff",
 		},
 		"bool resolve on a number": {
-			controlEntry("light.level", "0", homev1alpha1.ControlResolvePreferOn), "resolve must be Highest or Lowest",
+			controlEntry("current-level", "0", homev1alpha1.ControlResolvePreferOn), "resolve must be Highest or Lowest",
 		},
-		"default of the wrong kind": {controlEntry("light.on", "1", homev1alpha1.ControlResolvePreferOn), "takes a bool"},
-		"default out of range":      {controlEntry("light.level", "150", homev1alpha1.ControlResolveLowest), "between 0 and 100"},
+		"default of the wrong kind": {controlEntry("on-off", "1", homev1alpha1.ControlResolvePreferOn), "takes a bool"},
+		"default out of range":      {controlEntry("current-level", "150", homev1alpha1.ControlResolveLowest), "between 0 and 100"},
 		"override without a hold": {func() homev1alpha1.CapabilityControl {
-			c := controlEntry("switch.on", "false", homev1alpha1.ControlResolvePreferOn)
+			c := controlEntry("on-off", "false", homev1alpha1.ControlResolvePreferOn)
 			c.External = homev1alpha1.ControlExternalOverride
 			return c
 		}(), "needs an override hold"},
 		"maximumOn shorter than minimumOn": {func() homev1alpha1.CapabilityControl {
-			c := controlEntry("switch.on", "false", homev1alpha1.ControlResolvePreferOn)
+			c := controlEntry("on-off", "false", homev1alpha1.ControlResolvePreferOn)
 			c.MinimumOn, c.MaximumOn = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: time.Minute}
 			return c
 		}(), "maximumOn must not be shorter than minimumOn"},

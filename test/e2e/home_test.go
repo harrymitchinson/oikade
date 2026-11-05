@@ -61,10 +61,10 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: motion-light}
 spec:
-  triggers: [{change: {device: hallway-motion, capability: sensor.occupancy-detected}}]
+  triggers: [{change: {device: hallway-motion, capability: occupancy}}]
   condition: trigger.value
   do:
-  - set: {device: hallway-light, capability: light.on, value: true}
+  - set: {device: hallway-light, capability: on-off, value: true}
 ---
 apiVersion: matter.oikade.dev/v1alpha1
 kind: Bridge
@@ -120,9 +120,9 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: hallway-off}
 spec:
-  triggers: [{change: {room: porch, capability: sensor.contact-open}}]
+  triggers: [{change: {room: porch, capability: contact}}]
   do:
-  - set: {room: hallway, capability: light.on, value: false}
+  - set: {room: hallway, capability: on-off, value: false}
 `
 
 // pluginRoot is the plugin's oikade/v1 topic root.
@@ -145,15 +145,15 @@ spec:
   plugin:
     pluginRef: {name: example-switch}
     id: porch-relay
-    parameters: {capability: light.on}
+    parameters: {model: MINIR4}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: porch-light-off}
 spec:
-  triggers: [{change: {device: front-door, capability: sensor.contact-open}}]
+  triggers: [{change: {device: front-door, capability: contact}}]
   do:
-  - set: {device: porch-light, capability: light.on, value: false}
+  - set: {device: porch-light, capability: on-off, value: false}
 `
 
 // readmeNamespace is where the README's Rules examples are applied, apart from the home the
@@ -161,28 +161,28 @@ spec:
 const readmeNamespace = "e2e-readme"
 
 // controlManifests adds two plugin plugs: a fan held on all day by a window hold, and a towel rail
-// that arbitrates switch.on, with no Rule claiming it.
+// that arbitrates on-off, with no Rule claiming it.
 const controlManifests = `
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: fan-plug}
 spec:
-  plugin: {pluginRef: {name: example-switch}, id: fan-relay, parameters: {capability: switch.on}}
+  plugin: {pluginRef: {name: example-switch}, id: fan-relay}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: fan-all-day}
 spec:
   while: {window: {start: "00:00", end: "00:00"}}
-  hold: {device: fan-plug, capability: switch.on, value: true}
+  hold: {device: fan-plug, capability: on-off, value: true}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: rail-plug}
 spec:
-  plugin: {pluginRef: {name: example-switch}, id: rail-relay, parameters: {capability: switch.on}}
+  plugin: {pluginRef: {name: example-switch}, id: rail-relay}
   control:
-  - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
+  - {capability: on-off, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
 `
 
 // budgetDevice and budgetRule add a plugin plug run by a budget hold. Its budget is the whole day,
@@ -192,9 +192,9 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: dryer-plug}
 spec:
-  plugin: {pluginRef: {name: example-switch}, id: dryer-relay, parameters: {capability: switch.on}}
+  plugin: {pluginRef: {name: example-switch}, id: dryer-relay}
   control:
-  - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
+  - {capability: on-off, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
 `
 
 const budgetRule = `
@@ -203,7 +203,7 @@ kind: Rule
 metadata: {name: dryer-daily}
 spec:
   while: {budget: {minutes: {expression: "1440"}}}
-  hold: {device: dryer-plug, capability: switch.on, value: true}
+  hold: {device: dryer-plug, capability: on-off, value: true}
 `
 
 // runtimeTimezone and runtimeSite are the runtime's --timezone, --latitude and --longitude. The zone
@@ -227,7 +227,7 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: downstairs-plug}
 spec:
-  plugin: {pluginRef: {name: example-switch}, id: downstairs-relay, parameters: {capability: switch.on}}
+  plugin: {pluginRef: {name: example-switch}, id: downstairs-relay}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -235,7 +235,7 @@ metadata: {name: downstairs-off}
 spec:
   triggers: [{at: {time: "%[1]s", days: [%[2]s]}}]
   do:
-  - set: {device: downstairs-plug, capability: switch.on, value: false}
+  - set: {device: downstairs-plug, capability: on-off, value: false}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -243,7 +243,7 @@ metadata: {name: downstairs-on-other-days}
 spec:
   triggers: [{at: {time: "%[1]s", days: [%[3]s]}}]
   do:
-  - set: {device: downstairs-plug, capability: switch.on, value: true}
+  - set: {device: downstairs-plug, capability: on-off, value: true}
 `, at.Format("15:04"), today, strings.Join(others, ", "))
 }
 
@@ -256,14 +256,14 @@ metadata: {name: porch-dusk}
 spec:
   triggers: [{sun: {event: Sunset, offset: -15m}}]
   do:
-  - set: {device: porch-light, capability: light.on, value: true}
+  - set: {device: porch-light, capability: on-off, value: true}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: porch-evening}
 spec:
   while: {window: {start: {sun: Sunset, offset: 1h}, end: {sun: Sunset, offset: 2h}}}
-  hold: {device: porch-light, capability: light.on, value: true}
+  hold: {device: porch-light, capability: on-off, value: true}
 `
 
 // nextSunset returns the first sunset after now, moved by each offset in turn, in the runtime's
@@ -301,22 +301,22 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: bathroom-sensor}
 spec:
-  plugin: {pluginRef: {name: example-switch}, id: bathroom-humidity, parameters: {capability: sensor.relative-humidity}}
+  plugin: {pluginRef: {name: example-switch}, id: bathroom-humidity}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: bathroom-fan}
 spec:
-  plugin: {pluginRef: {name: example-switch}, id: bathroom-fan-relay, parameters: {capability: switch.on}}
+  plugin: {pluginRef: {name: example-switch}, id: bathroom-fan-relay}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: bathroom-humid}
 spec:
   while:
-    when: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+    when: devices["bathroom-sensor"]["relative-humidity"] > 70
     offDelay: 1m
-  hold: {device: bathroom-fan, capability: switch.on, value: true}
+  hold: {device: bathroom-fan, capability: on-off, value: true}
 `
 
 // heaterManifests holds a water heater on in a window from an hour before from to two hours after.
@@ -327,34 +327,34 @@ apiVersion: home.oikade.dev/v1alpha1
 kind: Device
 metadata: {name: water-heater}
 spec:
-  plugin: {pluginRef: {name: example-switch}, id: heater-relay, parameters: {capability: switch.on}}
+  plugin: {pluginRef: {name: example-switch}, id: heater-relay}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: water-heater-now}
 spec:
   while: {window: {start: "%s", end: "%s"}}
-  hold: {device: water-heater, capability: switch.on, value: true}
+  hold: {device: water-heater, capability: on-off, value: true}
 `, from.Add(-time.Hour).Format("15:04"), from.Add(2*time.Hour).Format("15:04"))
 }
 
 // pluginDevices is the plugin's devices topic with every relay found. It clears the device error
 // that "serves a plugin Device fed over MQTT" reports, so it's published only after that test.
 const pluginDevices = `{"devices":[` +
-	`{"id":"porch-relay","found":true,"capabilities":["light.on"]},` +
-	`{"id":"fan-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"rail-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"dryer-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"downstairs-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"bathroom-humidity","found":true,"capabilities":["sensor.relative-humidity"]},` +
-	`{"id":"bathroom-fan-relay","found":true,"capabilities":["switch.on"]},` +
-	`{"id":"heater-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
+	`{"id":"porch-relay","found":true,"capabilities":["on-off"]},` +
+	`{"id":"fan-relay","found":true,"capabilities":["on-off"]},` +
+	`{"id":"rail-relay","found":true,"capabilities":["on-off"]},` +
+	`{"id":"dryer-relay","found":true,"capabilities":["on-off"]},` +
+	`{"id":"downstairs-relay","found":true,"capabilities":["on-off"]},` +
+	`{"id":"bathroom-humidity","found":true,"capabilities":["relative-humidity"]},` +
+	`{"id":"bathroom-fan-relay","found":true,"capabilities":["on-off"]},` +
+	`{"id":"heater-relay","found":true,"capabilities":["on-off"]}],"undeclared":0}`
 
 // timetableDevices is the plugin's devices topic with the porch and downstairs relays found. The
 // timetable needs the downstairs relay before "drives a plug from a window hold" announces the fan.
 const timetableDevices = `{"devices":[` +
-	`{"id":"porch-relay","found":true,"capabilities":["light.on"]},` +
-	`{"id":"downstairs-relay","found":true,"capabilities":["switch.on"]}],"undeclared":0}`
+	`{"id":"porch-relay","found":true,"capabilities":["on-off"]},` +
+	`{"id":"downstairs-relay","found":true,"capabilities":["on-off"]}],"undeclared":0}`
 
 // readmeManifests returns every YAML block in the README's Rules section that is a complete
 // manifest, as one stream.
@@ -586,7 +586,7 @@ func homeScenario() {
 			Eventually(jsonpath("device", "hallway-light", `{.status.conditions[?(@.type=="Resolved")].status}`)).
 				Should(Equal("True"))
 			Eventually(jsonpath("device", "hallway-light", `{.status.capabilities[*].name}`)).
-				Should(Equal("light.on light.level link.quality"))
+				Should(Equal("on-off current-level zigbee.link-quality"))
 			Eventually(jsonpath("device", "hallway-motion", `{.status.conditions[?(@.type=="Available")].status}`)).
 				Should(Equal("True"))
 			Eventually(jsonpath("rule", "motion-light", `{.status.conditions[?(@.type=="Ready")].status}`)).
@@ -608,7 +608,7 @@ func homeScenario() {
 			Eventually(func(g Gomega) {
 				out, err := mqttExec("wget", "-qO-", runtimeURL)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(out).To(ContainSubstring(`oikade_capability_value{capability="sensor.temperature",` +
+				g.Expect(out).To(ContainSubstring(`oikade_capability_value{capability="temperature",` +
 					`device="hallway-motion",namespace="e2e-home",room="hallway"} 19.5`))
 				g.Expect(out).To(ContainSubstring(
 					`oikade_rule_runs_total{namespace="e2e-home",result="succeeded",rule="motion-light"} 1`))
@@ -755,7 +755,7 @@ func homeScenario() {
 			By("pairing the second lamp")
 			publish("z2m/bridge/devices", bridgeDevices(true), true)
 			Eventually(jsonpath("device", "hallway-lamp", `{.status.capabilities[*].name}`)).
-				Should(Equal("light.on light.level link.quality"))
+				Should(Equal("on-off current-level zigbee.link-quality"))
 			Eventually(jsonpath("device", "front-door", `{.status.conditions[?(@.type=="Resolved")].status}`)).
 				Should(Equal("True"))
 
@@ -791,7 +791,7 @@ func homeScenario() {
 				g.Expect(cfg.Devices[0].ID).To(Equal("porch-relay"))
 				g.Expect(cfg.Devices[0].Name).To(Equal("porch-light"))
 				g.Expect(cfg.Devices[0].Room).To(Equal("porch"))
-				g.Expect(cfg.Devices[0].Parameters).To(Equal(map[string]string{"capability": "light.on"}))
+				g.Expect(cfg.Devices[0].Parameters).To(Equal(map[string]string{"model": "MINIR4"}))
 			}).Should(Succeed())
 			Eventually(jsonpath("plugin", "example-switch", `{.status.conditions[?(@.type=="Ready")].status}`), 3*time.Minute).
 				Should(Equal("True"))
@@ -800,19 +800,19 @@ func homeScenario() {
 			By("playing the plugin on the bus")
 			publish(pluginRoot+"/status", `{"state":"online","contract":1}`, true)
 			publish(pluginRoot+"/devices", `{"devices":[{"id":"porch-relay","found":true,`+
-				`"manufacturer":"Oikade","model":"Simulated switch","capabilities":["light.on"]}],"undeclared":0}`, true)
+				`"manufacturer":"Oikade","model":"Simulated switch","capabilities":["on-off"]}],"undeclared":0}`, true)
 			publish(pluginRoot+"/porch-relay/availability", "online", true)
-			publish(pluginRoot+"/porch-relay/state", `{"light.on":true}`, true)
+			publish(pluginRoot+"/porch-relay/state", `{"on-off":true}`, true)
 
 			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Resolved")].status}`)).
 				Should(Equal("True"))
-			Eventually(jsonpath("device", "porch-light", `{.status.capabilities[*].name}`)).Should(Equal("light.on"))
+			Eventually(jsonpath("device", "porch-light", `{.status.capabilities[*].name}`)).Should(Equal("on-off"))
 			Eventually(jsonpath("device", "porch-light", `{.status.conditions[?(@.type=="Available")].status}`)).
 				Should(Equal("True"))
 			Eventually(func(g Gomega) {
 				out, err := mqttExec("wget", "-qO-", runtimeURL)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(out).To(ContainSubstring(`oikade_capability_value{capability="light.on",` +
+				g.Expect(out).To(ContainSubstring(`oikade_capability_value{capability="on-off",` +
 					`device="porch-light",namespace="e2e-home",room="porch"} 1`))
 				g.Expect(out).To(ContainSubstring(`oikade_plugin_up{namespace="e2e-home",plugin="example-switch"} 1`))
 			}).Should(Succeed())
@@ -823,7 +823,7 @@ func homeScenario() {
 			wait := subscribe(pluginRoot+"/porch-relay/set", 1)
 			// The test above left the door open; closing it is a change.
 			publish("z2m/front-door", `{"contact":true}`, false)
-			Expect(wait()).To(ContainSubstring(pluginRoot + `/porch-relay/set {"light.on":false}`))
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/porch-relay/set {"on-off":false}`))
 
 			By("reporting a device error")
 			publish(pluginRoot+"/devices", `{"devices":[{"id":"porch-relay","found":false,`+
@@ -843,7 +843,7 @@ func homeScenario() {
 			Expect(err).NotTo(HaveOccurred())
 			publish(pluginRoot+"/devices", timetableDevices, true)
 			publish(pluginRoot+"/downstairs-relay/availability", "online", true)
-			publish(pluginRoot+"/downstairs-relay/state", `{"switch.on":true}`, true)
+			publish(pluginRoot+"/downstairs-relay/state", `{"on-off":true}`, true)
 			timetableAt = time.Now().In(loc).Add(105 * time.Second).Truncate(time.Minute)
 			timetableWrites = subscribeFor(pluginRoot+"/downstairs-relay/set", 1, time.Until(timetableAt)+time.Minute)
 			apply(timetableManifests(timetableAt))
@@ -869,19 +869,19 @@ func homeScenario() {
 			wait := subscribe(pluginRoot+"/fan-relay/set", 1)
 			publish(pluginRoot+"/devices", pluginDevices, true)
 			publish(pluginRoot+"/fan-relay/availability", "online", true)
-			publish(pluginRoot+"/fan-relay/state", `{"switch.on":false}`, true)
-			Expect(wait()).To(ContainSubstring(pluginRoot + `/fan-relay/set {"switch.on":true}`))
+			publish(pluginRoot+"/fan-relay/state", `{"on-off":false}`, true)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/fan-relay/set {"on-off":true}`))
 			Eventually(jsonpath("rule", "fan-all-day", "{.status.active}")).Should(Equal("true"))
 			Expect(jsonpath("rule", "fan-all-day", "{.status.nextChange}")()).NotTo(BeEmpty())
 		})
 
 		It("shows an outside change on an arbitrated plug as an Override claim", func() {
 			publish(pluginRoot+"/rail-relay/availability", "online", true)
-			publish(pluginRoot+"/rail-relay/state", `{"switch.on":false}`, true)
+			publish(pluginRoot+"/rail-relay/state", `{"on-off":false}`, true)
 			Eventually(jsonpath("device", "rail-plug", "{.status.control[0].level}")).Should(Equal("Default"))
 
 			By("switching the rail on at the plug")
-			publish(pluginRoot+"/rail-relay/state", `{"switch.on":true}`, true)
+			publish(pluginRoot+"/rail-relay/state", `{"on-off":true}`, true)
 			Eventually(jsonpath("device", "rail-plug", "{.status.control[0].level}")).Should(Equal("Override"))
 			Expect(jsonpath("device", "rail-plug",
 				`{.status.control[0].claims[?(@.winner==true)].source}`)()).To(Equal("Device"))
@@ -893,7 +893,7 @@ func homeScenario() {
 			// The plug is declared, and reports it's at its default, before the budget claims it, so
 			// the only write after that is the budget's.
 			publish(pluginRoot+"/dryer-relay/availability", "online", true)
-			publish(pluginRoot+"/dryer-relay/state", `{"switch.on":false}`, true)
+			publish(pluginRoot+"/dryer-relay/state", `{"on-off":false}`, true)
 			apply(budgetDevice)
 			Eventually(jsonpath("device", "dryer-plug", "{.status.control[0].level}")).Should(Equal("Default"))
 			wait := subscribe(pluginRoot+"/dryer-relay/set", 1)
@@ -905,7 +905,7 @@ func homeScenario() {
 			Expect(jsonpath("rule", "dryer-daily", "{.status.today.targetSource} {.status.today.targetMinutes}")()).
 				To(Equal("Expression 1440"))
 			Expect(jsonpath("rule", "dryer-daily", "{.status.today.blocks[0].start}")()).NotTo(BeEmpty())
-			Expect(wait()).To(ContainSubstring(pluginRoot + `/dryer-relay/set {"switch.on":true}`))
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/dryer-relay/set {"on-off":true}`))
 			Eventually(jsonpath("device", "dryer-plug", `{.status.control[0].claims[?(@.winner==true)].source}`)).
 				Should(Equal("Rule/dryer-daily"))
 			Eventually(jsonpath("rule", "dryer-daily", "{.status.today.starts}")).Should(Equal("1"))
@@ -931,9 +931,9 @@ func homeScenario() {
 		// This needs the plugin and its devices from the tests above.
 		It("runs a bathroom fan while it's humid, and for its offDelay after", func() {
 			publish(pluginRoot+"/bathroom-humidity/availability", "online", true)
-			publish(pluginRoot+"/bathroom-humidity/state", `{"sensor.relative-humidity":55}`, true)
+			publish(pluginRoot+"/bathroom-humidity/state", `{"relative-humidity":55}`, true)
 			publish(pluginRoot+"/bathroom-fan-relay/availability", "online", true)
-			publish(pluginRoot+"/bathroom-fan-relay/state", `{"switch.on":false}`, true)
+			publish(pluginRoot+"/bathroom-fan-relay/state", `{"on-off":false}`, true)
 			apply(bathroomManifests)
 			Eventually(jsonpath("rule", "bathroom-humid", `{.status.conditions[?(@.type=="Ready")].status}`)).
 				Should(Equal("True"))
@@ -943,18 +943,18 @@ func homeScenario() {
 
 			By("someone running a shower")
 			wait := subscribe(pluginRoot+"/bathroom-fan-relay/set", 1)
-			publish(pluginRoot+"/bathroom-humidity/state", `{"sensor.relative-humidity":78}`, true)
-			Expect(wait()).To(ContainSubstring(pluginRoot + `/bathroom-fan-relay/set {"switch.on":true}`))
-			publish(pluginRoot+"/bathroom-fan-relay/state", `{"switch.on":true}`, true)
+			publish(pluginRoot+"/bathroom-humidity/state", `{"relative-humidity":78}`, true)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/bathroom-fan-relay/set {"on-off":true}`))
+			publish(pluginRoot+"/bathroom-fan-relay/state", `{"on-off":true}`, true)
 			Eventually(jsonpath("rule", "bathroom-humid", "{.status.active}")).Should(Equal("true"))
 
 			By("the humidity dropping")
 			wait = subscribe(pluginRoot+"/bathroom-fan-relay/set", 1)
 			dropped := time.Now()
-			publish(pluginRoot+"/bathroom-humidity/state", `{"sensor.relative-humidity":62}`, true)
-			Expect(wait()).To(ContainSubstring(pluginRoot + `/bathroom-fan-relay/set {"switch.on":false}`))
+			publish(pluginRoot+"/bathroom-humidity/state", `{"relative-humidity":62}`, true)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/bathroom-fan-relay/set {"on-off":false}`))
 			Expect(time.Since(dropped)).To(BeNumerically(">=", 55*time.Second), "the fan ran on for its offDelay")
-			publish(pluginRoot+"/bathroom-fan-relay/state", `{"switch.on":false}`, true)
+			publish(pluginRoot+"/bathroom-fan-relay/state", `{"on-off":false}`, true)
 			Eventually(jsonpath("rule", "bathroom-humid", "{.status.active}")).ShouldNot(Equal("true"))
 		})
 
@@ -984,7 +984,7 @@ func homeScenario() {
 		It("runs a timetable on the days it names", func() {
 			at, loc := timetableAt, timetableAt.Location()
 			By("waiting for " + at.Format("15:04") + " in " + runtimeTimezone)
-			Expect(timetableWrites()).To(ContainSubstring(pluginRoot + `/downstairs-relay/set {"switch.on":false}`))
+			Expect(timetableWrites()).To(ContainSubstring(pluginRoot + `/downstairs-relay/set {"on-off":false}`))
 			Eventually(func() time.Time {
 				return statusTime(jsonpath("rule", "downstairs-off", "{.status.lastFire}")())
 			}).Should(BeTemporally("==", at))
@@ -1016,23 +1016,23 @@ func homeScenario() {
 			loc, err := time.LoadLocation(runtimeTimezone)
 			Expect(err).NotTo(HaveOccurred())
 			publish(pluginRoot+"/heater-relay/availability", "online", true)
-			publish(pluginRoot+"/heater-relay/state", `{"switch.on":false}`, true)
+			publish(pluginRoot+"/heater-relay/state", `{"on-off":false}`, true)
 			wait := subscribe(pluginRoot+"/heater-relay/set", 1)
 			apply(heaterManifests(time.Now().In(loc)))
-			Expect(wait()).To(ContainSubstring(pluginRoot + `/heater-relay/set {"switch.on":true}`))
-			publish(pluginRoot+"/heater-relay/state", `{"switch.on":true}`, true)
+			Expect(wait()).To(ContainSubstring(pluginRoot + `/heater-relay/set {"on-off":true}`))
+			publish(pluginRoot+"/heater-relay/state", `{"on-off":true}`, true)
 			Eventually(jsonpath("rule", "water-heater-now", "{.status.active}")).Should(Equal("true"))
 
 			By("turning the heater off in the Home app")
 			// The bridge announces the write, then the plug reports it.
 			_, err = mqttExec("mosquitto_pub", "-h", mqttHost, "-q", "1", "-t", "oikade/v1/_matter/"+homeNamespace+"/main/writes",
-				"-m", `{"bridge":"main","device":"water-heater","capability":"switch.on","value":false}`)
+				"-m", `{"bridge":"main","device":"water-heater","capability":"on-off","value":false}`)
 			Expect(err).NotTo(HaveOccurred())
-			publish(pluginRoot+"/heater-relay/state", `{"switch.on":false}`, true)
+			publish(pluginRoot+"/heater-relay/state", `{"on-off":false}`, true)
 			Eventually(func(g Gomega) {
 				out, err := mqttExec("wget", "-qO-", runtimeURL)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(out).To(MatchRegexp(`oikade_capability_value\{capability="switch.on",` +
+				g.Expect(out).To(MatchRegexp(`oikade_capability_value\{capability="on-off",` +
 					`device="water-heater",namespace="e2e-home"[^}]*\} 0\n`))
 			}).Should(Succeed())
 

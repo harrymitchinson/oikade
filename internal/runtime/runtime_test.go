@@ -88,18 +88,18 @@ func TestRuntimeEndToEnd(t *testing.T) {
 			Triggers:  []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: capability.Occupancy}}},
 			Condition: "trigger.value",
 			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
-				Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
+				Device: "hallway-light", Capability: capability.OnOff, Value: apiextensionsv1.JSON{Raw: []byte("true")},
 			}}},
 		},
 	}))
 
-	// Opening the front door turns off every light in the hallway.
+	// Opening the front door turns off everything in the hallway that switches.
 	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "hallway-off", Namespace: ns},
 		Spec: homev1alpha1.RuleSpec{
-			Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Room: "porch", Capability: capability.ContactOpen}}},
+			Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Room: "porch", Capability: capability.Contact}}},
 			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
-				Room: "hallway", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("false")},
+				Room: "hallway", Capability: capability.OnOff, Value: apiextensionsv1.JSON{Raw: []byte("false")},
 			}}},
 		},
 	}))
@@ -119,7 +119,7 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		}
 		return meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionResolved) &&
 			d.Status.Manufacturer == "IKEA" &&
-			slices.Equal(caps, []string{capability.LightOn, capability.LightLevel, capability.LinkQuality})
+			slices.Equal(caps, []string{capability.OnOff, capability.CurrentLevel, capability.LinkQuality})
 	})
 	eventually(t, "unpaired device reported", func() bool {
 		var d homev1alpha1.Device
@@ -157,8 +157,8 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		return c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "motion-light"}, &a) == nil && !a.Status.LastTriggered.IsZero()
 	})
 
-	// One room action sends /set to both hallway lamps, and skips the plug and the motion sensor,
-	// which don't have light.on.
+	// One room action sends /set to both hallway lamps and the plug, and skips the motion sensor,
+	// which doesn't have on-off.
 	for _, name := range []string{"hallway-lamp", "desk-plug"} {
 		eventually(t, name+" discovered", func() bool {
 			var d homev1alpha1.Device
@@ -170,13 +170,14 @@ func TestRuntimeEndToEnd(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		return slices.Contains(commands, `z2m/0x000b57fffe000001/set {"state":"OFF"}`) &&
-			slices.Contains(commands, "z2m/"+secondLamp+`/set {"state":"OFF"}`)
+			slices.Contains(commands, "z2m/"+secondLamp+`/set {"state":"OFF"}`) &&
+			slices.Contains(commands, `z2m/0x00124b0000000004/set {"state":"OFF"}`)
 	})
-	// Arbitrating the second lamp's light.on puts it in Device status, at the default.
+	// Arbitrating the second lamp's on-off puts it in Device status, at the default.
 	var lamp homev1alpha1.Device
 	must(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, &lamp))
 	lamp.Spec.Control = []homev1alpha1.CapabilityControl{{
-		Capability: capability.LightOn, Default: apiextensionsv1.JSON{Raw: []byte("false")},
+		Capability: capability.OnOff, Default: apiextensionsv1.JSON{Raw: []byte("false")},
 		Resolve: homev1alpha1.ControlResolvePreferOn, External: homev1alpha1.ControlExternalOverride, OverrideHold: "1h",
 	}}
 	must(t, c.Update(ctx, &lamp))
@@ -186,11 +187,11 @@ func TestRuntimeEndToEnd(t *testing.T) {
 			return false
 		}
 		st := d.Status.Control[0]
-		return st.Capability == capability.LightOn && st.Level == homev1alpha1.ControlLevelDefault &&
+		return st.Capability == capability.OnOff && st.Level == homev1alpha1.ControlLevelDefault &&
 			st.Value != nil && string(st.Value.Raw) == "false" && len(st.Claims) == 0
 	})
 	if got, ok := metricValue(t, reg, "oikade_device_control_level",
-		prometheus.Labels{"namespace": ns, "device": "hallway-lamp", "capability": capability.LightOn}); !ok || got != 0 {
+		prometheus.Labels{"namespace": ns, "device": "hallway-lamp", "capability": capability.OnOff}); !ok || got != 0 {
 		t.Errorf("oikade_device_control_level = %v (%v), want 0", got, ok)
 	}
 
@@ -199,7 +200,8 @@ func TestRuntimeEndToEnd(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, cmd := range commands {
-		if !strings.HasPrefix(cmd, "z2m/0x000b57fffe000001/") && !strings.HasPrefix(cmd, "z2m/"+secondLamp+"/") {
+		if !strings.HasPrefix(cmd, "z2m/0x000b57fffe000001/") && !strings.HasPrefix(cmd, "z2m/"+secondLamp+"/") &&
+			!strings.HasPrefix(cmd, "z2m/0x00124b0000000004/") {
 			t.Errorf("unexpected command %s", cmd)
 		}
 	}
@@ -229,13 +231,13 @@ func TestRuntimePluginDevices(t *testing.T) {
 	for topic, payload := range map[string]string{
 		"status": `{"state":"online","contract":1}`,
 		"devices": `{"devices":[
-			{"id":"relay1","found":true,"manufacturer":"SONOFF","model":"MINIR4","capabilities":["light.on"]},
-			{"id":"button","found":true,"capabilities":["switch.on"]},
+			{"id":"relay1","found":true,"manufacturer":"SONOFF","model":"MINIR4","capabilities":["on-off"]},
+			{"id":"button","found":true,"capabilities":["on-off"]},
 			{"id":"pump","found":false,"error":"no LAN key for pump in /etc/oikade/secrets"}
 		],"undeclared":1}`,
 		"relay1/availability": "online",
-		"relay1/state":        `{"light.on":false}`,
-		"button/state":        `{"switch.on":false}`,
+		"relay1/state":        `{"on-off":false}`,
+		"button/state":        `{"on-off":false}`,
 	} {
 		must(t, fakePlugin.Publish(ctx, root+"/"+topic, []byte(payload), true))
 	}
@@ -263,10 +265,10 @@ func TestRuntimePluginDevices(t *testing.T) {
 	must(t, c.Create(ctx, &homev1alpha1.Rule{
 		ObjectMeta: metav1.ObjectMeta{Name: "button-light", Namespace: ns},
 		Spec: homev1alpha1.RuleSpec{
-			Triggers:  []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "porch-button", Capability: capability.SwitchOn}}},
+			Triggers:  []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "porch-button", Capability: capability.OnOff}}},
 			Condition: "trigger.value",
 			Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
-				Device: "porch-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
+				Device: "porch-light", Capability: capability.OnOff, Value: apiextensionsv1.JSON{Raw: []byte("true")},
 			}}},
 		},
 	}))
@@ -279,7 +281,7 @@ func TestRuntimePluginDevices(t *testing.T) {
 		return meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionResolved) &&
 			meta.IsStatusConditionTrue(d.Status.Conditions, homev1alpha1.ConditionAvailable) &&
 			d.Status.Manufacturer == "SONOFF" && d.Status.Model == "MINIR4" &&
-			len(d.Status.Capabilities) == 1 && d.Status.Capabilities[0].Name == capability.LightOn
+			len(d.Status.Capabilities) == 1 && d.Status.Capabilities[0].Name == capability.OnOff
 	})
 	eventually(t, "plugin error", func() bool {
 		var d homev1alpha1.Device
@@ -297,15 +299,15 @@ func TestRuntimePluginDevices(t *testing.T) {
 	})
 
 	// Pressing the button turns the light on through the rule.
-	must(t, fakePlugin.Publish(ctx, root+"/button/state", []byte(`{"switch.on":true}`), true))
+	must(t, fakePlugin.Publish(ctx, root+"/button/state", []byte(`{"on-off":true}`), true))
 	eventually(t, "light command", func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return slices.Contains(commands, root+`/relay1/set {"light.on":true}`)
+		return slices.Contains(commands, root+`/relay1/set {"on-off":true}`)
 	})
 
 	// An unknown capability is dropped and counted.
-	must(t, fakePlugin.Publish(ctx, root+"/relay1/state", []byte(`{"light.on":true,"made.up":1}`), true))
+	must(t, fakePlugin.Publish(ctx, root+"/relay1/state", []byte(`{"on-off":true,"made.up":1}`), true))
 	plugin := prometheus.Labels{"namespace": ns, "plugin": "sonoff"}
 	eventually(t, "plugin metrics", func() bool {
 		up, _ := metricValue(t, reg, "oikade_plugin_up", plugin)
@@ -314,7 +316,7 @@ func TestRuntimePluginDevices(t *testing.T) {
 		undeclared, _ := metricValue(t, reg, "oikade_undeclared_devices",
 			prometheus.Labels{"namespace": ns, "instance": "plugin/sonoff"})
 		value, _ := metricValue(t, reg, "oikade_capability_value",
-			prometheus.Labels{"namespace": ns, "device": "porch-light", "capability": capability.LightOn})
+			prometheus.Labels{"namespace": ns, "device": "porch-light", "capability": capability.OnOff})
 		return up == 1 && rejected >= 1 && undeclared == 1 && value == 1
 	})
 
@@ -339,7 +341,7 @@ func TestRuntimeWritesDiscoveredDevices(t *testing.T) {
 	const root = "oikade/v1/" + ns + "/hue"
 	publishDiscovered := func(name string) {
 		must(t, bus.Publish(ctx, root+"/devices", []byte(`{"devices":[],"undeclared":0,"discovered":[
-			{"id":"3f2a9c71","manufacturer":"Signify","model":"LCA001","capabilities":["light.on","light.level"],
+			{"id":"3f2a9c71","manufacturer":"Signify","model":"LCA001","capabilities":["on-off","current-level"],
 			 "name":"`+name+`","room":"Study"}]}`), true))
 	}
 	must(t, bus.Publish(ctx, root+"/status", []byte(`{"state":"online","contract":1}`), true))
@@ -358,7 +360,7 @@ func TestRuntimeWritesDiscoveredDevices(t *testing.T) {
 	eventually(t, "the plugin's discovered devices in its status", func() bool {
 		d := pluginDiscovered()
 		return len(d) == 1 && d[0].ID == "3f2a9c71" && d[0].Name == "Desk lamp" && d[0].Room == "Study" &&
-			d[0].Model == "LCA001" && slices.Equal(d[0].Capabilities, []string{capability.LightOn, capability.LightLevel})
+			d[0].Model == "LCA001" && slices.Equal(d[0].Capabilities, []string{capability.OnOff, capability.CurrentLevel})
 	})
 	publishDiscovered("Reading lamp")
 	eventually(t, "a rename in the app", func() bool {
@@ -474,7 +476,7 @@ func TestHubIgnoresStatusPatches(t *testing.T) {
 func TestRuntimeSchedulesTimeTriggers(t *testing.T) {
 	ctx, c, url, reg := startRuntime(t)
 	lightOn := []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
-		Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
+		Device: "hallway-light", Capability: capability.OnOff, Value: apiextensionsv1.JSON{Raw: []byte("true")},
 	}}}
 	// Two hours ahead in the runtime's UTC, so it can't fire during the test.
 	at := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Minute)
@@ -523,7 +525,7 @@ func TestRuntimeSchedulesTimeTriggers(t *testing.T) {
 				Start: homev1alpha1.WindowTime{Time: at.Format("15:04")},
 				End:   homev1alpha1.WindowTime{Time: at.Add(time.Hour).Format("15:04")},
 			}},
-			Hold: &homev1alpha1.Hold{Device: "hallway-light", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")}},
+			Hold: &homev1alpha1.Hold{Device: "hallway-light", Capability: capability.OnOff, Value: apiextensionsv1.JSON{Raw: []byte("true")}},
 		},
 	}))
 	eventually(t, "night-heat nextChange", func() bool {
@@ -572,7 +574,7 @@ func TestRuntimePlansBudgets(t *testing.T) {
 				InstanceRef: corev1.LocalObjectReference{Name: "z2m"}, IEEEAddress: "0x00158d00000000c1",
 			},
 			Control: []homev1alpha1.CapabilityControl{{
-				Capability: capability.SwitchOn, Default: apiextensionsv1.JSON{Raw: []byte("false")},
+				Capability: capability.OnOff, Default: apiextensionsv1.JSON{Raw: []byte("false")},
 				Resolve: homev1alpha1.ControlResolvePreferOn, External: homev1alpha1.ControlExternalRevert,
 			}},
 		},
@@ -583,7 +585,7 @@ func TestRuntimePlansBudgets(t *testing.T) {
 			While: &homev1alpha1.While{Budget: &homev1alpha1.Budget{
 				Minutes: homev1alpha1.BudgetMinutes{Expression: "90"},
 			}},
-			Hold: &homev1alpha1.Hold{Device: "cellar-dehumidifier", Capability: capability.SwitchOn, Value: apiextensionsv1.JSON{Raw: []byte("true")}},
+			Hold: &homev1alpha1.Hold{Device: "cellar-dehumidifier", Capability: capability.OnOff, Value: apiextensionsv1.JSON{Raw: []byte("true")}},
 		},
 	}))
 
@@ -757,7 +759,7 @@ func tapLamp(ctx context.Context, t *testing.T, c client.Client, url string, fak
 		Setter: driver.SetterFunc(func(ctx context.Context, _ types.NamespacedName, _ string, _ any) error {
 			return fakeZ2M.Publish(ctx, "z2m/"+secondLamp, []byte(`{"state":"ON"}`), false)
 		})}
-	must(t, tap.Set(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, capability.LightOn, true))
+	must(t, tap.Set(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, capability.OnOff, true))
 	eventually(t, "lamp Matter claim", func() bool {
 		var d homev1alpha1.Device
 		if c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "hallway-lamp"}, &d) != nil || len(d.Status.Control) != 1 {

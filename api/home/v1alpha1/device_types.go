@@ -57,7 +57,7 @@ type PluginDeviceSource struct {
 	Parameters map[string]string `json:"parameters,omitempty"`
 }
 
-// MatterDeviceType chooses the family of Matter device type a switch.on Device is shown as. Whether
+// MatterDeviceType chooses the family of Matter device type an on-off Device is shown as. Whether
 // it's the on/off or dimmable member of the family follows from the Device's capabilities.
 // +kubebuilder:validation:Enum=Light;PlugInUnit;MountedControl
 type MatterDeviceType string
@@ -75,7 +75,7 @@ const (
 // DeviceMatter tunes how a device appears on a Matter bridge.
 type DeviceMatter struct {
 	// deviceType overrides the device type chosen from the device's capabilities, e.g.
-	// PlugInUnit for a smart plug that reports itself as a switch.
+	// Light for a relay that drives a lamp.
 	// +required
 	DeviceType MatterDeviceType `json:"deviceType"`
 }
@@ -119,7 +119,7 @@ const OverrideHoldNext = "Next"
 // +kubebuilder:validation:XValidation:rule="!has(self.maximumOn) || duration(self.maximumOn) > duration('0s')",message="maximumOn must be positive"
 // +kubebuilder:validation:XValidation:rule="!has(self.minimumOff) || duration(self.minimumOff) >= duration('0s')",message="minimumOff must not be negative"
 type CapabilityControl struct {
-	// capability is the writable capability to arbitrate, e.g. switch.on.
+	// capability is the writable capability to arbitrate, e.g. on-off.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Capability string `json:"capability"`
@@ -211,7 +211,7 @@ const (
 
 // DeviceCapability is one capability a driver reported for the device.
 type DeviceCapability struct {
-	// name is the canonical capability, e.g. light.on or sensor.temperature.
+	// name is the canonical capability, e.g. on-off or temperature.
 	// +required
 	Name string `json:"name"`
 
@@ -219,7 +219,7 @@ type DeviceCapability struct {
 	// +required
 	Kind CapabilityKind `json:"kind"`
 
-	// writable is true when the capability can be set, e.g. light.on but not sensor.temperature.
+	// writable is true when the capability can be set, e.g. on-off but not temperature.
 	// +optional
 	Writable bool `json:"writable,omitempty"`
 }

@@ -32,17 +32,17 @@ func holdRule(t *testing.T, name, spec string) *homev1alpha1.Rule {
 
 // holdDevices are the devices every hold test declares, with their capabilities.
 var holdDevices = map[string][]string{
-	"water-heater":    {capability.SwitchOn},
-	"bathroom-fan":    {capability.SwitchOn},
-	"bathroom-sensor": {capability.Humidity},
-	"workshop-heater": {capability.SwitchOn},
+	"water-heater":    {capability.OnOff},
+	"bathroom-fan":    {capability.OnOff},
+	"bathroom-sensor": {capability.RelativeHumidity},
+	"workshop-heater": {capability.OnOff},
 	"workshop-temp":   {capability.Temperature},
-	"main-valve":      {capability.SwitchOn},
-	"leak-sensor":     {capability.ContactOpen},
-	"pump":            {capability.SwitchOn},
-	"hall-light":      {capability.LightOn, capability.LightLevel},
+	"main-valve":      {capability.OnOff},
+	"leak-sensor":     {capability.Contact},
+	"pump":            {capability.OnOff},
+	"hall-light":      {capability.OnOff, capability.CurrentLevel},
 	"hall-motion":     {capability.Occupancy},
-	"towel-rail":      {capability.SwitchOn},
+	"towel-rail":      {capability.OnOff},
 	"water-temp":      {capability.Temperature},
 	"outdoor-temp":    {capability.Temperature},
 }
@@ -265,7 +265,7 @@ func busStates(t *testing.T, url string) *Retained[HoldState] {
 
 var heaterNight = `
   while: {window: {start: "22:00", end: "06:00"}}
-  hold: {device: water-heater, capability: switch.on, value: true}
+  hold: {device: water-heater, capability: on-off, value: true}
 `
 
 func TestWindowHoldRestartRespectsATap(t *testing.T) {
@@ -273,7 +273,7 @@ func TestWindowHoldRestartRespectsATap(t *testing.T) {
 	r := startRig(t, local("2026-10-21 21:59 BST"), busStates(t, url), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect()
 	r.at("2026-10-21 22:00 BST")
-	r.expect(call{"water-heater", capability.SwitchOn, true})
+	r.expect(call{"water-heater", capability.OnOff, true})
 	if r.active("water-heater-night") != 1 {
 		t.Error("oikade_rule_active isn't 1")
 	}
@@ -282,14 +282,14 @@ func TestWindowHoldRestartRespectsATap(t *testing.T) {
 	}
 	// A Home app tap turns it off at 23:00. A hold doesn't fight it.
 	r.at("2026-10-21 23:00 BST")
-	r.change("water-heater", capability.SwitchOn, false)
+	r.change("water-heater", capability.OnOff, false)
 	r.stop()
 
 	// The runtime restarts at 02:00. The hold is still active, as saved, so it writes nothing.
 	r = startRig(t, local("2026-10-22 02:00 BST"), busStates(t, url), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect()
 	r.at("2026-10-22 06:00 BST")
-	r.expect(call{"water-heater", capability.SwitchOn, false})
+	r.expect(call{"water-heater", capability.OnOff, false})
 }
 
 func TestWindowHoldStartsAfterDowntime(t *testing.T) {
@@ -300,26 +300,26 @@ func TestWindowHoldStartsAfterDowntime(t *testing.T) {
 
 	// Down from 21:50 to 02:00: the hold started meanwhile, so it writes on.
 	r = startRig(t, local("2026-10-22 02:00 BST"), busStates(t, url), nil, nil, holdRule(t, "water-heater-night", heaterNight))
-	r.expect(call{"water-heater", capability.SwitchOn, true})
+	r.expect(call{"water-heater", capability.OnOff, true})
 }
 
 func TestOffDelaySurvivesARestart(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	fan := holdRule(t, "bathroom-humid", `
-  while: {when: 'devices["bathroom-sensor"]["sensor.relative-humidity"] > 70', offDelay: 10m}
-  hold: {device: bathroom-fan, capability: switch.on, value: true}
+  while: {when: 'devices["bathroom-sensor"]["relative-humidity"] > 70', offDelay: 10m}
+  hold: {device: bathroom-fan, capability: on-off, value: true}
 `)
 	humidity := func(v float64) map[string]map[string]any {
-		return map[string]map[string]any{"bathroom-sensor": {capability.Humidity: v}}
+		return map[string]map[string]any{"bathroom-sensor": {capability.RelativeHumidity: v}}
 	}
 	r := startRig(t, local("2026-10-21 08:00 BST"), busStates(t, url), humidity(72), nil, fan)
-	r.expect(call{"bathroom-fan", capability.SwitchOn, true})
+	r.expect(call{"bathroom-fan", capability.OnOff, true})
 	r.at("2026-10-21 08:04 BST")
-	r.change("bathroom-sensor", capability.Humidity, 69.0)
+	r.change("bathroom-sensor", capability.RelativeHumidity, 69.0)
 	r.at("2026-10-21 08:06 BST")
-	r.change("bathroom-sensor", capability.Humidity, 71.0)
+	r.change("bathroom-sensor", capability.RelativeHumidity, 71.0)
 	r.at("2026-10-21 08:09 BST")
-	r.change("bathroom-sensor", capability.Humidity, 68.0)
+	r.change("bathroom-sensor", capability.RelativeHumidity, 68.0)
 	if s := r.sched.last(); !s.Next.Equal(local("2026-10-21 08:19 BST")) {
 		t.Errorf("next change = %v, want 08:19", s.Next)
 	}
@@ -330,20 +330,20 @@ func TestOffDelaySurvivesARestart(t *testing.T) {
 	r.at("2026-10-21 08:18 BST")
 	r.expect()
 	r.at("2026-10-21 08:19 BST")
-	r.expect(call{"bathroom-fan", capability.SwitchOn, false})
+	r.expect(call{"bathroom-fan", capability.OnOff, false})
 }
 
 func TestMotionOffDelaySurvivesARestart(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	light := holdRule(t, "hall-motion-light", `
-  while: {when: 'devices["hall-motion"]["sensor.occupancy-detected"]', offDelay: 5m}
-  hold: {device: hall-light, capability: light.on, value: true}
+  while: {when: 'devices["hall-motion"]["occupancy"]', offDelay: 5m}
+  hold: {device: hall-light, capability: on-off, value: true}
 `)
 	motion := func(v bool) map[string]map[string]any {
 		return map[string]map[string]any{"hall-motion": {capability.Occupancy: v}}
 	}
 	r := startRig(t, local("2026-10-21 20:00 BST"), busStates(t, url), motion(true), nil, light)
-	r.expect(call{"hall-light", capability.LightOn, true})
+	r.expect(call{"hall-light", capability.OnOff, true})
 	r.at("2026-10-21 20:10 BST")
 	r.change("hall-motion", capability.Occupancy, false)
 	r.at("2026-10-21 20:12 BST")
@@ -357,13 +357,13 @@ func TestMotionOffDelaySurvivesARestart(t *testing.T) {
 	r.at("2026-10-21 20:24 BST")
 	r.expect()
 	r.at("2026-10-21 20:25 BST")
-	r.expect(call{"hall-light", capability.LightOn, false})
+	r.expect(call{"hall-light", capability.OnOff, false})
 }
 
 var overheat = `
   priority: Safety
-  while: {when: 'devices["workshop-temp"]["sensor.temperature"] > 45', latch: true}
-  hold: {device: workshop-heater, capability: switch.on, value: false}
+  while: {when: 'devices["workshop-temp"]["temperature"] > 45', latch: true}
+  hold: {device: workshop-heater, capability: on-off, value: false}
 `
 
 func TestLatchedHoldActsOnStartupUntilReleased(t *testing.T) {
@@ -374,10 +374,10 @@ func TestLatchedHoldActsOnStartupUntilReleased(t *testing.T) {
 
 	// It overheated while the runtime was down: the latch acts on startup.
 	r := startRig(t, local("2026-10-21 08:00 BST"), busStates(t, url), hot, nil, holdRule(t, "workshop-overheat", overheat), reset)
-	r.expect(call{"workshop-heater", capability.SwitchOn, false})
+	r.expect(call{"workshop-heater", capability.OnOff, false})
 	r.change("workshop-temp", capability.Temperature, 20.0)
 	r.at("2026-10-21 08:30 BST")
-	r.expect(call{"workshop-heater", capability.SwitchOn, false})
+	r.expect(call{"workshop-heater", capability.OnOff, false})
 	if s := r.sched.last(); !s.Active || !s.Next.IsZero() {
 		t.Errorf("reported %+v, want active with no next change", s)
 	}
@@ -388,7 +388,7 @@ func TestLatchedHoldActsOnStartupUntilReleased(t *testing.T) {
 	r = startRig(t, local("2026-10-21 08:30 BST"), busStates(t, url), cool, nil, holdRule(t, "workshop-overheat", overheat), reset)
 	r.expect()
 	r.at("2026-10-21 09:00 BST")
-	r.expect(call{"workshop-heater", capability.SwitchOn, true})
+	r.expect(call{"workshop-heater", capability.OnOff, true})
 	r.stop()
 
 	// The release is saved.
@@ -400,18 +400,18 @@ func TestWhenUnknownKeepsTheState(t *testing.T) {
 	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, holdRule(t, "workshop-overheat", overheat))
 	r.expect()
 	r.change("workshop-temp", capability.Temperature, 50.0)
-	r.expect(call{"workshop-heater", capability.SwitchOn, false})
+	r.expect(call{"workshop-heater", capability.OnOff, false})
 }
 
 func TestNumberHoldWritesNothingWhenItEnds(t *testing.T) {
 	r := startRig(t, local("2026-10-21 21:59 BST"), nil, nil, nil, holdRule(t, "hall-dim", `
   while: {window: {start: "22:00", end: "23:00"}}
-  hold: {device: hall-light, capability: light.level, value: 30}
+  hold: {device: hall-light, capability: current-level, value: 30}
 `))
 	r.at("2026-10-21 22:00 BST")
-	r.expect(call{"hall-light", capability.LightLevel, int64(30)})
+	r.expect(call{"hall-light", capability.CurrentLevel, int64(30)})
 	r.at("2026-10-21 23:00 BST")
-	r.expect(call{"hall-light", capability.LightLevel, int64(30)})
+	r.expect(call{"hall-light", capability.CurrentLevel, int64(30)})
 	if r.active("hall-dim") != 0 {
 		t.Error("oikade_rule_active isn't 0 after the hold ended")
 	}
@@ -420,7 +420,7 @@ func TestNumberHoldWritesNothingWhenItEnds(t *testing.T) {
 func TestEditingTheTargetEndsTheOldOne(t *testing.T) {
 	states := newMemoryStates[HoldState]()
 	r := startRig(t, local("2026-10-21 23:00 BST"), states, nil, nil, holdRule(t, "water-heater-night", heaterNight))
-	r.expect(call{"water-heater", capability.SwitchOn, true})
+	r.expect(call{"water-heater", capability.OnOff, true})
 	edited := holdRule(t, "water-heater-night", strings.ReplaceAll(heaterNight, "water-heater", "bathroom-fan"))
 	edited.Generation = 2
 	c, err := Compile(edited)
@@ -429,8 +429,8 @@ func TestEditingTheTargetEndsTheOldOne(t *testing.T) {
 	}
 	r.e.Load(c)
 	r.settle()
-	r.expect(call{"water-heater", capability.SwitchOn, true}, call{"water-heater", capability.SwitchOn, false},
-		call{"bathroom-fan", capability.SwitchOn, true})
+	r.expect(call{"water-heater", capability.OnOff, true}, call{"water-heater", capability.OnOff, false},
+		call{"bathroom-fan", capability.OnOff, true})
 }
 
 func TestFailedHoldWriteRetries(t *testing.T) {
@@ -447,7 +447,7 @@ func TestFailedHoldWriteRetries(t *testing.T) {
 	r.setter.fail = nil
 	r.setter.mu.Unlock()
 	r.at("2026-10-21 22:01 BST")
-	r.expect(call{"water-heater", capability.SwitchOn, true}, call{"water-heater", capability.SwitchOn, true})
+	r.expect(call{"water-heater", capability.OnOff, true}, call{"water-heater", capability.OnOff, true})
 }
 
 func TestRemoveForgetsTheHold(t *testing.T) {
@@ -470,7 +470,7 @@ func TestRemoveForgetsTheHold(t *testing.T) {
 
 func TestWindowAt(t *testing.T) {
 	compile := func(spec string) *window {
-		c, err := Compile(holdRule(t, "w", spec+"\n  hold: {device: d, capability: switch.on, value: true}\n"))
+		c, err := Compile(holdRule(t, "w", spec+"\n  hold: {device: d, capability: on-off, value: true}\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -501,7 +501,7 @@ func TestWindowAt(t *testing.T) {
 func TestSunWindowFollowsTheDay(t *testing.T) {
 	c, err := Compile(holdRule(t, "porch", `
   while: {window: {start: {sun: Sunset, offset: -15m}, end: "23:00"}}
-  hold: {device: d, capability: switch.on, value: true}
+  hold: {device: d, capability: on-off, value: true}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -547,7 +547,7 @@ func TestRoomHoldWaitsForItsMembers(t *testing.T) {
 	r.declareAlso(map[string]string{"porch-lamp": "porch"})
 	c, err := Compile(holdRule(t, "porch-day", `
   while: {window: {start: "00:00", end: "00:00"}}
-  hold: {room: porch, capability: light.on, value: true}
+  hold: {room: porch, capability: on-off, value: true}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -555,26 +555,26 @@ func TestRoomHoldWaitsForItsMembers(t *testing.T) {
 	r.e.Load(c)
 	r.settle()
 	r.expect()
-	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "porch-lamp"}, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
+	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "porch-lamp"}, driver.Info{Found: true, Capabilities: []string{capability.OnOff}})
 	r.at("2026-10-21 12:01 BST")
-	r.expect(call{"porch-lamp", capability.LightOn, true})
+	r.expect(call{"porch-lamp", capability.OnOff, true})
 }
 
 func TestReleaseWhileWhenIsUnknown(t *testing.T) {
 	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}}
 	r := startRig(t, local("2026-10-21 08:00 BST"), nil, hot, nil, holdRule(t, "workshop-overheat", overheat))
-	r.expect(call{"workshop-heater", capability.SwitchOn, false})
+	r.expect(call{"workshop-heater", capability.OnOff, false})
 	// The sensor drops out of the store, so when can't be evaluated.
 	r.declareAlso(nil)
 	r.store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{{Namespace: ns, Name: "workshop-heater"}: {Instance: z2m}})
-	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "workshop-heater"}, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
+	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "workshop-heater"}, driver.Info{Found: true, Capabilities: []string{capability.OnOff}})
 	r.e.release(types.NamespacedName{Namespace: ns, Name: "workshop-overheat"})
 	r.settle()
-	r.expect(call{"workshop-heater", capability.SwitchOn, false})
+	r.expect(call{"workshop-heater", capability.OnOff, false})
 	// It's back, and cool: the released hold ends rather than latching again.
 	r.declareAlso(nil)
 	r.change("workshop-temp", capability.Temperature, 20.0)
-	r.expect(call{"workshop-heater", capability.SwitchOn, false}, call{"workshop-heater", capability.SwitchOn, true})
+	r.expect(call{"workshop-heater", capability.OnOff, false}, call{"workshop-heater", capability.OnOff, true})
 }
 
 func TestChangesDontSkipTheRetryWait(t *testing.T) {
@@ -626,7 +626,7 @@ func TestCompileBudgetHold(t *testing.T) {
 	for spec, want := range map[string]string{
 		`
   while: {budget: {minutes: {expression: "120"}}, when: "true"}
-  hold: {device: pump, capability: switch.on, value: true}`: "budget must be the only field",
+  hold: {device: pump, capability: on-off, value: true}`: "budget must be the only field",
 	} {
 		if _, err := Compile(holdRule(t, "x", spec)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Compile(%s) = %v, want %q", spec, err, want)

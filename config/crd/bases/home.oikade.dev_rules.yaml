@@ -100,7 +100,7 @@ spec:
                       properties:
                         capability:
                           description: capability is the writable capability to set,
-                            e.g. light.level.
+                            e.g. current-level.
                           minLength: 1
                           type: string
                         device:
@@ -166,7 +166,7 @@ spec:
                 properties:
                   capability:
                     description: capability is the writable capability to hold, e.g.
-                      switch.on.
+                      on-off.
                     minLength: 1
                     type: string
                   device:
@@ -253,7 +253,7 @@ spec:
                       properties:
                         capability:
                           description: capability is the canonical capability to watch,
-                            e.g. sensor.occupancy-detected.
+                            e.g. occupancy.
                           minLength: 1
                           type: string
                         device:
@@ -383,7 +383,7 @@ spec:
                                 properties:
                                   capability:
                                     description: capability is a number capability,
-                                      e.g. sensor.temperature.
+                                      e.g. temperature.
                                     minLength: 1
                                     type: string
                                   device:
@@ -537,7 +537,7 @@ spec:
                   when:
                     description: |-
                       when is a CEL expression over devices, now and tz, as in a Rule's condition.
-                      For example: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+                      For example: devices["bathroom-sensor"]["relative-humidity"] > 70
                     maxLength: 4096
                     type: string
                   window:

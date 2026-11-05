@@ -79,7 +79,7 @@ func TestBrokerWaitsDontBlockSet(t *testing.T) {
 	fast, slow := plugin("fast").Topic(), plugin("slow").Topic()
 	for topic, payload := range map[string]string{
 		fast + "/status":  `{"state":"online","contract":1}`,
-		fast + "/devices": `{"devices":[{"id":"lamp","found":true,"capabilities":["light.on"]}]}`,
+		fast + "/devices": `{"devices":[{"id":"lamp","found":true,"capabilities":["on-off"]}]}`,
 	} {
 		if err := mem.Publish(ctx, topic, []byte(payload), true); err != nil {
 			t.Fatal(err)
@@ -110,7 +110,7 @@ func TestBrokerWaitsDontBlockSet(t *testing.T) {
 		var plugins int
 		go func() {
 			defer close(done)
-			setErr = h.Set(ctx, client.ObjectKeyFromObject(lamp), capability.LightOn, true)
+			setErr = h.Set(ctx, client.ObjectKeyFromObject(lamp), capability.OnOff, true)
 			plugins = len(h.PluginStats())
 		}()
 		select {
@@ -130,7 +130,7 @@ func TestBrokerWaitsDontBlockSet(t *testing.T) {
 	<-bus.entered
 	unblocked("subscribe", 2)
 	// slow's devices are declared before Set can reach it; slow just hasn't announced them yet.
-	if err := h.Set(ctx, client.ObjectKeyFromObject(pump), capability.SwitchOn, true); err == nil ||
+	if err := h.Set(ctx, client.ObjectKeyFromObject(pump), capability.OnOff, true); err == nil ||
 		!strings.Contains(err.Error(), "not found by plugin") {
 		t.Errorf("Set on a subscribing plugin's device = %v, want not found by plugin", err)
 	}

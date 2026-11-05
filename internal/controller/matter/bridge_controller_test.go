@@ -212,7 +212,7 @@ var _ = Describe("Bridge Controller", func() {
 		t.createDevice("router", nil)
 		t.createDevice("lamp", nil)
 		t.createDevice("new", nil)
-		for name, caps := range map[string][]string{"router": {"link.quality"}, "lamp": {"light.on"}} {
+		for name, caps := range map[string][]string{"router": {"zigbee.link-quality"}, "lamp": {"on-off"}} {
 			d := get(t.key(name), &homev1alpha1.Device{})
 			for _, c := range caps {
 				d.Status.Capabilities = append(d.Status.Capabilities, homev1alpha1.DeviceCapability{Name: c, Kind: homev1alpha1.CapabilityKindBool})

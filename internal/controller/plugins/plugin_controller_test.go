@@ -112,7 +112,7 @@ var _ = Describe("Plugin Controller", func() {
 	It("renders declared Devices and runs the plugin", func() {
 		ns := newNamespace()
 		key := createPlugin(ns, nil)
-		createDevice(ns, "porch-light", pluginName, "1000aabbcc", map[string]string{"capability": "light.on"})
+		createDevice(ns, "porch-light", pluginName, "1000aabbcc", map[string]string{"model": "MINIR4"})
 		createDevice(ns, "hall-light", pluginName, "1000000001", nil)
 		createDevice(ns, "elsewhere", "other", "1000000002", nil)
 
@@ -123,7 +123,7 @@ var _ = Describe("Plugin Controller", func() {
 		Expect(renderedDevices(key)).To(Equal([]contractv1.DeclaredDevice{
 			{ID: "1000000001", Name: "hall-light", DisplayName: "hall-light", Room: "porch"},
 			{ID: "1000aabbcc", Name: "porch-light", DisplayName: "porch-light", Room: "porch",
-				Parameters: map[string]string{"capability": "light.on"}},
+				Parameters: map[string]string{"model": "MINIR4"}},
 		}))
 		cfg := get(cfgKey(key), &corev1.Secret{})
 		Expect(metav1.IsControlledBy(cfg, p)).To(BeTrue())

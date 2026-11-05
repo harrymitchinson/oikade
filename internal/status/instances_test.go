@@ -47,7 +47,7 @@ func TestDiscoveredPatchesOnlyChanges(t *testing.T) {
 
 	// Nothing to write before the plugin lists devices.
 	sync()
-	store.Inventory(key, []driver.AppDevice{{ID: "a", Name: "Desk lamp", Capabilities: []string{"light.on"}}})
+	store.Inventory(key, []driver.AppDevice{{ID: "a", Name: "Desk lamp", Capabilities: []string{"on-off"}}})
 	sync()
 	sync()
 	if patches != 1 {

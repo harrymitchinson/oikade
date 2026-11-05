@@ -7,15 +7,15 @@ metadata:
 spec:
   mode: Restart
   triggers:
-  - change: {device: hallway-motion, capability: sensor.occupancy-detected}
+  - change: {device: hallway-motion, capability: occupancy}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
   do:
-  - set: {device: hallway-light, capability: light.level, value: 40}
-  - set: {device: hallway-light, capability: light.on, value: true}
+  - set: {device: hallway-light, capability: current-level, value: 40}
+  - set: {device: hallway-light, capability: on-off, value: true}
   - delay: 5m
-  - set: {device: hallway-light, capability: light.on, value: false}
+  - set: {device: hallway-light, capability: on-off, value: false}
 ---
-# Every light in the living room off when the front door is shut after 23:00.
+# Everything that switches in the living room off when the front door is shut after 23:00.
 # A room action covers lamps added to the living room later without editing this.
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -23,10 +23,10 @@ metadata:
   name: goodnight-living-room
 spec:
   triggers:
-  - change: {device: front-door, capability: sensor.contact-open}
-  condition: "!trigger.value && now.getHours(tz) >= 23"
+  - change: {device: front-door, capability: contact}
+  condition: "trigger.value && now.getHours(tz) >= 23"
   do:
-  - set: {room: living-room, capability: light.on, value: false}
+  - set: {room: living-room, capability: on-off, value: false}
 ---
 # The porch light on 15 minutes before sunset. If the runtime is down at that time, it still
 # comes on up to 10 minutes late. Sun triggers need the runtime's --latitude and --longitude.
@@ -39,7 +39,7 @@ spec:
   - sun: {event: Sunset, offset: -15m}
   startingDeadline: 10m
   do:
-  - set: {device: porch-light, capability: light.on, value: true}
+  - set: {device: porch-light, capability: on-off, value: true}
 ---
 # A towel-rail boost on Sunday evenings. The rail is arbitrated, so the set is a claim and must
 # end: after an hour, or sooner if what the other rules want changes first.
@@ -51,7 +51,7 @@ spec:
   triggers:
   - at: {time: "19:00", days: [Sun]}
   do:
-  - set: {device: towel-rail, capability: switch.on, value: true, for: 1h, until: Next}
+  - set: {device: towel-rail, capability: on-off, value: true, for: 1h, until: Next}
 ---
 # The towel rail on from 06:00 to 08:00 on weekdays. Times are quoted: YAML reads a bare 06:00
 # as a number.
@@ -62,7 +62,7 @@ metadata:
 spec:
   while:
     window: {start: "06:00", end: "08:00", days: [Mon, Tue, Wed, Thu, Fri]}
-  hold: {device: towel-rail, capability: switch.on, value: true}
+  hold: {device: towel-rail, capability: on-off, value: true}
 ---
 # The workshop heater off if the workshop gets too hot, and kept off until someone opens the
 # door to check. Latched, so it acts even if the runtime was down when it overheated, and Safety,
@@ -74,9 +74,9 @@ metadata:
 spec:
   priority: Safety
   while:
-    when: devices["workshop-temperature"]["sensor.temperature"] > 45
+    when: devices["workshop-temperature"]["temperature"] > 45
     latch: true
-  hold: {device: workshop-heater, capability: switch.on, value: false}
+  hold: {device: workshop-heater, capability: on-off, value: false}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -84,8 +84,8 @@ metadata:
   name: workshop-overheat-reset
 spec:
   triggers:
-  - change: {device: workshop-door, capability: sensor.contact-open}
-  condition: trigger.value
+  - change: {device: workshop-door, capability: contact}
+  condition: "!trigger.value"
   do:
   - release: {rule: workshop-overheat}
 ---
@@ -103,7 +103,7 @@ spec:
       slotMinutes: 30
       minutes:
         bands:
-          input: {device: cellar-humidity, capability: sensor.relative-humidity, maxAge: 1h}
+          input: {device: cellar-humidity, capability: relative-humidity, maxAge: 1h}
           missingMinutes: 180
           ranges:
           - {below: 55, minutes: 60}
@@ -114,4 +114,4 @@ spec:
       - {window: {start: "12:00", end: "15:00", days: [Sat, Sun]}, score: 1}
       forbid:
       - {window: {start: "18:00", end: "22:00"}}
-  hold: {device: cellar-dehumidifier, capability: switch.on, value: true}
+  hold: {device: cellar-dehumidifier, capability: on-off, value: true}

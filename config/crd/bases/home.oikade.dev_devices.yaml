@@ -67,7 +67,7 @@ spec:
                   properties:
                     capability:
                       description: capability is the writable capability to arbitrate,
-                        e.g. switch.on.
+                        e.g. on-off.
                       minLength: 1
                       type: string
                     default:
@@ -154,7 +154,7 @@ spec:
                   deviceType:
                     description: |-
                       deviceType overrides the device type chosen from the device's capabilities, e.g.
-                      PlugInUnit for a smart plug that reports itself as a switch.
+                      Light for a relay that drives a lamp.
                     enum:
                     - Light
                     - PlugInUnit
@@ -269,12 +269,12 @@ spec:
                       - Number
                       type: string
                     name:
-                      description: name is the canonical capability, e.g. light.on
-                        or sensor.temperature.
+                      description: name is the canonical capability, e.g. on-off or
+                        temperature.
                       type: string
                     writable:
                       description: writable is true when the capability can be set,
-                        e.g. light.on but not sensor.temperature.
+                        e.g. on-off but not temperature.
                       type: boolean
                   required:
                   - kind

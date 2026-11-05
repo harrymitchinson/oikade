@@ -26,11 +26,11 @@ func TestCompileHold(t *testing.T) {
   priority: Safety
   while:
     window: {start: {sun: Sunset, offset: -15m}, end: "23:30", days: [Fri, Sat]}
-    when: devices["workshop-temperature"]["sensor.temperature"] > 45
+    when: devices["workshop-temperature"]["temperature"] > 45
     onDelay: 1m
     offDelay: 5m
     latch: true
-  hold: {device: workshop-heater, capability: switch.on, value: false}
+  hold: {device: workshop-heater, capability: on-off, value: false}
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestCompileHold(t *testing.T) {
 	if h == nil {
 		t.Fatal("no hold")
 	}
-	if h.device != "workshop-heater" || h.capability != "switch.on" || h.value != false || h.priority != homev1alpha1.RulePrioritySafety {
+	if h.device != "workshop-heater" || h.capability != "on-off" || h.value != false || h.priority != homev1alpha1.RulePrioritySafety {
 		t.Errorf("hold target: %+v", h)
 	}
 	if h.when == nil || !h.latch || h.onDelay != time.Minute || h.offDelay != 5*time.Minute {
@@ -81,55 +81,55 @@ func TestCompileRejectsHolds(t *testing.T) {
   triggers: [{at: {time: "07:00"}}]
   do: [{delay: 1m}]
   while: {when: "true"}
-  hold: {device: d, capability: switch.on, value: true}`, "exactly one of triggers or while"},
+  hold: {device: d, capability: on-off, value: true}`, "exactly one of triggers or while"},
 		"do with while": {`
   while: {when: "true"}
-  hold: {device: d, capability: switch.on, value: true}
+  hold: {device: d, capability: on-off, value: true}
   do: [{delay: 1m}]`, "do is only allowed with triggers"},
 		"bad time": {`
   while: {window: {start: "6:00", end: "08:00"}}
-  hold: {device: d, capability: switch.on, value: true}`, `while.window: start: 6:00 is neither "HH:MM" nor {sun, offset}`},
+  hold: {device: d, capability: on-off, value: true}`, `while.window: start: 6:00 is neither "HH:MM" nor {sun, offset}`},
 		"number time": {`
   while: {window: {start: 6, end: true}}
-  hold: {device: d, capability: switch.on, value: true}`, `start: 6 is neither "HH:MM" nor {sun, offset}` + "\nend: true is neither"},
+  hold: {device: d, capability: on-off, value: true}`, `start: 6 is neither "HH:MM" nor {sun, offset}` + "\nend: true is neither"},
 		"unknown key": {`
   while: {window: {start: {sun: Sunset, ofset: 1h}, end: "08:00"}}
-  hold: {device: d, capability: switch.on, value: true}`, `start: {"ofset":"1h","sun":"Sunset"} is neither`},
+  hold: {device: d, capability: on-off, value: true}`, `start: {"ofset":"1h","sun":"Sunset"} is neither`},
 		"time and sun": {`
   while: {window: {start: {sun: Sunset, offset: 1h}, end: {sun: Noon}}}
-  hold: {device: d, capability: switch.on, value: true}`, `while.window: end: unknown event "Noon"`},
+  hold: {device: d, capability: on-off, value: true}`, `while.window: end: unknown event "Noon"`},
 		"offset on a time": {`
   while: {window: {start: {offset: 1h}, end: "08:00"}}
-  hold: {device: d, capability: switch.on, value: true}`, `start: {"offset":"1h"} is neither "HH:MM" nor {sun, offset}`},
+  hold: {device: d, capability: on-off, value: true}`, `start: {"offset":"1h"} is neither "HH:MM" nor {sun, offset}`},
 		"when not a bool": {`
   while: {when: "1 + 1"}
-  hold: {device: d, capability: switch.on, value: true}`, "while.when: must evaluate to a bool"},
+  hold: {device: d, capability: on-off, value: true}`, "while.when: must evaluate to a bool"},
 		"when has no trigger": {`
   while: {when: "trigger.value"}
-  hold: {device: d, capability: switch.on, value: true}`, "while.when: "},
+  hold: {device: d, capability: on-off, value: true}`, "while.when: "},
 		"latch without when": {`
   while: {window: {start: "06:00", end: "08:00"}, latch: true}
-  hold: {device: d, capability: switch.on, value: true}`, "latch needs when"},
+  hold: {device: d, capability: on-off, value: true}`, "latch needs when"},
 		"read-only hold": {`
   while: {when: "true"}
-  hold: {device: d, capability: sensor.temperature, value: 20}`, "hold: capability sensor.temperature is read-only"},
+  hold: {device: d, capability: temperature, value: 20}`, "hold: capability temperature is read-only"},
 		"wrong kind": {`
   while: {when: "true"}
-  hold: {room: r, capability: light.level, value: true}`, "hold: light.level takes a number"},
+  hold: {room: r, capability: current-level, value: true}`, "hold: current-level takes a number"},
 		"for with released": {`
   triggers: [{at: {time: "07:00"}}]
-  do: [{set: {device: d, capability: switch.on, value: true, for: 1h, until: Released}}]`, "for can't be combined with until: Released"},
+  do: [{set: {device: d, capability: on-off, value: true, for: 1h, until: Released}}]`, "for can't be combined with until: Released"},
 		"zero for": {`
   triggers: [{at: {time: "07:00"}}]
-  do: [{set: {device: d, capability: switch.on, value: true, for: 0s}}]`, "for must be positive"},
+  do: [{set: {device: d, capability: on-off, value: true, for: 0s}}]`, "for must be positive"},
 		"condition on a hold": {`
   condition: "true"
   while: {when: "true"}
-  hold: {device: d, capability: switch.on, value: true}`, "condition applies to triggers"},
+  hold: {device: d, capability: on-off, value: true}`, "condition applies to triggers"},
 		"startingDeadline on a hold": {`
   startingDeadline: 5m
   while: {when: "true"}
-  hold: {device: d, capability: switch.on, value: true}`, "startingDeadline applies to triggers"},
+  hold: {device: d, capability: on-off, value: true}`, "startingDeadline applies to triggers"},
 		"priority on a moment": {`
   priority: Safety
   triggers: [{at: {time: "07:00"}}]
@@ -149,10 +149,10 @@ func TestCompileRejectsHolds(t *testing.T) {
 
 func TestCompileClaims(t *testing.T) {
 	c, err := Compile(ruleYAML(t, `
-  triggers: [{change: {device: b, capability: sensor.contact-open}}]
+  triggers: [{change: {device: b, capability: contact}}]
   do:
-  - set: {device: rail, capability: switch.on, value: true, for: 1h, until: Next, priority: Override}
-  - set: {device: rail, capability: switch.on, value: false, until: Released}
+  - set: {device: rail, capability: on-off, value: true, for: 1h, until: Next, priority: Override}
+  - set: {device: rail, capability: on-off, value: false, until: Released}
   - release: {rule: other}
 `))
 	if err != nil {
@@ -174,7 +174,7 @@ func TestReleaseActionDoesNotSet(t *testing.T) {
 	setter := &fakeSetter{}
 	result, _ := runRoom(t, setter, nil,
 		homev1alpha1.Action{Release: &homev1alpha1.ReleaseAction{Rule: "workshop-overheat"}},
-		set("hallway-light", "light.on", "true"))
+		set("hallway-light", "on-off", "true"))
 	if result != ResultSucceeded {
 		t.Fatalf("result = %s, want %s", result, ResultSucceeded)
 	}

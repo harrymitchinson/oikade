@@ -100,17 +100,15 @@ func TestDeviceTypes(t *testing.T) {
 		caps []string
 		want []uint32
 	}{
-		"on/off light":             {"", []string{capability.LightOn}, []uint32{0x0100}},
-		"dimmable light":           {"", []string{capability.LightOn, capability.LightLevel}, []uint32{0x0101}},
-		"switch shown as a plug":   {"", []string{capability.SwitchOn}, []uint32{0x010A}},
-		"outlet":                   {"", []string{capability.OutletOn}, []uint32{0x010A}},
-		"switch as a light":        {homev1alpha1.MatterDeviceTypeLight, []string{capability.SwitchOn}, []uint32{0x0100}},
-		"switch as a wall control": {homev1alpha1.MatterDeviceTypeMountedControl, []string{capability.SwitchOn}, []uint32{0x010F}},
-		"dimmable light as a plug": {homev1alpha1.MatterDeviceTypePlugInUnit, []string{capability.LightOn, capability.LightLevel}, []uint32{0x010B}},
-		"motion with temperature and battery": {"", []string{capability.Occupancy, capability.Temperature, capability.Battery, capability.LinkQuality},
+		"on-off shown as a plug":   {"", []string{capability.OnOff}, []uint32{0x010A}},
+		"dimmable shown as light":  {"", []string{capability.OnOff, capability.CurrentLevel}, []uint32{0x0101}},
+		"on-off as a light":        {homev1alpha1.MatterDeviceTypeLight, []string{capability.OnOff}, []uint32{0x0100}},
+		"on-off as a wall control": {homev1alpha1.MatterDeviceTypeMountedControl, []string{capability.OnOff}, []uint32{0x010F}},
+		"dimmable as a plug":       {homev1alpha1.MatterDeviceTypePlugInUnit, []string{capability.OnOff, capability.CurrentLevel}, []uint32{0x010B}},
+		"motion with temperature and battery": {"", []string{capability.Occupancy, capability.Temperature, capability.BatPercentRemaining, capability.LinkQuality},
 			[]uint32{0x0107, 0x0302, 0x0011}},
-		"contact":  {"", []string{capability.ContactOpen}, []uint32{0x0015}},
-		"humidity": {"", []string{capability.Humidity, capability.Temperature}, []uint32{0x0302, 0x0307}},
+		"contact":  {"", []string{capability.Contact}, []uint32{0x0015}},
+		"humidity": {"", []string{capability.RelativeHumidity, capability.Temperature}, []uint32{0x0302, 0x0307}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m, _ := mapDevice(t, tc.typ, tc.caps...)
@@ -122,7 +120,7 @@ func TestDeviceTypes(t *testing.T) {
 }
 
 func TestUnsupported(t *testing.T) {
-	for _, caps := range [][]string{nil, {capability.LinkQuality}, {capability.Battery, capability.LinkQuality}} {
+	for _, caps := range [][]string{nil, {capability.LinkQuality}, {capability.BatPercentRemaining, capability.LinkQuality}} {
 		if Supported(caps) || Map(Device{Capabilities: caps}, nil) != nil {
 			t.Errorf("%v mapped", caps)
 		}
@@ -130,19 +128,19 @@ func TestUnsupported(t *testing.T) {
 }
 
 func TestDimmableLight(t *testing.T) {
-	m, calls := mapDevice(t, "", capability.LightOn, capability.LightLevel)
+	m, calls := mapDevice(t, "", capability.OnOff, capability.CurrentLevel)
 	onoff, level := cluster(t, m, clusters.IDOnOff), cluster(t, m, clusters.IDLevelControl)
 	if onoff.FeatureMap&1 == 0 {
 		t.Error("a light's On/Off has no Lighting feature")
 	}
 
 	// The bus reaches the attributes.
-	m.Update(capability.LightOn, true)
-	m.Update(capability.LightLevel, 50.0)
+	m.Update(capability.OnOff, true)
+	m.Update(capability.CurrentLevel, 50.0)
 	if read(t, onoff, 0) != true || read(t, level, 0) != uint64(128) {
 		t.Errorf("OnOff %v, CurrentLevel %v", read(t, onoff, 0), read(t, level, 0))
 	}
-	m.Update(capability.LightLevel, 100.0)
+	m.Update(capability.CurrentLevel, 100.0)
 	if read(t, level, 0) != uint64(254) {
 		t.Errorf("CurrentLevel at 100%% %v", read(t, level, 0))
 	}
@@ -168,10 +166,10 @@ func TestDimmableLight(t *testing.T) {
 		w.PutUint(tlv.Context(3), 0)
 	})
 	want := []setCall{
-		{capability.LightOn, false},
-		{capability.LightOn, false}, // the minimum level with On/Off turns the light off, at its old level
-		{capability.LightLevel, 100.0},
-		{capability.LightLevel, 1.0}, {capability.LightOn, true}, // not 0%, which would read as off
+		{capability.OnOff, false},
+		{capability.OnOff, false}, // the minimum level with On/Off turns the light off, at its old level
+		{capability.CurrentLevel, 100.0},
+		{capability.CurrentLevel, 1.0}, {capability.OnOff, true}, // not 0%, which would read as off
 	}
 	if !reflect.DeepEqual(*calls, want) {
 		t.Errorf("writes %v, want %v", *calls, want)
@@ -179,29 +177,29 @@ func TestDimmableLight(t *testing.T) {
 }
 
 func TestSwitchAsPlug(t *testing.T) {
-	m, calls := mapDevice(t, "", capability.SwitchOn)
+	m, calls := mapDevice(t, "", capability.OnOff)
 	onoff := cluster(t, m, clusters.IDOnOff)
 	if onoff.FeatureMap != 0 {
 		t.Errorf("a plug's On/Off has features %#x", onoff.FeatureMap)
 	}
-	m.Update(capability.SwitchOn, true)
+	m.Update(capability.OnOff, true)
 	invoke(t, onoff, 0x02, nil) // Toggle
-	if read(t, onoff, 0) != false || !reflect.DeepEqual(*calls, []setCall{{capability.SwitchOn, false}}) {
+	if read(t, onoff, 0) != false || !reflect.DeepEqual(*calls, []setCall{{capability.OnOff, false}}) {
 		t.Errorf("OnOff %v, writes %v", read(t, onoff, 0), *calls)
 	}
 }
 
 func TestSensors(t *testing.T) {
-	m, _ := mapDevice(t, "", capability.Occupancy, capability.ContactOpen, capability.Temperature, capability.Humidity, capability.Battery)
+	m, _ := mapDevice(t, "", capability.Occupancy, capability.Contact, capability.Temperature, capability.RelativeHumidity, capability.BatPercentRemaining)
 	temp := cluster(t, m, clusters.IDTemperatureMeasurement)
 	if read(t, temp, 0) != nil {
 		t.Errorf("temperature before any report %v, want null", read(t, temp, 0))
 	}
 	m.Update(capability.Occupancy, true)
-	m.Update(capability.ContactOpen, true)
+	m.Update(capability.Contact, true)
 	m.Update(capability.Temperature, 19.55)
-	m.Update(capability.Humidity, 61.2)
-	m.Update(capability.Battery, 15.0)
+	m.Update(capability.RelativeHumidity, 61.2)
+	m.Update(capability.BatPercentRemaining, 15.0)
 	m.Update(capability.LinkQuality, 80.0) // not mapped: ignored
 
 	for _, tc := range []struct {
@@ -209,7 +207,7 @@ func TestSensors(t *testing.T) {
 		want          any
 	}{
 		{clusters.IDOccupancySensing, 0, uint64(1)},
-		{clusters.IDBooleanState, 0, false}, // open: no contact
+		{clusters.IDBooleanState, 0, true},
 		{clusters.IDTemperatureMeasurement, 0, int64(1955)},
 		{clusters.IDRelativeHumidityMeasurement, 0, uint64(6120)},
 		{clusters.IDPowerSource, 0x000C, uint64(30)}, // half percent

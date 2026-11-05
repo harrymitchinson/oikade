@@ -14,12 +14,11 @@ import (
 // relay is a simulated relay. It starts off and follows /set, as a real relay follows its wall
 // switch.
 type relay struct {
-	id         string
-	capability string
-	on         bool
+	id string
+	on bool
 }
 
-func (r *relay) state() contractv1.State { return contractv1.State{r.capability: r.on} }
+func (r *relay) state() contractv1.State { return contractv1.State{onOff: r.on} }
 
 // switches is the simswitch handler: one simulated relay per declared device.
 type switches struct {
@@ -38,31 +37,33 @@ const (
 	model        = "Simulated switch"
 )
 
+// onOff is the capability every relay reports.
+const onOff = "on-off"
+
 // spare is a relay in the simulated app that no Device declares.
 var spare = contractv1.DiscoveredDevice{
 	ID: "spare-relay", Manufacturer: manufacturer, Model: model,
-	Capabilities: []string{"switch.on"}, Name: "Spare relay",
+	Capabilities: []string{onOff}, Name: "Spare relay",
 }
 
 var _ plugin.Handler = (*switches)(nil)
 
-// newSwitches turns the declared devices into relays and the devices report. A device with a bad
-// capability parameter is reported not found, with the reason. A device with the parameter
+// newSwitches turns the declared devices into relays and the devices report. A device with the
+// parameter simulate: missing is reported not found, with the reason. A device with the parameter
 // simulate: unstable-id is discovered under a new ID each start, which breaks the contract, so the
 // conformance suite's own tests can see it fail.
 func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 	s := &switches{relays: map[string]*relay{}}
 	for _, d := range declared {
-		c, err := plugin.RelayCapability(d.Parameters)
-		if err != nil {
-			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: err.Error()})
+		if d.Parameters["simulate"] == "missing" {
+			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: "no relay with this id"})
 			continue
 		}
-		r := &relay{id: d.ID, capability: c}
+		r := &relay{id: d.ID}
 		s.order = append(s.order, r)
 		s.relays[d.ID] = r
 		s.reports = append(s.reports, contractv1.DeviceReport{
-			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
+			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: []string{onOff},
 		})
 		id := d.ID
 		if d.Parameters["simulate"] == "unstable-id" {
@@ -71,7 +72,7 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 			id = d.ID + "-" + hex.EncodeToString(b)
 		}
 		s.discovered = append(s.discovered, contractv1.DiscoveredDevice{
-			ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
+			ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{onOff},
 			Name: d.DisplayName, Room: d.Room,
 		})
 	}
@@ -120,7 +121,7 @@ func (s *switches) apply(cmd contractv1.SetCommand) (contractv1.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.relays[cmd.ID]
-	if !ok || r.capability != cmd.Capability {
+	if !ok || cmd.Capability != onOff {
 		return nil, fmt.Errorf("no switch %s with %s", cmd.ID, cmd.Capability)
 	}
 	on, ok := cmd.Value.(bool)

@@ -69,9 +69,9 @@ var _ = Describe("Device Controller", func() {
 	})
 
 	It("marks valid control entries Ready", func() {
-		light := entry("light.on", "false", homev1alpha1.ControlResolvePreferOn)
+		light := entry("on-off", "false", homev1alpha1.ControlResolvePreferOn)
 		light.External, light.OverrideHold = homev1alpha1.ControlExternalOverride, homev1alpha1.OverrideHoldNext
-		level := entry("light.level", "40", homev1alpha1.ControlResolveHighest)
+		level := entry("current-level", "40", homev1alpha1.ControlResolveHighest)
 		level.External, level.OverrideHold = homev1alpha1.ControlExternalOverride, "1h30m"
 		level.MinimumOn, level.MinimumOff = &metav1.Duration{Duration: time.Minute}, &metav1.Duration{Duration: time.Minute}
 		level.MaximumOn, level.MaximumStartsPerDay = &metav1.Duration{Duration: time.Hour}, ptr.To[int32](4)
@@ -83,23 +83,23 @@ var _ = Describe("Device Controller", func() {
 
 	It("reports entries that don't fit their capability, naming it", func() {
 		_, err := create("bad-control",
-			entry("sensor.temperature", "20", homev1alpha1.ControlResolveHighest),
-			entry("light.on", "false", homev1alpha1.ControlResolveHighest),
-			entry("light.level", "true", homev1alpha1.ControlResolveLowest),
+			entry("temperature", "20", homev1alpha1.ControlResolveHighest),
+			entry("on-off", "false", homev1alpha1.ControlResolveHighest),
+			entry("current-level", "true", homev1alpha1.ControlResolveLowest),
 		)
 		Expect(err).NotTo(HaveOccurred())
 		cond := ready("bad-control")
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("InvalidControl"))
 		Expect(cond.Message).To(SatisfyAll(
-			ContainSubstring("control sensor.temperature: capability is read-only"),
-			ContainSubstring("control light.on: resolve must be PreferOn or PreferOff"),
-			ContainSubstring("control light.level: default: light.level takes a number"),
+			ContainSubstring("control temperature: capability is read-only"),
+			ContainSubstring("control on-off: resolve must be PreferOn or PreferOff"),
+			ContainSubstring("control current-level: default: current-level takes a number"),
 		))
 	})
 
 	It("clears Ready=False once the entry is fixed", func() {
-		d, err := create("fixed-control", entry("switch.on", "1", homev1alpha1.ControlResolvePreferOn))
+		d, err := create("fixed-control", entry("on-off", "1", homev1alpha1.ControlResolvePreferOn))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ready("fixed-control").Status).To(Equal(metav1.ConditionFalse))
 
@@ -111,7 +111,7 @@ var _ = Describe("Device Controller", func() {
 
 	It("rejects malformed entries at apply time", func() {
 		ok := func() homev1alpha1.CapabilityControl {
-			return entry("switch.on", "false", homev1alpha1.ControlResolvePreferOn)
+			return entry("on-off", "false", homev1alpha1.ControlResolvePreferOn)
 		}
 		with := func(f func(*homev1alpha1.CapabilityControl)) homev1alpha1.CapabilityControl {
 			c := ok()
@@ -144,17 +144,17 @@ var _ = Describe("Device Controller", func() {
 	})
 
 	It("rejects a default that is missing", func() {
-		c := entry("switch.on", "false", homev1alpha1.ControlResolvePreferOn)
+		c := entry("on-off", "false", homev1alpha1.ControlResolvePreferOn)
 		c.Default = apiextensionsv1.JSON{}
 		_, err := create("no-default", c)
 		Expect(err).To(MatchError(ContainSubstring("spec.control[0].default")))
 	})
 
 	It("accepts status.control as the runtime will write it", func() {
-		d, err := create("control-status", entry("switch.on", "true", homev1alpha1.ControlResolvePreferOff))
+		d, err := create("control-status", entry("on-off", "true", homev1alpha1.ControlResolvePreferOff))
 		Expect(err).NotTo(HaveOccurred())
 		d.Status.Control = []homev1alpha1.CapabilityControlStatus{{
-			Capability: "switch.on",
+			Capability: "on-off",
 			Value:      &apiextensionsv1.JSON{Raw: []byte("false")},
 			Level:      homev1alpha1.ControlLevelSafety,
 			Claims: []homev1alpha1.ControlClaim{

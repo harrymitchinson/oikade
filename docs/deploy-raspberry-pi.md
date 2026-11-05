@@ -383,7 +383,8 @@ spec:
   plugin:
     pluginRef: {name: sonoff}
     id: 1000aabbcc
-    parameters: {capability: light.on}   # relays report switch.on unless told otherwise
+    parameters: {model: MINIR4}   # passed to the plugin unchanged
+  matter: {deviceType: Light}     # what the relay drives
 ```
 
 **`hostNetwork`.** Plugins that find devices with mDNS or multicast, such as SONOFF LAN, must run on the host network, like the Matter bridge pod. They then need a node on the same L2 network as the devices, as the Matter bridge pod does with your iPhone (step 4). Label one, and pin the plugin to it with `nodeSelector` as above:
@@ -465,12 +466,12 @@ metadata:
 spec:
   mode: Restart
   triggers:
-  - change: {device: hallway-motion, capability: sensor.occupancy-detected}
+  - change: {device: hallway-motion, capability: occupancy}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
   do:
-  - set: {device: hallway-light, capability: light.on, value: true}
+  - set: {device: hallway-light, capability: on-off, value: true}
   - delay: 5m
-  - set: {device: hallway-light, capability: light.on, value: false}
+  - set: {device: hallway-light, capability: on-off, value: false}
 ```
 
 A hold keeps something on for as long as a window or a condition holds, and stays right across a restart. `home/rules/water-heater-night.yaml`:
@@ -483,7 +484,7 @@ metadata:
 spec:
   while:
     window: {start: "22:00", end: "06:00"}
-  hold: {device: water-heater, capability: switch.on, value: true}
+  hold: {device: water-heater, capability: on-off, value: true}
 ```
 
 ```sh

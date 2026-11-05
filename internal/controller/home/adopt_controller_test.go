@@ -81,7 +81,7 @@ var _ = Describe("Adopting discovered devices", func() {
 	on := &homev1alpha1.DiscoverySpec{Adopt: true}
 	deskLamp := homev1alpha1.DiscoveredDevice{
 		ID: "3f2a9c71", Manufacturer: "Signify", Model: "LCA001", Name: "Desk lamp", Room: "Study",
-		Capabilities: []string{"light.on"},
+		Capabilities: []string{"on-off"},
 	}
 
 	It("creates a Device named after the device in its app, in the matching Room", func() {

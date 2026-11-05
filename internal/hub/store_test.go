@@ -90,8 +90,8 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 	light := types.NamespacedName{Namespace: "home", Name: "porch-light"}
 
 	s.SetDevices(z2m, map[types.NamespacedName]Meta{light: {Instance: z2m}})
-	s.Discovered(light, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
-	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: true})
+	s.Discovered(light, driver.Info{Found: true, Capabilities: []string{capability.OnOff}})
+	s.Changed(driver.Update{Device: light, Capability: capability.OnOff, Value: true})
 	s.Availability(light, true)
 
 	// The Plugin reconciler can run before the Zigbee2MQTT one drops the device.
@@ -106,7 +106,7 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 	}
 
 	// The same instance re-declaring keeps state, and isn't a reassignment.
-	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: false})
+	s.Changed(driver.Update{Device: light, Capability: capability.OnOff, Value: false})
 	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug, Room: "porch"}})
 	if snap, _ := s.Get(light); len(snap.Values) != 1 || snap.Room != "porch" {
 		t.Errorf("state lost on re-declaration: %+v", snap)

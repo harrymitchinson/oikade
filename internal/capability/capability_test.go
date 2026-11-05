@@ -13,15 +13,15 @@ func TestValidate(t *testing.T) {
 		want any
 		ok   bool
 	}{
-		{LightOn, true, true, true},
-		{LightOn, "ON", nil, false},
-		{LightOn, 1.0, nil, false},
-		{LightLevel, 40, 40.0, true},
-		{LightLevel, json.Number("12.5"), 12.5, true},
-		{LightLevel, 101.0, nil, false},
-		{LightLevel, -1.0, nil, false},
-		{LightLevel, math.NaN(), nil, false},
-		{LightLevel, true, nil, false},
+		{OnOff, true, true, true},
+		{OnOff, "ON", nil, false},
+		{OnOff, 1.0, nil, false},
+		{CurrentLevel, 40, 40.0, true},
+		{CurrentLevel, json.Number("12.5"), 12.5, true},
+		{CurrentLevel, 101.0, nil, false},
+		{CurrentLevel, -1.0, nil, false},
+		{CurrentLevel, math.NaN(), nil, false},
+		{CurrentLevel, true, nil, false},
 		{Temperature, -12.3, -12.3, true},
 		{LinkQuality, 255, 255.0, true},
 		{"made.up", true, nil, false},
@@ -38,10 +38,10 @@ func TestValidate(t *testing.T) {
 }
 
 func TestParseJSON(t *testing.T) {
-	if v, err := ParseJSON(LightLevel, []byte("40")); err != nil || v != 40.0 {
+	if v, err := ParseJSON(CurrentLevel, []byte("40")); err != nil || v != 40.0 {
 		t.Errorf("ParseJSON(level, 40) = %v, %v", v, err)
 	}
-	if _, err := ParseJSON(LightOn, []byte(`"true"`)); err == nil {
+	if _, err := ParseJSON(OnOff, []byte(`"true"`)); err == nil {
 		t.Error("ParseJSON accepted a string for a bool capability")
 	}
 }
@@ -57,6 +57,20 @@ func TestRegistryStatus(t *testing.T) {
 		st, ok := Status(name)
 		if !ok || st.Name != name || st.Kind != s.Kind || st.Writable != s.Writable {
 			t.Errorf("Status(%s) = %+v", name, st)
+		}
+	}
+}
+
+func TestEveryCapabilityNamesItsMatterAttribute(t *testing.T) {
+	for name, s := range registry {
+		if name == LinkQuality {
+			if s.Cluster != "" || s.Attribute != "" {
+				t.Errorf("%s has no Matter attribute, got %s %s", name, s.Cluster, s.Attribute)
+			}
+			continue
+		}
+		if s.Cluster == "" || s.Attribute == "" {
+			t.Errorf("%s doesn't name its Matter cluster and attribute", name)
 		}
 	}
 }

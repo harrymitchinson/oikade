@@ -32,7 +32,7 @@ Ask these questions of every feature:
 These appear in users' Git repos, dashboards, alert rules and Home app setups. Changing them breaks someone, so a design has to call out any change to them explicitly.
 
 - **CRD fields and enums.** They're `v1alpha1`, but people's homes are declared in them. Prefer additive, optional fields with defaults. A rename or a change of meaning needs a migration note.
-- **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `sensor.contact-open: true` means open. They appear in Rule YAML, PromQL and `Device.status`. The `add-capability` skill owns this procedure.
+- **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `contact: true` means shut. They appear in Rule YAML, PromQL and `Device.status`. The `add-capability` skill owns this procedure.
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.
 - **The CEL environment** for Rules: `trigger`, `devices`, `now`, `tz`. Its variables and types are a language contract.
 - **The plugin contract** (`docs/plugin-contract.md`, `contract/v1`, `sdk/plugin`) **and `oikade-conformance`'s name and flags.** Plugin repos depend on them through their `go.mod` and CI, and each plugin is released on its own schedule. A change reaches a Go plugin when it bumps `oikade`, and a plugin in another language when it changes the version it pins in `go install …@vX.Y.Z`.

@@ -1,6 +1,8 @@
 package zigbee2mqtt
 
 import (
+	"slices"
+
 	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
@@ -41,16 +43,16 @@ type binding struct {
 	property   string
 	// For binary properties: the raw values meaning on and off.
 	valueOn, valueOff any
-	// invert flips a boolean (Zigbee2MQTT's contact is true when closed).
-	invert bool
 	// scale is the raw maximum that maps to 100% (brightness).
 	scale float64
 }
 
 // bindings derives capability bindings from a device's exposes. Endpoint-specific features
-// (e.g. state_l2 on a multi-gang switch) aren't supported yet and are skipped.
+// (e.g. state_l2 on a multi-gang switch) aren't supported yet and are skipped. A capability binds
+// once, to the first expose that offers it, because a device exposing both a light and a switch
+// would otherwise report on-off twice.
 func bindings(exposes []expose) []binding {
-	var out []binding
+	var all []binding
 	for _, e := range exposes {
 		if e.Endpoint != "" {
 			continue
@@ -61,41 +63,46 @@ func bindings(exposes []expose) []binding {
 				switch {
 				case f.Endpoint != "":
 				case f.Name == "state" && f.Type == exposeBinary:
-					out = append(out, binding{capability: capability.LightOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff})
+					all = append(all, binding{capability: capability.OnOff, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff})
 				case f.Name == "brightness" && f.Type == exposeNumeric:
 					max := 254.0
 					if f.ValueMax != nil && *f.ValueMax > 0 {
 						max = *f.ValueMax
 					}
-					out = append(out, binding{capability: capability.LightLevel, property: f.Property, scale: max})
+					all = append(all, binding{capability: capability.CurrentLevel, property: f.Property, scale: max})
 				}
 			}
 		case "switch":
 			for _, f := range e.Features {
 				if f.Endpoint == "" && f.Name == "state" && f.Type == exposeBinary {
-					out = append(out, binding{capability: capability.SwitchOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff})
+					all = append(all, binding{capability: capability.OnOff, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff})
 				}
 			}
 		case exposeNumeric:
 			if c, ok := numeric[e.Name]; ok {
-				out = append(out, binding{capability: c, property: e.Property})
+				all = append(all, binding{capability: c, property: e.Property})
 			}
 		case exposeBinary:
 			switch e.Name {
 			case "contact":
-				out = append(out, binding{capability: capability.ContactOpen, property: e.Property, invert: true})
+				all = append(all, binding{capability: capability.Contact, property: e.Property})
 			case "occupancy":
-				out = append(out, binding{capability: capability.Occupancy, property: e.Property})
+				all = append(all, binding{capability: capability.Occupancy, property: e.Property})
 			}
 		}
 	}
-	return out
+	seen := map[string]bool{}
+	return slices.DeleteFunc(all, func(b binding) bool {
+		dup := seen[b.capability]
+		seen[b.capability] = true
+		return dup
+	})
 }
 
 var numeric = map[string]string{
 	"temperature": capability.Temperature,
-	"humidity":    capability.Humidity,
-	"battery":     capability.Battery,
+	"humidity":    capability.RelativeHumidity,
+	"battery":     capability.BatPercentRemaining,
 	"linkquality": capability.LinkQuality,
 }
 
@@ -118,12 +125,6 @@ func (b binding) decode(raw any) (any, error) {
 		default:
 			v = raw
 		}
-	case b.invert:
-		bv, ok := raw.(bool)
-		if !ok {
-			return capability.Validate(b.capability, raw)
-		}
-		v = !bv
 	default:
 		v = raw
 	}
@@ -140,8 +141,6 @@ func (b binding) encode(v any) any {
 			return b.valueOn
 		}
 		return b.valueOff
-	case b.invert:
-		return v != true
 	}
 	return v
 }

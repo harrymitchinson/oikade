@@ -48,12 +48,12 @@ func TestComputeResolved(t *testing.T) {
 		},
 		{
 			name: "plugin error on a found device keeps capabilities", spec: plugin, known: true,
-			snap:   hub.Snapshot{Discovered: true, Info: driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}, Error: "bad parameters"}},
+			snap:   hub.Snapshot{Discovered: true, Info: driver.Info{Found: true, Capabilities: []string{capability.OnOff}, Error: "bad parameters"}},
 			status: metav1.ConditionFalse, reason: "PluginError", message: "bad parameters", capabilities: 1,
 		},
 		{
 			name: "paired", spec: plugin, known: true,
-			snap:   hub.Snapshot{Discovered: true, Info: driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}}},
+			snap:   hub.Snapshot{Discovered: true, Info: driver.Info{Found: true, Capabilities: []string{capability.OnOff}}},
 			status: metav1.ConditionTrue, reason: "Paired", capabilities: 1,
 		},
 		{

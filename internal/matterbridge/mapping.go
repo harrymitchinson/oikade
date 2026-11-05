@@ -30,7 +30,7 @@ type Device struct {
 	Name     string
 	// Capabilities are the Device's capability names, from its status.
 	Capabilities []string
-	// Type overrides the device type family of a switch.on Device.
+	// Type overrides the device type family of an on-off Device.
 	Type homev1alpha1.MatterDeviceType
 }
 
@@ -50,16 +50,13 @@ func (m *Mapped) Update(name string, v any) {
 	}
 }
 
-// actuators are the writable on/off capabilities, in the order the mapping prefers them.
-var actuators = []string{capability.LightOn, capability.SwitchOn, capability.OutletOn}
-
 // sensors are the read-only capabilities the mapping shows.
-var sensors = []string{capability.Occupancy, capability.ContactOpen, capability.Temperature, capability.Humidity}
+var sensors = []string{capability.Occupancy, capability.Contact, capability.Temperature, capability.RelativeHumidity}
 
 // Supported reports whether any of a Device's capabilities map to a Matter device type. Battery
 // alone doesn't: it's a power source, not a device.
 func Supported(caps []string) bool {
-	for _, c := range append(slices.Clone(actuators), sensors...) {
+	for _, c := range append([]string{capability.OnOff}, sensors...) {
 		if slices.Contains(caps, c) {
 			return true
 		}
@@ -76,22 +73,15 @@ func Map(d Device, set SetFunc) *Mapped {
 	has := func(c string) bool { return slices.Contains(d.Capabilities, c) }
 	m := &Mapped{update: map[string]func(any){}}
 
-	actuator := ""
-	for _, c := range actuators {
-		if has(c) {
-			actuator = c
-			break
-		}
-	}
-	if actuator != "" {
+	if has(capability.OnOff) {
+		dimmable := has(capability.CurrentLevel)
 		family := d.Type
 		if family == "" {
 			family = homev1alpha1.MatterDeviceTypePlugInUnit
-			if actuator == capability.LightOn {
+			if dimmable {
 				family = homev1alpha1.MatterDeviceTypeLight
 			}
 		}
-		dimmable := actuator == capability.LightOn && has(capability.LightLevel)
 		m.Types = append(m.Types, deviceType(family, dimmable))
 
 		var onoff *clusters.OnOff
@@ -100,9 +90,9 @@ func Map(d Device, set SetFunc) *Mapped {
 		} else {
 			onoff = clusters.NewOnOff()
 		}
-		onoff.OnChange = func(on bool) { set(actuator, on) }
+		onoff.OnChange = func(on bool) { set(capability.OnOff, on) }
 		m.Clusters = append(m.Clusters, onoff.Cluster())
-		m.update[actuator] = func(v any) {
+		m.update[capability.OnOff] = func(v any) {
 			if b, ok := v.(bool); ok {
 				onoff.Set(b)
 			}
@@ -113,17 +103,17 @@ func Map(d Device, set SetFunc) *Mapped {
 				// The WithOnOff commands turn the device off at the minimum level, and on above it.
 				if withOnOff && atMinimum {
 					onoff.Set(false)
-					set(actuator, false)
+					set(capability.OnOff, false)
 					return
 				}
-				set(capability.LightLevel, percent)
+				set(capability.CurrentLevel, percent)
 				if withOnOff {
 					onoff.Set(true)
-					set(actuator, true)
+					set(capability.OnOff, true)
 				}
 			}
 			m.Clusters = append(m.Clusters, level.Cluster())
-			m.update[capability.LightLevel] = func(v any) { level.Set(capability.Float(v)) }
+			m.update[capability.CurrentLevel] = func(v any) { level.Set(capability.Float(v)) }
 		}
 	}
 
@@ -137,14 +127,13 @@ func Map(d Device, set SetFunc) *Mapped {
 			}
 		}
 	}
-	if has(capability.ContactOpen) {
+	if has(capability.Contact) {
 		c := clusters.NewBooleanState()
 		m.Types = append(m.Types, clusters.DeviceContactSensor)
 		m.Clusters = append(m.Clusters, c.Cluster())
-		// Boolean State is true for contact: closed, the inverse of sensor.contact-open.
-		m.update[capability.ContactOpen] = func(v any) {
+		m.update[capability.Contact] = func(v any) {
 			if b, ok := v.(bool); ok {
-				c.Set(!b)
+				c.Set(b)
 			}
 		}
 	}
@@ -154,17 +143,17 @@ func Map(d Device, set SetFunc) *Mapped {
 		m.Clusters = append(m.Clusters, c.Cluster())
 		m.update[capability.Temperature] = func(v any) { c.Set(capability.Float(v)) }
 	}
-	if has(capability.Humidity) {
+	if has(capability.RelativeHumidity) {
 		c := clusters.NewHumidity()
 		m.Types = append(m.Types, clusters.DeviceHumiditySensor)
 		m.Clusters = append(m.Clusters, c.Cluster())
-		m.update[capability.Humidity] = func(v any) { c.Set(capability.Float(v)) }
+		m.update[capability.RelativeHumidity] = func(v any) { c.Set(capability.Float(v)) }
 	}
-	if has(capability.Battery) {
+	if has(capability.BatPercentRemaining) {
 		c := clusters.NewBattery(d.Endpoint)
 		m.Types = append(m.Types, clusters.DevicePowerSource)
 		m.Clusters = append(m.Clusters, c.Cluster())
-		m.update[capability.Battery] = func(v any) { c.Set(capability.Float(v)) }
+		m.update[capability.BatPercentRemaining] = func(v any) { c.Set(capability.Float(v)) }
 	}
 	return m
 }

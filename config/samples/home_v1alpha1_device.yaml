@@ -45,10 +45,10 @@ spec:
   plugin:
     pluginRef: {name: example-switch}
     id: porch-light-1
-    parameters:
-      capability: light.on
+  matter:
+    deviceType: Light
 ---
-# A heated towel rail on a plugin relay. switch.on is arbitrated: rules, Matter and the relay
+# A heated towel rail on a plugin relay. on-off is arbitrated: rules, Matter and the relay
 # itself make claims, and the rail takes the winner. A Home app tap holds until what the rules
 # want next changes. On a Matter bridge it's shown as a plug-in unit (an outlet).
 apiVersion: home.oikade.dev/v1alpha1
@@ -60,12 +60,10 @@ spec:
   plugin:
     pluginRef: {name: example-switch}
     id: towel-rail-1
-    parameters:
-      capability: switch.on
   matter:
     deviceType: PlugInUnit
   control:
-  - capability: switch.on
+  - capability: on-off
     default: false
     resolve: PreferOn
     external: Override
@@ -83,7 +81,7 @@ spec:
     instanceRef: {name: z2m}
     ieeeAddress: "0x000b57fffe000004"
   control:
-  - capability: switch.on
+  - capability: on-off
     default: true
     resolve: PreferOff
     external: Revert
@@ -121,10 +119,8 @@ spec:
   plugin:
     pluginRef: {name: example-switch}
     id: cellar-dehumidifier-1
-    parameters:
-      capability: switch.on
   control:
-  - capability: switch.on
+  - capability: on-off
     default: false
     resolve: PreferOn
     external: Override

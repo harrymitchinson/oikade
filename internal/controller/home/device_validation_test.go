@@ -39,7 +39,7 @@ var _ = Describe("Device validation", func() {
 		Expect(create("source-plugin", homev1alpha1.DeviceSpec{Plugin: &homev1alpha1.PluginDeviceSource{
 			PluginRef:  corev1.LocalObjectReference{Name: "sonoff"},
 			ID:         "1000aabbcc",
-			Parameters: map[string]string{"model": "MINIR4", "capability": "light.on"},
+			Parameters: map[string]string{"model": "MINIR4"},
 		}})).To(Succeed())
 	})
 

@@ -168,7 +168,7 @@ func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*homev1
 	r := rule("lights-on", homev1alpha1.RuleSpec{
 		Triggers:  triggers,
 		Condition: `trigger.type == "at" || trigger.type == "sun"`,
-		Do:        []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
+		Do:        []homev1alpha1.Action{set("hallway-light", capability.OnOff, "true")},
 	})
 	r.CreationTimestamp = metav1.NewTime(now.Add(-30 * 24 * time.Hour))
 	if edit != nil {
@@ -185,7 +185,7 @@ func (h *harness) result(name, result string) float64 {
 	return testutil.ToFloat64(h.e.Runs.WithLabelValues(ns, name, result))
 }
 
-var lightOn = call{"hallway-light", capability.LightOn, true}
+var lightOn = call{"hallway-light", capability.OnOff, true}
 
 // advance sets the clock to t until the engine has made n calls. Setting it again fires a timer
 // the engine created just after the first set.
@@ -283,7 +283,7 @@ func TestReloadDoesNotCatchUp(t *testing.T) {
 	}, atTrigger("07:00"))
 	r := rule("lights-on", homev1alpha1.RuleSpec{
 		Triggers: []homev1alpha1.Trigger{atTrigger("07:00")}, StartingDeadline: &metav1.Duration{Duration: time.Hour},
-		Do: []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
+		Do: []homev1alpha1.Action{set("hallway-light", capability.OnOff, "true")},
 	})
 	r.Generation = 2
 	r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
@@ -340,7 +340,7 @@ func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	h.clock.SetTime(local("2026-10-21 07:05 BST"))
 	r := rule("lights-on", homev1alpha1.RuleSpec{
 		Triggers: []homev1alpha1.Trigger{atTrigger("07:00")}, StartingDeadline: &metav1.Duration{Duration: time.Hour},
-		Do: []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
+		Do: []homev1alpha1.Action{set("hallway-light", capability.OnOff, "true")},
 	})
 	r.CreationTimestamp = metav1.NewTime(local("2026-10-21 07:01 BST"))
 	// The old Rule's lastFire is older than the new one.

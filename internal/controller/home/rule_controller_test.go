@@ -34,11 +34,11 @@ var _ = Describe("Rule Controller", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 			Spec: homev1alpha1.RuleSpec{
 				Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{
-					Device: "hallway-motion", Capability: "sensor.occupancy-detected",
+					Device: "hallway-motion", Capability: "occupancy",
 				}}},
 				Condition: condition,
 				Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
-					Device: "hallway-light", Capability: "light.level", Value: apiextensionsv1.JSON{Raw: []byte(value)},
+					Device: "hallway-light", Capability: "current-level", Value: apiextensionsv1.JSON{Raw: []byte(value)},
 				}}},
 			},
 		})).To(Succeed())
@@ -73,9 +73,9 @@ var _ = Describe("Rule Controller", func() {
 		err := k8sClient.Create(ctx, &homev1alpha1.Rule{
 			ObjectMeta: metav1.ObjectMeta{Name: "both", Namespace: "default"},
 			Spec: homev1alpha1.RuleSpec{
-				Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "d", Capability: "light.on"}}},
+				Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "d", Capability: "on-off"}}},
 				Do: []homev1alpha1.Action{{
-					Set:   &homev1alpha1.SetAction{Device: "d", Capability: "light.on", Value: apiextensionsv1.JSON{Raw: []byte("true")}},
+					Set:   &homev1alpha1.SetAction{Device: "d", Capability: "on-off", Value: apiextensionsv1.JSON{Raw: []byte("true")}},
 					Delay: &metav1.Duration{Duration: 1},
 				}},
 			},
@@ -104,12 +104,12 @@ var _ = Describe("Rule Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: roomNS},
 				Spec: homev1alpha1.RuleSpec{
 					Triggers: []homev1alpha1.Trigger{
-						{Change: &homev1alpha1.ChangeTrigger{Room: "livingroom", Capability: "sensor.occupancy-detected"}},
-						{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: "sensor.occupancy-detected"}},
+						{Change: &homev1alpha1.ChangeTrigger{Room: "livingroom", Capability: "occupancy"}},
+						{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: "occupancy"}},
 					},
 					Do: []homev1alpha1.Action{
-						{Set: &homev1alpha1.SetAction{Room: "livingroom", Capability: "light.on", Value: apiextensionsv1.JSON{Raw: []byte(value)}}},
-						{Set: &homev1alpha1.SetAction{Room: "kitchen", Capability: "light.on", Value: apiextensionsv1.JSON{Raw: []byte(value)}}},
+						{Set: &homev1alpha1.SetAction{Room: "livingroom", Capability: "on-off", Value: apiextensionsv1.JSON{Raw: []byte(value)}}},
+						{Set: &homev1alpha1.SetAction{Room: "kitchen", Capability: "on-off", Value: apiextensionsv1.JSON{Raw: []byte(value)}}},
 					},
 				},
 			})).To(Succeed())
@@ -262,8 +262,8 @@ var _ = Describe("Rule Controller", func() {
 
 	Describe("device or room", func() {
 		create := func(name string, trigger homev1alpha1.ChangeTrigger, set homev1alpha1.SetAction) error {
-			trigger.Capability = "sensor.occupancy-detected"
-			set.Capability, set.Value = "light.on", apiextensionsv1.JSON{Raw: []byte("true")}
+			trigger.Capability = "occupancy"
+			set.Capability, set.Value = "on-off", apiextensionsv1.JSON{Raw: []byte("true")}
 			return k8sClient.Create(ctx, &homev1alpha1.Rule{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 				Spec: homev1alpha1.RuleSpec{
@@ -304,18 +304,18 @@ var _ = Describe("Rule Controller", func() {
 			}
 			return err
 		}
-		const held = "\n  hold: {device: d, capability: switch.on, value: true}"
+		const held = "\n  hold: {device: d, capability: on-off, value: true}"
 
 		It("accepts a window hold, a latched Safety hold and claims", func() {
 			Expect(create("hold-window", `
   while: {window: {start: {sun: Sunset, offset: -15m}, end: "23:30", days: [Fri]}, offDelay: 5m}`+held)).To(Succeed())
 			Expect(create("hold-latched", `
   priority: Safety
-  while: {when: 'devices["t"]["sensor.temperature"] > 45', latch: true}`+held)).To(Succeed())
+  while: {when: 'devices["t"]["temperature"] > 45', latch: true}`+held)).To(Succeed())
 			Expect(create("claims", `
   triggers: [{at: {time: "07:00"}}]
   do:
-  - set: {device: d, capability: switch.on, value: true, for: 1h, until: Next, priority: Override}
+  - set: {device: d, capability: on-off, value: true, for: 1h, until: Next, priority: Override}
   - release: {rule: hold-latched}`)).To(Succeed())
 		})
 
@@ -352,29 +352,29 @@ var _ = Describe("Rule Controller", func() {
   while: {when: "true"}` + held: "condition applies to triggers",
 				`
   triggers: [{at: {time: "07:00"}}]
-  do: [{set: {device: d, capability: switch.on, value: true, for: 1h, until: Released}}]`: "for can't be combined with until: Released",
+  do: [{set: {device: d, capability: on-off, value: true, for: 1h, until: Released}}]`: "for can't be combined with until: Released",
 				`
   triggers: [{at: {time: "07:00"}}]
-  do: [{set: {device: d, capability: switch.on, value: true, until: Later}}]`: "spec.do[0].set.until",
+  do: [{set: {device: d, capability: on-off, value: true, until: Later}}]`: "spec.do[0].set.until",
 				`
   triggers: [{at: {time: "07:00"}}]
   do: [{delay: 1m, release: {rule: x}}]`: "exactly one of set, delay or release",
 				`
   while: {when: "true"}
-  hold: {capability: switch.on, value: true}`: "exactly one of device or room",
+  hold: {capability: on-off, value: true}`: "exactly one of device or room",
 				`
   while: {budget: {minutes: {expression: "60"}}, window: {start: "06:00", end: "08:00"}}` + held: "budget must be the only field of while",
 				`
   while: {budget: {minutes: {expression: "60"}}}
-  hold: {room: r, capability: switch.on, value: true}`: "a budget holds a device, not a room",
+  hold: {room: r, capability: on-off, value: true}`: "a budget holds a device, not a room",
 				`
-  while: {budget: {minutes: {expression: "60", bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 0, ranges: [{minutes: 1}]}}}}` + held: "exactly one of bands or expression",
+  while: {budget: {minutes: {expression: "60", bands: {input: {device: h, capability: temperature}, missingMinutes: 0, ranges: [{minutes: 1}]}}}}` + held: "exactly one of bands or expression",
 				`
   while: {budget: {slotMinutes: 20, minutes: {expression: "60"}}}` + held: "spec.while.budget.slotMinutes",
 				`
   while: {budget: {planningTime: "24:00", minutes: {expression: "60"}}}` + held: "spec.while.budget.planningTime",
 				`
-  while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 2000, ranges: [{minutes: 1}]}}}}` + held: "missingMinutes",
+  while: {budget: {minutes: {bands: {input: {device: h, capability: temperature}, missingMinutes: 2000, ranges: [{minutes: 1}]}}}}` + held: "missingMinutes",
 			} {
 				Expect(create("malformed", spec)).To(MatchError(ContainSubstring(want)), spec)
 			}
@@ -425,7 +425,7 @@ var _ = Describe("Rule Controller", func() {
 			return d
 		}
 		switchControl := homev1alpha1.CapabilityControl{
-			Capability: "switch.on", Default: apiextensionsv1.JSON{Raw: []byte("false")},
+			Capability: "on-off", Default: apiextensionsv1.JSON{Raw: []byte("false")},
 			Resolve: homev1alpha1.ControlResolvePreferOn, External: homev1alpha1.ControlExternalRevert,
 		}
 		setControl := func(d *homev1alpha1.Device, control ...homev1alpha1.CapabilityControl) {
@@ -437,14 +437,14 @@ var _ = Describe("Rule Controller", func() {
 		It("requires a set on an arbitrated capability to end, until it isn't arbitrated", func() {
 			rail := device("towel-rail", "", switchControl)
 			rule("boost", `
-  triggers: [{change: {device: b, capability: sensor.contact-open}}]
+  triggers: [{change: {device: b, capability: contact}}]
   do:
-  - set: {device: towel-rail, capability: switch.on, value: true}
-  - set: {device: towel-rail, capability: switch.on, value: true, for: 1h}`)
+  - set: {device: towel-rail, capability: on-off, value: true}
+  - set: {device: towel-rail, capability: on-off, value: true, for: 1h}`)
 			cond := ready("boost")
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal(ReasonUnendedClaim))
-			Expect(cond.Message).To(Equal("do[0] sets switch.on on towel-rail, which is arbitrated, so the set needs for or until"))
+			Expect(cond.Message).To(Equal("do[0] sets on-off on towel-rail, which is arbitrated, so the set needs for or until"))
 
 			Expect(r.rulesInNamespace(ctx, rail)).To(ContainElement(
 				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "boost"}}))
@@ -454,22 +454,22 @@ var _ = Describe("Rule Controller", func() {
 
 		It("reports two holds on one unarbitrated capability on both, until it's arbitrated", func() {
 			fan := device("bathroom-fan", "bathroom")
-			fan.Status.Capabilities = []homev1alpha1.DeviceCapability{{Name: "switch.on", Kind: homev1alpha1.CapabilityKindBool, Writable: true}}
+			fan.Status.Capabilities = []homev1alpha1.DeviceCapability{{Name: "on-off", Kind: homev1alpha1.CapabilityKindBool, Writable: true}}
 			Expect(k8sClient.Status().Update(ctx, fan)).To(Succeed())
 			device("bathroom-lamp", "bathroom") // reports nothing, so a Room hold leaves it out
 			rule("fan-humid", `
   while: {when: "true", offDelay: 10m}
-  hold: {device: bathroom-fan, capability: switch.on, value: true}`)
+  hold: {device: bathroom-fan, capability: on-off, value: true}`)
 			rule("bathroom-quiet", `
   while: {window: {start: "22:00", end: "07:00"}}
-  hold: {room: bathroom, capability: switch.on, value: false}`)
+  hold: {room: bathroom, capability: on-off, value: false}`)
 			Expect(k8sClient.Create(ctx, &homev1alpha1.Room{ObjectMeta: metav1.ObjectMeta{Name: "bathroom", Namespace: ns}})).To(Succeed())
 
 			for name, other := range map[string]string{"fan-humid": "bathroom-quiet", "bathroom-quiet": "fan-humid"} {
 				cond := ready(name)
 				Expect(cond.Status).To(Equal(metav1.ConditionFalse), name)
 				Expect(cond.Reason).To(Equal(ReasonConflictingHolds))
-				Expect(cond.Message).To(Equal("Holds switch.on on bathroom-fan with Rule " + other +
+				Expect(cond.Message).To(Equal("Holds on-off on bathroom-fan with Rule " + other +
 					", which has no control entry to arbitrate them"))
 			}
 
@@ -484,12 +484,12 @@ var _ = Describe("Rule Controller", func() {
     budget:
       minutes:
         bands:
-          input: {device: cellar-humidity, capability: sensor.relative-humidity}
+          input: {device: cellar-humidity, capability: relative-humidity}
           missingMinutes: 180
           ranges: [{below: 55, minutes: 60}, {below: 65, minutes: 180}, {minutes: 360}]
       prefer: [{window: {start: "23:00", end: "07:00"}, score: 3}]
       forbid: [{window: {start: "18:00", end: "22:00"}}]
-  hold: {device: cellar-dehumidifier, capability: switch.on, value: true}`)
+  hold: {device: cellar-dehumidifier, capability: on-off, value: true}`)
 			cond := ready("cellar-drying")
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal(ReasonNoControl))
@@ -498,7 +498,7 @@ var _ = Describe("Rule Controller", func() {
 			dehumidifier := device("cellar-dehumidifier", "")
 			cond = ready("cellar-drying")
 			Expect(cond.Reason).To(Equal(ReasonNoControl))
-			Expect(cond.Message).To(Equal("Device cellar-dehumidifier has no control entry for switch.on, which a budget needs"))
+			Expect(cond.Message).To(Equal("Device cellar-dehumidifier has no control entry for on-off, which a budget needs"))
 
 			uneven := switchControl
 			uneven.MinimumOn = &metav1.Duration{Duration: 45 * time.Minute}
@@ -520,10 +520,10 @@ var _ = Describe("Rule Controller", func() {
     budget:
       minutes:
         bands:
-          input: {device: loft-temperature, capability: sensor.temperature}
+          input: {device: loft-temperature, capability: temperature}
           missingMinutes: 60
           ranges: [{below: 20, minutes: 30}, {below: 15, minutes: 60}, {minutes: 120}]
-  hold: {device: loft-fan, capability: switch.on, value: true}`)
+  hold: {device: loft-fan, capability: on-off, value: true}`)
 			cond := ready("loft-airing")
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal(ReasonInvalidBudget))
@@ -534,18 +534,18 @@ var _ = Describe("Rule Controller", func() {
 			for _, name := range []string{"ghost-a", "ghost-b"} {
 				rule(name, `
   while: {when: "true"}
-  hold: {device: ghost, capability: switch.on, value: true}`)
+  hold: {device: ghost, capability: on-off, value: true}`)
 			}
 			Expect(ready("ghost-a").Status).To(Equal(metav1.ConditionTrue))
 		})
 
 		It("requires a release to name a Rule that can be released, until it does", func() {
 			rule("reset", `
-  triggers: [{change: {device: b, capability: sensor.contact-open}}]
+  triggers: [{change: {device: b, capability: contact}}]
   do: [{release: {rule: overheat}}, {release: {rule: plain}}]`)
 			rule("plain", `
   while: {when: "true"}
-  hold: {device: heater, capability: switch.on, value: false}`)
+  hold: {device: heater, capability: on-off, value: false}`)
 			cond := ready("reset")
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal(ReasonInvalidRelease))
@@ -554,8 +554,8 @@ var _ = Describe("Rule Controller", func() {
 
 			overheat := rule("overheat", `
   priority: Safety
-  while: {when: 'devices["t"]["sensor.temperature"] > 45', latch: true}
-  hold: {device: heater2, capability: switch.on, value: false}`)
+  while: {when: 'devices["t"]["temperature"] > 45', latch: true}
+  hold: {device: heater2, capability: on-off, value: false}`)
 			Expect(r.rulesInNamespace(ctx, overheat)).To(ContainElement(
 				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: "reset"}}))
 			Expect(ready("reset").Message).To(Equal("Can't release: Rule plain has no latched hold or until: Released set"))
@@ -564,11 +564,11 @@ var _ = Describe("Rule Controller", func() {
 		It("reports a hold's missing Room and a bad window as before", func() {
 			rule("no-room", `
   while: {when: "true"}
-  hold: {room: attic, capability: light.on, value: true}`)
+  hold: {room: attic, capability: on-off, value: true}`)
 			Expect(ready("no-room").Reason).To(Equal("RoomNotFound"))
 			rule("bad-window", `
   while: {window: {start: "6:00", end: "08:00"}}
-  hold: {device: d, capability: light.on, value: true}`)
+  hold: {device: d, capability: on-off, value: true}`)
 			cond := ready("bad-window")
 			Expect(cond.Reason).To(Equal("Invalid"))
 			Expect(cond.Message).To(ContainSubstring(`start: 6:00 is neither "HH:MM" nor {sun, offset}`))
@@ -582,7 +582,7 @@ var _ = Describe("Rule Controller", func() {
 				"metadata": map[string]any{"name": "number-window", "namespace": ns},
 				"spec": map[string]any{
 					"while": map[string]any{"window": map[string]any{"start": int64(6), "end": map[string]any{"sun": "Sunset", "ofset": "1h"}}},
-					"hold":  map[string]any{"device": "d", "capability": "light.on", "value": true},
+					"hold":  map[string]any{"device": "d", "capability": "on-off", "value": true},
 				},
 			}}
 			Expect(k8sClient.Create(ctx, u)).To(Succeed())

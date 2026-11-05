@@ -18,9 +18,9 @@ oikade/v1/<namespace>/<plugin>
 |---|---|---|---|
 | `status` | plugin → Oikade | yes | `{"state":"online","contract":1}`. Set the MQTT Last Will to `{"state":"offline","contract":1}`, retained. |
 | `devices` | plugin → Oikade | yes | The devices the plugin serves. See below. |
-| `<id>/state` | plugin → Oikade | yes | The device's **full** current values, such as `{"switch.on":true}`. |
+| `<id>/state` | plugin → Oikade | yes | The device's **full** current values, such as `{"on-off":true}`. |
 | `<id>/availability` | plugin → Oikade | yes | `online` or `offline`, as a bare string. |
-| `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"switch.on":false}`. |
+| `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"on-off":false}`. |
 
 Retain everything the plugin publishes. Oikade's runtime and every Matter bridge pod rebuild their picture from retained topics when they start or reconnect, and they may receive those topics in any order.
 
@@ -45,7 +45,7 @@ Publish `{"state":"online","contract":1}` once connected, and set the Last Will 
 ```json
 {
   "devices": [
-    {"id": "1000aabbcc", "found": true, "manufacturer": "SONOFF", "model": "MINIR4", "capabilities": ["light.on"]},
+    {"id": "1000aabbcc", "found": true, "manufacturer": "SONOFF", "model": "MINIR4", "capabilities": ["on-off"]},
     {"id": "1000ddeeff", "found": false, "error": "no LAN key for 1000ddeeff"}
   ],
   "undeclared": 1
@@ -54,7 +54,7 @@ Publish `{"state":"online","contract":1}` once connected, and set the Last Will 
 
 - List every device from the devices file (see [Environment](#environment)).
 - `found` is true once the plugin can reach the device. `manufacturer`, `model` and `capabilities` matter only when it's true.
-- `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `light.on`, `outlet.on`, `switch.on`, `light.level` or `sensor.temperature`. A plugin can't define new capabilities. Those go through Oikade's `add-capability` workflow.
+- `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on-off`, `current-level` or `temperature`. A plugin can't define new capabilities. Those go through Oikade's `add-capability` workflow.
 - `error` is a problem with the device's configuration, such as bad `parameters` or a missing key in the Secret. Oikade shows it on the Device as `Resolved=False` with reason `PluginError`. Leave it empty otherwise.
 - `undeclared` counts devices the plugin can see that have no Device object. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 
@@ -69,7 +69,7 @@ A plugin that can list the devices in its app (a hub, a cloud account, a LAN sca
   "devices": [],
   "undeclared": 0,
   "discovered": [
-    {"id": "3f2a9c71-0b1e-4c2d-9a8f-5e6d7c8b9a01", "manufacturer": "Signify", "model": "LCA001", "capabilities": ["light.on", "light.level"], "name": "Desk lamp", "room": "Study"}
+    {"id": "3f2a9c71-0b1e-4c2d-9a8f-5e6d7c8b9a01", "manufacturer": "Signify", "model": "LCA001", "capabilities": ["on-off", "current-level"], "name": "Desk lamp", "room": "Study"}
   ]
 }
 ```
@@ -94,7 +94,7 @@ Oikade sends one capability per message, already validated against the registry 
 
 ## Relay-like devices
 
-Relays don't know what they switch. Report `switch.on` by default. If a device's `parameters.capability` is `light.on` or `outlet.on`, report that instead, so Matter controllers show a light or an outlet. Reject any other value by setting `error` in `devices`.
+Relays don't know what they switch, so report `on-off`. What the relay drives is the user's to say, with `spec.matter.deviceType` on the Device, and a plugin never needs to know it.
 
 ## Environment
 
@@ -113,7 +113,7 @@ The devices file lists the Devices declared for this plugin. The operator rewrit
 {
   "contract": 1,
   "devices": [
-    {"id": "1000aabbcc", "name": "porch-light", "displayName": "Porch light", "room": "porch", "parameters": {"capability": "light.on", "model": "MINIR4"}}
+    {"id": "1000aabbcc", "name": "porch-light", "displayName": "Porch light", "room": "porch", "parameters": {"model": "MINIR4"}}
   ]
 }
 ```

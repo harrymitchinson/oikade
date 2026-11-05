@@ -89,8 +89,8 @@ var (
 )
 
 const devicesJSON = `{"devices":[
-	{"id":"1000aa","found":true,"manufacturer":"SONOFF","model":"MINIR4","capabilities":["light.on","sensor.temperature"]},
-	{"id":"1000bb","found":true,"manufacturer":"SONOFF","model":"MINIR4","capabilities":["switch.on","colour.hue"]},
+	{"id":"1000aa","found":true,"manufacturer":"SONOFF","model":"MINIR4","capabilities":["on-off","temperature"]},
+	{"id":"1000bb","found":true,"manufacturer":"SONOFF","model":"MINIR4","capabilities":["on-off","colour.hue"]},
 	{"id":"1000ff","found":false,"error":"no LAN key for 1000ff"}
 ],"undeclared":2}`
 
@@ -132,10 +132,10 @@ func TestDevicesDropsUnknownCapability(t *testing.T) {
 	i, _, rec := setup(t, online())
 
 	if got := rec.discovered[porch]; !got.Found || got.Model != "MINIR4" ||
-		!slices.Equal(got.Capabilities, []string{capability.LightOn, capability.Temperature}) {
+		!slices.Equal(got.Capabilities, []string{capability.OnOff, capability.Temperature}) {
 		t.Errorf("porch = %+v", got)
 	}
-	if got := rec.discovered[hall].Capabilities; !slices.Equal(got, []string{capability.SwitchOn}) {
+	if got := rec.discovered[hall].Capabilities; !slices.Equal(got, []string{capability.OnOff}) {
 		t.Errorf("hall capabilities = %v, want colour.hue dropped", got)
 	}
 	if got := rec.discovered[ghost]; got.Found || got.Error != "no LAN key for 1000ff" {
@@ -152,9 +152,9 @@ func TestDevicesDropsUnknownCapability(t *testing.T) {
 func TestStateChangesAndRejects(t *testing.T) {
 	i, bus, rec := setup(t, online())
 
-	publish(t, bus, root+"/1000aa/state", `{"light.on":true,"sensor.temperature":21.5}`)
+	publish(t, bus, root+"/1000aa/state", `{"on-off":true,"temperature":21.5}`)
 	got := rec.takeChanges()
-	if len(got) != 2 || got[0].Capability != capability.LightOn || got[0].Value != true || got[0].Previous != nil ||
+	if len(got) != 2 || got[0].Capability != capability.OnOff || got[0].Value != true || got[0].Previous != nil ||
 		got[1].Value != 21.5 || got[1].Device != porch || !got[1].Time.Equal(now) {
 		t.Fatalf("first state = %+v", got)
 	}
@@ -163,22 +163,22 @@ func TestStateChangesAndRejects(t *testing.T) {
 	}
 
 	// The full state again, with only the temperature changed.
-	publish(t, bus, root+"/1000aa/state", `{"light.on":true,"sensor.temperature":22}`)
+	publish(t, bus, root+"/1000aa/state", `{"on-off":true,"temperature":22}`)
 	got = rec.takeChanges()
 	if len(got) != 1 || got[0].Value != 22.0 || got[0].Previous != 21.5 {
 		t.Fatalf("diffed state = %+v", got)
 	}
 
 	for _, payload := range []string{
-		`{"light.on":"on"}`,           // invalid_value: wrong kind
-		`{"sensor.temperature":5000}`, // invalid_value: out of range
-		`{"colour.hue":120}`,          // unknown_capability
-		`{"switch.on":true}`,          // unannounced_capability: porch announced light.on
-		`not json`,                    // malformed
+		`{"on-off":"on"}`,      // invalid_value: wrong kind
+		`{"temperature":5000}`, // invalid_value: out of range
+		`{"colour.hue":120}`,   // unknown_capability
+		`{"current-level":40}`, // unannounced_capability: porch didn't announce it
+		`not json`,             // malformed
 	} {
 		publish(t, bus, root+"/1000aa/state", payload)
 	}
-	publish(t, bus, root+"/1000cc/state", `{"switch.on":true}`) // undeclared_device
+	publish(t, bus, root+"/1000cc/state", `{"on-off":true}`) // undeclared_device
 	if got := rec.takeChanges(); len(got) != 0 {
 		t.Errorf("rejected messages produced changes: %+v", got)
 	}
@@ -197,7 +197,7 @@ func TestStateChangesAndRejects(t *testing.T) {
 func TestRetainedStateBeforeDeclaration(t *testing.T) {
 	// The broker replays retained topics in any order, and before the hub declares devices.
 	retained := online()
-	retained["1000aa/state"] = `{"light.on":true}`
+	retained["1000aa/state"] = `{"on-off":true}`
 	retained["1000aa/availability"] = "online"
 	i, _, rec := setup(t, retained)
 
@@ -224,7 +224,7 @@ func TestStateBeforeDevicesIsReplayed(t *testing.T) {
 		t.Fatalf("devices discovered before the devices topic: %+v", rec.discovered)
 	}
 
-	publish(t, bus, root+"/1000aa/state", `{"light.on":false}`)
+	publish(t, bus, root+"/1000aa/state", `{"on-off":false}`)
 	if got := rec.takeChanges(); len(got) != 0 {
 		t.Fatalf("state before devices produced changes: %+v", got)
 	}
@@ -256,7 +256,7 @@ func TestStatusOfflineAndContract(t *testing.T) {
 			t.Errorf("%s still available after the plugin went offline", d)
 		}
 	}
-	if err := i.Set(context.Background(), porch, capability.LightOn, true); err == nil {
+	if err := i.Set(context.Background(), porch, capability.OnOff, true); err == nil {
 		t.Errorf("Set succeeded while the plugin is offline")
 	}
 
@@ -271,7 +271,7 @@ func TestStatusOfflineAndContract(t *testing.T) {
 	if i.Stats().Up || rec.available[porch] || rec.discovered[porch].Found {
 		t.Errorf("contract 2 not ignored: up=%v available=%v info=%+v", i.Stats().Up, rec.available[porch], rec.discovered[porch])
 	}
-	publish(t, bus, root+"/1000aa/state", `{"light.on":true}`)
+	publish(t, bus, root+"/1000aa/state", `{"on-off":true}`)
 	publish(t, bus, root+"/devices", devicesJSON)
 	if got := rec.takeChanges(); len(got) != 0 || rec.discovered[porch].Found {
 		t.Errorf("messages under contract 2 were used: %+v", got)
@@ -285,10 +285,10 @@ func TestSetPublishes(t *testing.T) {
 	i, bus, _ := setup(t, online())
 	ctx := context.Background()
 
-	if err := i.Set(ctx, porch, capability.LightOn, false); err != nil {
+	if err := i.Set(ctx, porch, capability.OnOff, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := bus.Sent(root + "/1000aa/set"); !slices.Equal(got, []string{`{"light.on":false}`}) {
+	if got := bus.Sent(root + "/1000aa/set"); !slices.Equal(got, []string{`{"on-off":false}`}) {
 		t.Errorf("sent = %v", got)
 	}
 	if bus.Published[len(bus.Published)-1].Retained {
@@ -296,12 +296,12 @@ func TestSetPublishes(t *testing.T) {
 	}
 
 	for name, call := range map[string]func() error{
-		"unannounced capability": func() error { return i.Set(ctx, porch, capability.SwitchOn, true) },
+		"unannounced capability": func() error { return i.Set(ctx, porch, capability.CurrentLevel, 40.0) },
 		"capability dropped as unknown": func() error {
 			return i.Set(ctx, hall, "colour.hue", 1.0)
 		},
-		"device not found by the plugin": func() error { return i.Set(ctx, ghost, capability.SwitchOn, true) },
-		"undeclared device":              func() error { return i.Set(ctx, dev("other"), capability.SwitchOn, true) },
+		"device not found by the plugin": func() error { return i.Set(ctx, ghost, capability.OnOff, true) },
+		"undeclared device":              func() error { return i.Set(ctx, dev("other"), capability.OnOff, true) },
 	} {
 		if err := call(); err == nil {
 			t.Errorf("%s: Set succeeded", name)
@@ -315,7 +315,7 @@ func TestSetPublishes(t *testing.T) {
 func TestStopUnsubscribes(t *testing.T) {
 	i, bus, rec := setup(t, online())
 	i.Stop()
-	publish(t, bus, root+"/1000aa/state", `{"light.on":true}`)
+	publish(t, bus, root+"/1000aa/state", `{"on-off":true}`)
 	if got := rec.takeChanges(); len(got) != 0 {
 		t.Errorf("changes after Stop: %+v", got)
 	}
@@ -325,8 +325,8 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 	retained := online()
 	// 1000aa is declared, 1000cc isn't, and the plugin's own count is ignored.
 	retained["devices"] = `{"devices":[],"undeclared":7,"discovered":[
-		{"id":"1000aa","model":"MINIR4","capabilities":["light.on"],"name":"Porch light","room":"Porch"},
-		{"id":"1000cc","capabilities":["switch.on","colour.hue"],"name":"Desk lamp"},
+		{"id":"1000aa","model":"MINIR4","capabilities":["on-off"],"name":"Porch light","room":"Porch"},
+		{"id":"1000cc","capabilities":["on-off","colour.hue"],"name":"Desk lamp"},
 		{"id":"1000cc"},
 		{"id":"bad/id"}
 	]}`
@@ -337,7 +337,7 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 	}
 	got, ok := i.Discovered()
 	if !ok || len(got) != 2 || got[0].Name != "Porch light" || got[0].Room != "Porch" ||
-		!slices.Equal(got[1].Capabilities, []string{capability.SwitchOn}) {
+		!slices.Equal(got[1].Capabilities, []string{capability.OnOff}) {
 		t.Errorf("Discovered() = %+v, %v", got, ok)
 	}
 	if len(rec.inventory) != 2 || rec.inventory[0].ID != "1000aa" || rec.inventory[0].Name != "Porch light" ||

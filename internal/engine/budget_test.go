@@ -19,7 +19,7 @@ import (
 // pumpEntry is scenario 5's pump: on for at least an hour, resting half an hour, three starts a
 // day, and a Home app tap holds for two hours.
 func pumpEntry() homev1alpha1.CapabilityControl {
-	e := entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "2h")
+	e := entry(capability.OnOff, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "2h")
 	starts := int32(3)
 	e.MinimumOn, e.MinimumOff = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: 30 * time.Minute}
 	e.MaximumStartsPerDay = &starts
@@ -33,18 +33,18 @@ const pumpBudget = `
     budget:
       minutes:
         bands:
-          input: {device: water-temp, capability: sensor.temperature, maxAge: 1h}
+          input: {device: water-temp, capability: temperature, maxAge: 1h}
           missingMinutes: 240
           ranges: [{below: 12, minutes: 120}, {below: 16, minutes: 180}, {minutes: 300}]
       prefer: [{window: {start: "22:00", end: "06:00"}, score: 3}]
       forbid: [{window: {start: "07:00", end: "08:30"}}]
-  hold: {device: pump, capability: switch.on, value: true}
+  hold: {device: pump, capability: on-off, value: true}
 `
 
 const pumpFrost = `
   priority: Safety
-  while: {when: 'devices["outdoor-temp"]["sensor.temperature"] < 1.0'}
-  hold: {device: pump, capability: switch.on, value: true}
+  while: {when: 'devices["outdoor-temp"]["temperature"] < 1.0'}
+  hold: {device: pump, capability: on-off, value: true}
 `
 
 // setControlOf replaces one device's control entries, leaving the others' empty.
@@ -93,7 +93,7 @@ func TestScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T) {
 		budget.Status.Today = today
 		return startRigWith(t, rigOptions{
 			now: local(now), holds: busStates(t, url), controls: controlStates(t, url),
-			values:  map[string]map[string]any{"pump": {capability.SwitchOn: pumpOn}, "outdoor-temp": {capability.Temperature: 5.0}},
+			values:  map[string]map[string]any{"pump": {capability.OnOff: pumpOn}, "outdoor-temp": {capability.Temperature: 5.0}},
 			control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
 		}, budget, holdRule(t, "pump-frost", pumpFrost))
 	}
@@ -121,9 +121,9 @@ func TestScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T) {
 	if !first.Start.Time.Equal(local("2026-10-22 00:00 BST")) {
 		t.Fatalf("blocks %s, want the first at 00:00", blocks(today))
 	}
-	r.expect(call{"pump", capability.SwitchOn, true})
-	r.report("pump", capability.SwitchOn, true)
-	if w := winner(r.status("pump", capability.SwitchOn)); w != "Rule/pump-daily Normal" {
+	r.expect(call{"pump", capability.OnOff, true})
+	r.report("pump", capability.OnOff, true)
+	if w := winner(r.status("pump", capability.OnOff)); w != "Rule/pump-daily Normal" {
 		t.Errorf("00:00 winner %q", w)
 	}
 	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues(ns, "pump-daily")); got != 1 {
@@ -132,19 +132,19 @@ func TestScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T) {
 
 	// The Home app turns it off at 01:00: a Matter override, which beats the budget.
 	r.at("2026-10-22 01:00 BST")
-	r.matter("pump", capability.SwitchOn, false)
-	r.report("pump", capability.SwitchOn, false)
-	if w := winner(r.status("pump", capability.SwitchOn)); w != "Matter Override" {
+	r.matter("pump", capability.OnOff, false)
+	r.report("pump", capability.OnOff, false)
+	if w := winner(r.status("pump", capability.OnOff)); w != "Matter Override" {
 		t.Errorf("01:00 winner %q, want the Home app's override", w)
 	}
 
 	// Frost at 01:30 forces it on through the override, as a Safety hold.
 	r.at("2026-10-22 01:30 BST")
 	r.report("outdoor-temp", capability.Temperature, 0.5)
-	if w := winner(r.status("pump", capability.SwitchOn)); w != "Rule/pump-frost Safety" {
+	if w := winner(r.status("pump", capability.OnOff)); w != "Rule/pump-frost Safety" {
 		t.Errorf("01:30 winner %q, want the frost hold", w)
 	}
-	r.report("pump", capability.SwitchOn, true)
+	r.report("pump", capability.OnOff, true)
 	r.at("2026-10-22 01:45 BST")
 	b = r.budget("pump-daily")
 	// On 00:00-01:00 and 01:30-01:45, reported at most every 5 minutes.
@@ -162,7 +162,7 @@ func TestScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T) {
 	// starts from status.today, rather than planning again.
 	r = start("2026-10-22 01:50 BST", saved, true)
 	r.report("water-temp", capability.Temperature, 20.0)
-	r.report("pump", capability.SwitchOn, true)
+	r.report("pump", capability.OnOff, true)
 	r.at("2026-10-22 01:56 BST")
 	b = r.budget("pump-daily")
 	if blocks(b.Today) != blocks(saved) || b.Today.TargetMinutes != 180 {
@@ -224,7 +224,7 @@ func TestBudgetPlansLateAfterADownedStart(t *testing.T) {
 	// Started at 14:00 with no plan: today is planned from now, so the night is gone.
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 14:00 BST"),
-		values:  map[string]map[string]any{"pump": {capability.SwitchOn: false}},
+		values:  map[string]map[string]any{"pump": {capability.OnOff: false}},
 		control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
 	}, holdRule(t, "pump-daily", pumpBudget))
 	b := r.budget("pump-daily")
@@ -248,7 +248,7 @@ func TestEditingOutTheBudgetClearsItsStatus(t *testing.T) {
 	}
 	edited := holdRule(t, "pump-nightly", `
   while: {window: {start: "22:00", end: "06:00"}}
-  hold: {device: pump, capability: switch.on, value: true}
+  hold: {device: pump, capability: on-off, value: true}
 `)
 	edited.Generation = 2
 	c, err := Compile(edited)
@@ -316,7 +316,7 @@ func TestAStalePlanIsClearedOnLoad(t *testing.T) {
 	// The budget was removed while the runtime was down: its plan is still in status.
 	rule := holdRule(t, "pump-daily", `
   while: {window: {start: "22:00", end: "06:00"}}
-  hold: {device: pump, capability: switch.on, value: true}
+  hold: {device: pump, capability: on-off, value: true}
 `)
 	rule.Status.Today = &homev1alpha1.BudgetDay{Date: "2026-10-21", TargetMinutes: 120}
 	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, rule)
@@ -327,8 +327,8 @@ func TestAStalePlanIsClearedOnLoad(t *testing.T) {
 
 func TestAFailedDayStaysFailedAfterARestart(t *testing.T) {
 	rule := holdRule(t, "pump-daily", `
-  while: {budget: {minutes: {expression: 'devices["water-temp"]["sensor.temperature"] > 10.0 ? 60 : 30'}}}
-  hold: {device: pump, capability: switch.on, value: true}
+  while: {budget: {minutes: {expression: 'devices["water-temp"]["temperature"] > 10.0 ? 60 : 30'}}}
+  hold: {device: pump, capability: on-off, value: true}
 `)
 	start := func(today *homev1alpha1.BudgetDay, planned *metav1.Condition) *rig {
 		r := rule.DeepCopy()

@@ -39,8 +39,8 @@ Illustrative output:
 ```console
 $ kubectl -n home get devices
 NAME             NAME             ROOM      CAPABILITIES                                  AVAILABLE   LAST SEEN
-hallway-light    Hallway Light    hallway   ["light.on","light.level","link.quality"]     True        2m
-hallway-motion   Hallway Motion   hallway   ["sensor.occupancy-detected",...]             True        1m
+hallway-light    Hallway Light    hallway   ["on-off","current-level","zigbee.link-quality"]     True        2m
+hallway-motion   Hallway Motion   hallway   ["occupancy",...]             True        1m
 ```
 
 There is one binary with three subcommands:
@@ -95,12 +95,12 @@ metadata: {name: hallway-motion-light}
 spec:
   mode: Restart          # new motion restarts the 5 minutes; Single ignores triggers while running
   triggers:
-  - change: {device: hallway-motion, capability: sensor.occupancy-detected}
+  - change: {device: hallway-motion, capability: occupancy}
   condition: trigger.value && (now.getHours(tz) >= 18 || now.getHours(tz) < 7)
   do:
-  - set: {device: hallway-light, capability: light.on, value: true}
+  - set: {device: hallway-light, capability: on-off, value: true}
   - delay: 5m
-  - set: {device: hallway-light, capability: light.on, value: false}
+  - set: {device: hallway-light, capability: on-off, value: false}
 ```
 
 The condition is [CEL](https://cel.dev). It can use these variables:
@@ -129,7 +129,7 @@ spec:
   - sun: {event: Sunset, offset: -15m}                     # 15 minutes before sunset
   startingDeadline: 10m
   do:
-  - set: {device: porch-light, capability: light.on, value: false}
+  - set: {device: porch-light, capability: on-off, value: false}
 ```
 
 - **Times are local,** in the runtime's `--timezone`. A time the clocks skip when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
@@ -145,13 +145,13 @@ A `change` trigger, a `set` action or a `hold` can name a `room` instead of a `d
 ```yaml
 spec:
   triggers:
-  - change: {room: hallway, capability: sensor.occupancy-detected}   # any sensor in the hallway
+  - change: {room: hallway, capability: occupancy}   # any sensor in the hallway
   do:
-  - set: {room: living-room, capability: light.on, value: false}   # every light in the living room
+  - set: {room: living-room, capability: on-off, value: false}   # everything that switches in the living room
 ```
 
 - **Room triggers** fire on a change from any Device in the room at the time of the change. `trigger.device` is still the Device that changed.
-- **Room actions** set every Device in the room that has reported the capability, in name order, and skip the rest. So `light.on` on a room leaves the motion sensor and the thermostat alone, and a Device that hasn't been discovered yet is skipped. Membership is read when the action runs, so a lamp added to the room during a `delay` is included in the actions after it.
+- **Room actions** set every Device in the room that has reported the capability, in name order, and skip the rest. So `on-off` on a room sets its lamps and plugs alike, leaves the motion sensor and the thermostat alone, and a Device that hasn't been discovered yet is skipped. Membership is read when the action runs, so a lamp added to the room during a `delay` is included in the actions after it.
 - **If some Devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`, and the runtime logs `Matched no Devices in Room` with `--log-level=debug`.
 - **Restart mode with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `delay` longer than the time your sensor holds `occupancy: true` after the last movement.
 - **A room `set` with no end skips arbitrated members,** because a claim must end (see [one-off claims](#one-off-claims)). The Rule lists them in `status.skipped`.
@@ -167,16 +167,16 @@ metadata: {name: water-heater-night}
 spec:
   while:
     window: {start: "22:00", end: "06:00"}   # an end at or before the start is the next morning
-  hold: {device: water-heater, capability: switch.on, value: true}
+  hold: {device: water-heater, capability: on-off, value: true}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: bathroom-humid}
 spec:
   while:
-    when: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70
+    when: devices["bathroom-sensor"]["relative-humidity"] > 70
     offDelay: 10m                            # run on for 10 minutes after it drops
-  hold: {device: bathroom-fan, capability: switch.on, value: true}
+  hold: {device: bathroom-fan, capability: on-off, value: true}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -184,7 +184,7 @@ metadata: {name: porch-evening}
 spec:
   while:
     window: {start: {sun: Sunset, offset: -15m}, end: "23:30"}
-  hold: {device: porch-light, capability: light.on, value: true}
+  hold: {device: porch-light, capability: on-off, value: true}
 ```
 
 | Field | |
@@ -216,7 +216,7 @@ metadata: {name: loft-fan}
 spec:
   zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x00158d00000000f1"}
   control:
-  - capability: switch.on
+  - capability: on-off
     default: false
     resolve: PreferOn
     external: Override
@@ -235,7 +235,7 @@ spec:
       slotMinutes: 30
       minutes:
         bands:
-          input: {device: loft-humidity, capability: sensor.relative-humidity, maxAge: 1h}
+          input: {device: loft-humidity, capability: relative-humidity, maxAge: 1h}
           missingMinutes: 180   # if the sensor hasn't reported in the last hour
           ranges:
           - {below: 55, minutes: 60}
@@ -245,7 +245,7 @@ spec:
       - {window: {start: "23:00", end: "07:00"}, score: 3}
       forbid:
       - {window: {start: "18:00", end: "22:00"}}
-  hold: {device: loft-fan, capability: switch.on, value: true}
+  hold: {device: loft-fan, capability: on-off, value: true}
 ```
 
 | Field | |
@@ -253,7 +253,7 @@ spec:
 | `planningTime` | When each planning day starts, `"HH:MM"` local time. The day is planned then, and the plan is frozen until the next one. Defaults to `"00:00"`. |
 | `slotMinutes` | The day is planned in slots of 15, 30 or 60 minutes. Defaults to 30. |
 | `minutes.bands` | The day's minutes from the band the `input`'s value falls in at `planningTime`: the first whose `below` it's under, and the last band, with no `below`, for the rest. `missingMinutes` applies when the input hasn't reported within `maxAge` (default 30m). |
-| `minutes.expression` | Or CEL over `devices`, `now` and `tz` returning the minutes, such as `devices["loft-humidity"]["sensor.relative-humidity"] > 60.0 ? 240 : 90`. |
+| `minutes.expression` | Or CEL over `devices`, `now` and `tz` returning the minutes, such as `devices["loft-humidity"]["relative-humidity"] > 60.0 ? 240 : 90`. |
 | `prefer` | Windows the minutes go in first. Each slot a window touches gains its `score`, from -100 to 100, and overlapping windows add up. |
 | `forbid` | Windows the minutes never go in. |
 
@@ -272,7 +272,7 @@ metadata: {name: hall-light}
 spec:
   zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x000b57fffe0000a1"}
   control:
-  - capability: light.on
+  - capability: on-off
     default: false          # what's left when nobody claims it
     resolve: PreferOn       # two claims at one level: on wins
     external: Override      # a wall switch or Home app tap becomes a claim...
@@ -283,9 +283,9 @@ kind: Rule
 metadata: {name: hall-motion-light}
 spec:
   while:
-    when: devices["hall-motion"]["sensor.occupancy-detected"]
+    when: devices["hall-motion"]["occupancy"]
     offDelay: 5m
-  hold: {device: hall-light, capability: light.on, value: true}
+  hold: {device: hall-light, capability: on-off, value: true}
 ```
 
 Rules, Matter controllers and the device itself make **claims**. The highest level with a claim wins:
@@ -320,7 +320,7 @@ metadata: {name: towel-rail}
 spec:
   zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x000b57fffe0000a2"}
   control:
-  - {capability: switch.on, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
+  - {capability: on-off, default: false, resolve: PreferOn, external: Override, overrideHold: 1h}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -329,7 +329,7 @@ spec:
   triggers:
   - at: {time: "21:30", days: [Sun]}
   do:
-  - set: {device: towel-rail, capability: switch.on, value: true, for: 1h, until: Next}
+  - set: {device: towel-rail, capability: on-off, value: true, for: 1h, until: Next}
 ```
 
 - `for: <duration>` ends it after that long.
@@ -351,7 +351,7 @@ metadata: {name: garage-heater}
 spec:
   zigbee2mqtt: {instanceRef: {name: z2m}, ieeeAddress: "0x000b57fffe0000a3"}
   control:
-  - {capability: switch.on, default: true, resolve: PreferOff, external: Revert}
+  - {capability: on-off, default: true, resolve: PreferOff, external: Revert}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
@@ -359,17 +359,17 @@ metadata: {name: garage-overheat}
 spec:
   priority: Safety
   while:
-    when: devices["garage-temperature"]["sensor.temperature"] > 40
+    when: devices["garage-temperature"]["temperature"] > 40
     latch: true
-  hold: {device: garage-heater, capability: switch.on, value: false}
+  hold: {device: garage-heater, capability: on-off, value: false}
 ---
 apiVersion: home.oikade.dev/v1alpha1
 kind: Rule
 metadata: {name: garage-overheat-reset}
 spec:
   triggers:
-  - change: {device: garage-door, capability: sensor.contact-open}
-  condition: trigger.value
+  - change: {device: garage-door, capability: contact}
+  condition: "!trigger.value"
   do:
   - release: {rule: garage-overheat}
 ```
@@ -384,7 +384,7 @@ Overheating turns the heater off. Turning it on from the Home app is reverted at
 $ kubectl -n home get device hall-light -o jsonpath='{.status.control}' | jq
 [
   {
-    "capability": "light.on",
+    "capability": "on-off",
     "value": false,
     "level": "Override",
     "claims": [
@@ -425,16 +425,14 @@ Drivers translate to and from a protocol-neutral set of capabilities. Matter, me
 
 | Capability | Type | Writable | Matter |
 |---|---|---|---|
-| `light.on` | bool | ✓ | On/Off Light, or Dimmable Light with `light.level` |
-| `light.level` | 0–100 | ✓ | Level Control on a Dimmable Light |
-| `switch.on` | bool | ✓ | On/Off Plug-in Unit, or as `spec.matter.deviceType` says |
-| `outlet.on` | bool | ✓ | On/Off Plug-in Unit |
-| `sensor.temperature` | °C | | Temperature Sensor |
-| `sensor.relative-humidity` | % | | Humidity Sensor |
-| `sensor.contact-open` | bool | | Contact Sensor (Boolean State, `true` for closed). `true` means open, the inverse of Zigbee2MQTT's `contact`. |
-| `sensor.occupancy-detected` | bool | | Occupancy Sensor (passive infrared) |
-| `battery.level` | % | | Power Source, with a warning below 20% |
-| `link.quality` | 0–255 | | (metrics only) |
+| `on-off` | bool | ✓ | On/Off Plug-in Unit, Dimmable Light with `current-level`, or as `spec.matter.deviceType` says |
+| `current-level` | 0–100 | ✓ | Level Control |
+| `temperature` | °C | | Temperature Sensor |
+| `relative-humidity` | % | | Humidity Sensor |
+| `contact` | bool | | Contact Sensor. `true` means shut, as in Matter's Boolean State and Zigbee2MQTT's `contact`. |
+| `occupancy` | bool | | Occupancy Sensor (passive infrared) |
+| `bat-percent-remaining` | % | | Power Source, with a warning below 20% |
+| `zigbee.link-quality` | 0–255 | | (metrics only) |
 
 ## Plugins
 
@@ -457,7 +455,7 @@ spec:
   plugin:
     pluginRef: {name: ewelink-lan}
     id: 1000aabbcc               # plugin-local and stable
-    parameters: {capability: light.on}   # passed through; the plugin validates them
+    parameters: {model: MINIR4}  # passed through; the plugin validates them
 ```
 
 The operator runs each Plugin as a one-replica Deployment `<plugin>-plugin`, and writes the Devices declared for it to `devices.json` in the Secret `<plugin>-plugin-config`. Any change to the Devices it serves restarts the pod: adding or removing one, or changing its id, name, display name, room or parameters. So does a change to the `secretRef` Secret. Plugins are trusted images you build: they get no service account token and run as non-root with a read-only root filesystem.
@@ -578,9 +576,9 @@ Add the bridge to a controller, such as the Home app, with the 11-digit manual c
 - **Fabrics:** `status.fabrics` lists the controllers it's commissioned into: one per ecosystem, such as Apple Home. The bridge pod publishes them on `oikade/v1/_matter/<namespace>/<bridge>/fabrics` (retained), and the runtime copies them into status, so they update only while the runtime runs.
 - **Writes:** a command from a controller is written to the device through the bus. A burst of commands, such as a swipe in the Home app, is gathered for 50 ms per device and capability, and only the last is written, unless the device is already in that state. If the capability is [arbitrated](#arbitration), the write is announced on `oikade/v1/_matter/<namespace>/<bridge>/writes` first, and the change becomes a claim from `Matter`.
 - **Names:** a bridged device is named after the Device's `displayName`, or its name without one, cut to 32 bytes. Changing `displayName` sets its NodeLabel in place, on the same endpoint, so controllers keep the same accessory, in its room and scenes. Whether a controller then shows the new name is up to it.
-- **Unsupported Devices:** a Device none of whose capabilities map to Matter, such as one with only `link.quality`, keeps its endpoint ID but isn't on the bridge. The Bridge's `DevicesSupported` condition is False and names it.
+- **Unsupported Devices:** a Device none of whose capabilities map to Matter, such as one with only `zigbee.link-quality`, keeps its endpoint ID but isn't on the bridge. The Bridge's `DevicesSupported` condition is False and names it.
 
-`spec.matter.deviceType` says what a `switch.on` Device is shown as: `Light`, `PlugInUnit` (an outlet) or `MountedControl` (a wall switch). Whether it's the on/off or dimmable member of that family follows from the Device's capabilities.
+`spec.matter.deviceType` says what an `on-off` Device is shown as: `Light`, `PlugInUnit` (an outlet) or `MountedControl` (a wall switch). Whether it's the on/off or dimmable member of that family follows from the Device's capabilities.
 
 ```yaml
 spec:

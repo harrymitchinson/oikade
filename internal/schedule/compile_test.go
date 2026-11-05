@@ -18,7 +18,7 @@ while:
     slotMinutes: 30
     minutes:
       bands:
-        input: {device: cellar-humidity, capability: sensor.relative-humidity, maxAge: 1h}
+        input: {device: cellar-humidity, capability: relative-humidity, maxAge: 1h}
         missingMinutes: 180
         ranges:
         - {below: 55, minutes: 60}
@@ -29,7 +29,7 @@ while:
     - {window: {start: "12:00", end: "15:00", days: [Sat, Sun]}, score: -1}
     forbid:
     - {window: {start: "18:00", end: "22:00"}}
-hold: {device: cellar-dehumidifier, capability: switch.on, value: true}
+hold: {device: cellar-dehumidifier, capability: on-off, value: true}
 `
 
 func budgetRule(t *testing.T, spec string) *homev1alpha1.Rule {
@@ -44,7 +44,7 @@ func budgetRule(t *testing.T, spec string) *homev1alpha1.Rule {
 func dehumidifierControl() *homev1alpha1.CapabilityControl {
 	starts := int32(4)
 	return &homev1alpha1.CapabilityControl{
-		Capability: "switch.on",
+		Capability: "on-off",
 		MinimumOn:  &metav1.Duration{Duration: time.Hour}, MinimumOff: &metav1.Duration{Duration: 30 * time.Minute},
 		MaximumStartsPerDay: &starts,
 	}
@@ -57,7 +57,7 @@ func TestCompileToPlanInput(t *testing.T) {
 	}
 	reading := &Reading{Value: 60, At: saturday.Add(-10 * time.Minute)}
 	got := b.Input(2026, time.July, 4, saturday, paris, nil, func(device, capability string) *Reading {
-		if device != "cellar-humidity" || capability != "sensor.relative-humidity" {
+		if device != "cellar-humidity" || capability != "relative-humidity" {
 			t.Errorf("read(%s, %s), want the bands input", device, capability)
 		}
 		return reading
@@ -90,9 +90,9 @@ while:
   budget:
     planningTime: "06:30"
     slotMinutes: 15
-    minutes: {expression: 'devices["cellar-humidity"]["sensor.relative-humidity"] > 60.0 ? 240 : 90'}
-hold: {device: cellar-dehumidifier, capability: switch.on, value: true}
-`), &homev1alpha1.CapabilityControl{Capability: "switch.on"})
+    minutes: {expression: 'devices["cellar-humidity"]["relative-humidity"] > 60.0 ? 240 : 90'}
+hold: {device: cellar-dehumidifier, capability: on-off, value: true}
+`), &homev1alpha1.CapabilityControl{Capability: "on-off"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,25 +100,25 @@ hold: {device: cellar-dehumidifier, capability: switch.on, value: true}
 		t.Errorf("planning minute %d, slots %d; want 390, 15", b.PlanningMinute, b.SlotMinutes)
 	}
 	in := b.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{
-		"cellar-humidity": {"sensor.relative-humidity": 72.0},
+		"cellar-humidity": {"relative-humidity": 72.0},
 	}, nil)
 	if n, err := in.Minutes.Expression(); n != 240 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 240", n, err)
 	}
 	in = b.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{
-		"cellar-humidity": {"sensor.relative-humidity": 50.0},
+		"cellar-humidity": {"relative-humidity": 50.0},
 	}, nil)
 	if n, err := in.Minutes.Expression(); n != 90 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 90", n, err)
 	}
 	dyn, err := Compile(budgetRule(t, `
-while: {budget: {minutes: {expression: 'devices["boiler"]["sensor.temperature"] * 2.0'}}}
-hold: {device: d, capability: switch.on, value: true}
-`), &homev1alpha1.CapabilityControl{Capability: "switch.on"})
+while: {budget: {minutes: {expression: 'devices["boiler"]["temperature"] * 2.0'}}}
+hold: {device: d, capability: on-off, value: true}
+`), &homev1alpha1.CapabilityControl{Capability: "on-off"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dynIn := dyn.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{"boiler": {"sensor.temperature": 60.4}}, nil)
+	dynIn := dyn.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{"boiler": {"temperature": 60.4}}, nil)
 	if n, err := dynIn.Minutes.Expression(); n != 121 || err != nil {
 		t.Errorf("Expression() of a double = %d, %v; want 121", n, err)
 	}
@@ -131,7 +131,7 @@ hold: {device: d, capability: switch.on, value: true}
 }
 
 func TestCompileErrors(t *testing.T) {
-	const hold = "\nhold: {device: d, capability: switch.on, value: true}"
+	const hold = "\nhold: {device: d, capability: on-off, value: true}"
 	for name, tc := range map[string]struct {
 		spec    string
 		control *homev1alpha1.CapabilityControl
@@ -143,24 +143,24 @@ func TestCompileErrors(t *testing.T) {
 		"minimumOff off the slots": {drying, &homev1alpha1.CapabilityControl{
 			MinimumOff: &metav1.Duration{Duration: 10 * time.Minute},
 		}, "control minimumOff 10m0s isn't a multiple"},
-		"no control entry": {drying, nil, "switch.on on cellar-dehumidifier has no control entry"},
+		"no control entry": {drying, nil, "on-off on cellar-dehumidifier has no control entry"},
 		"both bands and expression": {`
-while: {budget: {minutes: {expression: "60", bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 0, ranges: [{minutes: 1}]}}}}` + hold,
+while: {budget: {minutes: {expression: "60", bands: {input: {device: h, capability: temperature}, missingMinutes: 0, ranges: [{minutes: 1}]}}}}` + hold,
 			nil, "exactly one of bands or expression"},
 		"neither bands nor expression": {`
 while: {budget: {minutes: {}}}` + hold, nil, "exactly one of bands or expression"},
 		"bands out of order": {`
-while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 0, ranges: [{below: 16, minutes: 1}, {below: 12, minutes: 2}, {minutes: 3}]}}}}` + hold,
+while: {budget: {minutes: {bands: {input: {device: h, capability: temperature}, missingMinutes: 0, ranges: [{below: 16, minutes: 1}, {below: 12, minutes: 2}, {minutes: 3}]}}}}` + hold,
 			nil, "ranges[1]: below must be greater than the band before"},
 		"an open band before the last": {`
-while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 0, ranges: [{minutes: 1}, {below: 12, minutes: 2}]}}}}` + hold,
+while: {budget: {minutes: {bands: {input: {device: h, capability: temperature}, missingMinutes: 0, ranges: [{minutes: 1}, {below: 12, minutes: 2}]}}}}` + hold,
 			nil, "ranges[0]: only the last band omits below"},
 		"a bounded last band": {`
-while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.temperature}, missingMinutes: 0, ranges: [{below: 12, minutes: 2}]}}}}` + hold,
+while: {budget: {minutes: {bands: {input: {device: h, capability: temperature}, missingMinutes: 0, ranges: [{below: 12, minutes: 2}]}}}}` + hold,
 			nil, "ranges[0]: the last band omits below"},
 		"a bool input": {`
-while: {budget: {minutes: {bands: {input: {device: h, capability: sensor.contact-open}, missingMinutes: 0, ranges: [{minutes: 2}]}}}}` + hold,
-			nil, `"sensor.contact-open" isn't a number capability`},
+while: {budget: {minutes: {bands: {input: {device: h, capability: contact}, missingMinutes: 0, ranges: [{minutes: 2}]}}}}` + hold,
+			nil, `"contact" isn't a number capability`},
 		"an expression that isn't a number": {`
 while: {budget: {minutes: {expression: '"two hours"'}}}` + hold, nil, "must evaluate to a number"},
 		"a sun window": {`
@@ -168,10 +168,10 @@ while: {budget: {minutes: {expression: "60"}, prefer: [{window: {start: {sun: Su
 			nil, `budget.prefer[0].window: a budget window's start and end are "HH:MM", not sun times`},
 		"a number target": {`
 while: {budget: {minutes: {expression: "60"}}}
-hold: {device: d, capability: light.level, value: 40}`, nil, "a budget needs a writable bool capability"},
+hold: {device: d, capability: current-level, value: 40}`, nil, "a budget needs a writable bool capability"},
 		"held off": {`
 while: {budget: {minutes: {expression: "60"}}}
-hold: {device: d, capability: switch.on, value: false}`, nil, "a budget holds its capability at true"},
+hold: {device: d, capability: on-off, value: false}`, nil, "a budget holds its capability at true"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Compile(budgetRule(t, tc.spec), tc.control)

@@ -301,7 +301,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "avg by (room) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"sensor.temperature\"})",
+          "expr": "avg by (room) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"temperature\"})",
           "legendFormat": "{{room}}"
         }
       ],
@@ -352,7 +352,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "avg by (room) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"sensor.relative-humidity\"})",
+          "expr": "avg by (room) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"relative-humidity\"})",
           "legendFormat": "{{room}}"
         }
       ],
@@ -418,7 +418,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=~\"light.on|switch.on|outlet.on\"})",
+          "expr": "max by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"on-off\"})",
           "legendFormat": "{{device}}"
         }
       ],
@@ -482,7 +482,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"sensor.contact-open\"})",
+          "expr": "min by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"contact\"})",
           "legendFormat": "{{device}}"
         }
       ],
@@ -506,12 +506,12 @@
               "type": "value",
               "options": {
                 "0": {
-                  "text": "Closed",
-                  "color": "transparent"
-                },
-                "1": {
                   "text": "Open",
                   "color": "orange"
+                },
+                "1": {
+                  "text": "Closed",
+                  "color": "transparent"
                 }
               }
             }
@@ -542,7 +542,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (device) (increase(oikade_capability_changes_total{namespace=~\"$namespace\", room=~\"$room\", capability=\"sensor.occupancy-detected\"}[1h])) / 2",
+          "expr": "sum by (device) (increase(oikade_capability_changes_total{namespace=~\"$namespace\", room=~\"$room\", capability=\"occupancy\"}[1h])) / 2",
           "legendFormat": "{{device}}"
         }
       ],
@@ -594,7 +594,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "min by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"battery.level\"})",
+          "expr": "min by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"bat-percent-remaining\"})",
           "legendFormat": "{{device}}",
           "instant": true
         }
