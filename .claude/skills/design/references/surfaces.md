@@ -24,7 +24,7 @@ This is the checklist the `design` and `plan` skills use. Oikade is small, but e
 Ask these questions of every feature:
 
 - **Is it config or state?** Config belongs in a CRD and is reviewed in Git. Live state never goes into etcd. `Device.status` is deliberately coarse: capabilities, conditions, and `lastSeen` throttled to 5 minutes. If a design writes fast-changing values to status, it breaks this rule.
-- **Who owns naming?** Git does. The operator renders zigbee2mqtt's `configuration.yaml` from Devices and overwrites it on every start. Changes made in a frontend are drift, not configuration.
+- **Who owns naming?** Git owns Oikade's names (`metadata.name`, `displayName`), and each app owns its own ([OIK-130](https://linear.app/oikade/issue/OIK-130)). Drivers address devices by ID, so a rename in an app changes nothing in Oikade, and the operator never overwrites an app's names. It still renders zigbee2mqtt's `configuration.yaml` and overwrites it on every start, but device names live in `devices.yaml` on the PVC, which it writes only once, when the PVC has none.
 - **Is drift reported?** Something that exists but isn't declared, such as a paired but undeclared device, becomes a metric and a log line. It is never silently adopted.
 
 ## 2. Public API: things users depend on

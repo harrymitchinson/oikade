@@ -62,20 +62,22 @@ func get[T client.Object](key types.NamespacedName, obj T) T {
 	return obj
 }
 
-// renderedDevices returns IEEE address -> friendly_name from the rendered configuration.yaml.
-func renderedDevices(ns, name string) map[string]string {
+// seededDevices returns IEEE address -> friendly_name from the devices.yaml seed.
+func seededDevices(ns, name string) map[string]string {
 	s := get(types.NamespacedName{Namespace: ns, Name: name + "-config"}, &corev1.Secret{})
-	var cfg struct {
-		Devices map[string]struct {
-			FriendlyName string `json:"friendly_name"`
-		} `json:"devices"`
+	var seed map[string]struct {
+		FriendlyName string `json:"friendly_name"`
 	}
-	ExpectWithOffset(1, yaml.Unmarshal(s.Data["configuration.yaml"], &cfg)).To(Succeed())
+	ExpectWithOffset(1, yaml.Unmarshal(s.Data["devices.yaml"], &seed)).To(Succeed())
 	out := map[string]string{}
-	for addr, d := range cfg.Devices {
+	for addr, d := range seed {
 		out[addr] = d.FriendlyName
 	}
 	return out
+}
+
+func renderedConfig(ns, name string) string {
+	return string(get(types.NamespacedName{Namespace: ns, Name: name + "-config"}, &corev1.Secret{}).Data["configuration.yaml"])
 }
 
 var _ = Describe("Zigbee2MQTT Controller", func() {
@@ -88,7 +90,7 @@ var _ = Describe("Zigbee2MQTT Controller", func() {
 		}
 	})
 
-	It("renders config from declared Devices and runs Zigbee2MQTT", func() {
+	It("renders config, seeds device names from declared Devices and runs Zigbee2MQTT", func() {
 		ns := newNamespace()
 		createInstance(ns)
 		createDevice(ns, "hallway-light", instance, "0x000b57fffe000001")
@@ -100,10 +102,12 @@ var _ = Describe("Zigbee2MQTT Controller", func() {
 		Expect(z.Status.Devices).To(Equal(int32(2)))
 		Expect(z.Status.PanID).NotTo(BeZero())
 		Expect(z.Status.ConfigHash).NotTo(BeEmpty())
-		Expect(renderedDevices(ns, instance)).To(Equal(map[string]string{
+		Expect(seededDevices(ns, instance)).To(Equal(map[string]string{
 			"0x000b57fffe000001": "hallway-light",
 			"0x00158d0000000003": "front-door",
 		}))
+		Expect(renderedConfig(ns, instance)).To(ContainSubstring("devices: devices.yaml"))
+		Expect(renderedConfig(ns, instance)).NotTo(ContainSubstring("friendly_name"))
 
 		dep := get(key, &appsv1.Deployment{})
 		Expect(dep.Spec.Template.Annotations).To(HaveKeyWithValue(render.AnnotationConfigHash, z.Status.ConfigHash))
@@ -115,11 +119,12 @@ var _ = Describe("Zigbee2MQTT Controller", func() {
 		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
 		Expect(ready.Reason).To(Equal("Progressing"))
 
-		By("adding a Device, which changes the config hash")
+		By("adding a Device, which is seeded but doesn't restart Zigbee2MQTT")
 		createDevice(ns, "desk-plug", instance, "0x00124b0000000004")
 		z2 := reconcileInstance(r, key)
 		Expect(z2.Status.Devices).To(Equal(int32(3)))
-		Expect(z2.Status.ConfigHash).NotTo(Equal(z.Status.ConfigHash))
+		Expect(z2.Status.ConfigHash).To(Equal(z.Status.ConfigHash))
+		Expect(seededDevices(ns, instance)).To(HaveKeyWithValue("0x00124b0000000004", "desk-plug"))
 	})
 
 	It("keeps the network identity and its storage when the instance is deleted", func() {
@@ -165,7 +170,7 @@ var _ = Describe("Zigbee2MQTT Controller", func() {
 
 		z := reconcileInstance(r, types.NamespacedName{Namespace: ns, Name: instance})
 		Expect(meta.FindStatusCondition(z.Status.Conditions, ConditionReady).Reason).To(Equal("DuplicateDevice"))
-		Expect(renderedDevices(ns, instance)).To(Equal(map[string]string{"0x000b57fffe000001": "a-lamp"}))
+		Expect(seededDevices(ns, instance)).To(Equal(map[string]string{"0x000b57fffe000001": "a-lamp"}))
 	})
 
 	It("creates the frontend Service only when enabled", func() {

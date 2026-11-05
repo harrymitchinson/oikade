@@ -37,9 +37,8 @@ type Instance struct {
 }
 
 type paired struct {
-	friendlyName string
-	bindings     []binding
-	info         driver.Info
+	bindings []binding
+	info     driver.Info
 }
 
 var _ driver.Setter = (*Instance)(nil)
@@ -96,7 +95,7 @@ func (i *Instance) Set(ctx context.Context, dev types.NamespacedName, capability
 	if err != nil {
 		return err
 	}
-	// Address by IEEE: it works before Zigbee2MQTT has picked up the operator's friendly name.
+	// Address by IEEE: the friendly name is Zigbee2MQTT's own and may change at any time.
 	return i.Bus.Publish(ctx, i.BaseTopic+"/"+ieee+"/set", payload, false)
 }
 
@@ -111,7 +110,9 @@ func (i *Instance) handle(m mqtt.Message) {
 	case strings.HasPrefix(rest, "bridge/"):
 	case strings.HasSuffix(rest, "/availability"):
 		i.handleAvailability(strings.TrimSuffix(rest, "/availability"), m.Payload)
-	case !strings.Contains(rest, "/"):
+	default:
+		// A friendly name set in the frontend may contain slashes, so any other topic is a device's
+		// state if it resolves to one. Commands such as <name>/set don't.
 		i.handleState(rest, m.Payload)
 	}
 }
@@ -130,15 +131,17 @@ func (i *Instance) handleDevices(payload []byte) {
 			continue
 		}
 		bs := bindings(d.Definition.Exposes)
-		p := &paired{friendlyName: d.FriendlyName, bindings: bs, info: driver.Info{
+		p := &paired{bindings: bs, info: driver.Info{
 			Found: true, Manufacturer: d.Definition.Vendor, Model: d.Definition.Model,
 		}}
 		for _, b := range bs {
 			p.info.Capabilities = append(p.info.Capabilities, b.capability)
 		}
 		i.paired[d.IEEEAddress] = p
-		i.byName[d.FriendlyName] = d.IEEEAddress
-		i.byName[d.IEEEAddress] = d.IEEEAddress
+		// A frontend name may be another device's IEEE address; the address wins (below).
+		if _, taken := i.byName[d.FriendlyName]; !taken {
+			i.byName[d.FriendlyName] = d.IEEEAddress
+		}
 		app := driver.AppDevice{
 			ID: d.IEEEAddress, Manufacturer: p.info.Manufacturer, Model: p.info.Model,
 			Capabilities: slices.Clone(p.info.Capabilities),
@@ -148,6 +151,9 @@ func (i *Instance) handleDevices(payload []byte) {
 			app.Name = d.FriendlyName
 		}
 		inventory = append(inventory, app)
+	}
+	for ieee := range i.paired {
+		i.byName[ieee] = ieee
 	}
 	emit := i.discoveryLocked()
 	i.mu.Unlock()
@@ -208,6 +214,13 @@ func (i *Instance) handleAvailability(name string, payload []byte) {
 }
 
 func (i *Instance) handleState(name string, payload []byte) {
+	i.mu.Lock()
+	_, ok := i.deviceLocked(name)
+	i.mu.Unlock()
+	if !ok {
+		// Most topics under the base, such as <name>/set, aren't a device's state.
+		return
+	}
 	var state map[string]any
 	if err := json.Unmarshal(payload, &state); err != nil {
 		return

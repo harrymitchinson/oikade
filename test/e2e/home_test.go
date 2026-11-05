@@ -566,11 +566,15 @@ func homeScenario() {
 			}
 		})
 
-		It("renders Zigbee2MQTT config with friendly names from Git", func() {
+		It("renders Zigbee2MQTT config from Git and seeds device names", func() {
 			Eventually(func(g Gomega) {
 				decoded, err := secretKey("z2m-config", "configuration.yaml")
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(decoded).To(ContainSubstring("friendly_name: hallway-light"))
+				g.Expect(decoded).To(ContainSubstring("devices: devices.yaml"))
+				g.Expect(decoded).NotTo(ContainSubstring("friendly_name"))
+				seed, err := secretKey("z2m-config", "devices.yaml")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(seed).To(ContainSubstring("friendly_name: hallway-light"))
 				g.Expect(decoded).To(ContainSubstring("server: mqtt://oikade-mosquitto.oikade-system.svc:1883"))
 			}).Should(Succeed())
 		})

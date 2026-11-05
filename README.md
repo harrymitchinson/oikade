@@ -71,7 +71,7 @@ kubectl -n home get zigbee2mqtts,devices,bridges,rules
 ```
 
 1. **Pair devices.** Open the Zigbee2MQTT frontend (`kubectl -n home port-forward svc/z2m 8080`), permit joining, and pair. A paired device that isn't declared shows up in `oikade_undeclared_devices` and the runtime logs.
-2. **Declare them.** Add a `Device` for each IEEE address. The operator sets each device's Zigbee2MQTT friendly name to the Device name.
+2. **Declare them.** Add a `Device` for each IEEE address. Oikade finds a device by its IEEE address and ignores its friendly name, which is Zigbee2MQTT's own: name it in the frontend as you like ([OIK-130](https://linear.app/oikade/issue/OIK-130)). A device's MQTT topic follows its friendly name, which matters only to tools outside Oikade that subscribe to it.
 3. **Pair the bridge.** Read its pairing code from its Secret (see [Matter bridge](#matter-bridge)). In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the code.
 4. **Set your timezone and location.** Edit `--timezone` in `config/runtime/deployment.yaml` so rules see local time, and `--latitude` and `--longitude` if you use sun triggers.
 
@@ -509,7 +509,7 @@ spec:
 ```
 
 - **Names.** A clash gets the room as a prefix (`study-lamp`), then a number (`study-lamp-2`). A device with no name in its app is named after its model and the last four characters of its ID (`lca001-9c71`). Rules, Grafana and the Matter bridge use the Device's name, so it never changes by itself.
-- **Renames.** A plugin device's `displayName` follows its name in the app. A Zigbee2MQTT device's name is copied once: after that, the operator names it in Zigbee2MQTT after the Device, as for any declared device, so rename it on the Device.
+- **Renames.** A plugin device's `displayName` follows its name in the app. A Zigbee2MQTT device's name is copied once, and a later rename in the frontend changes nothing in Oikade.
 - **Rooms** are matched, never created. With no matching Room, `roomRef` stays empty.
 - **Matter.** `matter: Hide` annotates each adopted Device with `oikade.dev/matter: hide`, which keeps it off every bridge. The annotation works on any Device. Set it to `expose`, or remove it, to show the Device again.
 - **Taking it over in Git.** Once anything other than the operator writes a spec field of an adopted Device, or applies it with client-side `kubectl apply`, such as `kubectl edit`, Flux or Argo CD, the operator drops its owner reference and the Device is yours. Annotations alone don't count. A Device with another name that declares the same device wins, and the operator deletes its adopted copy.
@@ -594,7 +594,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - **The Matter bridge's Secret** (`<bridge>-matter`: the setup code, unique ID and attestation key, and a copy of the endpoint IDs) and **fabrics** (`<bridge>-matter` PVC: operational keys and certificates, and access control) have no owner reference. Deleting a Bridge keeps them, and a Bridge applied again gets its old pairing code and endpoint IDs back. If the PVC is lost, commission the bridge again.
 - **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
-- **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git. Changes made in its frontend don't survive a restart.
+- **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git, so settings changed in its frontend don't survive a restart. Device names are the exception: they live in `devices.yaml` on the `<instance>-data` PVC, which belongs to Zigbee2MQTT. The operator writes it only when the PVC has none, with each declared Device's name.
 - **The runtime's state** lives in retained MQTT messages under `oikade/v1/_runtime/`, kept on Mosquitto's `oikade-mosquitto` PVC: which holds are active, latches, off-delay deadlines, claims and their expiries, and equipment-limit counters. Losing it is safe but noticeable. Holds and claims are worked out again from the clock and the devices, but latched holds whose condition has passed are released, overrides end early, and limits start counting again.
 - **A plugin's credentials** (the `spec.secretRef` Secret, such as LAN keys) belong to you. The operator never creates, changes or deletes them, so keep them in Git, encrypted with SOPS or similar. Everything else a plugin needs is rendered from Git, and plugins keep no state of their own.
 
