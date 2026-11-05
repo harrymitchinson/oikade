@@ -54,14 +54,23 @@ func compileDays(days []homev1alpha1.Weekday) ([]time.Weekday, error) {
 var hhmm = regexp.MustCompile(`^([01][0-9]|2[0-3]):([0-5][0-9])$`)
 
 func compileAt(at *homev1alpha1.AtTrigger) (timeTrigger, error) {
-	parts := hhmm.FindStringSubmatch(at.Time)
+	t, err := atTime(at.Time)
+	if err != nil {
+		return t, err
+	}
+	t.days, err = compileDays(at.Days)
+	return t, err
+}
+
+// atTime parses an HH:MM time of day.
+func atTime(s string) (timeTrigger, error) {
+	parts := hhmm.FindStringSubmatch(s)
 	if parts == nil {
-		return timeTrigger{}, fmt.Errorf("time %q is not HH:MM", at.Time)
+		return timeTrigger{}, fmt.Errorf("time %q is not HH:MM", s)
 	}
 	h, _ := strconv.Atoi(parts[1])
 	m, _ := strconv.Atoi(parts[2])
-	days, err := compileDays(at.Days)
-	return timeTrigger{typ: TypeAt, minutes: h*60 + m, days: days}, err
+	return timeTrigger{typ: TypeAt, minutes: h*60 + m}, nil
 }
 
 func compileSun(s *homev1alpha1.SunTrigger) (timeTrigger, error) {
@@ -76,13 +85,20 @@ func compileSun(s *homev1alpha1.SunTrigger) (timeTrigger, error) {
 	}
 	if s.Offset != nil {
 		t.offset = s.Offset.Duration
-		if t.offset < -6*time.Hour || t.offset > 6*time.Hour {
-			return t, fmt.Errorf("offset %v is not between -6h and 6h", t.offset)
+		if err := checkSunOffset(t.offset); err != nil {
+			return t, err
 		}
 	}
 	var err error
 	t.days, err = compileDays(s.Days)
 	return t, err
+}
+
+func checkSunOffset(d time.Duration) error {
+	if d < -6*time.Hour || d > 6*time.Hour {
+		return fmt.Errorf("offset %v is not between -6h and 6h", d)
+	}
+	return nil
 }
 
 // on returns when the trigger fires on the local calendar day y-m-d, if it does. A sun trigger

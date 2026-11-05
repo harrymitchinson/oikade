@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -85,14 +86,13 @@ func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, dev
 	if devices == nil {
 		devices = e.Store.Values(key.Namespace)
 	}
-	out, _, err := h.when.Eval(map[string]any{"devices": devices, "now": now, "tz": e.Location.String()})
-	if err != nil {
-		e.Log.V(1).Info("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
+	b, err := h.when(Vars{"devices": devices, "now": now, "tz": e.Location.String()})
+	if nb, ok := errors.AsType[notBool](err); ok {
+		e.Log.Info("Hold's when didn't evaluate to a bool; keeping its state", "rule", key, "value", nb.value)
 		return false, false, next
 	}
-	b, ok := out.Value().(bool)
-	if !ok {
-		e.Log.Info("Hold's when didn't evaluate to a bool; keeping its state", "rule", key, "value", out.Value())
+	if err != nil {
+		e.Log.V(1).Info("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
 		return false, false, next
 	}
 	return b, true, next

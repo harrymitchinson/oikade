@@ -2,6 +2,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
-	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 var env = mustEnv()
@@ -36,18 +36,20 @@ type Compiled struct {
 	Key types.NamespacedName
 	// Generation is the Rule generation this was compiled from.
 	Generation int64
-	Mode       homev1alpha1.RuleMode
+	Mode       Mode
 	// changes are the Rule's change triggers, and timers its at and sun triggers.
-	changes []homev1alpha1.ChangeTrigger
+	changes []Change
 	timers  []timeTrigger
 	// StartingDeadline is how late a missed timer may still fire on startup.
 	StartingDeadline time.Duration
 	// Since is when a missed timer was last accounted for: the Rule's status.lastFire, or its
 	// creation when it has never fired.
 	Since time.Time
-	// program is nil when there is no condition.
-	program cel.Program
-	actions []action
+	// sinceLoad makes Since the time of the first Load, for a Go rule with no Since of its own.
+	sinceLoad bool
+	// condition is nil when there is none.
+	condition Condition
+	actions   []action
 	// hold is nil for a moment.
 	hold *hold
 	// staleBudget is set when the Rule's status has a budget's plan, but it has no budget.
@@ -64,8 +66,8 @@ type action struct {
 	release string
 	// claimFor, until and priority shape a set on an arbitrated capability as a claim.
 	claimFor time.Duration
-	until    homev1alpha1.ClaimUntil
-	priority homev1alpha1.RulePriority
+	until    Until
+	priority Priority
 }
 
 // Compile validates a Rule: the condition must be boolean CEL, triggers must name known
@@ -75,7 +77,7 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 	c := &Compiled{
 		Key:        types.NamespacedName{Namespace: a.Namespace, Name: a.Name},
 		Generation: a.Generation,
-		Mode:       a.Spec.Mode,
+		Mode:       Mode(a.Spec.Mode),
 		Since:      a.CreationTimestamp.Time,
 	}
 	// A lastFire from before the Rule was created belongs to an earlier Rule of the same name.
@@ -89,7 +91,7 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 		c.StartingDeadline = d.Duration
 	}
 	if c.Mode == "" {
-		c.Mode = homev1alpha1.RuleModeSingle
+		c.Mode = ModeSingle
 	}
 	var errs []error
 	if (len(a.Spec.Triggers) == 0) == (a.Spec.While == nil) {
@@ -135,21 +137,19 @@ func Compile(a *homev1alpha1.Rule) (*Compiled, error) {
 			c.timers = append(c.timers, tt)
 			continue
 		}
-		t := trig.Change
-		if (t.Device == "") == (t.Room == "") {
-			errs = append(errs, fmt.Errorf("triggers[%d].change: exactly one of device or room is required", i))
+		t := Change{Device: trig.Change.Device, Room: trig.Change.Room, Capability: trig.Change.Capability}
+		for _, err := range t.check() {
+			errs = append(errs, fmt.Errorf("triggers[%d].change: %w", i, err))
 		}
-		if _, ok := capability.Lookup(t.Capability); !ok {
-			errs = append(errs, fmt.Errorf("triggers[%d].change: unknown capability %q", i, t.Capability))
-		}
-		c.changes = append(c.changes, *t)
+		c.changes = append(c.changes, t)
 	}
 	if a.Spec.Condition != "" {
 		prg, err := compileBool(env, a.Spec.Condition)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("condition: %w", err))
+		} else {
+			c.condition = celCondition(prg)
 		}
-		c.program = prg
 	}
 	actions, actErrs := compileActions(a.Spec.Do)
 	c.actions = actions
@@ -186,18 +186,8 @@ func compileActions(do []homev1alpha1.Action) ([]action, []error) {
 	for i, act := range do {
 		switch {
 		case act.Set != nil:
-			s := act.Set
-			if (s.Device == "") == (s.Room == "") {
-				errs = append(errs, fmt.Errorf("do[%d]: exactly one of device or room is required", i))
-				continue
-			}
-			v, err := writableValue(s.Capability, s.Value.Raw)
+			set, err := setAction(act.Set)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("do[%d]: %w", i, err))
-				continue
-			}
-			set := action{device: s.Device, room: s.Room, capability: s.Capability, value: v, until: s.Until, priority: s.Priority}
-			if err := compileClaim(s, &set); err != nil {
 				errs = append(errs, fmt.Errorf("do[%d]: %w", i, err))
 				continue
 			}
@@ -221,24 +211,19 @@ func compileActions(do []homev1alpha1.Action) ([]action, []error) {
 	return actions, errs
 }
 
-// compileClaim checks a set's for, until and priority, which make it a claim on an arbitrated
-// capability.
-func compileClaim(s *homev1alpha1.SetAction, act *action) error {
+// setAction compiles a set action.
+func setAction(s *homev1alpha1.SetAction) (action, error) {
+	set := Set{
+		Device: s.Device, Room: s.Room, Capability: s.Capability, Value: json.RawMessage(s.Value.Raw),
+		Until: Until(s.Until), Priority: Priority(s.Priority),
+	}
 	if s.For != nil {
-		if act.claimFor = s.For.Duration; act.claimFor <= 0 {
-			return errors.New("for must be positive")
+		// A CRD's for: 0s is an error, but a Set's zero For means none, so make it negative.
+		if set.For = s.For.Duration; set.For == 0 {
+			set.For = -1
 		}
 	}
-	switch s.Until {
-	case "", homev1alpha1.ClaimUntilNext:
-	case homev1alpha1.ClaimUntilReleased:
-		if s.For != nil {
-			return errors.New("for can't be combined with until: Released")
-		}
-	default:
-		return fmt.Errorf("unknown until %q", s.Until)
-	}
-	return checkPriority(s.Priority)
+	return set.action()
 }
 
 // matches reports whether a capability change on a device, currently in room, triggers the
@@ -256,19 +241,31 @@ func (c *Compiled) matches(device, room, name string) bool {
 }
 
 // eval evaluates the condition. No condition means true.
-func (c *Compiled) eval(vars map[string]any) (bool, error) {
-	if c.program == nil {
+func (c *Compiled) eval(vars Vars) (bool, error) {
+	if c.condition == nil {
 		return true, nil
 	}
-	out, _, err := c.program.Eval(vars)
-	if err != nil {
-		return false, err
+	return c.condition(vars)
+}
+
+// notBool is the error from a CEL condition that didn't evaluate to a bool.
+type notBool struct{ value any }
+
+func (e notBool) Error() string { return fmt.Sprintf("condition evaluated to %T, not bool", e.value) }
+
+// celCondition wraps a CEL program as a Condition.
+func celCondition(prg cel.Program) Condition {
+	return func(vars Vars) (bool, error) {
+		out, _, err := prg.Eval(vars)
+		if err != nil {
+			return false, err
+		}
+		b, ok := out.Value().(bool)
+		if !ok {
+			return false, notBool{out.Value()}
+		}
+		return b, nil
 	}
-	b, ok := out.Value().(bool)
-	if !ok {
-		return false, fmt.Errorf("condition evaluated to %T, not bool", out.Value())
-	}
-	return b, nil
 }
 
 func btoi(b bool) int {
