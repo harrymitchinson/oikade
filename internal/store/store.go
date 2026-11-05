@@ -67,8 +67,12 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
-// init checks the format, or writes it to a new store, and makes the new file's name durable.
+// init makes the file's name durable, and checks the format or writes it to a new store. The sync
+// runs on every open, because a crash can come between the two.
 func (s *Store) init(dir string) error {
+	if err := syncDir(dir); err != nil {
+		return err
+	}
 	var format []byte
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		if b := tx.Bucket(metaBucket); b != nil {
@@ -93,7 +97,7 @@ func (s *Store) init(dir string) error {
 	}); err != nil {
 		return fmt.Errorf("write store format: %w", err)
 	}
-	return syncDir(dir)
+	return nil
 }
 
 // syncDir makes a new file in dir durable. Syncing a file doesn't sync its directory entry.
