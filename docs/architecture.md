@@ -63,6 +63,15 @@ The runtime keeps the state that must outlive a restart in retained MQTT message
 
 Namespaces never start with `_`, so these can't collide with a plugin's root. Losing them is safe but noticeable: the README's "State that must survive" says what's lost.
 
+### Embedded store
+
+`internal/store` is the state store for the host that [OIK-143](https://linear.app/oikade/issue/OIK-143) adds. **Nothing production uses it yet:** the runtime still keeps its state on the broker, as above.
+
+- One data directory holds one [bbolt](https://github.com/etcd-io/bbolt) file, `oikade.db`, and only one process can have it open. The operating system drops that lock when the process dies, so a crash never leaves it locked. A second process gets a clear error.
+- Namespaces share the file with separate keys, for the registry, latches, claims and Matter state to come. `engine.Stored` implements `engine.States` on a namespace, as `Retained` does on the broker.
+- The journal keeps ordered entries per run. `Append` returns only once its entry is on disk. Each write is one transaction with two fsyncs, so its cost is about twice the disk's fsync time. A crash mid-write loses only the entry that was never acknowledged.
+- The file records its format version, and `Open` refuses one it doesn't know.
+
 ## Matter
 
 Oikade reaches the Home app and other controllers as a Matter bridge. It replaced a HomeKit bridge built on an unmaintained library ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The Matter stack is Oikade's own, in `internal/matter`, built from the Matter Core Specification: TLV, the message layer with MRP over UDP, PASE and CASE, operational certificates, the Interaction Model, the commissioning clusters, attestation with connectedhomeip's test DAC, and an mDNS responder. `internal/matter/node` wires them into a node serving a bridge, and `manager matter` runs one.
