@@ -335,7 +335,7 @@ The operator generates the Zigbee network key, PAN ID and extended PAN ID once, 
    ```
    `Resolved=True` and a list of capabilities means it worked. If `Resolved=False` with reason `NotPaired`, the IEEE address is wrong. If a capability you expected is missing, Oikade doesn't map that feature yet (see "Not yet" in the README).
 
-Turn **Permit join** off again when you're done. Changes made in the Zigbee2MQTT frontend, such as renames, are overwritten from Git when the pod restarts, so make them in Git.
+Turn **Permit join** off again when you're done. Settings changed in the Zigbee2MQTT frontend are overwritten from Git when the pod restarts, so make them in Git. Device names are the exception: they're Zigbee2MQTT's own, they survive restarts, and Oikade ignores them.
 
 ## 11. Run plugins
 
