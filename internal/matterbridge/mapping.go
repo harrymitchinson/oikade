@@ -201,7 +201,8 @@ func UniqueID(key types.NamespacedName) string {
 	return strings.ToUpper(hex.EncodeToString(sum[:16]))
 }
 
-// Signature summarises what controllers see of a Device. A change means its endpoint is rebuilt.
+// Signature summarises the shape controllers see of a Device. A change means its endpoint is
+// rebuilt. The name isn't part of it: a new name is set in place, as the NodeLabel.
 func (d Device) Signature() string {
-	return fmt.Sprintf("%d|%s|%s|%s", d.Endpoint, d.Name, d.Type, strings.Join(slices.Sorted(slices.Values(d.Capabilities)), ","))
+	return fmt.Sprintf("%d|%s|%s", d.Endpoint, d.Type, strings.Join(slices.Sorted(slices.Values(d.Capabilities)), ","))
 }

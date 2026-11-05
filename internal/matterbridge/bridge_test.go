@@ -107,6 +107,53 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	})
 }
 
+// A displayName change renames the bridged device in place: the same endpoint, keeping its state,
+// with a new NodeLabel.
+func TestBridgeRenamesInPlace(t *testing.T) {
+	sensor := device("hall-sensor", capability.Occupancy)
+	sensor.Spec.DisplayName = "Hall sensor"
+	b, c := newBridgeRig(t, sensor)
+	if _, err := b.Reconcile(t.Context(), ctrl.Request{}); err != nil {
+		t.Fatal(err)
+	}
+	key := types.NamespacedName{Namespace: "home", Name: "hall-sensor"}
+	b.Changed(driver.Update{Device: key, Capability: capability.Occupancy, Value: true})
+	var before *im.Endpoint
+	b.Matter.Node.View(func() { before = b.Matter.Node.Endpoint(3) })
+	if got := readLabel(t, b, 3); got != "Hall sensor" {
+		t.Fatalf("NodeLabel %q", got)
+	}
+
+	sensor.Spec.DisplayName = "Landing sensor"
+	if err := c.Update(t.Context(), sensor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Reconcile(t.Context(), ctrl.Request{}); err != nil {
+		t.Fatal(err)
+	}
+	b.Matter.Node.View(func() {
+		e := b.Matter.Node.Endpoint(3)
+		if e != before {
+			t.Error("the endpoint was rebuilt")
+		}
+		if occupied := readAttr(t, e, clusters.IDOccupancySensing, 0); occupied != uint64(1) {
+			t.Errorf("Occupancy %v after the rename, want it kept", occupied)
+		}
+	})
+	if got := readLabel(t, b, 3); got != "Landing sensor" {
+		t.Errorf("NodeLabel %q, want Landing sensor", got)
+	}
+}
+
+func readLabel(t *testing.T, b *Bridge, id uint16) string {
+	t.Helper()
+	var label string
+	b.Matter.Node.View(func() {
+		label, _ = readAttr(t, b.Matter.Node.Endpoint(id), clusters.IDBridgedDeviceBasicInformation, 0x05).(string)
+	})
+	return label
+}
+
 func readAttr(t *testing.T, e *im.Endpoint, cluster, attr uint32) any {
 	t.Helper()
 	return read(t, e.Cluster(cluster), attr)

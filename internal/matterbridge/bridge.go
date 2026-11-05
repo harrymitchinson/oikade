@@ -35,6 +35,7 @@ import (
 type endpoint struct {
 	key       types.NamespacedName
 	signature string
+	label     string
 	mapped    *Mapped
 	info      *clusters.BridgedInfo
 }
@@ -96,6 +97,11 @@ func (b *Bridge) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, er
 	}
 	for id, e := range b.endpoints {
 		if d, ok := want[id]; ok && d.Signature() == e.signature {
+			if label := Label(d.Name); label != e.label {
+				e.label = label
+				b.Matter.Node.Update(func() { e.info.SetLabel(label) })
+				log.Info("Renamed bridged device", "device", e.key, "endpoint", id)
+			}
 			continue
 		}
 		b.Matter.RemoveDevice(id)
@@ -115,11 +121,12 @@ func (b *Bridge) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, er
 		d := want[id]
 		key := d.Key
 		m := Map(d, func(name string, value any) { b.Writes.Add(key, name, value) })
-		info, err := b.Matter.AddDeviceTypes(id, m.Types, Label(d.Name), UniqueID(key), m.Clusters...)
+		label := Label(d.Name)
+		info, err := b.Matter.AddDeviceTypes(id, m.Types, label, UniqueID(key), m.Clusters...)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("adding %s on endpoint %d: %w", key, id, err)
 		}
-		e := &endpoint{key: key, signature: d.Signature(), mapped: m, info: info}
+		e := &endpoint{key: key, signature: d.Signature(), label: label, mapped: m, info: info}
 		b.endpoints[id], b.byDevice[key] = e, e
 		// Start from the bus's state, then follow it.
 		snap, ok := b.Store.Get(key)

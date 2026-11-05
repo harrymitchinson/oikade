@@ -185,6 +185,15 @@ func NewBridgedInfo(label, uniqueID string) *BridgedInfo {
 // Cluster returns the cluster to add to the device's endpoint.
 func (b *BridgedInfo) Cluster() *im.Cluster { return b.cluster }
 
+// SetLabel renames the device in place: its NodeLabel changes, and subscribers are told. Call it
+// inside Node.Update.
+func (b *BridgedInfo) SetLabel(label string) {
+	if label != b.label {
+		b.label = label
+		b.cluster.Changed(0x05)
+	}
+}
+
 // SetReachable records whether the device answers. Call it inside Node.Update.
 func (b *BridgedInfo) SetReachable(r bool) {
 	if r != b.reachable {

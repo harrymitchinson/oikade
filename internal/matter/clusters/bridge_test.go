@@ -249,6 +249,35 @@ func TestSubscription(t *testing.T) {
 	}
 }
 
+// A rename in place is reported to subscribers as the new NodeLabel, on the same endpoint.
+func TestSubscriptionSeesRename(t *testing.T) {
+	f := newFixture(t)
+	path := im.Path{Endpoint: 2, Cluster: IDBridgedDeviceBasicInformation, Attribute: 0x05}
+	priming, _, _, reports, err := f.client.Subscribe(timeout(t), 0, 5, im.Concrete(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := find(priming, path); r == nil || value(t, *r) != "Desk lamp" {
+		t.Fatalf("priming %+v, want NodeLabel Desk lamp", priming)
+	}
+	var before *im.Endpoint
+	f.bridge.Node.View(func() { before = f.bridge.Node.Endpoint(2) })
+	f.bridge.Node.Update(func() { f.info.SetLabel("Reading lamp") })
+	select {
+	case got := <-reports:
+		if r := find(got, path); r == nil || value(t, *r) != "Reading lamp" {
+			t.Errorf("report %+v, want NodeLabel Reading lamp", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no report of the new NodeLabel")
+	}
+	f.bridge.Node.View(func() {
+		if f.bridge.Node.Endpoint(2) != before {
+			t.Error("the endpoint was replaced")
+		}
+	})
+}
+
 func TestSubscriptionEndsWithSession(t *testing.T) {
 	f := newFixture(t)
 	if _, _, _, _, err := f.client.Subscribe(timeout(t), 0, 1, im.Concrete(im.Path{Endpoint: 2, Cluster: IDOnOff})); err != nil {
