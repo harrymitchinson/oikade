@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -34,11 +35,11 @@ type hold struct {
 	room       string
 	capability string
 	value      any
-	priority   homev1alpha1.RulePriority
+	priority   Priority
 	// window is nil when the hold has none.
 	window *window
 	// when is nil when the hold has no when.
-	when              cel.Program
+	when              Condition
 	onDelay, offDelay time.Duration
 	latch             bool
 	// budget is nil when the hold has none.
@@ -95,17 +96,17 @@ func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alp
 	if h == nil {
 		return nil, errors.New("hold is required with while")
 	}
-	c := &hold{device: h.Device, room: h.Room, capability: h.Capability, priority: priority, latch: w.Latch}
+	c := &hold{device: h.Device, room: h.Room, capability: h.Capability, priority: Priority(priority), latch: w.Latch}
 	var errs []error
 	if (h.Device == "") == (h.Room == "") {
 		errs = append(errs, errors.New("hold: exactly one of device or room is required"))
 	}
-	if v, err := writableValue(h.Capability, h.Value.Raw); err != nil {
+	if v, err := writableValue(h.Capability, json.RawMessage(h.Value.Raw)); err != nil {
 		errs = append(errs, fmt.Errorf("hold: %w", err))
 	} else {
 		c.value = v
 	}
-	if err := checkPriority(priority); err != nil {
+	if err := checkPriority(c.priority); err != nil {
 		errs = append(errs, err)
 	}
 	switch {
@@ -131,8 +132,9 @@ func compileHold(w *homev1alpha1.While, h *homev1alpha1.Hold, priority homev1alp
 		prg, err := compileBool(whenEnv, w.When)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("while.when: %w", err))
+		} else {
+			c.when = celCondition(prg)
 		}
-		c.when = prg
 	}
 	if w.OnDelay != nil {
 		if c.onDelay = w.OnDelay.Duration; c.onDelay < 0 {
@@ -187,8 +189,9 @@ func compileBool(e *cel.Env, expr string) (cel.Program, error) {
 	return e.Program(ast)
 }
 
-// writableValue validates a JSON value for a writable capability.
-func writableValue(name string, raw []byte) (any, error) {
+// writableValue validates a value for a writable capability. A json.RawMessage is taken as it is,
+// and anything else is encoded first, so Go values and CRD values are checked alike.
+func writableValue(name string, value any) (any, error) {
 	spec, ok := capability.Lookup(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown capability %q", name)
@@ -196,12 +199,19 @@ func writableValue(name string, raw []byte) (any, error) {
 	if !spec.Writable {
 		return nil, fmt.Errorf("capability %s is read-only", name)
 	}
+	raw, ok := value.(json.RawMessage)
+	if !ok {
+		var err error
+		if raw, err = json.Marshal(value); err != nil {
+			return nil, fmt.Errorf("capability %s: %w", name, err)
+		}
+	}
 	return capability.ParseJSON(name, raw)
 }
 
-func checkPriority(p homev1alpha1.RulePriority) error {
+func checkPriority(p Priority) error {
 	switch p {
-	case "", homev1alpha1.RulePrioritySafety, homev1alpha1.RulePriorityOverride, homev1alpha1.RulePriorityNormal:
+	case "", PrioritySafety, PriorityOverride, PriorityNormal:
 		return nil
 	}
 	return fmt.Errorf("unknown priority %q", p)

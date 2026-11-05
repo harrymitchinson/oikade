@@ -488,8 +488,8 @@ func (e *Engine) fireDue(ctx context.Context) {
 	}
 }
 
-func (e *Engine) vars(namespace string, trigger map[string]any) map[string]any {
-	return map[string]any{
+func (e *Engine) vars(namespace string, trigger map[string]any) Vars {
+	return Vars{
 		"devices": e.Store.Values(namespace),
 		"trigger": trigger,
 		"now":     e.Clock.Now(),
@@ -537,7 +537,7 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 }
 
 // trigger runs the Rule if its condition holds and its mode allows. Call with e.mu held.
-func (e *Engine) trigger(ctx context.Context, key types.NamespacedName, s *state, vars map[string]any) {
+func (e *Engine) trigger(ctx context.Context, key types.NamespacedName, s *state, vars Vars) {
 	ok, err := s.c.eval(vars)
 	switch {
 	case err != nil:
@@ -549,7 +549,7 @@ func (e *Engine) trigger(ctx context.Context, key types.NamespacedName, s *state
 		return
 	}
 	if s.cancel != nil {
-		if s.c.Mode == homev1alpha1.RuleModeSingle {
+		if s.c.Mode == ModeSingle {
 			e.count(key, ResultBusy)
 			return
 		}
@@ -682,7 +682,7 @@ func (a action) ends() bool { return a.claimFor > 0 || a.until != "" }
 func (e *Engine) setClaim(key types.NamespacedName, a action) control.Claim {
 	c := control.Claim{
 		Source: ruleSource(key.Name), Level: claimLevel(a.priority), Value: capability.Float(a.value),
-		UntilNext: a.until == homev1alpha1.ClaimUntilNext,
+		UntilNext: a.until == UntilNext,
 	}
 	if a.claimFor > 0 {
 		c.Expires = e.Clock.Now().Add(a.claimFor)

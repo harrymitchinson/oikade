@@ -39,7 +39,7 @@ func TestCompileHold(t *testing.T) {
 	if h == nil {
 		t.Fatal("no hold")
 	}
-	if h.device != "workshop-heater" || h.capability != "switch.on" || h.value != false || h.priority != homev1alpha1.RulePrioritySafety {
+	if h.device != "workshop-heater" || h.capability != "switch.on" || h.value != false || h.priority != PrioritySafety {
 		t.Errorf("hold target: %+v", h)
 	}
 	if h.when == nil || !h.latch || h.onDelay != time.Minute || h.offDelay != 5*time.Minute {
@@ -158,10 +158,10 @@ func TestCompileClaims(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := c.actions[0]; a.claimFor != time.Hour || a.until != homev1alpha1.ClaimUntilNext || a.priority != homev1alpha1.RulePriorityOverride {
+	if a := c.actions[0]; a.claimFor != time.Hour || a.until != UntilNext || a.priority != PriorityOverride {
 		t.Errorf("first set: %+v", a)
 	}
-	if a := c.actions[1]; a.until != homev1alpha1.ClaimUntilReleased {
+	if a := c.actions[1]; a.until != UntilReleased {
 		t.Errorf("second set: %+v", a)
 	}
 	if a := c.actions[2]; a.release != "other" {

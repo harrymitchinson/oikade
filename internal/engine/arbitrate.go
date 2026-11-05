@@ -86,11 +86,11 @@ type arb struct {
 
 func ruleSource(name string) string { return rulePrefix + name }
 
-func claimLevel(p homev1alpha1.RulePriority) control.Level {
+func claimLevel(p Priority) control.Level {
 	switch p {
-	case homev1alpha1.RulePrioritySafety:
+	case PrioritySafety:
 		return control.Safety
-	case homev1alpha1.RulePriorityOverride:
+	case PriorityOverride:
 		return control.Override
 	}
 	return control.Normal
