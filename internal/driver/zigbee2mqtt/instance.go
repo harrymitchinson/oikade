@@ -37,9 +37,8 @@ type Instance struct {
 }
 
 type paired struct {
-	friendlyName string
-	bindings     []binding
-	info         driver.Info
+	bindings []binding
+	info     driver.Info
 }
 
 var _ driver.Setter = (*Instance)(nil)
@@ -96,7 +95,7 @@ func (i *Instance) Set(ctx context.Context, dev types.NamespacedName, capability
 	if err != nil {
 		return err
 	}
-	// Address by IEEE: it works before Zigbee2MQTT has picked up the operator's friendly name.
+	// Address by IEEE: the friendly name is Zigbee2MQTT's own and may change at any time.
 	return i.Bus.Publish(ctx, i.BaseTopic+"/"+ieee+"/set", payload, false)
 }
 
@@ -111,7 +110,9 @@ func (i *Instance) handle(m mqtt.Message) {
 	case strings.HasPrefix(rest, "bridge/"):
 	case strings.HasSuffix(rest, "/availability"):
 		i.handleAvailability(strings.TrimSuffix(rest, "/availability"), m.Payload)
-	case !strings.Contains(rest, "/"):
+	default:
+		// A friendly name set in the frontend may contain slashes, so any other topic is a device's
+		// state if it resolves to one. Commands such as <name>/set don't.
 		i.handleState(rest, m.Payload)
 	}
 }
@@ -130,7 +131,7 @@ func (i *Instance) handleDevices(payload []byte) {
 			continue
 		}
 		bs := bindings(d.Definition.Exposes)
-		p := &paired{friendlyName: d.FriendlyName, bindings: bs, info: driver.Info{
+		p := &paired{bindings: bs, info: driver.Info{
 			Found: true, Manufacturer: d.Definition.Vendor, Model: d.Definition.Model,
 		}}
 		for _, b := range bs {

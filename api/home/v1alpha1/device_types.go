@@ -30,7 +30,7 @@ type ZigbeeDeviceSource struct {
 	InstanceRef corev1.LocalObjectReference `json:"instanceRef"`
 
 	// ieeeAddress is the device's IEEE address. It is used instead of the friendly name
-	// because it never changes; the operator sets the friendly name to the Device's name.
+	// because it never changes; the friendly name belongs to Zigbee2MQTT and Oikade ignores it.
 	// +kubebuilder:validation:Pattern=`^0x[0-9a-f]{16}$`
 	// +required
 	IEEEAddress string `json:"ieeeAddress"`

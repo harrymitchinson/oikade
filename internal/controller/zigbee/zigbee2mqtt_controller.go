@@ -90,15 +90,19 @@ func (r *Zigbee2MQTTReconciler) reconcile(ctx context.Context, z *zigbeev1alpha1
 	}
 	z.Status.Devices = int32(len(devices))
 
-	config, err := render.ZigbeeConfig(render.ZigbeeConfigInput{
-		Instance: z, Network: network, MQTTURL: r.MQTTURL, Devices: devices,
-	})
+	config, err := render.ZigbeeConfig(render.ZigbeeConfigInput{Instance: z, Network: network, MQTTURL: r.MQTTURL})
 	if err != nil {
 		return fmt.Errorf("rendering configuration.yaml: %w", err)
 	}
+	// The seed is read only when the PVC has no devices.yaml, so it stays out of the hash:
+	// declaring a Device doesn't restart Zigbee2MQTT.
+	seed, err := render.ZigbeeDevicesSeed(devices)
+	if err != nil {
+		return fmt.Errorf("rendering devices.yaml: %w", err)
+	}
 	hash := render.Hash(config)
 
-	if err := r.apply(ctx, render.ZigbeeConfigSecret(z, config)); err != nil {
+	if err := r.apply(ctx, render.ZigbeeConfigSecret(z, config, seed)); err != nil {
 		return fmt.Errorf("applying config secret: %w", err)
 	}
 	if err := r.ensurePVC(ctx, z); err != nil {

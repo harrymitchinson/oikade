@@ -320,7 +320,7 @@ The operator generates the Zigbee network key, PAN ID and extended PAN ID once, 
    apiVersion: home.oikade.dev/v1alpha1
    kind: Device
    metadata:
-     name: hallway-light          # becomes the device's Zigbee2MQTT friendly name
+     name: hallway-light          # used by Rules, Matter and Grafana; Zigbee2MQTT keeps its own name
    spec:
      displayName: Hallway Light   # shown in the Home app and Grafana
      roomRef: {name: hallway}

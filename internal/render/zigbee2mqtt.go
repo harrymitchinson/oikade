@@ -26,9 +26,12 @@ const (
 	ExtendedPanIDKey = "extendedPanID"
 
 	zigbeeConfigKey = "configuration.yaml"
-	zigbeeDataPath  = "/app/data"
-	zigbeeFrontend  = 8080
-	zigbeeUserID    = 1000
+	// zigbeeDevicesKey is the file that holds Zigbee2MQTT's own device settings, friendly names
+	// among them. It lives on the PVC and belongs to Zigbee2MQTT: the operator only seeds it.
+	zigbeeDevicesKey = "devices.yaml"
+	zigbeeDataPath   = "/app/data"
+	zigbeeFrontend   = 8080
+	zigbeeUserID     = 1000
 )
 
 func ZigbeeNetworkSecretName(z *zigbeev1alpha1.Zigbee2MQTT) string { return z.Name + "-network" }
@@ -105,7 +108,7 @@ func ZigbeePVC(z *zigbeev1alpha1.Zigbee2MQTT) *corev1.PersistentVolumeClaim {
 	return pvc(ZigbeePVCName(z), z.Namespace, ZigbeeLabels(z), z.Spec.Storage.StorageClassName, size)
 }
 
-// ZigbeeDevice is a declared device: its IEEE address and the friendly name to give it.
+// ZigbeeDevice is a declared device: its IEEE address and the friendly name it is seeded with.
 type ZigbeeDevice struct {
 	IEEEAddress  string
 	FriendlyName string
@@ -116,19 +119,17 @@ type ZigbeeConfigInput struct {
 	Instance *zigbeev1alpha1.Zigbee2MQTT
 	Network  ZigbeeNetwork
 	MQTTURL  string
-	// Devices must be sorted by IEEE address so the output is stable.
-	Devices []ZigbeeDevice
 }
 
 type zigbeeConfig struct {
-	Version       int                       `json:"version"`
-	HomeAssistant map[string]bool           `json:"homeassistant"`
-	MQTT          zigbeeMQTT                `json:"mqtt"`
-	Serial        zigbeeSerial              `json:"serial"`
-	Advanced      zigbeeAdvanced            `json:"advanced"`
-	Availability  map[string]bool           `json:"availability"`
-	Frontend      zigbeeFrontendConfig      `json:"frontend"`
-	Devices       map[string]map[string]any `json:"devices"`
+	Version       int                  `json:"version"`
+	HomeAssistant map[string]bool      `json:"homeassistant"`
+	MQTT          zigbeeMQTT           `json:"mqtt"`
+	Serial        zigbeeSerial         `json:"serial"`
+	Advanced      zigbeeAdvanced       `json:"advanced"`
+	Availability  map[string]bool      `json:"availability"`
+	Frontend      zigbeeFrontendConfig `json:"frontend"`
+	Devices       string               `json:"devices"`
 }
 
 type zigbeeMQTT struct {
@@ -156,6 +157,7 @@ type zigbeeFrontendConfig struct {
 }
 
 // ZigbeeConfig renders configuration.yaml. Zigbee2MQTT migrates it forward if its schema version is newer.
+// It names no devices: their settings are in devices.yaml, which Zigbee2MQTT owns.
 func ZigbeeConfig(in ZigbeeConfigInput) ([]byte, error) {
 	z := in.Instance
 	channel := z.Spec.Channel
@@ -176,15 +178,23 @@ func ZigbeeConfig(in ZigbeeConfigInput) ([]byte, error) {
 		},
 		Availability: map[string]bool{"enabled": true},
 		Frontend:     zigbeeFrontendConfig{Enabled: z.Spec.Frontend},
-		Devices:      map[string]map[string]any{},
+		Devices:      zigbeeDevicesKey,
 	}
 	if z.Spec.Frontend {
 		cfg.Frontend.Port = zigbeeFrontend
 	}
-	for _, d := range in.Devices {
-		cfg.Devices[d.IEEEAddress] = map[string]any{"friendly_name": d.FriendlyName}
-	}
 	return yaml.Marshal(cfg)
+}
+
+// ZigbeeDevicesSeed renders the devices.yaml a new PVC starts with: each declared device's friendly
+// name, so an upgrade from an operator that wrote names into configuration.yaml shows the same
+// names. Zigbee2MQTT owns the file after that.
+func ZigbeeDevicesSeed(devices []ZigbeeDevice) ([]byte, error) {
+	out := map[string]map[string]string{}
+	for _, d := range devices {
+		out[d.IEEEAddress] = map[string]string{"friendly_name": d.FriendlyName}
+	}
+	return yaml.Marshal(out)
 }
 
 func ints(b []byte) []int {
@@ -199,12 +209,19 @@ func zigbeeOwner(z *zigbeev1alpha1.Zigbee2MQTT) *metav1ac.OwnerReferenceApplyCon
 	return ownerRef(zigbeev1alpha1.GroupVersion.WithKind("Zigbee2MQTT"), z)
 }
 
-// ZigbeeConfigSecret holds the rendered configuration.yaml.
-func ZigbeeConfigSecret(z *zigbeev1alpha1.Zigbee2MQTT, config []byte) *corev1ac.SecretApplyConfiguration {
+// ZigbeeConfigSecret holds the rendered configuration.yaml and the devices.yaml seed.
+func ZigbeeConfigSecret(z *zigbeev1alpha1.Zigbee2MQTT, config, devicesSeed []byte) *corev1ac.SecretApplyConfiguration {
 	return corev1ac.Secret(ZigbeeConfigSecretName(z), z.Namespace).
 		WithLabels(ZigbeeLabels(z)).
 		WithOwnerReferences(zigbeeOwner(z)).
-		WithData(map[string][]byte{zigbeeConfigKey: config})
+		WithData(map[string][]byte{zigbeeConfigKey: config, zigbeeDevicesKey: devicesSeed})
+}
+
+// zigbeeInitScript copies configuration.yaml over the PVC's at every start, and seeds devices.yaml
+// only when the PVC has none, so names set in the frontend survive restarts.
+func zigbeeInitScript() string {
+	return fmt.Sprintf("cp /config/%[1]s %[2]s/%[1]s && { [ -e %[2]s/%[3]s ] || cp /config/%[3]s %[2]s/%[3]s; }",
+		zigbeeConfigKey, zigbeeDataPath, zigbeeDevicesKey)
 }
 
 // ZigbeeService exposes the frontend inside the cluster.
@@ -224,7 +241,8 @@ func usb(z *zigbeev1alpha1.Zigbee2MQTT) bool {
 }
 
 // ZigbeeDeployment runs Zigbee2MQTT. An init container copies the rendered configuration.yaml over
-// the one on the PVC at every start, so Git wins over changes made in the frontend.
+// the one on the PVC at every start, so Git wins over changes to it made in the frontend. Device
+// names are in devices.yaml, which it only seeds.
 // Recreate guarantees only one pod ever talks to the coordinator.
 func ZigbeeDeployment(z *zigbeev1alpha1.Zigbee2MQTT, image, configHash string) *appsv1ac.DeploymentApplyConfiguration {
 	data := corev1ac.VolumeMount().WithName("data").WithMountPath(zigbeeDataPath)
@@ -232,7 +250,7 @@ func ZigbeeDeployment(z *zigbeev1alpha1.Zigbee2MQTT, image, configHash string) *
 	initConfig := corev1ac.Container().
 		WithName("config").
 		WithImage(image).
-		WithCommand("cp", "/config/"+zigbeeConfigKey, zigbeeDataPath+"/"+zigbeeConfigKey).
+		WithCommand("sh", "-c", zigbeeInitScript()).
 		WithVolumeMounts(data, corev1ac.VolumeMount().WithName("config").WithMountPath("/config").WithReadOnly(true))
 
 	main := corev1ac.Container().

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -173,6 +174,43 @@ func TestStateChanges(t *testing.T) {
 	last := rec.changes[len(rec.changes)-1]
 	if last.Value != false || last.Previous != true {
 		t.Errorf("last change = %+v, want false with previous true", last)
+	}
+}
+
+// TestRenamedInFrontend checks that a Device follows its IEEE address, not its friendly name, which
+// Zigbee2MQTT owns: after a rename, even to a name with a slash, state and commands still work.
+func TestRenamedInFrontend(t *testing.T) {
+	ctx := context.Background()
+	i, bus, rec := setup(t)
+
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := strings.Replace(string(devices), `"friendly_name":"front-door"`, `"friendly_name":"garden/side gate"`, 1)
+	if renamed == string(devices) {
+		t.Fatal("fixture has no front-door")
+	}
+	_ = bus.Publish(ctx, "z2m/bridge/devices", []byte(renamed), true)
+
+	_ = bus.Publish(ctx, "z2m/garden/side gate", []byte(`{"contact":true}`), false)
+	_ = bus.Publish(ctx, "z2m/garden/side gate/availability", []byte(`{"state":"online"}`), false)
+	// The old name no longer resolves.
+	_ = bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":false}`), false)
+	// Nor do commands sent to the device by name.
+	_ = bus.Publish(ctx, "z2m/garden/side gate/set", []byte(`{"contact":false}`), false)
+
+	if len(rec.changes) != 1 || rec.changes[0].Device != door || rec.changes[0].Value != false {
+		t.Errorf("changes = %+v, want the door closed once", rec.changes)
+	}
+	if !rec.available[door] {
+		t.Error("door should be online under its new name")
+	}
+	if err := i.Set(ctx, plug, capability.SwitchOn, true); err != nil {
+		t.Fatal(err)
+	}
+	if sent := bus.Sent("z2m/0x00124b0000000004/set"); len(sent) != 1 {
+		t.Errorf("set sent %v", sent)
 	}
 }
 
