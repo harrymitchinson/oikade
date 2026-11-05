@@ -35,7 +35,8 @@ const (
 
 // AdoptReconciler creates a Device for each device a Plugin or Zigbee2MQTT instance discovers in
 // its app that no Device declares, when the instance's spec.discovery.adopt is set (OIK-123). It
-// writes a Device's spec once, then follows only a plugin device's name in its app. An adopted
+// writes a Device's spec once, from the device's name in its app, and never follows a rename there
+// (OIK-130). An adopted
 // Device has the instance as its controller owner; a Device declared elsewhere with the same ID,
 // or a spec written by anything but the operator, takes it over. An adopted Device whose device is
 // removed from its app follows the instance's discovery.removalPolicy.
@@ -100,15 +101,14 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			byID[id] = append(byID[id], d)
 		}
 	}
-	names := map[string]string{} // id -> name in the app, for every device in it
+	inApp := map[string]bool{} // every device in the app, by ID
 	for _, e := range discovered {
-		names[e.ID] = e.Name
+		inApp[e.ID] = true
 	}
 
 	var requeue time.Duration // until the next adopted Device is due for deletion
 	for id, ds := range byID {
-		_, present := names[id]
-		after, err := r.manage(ctx, inst, discovery, ds, names, present)
+		after, err := r.manage(ctx, inst, discovery, ds, inApp[id])
 		if apierrors.IsConflict(err) {
 			after = time.Second // the runtime wrote a Device's status meanwhile; the others go on
 		} else if err != nil {
@@ -143,11 +143,11 @@ func (r *AdoptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 // manage looks after the Devices that declare one device on this instance: it releases an adopted
 // one taken over elsewhere, deletes an adopted copy when another Device declares the device, and
-// otherwise follows the device's name and applies the removal policy. present is whether the device
+// otherwise applies the removal policy. present is whether the device
 // is in the instance's list of devices in its app. It returns how long until a Device is due for
 // deletion, or 0.
 func (r *AdoptReconciler) manage(ctx context.Context, inst client.Object, discovery *homev1alpha1.DiscoverySpec,
-	ds []*homev1alpha1.Device, names map[string]string, present bool,
+	ds []*homev1alpha1.Device, present bool,
 ) (time.Duration, error) {
 	log := logf.FromContext(ctx)
 	// Oldest first, so a second adopted copy, from a stale cache, is the one that goes.
@@ -182,11 +182,6 @@ func (r *AdoptReconciler) manage(ctx context.Context, inst client.Object, discov
 			}
 			log.Info("Deleted adopted Device, declared by another Device", "device", d.Name)
 		default:
-			if r.Driver == AdoptPlugin {
-				if err := r.followName(ctx, d, names); err != nil {
-					return 0, err
-				}
-			}
 			var err error
 			if after, err = r.removal(ctx, inst, d, discovery, !present); err != nil {
 				return 0, err
@@ -219,17 +214,6 @@ func (r *AdoptReconciler) newDevice(inst client.Object, e homev1alpha1.Discovere
 		d.Spec.Zigbee2MQTT = &homev1alpha1.ZigbeeDeviceSource{InstanceRef: ref, IEEEAddress: e.ID}
 	}
 	return d, controllerutil.SetControllerReference(inst, d, r.Scheme)
-}
-
-// followName sets an adopted plugin Device's displayName to the device's name in its app.
-func (r *AdoptReconciler) followName(ctx context.Context, d *homev1alpha1.Device, names map[string]string) error {
-	name, ok := names[d.Spec.Plugin.ID]
-	if !ok || name == "" || displayName(name) == d.Spec.DisplayName {
-		return nil
-	}
-	orig := d.DeepCopy()
-	d.Spec.DisplayName = displayName(name)
-	return client.IgnoreNotFound(r.Patch(ctx, d, client.MergeFrom(orig), client.FieldOwner(shared.FieldOwner)))
 }
 
 // release drops the instance's owner reference, so the Device is no longer adopted.
