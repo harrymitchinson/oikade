@@ -290,6 +290,92 @@ func TestClaimInAFlowSurvivesAKillAndIsReleased(t *testing.T) {
 
 // TestClaimSurvivesTheHostDyingRightAfterItsAnswer is the gap a save behind the answer leaves open:
 // a moment doesn't run twice, so a lost claim wouldn't come back.
+// claimsOf reads the claims of the rule "failing" saved for a device's switch, and frees the store
+// for the next host.
+func (r *rig) claimsOf(device string) []control.Claim {
+	r.t.Helper()
+	s, err := store.Open(r.dir)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get("home/" + device)
+	if err != nil || !ok {
+		r.t.Fatalf("no saved state for %s (%v). The log:\n%s", device, err, r.dump())
+	}
+	var st engine.ControlState
+	if err := json.Unmarshal(raw, &st); err != nil {
+		r.t.Fatal(err)
+	}
+	return slices.DeleteFunc(st["switch.on"].Claims, func(c control.Claim) bool { return c.Source != "Rule/failing" })
+}
+
+func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
+	// Each ends with a restart, so what the release decided has to come back from disk.
+	check := func(t *testing.T, r *rig) {
+		t.Helper()
+		if got := r.claimsOf("claimed-normal"); len(got) != 0 {
+			t.Fatalf("the normal claim stayed: %+v", got)
+		}
+		if got := r.claimsOf("claimed-safety"); len(got) != 1 || got[0].Level != control.Safety {
+			t.Fatalf("the Safety claim went: %+v", got)
+		}
+	}
+	survivesRestart := func(t *testing.T, r *rig) {
+		t.Helper()
+		r.sync()
+		r.stop()
+		check(t, r)
+		r.launch()
+		if resumed := r.awaitLoaded(); resumed != 0 {
+			t.Fatalf("a failed run came back: resumed %d runs", resumed)
+		}
+		r.sync()
+		r.stop()
+		check(t, r)
+	}
+	start := func(t *testing.T) *rig {
+		t.Helper()
+		r := flowRig(t, "")
+		r.launch()
+		r.awaitLoaded()
+		r.contact("fail-go", true)
+		r.wrote("claimed-normal", false)
+		r.wrote("claimed-safety", false)
+		r.waitFor(func(l line) bool { return l.is(waiting, "rule", "failing") })
+		return r
+	}
+	failed := func(l line) bool { return l.is("Failed flow run", "rule", "failing") }
+
+	t.Run("the claim's device goes back, and the Safety one's doesn't", func(t *testing.T) {
+		r := start(t)
+		r.change("fail-now", opened, true)
+		r.waitFor(failed)
+		r.wrote("claimed-normal", true)
+		survivesRestart(t, r)
+		if n := r.count(wrote, "device", "claimed-safety", "value", true); n != 0 {
+			t.Fatalf("the Safety claim's device was written back %d times", n)
+		}
+	})
+	// A new host's simulator reports its first value, which outranks a normal claim as an outside
+	// change, so here the saved state shows the release and no write does.
+	t.Run("the release reaches claims a new host restored", func(t *testing.T) {
+		r := start(t)
+		r.stop()
+		if got := r.claimsOf("claimed-normal"); len(got) != 1 {
+			t.Fatalf("the normal claim wasn't saved: %+v", got)
+		}
+		r.launch()
+		if resumed := r.awaitLoaded(); resumed != 1 {
+			t.Fatalf("resumed %d runs", resumed)
+		}
+		r.waitFor(func(l line) bool { return l.is(waiting, "rule", "failing") })
+		r.change("fail-now", opened, true)
+		r.waitFor(failed)
+		survivesRestart(t, r)
+	})
+}
+
 func TestClaimSurvivesTheHostDyingRightAfterItsAnswer(t *testing.T) {
 	// No hold has started, so this moment's is the first claim the host sees.
 	r := flowRig(t, fault.HostClaimReplied+" 1 kill\n")

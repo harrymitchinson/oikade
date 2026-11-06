@@ -360,7 +360,7 @@ func (s *server) answer(m wire.Message) wire.Message {
 	case wire.TypeRelease:
 		reply.Arbitrated, err = s.engine.ReleaseClaim(s.ctx, key(m.Device), m.Capability, m.Source)
 	case wire.TypeReleaseAll:
-		err = s.engine.ReleaseClaims(s.ctx, wire.Namespace, m.Source)
+		err = s.engine.ReleaseClaims(s.ctx, wire.Namespace, m.Source, m.Below)
 	case wire.TypeSet:
 		err = s.setter.Set(s.ctx, key(m.Device), m.Capability, m.Value)
 	case wire.TypeSaveHold:

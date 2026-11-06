@@ -69,15 +69,17 @@ A deploy or a restart replays a waiting flow against the code that's there now. 
 
 Only steps up to where the run had got to can be compared. A change after that point just takes effect, and the run carries on with the new code.
 
-A claim made in a flow ends by its own rule, like any other, so a flow holding an `UntilReleased` claim should reach its `r.Release`. If a run fails, gives up or is dropped it can't, so the claims that run made are released for it, from its journal, even if the flow itself has been removed. Three things are left in place:
+A flow's claims belong to the flow, not to the run that made them, so a flow holding an `UntilReleased` claim should reach its `r.Release`. If it can't, this is what happens to them:
 
-- **Other runs' claims.** A claim left by an earlier run stays, and so does one a newer run made.
-- **Safety claims.** They end only by an explicit `r.Release`, so a failed notification can't reopen a valve that a flow closed.
-- **Anything claimed by a run that was told to stop.** That's a run cancelled by `Restart`, however it then ends, because the run replacing it may hold the same claims.
+- **A run that ends badly** releases all the flow's claims except Safety ones. Failing, panicking, giving up and being dropped all count, including being dropped at startup because its flow has gone. That includes claims left by an earlier run that succeeded: a later failing run ending them is intended.
+- **Safety claims** end only by an explicit `r.Release`, so a failed notification can't reopen a valve that a flow closed.
+- **A run that was replaced** releases nothing. Its claims pass to the run that replaced it, and that run ending badly releases them.
+- **A run that succeeds** releases nothing. A claim it didn't release stays until a later `r.Release`, or until a later run ends badly.
+- **A run still ending when the process stops** releases nothing and keeps its journal, and the next process finishes the job.
 
-Claims belong to the flow, so `r.Release` ends all of its claims, whichever run made them, Safety ones included.
+`r.Release` ends all of a flow's claims, whichever run made them, Safety ones included.
 
-A crash after a claim and before its journal entry leaves a claim the journal doesn't know about. If the run then carries on, it repeats the set and records it. If it gives up or is dropped at that step instead, the claim stays until the flow releases it.
+If a saved release is failing on a device, a later release that finds nothing left to change reports success, though the claim's end isn't on disk. It takes a save that keeps failing and then a host crash to bring that claim back.
 
 Starting a run while one is in progress is ignored. With `Restart: true`, the new trigger cancels the run in progress instead, and its journal goes with it.
 

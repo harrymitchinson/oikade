@@ -78,6 +78,21 @@ func claiming(r *framework.FlowRun) error {
 	return r.Release("claiming")
 }
 
+// failing holds a normal claim and a Safety one, and fails when a sensor says so.
+func failing(r *framework.FlowRun) error {
+	err := r.Set(framework.Set{Device: "claimed-normal", Capability: on, Value: false, UntilReleased: true})
+	if err != nil {
+		return err
+	}
+	safety := framework.Set{Device: "claimed-safety", Capability: on, Value: false, UntilReleased: true}
+	safety.Priority = framework.Safety
+	if err = r.Set(safety); err != nil {
+		return err
+	}
+	r.WaitFor(func(s framework.State) bool { return s.Bool("fail-now", open) }, time.Hour)
+	return errors.New("this flow fails on purpose")
+}
+
 func main() {
 	var extra []framework.Moment
 	// A time of day comes from the test, which seeds when it was last accounted for.
@@ -124,6 +139,7 @@ func main() {
 			{Name: "routine", On: []framework.Change{{Device: "flow-go", Capability: open}}, Run: routine},
 			{Name: "editable", On: []framework.Change{{Device: "edit-go", Capability: open}}, Run: editable},
 			{Name: "claiming", On: []framework.Change{{Device: "claim-flow-go", Capability: open}}, Run: claiming},
+			{Name: "failing", On: []framework.Change{{Device: "fail-go", Capability: open}}, Run: failing},
 		},
 		Moments: append([]framework.Moment{
 			{

@@ -24,5 +24,11 @@
   {"name": "claim-end", "capabilities": ["sensor.contact-open"], "values": {"sensor.contact-open": false}},
   {"name": "claimed-flow", "capabilities": ["switch.on"], "values": {"switch.on": true},
    "control": [{"capability": "switch.on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]},
-  {"name": "timed-out", "capabilities": ["switch.on"], "values": {"switch.on": false}}
+  {"name": "timed-out", "capabilities": ["switch.on"], "values": {"switch.on": false}},
+  {"name": "fail-go", "capabilities": ["sensor.contact-open"], "values": {"sensor.contact-open": false}},
+  {"name": "fail-now", "capabilities": ["sensor.contact-open"], "values": {"sensor.contact-open": false}},
+  {"name": "claimed-normal", "capabilities": ["switch.on"], "values": {"switch.on": true},
+   "control": [{"capability": "switch.on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]},
+  {"name": "claimed-safety", "capabilities": ["switch.on"], "values": {"switch.on": true},
+   "control": [{"capability": "switch.on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]}
 ]

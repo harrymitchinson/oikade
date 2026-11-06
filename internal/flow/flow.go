@@ -16,8 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -58,10 +56,8 @@ type Journal interface {
 // Actions is what a run does to the home, which is the engine.
 type Actions interface {
 	Apply(ctx context.Context, key types.NamespacedName, a engine.Action) error
-	// Claims returns what an action will claim, before it runs.
-	Claims(key types.NamespacedName, a engine.Action) []engine.Claimed
-	// ReleaseClaimed ends the rule's claims on these capabilities and no others.
-	ReleaseClaimed(ctx context.Context, key types.NamespacedName, claimed []engine.Claimed) error
+	// ReleaseFlow ends a flow's claims, whichever run made them, but for Safety ones.
+	ReleaseFlow(ctx context.Context, key types.NamespacedName) error
 	WaitFor(ctx context.Context, key types.NamespacedName, cond engine.Condition, until time.Time) (bool, error)
 }
 
@@ -137,7 +133,7 @@ type stop struct {
 }
 
 func (f *Flow) run(ctx context.Context, id string, recorded []entry) string {
-	r := &Run{f: f, ctx: ctx, id: id, recorded: recorded, steps: len(recorded), live: len(recorded) == 0, held: heldBy(recorded)}
+	r := &Run{f: f, ctx: ctx, id: id, recorded: recorded, steps: len(recorded), live: len(recorded) == 0}
 	for _, e := range recorded {
 		r.bytes += e.size
 	}
@@ -207,7 +203,11 @@ func (r *Run) conclude(log logr.Logger, failure error) string {
 		result = engine.ResultFailed
 	}
 	if result == ResultGaveUp || result == ResultDropped || result == engine.ResultFailed {
-		if err := r.releaseHeld(); err != nil {
+		switch err := r.releaseClaims(); {
+		case errors.Is(err, errStopping):
+			log.Info("Paused flow run; the process is stopping")
+			return engine.ResultCancelled
+		case err != nil:
 			log.Error(err, "Failed to release the claims of a flow run; the next process will")
 			return result
 		}
@@ -222,43 +222,23 @@ func (r *Run) conclude(log logr.Logger, failure error) string {
 	return result
 }
 
-// releaseHeld ends the claims this run made, since it may never reach its own Release and nothing
-// else would end an UntilReleased one. It leaves those of other runs of the flow, and Safety claims:
-// those end only by an explicit release, so a failed notification can't reopen a valve.
-func (r *Run) releaseHeld() error {
+// errStopping is a run that ended badly with the process stopping before it could release.
+var errStopping = errors.New("the process is stopping")
+
+// releaseClaims ends the flow's claims, since this run may never reach its Release and nothing else
+// would end an UntilReleased one. A flow's claims belong to the flow, so a replaced run leaves them
+// to the run that replaced it. A stopping process can't release, so its run must keep its journal.
+func (r *Run) releaseClaims() error {
 	f := r.f
 	f.claiming.Lock()
 	defer f.claiming.Unlock()
-	if r.ctx.Err() != nil || len(r.held) == 0 {
+	if f.Process != nil && f.Process.Err() != nil {
+		return errStopping
+	}
+	if r.ctx.Err() != nil {
 		return nil
 	}
-	return f.Actions.ReleaseClaimed(context.WithoutCancel(r.ctx), f.Key, slices.Collect(maps.Keys(r.held)))
-}
-
-// heldBy works out what a journal's run still holds.
-func heldBy(entries []entry) map[engine.Claimed]bool {
-	held := map[engine.Claimed]bool{}
-	for _, e := range entries {
-		noteClaims(held, e)
-	}
-	return held
-}
-
-// noteClaims updates what a run holds from one step. A claim replaces the source's last claim on
-// that capability, so a Safety one takes the capability out of what the run may release.
-func noteClaims(held map[engine.Claimed]bool, e entry) {
-	if e.Released {
-		clear(held)
-	}
-	for _, c := range e.Claims {
-		safety := c.Safety
-		c.Safety = false
-		if safety {
-			delete(held, c)
-		} else {
-			held[c] = true
-		}
-	}
+	return f.Actions.ReleaseFlow(context.WithoutCancel(r.ctx), f.Key)
 }
 
 // Saved is a run from the journal, with its raw entries.
@@ -269,8 +249,8 @@ type Saved struct {
 
 // Recover works out what to resume from the runs a host kept, and returns a body for each flow
 // that has one to continue. A run that can't be resumed is dropped and logged: its flow has gone, or
-// a newer run of the flow replaced it. A run with nothing to come after it releases its claims
-// first, as any run that ends badly does. Call it before the engine runs.
+// a newer run of the flow replaced it. Unless a run of its flow carries on, its flow's claims go first,
+// as when any run ends badly. Call it before the engine runs.
 func Recover(ctx context.Context, namespace string, flows map[string]*Flow, saved []Saved, journal Journal, actions Actions) map[string]engine.Body {
 	log := logr.FromContextOrDiscard(ctx)
 	type candidate struct {
@@ -284,16 +264,16 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 			log.Error(err, "Failed to drop flow run", "run", id)
 		}
 	}
-	// retire ends a run nothing will continue, which has only its journal left to answer for it.
-	retire := func(s Saved, name, reason string) {
-		if claimed := slices.Collect(maps.Keys(heldBy(readable(s.Entries)))); name != "" && len(claimed) > 0 {
+	// retire ends a run nothing will continue, and with it what its flow was left holding.
+	retire := func(id, name, reason string) {
+		if name != "" {
 			key := types.NamespacedName{Namespace: namespace, Name: name}
-			if err := actions.ReleaseClaimed(ctx, key, claimed); err != nil {
-				log.Error(err, "Failed to release the claims of a flow run; the next process will", "run", s.ID)
+			if err := actions.ReleaseFlow(ctx, key); err != nil {
+				log.Error(err, "Failed to release the claims of a flow run; the next process will", "run", id)
 				return
 			}
 		}
-		drop(s.ID, reason)
+		drop(id, reason)
 	}
 	var unreadable []Saved
 	for _, s := range saved {
@@ -304,7 +284,7 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 		}
 		name := entries[0].ID
 		if flows[name] == nil {
-			retire(s, name, "its flow has gone")
+			retire(s.ID, name, "its flow has gone")
 			continue
 		}
 		cur, ok := newest[name]
@@ -325,7 +305,7 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 			drop(s.ID, "its journal is unreadable")
 			continue
 		}
-		retire(s, name, "its journal is unreadable")
+		retire(s.ID, name, "its journal is unreadable")
 	}
 	bodies := map[string]engine.Body{}
 	for name, c := range newest {
@@ -340,18 +320,6 @@ func flowOf(id string) string {
 		return id[:i]
 	}
 	return ""
-}
-
-// readable returns the entries that can be read from a journal that may be damaged.
-func readable(raw [][]byte) []entry {
-	entries := make([]entry, 0, len(raw))
-	for _, b := range raw {
-		var e entry
-		if json.Unmarshal(b, &e) == nil {
-			entries = append(entries, e)
-		}
-	}
-	return entries
 }
 
 func decode(raw [][]byte) ([]entry, error) {

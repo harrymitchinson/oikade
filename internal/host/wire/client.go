@@ -200,9 +200,10 @@ func (c *Client) ReleaseClaim(ctx context.Context, dev types.NamespacedName, nam
 }
 
 // ReleaseClaims implements engine.Arbitration.
-func (c *Client) ReleaseClaims(ctx context.Context, _, source string) {
-	_, err := c.request(ctx, Message{Type: TypeReleaseAll, Source: source})
+func (c *Client) ReleaseClaims(ctx context.Context, _, source string, below control.Level) error {
+	_, err := c.request(ctx, Message{Type: TypeReleaseAll, Source: source, Below: below})
 	c.failUnsaved(err)
+	return err
 }
 
 // Set writes a capability through the host.

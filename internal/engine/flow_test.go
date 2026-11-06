@@ -329,62 +329,58 @@ func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
 		t.Fatal("the broken device saved")
 	}
 
-	if err := eng.ReleaseClaims(ctx, ns, "Rule/nothing"); err != nil {
+	if err := eng.ReleaseClaims(ctx, ns, "Rule/nothing", allLevels); err != nil {
 		t.Fatalf("a release that changed nothing failed over another device: %v", err)
 	}
-	if err := eng.ReleaseClaims(ctx, ns, "Rule/x"); err != nil {
+	if err := eng.ReleaseClaims(ctx, ns, "Rule/x", allLevels); err != nil {
 		t.Fatalf("a release failed over another device: %v", err)
 	}
-	if err := eng.ReleaseClaims(ctx, ns, "Rule/stuck"); err == nil {
+	if err := eng.ReleaseClaims(ctx, ns, "Rule/stuck", allLevels); err == nil {
 		t.Fatal("a release that couldn't be saved looked saved")
 	}
 }
 
-func TestClaimsNamesWhatASetWillClaim(t *testing.T) {
-	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
-	key := goKey("routine")
-	until := Set{Device: dev.Name, Capability: capability.SwitchOn, Value: false, Until: UntilReleased}
-	got := eng.Claims(key, until)
-	if len(got) != 1 || got[0] != (Claimed{Device: dev.Name, Capability: capability.SwitchOn}) {
-		t.Fatalf("got %+v", got)
-	}
-	safety := until
-	safety.Priority = PrioritySafety
-	if got := eng.Claims(key, safety); len(got) != 1 || !got[0].Safety {
-		t.Fatalf("got %+v", got)
-	}
-	for name, a := range map[string]Action{
-		"a release":          Release("routine"),
-		"a set with no end":  Set{Device: dev.Name, Capability: capability.SwitchOn, Value: false},
-		"a plain capability": Set{Device: "plain", Capability: capability.SwitchOn, Value: false, Until: UntilReleased},
-	} {
-		if got := eng.Claims(key, a); len(got) != 0 {
-			t.Errorf("%s claimed %+v", name, got)
-		}
-	}
-}
-
-func TestReleaseClaimedLeavesTheRulesOtherClaims(t *testing.T) {
+func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
 	other := types.NamespacedName{Namespace: ns, Name: "other"}
-	meta := hub.Meta{Instance: z2m, Control: []homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")}}
-	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{dev: meta, other: meta})
+	third := types.NamespacedName{Namespace: ns, Name: "third"}
+	meta := hub.Meta{Instance: z2m, Control: []homev1alpha1.CapabilityControl{
+		entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h"),
+	}}
+	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{dev: meta, other: meta, third: meta})
 	ctx := context.Background()
 	key := goKey("routine")
-	claim := control.Claim{Source: ruleSource(key.Name), Level: control.Normal, Expires: time.Now().Add(time.Hour)}
-	for _, d := range []types.NamespacedName{dev, other} {
+	expires := time.Now().Add(time.Hour)
+	for d, level := range map[types.NamespacedName]control.Level{dev: control.Normal, other: control.Override, third: control.Safety} {
+		claim := control.Claim{Source: ruleSource(key.Name), Level: level, Expires: expires}
 		if _, err := eng.Claim(ctx, d, capability.SwitchOn, claim); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := eng.ReleaseClaimed(ctx, key, []Claimed{{Device: dev.Name, Capability: capability.SwitchOn}}); err != nil {
+	if err := eng.ReleaseFlow(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+	claims := func(d types.NamespacedName) int { return len(eng.arbs[d][capability.SwitchOn].a.State().Claims) }
+	if claims(dev) != 0 || claims(other) != 0 {
+		t.Fatalf("claims stayed: normal %d, override %d", claims(dev), claims(other))
+	}
+	if claims(third) != 1 {
+		t.Fatal("a Safety claim was released")
+	}
+}
+
+func TestReleaseWithAllLevelsEndsSafetyClaims(t *testing.T) {
+	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
+	ctx := context.Background()
+	claim := control.Claim{Source: "Rule/x", Level: control.Safety, Expires: time.Now().Add(time.Hour)}
+	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.ReleaseClaims(ctx, ns, "Rule/x", allLevels); err != nil {
 		t.Fatal(err)
 	}
 	if got := eng.arbs[dev][capability.SwitchOn].a.State().Claims; len(got) != 0 {
-		t.Fatalf("the claim stayed: %+v", got)
-	}
-	if got := eng.arbs[other][capability.SwitchOn].a.State().Claims; len(got) != 1 {
-		t.Fatalf("the other claim went: %+v", got)
+		t.Fatalf("an explicit release left %+v", got)
 	}
 }
 

@@ -108,9 +108,10 @@ type Message struct {
 	Discovered *Device   `json:"discovered,omitempty"`
 	Time       time.Time `json:"time,omitzero"`
 
-	// Claim is a claim's, and Source a release's.
+	// Claim is a claim's, and Source a release's. Below limits a releaseAll to lower levels.
 	Claim  *control.Claim `json:"claim,omitempty"`
 	Source string         `json:"source,omitempty"`
+	Below  control.Level  `json:"below,omitempty"`
 	// Rule and Hold are a saved hold's. Rule and Time are a timer's last accounted fire.
 	Rule string            `json:"rule,omitempty"`
 	Hold *engine.HoldState `json:"hold,omitempty"`

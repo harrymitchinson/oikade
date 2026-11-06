@@ -323,7 +323,7 @@ func (e *Engine) Remove(key types.NamespacedName) {
 	delete(e.skipped, key)
 	e.mu.Unlock()
 	// A deleted Rule's claims end with it.
-	e.endClaims(context.Background(), key.Namespace, ruleSource(key.Name))
+	_ = e.endClaims(context.Background(), key.Namespace, ruleSource(key.Name), allLevels)
 	// A Rule unloaded as invalid before it was deleted has a state too.
 	if _, ok := e.States.Get(key); ok {
 		e.runs.Go(func() { e.deleteState(key) })
@@ -649,7 +649,7 @@ func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Co
 		}
 		if a.release != "" {
 			e.release(types.NamespacedName{Namespace: key.Namespace, Name: a.release})
-			e.endClaims(ctx, key.Namespace, ruleSource(a.release))
+			_ = e.endClaims(ctx, key.Namespace, ruleSource(a.release), allLevels)
 			continue
 		}
 		if a.room != "" {

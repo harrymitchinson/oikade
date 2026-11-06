@@ -36,7 +36,7 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 |---|---|---|---|
 | `claim` | `device`, `capability`, `claim` | Makes a claim on an arbitrated capability. The reply means it's on disk | `arbitrated`: false if it isn't, so the process writes it instead |
 | `release` | `device`, `capability`, `source` | Ends a source's claim. The reply means it's on disk | `arbitrated`, as for `claim` |
-| `releaseAll` | `source` | Ends a source's claims everywhere. The reply means it's on disk | |
+| `releaseAll` | `source`, optional `below` | Ends a source's claims everywhere, or with `below` only those under that level (3 is Safety). The reply means it's on disk | |
 | `set` | `device`, `capability`, `value` | Writes a capability | |
 | `saveHold` | `rule`, `hold` | Saves a hold's state. The reply means it's on disk | |
 | `deleteHold` | `rule` | Forgets a hold's state. The reply means it's on disk | |

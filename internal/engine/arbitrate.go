@@ -27,6 +27,9 @@ type ControlState map[string]control.State
 // ControlStates keeps ControlStates, by Device.
 type ControlStates = States[ControlState]
 
+// allLevels is a release of every claim, whatever its level.
+const allLevels = control.LevelDefault
+
 // Sources of claims that aren't Rules.
 const (
 	// SourceDevice is a change the runtime didn't write, as from a wall switch.
@@ -105,8 +108,9 @@ type Arbitration interface {
 	Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) bool
 	// ReleaseClaim ends a source's claim, and reports false when the capability isn't arbitrated.
 	ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool
-	// ReleaseClaims ends a source's claims on every arbitrated capability in the namespace.
-	ReleaseClaims(ctx context.Context, namespace, source string)
+	// ReleaseClaims ends a source's claims below a level on every arbitrated capability in the
+	// namespace. allLevels means all of them.
+	ReleaseClaims(ctx context.Context, namespace, source string, below control.Level) error
 }
 
 // ControlChanged implements hub.ControlWatcher: Run looks at the device's arbiters again.
@@ -523,11 +527,12 @@ func (e *Engine) ReleaseClaim(ctx context.Context, dev types.NamespacedName, nam
 	return true, e.flushControls(ctx, dev)
 }
 
-// ReleaseClaims ends a source's claims on every arbitrated capability in the namespace, for a rule
-// that runs elsewhere, and returns once that's saved. ctx is the engine's, as with Claim.
-func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string) error {
+// ReleaseClaims ends a source's claims below a level on every arbitrated capability in the
+// namespace, for a rule that runs elsewhere, and returns once that's saved. ctx is the engine's, as
+// with Claim.
+func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string, below control.Level) error {
 	e.mu.Lock()
-	changed := e.releaseSource(ctx, namespace, source)
+	changed := e.releaseSource(ctx, namespace, source, below)
 	e.mu.Unlock()
 	if len(changed) == 0 {
 		return nil
@@ -535,15 +540,22 @@ func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string) er
 	return e.flushControls(ctx, changed...)
 }
 
-// endClaims ends a source's claims, here or in Arbitration. Call without e.mu held.
-func (e *Engine) endClaims(ctx context.Context, namespace, source string) {
+// endClaims ends a source's claims below a level, here or in Arbitration. A failure there has ended
+// the session, and the next process starts from what's on disk. Call without e.mu held.
+func (e *Engine) endClaims(ctx context.Context, namespace, source string, below control.Level) error {
 	if e.Arbitration != nil {
-		e.Arbitration.ReleaseClaims(ctx, namespace, source)
-		return
+		return e.Arbitration.ReleaseClaims(ctx, namespace, source, below)
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.releaseSource(ctx, namespace, source)
+	e.releaseSource(ctx, namespace, source, below)
+	return nil
+}
+
+// ReleaseFlow ends a flow's claims, whichever of its runs made them, but for Safety ones. They end
+// only by an explicit release, so a failed notification can't reopen a valve.
+func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) error {
+	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
 // Responsive returns once the engine's lock is free. A condition stuck in a loop holds that lock,
@@ -553,16 +565,18 @@ func (e *Engine) Responsive() {
 	defer e.mu.Unlock()
 }
 
-// releaseSource ends a source's claims on every arbitrated capability in the namespace, and returns
-// the devices that changed. Call with e.mu held.
-func (e *Engine) releaseSource(ctx context.Context, namespace, source string) []types.NamespacedName {
+// releaseSource ends a source's claims below a level on every arbitrated capability in the
+// namespace, and returns the devices that changed. Call with e.mu held.
+func (e *Engine) releaseSource(ctx context.Context, namespace, source string, below control.Level) []types.NamespacedName {
 	var changed []types.NamespacedName
 	for dev, arbs := range e.arbs {
 		if dev.Namespace != namespace {
 			continue
 		}
 		for name, ar := range arbs {
-			if slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool { return c.Source == source }) {
+			if slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool {
+				return c.Source == source && (below == allLevels || c.Level < below)
+			}) {
 				ar.a.Release(source)
 				e.decide(ctx, dev, name, ar)
 				e.markSave(dev)

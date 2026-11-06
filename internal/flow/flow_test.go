@@ -26,9 +26,10 @@ type fakeHome struct {
 	journal  map[string][][]byte
 	finished []string
 	applied  []string
-	// claims is what's claimed under the flow's source, of any run: one per capability, as an arbiter
-	// holds them. order is the releases and finishes as they happened.
-	claims      map[engine.Claimed]bool
+	// claims is what's claimed under the flow's source, of any run, by device, and says which are
+	// Safety. order is the releases and finishes as they happened. onClaim runs after a claim lands.
+	claims      map[string]bool
+	onClaim     func() error
 	order       []string
 	releasedFor types.NamespacedName
 	releaseErr  error
@@ -40,7 +41,7 @@ type fakeHome struct {
 }
 
 func newFakeHome() *fakeHome {
-	return &fakeHome{journal: map[string][][]byte{}, woken: make(chan struct{}), claims: map[engine.Claimed]bool{}}
+	return &fakeHome{journal: map[string][][]byte{}, woken: make(chan struct{}), claims: map[string]bool{}}
 }
 
 func (h *fakeHome) Journal(_ context.Context, run string, data []byte) (uint64, error) {
@@ -73,21 +74,16 @@ func (h *fakeHome) Apply(_ context.Context, _ types.NamespacedName, a engine.Act
 	}
 	s, _ := a.(engine.Set)
 	if s.Until != "" {
-		h.claims[engine.Claimed{Device: s.Device, Capability: s.Capability}] = true
+		h.claims[s.Device] = s.Priority == engine.PrioritySafety
+	}
+	if h.onClaim != nil {
+		return h.onClaim()
 	}
 	h.applied = append(h.applied, s.Device)
 	return nil
 }
 
-func (h *fakeHome) Claims(_ types.NamespacedName, a engine.Action) []engine.Claimed {
-	s, ok := a.(engine.Set)
-	if !ok || s.Until == "" {
-		return nil
-	}
-	return []engine.Claimed{{Device: s.Device, Capability: s.Capability, Safety: s.Priority == engine.PrioritySafety}}
-}
-
-func (h *fakeHome) ReleaseClaimed(_ context.Context, key types.NamespacedName, claimed []engine.Claimed) error {
+func (h *fakeHome) ReleaseFlow(_ context.Context, key types.NamespacedName) error {
 	if h.releasing != nil {
 		close(h.entered)
 		<-h.releasing
@@ -98,8 +94,10 @@ func (h *fakeHome) ReleaseClaimed(_ context.Context, key types.NamespacedName, c
 		return h.releaseErr
 	}
 	h.releasedFor = key
-	for _, c := range claimed {
-		delete(h.claims, c)
+	for device, safety := range h.claims {
+		if !safety {
+			delete(h.claims, device)
+		}
 	}
 	h.order = append(h.order, "release")
 	return nil
@@ -109,7 +107,8 @@ func (h *fakeHome) ReleaseClaimed(_ context.Context, key types.NamespacedName, c
 func (h *fakeHome) holds(device string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.claims[engine.Claimed{Device: device, Capability: "switch.on"}]
+	_, ok := h.claims[device]
+	return ok
 }
 
 func (h *fakeHome) WaitFor(ctx context.Context, _ types.NamespacedName, cond engine.Condition, _ time.Time) (bool, error) {
@@ -146,13 +145,19 @@ func (h *fakeHome) appliedTo() []string {
 type logs struct {
 	mu    sync.Mutex
 	lines []string
+	// onLine, if set, runs for each line, outside the lock.
+	onLine func(string)
 }
 
 func (l *logs) logger() logr.Logger {
 	return funcr.New(func(_, args string) {
 		l.mu.Lock()
-		defer l.mu.Unlock()
 		l.lines = append(l.lines, args)
+		onLine := l.onLine
+		l.mu.Unlock()
+		if onLine != nil {
+			onLine(args)
+		}
 	}, funcr.Options{})
 }
 
@@ -615,8 +620,8 @@ func claimThenSleep(r *Run) error {
 	return nil
 }
 
-// A run that ends for good can't reach its own Release, so its claims mustn't outlive it.
-func TestRunThatEndsForGoodReleasesItsOwnClaims(t *testing.T) {
+// A run that ends badly can't reach its Release, so the flow's claims mustn't outlive it.
+func TestRunEndingBadlyReleasesTheFlowsClaims(t *testing.T) {
 	t.Run("gave up", func(t *testing.T) {
 		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
 		f := newFlow(h, c, l, claimThenSleep)
@@ -626,67 +631,172 @@ func TestRunThatEndsForGoodReleasesItsOwnClaims(t *testing.T) {
 			t.Fatalf("got %q", got)
 		}
 		if h.holds("lamp") {
-			t.Fatal("its claim wasn't released")
+			t.Fatal("the claim wasn't released")
 		}
 	})
-	// The claim comes after the changed step, so the replay never reaches it: only the journal can
-	// say it was made.
-	t.Run("dropped before the replay reaches the claim", func(t *testing.T) {
+	t.Run("dropped", func(t *testing.T) {
 		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
-		f := newFlow(h, c, l, func(r *Run) error {
-			r.Now()
-			return claimThenSleep(r)
-		})
+		f := newFlow(h, c, l, claimThenSleep)
 		crash(t, f, c)
 		f.Body = func(r *Run) error { r.Sleep(time.Minute); return nil }
 		if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultDropped {
 			t.Fatalf("got %q", got)
 		}
 		if h.holds("lamp") {
-			t.Fatal("its claim wasn't released")
+			t.Fatal("the claim wasn't released")
 		}
 	})
-	t.Run("failed", func(t *testing.T) {
-		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
-		newFlow(h, c, l, func(r *Run) error {
-			if err := r.Apply(set("lamp")); err != nil {
-				return err
+	for name, end := range map[string]func() error{
+		"failed":   func() error { return errors.New("no") },
+		"panicked": func() error { panic("no") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+			newFlow(h, c, l, func(r *Run) error {
+				if err := r.Apply(set("lamp")); err != nil {
+					return err
+				}
+				return end()
+			}).Start(context.Background())
+			if h.holds("lamp") {
+				t.Fatal("the claim wasn't released")
 			}
-			return errors.New("no")
-		}).Start(context.Background())
-		if h.holds("lamp") {
-			t.Fatal("its claim wasn't released")
-		}
-	})
-	t.Run("released already", func(t *testing.T) {
-		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
-		f := newFlow(h, c, l, func(r *Run) error {
-			if err := r.Apply(set("lamp")); err != nil {
-				return err
-			}
-			if err := r.Apply(engine.Release("bedtime")); err != nil {
-				return err
-			}
-			return errors.New("no")
 		})
-		f.Start(context.Background())
-		if len(h.order) != 2 || h.order[0] != "release all" || h.order[1] != "finish" {
-			t.Fatalf("got %v", h.order)
-		}
-	})
+	}
 	t.Run("keeps the journal if the release fails, for the next process", func(t *testing.T) {
 		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
 		h.releaseErr = errors.New("no host")
-		newFlow(h, c, l, func(r *Run) error {
-			if err := r.Apply(set("lamp")); err != nil {
-				return err
-			}
-			return errors.New("no")
-		}).Start(context.Background())
+		newFlow(h, c, l, func(*Run) error { return errors.New("no") }).Start(context.Background())
 		if len(h.saved()) != 1 {
-			t.Fatal("it lost the journal that says what to release")
+			t.Fatal("it lost the journal, and with it the next process's chance to release")
 		}
 	})
+}
+
+// A claim whose run was replaced passes to the run that replaced it: none of these leaves it with
+// nothing to end it.
+func TestReplacedRunsClaimPassesToTheRunThatReplacedIt(t *testing.T) {
+	// replace claims in a run, and has a trigger cancel it, which is what Restart does.
+	replace := func(t *testing.T, f *Flow, c *clocktesting.FakeClock) {
+		t.Helper()
+		f.Body = claimThenSleep
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan string, 1)
+		go func() { done <- f.Start(ctx) }()
+		parked(t, c)
+		cancel()
+		if got := outcome(t, done); got != engine.ResultCancelled {
+			t.Fatalf("the replaced run ended %q", got)
+		}
+	}
+	t.Run("the replacement fails on its first step", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, nil)
+		replace(t, f, c)
+		if !h.holds("lamp") {
+			t.Fatal("the replaced run released the claim")
+		}
+		f.Body = func(*Run) error { return errors.New("no") }
+		f.Start(context.Background())
+		if h.holds("lamp") {
+			t.Fatal("the claim was left with nothing to end it")
+		}
+	})
+	t.Run("the replacement succeeds, and a later run fails", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, nil)
+		replace(t, f, c)
+		f.Body = func(*Run) error { return nil }
+		f.Start(context.Background())
+		if !h.holds("lamp") {
+			t.Fatal("a run that succeeded released a claim")
+		}
+		f.Body = func(*Run) error { return errors.New("no") }
+		f.Start(context.Background())
+		if h.holds("lamp") {
+			t.Fatal("the claim was left with nothing to end it")
+		}
+	})
+	t.Run("recovery drops the replaced run, and the run that carries on gives up", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, claimThenSleep)
+		crash(t, f, c)
+		c.Step(time.Minute)
+		crash(t, f, c)
+		c.Step(10 * time.Hour)
+		bodies := Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		if !h.holds("lamp") {
+			t.Fatal("dropping the replaced run released the claim")
+		}
+		if got := bodies[f.Key.Name](context.Background()); got != ResultGaveUp {
+			t.Fatalf("got %q", got)
+		}
+		if h.holds("lamp") {
+			t.Fatal("the claim was left with nothing to end it")
+		}
+	})
+}
+
+// A process stopping during a claim's round trip leaves the claim made and no entry to say so.
+func TestStopDuringAClaimThenAGiveUpLeavesNoClaim(t *testing.T) {
+	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+	process, die := context.WithCancel(context.Background())
+	f := newFlow(h, c, l, claimThenSleep)
+	f.Process = process
+	h.onClaim = func() error {
+		die()
+		return context.Canceled
+	}
+	if got := f.Start(process); got != engine.ResultCancelled {
+		t.Fatalf("got %q", got)
+	}
+	if !h.holds("lamp") {
+		t.Fatal("the test's claim wasn't made")
+	}
+	h.onClaim = nil
+	f.Process = context.Background()
+	c.Step(10 * time.Hour)
+	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+		t.Fatalf("got %q", got)
+	}
+	if h.holds("lamp") {
+		t.Fatal("a claim with no entry outlived the run")
+	}
+}
+
+// A process can stop between a run failing and its release. It can't release, and Finish would lose
+// the only thing telling the next process to.
+func TestStopJustBeforeAReleaseKeepsTheJournal(t *testing.T) {
+	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+	process, die := context.WithCancel(context.Background())
+	f := newFlow(h, c, l, func(r *Run) error {
+		if err := r.Apply(set("lamp")); err != nil {
+			return err
+		}
+		return errors.New("no")
+	})
+	f.Process = process
+	// This line comes after the check for a stop at the top of conclude, and before the release.
+	l.onLine = func(line string) {
+		if strings.Contains(line, "Failed flow run") {
+			die()
+		}
+	}
+	if got := f.Start(process); got != engine.ResultCancelled {
+		t.Fatalf("got %q", got)
+	}
+	if len(h.saved()) != 1 {
+		t.Fatal("the journal went with the claim still held")
+	}
+	if !h.holds("lamp") {
+		t.Fatal("the test's claim went")
+	}
+	l.onLine = nil
+	f.Process = context.Background()
+	outcome(t, resume(context.Background(), t, f, h, l))
+	if h.holds("lamp") {
+		t.Fatal("the next process didn't release the claim")
+	}
 }
 
 // Restart cancels a run and starts the next without waiting for it. A slow step can then come back,
@@ -746,10 +856,10 @@ func TestStoppedRunWithAnEndedContextReleasesNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
 			f := newFlow(h, c, l, nil)
-			h.claims[engine.Claimed{Device: "lamp", Capability: "switch.on"}] = true
+			h.claims["lamp"] = false
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			r := &Run{f: f, ctx: ctx, id: "bedtime/1", stopped: &stop{reason: reason}, held: map[engine.Claimed]bool{{Device: "lamp", Capability: "switch.on"}: true}}
+			r := &Run{f: f, ctx: ctx, id: "bedtime/1", stopped: &stop{reason: reason}}
 			if got := r.conclude(l.logger(), nil); got != engine.ResultCancelled {
 				t.Fatalf("got %q", got)
 			}
@@ -795,24 +905,20 @@ func TestReleaseWaitsOutANewRunsClaim(t *testing.T) {
 	}
 }
 
-func TestFailingRunLeavesAnEarlierRunsClaim(t *testing.T) {
+// Claims belong to the flow, so a later failing run ending an earlier run's claim is intended.
+func TestFailingRunReleasesAnEarlierRunsClaim(t *testing.T) {
 	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
-	first := newFlow(h, c, l, func(r *Run) error { return r.Apply(set("lamp")) })
-	if got := first.Start(context.Background()); got != engine.ResultSucceeded {
+	f := newFlow(h, c, l, func(r *Run) error { return r.Apply(set("lamp")) })
+	if got := f.Start(context.Background()); got != engine.ResultSucceeded {
 		t.Fatalf("got %q", got)
 	}
-	second := newFlow(h, c, l, func(r *Run) error {
-		if err := r.Apply(set("fan")); err != nil {
-			return err
-		}
-		return errors.New("no")
-	})
-	second.Start(context.Background())
 	if !h.holds("lamp") {
-		t.Fatal("a failed run dropped an earlier run's claim")
+		t.Fatal("a run that succeeded released its claim")
 	}
-	if h.holds("fan") {
-		t.Fatal("a failed run kept its own claim")
+	f.Body = func(*Run) error { return errors.New("no") }
+	f.Start(context.Background())
+	if h.holds("lamp") {
+		t.Fatal("the earlier run's claim stayed")
 	}
 }
 
@@ -835,19 +941,14 @@ func TestRunEndingBadlyKeepsItsSafetyClaims(t *testing.T) {
 			t.Fatal("a failed notification released a Safety claim")
 		}
 	})
-	t.Run("made Safety after a normal claim", func(t *testing.T) {
+	t.Run("left by an earlier run", func(t *testing.T) {
 		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
-		newFlow(h, c, l, func(r *Run) error {
-			if err := r.Apply(set("valve")); err != nil {
-				return err
-			}
-			if err := r.Apply(safety); err != nil {
-				return err
-			}
-			return notify(r)
-		}).Start(context.Background())
+		f := newFlow(h, c, l, func(r *Run) error { return r.Apply(safety) })
+		f.Start(context.Background())
+		f.Body = notify
+		f.Start(context.Background())
 		if !h.holds("valve") {
-			t.Fatal("a Safety claim that replaced a normal one was released")
+			t.Fatal("a later failure released a Safety claim")
 		}
 	})
 	t.Run("after a replay", func(t *testing.T) {

@@ -401,54 +401,6 @@ func (e *Engine) look(key types.NamespacedName, cond Condition) (changed <-chan 
 	return changed, ok, err
 }
 
-// Claimed is a capability a rule's action claims.
-type Claimed struct {
-	Device     string `json:"d"`
-	Capability string `json:"c"`
-	// Safety is a claim at Safety priority.
-	Safety bool `json:"s,omitempty"`
-}
-
-// Claims returns what a will claim for the rule key, which for a Room are its members as they are
-// now, so that a flow can record them and answer for them later.
-func (e *Engine) Claims(key types.NamespacedName, a Action) []Claimed {
-	act, err := a.action()
-	if err != nil || act.release != "" || !act.ends() {
-		return nil
-	}
-	safety := act.priority == PrioritySafety
-	if act.room == "" {
-		if !e.arbitrated(types.NamespacedName{Namespace: key.Namespace, Name: act.device}, act.capability) {
-			return nil
-		}
-		return []Claimed{{Device: act.device, Capability: act.capability, Safety: safety}}
-	}
-	var claimed []Claimed
-	for _, dev := range e.Store.Room(key.Namespace, act.room) {
-		if snap, ok := e.Store.Get(dev); ok && snap.Discovered && snap.Controls(act.capability) {
-			claimed = append(claimed, Claimed{Device: dev.Name, Capability: act.capability, Safety: safety})
-		}
-	}
-	return claimed
-}
-
-// ReleaseClaimed ends the rule's claims on these capabilities and no others. Unlike a Release, it
-// leaves what else the rule claims alone.
-func (e *Engine) ReleaseClaimed(ctx context.Context, key types.NamespacedName, claimed []Claimed) error {
-	source := ruleSource(key.Name)
-	for _, c := range claimed {
-		dev := types.NamespacedName{Namespace: key.Namespace, Name: c.Device}
-		if e.Arbitration != nil {
-			e.Arbitration.ReleaseClaim(ctx, dev, c.Capability, source)
-			continue
-		}
-		e.mu.Lock()
-		e.releaseHere(ctx, dev, c.Capability, source)
-		e.mu.Unlock()
-	}
-	return ctx.Err()
-}
-
 // NewTrigger compiles a trigger with nothing to run yet, for a flow to attach to.
 func NewTrigger(key types.NamespacedName, t Trigger) (*Compiled, error) {
 	c, errs := t.compile(key)
