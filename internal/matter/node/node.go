@@ -43,8 +43,10 @@ const (
 
 // Config configures a Node.
 type Config struct {
-	// DataDir holds the fabric table. Losing it means re-commissioning.
+	// DataDir holds the fabric table, unless Fabrics does. Losing it means re-commissioning.
 	DataDir string
+	// Fabrics, if set, keeps the fabric table, and DataDir isn't used.
+	Fabrics fabric.Store
 	// Setup is the node's own passcode and discriminator. It must stay the same across
 	// restarts, or the pairing code changes.
 	Setup Setup
@@ -115,11 +117,11 @@ type Node struct {
 	operational    map[uint8]*mdns.Service // advertised per fabric
 }
 
-// New loads the node's fabric table from cfg.DataDir and builds its bridge, with no bridged
-// devices. Add them through Bridge before Run.
+// New loads the node's fabric table and builds its bridge, with no bridged devices. Add them through
+// Bridge before Run.
 func New(cfg Config) (*Node, error) {
-	if cfg.DataDir == "" {
-		return nil, errors.New("matter: node needs a data directory")
+	if cfg.DataDir == "" && cfg.Fabrics == nil {
+		return nil, errors.New("matter: node needs somewhere to keep its fabrics")
 	}
 	if !cfg.Setup.Valid() {
 		return nil, errors.New("matter: node needs a valid setup passcode and discriminator")
@@ -130,8 +132,12 @@ func New(cfg Config) (*Node, error) {
 	if cfg.WindowTimeout == 0 {
 		cfg.WindowTimeout = DefaultWindowTimeout
 	}
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		return nil, err
+	fabrics := cfg.Fabrics
+	if fabrics == nil {
+		if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+			return nil, err
+		}
+		fabrics = fabric.DirStore{Dir: cfg.DataDir}
 	}
 	n := &Node{
 		cfg: cfg, log: cfg.Log, resumption: securechannel.NewResumptionStore(0),
@@ -143,7 +149,7 @@ func New(cfg Config) (*Node, error) {
 	if n.verifier, err = mcrypto.NewVerifier(cfg.Setup.Passcode, n.salt, pbkdfIterations); err != nil {
 		return nil, err
 	}
-	if n.table, err = fabric.Open(fabric.DirStore{Dir: cfg.DataDir}); err != nil {
+	if n.table, err = fabric.Open(fabrics); err != nil {
 		return nil, err
 	}
 	creds := cfg.Attestation

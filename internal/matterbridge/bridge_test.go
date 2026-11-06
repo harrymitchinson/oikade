@@ -189,3 +189,72 @@ func TestFabricsChangedDoesNotBlock(t *testing.T) {
 		p.Changed()
 	}
 }
+
+func onOff(t *testing.T, b *Bridge, id uint16) bool {
+	t.Helper()
+	var on bool
+	b.Matter.Node.View(func() {
+		for _, e := range b.Matter.Node.Endpoints() {
+			if e.ID == id {
+				on = readAttr(t, e, clusters.IDOnOff, 0).(bool)
+			}
+		}
+	})
+	return on
+}
+
+// TestApplyFollowsNamesThatSwap keeps both endpoints, and sends each one's writes and values to the
+// device that has its name now.
+func TestApplyFollowsNamesThatSwap(t *testing.T) {
+	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
+	b.Store = hub.NewStore(logr.Discard(), b)
+	first, second := types.NamespacedName{Namespace: "home", Name: "first"}, types.NamespacedName{Namespace: "home", Name: "second"}
+	dev := func(key types.NamespacedName, id uint16) Device {
+		return Device{Key: key, Endpoint: id, Name: key.Name, Capabilities: []string{capability.SwitchOn}, Unique: "u"}
+	}
+	if err := b.Apply(logr.Discard(), map[uint16]Device{2: dev(first, 2), 3: dev(second, 3)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Apply(logr.Discard(), map[uint16]Device{2: dev(second, 2), 3: dev(first, 3)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := endpointIDs(b); !slices.Contains(got, 2) || !slices.Contains(got, 3) {
+		t.Fatalf("endpoints %v", got)
+	}
+	b.Changed(driver.Update{Device: first, Capability: capability.SwitchOn, Value: true})
+	if !onOff(t, b, 3) || onOff(t, b, 2) {
+		t.Errorf("first is on endpoint 3 now: 2 is %v, 3 is %v", onOff(t, b, 2), onOff(t, b, 3))
+	}
+}
+
+// TestAbsentIsUnreachableUntilTheDeviceReports keeps a device on the bridge while its driver is away.
+func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
+	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
+	b.Store = hub.NewStore(logr.Discard(), b)
+	key := types.NamespacedName{Namespace: "home", Name: "lamp"}
+	d := Device{Key: key, Endpoint: 2, Name: "lamp", Capabilities: []string{capability.SwitchOn}, Unique: "u", Absent: true}
+	reachable := func() bool {
+		var r bool
+		b.Matter.Node.View(func() {
+			for _, e := range b.Matter.Node.Endpoints() {
+				if e.ID == 2 {
+					r = readAttr(t, e, clusters.IDBridgedDeviceBasicInformation, 0x11).(bool)
+				}
+			}
+		})
+		return r
+	}
+	if err := b.Apply(logr.Discard(), map[uint16]Device{2: d}); err != nil {
+		t.Fatal(err)
+	}
+	if reachable() {
+		t.Error("an absent device is reachable")
+	}
+	d.Absent = false
+	if err := b.Apply(logr.Discard(), map[uint16]Device{2: d}); err != nil {
+		t.Fatal(err)
+	}
+	if !reachable() {
+		t.Error("the device stayed unreachable")
+	}
+}

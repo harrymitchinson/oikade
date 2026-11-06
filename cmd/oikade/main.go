@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -22,12 +23,16 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
+// version is the release this binary was built from. Releases set it with
+// -ldflags "-X main.version=v0.1.0".
+var version = "dev"
+
 // defaultDataDir is where a host keeps its state, unless told otherwise.
 const defaultDataDir = "/var/lib/oikade"
 
 const usage = `Usage:
   oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
-              [--metrics-addr ADDRESS]
+              [--metrics-addr ADDRESS] [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST]
   oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
   oikade rollback [--allow-safety-removal]
   oikade status [DEVICE] [--json]
@@ -43,6 +48,7 @@ const usage = `Usage:
   oikade devices remove DEVICE [--allow-safety] [--json]
   oikade devices restore FILE [--force] [--json]
   oikade types [--out FILE] [--package NAME]
+  oikade matter [--json]
 
 Every command but host takes --data-dir DIR and --host NAME, which runs it on that SSH host.`
 
@@ -76,6 +82,8 @@ func main() {
 		err = runDevices(ctx, args)
 	case "types":
 		err = runTypes(ctx, args)
+	case "matter":
+		err = runMatter(ctx, args)
 	case "proxy":
 		err = runProxy(ctx, args)
 	default:
@@ -109,11 +117,24 @@ func runHost(ctx context.Context, args []string) error {
 		"How long your process may go without answering.")
 	settle := fs.Duration("settle", host.DefaultSettle, "How long a new version must stay up.")
 	metricsAddr := fs.String("metrics-addr", ":8080", "Where to serve metrics and health over HTTP. Empty serves neither.")
+	matterPort := fs.Uint("matter-port", host.DefaultMatterPort, "The Matter bridge's UDP port. 0 turns Matter off.")
+	matterName := fs.String("matter-name", "Oikade", "The Matter bridge's name, at most 32 bytes.")
+	matterInterfaces := fs.String("matter-interfaces", "",
+		"Comma-separated interfaces to advertise Matter on. Empty means every multicast interface.")
 	_ = fs.Parse(args)
+	if *matterPort > math.MaxUint16 {
+		return fmt.Errorf("--matter-port %d isn't a UDP port", *matterPort)
+	}
 
 	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
 	h := &host.Host{
 		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, MetricsAddr: *metricsAddr, Log: log,
+	}
+	if *matterPort != 0 {
+		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: version}
+		if *matterInterfaces != "" {
+			h.Matter.Interfaces = strings.Split(*matterInterfaces, ",")
+		}
 	}
 	if *simulate != "" {
 		devices, err := host.ReadSimulated(*simulate)

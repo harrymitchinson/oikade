@@ -200,7 +200,8 @@ func (r *rig) launchWithout(args ...string) {
 	t.Helper()
 	r.exit = make(chan error, 1)
 	r.probe = false
-	cmd := exec.Command(hostBin, append([]string{"host", "--data-dir", r.dir, "--metrics-addr=127.0.0.1:0"}, args...)...)
+	base := []string{"host", "--data-dir", r.dir, "--metrics-addr=127.0.0.1:0", "--matter-port=0"}
+	cmd := exec.Command(hostBin, append(base, args...)...)
 	cmd.Env = append(os.Environ(), r.env...)
 	r.cmd = cmd
 	stdout, err := cmd.StdoutPipe()

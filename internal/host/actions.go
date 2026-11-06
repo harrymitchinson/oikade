@@ -9,9 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
@@ -131,19 +134,29 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	if err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	for _, c := range s.srv.engine.ControlOf(dev) {
-		if c.Capability != req.Capability || c.Level != homev1alpha1.ControlLevelSafety {
-			continue
-		}
-		if holder := safetyHolder(c); holder != "" && !sameValue(c, value) {
-			return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
-		}
+	if holder := heldAtSafety(s.srv.engine, dev, req.Capability, value); holder != "" {
+		return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
 	}
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
 	if err := s.srv.setter.Set(ctx, dev, req.Capability, value); err != nil {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{}
+}
+
+// heldAtSafety names what holds a capability at Safety against value, if anything does: a write would
+// only be written back. A claim counts from the moment the host starts, arbiter or no arbiter yet.
+func heldAtSafety(eng *engine.Engine, dev types.NamespacedName, name string, value any) string {
+	for _, c := range eng.ControlOf(dev) {
+		if c.Capability != name {
+			continue
+		}
+		if holder := safetyHolder(c); c.Level == homev1alpha1.ControlLevelSafety && holder != "" && !sameValue(c, value) {
+			return holder
+		}
+		return ""
+	}
+	return eng.SavedSafety(dev, name, capability.Float(value))
 }
 
 func safetyHolder(c homev1alpha1.CapabilityControlStatus) string {

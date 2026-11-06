@@ -607,6 +607,21 @@ func (e *Engine) SavedClaims(dev types.NamespacedName) []control.Claim {
 	return claims
 }
 
+// SavedSafety names a Safety claim on record against value, for a capability with no arbiter yet.
+func (e *Engine) SavedSafety(dev types.NamespacedName, name string, value float64) string {
+	saved, ok := e.Controls.Get(dev)
+	if !ok {
+		return ""
+	}
+	now := e.Clock.Now()
+	for _, c := range saved[name].Claims {
+		if c.Level == control.Safety && c.Value != value && (c.Expires.IsZero() || c.Expires.After(now)) {
+			return c.Source
+		}
+	}
+	return ""
+}
+
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
 // that's still to do. Call with e.mu held.
 func (e *Engine) ensureDue() {

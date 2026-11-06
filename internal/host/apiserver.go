@@ -30,6 +30,8 @@ type apiServer struct {
 	deploys *deployer
 	srv     *server
 	devices *inventory
+	// bridge is nil on a host with Matter off.
+	bridge *matterBridge
 }
 
 // serve accepts connections until the listener closes, and returns once every call has finished.
@@ -114,6 +116,8 @@ func (s *apiServer) answer(req api.Request) api.Response {
 		return s.pause(s.ctx, req)
 	case api.TypeResume:
 		return s.resume(s.ctx, req)
+	case api.TypeMatter:
+		return s.matter()
 	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceReserve,
 		api.TypeDeviceRemove, api.TypeDeviceReplace, api.TypeDeviceRestore:
 		return s.device(req)
