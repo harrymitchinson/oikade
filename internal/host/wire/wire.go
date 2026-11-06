@@ -18,8 +18,9 @@ import (
 const (
 	// Version is the protocol's version. A process sends it first, and the host refuses any other.
 	// Raise it with any change to what a message means: a host outlives a deploy, so it can meet a
-	// binary built against something else. Version 2 added releaseAll's below.
-	Version = 2
+	// binary built against something else. Version 2 added releaseAll's below, and 3 pausing rules,
+	// the rule facts in a hello, and reporting rule runs and metrics.
+	Version = 3
 	// RoleAutomations is the one process that runs a home's holds and moments.
 	RoleAutomations = "automations"
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
@@ -41,8 +42,8 @@ const (
 type Type string
 
 // Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change and
-// Discovered flow for as long as it lasts. The rest are requests, each answered by a Reply with
-// its ID.
+// Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun and
+// Metrics from your process. The rest are requests, each answered by a Reply with its ID.
 const (
 	TypeHello      Type = "hello"
 	TypeWelcome    Type = "welcome"
@@ -62,6 +63,10 @@ const (
 	TypeJournal    Type = "journal"
 	TypeFinish     Type = "finish"
 	TypeReply      Type = "reply"
+	TypePause      Type = "pause"
+	TypeResume     Type = "resume"
+	TypeRuleRun    Type = "ruleRun"
+	TypeMetrics    Type = "metrics"
 )
 
 // Manifest is what your binary's check mode prints: enough for the host to judge a version before
@@ -112,7 +117,11 @@ type Message struct {
 	Role    string `json:"role,omitempty"`
 	// Rules names the process's holds, so the Welcome can return their saved state.
 	Rules []string `json:"rules,omitempty"`
+	// Info says what the process's rules are, for oikade status and pause.
+	Info []RuleInfo `json:"info,omitempty"`
 
+	// Paused is a Welcome's: rules not to run until a Resume says so.
+	Paused []string `json:"paused,omitempty"`
 	// Devices, Holds, Runs and Fires are a Welcome's, and Error a Rejected's or a failed Reply's.
 	// Runs says how many Run messages follow it: journals can be long, so each goes alone, and
 	// Dial gathers them in Unfinished.
@@ -147,6 +156,11 @@ type Message struct {
 
 	// Arbitrated is a claim or release's Reply: false means the capability isn't.
 	Arbitrated bool `json:"arbitrated,omitempty"`
+
+	// Result is a RuleRun's, with Rule and Time.
+	Result string `json:"result,omitempty"`
+	// Metrics is a Metrics message's: the process's rule metrics in Prometheus's text format.
+	Metrics []byte `json:"metrics,omitempty"`
 }
 
 // Conn reads and writes Messages. One goroutine may Read while others Write.

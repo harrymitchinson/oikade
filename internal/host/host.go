@@ -19,8 +19,12 @@ import (
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
-// SocketName is the socket your process uses, in the data directory.
-const SocketName = "host.sock"
+const (
+	// SocketName is the socket your process uses, in the data directory.
+	SocketName = "host.sock"
+	// pausedNamespace is where the store keeps paused rules.
+	pausedNamespace = "paused"
+)
 
 // Host configures a host.
 type Host struct {
@@ -37,7 +41,9 @@ type Host struct {
 	Simulate io.Reader
 	// HeartbeatTimeout defaults to DefaultHeartbeatTimeout.
 	HeartbeatTimeout time.Duration
-	Log              logr.Logger
+	// MetricsAddr is where metrics and health are served over HTTP, read-only. Empty serves none.
+	MetricsAddr string
+	Log         logr.Logger
 }
 
 // Run serves until ctx ends, then stops your process and closes the store.
@@ -62,14 +68,17 @@ func (h *Host) Run(ctx context.Context) error {
 	engineCtx, stopEngine := context.WithCancel(context.WithoutCancel(ctx))
 	defer stopEngine()
 	eng := &engine.Engine{
-		Log:      h.Log.WithName("arbitration"),
-		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: h.Log},
+		Log:          h.Log.WithName("arbitration"),
+		Controls:     &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: h.Log},
+		ControlLevel: engine.NewControlLevelGauge(),
 	}
 	srv := &server{
 		log: h.Log.WithName("socket"), ctx: engineCtx, engine: eng,
 		holds:   &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: h.Log},
 		fires:   &engine.Stored[time.Time]{Values: data.Namespace(engine.FireStatesNamespace), Log: h.Log},
 		journal: data.Journal(),
+		paused:  &engine.Stored[time.Time]{Values: data.Namespace(pausedNamespace), Log: h.Log},
+		feed:    newFeed(), pushed: &pushed{},
 	}
 	devices := hub.NewStore(h.Log.WithName("devices"), eng, srv)
 	sim := &simulator{store: devices, log: h.Log.WithName("simulator")}
@@ -99,6 +108,12 @@ func (h *Host) Run(ctx context.Context) error {
 		default:
 		}
 	}
+	observing, err := h.observe(srv, eng)
+	if err != nil {
+		_ = listener.Close()
+		_ = apiListener.Close()
+		return err
+	}
 	first := deploys.startup()
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
@@ -111,8 +126,9 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
-	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys}
+	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv}
 	serving.Go(func() { calls.serve(apiListener) })
+	serving.Go(func() { observing(ctx) })
 	<-ctx.Done()
 	_ = listener.Close()
 	_ = apiListener.Close()

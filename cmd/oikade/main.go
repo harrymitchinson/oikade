@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/go-logr/logr"
@@ -24,9 +26,16 @@ import (
 const defaultDataDir = "/var/lib/oikade"
 
 const usage = `Usage:
-  oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
-  oikade deploy [--data-dir DIR] [--module DIR | --binary FILE] [--allow-safety-removal]
-  oikade rollback [--data-dir DIR] [--allow-safety-removal]`
+  oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION] [--metrics-addr ADDRESS]
+  oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
+  oikade rollback [--allow-safety-removal]
+  oikade status [DEVICE] [--json]
+  oikade tail [--json]
+  oikade set DEVICE CAPABILITY VALUE [--json]
+  oikade pause RULE [--allow-safety] [--json]
+  oikade resume RULE [--json]
+
+Every command but host takes --data-dir DIR and --host NAME, which runs it on that SSH host.`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -35,14 +44,27 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	command, args := splitCommand(os.Args[1:])
 	var err error
-	switch os.Args[1] {
+	switch command {
 	case "host":
-		err = runHost(ctx, os.Args[2:])
+		err = runHost(ctx, args)
 	case "deploy":
-		err = runDeploy(ctx, os.Args[2:])
+		err = runDeploy(ctx, args)
 	case "rollback":
-		err = runRollback(ctx, os.Args[2:])
+		err = runRollback(ctx, args)
+	case "status":
+		err = runStatus(ctx, args)
+	case "tail":
+		err = runTail(ctx, args)
+	case "set":
+		err = runSet(ctx, args)
+	case "pause":
+		err = runPause(ctx, args, true)
+	case "resume":
+		err = runPause(ctx, args, false)
+	case "proxy":
+		err = runProxy(ctx, args)
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
@@ -53,6 +75,18 @@ func main() {
 	}
 }
 
+// splitCommand finds the command, so that oikade --host pi status works as well as oikade status
+// --host pi.
+func splitCommand(args []string) (string, []string) {
+	if len(args) >= 3 && args[0] == "--host" {
+		return args[2], append(slices.Clone(args[:2]), args[3:]...)
+	}
+	if len(args) >= 2 && strings.HasPrefix(args[0], "--host=") {
+		return args[1], append(slices.Clone(args[:1]), args[2:]...)
+	}
+	return args[0], args[1:]
+}
+
 func runHost(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("host", flag.ExitOnError)
 	dataDir := fs.String("data-dir", defaultDataDir, "Directory with all the host's state.")
@@ -61,10 +95,13 @@ func runHost(ctx context.Context, args []string) error {
 	heartbeat := fs.Duration("heartbeat-timeout", host.DefaultHeartbeatTimeout,
 		"How long your process may go without answering.")
 	settle := fs.Duration("settle", host.DefaultSettle, "How long a new version must stay up.")
+	metricsAddr := fs.String("metrics-addr", ":8080", "Where to serve metrics and health over HTTP. Empty serves neither.")
 	_ = fs.Parse(args)
 
 	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
-	h := &host.Host{DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, Log: log}
+	h := &host.Host{
+		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, MetricsAddr: *metricsAddr, Log: log,
+	}
 	if *simulate != "" {
 		devices, err := host.ReadSimulated(*simulate)
 		if err != nil {
@@ -77,16 +114,16 @@ func runHost(ctx context.Context, args []string) error {
 
 func runDeploy(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
-	dataDir := fs.String("data-dir", defaultDataDir, "The host's data directory.")
+	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module, to check and build.")
 	binary := fs.String("binary", "", "A binary already built for the host, skipping the source checks.")
 	allow := fs.Bool("allow-safety-removal", false, "Go ahead even though a Safety rule would go.")
 	_ = fs.Parse(args)
 
-	socket := filepath.Join(*dataDir, api.SocketName)
+	transport := target.transport()
 	path := *binary
 	if path == "" {
-		info, err := api.Call(ctx, socket, api.Request{Type: api.TypeInfo})
+		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
 		if err != nil {
 			return err
 		}
@@ -102,10 +139,13 @@ func runDeploy(ctx context.Context, args []string) error {
 		if err := build(ctx, *module, path, info); err != nil {
 			return err
 		}
-	} else if abs, err := filepath.Abs(path); err == nil {
-		path = abs
 	}
-	resp, err := api.Call(ctx, socket, api.Request{Type: api.TypeDeploy, Binary: path, AllowSafetyRemoval: *allow})
+	remote, uploaded, err := transport.Upload(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer uploaded()
+	resp, err := api.Call(ctx, transport, api.Request{Type: api.TypeDeploy, Binary: remote, AllowSafetyRemoval: *allow})
 	if err != nil {
 		return err
 	}
@@ -118,11 +158,10 @@ func runDeploy(ctx context.Context, args []string) error {
 
 func runRollback(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("rollback", flag.ExitOnError)
-	dataDir := fs.String("data-dir", defaultDataDir, "The host's data directory.")
+	target := addTarget(fs)
 	allow := fs.Bool("allow-safety-removal", false, "Go ahead even though a Safety rule would go.")
 	_ = fs.Parse(args)
-	resp, err := api.Call(ctx, filepath.Join(*dataDir, api.SocketName),
-		api.Request{Type: api.TypeRollback, AllowSafetyRemoval: *allow})
+	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeRollback, AllowSafetyRemoval: *allow})
 	if err != nil {
 		return err
 	}

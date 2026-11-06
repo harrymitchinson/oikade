@@ -298,6 +298,15 @@ func (d *deployer) settled(ctx context.Context, path string, vet func() error) e
 	}
 }
 
+// latest returns the running version, unless a deploy is under way and has it in flux.
+func (d *deployer) latest() (version, bool) {
+	if !d.mu.TryLock() {
+		return version{}, false
+	}
+	defer d.mu.Unlock()
+	return d.versions.current()
+}
+
 // safetyFindings lists what a new version would lose. A Safety rule's claims end with it, which could
 // reopen a valve, and a latch dies with its name, so a rule renamed is one removed. held catches a
 // Safety claim the rule's own declaration doesn't show, such as one a flow makes in a step.

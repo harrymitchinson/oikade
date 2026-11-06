@@ -9,13 +9,15 @@ Nobody writes this protocol by hand. `framework.Run` speaks it, and the code is 
 The host starts your binary as `<binary> automations`, with the socket's path in `OIKADE_SOCKET`. A process has 5 seconds to send its `hello`:
 
 ```json
-{"type":"hello","version":2,"role":"automations","rules":["fan","leak-shutoff"]}
+{"type":"hello","version":3,"role":"automations","rules":["fan","leak-shutoff"]}
 ```
+
+A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks.
 
 `version` comes first so that it can change, and it rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, which it says in its log, so a process from before `below` existed can never reach `releaseAll`. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
 - **`rejected`** with an `error`: the version or role is wrong, or an automations process is already connected. Exactly one runs at a time, because two would run everything twice.
-- **`welcome`** with `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
+- **`welcome`** with `paused`, the rules not to run; `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
 
 The host streams from the `welcome` on. A change landing as the session opens can arrive twice, so a process ignores a value it already has.
 
@@ -26,6 +28,8 @@ The host streams from the `welcome` on. A change landing as the session opens ca
 | `change` | `device`, `capability`, `value`, `previous`, `time` | A value changed |
 | `discovered` | `discovered` (a device) | A device reported for the first time |
 | `ping` | `id` | Answer with a `pong` with this `id` |
+| `pause` | `rule` | Stop running this rule until a `resume`, and end its claims below Safety |
+| `resume` | `rule` | Run this rule again |
 | `reply` | `id`, `error`, and what the request returns | Answers a request |
 
 ## From your process
@@ -44,6 +48,8 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 | `journal` | `run`, `data` | Appends a journal entry. The reply means it's on disk | `seq`, its place in the run |
 | `finish` | `run` | Forgets a run's journal. The reply means it's on disk | |
 | `pong` | `id` | Answers a `ping`. It isn't a request, so it gets no reply | |
+| `ruleRun` | `rule`, `result`, `time` | How a rule's run ended, for `oikade tail`. No reply. Runs whose condition was false aren't sent | |
+| `metrics` | `metrics` | The process's rule metrics in Prometheus's text format, for the host to serve. No reply | |
 
 ## Heartbeats
 
