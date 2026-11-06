@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
 const (
@@ -34,9 +37,18 @@ const (
 var (
 	buildOnce sync.Once
 	buildErr  error
+	buildDir  string
 	hostBin   string
 	homeBin   string
 )
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if buildDir != "" {
+		_ = os.RemoveAll(buildDir)
+	}
+	os.Exit(code)
+}
 
 // build builds the binaries once. The home goes in a module of its own, outside this one, so it
 // compiles only if the public framework is enough.
@@ -48,6 +60,7 @@ func build(t *testing.T) {
 			buildErr = err
 			return
 		}
+		buildDir = dir
 		hostBin, homeBin = filepath.Join(dir, "oikade"), filepath.Join(dir, "home")
 		repo, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
@@ -206,8 +219,8 @@ func (r *rig) read(out io.Reader) {
 	}
 }
 
-// waitFor returns the next line after the last one a wait returned that matches.
-func (r *rig) waitFor(match func(line) bool) line {
+// waitFor returns once a line matches, after the last one a wait matched.
+func (r *rig) waitFor(match func(line) bool) {
 	r.t.Helper()
 	timeout := time.After(waitLimit)
 	for {
@@ -216,7 +229,7 @@ func (r *rig) waitFor(match func(line) bool) line {
 			if l := r.lines[r.seen]; match(l) {
 				r.seen++
 				r.mu.Unlock()
-				return l
+				return
 			}
 		}
 		grew := r.grew
@@ -455,8 +468,18 @@ func TestStuckConditionCannotStopTheHost(t *testing.T) {
 
 	// With the condition spinning, the host still takes changes and refuses a second process.
 	r.change("bathroom-sensor", "sensor.relative-humidity", 45)
-	if out, err := second(r); err == nil || !strings.Contains(out, "already connected") {
-		t.Fatalf("got %v: %s", err, out)
+	raw, err := net.Dial("unix", filepath.Join(r.dir, "host.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := wire.NewConn(raw)
+	defer func() { _ = conn.Close() }()
+	hello := wire.Message{Type: wire.TypeHello, Version: wire.Version, Role: wire.RoleAutomations}
+	if err := conn.Write(hello); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := conn.Read(); err != nil || m.Type != wire.TypeRejected {
+		t.Fatalf("got %+v, %v", m, err)
 	}
 	r.hostRunning()
 

@@ -75,10 +75,8 @@ func run(h Home, log logr.Logger) error {
 	pings := make(chan uint64, 1)
 	go answerPings(ctx, client, eng, pings)
 	go client.Listen(wire.Events{
-		Changed: func(m wire.Message) { changed(mirror, m) },
-		Discovered: func(d wire.Device) {
-			mirror.Discovered(deviceKey(d.Name), driver.Info{Found: true, Capabilities: d.Capabilities})
-		},
+		Changed:    func(m wire.Message) { changed(mirror, m) },
+		Discovered: func(d wire.Device) { discovered(mirror, metas, d) },
 		Ping: func(id uint64) {
 			select {
 			case pings <- id:
@@ -141,6 +139,18 @@ func seed(mirror *hub.Store, d wire.Device) {
 	if d.Discovered {
 		mirror.Discovered(key, driver.Info{Found: true, Capabilities: d.Capabilities})
 	}
+}
+
+// discovered brings a device up to date, adding it if it's new since the Welcome. metas are the
+// mirror's devices, which it replaces as a set. Only the read goroutine calls this, after the
+// Welcome's seeding.
+func discovered(mirror *hub.Store, metas map[types.NamespacedName]hub.Meta, d wire.Device) {
+	metas[deviceKey(d.Name)] = meta(d)
+	mirror.SetDevices(hostInstance, metas)
+	for name, v := range d.Values {
+		changed(mirror, wire.Message{Device: d.Name, Capability: name, Value: v})
+	}
+	mirror.Discovered(deviceKey(d.Name), driver.Info{Found: true, Capabilities: d.Capabilities})
 }
 
 // changed applies a change. The host may repeat one around the Welcome, so a value it already has

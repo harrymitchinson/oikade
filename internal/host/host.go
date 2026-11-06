@@ -52,11 +52,11 @@ func (h *Host) Run(ctx context.Context) error {
 	defer stopEngine()
 	eng := &engine.Engine{
 		Log:      h.Log.WithName("arbitration"),
-		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace("control"), Log: h.Log},
+		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: h.Log},
 	}
 	srv := &server{
 		log: h.Log.WithName("socket"), ctx: engineCtx, engine: eng,
-		holds:   &engine.Stored[engine.HoldState]{Values: data.Namespace("holds"), Log: h.Log},
+		holds:   &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: h.Log},
 		journal: data.Journal(),
 	}
 	devices := hub.NewStore(h.Log.WithName("devices"), eng, srv)
@@ -85,7 +85,7 @@ func (h *Host) Run(ctx context.Context) error {
 	<-ctx.Done()
 	_ = listener.Close()
 	serving.Wait()
-	srv.disconnect()
+	srv.shutdown()
 	stopEngine()
 	engineDone.Wait()
 	h.Log.Info("Stopped host")

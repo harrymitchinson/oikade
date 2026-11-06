@@ -18,7 +18,8 @@ import (
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "host" {
-		fmt.Fprintln(os.Stderr, "Usage: oikade host --data-dir DIR --home BINARY [--simulate FILE]")
+		fmt.Fprintln(os.Stderr, "Usage: oikade host --data-dir DIR --home BINARY "+
+			"[--simulate FILE] [--heartbeat-timeout DURATION]")
 		os.Exit(2)
 	}
 	if err := runHost(os.Args[2:]); err != nil {
@@ -37,6 +38,9 @@ func runHost(args []string) error {
 	_ = fs.Parse(args)
 	if *dataDir == "" {
 		return errors.New("--data-dir is required")
+	}
+	if *home == "" {
+		return errors.New("--home is required")
 	}
 
 	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))

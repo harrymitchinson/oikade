@@ -43,6 +43,8 @@ type server struct {
 
 	mu      sync.Mutex
 	session *session
+	// closed refuses new sessions, once the host is stopping.
+	closed bool
 	// pong is when the session last answered a ping.
 	pong time.Time
 }
@@ -51,8 +53,10 @@ type server struct {
 type session struct {
 	conn *wire.Conn
 	out  chan wire.Message
-	gone chan struct{}
-	once sync.Once
+	// gone closes when the connection does, and finished once its last request has been carried
+	// out, so nothing from it can land on top of the next session.
+	gone, finished chan struct{}
+	once           sync.Once
 }
 
 func (s *session) end() {
@@ -108,23 +112,30 @@ func (s *server) handle(conn *wire.Conn) {
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: reason})
 		return
 	}
-	sess := &session{conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{})}
+	sess := &session{
+		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
+	}
 	if !s.attach(sess, hello) {
 		s.log.Info("Refused automations process; one is already connected")
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "an automations process is already connected"})
 		return
 	}
-	defer s.detach(sess)
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
 
 	go s.write(sess)
 	work := make(chan wire.Message, requests)
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		for m := range work {
 			s.send(sess, s.answer(m))
 		}
 	}()
-	defer close(work)
+	defer func() {
+		close(work)
+		<-drained
+		s.detach(sess)
+	}()
 	for {
 		m, err := conn.Read()
 		if err != nil {
@@ -165,22 +176,25 @@ func refusal(hello wire.Message) string {
 // attach makes sess the session and queues its Welcome, unless there is one already. The lock
 // orders the Welcome before anything sent after it. A change that lands between the snapshot and
 // the attach's end reaches the process twice at worst, and it ignores a value it already has.
+//
+// Saved holds are read before taking the lock, which drivers wait on. No session is running to
+// change them: a process refused here is told so, and the last one has finished.
 func (s *server) attach(sess *session, hello wire.Message) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.session != nil {
-		return false
-	}
-	s.session, s.pong = sess, time.Now()
 	welcome := wire.Message{Type: wire.TypeWelcome, Version: wire.Version, Holds: map[string]engine.HoldState{}}
-	for key, snap := range s.devices.List() {
-		if key.Namespace == wire.Namespace {
-			welcome.Devices = append(welcome.Devices, deviceOf(key.Name, snap))
-		}
-	}
 	for _, name := range hello.Rules {
 		if st, ok := s.holds.Get(key(name)); ok {
 			welcome.Holds[name] = st
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session != nil || s.closed {
+		return false
+	}
+	s.session, s.pong = sess, time.Now()
+	for key, snap := range s.devices.List() {
+		if key.Namespace == wire.Namespace {
+			welcome.Devices = append(welcome.Devices, deviceOf(key.Name, snap))
 		}
 	}
 	sess.out <- welcome
@@ -190,22 +204,31 @@ func (s *server) attach(sess *session, hello wire.Message) bool {
 func (s *server) detach(sess *session) {
 	sess.end()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.session == sess {
 		s.session = nil
 	}
+	s.mu.Unlock()
+	close(sess.finished)
 }
 
-// disconnect ends the session, if there is one, at once, so that the next process can't be refused
-// over the old one's connection.
+// disconnect ends the session, if there is one, and returns once its requests have all been carried
+// out, so that the next process starts from everything the last one did.
 func (s *server) disconnect() {
 	s.mu.Lock()
 	sess := s.session
-	s.session = nil
 	s.mu.Unlock()
 	if sess != nil {
 		sess.end()
+		<-sess.finished
 	}
+}
+
+// shutdown disconnects the session and refuses any more.
+func (s *server) shutdown() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	s.disconnect()
 }
 
 // write sends the session's messages in order until it ends.

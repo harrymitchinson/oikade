@@ -33,6 +33,7 @@ func TestCheckFindsInternalTypesInExportedAPI(t *testing.T) {
 		"interface method": "type I interface{ M(thing.T) }",
 		"variable":         "var V thing.T",
 		"func type":        "type F func(thing.T) error",
+		"type parameter":   "type S[T thing.C] struct{}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			found := checkSource(t, header+src)
@@ -58,6 +59,24 @@ func f(x t.T) {}
 func (s) M(x t.T) {}
 func (S) m(x t.T) {}
 func F() { var _ t.T }
+`)
+	if len(found) != 0 {
+		t.Fatalf("got %q, want none", found)
+	}
+}
+
+func TestCheckReportsADotImport(t *testing.T) {
+	found := checkSource(t, "package api\nimport . \"example.com/m/internal/thing\"\nvar _ T\n")
+	if len(found) != 1 {
+		t.Fatalf("got %q, want one", found)
+	}
+}
+
+func TestCheckIgnoresMethodsOfUnexportedGenericTypes(t *testing.T) {
+	found := checkSource(t, `package api
+import "example.com/m/internal/thing"
+type s[A, B any] struct{}
+func (s[A, B]) M(thing.T) {}
 `)
 	if len(found) != 0 {
 		t.Fatalf("got %q, want none", found)

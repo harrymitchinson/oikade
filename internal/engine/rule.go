@@ -51,6 +51,9 @@ type Vars = map[string]any
 // counts as an error.
 type Condition func(Vars) (bool, error)
 
+// brokenCondition is a condition with a bug in it, rather than one that can't be evaluated yet.
+type brokenCondition struct{ error }
+
 // guarded turns a panic in a Go condition into an error. CEL can't panic, but one Go condition
 // reading a device that hasn't reported mustn't stop every other rule.
 func guarded(c Condition) Condition {
@@ -60,7 +63,7 @@ func guarded(c Condition) Condition {
 	return func(v Vars) (ok bool, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				ok, err = false, fmt.Errorf("condition panicked: %v", r)
+				ok, err = false, brokenCondition{fmt.Errorf("condition panicked: %v", r)}
 			}
 		}()
 		return c(v)

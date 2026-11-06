@@ -1,5 +1,10 @@
 // Package apicheck fails a public package whose exported API mentions an internal one, which users
-// of it couldn't name. It reads the source, so it needs no build.
+// of it couldn't name.
+//
+// It reads syntax, so it needs no build, and it has the limits of that. It doesn't follow an
+// unexported type or alias into an exported signature, and it takes an import's name from the last
+// element of its path unless the import renames it. Compiling a home in a module of its own, as
+// test/host does, catches what this misses. A dot import of an internal package is reported.
 package apicheck
 
 import (
@@ -42,6 +47,11 @@ func checkFile(fset *token.FileSet, file *ast.File) []string {
 	internal := internalImports(file)
 	var found []string
 	skip := map[*ast.Field]bool{}
+	for _, imp := range file.Imports {
+		if path, err := strconv.Unquote(imp.Path.Value); err == nil && isInternal(path) && imp.Name != nil && imp.Name.Name == "." {
+			found = append(found, fmt.Sprintf("%s: dot import of %s", fset.Position(imp.Pos()), path))
+		}
+	}
 	mentions := func(where string, n ast.Node) {
 		if n == nil {
 			return
@@ -74,6 +84,9 @@ func checkFile(fset *token.FileSet, file *ast.File) []string {
 				switch s := s.(type) {
 				case *ast.TypeSpec:
 					if s.Name.IsExported() {
+						if s.TypeParams != nil {
+							mentions(s.Name.Name, s.TypeParams)
+						}
 						mentions(s.Name.Name, s.Type)
 					}
 				case *ast.ValueSpec:
@@ -110,7 +123,10 @@ func unexportedReceiver(d *ast.FuncDecl) bool {
 	if star, ok := t.(*ast.StarExpr); ok {
 		t = star.X
 	}
-	if index, ok := t.(*ast.IndexExpr); ok {
+	switch index := t.(type) {
+	case *ast.IndexExpr:
+		t = index.X
+	case *ast.IndexListExpr:
 		t = index.X
 	}
 	id, ok := t.(*ast.Ident)

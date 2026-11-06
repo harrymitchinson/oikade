@@ -1,11 +1,17 @@
 package framework
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/hub"
 )
 
 func TestCompileRejectsAnUnsoundHome(t *testing.T) {
@@ -51,7 +57,37 @@ func TestConditionSeesTheHome(t *testing.T) {
 // A hold has to keep its state until the devices it reads have reported, so that isn't false.
 func TestConditionReadingAnUnreportedValueIsAnError(t *testing.T) {
 	cond := Condition(func(s State) bool { return !s.Bool("door", "sensor.contact-open") }).toEngine()
-	if _, err := cond(engine.Vars{"devices": map[string]map[string]any{}}); err == nil {
+	devices := map[string]map[string]any{"door": {}}
+	if _, err := cond(engine.Vars{"devices": devices}); err == nil {
 		t.Fatal("got no error")
+	}
+}
+
+// A device that doesn't exist will never report, so it mustn't pass for one that hasn't yet. The
+// engine recovers this panic and logs it.
+func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
+	cond := Condition(func(s State) bool { return s.Bool("dor", "sensor.contact-open") }).toEngine()
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "no device dor") {
+			t.Fatalf("got %v", r)
+		}
+	}()
+	_, _ = cond(engine.Vars{"devices": map[string]map[string]any{"door": {}}})
+}
+
+func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
+	mirror := hub.NewStore(logr.Discard())
+	metas := map[types.NamespacedName]hub.Meta{}
+	discovered(mirror, metas, wire.Device{
+		Name: "lamp", Room: "hall", Arbitrated: []string{"switch.on"}, Discovered: true,
+		Capabilities: []string{"switch.on"}, Values: map[string]any{"switch.on": true},
+	})
+	snap, ok := mirror.Get(deviceKey("lamp"))
+	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("switch.on") || snap.Values["switch.on"] != true {
+		t.Fatalf("got %+v, %v", snap, ok)
+	}
+	changed(mirror, wire.Message{Device: "lamp", Capability: "switch.on", Value: false})
+	if snap, _ := mirror.Get(deviceKey("lamp")); snap.Values["switch.on"] != false {
+		t.Fatalf("a later change didn't reach it: %+v", snap)
 	}
 }

@@ -63,7 +63,8 @@ func (s State) value(device, capability string) any {
 }
 
 // Bool reads a bool capability. A condition reading a value nobody has reported yet stops there:
-// a hold keeps its state, and a moment doesn't run.
+// a hold keeps its state, and a moment doesn't run. So does one with a mistake in it, such as a
+// device that doesn't exist, which is logged.
 func (s State) Bool(device, capability string) bool {
 	b, ok := s.value(device, capability).(bool)
 	if !ok {
@@ -93,17 +94,24 @@ func (c Condition) toEngine() engine.Condition {
 		return nil
 	}
 	return func(v engine.Vars) (ok bool, err error) {
-		defer func() {
-			switch r := recover().(type) {
-			case nil:
-			case notReported:
-				ok, err = false, fmt.Errorf("%s %s hasn't reported", r.device, r.capability)
-			default:
-				panic(r)
-			}
-		}()
 		devices, _ := v["devices"].(map[string]map[string]any)
 		now, _ := v["now"].(time.Time)
+		defer func() {
+			r := recover()
+			if r == nil {
+				return
+			}
+			// Waiting for a device to report is normal. Anything else is a bug: the engine
+			// recovers it, and logs it where a person will see it.
+			if n, waiting := r.(notReported); waiting {
+				if _, declared := devices[n.device]; declared {
+					ok, err = false, fmt.Errorf("%s %s hasn't reported", n.device, n.capability)
+					return
+				}
+				panic(fmt.Sprintf("no device %s", n.device))
+			}
+			panic(r)
+		}()
 		return c(State{devices: devices, now: now}), nil
 	}
 }
