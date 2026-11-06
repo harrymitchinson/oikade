@@ -32,7 +32,7 @@ func pluginDevices(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	devices := make([]map[string]any, 0, 2)
+	devices := make([]map[string]any, 0, 3)
 	if err := json.Unmarshal(raw, &devices); err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +42,7 @@ func pluginDevices(t *testing.T) string {
 			"capability": "switch.on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h",
 		}},
 	})
+	devices = append(devices, map[string]any{"name": "once-sensor", "capabilities": []string{opened}})
 	devices = append(devices, map[string]any{
 		"plugin": "relays", "name": "once", "capabilities": []string{"switch.on"},
 		"control": []map[string]any{{
@@ -286,7 +287,7 @@ func TestAWriteLostToACrashIsWrittenAgain(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.untilValue("once", false)
-	r.change("leak-sensor", opened, true)
+	r.change("once-sensor", opened, true)
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	// Taken for somebody turning it off, it'd stay off under an hour's override of a Normal claim.
 	r.untilValue("once", true)
