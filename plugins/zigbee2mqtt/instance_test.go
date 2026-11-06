@@ -350,3 +350,75 @@ func TestMessagesFromBeforeTheDeviceListAreKept(t *testing.T) {
 		t.Errorf("still holding %v", i.early)
 	}
 }
+
+// A new device can report before it's in the list, and its first report may be its last for hours.
+func TestAMessageFromADeviceNotYetListedIsKept(t *testing.T) {
+	_, bus, rec := setup(t)
+	ctx := context.Background()
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", []byte(`[]`), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":true}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", devices, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.changes) != 1 {
+		t.Fatalf("changes = %+v", rec.changes)
+	}
+}
+
+// A device re-paired under its address has no values anywhere else, so its first report counts.
+func TestARepairedDevicesReportIsNotARepeat(t *testing.T) {
+	_, bus, rec := setup(t)
+	ctx := context.Background()
+	report := []byte(`{"contact":true}`)
+	if err := bus.Publish(ctx, "z2m/front-door", report, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", []byte(`[]`), true); err != nil {
+		t.Fatal(err)
+	}
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", devices, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/front-door", report, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.changes) != 2 {
+		t.Fatalf("changes = %+v", rec.changes)
+	}
+}
+
+// A message held while a device was undeclared is older than anything heard since.
+func TestAHeldMessageDoesNotUndoANewerOne(t *testing.T) {
+	i, bus, rec := setup(t)
+	ctx := context.Background()
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i.SetDevices(map[string]types.NamespacedName{})
+	if err := bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":false}`), false); err != nil {
+		t.Fatal(err)
+	}
+	i.SetDevices(map[string]types.NamespacedName{"0x00158d0000000003": door})
+	if err := bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":true}`), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", devices, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.changes) != 1 || rec.changes[0].Value != false {
+		t.Errorf("changes = %+v, want only the newer report, of a closed door", rec.changes)
+	}
+}

@@ -17,7 +17,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
-// earlyLimit bounds what's kept from before the first device list.
+// earlyLimit bounds what's kept for the next device list.
 const earlyLimit = 4096
 
 // Instance follows one Zigbee2MQTT instance on the bus.
@@ -29,6 +29,10 @@ type Instance struct {
 	Sink      driver.Sink
 	Now       func() time.Time
 	Log       logr.Logger
+	// OnBridgeState, if set, hears <base>/bridge/state. OnListed, if set, runs after each device list
+	// and whatever it resolved.
+	OnBridgeState func(online bool)
+	OnListed      func()
 
 	mu          sync.Mutex
 	unsubscribe func()
@@ -36,8 +40,9 @@ type Instance struct {
 	paired      map[string]*paired              // IEEE address -> paired device
 	byName      map[string]string               // friendly name -> IEEE address
 	values      map[string]map[string]any       // IEEE address -> capability -> value
-	// early holds the latest message on each topic until the first device list, which is what
-	// resolves them. A broker sends retained messages in any order.
+	// early holds the latest message on each topic that resolves to no device, until the next device
+	// list, which may be what resolves it: a broker sends retained messages in any order, and a new
+	// device can report before it's listed.
 	early map[string][]byte
 }
 
@@ -112,6 +117,10 @@ func (i *Instance) handle(m mqtt.Message) {
 	switch {
 	case rest == "bridge/devices":
 		i.handleDevices(m.Payload)
+	case rest == "bridge/state":
+		if i.OnBridgeState != nil {
+			i.OnBridgeState(onlinePayload(m.Payload))
+		}
 	case strings.HasPrefix(rest, "bridge/"):
 	case i.hold(rest, m.Payload):
 	default:
@@ -119,11 +128,13 @@ func (i *Instance) handle(m mqtt.Message) {
 	}
 }
 
-// hold keeps a device's message until the first device list, and says whether it did.
+// hold keeps a message that resolves to no device for the next device list, and says whether it did.
 func (i *Instance) hold(rest string, payload []byte) bool {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.paired != nil {
+	name := strings.TrimSuffix(rest, "/availability")
+	if _, ok := i.deviceLocked(name); ok {
+		delete(i.early, rest) // This is newer, and a replay must not undo it.
 		return false
 	}
 	if i.early == nil {
@@ -181,6 +192,18 @@ func (i *Instance) handleDevices(payload []byte) {
 	for ieee := range i.paired {
 		i.byName[ieee] = ieee
 	}
+	// What a device no longer has, or a device that left, has lost its value everywhere else, so
+	// its next report isn't a repeat.
+	maps.DeleteFunc(i.values, func(ieee string, values map[string]any) bool {
+		p := i.paired[ieee]
+		if p == nil {
+			return true
+		}
+		maps.DeleteFunc(values, func(c string, _ any) bool {
+			return !slices.ContainsFunc(p.bindings, func(b binding) bool { return b.capability == c })
+		})
+		return false
+	})
 	emit := i.discoveryLocked()
 	early := i.early
 	i.early = nil
@@ -193,6 +216,9 @@ func (i *Instance) handleDevices(payload []byte) {
 	i.Sink.Inventory(driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: i.Key}, inventory)
 	for _, rest := range slices.Sorted(maps.Keys(early)) {
 		i.handleDevice(rest, early[rest])
+	}
+	if i.OnListed != nil {
+		i.OnListed()
 	}
 }
 
@@ -274,10 +300,10 @@ func (i *Instance) handleState(name string, payload []byte) {
 	}
 	i.mu.Unlock()
 
-	i.Sink.Seen(dev, now)
 	for _, u := range updates {
 		i.Sink.Changed(u)
 	}
+	i.Sink.Seen(dev, now)
 }
 
 // deviceLocked resolves a friendly name or IEEE address to a declared, paired Device.

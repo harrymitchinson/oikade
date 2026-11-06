@@ -697,10 +697,10 @@ Set these in Zigbee2MQTT's `configuration.yaml`:
 availability:
   enabled: true      # so a device that's gone reads offline
 device_options:
-  retain: true       # so a deploy, which restarts plugins, doesn't lose values until the next report
+  retain: true       # so a host restart doesn't leave values unknown until each device next reports
 ```
 
-Every paired device enters the registry by its IEEE address, except the coordinator and devices Zigbee2MQTT doesn't support, and is usable at once. Its friendly name is copied once, as its name. When Zigbee2MQTT says it's offline, its devices read offline and writes are refused, which the host's log shows. Your automations and Matter carry on.
+Every paired device enters the registry by its IEEE address, except the coordinator and devices Zigbee2MQTT doesn't support, and is usable at once. Its friendly name is copied once, as its name. When Zigbee2MQTT says it's offline, or the broker can't be reached, its devices read offline and writes are refused, which the host's log shows. Your automations and Matter carry on.
 
 ## State that must survive
 

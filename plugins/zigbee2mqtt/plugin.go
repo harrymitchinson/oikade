@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"os"
@@ -25,8 +26,13 @@ import (
 // DefaultBaseTopic is Zigbee2MQTT's own default mqtt.base_topic.
 const DefaultBaseTopic = "zigbee2mqtt"
 
-// disconnectTimeout bounds leaving the broker.
-const disconnectTimeout = 2 * time.Second
+const (
+	// disconnectTimeout bounds leaving the broker.
+	disconnectTimeout = 2 * time.Second
+	// connectTimeout bounds reaching the broker when the plugin starts. Going on waiting would leave
+	// a plugin that looks well to the host, which restarts one that gives up, with a backoff.
+	connectTimeout = time.Minute
+)
 
 // errBridgeOffline is a write while Zigbee2MQTT says it's offline, which nothing would act on.
 var errBridgeOffline = errors.New("zigbee2mqtt is offline")
@@ -52,7 +58,8 @@ func New(c Config) plugin.Factory {
 		}
 		return &bridge{
 			config: c, broker: env.MQTTURL, declared: ids, up: true, online: map[string]bool{},
-			log: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+			connectTimeout: connectTimeout,
+			log:            slog.New(slog.NewJSONHandler(os.Stderr, nil)),
 		}, nil
 	}
 }
@@ -62,20 +69,24 @@ type bridge struct {
 	config Config
 	broker string
 	// declared are the devices on record, which are reported even once they've left Zigbee2MQTT.
-	declared []string
-	log      *slog.Logger
-	instance *Instance
+	declared       []string
+	connectTimeout time.Duration
+	log            *slog.Logger
+	instance       *Instance
 
 	// ctx and plugin are set before anything can be heard.
 	ctx    context.Context
 	plugin *plugin.Plugin
 
 	mu sync.Mutex
-	// up is Zigbee2MQTT's own state, and online each device's last availability. A device with none
-	// is taken as online, because Zigbee2MQTT reports availability only if it's turned on.
-	up       bool
-	online   map[string]bool
+	// up is whether Zigbee2MQTT can be reached, and online each device's last availability. A device
+	// with none is taken as online, because Zigbee2MQTT reports availability only if it's turned on.
+	up     bool
+	online map[string]bool
+	// reported is every device reported, and whether it's found.
 	reported map[string]bool
+	// heard is the values of the message being taken in.
+	heard map[string]contractv1.State
 }
 
 var _ plugin.Handler = (*bridge)(nil)
@@ -87,26 +98,33 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	// makes everything after it wait for a reply that isn't coming, and a deploy wait with it.
 	life, cut := context.WithCancel(logr.NewContext(context.WithoutCancel(ctx), logr.FromSlogHandler(b.log.Handler())))
 	defer cut()
-	connecting := context.AfterFunc(ctx, cut)
-	client, err := mqtt.Connect(life, b.broker, clientID())
-	if !connecting() || err != nil {
+	dial, cancel := context.WithTimeout(ctx, b.connectTimeout)
+	defer cancel()
+	connecting := context.AfterFunc(dial, cut)
+	client, err := mqtt.Connect(life, b.broker, clientID(), mqtt.WithOnDisconnect(b.connectionLost))
+	if !connecting() {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return fmt.Errorf("could not reach the broker within %s", b.connectTimeout)
+	}
+	if err != nil {
 		return err
 	}
 	defer func() {
-		leaving, cancel := context.WithTimeout(life, disconnectTimeout)
-		defer cancel()
+		leaving, done := context.WithTimeout(life, disconnectTimeout)
+		defer done()
 		_ = client.Disconnect(leaving)
 	}()
 	b.instance = &Instance{
-		Key:       types.NamespacedName{Name: b.config.BaseTopic},
-		BaseTopic: b.config.BaseTopic,
-		Bus:       client,
-		Sink:      b,
-		Now:       time.Now,
-		Log:       logr.FromSlogHandler(b.log.Handler()),
-	}
-	if _, err := client.Subscribe(ctx, b.config.BaseTopic+"/bridge/state", b.bridgeState); err != nil {
-		return err
+		Key:           types.NamespacedName{Name: b.config.BaseTopic},
+		BaseTopic:     b.config.BaseTopic,
+		Bus:           client,
+		Sink:          b,
+		Now:           time.Now,
+		Log:           logr.FromSlogHandler(b.log.Handler()),
+		OnBridgeState: b.setUp,
+		OnListed:      b.publishAllAvailability,
 	}
 	if err := b.instance.Start(ctx); err != nil {
 		return err
@@ -126,29 +144,40 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 	return b.instance.Set(ctx, device(cmd.ID), cmd.Capability, cmd.Value)
 }
 
-// bridgeState follows <base>/bridge/state, which is Zigbee2MQTT's Last Will. With no process of its
-// own to watch, this is how Oikade learns Zigbee2MQTT has stopped.
-func (b *bridge) bridgeState(m mqtt.Message) {
-	up := onlinePayload(m.Payload)
+// setUp follows <base>/bridge/state, which is Zigbee2MQTT's Last Will. With no process of its own to
+// watch, this is how Oikade learns Zigbee2MQTT has stopped.
+func (b *bridge) setUp(up bool) {
 	b.mu.Lock()
 	changed := up != b.up
 	b.up = up
+	b.mu.Unlock()
+	if changed {
+		b.log.Info("Zigbee2MQTT changed state", "online", up)
+		b.publishAllAvailability()
+	}
+}
+
+// connectionLost is the broker going, which hides whatever Zigbee2MQTT says: no message could say it
+// has gone. A reconnect brings the retained state back. It doesn't wait, because the MQTT client
+// waits for this.
+func (b *bridge) connectionLost() {
+	go b.setUp(false)
+}
+
+func (b *bridge) publishAllAvailability() {
+	b.mu.Lock()
 	ids := slices.Sorted(maps.Keys(b.reported))
 	b.mu.Unlock()
-	if !changed {
-		return
-	}
-	b.log.Info("Zigbee2MQTT changed state", "online", up)
 	for _, id := range ids {
 		b.publishAvailability(id)
 	}
 }
 
-// publishAvailability reports a device as online only if it and Zigbee2MQTT are.
+// publishAvailability reports a device as online only if it's paired, and it and Zigbee2MQTT are up.
 func (b *bridge) publishAvailability(id string) {
 	b.mu.Lock()
 	online, known := b.online[id]
-	online = b.up && (online || !known)
+	online = b.up && b.reported[id] && (online || !known)
 	b.mu.Unlock()
 	b.check(b.plugin.SetAvailability(b.ctx, id, online), "Could not report availability", id)
 }
@@ -178,7 +207,8 @@ func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 			reports = append(reports, contractv1.DeviceReport{ID: id})
 		}
 	}
-	// Discovered first: it's published with the devices, so the list arrives whole.
+	// Each of these publishes, so the host hears the list twice when it changes. It takes that in
+	// the same way both times.
 	b.check(b.plugin.SetDiscovered(b.ctx, discovered), "Could not report discovered devices", "")
 	b.check(b.plugin.SetDevices(b.ctx, reports, 0), "Could not report devices", "")
 	b.instance.SetDevices(paired)
@@ -186,36 +216,50 @@ func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 	b.mu.Lock()
 	b.reported = make(map[string]bool, len(reports))
 	for _, r := range reports {
-		b.reported[r.ID] = true
+		b.reported[r.ID] = r.Found
 	}
-	up := b.up
 	b.mu.Unlock()
-	if !up {
-		for _, r := range reports {
-			b.publishAvailability(r.ID)
-		}
-	}
 }
 
 // Availability implements driver.Sink.
 func (b *bridge) Availability(dev types.NamespacedName, online bool) {
 	b.mu.Lock()
 	b.online[dev.Name] = online
+	_, reported := b.reported[dev.Name]
 	b.mu.Unlock()
-	b.publishAvailability(dev.Name)
+	if reported {
+		b.publishAvailability(dev.Name)
+	}
 }
 
-// Changed implements driver.Sink.
+// Changed implements driver.Sink. Seen ends the message, and reports it whole.
 func (b *bridge) Changed(u driver.Update) {
-	b.check(b.plugin.ReportState(b.ctx, u.Device.Name, contractv1.State{u.Capability: u.Value}),
-		"Could not report state", u.Device.Name)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.heard == nil {
+		b.heard = map[string]contractv1.State{}
+	}
+	if b.heard[u.Device.Name] == nil {
+		b.heard[u.Device.Name] = contractv1.State{}
+	}
+	b.heard[u.Device.Name][u.Capability] = u.Value
+}
+
+// Seen implements driver.Sink. A message that changes nothing is published too: it's how Oikade
+// knows a steady sensor is alive.
+func (b *bridge) Seen(dev types.NamespacedName, _ time.Time) {
+	b.mu.Lock()
+	values := b.heard[dev.Name]
+	delete(b.heard, dev.Name)
+	b.mu.Unlock()
+	if values == nil {
+		values = contractv1.State{}
+	}
+	b.check(b.plugin.ReportState(b.ctx, dev.Name, values), "Could not report state", dev.Name)
 }
 
 // Discovered implements driver.Sink. Inventory reports the same thing.
 func (b *bridge) Discovered(types.NamespacedName, driver.Info) {}
-
-// Seen implements driver.Sink. Oikade sees it in the state.
-func (b *bridge) Seen(types.NamespacedName, time.Time) {}
 
 // Undeclared implements driver.Sink. Every device is reported, so none are.
 func (b *bridge) Undeclared(driver.InstanceKey, int) {}

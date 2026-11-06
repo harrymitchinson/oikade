@@ -42,7 +42,7 @@ func hear(t *testing.T, url string) *heard {
 	// The connection lasts as long as this context.
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	bus, err := mqtt.Connect(ctx, url, "z2m-test")
+	bus, err := mqtt.Connect(ctx, url, "z2m-test-"+clientID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,8 +102,15 @@ func (h *heard) waitState(t *testing.T, id string, want contractv1.State) {
 // run serves the plugin until the returned func is called, and waits for it to come online.
 func run(t *testing.T, url string, declared ...contractv1.DeclaredDevice) (stop func()) {
 	t.Helper()
+	return runOn(t, url, url, declared...)
+}
+
+// runOn runs the plugin with Oikade on one broker and Zigbee2MQTT on another. Under the host, its
+// link to Oikade is a socket, which outlives the broker.
+func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredDevice) (stop func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	env := plugin.Environment{MQTTURL: url, Root: root}
+	env := plugin.Environment{MQTTURL: zigbee, Root: root}
 	h, err := New(Config{BaseTopic: base})(env, declared)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +118,8 @@ func run(t *testing.T, url string, declared ...contractv1.DeclaredDevice) (stop 
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
 	p, err := plugin.Start(started, plugin.Options{
-		Environment: env, OnSet: h.Set, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Environment: plugin.Environment{MQTTURL: oikade, Root: root}, OnSet: h.Set,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +275,112 @@ func TestAWriteIsRefusedWhileZigbee2MQTTIsOffline(t *testing.T) {
 	}
 	if got := bus.Sent(base + "/" + plugIEEE + "/set"); len(got) != 0 {
 		t.Errorf("sent %v", got)
+	}
+}
+
+// A process that's gone reads as offline, so a new one has to say otherwise, even of a device
+// Zigbee2MQTT says nothing about.
+func TestARestartBringsBackDevicesWithNoAvailabilityOfTheirOwn(t *testing.T) {
+	url := mqtttest.StartBroker(t)
+	h := hear(t, url)
+	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
+	run(t, url)
+	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
+}
+
+func TestADeviceThatLeftStaysOffline(t *testing.T) {
+	url := mqtttest.StartBroker(t)
+	h := hear(t, url)
+	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
+	const gone = "0x00aa000000000000"
+	run(t, url, contractv1.DeclaredDevice{ID: gone, Name: "gone", DisplayName: "gone"})
+	h.waitFor(t, root.Availability(gone), contractv1.Offline)
+	h.publish(t, base+"/bridge/state", `{"state":"offline"}`, true)
+	h.waitFor(t, root.Availability(plugIEEE), contractv1.Offline)
+	h.publish(t, base+"/bridge/state", `{"state":"online"}`, true)
+	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
+	h.waitFor(t, root.Availability(gone), contractv1.Offline)
+}
+
+func TestLosingTheBrokerMarksDevicesOffline(t *testing.T) {
+	oikade := mqtttest.StartBroker(t)
+	zigbee := mqtttest.NewBroker(t)
+	h := hear(t, oikade)
+	z := hear(t, zigbee.URL)
+	z.publish(t, base+"/bridge/state", `{"state":"online"}`, true)
+	z.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
+	runOn(t, oikade, zigbee.URL)
+	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
+
+	zigbee.Restart(t)
+	h.waitFor(t, root.Availability(plugIEEE), contractv1.Offline)
+	// This client is reconnecting too.
+	deadline := time.Now().Add(waitLimit)
+	for z.bus.Publish(context.Background(), base+"/bridge/state", []byte(`{"state":"online"}`), true) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the test's client never reconnected")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	z.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
+	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
+}
+
+func TestItGivesUpOnABrokerItCantReach(t *testing.T) {
+	broker, err := mqtttest.Listen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.Close()
+	h, err := New(Config{})(plugin.Environment{MQTTURL: broker.URL, Root: root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok := h.(*bridge)
+	if !ok {
+		t.Fatalf("got %T", h)
+	}
+	b.connectTimeout = 50 * time.Millisecond
+	if err := b.Serve(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "could not reach") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// One message is one report, so nothing sees half of it, and a steady sensor still says it's alive.
+func TestAMessageIsReportedWholeAndOnceEvenIfNothingChanged(t *testing.T) {
+	url := mqtttest.StartBroker(t)
+	h := hear(t, url)
+	var reports []string
+	var mu sync.Mutex
+	_, err := h.bus.Subscribe(context.Background(), root.State(motionIEEE), func(m mqtt.Message) {
+		mu.Lock()
+		defer mu.Unlock()
+		reports = append(reports, string(m.Payload))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
+	run(t, url)
+	h.wait(t, "devices", func(topics map[string]string) bool { return topics[root.Devices()] != "" })
+
+	h.publish(t, base+"/hallway-motion", `{"occupancy":true,"battery":90}`, false)
+	h.waitState(t, motionIEEE, contractv1.State{"sensor.occupancy-detected": true, "battery.level": 90.0})
+	h.publish(t, base+"/hallway-motion", `{"occupancy":true,"battery":90}`, false)
+	deadline := time.Now().Add(waitLimit)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(reports)
+		mu.Unlock()
+		if n >= 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reports) != 2 || reports[0] != reports[1] {
+		t.Errorf("got %q, want the same whole report twice", reports)
 	}
 }
 
