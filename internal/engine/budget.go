@@ -238,7 +238,7 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 			}
 			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, devices, read))}
 			for _, err := range p.day.Errors {
-				e.Log.Info("Budget planned with an error", "rule", key, "error", err.Error())
+				e.Log.Info("Budget planned with an error", "rule", key, "err", err)
 			}
 			if len(p.day.Errors) > 0 {
 				p.failure = p.day.Errors[0].Error()

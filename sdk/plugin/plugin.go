@@ -409,7 +409,7 @@ func (p *Plugin) announce(ctx context.Context) {
 	defer p.unlock()
 	online, _ := json.Marshal(contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract})
 	if err := p.client.Publish(ctx, p.root.Status(), online, true); err != nil {
-		p.log.Error("Could not announce plugin", "topic", string(p.root), "error", err.Error())
+		p.log.Error("Could not announce plugin", "topic", string(p.root), "err", err)
 		return
 	}
 
@@ -440,7 +440,7 @@ func (p *Plugin) announce(ctx context.Context) {
 		return nil
 	}()
 	if err != nil {
-		p.log.Error("Could not announce plugin", "topic", string(p.root), "error", err.Error())
+		p.log.Error("Could not announce plugin", "topic", string(p.root), "err", err)
 		return
 	}
 	p.log.Info("Plugin came online", "topic", string(p.root))
@@ -508,7 +508,7 @@ func (p *Plugin) drain(id string) {
 		p.mu.Unlock()
 		if err != nil {
 			p.log.Error("Could not apply set command",
-				"topic", p.root.Set(cmd.ID), "capability", cmd.Capability, "error", err.Error())
+				"topic", p.root.Set(cmd.ID), "capability", cmd.Capability, "err", err)
 		}
 	}
 }

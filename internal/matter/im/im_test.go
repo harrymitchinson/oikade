@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
@@ -71,7 +72,7 @@ func pairAs(t *testing.T, node *Node, access AccessControl, devCfg transport.Sec
 	t.Helper()
 	conn := &countingConn{PacketConn: listen(t)}
 	dev, cli := serveOn(t, conn), serveOn(t, listen(t))
-	srv := &Server{Node: node, Access: access}
+	srv := &Server{Node: node, Access: access, Log: logging.Test(t)}
 	srv.Register(dev)
 	did, _ := dev.AllocateSessionID()
 	cid, _ := cli.AllocateSessionID()

@@ -125,7 +125,7 @@ func Listen(opts Options) (*Responder, error) {
 		return nil, errors.Join(err4, err6)
 	}
 	if err4 != nil || err6 != nil {
-		opts.Log.Info("Listening for mDNS on one address family only", "error", errors.Join(err4, err6))
+		opts.Log.Info("Listening for mDNS on one address family only", "err", errors.Join(err4, err6))
 	}
 	host := opts.Host
 	if host == "" {

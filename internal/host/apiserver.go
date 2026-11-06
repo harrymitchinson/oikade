@@ -59,7 +59,7 @@ func (s *apiServer) handle(conn net.Conn) {
 	_ = conn.SetReadDeadline(time.Now().Add(requestTimeout))
 	var req api.Request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		s.log.Debug("Dropped connection before its request", "error", err.Error())
+		s.log.Debug("Dropped connection before its request", "err", err)
 		return
 	}
 	if req.Type == api.TypeTail {
@@ -71,7 +71,7 @@ func (s *apiServer) handle(conn net.Conn) {
 		return
 	}
 	if err := json.NewEncoder(conn).Encode(s.answer(req)); err != nil {
-		s.log.Debug("Could not answer a request; the caller left", "error", err.Error())
+		s.log.Debug("Could not answer a request; the caller left", "err", err)
 	}
 }
 

@@ -84,7 +84,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	cfg.Log = logging.Discard()
 	if *verbose {
-		cfg.Log = slog.New(slog.NewTextHandler(stderr, nil))
+		cfg.Log = logging.Text(stderr, slog.LevelInfo)
 	}
 	if !conformance.Run(cfg, stdout) {
 		return 1

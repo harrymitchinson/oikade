@@ -183,7 +183,7 @@ func (b *bridge) publishAvailability(id string) {
 
 func (b *bridge) check(err error, msg, id string) {
 	if err != nil && !errors.Is(err, plugin.ErrClosed) && b.ctx.Err() == nil {
-		b.log.Error(msg, "device", id, "error", err.Error())
+		b.log.Error(msg, "device", id, "err", err)
 	}
 }
 

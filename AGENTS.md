@@ -68,6 +68,7 @@ Tests are plain Go `testing`. A simulated home on a fake clock is `internal/simh
 - Past tense: `"Could not delete Device"` not `"Cannot delete Device"`
 - Specify object type: `"Deleted Device"` not `"Deleted"`
 - Balanced key-value pairs
+- Errors under the key `err`, and a component's name under `logger`, or `part` within Matter (slog can't join names)
 
 ```go
 log.Info("Started host")

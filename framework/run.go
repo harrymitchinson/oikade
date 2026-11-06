@@ -202,7 +202,7 @@ func runDev(h Home) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// Standard output is the conversation with you, so the log goes beside it.
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log := logging.Text(os.Stderr, slog.LevelInfo)
 	return simhome.Dev(ctx, simhome.Options{
 		Home: home, Devices: devices, Start: time.Now().Truncate(time.Minute), Location: time.Local, Log: log,
 	}, os.Stdin, os.Stdout)
@@ -225,7 +225,7 @@ func runReplay(h Home) error {
 	}
 	// Errors only: a mistake in a condition is what explains a missing write, and a week of the rest
 	// would bury it.
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	log := logging.Text(os.Stderr, slog.LevelError)
 	report, err := simhome.ReplayFile(simhome.Options{Home: home, Devices: devices, Log: log}, os.Args[2])
 	if err != nil {
 		return err

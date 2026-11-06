@@ -322,7 +322,7 @@ func (c *Commissioning) addNOC(req *im.Request, fields *tlv.Reader) (*im.Respons
 	}
 	index, err := c.fabrics.AddNOC(noc, icac, ipk, subject, uint16(vendor))
 	if err != nil {
-		c.log.Info("Refused AddNOC", "error", err.Error())
+		c.log.Info("Refused AddNOC", "err", err)
 		return nocResponse(nocStatus(err), 0), nil
 	}
 	fs.nocAdded, fs.fabricIndex = true, index

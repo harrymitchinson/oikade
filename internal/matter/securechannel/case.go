@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
@@ -283,7 +282,6 @@ type cachedKeys struct {
 
 // Register starts answering Sigma1 on the Transport.
 func (r *CASEResponder) Register() {
-	r.Log = logging.OrDiscard(r.Log)
 	r.Transport.Handle(transport.SecureChannel, []uint8{OpSigma1}, r.serve)
 }
 
@@ -315,7 +313,7 @@ func (r *CASEResponder) serve(ctx context.Context, ex *transport.Exchange, first
 	defer cancel()
 	s, resumed, err := r.handshake(ctx, ex, first)
 	if err != nil {
-		log.Info("CASE failed", "error", err.Error())
+		log.Info("CASE failed", "err", err)
 		return
 	}
 	log.Info("Established CASE session", "session", s.LocalSessionID(), "fabric", s.FabricIndex(),
@@ -327,7 +325,7 @@ func (r *CASEResponder) serve(ctx context.Context, ex *transport.Exchange, first
 
 func (r *CASEResponder) status(ctx context.Context, ex *transport.Exchange, sr StatusReport) {
 	if err := ex.Send(ctx, sr.Message()); err != nil {
-		r.Log.Debug("Could not send status report", "error", err.Error())
+		r.Log.Debug("Could not send status report", "err", err)
 	}
 }
 

@@ -34,7 +34,7 @@ func TestLinesHasNoNewlineAndKeepsToItsLevel(t *testing.T) {
 	log.Debug("Too quiet")
 	log.Error("Failed to open Device", "err", errors.New("gone"))
 	if len(lines) != 1 || !strings.Contains(lines[0], `msg="Failed to open Device" err=gone`) ||
-		strings.Contains(lines[0], "\n") {
+		strings.Contains(lines[0], "\n") || strings.Contains(lines[0], "time=") {
 		t.Fatalf("lines = %q", lines)
 	}
 }

@@ -88,11 +88,11 @@ func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices map[str
 	}
 	b, err := h.when(Vars{"devices": devices, "now": now, "tz": e.Location.String()})
 	if broken, ok := errors.AsType[brokenCondition](err); ok {
-		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "error", broken.Error())
+		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "err", broken)
 		return false, false, next
 	}
 	if err != nil {
-		e.Log.Debug("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
+		e.Log.Debug("Could not evaluate hold; keeping its state", "rule", key, "err", err)
 		return false, false, next
 	}
 	return b, true, next

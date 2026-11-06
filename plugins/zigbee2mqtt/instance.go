@@ -283,7 +283,7 @@ func (i *Instance) handleState(name string, payload []byte) {
 		}
 		v, err := b.decode(raw)
 		if err != nil {
-			i.Log.Debug("Ignored invalid value", "device", dev, "capability", b.capability, "error", err.Error())
+			i.Log.Debug("Ignored invalid value", "device", dev, "capability", b.capability, "err", err)
 			continue
 		}
 		if i.values == nil {

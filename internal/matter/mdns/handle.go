@@ -19,7 +19,7 @@ func (r *Responder) serve(c packetConn) {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			r.log.Debug("Could not read mDNS packet", "error", err.Error())
+			r.log.Debug("Could not read mDNS packet", "err", err)
 			select { // don't spin on an error that persists
 			case <-r.done:
 				return
@@ -39,7 +39,7 @@ func (r *Responder) serve(c packetConn) {
 func (r *Responder) handle(c packetConn, ifIndex int, src *net.UDPAddr, b []byte) {
 	var m dnsmessage.Message
 	if err := m.Unpack(b); err != nil {
-		r.log.Debug("Ignored malformed mDNS packet", "source", src.String(), "error", err.Error())
+		r.log.Debug("Ignored malformed mDNS packet", "source", src.String(), "err", err)
 		return
 	}
 	// Messages with another opcode or rcode are ignored (RFC 6762, 18.3 and 18.11).
@@ -146,7 +146,7 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 
 func (r *Responder) write(err error, to *net.UDPAddr) {
 	if err != nil && !errors.Is(err, net.ErrClosed) {
-		r.log.Debug("Could not send mDNS reply", "querier", to.String(), "error", err.Error())
+		r.log.Debug("Could not send mDNS reply", "querier", to.String(), "err", err)
 	}
 }
 

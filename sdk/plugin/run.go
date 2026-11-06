@@ -38,7 +38,7 @@ func Run(newHandler Factory) {
 // handler and logger are filled in.
 func run(ctx context.Context, log *slog.Logger, o Options, newHandler Factory) int {
 	failed := func(err error) int {
-		log.Error("Could not start plugin", "error", err.Error())
+		log.Error("Could not start plugin", "err", err)
 		return 1
 	}
 	env, err := ReadEnvironment()
@@ -71,13 +71,13 @@ func run(ctx context.Context, log *slog.Logger, o Options, newHandler Factory) i
 func serve(ctx context.Context, log *slog.Logger, h Handler, p *Plugin) int {
 	code := 0
 	if err := h.Serve(ctx, p); err != nil && (!errors.Is(err, context.Canceled) || ctx.Err() == nil) {
-		log.Error("Could not serve plugin", "error", err.Error())
+		log.Error("Could not serve plugin", "err", err)
 		code = 1
 	} else {
 		<-ctx.Done() // Serve may return before ctx ends once it has nothing to follow
 	}
 	if err := p.Close(context.Background()); err != nil {
-		log.Error("Could not close plugin", "error", err.Error())
+		log.Error("Could not close plugin", "err", err)
 		code = 1
 	}
 	return code

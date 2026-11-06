@@ -136,7 +136,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 	_ = conn.SetReadDeadline(time.Now().Add(helloTimeout))
 	hello, err := conn.Read()
 	if err != nil {
-		s.log.Debug("Dropped connection before its hello", "error", err.Error())
+		s.log.Debug("Dropped connection before its hello", "err", err)
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})

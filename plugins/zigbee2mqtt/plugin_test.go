@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"reflect"
@@ -119,7 +118,7 @@ func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredD
 	defer startCancel()
 	p, err := plugin.Start(started, plugin.Options{
 		Environment: plugin.Environment{MQTTURL: oikade, Root: root}, OnSet: h.Set,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +402,7 @@ func TestItFollowsADefaultBaseTopic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := plugin.Start(ctx, plugin.Options{Environment: env, OnSet: handler.Set, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	p, err := plugin.Start(ctx, plugin.Options{Environment: env, OnSet: handler.Set, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}

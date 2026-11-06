@@ -541,7 +541,7 @@ func (b *socketBus) ping(id uint64) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	if err := sess.conn.Write(wire.Message{Type: wire.TypePing, ID: id}); err != nil {
-		b.log.Debug("Failed to ping plugin", "error", err.Error())
+		b.log.Debug("Failed to ping plugin", "err", err)
 	}
 	return last, true
 }

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
@@ -60,7 +59,6 @@ type Responder struct {
 
 // Register starts answering PBKDFParamRequests on the Transport.
 func (r *Responder) Register() {
-	r.Log = logging.OrDiscard(r.Log)
 	r.Transport.Handle(transport.SecureChannel, []uint8{OpPBKDFParamRequest}, r.serve)
 }
 
@@ -90,7 +88,7 @@ func (r *Responder) serve(ctx context.Context, ex *transport.Exchange, first tra
 
 	s, err := r.handshake(ctx, ex, first)
 	if err != nil {
-		log.Info("PASE failed", "error", err.Error())
+		log.Info("PASE failed", "err", err)
 		return
 	}
 	log.Info("Established PASE session", "session", s.LocalSessionID())
@@ -212,7 +210,7 @@ func expectWithin(ctx context.Context, ex *transport.Exchange, op uint8, failed 
 
 func (r *Responder) status(ctx context.Context, ex *transport.Exchange, general, code uint16) {
 	if err := ex.Send(ctx, secureChannelStatus(general, code).Message()); err != nil {
-		r.Log.Debug("Could not send status report", "error", err.Error())
+		r.Log.Debug("Could not send status report", "err", err)
 	}
 }
 

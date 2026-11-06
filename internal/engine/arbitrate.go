@@ -199,7 +199,7 @@ func (e *Engine) ensure(dev ident.ID) {
 		settings, err := ControlSettings(c, e.Location)
 		if err != nil {
 			// The capability stays unarbitrated.
-			e.Log.Info("Ignored invalid control entry", "device", dev, "error", err.Error())
+			e.Log.Info("Ignored invalid control entry", "device", dev, "err", err)
 			e.dropArb(dev, c.Capability, true)
 			continue
 		}

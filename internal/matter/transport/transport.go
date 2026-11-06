@@ -442,7 +442,7 @@ func (t *Transport) shutdown() {
 // write sends pkt to peer. The caller holds t.mu.
 func (t *Transport) write(pkt []byte, peer netip.AddrPort) {
 	if _, err := t.conn.WriteTo(pkt, net.UDPAddrFromAddrPort(peer)); err != nil {
-		t.log.Debug("Could not send message", "peer", peer, "error", err.Error())
+		t.log.Debug("Could not send message", "peer", peer, "err", err)
 	}
 }
 

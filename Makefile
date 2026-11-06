@@ -168,17 +168,10 @@ GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 GOLANGCI_LINT_VERSION ?= v2.15.0
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
-# bin/ is order-only: a restored CI cache leaves it newer than the custom binary,
-# which would rebuild it every run. After changing GOLANGCI_LINT_VERSION or
-# .custom-gcl.yml, rm bin/golangci-lint to rebuild it locally. CI's cache key
-# covers both.
+# bin/ is order-only: a restored CI cache leaves it newer than the binary, which
+# would rebuild it every run.
 $(GOLANGCI_LINT): | $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
-	@test -f .custom-gcl.yml && { \
-		echo "Building custom golangci-lint with plugins..." && \
-		$(GOLANGCI_LINT) custom --destination $(LOCALBIN) --name golangci-lint-custom && \
-		mv -f $(LOCALBIN)/golangci-lint-custom $(GOLANGCI_LINT); \
-	} || true
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
