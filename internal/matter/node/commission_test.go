@@ -1,9 +1,12 @@
 package node
 
 import (
+	"context"
 	"net/netip"
 	"strings"
 	"testing"
+
+	"github.com/go-logr/logr/testr"
 
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -90,4 +93,48 @@ func TestCommissionAndRestart(t *testing.T) {
 	waitFor(t, "the window to reopen", func() bool {
 		return len(fake.operational()) == 0 && fake.commissionable() != nil && n.WindowOpen()
 	})
+}
+
+// TestRunAgain is a node that stopped serving, as when its socket went, and came back. It has a new
+// transport and responder, so what it offered must be offered again.
+func TestRunAgain(t *testing.T) {
+	cfg := Config{DataDir: t.TempDir(), Port: freePort(t), Setup: testSetup, Log: testr.New(t), Info: clusters.Info{VendorName: "Oikade"}}
+	n, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeMDNS{services: map[string]mdns.Service{}}
+	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
+	run := func() func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- n.Run(ctx) }()
+		return func() {
+			cancel()
+			if err := <-done; err != nil {
+				t.Error(err)
+			}
+			fake.mu.Lock()
+			defer fake.mu.Unlock()
+			clear(fake.services) // the next responder knows nothing of this one's
+		}
+	}
+	stop := run()
+	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	stop()
+
+	stop = run()
+	waitFor(t, "the window to be offered again", func() bool { return fake.commissionable() != nil })
+	cm := nodetest.New(t)
+	cm.Commission(addr(n), testSetup.Passcode)
+	waitFor(t, "the fabric", func() bool { return fake.commissionable() == nil && len(fake.operational()) == 1 })
+	stop()
+
+	stop = run()
+	defer stop()
+	waitFor(t, "the fabric to be advertised again", func() bool { return len(fake.operational()) == 1 })
+	if fake.commissionable() != nil || n.WindowOpen() {
+		t.Error("a commissioned node opened its window")
+	}
+	cm.CASE(addr(n))
 }

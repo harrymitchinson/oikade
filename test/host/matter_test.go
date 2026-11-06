@@ -134,8 +134,6 @@ func (c *controller) reaches(name string) { c.reachesHardware(name, name) }
 // reachesHardware is reaches, for a device whose driver knows it by another name.
 func (c *controller) reachesHardware(name, id string) {
 	c.t.Helper()
-	// A controller's bridge drops a write of what it sent in the last few seconds, so a test
-	// that wants to see several writes goes through several devices.
 	endpoint := c.endpoint(name)
 	want := !c.isOn(endpoint)
 	command := uint32(turnOff)
@@ -350,5 +348,107 @@ func TestMatterOffIsSaid(t *testing.T) {
 	r := start(t)
 	if stderr, err := r.oikade(nil, "matter"); err == nil || !strings.Contains(stderr, "Matter turned off") {
 		t.Errorf("%v: %s", err, stderr)
+	}
+}
+
+// TestARepeatedWriteIsRefusedOnceSafetyHasShutAValve is a controller asking twice: its first write
+// went through, then the device changed, and what it sent then says nothing about what's there now.
+func TestARepeatedWriteIsRefusedOnceSafetyHasShutAValve(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	endpoint := c.endpoint("valve")
+	c.command(endpoint, turnOff)
+	c.r.wrote("valve", false)
+	c.command(endpoint, turnOn)
+	c.r.wrote("valve", true)
+	c.r.until("the controller to see it open", func() bool { return c.isOn(endpoint) })
+
+	c.r.change("leak-sensor", "sensor.contact-open", true)
+	c.r.until("the controller to see the valve shut", func() bool { return !c.isOn(endpoint) })
+	c.command(endpoint, turnOn)
+	c.r.until("the write to be refused", func() bool { return c.r.count("Failed to set capability from Matter") > 0 })
+	c.r.until("the controller to see it shut", func() bool { return !c.isOn(endpoint) })
+}
+
+func TestUnreadableMatterStateLeavesTheHomeRunning(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"identity", "fabrics"} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			r := prepare(t)
+			s := r.openStore()
+			if err := s.Namespace("matter").Put(key, []byte("not json")); err != nil {
+				t.Fatal(err)
+			}
+			_ = s.Close()
+			r.launch(matterFlag(freeUDP(t)))
+			r.waitFor(func(l line) bool { return l.is(attached) })
+
+			r.change("leak-sensor", "sensor.contact-open", true)
+			r.wrote("valve", false)
+			if m := r.matter(); m.Serving || m.Problem == "" || len(m.Fabrics) != 0 {
+				t.Errorf("oikade matter --json says %+v", m)
+			}
+			if out := string(r.stdout(nil, "matter")); !strings.Contains(out, "down: ") {
+				t.Errorf("oikade matter says: %s", out)
+			}
+			if r.count("Matter bridge stopped") != 1 {
+				t.Errorf("the log doesn't say. The log:\n%s", r.dump())
+			}
+			r.stop()
+			s = r.openStore()
+			defer func() { _ = s.Close() }()
+			if raw, _, _ := s.Namespace("matter").Get(key); string(raw) != "not json" {
+				t.Errorf("it was replaced with %s", raw)
+			}
+		})
+	}
+}
+
+// TestAnUnreadableClaimRecordHoldsItsDevice is a Safety claim that may be in a record nobody can read.
+// Nothing writes the device, nothing writes over the record, and an operator can clear it.
+func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
+	t.Parallel()
+	const record = "home/valve"
+	r := prepare(t)
+	s := r.openStore()
+	if err := s.Namespace("controls").Put(record, []byte("not json")); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	port := freeUDP(t)
+	r.launch(matterFlag(port))
+	r.waitFor(func(l line) bool { return l.is(attached) })
+
+	stderr, err := r.oikade(nil, "set", "valve", "switch.on", "off")
+	if err == nil || !strings.Contains(stderr, "unreadable") {
+		t.Errorf("a person's write: %v: %s", err, stderr)
+	}
+	r.change("leak-sensor", "sensor.contact-open", true)
+	r.until("a rule's write to be refused", func() bool {
+		return strings.Contains(r.dump(), "unreadable claim record holds valve")
+	})
+	if n := r.count(wrote, "device", "valve", "value", false); n != 0 {
+		t.Errorf("the valve was written %d times", n)
+	}
+	stderr, err = r.oikade(nil, "devices", "remove", "valve")
+	if err == nil || !strings.Contains(stderr, "--allow-safety") {
+		t.Errorf("removing it: %v: %s", err, stderr)
+	}
+	r.stop()
+	s = r.openStore()
+	if raw, _, _ := s.Namespace("controls").Get(record); string(raw) != "not json" {
+		t.Errorf("it was replaced with %s", raw)
+	}
+	_ = s.Close()
+
+	r.launch(matterFlag(port))
+	r.waitFor(func(l line) bool { return l.is(attached) })
+	r.stdout(nil, "devices", "remove", "valve", "--allow-safety")
+	r.stop()
+	s = r.openStore()
+	defer func() { _ = s.Close() }()
+	if raw, ok, _ := s.Namespace("controls").Get(record); ok {
+		t.Errorf("the record stayed: %s", raw)
 	}
 }

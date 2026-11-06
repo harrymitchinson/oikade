@@ -14,6 +14,7 @@ import (
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -148,8 +149,11 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 // heldAtSafety finds what holds a capability at Safety against value, if anything does: a write would
 // only be written back. It returns who holds it and what they want. A claim counts from the moment the
 // host starts, before there's an arbiter for it, unless the capability is known not to be arbitrated
-// any more.
+// any more. Claims that can't be read count as Safety, with nothing to say what they want.
 func heldAtSafety(eng *engine.Engine, devices *hub.Store, dev types.NamespacedName, name string, value any) (string, any) {
+	if c, ok := eng.UnreadableClaim(dev); ok {
+		return c.Source, nil
+	}
 	for _, c := range eng.ControlOf(dev) {
 		if c.Capability != name {
 			continue
@@ -166,6 +170,21 @@ func heldAtSafety(eng *engine.Engine, devices *hub.Store, dev types.NamespacedNa
 		return c.Source, engine.ValueOf(name, c.Value)
 	}
 	return "", nil
+}
+
+// claimedSetter refuses to write a device whose claims can't be read, whoever's asking: nothing else
+// stops a rule, since the device has no arbiters to claim through.
+type claimedSetter struct {
+	engine *engine.Engine
+	setter driver.Setter
+}
+
+// Set implements driver.Setter.
+func (s claimedSetter) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+	if c, ok := s.engine.UnreadableClaim(dev); ok {
+		return fmt.Errorf("%s holds %s", c.Source, dev.Name)
+	}
+	return s.setter.Set(ctx, dev, name, value)
 }
 
 func safetyHolder(c homev1alpha1.CapabilityControlStatus) string {

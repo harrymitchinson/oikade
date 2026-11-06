@@ -20,7 +20,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
-	"github.com/harrymitchinson/oikade/internal/matter/mdns"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/matter/setup"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
@@ -38,7 +37,7 @@ const (
 	fabricsKey      = "fabrics"
 	// matterWriteTimeout bounds one write from a controller.
 	matterWriteTimeout = 5 * time.Second
-	// matterRetry is how soon a bridge that couldn't take a device tries again.
+	// matterRetry is how soon a bridge that couldn't start, or take a device, tries again.
 	matterRetry = time.Minute
 )
 
@@ -52,6 +51,8 @@ type Matter struct {
 	Interfaces []string
 	// Version is the software version it reports.
 	Version string
+	// Retry is how soon it tries again after failing. Zero is a minute.
+	Retry time.Duration
 }
 
 // identity is what makes the bridge the same bridge to a controller. Losing any of it means pairing
@@ -119,12 +120,18 @@ type matterBridge struct {
 	devices *hub.Store
 	known   *inventory
 	changes chan struct{}
+	retry   time.Duration
 	serving atomic.Bool
-	// broken is why the bridge can't serve at all.
+	// broken is why the bridge can never serve until someone mends its state. It's set before run,
+	// and such a bridge has no node.
 	broken error
+	// down is why it isn't serving now, which trying again may mend.
+	down atomic.Pointer[string]
 }
 
-// openMatter makes the bridge, loading what must survive. It serves nothing until run.
+// openMatter makes the bridge, serving nothing until run. State it can't read leaves it broken rather
+// than making new state, which would quietly lose every controller: that's the home's Matter gone,
+// and not worth its automations too.
 func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 	if h.Matter == nil {
 		return nil, nil
@@ -132,44 +139,51 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 	if len(h.Matter.Name) > 32 {
 		return nil, errors.New("a Matter bridge's name is at most 32 bytes")
 	}
-	values := data.Namespace(matterNamespace)
-	id, err := loadIdentity(values)
-	if err != nil {
-		return nil, err
+	m := &matterBridge{log: h.Log.WithName("matter"), port: h.Matter.Port, retry: h.Matter.Retry, changes: make(chan struct{}, 1)}
+	if m.port == 0 {
+		m.port = DefaultMatterPort
 	}
-	creds, err := attestation.WithDAC(id.DAC, id.Key)
-	if err != nil {
-		return nil, fmt.Errorf("reading the Matter attestation: %w", err)
+	if m.retry == 0 {
+		m.retry = matterRetry
 	}
-	log := h.Log.WithName("matter")
-	port := h.Matter.Port
-	if port == 0 {
-		port = DefaultMatterPort
+	if err := m.open(h.Matter, data.Namespace(matterNamespace)); err != nil {
+		m.broken, m.node = err, nil
+		m.log.Error(err, "Matter bridge stopped")
 	}
-	m := &matterBridge{log: log, port: port, id: id, changes: make(chan struct{}, 1)}
-	cfg := node.Config{
-		Fabrics: fabricStore{values}, Setup: node.Setup{Passcode: id.Passcode, Discriminator: id.Discriminator},
-		Attestation: creds, Port: port, DeviceName: h.Matter.Name, Log: log,
-		Listening: func() {
-			m.serving.Store(true)
-			log.Info("Started Matter bridge", "port", port, "fabrics", m.node.Fabrics().Count())
-		},
-	}
-	if len(h.Matter.Interfaces) > 0 {
-		// An interface that isn't up yet is the same as a taken port: not worth stopping a home for.
-		list, err := node.Interfaces(h.Matter.Interfaces)
-		m.broken = err
-		cfg.MDNS = mdns.Options{Interfaces: list}
-	}
-	cfg.Info.UniqueID = id.UniqueID
-	cfg.Info.VendorName, cfg.Info.ProductName, cfg.Info.NodeLabel = "Oikade", "Oikade bridge", h.Matter.Name
-	cfg.Info.SoftwareVersion, cfg.Info.SoftwareVersionString = 1, h.Matter.Version
-	if m.node, err = node.New(cfg); err != nil {
-		return nil, fmt.Errorf("opening the Matter bridge: %w", err)
-	}
-	m.Bridge = &matterbridge.Bridge{Matter: m.node.Bridge()}
 	return m, nil
 }
+
+// open loads the bridge's identity and fabrics.
+func (m *matterBridge) open(c *Matter, values *store.Namespace) error {
+	var err error
+	if m.id, err = loadIdentity(values); err != nil {
+		return err
+	}
+	creds, err := attestation.WithDAC(m.id.DAC, m.id.Key)
+	if err != nil {
+		return fmt.Errorf("reading the Matter attestation: %w", err)
+	}
+	cfg := node.Config{
+		Fabrics: fabricStore{values}, Setup: node.Setup{Passcode: m.id.Passcode, Discriminator: m.id.Discriminator},
+		Attestation: creds, Port: m.port, DeviceName: c.Name, Interfaces: c.Interfaces, Log: m.log,
+		Listening: func() {
+			m.serving.Store(true)
+			m.down.Store(nil)
+			m.log.Info("Started Matter bridge", "port", m.port, "fabrics", m.node.Fabrics().Count())
+		},
+	}
+	cfg.Info.UniqueID = m.id.UniqueID
+	cfg.Info.VendorName, cfg.Info.ProductName, cfg.Info.NodeLabel = "Oikade", "Oikade bridge", c.Name
+	cfg.Info.SoftwareVersion, cfg.Info.SoftwareVersionString = 1, c.Version
+	if m.node, err = node.New(cfg); err != nil {
+		return fmt.Errorf("opening the Matter bridge: %w", err)
+	}
+	m.Bridge = &matterbridge.Bridge{Matter: m.node.Bridge()}
+	return nil
+}
+
+// working is whether the bridge has a node to serve, so that there's anything to connect or run.
+func (m *matterBridge) working() bool { return m != nil && m.broken == nil }
 
 // connect gives the bridge what it needs of the host, which needs the bridge to exist first.
 func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine.Engine, setter driver.Setter) {
@@ -232,22 +246,14 @@ func (m *matterBridge) apply() <-chan time.Time {
 	return nil
 }
 
-// run serves the bridge until ctx ends. A bridge that can't start is worth saying loudly, and not
-// worth stopping a home for: automations don't need it.
+// run serves the bridge until ctx ends.
 func (m *matterBridge) run(ctx context.Context) {
-	if m.broken != nil {
-		m.log.Error(m.broken, "Matter bridge stopped")
-		return
-	}
 	m.Writes.Start(logr.NewContext(ctx, m.log))
 	retry := m.apply()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer m.serving.Store(false)
-		if err := m.node.Run(ctx); err != nil && ctx.Err() == nil {
-			m.log.Error(err, "Matter bridge stopped")
-		}
+		m.serve(ctx)
 	}()
 	for {
 		select {
@@ -257,6 +263,30 @@ func (m *matterBridge) run(ctx context.Context) {
 			retry = m.apply()
 		case <-retry:
 			retry = m.apply()
+		}
+	}
+}
+
+// serve runs the node, and starts it again whenever it stops. A port that's taken, or an interface
+// that isn't up yet, is worth saying loudly and not worth stopping a home for: automations don't
+// need the bridge.
+func (m *matterBridge) serve(ctx context.Context) {
+	for {
+		err := m.node.Run(ctx)
+		m.serving.Store(false)
+		if ctx.Err() != nil {
+			return
+		}
+		if err == nil {
+			err = errors.New("the node stopped")
+		}
+		why := err.Error()
+		m.down.Store(&why)
+		m.log.Error(err, "Matter bridge stopped", "retry", m.retry.String())
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(m.retry):
 		}
 	}
 }
@@ -286,6 +316,7 @@ func (w *matterWrites) Set(ctx context.Context, dev types.NamespacedName, name s
 	}
 	err := w.setter.Set(ctx, dev, name, value)
 	if err != nil {
+		w.engine.ForgetMatterWrite(dev, name)
 		w.restore(dev, name, nil)
 	}
 	return err
@@ -297,19 +328,23 @@ func (s *apiServer) matter() api.Response {
 	if m == nil {
 		return api.Response{Error: "this host has Matter turned off"}
 	}
+	out := &api.Matter{Port: m.port, Fabrics: []api.Fabric{}}
+	if !m.working() {
+		out.Problem = m.broken.Error()
+		return api.Response{Matter: out}
+	}
+	if why := m.down.Load(); why != nil {
+		out.Problem = *why
+	}
 	payload := m.node.Payload()
-	manual, err := payload.ManualCode()
-	if err != nil {
+	var err error
+	if out.ManualCode, err = payload.ManualCode(); err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	qr, err := payload.QRCode()
-	if err != nil {
+	if out.QRCode, err = payload.QRCode(); err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	out := &api.Matter{
-		Serving: m.serving.Load(), Port: m.port, ManualCode: manual, QRCode: qr, Passcode: m.id.Passcode,
-		Window: m.node.WindowOpen(), Fabrics: []api.Fabric{},
-	}
+	out.Serving, out.Passcode, out.Window = m.serving.Load(), m.id.Passcode, m.node.WindowOpen()
 	for _, f := range m.node.Fabrics().Fabrics() {
 		out.Fabrics = append(out.Fabrics, api.Fabric{Index: f.Index, VendorID: f.VendorID, Label: f.Label})
 	}

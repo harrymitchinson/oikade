@@ -415,6 +415,17 @@ func (r *rig) matter(dev, c string, v any) {
 	r.e.MatterWrote(types.NamespacedName{Namespace: ns, Name: dev}, c, v)
 }
 
+func TestAMatterWriteThatFailedLeavesTheDevicesReportItsOwn(t *testing.T) {
+	r := railRig(t)
+	r.matter("towel-rail", capability.SwitchOn, true)
+	r.e.ForgetMatterWrite(types.NamespacedName{Namespace: ns, Name: "towel-rail"}, capability.SwitchOn)
+	r.clock.Step(2 * time.Second)
+	r.change("towel-rail", capability.SwitchOn, true)
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
+		t.Errorf("winner %q, want the device's own", w)
+	}
+}
+
 func TestAMatterWriteIsAnOverrideFromMatter(t *testing.T) {
 	r := railRig(t)
 	r.matter("towel-rail", capability.SwitchOn, true)

@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -55,6 +56,9 @@ type Config struct {
 	// WindowTimeout is how long the initial commissioning window stays open; 0 means
 	// DefaultWindowTimeout.
 	WindowTimeout time.Duration
+	// Interfaces name where to advertise, instead of MDNS.Interfaces. Each Run looks them up, so
+	// one that comes up late is found by the next Run.
+	Interfaces []string
 	// Port is the Matter UDP port; 0 means 5540.
 	Port uint16
 	// Info is what the node says of itself. Its vendor and product IDs are replaced by the test
@@ -104,9 +108,8 @@ type Node struct {
 	server     *im.Server
 	resumption *securechannel.ResumptionStore
 
-	tr   *transport.Transport
-	mdns advertiser
-	ctx  context.Context
+	// run is the latest Run's, which hooks and timers may be reaching for as the next one starts.
+	run atomic.Pointer[running]
 	// listenMDNS opens the advertiser; tests replace it.
 	listenMDNS func(mdns.Options) (advertiser, error)
 
@@ -115,8 +118,16 @@ type Node struct {
 	// mu guards the advertisements. It's never held while the responder probes, which takes
 	// about a second.
 	mu             sync.Mutex
+	window         *clusters.Window        // open, for a later Run to take on
 	commissionable *mdns.Service           // advertised while a window is open
 	operational    map[uint8]*mdns.Service // advertised per fabric
+}
+
+// running is what one Run serves with.
+type running struct {
+	tr   *transport.Transport
+	mdns advertiser
+	ctx  context.Context
 }
 
 // New loads the node's fabric table and builds its bridge, with no bridged devices. Add them through
@@ -204,20 +215,28 @@ func PayloadFor(s Setup) setup.Payload {
 }
 
 // Run serves the node until ctx is done. It advertises the node on each fabric it's on, and
-// opens the initial commissioning window if it's on none.
+// opens the initial commissioning window if it's on none. After it returns it can run again, as
+// after a port that was taken, and sessions start over.
 func (n *Node) Run(ctx context.Context) error {
+	opts := n.cfg.MDNS
+	if len(n.cfg.Interfaces) > 0 {
+		list, err := Interfaces(n.cfg.Interfaces)
+		if err != nil {
+			return err
+		}
+		opts.Interfaces = list
+	}
 	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{Log: n.log.WithName("transport")})
 	if err != nil {
 		return err
 	}
-	n.tr, n.ctx = tr, ctx
-	opts := n.cfg.MDNS
 	opts.Log = n.log.WithName("mdns")
-	if n.mdns, err = n.listenMDNS(opts); err != nil {
+	responder, err := n.listenMDNS(opts)
+	if err != nil {
 		_ = tr.Serve(cancelled()) // closes the socket
 		return err
 	}
-	defer func() { _ = n.mdns.Close() }()
+	defer func() { _ = responder.Close() }()
 
 	n.server.Register(tr)
 	(&securechannel.CASEResponder{
@@ -226,6 +245,14 @@ func (n *Node) Run(ctx context.Context) error {
 	}).Register()
 	tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 	tr.Handle(transport.SecureChannel, []uint8{securechannel.OpStatusReport}, n.statusReport)
+
+	// What a run before this one advertised went with its responder.
+	n.mu.Lock()
+	clear(n.operational)
+	n.commissionable = nil
+	window := n.window
+	n.mu.Unlock()
+	n.run.Store(&running{tr: tr, mdns: responder, ctx: ctx})
 
 	served := make(chan error, 1)
 	go func() { served <- tr.Serve(ctx) }()
@@ -238,7 +265,10 @@ func (n *Node) Run(ctx context.Context) error {
 	for _, f := range n.table.Fabrics() {
 		go n.advertiseFabric(f.Index)
 	}
-	if n.table.Count() == 0 {
+	switch {
+	case window != nil:
+		n.openWindow(*window) // still open, on the last run's transport
+	case n.table.Count() == 0:
 		n.comm.OpenInitialWindow(n.cfg.WindowTimeout)
 	}
 	return <-served
@@ -250,13 +280,16 @@ func (n *Node) WindowOpen() bool { return n.comm.WindowOpen() }
 // openWindow starts answering PASE with w's verifier, or the node's own for a basic window,
 // and advertises the commissionable service.
 func (n *Node) openWindow(w clusters.Window) {
+	n.mu.Lock()
+	n.window = &w
+	n.mu.Unlock()
 	mode := mdns.CommissioningEnhanced
 	if w.Basic {
 		w.Verifier, w.Salt, w.Iterations, w.Discriminator = n.verifier, n.salt, pbkdfIterations, n.cfg.Setup.Discriminator
 		mode = mdns.CommissioningBasic
 	}
 	(&securechannel.Responder{
-		Transport: n.tr, Verifier: w.Verifier, Salt: w.Salt, Iterations: int(w.Iterations),
+		Transport: n.run.Load().tr, Verifier: w.Verifier, Salt: w.Salt, Iterations: int(w.Iterations),
 		OnSession: n.sessions.add, Log: n.log.WithName("pase"),
 	}).Register()
 
@@ -268,7 +301,7 @@ func (n *Node) openWindow(w clusters.Window) {
 	}
 	svc, err := c.Service()
 	if err != nil {
-		n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
+		n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 		n.log.Error(err, "Could not build the commissionable service")
 		return
 	}
@@ -277,9 +310,9 @@ func (n *Node) openWindow(w clusters.Window) {
 	n.commissionable = &svc
 	n.mu.Unlock()
 	if old != nil {
-		_ = n.mdns.Remove(*old)
+		_ = n.run.Load().mdns.Remove(*old)
 	}
-	err = n.mdns.Add(n.ctx, svc)
+	err = n.run.Load().mdns.Add(n.run.Load().ctx, svc)
 	n.mu.Lock()
 	current := n.commissionable == &svc
 	if err != nil && current {
@@ -289,14 +322,14 @@ func (n *Node) openWindow(w clusters.Window) {
 	if err != nil {
 		// Without the advertisement the window isn't open: refuse PASE, so the state agrees.
 		if current {
-			n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
+			n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 		}
 		n.log.Error(err, "Could not advertise the commissionable service")
 		return
 	}
 	if !current {
 		// The window closed, or opened anew, while this one probed.
-		_ = n.mdns.Remove(svc)
+		_ = n.run.Load().mdns.Remove(svc)
 		return
 	}
 	n.log.Info("Advertised commissionable service", "discriminator", w.Discriminator, "instance", svc.Instance)
@@ -304,15 +337,15 @@ func (n *Node) openWindow(w clusters.Window) {
 
 // closeWindow stops answering PASE, and stops advertising the commissionable service.
 func (n *Node) closeWindow() {
-	n.tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
+	n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 	n.mu.Lock()
 	old := n.commissionable
-	n.commissionable = nil
+	n.commissionable, n.window = nil, nil
 	n.mu.Unlock()
 	if old == nil {
 		return
 	}
-	if err := n.mdns.Remove(*old); err != nil {
+	if err := n.run.Load().mdns.Remove(*old); err != nil {
 		n.log.Error(err, "Could not stop advertising the commissionable service")
 	}
 	n.log.Info("Stopped advertising commissionable service")
@@ -347,9 +380,9 @@ func (n *Node) advertiseFabric(index uint8) {
 	n.operational[index] = &svc
 	n.mu.Unlock()
 	if old != nil {
-		_ = n.mdns.Remove(*old)
+		_ = n.run.Load().mdns.Remove(*old)
 	}
-	err := n.mdns.Add(n.ctx, svc)
+	err := n.run.Load().mdns.Add(n.run.Load().ctx, svc)
 	n.mu.Lock()
 	current := n.operational[index] == &svc
 	if err != nil && current {
@@ -362,7 +395,7 @@ func (n *Node) advertiseFabric(index uint8) {
 	}
 	if !current {
 		// The fabric was removed, or advertised anew, while this one probed.
-		_ = n.mdns.Remove(svc)
+		_ = n.run.Load().mdns.Remove(svc)
 		return
 	}
 	n.log.Info("Advertised operational service", "fabric", index, "instance", svc.Instance)
@@ -394,7 +427,7 @@ func (n *Node) endSession(s *transport.Session) {
 		}.Message())
 		ex.Close()
 	}
-	n.tr.RemoveSession(s)
+	n.run.Load().tr.RemoveSession(s)
 }
 
 // statusReport handles a status report a peer sends on a new exchange: CloseSession ends the
@@ -407,7 +440,7 @@ func (n *Node) statusReport(_ context.Context, ex *transport.Exchange, m transpo
 		return
 	}
 	n.log.V(1).Info("Peer closed session", "session", s.LocalSessionID(), "peer", s.Peer())
-	n.tr.RemoveSession(s)
+	n.run.Load().tr.RemoveSession(s)
 }
 
 // fabricRemoved ends a fabric's sessions and resumptions, and its advertisement. A node left on
@@ -430,7 +463,7 @@ func (n *Node) fabricRemoved(index uint8) {
 	delete(n.operational, index)
 	n.mu.Unlock()
 	if svc != nil {
-		if err := n.mdns.Remove(*svc); err != nil {
+		if err := n.run.Load().mdns.Remove(*svc); err != nil {
 			n.log.Error(err, "Could not stop advertising the operational service", "fabric", index)
 		}
 	}

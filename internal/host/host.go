@@ -93,16 +93,17 @@ func (h *Host) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if bridge != nil {
+	if bridge.working() {
 		sinks = append(sinks, bridge)
 	}
 	devices := hub.NewStore(h.Log.WithName("devices"), sinks...)
 	known := newInventory(devicesOnRecord, devices, eng, h.Log.WithName("registry"))
 	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
-	eng.Store, eng.Setter, srv.devices, srv.setter = devices, sim, devices, sim
+	setter := claimedSetter{engine: eng, setter: sim}
+	eng.Store, eng.Setter, srv.devices, srv.setter = devices, setter, devices, setter
 	eng.Init()
-	if bridge != nil {
-		bridge.connect(devices, known, eng, sim)
+	if bridge.working() {
+		bridge.connect(devices, known, eng, setter)
 	}
 	if err := sim.start(h.Devices); err != nil {
 		return err
@@ -144,7 +145,7 @@ func (h *Host) Run(ctx context.Context) error {
 	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge}
 	serving.Go(func() { calls.serve(apiListener) })
 	serving.Go(func() { observing(ctx) })
-	if bridge != nil {
+	if bridge.working() {
 		serving.Go(func() { bridge.run(ctx) })
 	}
 	<-ctx.Done()

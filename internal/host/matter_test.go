@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
@@ -13,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/registry"
@@ -255,5 +259,78 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	}
 	if want[lamp.Endpoint].Unique == want[away.Endpoint].Unique {
 		t.Error("two devices share a unique ID")
+	}
+}
+
+func TestABridgeTriesAgainUntilItsPortIsFree(t *testing.T) {
+	taken, err := net.ListenPacket("udp", "[::]:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = taken.Close() }()
+	dir := tempDir(t)
+	h := &Host{DataDir: dir, Log: logr.Discard(), Matter: &Matter{
+		Port: uint16(taken.LocalAddr().(*net.UDPAddr).Port), Retry: 20 * time.Millisecond,
+	}}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- h.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	matter := func() *api.Matter {
+		resp, err := api.Call(ctx, api.Local{DataDir: dir}, api.Request{Type: api.TypeMatter})
+		if err != nil {
+			return &api.Matter{}
+		}
+		return resp.Matter
+	}
+	wait := func(what string, cond func(*api.Matter) bool) {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for !cond(matter()) {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s: %+v", what, matter())
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	wait("it to say why it's down", func(m *api.Matter) bool { return strings.Contains(m.Problem, "in use") })
+	if err := taken.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wait("it to take the port", func(m *api.Matter) bool { return m.Serving && m.Problem == "" })
+}
+
+func TestClaimsThatCantBeReadRefuseEveryWrite(t *testing.T) {
+	data := openStore(t, t.TempDir())
+	t.Cleanup(func() { _ = data.Close() })
+	values := data.Namespace(engine.ControlStatesNamespace)
+	eng := &engine.Engine{Log: logr.Discard(), Controls: &engine.Stored[engine.ControlState]{Values: values, Log: logr.Discard()}}
+	devices := hub.NewStore(logr.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	inner := &writes{}
+	setter := claimedSetter{engine: eng, setter: inner}
+	if err := setter.Set(context.Background(), key("fan"), capability.SwitchOn, true); err != nil || inner.calls != 1 {
+		t.Fatalf("a device with no record: %v, %d writes", err, inner.calls)
+	}
+	if err := values.Put(key("fan").String(), []byte("not json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := setter.Set(context.Background(), key("fan"), capability.SwitchOn, true); err == nil || inner.calls != 1 {
+		t.Errorf("an unreadable record: %v, %d writes", err, inner.calls)
+	}
+	if holder, _ := heldAtSafety(eng, devices, key("fan"), capability.SwitchOn, true); holder != engine.UnreadableClaims {
+		t.Errorf("held by %q", holder)
+	}
+	if err := eng.ForgetDevice(context.Background(), key("fan")); err != nil {
+		t.Fatal(err)
+	}
+	if holder, _ := heldAtSafety(eng, devices, key("fan"), capability.SwitchOn, true); holder != "" {
+		t.Errorf("cleared, and still held by %q", holder)
 	}
 }

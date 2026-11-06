@@ -35,10 +35,16 @@ func runMatter(ctx context.Context, args []string) error {
 
 func printMatter(out io.Writer, m *api.Matter) {
 	state := "down, and the host's log says why"
-	if m.Serving {
+	switch {
+	case m.Serving:
 		state = fmt.Sprintf("serving on UDP port %d", m.Port)
+	case m.Problem != "":
+		state = "down: " + m.Problem
 	}
-	_, _ = fmt.Fprintf(out, "Matter bridge: %s\nManual code: %s\nQR code: %s\n", state, m.ManualCode, m.QRCode)
+	_, _ = fmt.Fprintf(out, "Matter bridge: %s\n", state)
+	if m.ManualCode != "" {
+		_, _ = fmt.Fprintf(out, "Manual code: %s\nQR code: %s\n", m.ManualCode, m.QRCode)
+	}
 	switch {
 	case !m.Serving:
 	case m.Window:
