@@ -654,9 +654,9 @@ oikade types                                 # write devices.go from the registr
 
 `reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. Pair it, and `oikade devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
 
-`remove` keeps the device on record with its endpoint, so hardware that comes back gets its name, room and endpoint back. Remove a device from its app first, because one that's still paired comes back when it next reports. A device stays until you remove it, reported or not. Renaming a device, or moving another one's hardware away, is refused while something claims it, because claims stay with a name. Removing one that a Safety claim holds needs `--allow-safety`.
+`remove` keeps the device on record with its endpoint, so hardware that comes back gets its name, room and endpoint back. Remove a device from its app first, because one that's still paired comes back when it next reports. A device stays until you remove it, reported or not. Renaming a device, moving its hardware onto another name, or restoring a file that would move its name, is refused while something claims it, because claims stay with a name. Removing a device ends its claims, and one that a Safety claim holds needs `--allow-safety`.
 
-If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, reservations and endpoint IDs, matched by hardware, so it works after the drivers have reported again. Devices the file doesn't have stay, and get a new endpoint if the file gives theirs to something else.
+If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, reservations and endpoint IDs, matched by hardware, so it works after the drivers have reported again. Devices the file doesn't have stay, and get a new endpoint or name if the file gives theirs to something else.
 
 ## State that must survive
 

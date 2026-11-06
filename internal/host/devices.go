@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
@@ -41,8 +43,12 @@ func newInventory(reg *registry.Registry, store *hub.Store, eng *engine.Engine, 
 	}
 }
 
+// instanceName is how the registry records a driver instance.
 func instanceName(instance driver.InstanceKey) string {
-	return instance.Driver + "/" + instance.Name
+	if instance.Namespace == "" {
+		return instance.Driver + "/" + instance.Name
+	}
+	return instance.Driver + "/" + instance.Namespace + "/" + instance.Name
 }
 
 func hardwareKey(driverName, id string) string { return driverName + "\x00" + id }
@@ -61,17 +67,31 @@ func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
 ) (types.NamespacedName, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	d, err := i.registry.Report(registry.Report{
+	d, changed, err := i.registry.Report(registry.Report{
 		ID: app.ID, Driver: instanceName(instance), Name: app.Name, Room: app.Room, Capabilities: app.Capabilities,
 	})
 	if err != nil {
 		return types.NamespacedName{}, err
 	}
-	if len(control) > 0 {
-		i.controls[hardwareKey(d.Driver, d.ID)] = control
+	hw := hardwareKey(d.Driver, d.ID)
+	if len(control) > 0 && !equality.Semantic.DeepEqual(i.controls[hw], control) {
+		i.controls[hw], changed = control, true
 	}
-	i.sync()
+	if changed {
+		i.sync()
+	}
 	return key(d.Name), nil
+}
+
+// meta is what the hub keeps for a device on record.
+func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
+	instance, ok := i.instances[d.Driver]
+	if !ok || d.Removed || d.ID == "" {
+		return hub.Meta{}, false
+	}
+	return hub.Meta{
+		DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.controls[hardwareKey(d.Driver, d.ID)],
+	}, true
 }
 
 // key finds a driver's device in the hub.
@@ -87,12 +107,8 @@ func (i *inventory) sync() {
 		metas[name] = map[types.NamespacedName]hub.Meta{}
 	}
 	for _, d := range i.registry.List().Devices {
-		instance, ok := i.instances[d.Driver]
-		if !ok || d.Removed || d.ID == "" {
-			continue
-		}
-		metas[d.Driver][key(d.Name)] = hub.Meta{
-			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.controls[hardwareKey(d.Driver, d.ID)],
+		if meta, ok := i.meta(d); ok {
+			metas[d.Driver][key(d.Name)] = meta
 		}
 	}
 	for name, devices := range metas {
@@ -138,8 +154,7 @@ func (i *inventory) rename(name, to string) error {
 	if err := i.registry.Rename(name, to); err != nil {
 		return err
 	}
-	i.store.Rename(key(name), key(to))
-	i.sync()
+	i.moveLive(map[string]string{name: to})
 	i.announce(key(to))
 	i.log.Info("Renamed device", "device", name, "to", to)
 	return nil
@@ -165,8 +180,26 @@ func (i *inventory) reserve(name, room string) error {
 	return nil
 }
 
-// remove refuses a device a Safety claim holds, unless told otherwise. Anything less ends with it.
-func (i *inventory) remove(name string, allowSafety bool) api.Response {
+// moveLive takes the registry's new names up in the hub, as one change. Call with mu held, after the
+// registry has changed.
+func (i *inventory) moveLive(names map[string]string) {
+	moves := map[types.NamespacedName]hub.Move{}
+	for from, to := range names {
+		d, ok := i.registry.Get(to)
+		if !ok {
+			continue
+		}
+		if meta, ok := i.meta(d); ok {
+			moves[key(from)] = hub.Move{To: key(to), Meta: meta}
+		}
+	}
+	i.store.Rename(moves)
+	i.sync()
+}
+
+// remove refuses a device a Safety claim holds, unless told otherwise. Its claims end with it, so
+// they can't wait for the next device of that name.
+func (i *inventory) remove(ctx context.Context, name string, allowSafety bool) api.Response {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if holders, safety := i.claimed(name); safety && !allowSafety {
@@ -179,6 +212,9 @@ func (i *inventory) remove(name string, allowSafety bool) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	i.sync()
+	if err := i.engine.ForgetDevice(ctx, key(name)); err != nil {
+		return api.Response{Error: fmt.Sprintf("removed %s, but couldn't end its claims: %v", name, err)}
+	}
 	i.log.Info("Removed device", "device", name)
 	return api.Response{}
 }
@@ -196,31 +232,46 @@ func (i *inventory) replace(name, with string) error {
 	if err := i.registry.Replace(name, with); err != nil {
 		return err
 	}
-	if control, ok := i.controls[hardwareKey(old.Driver, old.ID)]; ok && old.ID != "" {
+	oldHardware := hardwareKey(old.Driver, old.ID)
+	if control, ok := i.controls[oldHardware]; ok {
 		i.controls[hardwareKey(source.Driver, source.ID)] = control
+		delete(i.controls, oldHardware)
 	}
-	i.store.Rename(key(with), key(name))
-	i.sync()
+	i.moveLive(map[string]string{with: name})
 	i.announce(key(name))
 	i.log.Info("Moved device name onto new hardware", "device", name, "from", with)
 	return nil
 }
 
+// restore refuses a copy that would take a claimed name from its hardware, since claims stay with a
+// name. After a real loss nothing is claimed, because claims are in the same store.
 func (i *inventory) restore(from registry.Snapshot) ([]string, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	before := i.registry.List()
+	for _, d := range before.Devices {
+		if d.Removed {
+			continue
+		}
+		holders, _ := i.claimed(d.Name)
+		if len(holders) > 0 && restoreMoves(from, d) {
+			return nil, fmt.Errorf("%s holds %s, and restoring would move that name", strings.Join(holders, ", "), d.Name)
+		}
+	}
 	moved, err := i.registry.Restore(from)
 	if err != nil {
 		return nil, err
 	}
-	// A device that re-entered after a loss gets its old name back, so its live state follows.
+	names := map[string]string{}
 	for _, d := range before.Devices {
-		if now, ok := i.registry.ByID(d.Driver, d.ID); ok && d.ID != "" && !d.Removed && now.Name != d.Name {
-			i.store.Rename(key(d.Name), key(now.Name))
+		if d.Removed || d.ID == "" {
+			continue
+		}
+		if now, ok := i.registry.ByID(d.Driver, d.ID); ok && now.Name != d.Name {
+			names[d.Name] = now.Name
 		}
 	}
-	i.sync()
+	i.moveLive(names)
 	for _, d := range i.registry.List().Devices {
 		if !d.Removed {
 			i.announce(key(d.Name))
@@ -228,6 +279,20 @@ func (i *inventory) restore(from registry.Snapshot) ([]string, error) {
 	}
 	i.log.Info("Restored device registry", "devices", len(from.Devices), "moved", len(moved))
 	return moved, nil
+}
+
+// restoreMoves says a copy would rename or remove a device, or give its name to other hardware.
+func restoreMoves(from registry.Snapshot, d registry.Device) bool {
+	for _, f := range from.Devices {
+		same := d.ID != "" && f.ID == d.ID && f.Driver == d.Driver
+		if same && (f.Name != d.Name || f.Removed) {
+			return true
+		}
+		if !same && !f.Removed && f.Name == d.Name {
+			return true
+		}
+	}
+	return false
 }
 
 // device answers the commands that read and change the registry.
@@ -244,7 +309,7 @@ func (s *apiServer) device(req api.Request) api.Response {
 	case api.TypeDeviceReserve:
 		err = s.devices.reserve(req.Device, req.Room)
 	case api.TypeDeviceRemove:
-		return s.devices.remove(req.Device, req.AllowSafety)
+		return s.devices.remove(s.ctx, req.Device, req.AllowSafety)
 	case api.TypeDeviceReplace:
 		err = s.devices.replace(req.Device, req.To)
 	case api.TypeDeviceRestore:

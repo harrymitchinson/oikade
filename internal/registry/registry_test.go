@@ -29,7 +29,7 @@ func open(t *testing.T) (*Registry, *store.Namespace) {
 
 func report(t *testing.T, r *Registry, id, name string) Device {
 	t.Helper()
-	d, err := r.Report(Report{ID: id, Driver: "sim", Name: name, Capabilities: []string{"switch.on"}})
+	d, _, err := r.Report(Report{ID: id, Driver: "sim", Name: name, Capabilities: []string{"switch.on"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +47,12 @@ func get(t *testing.T, r *Registry, name string) Device {
 
 func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	r, _ := open(t)
-	d, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Room: "Hall", Capabilities: []string{"switch.on"}})
-	if err != nil {
-		t.Fatal(err)
+	d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Room: "Hall", Capabilities: []string{"switch.on"}})
+	if err != nil || !changed {
+		t.Fatal(changed, err)
+	}
+	if _, changed, _ := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Capabilities: []string{"switch.on"}}); changed {
+		t.Error("the same report changed something")
 	}
 	if d.Name != "hall-lamp" || d.Room != "Hall" || d.Endpoint != FirstEndpoint {
 		t.Errorf("got %+v", d)
@@ -60,7 +63,7 @@ func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	if err := r.Move("lamp", "Attic"); err != nil {
 		t.Fatal(err)
 	}
-	again, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"switch.on", "light.level"}})
+	again, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"switch.on", "light.level"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +194,10 @@ func TestReplacingKeepsTheNameAndEndpoint(t *testing.T) {
 	if byID, ok := r.ByID("sim", "new"); !ok || byID.Name != "lamp" {
 		t.Errorf("its hardware is %+v, %v", byID, ok)
 	}
+	retired := slices.IndexFunc(r.List().Devices, func(d Device) bool { return d.Endpoint == fresh.Endpoint })
+	if retired < 0 || !r.List().Devices[retired].Removed {
+		t.Errorf("the replacement's endpoint wasn't kept: %+v", r.List())
+	}
 	if again := report(t, r, "new", "ignored"); again.Name != "lamp" || again.Endpoint != old.Endpoint {
 		t.Errorf("the next report moved it: %+v", again)
 	}
@@ -306,6 +313,52 @@ func TestRestoringAnOldCopyNeverLowersNext(t *testing.T) {
 	}
 }
 
+func TestRestoreKeepsAnUnrelatedReservationOnTheSameEndpoint(t *testing.T) {
+	r, _ := open(t)
+	if err := r.Reserve("shed", ""); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := r.Restore(Snapshot{Next: 3, Devices: []Device{{Name: "porch", Endpoint: 2}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := get(t, r, "shed"); d.Endpoint == 2 || len(moved) != 1 || moved[0] != "shed" {
+		t.Errorf("got %+v, moved %v", d, moved)
+	}
+}
+
+func TestRestoreDropsARetiredRecordItsCopyCovers(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "a", "first")
+	new := report(t, r, "b", "second")
+	old := r.List()
+	if err := r.Replace("first", "second"); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := r.Restore(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 0 || r.List().Next != new.Endpoint+1 {
+		t.Errorf("moved %v, list %+v", moved, r.List())
+	}
+}
+
+func TestRestoreRenamesWhatItsCopyGivesAway(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "a", "lamp")
+	moved, err := r.Restore(Snapshot{Next: 9, Devices: []Device{{Name: "lamp", ID: "b", Driver: "sim", Endpoint: 8}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byID, ok := r.ByID("sim", "a"); !ok || byID.Name != "lamp-2" || byID.Endpoint != FirstEndpoint {
+		t.Errorf("got %+v", byID)
+	}
+	if len(moved) != 1 || moved[0] != "lamp" {
+		t.Errorf("moved %v", moved)
+	}
+}
+
 func TestRestoreRefusesABadCopy(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "a", "first")
@@ -362,6 +415,18 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 		if !strings.Contains(string(first), want) {
 			t.Errorf("no %q in:\n%s", want, first)
 		}
+	}
+}
+
+func TestRenderCleansWhatARestoreBrought(t *testing.T) {
+	file, err := Render(Snapshot{Next: 3, Devices: []Device{{
+		Name: "lamp", Room: "Hall\nconst Evil = 1", Capabilities: []string{"a\nvar X = 2"}, Endpoint: 2,
+	}}}, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(file), "\nconst Evil") || strings.Contains(string(file), "\nvar X") {
+		t.Errorf("wrote code:\n%s", file)
 	}
 }
 

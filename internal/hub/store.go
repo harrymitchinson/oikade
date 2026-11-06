@@ -128,30 +128,43 @@ type Reassigner interface {
 	Reassigned(dev types.NamespacedName)
 }
 
-// Rename moves a device's live state to another key, replacing anything there, and tells the
-// listeners that both changed.
-func (s *Store) Rename(from, to types.NamespacedName) bool {
+// Move is a device's live state going to another key, with the Meta it has there.
+type Move struct {
+	To   types.NamespacedName
+	Meta Meta
+}
+
+// Rename moves devices' live state to other keys, as one change: names can swap, a device replaces
+// anything at its new key, and nobody sees one with the wrong Meta. The listeners hear about every
+// key involved.
+func (s *Store) Rename(moves map[types.NamespacedName]Move) {
 	s.mu.Lock()
-	e, ok := s.devices[from]
-	if ok {
-		delete(s.devices, from)
-		s.devices[to] = e
+	taken := map[types.NamespacedName]*entry{}
+	for from := range moves {
+		if e, ok := s.devices[from]; ok {
+			taken[from] = e
+			delete(s.devices, from)
+		}
+	}
+	touched := make([]types.NamespacedName, 0, 2*len(moves))
+	for from, m := range moves {
+		touched = append(touched, from, m.To)
+		if e, ok := taken[from]; ok {
+			e.Meta = m.Meta
+			s.devices[m.To] = e
+		}
 	}
 	s.mu.Unlock()
-	if !ok {
-		return false
-	}
 	for _, l := range s.Listeners {
-		if r, ok := l.(Reassigner); ok {
-			r.Reassigned(from)
-			r.Reassigned(to)
-		}
-		if c, ok := l.(ControlWatcher); ok {
-			c.ControlChanged(from)
-			c.ControlChanged(to)
+		for _, key := range touched {
+			if r, ok := l.(Reassigner); ok {
+				r.Reassigned(key)
+			}
+			if c, ok := l.(ControlWatcher); ok {
+				c.ControlChanged(key)
+			}
 		}
 	}
-	return true
 }
 
 // Forget drops a driver instance that no longer exists: its devices, its undeclared count and its

@@ -155,10 +155,11 @@ func (r *Registry) change(f func(*Snapshot) error) error {
 
 // Report records hardware a driver sees, adding it if it's new, so it's usable at once. Hardware
 // that was removed comes back with its name, room and endpoint, under another name only if someone
-// has taken that one. What's named in the device's app is only read when it's new.
-func (r *Registry) Report(report Report) (Device, error) {
+// has taken that one. What's named in the device's app is only read when it's new. changed says the
+// registry took something up.
+func (r *Registry) Report(report Report) (device Device, changed bool, err error) {
 	if report.ID == "" || report.Driver == "" {
-		return Device{}, errors.New("a reported device needs an ID and a driver")
+		return Device{}, false, errors.New("a reported device needs an ID and a driver")
 	}
 	r.mu.RLock()
 	i := hardware(r.state, report.Driver, report.ID)
@@ -169,10 +170,10 @@ func (r *Registry) Report(report Report) (Device, error) {
 	}
 	r.mu.RUnlock()
 	if same {
-		return known, nil
+		return known, false, nil
 	}
 	var out Device
-	err := r.change(func(s *Snapshot) error {
+	err = r.change(func(s *Snapshot) error {
 		i := hardware(*s, report.Driver, report.ID)
 		if i < 0 {
 			endpoint, err := allocate(s)
@@ -193,7 +194,7 @@ func (r *Registry) Report(report Report) (Device, error) {
 		out = cloneDevice(*d)
 		return nil
 	})
-	return out, err
+	return out, err == nil, err
 }
 
 // Reserve holds a name for a device that isn't paired yet, so code can name it. Replace gives it its
@@ -285,8 +286,9 @@ func (r *Registry) Replace(name, with string) error {
 
 // Restore rebuilds the registry from a copy. The copy decides everything it names, matched by
 // hardware, so a device that re-entered after a loss gets its old name and endpoint back. Anything
-// else stays, on a new endpoint if the copy gives its one to something else, and Moved lists those.
-// Next never falls, so nothing allocated since the copy is handed out again while the registry still
+// else stays, on a new endpoint if the copy gives its one to something else, or a new name if the
+// copy gives its one to something else, and moved lists the live devices that changed so. Next never
+// falls, so nothing allocated since the copy is handed out again while the registry still
 // remembers it.
 func (r *Registry) Restore(from Snapshot) (moved []string, err error) {
 	if err := check(from); err != nil {
@@ -300,16 +302,23 @@ func (r *Registry) Restore(from Snapshot) (moved []string, err error) {
 			if named(from, d) {
 				continue
 			}
-			if slices.ContainsFunc(from.Devices, func(f Device) bool { return f.Endpoint == d.Endpoint }) {
+			was := d.Name
+			collides := slices.ContainsFunc(from.Devices, func(f Device) bool { return f.Endpoint == d.Endpoint })
+			if collides && d.Removed && d.ID == "" {
+				continue // A retired endpoint with nothing that could come back to it.
+			}
+			if collides {
 				endpoint, err := allocate(&out)
 				if err != nil {
 					return err
 				}
 				d.Endpoint = endpoint
-				moved = append(moved, d.Name)
 			}
 			if !d.Removed {
 				d.Name = uniqueName(out, d.Name)
+				if collides || d.Name != was {
+					moved = append(moved, was)
+				}
 			}
 			out.Devices = append(out.Devices, cloneDevice(d))
 		}
@@ -325,7 +334,7 @@ func named(from Snapshot, d Device) bool {
 		if d.ID != "" {
 			return f.ID == d.ID && f.Driver == d.Driver
 		}
-		return f.ID == "" && f.Endpoint == d.Endpoint
+		return f.ID == "" && f.Endpoint == d.Endpoint && f.Name == d.Name
 	})
 }
 
@@ -426,7 +435,7 @@ func uniqueName(s Snapshot, name string) string {
 	}
 }
 
-// clean makes a room fit on one line, since it ends up in a generated file.
+// clean makes a name from outside fit on one line, since it ends up in a generated file.
 func clean(s string) string {
 	return strings.TrimSpace(strings.Map(func(c rune) rune {
 		if unicode.IsControl(c) {

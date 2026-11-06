@@ -396,6 +396,20 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 	}
 }
 
+func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
+	r.store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{})
+	r.settle()
+	if err := r.e.ForgetDevice(context.Background(), dev); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, ok := r.e.Controls.Get(dev); ok {
+		t.Fatal("its saved claims stayed for the next device of that name")
+	}
+}
+
 // matter announces a Matter write, as the matter role does before writing the device.
 func (r *rig) matter(dev, c string, v any) {
 	r.e.MatterWrote(types.NamespacedName{Namespace: ns, Name: dev}, c, v)

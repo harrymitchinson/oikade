@@ -572,6 +572,22 @@ func (e *Engine) ReleaseRule(ctx context.Context, key types.NamespacedName) erro
 	return e.ReleaseClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
+// ForgetDevice ends what's on record for a device that has left the store for good: its arbiters,
+// and the saved claims that would otherwise wait for the next device of that name. It returns once
+// that's on disk.
+func (e *Engine) ForgetDevice(ctx context.Context, dev types.NamespacedName) error {
+	e.mu.Lock()
+	e.ensure(dev)
+	e.mu.Unlock()
+	e.saveMu.Lock()
+	defer e.saveMu.Unlock()
+	if err := e.Controls.Delete(ctx, dev); err != nil {
+		return err
+	}
+	delete(e.savedControls, dev)
+	return nil
+}
+
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
 // that's still to do. Call with e.mu held.
 func (e *Engine) ensureDue() {

@@ -117,10 +117,10 @@ func describe(d Device) string {
 		parts = append(parts, "reserved, and not paired yet")
 	}
 	if d.Room != "" {
-		parts = append(parts, "in "+d.Room)
+		parts = append(parts, "in "+clean(d.Room))
 	}
 	if len(d.Capabilities) > 0 {
-		parts = append(parts, "with "+strings.Join(d.Capabilities, ", "))
+		parts = append(parts, "with "+clean(strings.Join(d.Capabilities, ", ")))
 	}
 	if len(parts) == 0 {
 		return "a device"

@@ -74,7 +74,7 @@ func runDevices(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "Pass --allow-safety to remove it anyway.")
 	}
 	for _, name := range resp.Moved {
-		fmt.Fprintln(os.Stderr, name, "isn't in the file, and has a new Matter endpoint")
+		fmt.Fprintln(os.Stderr, name, "isn't in the file, and the file has its name or Matter endpoint, so it has a new one")
 	}
 	return done(resp, *asJSON, message)
 }
@@ -131,7 +131,9 @@ func runTypes(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	out := fs.String("out", "devices.go", "The file to write, or - for standard output.")
 	pkg := fs.String("package", "main", "The file's Go package.")
-	_ = fs.Parse(args)
+	if extra := parse(fs, args); len(extra) > 0 {
+		return fmt.Errorf("oikade types takes no %q", extra[0])
+	}
 	list, err := registryOf(ctx, target)
 	if err != nil {
 		return err

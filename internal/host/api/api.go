@@ -81,7 +81,7 @@ type Response struct {
 	Status *Status `json:"status,omitempty"`
 	// Registry is a devices request's.
 	Registry *registry.Snapshot `json:"registry,omitempty"`
-	// Moved are the devices a restore had to give a new endpoint.
+	// Moved are the devices a restore had to give a new endpoint or name.
 	Moved []string `json:"moved,omitempty"`
 }
 

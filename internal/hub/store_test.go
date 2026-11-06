@@ -137,22 +137,35 @@ func TestSetDevicesReportsReassignments(t *testing.T) {
 	}
 }
 
-func TestRenameKeepsLiveState(t *testing.T) {
+func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 	s := NewStore(logr.Discard())
 	instance := driver.InstanceKey{Driver: "test", NamespacedName: types.NamespacedName{Name: "a"}}
-	from, to := types.NamespacedName{Name: "old"}, types.NamespacedName{Name: "new"}
-	s.SetDevices(instance, map[types.NamespacedName]Meta{from: {Instance: instance}})
-	s.Changed(driver.Update{Device: from, Capability: "switch.on", Value: true})
-	if !s.Rename(from, to) {
-		t.Fatal("found nothing to rename")
+	a, b := types.NamespacedName{Name: "a"}, types.NamespacedName{Name: "b"}
+	s.SetDevices(instance, map[types.NamespacedName]Meta{a: {Instance: instance}, b: {Instance: instance}})
+	s.Changed(driver.Update{Device: a, Capability: "switch.on", Value: true})
+	s.Changed(driver.Update{Device: b, Capability: "switch.on", Value: false})
+
+	s.Rename(map[types.NamespacedName]Move{
+		a: {To: b, Meta: Meta{Room: "for-b", Instance: instance}},
+		b: {To: a, Meta: Meta{Room: "for-a", Instance: instance}},
+	})
+	if snap, ok := s.Get(b); !ok || snap.Values["switch.on"] != true || snap.Room != "for-b" {
+		t.Errorf("b: %+v, %v", snap, ok)
 	}
-	if _, ok := s.Get(from); ok {
+	if snap, ok := s.Get(a); !ok || snap.Values["switch.on"] != false || snap.Room != "for-a" {
+		t.Errorf("a: %+v, %v", snap, ok)
+	}
+
+	c := types.NamespacedName{Name: "c"}
+	s.Rename(map[types.NamespacedName]Move{a: {To: c, Meta: Meta{Instance: instance}}})
+	if _, ok := s.Get(a); ok {
 		t.Error("the old name stayed")
 	}
-	if snap, ok := s.Get(to); !ok || snap.Values["switch.on"] != true {
-		t.Errorf("got %+v, %v", snap, ok)
+	if _, ok := s.Get(c); !ok {
+		t.Error("the new name is missing")
 	}
-	if s.Rename(from, to) {
-		t.Error("renamed a device that isn't there")
+	s.Rename(map[types.NamespacedName]Move{a: {To: b, Meta: Meta{Room: "nothing", Instance: instance}}})
+	if snap, _ := s.Get(b); snap.Room == "nothing" {
+		t.Error("nothing replaced a device")
 	}
 }

@@ -244,3 +244,31 @@ func TestASafetyDeviceCanBeRemovedOnPurpose(t *testing.T) {
 		t.Error("the valve stayed")
 	}
 }
+
+func TestRestoreRefusesToMoveAClaimedName(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.change("leak-sensor", "sensor.contact-open", true)
+	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
+	r.sync()
+	list := r.devices()
+	for n, d := range list.Devices {
+		if d.Name == "valve" {
+			list.Devices[n].Name = "main-valve"
+		}
+	}
+	file, err := registry.Render(list, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "devices.go")
+	if err := os.WriteFile(path, file, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if stderr, err := r.oikade(nil, "devices", "restore", path); err == nil ||
+		!strings.Contains(stderr, "Rule/leak-shutoff") {
+		t.Errorf("moved a claimed name: %v: %s", err, stderr)
+	}
+	deviceOf(t, r.devices(), "valve")
+}
