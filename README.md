@@ -568,12 +568,12 @@ func home() framework.Home {
 $ oikade dev
 Simulating 2 devices from Fri 18:41. Type help for the commands.
 set porch-sensor sensor.occupancy-detected true
-Fri 18:41 Hold porch-light started
 Fri 18:41 Wrote porch-light light.on = true
+Fri 18:41 Hold porch-light started
 set porch-sensor sensor.occupancy-detected false
 advance 6m
-Fri 18:46 Hold porch-light ended
 Fri 18:46 Wrote porch-light light.on = false
+Fri 18:46 Hold porch-light ended
 ```
 
 `status` shows every device and what holds it, and `restart` crashes your automations and starts them again.

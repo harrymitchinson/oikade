@@ -148,7 +148,7 @@ func runInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Started a home in %s. Next: oikade test, then oikade dev.\n", dir)
+	fmt.Println("Started a home. Next: oikade test, then oikade dev.")
 	return nil
 }
 
