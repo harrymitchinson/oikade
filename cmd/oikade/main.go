@@ -25,16 +25,26 @@ import (
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
-// version is the release this binary was built from. No release builds it yet, so it's what a Matter
-// bridge reports until one does, with -ldflags "-X main.version=v0.1.0".
-var version = "dev"
+// version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".
+var version = devVersion
+
+// devVersion is a build no release or go install put a version on.
+const devVersion = "dev"
 
 // defaultDataDir is where a host keeps its state, unless told otherwise.
 const defaultDataDir = "/var/lib/oikade"
 
 const usage = `Usage:
+  oikade install [--binary FILE] [--user NAME] [--print] [-- HOST FLAGS...]
+  oikade upgrade [--binary FILE]
+  oikade backup
+  oikade secret list [--json]
+  oikade secret set NAME [--json]      The value comes from stdin, or is asked for.
+  oikade secret remove NAME [--json]
+  oikade version
   oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
               [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS]
+              [--broker URL] [--broker-password-secret NAME] [--outside-plugins LIST] [--secrets-dir DIR]
               [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST]
   oikade init [DIR] [--module PATH] [--source DIR]
   oikade check [--module DIR]
@@ -102,6 +112,16 @@ func main() {
 		err = runTypes(ctx, args)
 	case "matter":
 		err = runMatter(ctx, args)
+	case "install":
+		err = runInstall(ctx, args)
+	case "upgrade":
+		err = runUpgrade(ctx, args)
+	case "backup":
+		err = runBackup(ctx, args)
+	case "secret":
+		err = runSecret(ctx, args)
+	case "version":
+		fmt.Println(currentVersion())
 	case "proxy":
 		err = runProxy(ctx, args)
 	default:
@@ -148,6 +168,10 @@ func runHost(ctx context.Context, args []string) error {
 	outside := fs.String("outside-plugins", "",
 		"Comma-separated plugins that run as processes of their own and speak the MQTT contract on --broker, "+
 			"under oikade/v1/home/<name>.")
+	brokerPassword := fs.String("broker-password-secret", "",
+		"The secret with the password for --broker, whose URL names the user. A password in a flag lands in ps.")
+	secretsDir := fs.String("secrets-dir", "",
+		"Directory of secrets, one file each. Defaults to secrets in --data-dir. A read-only one is fine.")
 	pluginSetTimeout := fs.Duration("plugin-set-timeout", host.DefaultPluginSetTimeout,
 		"How long a plugin's Set may run before the plugin counts as hung.")
 	_ = fs.Parse(args)
@@ -156,9 +180,27 @@ func runHost(ctx context.Context, args []string) error {
 	}
 
 	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
+	if *brokerPassword != "" {
+		dir := *secretsDir
+		if dir == "" {
+			dir = filepath.Join(*dataDir, host.DefaultSecretsDir)
+		}
+		withPassword, err := host.WithBrokerPassword(*broker, dir, *brokerPassword)
+		switch {
+		case err == nil:
+			*broker = withPassword
+		case errors.Is(err, os.ErrNotExist):
+			// oikade secret set needs a running host, so a first start comes before the secret does.
+			log.Error(err, "Could not read the broker's password; restart the host once it's set",
+				"secret", *brokerPassword)
+		default:
+			return err
+		}
+	}
+
 	h := &host.Host{
 		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, MetricsAddr: *metricsAddr, Log: log,
-		Broker: *broker, PluginSetTimeout: *pluginSetTimeout,
+		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, SecretsDir: *secretsDir,
 		EventLog: store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},
 	}
 	if *outside != "" {
@@ -174,7 +216,7 @@ func runHost(ctx context.Context, args []string) error {
 		}
 	}
 	if *matterPort != 0 {
-		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: version}
+		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: currentVersion()}
 		if *matterInterfaces != "" {
 			for name := range strings.SplitSeq(*matterInterfaces, ",") {
 				h.Matter.Interfaces = append(h.Matter.Interfaces, strings.TrimSpace(name))

@@ -23,7 +23,8 @@ type Environment struct {
 	Root    contractv1.Root
 	// DevicesFile is the path of devices.json.
 	DevicesFile string
-	// SecretsDir is the mounted user Secret, empty when the Plugin has no spec.secretRef.
+	// SecretsDir is the directory of secrets: what oikade secret set wrote, on the host. Under the
+	// operator it's the mounted user Secret, and empty when the Plugin has no spec.secretRef.
 	SecretsDir string
 }
 
@@ -90,8 +91,8 @@ func ReadDevices(file string) ([]contractv1.DeclaredDevice, error) {
 	return f.Devices, nil
 }
 
-// ReadSecret reads one key of the mounted user Secret, by convention the device id. ok is false
-// when the Plugin has no Secret or the key is missing. Keys containing '/' or equal to "." or ".."
+// ReadSecret reads one secret, by convention named for the device it's for. ok is false when there
+// are no secrets or the key is missing. Keys containing '/' or equal to "." or ".."
 // are refused, because they could name the directory or its parent. Never log the result.
 func ReadSecret(env Environment, key string) (value string, ok bool, err error) {
 	if key == "" || key == "." || key == ".." || strings.Contains(key, "/") {

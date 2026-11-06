@@ -29,7 +29,8 @@ const (
 	EnvMQTTURL     = "OIKADE_MQTT_URL"
 	EnvTopic       = "OIKADE_TOPIC"
 	EnvDevicesFile = "OIKADE_DEVICES_FILE"
-	// EnvSecretsDir is set only when the Plugin has a spec.secretRef.
+	// EnvSecretsDir is the directory of secrets, one file each. On the host it's always set. Under
+	// the operator it's set only when the Plugin has a spec.secretRef.
 	EnvSecretsDir = "OIKADE_SECRETS_DIR"
 )
 

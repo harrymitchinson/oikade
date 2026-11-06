@@ -14,6 +14,7 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/store"
 )
 
 // requestTimeout is how long a connection has to say what it wants.
@@ -32,6 +33,10 @@ type apiServer struct {
 	devices *inventory
 	// bridge is nil on a host with Matter off.
 	bridge *matterBridge
+	// data and dataDir are the store and the directory it's in, for a backup.
+	data    *store.Store
+	dataDir string
+	secrets secrets
 }
 
 // serve accepts connections until the listener closes, and returns once every call has finished.
@@ -122,6 +127,10 @@ func (s *apiServer) answer(req api.Request) api.Response {
 		return s.resume(s.ctx, req)
 	case api.TypeMatter:
 		return s.matter()
+	case api.TypeBackup:
+		return s.backup()
+	case api.TypeSecrets, api.TypeSecretSet, api.TypeSecretRemove:
+		return s.secret(req)
 	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceReserve,
 		api.TypeDeviceRemove, api.TypeDeviceReplace, api.TypeDeviceRestore:
 		return s.device(req)

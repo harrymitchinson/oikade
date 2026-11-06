@@ -198,3 +198,32 @@ func (n *Namespace) Delete(key string) error {
 		return b.Delete([]byte(key))
 	})
 }
+
+// Snapshot writes a consistent copy of the store to path, without stopping anything that's using
+// it, and returns once the copy has reached disk. A copy of the file itself could tear: this reads
+// one transaction, so it's one moment of the store, and it opens like the original.
+func (s *Store) Snapshot(path string) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".snapshot-*")
+	if err != nil {
+		return fmt.Errorf("create snapshot: %w", err)
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	err = s.db.View(func(tx *bolt.Tx) error {
+		_, err := tx.WriteTo(f)
+		return err
+	})
+	if err == nil {
+		err = f.Sync()
+	}
+	if closed := f.Close(); err == nil {
+		err = closed
+	}
+	if err != nil {
+		return fmt.Errorf("write snapshot: %w", err)
+	}
+	if err := os.Rename(f.Name(), path); err != nil {
+		return fmt.Errorf("finish snapshot: %w", err)
+	}
+	return syncDir(dir)
+}

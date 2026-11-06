@@ -169,10 +169,7 @@ func runInit(ctx context.Context, args []string) error {
 
 // moduleFromRelease writes a go.mod on the Oikade this binary is, or main if it's no release.
 func moduleFromRelease(ctx context.Context, dir, name string) error {
-	at := version
-	if !strings.HasPrefix(at, "v") {
-		at = "main"
-	}
+	at := publishedVersion()
 	for _, args := range [][]string{{"mod", "init", name}, {"get", frameworkModule + "@" + at}, {"mod", "tidy"}} {
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = dir
@@ -219,10 +216,7 @@ func homeFiles() (map[string][]byte, error) {
 	if err != nil {
 		return nil, errors.New("rendering the example devices: " + err.Error())
 	}
-	install := version
-	if !strings.HasPrefix(install, "v") {
-		install = "main"
-	}
+	install := publishedVersion()
 	return map[string][]byte{
 		"main.go":                      []byte(homeMain),
 		"home_test.go":                 []byte(homeTest),

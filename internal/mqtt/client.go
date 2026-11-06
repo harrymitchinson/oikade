@@ -3,7 +3,7 @@ package mqtt
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/url"
 	"slices"
 	"strings"
@@ -99,7 +99,8 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 	log := logr.FromContextOrDiscard(ctx)
 	u, err := url.Parse(server)
 	if err != nil {
-		return nil, fmt.Errorf("parsing MQTT URL: %w", err)
+		// Not err: it quotes the URL, which may hold a password.
+		return nil, errors.New("the MQTT URL isn't a URL")
 	}
 	var o options
 	for _, opt := range opts {

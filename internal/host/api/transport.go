@@ -60,7 +60,7 @@ func (s SSH) command(ctx context.Context, remote string) (*exec.Cmd, error) {
 // Dial implements Transport, with oikade proxy on the other end joining the session to the socket.
 func (s SSH) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
 	// Not ctx: Call closes the connection when it ends, and needs to read until then.
-	cmd, err := s.command(context.WithoutCancel(ctx), "oikade proxy --data-dir "+quote(s.DataDir))
+	cmd, err := s.command(context.WithoutCancel(ctx), "oikade proxy --data-dir "+Quote(s.DataDir))
 	if err != nil {
 		return nil, err
 	}
@@ -118,11 +118,32 @@ func (s SSH) Upload(ctx context.Context, path string) (string, func(), error) {
 		return "", nil, fmt.Errorf("copying the binary to %s: no path came back", s.Host)
 	}
 	return dir + "/home", func() {
-		if cmd, err := s.command(context.WithoutCancel(ctx), "rm -rf -- "+quote(dir)); err == nil {
+		if cmd, err := s.command(context.WithoutCancel(ctx), "rm -rf -- "+Quote(dir)); err == nil {
 			_ = cmd.Run()
 		}
 	}, nil
 }
 
-// quote makes s one word for a POSIX shell.
-func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+// Output runs a command there and returns what it printed.
+func (s SSH) Output(ctx context.Context, remote string) (string, error) {
+	cmd, err := s.command(ctx, remote)
+	if err != nil {
+		return "", err
+	}
+	out, err := cmd.Output()
+	return string(out), err
+}
+
+// Attached runs a command there on this terminal, so that sudo can ask for a password.
+func (s SSH) Attached(ctx context.Context, remote string) error {
+	cmd, err := s.command(ctx, remote)
+	if err != nil {
+		return err
+	}
+	cmd.Args[1] = "-t"
+	cmd.Stdin, cmd.Stdout = os.Stdin, os.Stdout
+	return cmd.Run()
+}
+
+// Quote makes s one word for a POSIX shell.
+func Quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

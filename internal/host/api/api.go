@@ -30,6 +30,11 @@ const (
 	TypeTail     = "tail"
 	TypeEvents   = "events"
 	TypeMatter   = "matter"
+	TypeBackup   = "backup"
+
+	TypeSecrets      = "secrets"
+	TypeSecretSet    = "secretSet"
+	TypeSecretRemove = "secretRemove"
 
 	TypeDevices       = "devices"
 	TypeDeviceName    = "deviceName"
@@ -64,6 +69,10 @@ type Request struct {
 	// AllowSafety pauses a Safety rule, removes a device a Safety claim holds, or changes a device's
 	// name while a Safety rule runs.
 	AllowSafety bool `json:"allowSafety,omitempty"`
+	// Secret names a secret to set or remove.
+	Secret string `json:"secret,omitempty"`
+	// SecretValue is what to set it to. It's in no answer and no log.
+	SecretValue string `json:"secretValue,omitempty"`
 }
 
 // Response is its answer.
@@ -93,6 +102,18 @@ type Response struct {
 	Moved []string `json:"moved,omitempty"`
 	// Matter is a matter request's.
 	Matter *Matter `json:"matter,omitempty"`
+	// Backup is the file a backup wrote, on the host.
+	Backup string `json:"backup,omitempty"`
+	// Secrets are the secrets the host has, and never their values.
+	Secrets []Secret `json:"secrets,omitempty"`
+}
+
+// Secret is what the host says about a credential. Its JSON is what oikade secret list --json prints,
+// so scripts rely on it: add to it, and don't rename.
+type Secret struct {
+	Name string `json:"name"`
+	// Changed is when its value last changed.
+	Changed time.Time `json:"changed"`
 }
 
 // Matter is the host's Matter bridge. Its JSON is what oikade matter --json prints, so scripts rely on

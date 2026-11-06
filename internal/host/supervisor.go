@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
@@ -136,7 +137,7 @@ var errHeartbeat = errors.New("stopped answering heartbeats")
 func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string, swaps <-chan *swap) (*swap, error) {
 	cmd := exec.Command(path, wire.RoleAutomations)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+socket)
+	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+socket, contractv1.EnvSecretsDir+"="+h.SecretsDir)
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

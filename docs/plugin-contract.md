@@ -139,7 +139,7 @@ The operator runs the plugin with:
 | `OIKADE_MQTT_URL` | The broker, such as `mqtt://oikade-mosquitto.oikade-system.svc:1883`. |
 | `OIKADE_TOPIC` | The topic root, `oikade/v1/<namespace>/<plugin>`. |
 | `OIKADE_DEVICES_FILE` | `/etc/oikade/config/devices.json` |
-| `OIKADE_SECRETS_DIR` | `/etc/oikade/secrets`. Present only when the Plugin sets `spec.secretRef`. |
+| `OIKADE_SECRETS_DIR` | The directory of secrets, one file each. On the host it's always set, and holds what `oikade secret set` wrote. Under the operator it's `/etc/oikade/secrets`, present only when the Plugin sets `spec.secretRef`. |
 
 The devices file lists the Devices declared for this plugin. The operator rewrites it and restarts the pod whenever they change.
 
