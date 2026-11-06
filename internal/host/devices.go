@@ -58,7 +58,7 @@ func instanceName(instance driver.InstanceKey) string {
 	if instance.Namespace == "" {
 		return instance.Driver + "/" + instance.Name
 	}
-	return instance.Driver + "/" + instance.Namespace + "/" + instance.Name
+	return instance.Driver + "/" + instance.String()
 }
 
 // attach adds a driver instance, whose devices on record are known from now on, reported or not.

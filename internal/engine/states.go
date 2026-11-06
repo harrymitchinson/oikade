@@ -103,9 +103,10 @@ func (s *Stored[T]) Names(namespace string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	prefix := ident.ID{Namespace: namespace}.String()
 	var names []string
 	for _, k := range keys {
-		if name, ok := strings.CutPrefix(k, namespace+ident.Separator); ok {
+		if name, ok := strings.CutPrefix(k, prefix); ok {
 			names = append(names, name)
 		}
 	}

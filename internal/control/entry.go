@@ -73,7 +73,8 @@ type Entry struct {
 	MaximumStartsPerDay int `json:"maximumStartsPerDay,omitempty"`
 }
 
-// Equal reports whether two entries arbitrate alike. An empty Default equals a missing one.
+// Equal reports whether two entries are written the same, byte for byte in Default. An empty
+// Default equals a missing one.
 func (e Entry) Equal(other Entry) bool {
 	same := bytes.Equal(e.Default, other.Default)
 	e.Default, other.Default = nil, nil
