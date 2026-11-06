@@ -62,6 +62,10 @@ func (s *apiServer) handle(conn net.Conn) {
 		s.tail(conn)
 		return
 	}
+	if req.Type == api.TypeEvents {
+		s.srv.events.stream(conn)
+		return
+	}
 	if err := json.NewEncoder(conn).Encode(s.answer(req)); err != nil {
 		s.log.V(1).Info("Could not answer a request; the caller left", "error", err.Error())
 	}

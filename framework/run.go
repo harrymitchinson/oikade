@@ -44,6 +44,9 @@ func run(h Home, log logr.Logger) error {
 	if len(os.Args) > 1 && os.Args[1] == wire.RoleDev {
 		return runDev(h)
 	}
+	if len(os.Args) > 1 && os.Args[1] == wire.RoleReplay {
+		return runReplay(h)
+	}
 	if len(os.Args) < 2 || (os.Args[1] != wire.RoleAutomations && os.Args[1] != wire.RolePlugin) {
 		return errors.New("this is a home: run it with oikade host")
 	}
@@ -207,6 +210,27 @@ func runDev(h Home) error {
 	}, os.Stdin, os.Stdout)
 }
 
+// runReplay is oikade replay's half that needs your code: the home against an event log, with no
+// socket, no plugin and no device. Its log and its types file are named after the role.
+func runReplay(h Home) error {
+	if len(os.Args) != 4 {
+		return errors.New("run this with oikade replay")
+	}
+	devices, err := simhome.ReadTypes(os.Args[3])
+	if err != nil {
+		return err
+	}
+	home, err := h.simulated()
+	if err != nil {
+		return err
+	}
+	report, err := simhome.ReplayFile(simhome.Options{Home: home, Devices: devices}, os.Args[2])
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(report)
+}
+
 // simulated is the home for a simulated one to run.
 func (h Home) simulated() (simhome.Home, error) {
 	settings, err := h.settings()
@@ -353,10 +377,10 @@ func changed(mirror *hub.Store, m wire.Message) {
 	})
 }
 
-// logOutput is where the process logs. oikade dev talks to you on standard output, so its log stays
-// out of the way there.
+// logOutput is where the process logs. oikade dev and replay use standard output for something else,
+// so its log stays out of the way there.
 func logOutput() io.Writer {
-	if len(os.Args) > 1 && os.Args[1] == wire.RoleDev {
+	if len(os.Args) > 1 && (os.Args[1] == wire.RoleDev || os.Args[1] == wire.RoleReplay) {
 		return io.Discard
 	}
 	return os.Stdout

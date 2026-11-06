@@ -140,7 +140,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 		return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
 	}
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
-	if err := s.srv.setter.Set(ctx, dev, req.Capability, value); err != nil {
+	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{}
@@ -183,6 +183,21 @@ type claimedSetter struct {
 func (s claimedSetter) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
 	if c, ok := s.engine.UnreadableClaim(dev); ok {
 		return fmt.Errorf("%s holds %s", c.Source, dev.Name)
+	}
+	return s.setter.Set(ctx, dev, name, value)
+}
+
+// recordedSetter logs what your automations write, whether or not the device takes it: that's what
+// the version did, and all a replay can compare with.
+type recordedSetter struct {
+	emit   func(api.Event)
+	setter driver.Setter
+}
+
+// Set implements driver.Setter.
+func (s recordedSetter) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+	if dev.Namespace == wire.Namespace {
+		s.emit(api.Event{Time: time.Now(), Type: api.EventWrite, Device: dev.Name, Capability: name, Value: value})
 	}
 	return s.setter.Set(ctx, dev, name, value)
 }
@@ -258,7 +273,7 @@ func (s *server) setPaused(ctx context.Context, rule string, paused bool) error 
 	}
 	s.broadcast(m)
 	s.log.Info("Changed rule pause", "rule", rule, "paused", paused)
-	s.feed.publish(api.Event{Time: time.Now(), Type: api.EventPause, Rule: rule, Message: what})
+	s.emit(api.Event{Time: time.Now(), Type: api.EventPause, Rule: rule, Message: what})
 	if paused {
 		if err := s.engine.ReleaseRule(ctx, key(rule)); err != nil {
 			return errors.Join(errors.New("paused, but its claims didn't end"), err)

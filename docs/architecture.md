@@ -93,6 +93,8 @@ The engine (`internal/engine`) loads each Rule the manager has accepted, compile
 
 `internal/simhome` runs a home in one process: one `Engine` with rules and arbiters, as the operator's runtime has, on a fake clock, with its states and journal in memory. `oikade dev` is your binary's `dev` role reading commands from standard input, and `framework/hometest` is the same thing in a test. `framework` fills in `simhome.FromFramework` when it loads, because a public package can't name a home's compiled form. `Sim.settle` needs to know the engine has caught up: `Engine.Idle` covers rules, and `OnStart`, `OnEnd` and `OnPark` tell a run that's waiting from one that's working. `OnPark` says when the wait ends and what ends it sooner, so a run whose timer has fired doesn't count as waiting, and `Advance` can move straight to the next wake-up. A restart builds a new engine from the states and journal, as a new process would, so `flow.Recover` runs for real.
 
+`oikade replay` is a `Sim` too (`internal/simhome/replay.go`). The command builds your module and hands its binary a file with the host's event log, and the binary runs the log through a `Sim` and prints a report, so the host never runs your working copy. Changes within 10 seconds of a write to the same capability are the device answering it, and don't go in: otherwise the deployed version's writes would happen whatever your code does. A device's first value starts it off, rather than going in as a change. Flows' outside calls don't run: `Flow.Dry` answers each from the log, by name and in order.
+
 ### Runtime state
 
 The runtime keeps the state that must outlive a restart in retained MQTT messages, one per object (`engine.Retained`):
@@ -112,6 +114,10 @@ Namespaces never start with `_`, so these can't collide with a plugin's root. Lo
 - Namespaces share the file with separate keys, for the registry, latches, claims and Matter state. `engine.Stored` implements `engine.States` on a namespace, as `Retained` does on the broker.
 - The journal keeps ordered entries per run. `Append` returns only once its entry is on disk. Each write is one transaction with two fsyncs, so its cost is about twice the disk's fsync time. A crash mid-write loses only the entry that was never acknowledged.
 - The file records its format version, and `Open` refuses one it doesn't know.
+
+The event log (`store.Events`, fed by `internal/host/eventlog.go`) lives here too, as what `oikade replay` reads. It's history, not state: nothing depends on it, so it trades the rest of the store's durability for staying out of the way. Reporting an event only appends to a queue. One commit every 5 seconds takes the queue, so a crash loses at most that long, and past 4096 waiting events new ones are dropped, not waited for. That commit also drops the oldest events over the bound, folding their last values into a baseline in the same transaction, because a device that hasn't changed since still has them. A reader takes the log in pages, each its own short transaction: a long one would hold up writes that grow the file, journal entries among them.
+
+The default bound is 14 days or 64 MiB, whichever comes first. It's sized on an estimated home of 50 devices at about 24,000 events a day, which holds 14 days in about 31 MiB and a 48 MiB file, so the size bound has room for a home twice as busy. That estimate is in `internal/host/eventlog_test.go`, and no real home has measured it yet. With a full 64 MiB log and a commit every 20 ms, the journal's median append went from 9.0 to 10.0 ms on a Mac's SSD (`TestAFullLogDoesntSlowTheJournal`).
 
 ## Matter
 

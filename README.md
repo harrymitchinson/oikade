@@ -593,6 +593,21 @@ func TestBedtimeSurvivesACrash(t *testing.T) {
 
 The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A mistake in a condition goes to the test's log, which `go test` shows when it fails.
 
+`oikade replay` shows what your code would have done last week. It fetches the host's event log, runs the code in your working copy against it on a fake clock, and compares that with what the deployed version did:
+
+```text
+$ oikade replay
+Replayed Fri 30 Oct 19:02:11 to Fri 6 Nov 19:02:11: 161240 changes. The deployed version wrote 412 times, your code 414.
+- Mon 2 Nov 07:12:40 bathroom-fan switch.on = true
++ Mon 2 Nov 07:04:10 bathroom-fan switch.on = true
+```
+
+A `-` is a write the deployed version made and your code doesn't, and a `+` the reverse. Two writes within 5 seconds count as the same one. Unchanged code shows `No differences.` `--since 48h` compares a shorter time, though your code always runs from the start of the log so that it gets there in the right state. `--json` prints the report, and a week of 50 devices takes about a minute on a laptop.
+
+A replay never reaches a device: your code runs in `simhome`, as in `oikade dev`, and asks the host only for its status and its log. A flow's `Do` isn't called. It gets the answer the deployed version got, or none if that call isn't on record, and the report says so. What it can't know comes as a note: a pause, a deploy, or your automations being down. It also runs a rule the deployed version had paused, and a device that went quiet counts as alive. A device renamed during the log looks like two devices.
+
+The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade host --event-log-age 336h --event-log-mib 64` are the defaults. Prometheus stays the place for history: this exists to be replayed, and losing it costs nothing else.
+
 Arbitration and budgets are declared in the same `Home`. `Control` is [a Device's `control`](#arbitration), and a `Hold` with a `Budget` is [a budget Rule](#budgets), on the same planner:
 
 ```go
@@ -643,7 +658,7 @@ These talk to the host through a Unix socket in its data directory, which only t
 ```sh
 oikade status                     # the running version, every device, and your rules
 oikade status valve               # one device
-oikade tail                       # changes and rule runs as they happen
+oikade tail                       # changes, writes and rule runs as they happen
 oikade set fan switch.on off      # turn it off
 oikade pause fan                  # stop a rule
 oikade resume fan
@@ -655,7 +670,7 @@ oikade resume fan
 
 A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a Safety rule stops that protection, so it needs `--allow-safety`. So does pausing a rule holding a Safety claim, and anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause.
 
-`--json` on `status`, `tail`, `set`, `pause`, `resume`, `devices` and `matter` prints JSON whose fields stay stable for scripts.
+`--json` on `status`, `tail`, `replay`, `set`, `pause`, `resume`, `devices` and `matter` prints JSON whose fields stay stable for scripts.
 
 `--host NAME`, before or after the command, runs any of these and `deploy` and `rollback` on another machine over SSH, using your own SSH config. The SSH user must be the one running the host, with `oikade` on its `PATH`, and `--data-dir` means the directory over there. `deploy` copies the binary across first.
 
