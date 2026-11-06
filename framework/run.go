@@ -44,6 +44,9 @@ func run(h Home, log logr.Logger) error {
 	if len(os.Args) > 1 && os.Args[1] == wire.RoleDev {
 		return runDev(h)
 	}
+	if len(os.Args) > 1 && os.Args[1] == wire.RoleReplay {
+		return runReplay(h)
+	}
 	if len(os.Args) < 2 || (os.Args[1] != wire.RoleAutomations && os.Args[1] != wire.RolePlugin) {
 		return errors.New("this is a home: run it with oikade host")
 	}
@@ -207,6 +210,35 @@ func runDev(h Home) error {
 	}, os.Stdin, os.Stdout)
 }
 
+// runReplay is oikade replay's half that needs your code: the home against an event log, with no
+// socket, no plugin and no device. The role is followed by the log, the types file and where the
+// report goes: a file, because your code is free to print.
+func runReplay(h Home) error {
+	if len(os.Args) != 5 {
+		return errors.New("run this with oikade replay")
+	}
+	devices, err := simhome.ReadTypes(os.Args[3])
+	if err != nil {
+		return err
+	}
+	home, err := h.simulated()
+	if err != nil {
+		return err
+	}
+	// Errors only: a mistake in a condition is what explains a missing write, and a week of the rest
+	// would bury it.
+	log := funcr.New(func(prefix, args string) { fmt.Fprintln(os.Stderr, prefix, args) }, funcr.Options{Verbosity: -1})
+	report, err := simhome.ReplayFile(simhome.Options{Home: home, Devices: devices, Log: log}, os.Args[2])
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(os.Args[4], raw, 0o600)
+}
+
 // simulated is the home for a simulated one to run.
 func (h Home) simulated() (simhome.Home, error) {
 	settings, err := h.settings()
@@ -353,10 +385,10 @@ func changed(mirror *hub.Store, m wire.Message) {
 	})
 }
 
-// logOutput is where the process logs. oikade dev talks to you on standard output, so its log stays
-// out of the way there.
+// logOutput is where the process logs. oikade dev and replay use standard output for something else,
+// so its log stays out of the way there.
 func logOutput() io.Writer {
-	if len(os.Args) > 1 && os.Args[1] == wire.RoleDev {
+	if len(os.Args) > 1 && (os.Args[1] == wire.RoleDev || os.Args[1] == wire.RoleReplay) {
 		return io.Discard
 	}
 	return os.Stdout

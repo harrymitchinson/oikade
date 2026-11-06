@@ -23,6 +23,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
@@ -52,9 +53,10 @@ type Device struct {
 
 // Write is something your automations wrote to a device.
 type Write struct {
-	Time               time.Time
-	Device, Capability string
-	Value              any
+	Time       time.Time `json:"time"`
+	Device     string    `json:"device"`
+	Capability string    `json:"capability"`
+	Value      any       `json:"value"`
 }
 
 // Claim is a claim on an arbitrated capability.
@@ -81,11 +83,17 @@ type Options struct {
 	// Location is where the home is. Nil means Start's.
 	Location *time.Location
 	Log      logr.Logger
+	// Dry makes no outside call from a flow. Each takes its answer from Calls, by CallKey and in
+	// order, or goes without and is counted.
+	Dry   bool
+	Calls map[string][]api.Event
 }
 
 // Sim is a running simulated home. Its methods are for one goroutine at a time.
 type Sim struct {
 	home     Home
+	dry      bool
+	calls    map[string][]api.Event
 	devices  []Device
 	clock    *clocktesting.FakeClock
 	location *time.Location
@@ -111,6 +119,10 @@ type Sim struct {
 	parked map[int]parked
 	parks  int
 	fires  map[string]time.Time
+	// swept is when a replay last counted its devices as seen.
+	swept time.Time
+	// skipped counts the outside calls a dry run left out, by name.
+	skipped map[string]int
 }
 
 // New starts a home.
@@ -119,7 +131,7 @@ func New(o Options) (*Sim, error) {
 		home: o.Home, devices: o.Devices, clock: clocktesting.NewFakeClock(o.Start), location: o.Location, log: o.Log,
 		holds: newMemory[engine.HoldState](), controls: newMemory[engine.ControlState](), journal: newJournal(),
 		ended: map[string][]string{}, fires: map[string]time.Time{}, active: map[string]bool{},
-		runs: map[string]int{}, parked: map[int]parked{},
+		runs: map[string]int{}, parked: map[int]parked{}, dry: o.Dry, calls: maps.Clone(o.Calls), skipped: map[string]int{},
 	}
 	if s.location == nil {
 		s.location = o.Start.Location()
@@ -226,6 +238,9 @@ func (s *Sim) start() error {
 	for _, f := range flows {
 		f.Journal, f.Actions, f.Clock, f.Log, f.Process = s.journal, eng, s.clock, s.log.WithName("flows"), ctx
 		f.OnPark = eng.OnPark
+		if s.dry {
+			f.Dry = func(call string, result any) error { return s.answer(f.Key.Name, call, result) }
+		}
 	}
 	s.engine, s.flows, s.stop, s.stopped = eng, flows, cancel, make(chan struct{})
 	s.notice(eng)
@@ -276,6 +291,31 @@ func (s *Sim) report(dev types.NamespacedName, name string, value any) error {
 	}
 	s.store.Changed(driver.Update{Device: dev, Capability: name, Value: value, Previous: snap.Values[name], Time: now})
 	return nil
+}
+
+// answer stands in for a flow's outside call, with what it answered the last time.
+func (s *Sim) answer(rule, name string, result any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := CallKey(rule, name)
+	waiting := s.calls[at]
+	if len(waiting) == 0 {
+		s.skipped[at]++
+		return nil
+	}
+	call := waiting[0]
+	s.calls[at] = waiting[1:]
+	if call.Result != "" {
+		return errors.New(call.Result)
+	}
+	if result == nil || call.Value == nil {
+		return nil
+	}
+	raw, err := json.Marshal(call.Value)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, result)
 }
 
 // note records an event. Call with mu held.

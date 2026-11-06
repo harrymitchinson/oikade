@@ -19,6 +19,8 @@ const (
 	RoleAutomations = "automations"
 	// RoleDev runs the home against a simulated one, for oikade dev.
 	RoleDev = "dev"
+	// RoleReplay runs the home against an event log, for oikade replay. Its report goes to stdout.
+	RoleReplay = "replay"
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = pluginwire.RolePlugin
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.

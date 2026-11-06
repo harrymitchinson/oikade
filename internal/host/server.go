@@ -41,14 +41,19 @@ type server struct {
 	ctx     context.Context
 	devices *hub.Store
 	engine  *engine.Engine
+	// setter is for your automations, and outside for a person's writes, which the log shows as the
+	// change they make.
 	setter  driver.Setter
+	outside driver.Setter
 	holds   *engine.Stored[engine.HoldState]
 	fires   *engine.Stored[time.Time]
 	journal *store.Journal
 	// paused are the rules paused, with when.
 	paused *engine.Stored[time.Time]
-	// feed is what oikade tail streams, and pushed your process's latest metrics.
+	// feed is what oikade tail streams, events what oikade replay reads, and pushed your process's
+	// latest metrics.
 	feed   *feed
+	events *eventLog
 	pushed *pushed
 
 	mu      sync.Mutex
@@ -154,7 +159,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 		return
 	}
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
-	s.feed.publish(api.Event{Time: time.Now(), Type: api.EventProcess, Message: "connected"})
+	s.emit(api.Event{Time: time.Now(), Type: api.EventProcess, Message: "connected"})
 	if s.connected != nil {
 		s.connected()
 	}
@@ -192,7 +197,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 			s.mu.Unlock()
 			continue
 		case wire.TypeRuleRun:
-			s.feed.publish(api.Event{Time: m.Time, Type: api.EventRule, Rule: m.Rule, Result: m.Result})
+			s.emit(api.Event{Time: m.Time, Type: api.EventRule, Rule: m.Rule, Result: m.Result})
 			continue
 		case wire.TypeMetrics:
 			s.pushed.set(m.Metrics)
@@ -359,7 +364,7 @@ func (s *server) detach(sess *session) {
 	s.mu.Unlock()
 	if left {
 		s.pushed.set(nil)
-		s.feed.publish(api.Event{Time: time.Now(), Type: api.EventProcess, Message: "disconnected"})
+		s.emit(api.Event{Time: time.Now(), Type: api.EventProcess, Message: "disconnected"})
 	}
 	close(sess.finished)
 }
@@ -525,6 +530,21 @@ func (s *server) ping(id uint64) (last time.Time, ok bool) {
 	return s.pong, true
 }
 
+// recordCall logs a flow's outside call from its journal entry, for a replay to answer it with.
+func (s *server) recordCall(run string, entry []byte) {
+	if name, result, failure, ok := flow.CallIn(entry); ok {
+		s.events.add(api.Event{
+			Time: time.Now(), Type: api.EventCall, Rule: flow.FlowOf(run), Message: name, Value: result, Result: failure,
+		})
+	}
+}
+
+// emit passes an event to whoever's tailing, and on to the log. Neither waits.
+func (s *server) emit(e api.Event) {
+	s.feed.publish(e)
+	s.events.add(e)
+}
+
 // Changed implements driver.Sink.
 func (s *server) Changed(u driver.Update) {
 	if u.Device.Namespace != wire.Namespace {
@@ -534,7 +554,7 @@ func (s *server) Changed(u driver.Update) {
 		Type: wire.TypeChange, Device: u.Device.Name, Capability: u.Capability,
 		Value: u.Value, Previous: u.Previous, Time: u.Time,
 	})
-	s.feed.publish(api.Event{
+	s.emit(api.Event{
 		Time: u.Time, Type: api.EventChange, Device: u.Device.Name, Capability: u.Capability,
 		Value: u.Value, Previous: u.Previous,
 	})
@@ -587,7 +607,9 @@ func (s *server) answer(m wire.Message) wire.Message {
 	case wire.TypeJournal:
 		fault.Hit(fault.HostJournalBefore)
 		if !fault.Drop(fault.HostJournalAppend) {
-			reply.Seq, err = s.journal.Append(m.Run, m.Data)
+			if reply.Seq, err = s.journal.Append(m.Run, m.Data); err == nil {
+				s.recordCall(m.Run, m.Data)
+			}
 		}
 		fault.Hit(fault.HostJournalAfter)
 	case wire.TypeFinish:

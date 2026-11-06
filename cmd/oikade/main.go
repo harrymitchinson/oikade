@@ -22,6 +22,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/flowcheck"
 	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/store"
 )
 
 // version is the release this binary was built from. No release builds it yet, so it's what a Matter
@@ -33,11 +34,13 @@ const defaultDataDir = "/var/lib/oikade"
 
 const usage = `Usage:
   oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
-              [--metrics-addr ADDRESS] [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST]
+              [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS]
+              [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST]
   oikade init [DIR] [--module PATH] [--source DIR]
   oikade check [--module DIR]
   oikade test [--module DIR] [PACKAGES...]
   oikade dev [--module DIR] [--types FILE]
+  oikade replay [--module DIR] [--types FILE] [--since DURATION] [--json]
   oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
   oikade rollback [--allow-safety-removal]
   oikade status [DEVICE] [--json]
@@ -77,6 +80,8 @@ func main() {
 		err = runTest(ctx, args)
 	case "dev":
 		err = runDev(ctx, args)
+	case "replay":
+		err = runReplay(ctx, args)
 	case "deploy":
 		err = runDeploy(ctx, args)
 	case "rollback":
@@ -129,6 +134,10 @@ func runHost(ctx context.Context, args []string) error {
 	heartbeat := fs.Duration("heartbeat-timeout", host.DefaultHeartbeatTimeout,
 		"How long your process may go without answering.")
 	settle := fs.Duration("settle", host.DefaultSettle, "How long a new version must stay up.")
+	logAge := fs.Duration("event-log-age", host.DefaultEventLogAge,
+		"How long oikade replay's event log keeps events.")
+	logMiB := fs.Uint64("event-log-mib", host.DefaultEventLogBytes>>20,
+		"The most oikade replay's event log holds, in MiB.")
 	metricsAddr := fs.String("metrics-addr", ":8080", "Where to serve metrics and health over HTTP. Empty serves neither.")
 	matterPort := fs.Uint("matter-port", host.DefaultMatterPort, "The Matter bridge's UDP port. 0 turns Matter off.")
 	matterName := fs.String("matter-name", "Oikade", "The Matter bridge's name, at most 32 bytes.")
@@ -150,6 +159,7 @@ func runHost(ctx context.Context, args []string) error {
 	h := &host.Host{
 		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, MetricsAddr: *metricsAddr, Log: log,
 		Broker: *broker, PluginSetTimeout: *pluginSetTimeout,
+		EventLog: store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},
 	}
 	if *outside != "" {
 		if *broker == "" {

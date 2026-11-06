@@ -366,7 +366,7 @@ func TestRedeployingAVersionThatCouldntBeConfirmedRetries(t *testing.T) {
 	if err := v.begin(version{ID: id}, nil); err != nil {
 		t.Fatal(err)
 	}
-	d := &deployer{versions: v}
+	d := &deployer{versions: v, srv: &server{feed: newFeed(), events: &eventLog{}}}
 	if err := data.Close(); err != nil {
 		t.Fatal(err)
 	}

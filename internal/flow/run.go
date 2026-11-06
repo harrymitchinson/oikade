@@ -250,6 +250,9 @@ func (r *Run) Do(name string, result any, call func(context.Context) error) erro
 		}
 		return recordedErr(e)
 	}
+	if r.f.Dry != nil {
+		call = func(context.Context) error { return r.f.Dry(name, result) }
+	}
 	err := call(r.ctx)
 	r.stopIfCancelled(err)
 	e := entry{Kind: kindDo, ID: name}
@@ -284,4 +287,17 @@ func recordedErr(e entry) error {
 		return nil
 	}
 	return errors.New(e.Err)
+}
+
+// CallIn reads an outside call from a journal entry: its name, what it returned and its error. ok is
+// false for any other step.
+func CallIn(raw []byte) (name string, result any, failure string, ok bool) {
+	var e entry
+	if json.Unmarshal(raw, &e) != nil || e.Kind != kindDo {
+		return "", nil, "", false
+	}
+	if len(e.Result) > 0 && json.Unmarshal(e.Result, &result) != nil {
+		return "", nil, "", false
+	}
+	return e.ID, result, e.Err, true
 }

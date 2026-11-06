@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -27,6 +28,7 @@ const (
 	TypePause    = "pause"
 	TypeResume   = "resume"
 	TypeTail     = "tail"
+	TypeEvents   = "events"
 	TypeMatter   = "matter"
 
 	TypeDevices       = "devices"
@@ -179,23 +181,49 @@ const (
 	EventRule    = "rule"
 	EventProcess = "process"
 	EventPause   = "pause"
+	// EventWrite is your automations writing to a device. A person's write isn't one: oikade set and
+	// the Home app show up as the change they make.
+	EventWrite = "write"
+	// EventCall is an outside call from a flow, which a replay answers rather than makes.
+	EventCall = "call"
+	// EventDeploy is a new version taking over.
+	EventDeploy = "deploy"
+	// eventEnd closes the event log, so that a cut-off fetch isn't taken for a short one.
+	eventEnd = "end"
 )
 
 // Event is one line of a tail. Its JSON is what oikade tail --json prints, so scripts rely on it: add
 // to it, and don't rename.
 type Event struct {
-	Time time.Time `json:"time"`
+	Time time.Time `json:"time,omitzero"`
 	Type string    `json:"type"`
-	// Device, Capability, Value and Previous are a change's.
+	// Device, Capability and Value are a change's or a write's, and Previous a change's.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
 	Previous   any    `json:"previous,omitempty"`
-	// Rule is a rule run's or a pause's, and Result how the run ended.
+	// Rule is a rule run's or a pause's, and Result how the run ended, or a call's error. Value is
+	// also a call's result.
 	Rule   string `json:"rule,omitempty"`
 	Result string `json:"result,omitempty"`
-	// Message says what happened to the process or the pause.
+	// Message says what happened to the process or the pause, which version a deploy brought, or
+	// which outside call this is.
 	Message string `json:"message,omitempty"`
+}
+
+// EventLog opens the host's event log, which comes as lines of JSON: this, then an Event for each
+// thing it holds, oldest first.
+type EventLog struct {
+	// Now is when the host read it.
+	Now time.Time `json:"now"`
+	// Zone is the IANA name of the time zone your automations run in on the host, and Offset that
+	// zone's seconds east of UTC now, for a host that can't name it.
+	Zone   string `json:"zone,omitempty"`
+	Offset int    `json:"offset"`
+	// Baseline is each device's values before the log's first event, by device and capability.
+	Baseline map[string]map[string]any `json:"baseline,omitempty"`
+	// Error is why the log can't be read.
+	Error string `json:"error,omitempty"`
 }
 
 // Call makes a request over t, and waits for as long as it takes: a deploy watches the new version
@@ -238,6 +266,44 @@ func Tail(ctx context.Context, t Transport, each func(Event) error) error {
 		}
 	}
 }
+
+// Events reads the host's event log to its end: begin gets its opening, and each gets every event.
+func Events(ctx context.Context, t Transport, begin func(EventLog) error, each func(Event) error) error {
+	conn, stop, err := open(ctx, t, Request{Type: TypeEvents})
+	if err != nil {
+		return err
+	}
+	defer stop()
+	events := json.NewDecoder(conn)
+	var log EventLog
+	if err := events.Decode(&log); err != nil {
+		return fmt.Errorf("reading the event log: %w", err)
+	}
+	if log.Error != "" {
+		return errors.New(log.Error)
+	}
+	if err := begin(log); err != nil {
+		return err
+	}
+	for {
+		var e Event
+		if err := events.Decode(&e); err != nil {
+			return fmt.Errorf("reading the event log: %w", err)
+		}
+		if e.Type == eventEnd {
+			if e.Message != "" {
+				return fmt.Errorf("reading the event log: %s", e.Message)
+			}
+			return nil
+		}
+		if err := each(e); err != nil {
+			return err
+		}
+	}
+}
+
+// LogEnd is the line that closes an event log. A message says it didn't get to the end.
+func LogEnd(message string) Event { return Event{Type: eventEnd, Message: message} }
 
 func open(ctx context.Context, t Transport, req Request) (io.Reader, func(), error) {
 	conn, err := t.Dial(ctx)

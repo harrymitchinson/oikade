@@ -236,6 +236,7 @@ func (d *deployer) confirm(id string) api.Response {
 	}
 	fault.Hit(fault.HostDeployConfirmed)
 	d.log.Info("Deployed automations version", "version", id)
+	d.srv.emit(api.Event{Time: time.Now(), Type: api.EventDeploy, Message: id})
 	if err := d.removals(); err != nil {
 		return api.Response{Error: removalsFailed(err), Version: id}
 	}
@@ -259,6 +260,7 @@ func (d *deployer) restore(ctx context.Context, failed, last string, cause error
 		return resp
 	}
 	d.log.Info("Restored the last automations version", "version", resp.Version)
+	d.srv.emit(api.Event{Time: time.Now(), Type: api.EventDeploy, Message: resp.Version})
 	if err := d.removals(); err != nil {
 		resp.Error += "; " + removalsFailed(err)
 	}

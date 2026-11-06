@@ -182,6 +182,10 @@ func describe(e api.Event) string {
 		return fmt.Sprintf("rule %s %s", e.Rule, e.Result)
 	case api.EventPause:
 		return fmt.Sprintf("rule %s %s", e.Rule, e.Message)
+	case api.EventWrite:
+		return fmt.Sprintf("wrote %s %s = %v", e.Device, e.Capability, display(e.Value))
+	case api.EventDeploy:
+		return "deployed " + e.Message
 	}
 	return "automations " + e.Message
 }

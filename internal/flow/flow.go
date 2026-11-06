@@ -79,6 +79,9 @@ type Flow struct {
 	Process context.Context
 	// OnPark, if set, hears a run begin waiting on the clock.
 	OnPark engine.Park
+	// Dry, if set, stands in for each outside call, for oikade replay: what's being replayed has
+	// already happened. It sets result, a pointer or nil, and returns what the call would.
+	Dry func(name string, result any) error
 
 	// claiming is held while a run acts, and while a run that ended badly releases its claims. A
 	// Restart flow's next run starts without waiting for the last to end, and claims under the same

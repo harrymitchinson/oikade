@@ -52,6 +52,8 @@ type Host struct {
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
 	// Broker, under oikade/v1/home/<name>.
 	Outside []string
+	// EventLog bounds what the host keeps for oikade replay. Zero fields take the defaults.
+	EventLog store.Bound
 	// PluginSetTimeout is how long a plugin's Set may run. It defaults to DefaultPluginSetTimeout.
 	PluginSetTimeout time.Duration
 	Log              logr.Logger
@@ -98,7 +100,7 @@ func (h *Host) Run(ctx context.Context) error {
 		fires:   &engine.Stored[time.Time]{Values: data.Namespace(engine.FireStatesNamespace), Log: h.Log},
 		journal: data.Journal(),
 		paused:  &engine.Stored[time.Time]{Values: data.Namespace(pausedNamespace), Log: h.Log},
-		feed:    newFeed(), pushed: &pushed{},
+		feed:    newFeed(), events: newEventLog(data.Events(), h.EventLog, h.Log.WithName("events")), pushed: &pushed{},
 	}
 	sinks := []driver.Sink{eng, srv}
 	bridge, err := h.openMatter(data)
@@ -120,7 +122,8 @@ func (h *Host) Run(ctx context.Context) error {
 	h.plugins.returned = eng.DriverReturned
 	srv.plugins = h.plugins
 	setter := claimedSetter{engine: eng, setter: routedSetter{devices: devices, simulated: sim, plugins: h.plugins}}
-	eng.Store, eng.Setter, srv.devices, srv.setter = devices, setter, devices, setter
+	recorded := recordedSetter{emit: srv.emit, setter: setter}
+	eng.Store, eng.Setter, srv.devices, srv.setter, srv.outside = devices, recorded, devices, recorded, setter
 	eng.Init()
 	if bridge.working() {
 		bridge.connect(devices, known, eng, setter)
@@ -167,6 +170,7 @@ func (h *Host) Run(ctx context.Context) error {
 	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge}
 	serving.Go(func() { calls.serve(apiListener) })
 	serving.Go(func() { observing(ctx) })
+	serving.Go(func() { srv.events.run(ctx) })
 	if bridge.working() {
 		serving.Go(func() { bridge.run(ctx) })
 	}
@@ -177,6 +181,7 @@ func (h *Host) Run(ctx context.Context) error {
 	srv.shutdown()
 	stopEngine()
 	engineDone.Wait()
+	srv.events.flush()
 	h.Log.Info("Stopped host")
 	return nil
 }
