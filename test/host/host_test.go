@@ -347,6 +347,25 @@ func (r *rig) send(device, capability string, value any) {
 	}
 }
 
+// awaitCount waits for this many matching lines, wherever they are in the log.
+func (r *rig) awaitCount(want int, msg string, fields ...any) {
+	r.t.Helper()
+	timeout := time.After(waitLimit)
+	for {
+		r.mu.Lock()
+		grew := r.grew
+		r.mu.Unlock()
+		if r.count(msg, fields...) >= want {
+			return
+		}
+		select {
+		case <-grew:
+		case <-timeout:
+			r.t.Fatalf("waited for %d of %q. The log:\n%s", want, msg, r.dump())
+		}
+	}
+}
+
 func (r *rig) wrote(device string, value any) {
 	r.t.Helper()
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", device, "value", value) })
@@ -470,6 +489,9 @@ func TestLatchedSafetyHoldSurvivesAKillMidWay(t *testing.T) {
 	}
 	r.change("reset", "sensor.contact-open", true)
 	r.wrote("valve", true)
+	// Your process ends the hold in its own time after the release, which sync doesn't wait for, and
+	// it can land either side of the host's write to the valve.
+	r.awaitCount(1, wrote, "device", "siren", "value", false)
 	r.sync()
 	if n := r.count(wrote, "device", "siren", "value", false); n != 1 {
 		t.Fatalf("siren was stopped %d times, want 1\n%s", n, r.dump())
