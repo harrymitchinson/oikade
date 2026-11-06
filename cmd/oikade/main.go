@@ -36,12 +36,12 @@ const usage = `Usage:
   oikade pause RULE [--allow-safety] [--json]
   oikade resume RULE [--json]
   oikade devices [--all] [--json]
-  oikade devices name DEVICE NAME [--json]
+  oikade devices name DEVICE NAME [--allow-safety] [--json]
   oikade devices room DEVICE ROOM [--json]
   oikade devices reserve NAME [--room ROOM] [--json]
-  oikade devices replace DEVICE WITH [--json]
+  oikade devices replace DEVICE WITH [--allow-safety] [--json]
   oikade devices remove DEVICE [--allow-safety] [--json]
-  oikade devices restore FILE [--json]
+  oikade devices restore FILE [--force] [--json]
   oikade types [--out FILE] [--package NAME]
 
 Every command but host takes --data-dir DIR and --host NAME, which runs it on that SSH host.`

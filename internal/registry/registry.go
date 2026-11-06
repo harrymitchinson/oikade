@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,8 @@ const (
 var (
 	// ErrNoDevice is a name the registry doesn't have.
 	ErrNoDevice = errors.New("no such device")
+	// ErrDisagrees is a copy that would change a registry already in use.
+	ErrDisagrees = errors.New("the file disagrees with the registry")
 
 	validName = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 )
@@ -54,6 +57,9 @@ type Device struct {
 	Endpoint uint16 `json:"endpoint"`
 	// Removed keeps the device on record, holding its endpoint, in case it comes back.
 	Removed bool `json:"removed,omitempty"`
+	// Control is how it's arbitrated, opaque here. It's on record so that claims hold from the moment
+	// the host starts, before a driver has reported.
+	Control json.RawMessage `json:"control,omitempty"`
 }
 
 // Reserved says the name has no hardware yet.
@@ -71,6 +77,8 @@ type Report struct {
 	ID           string
 	Driver       string
 	Capabilities []string
+	// Control is how it's arbitrated. Nil leaves what's on record.
+	Control json.RawMessage
 	// Name and Room are as named in its app, and are only read the first time.
 	Name string
 	Room string
@@ -163,7 +171,8 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 	}
 	r.mu.RLock()
 	i := hardware(r.state, report.Driver, report.ID)
-	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities)
+	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
+		(report.Control == nil || bytes.Equal(r.state.Devices[i].Control, report.Control))
 	var known Device
 	if same {
 		known = cloneDevice(r.state.Devices[i])
@@ -191,6 +200,9 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
 		d.Capabilities = slices.Clone(report.Capabilities)
+		if report.Control != nil {
+			d.Control = bytes.Clone(report.Control)
+		}
 		out = cloneDevice(*d)
 		return nil
 	})
@@ -259,7 +271,7 @@ func (r *Registry) Remove(name string) error {
 }
 
 // Replace moves name onto the hardware that with reports, so code and the Matter endpoint keep
-// working. with goes, and its endpoint stays retired. name's old hardware is forgotten, so if it's
+// working, and how it's arbitrated stays with the name. with goes, and its endpoint stays retired. name's old hardware is forgotten, so if it's
 // ever paired again it's a new device.
 func (r *Registry) Replace(name, with string) error {
 	if name == with {
@@ -279,6 +291,9 @@ func (r *Registry) Replace(name, with string) error {
 		}
 		d := &s.Devices[i]
 		d.ID, d.Driver, d.Capabilities = source.ID, source.Driver, slices.Clone(source.Capabilities)
+		if len(d.Control) == 0 {
+			d.Control = bytes.Clone(source.Control)
+		}
 		source.ID, source.Removed = "", true
 		return nil
 	})
@@ -290,12 +305,18 @@ func (r *Registry) Replace(name, with string) error {
 // copy gives its one to something else, and moved lists the live devices that changed so. Next never
 // falls, so nothing allocated since the copy is handed out again while the registry still
 // remembers it.
-func (r *Registry) Restore(from Snapshot) (moved []string, err error) {
+//
+// A registry in use is the authority, and a copy can be old, so unless force is set Restore refuses
+// one that disagrees with it, with ErrDisagrees.
+func (r *Registry) Restore(from Snapshot, force bool) (moved []string, err error) {
 	if err := check(from); err != nil {
 		return nil, err
 	}
 	err = r.change(func(s *Snapshot) error {
 		moved = nil
+		if why := disagreement(*s, from); why != "" && !force {
+			return fmt.Errorf("%w: %s", ErrDisagrees, why)
+		}
 		out := clone(from)
 		out.Next = max(from.Next, s.Next)
 		for _, d := range s.Devices {
@@ -326,6 +347,27 @@ func (r *Registry) Restore(from Snapshot) (moved []string, err error) {
 		return nil
 	})
 	return moved, err
+}
+
+// disagreement says how a copy differs from a registry in use, on the hardware and names it has. A
+// registry with nothing in it has nothing to lose.
+func disagreement(s, from Snapshot) string {
+	if len(s.Devices) == 0 {
+		return ""
+	}
+	for _, f := range from.Devices {
+		if i := hardware(s, f.Driver, f.ID); f.ID != "" && i >= 0 {
+			if d := s.Devices[i]; d.Name != f.Name || d.Endpoint != f.Endpoint || d.Removed != f.Removed {
+				return fmt.Sprintf("the file has %s as %s, and the registry as %s", f.ID, f.Name, d.Name)
+			}
+		}
+		if i := live(s, f.Name); !f.Removed && i >= 0 {
+			if d := s.Devices[i]; d.ID != f.ID || d.Driver != f.Driver || d.Endpoint != f.Endpoint {
+				return fmt.Sprintf("%s is different hardware or a different endpoint in the file", f.Name)
+			}
+		}
+	}
+	return ""
 }
 
 // named reports whether the copy already has this device.
@@ -455,5 +497,6 @@ func clone(s Snapshot) Snapshot {
 
 func cloneDevice(d Device) Device {
 	d.Capabilities = slices.Clone(d.Capabilities)
+	d.Control = bytes.Clone(d.Control)
 	return d
 }

@@ -588,6 +588,25 @@ func (e *Engine) ForgetDevice(ctx context.Context, dev types.NamespacedName) err
 	return nil
 }
 
+// SavedClaims returns the live claims on record for a device with no arbiters, such as one the host
+// hasn't heard from.
+func (e *Engine) SavedClaims(dev types.NamespacedName) []control.Claim {
+	saved, ok := e.Controls.Get(dev)
+	if !ok {
+		return nil
+	}
+	now := e.Clock.Now()
+	var claims []control.Claim
+	for _, st := range saved {
+		for _, c := range st.Claims {
+			if c.Expires.IsZero() || c.Expires.After(now) {
+				claims = append(claims, c)
+			}
+		}
+	}
+	return claims
+}
+
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
 // that's still to do. Call with e.mu held.
 func (e *Engine) ensureDue() {

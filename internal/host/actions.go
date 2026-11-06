@@ -50,6 +50,9 @@ func (s *apiServer) status() api.Response {
 		for name := range snap.Values {
 			names = append(names, name)
 		}
+		for _, c := range held {
+			names = append(names, c.Capability)
+		}
 		slices.Sort(names)
 		for _, name := range slices.Compact(names) {
 			c := api.Capability{Name: name}

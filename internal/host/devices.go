@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -9,10 +10,10 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -31,15 +32,11 @@ type inventory struct {
 	// mu orders changes, so that the hub takes them up in the registry's order.
 	mu        sync.Mutex
 	instances map[string]driver.InstanceKey
-	// controls are arbitration settings by hardware, as a driver gave them, until they have a home
-	// of their own (OIK-156).
-	controls map[string][]homev1alpha1.CapabilityControl
 }
 
 func newInventory(reg *registry.Registry, store *hub.Store, eng *engine.Engine, log logr.Logger) *inventory {
 	return &inventory{
-		registry: reg, store: store, engine: eng, log: log,
-		instances: map[string]driver.InstanceKey{}, controls: map[string][]homev1alpha1.CapabilityControl{},
+		registry: reg, store: store, engine: eng, log: log, instances: map[string]driver.InstanceKey{},
 	}
 }
 
@@ -51,8 +48,6 @@ func instanceName(instance driver.InstanceKey) string {
 	return instance.Driver + "/" + instance.Namespace + "/" + instance.Name
 }
 
-func hardwareKey(driverName, id string) string { return driverName + "\x00" + id }
-
 // attach adds a driver instance, whose devices on record are known from now on, reported or not.
 func (i *inventory) attach(instance driver.InstanceKey) {
 	i.mu.Lock()
@@ -63,19 +58,24 @@ func (i *inventory) attach(instance driver.InstanceKey) {
 
 // paired records hardware a driver reports. It's in the registry and usable when this returns.
 func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
-	control []homev1alpha1.CapabilityControl,
+	entries []homev1alpha1.CapabilityControl,
 ) (types.NamespacedName, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	var settings json.RawMessage
+	if len(entries) > 0 {
+		raw, err := json.Marshal(entries)
+		if err != nil {
+			return types.NamespacedName{}, err
+		}
+		settings = raw
+	}
 	d, changed, err := i.registry.Report(registry.Report{
-		ID: app.ID, Driver: instanceName(instance), Name: app.Name, Room: app.Room, Capabilities: app.Capabilities,
+		ID: app.ID, Driver: instanceName(instance), Name: app.Name, Room: app.Room,
+		Capabilities: app.Capabilities, Control: settings,
 	})
 	if err != nil {
 		return types.NamespacedName{}, err
-	}
-	hw := hardwareKey(d.Driver, d.ID)
-	if len(control) > 0 && !equality.Semantic.DeepEqual(i.controls[hw], control) {
-		i.controls[hw], changed = control, true
 	}
 	if changed {
 		i.sync()
@@ -89,9 +89,13 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 	if !ok || d.Removed || d.ID == "" {
 		return hub.Meta{}, false
 	}
-	return hub.Meta{
-		DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.controls[hardwareKey(d.Driver, d.ID)],
-	}, true
+	var entries []homev1alpha1.CapabilityControl
+	if len(d.Control) > 0 {
+		if err := json.Unmarshal(d.Control, &entries); err != nil {
+			i.log.Error(err, "Ignored unreadable arbitration settings", "device", d.Name)
+		}
+	}
+	return hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: entries}, true
 }
 
 // key finds a driver's device in the hub.
@@ -123,15 +127,23 @@ func (i *inventory) announce(dev types.NamespacedName) {
 	}
 }
 
-// claimed says who holds a device: every claim, and whether one is at Safety.
+// claimed says who holds a device: every claim, and whether one is at Safety. A device with no
+// arbiters can still have claims on record, waiting for it.
 func (i *inventory) claimed(name string) (holders []string, safety bool) {
-	for _, c := range i.engine.ControlOf(key(name)) {
+	status := i.engine.ControlOf(key(name))
+	for _, c := range status {
 		for _, o := range c.Claims {
 			if o.Reverted {
 				continue
 			}
 			holders = append(holders, o.Source)
 			safety = safety || o.Level == homev1alpha1.ControlLevelSafety
+		}
+	}
+	if len(status) == 0 {
+		for _, c := range i.engine.SavedClaims(key(name)) {
+			holders = append(holders, c.Source)
+			safety = safety || c.Level == control.Safety
 		}
 	}
 	slices.Sort(holders)
@@ -219,23 +231,16 @@ func (i *inventory) remove(ctx context.Context, name string, allowSafety bool) a
 	return api.Response{}
 }
 
-// replace moves name onto with's hardware. name's claims stay, since they're on the name, and the
-// live values and arbitration settings go with it.
+// replace moves name onto with's hardware. name's claims and arbitration settings stay, and with's
+// live values come across.
 func (i *inventory) replace(name, with string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if err := i.refuseClaimed(with, "moved"); err != nil {
 		return err
 	}
-	old, _ := i.registry.Get(name)
-	source, _ := i.registry.Get(with)
 	if err := i.registry.Replace(name, with); err != nil {
 		return err
-	}
-	oldHardware := hardwareKey(old.Driver, old.ID)
-	if control, ok := i.controls[oldHardware]; ok {
-		i.controls[hardwareKey(source.Driver, source.ID)] = control
-		delete(i.controls, oldHardware)
 	}
 	i.moveLive(map[string]string{with: name})
 	i.announce(key(name))
@@ -245,7 +250,7 @@ func (i *inventory) replace(name, with string) error {
 
 // restore refuses a copy that would take a claimed name from its hardware, since claims stay with a
 // name. After a real loss nothing is claimed, because claims are in the same store.
-func (i *inventory) restore(from registry.Snapshot) ([]string, error) {
+func (i *inventory) restore(from registry.Snapshot, force bool) ([]string, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	before := i.registry.List()
@@ -258,7 +263,7 @@ func (i *inventory) restore(from registry.Snapshot) ([]string, error) {
 			return nil, fmt.Errorf("%s holds %s, and restoring would move that name", strings.Join(holders, ", "), d.Name)
 		}
 	}
-	moved, err := i.registry.Restore(from)
+	moved, err := i.registry.Restore(from, force)
 	if err != nil {
 		return nil, err
 	}
@@ -295,8 +300,29 @@ func restoreMoves(from registry.Snapshot, d registry.Device) bool {
 	return false
 }
 
-// device answers the commands that read and change the registry.
+// safetyRule names a Safety rule of the running code, if there is one.
+func (s *apiServer) safetyRule() string {
+	rules, _ := s.rulesInfo()
+	for _, r := range rules {
+		if r.Safety {
+			return r.Name
+		}
+	}
+	return ""
+}
+
+// device answers the commands that read and change the registry. Running code loses track of a
+// device whose name changes until a deploy, which would silently stop a Safety rule naming it.
 func (s *apiServer) device(req api.Request) api.Response {
+	if req.Type == api.TypeDeviceName || req.Type == api.TypeDeviceReplace {
+		if rule := s.safetyRule(); rule != "" && !req.AllowSafety {
+			return api.Response{
+				Error: fmt.Sprintf("%s is a Safety rule, and running code loses track of %s until you deploy, "+
+					"so it may stop protecting anything", rule, req.Device),
+				NeedsAllowSafety: true,
+			}
+		}
+	}
 	var err error
 	switch req.Type {
 	case api.TypeDevices:
@@ -316,9 +342,9 @@ func (s *apiServer) device(req api.Request) api.Response {
 		if req.Registry == nil {
 			return api.Response{Error: "a restore needs a registry"}
 		}
-		moved, err := s.devices.restore(*req.Registry)
+		moved, err := s.devices.restore(*req.Registry, req.Force)
 		if err != nil {
-			return api.Response{Error: err.Error()}
+			return api.Response{Error: err.Error(), NeedsForce: errors.Is(err, registry.ErrDisagrees)}
 		}
 		return api.Response{Moved: moved}
 	default:

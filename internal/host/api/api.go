@@ -54,9 +54,12 @@ type Request struct {
 	Room string `json:"room,omitempty"`
 	// Registry is what a restore reads back.
 	Registry *registry.Snapshot `json:"registry,omitempty"`
+	// Force restores a file that disagrees with the registry.
+	Force bool `json:"force,omitempty"`
 	// Rule is a pause's or a resume's.
 	Rule string `json:"rule,omitempty"`
-	// AllowSafety pauses a Safety rule, or removes a device a Safety claim holds.
+	// AllowSafety pauses a Safety rule, removes a device a Safety claim holds, or changes a device's
+	// name while a Safety rule runs.
 	AllowSafety bool `json:"allowSafety,omitempty"`
 }
 
@@ -75,8 +78,10 @@ type Response struct {
 	// GOOS and GOARCH are what the host runs on, so that a deploy can build for it.
 	GOOS   string `json:"goos,omitempty"`
 	GOARCH string `json:"goarch,omitempty"`
-	// NeedsAllowSafety is a pause or a removal that AllowSafety would let through.
+	// NeedsAllowSafety is a request that AllowSafety would let through.
 	NeedsAllowSafety bool `json:"needsAllowSafety,omitempty"`
+	// NeedsForce is a restore that Force would let through.
+	NeedsForce bool `json:"needsForce,omitempty"`
 	// Status is a status's.
 	Status *Status `json:"status,omitempty"`
 	// Registry is a devices request's.

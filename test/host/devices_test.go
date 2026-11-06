@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -69,7 +70,7 @@ func TestRenamingKeepsADeviceWorkingAndSurvivesARestart(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(attached) })
 	endpoint := deviceOf(t, r.devices(), "fan").Endpoint
 
-	r.stdout(nil, "devices", "name", "fan", "ceiling-fan")
+	r.stdout(nil, "devices", "name", "fan", "ceiling-fan", "--allow-safety")
 	r.stdout(nil, "devices", "room", "ceiling-fan", "Bathroom")
 	r.stdout(nil, "set", "ceiling-fan", "switch.on", "on")
 	r.wrote("ceiling-fan", true)
@@ -102,7 +103,7 @@ func TestReplacingHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
 	before := deviceOf(t, r.devices(), "valve")
 
 	r.pair("new-valve", "new-valve")
-	if stderr, err := r.oikade(nil, "devices", "name", "valve", "main-valve"); err == nil ||
+	if stderr, err := r.oikade(nil, "devices", "name", "valve", "main-valve", "--allow-safety"); err == nil ||
 		!strings.Contains(stderr, "Rule/leak-shutoff") {
 		t.Errorf("renamed a device under a claim: %v: %s", err, stderr)
 	}
@@ -110,7 +111,7 @@ func TestReplacingHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
 		!strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("removed a device under a Safety claim: %v: %s", err, stderr)
 	}
-	r.stdout(nil, "devices", "replace", "valve", "new-valve")
+	r.stdout(nil, "devices", "replace", "valve", "new-valve", "--allow-safety")
 	after := deviceOf(t, r.devices(), "valve")
 	if after.ID != "new-valve" || after.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, was %+v", after, before)
@@ -135,7 +136,7 @@ func TestAReservedNameTakesItsHardwareLater(t *testing.T) {
 	}
 	endpoint := deviceOf(t, r.devices(), "porch-light").Endpoint
 	r.pair("0xabc", "device-0xabc")
-	r.stdout(nil, "devices", "replace", "porch-light", "device-0xabc")
+	r.stdout(nil, "devices", "replace", "porch-light", "device-0xabc", "--allow-safety")
 	d := deviceOf(t, r.devices(), "porch-light")
 	if d.Reserved() || d.ID != "0xabc" || d.Endpoint != endpoint || d.Room != "Porch" {
 		t.Errorf("got %+v, want endpoint %d", d, endpoint)
@@ -208,7 +209,7 @@ func TestRestoringFromTheCommittedFile(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.pair("hall-lamp", "hall-lamp")
-	r.stdout(nil, "devices", "name", "hall-lamp", "lamp")
+	r.stdout(nil, "devices", "name", "hall-lamp", "lamp", "--allow-safety")
 	r.stdout(nil, "devices", "room", "lamp", "Hall")
 	r.stdout(nil, "devices", "reserve", "porch-light", "--room", "Porch")
 	want := r.devices()
@@ -266,9 +267,125 @@ func TestRestoreRefusesToMoveAClaimedName(t *testing.T) {
 	if err := os.WriteFile(path, file, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if stderr, err := r.oikade(nil, "devices", "restore", path); err == nil ||
+	if stderr, err := r.oikade(nil, "devices", "restore", path, "--force"); err == nil ||
 		!strings.Contains(stderr, "Rule/leak-shutoff") {
 		t.Errorf("moved a claimed name: %v: %s", err, stderr)
 	}
 	deviceOf(t, r.devices(), "valve")
+}
+
+func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.change("leak-sensor", opened, true)
+	r.wrote("valve", false)
+	r.sync()
+	r.stop()
+	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/leak-shutoff", 3) {
+		t.Fatalf("no Safety claim: %+v", got)
+	}
+	file, _ := filepath.Abs("testdata/devices-novalve.json")
+	r.launchWithout("--home", homeBin, "--simulate", file, settle)
+	r.awaitLoaded()
+	r.sync()
+	r.stop()
+	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/leak-shutoff", 3) {
+		t.Fatalf("restart lost the claim: %+v", got)
+	}
+	r.launchWithout("--home", homeBin, "--simulate", file, settle)
+	r.awaitLoaded()
+	r.sync()
+	stderr, err := r.oikade(nil, "devices", "remove", "valve")
+	if !strings.Contains(stderr, "--allow-safety") {
+		t.Errorf("got %q", stderr)
+	}
+	r.stop()
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	_, ok, _ := s.Namespace("controls").Get("home/valve")
+	if err == nil {
+		t.Fatalf("a Safety claim's device was removed without --allow-safety")
+	}
+	if !ok {
+		t.Error("the Safety claim was deleted")
+	}
+}
+
+func TestASafetyClaimIsEnforcedBeforeItsDeviceReports(t *testing.T) {
+	t.Parallel()
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.change("leak-sensor", opened, true)
+	r.wrote("valve", false)
+	r.sync()
+	r.stop()
+	file, err := filepath.Abs("testdata/devices-novalve.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.launchWithout("--home", homeBin, "--simulate", file, settle)
+	r.awaitLoaded()
+	r.sync()
+
+	st := r.status("valve")
+	c := api.Capability{}
+	if len(st.Devices) == 1 && len(st.Devices[0].Capabilities) > 0 {
+		c = st.Devices[0].Capabilities[0]
+	}
+	if c.Level != "Safety" || winner(c) != "Rule/leak-shutoff" {
+		t.Errorf("the arbiter didn't load before the device reported: %+v", st.Devices)
+	}
+	stderr, err := r.deploy("renamed")
+	if err == nil || !strings.Contains(stderr, `"leak-shutoff"`) {
+		t.Errorf("the deploy check missed the claim: %v: %s", err, stderr)
+	}
+}
+
+func TestAFileThatDisagreesNeedsForce(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	list := r.devices()
+	for n, d := range list.Devices {
+		if d.Name == "fan" {
+			list.Devices[n].Name = "old-fan"
+		}
+	}
+	file, err := registry.Render(list, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "devices.go")
+	if err := os.WriteFile(path, file, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if stderr, err := r.oikade(nil, "devices", "restore", path); err == nil || !strings.Contains(stderr, "--force") {
+		t.Errorf("restored a file that disagrees: %v: %s", err, stderr)
+	}
+	deviceOf(t, r.devices(), "fan")
+	r.stdout(nil, "devices", "restore", path, "--force")
+	deviceOf(t, r.devices(), "old-fan")
+}
+
+func TestChangingANameWaitsForAllowSafetyWhileASafetyRuleRuns(t *testing.T) {
+	t.Parallel()
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.sync()
+	r.pair("spare-valve", "spare-valve")
+	for _, args := range [][]string{
+		{"devices", "name", "valve", "valve-two"},
+		{"devices", "name", "leak-sensor", "leak-two"},
+		{"devices", "replace", "valve", "spare-valve"},
+	} {
+		stderr, err := r.oikade(nil, args...)
+		if err == nil || !strings.Contains(stderr, "--allow-safety") || !strings.Contains(stderr, "deploy") {
+			t.Errorf("%v: %v: %s", args, err, stderr)
+		}
+	}
+	deviceOf(t, r.devices(), "valve")
+	r.stdout(nil, "devices", "name", "fan", "ceiling-fan", "--allow-safety")
+	deviceOf(t, r.devices(), "ceiling-fan")
 }

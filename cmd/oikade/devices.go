@@ -19,7 +19,7 @@ const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM
 	"replace DEVICE WITH | remove DEVICE | restore FILE]"
 
 // typesReminder is what a change to a device's name leaves for you to do.
-const typesReminder = "Run oikade types and deploy, because running code still has the old name."
+const typesReminder = "Run oikade types and deploy, because running code has lost track of it until then."
 
 func runDevices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("devices", flag.ExitOnError)
@@ -27,14 +27,16 @@ func runDevices(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	all := fs.Bool("all", false, "List removed devices too, which keep their Matter endpoints.")
 	room := fs.String("room", "", "The room of a reserved name.")
-	allow := fs.Bool("allow-safety", false, "Remove a device a Safety claim holds.")
+	allow := fs.Bool("allow-safety", false,
+		"Remove a device under a Safety claim, or change a name while a Safety rule runs.")
+	force := fs.Bool("force", false, "Restore a file that disagrees with the registry.")
 	words := parse(fs, args)
 	if len(words) == 0 {
 		return listDevices(ctx, target, *asJSON, *all)
 	}
 
 	verb, words := words[0], words[1:]
-	req := api.Request{AllowSafety: *allow}
+	req := api.Request{AllowSafety: *allow, Force: *force}
 	var message string
 	switch {
 	case verb == "name" && len(words) == 2:
@@ -71,7 +73,10 @@ func runDevices(ctx context.Context, args []string) error {
 		return err
 	}
 	if resp.NeedsAllowSafety {
-		fmt.Fprintln(os.Stderr, "Pass --allow-safety to remove it anyway.")
+		fmt.Fprintln(os.Stderr, "Pass --allow-safety to go ahead anyway.")
+	}
+	if resp.NeedsForce {
+		fmt.Fprintln(os.Stderr, "Pass --force to make the registry match the file.")
 	}
 	for _, name := range resp.Moved {
 		fmt.Fprintln(os.Stderr, name, "isn't in the file, and the file has its name or Matter endpoint, so it has a new one")
