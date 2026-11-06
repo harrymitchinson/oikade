@@ -26,6 +26,7 @@ type fakeHome struct {
 	journal  map[string][][]byte
 	finished []string
 	applied  []string
+	released int
 	failing  error
 	// met is what WaitFor's condition says, and woken ends a wait for it.
 	woken chan struct{}
@@ -56,6 +57,10 @@ func (h *fakeHome) Finish(_ context.Context, run string) error {
 func (h *fakeHome) Apply(_ context.Context, _ types.NamespacedName, a engine.Action) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if _, ok := a.(engine.Release); ok {
+		h.released++
+		return nil
+	}
 	s, _ := a.(engine.Set)
 	h.applied = append(h.applied, s.Device)
 	return nil
@@ -544,6 +549,89 @@ func TestLongJournalEndsTheRun(t *testing.T) {
 	}
 	if !l.has("its journal is too long") {
 		t.Fatalf("not logged: %v", l.lines)
+	}
+}
+
+// A run that ends for good can't reach its own Release, so its claims mustn't outlive it.
+func TestRunThatEndsForGoodReleasesItsClaims(t *testing.T) {
+	released := func(h *fakeHome) bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.released == 1
+	}
+	t.Run("gave up", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, bedtime)
+		crash(t, f, c)
+		c.Step(10 * time.Hour)
+		outcome(t, resume(context.Background(), t, f, h, l))
+		if !released(h) {
+			t.Fatal("its claims weren't released")
+		}
+	})
+	t.Run("dropped", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, bedtime)
+		crash(t, f, c)
+		f.Body = func(r *Run) error { r.Now(); return nil }
+		outcome(t, resume(context.Background(), t, f, h, l))
+		if !released(h) {
+			t.Fatal("its claims weren't released")
+		}
+	})
+	t.Run("failed", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		newFlow(h, c, l, func(*Run) error { return errors.New("no") }).Start(context.Background())
+		if !released(h) {
+			t.Fatal("its claims weren't released")
+		}
+	})
+	t.Run("cancelled keeps them for the run replacing it", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, bedtime)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan string, 1)
+		go func() { done <- f.Start(ctx) }()
+		parked(t, c)
+		cancel()
+		outcome(t, done)
+		if released(h) {
+			t.Fatal("a cancelled run released its claims")
+		}
+	})
+}
+
+func TestStepFailingWithItsContextEndedPausesTheRun(t *testing.T) {
+	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+	process, die := context.WithCancel(context.Background())
+	f := newFlow(h, c, l, func(r *Run) error {
+		return r.Do("call", nil, func(context.Context) error {
+			die()
+			return errors.New("the connection closed")
+		})
+	})
+	f.Process = process
+	if got := f.Start(process); got != engine.ResultCancelled {
+		t.Fatalf("got %q", got)
+	}
+	if len(h.saved()) != 1 {
+		t.Fatal("a stopping process lost a run")
+	}
+}
+
+func TestTimeoutAlreadyPastLooksOnce(t *testing.T) {
+	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+	var got []bool
+	f := newFlow(h, c, l, func(r *Run) error {
+		r.Sleep(-time.Hour)
+		got = append(got, r.WaitFor(func(engine.Vars) (bool, error) { return true, nil }, -time.Hour))
+		return nil
+	})
+	if result := f.Start(context.Background()); result != engine.ResultSucceeded {
+		t.Fatalf("got %q", result)
+	}
+	if len(got) != 1 || !got[0] {
+		t.Fatalf("got %v", got)
 	}
 }
 

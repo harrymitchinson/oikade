@@ -51,7 +51,7 @@ Each step is written to the host's disk before the flow continues. After a crash
 
 So a flow has three rules:
 
-- **Take the same steps in the same order.** Decide only from what steps return. `oikade check` will reject `time.Now`, the rest of the `time` package's clock and any goroutine inside a flow. `internal/flowcheck` is that check. A function counts as a flow if it takes a `*framework.FlowRun`. What you pass to `r.Do` is exempt, because that's where outside calls belong.
+- **Take the same steps in the same order.** Decide only from what steps return, and from an error's message rather than `errors.Is`, because a replayed error is a new one with the same message. `oikade check` will reject `time.Now`, the rest of the `time` package's clock, any goroutine and any `range` over a map inside a flow. `internal/flowcheck` is that check. A function counts as a flow if it takes a `*framework.FlowRun`. What you pass to `r.Do` is exempt, because that's where outside calls belong.
 - **Make actions safe to repeat.** Actions run at least once, not exactly once. A crash after a write and before its journal entry repeats the write. Set a value, and never toggle one. `r.Do` is the same until its result is recorded, and once it is, the call never happens again.
 - **Don't keep state outside the flow.** A variable is rebuilt by the replay. Anything else isn't.
 
@@ -68,6 +68,8 @@ Times of day follow the same rule. A moment or flow's time in `At` that passed w
 A deploy or a restart replays a waiting flow against the code that's there now. Each step is compared with its journal entry, including its arguments, and a run that no longer matches is dropped and logged. The next trigger starts it fresh.
 
 Only steps up to where the run had got to can be compared. A change after that point just takes effect, and the run carries on with the new code.
+
+A claim made in a flow ends by its own rule, like any other, so a flow holding an `UntilReleased` claim should reach its `r.Release`. If a run fails, gives up or is dropped it can't, so the flow's claims are released for it. A run cancelled by `Restart` keeps them, because the run replacing it may hold the same ones.
 
 Starting a run while one is in progress is ignored. With `Restart: true`, the new trigger cancels the run in progress instead, and its journal goes with it.
 

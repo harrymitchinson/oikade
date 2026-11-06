@@ -40,6 +40,7 @@ type Type string
 const (
 	TypeHello      Type = "hello"
 	TypeWelcome    Type = "welcome"
+	TypeRun        Type = "run"
 	TypeRejected   Type = "rejected"
 	TypePing       Type = "ping"
 	TypePong       Type = "pong"
@@ -88,11 +89,15 @@ type Message struct {
 	Rules []string `json:"rules,omitempty"`
 
 	// Devices, Holds, Runs and Fires are a Welcome's, and Error a Rejected's or a failed Reply's.
+	// Runs says how many Run messages follow it: journals can be long, so each goes alone, and
+	// Dial gathers them in Unfinished.
 	Devices []Device                    `json:"devices,omitempty"`
 	Holds   map[string]engine.HoldState `json:"holds,omitempty"`
-	Runs    []Run                       `json:"runs,omitempty"`
+	Runs    int                         `json:"runs,omitempty"`
 	Fires   map[string]time.Time        `json:"fires,omitempty"`
 	Error   string                      `json:"error,omitempty"`
+	// Unfinished is a Run's run, one per message, and in what Dial returns, all of them.
+	Unfinished []Run `json:"unfinished,omitempty"`
 
 	// Device, Capability, Value and Previous address a device.
 	Device     string `json:"device,omitempty"`

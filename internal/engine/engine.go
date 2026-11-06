@@ -626,21 +626,26 @@ func (e *Engine) launch(ctx context.Context, key types.NamespacedName, s *state,
 // fails on some devices lets the run continue, so a dead bulb can't leave the rest of the room on,
 // and the run counts as failed at the end.
 func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compiled) string {
+	result, skipped := e.runActions(ctx, key, c)
+	e.reportSkipped(key, skipped)
+	return result
+}
+
+// runActions is execute, returning the Room members left out as well.
+func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Compiled) (result string, skipped []string) {
 	log := e.Log.WithValues("rule", key)
 	failed := false
-	var skipped []string
-	defer func() { e.reportSkipped(key, skipped) }()
 	for _, a := range c.actions {
 		if a.delay > 0 {
 			select {
 			case <-ctx.Done():
-				return ResultCancelled
+				return ResultCancelled, skipped
 			case <-e.Clock.After(a.delay):
 			}
 			continue
 		}
 		if ctx.Err() != nil {
-			return ResultCancelled
+			return ResultCancelled, skipped
 		}
 		if a.release != "" {
 			e.release(types.NamespacedName{Namespace: key.Namespace, Name: a.release})
@@ -654,7 +659,7 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 			}
 			skipped = append(skipped, left...)
 			if ctx.Err() != nil {
-				return ResultCancelled
+				return ResultCancelled, skipped
 			}
 			continue
 		}
@@ -670,13 +675,13 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 		}
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
 			log.Error(err, "Failed to run Rule action", "device", a.device, "capability", a.capability)
-			return ResultFailed
+			return ResultFailed, skipped
 		}
 	}
 	if failed {
-		return ResultFailed
+		return ResultFailed, skipped
 	}
-	return ResultSucceeded
+	return ResultSucceeded, skipped
 }
 
 // setRoom sets a capability on every discovered device in a room that reports it, in name order.

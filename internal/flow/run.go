@@ -10,10 +10,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
-// entryOverhead is a rough size for what an entry holds beside its result, for counting a journal
-// that's being resumed.
-const entryOverhead = 128
-
 // Kinds of journal entry.
 const (
 	kindStart = "start"
@@ -39,6 +35,8 @@ type entry struct {
 	Err    string          `json:"e,omitempty"`
 	// OK is what a wait for a condition returned.
 	OK bool `json:"ok,omitempty"`
+	// size is its length in the journal.
+	size int
 }
 
 // Run is one run of a flow, as its code sees it. A flow uses it from one goroutine.
@@ -155,7 +153,7 @@ func (r *Run) Sleep(d time.Duration) {
 		return
 	}
 	if !ok {
-		e = r.record(entry{Kind: kindSleep, ID: id, Wake: r.f.Clock.Now().Add(d)})
+		e = r.record(entry{Kind: kindSleep, ID: id, Wake: r.f.Clock.Now().Add(max(d, 0))})
 	}
 	r.live = true
 	r.waiting(e.Wake)
@@ -170,14 +168,14 @@ func (r *Run) Sleep(d time.Duration) {
 }
 
 // WaitFor waits until cond holds and returns true, or returns false once timeout has passed. Zero
-// means no limit. A restart doesn't move the time it ends.
+// means no limit, and one already past looks once. A restart doesn't move the time it ends.
 func (r *Run) WaitFor(cond engine.Condition, timeout time.Duration) bool {
 	id := timeout.String()
 	e, ok := r.replay(kindWait, id)
 	if !ok {
 		wait := entry{Kind: kindWait, ID: id}
-		if timeout > 0 {
-			wait.Wake = r.f.Clock.Now().Add(timeout)
+		if timeout != 0 {
+			wait.Wake = r.f.Clock.Now().Add(max(timeout, 0))
 		}
 		e = r.record(wait)
 	}
@@ -223,7 +221,8 @@ func (r *Run) Apply(a engine.Action) error {
 
 // Do makes an outside call and records what it set in result, a pointer, or nil for no result. Once
 // that's recorded the call never happens again: a replay fills result from the journal, and
-// returns the recorded error. A crash before that repeats the call.
+// returns an error with the recorded message. It isn't the same error, so errors.Is won't match it.
+// A crash before that repeats the call.
 func (r *Run) Do(name string, result any, call func(context.Context) error) error {
 	if e, ok := r.replay(kindDo, name); ok {
 		if result != nil && e.Err == "" {
@@ -257,10 +256,10 @@ func (r *Run) Do(name string, result any, call func(context.Context) error) erro
 	return err
 }
 
-// stopIfCancelled stops the run if a step ended because its context did. That isn't the step's
-// result, so it isn't recorded.
+// stopIfCancelled stops the run if a step failed with its context ended. The failure is probably
+// the context's, whatever error it came as, and at least once means the step can run again.
 func (r *Run) stopIfCancelled(err error) {
-	if err != nil && r.ctx.Err() != nil && errors.Is(err, r.ctx.Err()) {
+	if err != nil && r.ctx.Err() != nil {
 		r.check()
 	}
 }

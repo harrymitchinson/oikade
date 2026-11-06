@@ -241,6 +241,43 @@ func TestApplyRunsOneAction(t *testing.T) {
 	}
 }
 
+func TestApplyIsAnErrorWhereAMomentOnlyLogs(t *testing.T) {
+	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
+	key := goKey("routine")
+	unended := Set{Device: dev.Name, Capability: capability.SwitchOn, Value: false}
+	if err := eng.Apply(context.Background(), key, unended); err == nil {
+		t.Fatal("a set with no end on an arbitrated capability looked done")
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	ended := unended
+	ended.For = time.Hour
+	if err := eng.Apply(cancelled, key, ended); !errors.Is(err, context.Canceled) {
+		t.Fatalf("an action cut short looked done: %v", err)
+	}
+}
+
+func TestFlushReportsOnlyTheDeviceItWasAskedAbout(t *testing.T) {
+	controls := &gatedControls{States: newMemoryStates[ControlState](), gate: make(chan struct{})}
+	close(controls.gate)
+	eng, dev := arbitratedEngine(t, controls)
+	failure := errors.New("disk full")
+	controls.err.Store(&failure)
+	eng.mu.Lock()
+	eng.arbiter(dev, capability.SwitchOn)
+	eng.markSave(dev)
+	eng.mu.Unlock()
+	if err := eng.flushControls(context.Background(), goKey("another")); err != nil {
+		t.Fatalf("another device's failure failed this one: %v", err)
+	}
+	if err := eng.flushControls(context.Background()); err == nil {
+		t.Fatal("a failed save, still due, was reported as saved")
+	}
+	if err := eng.flushControls(context.Background(), dev); err == nil {
+		t.Fatal("a failed save, still due, was reported as saved")
+	}
+}
+
 func TestNewFlowNeedsABody(t *testing.T) {
 	if _, err := NewFlow(goKey("x"), Flow{Trigger: Trigger{Changes: []Change{{Device: "a", Capability: capability.Occupancy}}}}); err == nil {
 		t.Fatal("a flow with no body compiled")

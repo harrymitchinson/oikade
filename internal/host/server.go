@@ -117,20 +117,19 @@ func (s *server) handle(conn *wire.Conn) {
 	sess := &session{
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
 	}
-	welcome, err := s.welcome(hello)
+	welcome, runs, err := s.welcome(hello)
 	if err != nil {
 		s.log.Error(err, "Failed to read saved state for a process")
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "the host couldn't read its saved state"})
 		return
 	}
-	if !s.attach(sess, welcome) {
+	if !s.attach(sess, welcome, runs) {
 		s.log.Info("Refused automations process; one is already connected")
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "an automations process is already connected"})
 		return
 	}
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
 
-	go s.write(sess)
 	work := make(chan wire.Message, requests)
 	drained := make(chan struct{})
 	go func() {
@@ -187,7 +186,7 @@ func refusal(hello wire.Message) string {
 // welcome reads a process's saved state: what its rules last saved, and the runs that didn't finish.
 // It happens before attach takes the lock, which drivers wait on. No session is running to change
 // any of it: a process refused by attach is told so, and the last one has finished.
-func (s *server) welcome(hello wire.Message) (wire.Message, error) {
+func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 	welcome := wire.Message{
 		Type: wire.TypeWelcome, Version: wire.Version,
 		Holds: map[string]engine.HoldState{}, Fires: map[string]time.Time{},
@@ -200,28 +199,30 @@ func (s *server) welcome(hello wire.Message) (wire.Message, error) {
 			welcome.Fires[name] = t
 		}
 	}
-	runs, err := s.journal.Runs()
+	ids, err := s.journal.Runs()
 	if err != nil {
-		return wire.Message{}, err
+		return wire.Message{}, nil, err
 	}
-	for _, id := range runs {
+	runs := make([]wire.Run, 0, len(ids))
+	for _, id := range ids {
 		entries, err := s.journal.Entries(id)
 		if err != nil {
-			return wire.Message{}, err
+			return wire.Message{}, nil, err
 		}
 		run := wire.Run{ID: id}
 		for _, e := range entries {
 			run.Entries = append(run.Entries, e.Data)
 		}
-		welcome.Runs = append(welcome.Runs, run)
+		runs = append(runs, run)
 	}
-	return welcome, nil
+	welcome.Runs = len(runs)
+	return welcome, runs, nil
 }
 
 // attach makes sess the session and queues its Welcome, unless there is one already. The lock
 // orders the Welcome before anything sent after it. A change that lands between the snapshot and
 // the attach's end reaches the process twice at worst, and it ignores a value it already has.
-func (s *server) attach(sess *session, welcome wire.Message) bool {
+func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.session != nil || s.closed {
@@ -233,7 +234,16 @@ func (s *server) attach(sess *session, welcome wire.Message) bool {
 			welcome.Devices = append(welcome.Devices, deviceOf(key.Name, snap))
 		}
 	}
+	go s.write(sess)
 	sess.out <- welcome
+	// Still holding s.mu, so that nothing else reaches the session before the runs do.
+	for i := range runs {
+		select {
+		case sess.out <- wire.Message{Type: wire.TypeRun, Unfinished: runs[i : i+1]}:
+		case <-sess.gone:
+			return true
+		}
+	}
 	return true
 }
 

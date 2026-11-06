@@ -207,7 +207,8 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 }
 
 // Set writes a capability, or claims it if it's arbitrated, which needs For, UntilReleased or
-// UntilNext. It may run more than once, after a crash, so set a value and never toggle one.
+// UntilNext, and is an error without one. It may run more than once, after a crash, so set a value
+// and never toggle one.
 func (r *FlowRun) Set(s Set) error {
 	if s.Priority == Normal {
 		s.Priority = r.priority
@@ -219,8 +220,9 @@ func (r *FlowRun) Set(s Set) error {
 func (r *FlowRun) Release(rule string) error { return r.run.Apply(engine.Release(rule)) }
 
 // Do makes an outside call, which sets result, a pointer, or nil for none. Once it's recorded the
-// call never happens again: a replay fills result from the journal and returns the same error. A
-// crash before that repeats it, so make the call safe to repeat. Names tell a flow's calls apart.
+// call never happens again: a replay fills result from the journal and returns an error with the
+// same message, which errors.Is won't match. A crash before that repeats it, so make the call safe
+// to repeat. Names tell a flow's calls apart.
 func (r *FlowRun) Do(name string, result any, call func(context.Context) error) error {
 	return r.run.Do(name, result, call)
 }

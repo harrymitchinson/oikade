@@ -22,6 +22,10 @@ func named(r *framework.FlowRun) error {
 	func() { _ = time.Now() }() // want `time.Now inside a flow`
 	now := time.Now             // want `time.Now inside a flow`
 	_ = now
+	for range map[string]int{} { // want `ranging over a map inside a flow`
+	}
+	for range []int{1} {
+	}
 	return helper(r)
 }
 

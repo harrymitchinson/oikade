@@ -1,7 +1,7 @@
 // Package flowcheck rejects code that breaks a flow's replay. After a crash a flow runs again from
 // the top, and its steps return what they returned the first time, so it has to reach the same
-// steps in the same order. The clock and goroutines don't: each run sees a different time and a
-// different schedule.
+// steps in the same order. The clock, goroutines and map order don't: each run sees a different
+// time, schedule and order.
 //
 // A flow here is any function taking a *framework.FlowRun. A function it calls without passing that
 // along isn't checked, which also means a helper can read the clock. What call passes to Do is
@@ -94,6 +94,10 @@ func checkBody(pass *analysis.Pass, body *ast.BlockStmt) {
 		switch s := n.(type) {
 		case *ast.GoStmt:
 			pass.Reportf(s.Pos(), "a goroutine inside a flow breaks its replay after a crash: use steps in order")
+		case *ast.RangeStmt:
+			if _, ok := pass.TypesInfo.TypeOf(s.X).Underlying().(*types.Map); ok {
+				pass.Reportf(s.Pos(), "ranging over a map inside a flow varies between runs, so it breaks replay: sort the keys")
+			}
 		case *ast.CallExpr:
 			if isDo(pass, s) {
 				// Its name and result still count as the flow's. Its call doesn't.

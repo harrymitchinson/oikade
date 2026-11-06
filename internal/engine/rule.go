@@ -325,19 +325,27 @@ func (c *Compiled) KeepSince(t time.Time) {
 func (c *Compiled) HasTimers() bool { return len(c.timers) > 0 }
 
 // Apply runs one action for a flow, as a moment would, including the claim a set makes on an
-// arbitrated capability.
+// arbitrated capability. Unlike a moment, a flow can act on what went wrong, so what a moment only
+// logs is an error here: a set with no end on an arbitrated capability, and an action cut short by
+// ctx, which a flow must not take for done.
 func (e *Engine) Apply(ctx context.Context, key types.NamespacedName, a Action) error {
 	act, err := a.action()
 	if err != nil {
 		return err
 	}
-	switch e.execute(ctx, key, &Compiled{actions: []action{act}}) {
-	case ResultSucceeded:
-		return nil
-	case ResultCancelled:
-		return context.Canceled
+	if act.device != "" && !act.ends() && e.arbitrated(types.NamespacedName{Namespace: key.Namespace, Name: act.device}, act.capability) {
+		return fmt.Errorf("%s %s is arbitrated, so a set needs for or until", act.device, act.capability)
 	}
-	return errors.New("the action failed, and the log says why")
+	result, skipped := e.runActions(ctx, key, &Compiled{actions: []action{act}})
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case result == ResultFailed:
+		return errors.New("the action failed, and the log says why")
+	case len(skipped) > 0:
+		return fmt.Errorf("left out %v: they arbitrate %s, so a set needs for or until", skipped, act.capability)
+	}
+	return nil
 }
 
 // waitRecheck bounds how long WaitFor goes without looking, since a change can be dropped when the

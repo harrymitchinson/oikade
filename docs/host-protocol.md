@@ -15,7 +15,7 @@ The host starts your binary as `<binary> automations`, with the socket's path in
 `version` comes first so that it can change. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
 - **`rejected`** with an `error`: the version or role is wrong, or an automations process is already connected. Exactly one runs at a time, because two would run everything twice.
-- **`welcome`** with `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, the journal of every flow run that hasn't finished.
+- **`welcome`** with `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
 
 The host streams from the `welcome` on. A change landing as the session opens can arrive twice, so a process ignores a value it already has.
 

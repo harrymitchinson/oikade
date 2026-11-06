@@ -33,8 +33,8 @@ const (
 	MaxSteps = 10000
 	// MaxResult bounds what one Do records.
 	MaxResult = 1 << 20
-	// MaxRunBytes bounds a run's journal, which reaches a new process in one message of the host's
-	// welcome. Past that limit the process couldn't read it, and would die at every start.
+	// MaxRunBytes bounds a run's journal, which reaches a new process as one message. Past the
+	// socket's limit the process couldn't read it, and would die at every start.
 	MaxRunBytes = 4 << 20
 
 	// ResultGaveUp is a run that woke too late to be useful.
@@ -126,7 +126,7 @@ type stop struct {
 func (f *Flow) run(ctx context.Context, id string, recorded []entry) string {
 	r := &Run{f: f, ctx: ctx, id: id, recorded: recorded, steps: len(recorded), live: len(recorded) == 0}
 	for _, e := range recorded {
-		r.bytes += len(e.Result) + entryOverhead
+		r.bytes += e.size
 	}
 	if !r.live {
 		r.pos = 1 // Its start.
@@ -184,6 +184,14 @@ func (r *Run) conclude(log logr.Logger, failure error) string {
 	} else if failure != nil {
 		log.Error(failure, "Failed flow run")
 		result = engine.ResultFailed
+	}
+	if result == ResultGaveUp || result == ResultDropped || result == engine.ResultFailed {
+		// Its own Release may never run now, and nothing else would end an UntilReleased claim. A
+		// cancelled run is left alone: the run that replaced it may hold the same claims.
+		if err := f.Actions.Apply(context.WithoutCancel(r.ctx), f.Key, engine.Release(f.Key.Name)); err != nil {
+			log.Error(err, "Failed to release the claims of a flow run; the next process will")
+			return result
+		}
 	}
 	if err := f.Journal.Finish(context.WithoutCancel(r.ctx), r.id); err != nil {
 		log.Error(err, "Failed to finish flow run; the next process will")
@@ -253,6 +261,7 @@ func decode(raw [][]byte) ([]entry, error) {
 		if err := json.Unmarshal(b, &e); err != nil {
 			return nil, err
 		}
+		e.size = len(b)
 		entries = append(entries, e)
 	}
 	return entries, nil

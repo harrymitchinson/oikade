@@ -69,11 +69,23 @@ func Dial(ctx context.Context, socket string, rules []string) (*Client, Message,
 		_ = conn.Close()
 		return nil, Message{}, fmt.Errorf("reading the host's welcome: %w", err)
 	}
-	_ = conn.SetReadDeadline(time.Time{})
 	if welcome.Type != TypeWelcome {
 		_ = conn.Close()
 		return nil, Message{}, fmt.Errorf("%w: %s", ErrRejected, welcome.Error)
 	}
+	for range welcome.Runs {
+		m, err := conn.Read()
+		if err != nil {
+			_ = conn.Close()
+			return nil, Message{}, fmt.Errorf("reading the host's unfinished runs: %w", err)
+		}
+		if m.Type != TypeRun {
+			_ = conn.Close()
+			return nil, Message{}, fmt.Errorf("reading the host's unfinished runs: got %q", m.Type)
+		}
+		welcome.Unfinished = append(welcome.Unfinished, m.Unfinished...)
+	}
+	_ = conn.SetReadDeadline(time.Time{})
 	c := &Client{conn: conn, pending: map[uint64]chan Message{}, holds: welcome.Holds, done: make(chan struct{})}
 	if c.holds == nil {
 		c.holds = map[string]engine.HoldState{}

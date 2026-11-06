@@ -473,7 +473,7 @@ func (e *Engine) Claim(ctx context.Context, dev types.NamespacedName, name strin
 	e.makeClaim(ctx, dev, name, ar, c)
 	e.markSave(dev)
 	e.mu.Unlock()
-	return true, e.flushControls(ctx)
+	return true, e.flushControls(ctx, dev)
 }
 
 // makeClaim gives the arbiter a claim and decides again. Call with e.mu held.
@@ -520,7 +520,7 @@ func (e *Engine) ReleaseClaim(ctx context.Context, dev types.NamespacedName, nam
 	if !ok {
 		return false, nil
 	}
-	return true, e.flushControls(ctx)
+	return true, e.flushControls(ctx, dev)
 }
 
 // ReleaseClaims ends a source's claims on every arbitrated capability in the namespace, for a rule
@@ -659,34 +659,32 @@ func (e *Engine) saveControls(ctx context.Context) {
 		}
 		retry = nil
 		if failed := e.saveDevices(ctx); len(failed) > 0 {
-			e.remarkSave(failed)
 			retry = time.After(retryFailed)
 		}
 	}
 }
 
-func (e *Engine) remarkSave(devices []types.NamespacedName) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	for _, dev := range devices {
-		e.saveDue[dev] = true
-	}
-}
-
 // flushControls saves what's marked for saving, and returns once it's saved. Claims from another
 // process use it: its answer is a promise that the claim outlives a crash, which saveControls is
-// too late to keep.
-func (e *Engine) flushControls(ctx context.Context) error {
+// too late to keep. It reports failure only for devices, or for any device if none are named, and
+// leaves saveControls to try again.
+func (e *Engine) flushControls(ctx context.Context, devices ...types.NamespacedName) error {
 	failed := e.saveDevices(ctx)
 	if len(failed) == 0 {
 		return nil
 	}
-	e.remarkSave(failed)
+	select {
+	case e.saveWake <- struct{}{}:
+	default:
+	}
+	if len(devices) > 0 && !slices.ContainsFunc(devices, func(d types.NamespacedName) bool { return slices.Contains(failed, d) }) {
+		return nil
+	}
 	return fmt.Errorf("couldn't save the arbiters of %d devices", len(failed))
 }
 
 // saveDevices saves the devices marked for saving, unless their state is as last saved, and
-// returns those it couldn't save. A device whose arbiters have all gone has its saved state
+// returns those it couldn't save, marked for saving again. A device whose arbiters have all gone has its saved state
 // deleted, unless it has left the store, as when it moves between driver instances.
 func (e *Engine) saveDevices(ctx context.Context) []types.NamespacedName {
 	e.saveMu.Lock()
@@ -728,6 +726,12 @@ func (e *Engine) saveDevices(ctx context.Context) []types.NamespacedName {
 			continue
 		}
 		saved[dev] = string(raw)
+	}
+	// With saveMu held, so nobody flushing can find nothing due while a save has failed.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, dev := range failed {
+		e.saveDue[dev] = true
 	}
 	return failed
 }
