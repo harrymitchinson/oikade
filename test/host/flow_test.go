@@ -42,6 +42,7 @@ func flowRig(t *testing.T, faults string) *rig {
 		"OIKADE_FAULTS=" + file,
 		"OIKADE_TEST_CALLS=" + filepath.Join(r.dir, "calls"),
 		"OIKADE_TEST_EDITED=" + filepath.Join(r.dir, "edited"),
+		"OIKADE_TEST_CRASH=" + filepath.Join(r.dir, "crash"),
 	}
 	return r
 }

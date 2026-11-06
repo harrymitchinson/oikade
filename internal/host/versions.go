@@ -41,7 +41,7 @@ type history struct {
 	// Before is what Versions was until the deploy in progress, which hasn't settled if Pending.
 	Before  []version `json:"before,omitempty"`
 	Pending bool      `json:"pending,omitempty"`
-	// Removals is a confirmed version whose removed rules haven't been dealt with yet.
+	// Removals is rules the running version doesn't have, whose claims and state are yet to go.
 	Removals bool `json:"removals,omitempty"`
 }
 
@@ -167,18 +167,18 @@ func (v *versions) adopt(next version) error {
 // begin makes next the running version, unconfirmed. Call it before the process changes.
 func (v *versions) begin(next version) error {
 	rest := slices.DeleteFunc(slices.Clone(v.state.Versions), func(k version) bool { return k.ID == next.ID })
-	return v.save(history{
-		Versions: append([]version{next}, rest...), Before: slices.Clone(v.state.Versions), Pending: true,
-		Removals: v.state.Removals,
-	})
+	return v.pending(append([]version{next}, rest...))
 }
 
 // beginRollback makes next, the version before the running one, the running one, unconfirmed. The
 // running one leaves the history, so that another rollback goes back further rather than to it.
 func (v *versions) beginRollback(next version) error {
+	return v.pending(append([]version{next}, v.state.Versions[2:]...))
+}
+
+func (v *versions) pending(next []version) error {
 	return v.save(history{
-		Versions: append([]version{next}, v.state.Versions[2:]...), Before: slices.Clone(v.state.Versions), Pending: true,
-		Removals: v.state.Removals,
+		Versions: next, Before: slices.Clone(v.state.Versions), Pending: true, Removals: v.state.Removals,
 	})
 }
 
@@ -196,10 +196,15 @@ func (v *versions) removalsDone() error {
 	return v.save(next)
 }
 
-// abort goes back to how things were before begin, and removes the failed binary.
+// abort goes back to how things were before begin, and removes the failed binary. The failed version
+// may have left rules of its own, so removals are due. It goes back even if that can't be saved,
+// because it's no longer what runs, and the next start will find the deploy unfinished.
 func (v *versions) abort() error {
 	failed := v.state.Versions[0].ID
-	if err := v.save(history{Versions: v.state.Before, Removals: v.state.Removals}); err != nil {
+	next := history{Versions: v.state.Before, Removals: true}
+	err := v.save(next)
+	v.state = next
+	if err != nil {
 		return err
 	}
 	return v.discard(failed)

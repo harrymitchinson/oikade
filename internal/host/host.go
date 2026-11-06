@@ -102,7 +102,9 @@ func (h *Host) Run(ctx context.Context) error {
 	first := deploys.startup()
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
-	deploys.removals()
+	if err := deploys.removals(); err != nil {
+		h.Log.Error(err, "Failed to end what removed rules left")
+	}
 	serving.Go(func() { srv.serve(listener) })
 	if h.Simulate != nil {
 		go sim.read(h.Simulate)

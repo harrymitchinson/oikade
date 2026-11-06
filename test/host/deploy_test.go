@@ -369,6 +369,33 @@ func TestAFailedVersionDoesNotEndTheClaimsOfRulesItDropped(t *testing.T) {
 	}
 }
 
+// A failed version's own rules go with it, because no code is left to end what they claimed.
+func TestAFailedVersionLeavesNoClaimsOfItsOwn(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch("--settle=30s")
+	r.awaitLoaded()
+	bin := variant(t, "crash-told")
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- err
+	}()
+	r.awaitLoaded()
+	r.change("claim-go", opened, true)
+	r.wrote("claimed", false)
+	if err := os.WriteFile(filepath.Join(r.dir, "crash"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(ended, "rule", "claim-moment-2") })
+	r.stop()
+	if got := r.ruleClaims("claimed"); len(got) != 0 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 // Only a deploy ends a rule, so a binary changed behind the host's back can't get past the check.
 func TestABinaryChangedWithoutADeployEndsNothing(t *testing.T) {
 	r := flowRig(t, "")
@@ -414,7 +441,8 @@ func TestRemovalsFinishAfterACrash(t *testing.T) {
 	}
 }
 
-// A running binary that has gone costs the way back to it, not the deploy that may be there to fix it.
+// A running binary that has gone costs the way back to it and a sight of its Safety rules. You have
+// to agree to that, but it needn't stop the deploy that may be there to fix it.
 func TestDeployWorksWhenTheRunningBinaryHasGone(t *testing.T) {
 	r := flowRig(t, "")
 	home := filepath.Join(r.dir, "home")
@@ -431,8 +459,12 @@ func TestDeployWorksWhenTheRunningBinaryHasGone(t *testing.T) {
 	if err := os.Remove(home); err != nil {
 		t.Fatal(err)
 	}
-	r.mustDeploy("tail")
-	stderr, err := r.oikade(nil, "rollback")
+	stderr, err := r.deploy("tail")
+	if err == nil || !strings.Contains(stderr, "nothing to go back to") {
+		t.Fatalf("got %v, %s", err, stderr)
+	}
+	r.mustDeploy("tail", "--allow-safety-removal")
+	stderr, err = r.oikade(nil, "rollback")
 	if err == nil || !strings.Contains(stderr, "no earlier version") {
 		t.Fatalf("got %v, %s", err, stderr)
 	}

@@ -303,16 +303,49 @@ func TestAnUnfinishedDeployIsUndoneOnStartup(t *testing.T) {
 	}
 }
 
-// An unconfirmed version mustn't end anything, even if a host couldn't undo it on the way up.
-func TestRemovalsWaitForAConfirmedVersion(t *testing.T) {
+// A version that failed isn't what runs, whether or not that could be saved.
+func TestAFailedVersionIsGoneEvenIfThatCantBeSaved(t *testing.T) {
+	dir := t.TempDir()
+	data, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := openVersions(dir, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good, bad := binary(t, v, "good"), binary(t, v, "bad")
+	if err := v.begin(version{ID: good}); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.begin(version{ID: bad}); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.abort(); err == nil {
+		t.Fatal("a save to a closed store worked")
+	}
+	if cur, _ := v.current(); cur.ID != good || v.state.Pending {
+		t.Fatalf("got %+v", v.state)
+	}
+}
+
+// A version whose rules aren't known looks like one with none, which would end everything.
+func TestRemovalsWaitForKnownRules(t *testing.T) {
 	v, closeStore := openTestVersions(t, t.TempDir())
 	defer closeStore()
 	if err := v.begin(version{ID: binary(t, v, "first")}); err != nil {
 		t.Fatal(err)
 	}
-	v.state.Removals = true
-	(&deployer{versions: v}).removals()
-	if !v.state.Removals {
-		t.Fatal("removals ran for an unconfirmed version")
+	if err := v.commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&deployer{versions: v}).removals(); err != nil || !v.state.Removals {
+		t.Fatalf("got %v, %+v", err, v.state)
 	}
 }

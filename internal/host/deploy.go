@@ -73,6 +73,9 @@ func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Re
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
 	}
 	if cur, ok := d.versions.current(); ok && cur.ID == id {
+		if err := d.removals(); err != nil {
+			return api.Response{Error: removalsFailed(err), Version: id}
+		}
 		return api.Response{Version: id, Unchanged: true}
 	}
 	return d.takeOver(ctx, id, allow, d.versions.begin)
@@ -91,7 +94,8 @@ func (d *deployer) rollback(ctx context.Context, allow bool) api.Response {
 }
 
 // adopt records a binary from the host's flags, so a deploy can go back to it. One that can't be
-// read or has no check mode costs that, and mustn't stop the deploy that may be there to fix it.
+// read or has no check mode costs that, which takeOver makes you agree to, because the deploy may be
+// there to fix it.
 func (d *deployer) adopt(ctx context.Context) {
 	if _, ok := d.versions.current(); ok || d.home == "" {
 		return
@@ -110,12 +114,13 @@ func (d *deployer) adopt(ctx context.Context) {
 	}
 }
 
-// removals ends what's left of rules the running version doesn't have, once it's confirmed. It's
-// recorded, so a crash just after confirming finishes the job on the next start.
-func (d *deployer) removals() {
+// removals ends what's left of rules the running version doesn't have, once a deploy has settled
+// either way. It's recorded, so a crash first finishes the job on the next start. It does nothing if
+// the version's rules aren't known, which would look like a version with none.
+func (d *deployer) removals() error {
 	cur, ok := d.versions.current()
-	if !ok || !d.versions.state.Removals || d.versions.state.Pending {
-		return
+	if !ok || !d.versions.state.Removals || cur.Manifest.Protocol == 0 {
+		return nil
 	}
 	rules := make([]string, 0, len(cur.Manifest.Rules))
 	for _, r := range cur.Manifest.Rules {
@@ -123,11 +128,16 @@ func (d *deployer) removals() {
 	}
 	if err := d.srv.reconcile(rules); err != nil {
 		d.log.Error(err, "Failed to end what removed rules left; the next start will")
-		return
+		return err
 	}
 	if err := d.versions.removalsDone(); err != nil {
 		d.log.Error(err, "Failed to record that removed rules have gone", "version", cur.ID)
 	}
+	return nil
+}
+
+func removalsFailed(err error) string {
+	return fmt.Sprintf("the version is running, but removed rules left claims or state, which the next deploy or host start will retry: %s", err)
 }
 
 // takeOver checks a stored binary, stops what's running, starts it and watches it settle. If it fails
@@ -148,8 +158,11 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	if cur, ok := d.versions.current(); ok {
 		old = cur.Manifest
 	}
-	held := d.srv.engine.RuleClaims(wire.Namespace)
-	if findings := safetyFindings(old, manifest, held); len(findings) > 0 && !allow {
+	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace))
+	if d.running != "" && old.Protocol == 0 {
+		findings = append(findings, "the running version couldn't be kept or checked, so a Safety rule it has can't be seen, and a failed deploy has nothing to go back to")
+	}
+	if len(findings) > 0 && !allow {
 		return reject(api.Response{Error: "this would remove Safety rules", Findings: findings})
 	}
 
@@ -173,8 +186,10 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		d.log.Error(err, "Failed to remove old automations versions")
 	}
 	fault.Hit(fault.HostDeployConfirmed)
-	d.removals()
 	d.log.Info("Deployed automations version", "version", id)
+	if err := d.removals(); err != nil {
+		return api.Response{Error: removalsFailed(err), Version: id}
+	}
 	return api.Response{Version: id}
 }
 
@@ -195,6 +210,9 @@ func (d *deployer) restore(ctx context.Context, failed, last string, cause error
 		return resp
 	}
 	d.log.Info("Restored the last automations version", "version", resp.Version)
+	if err := d.removals(); err != nil {
+		resp.Error += "; " + removalsFailed(err)
+	}
 	return resp
 }
 

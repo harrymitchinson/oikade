@@ -96,7 +96,9 @@ A failure, or a `protocol` other than the host's, rejects the version.
 4. It waits for the new process to connect, then for the settle period, 5 seconds by default. If the process goes away at any point before that's up, the last version comes back at once, and the command says why.
 5. It confirms the version, keeps the five latest, and ends what's left of rules the version doesn't have: their claims, Safety ones included, and their saved state, because nothing else would. The record says this is due, so a host that dies first does it when it starts.
 
-A host that dies during steps 3 or 4 finds the unconfirmed record when it starts, and goes back to the last version. A version that settled and fails later restarts as usual, and stays until a rollback.
+A host that dies during steps 3 or 4 finds the unconfirmed record when it starts, and goes back to the last version. A version that failed goes the same way: what its own rules claimed ends once the last version is back, because no code is left to end it.
+
+A version that settled and fails later restarts as usual, and stays until a rollback.
 
 `rollback` is a deploy of the version before the running one, on the same terms, and it forgets the running one, so a second rollback goes back further.
 

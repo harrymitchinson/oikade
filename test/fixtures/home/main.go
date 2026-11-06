@@ -124,6 +124,15 @@ func start() {
 			time.Sleep(100 * time.Millisecond)
 			os.Exit(3)
 		}()
+	case "crash-told":
+		go func() {
+			for {
+				if _, err := os.Stat(os.Getenv("OIKADE_TEST_CRASH")); err == nil {
+					os.Exit(3)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}()
 	}
 }
 
@@ -144,7 +153,7 @@ func main() {
 	switch variant {
 	case "renamed":
 		leakShutoff = "valve-shutoff"
-	case "removed", "crash-removed":
+	case "removed", "crash-removed", "crash-told":
 		claimMoment.Name = "claim-moment-2"
 	case "badcheck":
 		extra = append(extra, framework.Moment{Name: leakShutoff})

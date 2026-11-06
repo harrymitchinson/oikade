@@ -558,14 +558,20 @@ func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) erro
 	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
+// ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
+// that's still to do. Call with e.mu held.
+func (e *Engine) ensureDue() {
+	for dev := range e.controlDue {
+		e.ensure(dev)
+	}
+}
+
 // RuleClaims returns the rules holding claims in the namespace, each with the highest level it holds.
 // It counts devices the engine has yet to look at, whose claims are still only on disk.
 func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for dev := range e.controlDue {
-		e.ensure(dev)
-	}
+	e.ensureDue()
 	held := map[string]control.Level{}
 	for dev, arbs := range e.arbs {
 		if dev.Namespace != namespace {
@@ -585,6 +591,9 @@ func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 // EndRule ends every claim of a rule that no longer exists, Safety ones included, as Remove does for
 // one in this engine. It returns once that's saved. ctx is the engine's, as with Claim.
 func (e *Engine) EndRule(ctx context.Context, namespace, rule string) error {
+	e.mu.Lock()
+	e.ensureDue()
+	e.mu.Unlock()
 	return e.ReleaseClaims(ctx, namespace, ruleSource(rule), allLevels)
 }
 
