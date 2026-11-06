@@ -159,14 +159,20 @@ func (e *Events) Read(after uint64, limit int) ([]Record, error) {
 	return out, err
 }
 
-// Baseline is what the last Fold returned, or nil if nothing has been dropped.
-func (e *Events) Baseline() ([]byte, error) {
-	var out []byte
-	err := e.view(func(root, _ *bolt.Bucket) error {
-		out = bytes.Clone(root.Get(baselineKey))
+// Start returns what the last Fold returned, nil if nothing has been dropped, and the first limit
+// records. They're read together: everything ever added is in one, the other or later pages.
+func (e *Events) Start(limit int) ([]byte, []Record, error) {
+	var baseline []byte
+	var out []Record
+	err := e.view(func(root, log *bolt.Bucket) error {
+		baseline = bytes.Clone(root.Get(baselineKey))
+		c := log.Cursor()
+		for k, v := c.First(); k != nil && len(out) < limit; k, v = c.Next() {
+			out = append(out, record(k, v))
+		}
 		return nil
 	})
-	return out, err
+	return baseline, out, err
 }
 
 // Size is how many bytes the log holds, as Bound counts them.

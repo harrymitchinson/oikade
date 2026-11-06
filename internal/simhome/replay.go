@@ -25,7 +25,12 @@ const (
 	seenEvery = 10 * time.Minute
 	// downFor is the shortest time your automations were down worth saying so.
 	downFor = time.Minute
+	// startingFor is how long from the log's start a device's first report counts as how it started.
+	startingFor = time.Minute
 )
+
+// hostZone names the fixed offset used for a host that can't name its time zone.
+const hostZone = "host"
 
 // ReplayHeader is the first line of the file oikade replay hands your binary. Its events follow, a
 // line of JSON each.
@@ -87,6 +92,10 @@ func ReplayFile(o Options, path string) (Report, error) {
 // ones the deployed version made. It's a Sim like any other, so a write goes nowhere but into a list:
 // there's no socket, no plugin and no device here to send one to.
 func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
+	// The log goes on being read after the host says when it started, and nothing runs that far.
+	if i := slices.IndexFunc(events, func(e api.Event) bool { return e.Time.After(head.Log.Now) }); i >= 0 {
+		events = events[:i]
+	}
 	o.Dry, o.Location, o.Calls = true, location(head.Log), callsOf(events)
 	// A second before the first event, so that what your code does on starting comes before it.
 	o.Start = head.Log.Now
@@ -96,7 +105,7 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 	o.Start = o.Start.In(o.Location)
 	o.Devices = replayDevices(o.Devices, head.Log.Baseline, events)
 	outside := withoutEchoes(events)
-	outside = startingValues(o.Devices, outside)
+	outside = startingValues(o.Devices, outside, o.Start)
 	sim, err := New(o)
 	if err != nil {
 		return Report{}, err
@@ -138,7 +147,10 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 	sim.mu.Lock()
 	r.Skipped = maps.Clone(sim.skipped)
 	sim.mu.Unlock()
-	r.Notes = notes(events, r.From, o.Location)
+	r.Notes = notes(events, r.From, r.To, o.Location)
+	if o.Location.String() == hostZone {
+		r.Notes = append(r.Notes, "The host didn't name its time zone, so a clock change in the log throws times of day out")
+	}
 	if head.Since.Before(o.Start) && len(events) > 0 {
 		r.Notes = append(r.Notes, "The event log only goes back to "+stamp(o.Start, o.Location))
 	}
@@ -162,11 +174,14 @@ func (s *Sim) replayTo(to time.Time) error {
 	return nil
 }
 
+// CallKey is where a flow's outside call waits for its answer. Two flows may use one name.
+func CallKey(rule, name string) string { return rule + "/" + name }
+
 func callsOf(events []api.Event) map[string][]api.Event {
 	calls := map[string][]api.Event{}
 	for _, e := range events {
 		if e.Type == api.EventCall {
-			calls[e.Message] = append(calls[e.Message], e)
+			calls[CallKey(e.Rule, e.Message)] = append(calls[CallKey(e.Rule, e.Message)], e)
 		}
 	}
 	return calls
@@ -178,7 +193,7 @@ func location(log api.EventLog) *time.Location {
 			return l
 		}
 	}
-	return time.FixedZone("host", log.Offset)
+	return time.FixedZone(hostZone, log.Offset)
 }
 
 // replayDevices is every device anything names: the host's, your code's, and any in the log since
@@ -224,18 +239,18 @@ func replayDevices(known []Device, baseline map[string]map[string]any, events []
 	return out
 }
 
-// startingValues moves the first value of everything the baseline doesn't cover into the devices, and
-// returns the changes left. A device reporting for the first time isn't something changing: your
-// automations hadn't started when the host heard it, and a simulated arbiter would take it for someone
-// overriding the device.
-func startingValues(devices []Device, outside []api.Event) []api.Event {
+// startingValues moves what devices first report as the log begins into the devices, and returns the
+// changes left. Those aren't things changing: your automations hadn't started when the host heard
+// them, and a simulated arbiter would take one for someone overriding the device. Later on a first
+// report is a real one, from a device paired since.
+func startingValues(devices []Device, outside []api.Event, start time.Time) []api.Event {
 	byName := map[string]map[string]any{}
 	for _, d := range devices {
 		byName[d.Name] = d.Values
 	}
 	return slices.DeleteFunc(outside, func(e api.Event) bool {
 		values := byName[e.Device]
-		if _, known := values[e.Capability]; known {
+		if _, known := values[e.Capability]; known || e.Time.Sub(start) > startingFor {
 			return false
 		}
 		values[e.Capability] = e.Value
@@ -244,20 +259,31 @@ func startingValues(devices []Device, outside []api.Event) []api.Event {
 }
 
 // withoutEchoes is the changes that came from outside your automations: a person, a sensor. Feeding
-// in the rest would have the deployed version's writes happen whatever your code does.
+// in the rest would have the deployed version's writes happen whatever your code does. A switch
+// answers once with the value written, so anything else is someone changing it. A level may pass
+// through several values on the way, so any change soon after the write is its answer.
 func withoutEchoes(events []api.Event) []api.Event {
 	type target struct{ device, capability string }
-	wrote := map[target]time.Time{}
+	wrote := map[target]api.Event{}
 	var out []api.Event
 	for _, e := range events {
 		t := target{e.Device, e.Capability}
 		switch e.Type {
 		case api.EventWrite:
-			wrote[t] = e.Time
+			wrote[t] = e
 		case api.EventChange:
-			if at, ok := wrote[t]; !ok || e.Time.Sub(at) > echoWindow {
+			w, ok := wrote[t]
+			if !ok || e.Time.Sub(w.Time) > echoWindow {
+				out = append(out, e)
+				continue
+			}
+			if _, level := e.Value.(float64); level {
+				continue
+			}
+			if fmt.Sprint(e.Value) != fmt.Sprint(w.Value) {
 				out = append(out, e)
 			}
+			delete(wrote, t)
 		}
 	}
 	return out
@@ -316,7 +342,7 @@ func withoutRepeats(writes []Write) []Write {
 }
 
 // notes say what happened that a difference could come from, other than your change.
-func notes(events []api.Event, from time.Time, zone *time.Location) []string {
+func notes(events []api.Event, from, to time.Time, zone *time.Location) []string {
 	var out []string
 	var down time.Time
 	for _, e := range events {
@@ -335,6 +361,9 @@ func notes(events []api.Event, from time.Time, zone *time.Location) []string {
 		case e.Type == api.EventPause:
 			out = append(out, fmt.Sprintf("Rule %s was %s at %s. A replay doesn't pause it", e.Rule, e.Message, at))
 		}
+	}
+	if !down.IsZero() && to.Sub(down) >= downFor {
+		out = append(out, "Your automations have been down since "+stamp(down, zone))
 	}
 	return out
 }

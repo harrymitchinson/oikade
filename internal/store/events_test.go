@@ -52,8 +52,8 @@ func TestAnEmptyLogReadsAsEmpty(t *testing.T) {
 	if err != nil || len(records) != 0 {
 		t.Fatalf("Read = %v, %v", records, err)
 	}
-	if raw, err := s.Events().Baseline(); err != nil || raw != nil {
-		t.Fatalf("Baseline = %q, %v", raw, err)
+	if raw, first, err := s.Events().Start(10); err != nil || raw != nil || len(first) != 0 {
+		t.Fatalf("Start = %q, %v, %v", raw, first, err)
 	}
 }
 
@@ -103,7 +103,7 @@ func TestLogStaysInsideItsBoundOverAMonth(t *testing.T) {
 			if left[len(left)-1].Seq != uint64(added) {
 				t.Fatalf("the newest record is %d, want %d: it isn't the oldest that went", left[len(left)-1].Seq, added)
 			}
-			baseline, err := s.Events().Baseline()
+			baseline, _, err := s.Events().Start(1)
 			if err != nil {
 				t.Fatal(err)
 			}

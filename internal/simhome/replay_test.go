@@ -3,6 +3,8 @@ package simhome_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +100,7 @@ var damp = []reading{
 }
 
 func head(now time.Time) simhome.ReplayHeader {
-	return simhome.ReplayHeader{Log: api.EventLog{Now: now}, Since: monday}
+	return simhome.ReplayHeader{Log: api.EventLog{Now: now, Zone: "UTC"}, Since: monday}
 }
 
 func TestUnchangedCodeShowsNoDifferences(t *testing.T) {
@@ -196,7 +198,7 @@ func TestReplayMakesNoOutsideCalls(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("The flow's outside call ran %d times", calls)
 	}
-	if r.Skipped["notify"] != 1 {
+	if r.Skipped["alarm/notify"] != 1 {
 		t.Fatalf("Skipped = %v", r.Skipped)
 	}
 	if len(r.Added) != 1 {
@@ -220,7 +222,7 @@ func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 40.0},
 		{Time: monday.Add(time.Minute), Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 50.0},
-		{Time: monday.Add(time.Minute), Type: api.EventCall, Message: "forecast", Value: true},
+		{Time: monday.Add(time.Minute), Type: api.EventCall, Rule: "weather", Message: "forecast", Value: true},
 		{Time: monday.Add(time.Minute), Type: api.EventWrite, Device: "fan", Capability: on, Value: true},
 	}
 	r, err := simhome.Replay(options(t, home), head(monday.Add(time.Hour)), log)
@@ -248,5 +250,106 @@ func TestNotesSayWhatElseCouldExplainADifference(t *testing.T) {
 	}
 	if len(r.Notes) != 3 {
 		t.Fatalf("Notes = %q, want the long outage, the deploy and the pause", r.Notes)
+	}
+}
+
+func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
+	log := []api.Event{
+		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+		{Time: monday.Add(time.Hour), Type: api.EventWrite, Device: "fan", Capability: on, Value: true},
+		{Time: monday.Add(time.Hour + time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: true},
+		{Time: monday.Add(time.Hour + 8*time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+	}
+	r, err := simhome.Replay(options(t, framework.Home{}), head(monday.Add(2*time.Hour)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Changes != 1 {
+		t.Fatalf("%d changes went in, want the person's one", r.Changes)
+	}
+}
+
+func TestADevicePairedLaterHasNoValueUntilItReports(t *testing.T) {
+	home := framework.Home{Holds: []framework.Hold{{
+		Name: "fan", Device: "fan", Capability: on, Value: true,
+		When: func(s framework.State) bool { return s.Number("late", humidity) > 70 },
+	}}}
+	log := []api.Event{
+		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+		{Time: monday.Add(5 * time.Hour), Type: api.EventChange, Device: "late", Capability: humidity, Value: 90.0},
+	}
+	r, err := simhome.Replay(options(t, home), head(monday.Add(6*time.Hour)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Added) != 1 || !r.Added[0].Time.Equal(monday.Add(5*time.Hour)) {
+		t.Fatalf("Added = %v, want one write when the device first reported", r.Added)
+	}
+}
+
+func TestWhatLandedAfterTheFetchBeganIsLeftOut(t *testing.T) {
+	now := monday.Add(time.Hour)
+	log := []api.Event{
+		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+		{Time: now.Add(3 * time.Second), Type: api.EventWrite, Device: "fan", Capability: on, Value: true},
+	}
+	r, err := simhome.Replay(options(t, framework.Home{}), head(now), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Deployed != 0 || len(r.Removed) != 0 {
+		t.Fatalf("%d deployed, removed %v", r.Deployed, r.Removed)
+	}
+}
+
+func TestTwoFlowsCanUseOneCallName(t *testing.T) {
+	flowOf := func(name, device string, out string) framework.Flow {
+		return framework.Flow{
+			Name: name, On: []framework.Change{{Device: device, Capability: contact}},
+			Run: func(r *framework.FlowRun) error {
+				var got string
+				if err := r.Do("fetch", &got, func(context.Context) error { return nil }); err != nil {
+					return err
+				}
+				return r.Set(framework.Set{Device: out, Capability: on, Value: got == name})
+			},
+		}
+	}
+	opts := options(t, framework.Home{Flows: []framework.Flow{flowOf("a", "door-a", "fan"), flowOf("b", "door-b", "fan-b")}})
+	at := monday.Add(time.Minute)
+	event := func(device string, when time.Time, v bool) api.Event {
+		return api.Event{Time: when, Type: api.EventChange, Device: device, Capability: contact, Value: v}
+	}
+	log := []api.Event{
+		event("door-a", monday, false), event("door-b", monday, false),
+		{Time: monday, Type: api.EventChange, Device: "fan-b", Capability: on, Value: false},
+		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+		event("door-b", at, true),
+		{Time: at, Type: api.EventCall, Rule: "b", Message: "fetch", Value: "b"},
+		{Time: at, Type: api.EventWrite, Device: "fan-b", Capability: on, Value: true},
+		event("door-a", at.Add(time.Minute), true),
+		{Time: at.Add(time.Minute), Type: api.EventCall, Rule: "a", Message: "fetch", Value: "a"},
+		{Time: at.Add(time.Minute), Type: api.EventWrite, Device: "fan", Capability: on, Value: true},
+	}
+	r, err := simhome.Replay(opts, head(monday.Add(time.Hour)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Added)+len(r.Removed) != 0 {
+		t.Fatalf("added %v, removed %v", r.Added, r.Removed)
+	}
+}
+
+func TestAnOutageThatHasntEndedGetsANote(t *testing.T) {
+	log := []api.Event{
+		{Time: monday, Type: api.EventProcess, Message: "disconnected"},
+		{Time: monday.Add(time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+	}
+	r, err := simhome.Replay(options(t, framework.Home{}), head(monday.Add(time.Hour)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(r.Notes, func(n string) bool { return strings.Contains(n, "down since") }) {
+		t.Fatalf("Notes = %q", r.Notes)
 	}
 }

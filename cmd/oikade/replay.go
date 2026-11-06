@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -57,18 +56,22 @@ func runReplay(ctx context.Context, args []string) error {
 	if err := fetchLog(ctx, target.transport(), log, *since); err != nil {
 		return err
 	}
-	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, path, wire.RoleReplay, log, file)
-	cmd.Stdout, cmd.Stderr = &out, os.Stderr
+	result := filepath.Join(dir, "report")
+	cmd := exec.CommandContext(ctx, path, wire.RoleReplay, log, file, result)
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("replaying your home: %w", err)
 	}
+	raw, err := os.ReadFile(result)
+	if err != nil {
+		return err
+	}
 	if *asJSON {
-		_, err := os.Stdout.Write(out.Bytes())
+		_, err := fmt.Println(string(raw))
 		return err
 	}
 	var report simhome.Report
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+	if err := json.Unmarshal(raw, &report); err != nil {
 		return fmt.Errorf("reading the replay: %w", err)
 	}
 	fmt.Print(render(report, time.Local))

@@ -137,9 +137,9 @@ func foldBaseline(baseline []byte, dropped []store.Record) ([]byte, error) {
 	return json.Marshal(values)
 }
 
-// stream writes the log to conn, in pages. Events added meanwhile are included, and it ends when it
-// catches up.
-func (l *eventLog) stream(conn net.Conn) {
+// stream writes the log to conn, in pages, until it catches up or ctx ends. Events added meanwhile
+// are included.
+func (l *eventLog) stream(ctx context.Context, conn net.Conn) {
 	l.flush()
 	out := json.NewEncoder(conn)
 	write := func(v any) bool {
@@ -149,7 +149,8 @@ func (l *eventLog) stream(conn net.Conn) {
 	now := time.Now()
 	head := api.EventLog{Now: now, Zone: zoneName()}
 	_, head.Offset = now.Zone()
-	raw, err := l.store.Baseline()
+	// Together, or a drop between the two would be in neither.
+	raw, page, err := l.store.Start(eventPage)
 	if err == nil && raw != nil {
 		err = json.Unmarshal(raw, &head.Baseline)
 	}
@@ -160,15 +161,8 @@ func (l *eventLog) stream(conn net.Conn) {
 	if !write(head) {
 		return
 	}
-	var after uint64
-	for {
-		page, err := l.store.Read(after, eventPage)
-		if err != nil {
-			write(api.LogEnd(err.Error()))
-			return
-		}
-		if len(page) == 0 {
-			write(api.LogEnd(""))
+	for len(page) > 0 {
+		if ctx.Err() != nil {
 			return
 		}
 		for _, r := range page {
@@ -182,22 +176,35 @@ func (l *eventLog) stream(conn net.Conn) {
 				return
 			}
 		}
-		after = page[len(page)-1].Seq
+		if page, err = l.store.Read(page[len(page)-1].Seq, eventPage); err != nil {
+			write(api.LogEnd(err.Error()))
+			return
+		}
 	}
+	write(api.LogEnd(""))
 }
 
-// zoneName finds this machine's time zone's IANA name, which Go doesn't say. Empty means it can't
-// tell.
+// zoneName finds this machine's time zone's IANA name, which Go doesn't say, by the rules Go uses to
+// choose it. Empty means it can't tell.
 func zoneName() string {
-	if tz := os.Getenv("TZ"); tz != "" {
+	if tz, set := os.LookupEnv("TZ"); set {
+		tz = strings.TrimPrefix(tz, ":")
+		if tz == "" {
+			return "UTC"
+		}
+		if _, name, found := strings.Cut(tz, "zoneinfo/"); found {
+			return name
+		}
 		return tz
 	}
-	target, err := filepath.EvalSymlinks("/etc/localtime")
-	if err != nil {
-		return ""
+	if target, err := filepath.EvalSymlinks("/etc/localtime"); err == nil {
+		if _, name, found := strings.Cut(target, "zoneinfo/"); found {
+			return name
+		}
 	}
-	if _, name, found := strings.Cut(target, "zoneinfo/"); found {
-		return name
+	// Debian's, for an /etc/localtime that's a copy rather than a link.
+	if raw, err := os.ReadFile("/etc/timezone"); err == nil {
+		return strings.TrimSpace(string(raw))
 	}
 	return ""
 }

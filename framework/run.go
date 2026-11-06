@@ -211,9 +211,10 @@ func runDev(h Home) error {
 }
 
 // runReplay is oikade replay's half that needs your code: the home against an event log, with no
-// socket, no plugin and no device. Its log and its types file are named after the role.
+// socket, no plugin and no device. The role is followed by the log, the types file and where the
+// report goes: a file, because your code is free to print.
 func runReplay(h Home) error {
-	if len(os.Args) != 4 {
+	if len(os.Args) != 5 {
 		return errors.New("run this with oikade replay")
 	}
 	devices, err := simhome.ReadTypes(os.Args[3])
@@ -224,11 +225,18 @@ func runReplay(h Home) error {
 	if err != nil {
 		return err
 	}
-	report, err := simhome.ReplayFile(simhome.Options{Home: home, Devices: devices}, os.Args[2])
+	// Errors only: a mistake in a condition is what explains a missing write, and a week of the rest
+	// would bury it.
+	log := funcr.New(func(prefix, args string) { fmt.Fprintln(os.Stderr, prefix, args) }, funcr.Options{Verbosity: -1})
+	report, err := simhome.ReplayFile(simhome.Options{Home: home, Devices: devices, Log: log}, os.Args[2])
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(os.Stdout).Encode(report)
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(os.Args[4], raw, 0o600)
 }
 
 // simulated is the home for a simulated one to run.

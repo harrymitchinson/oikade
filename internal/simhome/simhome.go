@@ -83,8 +83,8 @@ type Options struct {
 	// Location is where the home is. Nil means Start's.
 	Location *time.Location
 	Log      logr.Logger
-	// Dry makes no outside call from a flow. Each takes its answer from Calls, by name and in order,
-	// or goes without and is counted.
+	// Dry makes no outside call from a flow. Each takes its answer from Calls, by CallKey and in
+	// order, or goes without and is counted.
 	Dry   bool
 	Calls map[string][]api.Event
 }
@@ -239,7 +239,7 @@ func (s *Sim) start() error {
 		f.Journal, f.Actions, f.Clock, f.Log, f.Process = s.journal, eng, s.clock, s.log.WithName("flows"), ctx
 		f.OnPark = eng.OnPark
 		if s.dry {
-			f.Dry = s.answer
+			f.Dry = func(call string, result any) error { return s.answer(f.Key.Name, call, result) }
 		}
 	}
 	s.engine, s.flows, s.stop, s.stopped = eng, flows, cancel, make(chan struct{})
@@ -294,16 +294,17 @@ func (s *Sim) report(dev types.NamespacedName, name string, value any) error {
 }
 
 // answer stands in for a flow's outside call, with what it answered the last time.
-func (s *Sim) answer(name string, result any) error {
+func (s *Sim) answer(rule, name string, result any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	waiting := s.calls[name]
+	at := CallKey(rule, name)
+	waiting := s.calls[at]
 	if len(waiting) == 0 {
-		s.skipped[name]++
+		s.skipped[at]++
 		return nil
 	}
 	call := waiting[0]
-	s.calls[name] = waiting[1:]
+	s.calls[at] = waiting[1:]
 	if call.Result != "" {
 		return errors.New(call.Result)
 	}

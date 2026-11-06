@@ -63,7 +63,7 @@ func (s *apiServer) handle(conn net.Conn) {
 		return
 	}
 	if req.Type == api.TypeEvents {
-		s.srv.events.stream(conn)
+		s.srv.events.stream(s.ctx, conn)
 		return
 	}
 	if err := json.NewEncoder(conn).Encode(s.answer(req)); err != nil {
