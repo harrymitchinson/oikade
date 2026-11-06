@@ -97,6 +97,9 @@ type arb struct {
 	// dropped is set when a report was ignored while a write settled, so the device's value is
 	// looked at again once it has.
 	dropped bool
+	// unconfirmed is a write the device is yet to report. lost is one its driver's last process may
+	// have taken with it, so that the next report is what the device is, not somebody changing it.
+	unconfirmed, lost bool
 }
 
 func ruleSource(name string) string { return rulePrefix + name }
@@ -135,10 +138,34 @@ func (e *Engine) ControlChanged(dev types.NamespacedName) {
 	e.signal()
 }
 
-// Discovered implements driver.Sink: an arbitrated device that has reported can be written.
+// Discovered implements driver.Sink: an arbitrated device that has reported can be written, now
+// rather than whenever a write that failed was due to be tried again.
 func (e *Engine) Discovered(dev types.NamespacedName, _ driver.Info) {
 	if snap, ok := e.Store.Get(dev); ok && len(snap.Control) > 0 {
+		e.mu.Lock()
+		for _, ar := range e.arbs[dev] {
+			ar.retry = time.Time{}
+		}
+		e.mu.Unlock()
 		e.ControlChanged(dev)
+	}
+}
+
+// DriverReturned says a driver has a new process. A write its last one took but hadn't reported may
+// have died with it, so what the new one reports isn't an outside change: the arbiter takes it as the
+// device's value, and writes again if that's wrong.
+func (e *Engine) DriverReturned(instance driver.InstanceKey) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for dev, arbs := range e.arbs {
+		if snap, ok := e.Store.Get(dev); !ok || snap.Instance != instance {
+			continue
+		}
+		for _, ar := range arbs {
+			if ar.unconfirmed {
+				ar.lost, ar.dropped = true, false
+			}
+		}
 	}
 }
 
@@ -199,6 +226,7 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 		if old != nil {
 			// A write in progress finishes on the new arbiter.
 			ar.writing, ar.pending, ar.wrote, ar.retry, ar.dropped = old.writing, old.pending, old.wrote, old.retry, old.dropped
+			ar.unconfirmed, ar.lost = old.unconfirmed, old.lost
 		}
 		arbs[c.Capability] = ar
 	}
@@ -334,6 +362,7 @@ func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, nam
 	} else {
 		cur.a.Wrote(value)
 		cur.wrote, cur.retry = now, time.Time{}
+		cur.unconfirmed, cur.lost = true, false
 	}
 	cur.pending = false
 	e.decide(ctx, dev, name, cur)
@@ -368,7 +397,11 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 		// The first value seen is the device's, not a change.
 		ar.a.Wrote(v)
 	case v == st.Value:
+		ar.unconfirmed, ar.lost = false, false
 		return
+	case ar.lost && !ar.writing:
+		ar.unconfirmed, ar.lost = false, false
+		ar.a.Wrote(v)
 	case ar.writing || e.Clock.Since(ar.wrote) < staleReport:
 		e.Log.V(1).Info("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
 		ar.dropped = true

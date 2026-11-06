@@ -27,13 +27,14 @@ const (
 	valve  = "valve"
 	panics = "panics"
 	hangs  = "hangs"
+	once   = "once"
 )
 
 // variant makes this home a different version, set when the tests link it. Empty is the first one.
 var variant string
 
 // wired are the relays a home with plugins configures in Go, which are all there are the first time.
-var wired = []contractv1.DeclaredDevice{relay("relay"), relay(valve), relay(panics), relay(hangs)}
+var wired = []contractv1.DeclaredDevice{relay("relay"), relay(valve), relay(panics), relay(hangs), relay(once)}
 
 // relay is a device called id.
 func relay(id string) contractv1.DeclaredDevice {
@@ -56,6 +57,12 @@ func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCom
 		panic("this plugin was told to panic")
 	case hangs:
 		select {}
+	case once:
+		mark := os.Getenv("OIKADE_TEST_PLUGIN_DOWN") + ".once"
+		if _, err := os.Stat(mark); err != nil && cmd.Value == true {
+			_ = os.WriteFile(mark, nil, 0o600)
+			panic("this plugin took a write with it")
+		}
 	}
 	return f.Handler.Set(ctx, p, cmd)
 }
@@ -300,6 +307,10 @@ func run(h framework.Home) {
 	}
 	if strings.Contains(variant, "plugins") {
 		h.Plugins = []framework.Plugin{{Name: "relays", New: faultyRelays}, {Name: "quiet", New: quietRelays}}
+		h.Holds = append(h.Holds, framework.Hold{
+			Name: "once", Device: once, Capability: on, Value: true,
+			When: func(s framework.State) bool { return s.Bool("leak-sensor", open) },
+		})
 	}
 	framework.Run(h)
 }

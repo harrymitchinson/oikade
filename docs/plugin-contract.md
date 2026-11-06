@@ -24,7 +24,7 @@ A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a
 
 A device you remove with `oikade devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
 
-While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A plugin's device needs its arbitration settings from a `plugin` entry in the `--simulate` file until the home can declare them.
+While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. A claim on one is written again as soon as it does, and a write its last process took with it is written again rather than read as somebody changing the device. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A plugin's device needs its arbitration settings from a `plugin` entry in the `--simulate` file until the home can declare them.
 
 The messages are this contract's, on the host's socket rather than a broker, so the host checks them with the same decoder. A process that dies is marked offline by the host, as a Last Will would.
 
@@ -36,7 +36,7 @@ For a platform with no good Go library, a process of its own speaks this contrac
 oikade host --broker mqtt://mosquitto:1883 --outside-plugins ewelink,overkiz
 ```
 
-The host supervises none of this: the process, its restarts and its broker are yours. Devices it reports go in the registry like any others. It reads no `devices.json` from the host, so give it one of your own, or have it report what it can see.
+The host supervises none of this: the process, its restarts and its broker are yours. A broker that isn't up yet is tried until it is, and until then these plugins' devices aren't known and their claims aren't written. Devices it reports go in the registry like any others. It reads no `devices.json` from the host, so give it one of your own, or have it report what it can see.
 
 ## Topics
 

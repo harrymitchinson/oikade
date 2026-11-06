@@ -113,6 +113,7 @@ func (h *Host) Run(ctx context.Context) error {
 	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)
+	h.plugins.returned = eng.DriverReturned
 	srv.plugins = h.plugins
 	setter := claimedSetter{engine: eng, setter: routedSetter{devices: devices, simulated: sim, plugins: h.plugins}}
 	eng.Store, eng.Setter, srv.devices, srv.setter = devices, setter, devices, setter

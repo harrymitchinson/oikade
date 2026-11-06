@@ -28,6 +28,9 @@ import (
 // DefaultPluginSetTimeout is how long a plugin's Set may run before the plugin counts as hung.
 const DefaultPluginSetTimeout = 30 * time.Second
 
+// outsideRetry is how soon the host tries a broker again after failing to connect.
+const outsideRetry = time.Minute
+
 // pluginBacklog is how many messages from a plugin can wait to be taken in.
 const pluginBacklog = 1024
 
@@ -46,6 +49,8 @@ type plugins struct {
 	wanted chan string
 	// refresh asks that the plugins hear of a change to the registry.
 	refresh chan struct{}
+	// returned says a plugin has a new process.
+	returned func(driver.InstanceKey)
 
 	mu      sync.Mutex
 	running map[string]*hosted
@@ -311,10 +316,18 @@ func (p *plugins) startOutside(ctx context.Context) {
 	if len(p.host.Outside) == 0 {
 		return
 	}
-	bus, err := mqtt.Connect(ctx, p.host.Broker, "oikade-host")
-	if err != nil {
-		p.log.Error(err, "Failed to connect to the broker", "broker", p.host.Broker)
-		return
+	var bus *mqtt.Client
+	for {
+		var err error
+		if bus, err = mqtt.Connect(ctx, p.host.Broker, "oikade-host"); err == nil {
+			break
+		}
+		p.log.Error(err, "Failed to connect to the broker", "broker", p.host.Broker, "retry", outsideRetry.String())
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(outsideRetry):
+		}
 	}
 	for _, name := range p.host.Outside {
 		h := &hosted{name: name, key: pluginKey(name), root: contractv1.NewRoot(wire.Namespace, name)}
@@ -383,6 +396,7 @@ func (p *plugins) serve(conn *wire.Conn, hello wire.Message) {
 		h.socket.detach(h.root)
 		h.driver.Forget()
 	}()
+	p.returned(h.key)
 	err := conn.Write(wire.Message{
 		Type: wire.TypeWelcome, Version: wire.Version, Topic: string(h.root), Declared: p.declared(h),
 		SetTimeout: p.host.PluginSetTimeout,

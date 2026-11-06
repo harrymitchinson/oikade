@@ -13,6 +13,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
@@ -361,6 +362,37 @@ func TestAReportDuringAWriteIsLookedAtAgain(t *testing.T) {
 	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
 		t.Errorf("winner %q once the write settled, want the device's override", w)
 	}
+}
+
+func TestAWriteLostWithItsDriverIsNotAnOverride(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.SwitchOn, true})
+	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
+	snap, _ := r.store.Get(dev)
+	r.clock.Step(2 * time.Second)
+	r.e.DriverReturned(snap.Instance)
+	// The new process reports what the old one never changed.
+	r.change("towel-rail", capability.SwitchOn, false)
+	r.eventually("the write again", func() bool { return len(r.setter.got()) == 2 })
+	r.at("2026-10-21 12:01 BST")
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Normal" {
+		t.Errorf("winner %q, want the rule's claim to stand", w)
+	}
+}
+
+func TestAWriteThatFailedIsTriedAgainWhenItsDeviceReports(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.SwitchOn, true})
+	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
+	r.failing("towel-rail")
+	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
+	if _, err := r.e.Claim(context.Background(), dev, capability.SwitchOn, claim); err != nil {
+		t.Fatal(err)
+	}
+	r.eventually("the write that fails", func() bool { return len(r.setter.got()) == 2 })
+	r.failing()
+	r.e.Discovered(dev, driver.Info{})
+	r.eventually("the write again, with no time passing", func() bool { return len(r.setter.got()) == 3 })
 }
 
 func TestEditingAHoldsPriorityClaimsAgain(t *testing.T) {

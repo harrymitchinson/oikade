@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
@@ -30,7 +32,7 @@ func pluginDevices(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	devices := make([]map[string]any, 0, 1)
+	devices := make([]map[string]any, 0, 2)
 	if err := json.Unmarshal(raw, &devices); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +40,12 @@ func pluginDevices(t *testing.T) string {
 		"plugin": "relays", "name": "valve", "capabilities": []string{"switch.on"},
 		"control": []map[string]any{{
 			"capability": "switch.on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h",
+		}},
+	})
+	devices = append(devices, map[string]any{
+		"plugin": "relays", "name": "once", "capabilities": []string{"switch.on"},
+		"control": []map[string]any{{
+			"capability": "switch.on", "default": false, "resolve": "PreferOn", "external": "Override", "overrideHold": "1h",
 		}},
 	})
 	out, err := json.Marshal(devices)
@@ -272,6 +280,51 @@ type switchedOn struct{ sets atomic.Int32 }
 func (s *switchedOn) set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
 	s.sets.Add(1)
 	return p.SetState(ctx, cmd.ID, contractv1.State{cmd.Capability: cmd.Value})
+}
+
+func TestAWriteLostToACrashIsWrittenAgain(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	r.untilValue("once", false)
+	r.change("leak-sensor", opened, true)
+	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
+	// Taken for somebody turning it off, it'd stay off under an hour's override of a Normal claim.
+	r.untilValue("once", true)
+}
+
+func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
+	t.Parallel()
+	broker, err := mqtttest.Listen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.Close()
+	r := prepare(t)
+	r.launch("--broker", broker.URL, "--outside-plugins", "kettle")
+	r.waitFor(func(l line) bool { return l.is(attached) })
+
+	broker.Start(t)
+	t.Cleanup(broker.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
+	defer cancel()
+	p, err := plugin.Start(ctx, plugin.Options{
+		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("home", "kettle")},
+		OnSet:       (&switchedOn{}).set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close(context.Background()) })
+	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"switch.on"}}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reported until heard: nothing retains it for a host that subscribes later.
+	r.until("the kettle", func() bool {
+		_ = p.SetState(ctx, "kettle", contractv1.State{"switch.on": false})
+		_ = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"switch.on"}}}, 0)
+		return slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Name == "kettle" })
+	})
 }
 
 func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {

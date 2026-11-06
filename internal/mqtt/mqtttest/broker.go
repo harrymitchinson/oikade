@@ -93,6 +93,14 @@ func (b *Broker) start() error {
 	return nil
 }
 
+// Start brings back a broker that was closed, on the same address.
+func (b *Broker) Start(t testing.TB) {
+	t.Helper()
+	if err := b.start(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Restart stops the broker, dropping every connection and retained message, and starts a new
 // one on the same address.
 func (b *Broker) Restart(t testing.TB) {
