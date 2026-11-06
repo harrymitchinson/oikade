@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -283,6 +284,103 @@ func NewMoment(key types.NamespacedName, m Moment) (*Compiled, error) {
 		c.actions = append(c.actions, a)
 	}
 	return c, errors.Join(errs...)
+}
+
+// Body is what a flow runs when its trigger fires. It returns the run's result, as Rule metrics
+// count it, and ends when ctx does.
+type Body func(ctx context.Context) string
+
+// Flow runs Body when its trigger fires.
+type Flow struct {
+	Trigger
+	// Mode defaults to ModeSingle.
+	Mode Mode
+	Body Body
+}
+
+// NewFlow compiles a flow written in Go.
+func NewFlow(key types.NamespacedName, f Flow) (*Compiled, error) {
+	c, errs := f.compile(key)
+	switch f.Mode {
+	case "":
+	case ModeSingle, ModeRestart:
+		c.Mode = f.Mode
+	default:
+		errs = append(errs, fmt.Errorf("unknown mode %q", f.Mode))
+	}
+	if f.Body == nil {
+		errs = append(errs, errors.New("a flow needs a body"))
+	}
+	c.body = f.Body
+	return c, errors.Join(errs...)
+}
+
+// KeepSince sets when a missed timer was last accounted for, for a rule whose fires are kept outside
+// the engine. Call it before Load.
+func (c *Compiled) KeepSince(t time.Time) {
+	c.Since, c.sinceLoad = t, false
+}
+
+// HasTimers reports whether the rule fires at times of day.
+func (c *Compiled) HasTimers() bool { return len(c.timers) > 0 }
+
+// Apply runs one action for a flow, as a moment would, including the claim a set makes on an
+// arbitrated capability.
+func (e *Engine) Apply(ctx context.Context, key types.NamespacedName, a Action) error {
+	act, err := a.action()
+	if err != nil {
+		return err
+	}
+	switch e.execute(ctx, key, &Compiled{actions: []action{act}}) {
+	case ResultSucceeded:
+		return nil
+	case ResultCancelled:
+		return context.Canceled
+	}
+	return errors.New("the action failed, and the log says why")
+}
+
+// waitRecheck bounds how long WaitFor goes without looking, since a change can be dropped when the
+// engine falls behind.
+const waitRecheck = 30 * time.Second
+
+// WaitFor returns true once cond holds, or false at until. Zero means no limit. It looks now, and
+// again after each change. Like any condition, cond runs with the engine's lock held, so one stuck
+// in a loop stops heartbeats and gets the process replaced.
+func (e *Engine) WaitFor(ctx context.Context, key types.NamespacedName, cond Condition, until time.Time) (bool, error) {
+	cond = guarded(cond)
+	logged := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		e.mu.Lock()
+		changed := e.changes
+		ok, err := cond(e.vars(key.Namespace, map[string]any{triggerType: "wait"}))
+		e.mu.Unlock()
+		var broken brokenCondition
+		if err != nil && !logged && errors.As(err, &broken) {
+			logged = true
+			e.Log.Error(err, "Failed to evaluate flow condition", "rule", key)
+		}
+		if err == nil && ok {
+			return true, nil
+		}
+		wait := waitRecheck
+		if !until.IsZero() {
+			rest := until.Sub(e.Clock.Now())
+			if rest <= 0 {
+				return false, nil
+			}
+			wait = min(wait, rest)
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-changed:
+		case <-e.Clock.After(wait):
+		}
+	}
 }
 
 // NewTrigger compiles a trigger with nothing to run yet, for a flow to attach to.

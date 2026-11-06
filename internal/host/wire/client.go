@@ -13,6 +13,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/fault"
 )
 
 // requestTimeout bounds a request. A host that doesn't answer in this long is as good as gone.
@@ -167,18 +168,29 @@ func (c *Client) request(ctx context.Context, m Message) (Message, error) {
 // next process claims again, so it reports the claim as handled rather than write around it.
 func (c *Client) Claim(ctx context.Context, dev types.NamespacedName, name string, claim control.Claim) bool {
 	r, err := c.request(ctx, Message{Type: TypeClaim, Device: dev.Name, Capability: name, Claim: &claim})
+	c.failUnsaved(err)
 	return err != nil || r.Arbitrated
+}
+
+// failUnsaved ends the session when a request about a claim failed. The claim may not be on disk,
+// and the next process works out from what is.
+func (c *Client) failUnsaved(err error) {
+	if err != nil {
+		c.fail(err)
+	}
 }
 
 // ReleaseClaim implements engine.Arbitration, handling failure as Claim does.
 func (c *Client) ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool {
 	r, err := c.request(ctx, Message{Type: TypeRelease, Device: dev.Name, Capability: name, Source: source})
+	c.failUnsaved(err)
 	return err != nil || r.Arbitrated
 }
 
 // ReleaseClaims implements engine.Arbitration.
 func (c *Client) ReleaseClaims(ctx context.Context, _, source string) {
-	_, _ = c.request(ctx, Message{Type: TypeReleaseAll, Source: source})
+	_, err := c.request(ctx, Message{Type: TypeReleaseAll, Source: source})
+	c.failUnsaved(err)
 }
 
 // Set writes a capability through the host.
@@ -187,10 +199,36 @@ func (c *Client) Set(ctx context.Context, dev types.NamespacedName, capability s
 	return err
 }
 
-// Journal appends an entry to a run's journal, and returns once it's on the host's disk.
+// Journal appends an entry to a run's journal, and returns once it's on the host's disk. After a
+// failure the entry may or may not be there, so the session ends, and the next process replays what
+// is.
 func (c *Client) Journal(ctx context.Context, run string, data []byte) (uint64, error) {
+	fault.Hit(fault.ClientJournalBefore)
 	r, err := c.request(ctx, Message{Type: TypeJournal, Run: run, Data: data})
-	return r.Seq, err
+	if err != nil {
+		c.fail(err)
+		return 0, err
+	}
+	fault.Hit(fault.ClientJournalAfter)
+	return r.Seq, nil
+}
+
+// Finish forgets a run's journal, and returns once that's on the host's disk. A failure leaves the
+// run to be replayed, and finished, by the next process.
+func (c *Client) Finish(ctx context.Context, run string) error {
+	fault.Hit(fault.ClientJournalBefore)
+	if _, err := c.request(ctx, Message{Type: TypeFinish, Run: run}); err != nil {
+		return err
+	}
+	fault.Hit(fault.ClientJournalAfter)
+	return nil
+}
+
+// SaveFire records when a timer was last accounted for, so one missed while no process ran can be
+// caught up.
+func (c *Client) SaveFire(ctx context.Context, rule string, t time.Time) error {
+	_, err := c.request(ctx, Message{Type: TypeSaveFire, Rule: rule, Time: t})
+	return err
 }
 
 // Get implements engine.HoldStates from what the Welcome returned and what's been saved since. The

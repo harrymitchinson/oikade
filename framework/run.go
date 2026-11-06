@@ -15,6 +15,7 @@ import (
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
@@ -25,7 +26,7 @@ const dialTimeout = 10 * time.Second
 var hostInstance = driver.InstanceKey{Driver: "host"}
 
 func run(h Home, log logr.Logger) error {
-	rules, err := h.compile()
+	rules, flows, err := h.compile()
 	if err != nil {
 		return err
 	}
@@ -66,10 +67,33 @@ func run(h Home, log logr.Logger) error {
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
 		Log: log.WithName("automations"),
 	}
+	fires := make(chan timerFire, firesWaiting)
+	eng.OnSchedule = func(key types.NamespacedName, s engine.Schedule) {
+		if s.LastFire.IsZero() {
+			return
+		}
+		// A fire not saved is caught up once more after a crash, which actions can stand.
+		select {
+		case fires <- timerFire{key.Name, s.LastFire}:
+		default:
+		}
+	}
 	eng.Init()
 	mirror.Listeners = []driver.Sink{eng}
+	var unaccounted []string
 	for _, r := range rules {
+		if r.HasTimers() {
+			since, ok := welcome.Fires[r.Key.Name]
+			if !ok {
+				since = eng.Clock.Now()
+				unaccounted = append(unaccounted, r.Key.Name)
+			}
+			r.KeepSince(since)
+		}
 		eng.Load(r)
+	}
+	for _, f := range flows {
+		f.Journal, f.Actions, f.Clock, f.Log, f.Process = client, eng, eng.Clock, log.WithName("flows"), ctx
 	}
 
 	pings := make(chan uint64, 1)
@@ -85,9 +109,22 @@ func run(h Home, log logr.Logger) error {
 		},
 	})
 
+	// The first start has missed nothing, and the times of day count from here.
+	now := eng.Clock.Now()
+	for _, name := range unaccounted {
+		if err := client.SaveFire(ctx, name, now); err != nil {
+			return fmt.Errorf("saving a timer: %w", err)
+		}
+	}
+	go saveFires(logr.NewContext(ctx, log), client, fires)
+	bodies := flow.Recover(logr.NewContext(ctx, log.WithName("flows")), flows, savedRuns(welcome.Runs), client)
+	log.Info("Loaded rules", "rules", len(rules), "devices", len(welcome.Devices), "resumedRuns", len(bodies))
+	for name, body := range bodies {
+		eng.Resume(ctx, deviceKey(name), body)
+	}
+
 	done := make(chan struct{})
 	go func() { eng.Run(ctx); close(done) }()
-	log.Info("Loaded rules", "rules", len(rules), "devices", len(welcome.Devices))
 	select {
 	case <-client.Done():
 		// A process cut off from the host can't act. A stuck condition would hold up a clean stop,
@@ -100,6 +137,40 @@ func run(h Home, log logr.Logger) error {
 		<-done
 		return nil
 	}
+}
+
+// firesWaiting bounds the fires waiting to be saved.
+const firesWaiting = 64
+
+// timerFire is a rule's time of day having been accounted for.
+type timerFire struct {
+	rule string
+	at   time.Time
+}
+
+// saveFires tells the host about fires, apart from the engine, which can't wait for a socket.
+func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire) {
+	log := logr.FromContextOrDiscard(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-client.Done():
+			return
+		case f := <-fires:
+			if err := client.SaveFire(ctx, f.rule, f.at); err != nil {
+				log.Error(err, "Failed to save timer fire", "rule", f.rule)
+			}
+		}
+	}
+}
+
+func savedRuns(runs []wire.Run) []flow.Saved {
+	saved := make([]flow.Saved, 0, len(runs))
+	for _, r := range runs {
+		saved = append(saved, flow.Saved{ID: r.ID, Entries: r.Entries})
+	}
+	return saved
 }
 
 // answerPings answers once the engine is free, so a stuck condition stops the answers and the host

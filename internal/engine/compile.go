@@ -50,6 +50,8 @@ type Compiled struct {
 	// condition is nil when there is none.
 	condition Condition
 	actions   []action
+	// body runs in place of actions, for a flow.
+	body Body
 	// hold is nil for a moment.
 	hold *hold
 	// staleBudget is set when the Rule's status has a budget's plan, but it has no budget.

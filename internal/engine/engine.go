@@ -128,8 +128,15 @@ type Engine struct {
 	saveWake        chan struct{}
 	reportedControl map[types.NamespacedName]string
 	skipped         map[types.NamespacedName][]string
+	// changes closes after a change has been handled, for flows waiting on a condition.
+	changes chan struct{}
 	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
 	bridgeWrites map[types.NamespacedName]map[string]bridgeWrite
+
+	// saveMu orders saves of arbiters' state, so an older one never lands on a newer one. Take it
+	// before mu. savedControls is what was last saved, by device.
+	saveMu        sync.Mutex
+	savedControls map[types.NamespacedName]string
 }
 
 type state struct {
@@ -195,6 +202,8 @@ func (e *Engine) Init() {
 	e.reportedControl = map[types.NamespacedName]string{}
 	e.skipped = map[types.NamespacedName][]string{}
 	e.bridgeWrites = map[types.NamespacedName]map[string]bridgeWrite{}
+	e.savedControls = map[types.NamespacedName]string{}
+	e.changes = make(chan struct{})
 }
 
 // Load adds or replaces a Rule. A run in progress for an older generation is cancelled;
@@ -485,13 +494,16 @@ func (e *Engine) fireDue(ctx context.Context) {
 		}
 		sched := Schedule{Generation: s.c.Generation}
 		if f.Typ != "" {
-			e.trigger(ctx, key, s, e.vars(key.Namespace, map[string]any{"type": f.Typ}))
+			e.trigger(ctx, key, s, e.vars(key.Namespace, map[string]any{triggerType: f.Typ}))
 			sched.LastFire = f.At
 		}
 		sched.Next = e.reschedule(s, now)
 		e.report(key, sched)
 	}
 }
+
+// triggerType is the key of a trigger's type in Vars.
+const triggerType = "type"
 
 func (e *Engine) vars(namespace string, trigger map[string]any) Vars {
 	return Vars{
@@ -504,7 +516,7 @@ func (e *Engine) vars(namespace string, trigger map[string]any) Vars {
 
 func (e *Engine) handle(ctx context.Context, u driver.Update) {
 	vars := e.vars(u.Device.Namespace, map[string]any{
-		"type": TypeChange, "device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
+		triggerType: TypeChange, "device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
 	})
 	var room string
 	if snap, ok := e.Store.Get(u.Device); ok {
@@ -539,6 +551,8 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 		// The evaluation may have moved a hold's next look earlier.
 		e.signal()
 	}
+	close(e.changes)
+	e.changes = make(chan struct{})
 }
 
 // trigger runs the Rule if its condition holds and its mode allows. Call with e.mu held.
@@ -565,16 +579,39 @@ func (e *Engine) trigger(ctx context.Context, key types.NamespacedName, s *state
 
 // start launches a run. Call with e.mu held.
 func (e *Engine) start(ctx context.Context, key types.NamespacedName, s *state) {
+	c := s.c
+	body := func(ctx context.Context) string { return e.execute(ctx, key, c) }
+	if c.body != nil {
+		body = c.body
+	}
+	e.launch(ctx, key, s, body)
+}
+
+// Resume continues a flow's run from before a restart, in place of a new one, so triggers treat it
+// as a run in progress. Call it after Load and before Run. It reports false for an unknown flow.
+func (e *Engine) Resume(ctx context.Context, key types.NamespacedName, body Body) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s := e.rules[key]
+	if s == nil {
+		return false
+	}
+	e.launch(ctx, key, s, body)
+	return true
+}
+
+// launch runs body as the rule's run in progress. Call with e.mu held.
+func (e *Engine) launch(ctx context.Context, key types.NamespacedName, s *state, body Body) {
 	runCtx, cancel := context.WithCancel(ctx)
 	s.run++
 	s.cancel = cancel
-	run, c := s.run, s.c
+	run := s.run
 	if e.OnStart != nil {
 		e.OnStart(key, e.Clock.Now())
 	}
 	e.runs.Go(func() {
 		defer cancel()
-		result := e.execute(runCtx, key, c)
+		result := body(runCtx)
 		e.count(key, result)
 
 		e.mu.Lock()

@@ -67,7 +67,8 @@ func build(t *testing.T) {
 			buildErr = err
 			return
 		}
-		args := []string{"build"}
+		// Fault points are in these binaries alone: they compile to nothing in a normal build.
+		args := []string{"build", "-tags", "faultpoints"}
 		if raceBuild {
 			args = append(args, "-race")
 		}
@@ -141,8 +142,10 @@ func (l line) is(msg string, fields ...any) bool {
 
 // rig is a running host.
 type rig struct {
-	t     *testing.T
-	dir   string
+	t   *testing.T
+	dir string
+	// env is added to the host's environment, which its process inherits.
+	env   []string
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 	exit  chan error
@@ -156,6 +159,15 @@ type rig struct {
 
 func start(t *testing.T, args ...string) *rig {
 	t.Helper()
+	r := prepare(t)
+	r.launch(args...)
+	r.waitFor(func(l line) bool { return l.is(attached) })
+	return r
+}
+
+// prepare makes a rig with a data directory and no host yet, so a test can set it up first.
+func prepare(t *testing.T) *rig {
+	t.Helper()
 	build(t)
 	// Not t.TempDir: a Unix socket's path has to fit in about 100 bytes.
 	dir, err := os.MkdirTemp("", "oik")
@@ -163,31 +175,42 @@ func start(t *testing.T, args ...string) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	r := &rig{t: t, dir: dir, grew: make(chan struct{}), exit: make(chan error, 1)}
+	return &rig{t: t, dir: dir, grew: make(chan struct{})}
+}
+
+// launch starts a host on the rig's data directory.
+func (r *rig) launch(args ...string) {
+	t := r.t
+	t.Helper()
+	r.exit = make(chan error, 1)
+	r.probe = false
 	devices, err := filepath.Abs(filepath.Join("testdata", "devices.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	args = append([]string{"host", "--data-dir", dir, "--home", homeBin, "--simulate", devices}, args...)
-	r.cmd = exec.Command(hostBin, args...)
-	stdout, err := r.cmd.StdoutPipe()
+	args = append([]string{"host", "--data-dir", r.dir, "--home", homeBin, "--simulate", devices}, args...)
+	cmd := exec.Command(hostBin, args...)
+	cmd.Env = append(os.Environ(), r.env...)
+	r.cmd = cmd
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.cmd.Stderr = r.cmd.Stdout
-	if r.stdin, err = r.cmd.StdinPipe(); err != nil {
+	cmd.Stderr = cmd.Stdout
+	if r.stdin, err = cmd.StdinPipe(); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	exit := r.exit
 	t.Cleanup(func() {
-		_ = r.cmd.Process.Signal(syscall.SIGTERM)
+		_ = cmd.Process.Signal(syscall.SIGTERM)
 		select {
-		case err := <-r.exit:
-			r.exit <- err
+		case err := <-exit:
+			exit <- err
 		case <-time.After(10 * time.Second):
-			_ = r.cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 	})
 	reading := make(chan struct{})
@@ -197,10 +220,8 @@ func start(t *testing.T, args ...string) *rig {
 	}()
 	go func() {
 		<-reading
-		r.exit <- r.cmd.Wait()
+		exit <- cmd.Wait()
 	}()
-	r.waitFor(func(l line) bool { return l.is(attached) })
-	return r
 }
 
 func (r *rig) read(out io.Reader) {

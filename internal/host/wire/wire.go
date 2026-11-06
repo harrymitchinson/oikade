@@ -51,7 +51,9 @@ const (
 	TypeSet        Type = "set"
 	TypeSaveHold   Type = "saveHold"
 	TypeDeleteHold Type = "deleteHold"
+	TypeSaveFire   Type = "saveFire"
 	TypeJournal    Type = "journal"
+	TypeFinish     Type = "finish"
 	TypeReply      Type = "reply"
 )
 
@@ -67,6 +69,12 @@ type Device struct {
 	Values map[string]any `json:"values,omitempty"`
 }
 
+// Run is a flow's run that hasn't finished: its journal so far, oldest first.
+type Run struct {
+	ID      string   `json:"id"`
+	Entries [][]byte `json:"entries"`
+}
+
 // Message is one line on the socket. Only the fields its Type uses are set.
 type Message struct {
 	Type Type `json:"type"`
@@ -79,9 +87,11 @@ type Message struct {
 	// Rules names the process's holds, so the Welcome can return their saved state.
 	Rules []string `json:"rules,omitempty"`
 
-	// Devices and Holds are a Welcome's, and Error a Rejected's or a failed Reply's.
+	// Devices, Holds, Runs and Fires are a Welcome's, and Error a Rejected's or a failed Reply's.
 	Devices []Device                    `json:"devices,omitempty"`
 	Holds   map[string]engine.HoldState `json:"holds,omitempty"`
+	Runs    []Run                       `json:"runs,omitempty"`
+	Fires   map[string]time.Time        `json:"fires,omitempty"`
 	Error   string                      `json:"error,omitempty"`
 
 	// Device, Capability, Value and Previous address a device.
@@ -96,7 +106,7 @@ type Message struct {
 	// Claim is a claim's, and Source a release's.
 	Claim  *control.Claim `json:"claim,omitempty"`
 	Source string         `json:"source,omitempty"`
-	// Rule and Hold are a saved hold's.
+	// Rule and Hold are a saved hold's. Rule and Time are a timer's last accounted fire.
 	Rule string            `json:"rule,omitempty"`
 	Hold *engine.HoldState `json:"hold,omitempty"`
 	// Run and Data are a journal entry's, and Seq its place in the run.
