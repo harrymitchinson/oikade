@@ -14,19 +14,23 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
-// SocketName is the host's socket in the data directory.
+// SocketName is the socket your process uses, in the data directory.
 const SocketName = "host.sock"
 
 // Host configures a host.
 type Host struct {
 	// DataDir holds the store and the socket.
 	DataDir string
-	// Home is your binary. The host runs it as "<Home> automations".
+	// Home is your binary until one is deployed, and may be empty. A deployed version takes over from
+	// it, for good. The host runs either as "<binary> automations".
 	Home string
+	// Settle is how long a new version must stay up. It defaults to DefaultSettle.
+	Settle time.Duration
 	// Devices are simulated, until drivers come to the host.
 	Devices []SimulatedDevice
 	// Simulate, if set, changes simulated devices from lines of JSON.
@@ -46,6 +50,13 @@ func (h *Host) Run(ctx context.Context) error {
 		return fmt.Errorf("opening the data directory: %w", err)
 	}
 	defer func() { _ = data.Close() }()
+	if h.Settle <= 0 {
+		h.Settle = DefaultSettle
+	}
+	kept, err := openVersions(h.DataDir, data)
+	if err != nil {
+		return err
+	}
 
 	// The engine outlives ctx: your process may claim until it has stopped, so that comes first.
 	engineCtx, stopEngine := context.WithCancel(context.WithoutCancel(ctx))
@@ -73,18 +84,38 @@ func (h *Host) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("opening the socket: %w", err)
 	}
+	apiListener, err := listen(filepath.Join(h.DataDir, api.SocketName))
+	if err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("opening the API socket: %w", err)
+	}
+	deploys := &deployer{
+		log: h.Log.WithName("deploy"), versions: kept, srv: srv, settle: h.Settle, home: h.Home,
+		swaps: make(chan *swap), connected: make(chan struct{}, 1),
+	}
+	srv.connected = func() {
+		select {
+		case deploys.connected <- struct{}{}:
+		default:
+		}
+	}
+	first := deploys.startup()
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
+	if err := deploys.removals(); err != nil {
+		h.Log.Error(err, "Failed to end what removed rules left")
+	}
 	serving.Go(func() { srv.serve(listener) })
 	if h.Simulate != nil {
 		go sim.read(h.Simulate)
 	}
 	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
-	if h.Home != "" {
-		serving.Go(func() { h.supervise(ctx, srv, socket) })
-	}
+	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
+	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys}
+	serving.Go(func() { calls.serve(apiListener) })
 	<-ctx.Done()
 	_ = listener.Close()
+	_ = apiListener.Close()
 	serving.Wait()
 	srv.shutdown()
 	stopEngine()

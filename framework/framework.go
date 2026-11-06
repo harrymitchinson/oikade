@@ -320,6 +320,21 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	return rules, flows, errors.Join(errs...)
 }
 
+// manifest describes the home to the host, which judges a new version by it.
+func (h Home) manifest() wire.Manifest {
+	m := wire.Manifest{Protocol: wire.Version}
+	for _, r := range h.Holds {
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: "hold", Safety: r.Priority == Safety, Latch: r.Latch})
+	}
+	for _, r := range h.Moments {
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: "moment", Safety: r.safety()})
+	}
+	for _, r := range h.Flows {
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: wire.KindFlow, Safety: r.Priority == Safety})
+	}
+	return m
+}
+
 // lateness is how late a time of day may fire. A negative Late isn't valid, which the engine
 // rejects.
 func lateness(late time.Duration, safety bool) time.Duration {
@@ -377,12 +392,16 @@ func (r Hold) toEngine() engine.Hold {
 	return h
 }
 
-func (r Moment) toEngine() engine.Moment {
-	safety := slices.ContainsFunc(r.Do, func(a Action) bool {
+// safety reports whether the moment has a Safety set.
+func (r Moment) safety() bool {
+	return slices.ContainsFunc(r.Do, func(a Action) bool {
 		s, ok := a.(Set)
 		return ok && s.Priority == Safety
 	})
-	m := engine.Moment{Trigger: trigger(r.On, r.At, r.If, r.Late, safety)}
+}
+
+func (r Moment) toEngine() engine.Moment {
+	m := engine.Moment{Trigger: trigger(r.On, r.At, r.If, r.Late, r.safety())}
 	if r.Restart {
 		m.Mode = engine.ModeRestart
 	}
@@ -396,8 +415,10 @@ func (r Moment) toEngine() engine.Moment {
 	return m
 }
 
-// Run runs the home and doesn't return. The host starts this binary as "<binary> automations".
-// Anything else is an error, because the home has nothing to do without the host.
+// Run runs the home and doesn't return. The host starts this binary as "<binary> automations", and
+// as "<binary> check" to judge a new version: that loads the home and prints what it finds, with no
+// writes and no session. Anything else is an error, because the home has nothing to do without the
+// host.
 func Run(h Home) {
 	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(h, log); err != nil {

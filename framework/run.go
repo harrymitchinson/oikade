@@ -2,6 +2,7 @@ package framework
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -29,6 +30,9 @@ func run(h Home, log logr.Logger) error {
 	rules, flows, err := h.compile()
 	if err != nil {
 		return err
+	}
+	if len(os.Args) > 1 && os.Args[1] == wire.RoleCheck {
+		return json.NewEncoder(os.Stdout).Encode(h.manifest())
 	}
 	if len(os.Args) < 2 || os.Args[1] != wire.RoleAutomations {
 		return errors.New("this is a home: run it with oikade host")

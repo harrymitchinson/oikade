@@ -16,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
+	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -39,8 +40,8 @@ type server struct {
 	devices *hub.Store
 	engine  *engine.Engine
 	setter  driver.Setter
-	holds   engine.HoldStates
-	fires   engine.States[time.Time]
+	holds   *engine.Stored[engine.HoldState]
+	fires   *engine.Stored[time.Time]
 	journal *store.Journal
 
 	mu      sync.Mutex
@@ -49,6 +50,11 @@ type server struct {
 	closed bool
 	// pong is when the session last answered a ping.
 	pong time.Time
+	// generation counts disconnects.
+	generation uint64
+
+	// connected, if set, hears of each session. It must not block.
+	connected func()
 }
 
 // session is the connected automations process.
@@ -59,6 +65,8 @@ type session struct {
 	// out, so nothing from it can land on top of the next session.
 	gone, finished chan struct{}
 	once           sync.Once
+	// generation is the server's when the connection arrived.
+	generation uint64
 }
 
 func (s *session) end() {
@@ -78,7 +86,10 @@ func (s *server) serve(l net.Listener) {
 			}
 			return
 		}
-		go s.handle(wire.NewConn(c))
+		s.mu.Lock()
+		generation := s.generation
+		s.mu.Unlock()
+		go s.handle(wire.NewConn(c), generation)
 	}
 }
 
@@ -100,7 +111,7 @@ func listen(path string) (net.Listener, error) {
 	return l, nil
 }
 
-func (s *server) handle(conn *wire.Conn) {
+func (s *server) handle(conn *wire.Conn, generation uint64) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetReadDeadline(time.Now().Add(helloTimeout))
 	hello, err := conn.Read()
@@ -116,6 +127,7 @@ func (s *server) handle(conn *wire.Conn) {
 	}
 	sess := &session{
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
+		generation: generation,
 	}
 	welcome, runs, err := s.welcome(hello)
 	if err != nil {
@@ -129,6 +141,9 @@ func (s *server) handle(conn *wire.Conn) {
 		return
 	}
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
+	if s.connected != nil {
+		s.connected()
+	}
 
 	work := make(chan wire.Message, requests)
 	drained := make(chan struct{})
@@ -225,7 +240,7 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.session != nil || s.closed {
+	if s.session != nil || s.closed || sess.generation != s.generation {
 		return false
 	}
 	s.session, s.pong = sess, time.Now()
@@ -258,15 +273,108 @@ func (s *server) detach(sess *session) {
 }
 
 // disconnect ends the session, if there is one, and returns once its requests have all been carried
-// out, so that the next process starts from everything the last one did.
+// out, so that the next process starts from everything the last one did. A connection that has yet
+// to attach belonged to the process that's going, so it never will.
 func (s *server) disconnect() {
 	s.mu.Lock()
 	sess := s.session
+	s.generation++
 	s.mu.Unlock()
 	if sess != nil {
 		sess.end()
 		<-sess.finished
 	}
+}
+
+// reconcile ends what's left of rules not named, their claims, Safety ones too, and their saved state,
+// and the runs of flows not named. A flow can become another kind of rule, so a rule's name isn't a
+// flow's. Nothing else would end any of it, because its code has gone. Only a deploy calls it, so a
+// Safety rule goes only past the check that refuses that. An error means it should be tried again.
+func (s *server) reconcile(rules, flows []string) error {
+	if fault.Drop(fault.HostRemovals) {
+		return errors.New("dropped by a fault point")
+	}
+	runs, err := s.journal.Runs()
+	if err != nil {
+		return fmt.Errorf("reading flow runs: %w", err)
+	}
+	var errs []error
+	for rule, level := range s.engine.RuleClaims(wire.Namespace) {
+		if slices.Contains(rules, rule) {
+			continue
+		}
+		err := s.engine.EndRule(s.ctx, wire.Namespace, rule)
+		if fault.Drop(fault.HostEndRule) {
+			err = errors.New("dropped by a fault point")
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", rule, err))
+			continue
+		}
+		s.log.Info("Ended the claims of a removed rule", "rule", rule, "highest", level.String())
+	}
+	for _, saved := range []interface {
+		Names(namespace string) ([]string, error)
+		Delete(ctx context.Context, key types.NamespacedName) error
+	}{s.holds, s.fires} {
+		names, err := saved.Names(wire.Namespace)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		for _, name := range names {
+			if slices.Contains(rules, name) {
+				continue
+			}
+			if err := saved.Delete(s.ctx, key(name)); err != nil {
+				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", name, err))
+				continue
+			}
+			s.log.Info("Forgot the saved state of a removed rule", "rule", name)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	// Last, because a run's journal is the record of what it claimed.
+	for _, run := range runs {
+		if name := flow.FlowOf(run); name == "" || slices.Contains(flows, name) {
+			continue
+		}
+		if err := s.journal.Delete(run); err != nil {
+			errs = append(errs, fmt.Errorf("finishing flow run %s: %w", run, err))
+			continue
+		}
+		s.log.Info("Dropped flow run; its flow has gone", "run", run)
+	}
+	return errors.Join(errs...)
+}
+
+// leftovers names every rule with anything on record: claims, saved state or an unfinished run.
+func (s *server) leftovers() ([]string, error) {
+	held := s.engine.RuleClaims(wire.Namespace)
+	names := make([]string, 0, len(held))
+	for rule := range held {
+		names = append(names, rule)
+	}
+	holds, err := s.holds.Names(wire.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	fires, err := s.fires.Names(wire.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.journal.Runs()
+	if err != nil {
+		return nil, err
+	}
+	names = append(append(names, holds...), fires...)
+	for _, run := range runs {
+		names = append(names, flow.FlowOf(run))
+	}
+	slices.Sort(names)
+	return slices.Compact(names), nil
 }
 
 // shutdown disconnects the session and refuses any more.

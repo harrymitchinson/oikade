@@ -161,6 +161,22 @@ func (n *Namespace) Get(key string) ([]byte, bool, error) {
 	return value, value != nil, err
 }
 
+// Keys returns every key in the namespace, in order.
+func (n *Namespace) Keys() ([]string, error) {
+	var keys []string
+	err := n.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(kvBucket).Bucket(n.name)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, _ []byte) error {
+			keys = append(keys, string(k))
+			return nil
+		})
+	})
+	return keys, err
+}
+
 // Put sets the key's value, and returns once that's on disk.
 func (n *Namespace) Put(key string, value []byte) error {
 	return n.db.Update(func(tx *bolt.Tx) error {

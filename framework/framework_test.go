@@ -2,6 +2,7 @@ package framework
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -89,5 +90,28 @@ func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	changed(mirror, wire.Message{Device: "lamp", Capability: "switch.on", Value: false})
 	if snap, _ := mirror.Get(deviceKey("lamp")); snap.Values["switch.on"] != false {
 		t.Fatalf("a later change didn't reach it: %+v", snap)
+	}
+}
+
+func TestManifestDescribesTheHome(t *testing.T) {
+	when := func(State) bool { return true }
+	m := Home{
+		Holds: []Hold{{Name: "leak", Priority: Safety, Latch: true, When: when}, {Name: "fan", When: when}},
+		Moments: []Moment{
+			{Name: "alarm", Do: []Action{Set{Priority: Safety}}},
+			{Name: "lamp", Do: []Action{Set{}, Wait(time.Second)}},
+		},
+		Flows: []Flow{{Name: "shutoff", Priority: Safety}, {Name: "bedtime"}},
+	}.manifest()
+	if m.Protocol != wire.Version {
+		t.Fatalf("protocol %d", m.Protocol)
+	}
+	want := []wire.RuleInfo{
+		{Name: "leak", Kind: "hold", Safety: true, Latch: true}, {Name: "fan", Kind: "hold"},
+		{Name: "alarm", Kind: "moment", Safety: true}, {Name: "lamp", Kind: "moment"},
+		{Name: "shutoff", Kind: "flow", Safety: true}, {Name: "bedtime", Kind: "flow"},
+	}
+	if !slices.Equal(m.Rules, want) {
+		t.Fatalf("got %+v", m.Rules)
 	}
 }

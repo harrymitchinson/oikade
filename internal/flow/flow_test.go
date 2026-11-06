@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -973,56 +974,53 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 	logged := func(h *fakeHome, c *clocktesting.FakeClock, l *logs, body func(*Run) error) {
 		crash(t, newFlow(h, c, l, body), c)
 	}
-	t.Run("its flow has gone: claims go first, then the journal", func(t *testing.T) {
+	t.Run("its flow has gone: everything stays, for the host to end", func(t *testing.T) {
 		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
-		safety := set("valve")
-		safety.Priority = engine.PrioritySafety
-		logged(h, c, l, func(r *Run) error {
-			if err := r.Apply(safety); err != nil {
-				return err
-			}
-			return claimThenSleep(r)
-		})
+		logged(h, c, l, claimThenSleep)
 		if bodies := Recover(context.Background(), "home", nil, h.saved(), h, h); len(bodies) != 0 {
 			t.Fatalf("got %d bodies", len(bodies))
 		}
-		if h.holds("lamp") {
-			t.Fatal("a removed flow's claim was kept for ever")
-		}
-		if !h.holds("valve") {
-			t.Fatal("a removed flow's Safety claim was released")
-		}
-		if want := "release finish"; strings.Join(h.order, " ") != want {
-			t.Fatalf("got %v", h.order)
-		}
-		if h.releasedFor.Namespace != "home" || h.releasedFor.Name != "bedtime" {
-			t.Fatalf("released for %v", h.releasedFor)
-		}
-		if len(h.saved()) != 0 {
-			t.Fatal("the journal stayed")
+		if !h.holds("lamp") || len(h.saved()) != 1 || len(h.order) != 0 {
+			t.Fatalf("a binary without the flow ended it: %v", h.order)
 		}
 	})
-	t.Run("a failed release keeps the journal", func(t *testing.T) {
-		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
-		logged(h, c, l, claimThenSleep)
-		h.releaseErr = errors.New("no host")
-		Recover(context.Background(), "home", nil, h.saved(), h, h)
-		if len(h.saved()) != 1 {
-			t.Fatal("the only record of the claim went")
-		}
-	})
-	t.Run("an unreadable journal is named by its run ID", func(t *testing.T) {
+	t.Run("an unreadable journal of a gone flow stays too", func(t *testing.T) {
 		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
 		logged(h, c, l, claimThenSleep)
 		for id := range h.journal {
 			h.journal[id] = append(h.journal[id], []byte("not json"))
 		}
 		Recover(context.Background(), "home", nil, h.saved(), h, h)
+		if !h.holds("lamp") || len(h.saved()) != 1 {
+			t.Fatal("a binary without the flow ended it")
+		}
+	})
+	t.Run("an unreadable journal is named by its run ID", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, claimThenSleep)
+		crash(t, f, c)
+		for id := range h.journal {
+			h.journal[id] = append(h.journal[id], []byte("not json"))
+		}
+		Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if h.holds("lamp") {
 			t.Fatal("an unreadable journal's claim was kept for ever")
 		}
 		if h.releasedFor.Name != "bedtime" {
 			t.Fatalf("released for %v", h.releasedFor)
+		}
+	})
+	t.Run("a failed release keeps the journal", func(t *testing.T) {
+		h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+		f := newFlow(h, c, l, claimThenSleep)
+		crash(t, f, c)
+		for id := range h.journal {
+			h.journal[id] = append(h.journal[id], []byte("not json"))
+		}
+		h.releaseErr = errors.New("no host")
+		Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		if len(h.saved()) != 1 {
+			t.Fatal("the only record of the claim went")
 		}
 	})
 	t.Run("a replaced run is left alone", func(t *testing.T) {
@@ -1149,7 +1147,12 @@ func TestRecoverKeepsOnlyTheNewestRunOfAFlow(t *testing.T) {
 		t.Fatalf("resumed %v", bodies)
 	}
 	saved := h.saved()
-	if len(saved) != 1 || saved[0].ID != "bedtime/new" {
-		t.Fatalf("kept %v", saved)
+	kept := make([]string, 0, len(saved))
+	for _, s := range saved {
+		kept = append(kept, s.ID)
+	}
+	slices.Sort(kept)
+	if !slices.Equal(kept, []string{"bedtime/new", "removed/x"}) { // A gone flow's are the host's to end.
+		t.Fatalf("kept %v", kept)
 	}
 }

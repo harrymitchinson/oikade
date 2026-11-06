@@ -18,4 +18,16 @@ const (
 	HostJournalAppend = "host.journal.append"
 	// HostClaimReplied is the host having answered a claim.
 	HostClaimReplied = "host.claim.replied"
+	// HostDeployConfirmed is a new version confirmed, with its removed rules not yet dealt with.
+	HostDeployConfirmed = "host.deploy.confirmed"
+	// HostDeployChecked is a new version checked, with the old one still running.
+	HostDeployChecked = "host.deploy.checked"
+	// HostDeployBegun is a new version recorded as unconfirmed, with the old one still running.
+	HostDeployBegun = "host.deploy.begun"
+	// HostRemovals is the host about to end what removed rules left, which a test can drop to make
+	// that fail.
+	HostRemovals = "host.removals"
+	// HostEndRule is the host about to end a removed rule's claims, which a test can drop to make
+	// that fail.
+	HostEndRule = "host.removals.end"
 )

@@ -207,6 +207,21 @@ func (s *Stored[T]) Get(key types.NamespacedName) (T, bool) {
 	return state, true
 }
 
+// Names returns the names of the states saved in a namespace.
+func (s *Stored[T]) Names(namespace string) ([]string, error) {
+	keys, err := s.Values.Keys()
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, k := range keys {
+		if name, ok := strings.CutPrefix(k, namespace+string(types.Separator)); ok {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
 // Put implements States.
 //
 // It ignores ctx: the write is local, and a hold that has just written its device must save that

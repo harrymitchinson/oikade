@@ -17,9 +17,15 @@ import (
 
 const (
 	// Version is the protocol's version. A process sends it first, and the host refuses any other.
-	Version = 1
+	// Raise it with any change to what a message means: a host outlives a deploy, so it can meet a
+	// binary built against something else. Version 2 added releaseAll's below.
+	Version = 2
 	// RoleAutomations is the one process that runs a home's holds and moments.
 	RoleAutomations = "automations"
+	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
+	RoleCheck = "check"
+	// KindFlow is the Kind of a RuleInfo for a flow.
+	KindFlow = "flow"
 	// SocketEnv names the host's socket to the process it starts.
 	SocketEnv = "OIKADE_SOCKET"
 	// Namespace is the home's namespace in the engine, whose rules and devices are keyed by one.
@@ -57,6 +63,25 @@ const (
 	TypeFinish     Type = "finish"
 	TypeReply      Type = "reply"
 )
+
+// Manifest is what your binary's check mode prints: enough for the host to judge a version before
+// anything stops.
+type Manifest struct {
+	// Protocol is the Version the binary was built against.
+	Protocol int        `json:"protocol"`
+	Rules    []RuleInfo `json:"rules"`
+}
+
+// RuleInfo is one rule of a home.
+type RuleInfo struct {
+	Name string `json:"name"`
+	// Kind is hold, moment or KindFlow.
+	Kind string `json:"kind"`
+	// Safety is a rule with Safety priority, or a moment with a Safety set.
+	Safety bool `json:"safety,omitempty"`
+	// Latch is a hold that stays active until a release.
+	Latch bool `json:"latch,omitempty"`
+}
 
 // Device is one device as the host knows it.
 type Device struct {

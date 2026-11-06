@@ -43,7 +43,13 @@ jobs:
           path: bin
           key: bin-test-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
 
+      # Runs a cross-compiled arm64 home's check mode (test/host).
+      - name: Install the arm64 emulator
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+
       - name: Running Tests
+        env:
+          OIKADE_REQUIRE_EMULATOR: "1"
         run: |
           go mod tidy
           make test

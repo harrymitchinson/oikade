@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/harrymitchinson/oikade/framework"
@@ -16,6 +18,9 @@ const (
 	on   = "switch.on"
 	open = "sensor.contact-open"
 )
+
+// variant makes this home a different version, set when the tests link it. Empty is the first one.
+var variant string
 
 // routine takes every kind of step in a known order, which the tests count on: start, now, set,
 // set, do, sleep, now, set, finish.
@@ -66,6 +71,21 @@ func editable(r *framework.FlowRun) error {
 	return r.Set(framework.Set{Device: "edit-out", Capability: on, Value: true})
 }
 
+// parked waits for a sensor, with a limit that says which step it's waiting at. A deploy can land
+// while it does.
+func parked(r *framework.FlowRun) error {
+	limit := time.Hour
+	if variant == "edited" {
+		limit = 2 * time.Hour
+	}
+	r.WaitFor(func(s framework.State) bool { return s.Bool("park-end", open) }, limit)
+	out := "park-out"
+	if variant == "tail" {
+		out = "park-tail"
+	}
+	return r.Set(framework.Set{Device: out, Capability: on, Value: true})
+}
+
 // claiming holds a claim until a sensor says so, and releases it.
 func claiming(r *framework.FlowRun) error {
 	err := r.Set(framework.Set{Device: "claimed-flow", Capability: on, Value: false, UntilReleased: true})
@@ -93,7 +113,33 @@ func failing(r *framework.FlowRun) error {
 	return errors.New("this flow fails on purpose")
 }
 
+// start acts out the variants that fail at run time. Check mode doesn't reach this far.
+func start() {
+	if len(os.Args) < 2 || os.Args[1] != "automations" {
+		return
+	}
+	switch variant {
+	case "crash":
+		os.Exit(3)
+	case "crash-late", "crash-removed":
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			os.Exit(3)
+		}()
+	case "crash-told", "crash-noflow":
+		go func() {
+			for {
+				if _, err := os.Stat(os.Getenv("OIKADE_TEST_CRASH")); err == nil {
+					os.Exit(3)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}()
+	}
+}
+
 func main() {
+	start()
 	var extra []framework.Moment
 	// A time of day comes from the test, which seeds when it was last accounted for.
 	if at := os.Getenv("OIKADE_TEST_AT"); at != "" {
@@ -102,7 +148,19 @@ func main() {
 			Do: []framework.Action{framework.Set{Device: "timed-out", Capability: on, Value: true}},
 		})
 	}
-	framework.Run(framework.Home{
+	leakShutoff, claimMoment := "leak-shutoff", framework.Moment{
+		Name: "claim-moment", On: []framework.Change{{Device: "claim-go", Capability: open}},
+		Do: []framework.Action{framework.Set{Device: "claimed", Capability: on, Value: false, For: time.Hour}},
+	}
+	switch variant {
+	case "renamed":
+		leakShutoff = "valve-shutoff"
+	case "removed", "crash-removed", "crash-told":
+		claimMoment.Name = "claim-moment-2"
+	case "badcheck":
+		extra = append(extra, framework.Moment{Name: leakShutoff})
+	}
+	run(framework.Home{
 		Holds: []framework.Hold{
 			{
 				Name: "fan", Device: "fan", Capability: on, Value: true,
@@ -111,7 +169,7 @@ func main() {
 				},
 			},
 			{
-				Name: "leak-shutoff", Device: "valve", Capability: on, Value: false,
+				Name: leakShutoff, Device: "valve", Capability: on, Value: false,
 				Priority: framework.Safety, Latch: true,
 				When: func(s framework.State) bool {
 					return s.Bool("leak-sensor", open)
@@ -140,6 +198,7 @@ func main() {
 			{Name: "editable", On: []framework.Change{{Device: "edit-go", Capability: open}}, Run: editable},
 			{Name: "claiming", On: []framework.Change{{Device: "claim-flow-go", Capability: open}}, Run: claiming},
 			{Name: "failing", On: []framework.Change{{Device: "fail-go", Capability: open}}, Run: failing},
+			{Name: parkedName, On: []framework.Change{{Device: "park-go", Capability: open}}, Run: parked},
 		},
 		Moments: append([]framework.Moment{
 			{
@@ -149,12 +208,39 @@ func main() {
 			},
 			{
 				Name: "reset", On: []framework.Change{{Device: "reset", Capability: open}},
-				Do: []framework.Action{framework.Release("leak-shutoff"), framework.Release("leak-alarm")},
+				Do: []framework.Action{framework.Release(leakShutoff), framework.Release("leak-alarm")},
 			},
-			{
-				Name: "claim-moment", On: []framework.Change{{Device: "claim-go", Capability: open}},
-				Do: []framework.Action{framework.Set{Device: "claimed", Capability: on, Value: false, For: time.Hour}},
-			},
+			claimMoment,
 		}, extra...),
 	})
+}
+
+// parkedName is the flow that waits, which some variants drop.
+const parkedName = "parked"
+
+// run leaves out what the variants without a rule leave out.
+func run(h framework.Home) {
+	if strings.Contains(variant, "noflow") {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "claiming" })
+	}
+	if variant == "nofail" {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "failing" })
+	}
+	if variant == "parkmoment" {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == parkedName })
+		h.Moments = append(h.Moments, framework.Moment{
+			Name: parkedName, On: []framework.Change{{Device: "park-go", Capability: open}},
+			Do: []framework.Action{framework.Set{Device: "park-out", Capability: on, Value: true}},
+		})
+	}
+	if variant == "nofan" {
+		h.Holds = h.Holds[1:] // The fan comes first.
+	}
+	if variant == "nopark" {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == parkedName })
+	}
+	if variant == "noleak" {
+		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "leak-shutoff" })
+	}
+	framework.Run(h)
 }
