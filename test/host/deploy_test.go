@@ -519,6 +519,75 @@ func TestAFailedVersionCleansUpOnlyWhatItMade(t *testing.T) {
 	r.expectSafetyKept()
 }
 
+// A claim with nothing else on record is spared just the same.
+func TestAFailedVersionSparesAClaimOfARuleTheLastOneLacks(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.change("claim-go", opened, true)
+	r.wrote("claimed", false)
+	r.sync()
+	r.stop()
+	r.launchWithout("--home", variant(t, "removed"), "--simulate", devicesFile(t), settle)
+	r.awaitLoaded()
+	r.sync()
+	if _, err := r.deploy("crash-late"); err == nil {
+		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.stop()
+	got := r.ruleClaims("claimed")
+	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/claim-moment" }) {
+		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
+	}
+}
+
+// So is saved state with no claim.
+func TestAFailedVersionSparesTheStateOfARuleTheLastOneLacks(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.sync()
+	r.stop()
+	r.launchWithout("--home", variant(t, "nofan"), "--simulate", devicesFile(t), settle)
+	r.awaitLoaded()
+	r.sync()
+	if _, err := r.deploy("crash-late"); err == nil {
+		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.stop()
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("home/fan"); err != nil || !ok {
+		t.Fatalf("the hold's state went: %v, %v. The log:\n%s", ok, err, r.dump())
+	}
+}
+
+// So is a waiting run with no claims at all.
+func TestAFailedVersionSparesARunOfAFlowTheLastOneLacks(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.contact("park-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "parked") })
+	r.sync()
+	r.stop()
+	r.launchWithout("--home", variant(t, "nopark"), "--simulate", devicesFile(t), settle)
+	r.awaitLoaded()
+	r.sync()
+	if _, err := r.deploy("crash-late"); err == nil {
+		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.stop()
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	if runs, err := s.Journal().Runs(); err != nil || len(runs) != 1 {
+		t.Fatalf("got %v, %v. The log:\n%s", runs, err, r.dump())
+	}
+}
+
 // The same goes for a deploy a host died during.
 func TestAnUnfinishedDeployCleansUpOnlyWhatItMade(t *testing.T) {
 	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployBegun))

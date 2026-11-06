@@ -418,7 +418,7 @@ func TestAFailedDeployKeepsWhatItOwes(t *testing.T) {
 	if !v.state.Removals || !slices.Equal(v.state.Spared, []string{"leak-shutoff"}) {
 		t.Fatalf("got %+v", v.state)
 	}
-	if err := v.begin(version{ID: binary(t, v, "next")}, nil); err != nil {
+	if err := v.begin(version{ID: binary(t, v, "next")}, []string{"leak-shutoff"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := v.commit(); err != nil {
@@ -431,8 +431,10 @@ func TestAFailedDeployKeepsWhatItOwes(t *testing.T) {
 
 // A connection from before a disconnect is the process that's going, however late it gets here.
 func TestAStaleConnectionNeverAttaches(t *testing.T) {
-	s := &server{generation: 1}
-	if s.attach(&session{}, wire.Message{}, nil) {
+	s := &server{}
+	stale := &session{generation: s.generation}
+	s.disconnect()
+	if s.attach(stale, wire.Message{}, nil) {
 		t.Fatal("it attached")
 	}
 }

@@ -348,8 +348,9 @@ func (s *server) reconcile(rules []string) error {
 
 // leftovers names every rule with anything on record: claims, saved state or an unfinished run.
 func (s *server) leftovers() ([]string, error) {
-	var names []string
-	for rule := range s.engine.RuleClaims(wire.Namespace) {
+	held := s.engine.RuleClaims(wire.Namespace)
+	names := make([]string, 0, len(held))
+	for rule := range held {
 		names = append(names, rule)
 	}
 	holds, err := s.holds.Names(wire.Namespace)

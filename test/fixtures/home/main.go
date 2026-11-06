@@ -223,6 +223,12 @@ func run(h framework.Home) {
 	if variant == "nofail" {
 		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "failing" })
 	}
+	if variant == "nofan" {
+		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "fan" })
+	}
+	if variant == "nopark" {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "parked" })
+	}
 	if variant == "noleak" {
 		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "leak-shutoff" })
 	}
