@@ -499,6 +499,54 @@ func TestRecoveringFromAStopDoesNotContinueTheRun(t *testing.T) {
 	}
 }
 
+// A wait that finished long ago mustn't excuse a run that went down after it.
+func TestRunAfterACompletedWaitIsStillLate(t *testing.T) {
+	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+	met := func(engine.Vars) (bool, error) { return true, nil }
+	f := newFlow(h, c, l, func(r *Run) error {
+		r.WaitFor(met, time.Hour)
+		r.Sleep(time.Hour)
+		return r.Apply(engine.Set{Device: "a", Capability: "switch.on", Value: true})
+	})
+	crash(t, f, c)
+
+	// Now take the wait out of it: the run is down between its wait and a new last step.
+	saved := h.saved()
+	if len(saved[0].Entries) != 4 {
+		t.Fatalf("journal has %d entries", len(saved[0].Entries))
+	}
+	h.journal[saved[0].ID] = saved[0].Entries[:3]
+	f.Body = func(r *Run) error {
+		r.WaitFor(met, time.Hour)
+		return r.Apply(engine.Set{Device: "a", Capability: "switch.on", Value: true})
+	}
+	c.Step(11 * time.Minute)
+	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLongJournalEndsTheRun(t *testing.T) {
+	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
+	f := newFlow(h, c, l, func(r *Run) error {
+		for {
+			var s string
+			if err := r.Do("big", &s, func(context.Context) error {
+				s = strings.Repeat("x", MaxResult/2)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+	})
+	if got := f.Start(context.Background()); got != engine.ResultFailed {
+		t.Fatalf("got %q", got)
+	}
+	if !l.has("its journal is too long") {
+		t.Fatalf("not logged: %v", l.lines)
+	}
+}
+
 func TestTooManyStepsEndTheRun(t *testing.T) {
 	h, c, l := newFakeHome(), clocktesting.NewFakeClock(epoch), &logs{}
 	f := newFlow(h, c, l, func(r *Run) error {
@@ -509,7 +557,7 @@ func TestTooManyStepsEndTheRun(t *testing.T) {
 	if got := f.Start(context.Background()); got != engine.ResultFailed {
 		t.Fatalf("got %q", got)
 	}
-	if !l.has("too many steps") {
+	if !l.has("its journal is too long") {
 		t.Fatalf("not logged: %v", l.lines)
 	}
 }

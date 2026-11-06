@@ -33,6 +33,9 @@ const (
 	MaxSteps = 10000
 	// MaxResult bounds what one Do records.
 	MaxResult = 1 << 20
+	// MaxRunBytes bounds a run's journal, which reaches a new process in one message of the host's
+	// welcome. Past that limit the process couldn't read it, and would die at every start.
+	MaxRunBytes = 4 << 20
 
 	// ResultGaveUp is a run that woke too late to be useful.
 	ResultGaveUp = "gave_up"
@@ -122,6 +125,9 @@ type stop struct {
 
 func (f *Flow) run(ctx context.Context, id string, recorded []entry) string {
 	r := &Run{f: f, ctx: ctx, id: id, recorded: recorded, steps: len(recorded), live: len(recorded) == 0}
+	for _, e := range recorded {
+		r.bytes += len(e.Result) + entryOverhead
+	}
 	if !r.live {
 		r.pos = 1 // Its start.
 	}
@@ -172,7 +178,7 @@ func (r *Run) conclude(log logr.Logger, failure error) string {
 			log.Info("Dropped flow run; its code changed while it waited", "detail", s.detail)
 			result = ResultDropped
 		case stopTooLong:
-			log.Info("Failed flow run; it has too many steps", "steps", MaxSteps)
+			log.Info("Failed flow run; its journal is too long", "steps", r.steps, "bytes", r.bytes)
 			result = engine.ResultFailed
 		}
 	} else if failure != nil {

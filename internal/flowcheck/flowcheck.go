@@ -102,7 +102,9 @@ func checkBody(pass *analysis.Pass, body *ast.BlockStmt) {
 				}
 				return false
 			}
-			if name, ok := timeCall(pass, s); ok {
+		case *ast.SelectorExpr:
+			// Not only calls: a flow could keep time.Now in a variable.
+			if name, ok := clockFunc(pass, s); ok {
 				pass.Reportf(s.Pos(), "time.%s inside a flow varies between runs, so it breaks replay: use %s",
 					name, clockCalls[name])
 			}
@@ -120,11 +122,7 @@ func isDo(pass *analysis.Pass, call *ast.CallExpr) bool {
 	return isRun(pass.TypesInfo.TypeOf(sel.X))
 }
 
-func timeCall(pass *analysis.Pass, call *ast.CallExpr) (string, bool) {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return "", false
-	}
+func clockFunc(pass *analysis.Pass, sel *ast.SelectorExpr) (string, bool) {
 	fn, ok := pass.TypesInfo.Uses[sel.Sel].(*types.Func)
 	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "time" {
 		return "", false

@@ -10,6 +10,10 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
+// entryOverhead is a rough size for what an entry holds beside its result, for counting a journal
+// that's being resumed.
+const entryOverhead = 128
+
 // Kinds of journal entry.
 const (
 	kindStart = "start"
@@ -48,6 +52,7 @@ type Run struct {
 	// live is set once the replay has caught up.
 	live    bool
 	steps   int
+	bytes   int
 	stopped *stop
 }
 
@@ -114,12 +119,14 @@ func (r *Run) record(e entry) entry {
 	if e.At.IsZero() {
 		e.At = r.f.Clock.Now()
 	}
-	if r.steps++; r.steps > MaxSteps {
-		r.halt(stop{reason: stopTooLong})
-	}
 	raw, err := json.Marshal(e)
 	if err != nil {
 		r.halt(stop{reason: stopLost, detail: err.Error()})
+	}
+	r.steps++
+	r.bytes += len(raw)
+	if r.steps > MaxSteps || r.bytes > MaxRunBytes {
+		r.halt(stop{reason: stopTooLong})
 	}
 	if _, err := r.f.Journal.Journal(context.WithoutCancel(r.ctx), r.id, raw); err != nil {
 		r.halt(stop{reason: stopLost, detail: err.Error()})
@@ -175,7 +182,9 @@ func (r *Run) WaitFor(cond engine.Condition, timeout time.Duration) bool {
 		e = r.record(wait)
 	}
 	// Waiting is the point here, so time since the wait began isn't lateness.
-	r.live = true
+	if r.inTail() {
+		r.live = true
+	}
 	if woke, ok := r.replay(kindWoke, id); ok {
 		return woke.OK
 	}

@@ -20,6 +20,8 @@ func named(r *framework.FlowRun) error {
 	_ = time.Since(r.Now())     // want `time.Since inside a flow`
 	<-time.After(time.Second)   // want `time.After inside a flow`
 	func() { _ = time.Now() }() // want `time.Now inside a flow`
+	now := time.Now             // want `time.Now inside a flow`
+	_ = now
 	return helper(r)
 }
 
