@@ -151,6 +151,9 @@ func budgetHome(c Control, b Budget) Home {
 
 func TestHomeChecksControlAndBudgets(t *testing.T) {
 	minutes := func(State) int { return 120 }
+	limited := valveControl()
+	limited.MinimumOn = 45 * time.Minute
+	control := func(c Control) Home { return Home{Control: []Control{c}} }
 	for name, tc := range map[string]struct {
 		home Home
 		want string
@@ -159,18 +162,26 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		"bands": {budgetHome(valveControl(), Budget{Bands: &Bands{
 			Device: "water", Capability: "sensor.temperature", Ranges: []Band{{Below: 12, Minutes: 60}}, Otherwise: 90,
 		}}), ""},
-		"no minutes":     {budgetHome(valveControl(), Budget{}), "exactly one of bands or expression"},
-		"both minutes":   {budgetHome(valveControl(), Budget{Minutes: minutes, Bands: &Bands{}}), "exactly one"},
-		"bad slot":       {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 20}), "slotMinutes"},
-		"off the slots":  {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 60, Forbid: []Window{{Start: "7", End: "8"}}}), "not HH:MM"},
-		"limit off slot": {budgetHome(func() Control { c := valveControl(); c.MinimumOn = 45 * time.Minute; return c }(), Budget{Minutes: minutes}), "isn't a multiple"},
+		"no minutes":   {budgetHome(valveControl(), Budget{}), "exactly one of bands or expression"},
+		"both minutes": {budgetHome(valveControl(), Budget{Minutes: minutes, Bands: &Bands{}}), "exactly one"},
+		"bad slot":     {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 20}), "slotMinutes"},
+		"bad window": {
+			budgetHome(valveControl(), Budget{Minutes: minutes, Forbid: []Window{{Start: "7", End: "8"}}}), "not HH:MM",
+		},
+		"limit off the slots": {budgetHome(limited, Budget{Minutes: minutes}), "isn't a multiple"},
 		"no control": {Home{Holds: []Hold{{
 			Name: "pump-daily", Device: "pump", Capability: "switch.on", Value: true, Budget: &Budget{Minutes: minutes},
 		}}}, "needs a Control"},
-		"twice":        {Home{Control: []Control{valveControl(), valveControl()}}, "declared twice"},
-		"no device":    {Home{Control: []Control{{Capability: "switch.on", Default: false, Resolve: PreferOn, External: ExternalRevert}}}, "a device is required"},
-		"bool resolve": {Home{Control: []Control{{Device: "x", Capability: "switch.on", Default: false, Resolve: Highest, External: ExternalRevert}}}, "PreferOn or PreferOff"},
-		"read-only":    {Home{Control: []Control{{Device: "x", Capability: "sensor.temperature", Default: 1.0, Resolve: Highest, External: ExternalRevert}}}, "read-only"},
+		"twice": {Home{Control: []Control{valveControl(), valveControl()}}, "declared twice"},
+		"no device": {control(Control{
+			Capability: "switch.on", Default: false, Resolve: PreferOn, External: ExternalRevert,
+		}), "a device is required"},
+		"bool resolve": {control(Control{
+			Device: "x", Capability: "switch.on", Default: false, Resolve: Highest, External: ExternalRevert,
+		}), "PreferOn or PreferOff"},
+		"read-only": {control(Control{
+			Device: "x", Capability: "sensor.temperature", Default: 1.0, Resolve: Highest, External: ExternalRevert,
+		}), "read-only"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := tc.home.compile()

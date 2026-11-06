@@ -166,7 +166,9 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	if started < 0 || ended < started {
 		t.Errorf("no hold starting then ending in:\n%s", out)
 	}
-	for _, want := range []string{"Wrote porch-light light.on = true", "Wrote porch-light light.on = false", "that isn't a command"} {
+	for _, want := range []string{
+		"Wrote porch-light light.on = true", "Wrote porch-light light.on = false", "that isn't a command",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in:\n%s", want, out)
 		}

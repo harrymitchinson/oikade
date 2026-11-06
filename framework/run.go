@@ -55,7 +55,14 @@ func run(h Home, log logr.Logger) error {
 	if os.Args[1] == wire.RolePlugin {
 		return runPlugin(ctx, h, socket)
 	}
+	return runAutomations(logr.NewContext(ctx, log), h, rules, flows, socket)
+}
 
+// runAutomations is the one process that runs a home's rules.
+func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows map[string]*flow.Flow,
+	socket string,
+) error {
+	log := logr.FromContextOrDiscard(ctx)
 	names := make([]string, 0, len(rules))
 	for _, r := range rules {
 		names = append(names, r.Key.Name)
@@ -315,7 +322,9 @@ func seed(mirror *hub.Store, d wire.Device) {
 // discovered brings a device up to date, adding it if it's new since the Welcome. metas are the
 // mirror's devices, which it replaces as a set. Only the read goroutine calls this, after the
 // Welcome's seeding.
-func discovered(mirror *hub.Store, metas map[types.NamespacedName]hub.Meta, settings []wire.DeviceControl, d wire.Device) {
+func discovered(mirror *hub.Store, metas map[types.NamespacedName]hub.Meta, settings []wire.DeviceControl,
+	d wire.Device,
+) {
 	metas[deviceKey(d.Name)] = meta(d, settings)
 	mirror.SetDevices(hostInstance, metas)
 	for name, v := range d.Values {

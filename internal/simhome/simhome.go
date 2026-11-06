@@ -107,13 +107,12 @@ type Sim struct {
 
 	running, parked atomic.Int64
 
-	mu      sync.Mutex
-	writes  []Write
-	events  []Event
-	active  map[string]bool
-	ended   map[string][]string
-	fires   map[string]time.Time
-	failure error
+	mu     sync.Mutex
+	writes []Write
+	events []Event
+	active map[string]bool
+	ended  map[string][]string
+	fires  map[string]time.Time
 }
 
 // New starts a home.
@@ -226,9 +225,7 @@ func (s *Sim) start() error {
 	s.notice(eng)
 
 	byName := map[string]*flow.Flow{}
-	for name, f := range flows {
-		byName[name] = f
-	}
+	maps.Copy(byName, flows)
 	bodies := flow.Recover(ctx, wire.Namespace, byName, s.journal.saved(), s.journal, eng)
 	for name, body := range bodies {
 		eng.Resume(ctx, key(name), body)

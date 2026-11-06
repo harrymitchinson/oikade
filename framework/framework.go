@@ -614,7 +614,9 @@ func (b *Budget) toSchedule() *schedule.Spec {
 		}
 	}
 	if in := b.Bands; in != nil {
-		bands := &schedule.BandSpec{Device: in.Device, Capability: in.Capability, MaxAge: in.MaxAge, MissingMinutes: in.Missing}
+		bands := &schedule.BandSpec{
+			Device: in.Device, Capability: in.Capability, MaxAge: in.MaxAge, MissingMinutes: in.Missing,
+		}
 		for _, r := range in.Ranges {
 			below := r.Below
 			bands.Ranges = append(bands.Ranges, schedule.Band{Below: &below, Minutes: r.Minutes})
