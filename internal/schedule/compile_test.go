@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/control"
 )
 
 const drying = `
@@ -41,6 +42,15 @@ func budgetRule(t *testing.T, spec string) *homev1alpha1.Rule {
 	return &r
 }
 
+// compileAPI compiles against a Device's control entry, or none.
+func compileAPI(r *homev1alpha1.Rule, c *homev1alpha1.CapabilityControl) (*Budget, error) {
+	if c == nil {
+		return Compile(r, nil)
+	}
+	e := control.FromAPI(*c)
+	return Compile(r, &e)
+}
+
 func dehumidifierControl() *homev1alpha1.CapabilityControl {
 	starts := int32(4)
 	return &homev1alpha1.CapabilityControl{
@@ -51,7 +61,7 @@ func dehumidifierControl() *homev1alpha1.CapabilityControl {
 }
 
 func TestCompileToPlanInput(t *testing.T) {
-	b, err := Compile(budgetRule(t, drying), dehumidifierControl())
+	b, err := compileAPI(budgetRule(t, drying), dehumidifierControl())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +95,7 @@ func TestCompileToPlanInput(t *testing.T) {
 }
 
 func TestCompileExpression(t *testing.T) {
-	b, err := Compile(budgetRule(t, `
+	b, err := compileAPI(budgetRule(t, `
 while:
   budget:
     planningTime: "06:30"
@@ -111,7 +121,7 @@ hold: {device: cellar-dehumidifier, capability: switch.on, value: true}
 	if n, err := in.Minutes.Expression(); n != 90 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 90", n, err)
 	}
-	dyn, err := Compile(budgetRule(t, `
+	dyn, err := compileAPI(budgetRule(t, `
 while: {budget: {minutes: {expression: 'devices["boiler"]["sensor.temperature"] * 2.0'}}}
 hold: {device: d, capability: switch.on, value: true}
 `), &homev1alpha1.CapabilityControl{Capability: "switch.on"})
@@ -174,7 +184,7 @@ while: {budget: {minutes: {expression: "60"}}}
 hold: {device: d, capability: switch.on, value: false}`, nil, "a budget holds its capability at true"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := Compile(budgetRule(t, tc.spec), tc.control)
+			_, err := compileAPI(budgetRule(t, tc.spec), tc.control)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("Compile() = %v, want %q", err, tc.want)
 			}

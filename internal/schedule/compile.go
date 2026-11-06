@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/google/cel-go/cel"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 )
 
 // defaultMaxAge is the CRD's default for a bands input's maxAge.
@@ -60,7 +59,7 @@ type Budget struct {
 
 // Compile checks a budget Rule against the control entry of its target's capability, and compiles
 // it. The Rule must have while.budget and a hold on a device. Every problem is reported.
-func Compile(r *homev1alpha1.Rule, control *homev1alpha1.CapabilityControl) (*Budget, error) {
+func Compile(r *homev1alpha1.Rule, entry *control.Entry) (*Budget, error) {
 	if r.Spec.While == nil || r.Spec.While.Budget == nil || r.Spec.Hold == nil {
 		return nil, errors.New("not a budget hold")
 	}
@@ -108,29 +107,24 @@ func Compile(r *homev1alpha1.Rule, control *homev1alpha1.CapabilityControl) (*Bu
 		out.Rules = append(out.Rules, Rule{Name: fmt.Sprintf("forbid[%d]", i), Window: w, Effect: Forbid})
 	}
 
-	if control == nil {
+	if entry == nil {
 		errs = append(errs, fmt.Errorf("%s on %s has no control entry", h.Capability, h.Device))
 	} else {
 		slot := time.Duration(out.SlotMinutes) * time.Minute
 		for _, d := range []struct {
 			name string
-			v    *metav1.Duration
+			v    time.Duration
 			into *time.Duration
 		}{
-			{"minimumOn", control.MinimumOn, &out.Constraints.MinimumRun},
-			{"minimumOff", control.MinimumOff, &out.Constraints.MinimumRest},
+			{"minimumOn", time.Duration(entry.MinimumOn), &out.Constraints.MinimumRun},
+			{"minimumOff", time.Duration(entry.MinimumOff), &out.Constraints.MinimumRest},
 		} {
-			if d.v == nil {
-				continue
-			}
-			*d.into = d.v.Duration
-			if slot > 0 && d.v.Duration%slot != 0 {
-				errs = append(errs, fmt.Errorf("control %s %s isn't a multiple of budget.slotMinutes (%d)", d.name, d.v.Duration, out.SlotMinutes))
+			*d.into = d.v
+			if slot > 0 && d.v%slot != 0 {
+				errs = append(errs, fmt.Errorf("control %s %s isn't a multiple of budget.slotMinutes (%d)", d.name, d.v, out.SlotMinutes))
 			}
 		}
-		if control.MaximumStartsPerDay != nil {
-			out.Constraints.MaximumStarts = int(*control.MaximumStartsPerDay)
-		}
+		out.Constraints.MaximumStarts = entry.MaximumStartsPerDay
 	}
 
 	if err := errors.Join(errs...); err != nil {

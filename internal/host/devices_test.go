@@ -9,7 +9,6 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -39,7 +38,7 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	go func() { defer close(running); eng.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-running })
 
-	var entries []homev1alpha1.CapabilityControl
+	var entries []control.Entry
 	raw := `[{"capability":"switch.on","default":true,"resolve":"PreferOff","external":"Override","overrideHold":"1h"}]`
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
 		t.Fatal(err)

@@ -16,6 +16,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
@@ -107,7 +108,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig 
 	r.e.Store = r.store
 	metas := map[types.NamespacedName]hub.Meta{}
 	for name := range holdDevices {
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: o.control[name]}
+		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: control.FromAPIList(o.control[name])}
 	}
 	r.store.SetDevices(z2m, metas)
 	for name, caps := range holdDevices {

@@ -83,7 +83,7 @@ func NewControlLevelGauge() *prometheus.GaugeVec {
 
 // arb is one arbitrated capability. Use it with e.mu held.
 type arb struct {
-	spec homev1alpha1.CapabilityControl
+	spec control.Entry
 	a    *control.Arbiter
 	// d is the last decision.
 	d control.Decision
@@ -229,7 +229,7 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 			e.dropArb(dev, c.Capability, true)
 			continue
 		}
-		ar := &arb{spec: *c.DeepCopy(), a: a}
+		ar := &arb{spec: c, a: a}
 		if old != nil {
 			// A write in progress finishes on the new arbiter.
 			ar.writing, ar.pending, ar.wrote, ar.retry, ar.dropped = old.writing, old.pending, old.wrote, old.retry, old.dropped

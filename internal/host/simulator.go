@@ -13,8 +13,8 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
@@ -27,7 +27,7 @@ type SimulatedDevice struct {
 	// Values are its first values, by capability.
 	Values map[string]any `json:"values,omitempty"`
 	// Control arbitrates capabilities, as a Device's spec does.
-	Control []homev1alpha1.CapabilityControl `json:"control,omitempty"`
+	Control []control.Entry `json:"control,omitempty"`
 	// Plugin makes this no simulated device but the arbitration settings of one a plugin reports,
 	// with Name its ID there.
 	Plugin string `json:"plugin,omitempty"`

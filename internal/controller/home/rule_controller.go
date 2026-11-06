@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
@@ -232,7 +233,8 @@ func (r *RuleReconciler) checkBudget(ctx context.Context, a *homev1alpha1.Rule) 
 	if i < 0 {
 		return ReasonNoControl, fmt.Sprintf("Device %s has no control entry for %s, which a budget needs", h.Device, h.Capability), nil
 	}
-	if _, err := schedule.Compile(a, &d.Spec.Control[i]); err != nil {
+	entry := control.FromAPI(d.Spec.Control[i])
+	if _, err := schedule.Compile(a, &entry); err != nil {
 		return ReasonInvalidBudget, err.Error(), nil
 	}
 	return "", "", nil

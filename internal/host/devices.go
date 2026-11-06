@@ -60,7 +60,7 @@ func (i *inventory) attach(instance driver.InstanceKey) {
 
 // paired records hardware a driver reports. It's in the registry and usable when this returns.
 func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
-	entries []homev1alpha1.CapabilityControl,
+	entries []control.Entry,
 ) (types.NamespacedName, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -91,7 +91,7 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 	if !ok || d.Removed || d.ID == "" {
 		return hub.Meta{}, false
 	}
-	var entries []homev1alpha1.CapabilityControl
+	var entries []control.Entry
 	if len(d.Control) > 0 {
 		if err := json.Unmarshal(d.Control, &entries); err != nil {
 			i.log.Error(err, "Ignored unreadable arbitration settings", "device", d.Name)

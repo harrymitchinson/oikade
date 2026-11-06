@@ -26,7 +26,7 @@ func TestControlSettingsBool(t *testing.T) {
 	c.MinimumOn, c.MaximumOn = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: 6 * time.Hour}
 	c.MinimumOff, c.MaximumStartsPerDay = &metav1.Duration{Duration: 30 * time.Minute}, ptr.To[int32](4)
 
-	got, err := ControlSettings(c, london)
+	got, err := ControlSettings(control.FromAPI(c), london)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestControlSettingsNumberUntilNext(t *testing.T) {
 	c := controlEntry("light.level", "40", homev1alpha1.ControlResolveHighest)
 	c.External, c.OverrideHold = homev1alpha1.ControlExternalOverride, homev1alpha1.OverrideHoldNext
 
-	got, err := ControlSettings(c, nil)
+	got, err := ControlSettings(control.FromAPI(c), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestControlSettingsRejects(t *testing.T) {
 		}(), "maximumOn must not be shorter than minimumOn"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := ControlSettings(tc.entry, nil)
+			_, err := ControlSettings(control.FromAPI(tc.entry), nil)
 			if err == nil {
 				t.Fatal("want an error")
 			}

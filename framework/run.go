@@ -15,7 +15,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
@@ -230,7 +230,7 @@ func meta(d wire.Device) hub.Meta {
 	m := hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: hostInstance}
 	for _, c := range d.Arbitrated {
 		// Only the name matters here. The host holds the settings, and runs the arbiter.
-		m.Control = append(m.Control, homev1alpha1.CapabilityControl{Capability: c})
+		m.Control = append(m.Control, control.Entry{Capability: c})
 	}
 	return m
 }

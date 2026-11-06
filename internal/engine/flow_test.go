@@ -42,7 +42,7 @@ func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, types.Name
 	eng.Init()
 	store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{dev: {
 		Instance: z2m,
-		Control:  []homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")},
+		Control:  control.FromAPIList([]homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")}),
 	}})
 	return eng, dev
 }
@@ -318,8 +318,8 @@ func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
 	broken := types.NamespacedName{Namespace: ns, Name: "broken"}
 	eng, dev := arbitratedEngine(t, &failingFor{States: newMemoryStates[ControlState](), broken: broken})
 	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{
-		dev:    {Instance: z2m, Control: []homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")}},
-		broken: {Instance: z2m, Control: []homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")}},
+		dev:    {Instance: z2m, Control: control.FromAPIList([]homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")})},
+		broken: {Instance: z2m, Control: control.FromAPIList([]homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")})},
 	})
 	ctx := context.Background()
 	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, testClaim()); err != nil {
@@ -344,9 +344,9 @@ func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
 	other := types.NamespacedName{Namespace: ns, Name: "other"}
 	third := types.NamespacedName{Namespace: ns, Name: "third"}
-	meta := hub.Meta{Instance: z2m, Control: []homev1alpha1.CapabilityControl{
+	meta := hub.Meta{Instance: z2m, Control: control.FromAPIList([]homev1alpha1.CapabilityControl{
 		entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h"),
-	}}
+	})}
 	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{dev: meta, other: meta, third: meta})
 	ctx := context.Background()
 	key := goKey("routine")

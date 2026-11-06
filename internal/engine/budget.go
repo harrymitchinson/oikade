@@ -13,6 +13,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
@@ -156,7 +157,7 @@ type budgetState struct {
 	// compiled is the budget compiled for the Rule's compiledGeneration against compiledControl.
 	compiled           *schedule.Budget
 	compiledGeneration int64
-	compiledControl    homev1alpha1.CapabilityControl
+	compiledControl    control.Entry
 }
 
 // budgetCondition plans the day if it hasn't been, credits the target's run, and reports
@@ -254,22 +255,22 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 // held.
 func (e *Engine) compileBudget(s *state, snap hub.Snapshot) (*schedule.Budget, BudgetReport) {
 	h, bs := s.c.hold, s.hold.budget
-	i := slices.IndexFunc(snap.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == h.capability })
+	i := slices.IndexFunc(snap.Control, func(c control.Entry) bool { return c.Capability == h.capability })
 	if i < 0 {
 		bs.compiled = nil
 		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonNoControl,
 			Message: "Device " + h.device + " has no control entry for " + h.capability + ", which a budget needs"}
 	}
-	control := snap.Control[i]
-	if bs.compiled != nil && bs.compiledGeneration == s.c.Generation && equality.Semantic.DeepEqual(bs.compiledControl, control) {
+	entry := snap.Control[i]
+	if bs.compiled != nil && bs.compiledGeneration == s.c.Generation && equality.Semantic.DeepEqual(bs.compiledControl, entry) {
 		return bs.compiled, BudgetReport{}
 	}
-	b, err := schedule.Compile(&homev1alpha1.Rule{Spec: h.budget.spec}, &control)
+	b, err := schedule.Compile(&homev1alpha1.Rule{Spec: h.budget.spec}, &entry)
 	if err != nil {
 		bs.compiled = nil
 		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonInvalidBudget, Message: err.Error()}
 	}
-	bs.compiled, bs.compiledGeneration, bs.compiledControl = b, s.c.Generation, *control.DeepCopy()
+	bs.compiled, bs.compiledGeneration, bs.compiledControl = b, s.c.Generation, entry
 	return b, BudgetReport{}
 }
 

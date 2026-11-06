@@ -16,8 +16,8 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -212,7 +212,7 @@ func (p *plugins) pair(h *hosted) {
 }
 
 // control finds a plugin device's arbitration settings.
-func (p *plugins) control(plugin, id string) []homev1alpha1.CapabilityControl {
+func (p *plugins) control(plugin, id string) []control.Entry {
 	for _, d := range p.host.Devices {
 		if d.Plugin == plugin && d.Name == id {
 			return d.Control
