@@ -33,9 +33,11 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // Priority is the level of a rule's claims on an arbitrated capability.
@@ -278,6 +280,19 @@ type Home struct {
 	Holds   []Hold
 	Moments []Moment
 	Flows   []Flow
+	// Plugins are the plugins your home imports.
+	Plugins []Plugin
+}
+
+// Plugin is a plugin your home imports. It's a Go module like any other, and it runs as you, so
+// importing one means trusting its code. The host runs each in a process of its own, so one that
+// panics or hangs is restarted while automations and Matter carry on.
+type Plugin struct {
+	// Name is what the plugin's devices are recorded under. Keep it: changing it makes them new
+	// hardware.
+	Name string
+	// New builds the plugin. It runs in the plugin's process, never in your automations.
+	New plugin.Factory
 }
 
 // compile checks the home and turns it into the engine's rules, and returns its flows by name.
@@ -317,6 +332,18 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
 		add(r.Name, c, err)
 	}
+	plugins := map[string]bool{}
+	for _, p := range h.Plugins {
+		switch {
+		case !contractv1.ValidID(p.Name):
+			errs = append(errs, fmt.Errorf("plugin name %q isn't valid", p.Name))
+		case plugins[p.Name]:
+			errs = append(errs, fmt.Errorf("plugin %q is declared twice", p.Name))
+		case p.New == nil:
+			errs = append(errs, fmt.Errorf("plugin %s has no New", p.Name))
+		}
+		plugins[p.Name] = true
+	}
 	return rules, flows, errors.Join(errs...)
 }
 
@@ -331,6 +358,9 @@ func (h Home) manifest() wire.Manifest {
 	}
 	for _, r := range h.Flows {
 		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: wire.KindFlow, Safety: r.Priority == Safety})
+	}
+	for _, p := range h.Plugins {
+		m.Plugins = append(m.Plugins, p.Name)
 	}
 	return m
 }
@@ -422,7 +452,7 @@ func (r Moment) toEngine() engine.Moment {
 func Run(h Home) {
 	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(h, log); err != nil {
-		log.Error(err, "Stopped automations process")
+		log.Error(err, "Stopped process")
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}

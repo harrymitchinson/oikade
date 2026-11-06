@@ -28,8 +28,8 @@ type inventory struct {
 	store    *hub.Store
 	engine   *engine.Engine
 	log      logr.Logger
-	// changed, if set, hears that the list changed. It must not block.
-	changed func()
+	// changed hear that the list changed. They must not block.
+	changed []func()
 
 	// mu orders changes, so that the hub takes them up in the registry's order.
 	mu        sync.Mutex
@@ -120,8 +120,8 @@ func (i *inventory) sync() {
 	for name, devices := range metas {
 		i.store.SetDevices(i.instances[name], devices)
 	}
-	if i.changed != nil {
-		i.changed()
+	for _, changed := range i.changed {
+		changed()
 	}
 }
 

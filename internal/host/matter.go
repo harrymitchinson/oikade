@@ -188,7 +188,7 @@ func (m *matterBridge) working() bool { return m != nil && m.broken == nil }
 // connect gives the bridge what it needs of the host, which needs the bridge to exist first.
 func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine.Engine, setter driver.Setter) {
 	m.devices, m.known, m.Store = devices, known, devices
-	known.changed = m.changed
+	known.changed = append(known.changed, m.changed)
 	m.Writes = &matterbridge.Coalescer{
 		Setter: &matterWrites{engine: eng, devices: devices, setter: setter, restore: m.Restore},
 		Current: func(dev types.NamespacedName, name string) (any, bool) {

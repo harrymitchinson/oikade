@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
 )
 
 const (
@@ -21,6 +24,52 @@ const (
 
 // variant makes this home a different version, set when the tests link it. Empty is the first one.
 var variant string
+
+// wired are the relays a home with plugins configures in Go, which are all there are the first time.
+var wired = []contractv1.DeclaredDevice{
+	{ID: "relay", Name: "relay", DisplayName: "relay"},
+	{ID: "valve", Name: "valve", DisplayName: "valve"},
+	{ID: "panics", Name: "panics", DisplayName: "panics"},
+	{ID: "hangs", Name: "hangs", DisplayName: "hangs"},
+}
+
+// faulty is a plugin that goes wrong on request, and whose valve always starts open.
+type faulty struct{ plugin.Handler }
+
+func (f faulty) Serve(ctx context.Context, p *plugin.Plugin) error {
+	if err := f.Handler.Serve(ctx, p); err != nil {
+		return err
+	}
+	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: "valve", Capability: on, Value: true})
+}
+
+func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
+	switch cmd.ID {
+	case "panics":
+		panic("this plugin was told to panic")
+	case "hangs":
+		select {}
+	}
+	return f.Handler.Set(ctx, p, cmd)
+}
+
+// faultyRelays builds the plugin, unless the test has it staying down.
+func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	if _, err := os.Stat(os.Getenv("OIKADE_TEST_PLUGIN_DOWN")); err == nil {
+		return nil, errors.New("this plugin was told to stay down")
+	}
+	for _, d := range wired {
+		if !slices.ContainsFunc(devices, func(k contractv1.DeclaredDevice) bool { return k.ID == d.ID }) {
+			devices = append(devices, d)
+		}
+	}
+	return faulty{relays.New(devices)}, nil
+}
+
+// quietRelays is a second plugin, which does nothing wrong.
+func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return relays.New([]contractv1.DeclaredDevice{{ID: "quiet", Name: "quiet", DisplayName: "quiet"}}), nil
+}
 
 // routine takes every kind of step in a known order, which the tests count on: start, now, set,
 // set, do, sleep, now, set, finish.
@@ -241,6 +290,9 @@ func run(h framework.Home) {
 	}
 	if variant == "noleak" {
 		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "leak-shutoff" })
+	}
+	if strings.Contains(variant, "plugins") {
+		h.Plugins = []framework.Plugin{{Name: "relays", New: faultyRelays}, {Name: "quiet", New: quietRelays}}
 	}
 	framework.Run(h)
 }

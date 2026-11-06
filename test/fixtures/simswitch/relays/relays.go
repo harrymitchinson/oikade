@@ -1,4 +1,6 @@
-package main
+// Package relays is simulated relays, one per device, as a plugin: the same code runs as an outside
+// process speaking the MQTT contract and as a plugin a home imports.
+package relays
 
 import (
 	"context"
@@ -46,6 +48,9 @@ var spare = contractv1.DiscoveredDevice{
 
 var _ plugin.Handler = (*switches)(nil)
 
+// New returns a plugin of simulated relays for the devices.
+func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitches(devices) }
+
 // newSwitches turns the declared devices into relays and the devices report. A device with a bad
 // capability parameter is reported not found, with the reason. A device with the parameter
 // simulate: unstable-id is discovered under a new ID each start, which breaks the contract, so the
@@ -75,7 +80,10 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 			Name: d.DisplayName, Room: d.Room,
 		})
 	}
-	s.discovered = append(s.discovered, spare)
+	// A host records what it's shown, so the spare can come back declared.
+	if s.relays[spare.ID] == nil {
+		s.discovered = append(s.discovered, spare)
+	}
 	return s
 }
 

@@ -61,6 +61,8 @@ type server struct {
 
 	// connected, if set, hears of each session. It must not block.
 	connected func()
+	// plugins takes the connections of plugins.
+	plugins *plugins
 }
 
 // session is the connected automations process.
@@ -131,6 +133,10 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 	if reason := refusal(hello); reason != "" {
 		s.log.Info("Refused connection", "reason", reason)
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: reason})
+		return
+	}
+	if hello.Role == wire.RolePlugin {
+		s.plugins.serve(conn, hello)
 		return
 	}
 	sess := &session{
@@ -208,7 +214,7 @@ func refusal(hello wire.Message) string {
 		return fmt.Sprintf("expected a hello, got %q", hello.Type)
 	case hello.Version != wire.Version:
 		return fmt.Sprintf("protocol version %d isn't supported, want %d", hello.Version, wire.Version)
-	case hello.Role != wire.RoleAutomations:
+	case hello.Role != wire.RoleAutomations && hello.Role != wire.RolePlugin:
 		return fmt.Sprintf("unknown role %q", hello.Role)
 	}
 	return ""

@@ -9,7 +9,7 @@ Nobody writes this protocol by hand. `framework.Run` speaks it, and the code is 
 The host starts your binary as `<binary> automations`, with the socket's path in `OIKADE_SOCKET`. A process has 5 seconds to send its `hello`:
 
 ```json
-{"type":"hello","version":3,"role":"automations","rules":["fan","leak-shutoff"]}
+{"type":"hello","version":4,"role":"automations","rules":["fan","leak-shutoff"]}
 ```
 
 A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks.
@@ -51,6 +51,18 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 | `ruleRun` | `rule`, `result`, `time` | How a rule's run ended, for `oikade tail`. No reply. Runs whose condition was false aren't sent | |
 | `metrics` | `metrics` | The process's rule metrics in Prometheus's text format, for the host to serve. No reply | |
 
+## Plugins
+
+A plugin your home imports has its own session on the same socket. The host starts your binary as `<binary> plugin <name>`, and `<name>` comes from `plugins` in what check mode prints. The process says who it is:
+
+```json
+{"type":"hello","version":4,"role":"plugin","plugin":"ewelink"}
+```
+
+The `welcome` has `topic`, the plugin's topic root, `declared`, the devices on record for it, and `setTimeout`. The host refuses a plugin it doesn't know, and a second connection for one that's connected.
+
+After that the session carries `publish` both ways, with `topic`, `data` and `retain`: one message of the [oikade/v1 contract](plugin-contract.md) each, with the same topics and payloads, plus `ping` and `pong`. A process doesn't answer a `ping` while a `Set` has run past `setTimeout`, so a stuck one counts as gone. When a session ends the host treats the plugin as offline, as a Last Will would. A `publish` from the host with no session is an error to whoever wrote, not a message waiting.
+
 ## Heartbeats
 
 The host pings every fifth of the heartbeat timeout, which is 10 seconds by default. A process that doesn't connect, or doesn't answer for that long, gets `SIGKILL` and is replaced.
@@ -87,7 +99,7 @@ A rule's claims end with the rule, but only through a deploy, which is what chec
 The host runs a binary as `<binary> check` before it stops anything. That loads the home with no writes and no session, and prints one line of JSON as its last line of output, then exits 0:
 
 ```json
-{"protocol":3,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
+{"protocol":4,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
 ```
 
 A failure, or a `protocol` other than the host's, rejects the version.

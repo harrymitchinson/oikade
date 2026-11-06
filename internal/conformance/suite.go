@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +27,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
@@ -64,6 +66,10 @@ type Config struct {
 	Devices string
 	// Secrets is a directory passed as OIKADE_SECRETS_DIR. Optional.
 	Secrets string
+	// Plugin, if set, checks a plugin a home imports, through the Go API rather than MQTT: Command
+	// is the home's binary, and Plugin the plugin's name in it. Only what carries the messages
+	// differs, so the checks are the same.
+	Plugin string
 	// Timeout bounds every step. Zero means DefaultTimeout.
 	Timeout time.Duration
 	// Log receives the decoder's logs. The zero value discards them.
@@ -149,6 +155,11 @@ func New(t T, cfg Config) *Suite {
 		contractv1.EnvTopic+"="+string(root),
 		contractv1.EnvDevicesFile+"="+cfg.Devices,
 	)
+	if cfg.Plugin != "" {
+		socket := fakeHost(ctx, t, cfg, bus)
+		s.command = append(slices.Clone(cfg.Command), wire.RolePlugin, cfg.Plugin)
+		s.env = append(os.Environ(), wire.SocketEnv+"="+socket)
+	}
 	if cfg.Secrets != "" {
 		s.env = append(s.env, contractv1.EnvSecretsDir+"="+cfg.Secrets)
 	}

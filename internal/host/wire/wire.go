@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
@@ -19,10 +20,13 @@ const (
 	// Version is the protocol's version. A process sends it first, and the host refuses any other.
 	// Raise it with any change to what a message means: a host outlives a deploy, so it can meet a
 	// binary built against something else. Version 2 added releaseAll's below, and 3 pausing rules,
-	// the rule facts in a hello, and reporting rule runs and metrics.
-	Version = 3
+	// the rule facts in a hello, and reporting rule runs and metrics, and 4
+	// plugin sessions and a Manifest's plugins.
+	Version = 4
 	// RoleAutomations is the one process that runs a home's holds and moments.
 	RoleAutomations = "automations"
+	// RolePlugin is a plugin your home imports. The host starts one process for each.
+	RolePlugin = "plugin"
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
 	RoleCheck = "check"
 	// KindFlow is the Kind of a RuleInfo for a flow.
@@ -43,7 +47,8 @@ type Type string
 
 // Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change and
 // Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun and
-// Metrics from your process. The rest are requests, each answered by a Reply with its ID.
+// Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
+// session has only Hello, Welcome or Rejected, Ping, Pong and Publish, which flows both ways.
 const (
 	TypeHello      Type = "hello"
 	TypeWelcome    Type = "welcome"
@@ -67,6 +72,7 @@ const (
 	TypeResume     Type = "resume"
 	TypeRuleRun    Type = "ruleRun"
 	TypeMetrics    Type = "metrics"
+	TypePublish    Type = "publish"
 )
 
 // Manifest is what your binary's check mode prints: enough for the host to judge a version before
@@ -75,6 +81,8 @@ type Manifest struct {
 	// Protocol is the Version the binary was built against.
 	Protocol int        `json:"protocol"`
 	Rules    []RuleInfo `json:"rules"`
+	// Plugins names the plugins the binary imports.
+	Plugins []string `json:"plugins,omitempty"`
 }
 
 // RuleInfo is one rule of a home.
@@ -115,6 +123,8 @@ type Message struct {
 	// Version and Role are a Hello's.
 	Version int    `json:"version,omitempty"`
 	Role    string `json:"role,omitempty"`
+	// Plugin is a plugin's Hello: which of the binary's plugins this process is.
+	Plugin string `json:"plugin,omitempty"`
 	// Rules names the process's holds, so the Welcome can return their saved state.
 	Rules []string `json:"rules,omitempty"`
 	// Info says what the process's rules are, for oikade status and pause.
@@ -153,6 +163,14 @@ type Message struct {
 	Run  string `json:"run,omitempty"`
 	Data []byte `json:"data,omitempty"`
 	Seq  uint64 `json:"seq,omitempty"`
+
+	// Topic, Data and Retain are a Publish's: one message of the oikade/v1 contract. Topic is also
+	// a plugin's Welcome's topic root, Declared the devices on record for it, and SetTimeout how
+	// long a Set may run before the plugin counts as hung.
+	Topic      string                      `json:"topic,omitempty"`
+	Retain     bool                        `json:"retain,omitempty"`
+	Declared   []contractv1.DeclaredDevice `json:"declared,omitempty"`
+	SetTimeout time.Duration               `json:"setTimeout,omitempty"`
 
 	// Arbitrated is a claim or release's Reply: false means the capability isn't.
 	Arbitrated bool `json:"arbitrated,omitempty"`

@@ -4,6 +4,38 @@ A plugin is a separate process that connects a device platform Oikade doesn't sp
 
 This page is the contract. A plugin that follows it works with Oikade's runtime and Matter bridges unchanged.
 
+On a host there are two ways to run one ([OIK-143](https://linear.app/oikade/issue/OIK-143)): [as a Go module your home imports](#a-plugin-your-home-imports), or as an outside process speaking this contract to a broker of yours.
+
+## A plugin your home imports
+
+A plugin is a Go module with a `plugin.Factory`. Your home imports it and registers it, and there's no image or binary to run:
+
+```go
+framework.Run(framework.Home{
+	Plugins: []framework.Plugin{{Name: "ewelink", New: ewelink.New}},
+})
+```
+
+**Importing a plugin means trusting its code.** It runs as your user, with everything your user can reach.
+
+The host runs your binary again as `<binary> plugin <name>`, one process per plugin, each with its own heartbeat. So a plugin that panics, or hangs, is restarted with backoff while automations, Matter and the other plugins carry on. A plugin hangs if its process stops answering, or a `Set` runs for longer than `--plugin-set-timeout` (30 seconds). Only the binary changing restarts a plugin that's working, so a deploy does, and a crash of your automations doesn't.
+
+A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a command. It gets the devices on record for it, which are empty the first time, because the host has no `devices.json`. So it reports every device it can see, with `SetDiscovered` and `SetDevices`, and everything it finds is in the [device registry](../README.md) at once. Configuration, such as a hub's address, is Go in your home.
+
+While a plugin is down, its devices are offline and writes to them fail with an error. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A plugin's device needs its arbitration settings from a `plugin` entry in the `--simulate` file until the home can declare them.
+
+The messages are this contract's, on the host's socket rather than a broker, so the host checks them with the same decoder. A process that dies is marked offline by the host, as a Last Will would.
+
+## An outside process
+
+For a platform with no good Go library, a process of its own speaks this contract to a broker of yours. Name it to the host, and it uses the root `oikade/v1/home/<name>`:
+
+```sh
+oikade host --broker mqtt://mosquitto:1883 --outside-plugins ewelink,overkiz
+```
+
+The host supervises none of this: the process, its restarts and its broker are yours. Devices it reports go in the registry like any others. It reads no `devices.json` from the host, so give it one of your own, or have it report what it can see.
+
 ## Topics
 
 Every topic sits under the plugin's root, which the operator passes in `OIKADE_TOPIC`:
@@ -167,9 +199,15 @@ go install github.com/harrymitchinson/oikade/cmd/oikade-conformance@vX.Y.Z
 oikade-conformance --devices conformance-devices.json -- ./bin/my-plugin --simulate
 ```
 
+`--plugin NAME` checks a plugin a home imports, through the Go API rather than MQTT: the command is the home's binary, and the suite runs `<binary> plugin NAME` against a fake host, handing it the devices file's devices. The checks are the same.
+
+```sh
+go build -o bin/home ./home && go tool oikade-conformance --devices conformance-devices.json --plugin my-plugin -- bin/home
+```
+
 Everything after `--` is the plugin's start command, run without a shell in the current directory: a bare name is looked up in `PATH`, so write `./my-plugin` for one in the current directory. Build it first rather than use `go run` or a wrapper script: the suite signals and kills that process, and the plugin itself must be the one that gets it. Paths are absolute or relative to the current directory. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `--secrets DIR` passes a directory as `OIKADE_SECRETS_DIR`, `--timeout` sets how long the plugin has to react at each step (default 15s), and `-v` logs what the decoder sees. It prints a line per check and exits 0 when all pass, 1 when one fails or the plugin can't start, and 2 on a usage error, such as a missing devices file.
 
-Inside this repo, `make test-conformance` runs the same suite under `go test` against the simulated-relay fixture in [`test/fixtures/simswitch`](../test/fixtures/simswitch), and CI runs it on every PR. `CONFORMANCE_PLUGIN` and `OIKADE_CONFORMANCE_DEVICES` point it at another plugin, relative to the repository root.
+Inside this repo, `make test-conformance` runs the same suite under `go test` against the simulated-relay fixture in [`test/fixtures/simswitch`](../test/fixtures/simswitch), both ways, and CI runs it on every PR. `CONFORMANCE_PLUGIN` and `OIKADE_CONFORMANCE_DEVICES` point it at another plugin, relative to the repository root.
 
 Plugins written in Go can use [the SDK](../sdk/plugin), which implements this contract, and the payload types in [`contract/v1`](../contract/v1), which Oikade's own decoder uses. Plugins in other languages implement this document directly and pass the conformance suite above. Oikade maintains no SDK for them.
 

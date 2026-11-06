@@ -155,6 +155,13 @@ func (i *Instance) Discovered() ([]contractv1.DiscoveredDevice, bool) {
 	return out, true
 }
 
+// Announced returns what the plugin last said about each device it reported, by its ID.
+func (i *Instance) Announced() map[string]driver.Info {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return maps.Clone(i.announced)
+}
+
 // Stats returns a snapshot of the plugin's health.
 func (i *Instance) Stats() Stats {
 	i.mu.Lock()

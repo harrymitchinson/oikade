@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -693,7 +694,67 @@ func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 			}
 		}
 	}
+	for _, dev := range e.savedDevices(namespace) {
+		for _, c := range e.SavedClaims(dev) {
+			if rule, ok := strings.CutPrefix(c.Source, rulePrefix); ok && c.Level >= held[rule] {
+				held[rule] = c.Level
+			}
+		}
+	}
 	return held
+}
+
+// savedDevices are the namespace's devices with claims on record and no arbiters, whose driver hasn't
+// attached, so that the claims are only on disk. Call with e.mu held.
+func (e *Engine) savedDevices(namespace string) []types.NamespacedName {
+	listed, ok := e.Controls.(interface {
+		Names(namespace string) ([]string, error)
+	})
+	if !ok {
+		return nil
+	}
+	names, err := listed.Names(namespace)
+	if err != nil {
+		e.Log.Error(err, "Failed to list saved claims", "namespace", namespace)
+		return nil
+	}
+	var devices []types.NamespacedName
+	for _, name := range names {
+		dev := types.NamespacedName{Namespace: namespace, Name: name}
+		if len(e.arbs[dev]) == 0 {
+			devices = append(devices, dev)
+		}
+	}
+	return devices
+}
+
+// endSaved ends a source's claims that are only on disk. A device whose record can't be read is left
+// alone: what's in it isn't known.
+func (e *Engine) endSaved(ctx context.Context, namespace, source string) error {
+	e.mu.Lock()
+	devices := e.savedDevices(namespace)
+	e.mu.Unlock()
+	e.saveMu.Lock()
+	defer e.saveMu.Unlock()
+	var errs []error
+	for _, dev := range devices {
+		saved, ok := e.Controls.Get(dev)
+		if !ok {
+			continue
+		}
+		changed := false
+		for name, st := range saved {
+			kept := slices.DeleteFunc(slices.Clone(st.Claims), func(c control.Claim) bool { return c.Source == source })
+			if len(kept) != len(st.Claims) {
+				st.Claims, changed = kept, true
+				saved[name] = st
+			}
+		}
+		if changed {
+			errs = append(errs, e.Controls.Put(ctx, dev, saved))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // EndRule ends every claim of a rule that no longer exists, Safety ones included, as Remove does for
@@ -702,7 +763,10 @@ func (e *Engine) EndRule(ctx context.Context, namespace, rule string) error {
 	e.mu.Lock()
 	e.ensureDue()
 	e.mu.Unlock()
-	return e.ReleaseClaims(ctx, namespace, ruleSource(rule), allLevels)
+	if err := e.ReleaseClaims(ctx, namespace, ruleSource(rule), allLevels); err != nil {
+		return err
+	}
+	return e.endSaved(ctx, namespace, ruleSource(rule))
 }
 
 // Responsive returns once the engine's lock is free. A condition stuck in a loop holds that lock,

@@ -17,7 +17,7 @@ PROJECT                        Kubebuilder metadata Auto-generated (DO NOT EDIT)
 contract/v1/*                  The oikade/v1 plugin contract as Go types (public API)
 sdk/plugin/*                   The Go plugin SDK (public API)
 cmd/oikade-conformance/*       The conformance checker plugin repos run (public API)
-test/fixtures/simswitch/*      Simulated-relay plugin the conformance suite drives
+test/fixtures/simswitch/*      Simulated-relay plugin the conformance suite drives, as a process and imported
 ```
 
 **Multi-group layout** (for projects with multiple API groups):
@@ -77,7 +77,7 @@ make test       # Run unit tests
 
 **After editing the plugin contract, the SDK or the fixture** (`contract/v1`, `sdk/plugin`, `internal/conformance`, `test/fixtures/simswitch`), as well as the Go steps above:
 ```
-make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 contract
+make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 contract and the Go API
 ```
 
 The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. `cmd/oikade-conformance`'s name and flags are public API too, because plugin repos run it in CI: removing or renaming one is a breaking change (`feat!:` with a `BREAKING CHANGE:` footer). An SDK for another language may live here only if it's generated from the contract (OIK-62).

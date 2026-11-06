@@ -128,10 +128,12 @@ CONFORMANCE_PLUGIN ?= bin/simswitch
 .PHONY: simswitch
 simswitch: ## Build the simulated-relay test fixture into bin/.
 	go build -o bin/simswitch ./test/fixtures/simswitch
+	go build -o bin/simhome ./test/fixtures/simswitch/home
 
 .PHONY: test-conformance
-test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract (default: the simswitch fixture).
+test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract and the Go API (default: the simswitch fixture).
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
+	OIKADE_CONFORMANCE_PLUGIN=bin/simhome OIKADE_CONFORMANCE_IMPORTED=simswitch go test ./test/conformance/ -v -count=1
 
 .PHONY: test-hack
 test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval and plugin-repo steps with gh stubbed, and no raw gh writes in skills.

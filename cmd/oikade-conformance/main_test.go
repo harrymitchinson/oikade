@@ -28,6 +28,23 @@ func fromTestdata(t *testing.T) {
 	t.Chdir("../../test/conformance/testdata")
 }
 
+func TestPassesAgainstAnImportedPlugin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real plugin process")
+	}
+	bin := filepath.Join(t.TempDir(), "simhome")
+	out, err := exec.Command("go", "build", "-o", bin, "../../test/fixtures/simswitch/home").CombinedOutput()
+	if err != nil {
+		t.Fatalf("building the home: %v\n%s", err, out)
+	}
+	fromTestdata(t)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--devices", "devices.json", "--plugin", "simswitch", "--", bin}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
+	}
+}
+
 func TestPassesAgainstTheFixtureFromAnotherDirectory(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives a real plugin process")
