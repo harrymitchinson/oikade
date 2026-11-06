@@ -10,9 +10,11 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 func TestCompileRejectsAnUnsoundHome(t *testing.T) {
@@ -113,5 +115,22 @@ func TestManifestDescribesTheHome(t *testing.T) {
 	}
 	if !slices.Equal(m.Rules, want) {
 		t.Fatalf("got %+v", m.Rules)
+	}
+}
+
+func TestPluginsAreChecked(t *testing.T) {
+	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
+	for name, plugins := range map[string][]Plugin{
+		"no name":  {{New: made}},
+		"bad name": {{Name: "a/b", New: made}},
+		"twice":    {{Name: "a", New: made}, {Name: "a", New: made}},
+		"no New":   {{Name: "a"}},
+	} {
+		if _, _, err := (Home{Plugins: plugins}).compile(); err == nil {
+			t.Errorf("%s: compiled", name)
+		}
+	}
+	if m := (Home{Plugins: []Plugin{{Name: "a", New: made}}}).manifest(); !slices.Equal(m.Plugins, []string{"a"}) {
+		t.Errorf("got %v", m.Plugins)
 	}
 }

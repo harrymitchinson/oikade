@@ -47,13 +47,25 @@ type Host struct {
 	MetricsAddr string
 	// Matter serves a Matter bridge. Nil serves none.
 	Matter *Matter
-	Log    logr.Logger
+	// Broker is an MQTT broker of yours, for Outside.
+	Broker string
+	// Outside names plugins that run as processes of their own and speak the MQTT contract on
+	// Broker, under oikade/v1/home/<name>.
+	Outside []string
+	// PluginSetTimeout is how long a plugin's Set may run. It defaults to DefaultPluginSetTimeout.
+	PluginSetTimeout time.Duration
+	Log              logr.Logger
+
+	plugins *plugins
 }
 
 // Run serves until ctx ends, then stops your process and closes the store.
 func (h *Host) Run(ctx context.Context) error {
 	if h.HeartbeatTimeout <= 0 {
 		h.HeartbeatTimeout = DefaultHeartbeatTimeout
+	}
+	if h.PluginSetTimeout <= 0 {
+		h.PluginSetTimeout = DefaultPluginSetTimeout
 	}
 	data, err := store.Open(h.DataDir)
 	if err != nil {
@@ -99,7 +111,11 @@ func (h *Host) Run(ctx context.Context) error {
 	devices := hub.NewStore(h.Log.WithName("devices"), sinks...)
 	known := newInventory(devicesOnRecord, devices, eng, h.Log.WithName("registry"))
 	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
-	setter := claimedSetter{engine: eng, setter: sim}
+	socket := filepath.Join(h.DataDir, SocketName)
+	h.plugins = newPlugins(h, socket, devices, known)
+	h.plugins.returned = eng.DriverReturned
+	srv.plugins = h.plugins
+	setter := claimedSetter{engine: eng, setter: routedSetter{devices: devices, simulated: sim, plugins: h.plugins}}
 	eng.Store, eng.Setter, srv.devices, srv.setter = devices, setter, devices, setter
 	eng.Init()
 	if bridge.working() {
@@ -108,8 +124,9 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := sim.start(h.Devices); err != nil {
 		return err
 	}
+	// Their claims hold from here on, even if the plugin never comes back.
+	h.plugins.attachRecorded()
 
-	socket := filepath.Join(h.DataDir, SocketName)
 	listener, err := listen(socket)
 	if err != nil {
 		return fmt.Errorf("opening the socket: %w", err)
@@ -136,6 +153,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := deploys.removals(); err != nil {
 		h.Log.Error(err, "Failed to end what removed rules left")
 	}
+	serving.Go(func() { h.plugins.run(ctx) })
 	serving.Go(func() { srv.serve(listener) })
 	if h.Simulate != nil {
 		go sim.read(h.Simulate)

@@ -19,9 +19,15 @@ type Handler interface {
 	Set(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
 }
 
+// Factory builds a plugin's Handler. devices are the ones Oikade has on record for the plugin: from
+// devices.json for an outside process, and from the device registry for a plugin your home imports,
+// where they're empty the first time. A plugin that can list its devices reports them all, on record
+// or not, and is configured in Go by the home that imports it.
+type Factory func(env Environment, devices []contractv1.DeclaredDevice) (Handler, error)
+
 // Run is a plugin's main: it reads the environment and devices file, builds the handler, starts,
 // serves, and on SIGTERM or SIGINT closes and exits 0. Any error exits 1.
-func Run(newHandler func(env Environment, devices []contractv1.DeclaredDevice) (Handler, error)) {
+func Run(newHandler Factory) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	code := run(ctx, slog.New(slog.NewJSONHandler(os.Stderr, nil)), Options{}, newHandler)
 	stop()
@@ -30,8 +36,7 @@ func Run(newHandler func(env Environment, devices []contractv1.DeclaredDevice) (
 
 // run is Run until ctx ends, returning the exit code. o is Start's options before the environment,
 // handler and logger are filled in.
-func run(ctx context.Context, log *slog.Logger, o Options,
-	newHandler func(env Environment, devices []contractv1.DeclaredDevice) (Handler, error)) int {
+func run(ctx context.Context, log *slog.Logger, o Options, newHandler Factory) int {
 	failed := func(err error) int {
 		log.Error("Could not start plugin", "error", err.Error())
 		return 1
@@ -57,6 +62,11 @@ func run(ctx context.Context, log *slog.Logger, o Options,
 		return failed(err)
 	}
 
+	return serve(ctx, log, h, p)
+}
+
+// serve runs h until ctx ends, closes p, and returns the exit code.
+func serve(ctx context.Context, log *slog.Logger, h Handler, p *Plugin) int {
 	code := 0
 	if err := h.Serve(ctx, p); err != nil && (!errors.Is(err, context.Canceled) || ctx.Err() == nil) {
 		log.Error("Could not serve plugin", "error", err.Error())

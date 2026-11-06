@@ -212,7 +212,6 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claim-moment", "paused", false) })
 	r.sync()
 	r.change("claim-go", "sensor.contact-open", false)
-	r.change("claim-go", "sensor.contact-open", true)
 	r.wrote("claimed", false)
 }
 
@@ -267,7 +266,6 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claiming", "paused", false) })
 	r.sync()
 	r.change("claim-flow-go", "sensor.contact-open", false)
-	r.change("claim-flow-go", "sensor.contact-open", true)
 	r.wrote("claimed-flow", false)
 }
 

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // dialTimeout bounds opening a session with the host.
@@ -34,7 +37,7 @@ func run(h Home, log logr.Logger) error {
 	if len(os.Args) > 1 && os.Args[1] == wire.RoleCheck {
 		return json.NewEncoder(os.Stdout).Encode(h.manifest())
 	}
-	if len(os.Args) < 2 || os.Args[1] != wire.RoleAutomations {
+	if len(os.Args) < 2 || (os.Args[1] != wire.RoleAutomations && os.Args[1] != wire.RolePlugin) {
 		return errors.New("this is a home: run it with oikade host")
 	}
 	socket := os.Getenv(wire.SocketEnv)
@@ -43,6 +46,9 @@ func run(h Home, log logr.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if os.Args[1] == wire.RolePlugin {
+		return runPlugin(ctx, h, socket)
+	}
 
 	names := make([]string, 0, len(rules))
 	for _, r := range rules {
@@ -151,6 +157,19 @@ func run(h Home, log logr.Logger) error {
 		<-done
 		return nil
 	}
+}
+
+// runPlugin is the process for one of the home's plugins.
+func runPlugin(ctx context.Context, h Home, socket string) error {
+	if len(os.Args) != 3 {
+		return errors.New("which plugin? run this with oikade host")
+	}
+	i := slices.IndexFunc(h.Plugins, func(p Plugin) bool { return p.Name == os.Args[2] })
+	if i < 0 {
+		return fmt.Errorf("this home has no plugin %s", os.Args[2])
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	return plugin.RunHosted(ctx, socket, h.Plugins[i].Name, h.Plugins[i].New, log)
 }
 
 // firesWaiting bounds the fires waiting to be saved.

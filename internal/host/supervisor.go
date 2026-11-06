@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
+
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
@@ -55,6 +57,7 @@ func (h *Host) supervise(ctx context.Context, srv *server, socket, path string, 
 	var next *swap
 	for ctx.Err() == nil {
 		if path == "" {
+			h.plugins.use("")
 			if next != nil {
 				next.started <- nil
 			}
@@ -76,6 +79,8 @@ func (h *Host) supervise(ctx context.Context, srv *server, socket, path string, 
 				continue
 			}
 		}
+		// Only now is this binary the one that runs: a refused deploy leaves the plugins alone.
+		h.plugins.use(path)
 		// The old process's session has ended, so a session from here on is this process's.
 		select {
 		case <-d.connected:
@@ -136,6 +141,14 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string,
 		return nil, err
 	}
 	h.Log.Info("Started automations process", "pid", cmd.Process.Pid)
+	return h.watch(logr.NewContext(ctx, h.Log), cmd, "automations", srv.ping, swaps)
+}
+
+// watch waits for a started process, killing it if it stops answering pings, and stopping it when
+// ctx ends or a swap arrives, which it returns. ping asks it to answer and says when it last did.
+func (h *Host) watch(ctx context.Context, cmd *exec.Cmd, kind string,
+	ping func(id uint64) (time.Time, bool), swaps <-chan *swap) (*swap, error) {
+	log := logr.FromContextOrDiscard(ctx)
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 
@@ -152,17 +165,17 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string,
 		case <-ctx.Done():
 			return nil, h.stop(cmd, exited)
 		case sw := <-swaps:
-			h.Log.Info("Stopping automations process for a new version", "pid", cmd.Process.Pid)
+			log.Info("Stopping "+kind+" process for a new version", "pid", cmd.Process.Pid)
 			return sw, h.stop(cmd, exited)
 		case <-ticker.C:
 			id++
-			if last, ok := srv.ping(id); ok && last.After(alive) {
+			if last, ok := ping(id); ok && last.After(alive) {
 				alive = last
 			}
 			if time.Since(alive) < timeout {
 				continue
 			}
-			h.Log.Info("Killing automations process; it stopped answering", "pid", cmd.Process.Pid, "timeout", timeout.String())
+			log.Info("Killing "+kind+" process; it stopped answering", "pid", cmd.Process.Pid, "timeout", timeout.String())
 			_ = cmd.Process.Kill()
 			if err := <-exited; err == nil {
 				// It answered nothing, yet exited cleanly before the kill landed.

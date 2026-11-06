@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/flowcheck"
 	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -121,6 +122,12 @@ func runHost(ctx context.Context, args []string) error {
 	matterName := fs.String("matter-name", "Oikade", "The Matter bridge's name, at most 32 bytes.")
 	matterInterfaces := fs.String("matter-interfaces", "",
 		"Comma-separated interfaces to advertise Matter on. Empty means every multicast interface.")
+	broker := fs.String("broker", "", "An MQTT broker of yours, for --outside-plugins.")
+	outside := fs.String("outside-plugins", "",
+		"Comma-separated plugins that run as processes of their own and speak the MQTT contract on --broker, "+
+			"under oikade/v1/home/<name>.")
+	pluginSetTimeout := fs.Duration("plugin-set-timeout", host.DefaultPluginSetTimeout,
+		"How long a plugin's Set may run before the plugin counts as hung.")
 	_ = fs.Parse(args)
 	if *matterPort > math.MaxUint16 {
 		return fmt.Errorf("--matter-port %d isn't a UDP port", *matterPort)
@@ -129,6 +136,19 @@ func runHost(ctx context.Context, args []string) error {
 	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
 	h := &host.Host{
 		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, MetricsAddr: *metricsAddr, Log: log,
+		Broker: *broker, PluginSetTimeout: *pluginSetTimeout,
+	}
+	if *outside != "" {
+		if *broker == "" {
+			return errors.New("--outside-plugins needs --broker")
+		}
+		for name := range strings.SplitSeq(*outside, ",") {
+			name = strings.TrimSpace(name)
+			if !contractv1.ValidID(name) {
+				return fmt.Errorf("--outside-plugins: %q isn't a plugin name", name)
+			}
+			h.Outside = append(h.Outside, name)
+		}
 	}
 	if *matterPort != 0 {
 		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: version}

@@ -3,26 +3,22 @@
 package wire
 
 import (
-	"bufio"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"net"
-	"sync"
 	"time"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
 )
 
 const (
-	// Version is the protocol's version. A process sends it first, and the host refuses any other.
-	// Raise it with any change to what a message means: a host outlives a deploy, so it can meet a
-	// binary built against something else. Version 2 added releaseAll's below, and 3 pausing rules,
-	// the rule facts in a hello, and reporting rule runs and metrics.
-	Version = 3
+	// Version is the protocol's version.
+	Version = pluginwire.Version
 	// RoleAutomations is the one process that runs a home's holds and moments.
 	RoleAutomations = "automations"
+	// RolePlugin is a plugin your home imports. The host starts one process for each.
+	RolePlugin = pluginwire.RolePlugin
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
 	RoleCheck = "check"
 	// KindFlow is the Kind of a RuleInfo for a flow.
@@ -31,26 +27,22 @@ const (
 	SocketEnv = "OIKADE_SOCKET"
 	// Namespace is the home's namespace in the engine, whose rules and devices are keyed by one.
 	Namespace = "home"
-
-	// maxMessage bounds one message. A welcome lists every device, so it's generous.
-	maxMessage = 16 << 20
-	// writeTimeout bounds one write, so a process that stopped reading can't hold the writer.
-	writeTimeout = 5 * time.Second
 )
 
 // Type is a message's type.
-type Type string
+type Type = pluginwire.Type
 
 // Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change and
 // Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun and
-// Metrics from your process. The rest are requests, each answered by a Reply with its ID.
+// Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
+// session has only Hello, Welcome or Rejected, Ping, Pong and Publish, which flows both ways.
 const (
-	TypeHello      Type = "hello"
-	TypeWelcome    Type = "welcome"
+	TypeHello           = pluginwire.TypeHello
+	TypeWelcome         = pluginwire.TypeWelcome
 	TypeRun        Type = "run"
-	TypeRejected   Type = "rejected"
-	TypePing       Type = "ping"
-	TypePong       Type = "pong"
+	TypeRejected        = pluginwire.TypeRejected
+	TypePing            = pluginwire.TypePing
+	TypePong            = pluginwire.TypePong
 	TypeChange     Type = "change"
 	TypeDiscovered Type = "discovered"
 	TypeClaim      Type = "claim"
@@ -67,6 +59,7 @@ const (
 	TypeResume     Type = "resume"
 	TypeRuleRun    Type = "ruleRun"
 	TypeMetrics    Type = "metrics"
+	TypePublish         = pluginwire.TypePublish
 )
 
 // Manifest is what your binary's check mode prints: enough for the host to judge a version before
@@ -75,6 +68,8 @@ type Manifest struct {
 	// Protocol is the Version the binary was built against.
 	Protocol int        `json:"protocol"`
 	Rules    []RuleInfo `json:"rules"`
+	// Plugins names the plugins the binary imports.
+	Plugins []string `json:"plugins,omitempty"`
 }
 
 // RuleInfo is one rule of a home.
@@ -115,6 +110,8 @@ type Message struct {
 	// Version and Role are a Hello's.
 	Version int    `json:"version,omitempty"`
 	Role    string `json:"role,omitempty"`
+	// Plugin is a plugin's Hello: which of the binary's plugins this process is.
+	Plugin string `json:"plugin,omitempty"`
 	// Rules names the process's holds, so the Welcome can return their saved state.
 	Rules []string `json:"rules,omitempty"`
 	// Info says what the process's rules are, for oikade status and pause.
@@ -154,6 +151,14 @@ type Message struct {
 	Data []byte `json:"data,omitempty"`
 	Seq  uint64 `json:"seq,omitempty"`
 
+	// Topic, Data and Retain are a Publish's: one message of the oikade/v1 contract. Topic is also
+	// a plugin's Welcome's topic root, Declared the devices on record for it, and SetTimeout how
+	// long a Set may run before the plugin counts as hung.
+	Topic      string                      `json:"topic,omitempty"`
+	Retain     bool                        `json:"retain,omitempty"`
+	Declared   []contractv1.DeclaredDevice `json:"declared,omitempty"`
+	SetTimeout time.Duration               `json:"setTimeout,omitempty"`
+
 	// Arbitrated is a claim or release's Reply: false means the capability isn't.
 	Arbitrated bool `json:"arbitrated,omitempty"`
 
@@ -164,54 +169,10 @@ type Message struct {
 }
 
 // Conn reads and writes Messages. One goroutine may Read while others Write.
-type Conn struct {
-	conn net.Conn
-	read *bufio.Scanner
-	mu   sync.Mutex
-}
+type Conn = pluginwire.Conn[Message]
 
 // NewConn wraps a socket.
-func NewConn(c net.Conn) *Conn {
-	r := bufio.NewScanner(c)
-	r.Buffer(make([]byte, 0, 64<<10), maxMessage)
-	return &Conn{conn: c, read: r}
-}
-
-// Read returns the next message.
-func (c *Conn) Read() (Message, error) {
-	if !c.read.Scan() {
-		if err := c.read.Err(); err != nil {
-			return Message{}, err
-		}
-		return Message{}, net.ErrClosed
-	}
-	var m Message
-	if err := json.Unmarshal(c.read.Bytes(), &m); err != nil {
-		return Message{}, fmt.Errorf("decoding message: %w", err)
-	}
-	return m, nil
-}
-
-// Write sends a message.
-func (c *Conn) Write(m Message) error {
-	raw, err := json.Marshal(m)
-	if err != nil {
-		return fmt.Errorf("encoding %s: %w", m.Type, err)
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if err := c.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
-		return err
-	}
-	_, err = c.conn.Write(append(raw, '\n'))
-	return err
-}
-
-// SetReadDeadline bounds the next Read. Zero means none.
-func (c *Conn) SetReadDeadline(t time.Time) error { return c.conn.SetReadDeadline(t) }
-
-// Close closes the socket, which ends a Read in progress.
-func (c *Conn) Close() error { return c.conn.Close() }
+func NewConn(c net.Conn) *Conn { return pluginwire.NewConn[Message](c) }
 
 // ErrRejected is a session the host refused.
-var ErrRejected = errors.New("host refused the session")
+var ErrRejected = pluginwire.ErrRejected

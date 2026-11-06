@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -96,6 +97,10 @@ type arb struct {
 	// dropped is set when a report was ignored while a write settled, so the device's value is
 	// looked at again once it has.
 	dropped bool
+	// unconfirmed is a write the device is yet to report. lost is one its driver's last process may
+	// have taken with it, so that the next report is what the device is, not somebody changing it.
+	// A write that's taken ends it.
+	unconfirmed, lost bool
 }
 
 func ruleSource(name string) string { return rulePrefix + name }
@@ -134,10 +139,40 @@ func (e *Engine) ControlChanged(dev types.NamespacedName) {
 	e.signal()
 }
 
-// Discovered implements driver.Sink: an arbitrated device that has reported can be written.
+// Discovered implements driver.Sink: an arbitrated device that has reported can be written, now
+// rather than whenever a write that failed was due to be tried again.
 func (e *Engine) Discovered(dev types.NamespacedName, _ driver.Info) {
 	if snap, ok := e.Store.Get(dev); ok && len(snap.Control) > 0 {
+		e.mu.Lock()
+		for _, ar := range e.arbs[dev] {
+			ar.retry = time.Time{}
+		}
+		e.mu.Unlock()
 		e.ControlChanged(dev)
+	}
+}
+
+// DriverReturned says a driver has a new process. A write its last one took but hadn't reported may
+// have died with it, so the device is what it last reported, and what the new process reports next
+// isn't an outside change. Either way the arbiter writes again if that's wrong, once the device has
+// reported: a report of what the store already holds changes nothing, so it can't wait for one.
+func (e *Engine) DriverReturned(instance driver.InstanceKey) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for dev, arbs := range e.arbs {
+		snap, ok := e.Store.Get(dev)
+		if !ok || snap.Instance != instance {
+			continue
+		}
+		for name, ar := range arbs {
+			if !ar.unconfirmed {
+				continue
+			}
+			ar.unconfirmed, ar.lost, ar.dropped = false, true, false
+			if v, reported := snap.Values[name]; reported {
+				ar.a.Wrote(capability.Float(v))
+			}
+		}
 	}
 }
 
@@ -198,6 +233,7 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 		if old != nil {
 			// A write in progress finishes on the new arbiter.
 			ar.writing, ar.pending, ar.wrote, ar.retry, ar.dropped = old.writing, old.pending, old.wrote, old.retry, old.dropped
+			ar.unconfirmed, ar.lost = old.unconfirmed, old.lost
 		}
 		arbs[c.Capability] = ar
 	}
@@ -333,6 +369,7 @@ func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, nam
 	} else {
 		cur.a.Wrote(value)
 		cur.wrote, cur.retry = now, time.Time{}
+		cur.unconfirmed, cur.lost = true, false
 	}
 	cur.pending = false
 	e.decide(ctx, dev, name, cur)
@@ -367,7 +404,11 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 		// The first value seen is the device's, not a change.
 		ar.a.Wrote(v)
 	case v == st.Value:
+		ar.unconfirmed, ar.lost = false, false
 		return
+	case ar.lost && !ar.writing:
+		ar.lost = false
+		ar.a.Wrote(v)
 	case ar.writing || e.Clock.Since(ar.wrote) < staleReport:
 		e.Log.V(1).Info("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
 		ar.dropped = true
@@ -693,7 +734,67 @@ func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 			}
 		}
 	}
+	for _, dev := range e.savedDevices(namespace) {
+		for _, c := range e.SavedClaims(dev) {
+			if rule, ok := strings.CutPrefix(c.Source, rulePrefix); ok && c.Level >= held[rule] {
+				held[rule] = c.Level
+			}
+		}
+	}
 	return held
+}
+
+// savedDevices are the namespace's devices with claims on record and no arbiters, whose driver hasn't
+// attached, so that the claims are only on disk. Call with e.mu held.
+func (e *Engine) savedDevices(namespace string) []types.NamespacedName {
+	listed, ok := e.Controls.(interface {
+		Names(namespace string) ([]string, error)
+	})
+	if !ok {
+		return nil
+	}
+	names, err := listed.Names(namespace)
+	if err != nil {
+		e.Log.Error(err, "Failed to list saved claims", "namespace", namespace)
+		return nil
+	}
+	var devices []types.NamespacedName
+	for _, name := range names {
+		dev := types.NamespacedName{Namespace: namespace, Name: name}
+		if len(e.arbs[dev]) == 0 {
+			devices = append(devices, dev)
+		}
+	}
+	return devices
+}
+
+// endSaved ends a source's claims that are only on disk. A device whose record can't be read is left
+// alone: what's in it isn't known.
+func (e *Engine) endSaved(ctx context.Context, namespace, source string) error {
+	e.mu.Lock()
+	devices := e.savedDevices(namespace)
+	e.mu.Unlock()
+	e.saveMu.Lock()
+	defer e.saveMu.Unlock()
+	var errs []error
+	for _, dev := range devices {
+		saved, ok := e.Controls.Get(dev)
+		if !ok {
+			continue
+		}
+		changed := false
+		for name, st := range saved {
+			kept := slices.DeleteFunc(slices.Clone(st.Claims), func(c control.Claim) bool { return c.Source == source })
+			if len(kept) != len(st.Claims) {
+				st.Claims, changed = kept, true
+				saved[name] = st
+			}
+		}
+		if changed {
+			errs = append(errs, e.Controls.Put(ctx, dev, saved))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // EndRule ends every claim of a rule that no longer exists, Safety ones included, as Remove does for
@@ -702,7 +803,10 @@ func (e *Engine) EndRule(ctx context.Context, namespace, rule string) error {
 	e.mu.Lock()
 	e.ensureDue()
 	e.mu.Unlock()
-	return e.ReleaseClaims(ctx, namespace, ruleSource(rule), allLevels)
+	if err := e.ReleaseClaims(ctx, namespace, ruleSource(rule), allLevels); err != nil {
+		return err
+	}
+	return e.endSaved(ctx, namespace, ruleSource(rule))
 }
 
 // Responsive returns once the engine's lock is free. A condition stuck in a loop holds that lock,

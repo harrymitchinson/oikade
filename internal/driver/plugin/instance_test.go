@@ -312,6 +312,22 @@ func TestSetPublishes(t *testing.T) {
 	}
 }
 
+func TestAWriteWaitsForTheNextProcessToAnnounce(t *testing.T) {
+	i, bus, _ := setup(t, online())
+	ctx := context.Background()
+	if err := i.Set(ctx, porch, capability.LightOn, false); err != nil {
+		t.Fatal(err)
+	}
+	i.Forget()
+	if err := i.Set(ctx, porch, capability.LightOn, false); err == nil {
+		t.Fatal("a write was taken with nothing announced")
+	}
+	publish(t, bus, root+"/devices", devicesJSON)
+	if err := i.Set(ctx, porch, capability.LightOn, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStopUnsubscribes(t *testing.T) {
 	i, bus, rec := setup(t, online())
 	i.Stop()

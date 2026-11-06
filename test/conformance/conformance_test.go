@@ -8,6 +8,8 @@
 //	OIKADE_CONFORMANCE_DEVICES  a devices.json to hand the plugin, relative to the repository root
 //	                            (default test/conformance/testdata/devices.json)
 //	OIKADE_CONFORMANCE_SECRETS  a directory to pass as OIKADE_SECRETS_DIR (optional)
+//	OIKADE_CONFORMANCE_IMPORTED the name of a plugin the command's home imports, to drive through
+//	                            the Go API rather than MQTT (optional)
 package conformance
 
 import (
@@ -35,6 +37,7 @@ func TestConformance(t *testing.T) {
 		Dir:     repo,
 		Devices: fromRepo(repo, "test/conformance/testdata/devices.json"),
 		Log:     testr.New(t),
+		Plugin:  os.Getenv("OIKADE_CONFORMANCE_IMPORTED"),
 	}
 	if f := os.Getenv("OIKADE_CONFORMANCE_DEVICES"); f != "" {
 		cfg.Devices = fromRepo(repo, f)

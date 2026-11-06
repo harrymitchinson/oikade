@@ -51,7 +51,7 @@ type Plugin struct {
 	onSet        func(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
 	closeTimeout time.Duration
 
-	client *mqtt.Client
+	client link
 	// ready is closed once client is set and subscribed, so announcing can start.
 	ready chan struct{}
 	// online is closed after the first announcement.
@@ -77,6 +77,17 @@ type Plugin struct {
 	states       map[string]contractv1.State
 	availability map[string]bool
 	queues       map[string][]contractv1.SetCommand
+	// running says when each device's Set began, and setTimeout how long one may run before a
+	// plugin under the host counts as hung. Zero never does.
+	running    map[string]time.Time
+	setTimeout time.Duration
+}
+
+// link is how a plugin reaches Oikade: a broker, or the host's socket.
+type link interface {
+	Publish(ctx context.Context, topic string, payload []byte, retain bool) error
+	Disconnect(ctx context.Context) error
+	Drop(ctx context.Context) error
 }
 
 // Start connects with the Last Will set and returns once the plugin is online. ctx bounds only
@@ -104,21 +115,7 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	}
 	// Logged by internal/mqtt, which takes a logr.Logger from the context.
 	life, stop := context.WithCancel(logr.NewContext(context.WithoutCancel(ctx), logr.FromSlogHandler(o.Logger.Handler())))
-	p := &Plugin{
-		root:         root,
-		clientID:     newClientID(),
-		log:          o.Logger,
-		onSet:        o.OnSet,
-		closeTimeout: o.CloseTimeout,
-		ready:        make(chan struct{}),
-		online:       make(chan struct{}),
-		life:         life,
-		stop:         stop,
-		pub:          make(chan struct{}, 1),
-		states:       map[string]contractv1.State{},
-		availability: map[string]bool{},
-		queues:       map[string][]contractv1.SetCommand{},
-	}
+	p := newPlugin(root, o.Logger, o.OnSet, o.CloseTimeout, life, stop)
 
 	startCtx, cancel := context.WithTimeout(ctx, o.StartTimeout)
 	defer cancel()
@@ -143,7 +140,7 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	}
 
 	will, _ := json.Marshal(contractv1.Status{State: contractv1.Offline, Contract: contractv1.Contract})
-	p.client, err = mqtt.Connect(life, server.String(), p.clientID,
+	client, err := mqtt.Connect(life, server.String(), p.clientID,
 		mqtt.WithWill(root.Status(), will), mqtt.WithOnConnect(p.announce))
 	if err != nil {
 		if startCtx.Err() != nil {
@@ -151,7 +148,8 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 		}
 		return fail(err)
 	}
-	if _, err := p.client.Subscribe(startCtx, root.SetFilter(), p.receive); err != nil {
+	p.client = client
+	if _, err := client.Subscribe(startCtx, root.SetFilter(), p.receive); err != nil {
 		if startCtx.Err() != nil {
 			return timedOut()
 		}
@@ -167,6 +165,27 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 		return timedOut() // the timeout fired as the plugin came online
 	}
 	return p, nil
+}
+
+func newPlugin(root contractv1.Root, log *slog.Logger,
+	onSet func(context.Context, *Plugin, contractv1.SetCommand) error, closeTimeout time.Duration,
+	life context.Context, stop context.CancelFunc) *Plugin {
+	return &Plugin{
+		root:         root,
+		clientID:     newClientID(),
+		log:          log,
+		onSet:        onSet,
+		closeTimeout: closeTimeout,
+		ready:        make(chan struct{}),
+		online:       make(chan struct{}),
+		life:         life,
+		stop:         stop,
+		pub:          make(chan struct{}, 1),
+		states:       map[string]contractv1.State{},
+		availability: map[string]bool{},
+		queues:       map[string][]contractv1.SetCommand{},
+		running:      map[string]time.Time{},
+	}
 }
 
 func newClientID() string {
@@ -473,13 +492,33 @@ func (p *Plugin) drain(id string) {
 		}
 		cmd := queue[0]
 		p.queues[id] = queue[1:]
+		p.running[id] = time.Now()
 		p.mu.Unlock()
 
-		if err := p.onSet(p.life, p, cmd); err != nil {
+		err := p.onSet(p.life, p, cmd)
+		p.mu.Lock()
+		delete(p.running, id)
+		p.mu.Unlock()
+		if err != nil {
 			p.log.Error("Could not apply set command",
 				"topic", p.root.Set(cmd.ID), "capability", cmd.Capability, "error", err.Error())
 		}
 	}
+}
+
+// stuck is whether a Set has run for longer than it may.
+func (p *Plugin) stuck() bool {
+	if p.setTimeout <= 0 {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, began := range p.running {
+		if time.Since(began) > p.setTimeout {
+			return true
+		}
+	}
+	return false
 }
 
 // lock takes pub for a publish. It fails once Close has started, or when ctx ends first.

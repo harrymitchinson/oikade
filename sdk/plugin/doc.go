@@ -12,6 +12,10 @@
 //		})
 //	}
 //
+// A plugin that a home imports through framework.Home needs no main of its own: it gives the home a
+// Factory, and the host runs it in a process of its own through RunHosted. A Handler is the same code
+// either way. Importing a plugin means trusting its code: it runs as you.
+//
 // Handler.Serve reports the devices with SetDevices, then each device's SetAvailability and
 // SetState, and follows the devices until its context ends. A plugin that can list the devices in
 // its app also reports them with SetDiscovered, under IDs that survive restarts. Handler.Set
