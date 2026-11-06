@@ -11,6 +11,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
@@ -44,7 +45,7 @@ func (s *apiServer) status() api.Response {
 			continue
 		}
 		d := api.Device{Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{}}
-		control := s.srv.engine.ControlOf(dev)
+		held := s.srv.engine.ControlOf(dev)
 		names := slices.Clone(snap.Info.Capabilities)
 		for name := range snap.Values {
 			names = append(names, name)
@@ -55,8 +56,8 @@ func (s *apiServer) status() api.Response {
 			if v, ok := snap.Values[name]; ok {
 				c.Value = v
 			}
-			if i := slices.IndexFunc(control, func(o homev1alpha1.CapabilityControlStatus) bool { return o.Capability == name }); i >= 0 {
-				withControl(&c, control[i])
+			if i := slices.IndexFunc(held, func(o homev1alpha1.CapabilityControlStatus) bool { return o.Capability == name }); i >= 0 {
+				withControl(&c, held[i])
 			}
 			d.Capabilities = append(d.Capabilities, c)
 		}
@@ -81,15 +82,15 @@ func (s *apiServer) status() api.Response {
 	return api.Response{Status: st}
 }
 
-func withControl(c *api.Capability, control homev1alpha1.CapabilityControlStatus) {
-	c.Level = string(control.Level)
-	if control.Level == "" {
+func withControl(c *api.Capability, held homev1alpha1.CapabilityControlStatus) {
+	c.Level = string(held.Level)
+	if held.Level == "" {
 		c.Level = string(homev1alpha1.ControlLevelDefault)
 	}
-	if control.Value != nil {
-		c.Wanted = rawValue(control.Value.Raw)
+	if held.Value != nil {
+		c.Wanted = rawValue(held.Value.Raw)
 	}
-	for _, o := range control.Claims {
+	for _, o := range held.Claims {
 		if o.Reverted {
 			continue
 		}
@@ -171,6 +172,10 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: no process is connected", req.Rule)}
 	case rules[i].Safety:
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a Safety rule, so pausing it stops that protection", req.Rule)}
+	case s.srv.engine.RuleClaims(wire.Namespace)[req.Rule] == control.Safety:
+		// As a deploy's check: a flow can make a Safety claim its declaration doesn't show, and a pause
+		// would leave that claim with no run to release it.
+		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s holds a Safety claim, which a pause would strand", req.Rule)}
 	}
 	if err := s.srv.setPaused(ctx, req.Rule, true); err != nil {
 		return api.Response{Error: err.Error()}
@@ -197,7 +202,12 @@ func (s *server) setPaused(ctx context.Context, rule string, paused bool) error 
 		m, what = wire.Message{Type: wire.TypePause, Rule: rule}, "paused"
 		err = s.paused.Put(ctx, key(rule), time.Now())
 	} else {
-		err = s.paused.Delete(ctx, key(rule))
+		// Here as well as in your process, which may not be running: a time that passed during a
+		// pause isn't caught up.
+		if _, timed := s.fires.Get(key(rule)); timed {
+			err = s.fires.Put(ctx, key(rule), time.Now())
+		}
+		err = errors.Join(err, s.paused.Delete(ctx, key(rule)))
 	}
 	if err != nil {
 		return fmt.Errorf("saving the pause: %w", err)
@@ -206,7 +216,7 @@ func (s *server) setPaused(ctx context.Context, rule string, paused bool) error 
 	s.log.Info("Changed rule pause", "rule", rule, "paused", paused)
 	s.feed.publish(api.Event{Time: time.Now(), Type: api.EventPause, Rule: rule, Message: what})
 	if paused {
-		if err := s.engine.ReleaseFlow(ctx, key(rule)); err != nil {
+		if err := s.engine.ReleaseRule(ctx, key(rule)); err != nil {
 			return errors.Join(errors.New("paused, but its claims didn't end"), err)
 		}
 	}

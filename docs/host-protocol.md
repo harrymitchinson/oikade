@@ -87,7 +87,7 @@ A rule's claims end with the rule, but only through a deploy, which is what chec
 The host runs a binary as `<binary> check` before it stops anything. That loads the home with no writes and no session, and prints one line of JSON as its last line of output, then exits 0:
 
 ```json
-{"protocol":2,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
+{"protocol":3,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
 ```
 
 A failure, or a `protocol` other than the host's, rejects the version.

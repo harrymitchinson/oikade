@@ -566,6 +566,12 @@ func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) erro
 	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
+// ReleaseRule ends the claims of a rule that runs elsewhere, but for Safety ones, as ReleaseFlow does,
+// and returns once that's saved. ctx is the engine's, as with Claim.
+func (e *Engine) ReleaseRule(ctx context.Context, key types.NamespacedName) error {
+	return e.ReleaseClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
+}
+
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
 // that's still to do. Call with e.mu held.
 func (e *Engine) ensureDue() {

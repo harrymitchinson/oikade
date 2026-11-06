@@ -95,3 +95,42 @@ func TestAPauseWithNoProcessEndsTheFlowsRunOnceAsked(t *testing.T) {
 		t.Errorf("got paused %v", welcome.Paused)
 	}
 }
+
+func TestAResumeWithNoProcessLeavesPausedTimesBehind(t *testing.T) {
+	dir := tempDir(t)
+	socket, _ := startHost(t, dir)
+	first, _ := dial(t, socket)
+	before := time.Now().Add(-24 * time.Hour)
+	if err := first.SaveFire(t.Context(), "morning", before); err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	<-first.Done()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	local := api.Local{DataDir: dir}
+	for {
+		resp, err := api.Call(ctx, local, api.Request{Type: api.TypeStatus})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !resp.Status.Process {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for _, kind := range []string{api.TypePause, api.TypeResume} {
+		resp, err := api.Call(ctx, local, api.Request{Type: kind, Rule: "morning", AllowSafety: true})
+		if err != nil || resp.Error != "" {
+			t.Fatalf("%s: got %+v, %v", kind, resp, err)
+		}
+	}
+	_, welcome := dial(t, socket, "morning")
+	if got := welcome.Fires["morning"]; !got.After(time.Now().Add(-time.Minute)) {
+		t.Errorf("the next process would catch up from %s", got)
+	}
+	if _, untimed := welcome.Fires["other"]; untimed {
+		t.Error("a rule with no timers got one")
+	}
+}

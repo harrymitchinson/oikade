@@ -238,6 +238,20 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	}
 }
 
+func TestPausingAFlowHoldingASafetyClaimNeedsAsking(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.change("fail-go", "sensor.contact-open", true)
+	r.wrote("claimed-safety", false)
+	r.sync()
+	stderr, err := r.oikade(nil, "pause", "failing")
+	if err == nil || !strings.Contains(stderr, "--allow-safety") {
+		t.Errorf("stranded a Safety claim without asking: %v: %s", err, stderr)
+	}
+	r.stdout(nil, "pause", "failing", "--allow-safety")
+}
+
 func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 	t.Parallel()
 	r := start(t)

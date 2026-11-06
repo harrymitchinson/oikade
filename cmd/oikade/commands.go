@@ -37,8 +37,22 @@ func (t target) transport() api.Transport {
 	return api.Local{DataDir: *t.dataDir}
 }
 
-// parse takes flags from anywhere among the positional arguments.
+// parse takes flags from anywhere among the positional arguments. A negative number is a value, not
+// a flag.
 func parse(fs *flag.FlagSet, args []string) []string {
+	var positional []string
+	for len(args) > 0 {
+		i := slices.IndexFunc(args, negative)
+		if i < 0 {
+			return append(positional, parseFlags(fs, args)...)
+		}
+		positional = append(append(positional, parseFlags(fs, args[:i])...), args[i])
+		args = args[i+1:]
+	}
+	return positional
+}
+
+func parseFlags(fs *flag.FlagSet, args []string) []string {
 	var positional []string
 	for {
 		_ = fs.Parse(args)
@@ -48,6 +62,11 @@ func parse(fs *flag.FlagSet, args []string) []string {
 		positional = append(positional, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
+}
+
+func negative(arg string) bool {
+	_, err := strconv.ParseFloat(arg, 64)
+	return err == nil && strings.HasPrefix(arg, "-")
 }
 
 func printJSON(v any) error {
