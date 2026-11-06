@@ -565,7 +565,7 @@ oikade resume fan
 
 A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a Safety rule stops that protection, so it needs `--allow-safety`. So does pausing a rule holding a Safety claim, and anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause.
 
-`--json` on `status`, `tail`, `set`, `pause` and `resume` prints JSON whose fields stay stable for scripts.
+`--json` on `status`, `tail`, `set`, `pause`, `resume` and `devices` prints JSON whose fields stay stable for scripts.
 
 `--host NAME`, before or after the command, runs any of these and `deploy` and `rollback` on another machine over SSH, using your own SSH config. The SSH user must be the one running the host, with `oikade` on its `PATH`, and `--data-dir` means the directory over there. `deploy` copies the binary across first.
 
@@ -636,11 +636,34 @@ spec:
     deviceType: PlugInUnit
 ```
 
+### Devices on the host
+
+The host owns the list of devices, in its registry in the data directory. A paired device enters it the moment a driver reports it, and it's usable at once, under a name copied from its app once. Oikade never writes to an app's names, or follows them after that.
+
+```sh
+oikade devices                               # every device, and how it's doing
+oikade devices name lamp-2 porch-light       # call it something else
+oikade devices room porch-light Porch        # move it between rooms
+oikade devices reserve shed-heater           # hold a name for hardware you haven't paired yet
+oikade devices replace porch-light lamp-3    # move a name onto new hardware
+oikade devices remove porch-light
+oikade types                                 # write devices.go from the registry
+```
+
+`oikade types` writes a Go file with a constant for each device, for `Device: PorchLight` in your code, and you commit it. So code naming a device that's gone stops compiling, builds need no host, and Git has a reviewable copy of your inventory. `--out` and `--package` say where it goes. The registry is the authority, and the file is its snapshot. Two names that come out the same in Go, such as `a-1` and `a1`, fail until you rename one. Running code keeps a name until you deploy again, so run `oikade types` and deploy after renaming.
+
+`reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. Pair it, and `oikade devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
+
+`remove` keeps the device on record with its endpoint, so hardware that comes back gets its name, room and endpoint back. Remove a device from its app first, because one that's still paired comes back when it next reports. A device stays until you remove it, reported or not. Renaming a device, or moving another one's hardware away, is refused while something claims it, because claims stay with a name. Removing one that a Safety claim holds needs `--allow-safety`.
+
+If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, reservations and endpoint IDs, matched by hardware, so it works after the drivers have reported again. Devices the file doesn't have stay, and get a new endpoint if the file gives theirs to something else.
+
 ## State that must survive
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
 - **The Matter bridge's Secret** (`<bridge>-matter`: the setup code, unique ID and attestation key, and a copy of the endpoint IDs) and **fabrics** (`<bridge>-matter` PVC: operational keys and certificates, and access control) have no owner reference. Deleting a Bridge keeps them, and a Bridge applied again gets its old pairing code and endpoint IDs back. If the PVC is lost, commission the bridge again.
+- **The device registry** is in the host's data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikade types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikade types` aren't in it, so run it after pairing.
 - **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
 - **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git, so settings changed in its frontend don't survive a restart. Device names are the exception: they live in `devices.yaml` on the `<instance>-data` PVC, which belongs to Zigbee2MQTT. The operator writes it only when the PVC has none, with each declared Device's name.

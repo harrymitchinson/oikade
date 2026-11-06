@@ -35,6 +35,14 @@ const usage = `Usage:
   oikade set DEVICE CAPABILITY VALUE [--json]
   oikade pause RULE [--allow-safety] [--json]
   oikade resume RULE [--json]
+  oikade devices [--all] [--json]
+  oikade devices name DEVICE NAME [--json]
+  oikade devices room DEVICE ROOM [--json]
+  oikade devices reserve NAME [--room ROOM] [--json]
+  oikade devices replace DEVICE WITH [--json]
+  oikade devices remove DEVICE [--allow-safety] [--json]
+  oikade devices restore FILE [--json]
+  oikade types [--out FILE] [--package NAME]
 
 Every command but host takes --data-dir DIR and --host NAME, which runs it on that SSH host.`
 
@@ -64,6 +72,10 @@ func main() {
 		err = runPause(ctx, args, true)
 	case "resume":
 		err = runPause(ctx, args, false)
+	case "devices":
+		err = runDevices(ctx, args)
+	case "types":
+		err = runTypes(ctx, args)
 	case "proxy":
 		err = runProxy(ctx, args)
 	default:

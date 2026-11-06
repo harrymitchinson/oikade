@@ -136,3 +136,23 @@ func TestSetDevicesReportsReassignments(t *testing.T) {
 		t.Errorf("Reassigned = %v, want %v", r.got, want)
 	}
 }
+
+func TestRenameKeepsLiveState(t *testing.T) {
+	s := NewStore(logr.Discard())
+	instance := driver.InstanceKey{Driver: "test", NamespacedName: types.NamespacedName{Name: "a"}}
+	from, to := types.NamespacedName{Name: "old"}, types.NamespacedName{Name: "new"}
+	s.SetDevices(instance, map[types.NamespacedName]Meta{from: {Instance: instance}})
+	s.Changed(driver.Update{Device: from, Capability: "switch.on", Value: true})
+	if !s.Rename(from, to) {
+		t.Fatal("found nothing to rename")
+	}
+	if _, ok := s.Get(from); ok {
+		t.Error("the old name stayed")
+	}
+	if snap, ok := s.Get(to); !ok || snap.Values["switch.on"] != true {
+		t.Errorf("got %+v, %v", snap, ok)
+	}
+	if s.Rename(from, to) {
+		t.Error("renamed a device that isn't there")
+	}
+}

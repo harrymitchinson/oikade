@@ -1,6 +1,6 @@
 // Package store is Oikade's one embedded store: a single bbolt file in a data directory, holding
 // namespaced values and a write-ahead journal. Every write has reached disk when it returns.
-// Nothing production uses it yet (OIK-143).
+// The host owns it (OIK-143).
 package store
 
 import (

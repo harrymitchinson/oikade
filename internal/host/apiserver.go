@@ -29,6 +29,7 @@ type apiServer struct {
 	ctx     context.Context
 	deploys *deployer
 	srv     *server
+	devices *inventory
 }
 
 // serve accepts connections until the listener closes, and returns once every call has finished.
@@ -113,6 +114,9 @@ func (s *apiServer) answer(req api.Request) api.Response {
 		return s.pause(s.ctx, req)
 	case api.TypeResume:
 		return s.resume(s.ctx, req)
+	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceReserve,
+		api.TypeDeviceRemove, api.TypeDeviceReplace, api.TypeDeviceRestore:
+		return s.device(req)
 	}
 	return api.Response{Error: fmt.Sprintf("unknown request %q", req.Type)}
 }

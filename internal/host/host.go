@@ -16,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -63,6 +64,10 @@ func (h *Host) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	devicesOnRecord, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		return err
+	}
 
 	// The engine outlives ctx: your process may claim until it has stopped, so that comes first.
 	engineCtx, stopEngine := context.WithCancel(context.WithoutCancel(ctx))
@@ -81,7 +86,8 @@ func (h *Host) Run(ctx context.Context) error {
 		feed:    newFeed(), pushed: &pushed{},
 	}
 	devices := hub.NewStore(h.Log.WithName("devices"), eng, srv)
-	sim := &simulator{store: devices, log: h.Log.WithName("simulator")}
+	known := newInventory(devicesOnRecord, devices, eng, h.Log.WithName("registry"))
+	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
 	eng.Store, eng.Setter, srv.devices, srv.setter = devices, sim, devices, sim
 	eng.Init()
 	if err := sim.start(h.Devices); err != nil {
@@ -121,7 +127,7 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
-	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv}
+	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known}
 	serving.Go(func() { calls.serve(apiListener) })
 	serving.Go(func() { observing(ctx) })
 	<-ctx.Done()

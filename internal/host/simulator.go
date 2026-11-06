@@ -43,39 +43,52 @@ func ReadSimulated(path string) ([]SimulatedDevice, error) {
 	return devices, nil
 }
 
-// simInstance is the driver instance simulated devices belong to.
+// simInstance is the driver instance simulated devices belong to. A simulated device's name in the
+// file is its ID, and its name in its app.
 var simInstance = driver.InstanceKey{Driver: "simulated", NamespacedName: types.NamespacedName{Name: "simulator"}}
 
 // simulator is a driver with no hardware: writes take effect at once, and lines of JSON on its
 // input change a device as if from outside.
 type simulator struct {
 	store *hub.Store
+	known *inventory
 	log   logr.Logger
 	mu    sync.Mutex
 }
 
-// simChange is one line of the simulator's input.
+// simChange is one line of the simulator's input: a change, or a device being paired.
 type simChange struct {
-	Device     string `json:"device"`
-	Capability string `json:"capability"`
-	Value      any    `json:"value"`
+	Device     string           `json:"device"`
+	Capability string           `json:"capability"`
+	Value      any              `json:"value"`
+	Pair       *SimulatedDevice `json:"pair,omitempty"`
 }
 
-// start declares the devices and reports them.
+// start reports the devices, and with them everything the registry says it has here.
 func (s *simulator) start(devices []SimulatedDevice) error {
-	metas := map[types.NamespacedName]hub.Meta{}
+	s.known.attach(simInstance)
 	for _, d := range devices {
-		metas[key(d.Name)] = hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: simInstance, Control: d.Control}
-	}
-	s.store.SetDevices(simInstance, metas)
-	for _, d := range devices {
-		for name, v := range d.Values {
-			if err := s.report(key(d.Name), name, v); err != nil {
-				return fmt.Errorf("device %s: %w", d.Name, err)
-			}
+		if err := s.pair(d); err != nil {
+			return err
 		}
-		s.store.Discovered(key(d.Name), driver.Info{Found: true, Capabilities: d.Capabilities})
 	}
+	return nil
+}
+
+// pair reports a device as a driver would when it's paired.
+func (s *simulator) pair(d SimulatedDevice) error {
+	dev, err := s.known.paired(simInstance, driver.AppDevice{
+		ID: d.Name, Name: d.Name, Room: d.Room, Capabilities: d.Capabilities,
+	}, d.Control)
+	if err != nil {
+		return fmt.Errorf("device %s: %w", d.Name, err)
+	}
+	for name, v := range d.Values {
+		if err := s.report(dev, name, v); err != nil {
+			return fmt.Errorf("device %s: %w", d.Name, err)
+		}
+	}
+	s.store.Discovered(dev, driver.Info{Found: true, Capabilities: d.Capabilities})
 	return nil
 }
 
@@ -88,7 +101,18 @@ func (s *simulator) read(r io.Reader) {
 			s.log.Error(err, "Ignored unreadable simulated change")
 			continue
 		}
-		if err := s.report(key(c.Device), c.Capability, c.Value); err != nil {
+		if c.Pair != nil {
+			if err := s.pair(*c.Pair); err != nil {
+				s.log.Error(err, "Ignored simulated device", "device", c.Pair.Name)
+			}
+			continue
+		}
+		dev, ok := s.known.key(simInstance, c.Device)
+		if !ok {
+			s.log.Info("Ignored simulated change to a device not on record", "device", c.Device)
+			continue
+		}
+		if err := s.report(dev, c.Capability, c.Value); err != nil {
 			s.log.Error(err, "Ignored simulated change", "device", c.Device, "capability", c.Capability)
 		}
 	}

@@ -128,6 +128,32 @@ type Reassigner interface {
 	Reassigned(dev types.NamespacedName)
 }
 
+// Rename moves a device's live state to another key, replacing anything there, and tells the
+// listeners that both changed.
+func (s *Store) Rename(from, to types.NamespacedName) bool {
+	s.mu.Lock()
+	e, ok := s.devices[from]
+	if ok {
+		delete(s.devices, from)
+		s.devices[to] = e
+	}
+	s.mu.Unlock()
+	if !ok {
+		return false
+	}
+	for _, l := range s.Listeners {
+		if r, ok := l.(Reassigner); ok {
+			r.Reassigned(from)
+			r.Reassigned(to)
+		}
+		if c, ok := l.(ControlWatcher); ok {
+			c.ControlChanged(from)
+			c.ControlChanged(to)
+		}
+	}
+	return true
+}
+
 // Forget drops a driver instance that no longer exists: its devices, its undeclared count and its
 // inventory.
 func (s *Store) Forget(instance driver.InstanceKey) {
