@@ -61,7 +61,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v -e /e2e -e /test/install) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -135,6 +135,10 @@ test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract and
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 	OIKADE_CONFORMANCE_PLUGIN=bin/simhome OIKADE_CONFORMANCE_IMPORTED=simswitch go test ./test/conformance/ -v -count=1
 
+.PHONY: test-install
+test-install: ## Run oikade install, upgrade and a restart in a container with systemd. Needs Docker.
+	OIKADE_REQUIRE_DOCKER=1 go test ./test/install/ -v -timeout 15m
+
 .PHONY: test-hack
 test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval and plugin-repo steps with gh stubbed, and no raw gh writes in skills.
 	shellcheck hack/plan hack/agent-token hack/linear-token hack/owner-approval hack/test/*.sh
@@ -181,10 +185,11 @@ docker-build: ## Build docker image with the manager.
 PREBUILT_DIR ?= $(LOCALBIN)/prebuilt
 .PHONY: docker-build-prebuilt
 docker-build-prebuilt: ## Build docker image with a manager binary built outside Docker.
-	mkdir -p "$(PREBUILT_DIR)/workspace"
+	mkdir -p "$(PREBUILT_DIR)/workspace/data"
 	arch=$$($(CONTAINER_TOOL) version -f '{{.Server.Arch}}') && \
 	CGO_ENABLED=0 GOOS=linux GOARCH="$$arch" \
-		go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/workspace/manager" ./cmd
+		sh -c 'go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/workspace/manager" ./cmd && \
+		go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/workspace/oikade" ./cmd/oikade'
 	$(CONTAINER_TOOL) build --build-context builder="$(PREBUILT_DIR)" -t ${IMG} .
 
 .PHONY: docker-push

@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -392,4 +393,10 @@ func logOutput() io.Writer {
 		return io.Discard
 	}
 	return os.Stdout
+}
+
+// Secret reads a credential set with oikade secret set, such as an API key for r.Do. ok is false if
+// there's no such secret, as under oikade dev. Never log the result.
+func Secret(name string) (value string, ok bool, err error) {
+	return plugin.ReadSecret(plugin.Environment{SecretsDir: os.Getenv(contractv1.EnvSecretsDir)}, name)
 }

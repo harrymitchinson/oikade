@@ -3,6 +3,8 @@ package store
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
@@ -270,5 +272,47 @@ func TestKeysListsANamespace(t *testing.T) {
 	}
 	if keys, err := n.Keys(); err != nil || len(keys) != 2 || keys[0] != "a" || keys[1] != "b" {
 		t.Fatalf("got %v, %v", keys, err)
+	}
+}
+
+func TestSnapshotOpensWithWhatTheStoreHeld(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ns := s.Namespace("things")
+	if err := ns.Put("kept", []byte("yes")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Journal().Append("run-1", []byte("step")); err != nil {
+		t.Fatal(err)
+	}
+	copied := t.TempDir()
+	if err := s.Snapshot(filepath.Join(copied, fileName)); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing written after the snapshot is in it, and the store it came from is still open.
+	if err := ns.Put("later", []byte("no")); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := Open(copied)
+	if err != nil {
+		t.Fatalf("opening the snapshot: %v", err)
+	}
+	defer func() { _ = restored.Close() }()
+	if got, ok, err := restored.Namespace("things").Get("kept"); err != nil || !ok || string(got) != "yes" {
+		t.Errorf("kept = %q, %v, %v", got, ok, err)
+	}
+	if _, ok, err := restored.Namespace("things").Get("later"); err != nil || ok {
+		t.Errorf("a write after the snapshot is in it: %v, %v", ok, err)
+	}
+	if entries, err := restored.Journal().Entries("run-1"); err != nil || len(entries) != 1 {
+		t.Errorf("journal = %v, %v", entries, err)
+	}
+	if left, err := os.ReadDir(copied); err != nil || len(left) != 1 {
+		t.Errorf("the snapshot's directory holds %v, %v", left, err)
 	}
 }

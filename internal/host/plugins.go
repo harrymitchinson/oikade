@@ -311,7 +311,7 @@ func (p *plugins) startOutside(ctx context.Context) {
 		if bus, err = mqtt.Connect(ctx, p.host.Broker, "oikade-host"); err == nil {
 			break
 		}
-		p.log.Error(err, "Failed to connect to the broker", "broker", p.host.Broker, "retry", outsideRetry.String())
+		p.log.Error(err, "Failed to connect to the broker", "broker", redacted(p.host.Broker), "retry", outsideRetry.String())
 		select {
 		case <-ctx.Done():
 			return
@@ -355,7 +355,7 @@ func (p *plugins) runProcess(ctx context.Context, h *hosted, path string) error 
 	log := logr.FromContextOrDiscard(ctx)
 	cmd := exec.Command(path, wire.RolePlugin, h.name)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+p.socket)
+	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+p.socket, contractv1.EnvSecretsDir+"="+p.host.SecretsDir)
 	if p.host.Broker != "" {
 		cmd.Env = append(cmd.Env, contractv1.EnvMQTTURL+"="+p.host.Broker)
 	}

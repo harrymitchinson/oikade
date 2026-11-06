@@ -651,6 +651,55 @@ returns to the version before the running one. The host keeps the last five.
 
 Removing a Safety rule is refused, and so is renaming one, because a rule's claims end with it and a hold's latch lives under its name, which could reopen a valve. `--allow-safety-removal` on either command goes ahead. `--binary FILE` deploys something already built for the host, and skips the checks that need your source.
 
+## Installing the host
+
+`oikade install` sets up a host on a machine with systemd. The contract is one long-running process, one data directory, secrets as files, logs on stdout, and metrics and health over HTTP.
+
+```sh
+oikade install --host pi -- --broker mqtt://broker:1883   # a machine you can ssh to, with sudo
+sudo oikade install                                       # this machine
+```
+
+Anything after `--` is a flag for `oikade host`. Running `install` again with the same flags changes nothing, and with different ones it rewrites the unit and restarts the host. `--print` shows the unit.
+
+It installs `/usr/local/bin/oikade`, the unit `oikade.service` and the data directory `/var/lib/oikade`. The host runs as whoever logged in, because `oikade --host` has to log in as the user running the host; `--user NAME` picks another, and logging in as root gets a system user `oikade`. Over SSH it uses this `oikade` if that fits the machine, or builds this version with Go. A local build has no version to build, so pass `--binary FILE`.
+
+### In Docker
+
+The image is the same binary, for linux/arm64 and linux/amd64, and runs `oikade host`. Matter needs the machine's network, for mDNS and IPv6:
+
+```sh
+docker run -d --name oikade --restart unless-stopped --network host \
+  -v oikade:/var/lib/oikade ghcr.io/harrymitchinson/oikade:<version> host --broker mqtt://broker:1883
+docker exec oikade oikade status
+```
+
+Run commands with `docker exec`, as `--host` only speaks SSH. To deploy, copy your binary in with `docker cp` and run `oikade deploy --binary`, built for the container's platform. To upgrade, run `oikade backup`, then replace the container on the same volume.
+
+### Secrets
+
+```sh
+oikade secret set api-key         # asks for the value, or reads it from stdin
+oikade secret list                # names only, with --json too
+oikade secret remove api-key
+```
+
+Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them. Your code reads one with `framework.Secret`, and a plugin with `plugin.ReadSecret`, when it next asks. `oikade secret set` restarts nothing, so code that reads a secret once at start sees the new value after your next deploy.
+
+`--secrets-dir DIR` on `oikade host` points at another directory, which can be read-only, such as a systemd credentials directory. `oikade secret list` shows what's in it, and `set` says to change it where it's mounted from.
+
+A broker's password belongs in a secret, not a flag: use `--broker mqtt://oikade@broker:1883 --broker-password-secret broker`. The host never logs one.
+
+### Upgrading the host
+
+```sh
+oikade upgrade --host pi    # to this oikade's version
+```
+
+Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back. It takes a backup of the store first, and won't go on without one. Then it swaps the binary, restarts the host, waits for Matter to serve again and says how long that took. The Home app shows the bridge as not responding until it reconnects. If the new version doesn't come up within a minute, the old binary goes back, and the command says so.
+
+A new host may speak a new protocol to your code, in which case your process is turned away until you bump `oikade` in your module and deploy. Do that straight after upgrading.
+
 ## Working with a running home
 
 These talk to the host through a Unix socket in its data directory, which only the user running the host can reach. This API has no network listener.
@@ -809,15 +858,15 @@ Every paired device enters the registry by its IEEE address, except the coordina
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
-- **The host's data directory** (`/var/lib/oikade` by default) is everything a home on the host has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, and latches, claims, flows and your deployed versions. **Back up one directory.** Stop the host first, or copy `oikade.db` from a snapshot of the disk, because a file copied while it changes may not open.
-  - **Upgrade:** a new `oikade` opens the same directory, and nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
+- **The host's data directory** (`/var/lib/oikade` by default) is everything a home on the host has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, and latches, claims, flows, your deployed versions and your secrets. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets are in there in the clear, so keep the copy somewhere as private as the machine.
+  - **Upgrade:** `oikade upgrade` takes that snapshot first, and a new `oikade` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
   - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
-  - **Restore:** a host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them.
+  - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them.
 - **The Matter bridge's Secret** (`<bridge>-matter`: the setup code, unique ID and attestation key, and a copy of the endpoint IDs) and **fabrics** (`<bridge>-matter` PVC: operational keys and certificates, and access control) have no owner reference. Deleting a Bridge keeps them, and a Bridge applied again gets its old pairing code and endpoint IDs back. If the PVC is lost, commission the bridge again.
 - **The device registry** is in the host's data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikade types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikade types` aren't in it, so run it after pairing.
 - **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
-- **On the host, the network key and database are yours,** because they belong to the Zigbee2MQTT you run. They aren't in Oikade's data directory, so back up Zigbee2MQTT's data directory yourself. Losing it means pairing every device again. Under the operator, the two points here apply instead.
+- **On the host, the network key and database are yours,** because they belong to the Zigbee2MQTT you run. They aren't in Oikade's data directory, so back up Zigbee2MQTT's own data directory as well. Oikade's backup doesn't cover it. Losing it means pairing every device again. Under the operator, the two points here apply instead.
 - **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git, so settings changed in its frontend don't survive a restart. Device names are the exception: they live in `devices.yaml` on the `<instance>-data` PVC, which belongs to Zigbee2MQTT. The operator writes it only when the PVC has none, with each declared Device's name.
 - **The runtime's state** lives in retained MQTT messages under `oikade/v1/_runtime/`, kept on Mosquitto's `oikade-mosquitto` PVC: which holds are active, latches, off-delay deadlines, claims and their expiries, and equipment-limit counters. Losing it is safe but noticeable. Holds and claims are worked out again from the clock and the devices, but latched holds whose condition has passed are released, overrides end early, and limits start counting again.
 - **A plugin's credentials** (the `spec.secretRef` Secret, such as LAN keys) belong to you. The operator never creates, changes or deletes them, so keep them in Git, encrypted with SOPS or similar. Everything else a plugin needs is rendered from Git, and plugins keep no state of their own.

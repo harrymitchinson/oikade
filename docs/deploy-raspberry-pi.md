@@ -1,9 +1,79 @@
-# Deploying Oikade on a Raspberry Pi cluster
+# Deploying Oikade on a Raspberry Pi
+
+There are two ways to run Oikade, while the host replaces the operator ([OIK-143](https://linear.app/oikade/issue/OIK-143)). [One Pi, with the host](#one-pi-with-the-host) needs no cluster. The rest of this guide is the operator.
+
+## One Pi, with the host
+
+**What you need:** a Raspberry Pi 4 or 5 with a 64-bit OS, booting from an SSD if you can, on the same subnet as your iPhone and home hub, with IPv6 on. You run [Zigbee2MQTT](https://www.zigbee2mqtt.io) and an MQTT broker yourself, on this Pi or another. Your Mac needs Go, and `oikade`:
+
+```sh
+go install github.com/harrymitchinson/oikade/cmd/oikade@main
+```
+
+**Install.** Use the name your SSH config has for the Pi. You need sudo there. The host runs as the user you log in as, which is what lets `oikade --host` reach it.
+
+```sh
+oikade install --host pi -- --broker mqtt://oikade@broker:1883 --broker-password-secret broker
+```
+
+If your broker needs no password, leave out the user and `--broker-password-secret`. If it does, set the secret and restart the host, as it can't connect until then:
+
+```sh
+oikade secret set broker --host pi
+ssh pi sudo systemctl restart oikade
+```
+
+`oikade status --host pi` should answer. `journalctl -u oikade -f` on the Pi is its log, and `http://pi:8080/metrics` its metrics.
+
+If that Pi runs a firewall, open Matter's port and mDNS: `sudo ufw allow 5540/udp` and `sudo ufw allow 5353/udp`.
+
+**Your home.** Start a repo and deploy it:
+
+```sh
+oikade init home && cd home
+oikade deploy --host pi
+```
+
+The [README](../README.md#getting-started-in-go) has the rest. `oikade matter --host pi` shows the code to pair with the Home app.
+
+**Back up.** Your backup has two parts:
+
+```sh
+ssh pi oikade backup
+rsync -a --rsync-path="sudo rsync" pi:/var/lib/oikade/ pi-backup/oikade/          # everything Oikade has
+```
+
+The second part is Zigbee2MQTT's own data directory, wherever you keep it, which holds the network key and the database. It isn't Oikade's, and Oikade's backup doesn't have it. Losing it means pairing every Zigbee device again.
+
+The copy holds your secrets and the bridge's keys in the clear, so keep it private.
+
+**Restore to a new Pi.** The same address and subnet keep the Home app happy, and nothing needs pairing again:
+
+```sh
+oikade install --host new-pi -- --broker mqtt://oikade@broker:1883 --broker-password-secret broker
+ssh new-pi sudo systemctl stop oikade
+rsync -a --rsync-path="sudo rsync" pi-backup/oikade/ new-pi:/var/lib/oikade/
+ssh new-pi 'cd /var/lib/oikade && sudo cp "$(sudo ls -d backups/* | tail -1)" oikade.db && sudo chown -R "$USER": . && sudo systemctl start oikade'
+```
+
+The `cp` puts the snapshot where the store goes, since the `oikade.db` in the copy was changing as it was copied. A controller paired since that backup isn't in it, and needs pairing again.
+
+**Upgrade.** Update `oikade` on your Mac, then:
+
+```sh
+go install github.com/harrymitchinson/oikade/cmd/oikade@main
+oikade upgrade --host pi
+```
+
+That builds this version for the Pi, backs up the store, swaps the binary and restarts the host. Matter stops with it, so the Home app shows no response until it's back, and the command says how long that took. If the new version doesn't come up, the old one goes back. Afterwards, update `oikade` in your home's `go.mod` and run `oikade deploy --host pi`, as your code is built against the old version.
+
+## A cluster, with the operator
 
 This guide takes you from blank Pis to a paired Matter bridge, Zigbee devices declared in Git, and dashboards in Grafana. It assumes k3s, but any distribution works as long as you keep the networking requirements in step 3.
 
 **Contents**
 
+0. [One Pi, with the host](#one-pi-with-the-host)
 1. [What you need](#1-what-you-need)
 2. [Prepare the Pis](#2-prepare-the-pis)
 3. [Install k3s](#3-install-k3s)

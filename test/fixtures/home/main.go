@@ -202,8 +202,19 @@ func start() {
 	}
 }
 
+// reportSecret tells the tests a secret arrived, and only how long it is: the value mustn't be logged.
+func reportSecret() {
+	if len(os.Args) < 2 || os.Args[1] != "automations" {
+		return
+	}
+	if value, ok, err := framework.Secret("fixture-secret"); ok && err == nil {
+		fmt.Printf("{\"msg\":\"Read secret\",\"length\":%d}\n", len(value))
+	}
+}
+
 func main() {
 	start()
+	reportSecret()
 	var extra []framework.Moment
 	// A time of day comes from the test, which seeds when it was last accounted for.
 	if at := os.Getenv("OIKADE_TEST_AT"); at != "" {

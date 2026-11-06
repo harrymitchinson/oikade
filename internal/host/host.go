@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -49,6 +50,9 @@ type Host struct {
 	Matter *Matter
 	// Broker is an MQTT broker of yours, for Outside and for imported plugins that use one.
 	Broker string
+	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
+	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade secret set says so.
+	SecretsDir string
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
 	// Broker, under oikade/v1/home/<name>.
 	Outside []string
@@ -74,6 +78,12 @@ func (h *Host) Run(ctx context.Context) error {
 		return fmt.Errorf("opening the data directory: %w", err)
 	}
 	defer func() { _ = data.Close() }()
+	if h.SecretsDir == "" {
+		h.SecretsDir = filepath.Join(h.DataDir, DefaultSecretsDir)
+		if err := os.MkdirAll(h.SecretsDir, 0o700); err != nil {
+			return fmt.Errorf("creating the secrets directory: %w", err)
+		}
+	}
 	if h.Settle <= 0 {
 		h.Settle = DefaultSettle
 	}
@@ -167,7 +177,10 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
-	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge}
+	calls := &apiServer{
+		log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
+		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir},
+	}
 	serving.Go(func() { calls.serve(apiListener) })
 	serving.Go(func() { observing(ctx) })
 	serving.Go(func() { srv.events.run(ctx) })
