@@ -234,8 +234,19 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 	if err != nil {
 		return wire.Message{}, nil, err
 	}
+	if welcome.Paused, err = s.paused.Names(wire.Namespace); err != nil {
+		return wire.Message{}, nil, err
+	}
 	runs := make([]wire.Run, 0, len(ids))
 	for _, id := range ids {
+		// A pause ends a flow's run. A process that was running ended it, and if none was, this does.
+		if slices.Contains(welcome.Paused, flow.FlowOf(id)) {
+			if err := s.journal.Delete(id); err != nil {
+				return wire.Message{}, nil, err
+			}
+			s.log.Info("Dropped flow run; its flow is paused", "run", id)
+			continue
+		}
 		entries, err := s.journal.Entries(id)
 		if err != nil {
 			return wire.Message{}, nil, err
@@ -247,9 +258,6 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 		runs = append(runs, run)
 	}
 	welcome.Runs = len(runs)
-	if welcome.Paused, err = s.paused.Names(wire.Namespace); err != nil {
-		return wire.Message{}, nil, err
-	}
 	return welcome, runs, nil
 }
 

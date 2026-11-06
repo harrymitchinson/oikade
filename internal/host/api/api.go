@@ -59,6 +59,8 @@ type Response struct {
 	// GOOS and GOARCH are what the host runs on, so that a deploy can build for it.
 	GOOS   string `json:"goos,omitempty"`
 	GOARCH string `json:"goarch,omitempty"`
+	// NeedsAllowSafety is a pause that AllowSafety would let through.
+	NeedsAllowSafety bool `json:"needsAllowSafety,omitempty"`
 	// Status is a status's.
 	Status *Status `json:"status,omitempty"`
 }

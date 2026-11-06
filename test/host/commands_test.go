@@ -109,6 +109,12 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	if _, err := r.oikade(nil, "set", "fan", "switch.on", "12"); err == nil {
 		t.Error("set a bad value")
 	}
+	if _, err := r.oikade(nil, "set", "leak-sensor", "sensor.contact-open", "true"); err == nil {
+		t.Error("set a read-only capability")
+	}
+	if _, err := r.oikade(nil, "set", "fan", "light.level", "12"); err == nil {
+		t.Error("set a capability the device doesn't have")
+	}
 }
 
 func TestStatusNamesOneDevice(t *testing.T) {

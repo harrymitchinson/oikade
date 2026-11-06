@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -66,13 +65,15 @@ func gatherer(store *hub.Store, eng *engine.Engine, p *pushed) prometheus.Gather
 
 // observe opens the HTTP listener for metrics and health, which reads and changes nothing, and is
 // apart from the API for that reason. It returns what serves it until a context ends.
-func (h *Host) observe(srv *server, eng *engine.Engine) (func(context.Context), error) {
+func (h *Host) observe(srv *server, eng *engine.Engine) func(context.Context) {
 	if h.MetricsAddr == "" {
-		return func(context.Context) {}, nil
+		return func(context.Context) {}
 	}
 	l, err := net.Listen("tcp", h.MetricsAddr)
 	if err != nil {
-		return nil, fmt.Errorf("opening the metrics listener: %w", err)
+		// Worth saying loudly, and not worth stopping a home for.
+		h.Log.Error(err, "Failed to open the metrics listener", "address", h.MetricsAddr)
+		return func(context.Context) {}
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.HandlerFor(gatherer(srv.devices, eng, srv.pushed),
@@ -95,5 +96,5 @@ func (h *Host) observe(srv *server, eng *engine.Engine) (func(context.Context), 
 			h.Log.Error(err, "Failed to serve metrics")
 		}
 		<-stopped
-	}, nil
+	}
 }

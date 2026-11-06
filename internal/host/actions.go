@@ -113,8 +113,15 @@ func rawValue(raw []byte) any {
 // refused here, where the command can say so.
 func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	dev := key(req.Device)
-	if _, ok := s.srv.devices.Get(dev); !ok {
+	snap, ok := s.srv.devices.Get(dev)
+	if !ok {
 		return api.Response{Error: fmt.Sprintf("no device %q", req.Device)}
+	}
+	if !slices.Contains(snap.Info.Capabilities, req.Capability) {
+		return api.Response{Error: fmt.Sprintf("%s has no %s", req.Device, req.Capability)}
+	}
+	if spec, ok := capability.Lookup(req.Capability); !ok || !spec.Writable {
+		return api.Response{Error: fmt.Sprintf("%s is read-only", req.Capability)}
 	}
 	value, err := capability.Validate(req.Capability, req.Value)
 	if err != nil {
@@ -154,14 +161,16 @@ func sameValue(c homev1alpha1.CapabilityControlStatus, value any) bool {
 // pause stops a rule until it's resumed. It's on disk before this answers, and in force at once.
 func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 	rules, known := s.rulesInfo()
-	if known {
-		i := slices.IndexFunc(rules, func(r wire.RuleInfo) bool { return r.Name == req.Rule })
-		if i < 0 {
-			return api.Response{Error: fmt.Sprintf("no rule %q", req.Rule)}
-		}
-		if rules[i].Safety && !req.AllowSafety {
-			return api.Response{Error: fmt.Sprintf("%s is a Safety rule, so pausing it stops that protection", req.Rule)}
-		}
+	i := slices.IndexFunc(rules, func(r wire.RuleInfo) bool { return r.Name == req.Rule })
+	switch {
+	case known && i < 0:
+		return api.Response{Error: fmt.Sprintf("no rule %q", req.Rule)}
+	case req.AllowSafety:
+	case !known:
+		// In an emergency a process may be down, which is no reason to guess it isn't a Safety rule.
+		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: no process is connected", req.Rule)}
+	case rules[i].Safety:
+		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a Safety rule, so pausing it stops that protection", req.Rule)}
 	}
 	if err := s.srv.setPaused(ctx, req.Rule, true); err != nil {
 		return api.Response{Error: err.Error()}

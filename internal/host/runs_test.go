@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
@@ -46,5 +47,51 @@ func TestUnfinishedRunsFarLargerThanAMessageReachTheNextProcess(t *testing.T) {
 			}
 		}
 		return
+	}
+}
+
+// With no process running, nothing else ends the run a pause should have, and nothing can say
+// whether the rule is a Safety one.
+func TestAPauseWithNoProcessEndsTheFlowsRunOnceAsked(t *testing.T) {
+	dir := tempDir(t)
+	socket, _ := startHost(t, dir)
+	first, _ := dial(t, socket)
+	if _, err := first.Journal(t.Context(), "flow/1", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Journal(t.Context(), "other/1", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	<-first.Done()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	local := api.Local{DataDir: dir}
+	for {
+		resp, err := api.Call(ctx, local, api.Request{Type: api.TypeStatus})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !resp.Status.Process {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	resp, err := api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "flow"})
+	if err != nil || !resp.NeedsAllowSafety {
+		t.Fatalf("paused something it couldn't check: %+v, %v", resp, err)
+	}
+	resp, err = api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "flow", AllowSafety: true})
+	if err != nil || resp.Error != "" {
+		t.Fatalf("got %+v, %v", resp, err)
+	}
+
+	_, welcome := dial(t, socket)
+	if len(welcome.Unfinished) != 1 || welcome.Unfinished[0].ID != "other/1" {
+		t.Errorf("got runs %+v", welcome.Unfinished)
+	}
+	if len(welcome.Paused) != 1 || welcome.Paused[0] != "flow" {
+		t.Errorf("got paused %v", welcome.Paused)
 	}
 }

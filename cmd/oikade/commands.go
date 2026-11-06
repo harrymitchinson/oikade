@@ -215,7 +215,7 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 	if err != nil {
 		return err
 	}
-	if resp.Error != "" && strings.Contains(resp.Error, "Safety rule") {
+	if resp.NeedsAllowSafety {
 		fmt.Fprintln(os.Stderr, "Pass --allow-safety to pause it anyway.")
 	}
 	return done(resp, *asJSON, did+" "+words[0])

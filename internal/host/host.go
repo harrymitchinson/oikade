@@ -108,12 +108,7 @@ func (h *Host) Run(ctx context.Context) error {
 		default:
 		}
 	}
-	observing, err := h.observe(srv, eng)
-	if err != nil {
-		_ = listener.Close()
-		_ = apiListener.Close()
-		return err
-	}
+	observing := h.observe(srv, eng)
 	first := deploys.startup()
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })

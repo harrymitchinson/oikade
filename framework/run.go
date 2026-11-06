@@ -130,7 +130,7 @@ func run(h Home, log logr.Logger) error {
 	}
 	go saveFires(logr.NewContext(ctx, log), client, fires)
 	flowCtx := logr.NewContext(ctx, log.WithName("flows"))
-	// A paused flow's run is left for when it's resumed, as a gone flow's is.
+	// The host drops a paused flow's runs. This is for a pause that landed since.
 	bodies := flow.Recover(flowCtx, wire.Namespace, paused.without(flows), savedRuns(welcome.Unfinished), client, eng)
 	log.Info("Loaded rules", "rules", len(rules), "devices", len(welcome.Devices), "resumedRuns", len(bodies))
 	for name, body := range bodies {

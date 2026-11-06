@@ -174,7 +174,11 @@ func (p *pauses) apply(ctx context.Context, c pauseChange) {
 		return
 	}
 	if r.HasTimers() {
-		r.KeepSince(p.eng.Clock.Now()) // A time that passed during a pause is one you didn't want.
+		// A time that passed during a pause is one you didn't want, now and after any restart. A
+		// failed save ends the session or leaves the time to catch up once, which actions can stand.
+		now := p.eng.Clock.Now()
+		r.KeepSince(now)
+		_ = p.client.SaveFire(ctx, c.rule, now)
 	}
 	p.eng.Load(r)
 }

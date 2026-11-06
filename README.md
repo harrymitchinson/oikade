@@ -548,7 +548,7 @@ Removing a Safety rule is refused, and so is renaming one, because a rule's clai
 
 ## Working with a running home
 
-These talk to the host through a Unix socket in its data directory, which only the user running the host can reach. There's no network listener.
+These talk to the host through a Unix socket in its data directory, which only the user running the host can reach. This API has no network listener.
 
 ```sh
 oikade status                     # the running version, every device, and your rules
@@ -563,7 +563,7 @@ oikade resume fan
 
 `oikade set` acts like tapping the device. An arbitrated capability treats it as an outside change, shown as `Command`, so its `external` and `overrideHold` settings decide how long it lasts. A capability a Safety claim holds refuses it, rather than writing it back a moment later.
 
-A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. A flow's run left waiting when you paused it with your process down stays on record, and is replaced by the flow's next run. Pausing a Safety rule stops that protection, so it needs `--allow-safety`. A rule deleted by a deploy loses its pause.
+A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a Safety rule stops that protection, so it needs `--allow-safety`, and so does pausing anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause.
 
 `--json` on `status`, `tail`, `set`, `pause` and `resume` prints JSON whose fields stay stable for scripts.
 
@@ -576,7 +576,7 @@ oikade deploy --host pi --module .
 
 ## Metrics
 
-The host serves these on `:8080/metrics`, and health on `:8080/healthz`, over HTTP. That listener is read-only and apart from the local API. `--metrics-addr` moves it, and an empty value turns it off. Your process's rule metrics reach the host every 5 seconds, so a scrape can be that far behind, and they go when the process does. `oikade_undeclared_devices` and the plugin metrics have no series on the host yet.
+The host serves these on `:8080/metrics`, and health on `:8080/healthz`, over HTTP. That listener is read-only and apart from the local API. It's open to whoever can reach the port, and it shows device names and values. `--metrics-addr` moves it, such as to `127.0.0.1:8080`, and an empty value turns it off. If the port is taken the host logs that and carries on without it. Your process's rule metrics reach the host every 5 seconds, so a scrape can be that far behind, and they go when the process does. `oikade_undeclared_devices` and the plugin metrics have no series on the host yet.
 
 The manager's runtime serves the same names on `:8080/metrics` while it remains. Enable `../prometheus` in `config/default` for a ServiceMonitor, and `../grafana` for the "Oikade home" dashboard.
 
