@@ -149,6 +149,7 @@ func (t *Transport) Serve(ctx context.Context) error {
 	t.mu.Lock()
 	t.ctx = handlers
 	t.mu.Unlock()
+	defer func() { _ = t.conn.Close() }() // a socket that failed still holds its port
 	stop := context.AfterFunc(ctx, func() { _ = t.conn.Close() })
 	defer stop()
 	defer t.shutdown()
