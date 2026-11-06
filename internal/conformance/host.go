@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -40,30 +40,30 @@ func fakeHost(ctx context.Context, t T, cfg Config, bus mqtt.Bus) string {
 	t.Cleanup(func() { _ = listener.Close() })
 
 	var mu sync.Mutex
-	var current *wire.Conn
+	var current *pluginwire.Conn[pluginwire.Message]
 	_, err = bus.Subscribe(ctx, root.SetFilter(), func(m mqtt.Message) {
 		mu.Lock()
 		conn := current
 		mu.Unlock()
 		if conn != nil && !m.Retained {
-			_ = conn.Write(wire.Message{Type: wire.TypePublish, Topic: m.Topic, Data: m.Payload})
+			_ = conn.Write(pluginwire.Message{Type: pluginwire.TypePublish, Topic: m.Topic, Data: m.Payload})
 		}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := func(conn *wire.Conn) {
+	session := func(conn *pluginwire.Conn[pluginwire.Message]) {
 		defer func() { _ = conn.Close() }()
 		hello, err := conn.Read()
 		if err != nil {
 			return
 		}
-		if hello.Role != wire.RolePlugin || hello.Plugin != cfg.Plugin || hello.Version != wire.Version {
-			_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "not the plugin under test"})
+		if hello.Role != pluginwire.RolePlugin || hello.Plugin != cfg.Plugin || hello.Version != pluginwire.Version {
+			_ = conn.Write(pluginwire.Message{Type: pluginwire.TypeRejected, Error: "not the plugin under test"})
 			return
 		}
-		err = conn.Write(wire.Message{
-			Type: wire.TypeWelcome, Version: wire.Version, Topic: string(root), Declared: declared.Devices,
+		err = conn.Write(pluginwire.Message{
+			Type: pluginwire.TypeWelcome, Version: pluginwire.Version, Topic: string(root), Declared: declared.Devices,
 		})
 		if err != nil {
 			return
@@ -76,13 +76,19 @@ func fakeHost(ctx context.Context, t T, cfg Config, bus mqtt.Bus) string {
 			if err != nil {
 				break
 			}
-			if m.Type == wire.TypePublish {
+			if m.Type == pluginwire.TypePublish {
 				_ = bus.Publish(ctx, m.Topic, m.Data, m.Retain)
 			}
 		}
 		mu.Lock()
-		current = nil
+		last := current == conn
+		if last {
+			current = nil
+		}
 		mu.Unlock()
+		if !last {
+			return // The process's replacement is here already, and it's online.
+		}
 		// As the host does for a process that's gone, and a broker for a Last Will.
 		offline, _ := json.Marshal(contractv1.Status{State: contractv1.Offline, Contract: contractv1.Contract})
 		_ = bus.Publish(ctx, root.Status(), offline, true)
@@ -96,7 +102,7 @@ func fakeHost(ctx context.Context, t T, cfg Config, bus mqtt.Bus) string {
 				}
 				return
 			}
-			go session(wire.NewConn(c))
+			go session(pluginwire.NewConn[pluginwire.Message](c))
 		}
 	}()
 	return socket

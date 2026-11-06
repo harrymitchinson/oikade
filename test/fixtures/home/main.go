@@ -22,15 +22,22 @@ const (
 	open = "sensor.contact-open"
 )
 
+// The devices a test has plugins do something with.
+const (
+	valve  = "valve"
+	panics = "panics"
+	hangs  = "hangs"
+)
+
 // variant makes this home a different version, set when the tests link it. Empty is the first one.
 var variant string
 
 // wired are the relays a home with plugins configures in Go, which are all there are the first time.
-var wired = []contractv1.DeclaredDevice{
-	{ID: "relay", Name: "relay", DisplayName: "relay"},
-	{ID: "valve", Name: "valve", DisplayName: "valve"},
-	{ID: "panics", Name: "panics", DisplayName: "panics"},
-	{ID: "hangs", Name: "hangs", DisplayName: "hangs"},
+var wired = []contractv1.DeclaredDevice{relay("relay"), relay(valve), relay(panics), relay(hangs)}
+
+// relay is a device called id.
+func relay(id string) contractv1.DeclaredDevice {
+	return contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id}
 }
 
 // faulty is a plugin that goes wrong on request, and whose valve always starts open.
@@ -40,14 +47,14 @@ func (f faulty) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := f.Handler.Serve(ctx, p); err != nil {
 		return err
 	}
-	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: "valve", Capability: on, Value: true})
+	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: on, Value: true})
 }
 
 func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
 	switch cmd.ID {
-	case "panics":
+	case panics:
 		panic("this plugin was told to panic")
-	case "hangs":
+	case hangs:
 		select {}
 	}
 	return f.Handler.Set(ctx, p, cmd)
@@ -68,7 +75,7 @@ func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (pl
 
 // quietRelays is a second plugin, which does nothing wrong.
 func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
-	return relays.New([]contractv1.DeclaredDevice{{ID: "quiet", Name: "quiet", DisplayName: "quiet"}}), nil
+	return relays.New([]contractv1.DeclaredDevice{relay("quiet")}), nil
 }
 
 // routine takes every kind of step in a known order, which the tests count on: start, now, set,
@@ -218,7 +225,7 @@ func main() {
 				},
 			},
 			{
-				Name: leakShutoff, Device: "valve", Capability: on, Value: false,
+				Name: leakShutoff, Device: valve, Capability: on, Value: false,
 				Priority: framework.Safety, Latch: true,
 				When: func(s framework.State) bool {
 					return s.Bool("leak-sensor", open)

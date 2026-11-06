@@ -96,33 +96,6 @@ func Dial(ctx context.Context, socket string, rules []string, info ...RuleInfo) 
 	return c, welcome, nil
 }
 
-// DialPlugin opens a plugin's session and returns its connection and Welcome.
-func DialPlugin(ctx context.Context, socket, name string) (*Conn, Message, error) {
-	raw, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
-	if err != nil {
-		return nil, Message{}, fmt.Errorf("connecting to the host: %w", err)
-	}
-	conn := NewConn(raw)
-	if err := conn.Write(Message{Type: TypeHello, Version: Version, Role: RolePlugin, Plugin: name}); err != nil {
-		_ = conn.Close()
-		return nil, Message{}, fmt.Errorf("greeting the host: %w", err)
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetReadDeadline(deadline)
-	}
-	welcome, err := conn.Read()
-	if err != nil {
-		_ = conn.Close()
-		return nil, Message{}, fmt.Errorf("reading the host's welcome: %w", err)
-	}
-	if welcome.Type != TypeWelcome {
-		_ = conn.Close()
-		return nil, Message{}, fmt.Errorf("%w: %s", ErrRejected, welcome.Error)
-	}
-	_ = conn.SetReadDeadline(time.Time{})
-	return conn, welcome, nil
-}
-
 // Listen reads from the host until the session ends. Run it once, after setting up what the events
 // reach: the host streams from its Welcome on.
 func (c *Client) Listen(ev Events) {

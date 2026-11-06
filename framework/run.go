@@ -168,7 +168,8 @@ func runPlugin(ctx context.Context, h Home, socket string) error {
 	if i < 0 {
 		return fmt.Errorf("this home has no plugin %s", os.Args[2])
 	}
-	return plugin.RunHosted(ctx, socket, h.Plugins[i].Name, h.Plugins[i].New, slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	return plugin.RunHosted(ctx, socket, h.Plugins[i].Name, h.Plugins[i].New, log)
 }
 
 // firesWaiting bounds the fires waiting to be saved.

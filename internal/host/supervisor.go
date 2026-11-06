@@ -56,10 +56,8 @@ func (h *Host) supervise(ctx context.Context, srv *server, socket, path string, 
 	backoff := firstBackoff
 	var next *swap
 	for ctx.Err() == nil {
-		if path != "" {
-			h.plugins.use(path)
-		}
 		if path == "" {
+			h.plugins.use("")
 			if next != nil {
 				next.started <- nil
 			}
@@ -81,6 +79,8 @@ func (h *Host) supervise(ctx context.Context, srv *server, socket, path string, 
 				continue
 			}
 		}
+		// Only now is this binary the one that runs: a refused deploy leaves the plugins alone.
+		h.plugins.use(path)
 		// The old process's session has ended, so a session from here on is this process's.
 		select {
 		case <-d.connected:
@@ -141,13 +141,14 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string,
 		return nil, err
 	}
 	h.Log.Info("Started automations process", "pid", cmd.Process.Pid)
-	return h.watch(ctx, cmd, h.Log, "automations", srv.ping, swaps)
+	return h.watch(logr.NewContext(ctx, h.Log), cmd, "automations", srv.ping, swaps)
 }
 
 // watch waits for a started process, killing it if it stops answering pings, and stopping it when
 // ctx ends or a swap arrives, which it returns. ping asks it to answer and says when it last did.
-func (h *Host) watch(ctx context.Context, cmd *exec.Cmd, log logr.Logger, kind string,
+func (h *Host) watch(ctx context.Context, cmd *exec.Cmd, kind string,
 	ping func(id uint64) (time.Time, bool), swaps <-chan *swap) (*swap, error) {
+	log := logr.FromContextOrDiscard(ctx)
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 

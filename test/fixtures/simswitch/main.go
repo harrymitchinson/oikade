@@ -4,7 +4,8 @@
 // convention (docs/plugin-contract.md#relay-like-devices): switch.on by default, or light.on or
 // outlet.on from parameters.capability. Any other value is reported as a device error.
 //
-// The plugin itself is in relays, and home imports it through the Go API. It isn't published. Plugins live in their own repos (oikade-plugin-<name>).
+// The plugin itself is in relays, and home imports it through the Go API. It isn't published.
+// Plugins live in their own repos (oikade-plugin-<name>).
 package main
 
 import (

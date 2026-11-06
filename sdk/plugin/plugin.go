@@ -167,8 +167,9 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	return p, nil
 }
 
-func newPlugin(root contractv1.Root, log *slog.Logger, onSet func(context.Context, *Plugin, contractv1.SetCommand) error,
-	closeTimeout time.Duration, life context.Context, stop context.CancelFunc) *Plugin {
+func newPlugin(root contractv1.Root, log *slog.Logger,
+	onSet func(context.Context, *Plugin, contractv1.SetCommand) error, closeTimeout time.Duration,
+	life context.Context, stop context.CancelFunc) *Plugin {
 	return &Plugin{
 		root:         root,
 		clientID:     newClientID(),

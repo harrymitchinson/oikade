@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/flowcheck"
 	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -142,7 +143,11 @@ func runHost(ctx context.Context, args []string) error {
 			return errors.New("--outside-plugins needs --broker")
 		}
 		for name := range strings.SplitSeq(*outside, ",") {
-			h.Outside = append(h.Outside, strings.TrimSpace(name))
+			name = strings.TrimSpace(name)
+			if !contractv1.ValidID(name) {
+				return fmt.Errorf("--outside-plugins: %q isn't a plugin name", name)
+			}
+			h.Outside = append(h.Outside, name)
 		}
 	}
 	if *matterPort != 0 {

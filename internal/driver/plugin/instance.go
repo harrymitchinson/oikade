@@ -169,6 +169,15 @@ func (i *Instance) Stats() Stats {
 	return Stats{Up: i.upLocked(), Rejected: maps.Clone(i.rejected)}
 }
 
+// Forget drops what the plugin's last process announced. That process's devices are what it knew,
+// and the next must say for itself: until it does, a write has nobody to take it. Devices aren't
+// reported as lost, because a restart doesn't lose them.
+func (i *Instance) Forget() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.announced = nil
+}
+
 // Set publishes a one-capability /set command. The value must already be validated.
 func (i *Instance) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
 	i.mu.Lock()

@@ -30,7 +30,7 @@ func pluginDevices(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var devices []map[string]any
+	devices := make([]map[string]any, 0, 1)
 	if err := json.Unmarshal(raw, &devices); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +112,24 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	r.stdout(nil, "devices", "name", "relay", "porch", "--allow-safety")
 	r.setting("porch", "off")
 	r.untilValue("porch", false)
+}
+
+func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	r.untilValue("relay", false)
+	r.stdout(nil, "devices", "remove", "relay", "--allow-safety")
+
+	// A restart is the plugin listing everything again.
+	connected := r.count(pluginConnected)
+	r.oikade(nil, "set", "panics", "switch.on", "on") //nolint:errcheck // It dies taking this.
+	r.until("the plugin to come back", func() bool { return r.count(pluginConnected) > connected })
+	r.untilValue("panics", false)
+	for _, d := range r.devices().Devices {
+		if d.ID == "relay" && !d.Removed {
+			t.Fatalf("it came back: %+v", d)
+		}
+	}
 }
 
 func TestEachPluginIsItsOwnProcess(t *testing.T) {

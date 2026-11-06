@@ -11,7 +11,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -25,13 +25,13 @@ const (
 // hostLink is a plugin's session with the host. It carries the same messages as a broker would, so
 // a Handler is the same code either way, and the host checks them the same way.
 type hostLink struct {
-	conn *wire.Conn
+	conn *pluginwire.Conn[pluginwire.Message]
 	// closing is this end going, which isn't the host being lost.
 	closing atomic.Bool
 }
 
 func (l *hostLink) Publish(_ context.Context, topic string, payload []byte, retain bool) error {
-	return l.conn.Write(wire.Message{Type: wire.TypePublish, Topic: topic, Data: payload, Retain: retain})
+	return l.conn.Write(pluginwire.Message{Type: pluginwire.TypePublish, Topic: topic, Data: payload, Retain: retain})
 }
 
 func (l *hostLink) Disconnect(context.Context) error {
@@ -49,7 +49,7 @@ func (l *hostLink) Drop(ctx context.Context) error { return l.Disconnect(ctx) }
 func RunHosted(ctx context.Context, socket, name string, newHandler Factory, log *slog.Logger) error {
 	dial, cancel := context.WithTimeout(ctx, hostedDial)
 	defer cancel()
-	conn, welcome, err := wire.DialPlugin(dial, socket, name)
+	conn, welcome, err := pluginwire.Dial(dial, socket, name)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func RunHosted(ctx context.Context, socket, name string, newHandler Factory, log
 
 // follow reads from the host until the session ends, and returns why. A stuck Set stops the answers
 // to pings, so the host replaces a process that looks alive and isn't.
-func follow(conn *wire.Conn, current *atomic.Pointer[Plugin]) error {
+func follow(conn *pluginwire.Conn[pluginwire.Message], current *atomic.Pointer[Plugin]) error {
 	for {
 		m, err := conn.Read()
 		if err != nil {
@@ -115,14 +115,14 @@ func follow(conn *wire.Conn, current *atomic.Pointer[Plugin]) error {
 		}
 		p := current.Load()
 		switch m.Type {
-		case wire.TypePing:
+		case pluginwire.TypePing:
 			if p != nil && p.stuck() {
 				continue
 			}
-			if err := conn.Write(wire.Message{Type: wire.TypePong, ID: m.ID}); err != nil {
+			if err := conn.Write(pluginwire.Message{Type: pluginwire.TypePong, ID: m.ID}); err != nil {
 				return err
 			}
-		case wire.TypePublish:
+		case pluginwire.TypePublish:
 			if p != nil {
 				p.receive(mqtt.Message{Topic: m.Topic, Payload: m.Data})
 			}

@@ -43,8 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("oikade-conformance", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintln(stderr, "Usage: oikade-conformance --devices FILE [--secrets DIR] [--plugin NAME] [--timeout D] [-v] "+
-			"-- COMMAND [ARG...]")
+		_, _ = fmt.Fprintln(stderr, "Usage: oikade-conformance --devices FILE [--secrets DIR] [--plugin NAME] "+
+			"[--timeout D] [-v] -- COMMAND [ARG...]")
 		fs.PrintDefaults()
 	}
 	devices := fs.String("devices", "", "the devices.json to hand the plugin (required). It must declare "+

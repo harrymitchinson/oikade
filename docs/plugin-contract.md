@@ -22,7 +22,9 @@ The host runs your binary again as `<binary> plugin <name>`, one process per plu
 
 A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a command. It gets the devices on record for it, which are empty the first time, because the host has no `devices.json`. So it reports every device it can see, with `SetDiscovered` and `SetDevices`, and everything it finds is in the [device registry](../README.md) at once. Configuration, such as a hub's address, is Go in your home.
 
-While a plugin is down, its devices are offline and writes to them fail with an error. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A plugin's device needs its arbitration settings from a `plugin` entry in the `--simulate` file until the home can declare them.
+A device you remove with `oikade devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
+
+While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A plugin's device needs its arbitration settings from a `plugin` entry in the `--simulate` file until the home can declare them.
 
 The messages are this contract's, on the host's socket rather than a broker, so the host checks them with the same decoder. A process that dies is marked offline by the host, as a Last Will would.
 
