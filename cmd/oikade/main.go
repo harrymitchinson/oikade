@@ -26,7 +26,8 @@ import (
 const defaultDataDir = "/var/lib/oikade"
 
 const usage = `Usage:
-  oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION] [--metrics-addr ADDRESS]
+  oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
+              [--metrics-addr ADDRESS]
   oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
   oikade rollback [--allow-safety-removal]
   oikade status [DEVICE] [--json]

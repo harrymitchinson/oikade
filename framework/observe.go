@@ -30,9 +30,10 @@ type ruleRun struct {
 }
 
 // observe gives eng its metrics, and returns what reports them and its runs to the host.
-func observe(ctx context.Context, eng *engine.Engine, client *wire.Client, log logr.Logger) func() {
-	eng.Runs, eng.NextChange, eng.Dropped = engine.NewRunsCounter(), engine.NewNextChangeGauge(), engine.NewDroppedCounter()
-	eng.Active, eng.Budget = engine.NewActiveGauge(), engine.NewBudgetMetrics()
+func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func() {
+	log := logr.FromContextOrDiscard(ctx)
+	eng.Runs, eng.NextChange = engine.NewRunsCounter(), engine.NewNextChangeGauge()
+	eng.Dropped, eng.Active, eng.Budget = engine.NewDroppedCounter(), engine.NewActiveGauge(), engine.NewBudgetMetrics()
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(eng.Runs, eng.NextChange, eng.Dropped, eng.Active)
 	registry.MustRegister(eng.Budget.Collectors()...)

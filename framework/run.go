@@ -71,7 +71,7 @@ func run(h Home, log logr.Logger) error {
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
 		Log: log.WithName("automations"),
 	}
-	gather := observe(ctx, eng, client, log)
+	gather := observe(logr.NewContext(ctx, log), eng, client)
 	fires := make(chan timerFire, firesWaiting)
 	eng.OnSchedule = func(key types.NamespacedName, s engine.Schedule) {
 		if s.LastFire.IsZero() {

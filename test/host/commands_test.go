@@ -44,19 +44,19 @@ func (r *rig) stdout(env []string, args ...string) []byte {
 	return out
 }
 
-func capabilityOf(t *testing.T, st api.Status, device, name string) api.Capability {
+func onOf(t *testing.T, st api.Status, device string) api.Capability {
 	t.Helper()
 	for _, d := range st.Devices {
 		if d.Name != device {
 			continue
 		}
 		for _, c := range d.Capabilities {
-			if c.Name == name {
+			if c.Name == "switch.on" {
 				return c
 			}
 		}
 	}
-	t.Fatalf("no %s on %s in %+v", name, device, st)
+	t.Fatalf("no switch.on on %s in %+v", device, st)
 	return api.Capability{}
 }
 
@@ -78,13 +78,13 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	if !st.Process {
 		t.Errorf("status says no process: %+v", st)
 	}
-	if c := capabilityOf(t, st, "fan", "switch.on"); c.Value != false || c.Level != "" {
+	if c := onOf(t, st, "fan"); c.Value != false || c.Level != "" {
 		t.Errorf("fan: %+v", c)
 	}
 
 	r.stdout(nil, "set", "claimed", "switch.on", "off", "--json")
 	r.wrote("claimed", false)
-	c := capabilityOf(t, r.status(), "claimed", "switch.on")
+	c := onOf(t, r.status(), "claimed")
 	if c.Value != false || c.Level != "Override" || winner(c) != "Command" {
 		t.Errorf("after set: %+v", c)
 	}
@@ -92,7 +92,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	r.change("leak-sensor", "sensor.contact-open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
-	c = capabilityOf(t, r.status(), "valve", "switch.on")
+	c = onOf(t, r.status(), "valve")
 	if c.Level != "Safety" || winner(c) != "Rule/leak-shutoff" {
 		t.Errorf("a Safety hold: %+v", c)
 	}
@@ -100,7 +100,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	if err == nil || !strings.Contains(stderr, "Rule/leak-shutoff holds valve switch.on at Safety") {
 		t.Errorf("set against Safety: %v: %s", err, stderr)
 	}
-	if v := capabilityOf(t, r.status(), "valve", "switch.on").Value; v != false {
+	if v := onOf(t, r.status(), "valve").Value; v != false {
 		t.Errorf("the valve moved: %v", v)
 	}
 	if _, err := r.oikade(nil, "set", "nothing", "switch.on", "on"); err == nil {
@@ -189,7 +189,7 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	r.change("claim-go", "sensor.contact-open", true)
 	r.wrote("claimed", false)
 	r.sync()
-	if c := capabilityOf(t, r.status(), "claimed", "switch.on"); winner(c) != "Rule/claim-moment" {
+	if c := onOf(t, r.status(), "claimed"); winner(c) != "Rule/claim-moment" {
 		t.Fatalf("no claim to end: %+v", c)
 	}
 	r.stdout(nil, "pause", "claim-moment")
@@ -224,7 +224,7 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	}
 	r.stdout(nil, "pause", "leak-shutoff", "--allow-safety")
 	r.sync()
-	if c := capabilityOf(t, r.status(), "valve", "switch.on"); winner(c) != "Rule/leak-shutoff" || c.Value != false {
+	if c := onOf(t, r.status(), "valve"); winner(c) != "Rule/leak-shutoff" || c.Value != false {
 		t.Errorf("the pause ended a Safety claim: %+v", c)
 	}
 	if _, err := r.oikade(nil, "pause", "no-such-rule"); err == nil {
@@ -356,7 +356,8 @@ exec sh -c "$4"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return []string{"PATH=" + dir + string(os.PathListSeparator) + buildDir + string(os.PathListSeparator) + os.Getenv("PATH")}
+	path := []string{dir, buildDir, os.Getenv("PATH")}
+	return []string{"PATH=" + strings.Join(path, string(os.PathListSeparator))}
 }
 
 func TestHostFlagRunsEveryCommandOverSSH(t *testing.T) {

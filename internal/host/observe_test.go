@@ -56,7 +56,7 @@ func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
+	names := make([]string, 0, len(families))
 	for _, f := range families {
 		names = append(names, f.GetName())
 	}
