@@ -527,9 +527,12 @@ func (e *Engine) ReleaseClaim(ctx context.Context, dev types.NamespacedName, nam
 // that runs elsewhere, and returns once that's saved. ctx is the engine's, as with Claim.
 func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string) error {
 	e.mu.Lock()
-	e.releaseSource(ctx, namespace, source)
+	changed := e.releaseSource(ctx, namespace, source)
 	e.mu.Unlock()
-	return e.flushControls(ctx)
+	if len(changed) == 0 {
+		return nil
+	}
+	return e.flushControls(ctx, changed...)
 }
 
 // endClaims ends a source's claims, here or in Arbitration. Call without e.mu held.
@@ -550,9 +553,10 @@ func (e *Engine) Responsive() {
 	defer e.mu.Unlock()
 }
 
-// releaseSource ends a source's claims on every arbitrated capability in the namespace. Call with
-// e.mu held.
-func (e *Engine) releaseSource(ctx context.Context, namespace, source string) {
+// releaseSource ends a source's claims on every arbitrated capability in the namespace, and returns
+// the devices that changed. Call with e.mu held.
+func (e *Engine) releaseSource(ctx context.Context, namespace, source string) []types.NamespacedName {
+	var changed []types.NamespacedName
 	for dev, arbs := range e.arbs {
 		if dev.Namespace != namespace {
 			continue
@@ -562,10 +566,12 @@ func (e *Engine) releaseSource(ctx context.Context, namespace, source string) {
 				ar.a.Release(source)
 				e.decide(ctx, dev, name, ar)
 				e.markSave(dev)
+				changed = append(changed, dev)
 			}
 		}
 	}
 	e.signal()
+	return changed
 }
 
 // arbitrated reports whether a device arbitrates a capability.

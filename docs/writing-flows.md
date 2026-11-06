@@ -69,7 +69,15 @@ A deploy or a restart replays a waiting flow against the code that's there now. 
 
 Only steps up to where the run had got to can be compared. A change after that point just takes effect, and the run carries on with the new code.
 
-A claim made in a flow ends by its own rule, like any other, so a flow holding an `UntilReleased` claim should reach its `r.Release`. If a run fails, gives up or is dropped it can't, so the flow's claims are released for it. A run cancelled by `Restart` keeps them, because the run replacing it may hold the same ones.
+A claim made in a flow ends by its own rule, like any other, so a flow holding an `UntilReleased` claim should reach its `r.Release`. If a run fails, gives up or is dropped it can't, so the claims that run made are released for it, from its journal, even if the flow itself has been removed. Three things are left in place:
+
+- **Other runs' claims.** A claim left by an earlier run stays, and so does one a newer run made.
+- **Safety claims.** They end only by an explicit `r.Release`, so a failed notification can't reopen a valve that a flow closed.
+- **Anything claimed by a run that was told to stop.** That's a run cancelled by `Restart`, however it then ends, because the run replacing it may hold the same claims.
+
+Claims belong to the flow, so `r.Release` ends all of its claims, whichever run made them, Safety ones included.
+
+A crash after a claim and before its journal entry leaves a claim the journal doesn't know about. If the run then carries on, it repeats the set and records it. If it gives up or is dropped at that step instead, the claim stays until the flow releases it.
 
 Starting a run while one is in progress is ignored. With `Restart: true`, the new trigger cancels the run in progress instead, and its journal goes with it.
 

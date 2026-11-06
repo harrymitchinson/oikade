@@ -35,6 +35,10 @@ type entry struct {
 	Err    string          `json:"e,omitempty"`
 	// OK is what a wait for a condition returned.
 	OK bool `json:"ok,omitempty"`
+	// Claims is what an action claimed, and Released says it released the flow's own claims. They're
+	// what a run answers for when it ends badly, however far a replay of it gets.
+	Claims   []engine.Claimed `json:"cl,omitempty"`
+	Released bool             `json:"rel,omitempty"`
 	// size is its length in the journal.
 	size int
 }
@@ -52,6 +56,8 @@ type Run struct {
 	steps   int
 	bytes   int
 	stopped *stop
+	// held is the claims this run has made and not released, with Safety ones left out.
+	held map[engine.Claimed]bool
 }
 
 // halt ends the run from inside a step.
@@ -170,6 +176,9 @@ func (r *Run) Sleep(d time.Duration) {
 // WaitFor waits until cond holds and returns true, or returns false once timeout has passed. Zero
 // means no limit, and one already past looks once. A restart doesn't move the time it ends.
 func (r *Run) WaitFor(cond engine.Condition, timeout time.Duration) bool {
+	if cond == nil {
+		panic("WaitFor needs a condition") // Ends the run as failed.
+	}
 	id := timeout.String()
 	e, ok := r.replay(kindWait, id)
 	if !ok {
@@ -209,14 +218,30 @@ func (r *Run) Apply(a engine.Action) error {
 	if e, ok := r.replay(kindApply, id); ok {
 		return recordedErr(e)
 	}
-	err := r.f.Actions.Apply(r.ctx, r.f.Key, a)
+	e, err := r.act(a)
+	e.ID = id
 	r.stopIfCancelled(err)
-	e := entry{Kind: kindApply, ID: id}
 	if err != nil {
 		e.Err = err.Error()
 	}
+	// Before the journal, which can end the run with the claim made.
+	noteClaims(r.held, e)
 	r.record(e)
 	return err
+}
+
+// act runs an action with a newer run's claims kept apart, and returns its unfinished entry. A
+// failed set still counts as a claim: it may have made one on some of a Room's members.
+func (r *Run) act(a engine.Action) (entry, error) {
+	f := r.f
+	f.claiming.Lock()
+	defer f.claiming.Unlock()
+	e := entry{Kind: kindApply, Claims: f.Actions.Claims(f.Key, a)}
+	err := f.Actions.Apply(r.ctx, f.Key, a)
+	if rel, ok := a.(engine.Release); ok && err == nil && string(rel) == f.Key.Name {
+		e.Released = true
+	}
+	return e, err
 }
 
 // Do makes an outside call and records what it set in result, a pointer, or nil for no result. Once

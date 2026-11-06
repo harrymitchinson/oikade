@@ -278,6 +278,116 @@ func TestFlushReportsOnlyTheDeviceItWasAskedAbout(t *testing.T) {
 	}
 }
 
+// A panic with e.mu held would stop every rule and every heartbeat, and the replay would reach the
+// same step after each restart.
+func TestWaitForRefusesNoConditionAndLeavesTheEngineFree(t *testing.T) {
+	eng, _ := arbitratedEngine(t, newMemoryStates[ControlState]())
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				t.Errorf("it panicked: %v", p)
+			}
+		}()
+		if _, err := eng.WaitFor(context.Background(), goKey("routine"), nil, time.Time{}); err == nil {
+			t.Error("a wait with no condition was accepted")
+		}
+	}()
+	free := make(chan struct{})
+	go func() { eng.Responsive(); close(free) }()
+	select {
+	case <-free:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the engine's lock was left held")
+	}
+}
+
+// failingFor is a store that can't save one device.
+type failingFor struct {
+	States[ControlState]
+	broken types.NamespacedName
+}
+
+func (f *failingFor) Put(ctx context.Context, key types.NamespacedName, s ControlState) error {
+	if key == f.broken {
+		return errors.New("disk full")
+	}
+	return f.States.Put(ctx, key, s)
+}
+
+func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
+	broken := types.NamespacedName{Namespace: ns, Name: "broken"}
+	eng, dev := arbitratedEngine(t, &failingFor{States: newMemoryStates[ControlState](), broken: broken})
+	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{
+		dev:    {Instance: z2m, Control: []homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")}},
+		broken: {Instance: z2m, Control: []homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")}},
+	})
+	ctx := context.Background()
+	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, testClaim()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.Claim(ctx, broken, capability.SwitchOn, control.Claim{Source: "Rule/stuck", Level: control.Normal, Expires: time.Now().Add(time.Hour)}); err == nil {
+		t.Fatal("the broken device saved")
+	}
+
+	if err := eng.ReleaseClaims(ctx, ns, "Rule/nothing"); err != nil {
+		t.Fatalf("a release that changed nothing failed over another device: %v", err)
+	}
+	if err := eng.ReleaseClaims(ctx, ns, "Rule/x"); err != nil {
+		t.Fatalf("a release failed over another device: %v", err)
+	}
+	if err := eng.ReleaseClaims(ctx, ns, "Rule/stuck"); err == nil {
+		t.Fatal("a release that couldn't be saved looked saved")
+	}
+}
+
+func TestClaimsNamesWhatASetWillClaim(t *testing.T) {
+	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
+	key := goKey("routine")
+	until := Set{Device: dev.Name, Capability: capability.SwitchOn, Value: false, Until: UntilReleased}
+	got := eng.Claims(key, until)
+	if len(got) != 1 || got[0] != (Claimed{Device: dev.Name, Capability: capability.SwitchOn}) {
+		t.Fatalf("got %+v", got)
+	}
+	safety := until
+	safety.Priority = PrioritySafety
+	if got := eng.Claims(key, safety); len(got) != 1 || !got[0].Safety {
+		t.Fatalf("got %+v", got)
+	}
+	for name, a := range map[string]Action{
+		"a release":          Release("routine"),
+		"a set with no end":  Set{Device: dev.Name, Capability: capability.SwitchOn, Value: false},
+		"a plain capability": Set{Device: "plain", Capability: capability.SwitchOn, Value: false, Until: UntilReleased},
+	} {
+		if got := eng.Claims(key, a); len(got) != 0 {
+			t.Errorf("%s claimed %+v", name, got)
+		}
+	}
+}
+
+func TestReleaseClaimedLeavesTheRulesOtherClaims(t *testing.T) {
+	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
+	other := types.NamespacedName{Namespace: ns, Name: "other"}
+	meta := hub.Meta{Instance: z2m, Control: []homev1alpha1.CapabilityControl{entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalOverride, "1h")}}
+	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{dev: meta, other: meta})
+	ctx := context.Background()
+	key := goKey("routine")
+	claim := control.Claim{Source: ruleSource(key.Name), Level: control.Normal, Expires: time.Now().Add(time.Hour)}
+	for _, d := range []types.NamespacedName{dev, other} {
+		if _, err := eng.Claim(ctx, d, capability.SwitchOn, claim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := eng.ReleaseClaimed(ctx, key, []Claimed{{Device: dev.Name, Capability: capability.SwitchOn}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := eng.arbs[dev][capability.SwitchOn].a.State().Claims; len(got) != 0 {
+		t.Fatalf("the claim stayed: %+v", got)
+	}
+	if got := eng.arbs[other][capability.SwitchOn].a.State().Claims; len(got) != 1 {
+		t.Fatalf("the other claim went: %+v", got)
+	}
+}
+
 func TestNewFlowNeedsABody(t *testing.T) {
 	if _, err := NewFlow(goKey("x"), Flow{Trigger: Trigger{Changes: []Change{{Device: "a", Capability: capability.Occupancy}}}}); err == nil {
 		t.Fatal("a flow with no body compiled")

@@ -117,7 +117,8 @@ func run(h Home, log logr.Logger) error {
 		}
 	}
 	go saveFires(logr.NewContext(ctx, log), client, fires)
-	bodies := flow.Recover(logr.NewContext(ctx, log.WithName("flows")), flows, savedRuns(welcome.Unfinished), client)
+	flowCtx := logr.NewContext(ctx, log.WithName("flows"))
+	bodies := flow.Recover(flowCtx, wire.Namespace, flows, savedRuns(welcome.Unfinished), client, eng)
 	log.Info("Loaded rules", "rules", len(rules), "devices", len(welcome.Devices), "resumedRuns", len(bodies))
 	for name, body := range bodies {
 		eng.Resume(ctx, deviceKey(name), body)
