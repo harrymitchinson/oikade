@@ -8,13 +8,13 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -93,21 +93,21 @@ type Engine struct {
 	// ControlLevel is the winning level of each arbitrated capability.
 	ControlLevel *prometheus.GaugeVec
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
-	OnStart func(key types.NamespacedName, t time.Time)
+	OnStart func(key ident.ID, t time.Time)
 	// OnRun, if set, is called with each outcome Runs counts, perhaps with e.mu held. It must not block.
-	OnRun func(key types.NamespacedName, result string)
+	OnRun func(key ident.ID, result string)
 	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
 	// fires. It must not block.
-	OnSchedule func(key types.NamespacedName, s Schedule)
+	OnSchedule func(key ident.ID, s Schedule)
 	// OnBudget, if set, is called with e.mu held when a budget hold plans, or its status changes.
 	// It must not block.
-	OnBudget func(key types.NamespacedName, r BudgetReport)
+	OnBudget func(key ident.ID, r BudgetReport)
 	// Budget are the budget holds' metrics. Nil exports none.
 	Budget *BudgetMetrics
 	// OnEnd, if set, hears a run that OnStart heard end, with its result. OnPark, if set, hears a run
 	// begin waiting. Together they let a simulated home tell a run that's waiting from one that's
 	// working.
-	OnEnd  func(key types.NamespacedName, result string)
+	OnEnd  func(key ident.ID, result string)
 	OnPark Park
 
 	events chan driver.Update
@@ -116,27 +116,27 @@ type Engine struct {
 
 	mu sync.Mutex
 	// skipped is the Room members each rule last left out.
-	skipped map[types.NamespacedName][]string
-	rules   map[types.NamespacedName]*state
+	skipped map[ident.ID][]string
+	rules   map[ident.ID]*state
 	// loaded holds every Rule loaded since Init, so only the first load looks for missed fires.
-	loaded map[types.NamespacedName]bool
+	loaded map[ident.ID]bool
 	runs   sync.WaitGroup
 
 	// arbs are the arbitrated capabilities by device, and controlDue the devices to look at again.
-	arbs       map[types.NamespacedName]map[string]*arb
-	controlDue map[types.NamespacedName]bool
+	arbs       map[ident.ID]map[string]*arb
+	controlDue map[ident.ID]bool
 	// saveDue are the devices whose arbiters saveControls saves next.
-	saveDue  map[types.NamespacedName]bool
+	saveDue  map[ident.ID]bool
 	saveWake chan struct{}
 	// changes closes after a change has been handled, for flows waiting on a condition.
 	changes chan struct{}
 	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
-	bridgeWrites map[types.NamespacedName]map[string]bridgeWrite
+	bridgeWrites map[ident.ID]map[string]bridgeWrite
 
 	// saveMu orders saves of arbiters' state, so an older one never lands on a newer one. Take it
 	// before mu. savedControls is what was last saved, by device.
 	saveMu        sync.Mutex
-	savedControls map[types.NamespacedName]string
+	savedControls map[ident.ID]string
 }
 
 type state struct {
@@ -181,8 +181,8 @@ func NewDroppedCounter() prometheus.Counter {
 func (e *Engine) Init() {
 	e.events = make(chan driver.Update, 1024)
 	e.wake = make(chan struct{}, 1)
-	e.rules = map[types.NamespacedName]*state{}
-	e.loaded = map[types.NamespacedName]bool{}
+	e.rules = map[ident.ID]*state{}
+	e.loaded = map[ident.ID]bool{}
 	if e.Clock == nil {
 		e.Clock = clock.RealClock{}
 	}
@@ -195,12 +195,12 @@ func (e *Engine) Init() {
 	if e.Controls == nil {
 		e.Controls = newMemoryStates[ControlState]()
 	}
-	e.arbs = map[types.NamespacedName]map[string]*arb{}
-	e.controlDue = map[types.NamespacedName]bool{}
-	e.saveDue = map[types.NamespacedName]bool{}
+	e.arbs = map[ident.ID]map[string]*arb{}
+	e.controlDue = map[ident.ID]bool{}
+	e.saveDue = map[ident.ID]bool{}
 	e.saveWake = make(chan struct{}, 1)
-	e.bridgeWrites = map[types.NamespacedName]map[string]bridgeWrite{}
-	e.savedControls = map[types.NamespacedName]string{}
+	e.bridgeWrites = map[ident.ID]map[string]bridgeWrite{}
+	e.savedControls = map[ident.ID]string{}
 	e.changes = make(chan struct{})
 }
 
@@ -254,7 +254,7 @@ func (e *Engine) Load(c *Compiled) {
 
 // schedule works out a Rule's next fire and, on its first load, the missed fire to run. Call
 // with e.mu held.
-func (e *Engine) schedule(key types.NamespacedName, s *state, first bool) {
+func (e *Engine) schedule(key ident.ID, s *state, first bool) {
 	now := e.Clock.Now()
 	sched := Schedule{Generation: s.c.Generation}
 	if s.c.needsSite() && e.Site == nil {
@@ -289,7 +289,7 @@ func (e *Engine) reschedule(s *state, now time.Time) time.Time {
 	return f.At
 }
 
-func (e *Engine) report(key types.NamespacedName, sched Schedule) {
+func (e *Engine) report(key ident.ID, sched Schedule) {
 	if e.NextChange != nil {
 		if sched.Next.IsZero() || sched.Cleared {
 			e.NextChange.DeleteLabelValues(key.Namespace, key.Name)
@@ -311,7 +311,7 @@ func (e *Engine) signal() {
 
 // Remove drops a deleted Rule, cancels its run and forgets its hold's state. A hold that is
 // active leaves its device as it is.
-func (e *Engine) Remove(key types.NamespacedName) {
+func (e *Engine) Remove(key ident.ID) {
 	s := e.unload(key)
 	e.mu.Lock()
 	if s != nil && s.hold != nil {
@@ -329,12 +329,12 @@ func (e *Engine) Remove(key types.NamespacedName) {
 
 // Unload drops a Rule that is no longer valid and cancels its run. Its hold's state is kept, so
 // a fixed Rule carries on.
-func (e *Engine) Unload(key types.NamespacedName) {
+func (e *Engine) Unload(key ident.ID) {
 	e.unload(key)
 }
 
 // unload drops a Rule and returns its state, if it was loaded.
-func (e *Engine) unload(key types.NamespacedName) *state {
+func (e *Engine) unload(key ident.ID) *state {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.rules[key]
@@ -553,7 +553,7 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 }
 
 // trigger runs the Rule if its condition holds and its mode allows. Call with e.mu held.
-func (e *Engine) trigger(ctx context.Context, key types.NamespacedName, s *state, vars Vars) {
+func (e *Engine) trigger(ctx context.Context, key ident.ID, s *state, vars Vars) {
 	ok, err := s.c.eval(vars)
 	switch {
 	case err != nil:
@@ -575,7 +575,7 @@ func (e *Engine) trigger(ctx context.Context, key types.NamespacedName, s *state
 }
 
 // start launches a run. Call with e.mu held.
-func (e *Engine) start(ctx context.Context, key types.NamespacedName, s *state) {
+func (e *Engine) start(ctx context.Context, key ident.ID, s *state) {
 	c := s.c
 	body := func(ctx context.Context) string { return e.execute(ctx, key, c) }
 	if c.body != nil {
@@ -586,7 +586,7 @@ func (e *Engine) start(ctx context.Context, key types.NamespacedName, s *state) 
 
 // Resume continues a flow's run from before a restart, in place of a new one, so triggers treat it
 // as a run in progress. Call it after Load and before Run. It reports false for an unknown flow.
-func (e *Engine) Resume(ctx context.Context, key types.NamespacedName, body Body) bool {
+func (e *Engine) Resume(ctx context.Context, key ident.ID, body Body) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.rules[key]
@@ -598,7 +598,7 @@ func (e *Engine) Resume(ctx context.Context, key types.NamespacedName, body Body
 }
 
 // launch runs body as the rule's run in progress. Call with e.mu held.
-func (e *Engine) launch(ctx context.Context, key types.NamespacedName, s *state, body Body) {
+func (e *Engine) launch(ctx context.Context, key ident.ID, s *state, body Body) {
 	runCtx, cancel := context.WithCancel(ctx)
 	s.run++
 	s.cancel = cancel
@@ -625,7 +625,7 @@ func (e *Engine) launch(ctx context.Context, key types.NamespacedName, s *state,
 // execute runs the actions in order. A failing device action stops the run; a room action that
 // fails on some devices lets the run continue, so a dead bulb can't leave the rest of the room on,
 // and the run counts as failed at the end.
-func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compiled) string {
+func (e *Engine) execute(ctx context.Context, key ident.ID, c *Compiled) string {
 	result, skipped := e.runActions(ctx, key, c)
 	e.reportSkipped(key, skipped)
 	return result
@@ -633,14 +633,14 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 
 // reportSkipped logs the Room members a run left out when they differ from the last run's, so a
 // moment that fires all day logs them once.
-func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
+func (e *Engine) reportSkipped(key ident.ID, skipped []string) {
 	slices.Sort(skipped)
 	skipped = slices.Compact(skipped)
 	e.mu.Lock()
 	same := slices.Equal(e.skipped[key], skipped)
 	if !same {
 		if e.skipped == nil {
-			e.skipped = map[types.NamespacedName][]string{}
+			e.skipped = map[ident.ID][]string{}
 		}
 		e.skipped[key] = skipped
 	}
@@ -652,7 +652,7 @@ func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
 }
 
 // runActions is execute, returning the Room members left out as well.
-func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Compiled) (result string, skipped []string) {
+func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (result string, skipped []string) {
 	log := e.Log.WithValues("rule", key)
 	failed := false
 	for _, a := range c.actions {
@@ -672,7 +672,7 @@ func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Co
 			return ResultCancelled, skipped
 		}
 		if a.release != "" {
-			e.release(types.NamespacedName{Namespace: key.Namespace, Name: a.release})
+			e.release(ident.ID{Namespace: key.Namespace, Name: a.release})
 			_ = e.endClaims(ctx, key.Namespace, ruleSource(a.release), allLevels)
 			continue
 		}
@@ -687,7 +687,7 @@ func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Co
 			}
 			continue
 		}
-		dev := types.NamespacedName{Namespace: key.Namespace, Name: a.device}
+		dev := ident.ID{Namespace: key.Namespace, Name: a.device}
 		if e.arbitrated(dev, a.capability) {
 			if !a.ends() {
 				log.Info("Skipped set on an arbitrated capability; it needs for or until", "device", a.device, "capability", a.capability)
@@ -712,7 +712,7 @@ func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Co
 // Membership is read now, not when the run started. It tries every device and reports whether
 // all of them succeeded. A member that arbitrates the capability gets a claim, or, when the set
 // has no end, is left out and returned.
-func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action) (ok bool, skipped []string) {
+func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, skipped []string) {
 	log := e.Log.WithValues("rule", key)
 	ok, matched := true, false
 	for _, dev := range e.Store.Room(key.Namespace, a.room) {
@@ -748,7 +748,7 @@ func (e *Engine) setRoom(ctx context.Context, key types.NamespacedName, a action
 func (a action) ends() bool { return a.claimFor > 0 || a.until != "" }
 
 // setClaim is a set's claim on an arbitrated capability.
-func (e *Engine) setClaim(key types.NamespacedName, a action) control.Claim {
+func (e *Engine) setClaim(key ident.ID, a action) control.Claim {
 	c := control.Claim{
 		Source: ruleSource(key.Name), Level: claimLevel(a.priority), Value: capability.Float(a.value),
 		UntilNext: a.until == UntilNext,
@@ -809,7 +809,7 @@ func (e *Engine) Idle(waiters func() bool) bool {
 // nothing.
 func (e *Engine) Earliest() time.Time { return e.earliest() }
 
-func (e *Engine) count(key types.NamespacedName, result string) {
+func (e *Engine) count(key ident.ID, result string) {
 	if e.Runs != nil {
 		e.Runs.WithLabelValues(key.Namespace, key.Name, result).Inc()
 	}

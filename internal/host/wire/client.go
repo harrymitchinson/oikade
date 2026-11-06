@@ -9,11 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // requestTimeout bounds a request. A host that doesn't answer in this long is as good as gone.
@@ -205,7 +204,7 @@ func (c *Client) request(ctx context.Context, m Message) (Message, error) {
 
 // Claim implements engine.Arbitration. If the host can't be reached the session is ending, and the
 // next process claims again, so it reports the claim as handled rather than write around it.
-func (c *Client) Claim(ctx context.Context, dev types.NamespacedName, name string, claim control.Claim) bool {
+func (c *Client) Claim(ctx context.Context, dev ident.ID, name string, claim control.Claim) bool {
 	r, err := c.request(ctx, Message{Type: TypeClaim, Device: dev.Name, Capability: name, Claim: &claim})
 	c.failUnsaved(err)
 	return err != nil || r.Arbitrated
@@ -220,7 +219,7 @@ func (c *Client) failUnsaved(err error) {
 }
 
 // ReleaseClaim implements engine.Arbitration, handling failure as Claim does.
-func (c *Client) ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool {
+func (c *Client) ReleaseClaim(ctx context.Context, dev ident.ID, name, source string) bool {
 	r, err := c.request(ctx, Message{Type: TypeRelease, Device: dev.Name, Capability: name, Source: source})
 	c.failUnsaved(err)
 	return err != nil || r.Arbitrated
@@ -234,7 +233,7 @@ func (c *Client) ReleaseClaims(ctx context.Context, _, source string, below cont
 }
 
 // Set writes a capability through the host.
-func (c *Client) Set(ctx context.Context, dev types.NamespacedName, capability string, value any) error {
+func (c *Client) Set(ctx context.Context, dev ident.ID, capability string, value any) error {
 	_, err := c.request(ctx, Message{Type: TypeSet, Device: dev.Name, Capability: capability, Value: value})
 	return err
 }
@@ -273,7 +272,7 @@ func (c *Client) SaveFire(ctx context.Context, rule string, t time.Time) error {
 
 // Get implements engine.HoldStates from what the Welcome returned and what's been saved since. The
 // engine calls it with its lock held, so it never reaches the host.
-func (c *Client) Get(key types.NamespacedName) (engine.HoldState, bool) {
+func (c *Client) Get(key ident.ID) (engine.HoldState, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s, ok := c.holds[key.Name]
@@ -281,7 +280,7 @@ func (c *Client) Get(key types.NamespacedName) (engine.HoldState, bool) {
 }
 
 // Put implements engine.HoldStates. It returns once the state is on the host's disk.
-func (c *Client) Put(ctx context.Context, key types.NamespacedName, s engine.HoldState) error {
+func (c *Client) Put(ctx context.Context, key ident.ID, s engine.HoldState) error {
 	if _, err := c.request(ctx, Message{Type: TypeSaveHold, Rule: key.Name, Hold: &s}); err != nil {
 		return err
 	}
@@ -292,7 +291,7 @@ func (c *Client) Put(ctx context.Context, key types.NamespacedName, s engine.Hol
 }
 
 // Delete implements engine.HoldStates.
-func (c *Client) Delete(ctx context.Context, key types.NamespacedName) error {
+func (c *Client) Delete(ctx context.Context, key ident.ID) error {
 	if _, err := c.request(ctx, Message{Type: TypeDeleteHold, Rule: key.Name}); err != nil {
 		return err
 	}

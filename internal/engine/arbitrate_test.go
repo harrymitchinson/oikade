@@ -10,12 +10,11 @@ import (
 
 	"github.com/go-logr/logr/funcr"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // entry is a bool control entry.
@@ -25,7 +24,7 @@ func entry(name, def, resolve, external, hold string) control.Entry {
 
 // status returns the device's control status for one capability.
 func (r *rig) status(dev, name string) control.Status {
-	for _, s := range r.e.ControlOf(types.NamespacedName{Namespace: ns, Name: dev}) {
+	for _, s := range r.e.ControlOf(ident.ID{Namespace: ns, Name: dev}) {
 		if s.Capability == name {
 			return s
 		}
@@ -186,7 +185,7 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 		values:  map[string]map[string]any{"towel-rail": {capability.SwitchOn: false}},
 		control: map[string][]control.Entry{"towel-rail": {rail}},
 	})
-	metas := map[types.NamespacedName]hub.Meta{
+	metas := map[ident.ID]hub.Meta{
 		{Namespace: ns, Name: "towel-rail"}:  {Instance: z2m, Control: []control.Entry{rail}},
 		{Namespace: ns, Name: "hall-motion"}: {Instance: z2m},
 		{Namespace: ns, Name: "bath-rail"}:   {Instance: z2m, Room: "bathroom", Control: []control.Entry{rail}},
@@ -233,7 +232,7 @@ type gate struct {
 	open chan struct{}
 }
 
-func (g *gate) Set(ctx context.Context, dev types.NamespacedName, c string, v any) error {
+func (g *gate) Set(ctx context.Context, dev ident.ID, c string, v any) error {
 	<-g.open
 	return g.fakeSetter.Set(ctx, dev, c, v)
 }
@@ -251,11 +250,11 @@ func railRig(t *testing.T, rules ...*Compiled) *rig {
 var railHold = Hold{Device: "towel-rail", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "00:00"}, End: At{Time: "00:00"}}}
 
 func (r *rig) setControl(entries ...control.Entry) {
-	metas := map[types.NamespacedName]hub.Meta{}
+	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[types.NamespacedName{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: entries}
+	metas[ident.ID{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: entries}
 	r.store.SetDevices(z2m, metas)
 }
 
@@ -268,7 +267,7 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	r.eventually("the write to start", func() bool {
 		r.e.mu.Lock()
 		defer r.e.mu.Unlock()
-		ar := r.e.arbs[types.NamespacedName{Namespace: ns, Name: "towel-rail"}][capability.SwitchOn]
+		ar := r.e.arbs[ident.ID{Namespace: ns, Name: "towel-rail"}][capability.SwitchOn]
 		return ar != nil && ar.writing
 	})
 	edited := railEntry
@@ -302,7 +301,7 @@ func TestAReportDuringAWriteIsLookedAtAgain(t *testing.T) {
 func TestAWriteLostWithItsDriverIsNotAnOverride(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.SwitchOn, true})
-	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
+	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
 	snap, _ := r.store.Get(dev)
 	r.clock.Step(2 * time.Second)
 	r.e.DriverReturned(snap.Instance)
@@ -319,7 +318,7 @@ func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.change("towel-rail", capability.SwitchOn, true)
 	r.at("2026-10-21 12:01 BST")
-	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
+	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
 	if _, err := r.e.Claim(context.Background(), dev, capability.SwitchOn, claim); err != nil {
 		t.Fatal(err)
@@ -342,7 +341,7 @@ func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
 func TestAWriteThatFailedIsTriedAgainWhenItsDeviceReports(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.SwitchOn, true})
-	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
+	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
 	r.failing("towel-rail")
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
 	if _, err := r.e.Claim(context.Background(), dev, capability.SwitchOn, claim); err != nil {
@@ -368,15 +367,15 @@ func TestEditingAHoldsPriorityClaimsAgain(t *testing.T) {
 func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	controls := r.e.Controls
-	r.store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{})
+	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{})
 	r.settle()
 	// Give the saver its turn: it mustn't delete the state.
 	time.Sleep(100 * time.Millisecond)
-	if _, ok := controls.Get(types.NamespacedName{Namespace: ns, Name: "towel-rail"}); !ok {
+	if _, ok := controls.Get(ident.ID{Namespace: ns, Name: "towel-rail"}); !ok {
 		t.Fatal("a device that left the store lost its saved state")
 	}
 	r.setControl(railEntry)
-	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "towel-rail"}, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
+	r.store.Discovered(ident.ID{Namespace: ns, Name: "towel-rail"}, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
 	r.settle()
 	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Normal" {
 		t.Errorf("winner %q after it came back", w)
@@ -385,8 +384,8 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 
 func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
-	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
-	r.store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{})
+	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
+	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{})
 	r.settle()
 	if err := r.e.ForgetDevice(context.Background(), dev); err != nil {
 		t.Fatal(err)
@@ -399,13 +398,13 @@ func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 
 // matter announces a Matter write, as the matter role does before writing the device.
 func (r *rig) matter(dev, c string, v any) {
-	r.e.MatterWrote(types.NamespacedName{Namespace: ns, Name: dev}, c, v)
+	r.e.MatterWrote(ident.ID{Namespace: ns, Name: dev}, c, v)
 }
 
 func TestAMatterWriteThatFailedLeavesTheDevicesReportItsOwn(t *testing.T) {
 	r := railRig(t)
 	r.matter("towel-rail", capability.SwitchOn, true)
-	r.e.ForgetMatterWrite(types.NamespacedName{Namespace: ns, Name: "towel-rail"}, capability.SwitchOn)
+	r.e.ForgetMatterWrite(ident.ID{Namespace: ns, Name: "towel-rail"}, capability.SwitchOn)
 	r.clock.Step(2 * time.Second)
 	r.change("towel-rail", capability.SwitchOn, true)
 	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
@@ -529,7 +528,7 @@ func TestAMatterWriteThatChangesNothingIsForgotten(t *testing.T) {
 func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
 	var logs []string
 	e := &Engine{Log: funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})}
-	key := types.NamespacedName{Name: "bathroom-on"}
+	key := ident.ID{Name: "bathroom-on"}
 	e.reportSkipped(key, []string{"rail", "towel", "rail"})
 	e.reportSkipped(key, []string{"towel", "rail"})
 	if len(logs) != 1 {

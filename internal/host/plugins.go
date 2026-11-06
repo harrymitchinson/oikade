@@ -14,13 +14,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -86,7 +86,7 @@ func newPlugins(h *Host, socket string, devices *hub.Store, known *inventory) *p
 var recordedPrefix = instanceName(pluginKey("")) // ends in the empty name
 
 func pluginKey(name string) driver.InstanceKey {
-	return driver.InstanceKey{Driver: driver.Plugin, NamespacedName: key(name)}
+	return driver.InstanceKey{Driver: driver.Plugin, ID: key(name)}
 }
 
 // attachRecorded brings in the plugins on record, so that their devices are known, and their claims
@@ -122,7 +122,7 @@ func (p *plugins) get(name string) *hosted {
 // follow starts decoding a plugin from bus.
 func (p *plugins) follow(ctx context.Context, h *hosted, bus mqtt.Bus) {
 	h.driver = &pluginDriver.Instance{
-		Key: h.key.NamespacedName, Root: h.root, Bus: pairingBus{Bus: bus, devices: h.root.Devices(), pair: func() { p.pair(h) }},
+		Key: h.key.ID, Root: h.root, Bus: pairingBus{Bus: bus, devices: h.root.Devices(), pair: func() { p.pair(h) }},
 		Sink: p.devices, Now: time.Now, Log: p.log,
 	}
 	p.known.attach(h.key)
@@ -151,8 +151,8 @@ func (b pairingBus) Subscribe(ctx context.Context, filter string, h mqtt.Handler
 }
 
 // onRecord maps a plugin's device IDs to the devices they are.
-func (p *plugins) onRecord(h *hosted) map[string]types.NamespacedName {
-	devices := map[string]types.NamespacedName{}
+func (p *plugins) onRecord(h *hosted) map[string]ident.ID {
+	devices := map[string]ident.ID{}
 	driverName := instanceName(h.key)
 	for _, d := range p.known.registry.List().Devices {
 		if d.Driver == driverName && !d.Removed && d.ID != "" {
@@ -437,7 +437,7 @@ func (p *plugins) declared(h *hosted) []contractv1.DeclaredDevice {
 }
 
 // Set writes to a plugin's device.
-func (p *plugins) Set(ctx context.Context, instance driver.InstanceKey, dev types.NamespacedName, name string, value any) error {
+func (p *plugins) Set(ctx context.Context, instance driver.InstanceKey, dev ident.ID, name string, value any) error {
 	p.mu.Lock()
 	h := p.running[instance.Name]
 	p.mu.Unlock()
@@ -560,7 +560,7 @@ type routedSetter struct {
 }
 
 // Set implements driver.Setter.
-func (r routedSetter) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+func (r routedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	if snap, ok := r.devices.Get(dev); ok && snap.Instance.Driver == driver.Plugin {
 		return r.plugins.Set(ctx, snap.Instance, dev, name, value)
 	}

@@ -10,12 +10,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // Meta is what the hub knows about a declared Device from its spec.
@@ -57,7 +56,7 @@ type Store struct {
 	Log       logr.Logger
 
 	mu         sync.RWMutex
-	devices    map[types.NamespacedName]*entry
+	devices    map[ident.ID]*entry
 	undeclared map[driver.InstanceKey]int
 	inventory  map[driver.InstanceKey][]driver.AppDevice
 }
@@ -68,7 +67,7 @@ var _ driver.Sink = (*Store)(nil)
 func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
 	return &Store{
 		Log: log, Listeners: listeners,
-		devices: map[types.NamespacedName]*entry{}, undeclared: map[driver.InstanceKey]int{},
+		devices: map[ident.ID]*entry{}, undeclared: map[driver.InstanceKey]int{},
 		inventory: map[driver.InstanceKey][]driver.AppDevice{},
 	}
 }
@@ -76,9 +75,9 @@ func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
 // SetDevices replaces the devices that belong to a driver instance. State is kept for devices
 // that remain on the same instance; devices no longer declared are dropped, and a device that
 // moved from another instance starts afresh.
-func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.NamespacedName]Meta) {
+func (s *Store) SetDevices(instance driver.InstanceKey, devices map[ident.ID]Meta) {
 	s.mu.Lock()
-	var reassigned, controls []types.NamespacedName
+	var reassigned, controls []ident.ID
 	for key, e := range s.devices {
 		if _, keep := devices[key]; e.Instance == instance && !keep {
 			delete(s.devices, key)
@@ -95,7 +94,7 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.Namesp
 			s.devices[key] = e
 			reassigned = append(reassigned, key)
 		}
-		if !equality.Semantic.DeepEqual(e.Control, m.Control) {
+		if !slices.EqualFunc(e.Control, m.Control, control.Entry.Equal) {
 			controls = append(controls, key)
 		}
 		e.Meta = m
@@ -118,35 +117,35 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[types.Namesp
 // ControlWatcher is an optional Listener interface. It hears when a device's control entries
 // change, including when it joins or leaves with some.
 type ControlWatcher interface {
-	ControlChanged(dev types.NamespacedName)
+	ControlChanged(dev ident.ID)
 }
 
 // Reassigner is an optional Listener interface. It hears when a device joins, leaves or moves
 // between driver instances, which changes its status without any driver event: a plugin that
 // hasn't reported yet, for example, sends nothing when the hub claims its device.
 type Reassigner interface {
-	Reassigned(dev types.NamespacedName)
+	Reassigned(dev ident.ID)
 }
 
 // Move is a device's live state going to another key, with the Meta it has there.
 type Move struct {
-	To   types.NamespacedName
+	To   ident.ID
 	Meta Meta
 }
 
 // Rename moves devices' live state to other keys, as one change: names can swap, a device replaces
 // anything at its new key, and nobody sees one with the wrong Meta. The listeners hear about every
 // key involved.
-func (s *Store) Rename(moves map[types.NamespacedName]Move) {
+func (s *Store) Rename(moves map[ident.ID]Move) {
 	s.mu.Lock()
-	taken := map[types.NamespacedName]*entry{}
+	taken := map[ident.ID]*entry{}
 	for from := range moves {
 		if e, ok := s.devices[from]; ok {
 			taken[from] = e
 			delete(s.devices, from)
 		}
 	}
-	touched := make([]types.NamespacedName, 0, 2*len(moves))
+	touched := make([]ident.ID, 0, 2*len(moves))
 	for from, m := range moves {
 		touched = append(touched, from, m.To)
 		if e, ok := taken[from]; ok {
@@ -200,7 +199,7 @@ func cloneApp(devices []driver.AppDevice) []driver.AppDevice {
 }
 
 // Get returns a copy of a device's state.
-func (s *Store) Get(key types.NamespacedName) (Snapshot, bool) {
+func (s *Store) Get(key ident.ID) (Snapshot, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	e, ok := s.devices[key]
@@ -211,10 +210,10 @@ func (s *Store) Get(key types.NamespacedName) (Snapshot, bool) {
 }
 
 // List returns a copy of every device's state.
-func (s *Store) List() map[types.NamespacedName]Snapshot {
+func (s *Store) List() map[ident.ID]Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make(map[types.NamespacedName]Snapshot, len(s.devices))
+	out := make(map[ident.ID]Snapshot, len(s.devices))
 	for k, e := range s.devices {
 		out[k] = e.copy()
 	}
@@ -235,19 +234,19 @@ func (s *Store) Values(namespace string) map[string]map[string]any {
 }
 
 // Room returns the declared devices whose room is room in one namespace, sorted by name.
-func (s *Store) Room(namespace, room string) []types.NamespacedName {
+func (s *Store) Room(namespace, room string) []ident.ID {
 	if room == "" {
 		return nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var out []types.NamespacedName
+	var out []ident.ID
 	for k, e := range s.devices {
 		if k.Namespace == namespace && e.Room == room {
 			out = append(out, k)
 		}
 	}
-	slices.SortFunc(out, func(a, b types.NamespacedName) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(out, func(a, b ident.ID) int { return strings.Compare(a.Name, b.Name) })
 	return out
 }
 
@@ -270,7 +269,7 @@ func (e *entry) copy() Snapshot {
 }
 
 // update applies f to a known device and reports whether it was known.
-func (s *Store) update(key types.NamespacedName, f func(*entry)) bool {
+func (s *Store) update(key ident.ID, f func(*entry)) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.devices[key]
@@ -281,7 +280,7 @@ func (s *Store) update(key types.NamespacedName, f func(*entry)) bool {
 }
 
 // Discovered implements driver.Sink.
-func (s *Store) Discovered(dev types.NamespacedName, info driver.Info) {
+func (s *Store) Discovered(dev ident.ID, info driver.Info) {
 	if !s.update(dev, func(e *entry) { e.Discovered, e.Info = true, info }) {
 		return
 	}
@@ -309,7 +308,7 @@ func (s *Store) Changed(u driver.Update) {
 }
 
 // Availability implements driver.Sink.
-func (s *Store) Availability(dev types.NamespacedName, online bool) {
+func (s *Store) Availability(dev ident.ID, online bool) {
 	if !s.update(dev, func(e *entry) { e.Online = &online }) {
 		return
 	}
@@ -319,7 +318,7 @@ func (s *Store) Availability(dev types.NamespacedName, online bool) {
 }
 
 // Seen implements driver.Sink.
-func (s *Store) Seen(dev types.NamespacedName, t time.Time) {
+func (s *Store) Seen(dev ident.ID, t time.Time) {
 	if !s.update(dev, func(e *entry) { e.LastSeen = t }) {
 		return
 	}
@@ -336,7 +335,7 @@ func (s *Store) Undeclared(instance driver.InstanceKey, count int) {
 	s.mu.Unlock()
 	if count > 0 && (!had || prev != count) {
 		s.Log.Info("Found paired devices that aren't on record",
-			"driver", instance.Driver, "instance", instance.NamespacedName, "count", count)
+			"driver", instance.Driver, "instance", instance.ID, "count", count)
 	}
 	for _, l := range s.Listeners {
 		l.Undeclared(instance, count)
@@ -357,9 +356,9 @@ func (s *Store) Inventory(instance driver.InstanceKey, devices []driver.AppDevic
 // NopSink ignores every event. Embed it to implement only some of driver.Sink.
 type NopSink struct{}
 
-func (NopSink) Discovered(types.NamespacedName, driver.Info)     {}
+func (NopSink) Discovered(ident.ID, driver.Info)                 {}
 func (NopSink) Changed(driver.Update)                            {}
-func (NopSink) Availability(types.NamespacedName, bool)          {}
-func (NopSink) Seen(types.NamespacedName, time.Time)             {}
+func (NopSink) Availability(ident.ID, bool)                      {}
+func (NopSink) Seen(ident.ID, time.Time)                         {}
 func (NopSink) Undeclared(driver.InstanceKey, int)               {}
 func (NopSink) Inventory(driver.InstanceKey, []driver.AppDevice) {}

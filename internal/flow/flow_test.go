@@ -13,10 +13,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
-	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 var epoch = time.Date(2026, 11, 5, 22, 0, 0, 0, time.UTC)
@@ -32,7 +32,7 @@ type fakeHome struct {
 	claims      map[string]bool
 	onClaim     func() error
 	order       []string
-	releasedFor types.NamespacedName
+	releasedFor ident.ID
 	releaseErr  error
 	// releasing, if set, holds up a release until it closes, and entered closes when one begins.
 	releasing, entered chan struct{}
@@ -64,7 +64,7 @@ func (h *fakeHome) Finish(_ context.Context, run string) error {
 	return nil
 }
 
-func (h *fakeHome) Apply(_ context.Context, _ types.NamespacedName, a engine.Action) error {
+func (h *fakeHome) Apply(_ context.Context, _ ident.ID, a engine.Action) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, ok := a.(engine.Release); ok {
@@ -84,7 +84,7 @@ func (h *fakeHome) Apply(_ context.Context, _ types.NamespacedName, a engine.Act
 	return nil
 }
 
-func (h *fakeHome) ReleaseFlow(_ context.Context, key types.NamespacedName) error {
+func (h *fakeHome) ReleaseFlow(_ context.Context, key ident.ID) error {
 	if h.releasing != nil {
 		close(h.entered)
 		<-h.releasing
@@ -112,7 +112,7 @@ func (h *fakeHome) holds(device string) bool {
 	return ok
 }
 
-func (h *fakeHome) WaitFor(ctx context.Context, _ types.NamespacedName, cond engine.Condition, _ time.Time) (bool, error) {
+func (h *fakeHome) WaitFor(ctx context.Context, _ ident.ID, cond engine.Condition, _ time.Time) (bool, error) {
 	if cond == nil {
 		return false, errors.New("a wait needs a condition") // As the engine answers.
 	}
@@ -175,7 +175,7 @@ func (l *logs) has(want string) bool {
 
 func newFlow(h *fakeHome, c *clocktesting.FakeClock, l *logs, body func(*Run) error) *Flow {
 	return &Flow{
-		Key:  types.NamespacedName{Namespace: "home", Name: "bedtime"},
+		Key:  ident.ID{Namespace: "home", Name: "bedtime"},
 		Body: body, Journal: h, Actions: h, Clock: c, Log: l.logger(), Process: context.Background(),
 	}
 }

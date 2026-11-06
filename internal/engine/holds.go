@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // Hold timings.
@@ -75,7 +75,7 @@ func sameTarget(a, b HoldTarget) bool {
 // condition reports whether the hold's while is true at now, and when the window next changes.
 // known is false when when can't be evaluated, as before a device it reads has reported. devices
 // are the namespace's values, or nil to read them.
-func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, devices map[string]map[string]any) (on, known bool, next time.Time) {
+func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices map[string]map[string]any) (on, known bool, next time.Time) {
 	on = true
 	if h.window != nil {
 		on, next = h.window.at(now, e.Location, e.Site)
@@ -101,7 +101,7 @@ func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, dev
 // evaluate works out whether a hold is active now, starts the write and save that follow, and
 // sets when to look again. devices are the namespace's values, or nil to read them. Call with
 // e.mu held.
-func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *state, now time.Time, devices map[string]map[string]any) {
+func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.Time, devices map[string]map[string]any) {
 	hs, h := s.hold, s.c.hold
 	if hs.writing {
 		// The write's end signals Run, which looks again.
@@ -221,7 +221,7 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 
 // write ends an edited hold's old target, writes the hold's start or end, and saves its state.
 // A failed write isn't saved as done, so it's tried again.
-func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdState, st HoldState, active bool, end *HoldTarget, claim control.Claim, reclaim bool) {
+func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st HoldState, active bool, end *HoldTarget, claim control.Claim, reclaim bool) {
 	var retry time.Duration
 	ended := true
 	if end != nil {
@@ -272,7 +272,7 @@ func (e *Engine) write(ctx context.Context, key types.NamespacedName, hs *holdSt
 	}
 }
 
-func (e *Engine) deleteState(key types.NamespacedName) {
+func (e *Engine) deleteState(key ident.ID) {
 	if err := e.States.Delete(context.Background(), key); err != nil {
 		e.Log.Error(err, "Failed to delete hold state", "rule", key)
 	}
@@ -281,7 +281,7 @@ func (e *Engine) deleteState(key types.NamespacedName) {
 // applyHold writes a hold's start (its value) or end (the opposite of a bool, and nothing for a
 // number). On an arbitrated capability, the start is claim with the hold's value, and the end
 // releases it. It returns how soon to retry when it fails.
-func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t HoldTarget, start bool, claim control.Claim) (time.Duration, error) {
+func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, start bool, claim control.Claim) (time.Duration, error) {
 	claim.Value = capability.Float(t.Value)
 	value := t.Value
 	// An unarbitrated number hold leaves the device as it is when it ends (OIK-64, answer 19).
@@ -290,9 +290,9 @@ func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t Hold
 		value = !b
 	}
 	log := e.Log.WithValues("rule", key, "capability", t.Capability)
-	var devices []types.NamespacedName
+	var devices []ident.ID
 	if t.Device != "" {
-		devices = []types.NamespacedName{{Namespace: key.Namespace, Name: t.Device}}
+		devices = []ident.ID{{Namespace: key.Namespace, Name: t.Device}}
 	}
 	var retry time.Duration
 	var failed error
@@ -338,11 +338,11 @@ func (e *Engine) applyHold(ctx context.Context, key types.NamespacedName, t Hold
 }
 
 // claimHold makes an active hold's claim again on its arbitrated targets, and writes nothing.
-func (e *Engine) claimHold(ctx context.Context, key types.NamespacedName, t HoldTarget, claim control.Claim) {
+func (e *Engine) claimHold(ctx context.Context, key ident.ID, t HoldTarget, claim control.Claim) {
 	claim.Value = capability.Float(t.Value)
 	devices := e.Store.Room(key.Namespace, t.Room)
 	if t.Device != "" {
-		devices = []types.NamespacedName{{Namespace: key.Namespace, Name: t.Device}}
+		devices = []ident.ID{{Namespace: key.Namespace, Name: t.Device}}
 	}
 	for _, dev := range devices {
 		if e.arbitrated(dev, t.Capability) {
@@ -353,7 +353,7 @@ func (e *Engine) claimHold(ctx context.Context, key types.NamespacedName, t Hold
 
 // reportHold reports a hold's state and next change: the window's next change, or a delay's
 // end, whichever comes first. A latched hold has none. Call with e.mu held.
-func (e *Engine) reportHold(key types.NamespacedName, s *state, st HoldState, next time.Time) {
+func (e *Engine) reportHold(key ident.ID, s *state, st HoldState, next time.Time) {
 	sched := Schedule{Generation: s.c.Generation, Hold: true, Active: st.Active}
 	if !st.Latched {
 		sched.Next = next
@@ -374,7 +374,7 @@ func (e *Engine) reportHold(key types.NamespacedName, s *state, st HoldState, ne
 }
 
 // release clears a latched hold's latch. Call without e.mu held.
-func (e *Engine) release(key types.NamespacedName) {
+func (e *Engine) release(key ident.ID) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.rules[key]

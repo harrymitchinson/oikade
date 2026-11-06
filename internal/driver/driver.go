@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // Driver names for InstanceKey.
@@ -18,7 +18,7 @@ const (
 // driver is part of the key.
 type InstanceKey struct {
 	Driver string
-	types.NamespacedName
+	ident.ID
 }
 
 // Label is the instance label value on metrics: the bare name for Zigbee2MQTT, which predates
@@ -56,7 +56,7 @@ type AppDevice struct {
 
 // Update is a capability changing value. Drivers only report actual changes.
 type Update struct {
-	Device     types.NamespacedName
+	Device     ident.ID
 	Capability string
 	// Value is bool or float64, validated against the capability registry.
 	Value any
@@ -67,11 +67,11 @@ type Update struct {
 
 // Sink receives driver events. Calls arrive on the driver's receive goroutine and must not block.
 type Sink interface {
-	Discovered(dev types.NamespacedName, info Info)
+	Discovered(dev ident.ID, info Info)
 	Changed(u Update)
-	Availability(dev types.NamespacedName, online bool)
+	Availability(dev ident.ID, online bool)
 	// Seen reports any message from the device, changed or not.
-	Seen(dev types.NamespacedName, t time.Time)
+	Seen(dev ident.ID, t time.Time)
 	// Undeclared reports how many paired devices aren't on record, per driver instance.
 	Undeclared(instance InstanceKey, count int)
 	// Inventory reports every device a driver instance sees in its app, sorted by ID. Nil means
@@ -81,13 +81,13 @@ type Sink interface {
 
 // Setter writes capabilities.
 type Setter interface {
-	Set(ctx context.Context, dev types.NamespacedName, capability string, value any) error
+	Set(ctx context.Context, dev ident.ID, capability string, value any) error
 }
 
 // SetterFunc is a func as a Setter.
-type SetterFunc func(ctx context.Context, dev types.NamespacedName, capability string, value any) error
+type SetterFunc func(ctx context.Context, dev ident.ID, capability string, value any) error
 
 // Set implements Setter.
-func (f SetterFunc) Set(ctx context.Context, dev types.NamespacedName, capability string, value any) error {
+func (f SetterFunc) Set(ctx context.Context, dev ident.ID, capability string, value any) error {
 	return f(ctx, dev, capability, value)
 }

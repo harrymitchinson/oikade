@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/matter/setup"
@@ -191,7 +191,7 @@ func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine
 	known.changed = append(known.changed, m.changed)
 	m.Writes = &matterbridge.Coalescer{
 		Setter: &matterWrites{engine: eng, devices: devices, setter: setter, restore: m.Restore},
-		Current: func(dev types.NamespacedName, name string) (any, bool) {
+		Current: func(dev ident.ID, name string) (any, bool) {
 			snap, ok := devices.Get(dev)
 			if !ok {
 				return nil, false
@@ -212,10 +212,10 @@ func (m *matterBridge) changed() {
 }
 
 // Discovered implements driver.Sink: a device's first report makes it reachable.
-func (m *matterBridge) Discovered(types.NamespacedName, driver.Info) { m.changed() }
+func (m *matterBridge) Discovered(ident.ID, driver.Info) { m.changed() }
 
 // Reassigned implements hub.Reassigner: a device's state changed with no driver event.
-func (m *matterBridge) Reassigned(types.NamespacedName) { m.changed() }
+func (m *matterBridge) Reassigned(ident.ID) { m.changed() }
 
 // want is what should be on the bridge. A device on record stays there while its driver is away, so
 // controllers don't see it vanish, and only reserved and removed ones are left out.
@@ -230,7 +230,7 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 		out[d.Endpoint] = matterbridge.Device{
 			Key: dev, Endpoint: d.Endpoint, Name: d.Name, Capabilities: d.Capabilities,
 			// A name can move, and an endpoint can't, so a controller keeps its device through either.
-			Unique: matterbridge.UniqueID(types.NamespacedName{Namespace: m.id.UniqueID, Name: strconv.Itoa(int(d.Endpoint))}),
+			Unique: matterbridge.UniqueID(ident.ID{Namespace: m.id.UniqueID, Name: strconv.Itoa(int(d.Endpoint))}),
 			Absent: !live || !snap.Discovered,
 		}
 	}
@@ -299,11 +299,11 @@ type matterWrites struct {
 	devices *hub.Store
 	setter  driver.Setter
 	// restore takes the clusters back after a write that didn't happen.
-	restore func(dev types.NamespacedName, name string, otherwise any)
+	restore func(dev ident.ID, name string, otherwise any)
 }
 
 // Set implements driver.Setter.
-func (w *matterWrites) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

@@ -11,9 +11,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 )
@@ -37,7 +36,7 @@ const (
 
 // Device is everything needed to map a device to a bridged endpoint.
 type Device struct {
-	Key      types.NamespacedName
+	Key      ident.ID
 	Endpoint uint16
 	Name     string
 	// Capabilities are the device's capability names.
@@ -221,7 +220,7 @@ func Label(name string) string {
 }
 
 // UniqueID is a bridged device's stable UniqueID: 32 hex digits from its namespace and name.
-func UniqueID(key types.NamespacedName) string {
+func UniqueID(key ident.ID) string {
 	sum := sha256.Sum256([]byte(key.String()))
 	return strings.ToUpper(hex.EncodeToString(sum[:16]))
 }

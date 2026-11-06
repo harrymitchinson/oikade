@@ -21,10 +21,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 const (
@@ -55,15 +55,15 @@ type Journal interface {
 
 // Actions is what a run does to the home, which is the engine.
 type Actions interface {
-	Apply(ctx context.Context, key types.NamespacedName, a engine.Action) error
+	Apply(ctx context.Context, key ident.ID, a engine.Action) error
 	// ReleaseFlow ends a flow's claims, whichever run made them, but for Safety ones.
-	ReleaseFlow(ctx context.Context, key types.NamespacedName) error
-	WaitFor(ctx context.Context, key types.NamespacedName, cond engine.Condition, until time.Time) (bool, error)
+	ReleaseFlow(ctx context.Context, key ident.ID) error
+	WaitFor(ctx context.Context, key ident.ID, cond engine.Condition, until time.Time) (bool, error)
 }
 
 // Flow is one flow and what it runs against.
 type Flow struct {
-	Key types.NamespacedName
+	Key ident.ID
 	// Safety flows never expire, so a leak response still acts late.
 	Safety bool
 	// Late is how late a run may wake and still carry on. Zero means DefaultLate.
@@ -273,7 +273,7 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 	// retire ends a run nothing will continue, and with it what its flow was left holding.
 	retire := func(id, name, reason string) {
 		if name != "" {
-			key := types.NamespacedName{Namespace: namespace, Name: name}
+			key := ident.ID{Namespace: namespace, Name: name}
 			if err := actions.ReleaseFlow(ctx, key); err != nil {
 				log.Error(err, "Failed to release the claims of a flow run; the next process will", "run", id)
 				return

@@ -43,3 +43,27 @@ func TestEntryLeavesOutWhatIsntSet(t *testing.T) {
 		t.Errorf("got %s, want %s", raw, want)
 	}
 }
+
+func TestEntryEqual(t *testing.T) {
+	entry := Entry{Capability: "on", Default: json.RawMessage(`false`), Resolve: NamePreferOn}
+	same := entry
+	same.Default = json.RawMessage(`false`)
+	otherDefault := entry
+	otherDefault.Default = json.RawMessage(`true`)
+	otherResolve := entry
+	otherResolve.Resolve = NamePreferOff
+	for _, c := range []struct {
+		name string
+		a, b Entry
+		want bool
+	}{
+		{"same", entry, same, true},
+		{"nil and empty Default", Entry{}, Entry{Default: json.RawMessage{}}, true},
+		{"different Default", entry, otherDefault, false},
+		{"different field", entry, otherResolve, false},
+	} {
+		if got := c.a.Equal(c.b); got != c.want {
+			t.Errorf("%s: Equal = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

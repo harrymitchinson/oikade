@@ -11,12 +11,11 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // ControlState is what a Device's arbiters remember, by capability.
@@ -27,7 +26,7 @@ type ControlStates = States[ControlState]
 
 // unreadableStates is States that can tell a state it can't read from one that isn't there.
 type unreadableStates interface {
-	Unreadable(key types.NamespacedName) error
+	Unreadable(key ident.ID) error
 }
 
 // UnreadableClaims is who holds a device whose saved claims can't be read.
@@ -117,16 +116,16 @@ func claimLevel(p Priority) control.Level {
 // engine never calls them with its lock held.
 type Arbitration interface {
 	// Claim makes a claim, and reports false when the capability isn't arbitrated.
-	Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) bool
+	Claim(ctx context.Context, dev ident.ID, name string, c control.Claim) bool
 	// ReleaseClaim ends a source's claim, and reports false when the capability isn't arbitrated.
-	ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool
+	ReleaseClaim(ctx context.Context, dev ident.ID, name, source string) bool
 	// ReleaseClaims ends a source's claims below a level on every arbitrated capability in the
 	// namespace. allLevels means all of them.
 	ReleaseClaims(ctx context.Context, namespace, source string, below control.Level) error
 }
 
 // ControlChanged implements hub.ControlWatcher: Run looks at the device's arbiters again.
-func (e *Engine) ControlChanged(dev types.NamespacedName) {
+func (e *Engine) ControlChanged(dev ident.ID) {
 	if e.Arbitration != nil {
 		return
 	}
@@ -138,7 +137,7 @@ func (e *Engine) ControlChanged(dev types.NamespacedName) {
 
 // Discovered implements driver.Sink: an arbitrated device that has reported can be written, now
 // rather than whenever a write that failed was due to be tried again.
-func (e *Engine) Discovered(dev types.NamespacedName, _ driver.Info) {
+func (e *Engine) Discovered(dev ident.ID, _ driver.Info) {
 	if snap, ok := e.Store.Get(dev); ok && len(snap.Control) > 0 {
 		e.mu.Lock()
 		for _, ar := range e.arbs[dev] {
@@ -175,7 +174,7 @@ func (e *Engine) DriverReturned(instance driver.InstanceKey) {
 
 // ensure creates or updates the device's arbiters from its control entries, and drops those
 // whose entry has gone. Call with e.mu held.
-func (e *Engine) ensure(dev types.NamespacedName) {
+func (e *Engine) ensure(dev ident.ID) {
 	snap, ok := e.Store.Get(dev)
 	if !ok {
 		// The device left the store, as when it moves between driver instances. Its arbiters go,
@@ -194,7 +193,7 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 	loaded := false
 	for _, c := range snap.Control {
 		old := arbs[c.Capability]
-		if old != nil && equality.Semantic.DeepEqual(old.spec, c) {
+		if old != nil && old.spec.Equal(c) {
 			continue
 		}
 		settings, err := ControlSettings(c, e.Location)
@@ -246,7 +245,7 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 
 // dropArb forgets an arbiter. forget also drops its saved state, as when its control entry has
 // gone. Call with e.mu held.
-func (e *Engine) dropArb(dev types.NamespacedName, name string, forget bool) {
+func (e *Engine) dropArb(dev ident.ID, name string, forget bool) {
 	if _, ok := e.arbs[dev][name]; !ok {
 		return
 	}
@@ -264,7 +263,7 @@ func (e *Engine) dropArb(dev types.NamespacedName, name string, forget bool) {
 }
 
 // markSave asks saveControls to save the device's arbiters. Call with e.mu held.
-func (e *Engine) markSave(dev types.NamespacedName) {
+func (e *Engine) markSave(dev ident.ID) {
 	e.saveDue[dev] = true
 	select {
 	case e.saveWake <- struct{}{}:
@@ -274,7 +273,7 @@ func (e *Engine) markSave(dev types.NamespacedName) {
 
 // syncControls brings the device's arbiters up to date with its control entries and decides
 // each. Call with e.mu held.
-func (e *Engine) syncControls(ctx context.Context, dev types.NamespacedName) {
+func (e *Engine) syncControls(ctx context.Context, dev ident.ID) {
 	e.ensure(dev)
 	for name, ar := range e.arbs[dev] {
 		e.decide(ctx, dev, name, ar)
@@ -282,7 +281,7 @@ func (e *Engine) syncControls(ctx context.Context, dev types.NamespacedName) {
 }
 
 // arbiter returns the capability's arbiter, or nil when it isn't arbitrated. Call with e.mu held.
-func (e *Engine) arbiter(dev types.NamespacedName, name string) *arb {
+func (e *Engine) arbiter(dev ident.ID, name string) *arb {
 	if ar := e.arbs[dev][name]; ar != nil {
 		return ar
 	}
@@ -294,7 +293,7 @@ func (e *Engine) arbiter(dev types.NamespacedName, name string) *arb {
 }
 
 // decide works out what the device should be and starts writing it. Call with e.mu held.
-func (e *Engine) decide(ctx context.Context, dev types.NamespacedName, name string, ar *arb) {
+func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb) {
 	if ar.writing {
 		ar.pending = true
 		return
@@ -345,7 +344,7 @@ func earliestOf(a, b time.Time) time.Time {
 }
 
 // writeControl writes a decision, records it, and decides again.
-func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, name string, ar *arb, value float64) {
+func (e *Engine) writeControl(ctx context.Context, dev ident.ID, name string, ar *arb, value float64) {
 	err := e.Setter.Set(ctx, dev, name, ValueOf(name, value))
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -422,7 +421,7 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	e.signal()
 }
 
-func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v float64) {
+func (e *Engine) recordOutside(dev ident.ID, name string, ar *arb, v float64) {
 	source := SourceDevice
 	if w, ok := e.bridgeWrites[dev][name]; ok && w.matches(v, e.Clock.Now()) {
 		// A report on the way, as while a dimmer ramps, leaves the write for the final value.
@@ -437,13 +436,13 @@ func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v
 // MatterWrote records that a Matter bridge is writing value to an arbitrated capability, so the
 // device's change to it is recorded as from Matter rather than the device. Bridges announce a
 // write before making it, and the bus delivers in order, so this comes before the change.
-func (e *Engine) MatterWrote(dev types.NamespacedName, name string, value any) {
+func (e *Engine) MatterWrote(dev ident.ID, name string, value any) {
 	e.bridgeWrote(SourceMatter, dev, name, value)
 }
 
 // ForgetMatterWrite undoes MatterWrote for a write that never reached the device, so the device's
 // next report isn't taken for it.
-func (e *Engine) ForgetMatterWrite(dev types.NamespacedName, name string) {
+func (e *Engine) ForgetMatterWrite(dev ident.ID, name string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.forgetBridgeWrite(dev, name)
@@ -451,11 +450,11 @@ func (e *Engine) ForgetMatterWrite(dev types.NamespacedName, name string) {
 
 // CommandWrote records that the oikade command is writing value to an arbitrated capability, which
 // counts as a person's change, like one from Matter.
-func (e *Engine) CommandWrote(dev types.NamespacedName, name string, value any) {
+func (e *Engine) CommandWrote(dev ident.ID, name string, value any) {
 	e.bridgeWrote(SourceCommand, dev, name, value)
 }
 
-func (e *Engine) bridgeWrote(source string, dev types.NamespacedName, name string, value any) {
+func (e *Engine) bridgeWrote(source string, dev ident.ID, name string, value any) {
 	if !e.arbitrated(dev, name) {
 		return
 	}
@@ -490,7 +489,7 @@ func (w bridgeWrite) matches(v float64, now time.Time) bool {
 }
 
 // forgetBridgeWrite drops a bridge's write. Call with e.mu held.
-func (e *Engine) forgetBridgeWrite(dev types.NamespacedName, name string) {
+func (e *Engine) forgetBridgeWrite(dev ident.ID, name string) {
 	delete(e.bridgeWrites[dev], name)
 	if len(e.bridgeWrites[dev]) == 0 {
 		delete(e.bridgeWrites, dev)
@@ -500,7 +499,7 @@ func (e *Engine) forgetBridgeWrite(dev types.NamespacedName, name string) {
 // claim makes a Rule's claim on an arbitrated capability. It reports false when the capability
 // isn't arbitrated, so the caller writes it as usual. A Rule that is no longer loaded, or a run
 // that was cancelled, claims nothing.
-func (e *Engine) claim(ctx context.Context, rule, dev types.NamespacedName, name string, c control.Claim) bool {
+func (e *Engine) claim(ctx context.Context, rule, dev ident.ID, name string, c control.Claim) bool {
 	if e.Arbitration != nil {
 		return e.claimElsewhere(ctx, rule, dev, name, c)
 	}
@@ -518,7 +517,7 @@ func (e *Engine) claim(ctx context.Context, rule, dev types.NamespacedName, name
 }
 
 // claimElsewhere is claim for an engine whose claims live in Arbitration.
-func (e *Engine) claimElsewhere(ctx context.Context, rule, dev types.NamespacedName, name string, c control.Claim) bool {
+func (e *Engine) claimElsewhere(ctx context.Context, rule, dev ident.ID, name string, c control.Claim) bool {
 	if !e.arbitrated(dev, name) {
 		return false
 	}
@@ -535,7 +534,7 @@ func (e *Engine) claimElsewhere(ctx context.Context, rule, dev types.NamespacedN
 // returns once it's saved, so a claim it reported survives a crash. ctx is the engine's, not the
 // request's: the write it leads to outlives the request. It reports false when the capability isn't
 // arbitrated.
-func (e *Engine) Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) (bool, error) {
+func (e *Engine) Claim(ctx context.Context, dev ident.ID, name string, c control.Claim) (bool, error) {
 	e.mu.Lock()
 	ar := e.arbiter(dev, name)
 	if ar == nil {
@@ -549,7 +548,7 @@ func (e *Engine) Claim(ctx context.Context, dev types.NamespacedName, name strin
 }
 
 // makeClaim gives the arbiter a claim and decides again. Call with e.mu held.
-func (e *Engine) makeClaim(ctx context.Context, dev types.NamespacedName, name string, ar *arb, c control.Claim) {
+func (e *Engine) makeClaim(ctx context.Context, dev ident.ID, name string, ar *arb, c control.Claim) {
 	if err := ar.a.Claim(c); err != nil {
 		e.Log.Error(err, "Failed to claim", "device", dev, "capability", name, "source", c.Source)
 		return
@@ -560,7 +559,7 @@ func (e *Engine) makeClaim(ctx context.Context, dev types.NamespacedName, name s
 
 // releaseClaim ends a source's claim on an arbitrated capability. It reports false when the
 // capability isn't arbitrated.
-func (e *Engine) releaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool {
+func (e *Engine) releaseClaim(ctx context.Context, dev ident.ID, name, source string) bool {
 	if e.Arbitration != nil {
 		return e.Arbitration.ReleaseClaim(ctx, dev, name, source)
 	}
@@ -571,7 +570,7 @@ func (e *Engine) releaseClaim(ctx context.Context, dev types.NamespacedName, nam
 
 // releaseHere ends a source's claim, and reports false when the capability isn't arbitrated. Call
 // with e.mu held.
-func (e *Engine) releaseHere(ctx context.Context, dev types.NamespacedName, name, source string) bool {
+func (e *Engine) releaseHere(ctx context.Context, dev ident.ID, name, source string) bool {
 	ar := e.arbiter(dev, name)
 	if ar == nil {
 		return false
@@ -585,7 +584,7 @@ func (e *Engine) releaseHere(ctx context.Context, dev types.NamespacedName, name
 
 // ReleaseClaim ends a source's claim for a rule that runs elsewhere, and returns once that's saved.
 // ctx is the engine's, as with Claim. It reports false when the capability isn't arbitrated.
-func (e *Engine) ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) (bool, error) {
+func (e *Engine) ReleaseClaim(ctx context.Context, dev ident.ID, name, source string) (bool, error) {
 	e.mu.Lock()
 	ok := e.releaseHere(ctx, dev, name, source)
 	e.mu.Unlock()
@@ -622,20 +621,20 @@ func (e *Engine) endClaims(ctx context.Context, namespace, source string, below 
 
 // ReleaseFlow ends a flow's claims, whichever of its runs made them, but for Safety ones. They end
 // only by an explicit release, so a failed notification can't reopen a valve.
-func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) error {
+func (e *Engine) ReleaseFlow(ctx context.Context, key ident.ID) error {
 	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
 // ReleaseRule ends the claims of a rule that runs elsewhere, but for Safety ones, as ReleaseFlow does,
 // and returns once that's saved. ctx is the engine's, as with Claim.
-func (e *Engine) ReleaseRule(ctx context.Context, key types.NamespacedName) error {
+func (e *Engine) ReleaseRule(ctx context.Context, key ident.ID) error {
 	return e.ReleaseClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
 // ForgetDevice ends what's on record for a device that has left the store for good: its arbiters,
 // and the saved claims that would otherwise wait for the next device of that name. It returns once
 // that's on disk.
-func (e *Engine) ForgetDevice(ctx context.Context, dev types.NamespacedName) error {
+func (e *Engine) ForgetDevice(ctx context.Context, dev ident.ID) error {
 	e.mu.Lock()
 	e.ensure(dev)
 	e.mu.Unlock()
@@ -648,7 +647,7 @@ func (e *Engine) ForgetDevice(ctx context.Context, dev types.NamespacedName) err
 	return nil
 }
 
-func (e *Engine) unreadableClaims(dev types.NamespacedName) error {
+func (e *Engine) unreadableClaims(dev ident.ID) error {
 	if s, ok := e.Controls.(unreadableStates); ok {
 		return s.Unreadable(dev)
 	}
@@ -657,7 +656,7 @@ func (e *Engine) unreadableClaims(dev types.NamespacedName) error {
 
 // UnreadableClaim is the Safety claim a device's saved claims count as while they can't be read,
 // because they might be one. It holds the whole device until they can be, or ForgetDevice clears them.
-func (e *Engine) UnreadableClaim(dev types.NamespacedName) (control.Claim, bool) {
+func (e *Engine) UnreadableClaim(dev ident.ID) (control.Claim, bool) {
 	if e.unreadableClaims(dev) == nil {
 		return control.Claim{}, false
 	}
@@ -666,7 +665,7 @@ func (e *Engine) UnreadableClaim(dev types.NamespacedName) (control.Claim, bool)
 
 // SavedClaims returns the live claims on record for a device with no arbiters, such as one the host
 // hasn't heard from.
-func (e *Engine) SavedClaims(dev types.NamespacedName) []control.Claim {
+func (e *Engine) SavedClaims(dev ident.ID) []control.Claim {
 	if c, ok := e.UnreadableClaim(dev); ok {
 		return []control.Claim{c}
 	}
@@ -687,7 +686,7 @@ func (e *Engine) SavedClaims(dev types.NamespacedName) []control.Claim {
 }
 
 // SavedSafety finds a Safety claim on record against value, for a capability with no arbiter yet.
-func (e *Engine) SavedSafety(dev types.NamespacedName, name string, value float64) (control.Claim, bool) {
+func (e *Engine) SavedSafety(dev ident.ID, name string, value float64) (control.Claim, bool) {
 	if c, ok := e.UnreadableClaim(dev); ok {
 		return c, true
 	}
@@ -743,7 +742,7 @@ func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 
 // savedDevices are the namespace's devices with claims on record and no arbiters, whose driver hasn't
 // attached, so that the claims are only on disk. Call with e.mu held.
-func (e *Engine) savedDevices(namespace string) []types.NamespacedName {
+func (e *Engine) savedDevices(namespace string) []ident.ID {
 	listed, ok := e.Controls.(interface {
 		Names(namespace string) ([]string, error)
 	})
@@ -755,9 +754,9 @@ func (e *Engine) savedDevices(namespace string) []types.NamespacedName {
 		e.Log.Error(err, "Failed to list saved claims", "namespace", namespace)
 		return nil
 	}
-	var devices []types.NamespacedName
+	var devices []ident.ID
 	for _, name := range names {
-		dev := types.NamespacedName{Namespace: namespace, Name: name}
+		dev := ident.ID{Namespace: namespace, Name: name}
 		if len(e.arbs[dev]) == 0 {
 			devices = append(devices, dev)
 		}
@@ -815,8 +814,8 @@ func (e *Engine) Responsive() {
 
 // releaseSource ends a source's claims below a level on every arbitrated capability in the
 // namespace, and returns the devices that changed. Call with e.mu held.
-func (e *Engine) releaseSource(ctx context.Context, namespace, source string, below control.Level) []types.NamespacedName {
-	var changed []types.NamespacedName
+func (e *Engine) releaseSource(ctx context.Context, namespace, source string, below control.Level) []ident.ID {
+	var changed []ident.ID
 	for dev, arbs := range e.arbs {
 		if dev.Namespace != namespace {
 			continue
@@ -837,13 +836,13 @@ func (e *Engine) releaseSource(ctx context.Context, namespace, source string, be
 }
 
 // arbitrated reports whether a device arbitrates a capability.
-func (e *Engine) arbitrated(dev types.NamespacedName, name string) bool {
+func (e *Engine) arbitrated(dev ident.ID, name string) bool {
 	snap, ok := e.Store.Get(dev)
 	return ok && snap.Controls(name)
 }
 
 // reportControl sets the gauge of the device's arbitrated capabilities. Call with e.mu held.
-func (e *Engine) reportControl(dev types.NamespacedName) {
+func (e *Engine) reportControl(dev ident.ID) {
 	if e.ControlLevel == nil {
 		return
 	}
@@ -853,7 +852,7 @@ func (e *Engine) reportControl(dev types.NamespacedName) {
 }
 
 // ControlOf says who holds each of a device's arbitrated capabilities, and why.
-func (e *Engine) ControlOf(dev types.NamespacedName) []control.Status {
+func (e *Engine) ControlOf(dev ident.ID) []control.Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.ensureDue()
@@ -933,7 +932,7 @@ func (e *Engine) saveControls(ctx context.Context) {
 // process use it: its answer is a promise that the claim outlives a crash, which saveControls is
 // too late to keep. It reports failure only for devices, or for any device if none are named, and
 // leaves saveControls to try again.
-func (e *Engine) flushControls(ctx context.Context, devices ...types.NamespacedName) error {
+func (e *Engine) flushControls(ctx context.Context, devices ...ident.ID) error {
 	failed := e.saveDevices(ctx)
 	if len(failed) == 0 {
 		return nil
@@ -942,7 +941,7 @@ func (e *Engine) flushControls(ctx context.Context, devices ...types.NamespacedN
 	case e.saveWake <- struct{}{}:
 	default:
 	}
-	if len(devices) > 0 && !slices.ContainsFunc(devices, func(d types.NamespacedName) bool { return slices.Contains(failed, d) }) {
+	if len(devices) > 0 && !slices.ContainsFunc(devices, func(d ident.ID) bool { return slices.Contains(failed, d) }) {
 		return nil
 	}
 	return fmt.Errorf("couldn't save the arbiters of %d devices", len(failed))
@@ -951,12 +950,12 @@ func (e *Engine) flushControls(ctx context.Context, devices ...types.NamespacedN
 // saveDevices saves the devices marked for saving, unless their state is as last saved, and
 // returns those it couldn't save, marked for saving again. A device whose arbiters have all gone has its saved state
 // deleted, unless it has left the store, as when it moves between driver instances.
-func (e *Engine) saveDevices(ctx context.Context) []types.NamespacedName {
+func (e *Engine) saveDevices(ctx context.Context) []ident.ID {
 	e.saveMu.Lock()
 	defer e.saveMu.Unlock()
 	saved := e.savedControls
 	e.mu.Lock()
-	states := map[types.NamespacedName]ControlState{}
+	states := map[ident.ID]ControlState{}
 	for dev := range e.saveDue {
 		if _, present := e.Store.Get(dev); !present && len(e.arbs[dev]) == 0 {
 			continue
@@ -969,7 +968,7 @@ func (e *Engine) saveDevices(ctx context.Context) []types.NamespacedName {
 	}
 	clear(e.saveDue)
 	e.mu.Unlock()
-	var failed []types.NamespacedName
+	var failed []ident.ID
 	for dev, st := range states {
 		raw, _ := json.Marshal(st)
 		if saved[dev] == string(raw) {

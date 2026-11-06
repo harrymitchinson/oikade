@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -23,7 +23,7 @@ const earlyLimit = 4096
 // Instance follows one Zigbee2MQTT instance on the bus.
 type Instance struct {
 	// Key is the Zigbee2MQTT object.
-	Key       types.NamespacedName
+	Key       ident.ID
 	BaseTopic string
 	Bus       mqtt.Bus
 	Sink      driver.Sink
@@ -36,10 +36,10 @@ type Instance struct {
 
 	mu          sync.Mutex
 	unsubscribe func()
-	declared    map[string]types.NamespacedName // IEEE address -> Device
-	paired      map[string]*paired              // IEEE address -> paired device
-	byName      map[string]string               // friendly name -> IEEE address
-	values      map[string]map[string]any       // IEEE address -> capability -> value
+	declared    map[string]ident.ID       // IEEE address -> Device
+	paired      map[string]*paired        // IEEE address -> paired device
+	byName      map[string]string         // friendly name -> IEEE address
+	values      map[string]map[string]any // IEEE address -> capability -> value
 	// early holds the latest message on each topic that resolves to no device, until the next device
 	// list, which may be what resolves it: a broker sends retained messages in any order, and a new
 	// device can report before it's listed.
@@ -74,7 +74,7 @@ func (i *Instance) Stop() {
 }
 
 // SetDevices replaces the declared devices (IEEE address -> Device) and re-reports discovery.
-func (i *Instance) SetDevices(declared map[string]types.NamespacedName) {
+func (i *Instance) SetDevices(declared map[string]ident.ID) {
 	i.mu.Lock()
 	i.declared = maps.Clone(declared)
 	emit := i.discoveryLocked()
@@ -83,7 +83,7 @@ func (i *Instance) SetDevices(declared map[string]types.NamespacedName) {
 }
 
 // Set publishes a /set command for a capability.
-func (i *Instance) Set(ctx context.Context, dev types.NamespacedName, capability string, value any) error {
+func (i *Instance) Set(ctx context.Context, dev ident.ID, capability string, value any) error {
 	i.mu.Lock()
 	var ieee string
 	for addr, d := range i.declared {
@@ -213,7 +213,7 @@ func (i *Instance) handleDevices(payload []byte) {
 		inventory = []driver.AppDevice{}
 	}
 	slices.SortFunc(inventory, func(a, b driver.AppDevice) int { return strings.Compare(a.ID, b.ID) })
-	i.Sink.Inventory(driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: i.Key}, inventory)
+	i.Sink.Inventory(driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: i.Key}, inventory)
 	for _, rest := range slices.Sorted(maps.Keys(early)) {
 		i.handleDevice(rest, early[rest])
 	}
@@ -225,7 +225,7 @@ func (i *Instance) handleDevices(payload []byte) {
 // discoveryLocked computes discovery events; call the returned func after unlocking.
 func (i *Instance) discoveryLocked() func() {
 	type found struct {
-		dev  types.NamespacedName
+		dev  ident.ID
 		info driver.Info
 	}
 	events := make([]found, 0, len(i.declared))
@@ -248,7 +248,7 @@ func (i *Instance) discoveryLocked() func() {
 			i.Sink.Discovered(e.dev, e.info)
 		}
 		if known {
-			i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: i.Key}, undeclared)
+			i.Sink.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: i.Key}, undeclared)
 		}
 	}
 }
@@ -307,10 +307,10 @@ func (i *Instance) handleState(name string, payload []byte) {
 }
 
 // deviceLocked resolves a friendly name or IEEE address to a declared, paired Device.
-func (i *Instance) deviceLocked(name string) (types.NamespacedName, bool) {
+func (i *Instance) deviceLocked(name string) (ident.ID, bool) {
 	ieee, ok := i.byName[name]
 	if !ok {
-		return types.NamespacedName{}, false
+		return ident.ID{}, false
 	}
 	dev, ok := i.declared[ieee]
 	return dev, ok

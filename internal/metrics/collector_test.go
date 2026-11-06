@@ -6,18 +6,18 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 func TestUndeclaredInstanceLabel(t *testing.T) {
 	store := hub.NewStore(logr.Discard())
-	name := types.NamespacedName{Namespace: "home", Name: "garden"}
-	store.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: name}, 3)
-	store.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: name}, 1)
+	name := ident.ID{Namespace: "home", Name: "garden"}
+	store.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}, 3)
+	store.Undeclared(driver.InstanceKey{Driver: driver.Plugin, ID: name}, 1)
 
 	want := `
 # HELP oikade_undeclared_devices Devices paired with a driver instance that aren't on record.
@@ -30,9 +30,9 @@ oikade_undeclared_devices{instance="plugin/garden",namespace="home"} 1
 	}
 }
 
-type fakePlugins map[types.NamespacedName]plugin.Stats
+type fakePlugins map[ident.ID]plugin.Stats
 
-func (f fakePlugins) PluginStats() map[types.NamespacedName]plugin.Stats { return f }
+func (f fakePlugins) PluginStats() map[ident.ID]plugin.Stats { return f }
 
 func TestPluginMetrics(t *testing.T) {
 	c := Collector{Store: hub.NewStore(logr.Discard()), Plugins: fakePlugins{

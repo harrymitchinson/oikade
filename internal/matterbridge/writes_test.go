@@ -8,14 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 var (
-	deskLamp = types.NamespacedName{Namespace: "home", Name: "desk-lamp"}
-	porchFan = types.NamespacedName{Namespace: "home", Name: "porch-fan"}
+	deskLamp = ident.ID{Namespace: "home", Name: "desk-lamp"}
+	porchFan = ident.ID{Namespace: "home", Name: "porch-fan"}
 )
 
 // recorder is a driver.Setter that records writes.
@@ -24,7 +23,7 @@ type recorder struct {
 	writes []string
 }
 
-func (r *recorder) Set(_ context.Context, dev types.NamespacedName, name string, value any) error {
+func (r *recorder) Set(_ context.Context, dev ident.ID, name string, value any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.writes = append(r.writes, fmt.Sprint(dev.Name, " ", name, "=", value))
@@ -41,7 +40,7 @@ func (r *recorder) list() []string {
 func TestCoalescerLatestWins(t *testing.T) {
 	rec := &recorder{}
 	c := &Coalescer{Setter: rec, Window: 30 * time.Millisecond, Timeout: time.Second,
-		Current: func(types.NamespacedName, string) (any, bool) { return false, true }}
+		Current: func(ident.ID, string) (any, bool) { return false, true }}
 	c.Start(t.Context())
 	for _, v := range []bool{true, false, true, true} {
 		c.Add(porchFan, capability.SwitchOn, v)
@@ -58,7 +57,7 @@ func TestCoalescerLatestWins(t *testing.T) {
 func TestCoalescerSkipsNoChange(t *testing.T) {
 	rec := &recorder{}
 	c := &Coalescer{Setter: rec, Window: 30 * time.Millisecond, Timeout: time.Second,
-		Current: func(types.NamespacedName, string) (any, bool) { return true, true }}
+		Current: func(ident.ID, string) (any, bool) { return true, true }}
 	c.Start(t.Context())
 	c.Add(porchFan, capability.SwitchOn, false)
 	c.Add(porchFan, capability.SwitchOn, true)
@@ -74,7 +73,7 @@ func TestCoalescerComparesWithWhatItSent(t *testing.T) {
 	rec := &recorder{}
 	now := time.Now()
 	c := &Coalescer{Setter: rec, Window: 10 * time.Millisecond, Timeout: time.Second,
-		Current: func(types.NamespacedName, string) (any, bool) { return false, true },
+		Current: func(ident.ID, string) (any, bool) { return false, true },
 		Now:     func() time.Time { return now }}
 	c.Start(t.Context())
 	c.Add(porchFan, capability.SwitchOn, true)
@@ -102,7 +101,7 @@ func TestCoalescerOrdersWrites(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		rec := &recorder{}
 		c := &Coalescer{Setter: rec, Window: 10 * time.Millisecond, Timeout: time.Second,
-			Current: func(types.NamespacedName, string) (any, bool) { return nil, false }}
+			Current: func(ident.ID, string) (any, bool) { return nil, false }}
 		c.Start(t.Context())
 		c.Add(deskLamp, capability.LightOn, on)
 		c.Add(deskLamp, capability.LightLevel, 40.0)

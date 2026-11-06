@@ -6,13 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
-func goKey(name string) types.NamespacedName { return types.NamespacedName{Namespace: ns, Name: name} }
+func goKey(name string) ident.ID { return ident.ID{Namespace: ns, Name: name} }
 
 func humidity(v Vars) (bool, error) {
 	devices, _ := v["devices"].(map[string]map[string]any)

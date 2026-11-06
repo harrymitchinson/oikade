@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 )
 
@@ -19,7 +19,7 @@ import (
 type endpoint struct {
 	// key is where its writes go. It's read under the node's lock, where b.mu can't be taken, and
 	// changes when a device's name does.
-	key       atomic.Pointer[types.NamespacedName]
+	key       atomic.Pointer[ident.ID]
 	signature string
 	label     string
 	absent    bool
@@ -27,7 +27,7 @@ type endpoint struct {
 	info      *clusters.BridgedInfo
 }
 
-func (e *endpoint) device() types.NamespacedName { return *e.key.Load() }
+func (e *endpoint) device() ident.ID { return *e.key.Load() }
 
 // Bridge keeps a Matter bridge's clusters in step with its devices. It's a driver.Sink for the hub's
 // Store, and Apply sets which devices it has.
@@ -41,7 +41,7 @@ type Bridge struct {
 
 	mu        sync.Mutex
 	endpoints map[uint16]*endpoint
-	byDevice  map[types.NamespacedName]*endpoint
+	byDevice  map[ident.ID]*endpoint
 }
 
 // Changed implements driver.Sink.
@@ -58,7 +58,7 @@ func (b *Bridge) Changed(u driver.Update) {
 }
 
 // Availability implements driver.Sink: it's the bridged device's Reachable.
-func (b *Bridge) Availability(dev types.NamespacedName, online bool) {
+func (b *Bridge) Availability(dev ident.ID, online bool) {
 	b.mu.Lock()
 	e := b.byDevice[dev]
 	b.mu.Unlock()
@@ -69,7 +69,7 @@ func (b *Bridge) Availability(dev types.NamespacedName, online bool) {
 
 // Restore takes a capability's clusters back after a write that didn't happen: to the device's value,
 // or to otherwise if the device hasn't reported one. Nil leaves them.
-func (b *Bridge) Restore(dev types.NamespacedName, name string, otherwise any) {
+func (b *Bridge) Restore(dev ident.ID, name string, otherwise any) {
 	v := otherwise
 	if snap, ok := b.Store.Get(dev); ok {
 		if known, has := snap.Values[name]; has {
@@ -87,7 +87,7 @@ func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.endpoints == nil {
-		b.endpoints, b.byDevice = map[uint16]*endpoint{}, map[types.NamespacedName]*endpoint{}
+		b.endpoints, b.byDevice = map[uint16]*endpoint{}, map[ident.ID]*endpoint{}
 	}
 	for id, e := range b.endpoints {
 		if d, ok := want[id]; ok && d.Signature() == e.signature {
@@ -104,7 +104,7 @@ func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
 	}
 	// Names can swap, so what each endpoint is called now is worked out in one go. Different hardware
 	// can have taken a name with no event at all, so each is brought up to date.
-	byDevice := map[types.NamespacedName]*endpoint{}
+	byDevice := map[ident.ID]*endpoint{}
 	for id, e := range b.endpoints {
 		d := want[id]
 		e.key.Store(&d.Key)

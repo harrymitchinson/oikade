@@ -12,20 +12,20 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	eng := &engine.Engine{ControlLevel: engine.NewControlLevelGauge()}
 	store := hub.NewStore(logr.Discard())
-	dev := types.NamespacedName{Namespace: "home", Name: "fan"}
+	dev := ident.ID{Namespace: "home", Name: "fan"}
 	inst := driver.InstanceKey{Driver: "test"}
-	store.SetDevices(inst, map[types.NamespacedName]hub.Meta{dev: {Instance: inst}})
+	store.SetDevices(inst, map[ident.ID]hub.Meta{dev: {Instance: inst}})
 	store.Changed(driver.Update{Device: dev, Capability: "switch.on", Value: true, Time: time.Now()})
 	store.Availability(dev, true)
 	store.Seen(dev, time.Now())

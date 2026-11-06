@@ -3,11 +3,11 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 const namespaceLabel = "namespace"
@@ -36,7 +36,7 @@ var (
 
 // PluginStatser reports the decoder's view of every running Plugin.
 type PluginStatser interface {
-	PluginStats() map[types.NamespacedName]plugin.Stats
+	PluginStats() map[ident.ID]plugin.Stats
 }
 
 // Collector reads the store and plugins at scrape time, so series for deleted or renamed devices

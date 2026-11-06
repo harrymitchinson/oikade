@@ -5,29 +5,30 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 func TestStoreRoom(t *testing.T) {
 	s := NewStore(logr.Discard())
-	dev := func(ns, name string) types.NamespacedName { return types.NamespacedName{Namespace: ns, Name: name} }
+	dev := func(ns, name string) ident.ID { return ident.ID{Namespace: ns, Name: name} }
 	z2m := func(ns string) driver.InstanceKey {
-		return driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: dev(ns, "z2m")}
+		return driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: dev(ns, "z2m")}
 	}
-	s.SetDevices(z2m("home"), map[types.NamespacedName]Meta{
+	s.SetDevices(z2m("home"), map[ident.ID]Meta{
 		dev("home", "lamp-b"):  {Room: "living-room"},
 		dev("home", "lamp-a"):  {Room: "living-room"},
 		dev("home", "hall"):    {Room: "hallway"},
 		dev("home", "no-room"): {},
 	})
-	s.SetDevices(z2m("other"), map[types.NamespacedName]Meta{
+	s.SetDevices(z2m("other"), map[ident.ID]Meta{
 		dev("other", "lamp-c"): {Room: "living-room"},
 	})
 
-	if got, want := s.Room("home", "living-room"), []types.NamespacedName{dev("home", "lamp-a"), dev("home", "lamp-b")}; !slices.Equal(got, want) {
+	if got, want := s.Room("home", "living-room"), []ident.ID{dev("home", "lamp-a"), dev("home", "lamp-b")}; !slices.Equal(got, want) {
 		t.Errorf("Room(living-room) = %v, want %v", got, want)
 	}
 	if got := s.Room("home", "kitchen"); len(got) != 0 {
@@ -40,14 +41,14 @@ func TestStoreRoom(t *testing.T) {
 
 func TestInstanceKeySeparatesDrivers(t *testing.T) {
 	s := NewStore(logr.Discard())
-	name := types.NamespacedName{Namespace: "home", Name: "garden"}
-	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: name}
-	plug := driver.InstanceKey{Driver: driver.Plugin, NamespacedName: name}
-	lamp := types.NamespacedName{Namespace: "home", Name: "lamp"}
-	relay := types.NamespacedName{Namespace: "home", Name: "relay"}
+	name := ident.ID{Namespace: "home", Name: "garden"}
+	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
+	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
+	lamp := ident.ID{Namespace: "home", Name: "lamp"}
+	relay := ident.ID{Namespace: "home", Name: "relay"}
 
-	s.SetDevices(z2m, map[types.NamespacedName]Meta{lamp: {Instance: z2m}})
-	s.SetDevices(plug, map[types.NamespacedName]Meta{relay: {Instance: plug}})
+	s.SetDevices(z2m, map[ident.ID]Meta{lamp: {Instance: z2m}})
+	s.SetDevices(plug, map[ident.ID]Meta{relay: {Instance: plug}})
 	s.Undeclared(z2m, 3)
 	s.Undeclared(plug, 1)
 
@@ -60,7 +61,7 @@ func TestInstanceKeySeparatesDrivers(t *testing.T) {
 	if got := s.UndeclaredCounts(); got[plug] != 1 {
 		t.Errorf("UndeclaredCounts() = %v, want %v=1 kept while no Devices are declared", got, plug)
 	}
-	s.SetDevices(plug, map[types.NamespacedName]Meta{relay: {Instance: plug}})
+	s.SetDevices(plug, map[ident.ID]Meta{relay: {Instance: plug}})
 
 	// Forgetting the Zigbee2MQTT instance leaves the Plugin's alone.
 	s.Forget(z2m)
@@ -84,18 +85,18 @@ func TestInstanceKeySeparatesDrivers(t *testing.T) {
 
 func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 	s := NewStore(logr.Discard())
-	name := types.NamespacedName{Namespace: "home", Name: "porch"}
-	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: name}
-	plug := driver.InstanceKey{Driver: driver.Plugin, NamespacedName: name}
-	light := types.NamespacedName{Namespace: "home", Name: "porch-light"}
+	name := ident.ID{Namespace: "home", Name: "porch"}
+	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
+	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
+	light := ident.ID{Namespace: "home", Name: "porch-light"}
 
-	s.SetDevices(z2m, map[types.NamespacedName]Meta{light: {Instance: z2m}})
+	s.SetDevices(z2m, map[ident.ID]Meta{light: {Instance: z2m}})
 	s.Discovered(light, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
 	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: true})
 	s.Availability(light, true)
 
 	// The Plugin reconciler can run before the Zigbee2MQTT one drops the device.
-	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug}})
+	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug}})
 	s.SetDevices(z2m, nil)
 	snap, ok := s.Get(light)
 	if !ok || snap.Instance != plug {
@@ -107,7 +108,7 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 
 	// The same instance re-declaring keeps state, and isn't a reassignment.
 	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: false})
-	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug, Room: "porch"}})
+	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug, Room: "porch"}})
 	if snap, _ := s.Get(light); len(snap.Values) != 1 || snap.Room != "porch" {
 		t.Errorf("state lost on re-declaration: %+v", snap)
 	}
@@ -115,37 +116,62 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 
 type reassignments struct {
 	NopSink
-	got []types.NamespacedName
+	got []ident.ID
 }
 
-func (r *reassignments) Reassigned(dev types.NamespacedName) { r.got = append(r.got, dev) }
+func (r *reassignments) Reassigned(dev ident.ID) { r.got = append(r.got, dev) }
 
 func TestSetDevicesReportsReassignments(t *testing.T) {
 	r := &reassignments{}
 	s := NewStore(logr.Discard(), r)
-	name := types.NamespacedName{Namespace: "home", Name: "porch"}
-	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: name}
-	plug := driver.InstanceKey{Driver: driver.Plugin, NamespacedName: name}
-	light := types.NamespacedName{Namespace: "home", Name: "porch-light"}
+	name := ident.ID{Namespace: "home", Name: "porch"}
+	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
+	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
+	light := ident.ID{Namespace: "home", Name: "porch-light"}
 
-	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug}})                // claimed
-	s.SetDevices(plug, map[types.NamespacedName]Meta{light: {Instance: plug, Room: "porch"}}) // unchanged
-	s.SetDevices(z2m, map[types.NamespacedName]Meta{light: {Instance: z2m}})                  // moved
-	s.SetDevices(z2m, nil)                                                                    // dropped
-	if want := []types.NamespacedName{light, light, light}; !slices.Equal(r.got, want) {
+	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug}})                // claimed
+	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug, Room: "porch"}}) // unchanged
+	s.SetDevices(z2m, map[ident.ID]Meta{light: {Instance: z2m}})                  // moved
+	s.SetDevices(z2m, nil)                                                        // dropped
+	if want := []ident.ID{light, light, light}; !slices.Equal(r.got, want) {
 		t.Errorf("Reassigned = %v, want %v", r.got, want)
+	}
+}
+
+type controlChanges struct {
+	reassignments
+	got []ident.ID
+}
+
+func (c *controlChanges) ControlChanged(dev ident.ID) { c.got = append(c.got, dev) }
+
+// An empty list of control entries is the same as none: only a real change restarts arbiters.
+func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
+	c := &controlChanges{}
+	s := NewStore(logr.Discard(), c)
+	name := ident.ID{Namespace: "home", Name: "landing"}
+	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
+	lamp := ident.ID{Namespace: "home", Name: "landing-lamp"}
+	entry := control.Entry{Capability: "switch.on"}
+
+	s.SetDevices(plug, map[ident.ID]Meta{lamp: {Instance: plug, Control: []control.Entry{}}})      // empty
+	s.SetDevices(plug, map[ident.ID]Meta{lamp: {Instance: plug}})                                  // still none
+	s.SetDevices(plug, map[ident.ID]Meta{lamp: {Instance: plug, Control: []control.Entry{entry}}}) // added
+	s.SetDevices(plug, map[ident.ID]Meta{lamp: {Instance: plug, Control: []control.Entry{entry}}}) // unchanged
+	if want := []ident.ID{lamp}; !slices.Equal(c.got, want) {
+		t.Errorf("ControlChanged = %v, want %v", c.got, want)
 	}
 }
 
 func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 	s := NewStore(logr.Discard())
-	instance := driver.InstanceKey{Driver: "test", NamespacedName: types.NamespacedName{Name: "a"}}
-	a, b := types.NamespacedName{Name: "a"}, types.NamespacedName{Name: "b"}
-	s.SetDevices(instance, map[types.NamespacedName]Meta{a: {Instance: instance}, b: {Instance: instance}})
+	instance := driver.InstanceKey{Driver: "test", ID: ident.ID{Name: "a"}}
+	a, b := ident.ID{Name: "a"}, ident.ID{Name: "b"}
+	s.SetDevices(instance, map[ident.ID]Meta{a: {Instance: instance}, b: {Instance: instance}})
 	s.Changed(driver.Update{Device: a, Capability: "switch.on", Value: true})
 	s.Changed(driver.Update{Device: b, Capability: "switch.on", Value: false})
 
-	s.Rename(map[types.NamespacedName]Move{
+	s.Rename(map[ident.ID]Move{
 		a: {To: b, Meta: Meta{Room: "for-b", Instance: instance}},
 		b: {To: a, Meta: Meta{Room: "for-a", Instance: instance}},
 	})
@@ -156,15 +182,15 @@ func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 		t.Errorf("a: %+v, %v", snap, ok)
 	}
 
-	c := types.NamespacedName{Name: "c"}
-	s.Rename(map[types.NamespacedName]Move{a: {To: c, Meta: Meta{Instance: instance}}})
+	c := ident.ID{Name: "c"}
+	s.Rename(map[ident.ID]Move{a: {To: c, Meta: Meta{Instance: instance}}})
 	if _, ok := s.Get(a); ok {
 		t.Error("the old name stayed")
 	}
 	if _, ok := s.Get(c); !ok {
 		t.Error("the new name is missing")
 	}
-	s.Rename(map[types.NamespacedName]Move{a: {To: b, Meta: Meta{Room: "nothing", Instance: instance}}})
+	s.Rename(map[ident.ID]Move{a: {To: b, Meta: Meta{Room: "nothing", Instance: instance}}})
 	if snap, _ := s.Get(b); snap.Room == "nothing" {
 		t.Error("nothing replaced a device")
 	}

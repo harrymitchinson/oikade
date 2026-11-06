@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -19,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -72,14 +72,14 @@ func (i *inventory) attach(instance driver.InstanceKey) {
 // paired records hardware a driver reports. It's in the registry and usable when this returns.
 func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
 	entries []control.Entry,
-) (types.NamespacedName, error) {
+) (ident.ID, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	var settings json.RawMessage
 	if len(entries) > 0 {
 		raw, err := json.Marshal(entries)
 		if err != nil {
-			return types.NamespacedName{}, err
+			return ident.ID{}, err
 		}
 		settings = raw
 	}
@@ -88,7 +88,7 @@ func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
 		Capabilities: app.Capabilities, Control: settings,
 	})
 	if err != nil {
-		return types.NamespacedName{}, err
+		return ident.ID{}, err
 	}
 	if changed {
 		i.sync()
@@ -192,16 +192,16 @@ func sameSetting(a, b wire.DeviceControl) bool {
 }
 
 // key finds a driver's device in the hub.
-func (i *inventory) key(instance driver.InstanceKey, id string) (types.NamespacedName, bool) {
+func (i *inventory) key(instance driver.InstanceKey, id string) (ident.ID, bool) {
 	d, ok := i.registry.ByID(instanceName(instance), id)
 	return key(d.Name), ok
 }
 
 // sync gives each driver instance its devices. Call with mu held.
 func (i *inventory) sync() {
-	metas := map[string]map[types.NamespacedName]hub.Meta{}
+	metas := map[string]map[ident.ID]hub.Meta{}
 	for name := range i.instances {
-		metas[name] = map[types.NamespacedName]hub.Meta{}
+		metas[name] = map[ident.ID]hub.Meta{}
 	}
 	for _, d := range i.registry.List().Devices {
 		if meta, ok := i.meta(d); ok {
@@ -217,7 +217,7 @@ func (i *inventory) sync() {
 }
 
 // announce tells your process about a device that changed.
-func (i *inventory) announce(dev types.NamespacedName) {
+func (i *inventory) announce(dev ident.ID) {
 	if snap, ok := i.store.Get(dev); ok && snap.Discovered {
 		i.store.Discovered(dev, snap.Info)
 	}
@@ -291,7 +291,7 @@ func (i *inventory) reserve(name, room string) error {
 // moveLive takes the registry's new names up in the hub, as one change. Call with mu held, after the
 // registry has changed.
 func (i *inventory) moveLive(names map[string]string) {
-	moves := map[types.NamespacedName]hub.Move{}
+	moves := map[ident.ID]hub.Move{}
 	for from, to := range names {
 		d, ok := i.registry.Get(to)
 		if !ok {

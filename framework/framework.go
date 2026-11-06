@@ -32,13 +32,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -417,7 +417,7 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	flows := map[string]*flow.Flow{}
 	var errs []error
 	seen := map[string]bool{}
-	name := func(n string) types.NamespacedName {
+	name := func(n string) ident.ID {
 		switch {
 		case n == "":
 			errs = append(errs, errors.New("a rule needs a name"))
@@ -425,7 +425,7 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 			errs = append(errs, fmt.Errorf("rule %q is declared twice", n))
 		}
 		seen[n] = true
-		return types.NamespacedName{Namespace: wire.Namespace, Name: n}
+		return ident.ID{Namespace: wire.Namespace, Name: n}
 	}
 	add := func(rule string, c *engine.Compiled, err error) {
 		if err != nil {
@@ -544,7 +544,7 @@ func trigger(on []Change, at []string, cond Condition, late time.Duration, safet
 	return t
 }
 
-func (r Flow) toFlow(key types.NamespacedName) *flow.Flow {
+func (r Flow) toFlow(key ident.ID) *flow.Flow {
 	f := &flow.Flow{Key: key, Safety: r.Priority == Safety, Late: r.Late}
 	if r.Run != nil {
 		f.Body = func(run *flow.Run) error { return r.Run(&FlowRun{run: run, priority: r.Priority}) }
