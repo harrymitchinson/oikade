@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -25,6 +26,9 @@ type ControlState map[string]control.State
 
 // ControlStates keeps ControlStates, by Device.
 type ControlStates = States[ControlState]
+
+// allLevels is a release of every claim, whatever its level.
+const allLevels = control.LevelDefault
 
 // Sources of claims that aren't Rules.
 const (
@@ -104,8 +108,9 @@ type Arbitration interface {
 	Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) bool
 	// ReleaseClaim ends a source's claim, and reports false when the capability isn't arbitrated.
 	ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool
-	// ReleaseClaims ends a source's claims on every arbitrated capability in the namespace.
-	ReleaseClaims(ctx context.Context, namespace, source string)
+	// ReleaseClaims ends a source's claims below a level on every arbitrated capability in the
+	// namespace. allLevels means all of them.
+	ReleaseClaims(ctx context.Context, namespace, source string, below control.Level) error
 }
 
 // ControlChanged implements hub.ControlWatcher: Run looks at the device's arbiters again.
@@ -458,18 +463,21 @@ func (e *Engine) claimElsewhere(ctx context.Context, rule, dev types.NamespacedN
 	return e.Arbitration.Claim(ctx, dev, name, c)
 }
 
-// Claim makes a claim for a rule that runs elsewhere, as the host does for your process. ctx is
-// the engine's, not the request's: the write it leads to outlives the request. It reports false
-// when the capability isn't arbitrated.
-func (e *Engine) Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) bool {
+// Claim makes a claim for a rule that runs elsewhere, as the host does for your process, and
+// returns once it's saved, so a claim it reported survives a crash. ctx is the engine's, not the
+// request's: the write it leads to outlives the request. It reports false when the capability isn't
+// arbitrated.
+func (e *Engine) Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) (bool, error) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	ar := e.arbiter(dev, name)
 	if ar == nil {
-		return false
+		e.mu.Unlock()
+		return false, nil
 	}
 	e.makeClaim(ctx, dev, name, ar, c)
-	return true
+	e.markSave(dev)
+	e.mu.Unlock()
+	return true, e.flushControls(ctx, dev)
 }
 
 // makeClaim gives the arbiter a claim and decides again. Call with e.mu held.
@@ -488,39 +496,66 @@ func (e *Engine) releaseClaim(ctx context.Context, dev types.NamespacedName, nam
 	if e.Arbitration != nil {
 		return e.Arbitration.ReleaseClaim(ctx, dev, name, source)
 	}
-	return e.ReleaseClaim(ctx, dev, name, source)
-}
-
-// ReleaseClaim ends a source's claim for a rule that runs elsewhere. ctx is the engine's, as with
-// Claim. It reports false when the capability isn't arbitrated.
-func (e *Engine) ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.releaseHere(ctx, dev, name, source)
+}
+
+// releaseHere ends a source's claim, and reports false when the capability isn't arbitrated. Call
+// with e.mu held.
+func (e *Engine) releaseHere(ctx context.Context, dev types.NamespacedName, name, source string) bool {
 	ar := e.arbiter(dev, name)
 	if ar == nil {
 		return false
 	}
 	ar.a.Release(source)
 	e.decide(ctx, dev, name, ar)
+	e.markSave(dev)
 	e.signal()
 	return true
 }
 
-// ReleaseClaims ends a source's claims on every arbitrated capability in the namespace, for a rule
-// that runs elsewhere. ctx is the engine's, as with Claim.
-func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string) {
+// ReleaseClaim ends a source's claim for a rule that runs elsewhere, and returns once that's saved.
+// ctx is the engine's, as with Claim. It reports false when the capability isn't arbitrated.
+func (e *Engine) ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) (bool, error) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.releaseSource(ctx, namespace, source)
+	ok := e.releaseHere(ctx, dev, name, source)
+	e.mu.Unlock()
+	if !ok {
+		return false, nil
+	}
+	return true, e.flushControls(ctx, dev)
 }
 
-// endClaims ends a source's claims, here or in Arbitration. Call without e.mu held.
-func (e *Engine) endClaims(ctx context.Context, namespace, source string) {
-	if e.Arbitration != nil {
-		e.Arbitration.ReleaseClaims(ctx, namespace, source)
-		return
+// ReleaseClaims ends a source's claims below a level on every arbitrated capability in the
+// namespace, for a rule that runs elsewhere, and returns once that's saved. ctx is the engine's, as
+// with Claim.
+func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string, below control.Level) error {
+	e.mu.Lock()
+	changed := e.releaseSource(ctx, namespace, source, below)
+	e.mu.Unlock()
+	if len(changed) == 0 {
+		return nil
 	}
-	e.ReleaseClaims(ctx, namespace, source)
+	return e.flushControls(ctx, changed...)
+}
+
+// endClaims ends a source's claims below a level, here or in Arbitration. A failure there has ended
+// the session, and the next process starts from what's on disk. Call without e.mu held.
+func (e *Engine) endClaims(ctx context.Context, namespace, source string, below control.Level) error {
+	if e.Arbitration != nil {
+		return e.Arbitration.ReleaseClaims(ctx, namespace, source, below)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.releaseSource(ctx, namespace, source, below)
+	return nil
+}
+
+// ReleaseFlow ends a flow's claims, whichever of its runs made them, but for Safety ones. They end
+// only by an explicit release, so a failed notification can't reopen a valve.
+func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) error {
+	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
 // Responsive returns once the engine's lock is free. A condition stuck in a loop holds that lock,
@@ -530,21 +565,27 @@ func (e *Engine) Responsive() {
 	defer e.mu.Unlock()
 }
 
-// releaseSource ends a source's claims on every arbitrated capability in the namespace. Call with
-// e.mu held.
-func (e *Engine) releaseSource(ctx context.Context, namespace, source string) {
+// releaseSource ends a source's claims below a level on every arbitrated capability in the
+// namespace, and returns the devices that changed. Call with e.mu held.
+func (e *Engine) releaseSource(ctx context.Context, namespace, source string, below control.Level) []types.NamespacedName {
+	var changed []types.NamespacedName
 	for dev, arbs := range e.arbs {
 		if dev.Namespace != namespace {
 			continue
 		}
 		for name, ar := range arbs {
-			if slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool { return c.Source == source }) {
+			if slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool {
+				return c.Source == source && (below == allLevels || c.Level < below)
+			}) {
 				ar.a.Release(source)
 				e.decide(ctx, dev, name, ar)
+				e.markSave(dev)
+				changed = append(changed, dev)
 			}
 		}
 	}
 	e.signal()
+	return changed
 }
 
 // arbitrated reports whether a device arbitrates a capability.
@@ -625,34 +666,50 @@ const saveTimeout = 5 * time.Second
 // saveControls saves the arbiters' state of every device that changed. It runs until ctx ends,
 // then saves what's left. A failed save is tried again.
 func (e *Engine) saveControls(ctx context.Context) {
-	saved := map[types.NamespacedName]string{}
 	var retry <-chan time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			last, cancel := context.WithTimeout(context.WithoutCancel(ctx), saveTimeout)
 			defer cancel()
-			e.saveDevices(last, saved)
+			e.saveDevices(last)
 			return
 		case <-e.saveWake:
 		case <-retry:
 		}
 		retry = nil
-		if failed := e.saveDevices(ctx, saved); len(failed) > 0 {
-			e.mu.Lock()
-			for _, dev := range failed {
-				e.saveDue[dev] = true
-			}
-			e.mu.Unlock()
+		if failed := e.saveDevices(ctx); len(failed) > 0 {
 			retry = time.After(retryFailed)
 		}
 	}
 }
 
+// flushControls saves what's marked for saving, and returns once it's saved. Claims from another
+// process use it: its answer is a promise that the claim outlives a crash, which saveControls is
+// too late to keep. It reports failure only for devices, or for any device if none are named, and
+// leaves saveControls to try again.
+func (e *Engine) flushControls(ctx context.Context, devices ...types.NamespacedName) error {
+	failed := e.saveDevices(ctx)
+	if len(failed) == 0 {
+		return nil
+	}
+	select {
+	case e.saveWake <- struct{}{}:
+	default:
+	}
+	if len(devices) > 0 && !slices.ContainsFunc(devices, func(d types.NamespacedName) bool { return slices.Contains(failed, d) }) {
+		return nil
+	}
+	return fmt.Errorf("couldn't save the arbiters of %d devices", len(failed))
+}
+
 // saveDevices saves the devices marked for saving, unless their state is as last saved, and
-// returns those it couldn't save. A device whose arbiters have all gone has its saved state
+// returns those it couldn't save, marked for saving again. A device whose arbiters have all gone has its saved state
 // deleted, unless it has left the store, as when it moves between driver instances.
-func (e *Engine) saveDevices(ctx context.Context, saved map[types.NamespacedName]string) []types.NamespacedName {
+func (e *Engine) saveDevices(ctx context.Context) []types.NamespacedName {
+	e.saveMu.Lock()
+	defer e.saveMu.Unlock()
+	saved := e.savedControls
 	e.mu.Lock()
 	states := map[types.NamespacedName]ControlState{}
 	for dev := range e.saveDue {
@@ -689,6 +746,12 @@ func (e *Engine) saveDevices(ctx context.Context, saved map[types.NamespacedName
 			continue
 		}
 		saved[dev] = string(raw)
+	}
+	// With saveMu held, so nobody flushing can find nothing due while a save has failed.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, dev := range failed {
+		e.saveDue[dev] = true
 	}
 	return failed
 }

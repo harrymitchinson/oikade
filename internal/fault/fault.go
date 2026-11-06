@@ -1,0 +1,21 @@
+// Package fault marks the points where a crash matters, so tests can crash there rather than hope
+// to hit them with timing. They do nothing unless built with the faultpoints tag, which only the
+// tests use.
+package fault
+
+// Fault points. A journal point counts entries and finishes alike.
+const (
+	// ClientJournalBefore is your process about to send, and ClientJournalAfter it holding the
+	// answer.
+	ClientJournalBefore = "client.journal.before"
+	ClientJournalAfter  = "client.journal.after"
+	// HostJournalBefore is the host about to write, and HostJournalAfter the entry durable and
+	// not yet answered.
+	HostJournalBefore = "host.journal.before"
+	HostJournalAfter  = "host.journal.after"
+	// HostJournalAppend is the write itself, which a test can drop to prove it's what keeps a step
+	// from running twice.
+	HostJournalAppend = "host.journal.append"
+	// HostClaimReplied is the host having answered a claim.
+	HostClaimReplied = "host.claim.replied"
+)

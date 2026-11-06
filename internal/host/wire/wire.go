@@ -40,6 +40,7 @@ type Type string
 const (
 	TypeHello      Type = "hello"
 	TypeWelcome    Type = "welcome"
+	TypeRun        Type = "run"
 	TypeRejected   Type = "rejected"
 	TypePing       Type = "ping"
 	TypePong       Type = "pong"
@@ -51,7 +52,9 @@ const (
 	TypeSet        Type = "set"
 	TypeSaveHold   Type = "saveHold"
 	TypeDeleteHold Type = "deleteHold"
+	TypeSaveFire   Type = "saveFire"
 	TypeJournal    Type = "journal"
+	TypeFinish     Type = "finish"
 	TypeReply      Type = "reply"
 )
 
@@ -67,6 +70,12 @@ type Device struct {
 	Values map[string]any `json:"values,omitempty"`
 }
 
+// Run is a flow's run that hasn't finished: its journal so far, oldest first.
+type Run struct {
+	ID      string   `json:"id"`
+	Entries [][]byte `json:"entries"`
+}
+
 // Message is one line on the socket. Only the fields its Type uses are set.
 type Message struct {
 	Type Type `json:"type"`
@@ -79,10 +88,16 @@ type Message struct {
 	// Rules names the process's holds, so the Welcome can return their saved state.
 	Rules []string `json:"rules,omitempty"`
 
-	// Devices and Holds are a Welcome's, and Error a Rejected's or a failed Reply's.
+	// Devices, Holds, Runs and Fires are a Welcome's, and Error a Rejected's or a failed Reply's.
+	// Runs says how many Run messages follow it: journals can be long, so each goes alone, and
+	// Dial gathers them in Unfinished.
 	Devices []Device                    `json:"devices,omitempty"`
 	Holds   map[string]engine.HoldState `json:"holds,omitempty"`
+	Runs    int                         `json:"runs,omitempty"`
+	Fires   map[string]time.Time        `json:"fires,omitempty"`
 	Error   string                      `json:"error,omitempty"`
+	// Unfinished is a Run's run, one per message, and in what Dial returns, all of them.
+	Unfinished []Run `json:"unfinished,omitempty"`
 
 	// Device, Capability, Value and Previous address a device.
 	Device     string `json:"device,omitempty"`
@@ -93,10 +108,11 @@ type Message struct {
 	Discovered *Device   `json:"discovered,omitempty"`
 	Time       time.Time `json:"time,omitzero"`
 
-	// Claim is a claim's, and Source a release's.
+	// Claim is a claim's, and Source a release's. Below limits a releaseAll to lower levels.
 	Claim  *control.Claim `json:"claim,omitempty"`
 	Source string         `json:"source,omitempty"`
-	// Rule and Hold are a saved hold's.
+	Below  control.Level  `json:"below,omitempty"`
+	// Rule and Hold are a saved hold's. Rule and Time are a timer's last accounted fire.
 	Rule string            `json:"rule,omitempty"`
 	Hold *engine.HoldState `json:"hold,omitempty"`
 	// Run and Data are a journal entry's, and Seq its place in the run.

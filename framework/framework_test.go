@@ -32,7 +32,7 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		"nil action": {Home{Moments: []Moment{{Name: "a", At: []string{"07:00"}, Do: []Action{nil}}}}, "no action"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := tc.home.compile()
+			_, _, err := tc.home.compile()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want an error with %q", err, tc.want)
 			}

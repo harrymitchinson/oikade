@@ -64,6 +64,8 @@ const (
 	HoldStatesNamespace = "holds"
 	// ControlStatesNamespace keeps a ControlState per Device.
 	ControlStatesNamespace = "controls"
+	// FireStatesNamespace keeps, per rule with timers, when they were last accounted for.
+	FireStatesNamespace = "fires"
 )
 
 // syncNamespace carries Retained's sync marker. It's no namespace, for the same reason.

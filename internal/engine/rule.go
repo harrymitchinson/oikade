@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -283,6 +284,121 @@ func NewMoment(key types.NamespacedName, m Moment) (*Compiled, error) {
 		c.actions = append(c.actions, a)
 	}
 	return c, errors.Join(errs...)
+}
+
+// Body is what a flow runs when its trigger fires. It returns the run's result, as Rule metrics
+// count it, and ends when ctx does.
+type Body func(ctx context.Context) string
+
+// Flow runs Body when its trigger fires.
+type Flow struct {
+	Trigger
+	// Mode defaults to ModeSingle.
+	Mode Mode
+	Body Body
+}
+
+// NewFlow compiles a flow written in Go.
+func NewFlow(key types.NamespacedName, f Flow) (*Compiled, error) {
+	c, errs := f.compile(key)
+	switch f.Mode {
+	case "":
+	case ModeSingle, ModeRestart:
+		c.Mode = f.Mode
+	default:
+		errs = append(errs, fmt.Errorf("unknown mode %q", f.Mode))
+	}
+	if f.Body == nil {
+		errs = append(errs, errors.New("a flow needs a body"))
+	}
+	c.body = f.Body
+	return c, errors.Join(errs...)
+}
+
+// KeepSince sets when a missed timer was last accounted for, for a rule whose fires are kept outside
+// the engine. Call it before Load.
+func (c *Compiled) KeepSince(t time.Time) {
+	c.Since, c.sinceLoad = t, false
+}
+
+// HasTimers reports whether the rule fires at times of day.
+func (c *Compiled) HasTimers() bool { return len(c.timers) > 0 }
+
+// Apply runs one action for a flow, as a moment would, including the claim a set makes on an
+// arbitrated capability. Unlike a moment, a flow can act on what went wrong, so what a moment only
+// logs is an error here: a set with no end on an arbitrated capability, and an action cut short by
+// ctx, which a flow must not take for done.
+func (e *Engine) Apply(ctx context.Context, key types.NamespacedName, a Action) error {
+	act, err := a.action()
+	if err != nil {
+		return err
+	}
+	if act.device != "" && !act.ends() && e.arbitrated(types.NamespacedName{Namespace: key.Namespace, Name: act.device}, act.capability) {
+		return fmt.Errorf("%s %s is arbitrated, so a set needs for or until", act.device, act.capability)
+	}
+	result, skipped := e.runActions(ctx, key, &Compiled{actions: []action{act}})
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case result == ResultFailed:
+		return errors.New("the action failed, and the log says why")
+	case len(skipped) > 0:
+		return fmt.Errorf("left out %v: they arbitrate %s, so a set needs for or until", skipped, act.capability)
+	}
+	return nil
+}
+
+// waitRecheck bounds how long WaitFor goes without looking, since a change can be dropped when the
+// engine falls behind.
+const waitRecheck = 30 * time.Second
+
+// WaitFor returns true once cond holds, or false at until. Zero means no limit. It looks now, and
+// again after each change. Like any condition, cond runs with the engine's lock held, so one stuck
+// in a loop stops heartbeats and gets the process replaced.
+func (e *Engine) WaitFor(ctx context.Context, key types.NamespacedName, cond Condition, until time.Time) (bool, error) {
+	if cond == nil {
+		return false, errors.New("a wait needs a condition")
+	}
+	cond = guarded(cond)
+	logged := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		changed, ok, err := e.look(key, cond)
+		var broken brokenCondition
+		if err != nil && !logged && errors.As(err, &broken) {
+			logged = true
+			e.Log.Error(err, "Failed to evaluate flow condition", "rule", key)
+		}
+		if err == nil && ok {
+			return true, nil
+		}
+		wait := waitRecheck
+		if !until.IsZero() {
+			rest := until.Sub(e.Clock.Now())
+			if rest <= 0 {
+				return false, nil
+			}
+			wait = min(wait, rest)
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-changed:
+		case <-e.Clock.After(wait):
+		}
+	}
+}
+
+// look evaluates a wait's condition, and returns what will close on the next change. Nothing that
+// goes wrong in it can leave e.mu held, which would stop every rule and heartbeat.
+func (e *Engine) look(key types.NamespacedName, cond Condition) (changed <-chan struct{}, ok bool, err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	changed = e.changes
+	ok, err = cond(e.vars(key.Namespace, map[string]any{triggerType: "wait"}))
+	return changed, ok, err
 }
 
 // NewTrigger compiles a trigger with nothing to run yet, for a flow to attach to.

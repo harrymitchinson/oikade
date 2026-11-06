@@ -15,21 +15,26 @@
 //		})
 //	}
 //
+// A flow is ordinary Go that can wait for hours and survive a crash: docs/writing-flows.md.
+//
 // The host runs that binary and restarts it if it dies. State that must survive lives in the host,
 // so a crash here loses nothing. docs/architecture.md says how.
 package framework
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
@@ -155,7 +160,71 @@ type Moment struct {
 	If   Condition
 	// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
 	Restart bool
-	Do      []Action
+	// Late is how late a time in At may still fire, as when no process was running. Zero means
+	// DefaultLate. A moment with a Safety Set fires however late it is.
+	Late time.Duration
+	Do   []Action
+}
+
+// DefaultLate is how late a flow may wake, or a time of day fire, and still run.
+const DefaultLate = 10 * time.Minute
+
+// Flow runs Run when a trigger fires and If, if set, is true, like a moment. Run is ordinary Go, and
+// survives a crash at any point. It must stick to the steps on its FlowRun for anything that
+// happens outside it or varies between runs, because after a crash it runs again from the top and
+// recorded steps return what they returned the first time. docs/writing-flows.md says how.
+type Flow struct {
+	Name string
+	On   []Change
+	At   []string
+	If   Condition
+	// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
+	Restart bool
+	// Priority is the level of its Sets that don't give one. A Safety flow never expires.
+	Priority Priority
+	// Late is how late a run may wake and still carry on. Zero means DefaultLate. A run later than
+	// that gives up and logs it, rather than turn the lights off at 09:00.
+	Late time.Duration
+	Run  func(*FlowRun) error
+}
+
+// FlowRun is one run of a flow. Its steps are written to the host's disk before the flow continues.
+type FlowRun struct {
+	run      *flow.Run
+	priority Priority
+}
+
+// Now is the time. It returns the same time when a flow replays, which time.Now wouldn't.
+func (r *FlowRun) Now() time.Time { return r.run.Now() }
+
+// Sleep waits. A restart doesn't move the time it ends.
+func (r *FlowRun) Sleep(d time.Duration) { r.run.Sleep(d) }
+
+// WaitFor waits until c is true and returns true, or returns false once timeout has passed. Zero
+// means no limit. A restart doesn't move the time it ends.
+func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
+	return r.run.WaitFor(c.toEngine(), timeout)
+}
+
+// Set writes a capability, or claims it if it's arbitrated, which needs For, UntilReleased or
+// UntilNext, and is an error without one. It may run more than once, after a crash, so set a value
+// and never toggle one.
+func (r *FlowRun) Set(s Set) error {
+	if s.Priority == Normal {
+		s.Priority = r.priority
+	}
+	return r.run.Apply(s.toEngine())
+}
+
+// Release ends the named rule's claims, and its latch if it's a hold.
+func (r *FlowRun) Release(rule string) error { return r.run.Apply(engine.Release(rule)) }
+
+// Do makes an outside call, which sets result, a pointer, or nil for none. Once it's recorded the
+// call never happens again: a replay fills result from the journal and returns an error with the
+// same message, which errors.Is won't match. A crash before that repeats it, so make the call safe
+// to repeat. Names tell a flow's calls apart.
+func (r *FlowRun) Do(name string, result any, call func(context.Context) error) error {
+	return r.run.Do(name, result, call)
 }
 
 // Action is a step of a moment: Set, Wait or Release.
@@ -208,11 +277,13 @@ func (r Release) toEngine() engine.Action { return engine.Release(r) }
 type Home struct {
 	Holds   []Hold
 	Moments []Moment
+	Flows   []Flow
 }
 
-// compile checks the home and turns it into the engine's rules.
-func (h Home) compile() ([]*engine.Compiled, error) {
+// compile checks the home and turns it into the engine's rules, and returns its flows by name.
+func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	var rules []*engine.Compiled
+	flows := map[string]*flow.Flow{}
 	var errs []error
 	seen := map[string]bool{}
 	name := func(n string) types.NamespacedName {
@@ -240,7 +311,58 @@ func (h Home) compile() ([]*engine.Compiled, error) {
 		c, err := engine.NewMoment(name(r.Name), r.toEngine())
 		add(r.Name, c, err)
 	}
-	return rules, errors.Join(errs...)
+	for _, r := range h.Flows {
+		f := r.toFlow(name(r.Name))
+		flows[r.Name] = f
+		c, err := engine.NewFlow(f.Key, r.toEngine(f))
+		add(r.Name, c, err)
+	}
+	return rules, flows, errors.Join(errs...)
+}
+
+// lateness is how late a time of day may fire. A negative Late isn't valid, which the engine
+// rejects.
+func lateness(late time.Duration, safety bool) time.Duration {
+	switch {
+	case safety:
+		return neverLate
+	case late == 0:
+		return DefaultLate
+	}
+	return late
+}
+
+// neverLate is as long as a Safety rule's missed time of day counts for.
+const neverLate = 100 * 365 * 24 * time.Hour
+
+func trigger(on []Change, at []string, cond Condition, late time.Duration, safety bool) engine.Trigger {
+	t := engine.Trigger{Condition: cond.toEngine(), StartingDeadline: lateness(late, safety)}
+	for _, c := range on {
+		t.Changes = append(t.Changes, engine.Change(c))
+	}
+	for _, a := range at {
+		t.Timers = append(t.Timers, engine.At{Time: a})
+	}
+	return t
+}
+
+func (r Flow) toFlow(key types.NamespacedName) *flow.Flow {
+	f := &flow.Flow{Key: key, Safety: r.Priority == Safety, Late: r.Late}
+	if r.Run != nil {
+		f.Body = func(run *flow.Run) error { return r.Run(&FlowRun{run: run, priority: r.Priority}) }
+	}
+	return f
+}
+
+func (r Flow) toEngine(f *flow.Flow) engine.Flow {
+	e := engine.Flow{Trigger: trigger(r.On, r.At, r.If, r.Late, f.Safety)}
+	if r.Restart {
+		e.Mode = engine.ModeRestart
+	}
+	if f.Body != nil {
+		e.Body = f.Start
+	}
+	return e
 }
 
 func (r Hold) toEngine() engine.Hold {
@@ -256,13 +378,11 @@ func (r Hold) toEngine() engine.Hold {
 }
 
 func (r Moment) toEngine() engine.Moment {
-	m := engine.Moment{Trigger: engine.Trigger{Condition: r.If.toEngine()}}
-	for _, c := range r.On {
-		m.Changes = append(m.Changes, engine.Change(c))
-	}
-	for _, at := range r.At {
-		m.Timers = append(m.Timers, engine.At{Time: at})
-	}
+	safety := slices.ContainsFunc(r.Do, func(a Action) bool {
+		s, ok := a.(Set)
+		return ok && s.Priority == Safety
+	})
+	m := engine.Moment{Trigger: trigger(r.On, r.At, r.If, r.Late, safety)}
 	if r.Restart {
 		m.Mode = engine.ModeRestart
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -39,6 +40,7 @@ type server struct {
 	engine  *engine.Engine
 	setter  driver.Setter
 	holds   engine.HoldStates
+	fires   engine.States[time.Time]
 	journal *store.Journal
 
 	mu      sync.Mutex
@@ -115,20 +117,28 @@ func (s *server) handle(conn *wire.Conn) {
 	sess := &session{
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
 	}
-	if !s.attach(sess, hello) {
+	welcome, runs, err := s.welcome(hello)
+	if err != nil {
+		s.log.Error(err, "Failed to read saved state for a process")
+		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "the host couldn't read its saved state"})
+		return
+	}
+	if !s.attach(sess, welcome, runs) {
 		s.log.Info("Refused automations process; one is already connected")
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "an automations process is already connected"})
 		return
 	}
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
 
-	go s.write(sess)
 	work := make(chan wire.Message, requests)
 	drained := make(chan struct{})
 	go func() {
 		defer close(drained)
 		for m := range work {
 			s.send(sess, s.answer(m))
+			if m.Type == wire.TypeClaim {
+				fault.Hit(fault.HostClaimReplied)
+			}
 		}
 	}()
 	defer func() {
@@ -173,19 +183,46 @@ func refusal(hello wire.Message) string {
 	return ""
 }
 
-// attach makes sess the session and queues its Welcome, unless there is one already. The lock
-// orders the Welcome before anything sent after it. A change that lands between the snapshot and
-// the attach's end reaches the process twice at worst, and it ignores a value it already has.
-//
-// Saved holds are read before taking the lock, which drivers wait on. No session is running to
-// change them: a process refused here is told so, and the last one has finished.
-func (s *server) attach(sess *session, hello wire.Message) bool {
-	welcome := wire.Message{Type: wire.TypeWelcome, Version: wire.Version, Holds: map[string]engine.HoldState{}}
+// welcome reads a process's saved state: what its rules last saved, and the runs that didn't finish.
+// It happens before attach takes the lock, which drivers wait on. No session is running to change
+// any of it: a process refused by attach is told so, and the last one has finished.
+func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
+	welcome := wire.Message{
+		Type: wire.TypeWelcome, Version: wire.Version,
+		Holds: map[string]engine.HoldState{}, Fires: map[string]time.Time{},
+	}
 	for _, name := range hello.Rules {
 		if st, ok := s.holds.Get(key(name)); ok {
 			welcome.Holds[name] = st
 		}
+		if t, ok := s.fires.Get(key(name)); ok {
+			welcome.Fires[name] = t
+		}
 	}
+	ids, err := s.journal.Runs()
+	if err != nil {
+		return wire.Message{}, nil, err
+	}
+	runs := make([]wire.Run, 0, len(ids))
+	for _, id := range ids {
+		entries, err := s.journal.Entries(id)
+		if err != nil {
+			return wire.Message{}, nil, err
+		}
+		run := wire.Run{ID: id}
+		for _, e := range entries {
+			run.Entries = append(run.Entries, e.Data)
+		}
+		runs = append(runs, run)
+	}
+	welcome.Runs = len(runs)
+	return welcome, runs, nil
+}
+
+// attach makes sess the session and queues its Welcome, unless there is one already. The lock
+// orders the Welcome before anything sent after it. A change that lands between the snapshot and
+// the attach's end reaches the process twice at worst, and it ignores a value it already has.
+func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.session != nil || s.closed {
@@ -197,7 +234,16 @@ func (s *server) attach(sess *session, hello wire.Message) bool {
 			welcome.Devices = append(welcome.Devices, deviceOf(key.Name, snap))
 		}
 	}
+	go s.write(sess)
 	sess.out <- welcome
+	// Still holding s.mu, so that nothing else reaches the session before the runs do.
+	for i := range runs {
+		select {
+		case sess.out <- wire.Message{Type: wire.TypeRun, Unfinished: runs[i : i+1]}:
+		case <-sess.gone:
+			return true
+		}
+	}
 	return true
 }
 
@@ -310,11 +356,11 @@ func (s *server) answer(m wire.Message) wire.Message {
 			err = errors.New("a claim needs one")
 			break
 		}
-		reply.Arbitrated = s.engine.Claim(s.ctx, key(m.Device), m.Capability, *m.Claim)
+		reply.Arbitrated, err = s.engine.Claim(s.ctx, key(m.Device), m.Capability, *m.Claim)
 	case wire.TypeRelease:
-		reply.Arbitrated = s.engine.ReleaseClaim(s.ctx, key(m.Device), m.Capability, m.Source)
+		reply.Arbitrated, err = s.engine.ReleaseClaim(s.ctx, key(m.Device), m.Capability, m.Source)
 	case wire.TypeReleaseAll:
-		s.engine.ReleaseClaims(s.ctx, wire.Namespace, m.Source)
+		err = s.engine.ReleaseClaims(s.ctx, wire.Namespace, m.Source, m.Below)
 	case wire.TypeSet:
 		err = s.setter.Set(s.ctx, key(m.Device), m.Capability, m.Value)
 	case wire.TypeSaveHold:
@@ -325,8 +371,18 @@ func (s *server) answer(m wire.Message) wire.Message {
 		err = s.holds.Put(s.ctx, key(m.Rule), *m.Hold)
 	case wire.TypeDeleteHold:
 		err = s.holds.Delete(s.ctx, key(m.Rule))
+	case wire.TypeSaveFire:
+		err = s.fires.Put(s.ctx, key(m.Rule), m.Time)
 	case wire.TypeJournal:
-		reply.Seq, err = s.journal.Append(m.Run, m.Data)
+		fault.Hit(fault.HostJournalBefore)
+		if !fault.Drop(fault.HostJournalAppend) {
+			reply.Seq, err = s.journal.Append(m.Run, m.Data)
+		}
+		fault.Hit(fault.HostJournalAfter)
+	case wire.TypeFinish:
+		fault.Hit(fault.HostJournalBefore)
+		err = s.journal.Delete(m.Run)
+		fault.Hit(fault.HostJournalAfter)
 	default:
 		err = fmt.Errorf("unknown request %q", m.Type)
 	}

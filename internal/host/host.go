@@ -57,6 +57,7 @@ func (h *Host) Run(ctx context.Context) error {
 	srv := &server{
 		log: h.Log.WithName("socket"), ctx: engineCtx, engine: eng,
 		holds:   &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: h.Log},
+		fires:   &engine.Stored[time.Time]{Values: data.Namespace(engine.FireStatesNamespace), Log: h.Log},
 		journal: data.Journal(),
 	}
 	devices := hub.NewStore(h.Log.WithName("devices"), eng, srv)

@@ -15,7 +15,7 @@ The host starts your binary as `<binary> automations`, with the socket's path in
 `version` comes first so that it can change. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
 - **`rejected`** with an `error`: the version or role is wrong, or an automations process is already connected. Exactly one runs at a time, because two would run everything twice.
-- **`welcome`** with `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates, and `holds`, the saved state of each named rule that has any.
+- **`welcome`** with `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
 
 The host streams from the `welcome` on. A change landing as the session opens can arrive twice, so a process ignores a value it already has.
 
@@ -34,13 +34,15 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 
 | Type | Fields | Does | Reply |
 |---|---|---|---|
-| `claim` | `device`, `capability`, `claim` | Makes a claim on an arbitrated capability | `arbitrated`: false if it isn't, so the process writes it instead |
-| `release` | `device`, `capability`, `source` | Ends a source's claim | `arbitrated`, as for `claim` |
-| `releaseAll` | `source` | Ends a source's claims everywhere | |
+| `claim` | `device`, `capability`, `claim` | Makes a claim on an arbitrated capability. The reply means it's on disk | `arbitrated`: false if it isn't, so the process writes it instead |
+| `release` | `device`, `capability`, `source` | Ends a source's claim. The reply means it's on disk | `arbitrated`, as for `claim` |
+| `releaseAll` | `source`, optional `below` | Ends a source's claims everywhere, or with `below` only those under that level (3 is Safety). The reply means it's on disk | |
 | `set` | `device`, `capability`, `value` | Writes a capability | |
 | `saveHold` | `rule`, `hold` | Saves a hold's state. The reply means it's on disk | |
 | `deleteHold` | `rule` | Forgets a hold's state. The reply means it's on disk | |
+| `saveFire` | `rule`, `time` | Saves when a rule's timers were last accounted for. The reply means it's on disk | |
 | `journal` | `run`, `data` | Appends a journal entry. The reply means it's on disk | `seq`, its place in the run |
+| `finish` | `run` | Forgets a run's journal. The reply means it's on disk | |
 | `pong` | `id` | Answers a `ping`. It isn't a request, so it gets no reply | |
 
 ## Heartbeats
@@ -50,6 +52,8 @@ The host pings every fifth of the heartbeat timeout, which is 10 seconds by defa
 A process answers only once its engine's lock is free. A condition stuck in a loop holds that lock, so it stops the answers, and the process is replaced rather than left silently doing nothing.
 
 ## When a session ends
+
+A failed `claim`, `release`, `releaseAll` or `journal` ends the session too, because what's on disk is then unknown, and the next process works it out from what is.
 
 A process that loses the host exits at once, since it can't act. If a request isn't answered in 30 seconds, the session counts as lost.
 
