@@ -87,8 +87,11 @@ func TestHostRefusesAnotherVersionAndARole(t *testing.T) {
 	socket, _ := startHost(t, tempDir(t))
 	for name, hello := range map[string]wire.Message{
 		"version": {Type: wire.TypeHello, Version: wire.Version + 1, Role: wire.RoleAutomations},
-		"role":    {Type: wire.TypeHello, Version: wire.Version, Role: "toaster"},
-		"type":    {Type: wire.TypePong},
+		// A process from before releaseAll's below would release Safety claims if it were let in.
+		"old version": {Type: wire.TypeHello, Version: 1, Role: wire.RoleAutomations},
+		"no version":  {Type: wire.TypeHello, Role: wire.RoleAutomations},
+		"role":        {Type: wire.TypeHello, Version: wire.Version, Role: "toaster"},
+		"type":        {Type: wire.TypePong},
 	} {
 		t.Run(name, func(t *testing.T) {
 			raw, err := net.Dial("unix", socket)

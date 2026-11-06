@@ -412,3 +412,30 @@ func TestKeepSinceCatchesUpOnAMissedTime(t *testing.T) {
 	h.eventually("the missed time to be skipped", func() bool { return h.runs(ResultMissed) == 1 })
 	h.expectCalls()
 }
+
+func TestRuleClaimsAndEndRule(t *testing.T) {
+	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
+	ctx := context.Background()
+	for _, c := range []control.Claim{
+		{Source: "Rule/leak", Level: control.Safety, Expires: time.Now().Add(time.Hour)},
+		{Source: "Rule/leak-too", Level: control.Normal, Expires: time.Now().Add(time.Hour)},
+		{Source: "Device", Level: control.Override, Expires: time.Now().Add(time.Hour)},
+	} {
+		if _, err := eng.Claim(ctx, dev, capability.SwitchOn, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held := eng.RuleClaims(ns)
+	if len(held) != 2 || held["leak"] != control.Safety || held["leak-too"] != control.Normal {
+		t.Fatalf("got %v", held)
+	}
+	if got := eng.RuleClaims("elsewhere"); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+	if err := eng.EndRule(ctx, ns, "leak"); err != nil {
+		t.Fatal(err)
+	}
+	if held := eng.RuleClaims(ns); len(held) != 1 || held["leak-too"] != control.Normal {
+		t.Fatalf("a Safety claim outlived its rule: %v", held)
+	}
+}

@@ -528,6 +528,24 @@ spec:
   - Under `removalPolicy: Delete`, the Device gets the condition `RemovalPending` and a `RemovalPending` event. It's deleted once its device has been gone for `removalGracePeriod`, counted from the condition's `lastTransitionTime`, and the instance gets a `Removed` event. A device that comes back before then clears the condition, and the grace period starts over if it goes again. Turning `adopt` off, or taking the Device over in Git, cancels a pending removal.
   - Annotate a Device `oikade.dev/removal-policy: retain` to keep it under `Delete`. The annotation isn't a takeover, so the Device stays adopted.
 
+## Deploying to the host
+
+The host is how Oikade will run, and isn't yet ([OIK-143](https://linear.app/oikade/issue/OIK-143)). Your home is a Go module, and this replaces the running version from it:
+
+```sh
+oikade deploy --data-dir /var/lib/oikade --module .
+```
+
+That rejects code that would break a flow's replay, builds your module for the host, and hands it over. The host runs its check, then swaps it in with automations stopped for about a second and your device state untouched. Holds are worked out again, and waiting flows carry on from where they were. A flow whose next step changed is dropped and logged. If the new version crashes within the settle period, 5 seconds by default, the last one comes back and the command fails.
+
+```sh
+oikade rollback --data-dir /var/lib/oikade
+```
+
+returns to the version before the running one. The host keeps the last five.
+
+Removing a Safety rule is refused, and so is renaming one, because a rule's claims end with it and a hold's latch lives under its name, which could reopen a valve. `--allow-safety-removal` on either command goes ahead. `--binary FILE` deploys something already built for the host, and skips the checks that need your source.
+
 ## Metrics
 
 The runtime serves these on `:8080/metrics`. Enable `../prometheus` in `config/default` for a ServiceMonitor, and `../grafana` for the "Oikade home" dashboard.

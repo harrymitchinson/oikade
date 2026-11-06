@@ -182,14 +182,20 @@ func prepare(t *testing.T) *rig {
 func (r *rig) launch(args ...string) {
 	t := r.t
 	t.Helper()
-	r.exit = make(chan error, 1)
-	r.probe = false
 	devices, err := filepath.Abs(filepath.Join("testdata", "devices.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	args = append([]string{"host", "--data-dir", r.dir, "--home", homeBin, "--simulate", devices}, args...)
-	cmd := exec.Command(hostBin, args...)
+	r.launchWithout(append([]string{"--home", homeBin, "--simulate", devices}, args...)...)
+}
+
+// launchWithout starts a host with only these flags.
+func (r *rig) launchWithout(args ...string) {
+	t := r.t
+	t.Helper()
+	r.exit = make(chan error, 1)
+	r.probe = false
+	cmd := exec.Command(hostBin, append([]string{"host", "--data-dir", r.dir}, args...)...)
 	cmd.Env = append(os.Environ(), r.env...)
 	r.cmd = cmd
 	stdout, err := cmd.StdoutPipe()

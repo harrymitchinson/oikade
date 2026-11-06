@@ -55,7 +55,7 @@ The host is how Oikade will run ([OIK-143](https://linear.app/oikade/issue/OIK-1
 │ device writes                            │◀─writes──│ (an engine with no arbiters)  │
 │ the store: hold state, latches, claims,  │◀─saves───│                               │
 │ the journal                              │─ping────▶│                               │
-│ supervision                              │◀─pong────│                               │
+│ supervision, your binaries               │◀─pong────│                               │
 └──────────────────────────────────────────┘          └───────────────────────────────┘
 ```
 
@@ -68,6 +68,7 @@ The host is how Oikade will run ([OIK-143](https://linear.app/oikade/issue/OIK-1
 - **Durable flows** (`internal/flow`). A flow is ordinary Go, and [writing-flows.md](writing-flows.md) is how to write one. Each step sends a journal entry, the host writes it to the store, and only then does the flow continue. A step's effect comes first and its entry second, so a crash between the two repeats the effect: actions run at least once. After a crash the `welcome` returns every unfinished run, and the flow reruns from the top with recorded steps returning their recorded results. The first step that isn't recorded is where it carries on.
 - **What can't resume.** An entry records a step's kind and arguments, so a replay notices code that takes different steps, and drops the run and logs it. A run past its latest useful time gives up, and logs that, unless it's a Safety flow. A run's ID is never reused, since the journal numbers a run from 1. Only the newest run of a flow resumes, and `internal/flow` stops a run by panicking through the flow, because a step has no error to return for these.
 - **Times of day.** `Compiled.Since` comes from the host, which saves when each rule's timers were last accounted for. So a time missed while no process ran fires when one starts, within the same limit as a late flow, and a save lost to a crash means catching up once more.
+- **Deploys.** The host keeps your binaries in the data directory, and the store says which is running. `oikade deploy` checks your flows and builds your module for the host's platform, and the host checks the result before anything stops. It stops the old process, starts the new one and watches it settle, and a failure brings the last one back. [host-protocol.md](host-protocol.md#deploys) has the order. `--home` only says what to run until the first deploy.
 - **Fault points.** `internal/fault` marks where a crash matters, and compiles to nothing unless built with the `faultpoints` tag, which only `test/host` uses. `TestKilledAtEveryJournalBoundary` uses them to kill each side at every journal write, just before and just after it's durable. `TestBrokenWriteAheadFailsTheCheck` proves that test can fail.
 - **Not yet.** A hold removed from the code keeps its saved state and claims. Deploys and the local API are later steps of OIK-143, and arbitrated devices are declared with CRD types, in the simulator's file.
 

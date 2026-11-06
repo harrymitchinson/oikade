@@ -9,10 +9,10 @@ Nobody writes this protocol by hand. `framework.Run` speaks it, and the code is 
 The host starts your binary as `<binary> automations`, with the socket's path in `OIKADE_SOCKET`. A process has 5 seconds to send its `hello`:
 
 ```json
-{"type":"hello","version":1,"role":"automations","rules":["fan","leak-shutoff"]}
+{"type":"hello","version":2,"role":"automations","rules":["fan","leak-shutoff"]}
 ```
 
-`version` comes first so that it can change. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
+`version` comes first so that it can change, and it rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, which it says in its log, so a process from before `below` existed can never reach `releaseAll`. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
 - **`rejected`** with an `error`: the version or role is wrong, or an automations process is already connected. Exactly one runs at a time, because two would run everything twice.
 - **`welcome`** with `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
@@ -57,7 +57,7 @@ A failed `claim`, `release`, `releaseAll` or `journal` ends the session too, bec
 
 A process that loses the host exits at once, since it can't act. If a request isn't answered in 30 seconds, the session counts as lost.
 
-The host keeps running. It restarts your binary after 1 second, doubling up to 30 seconds, and goes back to 1 second once a process has lasted a minute. It waits for the old process to go and ends its session before starting the next one.
+The host keeps running. Going away during a deploy's settle period is different: see [Deploys](#deploys). Otherwise it restarts your binary after 1 second, doubling up to 30 seconds, and goes back to 1 second once a process has lasted a minute. It waits for the old process to go and ends its session before starting the next one.
 
 A process that falls 4096 messages behind is disconnected, and its replacement starts from a fresh `welcome`.
 
@@ -73,3 +73,29 @@ Claims live in the host, so nothing happens to them when your process dies. Each
 | A hold's | When the hold ends, so it waits for a process to work that out |
 
 A Safety hold's claim therefore stays in force while there's no process. A hold whose condition ended meanwhile is ended by the next process, once.
+
+A rule's claims end with the rule. When a process connects, the host ends the claims of any rule not in its `hello`, Safety ones included, and forgets those rules' saved state, because nothing else would. A `hello` with no rules ends nothing. During a deploy this waits until the version has settled, because the last version may yet come back.
+
+## Check mode
+
+The host runs a binary as `<binary> check` before it stops anything. That loads the home with no writes and no session, and prints one line of JSON as its last line of output, then exits 0:
+
+```json
+{"protocol":2,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
+```
+
+A failure, or a `protocol` other than the host's, rejects the version.
+
+## Deploys
+
+`oikade deploy` and `oikade rollback` talk to the host over `api.sock`, also in the data directory and also mode `0600`, one JSON request and one JSON response per connection. `internal/host/api` is the code. A deploy goes in this order, and any failure leaves or brings back the last version:
+
+1. The host copies the binary to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running changes nothing.
+2. It runs check mode, and compares the result with the running version. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafetyRemoval`. A rename counts, because a hold's latch lives under its name.
+3. It records the version as unconfirmed, sends the old process `SIGTERM`, kills it after 5 seconds if it's still there, and ends its session. Only then does the new process start, so two never overlap. Waiting runs keep their journals and resume.
+4. It waits for the new process to connect, then for the settle period, 5 seconds by default. If the process goes away at any point before that's up, the last version comes back at once, and the command says why.
+5. It confirms the version, ends what's left of removed rules, and keeps the five latest versions.
+
+A host that dies during steps 3 or 4 finds the unconfirmed record when it starts, and goes back to the last version. A version that settled and fails later restarts as usual, and stays until a rollback.
+
+`rollback` is a deploy of the version before the running one, on the same terms.

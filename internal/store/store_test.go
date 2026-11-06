@@ -249,3 +249,26 @@ func BenchmarkJournalAppend(b *testing.B) {
 		}
 	}
 }
+
+func TestKeysListsANamespace(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	n := s.Namespace("things")
+	if keys, err := n.Keys(); err != nil || len(keys) != 0 {
+		t.Fatalf("got %v, %v before anything was written", keys, err)
+	}
+	for _, k := range []string{"b", "a"} {
+		if err := n.Put(k, []byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Namespace("others").Put("c", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if keys, err := n.Keys(); err != nil || len(keys) != 2 || keys[0] != "a" || keys[1] != "b" {
+		t.Fatalf("got %v, %v", keys, err)
+	}
+}

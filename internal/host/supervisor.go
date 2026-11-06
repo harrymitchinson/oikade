@@ -23,16 +23,69 @@ const (
 	stopTimeout = 5 * time.Second
 )
 
+// process is one start of your binary.
+type process struct {
+	// gone closes once it has gone and its session has ended.
+	gone chan struct{}
+	err  error
+}
+
+// failure says why it went. Going at all counts, while a version is settling.
+func (p *process) failure() error {
+	if p.err != nil {
+		return p.err
+	}
+	return errExited
+}
+
+// swap asks the supervisor to replace the binary it runs. started gets the new process, or nil if
+// path is empty.
+type swap struct {
+	path    string
+	started chan *process
+}
+
 // supervise keeps your process running until ctx ends. Only one runs at a time: each is waited for,
-// and its session ended, before the next starts.
-func (h *Host) supervise(ctx context.Context, srv *server, socket string) {
+// and its session ended, before the next starts. swaps replace the binary between them.
+func (h *Host) supervise(ctx context.Context, srv *server, socket, path string, d *deployer) {
 	backoff := firstBackoff
+	var next *swap
 	for ctx.Err() == nil {
+		if path == "" {
+			if next != nil {
+				next.started <- nil
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case next = <-d.swaps:
+				path = next.path
+				backoff = firstBackoff
+			}
+			continue
+		}
+		// The old process's session has ended, so a session from here on is this process's.
+		select {
+		case <-d.connected:
+		default:
+		}
+		p := &process{gone: make(chan struct{})}
+		if next != nil {
+			next.started <- p
+			next = nil
+		}
 		started := time.Now()
-		err := h.runProcess(ctx, srv, socket)
+		var err error
+		next, err = h.runProcess(ctx, srv, socket, path, d.swaps)
 		srv.disconnect()
+		p.err = err
+		close(p.gone)
 		if ctx.Err() != nil {
 			return
+		}
+		if next != nil {
+			path, backoff = next.path, firstBackoff
+			continue
 		}
 		if time.Since(started) >= stableAfter {
 			backoff = firstBackoff
@@ -42,6 +95,10 @@ func (h *Host) supervise(ctx context.Context, srv *server, socket string) {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
+		case next = <-d.swaps:
+			path = next.path
+			backoff = firstBackoff
+			continue
 		}
 		backoff = min(backoff*2, maxBackoff)
 	}
@@ -58,13 +115,13 @@ func reason(err error) string {
 var errHeartbeat = errors.New("stopped answering heartbeats")
 
 // runProcess starts the process and returns when it has gone, having killed it if it stopped
-// answering or ctx ended.
-func (h *Host) runProcess(ctx context.Context, srv *server, socket string) error {
-	cmd := exec.Command(h.Home, "automations")
+// answering or ctx ended, or stopped it for a swap, which it returns.
+func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string, swaps <-chan *swap) (*swap, error) {
+	cmd := exec.Command(path, wire.RoleAutomations)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+socket)
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 	h.Log.Info("Started automations process", "pid", cmd.Process.Pid)
 	exited := make(chan error, 1)
@@ -79,9 +136,12 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket string) error
 	for {
 		select {
 		case err := <-exited:
-			return err
+			return nil, err
 		case <-ctx.Done():
-			return h.stop(cmd, exited)
+			return nil, h.stop(cmd, exited)
+		case sw := <-swaps:
+			h.Log.Info("Stopping automations process for a new version", "pid", cmd.Process.Pid)
+			return sw, h.stop(cmd, exited)
 		case <-ticker.C:
 			id++
 			if last, ok := srv.ping(id); ok && last.After(alive) {
@@ -94,9 +154,9 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket string) error
 			_ = cmd.Process.Kill()
 			if err := <-exited; err == nil {
 				// It answered nothing, yet exited cleanly before the kill landed.
-				return nil
+				return nil, nil
 			}
-			return errHeartbeat
+			return nil, errHeartbeat
 		}
 	}
 }

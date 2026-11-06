@@ -558,6 +558,32 @@ func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) erro
 	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
+// RuleClaims returns the rules holding claims in the namespace, each with the highest level it holds.
+func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	held := map[string]control.Level{}
+	for dev, arbs := range e.arbs {
+		if dev.Namespace != namespace {
+			continue
+		}
+		for _, ar := range arbs {
+			for _, c := range ar.a.State().Claims {
+				if rule, ok := strings.CutPrefix(c.Source, rulePrefix); ok && c.Level >= held[rule] {
+					held[rule] = c.Level
+				}
+			}
+		}
+	}
+	return held
+}
+
+// EndRule ends every claim of a rule that no longer exists, Safety ones included, as Remove does for
+// one in this engine. It returns once that's saved. ctx is the engine's, as with Claim.
+func (e *Engine) EndRule(ctx context.Context, namespace, rule string) error {
+	return e.ReleaseClaims(ctx, namespace, ruleSource(rule), allLevels)
+}
+
 // Responsive returns once the engine's lock is free. A condition stuck in a loop holds that lock,
 // so a heartbeat that waits for this stops, and the host replaces the process.
 func (e *Engine) Responsive() {
