@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"slices"
@@ -29,6 +31,7 @@ const (
 	// previousSuffix is the binary an upgrade replaced, next to the new one.
 	previousSuffix = ".previous"
 	unitName       = "oikade.service"
+	storeFile      = "oikade.db"
 	unitPath       = "/etc/systemd/system/" + unitName
 	// systemUser runs the host when nobody logged in to ask for it, such as root over SSH.
 	systemUser = "oikade"
@@ -172,6 +175,10 @@ func (m Machine) Install(ctx context.Context) error {
 		_, _ = fmt.Fprintln(m.Out, "-", step)
 	}
 	_, _ = fmt.Fprintln(m.Out, "The host is running. oikade matter shows its pairing code")
+	if account.Username == systemUser {
+		_, _ = fmt.Fprintln(m.Out, "It runs as "+systemUser+", which nobody can log in as, so oikade deploy --host won't work. "+
+			"To deploy over SSH, install with --user and a user who can log in")
+	}
 	return nil
 }
 
@@ -210,8 +217,9 @@ func (m Machine) account(ctx context.Context) (*user.User, bool, error) {
 	return found, true, err
 }
 
-// dataDir makes the directory, or gives it to the host's user if it has somebody else's. It never
-// goes through what's inside: on a restored machine that's the user's data.
+// dataDir makes the directory, or gives what's in it to the host's user if it's somebody else's, as
+// a restored one is. A host that can't open its own store can't say why from here. Parents it has to
+// make stay readable, so that the host's user can get through them.
 func (m Machine) dataDir(account *user.User) (bool, error) {
 	uid, err := strconv.Atoi(account.Uid)
 	if err != nil {
@@ -226,12 +234,20 @@ func (m Machine) dataDir(account *user.User) (bool, error) {
 		if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) == uid {
 			return false, nil
 		}
-		return false, os.Chown(m.DataDir, uid, gid)
+		return false, filepath.WalkDir(m.DataDir, func(path string, _ fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Lchown(path, uid, gid)
+		})
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
-	if err := os.MkdirAll(m.DataDir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(m.DataDir), 0o755); err != nil {
+		return false, err
+	}
+	if err := os.Mkdir(m.DataDir, 0o700); err != nil {
 		return false, err
 	}
 	return true, os.Chown(m.DataDir, uid, gid)
@@ -257,11 +273,19 @@ func (m Machine) Upgrade(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("taking a backup, so not upgrading: %w", err)
 	}
-	_, _ = fmt.Fprintln(m.Out, "Backed up the store to", backup)
+	if backup == "" {
+		_, _ = fmt.Fprintln(m.Out, "The host has no store yet, so there's nothing to back up")
+	} else {
+		_, _ = fmt.Fprintln(m.Out, "Backed up the store to", backup)
+	}
 	previous := BinaryPath + previousSuffix
 	if err := copyFile(BinaryPath, previous); err != nil {
 		return err
 	}
+	// From the swap on, stopping halfway leaves the file and the process disagreeing, and a rerun
+	// can't see that. So it finishes, which upWithin bounds, even if whoever asked goes away.
+	ctx = context.WithoutCancel(ctx)
+	signal.Ignore(syscall.SIGHUP)
 	if err := replaceBinary(m.Binary, BinaryPath); err != nil {
 		return err
 	}
@@ -285,32 +309,54 @@ func (m Machine) Upgrade(ctx context.Context) error {
 	}
 	if err := waitUp(ctx, m.DataDir); err != nil {
 		return fmt.Errorf("the old version didn't come up either: %w. The store's backup is %s, "+
-			"which goes back as %s while the host is stopped", err, backup, filepath.Join(m.DataDir, "oikade.db"))
+			"which goes back as %s while the host is stopped", err, backup, filepath.Join(m.DataDir, storeFile))
 	}
 	return errors.New("the upgrade failed, and the old version is running again")
 }
 
-// backup asks a running host for a snapshot. A stopped one holds no lock, so its file can be copied.
+// backup asks a running host for a snapshot. One that isn't running may be between crashes, so it's
+// stopped for good first, which lets go of the file. It may never have made one: that's nothing to
+// back up, and it returns "".
 func (m Machine) backup(ctx context.Context) (string, error) {
-	if !quiet(ctx, "is-active", unitName) {
-		dir := filepath.Join(m.DataDir, host.BackupsDir)
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+	if quiet(ctx, "is-active", unitName) {
+		resp, err := api.Call(ctx, api.Local{DataDir: m.DataDir}, api.Request{Type: api.TypeBackup})
+		if err != nil {
 			return "", err
 		}
-		path := filepath.Join(dir, host.BackupName(time.Now()))
-		if err := copyFile(filepath.Join(m.DataDir, "oikade.db"), path); err != nil {
-			return "", err
+		if resp.Error != "" {
+			return "", errors.New(resp.Error)
 		}
-		return path, host.PruneBackups(dir)
+		return resp.Backup, nil
 	}
-	resp, err := api.Call(ctx, api.Local{DataDir: m.DataDir}, api.Request{Type: api.TypeBackup})
+	if err := systemctl(ctx, "stop", unitName); err != nil {
+		return "", err
+	}
+	from := filepath.Join(m.DataDir, storeFile)
+	if !fileExists(from) {
+		return "", nil
+	}
+	dir := filepath.Join(m.DataDir, host.BackupsDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, host.BackupName(time.Now()))
+	if err := copyFile(from, path+".new"); err != nil {
+		return "", err
+	}
+	if err := os.Rename(path+".new", path); err != nil {
+		return "", err
+	}
+	// This runs as root, and the host has to write here later.
+	info, err := os.Stat(m.DataDir)
 	if err != nil {
 		return "", err
 	}
-	if resp.Error != "" {
-		return "", errors.New(resp.Error)
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		if err := errors.Join(os.Chown(dir, int(st.Uid), int(st.Gid)), os.Chown(path, int(st.Uid), int(st.Gid))); err != nil {
+			return "", err
+		}
 	}
-	return resp.Backup, nil
+	return path, host.PruneBackups(dir)
 }
 
 // waitUp waits for the host to answer and for its Matter bridge to serve, as that's what a restart

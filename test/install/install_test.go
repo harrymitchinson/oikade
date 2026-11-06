@@ -303,3 +303,44 @@ func TestUpgradeToABinaryThatWontRunChangesNothing(t *testing.T) {
 		t.Errorf("the machine is on %s", got)
 	}
 }
+
+func TestUpgradeOfAStoppedHostLeavesBackupsWorking(t *testing.T) {
+	r := start(t)
+	dir := filepath.Dir(r.oikade)
+	r.must("install", "--host", machine, "--binary", filepath.Join(dir, "linux-a"), "--", "--matter-port", "0")
+	r.on("systemctl stop oikade")
+	if out := r.must("upgrade", "--host", machine, "--binary", r.next); !strings.Contains(out, "Backed up the store") {
+		t.Errorf("it didn't say it backed up:\n%s", out)
+	}
+	// The host writes here as its own user, and the upgrade made the directory as root.
+	r.must("backup", "--host", machine)
+	if got := r.on("ls " + dataDir + "/backups | wc -l"); got != "2" && got != "1" {
+		t.Errorf("%s backups", got)
+	}
+}
+
+func TestInstallCanBeRecoveredFromAHostThatNeverStarted(t *testing.T) {
+	r := start(t)
+	dir := filepath.Dir(r.oikade)
+	if out, err := r.run("install", "--host", machine, "--binary", filepath.Join(dir, "linux-a"),
+		"--data-dir", "/srv/oikade/data", "--", "--matter-port", "0"); err != nil {
+		t.Fatalf("a data directory with parents to make: %v\n%s", err, out)
+	}
+	r.on("systemctl stop oikade && rm /srv/oikade/data/oikade.db")
+	out := r.must("upgrade", "--host", machine, "--data-dir", "/srv/oikade/data", "--binary", r.next)
+	if !strings.Contains(out, "nothing to back up") {
+		t.Errorf("it didn't say so:\n%s", out)
+	}
+}
+
+func TestInstallGivesARestoredDirectoryToTheHostsUser(t *testing.T) {
+	r := start(t)
+	dir := filepath.Dir(r.oikade)
+	r.must("install", "--host", machine, "--binary", filepath.Join(dir, "linux-a"), "--", "--matter-port", "0")
+	r.on("useradd --create-home pi && systemctl stop oikade")
+	r.must("install", "--host", machine, "--binary", filepath.Join(dir, "linux-a"), "--user", "pi",
+		"--", "--matter-port", "0")
+	if got := r.on("stat -c %U " + dataDir + "/oikade.db"); got != "pi" {
+		t.Errorf("the store belongs to %s", got)
+	}
+}

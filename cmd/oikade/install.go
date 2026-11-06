@@ -32,6 +32,14 @@ func currentVersion() string {
 	return version
 }
 
+// publishedVersion is the version go can fetch of what this binary is, or main if it's a local build.
+func publishedVersion() string {
+	if v := currentVersion(); strings.HasPrefix(v, "v") && !strings.Contains(v, "+") {
+		return v
+	}
+	return "main"
+}
+
 func runInstall(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	t := addTarget(fs)

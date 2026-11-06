@@ -662,7 +662,7 @@ sudo oikade install                                       # this machine
 
 Anything after `--` is a flag for `oikade host`. Running `install` again with the same flags changes nothing, and with different ones it rewrites the unit and restarts the host. `--print` shows the unit.
 
-It installs `/usr/local/bin/oikade`, the unit `oikade.service` and the data directory `/var/lib/oikade`. The host runs as whoever logged in, because `oikade --host` has to log in as the user running the host; `--user NAME` picks another, and logging in as root gets a system user `oikade`. Over SSH it uses this `oikade` if that fits the machine, or builds this version with Go. A local build has no version to build, so pass `--binary FILE`.
+It installs `/usr/local/bin/oikade`, the unit `oikade.service` and the data directory `/var/lib/oikade`. The host runs as whoever logged in, because `oikade --host` has to log in as the user running the host; `--user NAME` picks another. Logging in as root gets a system user `oikade`, which nobody can log in as, so `oikade deploy --host` won't work until you pick a user who can. Over SSH it uses this `oikade` if that fits the machine, or builds this version with Go. A local build has no version to build, so pass `--binary FILE`.
 
 ### In Docker
 
