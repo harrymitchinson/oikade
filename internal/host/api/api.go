@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 // SocketName is the local API's socket in the data directory.
@@ -25,6 +27,14 @@ const (
 	TypePause    = "pause"
 	TypeResume   = "resume"
 	TypeTail     = "tail"
+
+	TypeDevices       = "devices"
+	TypeDeviceName    = "deviceName"
+	TypeDeviceRoom    = "deviceRoom"
+	TypeDeviceReserve = "deviceReserve"
+	TypeDeviceRemove  = "deviceRemove"
+	TypeDeviceReplace = "deviceReplace"
+	TypeDeviceRestore = "deviceRestore"
 )
 
 // Request is one call.
@@ -38,9 +48,18 @@ type Request struct {
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
+	// To is a device's new name, or the device whose hardware a replace takes.
+	To string `json:"to,omitempty"`
+	// Room is a device's room.
+	Room string `json:"room,omitempty"`
+	// Registry is what a restore reads back.
+	Registry *registry.Snapshot `json:"registry,omitempty"`
+	// Force restores a file that disagrees with the registry.
+	Force bool `json:"force,omitempty"`
 	// Rule is a pause's or a resume's.
 	Rule string `json:"rule,omitempty"`
-	// AllowSafety pauses a Safety rule.
+	// AllowSafety pauses a Safety rule, removes a device a Safety claim holds, or changes a device's
+	// name while a Safety rule runs.
 	AllowSafety bool `json:"allowSafety,omitempty"`
 }
 
@@ -59,10 +78,16 @@ type Response struct {
 	// GOOS and GOARCH are what the host runs on, so that a deploy can build for it.
 	GOOS   string `json:"goos,omitempty"`
 	GOARCH string `json:"goarch,omitempty"`
-	// NeedsAllowSafety is a pause that AllowSafety would let through.
+	// NeedsAllowSafety is a request that AllowSafety would let through.
 	NeedsAllowSafety bool `json:"needsAllowSafety,omitempty"`
+	// NeedsForce is a restore that Force would let through.
+	NeedsForce bool `json:"needsForce,omitempty"`
 	// Status is a status's.
 	Status *Status `json:"status,omitempty"`
+	// Registry is a devices request's.
+	Registry *registry.Snapshot `json:"registry,omitempty"`
+	// Moved are the devices a restore had to give a new endpoint or name.
+	Moved []string `json:"moved,omitempty"`
 }
 
 // Status is what the host knows now. Its JSON is what oikade status --json prints, so scripts rely on

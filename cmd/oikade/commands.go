@@ -244,9 +244,10 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 func done(resp api.Response, asJSON bool, message string) error {
 	if asJSON {
 		out := struct {
-			OK    bool   `json:"ok"`
-			Error string `json:"error,omitempty"`
-		}{resp.Error == "", resp.Error}
+			OK    bool     `json:"ok"`
+			Error string   `json:"error,omitempty"`
+			Moved []string `json:"moved,omitempty"`
+		}{resp.Error == "", resp.Error, resp.Moved}
 		if err := printJSON(out); err != nil {
 			return err
 		}
