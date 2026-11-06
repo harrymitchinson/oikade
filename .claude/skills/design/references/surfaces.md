@@ -88,5 +88,5 @@ Lint with `GOTOOLCHAIN=go1.26.0 make lint`.
 
 ## 8. Standing preferences
 
-- **No Home Assistant as a driver** or component. Standalone device libraries that Home Assistant also uses are fine inside plugins. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, or plugins, written in Go first ([OIK-62](https://linear.app/oikade/issue/OIK-62)), each in its own repo ([OIK-108](https://linear.app/oikade/issue/OIK-108)).
+- **No Home Assistant as a driver** or component. Standalone device libraries that Home Assistant also uses are fine inside plugins. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, or plugins, written in Go first ([OIK-62](https://linear.app/oikade/issue/OIK-62)): first-party ones in `plugins/<name>` ([OIK-155](https://linear.app/oikade/issue/OIK-155)), and anyone else's in its own repo.
 - The user is an SRE. GitOps reviewability, observability and boring operability beat cleverness.

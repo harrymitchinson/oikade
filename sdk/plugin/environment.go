@@ -16,7 +16,9 @@ import (
 
 // Environment is where the operator tells a plugin to connect and what to serve.
 type Environment struct {
-	// MQTTURL is the broker, such as mqtt://oikade-mosquitto.oikade-system.svc:1883.
+	// MQTTURL is the broker, such as mqtt://oikade-mosquitto.oikade-system.svc:1883. For a plugin
+	// your home imports, it's the host's --broker, empty if there's none: the SDK doesn't use it,
+	// but a plugin whose platform speaks MQTT can.
 	MQTTURL string
 	Root    contractv1.Root
 	// DevicesFile is the path of devices.json.

@@ -68,8 +68,9 @@ var _ Bus = (*Client)(nil)
 type Option func(*options)
 
 type options struct {
-	will      *paho.WillMessage
-	onConnect func(ctx context.Context)
+	will         *paho.WillMessage
+	onConnect    func(ctx context.Context)
+	onDisconnect func()
 }
 
 // WithWill sets a Last Will the broker publishes, retained at QoS 1, if the connection drops
@@ -84,6 +85,11 @@ func WithWill(topic string, payload []byte) Option {
 // cancelled when that connection drops, so f must return then or the next connection waits.
 func WithOnConnect(f func(ctx context.Context)) Option {
 	return func(o *options) { o.onConnect = f }
+}
+
+// WithOnDisconnect calls f each time an established connection is lost. It mustn't block.
+func WithOnDisconnect(f func()) Option {
+	return func(o *options) { o.onDisconnect = f }
 }
 
 // Connect dials server (mqtt://host:port) and blocks until the first connection succeeds or ctx ends.
@@ -122,6 +128,9 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 		},
 		OnConnectionDown: func() bool {
 			c.endConnection()
+			if o.onDisconnect != nil {
+				o.onDisconnect()
+			}
 			return !c.dropping.Load()
 		},
 		DisconnectPacketBuilder: func() *paho.Disconnect {

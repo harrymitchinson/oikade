@@ -73,7 +73,9 @@ func RunHosted(ctx context.Context, socket, name string, newHandler Factory, log
 		}
 	})
 
-	h, err := newHandler(Environment{Root: root, SecretsDir: os.Getenv(contractv1.EnvSecretsDir)}, welcome.Declared)
+	h, err := newHandler(Environment{
+		MQTTURL: os.Getenv(contractv1.EnvMQTTURL), Root: root, SecretsDir: os.Getenv(contractv1.EnvSecretsDir),
+	}, welcome.Declared)
 	if err != nil {
 		return err
 	}

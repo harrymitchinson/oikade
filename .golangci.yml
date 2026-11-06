@@ -54,7 +54,7 @@ linters:
       - linters:
           - dupl
           - lll
-        path: internal/*
+        path: (internal|plugins)/*
       # Repeated device names read better than constants in tests.
       - linters:
           - goconst

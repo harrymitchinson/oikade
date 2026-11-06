@@ -17,6 +17,7 @@ PROJECT                        Kubebuilder metadata Auto-generated (DO NOT EDIT)
 contract/v1/*                  The oikade/v1 plugin contract as Go types (public API)
 sdk/plugin/*                   The Go plugin SDK (public API)
 cmd/oikade-conformance/*       The conformance checker plugin repos run (public API)
+plugins/*                      First-party plugins a home imports (public API)
 test/fixtures/simswitch/*      Simulated-relay plugin the conformance suite drives, as a process and imported
 ```
 
@@ -82,7 +83,7 @@ make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 c
 
 The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1` and `sdk/plugin` are public API: their exported signatures must not mention `internal/` types. `cmd/oikade-conformance`'s name and flags are public API too, because plugin repos run it in CI: removing or renaming one is a breaking change (`feat!:` with a `BREAKING CHANGE:` footer). An SDK for another language may live here only if it's generated from the contract (OIK-62).
 
-**Plugins live in their own repos** (`oikade-plugin-<name>`, started from the [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template) GitHub template), each with its own `go.mod`, images and releases (OIK-108). Never add a plugin here: `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end, and this repo publishes no plugin image.
+**First-party plugins live in this repo,** in `plugins/<name>`, which a home imports and which may use `internal/` (OIK-155). **Anyone else's live in their own repos** (`oikade-plugin-<name>`, started from the [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template) GitHub template), each with its own `go.mod`, images and releases. `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end, and this repo publishes no plugin image.
 
 ## Before Opening a PR
 

@@ -289,16 +289,24 @@ func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.Disc
 // must hold a valid value for every capability announced in SetDevices and nothing else.
 // Otherwise SetState returns an error and publishes nothing.
 func (p *Plugin) SetState(ctx context.Context, id string, s contractv1.State) error {
-	return p.writeState(ctx, id, s, false)
+	return p.writeState(ctx, id, s, false, false)
 }
 
 // UpdateState merges values into a device's state and publishes the full result, which must be
 // complete as for SetState.
 func (p *Plugin) UpdateState(ctx context.Context, id string, s contractv1.State) error {
-	return p.writeState(ctx, id, s, true)
+	return p.writeState(ctx, id, s, true, false)
 }
 
-func (p *Plugin) writeState(ctx context.Context, id string, s contractv1.State, merge bool) error {
+// ReportState merges values into a device's state and publishes what's known so far, which may lack
+// an announced capability. It's for a device that reports when it chooses and can't be asked, such
+// as a battery sensor. A plugin that can read its devices uses SetState or UpdateState, which catch
+// a value it forgot.
+func (p *Plugin) ReportState(ctx context.Context, id string, s contractv1.State) error {
+	return p.writeState(ctx, id, s, true, true)
+}
+
+func (p *Plugin) writeState(ctx context.Context, id string, s contractv1.State, merge, partial bool) error {
 	if err := p.lock(ctx); err != nil {
 		return err
 	}
@@ -327,7 +335,7 @@ func (p *Plugin) writeState(ctx context.Context, id string, s contractv1.State, 
 		next[c] = valid
 	}
 	for _, c := range announced {
-		if _, ok := next[c]; !ok {
+		if _, ok := next[c]; !ok && !partial {
 			p.mu.Unlock()
 			return fmt.Errorf("device %s: state has no value for announced capability %s", id, c)
 		}

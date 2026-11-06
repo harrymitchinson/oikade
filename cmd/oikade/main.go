@@ -122,7 +122,8 @@ func runHost(ctx context.Context, args []string) error {
 	matterName := fs.String("matter-name", "Oikade", "The Matter bridge's name, at most 32 bytes.")
 	matterInterfaces := fs.String("matter-interfaces", "",
 		"Comma-separated interfaces to advertise Matter on. Empty means every multicast interface.")
-	broker := fs.String("broker", "", "An MQTT broker of yours, for --outside-plugins.")
+	broker := fs.String("broker", "",
+		"An MQTT broker of yours, for --outside-plugins and imported plugins that use one, such as Zigbee2MQTT.")
 	outside := fs.String("outside-plugins", "",
 		"Comma-separated plugins that run as processes of their own and speak the MQTT contract on --broker, "+
 			"under oikade/v1/home/<name>.")

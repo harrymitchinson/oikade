@@ -304,3 +304,121 @@ func TestInventory(t *testing.T) {
 		t.Errorf("inventory after an empty list = %#v, want empty", rec.inventory)
 	}
 }
+
+// A broker replays retained messages in any order, and only the device list resolves a device's.
+func TestMessagesFromBeforeTheDeviceListAreKept(t *testing.T) {
+	ctx := context.Background()
+	bus := mqtt.NewMemory()
+	rec := newRecorder()
+	now := time.Date(2026, 10, 17, 19, 0, 0, 0, time.UTC)
+	i := &Instance{
+		Key: dev("z2m"), BaseTopic: "z2m", Bus: bus, Sink: rec,
+		Now: func() time.Time { return now }, Log: logr.Discard(),
+	}
+	i.SetDevices(map[string]types.NamespacedName{"0x00158d0000000003": door})
+	if err := i.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range [][2]string{
+		{"z2m/front-door", `{"contact":false}`},
+		{"z2m/front-door", `{"contact":true}`},
+		{"z2m/front-door/availability", `{"state":"offline"}`},
+		{"z2m/unknown", `{"contact":true}`},
+	} {
+		if err := bus.Publish(ctx, m[0], []byte(m[1]), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(rec.changes) != 0 {
+		t.Fatalf("heard %+v before the list", rec.changes)
+	}
+
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", devices, true); err != nil {
+		t.Fatal(err)
+	}
+	if online, ok := rec.available[door]; !ok || online {
+		t.Errorf("available = %v, %v", online, ok)
+	}
+	if len(rec.changes) != 1 || rec.changes[0].Capability != capability.ContactOpen || rec.changes[0].Value != false {
+		t.Errorf("changes = %+v, want only the latest contact", rec.changes)
+	}
+	if len(i.early) != 0 {
+		t.Errorf("still holding %v", i.early)
+	}
+}
+
+// A new device can report before it's in the list, and its first report may be its last for hours.
+func TestAMessageFromADeviceNotYetListedIsKept(t *testing.T) {
+	_, bus, rec := setup(t)
+	ctx := context.Background()
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", []byte(`[]`), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":true}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", devices, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.changes) != 1 {
+		t.Fatalf("changes = %+v", rec.changes)
+	}
+}
+
+// A device re-paired under its address has no values anywhere else, so its first report counts.
+func TestARepairedDevicesReportIsNotARepeat(t *testing.T) {
+	_, bus, rec := setup(t)
+	ctx := context.Background()
+	report := []byte(`{"contact":true}`)
+	if err := bus.Publish(ctx, "z2m/front-door", report, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", []byte(`[]`), true); err != nil {
+		t.Fatal(err)
+	}
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", devices, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/front-door", report, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.changes) != 2 {
+		t.Fatalf("changes = %+v", rec.changes)
+	}
+}
+
+// A message held while a device was undeclared is older than anything heard since.
+func TestAHeldMessageDoesNotUndoANewerOne(t *testing.T) {
+	i, bus, rec := setup(t)
+	ctx := context.Background()
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i.SetDevices(map[string]types.NamespacedName{})
+	if err := bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":false}`), false); err != nil {
+		t.Fatal(err)
+	}
+	i.SetDevices(map[string]types.NamespacedName{"0x00158d0000000003": door})
+	if err := bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":true}`), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Publish(ctx, "z2m/bridge/devices", devices, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.changes) != 1 || rec.changes[0].Value != false {
+		t.Errorf("changes = %+v, want only the newer report, of a closed door", rec.changes)
+	}
+}

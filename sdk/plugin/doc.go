@@ -17,7 +17,8 @@
 // either way. Importing a plugin means trusting its code: it runs as you.
 //
 // Handler.Serve reports the devices with SetDevices, then each device's SetAvailability and
-// SetState, and follows the devices until its context ends. A plugin that can list the devices in
+// SetState, or ReportState for a device that can't be asked for its values, and follows the devices
+// until its context ends. A plugin that can list the devices in
 // its app also reports them with SetDiscovered, under IDs that survive restarts. Handler.Set
 // applies one command and reports the result with SetState or UpdateState. Set calls for one device never overlap, but
 // they run on their own goroutines alongside Serve, so state both use needs a lock.
