@@ -367,6 +367,9 @@ func (p *plugins) runProcess(ctx context.Context, h *hosted, path string) error 
 	cmd := exec.Command(path, wire.RolePlugin, h.name)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+p.socket)
+	if p.host.Broker != "" {
+		cmd.Env = append(cmd.Env, contractv1.EnvMQTTURL+"="+p.host.Broker)
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}

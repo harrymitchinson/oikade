@@ -473,7 +473,7 @@ A plugin reports problems with a device, such as bad parameters or a missing key
 
 On a host, a plugin is a Go module your home imports, in `framework.Home`'s `Plugins`, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as you, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
 
-To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. Each plugin lives in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
+To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
 ## Discovery
 
@@ -674,6 +674,34 @@ oikade types                                 # write devices.go from the registr
 
 If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, reservations, arbitration settings and endpoint IDs, matched by hardware. The registry is the authority, so a file that disagrees with one in use is refused, which is what an old file does. After a real loss the drivers may have reported again first, under their apps' names, so pass `--force` there and the file wins. With `--force`, devices the file doesn't have stay, and get a new endpoint or name if the file gives theirs to something else. A claimed name never moves.
 
+## Zigbee on the host
+
+On the host, Zigbee is a plugin your home imports ([OIK-155](https://linear.app/oikade/issue/OIK-155)). You run Zigbee2MQTT and an MQTT broker such as Mosquitto yourself. Oikade connects to them, and doesn't start them or write their configuration.
+
+```go
+framework.Run(framework.Home{
+	Plugins: []framework.Plugin{{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})}},
+	// ...
+})
+```
+
+```sh
+oikade host --home ./home --broker mqtt://localhost:1883
+```
+
+A password in the `--broker` URL reaches every plugin you import. `zigbee2mqtt.Config` takes `BaseTopic` if yours isn't Zigbee2MQTT's default, `zigbee2mqtt`.
+
+Set these in Zigbee2MQTT's `configuration.yaml`:
+
+```yaml
+availability:
+  enabled: true      # so a device that's gone reads offline
+device_options:
+  retain: true       # so a deploy, which restarts plugins, doesn't lose values until the next report
+```
+
+Every paired device enters the registry by its IEEE address, except the coordinator and devices Zigbee2MQTT doesn't support, and is usable at once. Its friendly name is copied once, as its name. When Zigbee2MQTT says it's offline, its devices read offline and writes are refused, which the host's log shows. Your automations and Matter carry on.
+
 ## State that must survive
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
@@ -686,6 +714,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - **The device registry** is in the host's data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikade types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikade types` aren't in it, so run it after pairing.
 - **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.
 - **The Zigbee network key** (`<instance>-network` Secret) and **database** (`<instance>-data` PVC) have no owner reference either. Back up the Secret.
+- **On the host, the network key and database are yours,** because they belong to the Zigbee2MQTT you run. They aren't in Oikade's data directory, so back up Zigbee2MQTT's data directory yourself. Losing it means pairing every device again. Under the operator, the two points here apply instead.
 - **Zigbee2MQTT's `configuration.yaml` is overwritten on every start** with the version rendered from Git, so settings changed in its frontend don't survive a restart. Device names are the exception: they live in `devices.yaml` on the `<instance>-data` PVC, which belongs to Zigbee2MQTT. The operator writes it only when the PVC has none, with each declared Device's name.
 - **The runtime's state** lives in retained MQTT messages under `oikade/v1/_runtime/`, kept on Mosquitto's `oikade-mosquitto` PVC: which holds are active, latches, off-delay deadlines, claims and their expiries, and equipment-limit counters. Losing it is safe but noticeable. Holds and claims are worked out again from the clock and the devices, but latched holds whose condition has passed are released, overrides end early, and limits start counting again.
 - **A plugin's credentials** (the `spec.secretRef` Secret, such as LAN keys) belong to you. The operator never creates, changes or deletes them, so keep them in Git, encrypted with SOPS or similar. Everything else a plugin needs is rendered from Git, and plugins keep no state of their own.

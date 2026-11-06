@@ -1,4 +1,3 @@
-// Package zigbee2mqtt is the driver for Zigbee2MQTT instances.
 package zigbee2mqtt
 
 import (
@@ -18,6 +17,9 @@ import (
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
+// earlyLimit bounds what's kept from before the first device list.
+const earlyLimit = 4096
+
 // Instance follows one Zigbee2MQTT instance on the bus.
 type Instance struct {
 	// Key is the Zigbee2MQTT object.
@@ -34,6 +36,9 @@ type Instance struct {
 	paired      map[string]*paired              // IEEE address -> paired device
 	byName      map[string]string               // friendly name -> IEEE address
 	values      map[string]map[string]any       // IEEE address -> capability -> value
+	// early holds the latest message on each topic until the first device list, which is what
+	// resolves them. A broker sends retained messages in any order.
+	early map[string][]byte
 }
 
 type paired struct {
@@ -108,13 +113,36 @@ func (i *Instance) handle(m mqtt.Message) {
 	case rest == "bridge/devices":
 		i.handleDevices(m.Payload)
 	case strings.HasPrefix(rest, "bridge/"):
-	case strings.HasSuffix(rest, "/availability"):
-		i.handleAvailability(strings.TrimSuffix(rest, "/availability"), m.Payload)
+	case i.hold(rest, m.Payload):
 	default:
-		// A friendly name set in the frontend may contain slashes, so any other topic is a device's
-		// state if it resolves to one. Commands such as <name>/set don't.
-		i.handleState(rest, m.Payload)
+		i.handleDevice(rest, m.Payload)
 	}
+}
+
+// hold keeps a device's message until the first device list, and says whether it did.
+func (i *Instance) hold(rest string, payload []byte) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.paired != nil {
+		return false
+	}
+	if i.early == nil {
+		i.early = map[string][]byte{}
+	}
+	if _, held := i.early[rest]; held || len(i.early) < earlyLimit {
+		i.early[rest] = slices.Clone(payload)
+	}
+	return true
+}
+
+func (i *Instance) handleDevice(rest string, payload []byte) {
+	if name, ok := strings.CutSuffix(rest, "/availability"); ok {
+		i.handleAvailability(name, payload)
+		return
+	}
+	// A friendly name set in the frontend may contain slashes, so any other topic is a device's
+	// state if it resolves to one. Commands such as <name>/set don't.
+	i.handleState(rest, payload)
 }
 
 func (i *Instance) handleDevices(payload []byte) {
@@ -154,6 +182,8 @@ func (i *Instance) handleDevices(payload []byte) {
 		i.byName[ieee] = ieee
 	}
 	emit := i.discoveryLocked()
+	early := i.early
+	i.early = nil
 	i.mu.Unlock()
 	emit()
 	if inventory == nil {
@@ -161,6 +191,9 @@ func (i *Instance) handleDevices(payload []byte) {
 	}
 	slices.SortFunc(inventory, func(a, b driver.AppDevice) int { return strings.Compare(a.ID, b.ID) })
 	i.Sink.Inventory(driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: i.Key}, inventory)
+	for _, rest := range slices.Sorted(maps.Keys(early)) {
+		i.handleDevice(rest, early[rest])
+	}
 }
 
 // discoveryLocked computes discovery events; call the returned func after unlocking.
@@ -195,19 +228,11 @@ func (i *Instance) discoveryLocked() func() {
 }
 
 func (i *Instance) handleAvailability(name string, payload []byte) {
-	// Zigbee2MQTT 2.x publishes {"state":"online"}; older versions publish a bare string.
-	state := string(payload)
-	var obj struct {
-		State string `json:"state"`
-	}
-	if json.Unmarshal(payload, &obj) == nil && obj.State != "" {
-		state = obj.State
-	}
 	i.mu.Lock()
 	dev, ok := i.deviceLocked(name)
 	i.mu.Unlock()
 	if ok {
-		i.Sink.Availability(dev, state == "online")
+		i.Sink.Availability(dev, onlinePayload(payload))
 	}
 }
 

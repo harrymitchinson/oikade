@@ -132,7 +132,8 @@ type DeviceReport struct {
 	Error string `json:"error,omitempty"`
 }
 
-// State is a device's full current values: bool, or float64 within the capability's range.
+// State is a device's current values: bool, or float64 within the capability's range. It's full, but
+// for values a device has yet to report and can't be asked for.
 type State map[string]any
 
 // SetCommand is one capability of one device, as sent on <root>/<id>/set.

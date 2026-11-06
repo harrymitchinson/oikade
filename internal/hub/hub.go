@@ -24,8 +24,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
-	"github.com/harrymitchinson/oikade/internal/driver/zigbee2mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/plugins/zigbee2mqtt"
 )
 
 // Hub keeps a driver instance running for every driver object, a Zigbee2MQTT or a Plugin, feeds the

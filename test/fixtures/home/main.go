@@ -13,6 +13,7 @@ import (
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade/plugins/zigbee2mqtt"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
 )
@@ -311,6 +312,9 @@ func run(h framework.Home) {
 			Name: "once", Device: once, Capability: on, Value: true,
 			When: func(s framework.State) bool { return s.Bool("once-sensor", open) },
 		})
+	}
+	if variant == "zigbee" {
+		h.Plugins = []framework.Plugin{{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})}}
 	}
 	framework.Run(h)
 }

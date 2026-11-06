@@ -619,3 +619,38 @@ func TestSetDiscovered(t *testing.T) {
 	}
 	w.expect(root.Devices() + `={"devices":[],"undeclared":5}`)
 }
+
+func TestReportStatePublishesWhatsKnown(t *testing.T) {
+	ctx := testContext(t)
+	url := mqtttest.StartBroker(t)
+	p, _ := start(ctx, t, url, Options{OnSet: func(context.Context, *Plugin, contractv1.SetCommand) error { return nil }})
+	sensor := contractv1.DeviceReport{
+		ID: "sensor-1", Found: true, Capabilities: []string{"sensor.temperature", "battery.level"},
+	}
+	if err := p.SetDevices(ctx, []contractv1.DeviceReport{sensor}, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.UpdateState(ctx, "sensor-1", contractv1.State{"sensor.temperature": 21.5}); err == nil {
+		t.Fatal("UpdateState took a state with a value missing")
+	}
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"sensor.temperature": 21.5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"battery.level": 80.0}); err != nil {
+		t.Fatal(err)
+	}
+	want := contractv1.State{"sensor.temperature": 21.5, "battery.level": 80.0}
+	if got := p.State("sensor-1"); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v", got)
+	}
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"switch.on": true}); err == nil {
+		t.Error("took a capability the device hasn't announced")
+	}
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"battery.level": 900.0}); err == nil {
+		t.Error("took a value out of range")
+	}
+	if err := p.ReportState(ctx, "nobody", contractv1.State{"battery.level": 80.0}); err == nil {
+		t.Error("took a device that isn't found")
+	}
+}

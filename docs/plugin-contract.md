@@ -52,7 +52,7 @@ oikade/v1/<namespace>/<plugin>
 |---|---|---|---|
 | `status` | plugin → Oikade | yes | `{"state":"online","contract":1}`. Set the MQTT Last Will to `{"state":"offline","contract":1}`, retained. |
 | `devices` | plugin → Oikade | yes | The devices the plugin serves. See below. |
-| `<id>/state` | plugin → Oikade | yes | The device's **full** current values, such as `{"switch.on":true}`. |
+| `<id>/state` | plugin → Oikade | yes | The device's **full** current values, such as `{"switch.on":true}`, leaving out only values a device has yet to report and can't be asked for. |
 | `<id>/availability` | plugin → Oikade | yes | `online` or `offline`, as a bare string. |
 | `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"switch.on":false}`. |
 
@@ -116,7 +116,7 @@ A plugin that can list the devices in its app (a hub, a cloud account, a LAN sca
 
 ### `<id>/state`
 
-Publish the device's full current values every time one changes. Oikade compares them with the previous values, so unchanged values cost nothing. Use only capabilities announced for that id in `devices`. Booleans are JSON `true` or `false`, and numbers are JSON numbers within the capability's range.
+Publish the device's full current values every time one changes. Oikade compares them with the previous values, so unchanged values cost nothing. A device that reports when it chooses and can't be asked, such as a battery sensor, may leave out what it has yet to report: Go plugins use `ReportState` for that. Use only capabilities announced for that id in `devices`. Booleans are JSON `true` or `false`, and numbers are JSON numbers within the capability's range.
 
 ### `<id>/availability`
 
@@ -213,7 +213,7 @@ Inside this repo, `make test-conformance` runs the same suite under `go test` ag
 
 Plugins written in Go can use [the SDK](../sdk/plugin), which implements this contract, and the payload types in [`contract/v1`](../contract/v1), which Oikade's own decoder uses. Plugins in other languages implement this document directly and pass the conformance suite above. Oikade maintains no SDK for them.
 
-Each plugin lives in its own repo, `oikade-plugin-<name>`, with its own releases and its image at `ghcr.io/<github-user>/oikade-plugin-<name>`. Its image must run as UID 1000, as every plugin pod does. Start a Go plugin from the GitHub template [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template): one `plugin.Run` with a simulated relay handler to replace, a distroless multi-arch Dockerfile, CI that runs `oikade-conformance`, and releases that push the image. [`oikade-plugin-example-switch`](https://github.com/harrymitchinson/oikade-plugin-example-switch) is a plugin started from it:
+First-party plugins live in this repo, under [`plugins/`](../plugins). Anyone else's lives in its own repo, `oikade-plugin-<name>`, with its own releases and its image at `ghcr.io/<github-user>/oikade-plugin-<name>`. Its image must run as UID 1000, as every plugin pod does. Start a Go plugin from the GitHub template [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template): one `plugin.Run` with a simulated relay handler to replace, a distroless multi-arch Dockerfile, CI that runs `oikade-conformance`, and releases that push the image. [`oikade-plugin-example-switch`](https://github.com/harrymitchinson/oikade-plugin-example-switch) is a plugin started from it:
 
 ```sh
 gh repo create <you>/oikade-plugin-<name> --public --template harrymitchinson/oikade-plugin-template

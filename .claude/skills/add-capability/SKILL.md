@@ -27,7 +27,7 @@ Decide these four things before touching code, and state them to the user in one
 
 `TestRegistryStatus` covers the rest automatically.
 
-## 3. The zigbee2mqtt binding: `internal/driver/zigbee2mqtt/exposes.go`
+## 3. The zigbee2mqtt binding: `plugins/zigbee2mqtt/exposes.go`
 
 Find out what zigbee2mqtt actually publishes, from the device's page on zigbee2mqtt.io or from the user's `bridge/devices` output. Don't guess. Then work out:
 

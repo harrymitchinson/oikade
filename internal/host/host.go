@@ -47,7 +47,7 @@ type Host struct {
 	MetricsAddr string
 	// Matter serves a Matter bridge. Nil serves none.
 	Matter *Matter
-	// Broker is an MQTT broker of yours, for Outside.
+	// Broker is an MQTT broker of yours, for Outside and for imported plugins that use one.
 	Broker string
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
 	// Broker, under oikade/v1/home/<name>.
