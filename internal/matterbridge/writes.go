@@ -244,6 +244,14 @@ func (c *Coalescer) flush(dev types.NamespacedName) {
 	}
 }
 
+// Reported says the device has spoken, so what was last sent no longer says what it's doing: anything
+// could have moved it since. A repeated write then counts against the device's own state.
+func (c *Coalescer) Reported(dev types.NamespacedName, name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.sent, writeKey{dev, name})
+}
+
 // baseline is what a write is compared with: the value last sent, while the device may not have
 // reported it yet, or else the device's state.
 func (c *Coalescer) baseline(k writeKey) any {

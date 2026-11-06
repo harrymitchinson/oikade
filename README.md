@@ -565,7 +565,7 @@ oikade resume fan
 
 A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a Safety rule stops that protection, so it needs `--allow-safety`. So does pausing a rule holding a Safety claim, and anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause.
 
-`--json` on `status`, `tail`, `set`, `pause`, `resume` and `devices` prints JSON whose fields stay stable for scripts.
+`--json` on `status`, `tail`, `set`, `pause`, `resume`, `devices` and `matter` prints JSON whose fields stay stable for scripts.
 
 `--host NAME`, before or after the command, runs any of these and `deploy` and `rollback` on another machine over SSH, using your own SSH config. The SSH user must be the one running the host, with `oikade` on its `PATH`, and `--data-dir` means the directory over there. `deploy` copies the binary across first.
 
@@ -603,6 +603,20 @@ The manager's runtime serves the same names on `:8080/metrics` while it remains.
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.
 
 ## Matter bridge
+
+On the host, the bridge runs inside `oikade host`, so nothing your code does reaches a controller: a deploy, a crash or a stuck process leaves sessions up and devices working ([OIK-143](https://linear.app/oikade/issue/OIK-143)). A host crash does take the bridge down, until it restarts.
+
+```sh
+oikade matter    # the pairing codes, whether it's ready to pair, and what it's paired with
+```
+
+The host needs host networking on its machine: the same L2 network as your controllers, with mDNS and IPv6. `--matter-port` moves the bridge from UDP 5540, and 0 turns Matter off. `--matter-name` names it, and `--matter-interfaces` limits where it advertises. If its port is taken, or an interface isn't there, the host logs that and carries on without it, tries again every minute, and `oikade matter` says it's down and why: automations don't need it. While it's on no fabric, the commissioning window stays open for 15 minutes after the host starts. Restart the host to open it again.
+
+Every device on record with something Matter can show is on the bridge, at its [registry](#devices-on-the-host) endpoint, as soon as it's paired. Its label is its name, and a rename changes that in place: the endpoint and unique ID stay, so a controller keeps its room and scenes. Removing a device takes it off. A device whose driver hasn't reported yet stays on, unreachable, so controllers don't see it vanish.
+
+A controller's write goes through [arbitration](#arbitration) in the host, shown as `Matter`, and doesn't need your process. A capability a Safety claim holds refuses it, including a claim still on disk from before a restart: the write never reaches the device, the controller sees the value go back, and the log says who holds it. A device whose claim record can't be read counts as held at Safety: nothing writes it, nothing writes over the record, and the log says so. `oikade devices remove --allow-safety` clears it.
+
+The rest of this section describes the bridge in Kubernetes, which remains until the host replaces it.
 
 Oikade reaches the Home app and other controllers through Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The operator runs **`manager matter`** for each `matter.oikade.dev` `Bridge`: one pod with `hostNetwork`, which controllers find over mDNS and reach over IPv6 on a UDP port allocated from `spec.portRange` (5540 to 5640 by default). It follows the bus itself, so controllers keep working while the runtime is down, and only reads the API. Each Device the Bridge's `deviceSelector` selects (every Device, if empty) with something Matter can show is a bridged endpoint, mapped as in [Capabilities](#capabilities). A Device annotated `oikade.dev/matter: hide` is left out of every bridge.
 
@@ -662,6 +676,10 @@ If the registry is lost, `oikade devices restore devices.go` reads the file back
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
+- **The host's data directory** (`/var/lib/oikade` by default) is everything a home on the host has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, and latches, claims, flows and your deployed versions. **Back up one directory.** Stop the host first, or copy `oikade.db` from a snapshot of the disk, because a file copied while it changes may not open.
+  - **Upgrade:** a new `oikade` opens the same directory, and nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
+  - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
+  - **Restore:** a host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them.
 - **The Matter bridge's Secret** (`<bridge>-matter`: the setup code, unique ID and attestation key, and a copy of the endpoint IDs) and **fabrics** (`<bridge>-matter` PVC: operational keys and certificates, and access control) have no owner reference. Deleting a Bridge keeps them, and a Bridge applied again gets its old pairing code and endpoint IDs back. If the PVC is lost, commission the bridge again.
 - **The device registry** is in the host's data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikade types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikade types` aren't in it, so run it after pairing.
 - **Matter endpoint IDs** live in `Bridge.status.endpoints`, with a copy in the Secret. They are only ever appended: never reused or reordered, and kept for deleted Devices, so a Device that comes back gets its old ID.

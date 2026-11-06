@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -44,7 +45,9 @@ type Host struct {
 	HeartbeatTimeout time.Duration
 	// MetricsAddr is where metrics and health are served over HTTP, read-only. Empty serves none.
 	MetricsAddr string
-	Log         logr.Logger
+	// Matter serves a Matter bridge. Nil serves none.
+	Matter *Matter
+	Log    logr.Logger
 }
 
 // Run serves until ctx ends, then stops your process and closes the store.
@@ -85,11 +88,23 @@ func (h *Host) Run(ctx context.Context) error {
 		paused:  &engine.Stored[time.Time]{Values: data.Namespace(pausedNamespace), Log: h.Log},
 		feed:    newFeed(), pushed: &pushed{},
 	}
-	devices := hub.NewStore(h.Log.WithName("devices"), eng, srv)
+	sinks := []driver.Sink{eng, srv}
+	bridge, err := h.openMatter(data)
+	if err != nil {
+		return err
+	}
+	if bridge.working() {
+		sinks = append(sinks, bridge)
+	}
+	devices := hub.NewStore(h.Log.WithName("devices"), sinks...)
 	known := newInventory(devicesOnRecord, devices, eng, h.Log.WithName("registry"))
 	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
-	eng.Store, eng.Setter, srv.devices, srv.setter = devices, sim, devices, sim
+	setter := claimedSetter{engine: eng, setter: sim}
+	eng.Store, eng.Setter, srv.devices, srv.setter = devices, setter, devices, setter
 	eng.Init()
+	if bridge.working() {
+		bridge.connect(devices, known, eng, setter)
+	}
 	if err := sim.start(h.Devices); err != nil {
 		return err
 	}
@@ -127,9 +142,12 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
-	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known}
+	calls := &apiServer{log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge}
 	serving.Go(func() { calls.serve(apiListener) })
 	serving.Go(func() { observing(ctx) })
+	if bridge.working() {
+		serving.Go(func() { bridge.run(ctx) })
+	}
 	<-ctx.Done()
 	_ = listener.Close()
 	_ = apiListener.Close()

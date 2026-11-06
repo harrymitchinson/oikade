@@ -32,6 +32,19 @@ type Device struct {
 	Capabilities []string
 	// Type overrides the device type family of a switch.on Device.
 	Type homev1alpha1.MatterDeviceType
+	// Unique is the bridged device's UniqueID. Empty derives it from Key, which suits a Key that never
+	// changes.
+	Unique string
+	// Absent is a device with no driver reporting it yet: it's on the bridge, and unreachable.
+	Absent bool
+}
+
+// uniqueID is the bridged device's UniqueID.
+func (d Device) uniqueID() string {
+	if d.Unique != "" {
+		return d.Unique
+	}
+	return UniqueID(d.Key)
 }
 
 // Mapped is a Device as a bridged endpoint: its device types and clusters, and how bus state

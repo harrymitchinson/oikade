@@ -27,6 +27,7 @@ const (
 	TypePause    = "pause"
 	TypeResume   = "resume"
 	TypeTail     = "tail"
+	TypeMatter   = "matter"
 
 	TypeDevices       = "devices"
 	TypeDeviceName    = "deviceName"
@@ -88,6 +89,37 @@ type Response struct {
 	Registry *registry.Snapshot `json:"registry,omitempty"`
 	// Moved are the devices a restore had to give a new endpoint or name.
 	Moved []string `json:"moved,omitempty"`
+	// Matter is a matter request's.
+	Matter *Matter `json:"matter,omitempty"`
+}
+
+// Matter is the host's Matter bridge. Its JSON is what oikade matter --json prints, so scripts rely on
+// it: add to it, and don't rename.
+type Matter struct {
+	// Serving is whether the bridge is up. It's down if its port is taken, mDNS wouldn't start, or
+	// what it keeps in the store can't be read.
+	Serving bool `json:"serving"`
+	// Problem is why it's down, or why it last went down while it's trying again.
+	Problem string `json:"problem,omitempty"`
+	// Port is its UDP port.
+	Port uint16 `json:"port"`
+	// ManualCode and QRCode pair it. They stay the same for as long as the data directory does, and
+	// are empty if the bridge's identity can't be read.
+	ManualCode string `json:"manualCode"`
+	QRCode     string `json:"qrCode"`
+	// Passcode is the setup passcode they carry.
+	Passcode uint32 `json:"passcode"`
+	// Window is whether a controller can commission it now.
+	Window bool `json:"window"`
+	// Fabrics are the controllers it's paired with.
+	Fabrics []Fabric `json:"fabrics"`
+}
+
+// Fabric is one controller's fabric.
+type Fabric struct {
+	Index    uint8  `json:"index"`
+	VendorID uint16 `json:"vendorID"`
+	Label    string `json:"label,omitempty"`
 }
 
 // Status is what the host knows now. Its JSON is what oikade status --json prints, so scripts rely on

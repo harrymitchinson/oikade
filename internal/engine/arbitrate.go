@@ -27,6 +27,14 @@ type ControlState map[string]control.State
 // ControlStates keeps ControlStates, by Device.
 type ControlStates = States[ControlState]
 
+// unreadableStates is States that can tell a state it can't read from one that isn't there.
+type unreadableStates interface {
+	Unreadable(key types.NamespacedName) error
+}
+
+// UnreadableClaims is who holds a device whose saved claims can't be read.
+const UnreadableClaims = "an unreadable claim record"
+
 // allLevels is a release of every claim, whatever its level.
 const allLevels = control.LevelDefault
 
@@ -169,6 +177,12 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 			st = old.a.State()
 		} else {
 			if !loaded {
+				if err := e.unreadableClaims(dev); err != nil {
+					// It may hold a Safety claim, so it stays, and no arbiter starts empty to save
+					// over it. UnreadableClaim refuses writes in the meantime.
+					e.Log.Error(err, "Refused writes to a device whose claims can't be read", "device", dev)
+					return
+				}
 				saved, _ = e.Controls.Get(dev)
 				loaded = true
 			}
@@ -299,7 +313,7 @@ func earliestOf(a, b time.Time) time.Time {
 
 // writeControl writes a decision, records it, and decides again.
 func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, name string, ar *arb, value float64) {
-	err := e.Setter.Set(ctx, dev, name, valueOf(name, value))
+	err := e.Setter.Set(ctx, dev, name, ValueOf(name, value))
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ar.writing = false
@@ -325,8 +339,8 @@ func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, nam
 	e.signal()
 }
 
-// valueOf turns an arbiter value into the capability's value.
-func valueOf(name string, v float64) any {
+// ValueOf turns an arbiter value into the capability's value.
+func ValueOf(name string, v float64) any {
 	if spec, ok := capability.Lookup(name); ok && spec.Kind == homev1alpha1.CapabilityKindBool {
 		return v != 0
 	}
@@ -387,6 +401,14 @@ func (e *Engine) recordOutside(dev types.NamespacedName, name string, ar *arb, v
 // write before making it, and the bus delivers in order, so this comes before the change.
 func (e *Engine) MatterWrote(dev types.NamespacedName, name string, value any) {
 	e.bridgeWrote(SourceMatter, dev, name, value)
+}
+
+// ForgetMatterWrite undoes MatterWrote for a write that never reached the device, so the device's
+// next report isn't taken for it.
+func (e *Engine) ForgetMatterWrite(dev types.NamespacedName, name string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.forgetBridgeWrite(dev, name)
 }
 
 // CommandWrote records that the oikade command is writing value to an arbitrated capability, which
@@ -588,9 +610,28 @@ func (e *Engine) ForgetDevice(ctx context.Context, dev types.NamespacedName) err
 	return nil
 }
 
+func (e *Engine) unreadableClaims(dev types.NamespacedName) error {
+	if s, ok := e.Controls.(unreadableStates); ok {
+		return s.Unreadable(dev)
+	}
+	return nil
+}
+
+// UnreadableClaim is the Safety claim a device's saved claims count as while they can't be read,
+// because they might be one. It holds the whole device until they can be, or ForgetDevice clears them.
+func (e *Engine) UnreadableClaim(dev types.NamespacedName) (control.Claim, bool) {
+	if e.unreadableClaims(dev) == nil {
+		return control.Claim{}, false
+	}
+	return control.Claim{Source: UnreadableClaims, Level: control.Safety}, true
+}
+
 // SavedClaims returns the live claims on record for a device with no arbiters, such as one the host
 // hasn't heard from.
 func (e *Engine) SavedClaims(dev types.NamespacedName) []control.Claim {
+	if c, ok := e.UnreadableClaim(dev); ok {
+		return []control.Claim{c}
+	}
 	saved, ok := e.Controls.Get(dev)
 	if !ok {
 		return nil
@@ -605,6 +646,24 @@ func (e *Engine) SavedClaims(dev types.NamespacedName) []control.Claim {
 		}
 	}
 	return claims
+}
+
+// SavedSafety finds a Safety claim on record against value, for a capability with no arbiter yet.
+func (e *Engine) SavedSafety(dev types.NamespacedName, name string, value float64) (control.Claim, bool) {
+	if c, ok := e.UnreadableClaim(dev); ok {
+		return c, true
+	}
+	saved, ok := e.Controls.Get(dev)
+	if !ok {
+		return control.Claim{}, false
+	}
+	now := e.Clock.Now()
+	for _, c := range saved[name].Claims {
+		if c.Level == control.Safety && c.Value != value && (c.Expires.IsZero() || c.Expires.After(now)) {
+			return c, true
+		}
+	}
+	return control.Claim{}, false
 }
 
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
@@ -738,7 +797,7 @@ func levelName(l control.Level) homev1alpha1.ControlLevel {
 }
 
 func jsonValue(name string, v float64) apiextensionsv1.JSON {
-	raw, _ := json.Marshal(valueOf(name, v))
+	raw, _ := json.Marshal(ValueOf(name, v))
 	return apiextensionsv1.JSON{Raw: raw}
 }
 

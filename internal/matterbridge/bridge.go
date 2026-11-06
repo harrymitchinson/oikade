@@ -3,13 +3,16 @@ package matterbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,12 +36,17 @@ import (
 
 // endpoint is a Device on the bridge.
 type endpoint struct {
-	key       types.NamespacedName
+	// key is where its writes go. It's read under the node's lock, where b.mu can't be taken, and
+	// changes when a device's name does.
+	key       atomic.Pointer[types.NamespacedName]
 	signature string
 	label     string
+	absent    bool
 	mapped    *Mapped
 	info      *clusters.BridgedInfo
 }
+
+func (e *endpoint) device() types.NamespacedName { return *e.key.Load() }
 
 // Bridge keeps a Matter bridge's endpoints in step with its Bridge object and Devices, and their
 // clusters in step with the bus. It's a driver.Sink for the hub's Store, and a controller.
@@ -59,6 +67,9 @@ type Bridge struct {
 
 // Changed implements driver.Sink.
 func (b *Bridge) Changed(u driver.Update) {
+	if b.Writes != nil {
+		b.Writes.Reported(u.Device, u.Capability)
+	}
 	b.mu.Lock()
 	e := b.byDevice[u.Device]
 	b.mu.Unlock()
@@ -80,7 +91,6 @@ func (b *Bridge) Availability(dev types.NamespacedName, online bool) {
 // Reconcile adds, removes and rebuilds endpoints to match the selected Devices that have an
 // endpoint ID and something Matter can show.
 func (b *Bridge) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
 	var br matterv1alpha1.Bridge
 	if err := b.Get(ctx, b.Key, &br); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -89,7 +99,26 @@ func (b *Bridge) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, er
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	return ctrl.Result{}, b.Apply(logf.FromContext(ctx), want)
+}
 
+// Restore takes a capability's clusters back after a write that didn't happen: to the device's value,
+// or to otherwise if the device hasn't reported one. Nil leaves them.
+func (b *Bridge) Restore(dev types.NamespacedName, name string, otherwise any) {
+	v := otherwise
+	if snap, ok := b.Store.Get(dev); ok {
+		if known, has := snap.Values[name]; has {
+			v = known
+		}
+	}
+	if v != nil {
+		b.Changed(driver.Update{Device: dev, Capability: name, Value: v})
+	}
+}
+
+// Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose device
+// takes another name keeps its clusters, and its writes go to the new name.
+func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.endpoints == nil {
@@ -100,50 +129,68 @@ func (b *Bridge) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, er
 			if label := Label(d.Name); label != e.label {
 				e.label = label
 				b.Matter.Node.Update(func() { e.info.SetLabel(label) })
-				log.Info("Renamed bridged device", "device", e.key, "endpoint", id)
+				log.Info("Renamed bridged device", "device", e.device(), "endpoint", id)
 			}
 			continue
 		}
 		b.Matter.RemoveDevice(id)
 		delete(b.endpoints, id)
-		delete(b.byDevice, e.key)
-		log.Info("Removed bridged device", "device", e.key, "endpoint", id)
+		log.Info("Removed bridged device", "device", e.device(), "endpoint", id)
+	}
+	// Names can swap, so what each endpoint is called now is worked out in one go. Different hardware
+	// can have taken a name with no event at all, so each is brought up to date.
+	byDevice := map[types.NamespacedName]*endpoint{}
+	for id, e := range b.endpoints {
+		d := want[id]
+		e.key.Store(&d.Key)
+		e.absent = d.Absent
+		byDevice[d.Key] = e
+	}
+	b.byDevice = byDevice
+	for _, e := range b.endpoints {
+		b.refresh(e)
 	}
 	ids := make([]uint16, 0, len(want))
 	for id := range want {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
+	var failed error
 	for _, id := range ids {
 		if b.endpoints[id] != nil {
 			continue
 		}
 		d := want[id]
-		key := d.Key
-		m := Map(d, func(name string, value any) { b.Writes.Add(key, name, value) })
-		label := Label(d.Name)
-		info, err := b.Matter.AddDeviceTypes(id, m.Types, label, UniqueID(key), m.Clusters...)
+		e := &endpoint{signature: d.Signature(), label: Label(d.Name), absent: d.Absent}
+		e.key.Store(&d.Key)
+		e.mapped = Map(d, func(name string, value any) { b.Writes.Add(e.device(), name, value) })
+		info, err := b.Matter.AddDeviceTypes(id, e.mapped.Types, e.label, d.uniqueID(), e.mapped.Clusters...)
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("adding %s on endpoint %d: %w", key, id, err)
+			failed = errors.Join(failed, fmt.Errorf("adding %s on endpoint %d: %w", d.Key, id, err))
+			continue
 		}
-		e := &endpoint{key: key, signature: d.Signature(), label: label, mapped: m, info: info}
-		b.endpoints[id], b.byDevice[key] = e, e
+		e.info = info
+		b.endpoints[id], b.byDevice[d.Key] = e, e
 		// Start from the bus's state, then follow it.
-		snap, ok := b.Store.Get(key)
-		b.Matter.Node.Update(func() {
-			if !ok {
-				return
-			}
-			for name, v := range snap.Values {
-				m.Update(name, v)
-			}
-			if snap.Online != nil {
-				info.SetReachable(*snap.Online)
-			}
-		})
-		log.Info("Added bridged device", "device", key, "endpoint", id, "types", len(m.Types))
+		b.refresh(e)
+		log.Info("Added bridged device", "device", d.Key, "endpoint", id, "types", len(e.mapped.Types))
 	}
-	return ctrl.Result{}, nil
+	return failed
+}
+
+// refresh brings an endpoint's clusters up to date with the device it's for.
+func (b *Bridge) refresh(e *endpoint) {
+	snap, _ := b.Store.Get(e.device())
+	b.Matter.Node.Update(func() {
+		if e.absent {
+			e.info.SetReachable(false)
+			return
+		}
+		for name, v := range snap.Values {
+			e.mapped.Update(name, v)
+		}
+		e.info.SetReachable(snap.Online == nil || *snap.Online)
+	})
 }
 
 // devices returns the selected Devices that have an endpoint ID and map to Matter, by endpoint.

@@ -190,21 +190,31 @@ var _ HoldStates = (*Stored[HoldState])(nil)
 // Get implements States. A state it can't decode counts as none, as with Retained. The store fails
 // a read only once it's closed, when Put fails too, so that can't overwrite a state.
 func (s *Stored[T]) Get(key types.NamespacedName) (T, bool) {
-	var state T
-	payload, ok, err := s.Values.Get(key.String())
+	state, ok, err := s.read(key)
 	if err != nil {
-		s.Log.Error(err, "Failed to read saved state", "key", key.String())
-		return state, false
-	}
-	if !ok {
-		return state, false
-	}
-	if err := json.Unmarshal(payload, &state); err != nil {
 		s.Log.Error(err, "Ignored unreadable saved state", "key", key.String())
 		var none T
 		return none, false
 	}
-	return state, true
+	return state, ok
+}
+
+// Unreadable implements unreadableStates.
+func (s *Stored[T]) Unreadable(key types.NamespacedName) error {
+	_, _, err := s.read(key)
+	return err
+}
+
+func (s *Stored[T]) read(key types.NamespacedName) (T, bool, error) {
+	var state T
+	payload, ok, err := s.Values.Get(key.String())
+	if err != nil || !ok {
+		return state, false, err
+	}
+	if err := json.Unmarshal(payload, &state); err != nil {
+		return state, false, err
+	}
+	return state, true, nil
 }
 
 // Names returns the names of the states saved in a namespace.
