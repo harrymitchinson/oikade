@@ -22,7 +22,7 @@ func manifest(rules ...wire.RuleInfo) wire.Manifest {
 func TestRenamedLatchedSafetyHoldIsFlagged(t *testing.T) {
 	old := manifest(wire.RuleInfo{Name: "leak", Kind: "hold", Safety: true, Latch: true}, wire.RuleInfo{Name: "fan", Kind: "hold"})
 	next := manifest(wire.RuleInfo{Name: "water-leak", Kind: "hold", Safety: true, Latch: true}, wire.RuleInfo{Name: "fan", Kind: "hold"})
-	findings := safetyFindings(old, next, nil)
+	findings := safetyFindings(old, next, nil, noneHeld)
 	if len(findings) != 1 || !strings.Contains(findings[0], `"leak"`) || !strings.Contains(findings[0], "latch") {
 		t.Fatalf("got %q", findings)
 	}
@@ -43,7 +43,7 @@ func TestOnlySafetyRulesAreFlagged(t *testing.T) {
 		"the rule and its claim":    {manifest(), map[string]control.Level{"leak": control.Safety}, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := safetyFindings(old, tc.next, tc.held); len(got) != tc.want {
+			if got := safetyFindings(old, tc.next, tc.held, noneHeld); len(got) != tc.want {
 				t.Fatalf("got %q, want %d findings", got, tc.want)
 			}
 		})
@@ -456,5 +456,25 @@ func TestAStaleConnectionNeverAttaches(t *testing.T) {
 	s.disconnect()
 	if s.attach(stale, wire.Message{}, nil) {
 		t.Fatal("it attached")
+	}
+}
+
+func noneHeld(string, string) bool { return false }
+
+func TestDroppingAControlThatHoldsASafetyClaimIsAFinding(t *testing.T) {
+	entry := func(c string) wire.DeviceControl {
+		return wire.DeviceControl{Device: "valve", Entry: control.Entry{Capability: c}}
+	}
+	old := wire.Manifest{Control: []wire.DeviceControl{entry("switch.on"), entry("light.on")}}
+	next := wire.Manifest{Control: []wire.DeviceControl{entry("light.on")}}
+	held := func(device, name string) bool { return device == "valve" && name == "switch.on" }
+	if got := safetyFindings(old, next, nil, held); len(got) != 1 {
+		t.Fatalf("findings %v, want one", got)
+	}
+	if got := safetyFindings(old, next, nil, noneHeld); len(got) != 0 {
+		t.Fatalf("findings %v with nothing held", got)
+	}
+	if got := safetyFindings(old, old, nil, held); len(got) != 0 {
+		t.Fatalf("findings %v with nothing dropped", got)
 	}
 }

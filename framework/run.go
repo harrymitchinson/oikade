@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -41,7 +42,7 @@ func run(h Home, log logr.Logger) error {
 		return json.NewEncoder(os.Stdout).Encode(h.manifest())
 	}
 	if len(os.Args) > 1 && os.Args[1] == wire.RoleDev {
-		return runDev(h, log)
+		return runDev(h)
 	}
 	if len(os.Args) < 2 || (os.Args[1] != wire.RoleAutomations && os.Args[1] != wire.RolePlugin) {
 		return errors.New("this is a home: run it with oikade host")
@@ -185,7 +186,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 
 // runDev is oikade dev: the home on a simulated one, driven from standard input. The devices are the
 // ones in the file oikade types wrote, named after the role.
-func runDev(h Home, log logr.Logger) error {
+func runDev(h Home) error {
 	if len(os.Args) != 3 {
 		return errors.New("run this with oikade dev")
 	}
@@ -199,6 +200,8 @@ func runDev(h Home, log logr.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Standard output is the conversation with you, so the log goes beside it.
+	log := funcr.New(func(prefix, args string) { fmt.Fprintln(os.Stderr, prefix, args) }, funcr.Options{})
 	return simhome.Dev(ctx, simhome.Options{
 		Home: home, Devices: devices, Start: time.Now().Truncate(time.Minute), Location: time.Local, Log: log,
 	}, os.Stdin, os.Stdout)
@@ -331,6 +334,9 @@ func discovered(mirror *hub.Store, metas map[types.NamespacedName]hub.Meta, sett
 		changed(mirror, wire.Message{Device: d.Name, Capability: name, Value: v})
 	}
 	mirror.Discovered(deviceKey(d.Name), driver.Info{Found: true, Capabilities: d.Capabilities})
+	if !d.LastSeen.IsZero() {
+		mirror.Seen(deviceKey(d.Name), d.LastSeen)
+	}
 }
 
 // changed applies a change. The host may repeat one around the Welcome, so a value it already has

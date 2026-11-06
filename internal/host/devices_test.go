@@ -176,3 +176,38 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 		t.Fatalf("resolve %s, want what's on record", got)
 	}
 }
+
+func TestAProcessCantDropASetting(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logr.Discard()), nil, logr.Discard())
+	setting := func(device, resolve string) wire.DeviceControl {
+		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.SwitchOn, Resolve: resolve}}
+	}
+	if err := known.takeHome([]wire.DeviceControl{setting("a", control.NamePreferOn), setting("b", control.NamePreferOn)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := known.takeHome([]wire.DeviceControl{setting("a", control.NamePreferOff)}); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, c := range known.home {
+		got[c.Device] = c.Entry.Resolve
+	}
+	if got["a"] != control.NamePreferOff || got["b"] != control.NamePreferOn {
+		t.Fatalf("after taking: %v", got)
+	}
+	if err := known.setHome([]wire.DeviceControl{setting("a", control.NamePreferOff)}); err != nil {
+		t.Fatal(err)
+	}
+	if len(known.home) != 1 {
+		t.Fatalf("after settling: %v", known.home)
+	}
+}

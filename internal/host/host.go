@@ -113,7 +113,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := known.loadHome(); err != nil {
 		return fmt.Errorf("reading the home's device settings: %w", err)
 	}
-	srv.settings = known.setHome
+	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
 	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)

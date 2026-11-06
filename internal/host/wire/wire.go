@@ -74,6 +74,8 @@ type Manifest struct {
 	Rules    []RuleInfo `json:"rules"`
 	// Plugins names the plugins the binary imports.
 	Plugins []string `json:"plugins,omitempty"`
+	// Control is every device setting the home declares.
+	Control []DeviceControl `json:"control,omitempty"`
 }
 
 // DeviceControl is how a home arbitrates one capability of a device.

@@ -541,7 +541,7 @@ oikade init
 oikade test
 ```
 
-`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, using the secret `OIKADE_SSH_KEY` and the variable `OIKADE_HOST`. `oikade types` replaces `devices.go` once you have real devices.
+`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, using the variable `OIKADE_HOST`, as `user@address`, and the secrets `OIKADE_SSH_KEY` and `OIKADE_KNOWN_HOSTS`, which is the host's line from your `known_hosts`. `oikade types` replaces `devices.go` once you have real devices.
 
 ```go
 func home() framework.Home {
@@ -576,7 +576,7 @@ Fri 18:46 Wrote porch-light light.on = false
 Fri 18:46 Hold porch-light ended
 ```
 
-`status` shows every device and what holds it, and `restart` crashes your automations and starts them again.
+`status` shows every device and what holds it, and `restart` crashes your automations and starts them again. Your automations' log goes to standard error.
 
 `oikade test` is `go test`. The `hometest` package runs the real engine, arbiters and planner in your test: set device values, move a fake clock, and look at writes and claims. A restart in the middle of a flow is one call:
 
@@ -591,7 +591,7 @@ func TestBedtimeSurvivesACrash(t *testing.T) {
 }
 ```
 
-The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A wait that ends inside an `Advance` wakes up to a minute late, and the clock stops exactly where you said.
+The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A mistake in a condition goes to the test's log, which `go test` shows when it fails.
 
 Arbitration and budgets are declared in the same `Home`. `Control` is [a Device's `control`](#arbitration), and a `Hold` with a `Budget` is [a budget Rule](#budgets), on the same planner:
 
@@ -616,7 +616,7 @@ framework.Home{
 }
 ```
 
-`Budget.Minutes` is a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes when the new version connects. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
+`Budget.Minutes` is a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
 
 ## Deploying to the host
 

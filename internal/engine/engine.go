@@ -112,10 +112,10 @@ type Engine struct {
 	// Budget are the budget holds' metrics. Nil exports none.
 	Budget *BudgetMetrics
 	// OnEnd, if set, hears a run that OnStart heard end, with its result. OnPark, if set, hears a run
-	// begin waiting (1) and stop (-1). Together they let a simulated home tell a run that's waiting
-	// from one that's working. OnPark must not block.
+	// begin waiting. Together they let a simulated home tell a run that's waiting from one that's
+	// working.
 	OnEnd  func(key types.NamespacedName, result string)
-	OnPark func(delta int)
+	OnPark Park
 
 	events chan driver.Update
 	// wake makes Run look at the timers again.
@@ -648,14 +648,14 @@ func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Co
 	for _, a := range c.actions {
 		if a.delay > 0 {
 			timer := e.Clock.After(a.delay)
-			e.park(1)
+			unpark := e.OnPark.Wait(e.Clock.Now().Add(a.delay), nil)
 			select {
 			case <-ctx.Done():
-				e.park(-1)
+				unpark()
 				return ResultCancelled, skipped
 			case <-timer:
 			}
-			e.park(-1)
+			unpark()
 			continue
 		}
 		if ctx.Err() != nil {
@@ -765,10 +765,16 @@ func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
 	}
 }
 
-func (e *Engine) park(delta int) {
-	if e.OnPark != nil {
-		e.OnPark(delta)
+// Park hears that a run is waiting until wake, or until woken closes if that's not nil, and returns
+// what the run calls when it stops. It must not block.
+type Park func(wake time.Time, woken <-chan struct{}) (unpark func())
+
+// Wait is p, or nothing if p isn't set.
+func (p Park) Wait(wake time.Time, woken <-chan struct{}) func() {
+	if p == nil {
+		return func() {}
 	}
+	return p(wake, woken)
 }
 
 // Idle reports that the engine has caught up with the clock: nothing is queued, every rule has looked

@@ -92,6 +92,37 @@ func replaceIn(t *testing.T, path, from, to string) {
 	}
 }
 
+func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
+	bin := oikade(t)
+	dir := t.TempDir()
+	mine := filepath.Join(dir, ".github", "workflows", "ci.yml")
+	if err := os.MkdirAll(filepath.Dir(mine), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mine, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, bin, dir, "", "init", "--source", t.TempDir()); err == nil {
+		t.Fatalf("init from no checkout passed:\n%s", out)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != ".github" {
+		t.Errorf("left behind %v", entries)
+	}
+	if _, err := os.Stat(mine); err != nil {
+		t.Error(err)
+	}
+	if out, err := run(t, bin, dir, "", "init", "--source", repo(t)); err != nil {
+		t.Fatalf("a second try: %v\n%s", err, out)
+	}
+	if out, err := run(t, bin, dir, "", "init", "--source", repo(t)); err == nil {
+		t.Fatalf("init over a home passed:\n%s", out)
+	}
+}
+
 func TestCheckFailsOnAMisspeltDevice(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)

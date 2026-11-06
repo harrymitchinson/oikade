@@ -11,10 +11,10 @@ import (
 	"maps"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
@@ -28,14 +28,10 @@ import (
 )
 
 const (
-	// step is the longest the clock moves at once while a run waits, so a wait ends at most this late
-	// within a longer move.
-	step = time.Minute
 	// settleTimeout is how long the engine has to catch up with one move of the clock.
 	settleTimeout = 10 * time.Second
-	// quiet is how long the engine must stay idle to count as settled. A timer that has fired takes
-	// a moment to reach the run waiting on it.
-	quiet = time.Millisecond
+	// quiet is how long the engine must stay idle to count as settled, for work it hasn't seen yet.
+	quiet = 200 * time.Microsecond
 )
 
 // instance is the driver instance simulated devices belong to.
@@ -105,13 +101,15 @@ type Sim struct {
 	stop    func()
 	stopped chan struct{}
 
-	running, parked atomic.Int64
-
 	mu     sync.Mutex
 	writes []Write
 	events []Event
 	active map[string]bool
 	ended  map[string][]string
+	// runs counts the runs going on, by rule, and parked says which of them are waiting.
+	runs   map[string]int
+	parked map[int]parked
+	parks  int
 	fires  map[string]time.Time
 }
 
@@ -121,6 +119,7 @@ func New(o Options) (*Sim, error) {
 		home: o.Home, devices: o.Devices, clock: clocktesting.NewFakeClock(o.Start), location: o.Location, log: o.Log,
 		holds: newMemory[engine.HoldState](), controls: newMemory[engine.ControlState](), journal: newJournal(),
 		ended: map[string][]string{}, fires: map[string]time.Time{}, active: map[string]bool{},
+		runs: map[string]int{}, parked: map[int]parked{},
 	}
 	if s.location == nil {
 		s.location = o.Start.Location()
@@ -172,11 +171,18 @@ func (s *Sim) start() error {
 	eng := &engine.Engine{
 		Store: s.store, Setter: driver.SetterFunc(s.set), States: s.holds, Controls: s.controls, Clock: s.clock,
 		Location: s.location, Log: s.log.WithName("automations"),
-		OnPark: func(delta int) { s.parked.Add(int64(delta)) },
+		OnPark: s.park,
+		OnBudget: func(key types.NamespacedName, r engine.BudgetReport) {
+			if r.Planned == metav1.ConditionFalse {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				s.note("Budget "+key.Name, " couldn't plan: "+r.Message)
+			}
+		},
 		OnEnd: func(key types.NamespacedName, result string) {
-			s.running.Add(-1)
 			s.mu.Lock()
 			defer s.mu.Unlock()
+			s.runs[key.Name]--
 			if result != engine.ResultCancelled {
 				s.ended[key.Name] = append(s.ended[key.Name], result)
 				s.note(key.Name, " "+result)
@@ -195,9 +201,9 @@ func (s *Sim) start() error {
 		},
 	}
 	eng.OnStart = func(key types.NamespacedName, _ time.Time) {
-		s.running.Add(1)
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		s.runs[key.Name]++
 		s.note(key.Name, " started")
 	}
 	eng.Init()
@@ -303,18 +309,21 @@ func (s *Sim) Set(device, name string, value any) error {
 	return s.settle()
 }
 
-// Advance moves the clock on. A wait that ends inside the move ends at most a minute late, and the
-// clock stops exactly at the end.
+// Advance moves the clock on, from one thing the home has to do to the next.
 func (s *Sim) Advance(d time.Duration) error {
 	to := s.clock.Now().Add(d)
 	for s.clock.Now().Before(to) {
 		next := to
-		if at := s.engine.Earliest(); s.parked.Load() == 0 && !at.IsZero() && at.Before(next) {
+		if at := s.engine.Earliest(); !at.IsZero() && at.Before(next) {
 			next = at
 		}
-		if limit := s.clock.Now().Add(step); s.parked.Load() > 0 && limit.Before(next) {
-			next = limit
+		s.mu.Lock()
+		for _, p := range s.parked {
+			if p.wake.Before(next) {
+				next = p.wake
+			}
 		}
+		s.mu.Unlock()
 		if !next.After(s.clock.Now()) {
 			next = s.clock.Now().Add(time.Second)
 		}
@@ -336,8 +345,10 @@ func (s *Sim) Restart() error {
 	}
 	s.stop()
 	<-s.stopped
-	s.running.Store(0)
-	s.parked.Store(0)
+	s.mu.Lock()
+	clear(s.runs)
+	clear(s.parked)
+	s.mu.Unlock()
 	if err := s.start(); err != nil {
 		return err
 	}
@@ -389,7 +400,7 @@ func (s *Sim) Claims(device, name string) []Claim {
 func (s *Sim) Finished(rule string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.Contains(s.ended[rule], engine.ResultSucceeded) && !s.journal.has(rule)
+	return slices.Contains(s.ended[rule], engine.ResultSucceeded) && s.runs[rule] == 0
 }
 
 // Failed says how the runs of a flow or moment that didn't succeed ended.
@@ -399,11 +410,54 @@ func (s *Sim) Failed(rule string) []string {
 	return slices.DeleteFunc(slices.Clone(s.ended[rule]), func(r string) bool { return r == engine.ResultSucceeded })
 }
 
+// parked is a run that's waiting.
+type parked struct {
+	wake  time.Time
+	woken <-chan struct{}
+}
+
+func (s *Sim) park(wake time.Time, woken <-chan struct{}) func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := s.parks
+	s.parks++
+	s.parked[id] = parked{wake, woken}
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.parked, id)
+	}
+}
+
+// runsWaiting says every run is waiting for something that hasn't happened yet, so none is working
+// or about to.
+func (s *Sim) runsWaiting() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	running := 0
+	for _, n := range s.runs {
+		running += n
+	}
+	if running != len(s.parked) {
+		return false
+	}
+	now := s.clock.Now()
+	for _, p := range s.parked {
+		if !p.wake.After(now) {
+			return false
+		}
+		select {
+		case <-p.woken:
+			return false
+		default:
+		}
+	}
+	return true
+}
+
 // settle waits for the engine and every run to catch up with the clock.
 func (s *Sim) settle() error {
-	settled := func() bool {
-		return s.engine.Idle(s.clock.HasWaiters) && s.running.Load() == s.parked.Load()
-	}
+	settled := func() bool { return s.engine.Idle(s.clock.HasWaiters) && s.runsWaiting() }
 	deadline := time.Now().Add(settleTimeout)
 	for time.Now().Before(deadline) {
 		if settled() {

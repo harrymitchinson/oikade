@@ -6,12 +6,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
@@ -26,12 +30,10 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 		return "", nil, err
 	}
 	path = filepath.Join(dir, "home")
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", path, ".")
-	cmd.Dir = module
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
+	// As a deploy builds it, so that what passes here builds there.
+	if err := build(ctx, module, path, api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", nil, fmt.Errorf("building your module: %w", err)
+		return "", nil, err
 	}
 	return path, func() { _ = os.RemoveAll(dir) }, nil
 }
@@ -58,9 +60,15 @@ func runCheck(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("checking your home: %w", err)
 	}
+	// A home's own code may have printed first.
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	var m wire.Manifest
-	if err := json.Unmarshal(out, &m); err != nil {
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &m); err != nil {
 		return fmt.Errorf("reading your home's check: %w", err)
+	}
+	if m.Protocol != wire.Version {
+		return fmt.Errorf("your home was built for protocol %d, and this oikade speaks %d: "+
+			"use the same version of both", m.Protocol, wire.Version)
 	}
 	fmt.Printf("Your home is fine: %d rules, %d plugins\n", len(m.Rules), len(m.Plugins))
 	return nil
@@ -122,17 +130,17 @@ func runInit(ctx context.Context, args []string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-		return fmt.Errorf("%s already has a go.mod", dir)
-	}
 	files, err := homeFiles()
 	if err != nil {
 		return err
 	}
-	for path, content := range files {
+	written := append(slices.Collect(maps.Keys(files)), "go.mod", "go.sum")
+	for _, path := range written {
 		if _, err := os.Stat(filepath.Join(dir, path)); err == nil {
 			return fmt.Errorf("%s already has a %s", dir, path)
 		}
+	}
+	for path, content := range files {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0o755); err != nil {
 			return err
 		}
@@ -146,6 +154,13 @@ func runInit(ctx context.Context, args []string) error {
 		err = moduleFromRelease(ctx, dir, *name)
 	}
 	if err != nil {
+		// So that the same command can be run again.
+		for _, path := range written {
+			_ = os.Remove(filepath.Join(dir, path))
+		}
+		// Only if they're empty: these may have been here already.
+		_ = os.Remove(filepath.Join(dir, ".github", "workflows"))
+		_ = os.Remove(filepath.Join(dir, ".github"))
 		return err
 	}
 	fmt.Println("Started a home. Next: oikade test, then oikade dev.")
@@ -272,8 +287,10 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 }
 `
 
-// homeWorkflow tests every change, and deploys what reaches main. It needs an SSH key that reaches
-// the host, as the secret OIKADE_SSH_KEY, and the host's name, as the variable OIKADE_HOST.
+// homeWorkflow tests every change, and deploys what reaches main. It needs three settings: the
+// variable OIKADE_HOST, as user@address, and the secrets OIKADE_SSH_KEY, a key that logs in there, and
+// OIKADE_KNOWN_HOSTS, the host's line from known_hosts, because a key taken from whatever answers
+// proves nothing.
 const homeWorkflow = `name: Home
 
 on:
@@ -296,11 +313,12 @@ jobs:
         if: github.event_name == 'push'
         env:
           OIKADE_SSH_KEY: ${{ secrets.OIKADE_SSH_KEY }}
+          OIKADE_KNOWN_HOSTS: ${{ secrets.OIKADE_KNOWN_HOSTS }}
           OIKADE_HOST: ${{ vars.OIKADE_HOST }}
         run: |
           install -m 700 -d ~/.ssh
           printenv OIKADE_SSH_KEY > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan "$OIKADE_HOST" >> ~/.ssh/known_hosts
+          printenv OIKADE_KNOWN_HOSTS > ~/.ssh/known_hosts
           oikade --host "$OIKADE_HOST" deploy
 `

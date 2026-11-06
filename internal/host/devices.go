@@ -142,11 +142,32 @@ func (i *inventory) loadHome() error {
 	return json.Unmarshal(raw, &i.home)
 }
 
-// setHome replaces the device settings the home declares. It's saved first, so a host that restarts
-// arbitrates what the running code said.
+// takeHome takes up the settings of a process that's connecting, which adds and changes them. It
+// removes none: that ends claims, and this version hasn't proved itself. setHome does, once it has.
+func (i *inventory) takeHome(settings []wire.DeviceControl) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	merged := slices.Clone(settings)
+	for _, c := range i.home {
+		if !slices.ContainsFunc(settings, func(n wire.DeviceControl) bool {
+			return n.Device == c.Device && n.Entry.Capability == c.Entry.Capability
+		}) {
+			merged = append(merged, c)
+		}
+	}
+	return i.saveHome(merged)
+}
+
+// setHome replaces the device settings the home declares.
 func (i *inventory) setHome(settings []wire.DeviceControl) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	return i.saveHome(settings)
+}
+
+// saveHome saves settings first, so a host that restarts arbitrates what the running code said. Call
+// with mu held.
+func (i *inventory) saveHome(settings []wire.DeviceControl) error {
 	if slices.EqualFunc(i.home, settings, sameSetting) {
 		return nil
 	}

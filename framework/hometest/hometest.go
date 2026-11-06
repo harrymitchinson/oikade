@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 
 	"github.com/harrymitchinson/oikade/framework"
 	"github.com/harrymitchinson/oikade/internal/simhome"
@@ -89,12 +90,17 @@ func New(t testing.TB, home framework.Home, o Options) *Home {
 	if err != nil {
 		t.Fatalf("Your home has mistakes in it: %v", err)
 	}
-	sim, err := simhome.New(simhome.Options{Home: compiled, Devices: devices, Start: o.Start, Log: logr.Discard()})
+	sim, err := simhome.New(simhome.Options{Home: compiled, Devices: devices, Start: o.Start, Log: testLog(t)})
 	if err != nil {
 		t.Fatalf("Starting the simulated home: %v", err)
 	}
 	t.Cleanup(sim.Close)
 	return &Home{t: t, sim: sim}
+}
+
+// testLog sends your automations' log to the test's, which shows a mistake in a condition.
+func testLog(t testing.TB) logr.Logger {
+	return funcr.New(func(prefix, args string) { t.Log(prefix, args) }, funcr.Options{})
 }
 
 // Now is the time in the home.
@@ -109,8 +115,7 @@ func (h *Home) Set(device, capability string, value any) {
 	}
 }
 
-// Advance moves the clock on and waits for your automations to catch up. A wait that ends inside the
-// move wakes up to a minute late, and the clock stops exactly at the end.
+// Advance moves the clock on and waits for your automations to catch up.
 func (h *Home) Advance(d time.Duration) {
 	h.t.Helper()
 	if err := h.sim.Advance(d); err != nil {

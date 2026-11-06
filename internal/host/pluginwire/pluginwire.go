@@ -22,7 +22,7 @@ const (
 	// binary built against something else. Version 2 added releaseAll's below, and 3 pausing rules,
 	// the rule facts in a hello, and reporting rule runs and metrics, and 4
 	// plugin sessions and a Manifest's plugins.
-	Version = 4
+	Version = 5
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = "plugin"
 

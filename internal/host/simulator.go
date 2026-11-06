@@ -130,10 +130,12 @@ func (s *simulator) report(dev types.NamespacedName, name string, value any) err
 	if !ok {
 		return fmt.Errorf("unknown device %s", dev.Name)
 	}
+	now := time.Now()
+	s.store.Seen(dev, now)
 	if previous, known := snap.Values[name]; known && previous == v {
 		return nil
 	}
-	s.store.Changed(driver.Update{Device: dev, Capability: name, Value: v, Previous: snap.Values[name], Time: time.Now()})
+	s.store.Changed(driver.Update{Device: dev, Capability: name, Value: v, Previous: snap.Values[name], Time: now})
 	return nil
 }
 

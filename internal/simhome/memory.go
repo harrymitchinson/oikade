@@ -3,7 +3,6 @@ package simhome
 import (
 	"context"
 	"slices"
-	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -74,16 +73,4 @@ func (j *journal) saved() []flow.Saved {
 		out = append(out, flow.Saved{ID: id, Entries: slices.Clone(entries)})
 	}
 	return out
-}
-
-// has says a flow has a run that hasn't finished. A run's ID starts with its flow's name.
-func (j *journal) has(rule string) bool {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	for id := range j.runs {
-		if strings.HasPrefix(id, rule+"/") {
-			return true
-		}
-	}
-	return false
 }

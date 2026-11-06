@@ -9,15 +9,15 @@ Nobody writes this protocol by hand. `framework.Run` speaks it, and the code is 
 The host starts your binary as `<binary> automations`, with the socket's path in `OIKADE_SOCKET`. A process has 5 seconds to send its `hello`:
 
 ```json
-{"type":"hello","version":4,"role":"automations","rules":["fan","leak-shutoff"]}
+{"type":"hello","version":5,"role":"automations","rules":["fan","leak-shutoff"]}
 ```
 
-A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks.
+A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks, and `control`, each `device` and `entry` the home arbitrates. `control` adds and changes settings, and takes effect before the `welcome`. One the home has dropped stays until a deploy of that version settles.
 
 `version` comes first so that it can change, and it rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, which it says in its log, so a process from before `below` existed can never reach `releaseAll`. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
 - **`rejected`** with an `error`: the version or role is wrong, or an automations process is already connected. Exactly one runs at a time, because two would run everything twice.
-- **`welcome`** with `paused`, the rules not to run; `devices`, every device with its room, capabilities, values and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
+- **`welcome`** with `paused`, the rules not to run; `devices`, every device with its room, capabilities, values, `lastSeen` and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
 
 The host streams from the `welcome` on. A change landing as the session opens can arrive twice, so a process ignores a value it already has.
 
@@ -27,6 +27,7 @@ The host streams from the `welcome` on. A change landing as the session opens ca
 |---|---|---|
 | `change` | `device`, `capability`, `value`, `previous`, `time` | A value changed |
 | `discovered` | `discovered` (a device) | A device reported for the first time |
+| `seen` | `device`, `time` | A device reported, changed or not |
 | `ping` | `id` | Answer with a `pong` with this `id` |
 | `pause` | `rule` | Stop running this rule until a `resume`, and end its claims below Safety |
 | `resume` | `rule` | Run this rule again |
@@ -56,7 +57,7 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 A plugin your home imports has its own session on the same socket. The host starts your binary as `<binary> plugin <name>`, and `<name>` comes from `plugins` in what check mode prints. The process says who it is:
 
 ```json
-{"type":"hello","version":4,"role":"plugin","plugin":"ewelink"}
+{"type":"hello","version":5,"role":"plugin","plugin":"ewelink"}
 ```
 
 The `welcome` has `topic`, the plugin's topic root, `declared`, the devices on record for it, and `setTimeout`. The host refuses a plugin it doesn't know, and a second connection for one that's connected.

@@ -137,3 +137,38 @@ func TestAMomentWaits(t *testing.T) {
 	h.ExpectValue("fan", on, false)
 	h.ExpectFinished("porch")
 }
+
+func TestAWaitEndsWhenItSaysInsideALongerMove(t *testing.T) {
+	home := framework.Home{Moments: []framework.Moment{{
+		Name: "porch", On: []framework.Change{{Device: "sensor", Capability: humidity}},
+		Do: []framework.Action{
+			framework.Wait(90 * time.Second),
+			framework.Set{Device: "fan", Capability: on, Value: true},
+		},
+	}}}
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	start := h.Now()
+	h.Set("sensor", humidity, 41.0)
+	h.Advance(time.Hour)
+	writes := h.Writes()
+	if len(writes) != 1 || !writes[0].Time.Equal(start.Add(90*time.Second)) {
+		t.Fatalf("writes %v, want one at %s", writes, start.Add(90*time.Second))
+	}
+}
+
+func TestARunInProgressIsntFinished(t *testing.T) {
+	home := framework.Home{Moments: []framework.Moment{{
+		Name: "porch", On: []framework.Change{{Device: "sensor", Capability: humidity}},
+		Do: []framework.Action{framework.Wait(5 * time.Minute)},
+	}}}
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	h.Set("sensor", humidity, 41.0)
+	h.Advance(6 * time.Minute)
+	h.ExpectFinished("porch")
+	h.Set("sensor", humidity, 42.0)
+	if h.Finished("porch") {
+		t.Fatal("finished while its second run waits")
+	}
+	h.Advance(6 * time.Minute)
+	h.ExpectFinished("porch")
+}

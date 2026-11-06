@@ -513,6 +513,8 @@ func (h Home) manifest() wire.Manifest {
 	for _, p := range h.Plugins {
 		m.Plugins = append(m.Plugins, p.Name)
 	}
+	// A home with a mistake in its settings doesn't compile, and never gets this far.
+	m.Control, _ = h.settings()
 	return m
 }
 
