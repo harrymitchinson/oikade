@@ -99,6 +99,7 @@ type arb struct {
 	dropped bool
 	// unconfirmed is a write the device is yet to report. lost is one its driver's last process may
 	// have taken with it, so that the next report is what the device is, not somebody changing it.
+	// A write that's taken ends it.
 	unconfirmed, lost bool
 }
 
@@ -152,18 +153,24 @@ func (e *Engine) Discovered(dev types.NamespacedName, _ driver.Info) {
 }
 
 // DriverReturned says a driver has a new process. A write its last one took but hadn't reported may
-// have died with it, so what the new one reports isn't an outside change: the arbiter takes it as the
-// device's value, and writes again if that's wrong.
+// have died with it, so the device is what it last reported, and what the new process reports next
+// isn't an outside change. Either way the arbiter writes again if that's wrong, once the device has
+// reported: a report of what the store already holds changes nothing, so it can't wait for one.
 func (e *Engine) DriverReturned(instance driver.InstanceKey) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for dev, arbs := range e.arbs {
-		if snap, ok := e.Store.Get(dev); !ok || snap.Instance != instance {
+		snap, ok := e.Store.Get(dev)
+		if !ok || snap.Instance != instance {
 			continue
 		}
-		for _, ar := range arbs {
-			if ar.unconfirmed {
-				ar.lost, ar.dropped = true, false
+		for name, ar := range arbs {
+			if !ar.unconfirmed {
+				continue
+			}
+			ar.unconfirmed, ar.lost, ar.dropped = false, true, false
+			if v, reported := snap.Values[name]; reported {
+				ar.a.Wrote(capability.Float(v))
 			}
 		}
 	}
@@ -400,7 +407,7 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 		ar.unconfirmed, ar.lost = false, false
 		return
 	case ar.lost && !ar.writing:
-		ar.unconfirmed, ar.lost = false, false
+		ar.lost = false
 		ar.a.Wrote(v)
 	case ar.writing || e.Clock.Since(ar.wrote) < staleReport:
 		e.Log.V(1).Info("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)

@@ -371,10 +371,34 @@ func TestAWriteLostWithItsDriverIsNotAnOverride(t *testing.T) {
 	snap, _ := r.store.Get(dev)
 	r.clock.Step(2 * time.Second)
 	r.e.DriverReturned(snap.Instance)
-	// The new process reports what the old one never changed.
-	r.change("towel-rail", capability.SwitchOn, false)
+	// The new process reports what the old one never changed, which the store already holds.
+	r.e.Discovered(dev, driver.Info{})
 	r.eventually("the write again", func() bool { return len(r.setter.got()) == 2 })
 	r.at("2026-10-21 12:01 BST")
+	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Normal" {
+		t.Errorf("winner %q, want the rule's claim to stand", w)
+	}
+}
+
+func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.change("towel-rail", capability.SwitchOn, true)
+	r.at("2026-10-21 12:01 BST")
+	dev := types.NamespacedName{Namespace: ns, Name: "towel-rail"}
+	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
+	if _, err := r.e.Claim(context.Background(), dev, capability.SwitchOn, claim); err != nil {
+		t.Fatal(err)
+	}
+	r.eventually("the Safety write", func() bool { return len(r.setter.got()) == 2 })
+	if _, err := r.e.ReleaseClaim(context.Background(), dev, capability.SwitchOn, claim.Source); err != nil {
+		t.Fatal(err)
+	}
+	r.eventually("the rule's write", func() bool { return len(r.setter.got()) == 3 })
+	snap, _ := r.store.Get(dev)
+	r.e.DriverReturned(snap.Instance)
+	// The rule wrote on: a new process says it's off, which is news to the store.
+	r.change("towel-rail", capability.SwitchOn, false)
+	r.at("2026-10-21 12:02 BST")
 	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Normal" {
 		t.Errorf("winner %q, want the rule's claim to stand", w)
 	}
