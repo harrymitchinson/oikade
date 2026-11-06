@@ -159,6 +159,10 @@ func TestAControllerPairsWithTheHostAndDrivesADevice(t *testing.T) {
 	if v := c.info(c.endpoint("fan"), labelAttribute); v != "fan" {
 		t.Errorf("label %v", v)
 	}
+	c.r.stop()
+	if c.r.count("Stopped host") != 1 {
+		t.Errorf("the host didn't stop cleanly:\n%s", c.r.dump())
+	}
 }
 
 func TestAControllerOutlastsYourProcessAndADeploy(t *testing.T) {
