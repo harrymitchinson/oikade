@@ -37,6 +37,8 @@ const (
 	// SourceMatter is a change a Matter bridge announced writing, for a Matter controller such as
 	// the Home app.
 	SourceMatter = "Matter"
+	// SourceCommand is a change the oikade command asked for.
+	SourceCommand = "Command"
 	// rulePrefix starts a Rule's source, Rule/<name>.
 	rulePrefix = "Rule/"
 )
@@ -387,6 +389,12 @@ func (e *Engine) MatterWrote(dev types.NamespacedName, name string, value any) {
 	e.bridgeWrote(SourceMatter, dev, name, value)
 }
 
+// CommandWrote records that the oikade command is writing value to an arbitrated capability, which
+// counts as a person's change, like one from Matter.
+func (e *Engine) CommandWrote(dev types.NamespacedName, name string, value any) {
+	e.bridgeWrote(SourceCommand, dev, name, value)
+}
+
 func (e *Engine) bridgeWrote(source string, dev types.NamespacedName, name string, value any) {
 	if !e.arbitrated(dev, name) {
 		return
@@ -558,6 +566,12 @@ func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) erro
 	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
 }
 
+// ReleaseRule ends the claims of a rule that runs elsewhere, but for Safety ones, as ReleaseFlow does,
+// and returns once that's saved. ctx is the engine's, as with Claim.
+func (e *Engine) ReleaseRule(ctx context.Context, key types.NamespacedName) error {
+	return e.ReleaseClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
+}
+
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
 // that's still to do. Call with e.mu held.
 func (e *Engine) ensureDue() {
@@ -636,16 +650,12 @@ func (e *Engine) arbitrated(dev types.NamespacedName, name string) bool {
 // reportControl reports the device's arbitrated capabilities, if they changed at a transition.
 // Call with e.mu held.
 func (e *Engine) reportControl(dev types.NamespacedName) {
-	out := make([]homev1alpha1.CapabilityControlStatus, 0, len(e.arbs[dev]))
-	for name, ar := range e.arbs[dev] {
-		out = append(out, controlStatus(name, ar.d))
-		if e.ControlLevel != nil {
+	if e.ControlLevel != nil {
+		for name, ar := range e.arbs[dev] {
 			e.ControlLevel.WithLabelValues(dev.Namespace, dev.Name, name).Set(float64(ar.d.Level))
 		}
 	}
-	slices.SortFunc(out, func(a, b homev1alpha1.CapabilityControlStatus) int {
-		return strings.Compare(a.Capability, b.Capability)
-	})
+	out := e.controlOf(dev)
 	prev, reported := e.reportedControl[dev]
 	if !reported && len(out) == 0 {
 		return
@@ -658,6 +668,26 @@ func (e *Engine) reportControl(dev types.NamespacedName) {
 	if e.OnControl != nil {
 		e.OnControl(dev, out)
 	}
+}
+
+// ControlOf says who holds each of a device's arbitrated capabilities, and why.
+func (e *Engine) ControlOf(dev types.NamespacedName) []homev1alpha1.CapabilityControlStatus {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ensureDue()
+	return e.controlOf(dev)
+}
+
+// controlOf is ControlOf. Call with e.mu held.
+func (e *Engine) controlOf(dev types.NamespacedName) []homev1alpha1.CapabilityControlStatus {
+	out := make([]homev1alpha1.CapabilityControlStatus, 0, len(e.arbs[dev]))
+	for name, ar := range e.arbs[dev] {
+		out = append(out, controlStatus(name, ar.d))
+	}
+	slices.SortFunc(out, func(a, b homev1alpha1.CapabilityControlStatus) int {
+		return strings.Compare(a.Capability, b.Capability)
+	})
+	return out
 }
 
 func levelName(l control.Level) homev1alpha1.ControlLevel {

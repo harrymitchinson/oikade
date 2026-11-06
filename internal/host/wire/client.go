@@ -25,6 +25,8 @@ type Events struct {
 	Changed    func(Message)
 	Discovered func(Device)
 	Ping       func(id uint64)
+	// Paused says a rule was paused, or resumed if paused is false.
+	Paused func(rule string, paused bool)
 }
 
 // Client is your process's end of a session.
@@ -50,14 +52,15 @@ var (
 	_ engine.HoldStates  = (*Client)(nil)
 )
 
-// Dial opens a session as the automations process, and returns the Welcome.
-func Dial(ctx context.Context, socket string, rules []string) (*Client, Message, error) {
+// Dial opens a session as the automations process, and returns the Welcome. info says what the rules
+// are, if the caller knows.
+func Dial(ctx context.Context, socket string, rules []string, info ...RuleInfo) (*Client, Message, error) {
 	raw, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return nil, Message{}, fmt.Errorf("connecting to the host: %w", err)
 	}
 	conn := NewConn(raw)
-	if err := conn.Write(Message{Type: TypeHello, Version: Version, Role: RoleAutomations, Rules: rules}); err != nil {
+	if err := conn.Write(Message{Type: TypeHello, Version: Version, Role: RoleAutomations, Rules: rules, Info: info}); err != nil {
 		_ = conn.Close()
 		return nil, Message{}, fmt.Errorf("greeting the host: %w", err)
 	}
@@ -111,6 +114,10 @@ func (c *Client) Listen(ev Events) {
 			}
 		case TypePing:
 			ev.Ping(m.ID)
+		case TypePause, TypeResume:
+			if ev.Paused != nil {
+				ev.Paused(m.Rule, m.Type == TypePause)
+			}
 		case TypeReply:
 			c.mu.Lock()
 			reply := c.pending[m.ID]
@@ -126,6 +133,20 @@ func (c *Client) Listen(ev Events) {
 // Pong answers a ping.
 func (c *Client) Pong(id uint64) {
 	if err := c.conn.Write(Message{Type: TypePong, ID: id}); err != nil {
+		c.fail(err)
+	}
+}
+
+// RuleRun tells the host how a rule's run ended.
+func (c *Client) RuleRun(rule, result string, t time.Time) {
+	if err := c.conn.Write(Message{Type: TypeRuleRun, Rule: rule, Result: result, Time: t}); err != nil {
+		c.fail(err)
+	}
+}
+
+// PushMetrics gives the host the process's rule metrics, to serve with its own.
+func (c *Client) PushMetrics(text []byte) {
+	if err := c.conn.Write(Message{Type: TypeMetrics, Metrics: text}); err != nil {
 		c.fail(err)
 	}
 }

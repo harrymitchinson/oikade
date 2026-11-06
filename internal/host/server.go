@@ -17,6 +17,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/flow"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -43,6 +44,11 @@ type server struct {
 	holds   *engine.Stored[engine.HoldState]
 	fires   *engine.Stored[time.Time]
 	journal *store.Journal
+	// paused are the rules paused, with when.
+	paused *engine.Stored[time.Time]
+	// feed is what oikade tail streams, and pushed your process's latest metrics.
+	feed   *feed
+	pushed *pushed
 
 	mu      sync.Mutex
 	session *session
@@ -67,6 +73,8 @@ type session struct {
 	once           sync.Once
 	// generation is the server's when the connection arrived.
 	generation uint64
+	// rules are what the process's hello said about its rules.
+	rules []wire.RuleInfo
 }
 
 func (s *session) end() {
@@ -127,7 +135,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 	}
 	sess := &session{
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
-		generation: generation,
+		generation: generation, rules: hello.Info,
 	}
 	welcome, runs, err := s.welcome(hello)
 	if err != nil {
@@ -141,6 +149,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 		return
 	}
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
+	s.feed.publish(api.Event{Time: time.Now(), Type: api.EventProcess, Message: "connected"})
 	if s.connected != nil {
 		s.connected()
 	}
@@ -171,10 +180,17 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 			}
 			return
 		}
-		if m.Type == wire.TypePong {
+		switch m.Type {
+		case wire.TypePong:
 			s.mu.Lock()
 			s.pong = time.Now()
 			s.mu.Unlock()
+			continue
+		case wire.TypeRuleRun:
+			s.feed.publish(api.Event{Time: m.Time, Type: api.EventRule, Rule: m.Rule, Result: m.Result})
+			continue
+		case wire.TypeMetrics:
+			s.pushed.set(m.Metrics)
 			continue
 		}
 		// Requests wait for the disk, which pongs mustn't, so they run apart. They run in order.
@@ -218,8 +234,19 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 	if err != nil {
 		return wire.Message{}, nil, err
 	}
+	if welcome.Paused, err = s.paused.Names(wire.Namespace); err != nil {
+		return wire.Message{}, nil, err
+	}
 	runs := make([]wire.Run, 0, len(ids))
 	for _, id := range ids {
+		// A pause ends a flow's run. A process that was running ended it, and if none was, this does.
+		if slices.Contains(welcome.Paused, flow.FlowOf(id)) {
+			if err := s.journal.Delete(id); err != nil {
+				return wire.Message{}, nil, err
+			}
+			s.log.Info("Dropped flow run; its flow is paused", "run", id)
+			continue
+		}
 		entries, err := s.journal.Entries(id)
 		if err != nil {
 			return wire.Message{}, nil, err
@@ -244,6 +271,10 @@ func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bo
 		return false
 	}
 	s.session, s.pong = sess, time.Now()
+	// Again, under the lock: a pause after this reaches the session, and one before is in the list.
+	if paused, err := s.paused.Names(wire.Namespace); err == nil {
+		welcome.Paused = paused
+	}
 	for key, snap := range s.devices.List() {
 		if key.Namespace == wire.Namespace {
 			welcome.Devices = append(welcome.Devices, deviceOf(key.Name, snap))
@@ -265,10 +296,15 @@ func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bo
 func (s *server) detach(sess *session) {
 	sess.end()
 	s.mu.Lock()
-	if s.session == sess {
+	left := s.session == sess
+	if left {
 		s.session = nil
 	}
 	s.mu.Unlock()
+	if left {
+		s.pushed.set(nil)
+		s.feed.publish(api.Event{Time: time.Now(), Type: api.EventProcess, Message: "disconnected"})
+	}
 	close(sess.finished)
 }
 
@@ -316,7 +352,7 @@ func (s *server) reconcile(rules, flows []string) error {
 	for _, saved := range []interface {
 		Names(namespace string) ([]string, error)
 		Delete(ctx context.Context, key types.NamespacedName) error
-	}{s.holds, s.fires} {
+	}{s.holds, s.fires, s.paused} {
 		names, err := saved.Names(wire.Namespace)
 		if err != nil {
 			errs = append(errs, err)
@@ -441,6 +477,10 @@ func (s *server) Changed(u driver.Update) {
 	s.broadcast(wire.Message{
 		Type: wire.TypeChange, Device: u.Device.Name, Capability: u.Capability,
 		Value: u.Value, Previous: u.Previous, Time: u.Time,
+	})
+	s.feed.publish(api.Event{
+		Time: u.Time, Type: api.EventChange, Device: u.Device.Name, Capability: u.Capability,
+		Value: u.Value, Previous: u.Previous,
 	})
 }
 

@@ -50,7 +50,7 @@ func run(h Home, log logr.Logger) error {
 	}
 	dial, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
-	client, welcome, err := wire.Dial(dial, socket, names)
+	client, welcome, err := wire.Dial(dial, socket, names, h.manifest().Rules...)
 	if err != nil {
 		return err
 	}
@@ -71,6 +71,7 @@ func run(h Home, log logr.Logger) error {
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
 		Log: log.WithName("automations"),
 	}
+	gather := observe(logr.NewContext(ctx, log), eng, client)
 	fires := make(chan timerFire, firesWaiting)
 	eng.OnSchedule = func(key types.NamespacedName, s engine.Schedule) {
 		if s.LastFire.IsZero() {
@@ -84,8 +85,12 @@ func run(h Home, log logr.Logger) error {
 	}
 	eng.Init()
 	mirror.Listeners = []driver.Sink{eng}
+	paused := pausedRules(eng, client, rules, welcome.Paused)
 	var unaccounted []string
 	for _, r := range rules {
+		if paused.has(r.Key.Name) {
+			continue
+		}
 		if r.HasTimers() {
 			since, ok := welcome.Fires[r.Key.Name]
 			if !ok {
@@ -111,7 +116,10 @@ func run(h Home, log logr.Logger) error {
 			default:
 			}
 		},
+		Paused: paused.change,
 	})
+	go paused.run(ctx)
+	go gather()
 
 	// The first start has missed nothing, and the times of day count from here.
 	now := eng.Clock.Now()
@@ -122,7 +130,8 @@ func run(h Home, log logr.Logger) error {
 	}
 	go saveFires(logr.NewContext(ctx, log), client, fires)
 	flowCtx := logr.NewContext(ctx, log.WithName("flows"))
-	bodies := flow.Recover(flowCtx, wire.Namespace, flows, savedRuns(welcome.Unfinished), client, eng)
+	// The host drops a paused flow's runs. This is for a pause that landed since.
+	bodies := flow.Recover(flowCtx, wire.Namespace, paused.without(flows), savedRuns(welcome.Unfinished), client, eng)
 	log.Info("Loaded rules", "rules", len(rules), "devices", len(welcome.Devices), "resumedRuns", len(bodies))
 	for name, body := range bodies {
 		eng.Resume(ctx, deviceKey(name), body)

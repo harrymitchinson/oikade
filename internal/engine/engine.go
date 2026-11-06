@@ -101,6 +101,8 @@ type Engine struct {
 	OnSkipped func(key types.NamespacedName, skipped []string)
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key types.NamespacedName, t time.Time)
+	// OnRun, if set, is called with each outcome Runs counts, perhaps with e.mu held. It must not block.
+	OnRun func(key types.NamespacedName, result string)
 	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
 	// fires. It must not block.
 	OnSchedule func(key types.NamespacedName, s Schedule)
@@ -754,5 +756,8 @@ func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
 func (e *Engine) count(key types.NamespacedName, result string) {
 	if e.Runs != nil {
 		e.Runs.WithLabelValues(key.Namespace, key.Name, result).Inc()
+	}
+	if e.OnRun != nil {
+		e.OnRun(key, result)
 	}
 }
