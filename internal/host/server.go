@@ -13,7 +13,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
@@ -315,9 +315,9 @@ func (s *server) confirmSettings(settings []wire.DeviceControl) error {
 
 // safetyHeld says a Safety claim holds a capability.
 func (s *server) safetyHeld(device, name string) bool {
-	return slices.ContainsFunc(s.engine.ControlOf(key(device)), func(c homev1alpha1.CapabilityControlStatus) bool {
-		return c.Capability == name && slices.ContainsFunc(c.Claims, func(o homev1alpha1.ControlClaim) bool {
-			return o.Level == homev1alpha1.ControlLevelSafety
+	return slices.ContainsFunc(s.engine.ControlOf(key(device)), func(c control.Status) bool {
+		return c.Capability == name && slices.ContainsFunc(c.Claims, func(o control.ClaimStatus) bool {
+			return o.Level == control.NameSafety
 		})
 	})
 }

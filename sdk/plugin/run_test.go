@@ -21,7 +21,7 @@ func (handler) Set(context.Context, *Plugin, contractv1.SetCommand) error {
 	return nil
 }
 
-// setEnv sets the operator's environment for a plugin on url.
+// setEnv sets the environment of a plugin on url.
 func setEnv(t *testing.T, url string) {
 	t.Helper()
 	t.Setenv(contractv1.EnvMQTTURL, url)

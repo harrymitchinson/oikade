@@ -1,6 +1,6 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
-# VERSION is baked into the manager binary (`manager --version`). Releases set it to the tag.
+IMG ?= oikade:latest
+# VERSION is baked into the oikade binary (`oikade version`). Releases set it to the tag.
 VERSION ?= dev
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -15,6 +15,9 @@ endif
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
+
+comma := ,
+space := $(empty) $(empty)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -43,14 +46,6 @@ help: ## Display this help.
 
 ##@ Development
 
-.PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
-
-.PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	"$(CONTROLLER_GEN)" object:headerFile="hack/boilerplate.go.txt" paths="./..."
-
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -59,68 +54,23 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+# The journeys and the install test need Docker and take minutes, so they have their own targets.
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v -e /e2e -e /test/install) -coverprofile cover.out
+test: fmt vet ## Run the tests.
+	go test $$(go list ./... | grep -v -e /test/install -e /test/journeys) -coverprofile cover.out
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# kubectl kuberc is disabled by default for test isolation; enable with:
-# - KUBECTL_KUBERC=true
-# make test-e2e keeps the cluster, so a rerun only rebuilds and redeploys the manager;
-# make cleanup-test-e2e deletes it (do that after upgrading Kind, too).
-KIND_CLUSTER ?= oikade-test-e2e
-
-# The e2e targets use their own kubeconfig unless KUBECONFIG is set, so the kept cluster
-# never becomes the current context of ~/.kube/config.
-E2E_KUBECONFIG ?= $(LOCALBIN)/$(KIND_CLUSTER).kubeconfig
-setup-test-e2e test-e2e cleanup-test-e2e: export KUBECONFIG ?= $(E2E_KUBECONFIG)
-
-.PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist, and point kubectl at it
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@if $(KIND) get clusters | grep -qxF "$(KIND_CLUSTER)"; then \
-		echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation."; \
-	else \
-		echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-		$(KIND) create cluster --name $(KIND_CLUSTER); \
-	fi
-	@# kind create switches KUBECONFIG's context, but a reused cluster wouldn't: the
-	@# suite runs against the current context, which mustn't be some other cluster.
-	@$(KIND) export kubeconfig --name $(KIND_CLUSTER)
-
-# The manager image the e2e suite deploys. make test-e2e builds it with E2E_IMAGE_BUILD
-# while Kind creates the cluster. CI sets E2E_IMAGE_BUILD=docker-build-prebuilt so the
-# runner's warm Go cache applies.
-E2E_IMG ?= example.com/oikade:v0.0.1
-E2E_VERSION ?= v0.0.0-e2e
-E2E_IMAGE_BUILD ?= docker-build
 # The chip-tool image is tagged by its Dockerfile's hash, so it's built once per change to it.
 # Building it pulls connectedhomeip's 6 GB image, which is linux/arm64 only.
-E2E_CHIP_TOOL_IMG ?= oikade-chip-tool:$(shell git hash-object test/e2e/chip-tool/Dockerfile | cut -c1-12)
+CHIP_TOOL_IMG ?= oikade-chip-tool:$(shell git hash-object test/journeys/chip-tool/Dockerfile | cut -c1-12)
 
-.PHONY: e2e-image
-e2e-image: ## Build the manager image for the e2e tests.
-	$(MAKE) $(E2E_IMAGE_BUILD) IMG=$(E2E_IMG) VERSION=$(E2E_VERSION)
+.PHONY: chip-tool-image
+chip-tool-image: ## Build the chip-tool image for the journeys, unless it's already there.
+	$(CONTAINER_TOOL) image inspect $(CHIP_TOOL_IMG) >/dev/null 2>&1 || \
+		$(CONTAINER_TOOL) build -t $(CHIP_TOOL_IMG) test/journeys/chip-tool
 
-.PHONY: e2e-chip-tool-image
-e2e-chip-tool-image: ## Build the chip-tool image for the e2e tests, unless it's already there.
-	$(CONTAINER_TOOL) image inspect $(E2E_CHIP_TOOL_IMG) >/dev/null 2>&1 || \
-		$(CONTAINER_TOOL) build -t $(E2E_CHIP_TOOL_IMG) test/e2e/chip-tool
-
-.PHONY: test-e2e
-test-e2e: manifests generate ## Run the e2e tests on a Kind cluster, which it keeps for the next run.
-	$(MAKE) -j3 setup-test-e2e e2e-image e2e-chip-tool-image
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) E2E_IMG=$(E2E_IMG) E2E_VERSION=$(E2E_VERSION) E2E_IMAGE_BUILT=true \
-		E2E_CHIP_TOOL_IMG=$(E2E_CHIP_TOOL_IMG) \
-		go test -tags=e2e -timeout=45m ./test/e2e/ -v -ginkgo.v
-
-.PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
-	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+.PHONY: test-journeys
+test-journeys: chip-tool-image ## Follow a home from oikade init to a running host, and pair chip-tool with it. Needs Docker.
+	OIKADE_CHIP_TOOL_IMAGE=$(CHIP_TOOL_IMG) go test ./test/journeys/ -v -count=1 -timeout 15m
 
 # CONFORMANCE_PLUGIN is the command the conformance suite runs, from the repository root.
 CONFORMANCE_PLUGIN ?= bin/simswitch
@@ -161,50 +111,39 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
+# PLATFORMS are what a release ships, the binaries and the image alike.
+PLATFORMS ?= linux/arm64,linux/amd64
+
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
-	go build -ldflags "-X main.version=$(VERSION)" -o bin/manager ./cmd
+build: fmt vet ## Build the oikade binary.
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/oikade ./cmd/oikade
 
-.PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd
+.PHONY: release-binaries
+release-binaries: ## Build dist/oikade-<os>-<arch> for each of PLATFORMS.
+	mkdir -p dist
+	for platform in $(subst $(comma),$(space),$(PLATFORMS)); do \
+		os=$${platform%/*} arch=$${platform#*/}; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
+			go build -ldflags "-X main.version=$(VERSION)" -o "dist/oikade-$$os-$$arch" ./cmd/oikade; \
+	done
 
-# If you wish to build the manager image targeting other platforms you can use the --platform flag.
+# If you wish to build the image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # Override BASE_IMAGE to build from another registry, e.g.
 # make docker-build IMG=<img> BASE_IMAGE=docker.io/library/golang:1.26
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager.
+docker-build: ## Build the oikade image.
 	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) -t ${IMG} .
 
-# docker-build-prebuilt builds the manager on this machine, for the Docker server's
-# architecture, so the local Go cache applies. It then builds the root Dockerfile with
-# that binary in place of its builder stage, so the image is otherwise the same.
-# Only e2e uses it: releases build inside Docker with docker-buildx.
-PREBUILT_DIR ?= $(LOCALBIN)/prebuilt
-.PHONY: docker-build-prebuilt
-docker-build-prebuilt: ## Build docker image with a manager binary built outside Docker.
-	mkdir -p "$(PREBUILT_DIR)/workspace/data"
-	arch=$$($(CONTAINER_TOOL) version -f '{{.Server.Arch}}') && \
-	CGO_ENABLED=0 GOOS=linux GOARCH="$$arch" \
-		sh -c 'go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/workspace/manager" ./cmd && \
-		go build -ldflags "-X main.version=$(VERSION)" -o "$(PREBUILT_DIR)/workspace/oikade" ./cmd/oikade'
-	$(CONTAINER_TOOL) build --build-context builder="$(PREBUILT_DIR)" -t ${IMG} .
-
 .PHONY: docker-push
-docker-push: ## Push docker image with the manager.
+docker-push: ## Push the oikade image.
 	$(CONTAINER_TOOL) push ${IMG}
 
-# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
-# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
-# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
-# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
-PLATFORMS ?= linux/arm64,linux/amd64
+# docker-buildx needs BuildKit, and a registry you can push IMG to.
+# More info: https://docs.docker.com/build/buildx/
 .PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
+docker-buildx: ## Build and push the oikade image for each of PLATFORMS.
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name oikade-builder
@@ -215,39 +154,6 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	rm Dockerfile.cross; \
 	exit $$status
 
-.PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
-	mkdir -p dist
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	cd config/runtime && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default > dist/install.yaml
-
-##@ Deployment
-
-ifndef ignore-not-found
-  ignore-not-found = false
-endif
-
-.PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" apply -f -; else echo "No CRDs to install; skipping."; fi
-
-.PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
-
-.PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	cd config/runtime && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
-
-.PHONY: undeploy
-undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
-
 ##@ Dependencies
 
 ## Location to install dependencies to
@@ -256,51 +162,10 @@ $(LOCALBIN):
 	mkdir -p "$(LOCALBIN)"
 
 ## Tool Binaries
-KUBECTL ?= kubectl
-KIND ?= kind
-KUSTOMIZE ?= $(LOCALBIN)/kustomize
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.8.1
-CONTROLLER_TOOLS_VERSION ?= v0.22.0
-
-#ENVTEST_VERSION is the controller-runtime version to use for setup-envtest, derived from go.mod
-ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
-  [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
-  printf '%s\n' "$$v")
-
-#ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
-ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
-  [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
-  printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
-
 GOLANGCI_LINT_VERSION ?= v2.15.0
-.PHONY: kustomize
-kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
-$(KUSTOMIZE): $(LOCALBIN)
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
-
-.PHONY: controller-gen
-controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
-$(CONTROLLER_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
-
-.PHONY: setup-envtest
-setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
-	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
-	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path || { \
-		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
-		exit 1; \
-	}
-
-.PHONY: envtest
-envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
-$(ENVTEST): $(LOCALBIN)
-	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
-
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 # bin/ is order-only: a restored CI cache leaves it newer than the custom binary,
@@ -329,8 +194,4 @@ GOBIN="$(LOCALBIN)" go install $${package} ;\
 mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)" ;\
 } ;\
 ln -sf "$$(realpath "$(1)-$(3)")" "$(1)"
-endef
-
-define gomodver
-$(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef

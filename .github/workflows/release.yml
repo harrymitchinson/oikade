@@ -2,7 +2,7 @@ name: Release
 
 # release-please keeps a release PR open on main (the design is in Linear, OIK-63).
 # Merging it tags the release and creates the GitHub Release, and the publish job
-# then builds the image and attaches install.yaml. Tags created with GITHUB_TOKEN
+# then builds the image and attaches the binaries. Tags created with GITHUB_TOKEN
 # don't trigger other workflows, so publishing has to happen here.
 on:
   push:
@@ -49,20 +49,20 @@ jobs:
       contents: read
     uses: ./.github/workflows/lint.yml
 
-  test-e2e:
+  journeys:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     permissions:
       contents: read
-    uses: ./.github/workflows/test-e2e.yml
+    uses: ./.github/workflows/journeys.yml
 
   publish:
-    needs: [release-please, test, lint, test-e2e]
+    needs: [release-please, test, lint, journeys]
     if: needs.release-please.outputs.release_created == 'true'
     permissions:
       contents: write
       packages: write
-    name: Publish the image and install.yaml
+    name: Publish the image and binaries
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
@@ -91,13 +91,13 @@ jobs:
       - name: Build and push the image for arm64 and amd64
         run: make docker-buildx IMG="$IMG" VERSION="$TAG" PLATFORMS=linux/arm64,linux/amd64
 
-      - name: Render install.yaml
-        run: make build-installer IMG="$IMG"
+      - name: Build the binaries
+        run: make release-binaries VERSION="$TAG" PLATFORMS=linux/arm64,linux/amd64
 
-      - name: Attach install.yaml to the Release
+      - name: Attach the binaries to the Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/install.yaml --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" dist/oikade-linux-arm64 dist/oikade-linux-amd64 --clobber --repo "$GITHUB_REPOSITORY"
 
       # prerelease: true in release-please-config.json marks every 0.x release as a
       # pre-release. Only the alphas between milestones are, so a milestone release

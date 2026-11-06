@@ -6,7 +6,7 @@ import (
 )
 
 // The scenarios replay the timelines of the walkthrough in #60. Holds start and end with Claim
-// and Release, as the runtime will drive them.
+// and Release, as the engine drives them.
 
 func TestScenario3WaterHeaterArbitrated(t *testing.T) {
 	s := Settings{Kind: Bool, Default: off, Resolve: On, External: ExternalOverride, OverrideHold: time.Hour}

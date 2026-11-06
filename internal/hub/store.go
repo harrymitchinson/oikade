@@ -1,5 +1,5 @@
-// Package hub holds live device state from drivers and routes commands back to them. It is shared
-// by the runtime (metrics, status, rules) and the Matter bridge.
+// Package hub holds live device state from drivers. The host, its metrics and the Matter bridge
+// share it.
 package hub
 
 import (
@@ -335,7 +335,7 @@ func (s *Store) Undeclared(instance driver.InstanceKey, count int) {
 	s.undeclared[instance] = count
 	s.mu.Unlock()
 	if count > 0 && (!had || prev != count) {
-		s.Log.Info("Found paired devices without a Device object",
+		s.Log.Info("Found paired devices that aren't on record",
 			"driver", instance.Driver, "instance", instance.NamespacedName, "count", count)
 	}
 	for _, l := range s.Listeners {

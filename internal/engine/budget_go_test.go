@@ -6,8 +6,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
@@ -35,12 +35,12 @@ func goPumpHold(t *testing.T) *Compiled {
 	return c
 }
 
-func pumpRig(t *testing.T, now string, b *storeBackend, rules ...*homev1alpha1.Rule) *rig {
+func pumpRig(t *testing.T, now string, b *storeBackend, rules ...*Compiled) *rig {
 	t.Helper()
 	return startRigWith(t, rigOptions{
 		now: local(now), holds: b.holds(t), controls: b.controls(t),
 		values:  map[string]map[string]any{"pump": {capability.SwitchOn: false}},
-		control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
+		control: map[string][]control.Entry{"pump": {pumpEntry()}},
 	}, rules...)
 }
 

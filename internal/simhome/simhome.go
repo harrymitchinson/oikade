@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
@@ -185,7 +184,7 @@ func (s *Sim) start() error {
 		Location: s.location, Log: s.log.WithName("automations"),
 		OnPark: s.park,
 		OnBudget: func(key types.NamespacedName, r engine.BudgetReport) {
-			if r.Planned == metav1.ConditionFalse {
+			if r.Unplanned {
 				s.mu.Lock()
 				defer s.mu.Unlock()
 				s.note("Budget "+key.Name, " couldn't plan: "+r.Message)
@@ -427,10 +426,10 @@ func (s *Sim) Claims(device, name string) []Claim {
 		}
 		for _, o := range c.Claims {
 			var v any
-			if err := json.Unmarshal(o.Value.Raw, &v); err != nil {
+			if err := json.Unmarshal(o.Value, &v); err != nil {
 				continue
 			}
-			out = append(out, Claim{Source: o.Source, Level: string(o.Level), Value: v, Winner: o.Winner, Latched: o.Latched})
+			out = append(out, Claim{Source: o.Source, Level: o.Level, Value: v, Winner: o.Winner, Latched: o.Latched})
 		}
 	}
 	return out

@@ -10,7 +10,7 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
-var operatorEnv = map[string]string{
+var pluginEnv = map[string]string{
 	contractv1.EnvMQTTURL:     "mqtt://broker:1883",
 	contractv1.EnvTopic:       "oikade/v1/home/sonoff",
 	contractv1.EnvDevicesFile: "/etc/oikade/config/devices.json",
@@ -21,7 +21,7 @@ func envWith(overrides map[string]string) func(string) string {
 		if v, ok := overrides[name]; ok {
 			return v
 		}
-		return operatorEnv[name]
+		return pluginEnv[name]
 	}
 }
 
@@ -50,7 +50,6 @@ func TestReadEnvironmentRejects(t *testing.T) {
 		name, variable, value string
 	}{
 		{"missing URL", contractv1.EnvMQTTURL, ""},
-		{"missing devices file", contractv1.EnvDevicesFile, ""},
 		{"missing topic", contractv1.EnvTopic, ""},
 		{"another contract", contractv1.EnvTopic, "oikade/v2/home/x"},
 		{"no plugin", contractv1.EnvTopic, "oikade/v1/home"},
@@ -161,5 +160,20 @@ func TestRelayCapability(t *testing.T) {
 	want := "parameters.capability must be one of switch.on, light.on, outlet.on, got fan.on"
 	if err == nil || err.Error() != want {
 		t.Fatalf("got %v, want %q", err, want)
+	}
+}
+
+func TestDevicesFileIsOptional(t *testing.T) {
+	env, err := readEnvironment(func(name string) string {
+		if name == contractv1.EnvDevicesFile {
+			return ""
+		}
+		return pluginEnv[name]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.DevicesFile != "" {
+		t.Errorf("DevicesFile = %q", env.DevicesFile)
 	}
 }

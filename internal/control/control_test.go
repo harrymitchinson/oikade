@@ -60,7 +60,7 @@ func newHarness(t *testing.T, s Settings, start string) *harness {
 	return &harness{t: t, clock: c, a: a}
 }
 
-// to moves the clock to s and applies the decision, as the runtime would.
+// to moves the clock to s and applies the decision, as the engine would.
 func (h *harness) to(s string) Decision {
 	h.t.Helper()
 	h.clock.SetTime(at(s))

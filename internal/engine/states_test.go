@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -12,66 +11,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
-// backend is somewhere states are saved. holds and controls return them as a restarted process
-// finds them, so a test restarts by asking for them again, holds first.
-type backend interface {
-	holds(t *testing.T) HoldStates
-	controls(t *testing.T) ControlStates
-	// corrupt saves something unreadable as the hold's state.
-	corrupt(t *testing.T, key types.NamespacedName)
-}
-
-// brokerBackend saves states as retained messages.
-type brokerBackend struct {
-	url string
-}
-
-func (b brokerBackend) connect(t *testing.T) (context.Context, mqtt.Bus) {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	c, err := mqtt.Connect(ctx, b.url, fmt.Sprintf("runtime-%d", time.Now().UnixNano()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
-	return ctx, c
-}
-
-func (b brokerBackend) holds(t *testing.T) HoldStates {
-	t.Helper()
-	ctx, bus := b.connect(t)
-	s := &Retained[HoldState]{Bus: bus, Root: HoldStatesRoot, Log: logr.Discard()}
-	if err := s.Sync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-func (b brokerBackend) controls(t *testing.T) ControlStates {
-	t.Helper()
-	ctx, bus := b.connect(t)
-	s := &Retained[ControlState]{Bus: bus, Root: ControlStatesRoot, Log: logr.Discard()}
-	if err := s.Sync(ctx); err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-func (b brokerBackend) corrupt(t *testing.T, key types.NamespacedName) {
-	t.Helper()
-	ctx, bus := b.connect(t)
-	if err := bus.Publish(ctx, HoldStatesRoot+key.Namespace+"/"+key.Name, []byte("{not json"), true); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// storeBackend saves states in the embedded store.
+// storeBackend saves states in the embedded store. holds and controls return them as a restarted
+// process finds them, so a test restarts by asking for them again, holds first.
 type storeBackend struct {
 	dir string
 	s   *store.Store
@@ -127,15 +71,8 @@ func (b *storeBackend) corrupt(t *testing.T, key types.NamespacedName) {
 	}
 }
 
-// onEachBackend runs test once per place states are saved.
-func onEachBackend(t *testing.T, test func(t *testing.T, b backend)) {
-	t.Helper()
-	t.Run("retained", func(t *testing.T) { test(t, brokerBackend{url: mqtttest.StartBroker(t)}) })
-	t.Run("stored", func(t *testing.T) { test(t, newStoreBackend(t)) })
-}
-
 // restartTests are the engine's tests that stop it and start it again from saved state.
-var restartTests = map[string]func(*testing.T, backend){
+var restartTests = map[string]func(*testing.T, *storeBackend){
 	"WindowHoldRestartRespectsATap":              testWindowHoldRestartRespectsATap,
 	"WindowHoldStartsAfterDowntime":              testWindowHoldStartsAfterDowntime,
 	"OffDelaySurvivesARestart":                   testOffDelaySurvivesARestart,
@@ -148,81 +85,78 @@ var restartTests = map[string]func(*testing.T, backend){
 
 func TestRestarts(t *testing.T) {
 	for name, test := range restartTests {
-		t.Run(name, func(t *testing.T) { onEachBackend(t, test) })
+		t.Run(name, func(t *testing.T) { test(t, newStoreBackend(t)) })
 	}
 }
 
 func TestStatesKeepHoldsAcrossARestart(t *testing.T) {
-	onEachBackend(t, func(t *testing.T, b backend) {
-		ctx := t.Context()
-		kept := types.NamespacedName{Namespace: ns, Name: "kept"}
-		other := types.NamespacedName{Namespace: "other", Name: "kept"}
-		deleted := types.NamespacedName{Namespace: ns, Name: "deleted"}
-		want := HoldState{
-			Active: true, Latched: true, OnAt: time.Date(2026, 11, 5, 22, 0, 0, 0, time.UTC),
-			Target: HoldTarget{Device: "main-valve", Capability: "switch.on", Value: false},
-		}
-		s := b.holds(t)
-		if _, ok := s.Get(kept); ok {
-			t.Error("a new store has a state")
-		}
-		for key, state := range map[types.NamespacedName]HoldState{kept: want, other: {Active: true}, deleted: want} {
-			if err := s.Put(ctx, key, state); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if got, ok := s.Get(kept); !ok || !reflect.DeepEqual(got, want) {
-			t.Errorf("before the restart: %+v, %v", got, ok)
-		}
-		if err := s.Delete(ctx, deleted); err != nil {
+	b := newStoreBackend(t)
+	ctx := t.Context()
+	kept := types.NamespacedName{Namespace: ns, Name: "kept"}
+	other := types.NamespacedName{Namespace: "other", Name: "kept"}
+	deleted := types.NamespacedName{Namespace: ns, Name: "deleted"}
+	want := HoldState{
+		Active: true, Latched: true, OnAt: time.Date(2026, 11, 5, 22, 0, 0, 0, time.UTC),
+		Target: HoldTarget{Device: "main-valve", Capability: "switch.on", Value: false},
+	}
+	s := b.holds(t)
+	if _, ok := s.Get(kept); ok {
+		t.Error("a new store has a state")
+	}
+	for key, state := range map[types.NamespacedName]HoldState{kept: want, other: {Active: true}, deleted: want} {
+		if err := s.Put(ctx, key, state); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := s.Get(deleted); ok {
-			t.Error("the deleted state is still there")
-		}
+	}
+	if got, ok := s.Get(kept); !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("before the restart: %+v, %v", got, ok)
+	}
+	if err := s.Delete(ctx, deleted); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Get(deleted); ok {
+		t.Error("the deleted state is still there")
+	}
 
-		s = b.holds(t)
-		if got, ok := s.Get(kept); !ok || !reflect.DeepEqual(got, want) {
-			t.Errorf("after the restart: %+v, %v", got, ok)
-		}
-		if got, ok := s.Get(other); !ok || !got.Active || got.Latched {
-			t.Errorf("another namespace's state: %+v, %v", got, ok)
-		}
-		if _, ok := s.Get(deleted); ok {
-			t.Error("the deleted state came back")
-		}
-	})
+	s = b.holds(t)
+	if got, ok := s.Get(kept); !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("after the restart: %+v, %v", got, ok)
+	}
+	if got, ok := s.Get(other); !ok || !got.Active || got.Latched {
+		t.Errorf("another namespace's state: %+v, %v", got, ok)
+	}
+	if _, ok := s.Get(deleted); ok {
+		t.Error("the deleted state came back")
+	}
 }
 
 func TestStatesKeepControlsAcrossARestart(t *testing.T) {
-	onEachBackend(t, func(t *testing.T, b backend) {
-		key := types.NamespacedName{Namespace: ns, Name: "main-valve"}
-		want := ControlState{"switch.on": control.State{}}
-		_ = b.holds(t)
-		if err := b.controls(t).Put(t.Context(), key, want); err != nil {
-			t.Fatal(err)
-		}
-		_ = b.holds(t)
-		got, ok := b.controls(t).Get(key)
-		if !ok {
-			t.Fatal("the state is gone")
-		}
-		g, _ := json.Marshal(got)
-		w, _ := json.Marshal(want)
-		if string(g) != string(w) {
-			t.Errorf("got %s, want %s", g, w)
-		}
-	})
+	b := newStoreBackend(t)
+	key := types.NamespacedName{Namespace: ns, Name: "main-valve"}
+	want := ControlState{"switch.on": control.State{}}
+	_ = b.holds(t)
+	if err := b.controls(t).Put(t.Context(), key, want); err != nil {
+		t.Fatal(err)
+	}
+	_ = b.holds(t)
+	got, ok := b.controls(t).Get(key)
+	if !ok {
+		t.Fatal("the state is gone")
+	}
+	g, _ := json.Marshal(got)
+	w, _ := json.Marshal(want)
+	if string(g) != string(w) {
+		t.Errorf("got %s, want %s", g, w)
+	}
 }
 
 func TestStatesIgnoreAnUnreadableState(t *testing.T) {
-	onEachBackend(t, func(t *testing.T, b backend) {
-		key := types.NamespacedName{Namespace: ns, Name: "bad"}
-		b.corrupt(t, key)
-		if got, ok := b.holds(t).Get(key); ok {
-			t.Errorf("got %+v", got)
-		}
-	})
+	b := newStoreBackend(t)
+	key := types.NamespacedName{Namespace: ns, Name: "bad"}
+	b.corrupt(t, key)
+	if got, ok := b.holds(t).Get(key); ok {
+		t.Errorf("got %+v", got)
+	}
 }
 
 func TestStoredSavesDuringShutdown(t *testing.T) {

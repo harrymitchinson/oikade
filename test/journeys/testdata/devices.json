@@ -1,0 +1,5 @@
+[
+  {"name": "porch-sensor", "capabilities": ["sensor.occupancy-detected"], "values": {"sensor.occupancy-detected": false}},
+  {"name": "porch-light", "capabilities": ["light.on"], "values": {"light.on": false}},
+  {"name": "shed-temperature", "capabilities": ["sensor.temperature"], "values": {"sensor.temperature": 20}}
+]

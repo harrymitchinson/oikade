@@ -162,7 +162,7 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		"bands": {budgetHome(valveControl(), Budget{Bands: &Bands{
 			Device: "water", Capability: "sensor.temperature", Ranges: []Band{{Below: 12, Minutes: 60}}, Otherwise: 90,
 		}}), ""},
-		"no minutes":   {budgetHome(valveControl(), Budget{}), "exactly one of bands or expression"},
+		"no minutes":   {budgetHome(valveControl(), Budget{}), "exactly one of bands or minutes"},
 		"both minutes": {budgetHome(valveControl(), Budget{Minutes: minutes, Bands: &Bands{}}), "exactly one"},
 		"bad slot":     {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 20}), "slotMinutes"},
 		"bad window": {

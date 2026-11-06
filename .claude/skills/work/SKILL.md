@@ -29,10 +29,10 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 ## 3. Build it
 
 - **Only this step.** If you find work for later, mention it in the PR, or add it with `hack/plan idea` if it's new.
-- **Follow AGENTS.md:** scaffold with `kubebuilder`, run `make manifests generate` after editing types, and `make lint-fix test` after Go changes. After changing the plugin contract, the SDK or a plugin, also run `make test-conformance`.
+- **Follow AGENTS.md:** run `make lint-fix test` after Go changes. After changing the plugin contract, the SDK or a plugin, also run `make test-conformance`.
 - **Keep the docs true.** If the step changes how something works, update the doc that says so in the same PR: the README for what users write and see, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Describe the present and link the feature for why. Don't copy the design.
-- **Never run Kind e2e within a step.** The bar for a PR is unit tests and envtest. CI runs e2e only on main after a merge and nightly. If main's e2e breaks, fix it forward in a new PR. Say in the PR that e2e wasn't run.
-- **Test at the lowest level that shows the behaviour:** mappings, coalescing and IDs in unit tests, controllers in envtest, Matter commissioning in an in-process node test (a Go controller talking to the node, no Kind). Don't add e2e specs per feature: e2e keeps a few journeys across components.
+- **Never run the journeys within a step.** The bar for a PR is `make test`. CI runs them only on main after a merge and nightly. If they break on main, fix it forward in a new PR. Say in the PR that they weren't run.
+- **Test at the lowest level that shows the behaviour:** mappings, coalescing and IDs in unit tests, the host in `test/host`, Matter commissioning in an in-process node test (a Go controller talking to the node). Don't add a journey per feature: `test/journeys` keeps a few, across components.
 
 - **Manual acceptance** (`(manual, in the Manual testing doc)`, such as pairing with the Home app and real devices) can't be checked here. Leave it for the user, check that the Linear document "Manual testing" lists it, and say so in the PR.
 - **Commit as you go,** with conventional commits like the git log (`feat(schedule): …`). Stage explicit paths only.

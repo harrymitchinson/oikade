@@ -57,8 +57,8 @@ type Condition func(Vars) (bool, error)
 // brokenCondition is a condition with a bug in it, rather than one that can't be evaluated yet.
 type brokenCondition struct{ error }
 
-// guarded turns a panic in a Go condition into an error. CEL can't panic, but one Go condition
-// reading a device that hasn't reported mustn't stop every other rule.
+// guarded turns a panic in a condition into an error: one condition reading a device that hasn't
+// reported mustn't stop every other rule.
 func guarded(c Condition) Condition {
 	if c == nil {
 		return nil
@@ -260,7 +260,7 @@ type Moment struct {
 	Do   []Action
 }
 
-// NewMoment compiles a moment written in Go. It's checked as a Rule is.
+// NewMoment compiles a moment written in Go. It reports every problem.
 func NewMoment(key types.NamespacedName, m Moment) (*Compiled, error) {
 	c, errs := m.compile(key)
 	switch m.Mode {
@@ -462,7 +462,7 @@ type Hold struct {
 	Generation int64
 }
 
-// NewHold compiles a hold written in Go. It's checked as a Rule is.
+// NewHold compiles a hold written in Go. It reports every problem.
 func NewHold(key types.NamespacedName, h Hold) (*Compiled, error) {
 	c := &Compiled{Key: key, Generation: max(h.Generation, 1), Mode: ModeSingle}
 	c.hold = &hold{
@@ -490,7 +490,6 @@ func NewHold(key types.NamespacedName, h Hold) (*Compiled, error) {
 		spec.Device, spec.Capability, spec.Value = h.Device, h.Capability, h.Value
 		c.hold.budget = &budgetHold{
 			compile: func(e *control.Entry) (*schedule.Budget, error) { return schedule.CompileSpec(spec, e) },
-			saves:   true,
 		}
 	case h.Window == nil && h.When == nil:
 		errs = append(errs, errors.New("hold: a window or when is required"))

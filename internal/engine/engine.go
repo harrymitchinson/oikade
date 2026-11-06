@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -27,7 +26,7 @@ const (
 	ResultBusy           = "busy"
 	ResultConditionFalse = "condition_false"
 	ResultConditionError = "condition_error"
-	// ResultMissed is an at or sun trigger whose time passed while the runtime was down, longer
+	// ResultMissed is an at or sun trigger whose time passed while the host was down, longer
 	// ago than the Rule's startingDeadline.
 	ResultMissed = "missed"
 )
@@ -38,7 +37,7 @@ const (
 	labelRule      = "rule"
 )
 
-// ReasonNoLocation is the Scheduled reason for a sun trigger on a runtime without a location.
+// ReasonNoLocation is the Scheduled reason for a sun trigger with no location.
 const ReasonNoLocation = "NoLocation"
 
 // maxWait bounds how long Run sleeps, so a wall clock that steps forward, as NTP does on a
@@ -93,12 +92,6 @@ type Engine struct {
 	Arbitration Arbitration
 	// ControlLevel is the winning level of each arbitrated capability.
 	ControlLevel *prometheus.GaugeVec
-	// OnControl, if set, is called with e.mu held when a Device's arbitrated capabilities change
-	// at a transition. It must not block.
-	OnControl func(dev types.NamespacedName, control []homev1alpha1.CapabilityControlStatus)
-	// OnSkipped, if set, is called with the Room members a Rule's last run left out because they
-	// arbitrate the capability and the set had no end. It must not block.
-	OnSkipped func(key types.NamespacedName, skipped []string)
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key types.NamespacedName, t time.Time)
 	// OnRun, if set, is called with each outcome Runs counts, perhaps with e.mu held. It must not block.
@@ -121,8 +114,10 @@ type Engine struct {
 	// wake makes Run look at the timers again.
 	wake chan struct{}
 
-	mu    sync.Mutex
-	rules map[types.NamespacedName]*state
+	mu sync.Mutex
+	// skipped is the Room members each rule last left out.
+	skipped map[types.NamespacedName][]string
+	rules   map[types.NamespacedName]*state
 	// loaded holds every Rule loaded since Init, so only the first load looks for missed fires.
 	loaded map[types.NamespacedName]bool
 	runs   sync.WaitGroup
@@ -131,10 +126,8 @@ type Engine struct {
 	arbs       map[types.NamespacedName]map[string]*arb
 	controlDue map[types.NamespacedName]bool
 	// saveDue are the devices whose arbiters saveControls saves next.
-	saveDue         map[types.NamespacedName]bool
-	saveWake        chan struct{}
-	reportedControl map[types.NamespacedName]string
-	skipped         map[types.NamespacedName][]string
+	saveDue  map[types.NamespacedName]bool
+	saveWake chan struct{}
 	// changes closes after a change has been handled, for flows waiting on a condition.
 	changes chan struct{}
 	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
@@ -206,8 +199,6 @@ func (e *Engine) Init() {
 	e.controlDue = map[types.NamespacedName]bool{}
 	e.saveDue = map[types.NamespacedName]bool{}
 	e.saveWake = make(chan struct{}, 1)
-	e.reportedControl = map[types.NamespacedName]string{}
-	e.skipped = map[types.NamespacedName][]string{}
 	e.bridgeWrites = map[types.NamespacedName]map[string]bridgeWrite{}
 	e.savedControls = map[types.NamespacedName]string{}
 	e.changes = make(chan struct{})
@@ -252,7 +243,7 @@ func (e *Engine) Load(c *Compiled) {
 	if old != nil && old.c.hold != nil && c.hold == nil && e.Active != nil {
 		e.Active.DeleteLabelValues(c.Key.Namespace, c.Key.Name)
 	}
-	if c.staleBudget || old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
+	if old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
 		e.clearBudget(c.Key, c.Generation)
 		if s.hold != nil {
 			s.hold.budget = nil
@@ -327,7 +318,6 @@ func (e *Engine) Remove(key types.NamespacedName) {
 		// A write still running deletes the state again once it ends.
 		s.hold.deleted = true
 	}
-	delete(e.skipped, key)
 	e.mu.Unlock()
 	// A deleted Rule's claims end with it.
 	_ = e.endClaims(context.Background(), key.Namespace, ruleSource(key.Name), allLevels)
@@ -354,7 +344,7 @@ func (e *Engine) unload(key types.NamespacedName) *state {
 	if s != nil && (len(s.c.timers) > 0 || s.c.hold != nil) {
 		e.report(key, Schedule{Generation: s.c.Generation, Cleared: true})
 	}
-	// status.today stays, so a Rule fixed the same day carries on with its plan.
+	// The saved plan stays, so a rule fixed the same day carries on with it.
 	e.Budget.delete(key)
 	delete(e.rules, key)
 	// A Rule loaded again, after a delete or an invalid edit, looks for missed fires again.
@@ -641,6 +631,26 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 	return result
 }
 
+// reportSkipped logs the Room members a run left out when they differ from the last run's, so a
+// moment that fires all day logs them once.
+func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
+	slices.Sort(skipped)
+	skipped = slices.Compact(skipped)
+	e.mu.Lock()
+	same := slices.Equal(e.skipped[key], skipped)
+	if !same {
+		if e.skipped == nil {
+			e.skipped = map[types.NamespacedName][]string{}
+		}
+		e.skipped[key] = skipped
+	}
+	e.mu.Unlock()
+	if !same && len(skipped) > 0 {
+		e.Log.Info("Skipped Room members that arbitrate the capability; the set needs for or until",
+			"rule", key, "devices", skipped)
+	}
+}
+
 // runActions is execute, returning the Room members left out as well.
 func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Compiled) (result string, skipped []string) {
 	log := e.Log.WithValues("rule", key)
@@ -747,22 +757,6 @@ func (e *Engine) setClaim(key types.NamespacedName, a action) control.Claim {
 		c.Expires = e.Clock.Now().Add(a.claimFor)
 	}
 	return c
-}
-
-// reportSkipped reports the Room members a run left out, when they changed.
-func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
-	slices.Sort(skipped)
-	skipped = slices.Compact(skipped)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.rules[key] == nil || slices.Equal(e.skipped[key], skipped) {
-		// A Rule deleted during its run keeps no entry.
-		return
-	}
-	e.skipped[key] = skipped
-	if e.OnSkipped != nil {
-		e.OnSkipped(key, skipped)
-	}
 }
 
 // Park hears that a run is waiting until wake, or until woken closes if that's not nil, and returns

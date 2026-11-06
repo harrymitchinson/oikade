@@ -1,59 +1,43 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
 // pumpEntry is scenario 5's pump: on for at least an hour, resting half an hour, three starts a
 // day, and a Home app tap holds for two hours.
-func pumpEntry() homev1alpha1.CapabilityControl {
-	e := entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "2h")
-	starts := int32(3)
-	e.MinimumOn, e.MinimumOff = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: 30 * time.Minute}
-	e.MaximumStartsPerDay = &starts
+func pumpEntry() control.Entry {
+	e := entry(capability.SwitchOn, "false", control.NamePreferOn, control.NameOverride, "2h")
+	e.MinimumOn, e.MinimumOff = control.Duration(time.Hour), control.Duration(30*time.Minute)
+	e.MaximumStartsPerDay = 3
 	return e
 }
 
 // pumpBudget runs the pump 2, 3 or 5 hours a day by the water's temperature, preferring the night
 // and never at breakfast.
-const pumpBudget = `
-  while:
-    budget:
-      minutes:
-        bands:
-          input: {device: water-temp, capability: sensor.temperature, maxAge: 1h}
-          missingMinutes: 240
-          ranges: [{below: 12, minutes: 120}, {below: 16, minutes: 180}, {minutes: 300}]
-      prefer: [{window: {start: "22:00", end: "06:00"}, score: 3}]
-      forbid: [{window: {start: "07:00", end: "08:30"}}]
-  hold: {device: pump, capability: switch.on, value: true}
-`
+var pumpBudget = Hold{Device: "pump", Capability: capability.SwitchOn, Value: true, Budget: &schedule.Spec{Bands: &schedule.BandSpec{Device: "water-temp", Capability: capability.Temperature, MaxAge: time.Hour, MissingMinutes: 240, Ranges: []schedule.Band{{Below: new(12.0), Minutes: 120}, {Below: new(16.0), Minutes: 180}, {Minutes: 300}}}, Prefer: []schedule.PreferSpec{{Window: schedule.WindowSpec{Start: "22:00", End: "06:00"}, Score: 3}}, Forbid: []schedule.WindowSpec{{Start: "07:00", End: "08:30"}}}}
 
-const pumpFrost = `
-  priority: Safety
-  while: {when: 'devices["outdoor-temp"]["sensor.temperature"] < 1.0'}
-  hold: {device: pump, capability: switch.on, value: true}
-`
+var pumpFrost = Hold{Device: "pump", Capability: capability.SwitchOn, Value: true, Priority: PrioritySafety, When: below("outdoor-temp", capability.Temperature, 1.0)}
 
 // setControlOf replaces one device's control entries, leaving the others' empty.
-func (r *rig) setControlOf(dev string, entries ...homev1alpha1.CapabilityControl) {
+func (r *rig) setControlOf(dev string, entries ...control.Entry) {
 	metas := map[types.NamespacedName]hub.Meta{}
 	for name := range holdDevices {
 		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[types.NamespacedName{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: control.FromAPIList(entries)}
+	metas[types.NamespacedName{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: entries}
 	r.store.SetDevices(z2m, metas)
 }
 
@@ -64,7 +48,7 @@ func (r *rig) report(dev, c string, v any) {
 	r.change(dev, c, v)
 }
 
-func blocks(today *homev1alpha1.BudgetDay) string {
+func blocks(today *BudgetDay) string {
 	s := make([]string, 0, len(today.Blocks))
 	for _, b := range today.Blocks {
 		s = append(s, b.Start.In(london).Format("15:04")+"-"+b.End.In(london).Format("15:04"))
@@ -86,24 +70,23 @@ func (r *rig) expectBudgetMetrics(name string, target, scheduled, run float64) {
 	}
 }
 
-func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states backend) {
-	start := func(now string, today *homev1alpha1.BudgetDay, pumpOn bool) *rig {
+func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states *storeBackend) {
+	start := func(now string, pumpOn bool) *rig {
 		budget := holdRule(t, "pump-daily", pumpBudget)
-		budget.Status.Today = today
 		return startRigWith(t, rigOptions{
 			now: local(now), holds: states.holds(t), controls: states.controls(t),
 			values:  map[string]map[string]any{"pump": {capability.SwitchOn: pumpOn}, "outdoor-temp": {capability.Temperature: 5.0}},
-			control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
+			control: map[string][]control.Entry{"pump": {pumpEntry()}},
 		}, budget, holdRule(t, "pump-frost", pumpFrost))
 	}
 
 	// The water is at 14°C just before midnight, so the day's budget is 3 hours, planned in the
 	// night slots at midnight.
-	r := start("2026-10-21 23:50 BST", nil, false)
+	r := start("2026-10-21 23:50 BST", false)
 	r.report("water-temp", capability.Temperature, 14.0)
 	r.at("2026-10-22 00:00 BST")
 	b := r.budget("pump-daily")
-	if b.Planned != metav1.ConditionTrue || b.Today == nil {
+	if b.Unplanned || b.Today == nil {
 		t.Fatalf("00:00 report %+v, want a plan", b)
 	}
 	today := b.Today
@@ -117,7 +100,7 @@ func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states backend
 		}
 	}
 	first := today.Blocks[0]
-	if !first.Start.Time.Equal(local("2026-10-22 00:00 BST")) {
+	if !first.Start.Equal(local("2026-10-22 00:00 BST")) {
 		t.Fatalf("blocks %s, want the first at 00:00", blocks(today))
 	}
 	r.expect(call{"pump", capability.SwitchOn, true})
@@ -158,8 +141,8 @@ func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states backend
 	r.stop()
 
 	// A restart the same day, with the water now warmer, keeps the plan, the run minutes and the
-	// starts from status.today, rather than planning again.
-	r = start("2026-10-22 01:50 BST", saved, true)
+	// starts it saved, rather than planning again.
+	r = start("2026-10-22 01:50 BST", true)
 	r.report("water-temp", capability.Temperature, 20.0)
 	r.report("pump", capability.SwitchOn, true)
 	r.at("2026-10-22 01:56 BST")
@@ -185,7 +168,7 @@ func TestBudgetWithoutAControlEntryStaysOff(t *testing.T) {
 	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, holdRule(t, "pump-daily", pumpBudget))
 	r.at("2026-10-21 23:00 BST")
 	r.expect()
-	if b := r.budget("pump-daily"); b.Planned != metav1.ConditionFalse || b.Reason != ReasonNoControl {
+	if b := r.budget("pump-daily"); !b.Unplanned || b.Reason != ReasonNoControl {
 		t.Errorf("report %+v, want Planned=False NoControl", b)
 	}
 	if r.active("pump-daily") != 0 {
@@ -196,7 +179,7 @@ func TestBudgetWithoutAControlEntryStaysOff(t *testing.T) {
 func TestBudgetMetricsAreExportedBeforeAnyRun(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 14:00 BST"),
-		control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
+		control: map[string][]control.Entry{"pump": {pumpEntry()}},
 	}, holdRule(t, "pump-daily", pumpBudget))
 	for _, c := range r.e.Budget.Collectors() {
 		if n := testutil.CollectAndCount(c); n != 1 {
@@ -224,14 +207,14 @@ func TestBudgetPlansLateAfterADownedStart(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 14:00 BST"),
 		values:  map[string]map[string]any{"pump": {capability.SwitchOn: false}},
-		control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
+		control: map[string][]control.Entry{"pump": {pumpEntry()}},
 	}, holdRule(t, "pump-daily", pumpBudget))
 	b := r.budget("pump-daily")
 	if b.Today == nil || b.Today.TargetSource != "Missing" || b.Today.TargetMinutes != 240 {
 		t.Fatalf("report %+v, want the missing-input budget", b)
 	}
 	for _, blk := range b.Today.Blocks {
-		if blk.Start.Time.Before(local("2026-10-21 14:00 BST")) {
+		if blk.Start.Before(local("2026-10-21 14:00 BST")) {
 			t.Errorf("block %s starts before the plan was made", blocks(b.Today))
 		}
 	}
@@ -240,21 +223,13 @@ func TestBudgetPlansLateAfterADownedStart(t *testing.T) {
 func TestEditingOutTheBudgetClearsItsStatus(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 08:00 BST"),
-		control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
+		control: map[string][]control.Entry{"pump": {pumpEntry()}},
 	}, holdRule(t, "pump-nightly", pumpBudget))
 	if r.budget("pump-nightly").Today == nil {
 		t.Fatal("no plan")
 	}
-	edited := holdRule(t, "pump-nightly", `
-  while: {window: {start: "22:00", end: "06:00"}}
-  hold: {device: pump, capability: switch.on, value: true}
-`)
-	edited.Generation = 2
-	c, err := Compile(edited)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.e.Load(c)
+	edited := holdRule(t, "pump-nightly", Hold{Generation: 2, Device: "pump", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}})
+	r.e.Load(edited)
 	r.settle()
 	if b := r.budget("pump-nightly"); !b.Cleared {
 		t.Errorf("report %+v, want cleared", b)
@@ -311,43 +286,28 @@ func TestPlanningDay(t *testing.T) {
 	}
 }
 
-func TestAStalePlanIsClearedOnLoad(t *testing.T) {
-	// The budget was removed while the runtime was down: its plan is still in status.
-	rule := holdRule(t, "pump-daily", `
-  while: {window: {start: "22:00", end: "06:00"}}
-  hold: {device: pump, capability: switch.on, value: true}
-`)
-	rule.Status.Today = &homev1alpha1.BudgetDay{Date: "2026-10-21", TargetMinutes: 120}
-	r := startRig(t, local("2026-10-21 08:00 BST"), nil, nil, nil, rule)
-	if b := r.budget("pump-daily"); !b.Cleared {
-		t.Errorf("report %+v, want cleared", b)
-	}
-}
-
 func TestAFailedDayStaysFailedAfterARestart(t *testing.T) {
-	rule := holdRule(t, "pump-daily", `
-  while: {budget: {minutes: {expression: 'devices["water-temp"]["sensor.temperature"] > 10.0 ? 60 : 30'}}}
-  hold: {device: pump, capability: switch.on, value: true}
-`)
-	start := func(today *homev1alpha1.BudgetDay, planned *metav1.Condition) *rig {
-		r := rule.DeepCopy()
-		r.Status.Today = today
-		if planned != nil {
-			r.Status.Conditions = []metav1.Condition{*planned}
+	failing := func(devices map[string]map[string]any, _ time.Time, _ *time.Location) (int, error) {
+		if _, ok := devices["water-temp"][capability.Temperature]; !ok {
+			return 0, errors.New("water-temp hasn't reported")
 		}
-		return startRigWith(t, rigOptions{
-			now:     local("2026-10-21 08:00 BST"),
-			control: map[string][]homev1alpha1.CapabilityControl{"pump": {pumpEntry()}},
-		}, r)
+		return 60, nil
 	}
-	// water-temp has never reported, so the expression fails.
-	r := start(nil, nil)
+	states := newMemoryStates[HoldState]()
+	start := func() *rig {
+		return startRigWith(t, rigOptions{
+			now: local("2026-10-21 08:00 BST"), holds: states,
+			control: map[string][]control.Entry{"pump": {pumpEntry()}},
+		}, holdRule(t, "pump-daily", Hold{Device: "pump", Capability: capability.SwitchOn, Value: true, Budget: &schedule.Spec{Minutes: failing}}))
+	}
+	// water-temp has never reported, so the minutes fail.
+	r := start()
 	b := r.budget("pump-daily")
-	if b.Planned != metav1.ConditionFalse || b.Reason != ReasonEvaluationFailed {
+	if !b.Unplanned || b.Reason != ReasonEvaluationFailed {
 		t.Fatalf("report %+v, want EvaluationFailed", b)
 	}
 	r.stop()
-	r = start(b.Today, &metav1.Condition{Type: homev1alpha1.ConditionPlanned, Status: b.Planned, Reason: b.Reason, Message: b.Message})
+	r = start()
 	if got := r.budget("pump-daily"); got.Reason != ReasonEvaluationFailed || got.Message != b.Message {
 		t.Errorf("after a restart, report %+v, want the same failure", got)
 	}
@@ -356,20 +316,16 @@ func TestAFailedDayStaysFailedAfterARestart(t *testing.T) {
 func TestANewTargetIsPlannedForAtOnce(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now: local("2026-10-21 08:00 BST"),
-		control: map[string][]homev1alpha1.CapabilityControl{
+		control: map[string][]control.Entry{
 			"pump": {pumpEntry()}, "towel-rail": {pumpEntry()},
 		},
 	}, holdRule(t, "pump-daily", pumpBudget))
 	r.e.mu.Lock()
 	planned := r.e.rules[types.NamespacedName{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
 	r.e.mu.Unlock()
-	edited := holdRule(t, "pump-daily", strings.Replace(pumpBudget, "device: pump,", "device: towel-rail,", 1))
-	edited.Generation = 2
-	c, err := Compile(edited)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.e.Load(c)
+	edited := pumpBudget
+	edited.Device, edited.Generation = "towel-rail", 2
+	r.e.Load(holdRule(t, "pump-daily", edited))
 	r.settle()
 	r.e.mu.Lock()
 	p := r.e.rules[types.NamespacedName{Namespace: ns, Name: "pump-daily"}].hold.budget.plan

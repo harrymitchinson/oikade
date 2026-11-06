@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 )
 
 // Canonical capability names.
@@ -35,37 +33,39 @@ const (
 	LinkQuality = "link.quality"
 )
 
+// Kind is a capability's value type.
+type Kind string
+
+const (
+	KindBool   Kind = "Bool"
+	KindNumber Kind = "Number"
+)
+
 // Spec describes a capability's type and valid range.
 type Spec struct {
-	Kind     homev1alpha1.CapabilityKind
+	Kind     Kind
 	Writable bool
 	// Min and Max bound numeric values (inclusive).
 	Min, Max float64
 }
 
 var registry = map[string]Spec{
-	LightOn:     {Kind: homev1alpha1.CapabilityKindBool, Writable: true},
-	LightLevel:  {Kind: homev1alpha1.CapabilityKindNumber, Writable: true, Min: 0, Max: 100},
-	SwitchOn:    {Kind: homev1alpha1.CapabilityKindBool, Writable: true},
-	OutletOn:    {Kind: homev1alpha1.CapabilityKindBool, Writable: true},
-	Temperature: {Kind: homev1alpha1.CapabilityKindNumber, Min: -273.15, Max: 1000},
-	Humidity:    {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 100},
-	ContactOpen: {Kind: homev1alpha1.CapabilityKindBool},
-	Occupancy:   {Kind: homev1alpha1.CapabilityKindBool},
-	Battery:     {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 100},
-	LinkQuality: {Kind: homev1alpha1.CapabilityKindNumber, Min: 0, Max: 255},
+	LightOn:     {Kind: KindBool, Writable: true},
+	LightLevel:  {Kind: KindNumber, Writable: true, Min: 0, Max: 100},
+	SwitchOn:    {Kind: KindBool, Writable: true},
+	OutletOn:    {Kind: KindBool, Writable: true},
+	Temperature: {Kind: KindNumber, Min: -273.15, Max: 1000},
+	Humidity:    {Kind: KindNumber, Min: 0, Max: 100},
+	ContactOpen: {Kind: KindBool},
+	Occupancy:   {Kind: KindBool},
+	Battery:     {Kind: KindNumber, Min: 0, Max: 100},
+	LinkQuality: {Kind: KindNumber, Min: 0, Max: 255},
 }
 
 // Lookup returns the spec for a capability name.
 func Lookup(name string) (Spec, bool) {
 	s, ok := registry[name]
 	return s, ok
-}
-
-// Status returns the Device status entry for a capability.
-func Status(name string) (homev1alpha1.DeviceCapability, bool) {
-	s, ok := registry[name]
-	return homev1alpha1.DeviceCapability{Name: name, Kind: s.Kind, Writable: s.Writable}, ok
 }
 
 // Validate checks v against the capability and returns it normalised to bool or float64.
@@ -76,7 +76,7 @@ func Validate(name string, v any) (any, error) {
 		return nil, fmt.Errorf("unknown capability %q", name)
 	}
 	switch s.Kind {
-	case homev1alpha1.CapabilityKindBool:
+	case KindBool:
 		b, ok := v.(bool)
 		if !ok {
 			return nil, fmt.Errorf("%s takes a bool, got %T", name, v)

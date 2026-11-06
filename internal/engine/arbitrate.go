@@ -11,12 +11,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -41,7 +38,7 @@ const allLevels = control.LevelDefault
 
 // Sources of claims that aren't Rules.
 const (
-	// SourceDevice is a change the runtime didn't write, as from a wall switch.
+	// SourceDevice is a change the engine didn't write, as from a wall switch.
 	SourceDevice = "Device"
 	// SourceMatter is a change a Matter bridge announced writing, for a Matter controller such as
 	// the Home app.
@@ -90,7 +87,7 @@ type arb struct {
 	// writing is true while the decision is being written, and pending asks for another
 	// decision when it ends.
 	writing, pending bool
-	// wrote is when the runtime last wrote the device, and retry when to try a failed write again.
+	// wrote is when the engine last wrote the device, and retry when to try a failed write again.
 	wrote, retry time.Time
 	// next is when the decision can next change without new input. Zero means never.
 	next time.Time
@@ -202,7 +199,7 @@ func (e *Engine) ensure(dev types.NamespacedName) {
 		}
 		settings, err := ControlSettings(c, e.Location)
 		if err != nil {
-			// The operator reports it on the Device; the capability stays unarbitrated.
+			// The capability stays unarbitrated.
 			e.Log.Info("Ignored invalid control entry", "device", dev, "error", err.Error())
 			e.dropArb(dev, c.Capability, true)
 			continue
@@ -378,13 +375,13 @@ func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, nam
 
 // ValueOf turns an arbiter value into the capability's value.
 func ValueOf(name string, v float64) any {
-	if spec, ok := capability.Lookup(name); ok && spec.Kind == homev1alpha1.CapabilityKindBool {
+	if spec, ok := capability.Lookup(name); ok && spec.Kind == capability.KindBool {
 		return v != 0
 	}
 	return v
 }
 
-// outside records a reported value on an arbitrated capability. A value the runtime didn't
+// outside records a reported value on an arbitrated capability. A value the engine didn't
 // write is an outside change. Call with e.mu held.
 func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	ar := e.arbs[u.Device][u.Capability]
@@ -845,83 +842,64 @@ func (e *Engine) arbitrated(dev types.NamespacedName, name string) bool {
 	return ok && snap.Controls(name)
 }
 
-// reportControl reports the device's arbitrated capabilities, if they changed at a transition.
-// Call with e.mu held.
+// reportControl sets the gauge of the device's arbitrated capabilities. Call with e.mu held.
 func (e *Engine) reportControl(dev types.NamespacedName) {
-	if e.ControlLevel != nil {
-		for name, ar := range e.arbs[dev] {
-			e.ControlLevel.WithLabelValues(dev.Namespace, dev.Name, name).Set(float64(ar.d.Level))
-		}
-	}
-	out := e.controlOf(dev)
-	prev, reported := e.reportedControl[dev]
-	if !reported && len(out) == 0 {
+	if e.ControlLevel == nil {
 		return
 	}
-	sig, _ := json.Marshal(out)
-	if prev == string(sig) {
-		return
-	}
-	e.reportedControl[dev] = string(sig)
-	if e.OnControl != nil {
-		e.OnControl(dev, out)
+	for name, ar := range e.arbs[dev] {
+		e.ControlLevel.WithLabelValues(dev.Namespace, dev.Name, name).Set(float64(ar.d.Level))
 	}
 }
 
 // ControlOf says who holds each of a device's arbitrated capabilities, and why.
-func (e *Engine) ControlOf(dev types.NamespacedName) []homev1alpha1.CapabilityControlStatus {
+func (e *Engine) ControlOf(dev types.NamespacedName) []control.Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.ensureDue()
-	return e.controlOf(dev)
-}
-
-// controlOf is ControlOf. Call with e.mu held.
-func (e *Engine) controlOf(dev types.NamespacedName) []homev1alpha1.CapabilityControlStatus {
-	out := make([]homev1alpha1.CapabilityControlStatus, 0, len(e.arbs[dev]))
+	out := make([]control.Status, 0, len(e.arbs[dev]))
 	for name, ar := range e.arbs[dev] {
 		out = append(out, controlStatus(name, ar.d))
 	}
-	slices.SortFunc(out, func(a, b homev1alpha1.CapabilityControlStatus) int {
+	slices.SortFunc(out, func(a, b control.Status) int {
 		return strings.Compare(a.Capability, b.Capability)
 	})
 	return out
 }
 
-func levelName(l control.Level) homev1alpha1.ControlLevel {
+func levelName(l control.Level) string {
 	switch l {
 	case control.Safety:
-		return homev1alpha1.ControlLevelSafety
+		return control.NameSafety
 	case control.Override:
-		return homev1alpha1.ControlLevelOverride
+		return control.NameOverride
 	case control.Normal:
-		return homev1alpha1.ControlLevelNormal
+		return control.NameNormal
 	}
-	return homev1alpha1.ControlLevelDefault
+	return control.NameDefault
 }
 
-func jsonValue(name string, v float64) apiextensionsv1.JSON {
+func jsonValue(name string, v float64) json.RawMessage {
 	raw, _ := json.Marshal(ValueOf(name, v))
-	return apiextensionsv1.JSON{Raw: raw}
+	return raw
 }
 
-// controlStatus is a decision as Device status shows it.
-func controlStatus(name string, d control.Decision) homev1alpha1.CapabilityControlStatus {
-	v := jsonValue(name, d.Value)
-	s := homev1alpha1.CapabilityControlStatus{Capability: name, Value: &v, Level: levelName(d.Level)}
+// controlStatus is a decision as oikade status shows it.
+func controlStatus(name string, d control.Decision) control.Status {
+	s := control.Status{Capability: name, Value: jsonValue(name, d.Value), Level: levelName(d.Level)}
 	for _, c := range d.Claims {
-		cc := homev1alpha1.ControlClaim{
+		cc := control.ClaimStatus{
 			Source: c.Source, Level: levelName(c.Level), Value: jsonValue(name, c.Value),
 			Latched: c.Latched, Winner: c.Source == d.Source,
 		}
 		if !c.Expires.IsZero() {
-			cc.Expires = metav1.NewTime(c.Expires.Truncate(time.Second))
+			cc.Expires = c.Expires.Truncate(time.Second)
 		}
 		s.Claims = append(s.Claims, cc)
 	}
 	if r := d.Reverted; r != nil {
-		s.Claims = append(s.Claims, homev1alpha1.ControlClaim{
-			Source: r.Source, Level: homev1alpha1.ControlLevelOverride, Value: jsonValue(name, r.Value), Reverted: true,
+		s.Claims = append(s.Claims, control.ClaimStatus{
+			Source: r.Source, Level: control.NameOverride, Value: jsonValue(name, r.Value), Reverted: true,
 		})
 	}
 	return s

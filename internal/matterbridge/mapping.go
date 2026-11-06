@@ -13,7 +13,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -23,15 +22,28 @@ import (
 // Node's lock.
 type SetFunc func(name string, value any)
 
-// Device is everything needed to map a Device to a bridged endpoint.
+// DeviceType is the Matter device type family of a switch.on device.
+type DeviceType string
+
+const (
+	// TypeLight is an On/Off Light or a Dimmable Light.
+	TypeLight DeviceType = "Light"
+	// TypePlugInUnit is an On/Off Plug-in Unit or a Dimmable Plug-In Unit: an outlet.
+	TypePlugInUnit DeviceType = "PlugInUnit"
+	// TypeMountedControl is a Mounted On/Off Control or a Mounted Dimmable Load Control: a switch
+	// wired into the wall.
+	TypeMountedControl DeviceType = "MountedControl"
+)
+
+// Device is everything needed to map a device to a bridged endpoint.
 type Device struct {
 	Key      types.NamespacedName
 	Endpoint uint16
 	Name     string
-	// Capabilities are the Device's capability names, from its status.
+	// Capabilities are the device's capability names.
 	Capabilities []string
-	// Type overrides the device type family of a switch.on Device.
-	Type homev1alpha1.MatterDeviceType
+	// Type overrides the device type family of a switch.on device.
+	Type DeviceType
 	// Unique is the bridged device's UniqueID. Empty derives it from Key, which suits a Key that never
 	// changes.
 	Unique string
@@ -99,16 +111,16 @@ func Map(d Device, set SetFunc) *Mapped {
 	if actuator != "" {
 		family := d.Type
 		if family == "" {
-			family = homev1alpha1.MatterDeviceTypePlugInUnit
+			family = TypePlugInUnit
 			if actuator == capability.LightOn {
-				family = homev1alpha1.MatterDeviceTypeLight
+				family = TypeLight
 			}
 		}
 		dimmable := actuator == capability.LightOn && has(capability.LightLevel)
 		m.Types = append(m.Types, deviceType(family, dimmable))
 
 		var onoff *clusters.OnOff
-		if dimmable || family == homev1alpha1.MatterDeviceTypeLight {
+		if dimmable || family == TypeLight {
 			onoff = clusters.NewLightOnOff()
 		} else {
 			onoff = clusters.NewOnOff()
@@ -182,15 +194,15 @@ func Map(d Device, set SetFunc) *Mapped {
 	return m
 }
 
-func deviceType(family homev1alpha1.MatterDeviceType, dimmable bool) im.DeviceType {
+func deviceType(family DeviceType, dimmable bool) im.DeviceType {
 	switch {
-	case family == homev1alpha1.MatterDeviceTypeLight && dimmable:
+	case family == TypeLight && dimmable:
 		return clusters.DeviceDimmableLight
-	case family == homev1alpha1.MatterDeviceTypeLight:
+	case family == TypeLight:
 		return clusters.DeviceOnOffLight
-	case family == homev1alpha1.MatterDeviceTypeMountedControl && dimmable:
+	case family == TypeMountedControl && dimmable:
 		return clusters.DeviceMountedDimmableLoad
-	case family == homev1alpha1.MatterDeviceTypeMountedControl:
+	case family == TypeMountedControl:
 		return clusters.DeviceMountedOnOffControl
 	case dimmable:
 		return clusters.DeviceDimmablePlug

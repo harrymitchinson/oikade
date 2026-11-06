@@ -11,7 +11,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -64,7 +63,7 @@ func (s *apiServer) status() api.Response {
 			if v, ok := snap.Values[name]; ok {
 				c.Value = v
 			}
-			if i := slices.IndexFunc(held, func(o homev1alpha1.CapabilityControlStatus) bool { return o.Capability == name }); i >= 0 {
+			if i := slices.IndexFunc(held, func(o control.Status) bool { return o.Capability == name }); i >= 0 {
 				withControl(&c, held[i])
 			}
 			d.Capabilities = append(d.Capabilities, c)
@@ -90,21 +89,21 @@ func (s *apiServer) status() api.Response {
 	return api.Response{Status: st}
 }
 
-func withControl(c *api.Capability, held homev1alpha1.CapabilityControlStatus) {
-	c.Level = string(held.Level)
+func withControl(c *api.Capability, held control.Status) {
+	c.Level = held.Level
 	if held.Level == "" {
-		c.Level = string(homev1alpha1.ControlLevelDefault)
+		c.Level = control.NameDefault
 	}
 	if held.Value != nil {
-		c.Wanted = rawValue(held.Value.Raw)
+		c.Wanted = rawValue(held.Value)
 	}
 	for _, o := range held.Claims {
 		if o.Reverted {
 			continue
 		}
-		claim := api.Claim{Source: o.Source, Level: string(o.Level), Value: rawValue(o.Value.Raw), Winner: o.Winner, Latched: o.Latched}
+		claim := api.Claim{Source: o.Source, Level: o.Level, Value: rawValue(o.Value), Winner: o.Winner, Latched: o.Latched}
 		if !o.Expires.IsZero() {
-			at := o.Expires.Time
+			at := o.Expires
 			claim.Expires = &at
 		}
 		c.Claims = append(c.Claims, claim)
@@ -158,8 +157,8 @@ func heldAtSafety(eng *engine.Engine, devices *hub.Store, dev types.NamespacedNa
 		if c.Capability != name {
 			continue
 		}
-		if holder := safetyHolder(c); c.Level == homev1alpha1.ControlLevelSafety && holder != "" && !sameValue(c, value) {
-			return holder, rawValue(c.Value.Raw)
+		if holder := safetyHolder(c); c.Level == control.NameSafety && holder != "" && !sameValue(c, value) {
+			return holder, rawValue(c.Value)
 		}
 		return "", nil
 	}
@@ -202,7 +201,7 @@ func (s recordedSetter) Set(ctx context.Context, dev types.NamespacedName, name 
 	return s.setter.Set(ctx, dev, name, value)
 }
 
-func safetyHolder(c homev1alpha1.CapabilityControlStatus) string {
+func safetyHolder(c control.Status) string {
 	for _, o := range c.Claims {
 		if o.Winner {
 			return o.Source
@@ -211,11 +210,11 @@ func safetyHolder(c homev1alpha1.CapabilityControlStatus) string {
 	return ""
 }
 
-func sameValue(c homev1alpha1.CapabilityControlStatus, value any) bool {
+func sameValue(c control.Status, value any) bool {
 	if c.Value == nil {
 		return false
 	}
-	return capability.Float(rawValue(c.Value.Raw)) == capability.Float(value)
+	return capability.Float(rawValue(c.Value)) == capability.Float(value)
 }
 
 // pause stops a rule until it's resumed. It's on disk before this answers, and in force at once.

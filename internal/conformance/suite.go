@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -428,7 +427,7 @@ func isStatus(payload []byte, state string) bool {
 
 // toggled returns a different valid value for a writable capability.
 func toggled(spec capability.Spec, current any) any {
-	if spec.Kind == homev1alpha1.CapabilityKindBool {
+	if spec.Kind == capability.KindBool {
 		b, _ := current.(bool)
 		return !b
 	}

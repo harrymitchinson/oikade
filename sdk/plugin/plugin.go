@@ -34,7 +34,7 @@ type Options struct {
 	OnSet func(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
 	// Logger defaults to JSON on stderr.
 	Logger *slog.Logger
-	// StartTimeout is how long Start waits to come online, so a wrong broker URL crashes the pod
+	// StartTimeout is how long Start waits to come online, so a wrong broker URL crashes the plugin
 	// instead of leaving it Running and silent. It defaults to 60s.
 	StartTimeout time.Duration
 	// CloseTimeout is how long Close waits to publish the offline status. It defaults to 2s.
