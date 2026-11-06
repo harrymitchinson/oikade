@@ -666,7 +666,7 @@ const secondLamp = "0x000b57fffe000006"
 // bridgeDevicesWithSecondLamp returns the driver's bridge/devices fixture with secondLamp added.
 func bridgeDevicesWithSecondLamp(t *testing.T) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "driver", "zigbee2mqtt", "testdata", "bridge-devices.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "plugins", "zigbee2mqtt", "testdata", "bridge-devices.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
