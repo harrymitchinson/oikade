@@ -91,6 +91,10 @@ func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, dev
 		e.Log.Info("Hold's when didn't evaluate to a bool; keeping its state", "rule", key, "value", nb.value)
 		return false, false, next
 	}
+	if broken, ok := errors.AsType[brokenCondition](err); ok {
+		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "error", broken.Error())
+		return false, false, next
+	}
 	if err != nil {
 		e.Log.V(1).Info("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
 		return false, false, next

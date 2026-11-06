@@ -43,6 +43,29 @@ driver ──▶ hub ──▶ status writer, metrics exporter, rule engine   (r
 - **Zigbee2MQTT.** The operator runs each instance and renders its `configuration.yaml` from Devices. The driver maps each device's exposes to capabilities.
 - **Plugins** speak the [oikade/v1 contract](plugin-contract.md) under `oikade/v1/<namespace>/<plugin>/`. The operator runs each Plugin as a Deployment and gives it its Devices in `devices.json`. The driver validates every message against the contract and the capability registry, and drops and counts what doesn't fit. The Go SDK is `sdk/plugin`, and the contract types are `contract/v1`. Each plugin lives in its own repo and checks itself with the `oikade-conformance` command (`cmd/oikade-conformance`, wrapping `internal/conformance`), as [plugin-contract.md](plugin-contract.md#conformance) describes. Here, `make test-conformance` drives the simulated-relay fixture `test/fixtures/simswitch` through it, so an SDK change is tested end to end in its own PR. Design: [OIK-61](https://linear.app/oikade/issue/OIK-61) (plugin drivers) and [OIK-62](https://linear.app/oikade/issue/OIK-62) (the Go SDK).
 
+## The host
+
+The host is how Oikade will run ([OIK-143](https://linear.app/oikade/issue/OIK-143)), and **Kubernetes is still how it runs today**: nothing above changes yet. `oikade host` (`cmd/oikade`, `internal/host`) has simulated devices only, with no drivers, Matter or MQTT.
+
+```
+                 host (long-lived)                         your process (replaceable)
+┌──────────────────────────────────────────┐          ┌───────────────────────────────┐
+│ device state (hub.Store)                 │─changes─▶│ mirror of device state        │
+│ arbitration (an engine with no rules)    │◀─claims──│ triggers, conditions, holds   │
+│ device writes                            │◀─writes──│ (an engine with no arbiters)  │
+│ the store: hold state, latches, claims,  │◀─saves───│                               │
+│ the journal                              │─ping────▶│                               │
+│ supervision                              │◀─pong────│                               │
+└──────────────────────────────────────────┘          └───────────────────────────────┘
+```
+
+- **The split.** Both sides run the real `internal/engine`. The host's has no rules, so it only runs arbiters and their timers, and owns the store. Yours has every rule and no arbiters: `engine.Arbitration` sends its claims to the host, `engine.States` saves hold state there, and writes go through `driver.Setter`.
+- **Your process** is your binary, built from `framework`, a public package. A home's `main` declares holds and moments and calls `framework.Run`. Its exported API can't mention `internal/`: `internal/apicheck` fails a test if it does.
+- **The mirror.** Conditions read a copy of the device state held in your process, so they never wait for a socket. So do hold states, read once from the `welcome`: the engine reads them with its lock held. Everything that changes the host's state is a request that waits for its answer, and none is sent with the lock held.
+- **Surviving a kill.** Device state, claims and latches are in the host, so killing your process loses none of them. The next process gets the saved hold states and works each hold out again, and writes only if the hold started or ended meanwhile. A write and the save after it aren't atomic: a process killed between the two repeats the write, unless the capability is arbitrated, where a repeat claim changes nothing.
+- **Supervision.** The host starts your process, restarts it with backoff, and kills one that stops answering. A condition stuck in a loop stops the answers. Exactly one process runs at a time, and the host refuses any other. [host-protocol.md](host-protocol.md) has the details, and says what happens to a process's claims.
+- **Not yet.** Timers missed while no process is running aren't caught up: a moment's `Since` is when it loaded. A hold removed from the code keeps its saved state and claims. Flows, deploys and the local API are later steps of OIK-143, and arbitrated devices are declared with CRD types, in the simulator's file.
+
 ## Rules
 
 The engine (`internal/engine`) loads each Rule the manager has accepted, compiled with its CEL conditions. The manager checks Rules (`internal/controller/home`) and sets `Ready=False` on one it can't run, but only the runtime runs them. Design: [OIK-64](https://linear.app/oikade/issue/OIK-64) (the rule model) and [OIK-60](https://linear.app/oikade/issue/OIK-60) (room targets).
@@ -50,7 +73,7 @@ The engine (`internal/engine`) loads each Rule the manager has accepted, compile
 - **Moments** (`triggers`) run `do` when a trigger fires and the condition holds. Time and sun triggers are timers, with sun times from `internal/sun`. A Room target resolves to its members when the trigger or action runs, not when the Rule loads, so a Device added to a room is covered at once.
 - **Holds** (`while`) aren't timed in memory. The engine works out from the clock and the devices' state whether each hold is active, and when that next changes. It saves each hold's state, so after a restart it writes only if the hold started or ended while it was down.
 - **Arbitration** (`internal/control`) decides an arbitrated capability. Rules, Matter controllers and the device itself make claims at a level (Safety, Override, Normal). The highest level wins, the Device's `resolve` breaks ties within a level, and then the equipment limits hold the winner back. The Matter bridge announces each controller's write on `oikade/v1/_matter/<namespace>/<bridge>/writes`, so the runtime can make it a `Matter` claim. It also writes the device itself, so controllers work without the runtime.
-- **Rules in Go** (`internal/engine/rule.go`). A Rule's CEL becomes a Go `Condition`, and `engine.Compile` turns a CRD into the engine's own input. `NewMoment`, `NewHold` and `NewTrigger` build the same input from Go, with no CRD, for the host [OIK-143](https://linear.app/oikade/issue/OIK-143) adds. **Nothing production uses them yet.** Budgets and a Device's `control` entries still use CRD types. A condition runs with the engine's lock held, so it must not block.
+- **Rules in Go** (`internal/engine/rule.go`). A Rule's CEL becomes a Go `Condition`, and `engine.Compile` turns a CRD into the engine's own input. `NewMoment`, `NewHold` and `NewTrigger` build the same input from Go, with no CRD, for [the host](#the-host). Budgets and a Device's `control` entries still use CRD types. A condition runs with the engine's lock held, so it must not block.
 - **The day planner** (`internal/schedule`) lays out a day in 15-minute slots that rules require, forbid or prefer, and spends a daily budget across them. Budgets on Rules are being built in [OIK-5](https://linear.app/oikade/issue/OIK-5), which also holds its design.
 
 ### Runtime state
@@ -66,7 +89,7 @@ Namespaces never start with `_`, so these can't collide with a plugin's root. Lo
 
 ### Embedded store
 
-`internal/store` is the state store for the host that [OIK-143](https://linear.app/oikade/issue/OIK-143) adds. **Nothing production uses it yet:** the runtime still keeps its state on the broker, as above.
+`internal/store` is [the host's](#the-host) state store. The runtime still keeps its state on the broker, as above.
 
 - One data directory holds one [bbolt](https://github.com/etcd-io/bbolt) file, `oikade.db`, and only one process can have it open. The operating system drops that lock when the process dies, so a crash never leaves it locked. A second process gets a clear error.
 - Namespaces share the file with separate keys, for the registry, latches, claims and Matter state to come. `engine.Stored` implements `engine.States` on a namespace, as `Retained` does on the broker.

@@ -96,8 +96,23 @@ func claimLevel(p Priority) control.Level {
 	return control.Normal
 }
 
+// Arbitration decides arbitrated capabilities for an engine that runs none itself, as in your
+// process, whose claims live in the host so they outlive it (OIK-143). Its methods may block, so the
+// engine never calls them with its lock held.
+type Arbitration interface {
+	// Claim makes a claim, and reports false when the capability isn't arbitrated.
+	Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) bool
+	// ReleaseClaim ends a source's claim, and reports false when the capability isn't arbitrated.
+	ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool
+	// ReleaseClaims ends a source's claims on every arbitrated capability in the namespace.
+	ReleaseClaims(ctx context.Context, namespace, source string)
+}
+
 // ControlChanged implements hub.ControlWatcher: Run looks at the device's arbiters again.
 func (e *Engine) ControlChanged(dev types.NamespacedName) {
+	if e.Arbitration != nil {
+		return
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.controlDue[dev] = true
@@ -413,6 +428,9 @@ func (e *Engine) forgetBridgeWrite(dev types.NamespacedName, name string) {
 // isn't arbitrated, so the caller writes it as usual. A Rule that is no longer loaded, or a run
 // that was cancelled, claims nothing.
 func (e *Engine) claim(ctx context.Context, rule, dev types.NamespacedName, name string, c control.Claim) bool {
+	if e.Arbitration != nil {
+		return e.claimElsewhere(ctx, rule, dev, name, c)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ar := e.arbiter(dev, name)
@@ -422,18 +440,60 @@ func (e *Engine) claim(ctx context.Context, rule, dev types.NamespacedName, name
 	if ctx.Err() != nil || e.rules[rule] == nil {
 		return true
 	}
+	e.makeClaim(ctx, dev, name, ar, c)
+	return true
+}
+
+// claimElsewhere is claim for an engine whose claims live in Arbitration.
+func (e *Engine) claimElsewhere(ctx context.Context, rule, dev types.NamespacedName, name string, c control.Claim) bool {
+	if !e.arbitrated(dev, name) {
+		return false
+	}
+	e.mu.Lock()
+	loaded := e.rules[rule] != nil
+	e.mu.Unlock()
+	if ctx.Err() != nil || !loaded {
+		return true
+	}
+	return e.Arbitration.Claim(ctx, dev, name, c)
+}
+
+// Claim makes a claim for a rule that runs elsewhere, as the host does for your process. ctx is
+// the engine's, not the request's: the write it leads to outlives the request. It reports false
+// when the capability isn't arbitrated.
+func (e *Engine) Claim(ctx context.Context, dev types.NamespacedName, name string, c control.Claim) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	ar := e.arbiter(dev, name)
+	if ar == nil {
+		return false
+	}
+	e.makeClaim(ctx, dev, name, ar, c)
+	return true
+}
+
+// makeClaim gives the arbiter a claim and decides again. Call with e.mu held.
+func (e *Engine) makeClaim(ctx context.Context, dev types.NamespacedName, name string, ar *arb, c control.Claim) {
 	if err := ar.a.Claim(c); err != nil {
 		e.Log.Error(err, "Failed to claim", "device", dev, "capability", name, "source", c.Source)
-		return true
+		return
 	}
 	e.decide(ctx, dev, name, ar)
 	e.signal()
-	return true
 }
 
 // releaseClaim ends a source's claim on an arbitrated capability. It reports false when the
 // capability isn't arbitrated.
 func (e *Engine) releaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool {
+	if e.Arbitration != nil {
+		return e.Arbitration.ReleaseClaim(ctx, dev, name, source)
+	}
+	return e.ReleaseClaim(ctx, dev, name, source)
+}
+
+// ReleaseClaim ends a source's claim for a rule that runs elsewhere. ctx is the engine's, as with
+// Claim. It reports false when the capability isn't arbitrated.
+func (e *Engine) ReleaseClaim(ctx context.Context, dev types.NamespacedName, name, source string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ar := e.arbiter(dev, name)
@@ -444,6 +504,30 @@ func (e *Engine) releaseClaim(ctx context.Context, dev types.NamespacedName, nam
 	e.decide(ctx, dev, name, ar)
 	e.signal()
 	return true
+}
+
+// ReleaseClaims ends a source's claims on every arbitrated capability in the namespace, for a rule
+// that runs elsewhere. ctx is the engine's, as with Claim.
+func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.releaseSource(ctx, namespace, source)
+}
+
+// endClaims ends a source's claims, here or in Arbitration. Call without e.mu held.
+func (e *Engine) endClaims(ctx context.Context, namespace, source string) {
+	if e.Arbitration != nil {
+		e.Arbitration.ReleaseClaims(ctx, namespace, source)
+		return
+	}
+	e.ReleaseClaims(ctx, namespace, source)
+}
+
+// Responsive returns once the engine's lock is free. A condition stuck in a loop holds that lock,
+// so a heartbeat that waits for this stops, and the host replaces the process.
+func (e *Engine) Responsive() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 }
 
 // releaseSource ends a source's claims on every arbitrated capability in the namespace. Call with

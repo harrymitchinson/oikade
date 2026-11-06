@@ -89,6 +89,8 @@ type Engine struct {
 	States HoldStates
 	// Controls keeps arbitrated capabilities' state across restarts. Nil keeps it in memory only.
 	Controls ControlStates
+	// Arbitration, if set, takes this engine's claims, and it runs no arbiters itself.
+	Arbitration Arbitration
 	// ControlLevel is the winning level of each arbitrated capability.
 	ControlLevel *prometheus.GaugeVec
 	// OnControl, if set, is called with e.mu held when a Device's arbitrated capabilities change
@@ -309,10 +311,10 @@ func (e *Engine) Remove(key types.NamespacedName) {
 		// A write still running deletes the state again once it ends.
 		s.hold.deleted = true
 	}
-	// A deleted Rule's claims end with it.
-	e.releaseSource(context.Background(), key.Namespace, ruleSource(key.Name))
 	delete(e.skipped, key)
 	e.mu.Unlock()
+	// A deleted Rule's claims end with it.
+	e.endClaims(context.Background(), key.Namespace, ruleSource(key.Name))
 	// A Rule unloaded as invalid before it was deleted has a state too.
 	if _, ok := e.States.Get(key); ok {
 		e.runs.Go(func() { e.deleteState(key) })
@@ -605,9 +607,7 @@ func (e *Engine) execute(ctx context.Context, key types.NamespacedName, c *Compi
 		}
 		if a.release != "" {
 			e.release(types.NamespacedName{Namespace: key.Namespace, Name: a.release})
-			e.mu.Lock()
-			e.releaseSource(ctx, key.Namespace, ruleSource(a.release))
-			e.mu.Unlock()
+			e.endClaims(ctx, key.Namespace, ruleSource(a.release))
 			continue
 		}
 		if a.room != "" {

@@ -1,0 +1,13 @@
+[
+  {"name": "bathroom-sensor", "capabilities": ["sensor.relative-humidity"], "values": {"sensor.relative-humidity": 50}},
+  {"name": "fan", "capabilities": ["switch.on"], "values": {"switch.on": false}},
+  {"name": "leak-sensor", "capabilities": ["sensor.contact-open"], "values": {"sensor.contact-open": false}},
+  {"name": "valve", "capabilities": ["switch.on"], "values": {"switch.on": true},
+   "control": [{"capability": "switch.on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]},
+  {"name": "siren", "capabilities": ["switch.on"], "values": {"switch.on": false}},
+  {"name": "trap", "capabilities": ["sensor.contact-open"], "values": {"sensor.contact-open": false}},
+  {"name": "trap-light", "capabilities": ["switch.on"], "values": {"switch.on": false}},
+  {"name": "probe", "capabilities": ["sensor.contact-open"], "values": {"sensor.contact-open": false}},
+  {"name": "probe-out", "capabilities": ["switch.on"], "values": {"switch.on": false}},
+  {"name": "reset", "capabilities": ["sensor.contact-open"], "values": {"sensor.contact-open": false}}
+]
