@@ -26,13 +26,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
-
 	"github.com/harrymitchinson/oikade/internal/conformance"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 func main() {
@@ -83,9 +82,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	cfg.Log = logr.Discard()
+	cfg.Log = logging.Discard()
 	if *verbose {
-		cfg.Log = funcr.New(func(prefix, args string) { _, _ = fmt.Fprintln(stderr, prefix, args) }, funcr.Options{})
+		cfg.Log = logging.Text(stderr, slog.LevelInfo)
 	}
 	if !conformance.Run(cfg, stdout) {
 		return 1

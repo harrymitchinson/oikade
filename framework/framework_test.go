@@ -7,13 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -79,7 +78,7 @@ func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
 }
 
 func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
-	mirror := hub.NewStore(logr.Discard())
+	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	discovered(mirror, metas, nil, wire.Device{
 		Name: "lamp", Room: "hall", Arbitrated: []string{"switch.on"}, Discovered: true,

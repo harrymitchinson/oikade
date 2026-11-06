@@ -4,16 +4,15 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 func TestStoreRoom(t *testing.T) {
-	s := NewStore(logr.Discard())
+	s := NewStore(logging.Discard())
 	dev := func(ns, name string) ident.ID { return ident.ID{Namespace: ns, Name: name} }
 	z2m := func(ns string) driver.InstanceKey {
 		return driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: dev(ns, "z2m")}
@@ -40,7 +39,7 @@ func TestStoreRoom(t *testing.T) {
 }
 
 func TestInstanceKeySeparatesDrivers(t *testing.T) {
-	s := NewStore(logr.Discard())
+	s := NewStore(logging.Discard())
 	name := ident.ID{Namespace: "home", Name: "garden"}
 	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
@@ -84,7 +83,7 @@ func TestInstanceKeySeparatesDrivers(t *testing.T) {
 }
 
 func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
-	s := NewStore(logr.Discard())
+	s := NewStore(logging.Discard())
 	name := ident.ID{Namespace: "home", Name: "porch"}
 	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
@@ -123,7 +122,7 @@ func (r *reassignments) Reassigned(dev ident.ID) { r.got = append(r.got, dev) }
 
 func TestSetDevicesReportsReassignments(t *testing.T) {
 	r := &reassignments{}
-	s := NewStore(logr.Discard(), r)
+	s := NewStore(logging.Discard(), r)
 	name := ident.ID{Namespace: "home", Name: "porch"}
 	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
@@ -148,7 +147,7 @@ func (c *controlChanges) ControlChanged(dev ident.ID) { c.got = append(c.got, de
 // An empty list of control entries is the same as none: only a real change restarts arbiters.
 func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
 	c := &controlChanges{}
-	s := NewStore(logr.Discard(), c)
+	s := NewStore(logging.Discard(), c)
 	name := ident.ID{Namespace: "home", Name: "landing"}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
 	lamp := ident.ID{Namespace: "home", Name: "landing-lamp"}
@@ -164,7 +163,7 @@ func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
 }
 
 func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
-	s := NewStore(logr.Discard())
+	s := NewStore(logging.Discard())
 	instance := driver.InstanceKey{Driver: "test", ID: ident.ID{Name: "a"}}
 	a, b := ident.ID{Name: "a"}, ident.ID{Name: "b"}
 	s.SetDevices(instance, map[ident.ID]Meta{a: {Instance: instance}, b: {Instance: instance}})

@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -20,7 +19,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = data.Close() }()
-	controls := &Stored[ControlState]{Values: data.Namespace(ControlStatesNamespace), Log: logr.Discard()}
+	controls := &Stored[ControlState]{Values: data.Namespace(ControlStatesNamespace), Log: logging.Discard()}
 	valve := ident.ID{Namespace: "home", Name: "valve"}
 	st := ControlState{"switch.on": control.State{Claims: []control.Claim{
 		{Source: "Rule/leak", Level: control.Safety, Value: 0},
@@ -29,7 +28,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 	if err := controls.Put(context.Background(), valve, st); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Controls: controls, Log: logr.Discard()}
+	e := &Engine{Controls: controls, Log: logging.Discard()}
 	e.Init()
 
 	held := e.RuleClaims("home")

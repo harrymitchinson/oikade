@@ -4,7 +4,6 @@ go 1.26.0
 
 require (
 	github.com/eclipse/paho.golang v0.23.0
-	github.com/go-logr/logr v1.4.3
 	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3

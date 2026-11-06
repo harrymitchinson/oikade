@@ -3,18 +3,18 @@
 package hub
 
 import (
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // Meta is what the hub knows about a declared Device from its spec.
@@ -53,7 +53,7 @@ type entry struct {
 // event to Listeners after updating itself. Events for undeclared devices are dropped.
 type Store struct {
 	Listeners []driver.Sink
-	Log       logr.Logger
+	Log       *slog.Logger
 
 	mu         sync.RWMutex
 	devices    map[ident.ID]*entry
@@ -64,9 +64,9 @@ type Store struct {
 var _ driver.Sink = (*Store)(nil)
 
 // NewStore returns an empty store.
-func NewStore(log logr.Logger, listeners ...driver.Sink) *Store {
+func NewStore(log *slog.Logger, listeners ...driver.Sink) *Store {
 	return &Store{
-		Log: log, Listeners: listeners,
+		Log: logging.OrDiscard(log), Listeners: listeners,
 		devices: map[ident.ID]*entry{}, undeclared: map[driver.InstanceKey]int{},
 		inventory: map[driver.InstanceKey][]driver.AppDevice{},
 	}

@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 const (
@@ -31,7 +31,7 @@ type ruleRun struct {
 
 // observe gives eng its metrics, and returns what reports them and its runs to the host.
 func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func() {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	eng.Runs, eng.NextChange = engine.NewRunsCounter(), engine.NewNextChangeGauge()
 	eng.Dropped, eng.Active, eng.Budget = engine.NewDroppedCounter(), engine.NewActiveGauge(), engine.NewBudgetMetrics()
 	registry := prometheus.NewRegistry()
@@ -62,7 +62,7 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 			case <-tick.C:
 				text, err := metricsText(registry)
 				if err != nil {
-					log.Error(err, "Failed to gather metrics")
+					log.Error("Failed to gather metrics", "err", err)
 					continue
 				}
 				client.PushMetrics(text)

@@ -4,8 +4,9 @@ import (
 	"net"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"golang.org/x/net/dns/dnsmessage"
+
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // FuzzHandle checks that no packet, as a query or a response and from an mDNS or a legacy port,
@@ -34,7 +35,7 @@ func FuzzHandle(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, b []byte, mdnsPort bool) {
 		r, c := newTestResponder(t)
-		r.log = logr.Discard()
+		r.log = logging.Discard()
 		addReady(t, r, testService())
 		// A probe in progress, so that responses are checked for conflicts.
 		r.probes[&probe{names: []dnsmessage.Name{mustName("0123456789ABCDEF._matterc._udp.local.")}, conflict: make(chan dnsmessage.Name, 1)}] = struct{}{}

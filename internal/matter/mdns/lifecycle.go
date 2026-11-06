@@ -185,7 +185,7 @@ func (r *Responder) multicast(build func(ifIndex int) ([]byte, error)) {
 	for _, ifIndex := range r.ifaces {
 		b, err := build(ifIndex)
 		if err != nil {
-			r.log.Error(err, "Failed to build mDNS message")
+			r.log.Error("Failed to build mDNS message", "err", err)
 			continue
 		}
 		for _, c := range r.conns {
@@ -194,10 +194,9 @@ func (r *Responder) multicast(build func(ifIndex int) ([]byte, error)) {
 			case err == nil || errors.Is(err, net.ErrClosed):
 			case errors.Is(err, syscall.EADDRNOTAVAIL):
 				// The interface has no address of this family yet, or ever, as with macOS's
-				// utun, awdl and llw interfaces, which would log on every send.
-				r.log.V(2).Info("Could not send mDNS message", "interface", ifIndex, "error", err.Error())
+				// utun, awdl and llw interfaces, so logging it would log every send.
 			default:
-				r.log.V(1).Info("Could not send mDNS message", "interface", ifIndex, "error", err.Error())
+				r.log.Debug("Could not send mDNS message", "interface", ifIndex, "err", err)
 			}
 		}
 	}

@@ -7,17 +7,17 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -60,13 +60,14 @@ type Host struct {
 	EventLog store.Bound
 	// PluginSetTimeout is how long a plugin's Set may run. It defaults to DefaultPluginSetTimeout.
 	PluginSetTimeout time.Duration
-	Log              logr.Logger
+	Log              *slog.Logger
 
 	plugins *plugins
 }
 
 // Run serves until ctx ends, then stops your process and closes the store.
 func (h *Host) Run(ctx context.Context) error {
+	h.Log = logging.OrDiscard(h.Log)
 	if h.HeartbeatTimeout <= 0 {
 		h.HeartbeatTimeout = DefaultHeartbeatTimeout
 	}
@@ -100,17 +101,17 @@ func (h *Host) Run(ctx context.Context) error {
 	engineCtx, stopEngine := context.WithCancel(context.WithoutCancel(ctx))
 	defer stopEngine()
 	eng := &engine.Engine{
-		Log:          h.Log.WithName("arbitration"),
+		Log:          h.Log.With("logger", "arbitration"),
 		Controls:     &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: h.Log},
 		ControlLevel: engine.NewControlLevelGauge(),
 	}
 	srv := &server{
-		log: h.Log.WithName("socket"), ctx: engineCtx, engine: eng,
+		log: h.Log.With("logger", "socket"), ctx: engineCtx, engine: eng,
 		holds:   &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: h.Log},
 		fires:   &engine.Stored[time.Time]{Values: data.Namespace(engine.FireStatesNamespace), Log: h.Log},
 		journal: data.Journal(),
 		paused:  &engine.Stored[time.Time]{Values: data.Namespace(pausedNamespace), Log: h.Log},
-		feed:    newFeed(), events: newEventLog(data.Events(), h.EventLog, h.Log.WithName("events")), pushed: &pushed{},
+		feed:    newFeed(), events: newEventLog(data.Events(), h.EventLog, h.Log.With("logger", "events")), pushed: &pushed{},
 	}
 	sinks := []driver.Sink{eng, srv}
 	bridge, err := h.openMatter(data)
@@ -120,13 +121,13 @@ func (h *Host) Run(ctx context.Context) error {
 	if bridge.working() {
 		sinks = append(sinks, bridge)
 	}
-	devices := hub.NewStore(h.Log.WithName("devices"), sinks...)
-	known := newInventory(devicesOnRecord, data.Namespace(homeSettingsNamespace), devices, eng, h.Log.WithName("registry"))
+	devices := hub.NewStore(h.Log.With("logger", "devices"), sinks...)
+	known := newInventory(devicesOnRecord, data.Namespace(homeSettingsNamespace), devices, eng, h.Log.With("logger", "registry"))
 	if err := known.loadHome(); err != nil {
 		return fmt.Errorf("reading the home's device settings: %w", err)
 	}
 	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
-	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
+	sim := &simulator{store: devices, known: known, log: h.Log.With("logger", "simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)
 	h.plugins.returned = eng.DriverReturned
@@ -154,7 +155,7 @@ func (h *Host) Run(ctx context.Context) error {
 		return fmt.Errorf("opening the API socket: %w", err)
 	}
 	deploys := &deployer{
-		log: h.Log.WithName("deploy"), versions: kept, srv: srv, settle: h.Settle, home: h.Home,
+		log: h.Log.With("logger", "deploy"), versions: kept, srv: srv, settle: h.Settle, home: h.Home,
 		swaps: make(chan *swap), connected: make(chan struct{}, 1),
 	}
 	srv.connected = func() {
@@ -168,7 +169,7 @@ func (h *Host) Run(ctx context.Context) error {
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
 	if err := deploys.removals(); err != nil {
-		h.Log.Error(err, "Failed to end what removed rules left")
+		h.Log.Error("Failed to end what removed rules left", "err", err)
 	}
 	serving.Go(func() { h.plugins.run(ctx) })
 	serving.Go(func() { srv.serve(listener) })
@@ -178,7 +179,7 @@ func (h *Host) Run(ctx context.Context) error {
 	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
 	calls := &apiServer{
-		log: h.Log.WithName("api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
+		log: h.Log.With("logger", "api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
 		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir},
 	}
 	serving.Go(func() { calls.serve(apiListener) })

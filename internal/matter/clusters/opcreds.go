@@ -179,7 +179,7 @@ func (c *Commissioning) signed(req *im.Request, command uint32, elements []byte)
 	challenge := req.Session.AttestationChallenge()
 	sig, err := c.creds.Sign(append(append([]byte(nil), elements...), challenge...))
 	if err != nil {
-		c.log.Error(err, "Could not sign with the DAC key")
+		c.log.Error("Could not sign with the DAC key", "err", err)
 		return nil, im.StatusFailure
 	}
 	return &im.Response{Command: command, Fields: func(w *tlv.Writer) {
@@ -322,7 +322,7 @@ func (c *Commissioning) addNOC(req *im.Request, fields *tlv.Reader) (*im.Respons
 	}
 	index, err := c.fabrics.AddNOC(noc, icac, ipk, subject, uint16(vendor))
 	if err != nil {
-		c.log.Info("Refused AddNOC", "error", err.Error())
+		c.log.Info("Refused AddNOC", "err", err)
 		return nocResponse(nocStatus(err), 0), nil
 	}
 	fs.nocAdded, fs.fabricIndex = true, index
@@ -421,7 +421,7 @@ func (c *Commissioning) removeFabric(_ *im.Request, fields *tlv.Reader) (*im.Res
 	}
 	if err := c.fabrics.Remove(i); err != nil {
 		if !errors.Is(err, fabric.ErrInvalidIndex) {
-			c.log.Error(err, "Could not remove fabric", "fabric", i)
+			c.log.Error("Could not remove fabric", "err", err, "fabric", i)
 			return nil, im.StatusFailure
 		}
 		return nocResponse(nocInvalidFabricIndex, 0), nil

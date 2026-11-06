@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"os/exec"
@@ -13,14 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -40,7 +40,7 @@ var errPluginDown = errors.New("its plugin isn't running")
 // plugin's messages are the oikade/v1 contract's on either path, so one decoder checks them all.
 type plugins struct {
 	host    *Host
-	log     logr.Logger
+	log     *slog.Logger
 	socket  string
 	devices *hub.Store
 	known   *inventory
@@ -70,7 +70,7 @@ type hosted struct {
 
 func newPlugins(h *Host, socket string, devices *hub.Store, known *inventory) *plugins {
 	p := &plugins{
-		host: h, log: h.Log.WithName("plugins"), socket: socket, devices: devices, known: known,
+		host: h, log: h.Log.With("logger", "plugins"), socket: socket, devices: devices, known: known,
 		wanted: make(chan string, 1), refresh: make(chan struct{}, 1), running: map[string]*hosted{},
 	}
 	known.changed = append(known.changed, func() {
@@ -110,7 +110,7 @@ func (p *plugins) get(name string) *hosted {
 	}
 	h = &hosted{
 		name: name, key: pluginKey(name), root: contractv1.NewRoot(wire.Namespace, name),
-		socket: &socketBus{log: p.log.WithValues("plugin", name)},
+		socket: &socketBus{log: p.log.With("plugin", name)},
 	}
 	p.follow(context.Background(), h, h.socket)
 	p.mu.Lock()
@@ -129,7 +129,7 @@ func (p *plugins) follow(ctx context.Context, h *hosted, bus mqtt.Bus) {
 	h.driver.SetDevices(p.onRecord(h))
 	h.listed = p.removed(h)
 	if err := h.driver.Start(ctx); err != nil {
-		p.log.Error(err, "Failed to follow plugin", "plugin", h.name)
+		p.log.Error("Failed to follow plugin", "err", err, "plugin", h.name)
 	}
 }
 
@@ -203,7 +203,7 @@ func (p *plugins) pair(h *hosted) {
 			continue
 		}
 		if _, err := p.known.paired(h.key, apps[id], nil); err != nil {
-			p.log.Error(err, "Failed to record device", "plugin", h.name, "id", id)
+			p.log.Error("Failed to record device", "err", err, "plugin", h.name, "id", id)
 		}
 	}
 	h.listed = seen
@@ -236,7 +236,7 @@ func (p *plugins) run(ctx context.Context) {
 		retry = nil
 		var err error
 		if stop, err = p.start(ctx, path); err != nil {
-			p.log.Error(err, "Failed to find this binary's plugins", "backoff", backoff.String())
+			p.log.Error("Failed to find this binary's plugins", "err", err, "backoff", backoff.String())
 			retry = time.After(backoff)
 			backoff = min(backoff*2, maxBackoff)
 		}
@@ -311,7 +311,7 @@ func (p *plugins) startOutside(ctx context.Context) {
 		if bus, err = mqtt.Connect(ctx, p.host.Broker, "oikade-host"); err == nil {
 			break
 		}
-		p.log.Error(err, "Failed to connect to the broker", "broker", redacted(p.host.Broker), "retry", outsideRetry.String())
+		p.log.Error("Failed to connect to the broker", "err", err, "broker", redacted(p.host.Broker), "retry", outsideRetry.String())
 		select {
 		case <-ctx.Done():
 			return
@@ -329,11 +329,11 @@ func (p *plugins) startOutside(ctx context.Context) {
 
 // supervise keeps a plugin's process running until ctx ends. A plugin's failures are its own.
 func (p *plugins) supervise(ctx context.Context, h *hosted, path string) {
-	log := p.log.WithValues("plugin", h.name)
+	log := p.log.With("plugin", h.name)
 	backoff := firstBackoff
 	for ctx.Err() == nil {
 		began := time.Now()
-		err := p.runProcess(logr.NewContext(ctx, log), h, path)
+		err := p.runProcess(logging.NewContext(ctx, log), h, path)
 		h.socket.end()
 		if ctx.Err() != nil {
 			return
@@ -352,7 +352,7 @@ func (p *plugins) supervise(ctx context.Context, h *hosted, path string) {
 }
 
 func (p *plugins) runProcess(ctx context.Context, h *hosted, path string) error {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	cmd := exec.Command(path, wire.RolePlugin, h.name)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+p.socket, contractv1.EnvSecretsDir+"="+p.host.SecretsDir)
@@ -457,7 +457,7 @@ type pluginSession struct {
 // socketBus is a plugin's messages on the host's socket, as a Bus for the decoder. There's nothing
 // to retain: a process announces everything when it connects, and the decoder keeps what it heard.
 type socketBus struct {
-	log logr.Logger
+	log *slog.Logger
 
 	mu      sync.Mutex
 	handler mqtt.Handler
@@ -541,7 +541,7 @@ func (b *socketBus) ping(id uint64) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	if err := sess.conn.Write(wire.Message{Type: wire.TypePing, ID: id}); err != nil {
-		b.log.V(1).Info("Failed to ping plugin", "error", err.Error())
+		b.log.Debug("Failed to ping plugin", "err", err)
 	}
 	return last, true
 }

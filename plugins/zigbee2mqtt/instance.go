@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -28,7 +28,7 @@ type Instance struct {
 	Bus       mqtt.Bus
 	Sink      driver.Sink
 	Now       func() time.Time
-	Log       logr.Logger
+	Log       *slog.Logger
 	// OnBridgeState, if set, hears <base>/bridge/state. OnListed, if set, runs after each device list
 	// and whatever it resolved.
 	OnBridgeState func(online bool)
@@ -55,6 +55,7 @@ var _ driver.Setter = (*Instance)(nil)
 
 // Start subscribes to the instance's topics.
 func (i *Instance) Start(ctx context.Context) error {
+	i.Log = logging.OrDiscard(i.Log)
 	unsubscribe, err := i.Bus.Subscribe(ctx, i.BaseTopic+"/#", i.handle)
 	i.mu.Lock()
 	i.unsubscribe = unsubscribe
@@ -159,7 +160,7 @@ func (i *Instance) handleDevice(rest string, payload []byte) {
 func (i *Instance) handleDevices(payload []byte) {
 	var list []bridgeDevice
 	if err := json.Unmarshal(payload, &list); err != nil {
-		i.Log.Error(err, "Failed to parse Zigbee2MQTT device list", "instance", i.Key)
+		i.Log.Error("Failed to parse Zigbee2MQTT device list", "err", err, "instance", i.Key)
 		return
 	}
 	var inventory []driver.AppDevice
@@ -282,7 +283,7 @@ func (i *Instance) handleState(name string, payload []byte) {
 		}
 		v, err := b.decode(raw)
 		if err != nil {
-			i.Log.V(1).Info("Ignored invalid value", "device", dev, "capability", b.capability, "error", err.Error())
+			i.Log.Debug("Ignored invalid value", "device", dev, "capability", b.capability, "err", err)
 			continue
 		}
 		if i.values == nil {

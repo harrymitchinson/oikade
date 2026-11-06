@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"slices"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/fault"
@@ -32,7 +31,7 @@ const (
 // deployer replaces your binary. It runs one change at a time.
 type deployer struct {
 	mu       sync.Mutex
-	log      logr.Logger
+	log      *slog.Logger
 	versions *versions
 	srv      *server
 	settle   time.Duration
@@ -54,7 +53,7 @@ func (d *deployer) startup() string {
 	if d.versions.state.Pending {
 		failed := d.versions.state.Versions[0].ID
 		if err := d.versions.abort(); err != nil {
-			d.log.Error(err, "Failed to restore the last automations version", "version", failed)
+			d.log.Error("Failed to restore the last automations version", "err", err, "version", failed)
 		} else {
 			d.log.Info("Restored the last automations version; a deploy didn't finish", "version", failed)
 		}
@@ -119,7 +118,7 @@ func (d *deployer) adopt(ctx context.Context) {
 		d.log.Info("Couldn't check the running binary", "reason", err.Error())
 	}
 	if err := d.versions.adopt(version{ID: id, Manifest: manifest, At: time.Now()}); err != nil {
-		d.log.Error(err, "Failed to record the running binary")
+		d.log.Error("Failed to record the running binary", "err", err)
 	}
 }
 
@@ -140,15 +139,15 @@ func (d *deployer) removals() error {
 		}
 	}
 	if err := d.srv.reconcile(rules, flows); err != nil {
-		d.log.Error(err, "Failed to end what removed rules left; the next start will")
+		d.log.Error("Failed to end what removed rules left; the next start will", "err", err)
 		return err
 	}
 	if err := d.srv.confirmSettings(cur.Manifest.Control); err != nil {
-		d.log.Error(err, "Failed to drop removed device settings; the next start will")
+		d.log.Error("Failed to drop removed device settings; the next start will", "err", err)
 		return err
 	}
 	if err := d.versions.removalsDone(); err != nil {
-		d.log.Error(err, "Failed to record that removed rules have gone", "version", cur.ID)
+		d.log.Error("Failed to record that removed rules have gone", "err", err, "version", cur.ID)
 	}
 	return nil
 }
@@ -162,7 +161,7 @@ func removalsFailed(err error) string {
 func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin func(version, []string) error) api.Response {
 	reject := func(resp api.Response) api.Response {
 		if err := d.versions.discard(id); err != nil {
-			d.log.Error(err, "Failed to remove a rejected automations version", "version", id)
+			d.log.Error("Failed to remove a rejected automations version", "err", err, "version", id)
 		}
 		d.log.Info("Rejected automations version", "version", id, "reason", resp.Error)
 		return resp
@@ -226,13 +225,13 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 // confirm makes a version that has settled the running one for good.
 func (d *deployer) confirm(id string) api.Response {
 	if err := d.versions.commit(); err != nil {
-		d.log.Error(err, "Failed to confirm automations version", "version", id)
+		d.log.Error("Failed to confirm automations version", "err", err, "version", id)
 		d.confirmable = id
 		return api.Response{Error: fmt.Sprintf("confirming the version, which deploying it again will retry: %s", err), Version: id}
 	}
 	d.confirmable = ""
 	if err := d.versions.prune(); err != nil {
-		d.log.Error(err, "Failed to remove old automations versions")
+		d.log.Error("Failed to remove old automations versions", "err", err)
 	}
 	fault.Hit(fault.HostDeployConfirmed)
 	d.log.Info("Deployed automations version", "version", id)
@@ -247,7 +246,7 @@ func (d *deployer) confirm(id string) api.Response {
 func (d *deployer) restore(ctx context.Context, failed, last string, cause error) api.Response {
 	d.log.Info("Restoring the last automations version; a new one failed", "version", failed, "reason", cause.Error())
 	if err := d.versions.abort(); err != nil {
-		d.log.Error(err, "Failed to record the failed automations version", "version", failed)
+		d.log.Error("Failed to record the failed automations version", "err", err, "version", failed)
 	}
 	resp := api.Response{Error: cause.Error(), Restored: true}
 	if cur, ok := d.versions.current(); ok {

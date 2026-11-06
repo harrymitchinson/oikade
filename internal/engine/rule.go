@@ -370,7 +370,7 @@ func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, unti
 		var broken brokenCondition
 		if err != nil && !logged && errors.As(err, &broken) {
 			logged = true
-			e.Log.Error(err, "Failed to evaluate flow condition", "rule", key)
+			e.Log.Error("Failed to evaluate flow condition", "err", err, "rule", key)
 		}
 		if err == nil && ok {
 			return true, nil

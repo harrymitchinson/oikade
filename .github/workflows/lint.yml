@@ -41,13 +41,13 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: bin
-          key: bin-lint-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod', '.custom-gcl.yml') }}
+          key: bin-lint-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
 
       - name: Cache lint results
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/golangci-lint
-          key: golangci-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml', '.custom-gcl.yml') }}
+          key: golangci-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml') }}
           restore-keys: golangci-${{ runner.os }}-
 
       - name: Check linter configuration

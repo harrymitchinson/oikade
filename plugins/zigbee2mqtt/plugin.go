@@ -14,11 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -96,7 +95,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	b.ctx, b.plugin = ctx, p
 	// The connection outlives ctx, so that it can be left cleanly: a connection cut when ctx ends
 	// makes everything after it wait for a reply that isn't coming, and a deploy wait with it.
-	life, cut := context.WithCancel(logr.NewContext(context.WithoutCancel(ctx), logr.FromSlogHandler(b.log.Handler())))
+	life, cut := context.WithCancel(logging.NewContext(context.WithoutCancel(ctx), b.log))
 	defer cut()
 	dial, cancel := context.WithTimeout(ctx, b.connectTimeout)
 	defer cancel()
@@ -122,7 +121,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		Bus:           client,
 		Sink:          b,
 		Now:           time.Now,
-		Log:           logr.FromSlogHandler(b.log.Handler()),
+		Log:           b.log,
 		OnBridgeState: b.setUp,
 		OnListed:      b.publishAllAvailability,
 	}
@@ -184,7 +183,7 @@ func (b *bridge) publishAvailability(id string) {
 
 func (b *bridge) check(err error, msg, id string) {
 	if err != nil && !errors.Is(err, plugin.ErrClosed) && b.ctx.Err() == nil {
-		b.log.Error(msg, "device", id, "error", err.Error())
+		b.log.Error(msg, "device", id, "err", err)
 	}
 }
 

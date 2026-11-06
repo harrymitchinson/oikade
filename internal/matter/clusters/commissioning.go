@@ -2,11 +2,11 @@ package clusters
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/fabric"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -71,7 +71,7 @@ type CommissioningConfig struct {
 	Fabrics     *fabric.Table
 	Attestation *attestation.Credentials
 	Hooks       Hooks
-	Log         logr.Logger
+	Log         *slog.Logger
 }
 
 // Commissioning is the root endpoint's commissioning clusters (Core spec, chapter 11): General
@@ -82,7 +82,7 @@ type Commissioning struct {
 	fabrics *fabric.Table
 	creds   *attestation.Credentials
 	hooks   Hooks
-	log     logr.Logger
+	log     *slog.Logger
 
 	general, opCreds, network, acl, groupKeys, admin *im.Cluster
 
@@ -148,7 +148,7 @@ func NewCommissioning(cfg CommissioningConfig) (*Commissioning, error) {
 	if cfg.Fabrics == nil || cfg.Attestation == nil {
 		return nil, errors.New("matter: commissioning needs a fabric table and attestation credentials")
 	}
-	c := &Commissioning{fabrics: cfg.Fabrics, creds: cfg.Attestation, hooks: cfg.Hooks, log: cfg.Log}
+	c := &Commissioning{fabrics: cfg.Fabrics, creds: cfg.Attestation, hooks: cfg.Hooks, log: logging.OrDiscard(cfg.Log)}
 	c.general = c.generalCommissioning()
 	c.opCreds = c.operationalCredentials()
 	c.network = networkCommissioning()
@@ -373,7 +373,7 @@ func (c *Commissioning) commissioningComplete(req *im.Request, _ *tlv.Reader) (*
 	}
 	index, added, updated := c.fabrics.Pending()
 	if err := c.fabrics.Commit(); err != nil {
-		c.log.Error(err, "Could not save the fabric table")
+		c.log.Error("Could not save the fabric table", "err", err)
 		return nil, im.StatusFailure
 	}
 	c.disarm()

@@ -18,9 +18,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr/testr"
-
 	"github.com/harrymitchinson/oikade/internal/conformance"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 func TestConformance(t *testing.T) {
@@ -36,7 +35,7 @@ func TestConformance(t *testing.T) {
 		Command: command,
 		Dir:     repo,
 		Devices: fromRepo(repo, "test/conformance/testdata/devices.json"),
-		Log:     testr.New(t),
+		Log:     logging.Test(t),
 		Plugin:  os.Getenv("OIKADE_CONFORMANCE_IMPORTED"),
 	}
 	if f := os.Getenv("OIKADE_CONFORMANCE_DEVICES"); f != "" {

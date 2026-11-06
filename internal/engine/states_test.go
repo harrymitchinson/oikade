@@ -7,10 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -50,7 +49,7 @@ func (b *storeBackend) reopen(t *testing.T) {
 func (b *storeBackend) holds(t *testing.T) HoldStates {
 	t.Helper()
 	b.reopen(t)
-	return &Stored[HoldState]{Values: b.s.Namespace(HoldStatesNamespace), Log: logr.Discard()}
+	return &Stored[HoldState]{Values: b.s.Namespace(HoldStatesNamespace), Log: logging.Discard()}
 }
 
 func (b *storeBackend) controls(t *testing.T) ControlStates {
@@ -58,7 +57,7 @@ func (b *storeBackend) controls(t *testing.T) ControlStates {
 	if b.s == nil {
 		b.reopen(t)
 	}
-	return &Stored[ControlState]{Values: b.s.Namespace(ControlStatesNamespace), Log: logr.Discard()}
+	return &Stored[ControlState]{Values: b.s.Namespace(ControlStatesNamespace), Log: logging.Discard()}
 }
 
 func (b *storeBackend) corrupt(t *testing.T, key ident.ID) {

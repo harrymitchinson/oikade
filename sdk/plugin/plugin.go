@@ -16,10 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -113,8 +112,8 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing MQTT URL: %w", err)
 	}
-	// Logged by internal/mqtt, which takes a logr.Logger from the context.
-	life, stop := context.WithCancel(logr.NewContext(context.WithoutCancel(ctx), logr.FromSlogHandler(o.Logger.Handler())))
+	// Logged by internal/mqtt, which takes a *slog.Logger from the context.
+	life, stop := context.WithCancel(logging.NewContext(context.WithoutCancel(ctx), o.Logger))
 	p := newPlugin(root, o.Logger, o.OnSet, o.CloseTimeout, life, stop)
 
 	startCtx, cancel := context.WithTimeout(ctx, o.StartTimeout)
@@ -410,7 +409,7 @@ func (p *Plugin) announce(ctx context.Context) {
 	defer p.unlock()
 	online, _ := json.Marshal(contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract})
 	if err := p.client.Publish(ctx, p.root.Status(), online, true); err != nil {
-		p.log.Error("Could not announce plugin", "topic", string(p.root), "error", err.Error())
+		p.log.Error("Could not announce plugin", "topic", string(p.root), "err", err)
 		return
 	}
 
@@ -441,7 +440,7 @@ func (p *Plugin) announce(ctx context.Context) {
 		return nil
 	}()
 	if err != nil {
-		p.log.Error("Could not announce plugin", "topic", string(p.root), "error", err.Error())
+		p.log.Error("Could not announce plugin", "topic", string(p.root), "err", err)
 		return
 	}
 	p.log.Info("Plugin came online", "topic", string(p.root))
@@ -509,7 +508,7 @@ func (p *Plugin) drain(id string) {
 		p.mu.Unlock()
 		if err != nil {
 			p.log.Error("Could not apply set command",
-				"topic", p.root.Set(cmd.ID), "capability", cmd.Capability, "error", err.Error())
+				"topic", p.root.Set(cmd.ID), "capability", cmd.Capability, "err", err)
 		}
 	}
 }

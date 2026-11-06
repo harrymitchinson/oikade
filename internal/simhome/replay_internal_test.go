@@ -4,10 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 func noRules() ([]*engine.Compiled, map[string]*flow.Flow, error) { return nil, nil, nil }
@@ -17,7 +16,7 @@ func noRules() ([]*engine.Compiled, map[string]*flow.Flow, error) { return nil, 
 func TestDevicesStayFreshWhileOthersKeepTheClockBusy(t *testing.T) {
 	start := time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 	sim, err := New(Options{
-		Home: Home{Compile: noRules}, Start: start, Log: logr.Discard(),
+		Home: Home{Compile: noRules}, Start: start, Log: logging.Discard(),
 		Devices: []Device{{Name: "quiet", Capabilities: []string{"sensor.temperature"}}},
 	})
 	if err != nil {

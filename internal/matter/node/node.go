@@ -9,14 +9,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/go-logr/logr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
@@ -73,7 +73,7 @@ type Config struct {
 	FabricsChanged func()
 	// Listening, if set, is called once the node's sockets are open.
 	Listening func()
-	Log       logr.Logger
+	Log       *slog.Logger
 }
 
 // advertiser is what the node needs of an mDNS responder.
@@ -99,7 +99,7 @@ func (s Setup) Valid() bool {
 // Node is a Matter node serving a bridge.
 type Node struct {
 	cfg        Config
-	log        logr.Logger
+	log        *slog.Logger
 	salt       []byte
 	verifier   mcrypto.Verifier
 	table      *fabric.Table
@@ -133,6 +133,7 @@ type running struct {
 // New loads the node's fabric table and builds its bridge, with no bridged devices. Add them through
 // Bridge before Run.
 func New(cfg Config) (*Node, error) {
+	cfg.Log = logging.OrDiscard(cfg.Log)
 	if cfg.DataDir == "" && cfg.Fabrics == nil {
 		return nil, errors.New("matter: node needs somewhere to keep its fabrics")
 	}
@@ -172,7 +173,7 @@ func New(cfg Config) (*Node, error) {
 		}
 	}
 	n.comm, err = clusters.NewCommissioning(clusters.CommissioningConfig{
-		Fabrics: n.table, Attestation: creds, Log: cfg.Log.WithName("commissioning"),
+		Fabrics: n.table, Attestation: creds, Log: cfg.Log.With("part", "commissioning"),
 		Hooks: clusters.Hooks{
 			OpenWindow:    n.openWindow,
 			CloseWindow:   n.closeWindow,
@@ -190,7 +191,7 @@ func New(cfg Config) (*Node, error) {
 	info.VendorID, info.ProductID = attestation.TestVendorID, attestation.TestProductID
 	n.cfg.Info = info
 	n.bridge = clusters.NewBridge(info, n.comm.Clusters()...)
-	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Log: cfg.Log.WithName("im")}
+	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Log: cfg.Log.With("part", "im")}
 	return n, nil
 }
 
@@ -226,11 +227,11 @@ func (n *Node) Run(ctx context.Context) error {
 		}
 		opts.Interfaces = list
 	}
-	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{Log: n.log.WithName("transport")})
+	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{Log: n.log.With("part", "transport")})
 	if err != nil {
 		return err
 	}
-	opts.Log = n.log.WithName("mdns")
+	opts.Log = n.log.With("part", "mdns")
 	responder, err := n.listenMDNS(opts)
 	if err != nil {
 		_ = tr.Serve(cancelled()) // closes the socket
@@ -241,7 +242,7 @@ func (n *Node) Run(ctx context.Context) error {
 	n.server.Register(tr)
 	(&securechannel.CASEResponder{
 		Transport: tr, Fabrics: n.table.CASE(), Resumption: n.resumption,
-		OnSession: n.sessions.add, Log: n.log.WithName("case"),
+		OnSession: n.sessions.add, Log: n.log.With("part", "case"),
 	}).Register()
 	tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 	tr.Handle(transport.SecureChannel, []uint8{securechannel.OpStatusReport}, n.statusReport)
@@ -290,7 +291,7 @@ func (n *Node) openWindow(w clusters.Window) {
 	}
 	(&securechannel.Responder{
 		Transport: n.run.Load().tr, Verifier: w.Verifier, Salt: w.Salt, Iterations: int(w.Iterations),
-		OnSession: n.sessions.add, Log: n.log.WithName("pase"),
+		OnSession: n.sessions.add, Log: n.log.With("part", "pase"),
 	}).Register()
 
 	c := mdns.Commissionable{
@@ -302,7 +303,7 @@ func (n *Node) openWindow(w clusters.Window) {
 	svc, err := c.Service()
 	if err != nil {
 		n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
-		n.log.Error(err, "Could not build the commissionable service")
+		n.log.Error("Could not build the commissionable service", "err", err)
 		return
 	}
 	n.mu.Lock()
@@ -324,7 +325,7 @@ func (n *Node) openWindow(w clusters.Window) {
 		if current {
 			n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 		}
-		n.log.Error(err, "Could not advertise the commissionable service")
+		n.log.Error("Could not advertise the commissionable service", "err", err)
 		return
 	}
 	if !current {
@@ -346,7 +347,7 @@ func (n *Node) closeWindow() {
 		return
 	}
 	if err := n.run.Load().mdns.Remove(*old); err != nil {
-		n.log.Error(err, "Could not stop advertising the commissionable service")
+		n.log.Error("Could not stop advertising the commissionable service", "err", err)
 	}
 	n.log.Info("Stopped advertising commissionable service")
 	if n.table.Count() == 0 {
@@ -390,7 +391,7 @@ func (n *Node) advertiseFabric(index uint8) {
 	}
 	n.mu.Unlock()
 	if err != nil {
-		n.log.Error(err, "Could not advertise the operational service", "fabric", index)
+		n.log.Error("Could not advertise the operational service", "err", err, "fabric", index)
 		return
 	}
 	if !current {
@@ -439,7 +440,7 @@ func (n *Node) statusReport(_ context.Context, ex *transport.Exchange, m transpo
 	if err != nil || !s.Secure() || r.Protocol != transport.SecureChannel || r.Code != securechannel.CodeCloseSession {
 		return
 	}
-	n.log.V(1).Info("Peer closed session", "session", s.LocalSessionID(), "peer", s.Peer())
+	n.log.Debug("Peer closed session", "session", s.LocalSessionID(), "peer", s.Peer())
 	n.run.Load().tr.RemoveSession(s)
 }
 
@@ -464,7 +465,7 @@ func (n *Node) fabricRemoved(index uint8) {
 	n.mu.Unlock()
 	if svc != nil {
 		if err := n.run.Load().mdns.Remove(*svc); err != nil {
-			n.log.Error(err, "Could not stop advertising the operational service", "fabric", index)
+			n.log.Error("Could not stop advertising the operational service", "err", err, "fabric", index)
 		}
 	}
 	n.log.Info("Ended fabric's sessions", "fabric", index, "sessions", len(ending))

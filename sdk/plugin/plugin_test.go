@@ -560,7 +560,7 @@ func TestSetHandlerFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `"msg":"Could not apply set command","topic":"oikade/v1/home/example/relay-1/set",` +
-		`"capability":"switch.on","error":"relay unreachable"`
+		`"capability":"switch.on","err":"relay unreachable"`
 	for !strings.Contains(logs.String(), want) {
 		select {
 		case <-ctx.Done():

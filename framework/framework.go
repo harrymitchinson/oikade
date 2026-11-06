@@ -31,8 +31,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -667,9 +665,9 @@ func (r Moment) toEngine() engine.Moment {
 // writes and no session. Anything else is an error, because the home has nothing to do without the
 // host.
 func Run(h Home) {
-	log := logr.FromSlogHandler(slog.NewJSONHandler(logOutput(), nil))
+	log := slog.New(slog.NewJSONHandler(logOutput(), nil))
 	if err := run(h, log); err != nil {
-		log.Error(err, "Stopped process")
+		log.Error("Stopped process", "err", err)
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}

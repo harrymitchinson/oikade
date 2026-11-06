@@ -6,8 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr/testr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/mdns"
@@ -98,7 +97,7 @@ func TestCommissionAndRestart(t *testing.T) {
 // TestRunAgain is a node that stopped serving, as when its socket went, and came back. It has a new
 // transport and responder, so what it offered must be offered again.
 func TestRunAgain(t *testing.T) {
-	cfg := Config{DataDir: t.TempDir(), Port: freePort(t), Setup: testSetup, Log: testr.New(t), Info: clusters.Info{VendorName: "Oikade"}}
+	cfg := Config{DataDir: t.TempDir(), Port: freePort(t), Setup: testSetup, Log: logging.Test(t), Info: clusters.Info{VendorName: "Oikade"}}
 	n, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)

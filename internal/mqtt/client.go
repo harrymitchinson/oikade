@@ -13,7 +13,8 @@ import (
 
 	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/eclipse/paho.golang/paho"
-	"github.com/go-logr/logr"
+
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // Message is a received MQTT message.
@@ -96,7 +97,7 @@ func WithOnDisconnect(f func()) Option {
 // The connection is retried forever in the background after that, until ctx is cancelled or
 // Disconnect is called. It doesn't wait for OnConnect. The logger comes from ctx.
 func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Client, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	u, err := url.Parse(server)
 	if err != nil {
 		// Not err: it quotes the URL, which may hold a password.
@@ -140,7 +141,7 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 			}
 			return &paho.Disconnect{ReasonCode: 0}
 		},
-		OnConnectError: func(err error) { log.Error(err, "Failed to connect to MQTT broker", "server", u.Host) },
+		OnConnectError: func(err error) { log.Error("Failed to connect to MQTT broker", "err", err, "server", u.Host) },
 		ClientConfig: paho.ClientConfig{
 			ClientID: clientID,
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
@@ -266,7 +267,7 @@ func (c *Client) resubscribe(ctx context.Context, cm *autopaho.ConnectionManager
 		return
 	}
 	if _, err := cm.Subscribe(ctx, &paho.Subscribe{Subscriptions: opts}); err != nil {
-		logr.FromContextOrDiscard(ctx).Error(err, "Failed to restore MQTT subscriptions")
+		logging.FromContext(ctx).Error("Failed to restore MQTT subscriptions", "err", err)
 	}
 }
 

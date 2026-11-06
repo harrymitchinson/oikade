@@ -74,6 +74,17 @@ func TestNoKubernetesModules(t *testing.T) {
 	}
 }
 
+// Oikade logs with log/slog alone (OIK-169).
+func TestNoLogr(t *testing.T) {
+	mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(mod), "go-logr") {
+		t.Error("go.mod requires go-logr")
+	}
+}
+
 // Oikade reaches Apple Home through Matter (OIK-76). HomeKit's own protocol and its library are
 // gone, and nothing in the internals should bring them back.
 func TestNoHomeKit(t *testing.T) {

@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
 	"golang.org/x/net/dns/dnsmessage"
+
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 const testIf = 1
@@ -97,7 +98,7 @@ func (c *fakeConn) none() {
 func newTestResponder(t testing.TB) (*Responder, *fakeConn) {
 	c := newFakeConn(t)
 	addrs := func(int) []netip.Addr { return []netip.Addr{testAddr4, testAddr6} }
-	r, err := newResponder([]packetConn{c}, []int{testIf}, "DCA632A1B2C3", addrs, testr.NewWithInterface(t, testr.Options{}))
+	r, err := newResponder([]packetConn{c}, []int{testIf}, "DCA632A1B2C3", addrs, logging.Test(t))
 	if err != nil {
 		t.Fatal(err)
 	}

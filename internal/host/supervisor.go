@@ -8,10 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 const (
@@ -142,14 +141,14 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string,
 		return nil, err
 	}
 	h.Log.Info("Started automations process", "pid", cmd.Process.Pid)
-	return h.watch(logr.NewContext(ctx, h.Log), cmd, "automations", srv.ping, swaps)
+	return h.watch(logging.NewContext(ctx, h.Log), cmd, "automations", srv.ping, swaps)
 }
 
 // watch waits for a started process, killing it if it stops answering pings, and stopping it when
 // ctx ends or a swap arrives, which it returns. ping asks it to answer and says when it last did.
 func (h *Host) watch(ctx context.Context, cmd *exec.Cmd, kind string,
 	ping func(id uint64) (time.Time, bool), swaps <-chan *swap) (*swap, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 

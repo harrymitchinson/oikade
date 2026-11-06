@@ -22,12 +22,10 @@ linters:
     - unconvert
     - unparam
     - unused
-    - logcheck
+    - sloglint
   settings:
-    custom:
-      logcheck:
-        type: "module"
-        description: Checks Go logging calls for Kubernetes logging conventions.
+    sloglint:
+      msg-style: capitalized
     depguard:
       rules:
         forbid-sort-pkg:

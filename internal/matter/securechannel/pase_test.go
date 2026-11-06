@@ -11,8 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
@@ -50,7 +49,7 @@ func newNode(t *testing.T) *node {
 		t.Fatal(err)
 	}
 	conn := &recordingConn{PacketConn: pc, sent: make(chan []byte, 1024)}
-	tr := transport.New(conn, transport.Options{Log: testr.New(t)})
+	tr := transport.New(conn, transport.Options{Log: logging.Test(t)})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
@@ -69,7 +68,7 @@ func newDevice(t *testing.T, sessions *atomic.Int32) *node {
 		t.Fatal(err)
 	}
 	(&Responder{
-		Transport: dev.t, Verifier: v, Salt: testSalt, Iterations: 1000, Log: testr.New(t),
+		Transport: dev.t, Verifier: v, Salt: testSalt, Iterations: 1000, Log: logging.Test(t),
 		Params:    &SessionParams{Idle: 500 * time.Millisecond, Active: 300 * time.Millisecond, ActiveThreshold: 4 * time.Second},
 		OnSession: func(*transport.Session) { sessions.Add(1) },
 	}).Register()

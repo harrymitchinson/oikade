@@ -6,11 +6,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
@@ -33,7 +32,7 @@ type Server struct {
 	Node *Node
 	// Access decides what CASE sessions may do. nil grants them nothing.
 	Access AccessControl
-	Log    logr.Logger
+	Log    *slog.Logger
 
 	mu   sync.Mutex
 	subs map[uint32]*subscription
@@ -65,7 +64,7 @@ func (s *Server) serve(ctx context.Context, ex *transport.Exchange, m transport.
 		err = s.timed(ctx, ex, m.Payload)
 	}
 	if err != nil {
-		s.Log.V(1).Info("Interaction failed", "peer", ex.Session().Peer(), "opcode", m.Opcode, "error", err.Error())
+		s.Log.Debug("Interaction failed", "peer", ex.Session().Peer(), "opcode", m.Opcode, "err", err)
 	}
 }
 

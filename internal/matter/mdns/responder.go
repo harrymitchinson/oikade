@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	mrand "math/rand/v2"
 	"net"
 	"net/netip"
@@ -19,8 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"golang.org/x/net/dns/dnsmessage"
+
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // Errors from a Responder.
@@ -32,7 +34,7 @@ var (
 
 // Options configures a Responder.
 type Options struct {
-	Log logr.Logger
+	Log *slog.Logger
 	// Interfaces are the interfaces to advertise on. None means every interface that is up and
 	// multicast-capable, except loopback.
 	Interfaces []net.Interface
@@ -61,7 +63,7 @@ var defaultTiming = timing{
 
 // Responder answers mDNS queries for the services added to it.
 type Responder struct {
-	log    logr.Logger
+	log    *slog.Logger
 	host   dnsmessage.Name
 	conns  []packetConn
 	ifaces []int
@@ -99,6 +101,7 @@ type probe struct {
 // Listen joins the mDNS groups on the interfaces in opts, and returns a Responder that serves
 // them until it's closed.
 func Listen(opts Options) (*Responder, error) {
+	opts.Log = logging.OrDiscard(opts.Log)
 	ifaces := opts.Interfaces
 	if len(ifaces) == 0 {
 		var err error
@@ -122,7 +125,7 @@ func Listen(opts Options) (*Responder, error) {
 		return nil, errors.Join(err4, err6)
 	}
 	if err4 != nil || err6 != nil {
-		opts.Log.Info("Listening for mDNS on one address family only", "error", errors.Join(err4, err6))
+		opts.Log.Info("Listening for mDNS on one address family only", "err", errors.Join(err4, err6))
 	}
 	host := opts.Host
 	if host == "" {
@@ -142,7 +145,7 @@ func Listen(opts Options) (*Responder, error) {
 	return r, nil
 }
 
-func newResponder(conns []packetConn, ifaces []int, host string, addrs func(int) []netip.Addr, log logr.Logger) (*Responder, error) {
+func newResponder(conns []packetConn, ifaces []int, host string, addrs func(int) []netip.Addr, log *slog.Logger) (*Responder, error) {
 	if !validLabel(host) {
 		return nil, fmt.Errorf("mdns: host name %q isn't one DNS label", host)
 	}

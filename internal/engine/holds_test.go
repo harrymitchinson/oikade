@@ -3,12 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	clocktesting "k8s.io/utils/clock/testing"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -56,7 +56,7 @@ type logLines struct {
 	lines []string
 }
 
-func (l *logLines) add(_, args string) {
+func (l *logLines) add(args string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.lines = append(l.lines, args)
@@ -85,13 +85,13 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	r := &rig{t: t, clock: clocktesting.NewFakeClock(now), setter: &fakeSetter{}, sched: &schedules{}, logs: logs}
 	r.e = &Engine{
 		Setter: r.setter, Clock: r.clock, Location: london, Site: londonSite,
-		Log:  funcr.New(logs.add, funcr.Options{Verbosity: 1}),
+		Log:  logging.Lines(logs.add, slog.LevelDebug),
 		Runs: NewRunsCounter(), NextChange: NewNextChangeGauge(), Active: NewActiveGauge(),
 		OnSchedule: r.sched.record, States: states, Controls: o.controls, ControlLevel: NewControlLevelGauge(),
 		OnBudget: r.recordBudget, Budget: NewBudgetMetrics(),
 	}
 	r.e.Init()
-	r.store = hub.NewStore(logr.Discard(), r.e)
+	r.store = hub.NewStore(logging.Discard(), r.e)
 	r.e.Store = r.store
 	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {

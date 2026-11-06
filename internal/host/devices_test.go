@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -15,6 +13,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -29,9 +28,9 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()}
-	eng := &engine.Engine{Log: logr.Discard(), Controls: controls}
-	devices := hub.NewStore(logr.Discard(), eng)
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
+	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
+	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store, eng.Setter = devices, driver.SetterFunc(func(context.Context, ident.ID, string, any) error { return nil })
 	eng.Init()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -44,7 +43,7 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
 		t.Fatal(err)
 	}
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logr.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.SwitchOn}}, entries)
 	if err != nil {
@@ -77,12 +76,12 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()}
-	eng := &engine.Engine{Log: logr.Discard(), Controls: controls}
-	devices := hub.NewStore(logr.Discard(), eng)
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
+	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
+	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logr.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
 	// Its driver hasn't started, so nothing has loaded its arbiters.
 	if _, _, err := reg.Report(registry.Report{ID: "v", Driver: "later/x", Name: "valve"}); err != nil {
 		t.Fatal(err)
@@ -128,8 +127,8 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	open := func() (*inventory, *hub.Store) {
-		devices := hub.NewStore(logr.Discard())
-		known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, nil, logr.Discard())
+		devices := hub.NewStore(logging.Discard())
+		known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, nil, logging.Discard())
 		if err := known.loadHome(); err != nil {
 			t.Fatal(err)
 		}
@@ -187,7 +186,7 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logr.Discard()), nil, logr.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
 	setting := func(device, resolve string) wire.DeviceControl {
 		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.SwitchOn, Resolve: resolve}}
 	}

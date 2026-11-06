@@ -7,11 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -112,7 +111,7 @@ func setup(t *testing.T, retained map[string]string) (*Instance, *mqtt.Memory, *
 	rec := newRecorder()
 	i := &Instance{
 		Key: dev("sonoff"), Root: root, Bus: bus, Sink: rec,
-		Now: func() time.Time { return now }, Log: logr.Discard(),
+		Now: func() time.Time { return now }, Log: logging.Discard(),
 	}
 	if err := i.Start(context.Background()); err != nil {
 		t.Fatal(err)

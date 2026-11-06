@@ -4,17 +4,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 func TestUndeclaredInstanceLabel(t *testing.T) {
-	store := hub.NewStore(logr.Discard())
+	store := hub.NewStore(logging.Discard())
 	name := ident.ID{Namespace: "home", Name: "garden"}
 	store.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}, 3)
 	store.Undeclared(driver.InstanceKey{Driver: driver.Plugin, ID: name}, 1)
@@ -35,7 +35,7 @@ type fakePlugins map[ident.ID]plugin.Stats
 func (f fakePlugins) PluginStats() map[ident.ID]plugin.Stats { return f }
 
 func TestPluginMetrics(t *testing.T) {
-	c := Collector{Store: hub.NewStore(logr.Discard()), Plugins: fakePlugins{
+	c := Collector{Store: hub.NewStore(logging.Discard()), Plugins: fakePlugins{
 		{Namespace: "home", Name: "sonoff"}: {Up: true, Rejected: map[string]uint64{plugin.ReasonUnknownCapability: 2}},
 		{Namespace: "home", Name: "cozy"}:   {},
 	}}

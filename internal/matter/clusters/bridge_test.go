@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
@@ -62,14 +61,14 @@ func newFixture(t *testing.T) *fixture {
 	if f.info, err = f.bridge.AddDevice(2, DeviceOnOffPlug, "Desk lamp", "lamp-1", f.onoff.Cluster()); err != nil {
 		t.Fatal(err)
 	}
-	f.server = &im.Server{Node: f.bridge.Node, Log: testr.New(t)}
+	f.server = &im.Server{Node: f.bridge.Node, Log: logging.Test(t)}
 	f.server.Register(f.devTr)
 
 	v, err := mcrypto.NewVerifier(passcode, salt, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	(&securechannel.Responder{Transport: f.devTr, Verifier: v, Salt: salt, Iterations: 1000, Log: testr.New(t)}).Register()
+	(&securechannel.Responder{Transport: f.devTr, Verifier: v, Salt: salt, Iterations: 1000, Log: logging.Test(t)}).Register()
 	devAddr := f.devTr.Addr().(*net.UDPAddr).AddrPort()
 	f.session, err = securechannel.EstablishPASE(timeout(t), f.cliTr, devAddr, passcode, nil)
 	if err != nil {

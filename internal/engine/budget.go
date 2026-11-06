@@ -238,7 +238,7 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 			}
 			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, devices, read))}
 			for _, err := range p.day.Errors {
-				e.Log.Info("Budget planned with an error", "rule", key, "error", err.Error())
+				e.Log.Info("Budget planned with an error", "rule", key, "err", err)
 			}
 			if len(p.day.Errors) > 0 {
 				p.failure = p.day.Errors[0].Error()
@@ -315,7 +315,7 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 	}
 	var s savedBudget
 	if err := json.Unmarshal([]byte(saved), &s); err != nil {
-		e.Log.Error(err, "Failed to read saved budget plan", "rule", key)
+		e.Log.Error("Failed to read saved budget plan", "err", err, "rule", key)
 		return nil
 	}
 	today, failure := s.Today, s.Failure
@@ -403,7 +403,7 @@ func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetRep
 		}
 		raw, err := json.Marshal(saved)
 		if err != nil {
-			e.Log.Error(err, "Failed to save budget plan", "rule", key)
+			e.Log.Error("Failed to save budget plan", "err", err, "rule", key)
 		} else {
 			bs.saved = string(raw)
 		}

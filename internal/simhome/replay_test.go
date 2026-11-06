@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/framework"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
 
@@ -36,7 +35,7 @@ func options(t *testing.T, home framework.Home) simhome.Options {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return simhome.Options{Home: simulated, Start: monday, Log: logr.Discard(), Devices: []simhome.Device{
+	return simhome.Options{Home: simulated, Start: monday, Log: logging.Discard(), Devices: []simhome.Device{
 		{Name: "sensor", Capabilities: []string{humidity}, Values: map[string]any{humidity: 40.0}},
 		{Name: "fan", Capabilities: []string{on}, Values: map[string]any{on: false}},
 	}}

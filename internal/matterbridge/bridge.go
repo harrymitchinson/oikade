@@ -3,11 +3,10 @@ package matterbridge
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"sync/atomic"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -83,7 +82,7 @@ func (b *Bridge) Restore(dev ident.ID, name string, otherwise any) {
 
 // Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose device
 // takes another name keeps its clusters, and its writes go to the new name.
-func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
+func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.endpoints == nil {

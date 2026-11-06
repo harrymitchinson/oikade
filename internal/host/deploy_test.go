@@ -12,6 +12,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -294,7 +295,7 @@ func TestAnUnfinishedDeployIsUndoneOnStartup(t *testing.T) {
 
 	v, closeStore = openTestVersions(t, dir)
 	defer closeStore()
-	d := &deployer{versions: v}
+	d := &deployer{log: logging.Discard(), versions: v}
 	if got := d.startup(); got != v.path(good) {
 		t.Fatalf("got %s, want %s", got, v.path(good))
 	}
@@ -345,7 +346,7 @@ func TestRemovalsWaitForKnownRules(t *testing.T) {
 	if err := v.commit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&deployer{versions: v}).removals(); err != nil || !v.state.Removals {
+	if err := (&deployer{log: logging.Discard(), versions: v}).removals(); err != nil || !v.state.Removals {
 		t.Fatalf("got %v, %+v", err, v.state)
 	}
 }
@@ -366,7 +367,7 @@ func TestRedeployingAVersionThatCouldntBeConfirmedRetries(t *testing.T) {
 	if err := v.begin(version{ID: id}, nil); err != nil {
 		t.Fatal(err)
 	}
-	d := &deployer{versions: v, srv: &server{feed: newFeed(), events: &eventLog{}}}
+	d := &deployer{log: logging.Discard(), versions: v, srv: &server{log: logging.Discard(), feed: newFeed(), events: &eventLog{log: logging.Discard()}}}
 	if err := data.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +401,7 @@ func TestRedeployingAVersionThatHasntSettledConfirmsNothing(t *testing.T) {
 	if err := v.begin(version{ID: id}, nil); err != nil {
 		t.Fatal(err)
 	}
-	resp := (&deployer{versions: v}).deploy(context.Background(), v.path(id), false)
+	resp := (&deployer{log: logging.Discard(), versions: v}).deploy(context.Background(), v.path(id), false)
 	if resp.Error == "" || resp.Unchanged || !v.state.Pending {
 		t.Fatalf("got %+v, %+v", resp, v.state)
 	}
@@ -414,7 +415,7 @@ func TestRemovalsWaitForAConfirmedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	v.state.Removals = true
-	if err := (&deployer{versions: v}).removals(); err != nil || !v.state.Removals {
+	if err := (&deployer{log: logging.Discard(), versions: v}).removals(); err != nil || !v.state.Removals {
 		t.Fatalf("got %v, %+v", err, v.state)
 	}
 }
@@ -451,7 +452,7 @@ func TestAFailedDeployKeepsWhatItOwes(t *testing.T) {
 
 // A connection from before a disconnect is the process that's going, however late it gets here.
 func TestAStaleConnectionNeverAttaches(t *testing.T) {
-	s := &server{}
+	s := &server{log: logging.Discard()}
 	stale := &session{generation: s.generation}
 	s.disconnect()
 	if s.attach(stale, wire.Message{}, nil) {

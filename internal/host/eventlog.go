@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -37,7 +36,7 @@ const (
 type eventLog struct {
 	store *store.Events
 	bound store.Bound
-	log   logr.Logger
+	log   *slog.Logger
 
 	mu      sync.Mutex
 	queue   []api.Event
@@ -46,7 +45,7 @@ type eventLog struct {
 	flushing sync.Mutex
 }
 
-func newEventLog(events *store.Events, bound store.Bound, log logr.Logger) *eventLog {
+func newEventLog(events *store.Events, bound store.Bound, log *slog.Logger) *eventLog {
 	if bound.MaxAge <= 0 {
 		bound.MaxAge = DefaultEventLogAge
 	}
@@ -96,13 +95,13 @@ func (l *eventLog) flush() {
 	for _, e := range queue {
 		raw, err := encodeEvent(e)
 		if err != nil {
-			l.log.Error(err, "Failed to encode event", "type", e.Type)
+			l.log.Error("Failed to encode event", "err", err, "type", e.Type)
 			continue
 		}
 		records = append(records, store.Record{Time: e.Time, Data: raw})
 	}
 	if err := l.store.Add(records, time.Now(), l.bound, foldBaseline); err != nil {
-		l.log.Error(err, "Failed to add to the event log", "events", len(records))
+		l.log.Error("Failed to add to the event log", "err", err, "events", len(records))
 	}
 }
 

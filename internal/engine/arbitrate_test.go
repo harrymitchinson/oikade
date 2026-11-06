@@ -3,18 +3,18 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/go-logr/logr/funcr"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // entry is a bool control entry.
@@ -527,7 +527,7 @@ func TestAMatterWriteThatChangesNothingIsForgotten(t *testing.T) {
 // A moment firing all day says once which Room members it leaves out, and again when that changes.
 func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
 	var logs []string
-	e := &Engine{Log: funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})}
+	e := &Engine{Log: logging.Lines(func(line string) { logs = append(logs, line) }, slog.LevelInfo)}
 	key := ident.ID{Name: "bathroom-on"}
 	e.reportSkipped(key, []string{"rail", "towel", "rail"})
 	e.reportSkipped(key, []string{"towel", "rail"})

@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	clocktesting "k8s.io/utils/clock/testing"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 const ns = "home"
@@ -240,14 +240,14 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := hub.NewStore(logr.Discard())
+	store := hub.NewStore(logging.Discard())
 	store.SetDevices(z2m, map[ident.ID]hub.Meta{
 		{Namespace: ns, Name: "hallway-motion"}: {},
 		{Namespace: ns, Name: "hallway-light"}:  {},
 	})
 	h := &harness{t: t, clock: clocktesting.NewFakeClock(now), setter: &fakeSetter{}}
 	h.e = &Engine{
-		Store: store, Setter: h.setter, Clock: h.clock, Location: london, Log: logr.Discard(),
+		Store: store, Setter: h.setter, Clock: h.clock, Location: london, Log: logging.Discard(),
 		Runs: NewRunsCounter(),
 	}
 	h.e.Init()
@@ -427,9 +427,9 @@ func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, action
 	c := momentRule(t, "goodnight", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: actions})
 	var logs []string
 	e := &Engine{
-		Store: hub.NewStore(logr.Discard()), Setter: setter, Log: funcr.New(func(_, args string) {
-			logs = append(logs, args)
-		}, funcr.Options{Verbosity: 1}),
+		Store: hub.NewStore(logging.Discard()), Setter: setter, Log: logging.Lines(func(line string) {
+			logs = append(logs, line)
+		}, slog.LevelDebug),
 	}
 	e.Init()
 	declare(e.Store, devices)
@@ -499,9 +499,9 @@ func TestRoomActionEmptyMatch(t *testing.T) {
 		t.Fatalf("calls = %v, want only the device action", got)
 	}
 	if !slices.ContainsFunc(logs, func(l string) bool {
-		return strings.Contains(l, `"level"=1`) && strings.Contains(l, `"msg"="Matched no Devices in Room"`) && strings.Contains(l, `"room"="garage"`)
+		return strings.Contains(l, `level=DEBUG`) && strings.Contains(l, `msg="Matched no Devices in Room"`) && strings.Contains(l, `room=garage`)
 	}) {
-		t.Fatalf("no V(1) empty-match log in %q", logs)
+		t.Fatalf("no debug empty-match log in %q", logs)
 	}
 }
 
@@ -520,7 +520,7 @@ func TestRoomActionPartialFailure(t *testing.T) {
 		t.Fatalf("calls = %v, want %v", got, want)
 	}
 	if !slices.ContainsFunc(logs, func(l string) bool {
-		return strings.Contains(l, `"device"="lamp-a"`) && strings.Contains(l, `"room"="living-room"`)
+		return strings.Contains(l, `device=lamp-a`) && strings.Contains(l, `room=living-room`)
 	}) {
 		t.Fatalf("no failure log naming lamp-a in %q", logs)
 	}

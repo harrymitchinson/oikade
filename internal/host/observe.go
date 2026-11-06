@@ -72,7 +72,7 @@ func (h *Host) observe(srv *server, eng *engine.Engine) func(context.Context) {
 	l, err := net.Listen("tcp", h.MetricsAddr)
 	if err != nil {
 		// Worth saying loudly, and not worth stopping a home for.
-		h.Log.Error(err, "Failed to open the metrics listener", "address", h.MetricsAddr)
+		h.Log.Error("Failed to open the metrics listener", "err", err, "address", h.MetricsAddr)
 		return func(context.Context) {}
 	}
 	mux := http.NewServeMux()
@@ -93,7 +93,7 @@ func (h *Host) observe(srv *server, eng *engine.Engine) func(context.Context) {
 			_ = server.Shutdown(last)
 		}()
 		if err := server.Serve(l); !errors.Is(err, http.ErrServerClosed) {
-			h.Log.Error(err, "Failed to serve metrics")
+			h.Log.Error("Failed to serve metrics", "err", err)
 		}
 		<-stopped
 	}

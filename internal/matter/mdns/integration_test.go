@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/ipv4"
+
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // multicastInterface returns an IPv4 interface on which a packet sent to a multicast group comes
@@ -76,7 +77,7 @@ func TestMulticast(t *testing.T) {
 		t.Skip("Probing takes a second")
 	}
 	ifi := multicastInterface(t)
-	r, err := Listen(Options{Log: testr.New(t), Interfaces: []net.Interface{ifi}, Host: "oikade-test-" + randomHex(4)})
+	r, err := Listen(Options{Log: logging.Test(t), Interfaces: []net.Interface{ifi}, Host: "oikade-test-" + randomHex(4)})
 	if err != nil {
 		t.Skipf("Could not listen for mDNS on %s: %v", ifi.Name, err)
 	}
