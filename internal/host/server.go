@@ -8,7 +8,6 @@ import (
 	"os"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -50,12 +49,7 @@ type server struct {
 	closed bool
 	// pong is when the session last answered a ping.
 	pong time.Time
-	// rules are the session's.
-	rules []string
 
-	// settling is set while a new version proves itself. What it would end stays until then, because
-	// the version it replaced may yet come back.
-	settling atomic.Bool
 	// connected, if set, hears of each session. It must not block.
 	connected func()
 }
@@ -138,12 +132,6 @@ func (s *server) handle(conn *wire.Conn) {
 		return
 	}
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
-	s.mu.Lock()
-	s.rules = hello.Rules
-	s.mu.Unlock()
-	if !s.settling.Load() {
-		s.reconcile()
-	}
 	if s.connected != nil {
 		s.connected()
 	}
@@ -287,22 +275,18 @@ func (s *server) disconnect() {
 	}
 }
 
-// reconcile ends what's left of rules the home no longer has: their claims, Safety ones too, and
-// their saved state. Nothing else would, because their code has gone. A home that names no rules says
-// nothing about them, so it ends nothing. What fails is logged, and tried again next time.
-func (s *server) reconcile() {
-	s.mu.Lock()
-	rules := s.rules
-	s.mu.Unlock()
-	if len(rules) == 0 {
-		return
-	}
+// reconcile ends what's left of rules a confirmed version doesn't have: their claims, Safety ones
+// too, and their saved state. Nothing else would, because their code has gone. Only a deploy calls
+// it, so a Safety rule goes only past the check that refuses that. An error means it should be tried
+// again.
+func (s *server) reconcile(rules []string) error {
+	var errs []error
 	for rule, level := range s.engine.RuleClaims(wire.Namespace) {
 		if slices.Contains(rules, rule) {
 			continue
 		}
 		if err := s.engine.EndRule(s.ctx, wire.Namespace, rule); err != nil {
-			s.log.Error(err, "Failed to end the claims of a removed rule", "rule", rule)
+			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", rule, err))
 			continue
 		}
 		s.log.Info("Ended the claims of a removed rule", "rule", rule, "highest", level.String())
@@ -313,7 +297,7 @@ func (s *server) reconcile() {
 	}{s.holds, s.fires} {
 		names, err := saved.Names(wire.Namespace)
 		if err != nil {
-			s.log.Error(err, "Failed to list the saved state of rules")
+			errs = append(errs, err)
 			continue
 		}
 		for _, name := range names {
@@ -321,12 +305,13 @@ func (s *server) reconcile() {
 				continue
 			}
 			if err := saved.Delete(s.ctx, key(name)); err != nil {
-				s.log.Error(err, "Failed to forget the saved state of a removed rule", "rule", name)
+				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", name, err))
 				continue
 			}
 			s.log.Info("Forgot the saved state of a removed rule", "rule", name)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // shutdown disconnects the session and refuses any more.

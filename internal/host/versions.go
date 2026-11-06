@@ -41,6 +41,8 @@ type history struct {
 	// Before is what Versions was until the deploy in progress, which hasn't settled if Pending.
 	Before  []version `json:"before,omitempty"`
 	Pending bool      `json:"pending,omitempty"`
+	// Removals is a confirmed version whose removed rules haven't been dealt with yet.
+	Removals bool `json:"removals,omitempty"`
 }
 
 // versions keeps your binaries. Only one deploy runs at a time, so it needs no lock of its own.
@@ -67,12 +69,17 @@ func openVersions(dataDir string, data *store.Store) (*versions, error) {
 	return v, nil
 }
 
-func (v *versions) save() error {
-	raw, err := json.Marshal(v.state)
+// save records next, and takes it up only once that's on disk, so a failed save changes nothing.
+func (v *versions) save(next history) error {
+	raw, err := json.Marshal(next)
 	if err != nil {
 		return err
 	}
-	return v.values.Put(versionsKey, raw)
+	if err := v.values.Put(versionsKey, raw); err != nil {
+		return err
+	}
+	v.state = next
+	return nil
 }
 
 func (v *versions) path(id string) string { return filepath.Join(v.dir, id) }
@@ -154,34 +161,45 @@ func (v *versions) discard(id string) error {
 // adopt records the version running now, which nothing deployed, so that a deploy has something to
 // go back to.
 func (v *versions) adopt(next version) error {
-	v.state.Versions = []version{next}
-	return v.save()
+	return v.save(history{Versions: []version{next}})
 }
 
 // begin makes next the running version, unconfirmed. Call it before the process changes.
 func (v *versions) begin(next version) error {
-	v.state.Before = slices.Clone(v.state.Versions)
 	rest := slices.DeleteFunc(slices.Clone(v.state.Versions), func(k version) bool { return k.ID == next.ID })
-	v.state.Versions = append([]version{next}, rest...)
-	v.state.Pending = true
-	return v.save()
+	return v.save(history{
+		Versions: append([]version{next}, rest...), Before: slices.Clone(v.state.Versions), Pending: true,
+		Removals: v.state.Removals,
+	})
 }
 
-// commit confirms the running version, and removes what's past the limit.
+// beginRollback makes next, the version before the running one, the running one, unconfirmed. The
+// running one leaves the history, so that another rollback goes back further rather than to it.
+func (v *versions) beginRollback(next version) error {
+	return v.save(history{
+		Versions: append([]version{next}, v.state.Versions[2:]...), Before: slices.Clone(v.state.Versions), Pending: true,
+		Removals: v.state.Removals,
+	})
+}
+
+// commit confirms the running version, which leaves its removals to be dealt with.
 func (v *versions) commit() error {
-	v.state.Before, v.state.Pending = nil, false
-	v.state.Versions = v.state.Versions[:min(len(v.state.Versions), keptVersions)]
-	if err := v.save(); err != nil {
-		return err
-	}
-	return v.prune()
+	return v.save(history{
+		Versions: slices.Clone(v.state.Versions[:min(len(v.state.Versions), keptVersions)]), Removals: true,
+	})
 }
 
-// abort goes back to how things were before begin. It keeps a failed version's file out of the way.
+// removalsDone records that a confirmed version's removals have been dealt with.
+func (v *versions) removalsDone() error {
+	next := v.state
+	next.Removals = false
+	return v.save(next)
+}
+
+// abort goes back to how things were before begin, and removes the failed binary.
 func (v *versions) abort() error {
 	failed := v.state.Versions[0].ID
-	v.state.Versions, v.state.Before, v.state.Pending = v.state.Before, nil, false
-	if err := v.save(); err != nil {
+	if err := v.save(history{Versions: v.state.Before, Removals: v.state.Removals}); err != nil {
 		return err
 	}
 	return v.discard(failed)

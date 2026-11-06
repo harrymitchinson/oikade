@@ -193,6 +193,9 @@ func TestVersionsAreBounded(t *testing.T) {
 		if err := v.commit(); err != nil {
 			t.Fatal(err)
 		}
+		if err := v.prune(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if got := len(v.state.Versions); got != keptVersions {
 		t.Fatalf("kept %d", got)
@@ -206,6 +209,70 @@ func TestVersionsAreBounded(t *testing.T) {
 	}
 	if _, err := os.Stat(v.path(added[0])); !os.IsNotExist(err) {
 		t.Fatalf("the oldest binary stayed: %v", err)
+	}
+}
+
+func TestRollbackGoesFurtherBackEachTime(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	first, second, third := binary(t, v, "first"), binary(t, v, "second"), binary(t, v, "third")
+	for _, id := range []string{first, second, third} {
+		if err := v.begin(version{ID: id}); err != nil {
+			t.Fatal(err)
+		}
+		if err := v.commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, want := range []string{second, first} {
+		prev, _ := v.previous()
+		if err := v.beginRollback(prev); err != nil {
+			t.Fatal(err)
+		}
+		if err := v.commit(); err != nil {
+			t.Fatal(err)
+		}
+		if err := v.prune(); err != nil {
+			t.Fatal(err)
+		}
+		if cur, _ := v.current(); cur.ID != want {
+			t.Fatalf("got %s, want %s", cur.ID, want)
+		}
+	}
+	if _, ok := v.previous(); ok {
+		t.Fatal("there should be nothing left")
+	}
+	if _, err := os.Stat(v.path(third)); !os.IsNotExist(err) {
+		t.Fatalf("a rolled-back binary stayed: %v", err)
+	}
+}
+
+// A failed save changes nothing, so the old version is still what's running.
+func TestAFailedSaveLeavesTheHistoryAlone(t *testing.T) {
+	dir := t.TempDir()
+	data, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := openVersions(dir, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good, bad := binary(t, v, "good"), binary(t, v, "bad")
+	if err := v.begin(version{ID: good}); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.begin(version{ID: bad}); err == nil {
+		t.Fatal("a save to a closed store worked")
+	}
+	if cur, _ := v.current(); cur.ID != good || v.state.Pending || v.known(bad) {
+		t.Fatalf("got %+v", v.state)
 	}
 }
 
@@ -233,5 +300,19 @@ func TestAnUnfinishedDeployIsUndoneOnStartup(t *testing.T) {
 	}
 	if v.state.Pending {
 		t.Fatal("the deploy is still pending")
+	}
+}
+
+// An unconfirmed version mustn't end anything, even if a host couldn't undo it on the way up.
+func TestRemovalsWaitForAConfirmedVersion(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	if err := v.begin(version{ID: binary(t, v, "first")}); err != nil {
+		t.Fatal(err)
+	}
+	v.state.Removals = true
+	(&deployer{versions: v}).removals()
+	if !v.state.Removals {
+		t.Fatal("removals ran for an unconfirmed version")
 	}
 }

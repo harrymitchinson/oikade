@@ -182,11 +182,16 @@ func prepare(t *testing.T) *rig {
 func (r *rig) launch(args ...string) {
 	t := r.t
 	t.Helper()
+	r.launchWithout(append([]string{"--home", homeBin, "--simulate", devicesFile(t)}, args...)...)
+}
+
+func devicesFile(t *testing.T) string {
+	t.Helper()
 	devices, err := filepath.Abs(filepath.Join("testdata", "devices.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.launchWithout(append([]string{"--home", homeBin, "--simulate", devices}, args...)...)
+	return devices
 }
 
 // launchWithout starts a host with only these flags.

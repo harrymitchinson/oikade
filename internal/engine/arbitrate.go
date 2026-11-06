@@ -559,9 +559,13 @@ func (e *Engine) ReleaseFlow(ctx context.Context, key types.NamespacedName) erro
 }
 
 // RuleClaims returns the rules holding claims in the namespace, each with the highest level it holds.
+// It counts devices the engine has yet to look at, whose claims are still only on disk.
 func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	for dev := range e.controlDue {
+		e.ensure(dev)
+	}
 	held := map[string]control.Level{}
 	for dev, arbs := range e.arbs {
 		if dev.Namespace != namespace {

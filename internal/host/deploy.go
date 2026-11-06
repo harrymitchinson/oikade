@@ -15,6 +15,7 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
@@ -66,9 +67,7 @@ func (d *deployer) startup() string {
 func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Response {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if err := d.adopt(ctx); err != nil {
-		return api.Response{Error: err.Error()}
-	}
+	d.adopt(ctx)
 	id, err := d.versions.add(binary)
 	if err != nil {
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
@@ -76,10 +75,11 @@ func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Re
 	if cur, ok := d.versions.current(); ok && cur.ID == id {
 		return api.Response{Version: id, Unchanged: true}
 	}
-	return d.takeOver(ctx, id, allow)
+	return d.takeOver(ctx, id, allow, d.versions.begin)
 }
 
-// rollback returns to the version before the running one, on the same terms as a deploy.
+// rollback returns to the version before the running one, on the same terms as a deploy. The running
+// one is forgotten, so a second rollback goes back further.
 func (d *deployer) rollback(ctx context.Context, allow bool) api.Response {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -87,29 +87,52 @@ func (d *deployer) rollback(ctx context.Context, allow bool) api.Response {
 	if !ok {
 		return api.Response{Error: "there's no earlier version"}
 	}
-	return d.takeOver(ctx, prev.ID, allow)
+	return d.takeOver(ctx, prev.ID, allow, d.versions.beginRollback)
 }
 
-// adopt records a binary from the host's flags, so a deploy can go back to it. A binary too old to
-// have a check mode still counts, with nothing known about it.
-func (d *deployer) adopt(ctx context.Context) error {
+// adopt records a binary from the host's flags, so a deploy can go back to it. One that can't be
+// read or has no check mode costs that, and mustn't stop the deploy that may be there to fix it.
+func (d *deployer) adopt(ctx context.Context) {
 	if _, ok := d.versions.current(); ok || d.home == "" {
-		return nil
+		return
 	}
 	id, err := d.versions.add(d.home)
 	if err != nil {
-		return fmt.Errorf("storing the running binary: %w", err)
+		d.log.Info("Couldn't keep the running binary; a deploy can't go back to it", "reason", err.Error())
+		return
 	}
 	manifest, err := runCheck(ctx, d.versions.path(id))
 	if err != nil {
 		d.log.Info("Couldn't check the running binary", "reason", err.Error())
 	}
-	return d.versions.adopt(version{ID: id, Manifest: manifest, At: time.Now()})
+	if err := d.versions.adopt(version{ID: id, Manifest: manifest, At: time.Now()}); err != nil {
+		d.log.Error(err, "Failed to record the running binary")
+	}
+}
+
+// removals ends what's left of rules the running version doesn't have, once it's confirmed. It's
+// recorded, so a crash just after confirming finishes the job on the next start.
+func (d *deployer) removals() {
+	cur, ok := d.versions.current()
+	if !ok || !d.versions.state.Removals || d.versions.state.Pending {
+		return
+	}
+	rules := make([]string, 0, len(cur.Manifest.Rules))
+	for _, r := range cur.Manifest.Rules {
+		rules = append(rules, r.Name)
+	}
+	if err := d.srv.reconcile(rules); err != nil {
+		d.log.Error(err, "Failed to end what removed rules left; the next start will")
+		return
+	}
+	if err := d.versions.removalsDone(); err != nil {
+		d.log.Error(err, "Failed to record that removed rules have gone", "version", cur.ID)
+	}
 }
 
 // takeOver checks a stored binary, stops what's running, starts it and watches it settle. If it fails
 // to, the last version comes back.
-func (d *deployer) takeOver(ctx context.Context, id string, allow bool) api.Response {
+func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin func(version) error) api.Response {
 	reject := func(resp api.Response) api.Response {
 		if err := d.versions.discard(id); err != nil {
 			d.log.Error(err, "Failed to remove a rejected automations version", "version", id)
@@ -131,11 +154,9 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool) api.Resp
 	}
 
 	last := d.running
-	if err := d.versions.begin(version{ID: id, Manifest: manifest, At: time.Now()}); err != nil {
+	if err := begin(version{ID: id, Manifest: manifest, At: time.Now()}); err != nil {
 		return reject(api.Response{Error: fmt.Sprintf("recording the version: %s", err)})
 	}
-	d.srv.settling.Store(true)
-	defer d.srv.settling.Store(false)
 	err = d.settled(ctx, d.versions.path(id))
 	if ctx.Err() != nil {
 		// The next host works out what to do from the record.
@@ -148,8 +169,11 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool) api.Resp
 		d.log.Error(err, "Failed to confirm automations version", "version", id)
 		return api.Response{Error: fmt.Sprintf("confirming the version: %s", err), Version: id}
 	}
-	d.srv.settling.Store(false)
-	d.srv.reconcile()
+	if err := d.versions.prune(); err != nil {
+		d.log.Error(err, "Failed to remove old automations versions")
+	}
+	fault.Hit(fault.HostDeployConfirmed)
+	d.removals()
 	d.log.Info("Deployed automations version", "version", id)
 	return api.Response{Version: id}
 }

@@ -18,4 +18,6 @@ const (
 	HostJournalAppend = "host.journal.append"
 	// HostClaimReplied is the host having answered a claim.
 	HostClaimReplied = "host.claim.replied"
+	// HostDeployConfirmed is a new version confirmed, with its removed rules not yet dealt with.
+	HostDeployConfirmed = "host.deploy.confirmed"
 )

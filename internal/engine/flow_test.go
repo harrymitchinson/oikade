@@ -439,3 +439,24 @@ func TestRuleClaimsAndEndRule(t *testing.T) {
 		t.Fatalf("a Safety claim outlived its rule: %v", held)
 	}
 }
+
+// A host deals with removed rules as it starts, before the engine has looked at any device.
+func TestRuleClaimsCountsClaimsStillOnDisk(t *testing.T) {
+	controls := newMemoryStates[ControlState]()
+	eng, dev := arbitratedEngine(t, controls)
+	ctx := context.Background()
+	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Expires: time.Now().Add(time.Hour)}
+	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, claim); err != nil {
+		t.Fatal(err)
+	}
+	restarted, _ := arbitratedEngine(t, controls)
+	if held := restarted.RuleClaims(ns); held["leak"] != control.Safety {
+		t.Fatalf("got %v", held)
+	}
+	if err := restarted.EndRule(ctx, ns, "leak"); err != nil {
+		t.Fatal(err)
+	}
+	if held := restarted.RuleClaims(ns); len(held) != 0 {
+		t.Fatalf("got %v", held)
+	}
+}

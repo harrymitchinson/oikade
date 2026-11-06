@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
@@ -275,12 +277,8 @@ func TestHostStartsEmptyAndTakesAFirstDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	devices, err := filepath.Abs(filepath.Join("testdata", "devices.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	r := &rig{t: t, dir: dir, grew: make(chan struct{})}
-	r.launchWithout(settle, "--simulate", devices)
+	r.launchWithout(settle, "--simulate", devicesFile(t))
 	r.waitFor(func(l line) bool { return l.is("Started host") })
 	if r.waitSocket(); r.count(started) != 0 {
 		t.Fatalf("a process started. The log:\n%s", r.dump())
@@ -369,6 +367,89 @@ func TestAFailedVersionDoesNotEndTheClaimsOfRulesItDropped(t *testing.T) {
 	if got := r.ruleClaims("claimed"); len(got) != 1 {
 		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
+}
+
+// Only a deploy ends a rule, so a binary changed behind the host's back can't get past the check.
+func TestABinaryChangedWithoutADeployEndsNothing(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.change("leak-sensor", opened, true)
+	r.wrote("valve", false)
+	r.sync()
+	r.stop()
+	r.launchWithout("--home", variant(t, "renamed"), "--simulate", devicesFile(t), settle)
+	r.awaitLoaded()
+	r.sync()
+	if r.count(ended) != 0 {
+		t.Fatalf("a claim ended with no deploy. The log:\n%s", r.dump())
+	}
+	r.stop()
+	got := r.ruleClaims("valve")
+	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/leak-shutoff" }) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// A confirmed version's removals outlive a crash just after confirming it.
+func TestRemovalsFinishAfterACrash(t *testing.T) {
+	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployConfirmed))
+	r.launch(settle)
+	r.awaitLoaded()
+	r.change("claim-go", opened, true)
+	r.sync()
+	if _, err := r.deploy("removed"); err == nil {
+		t.Fatalf("the host survived its fault. The log:\n%s", r.dump())
+	}
+	r.died()
+	if r.count(ended) != 0 {
+		t.Fatalf("the removal came first. The log:\n%s", r.dump())
+	}
+	r.launch(settle)
+	r.waitFor(func(l line) bool { return l.is(ended, "rule", "claim-moment") })
+	r.awaitLoaded()
+	r.stop()
+	if got := r.ruleClaims("claimed"); len(got) != 0 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// A running binary that has gone costs the way back to it, not the deploy that may be there to fix it.
+func TestDeployWorksWhenTheRunningBinaryHasGone(t *testing.T) {
+	r := flowRig(t, "")
+	home := filepath.Join(r.dir, "home")
+	raw, err := os.ReadFile(variant(t, "same"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(home, raw, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.launchWithout("--home", home, "--simulate", devicesFile(t), settle)
+	r.awaitLoaded()
+	r.sync()
+	if err := os.Remove(home); err != nil {
+		t.Fatal(err)
+	}
+	r.mustDeploy("tail")
+	stderr, err := r.oikade(nil, "rollback")
+	if err == nil || !strings.Contains(stderr, "no earlier version") {
+		t.Fatalf("got %v, %s", err, stderr)
+	}
+}
+
+func TestRollbackGoesBackAVersionAtATime(t *testing.T) {
+	t.Parallel()
+	r := start(t, settle)
+	r.mustDeploy("same")
+	r.mustDeploy("tail")
+	r.mustDeploy("edited")
+	r.mustRollback() // To tail.
+	r.mustRollback() // To same.
+	r.contact("park-go", true)
+	r.sync()
+	r.contact("park-end", true)
+	r.wrote("park-out", true)
 }
 
 // ruleClaims reads a stopped host's saved claims on a device's switch.

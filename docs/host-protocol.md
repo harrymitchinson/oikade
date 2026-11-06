@@ -74,7 +74,7 @@ Claims live in the host, so nothing happens to them when your process dies. Each
 
 A Safety hold's claim therefore stays in force while there's no process. A hold whose condition ended meanwhile is ended by the next process, once.
 
-A rule's claims end with the rule. When a process connects, the host ends the claims of any rule not in its `hello`, Safety ones included, and forgets those rules' saved state, because nothing else would. A `hello` with no rules ends nothing. During a deploy this waits until the version has settled, because the last version may yet come back.
+A rule's claims end with the rule, but only through a deploy, which is what checks for a Safety rule going. See [Deploys](#deploys). A binary changed some other way ends nothing.
 
 ## Check mode
 
@@ -94,8 +94,10 @@ A failure, or a `protocol` other than the host's, rejects the version.
 2. It runs check mode, and compares the result with the running version. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafetyRemoval`. A rename counts, because a hold's latch lives under its name.
 3. It records the version as unconfirmed, sends the old process `SIGTERM`, kills it after 5 seconds if it's still there, and ends its session. Only then does the new process start, so two never overlap. Waiting runs keep their journals and resume.
 4. It waits for the new process to connect, then for the settle period, 5 seconds by default. If the process goes away at any point before that's up, the last version comes back at once, and the command says why.
-5. It confirms the version, ends what's left of removed rules, and keeps the five latest versions.
+5. It confirms the version, keeps the five latest, and ends what's left of rules the version doesn't have: their claims, Safety ones included, and their saved state, because nothing else would. The record says this is due, so a host that dies first does it when it starts.
 
 A host that dies during steps 3 or 4 finds the unconfirmed record when it starts, and goes back to the last version. A version that settled and fails later restarts as usual, and stays until a rollback.
 
-`rollback` is a deploy of the version before the running one, on the same terms.
+`rollback` is a deploy of the version before the running one, on the same terms, and it forgets the running one, so a second rollback goes back further.
+
+Going back restores a version, not everything it did. A version that failed while settling has already replayed waiting runs, so a run it dropped stays dropped, and steps it took stay in the run's journal. If those don't match the version that comes back, that run is dropped too. Its claims and rules' saved state are otherwise as they were.

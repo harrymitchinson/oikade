@@ -102,6 +102,7 @@ func (h *Host) Run(ctx context.Context) error {
 	first := deploys.startup()
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
+	deploys.removals()
 	serving.Go(func() { srv.serve(listener) })
 	if h.Simulate != nil {
 		go sim.read(h.Simulate)
