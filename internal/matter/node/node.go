@@ -350,7 +350,7 @@ func (n *Node) closeWindow() {
 	}
 	n.log.Info("Stopped advertising commissionable service")
 	if n.table.Count() == 0 {
-		n.log.Info("Closed the commissioning window while on no fabric: restart the pod to open it again",
+		n.log.Info("Closed the commissioning window while on no fabric: restart the host to open it again",
 			"timeout", n.cfg.WindowTimeout)
 	}
 }

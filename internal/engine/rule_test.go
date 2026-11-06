@@ -12,9 +12,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
-// This file builds rules with no homev1alpha1 value, and doesn't import the package. Its one CRD
-// hold comes from ruleYAML, to compare against.
-
 func goKey(name string) types.NamespacedName { return types.NamespacedName{Namespace: ns, Name: name} }
 
 func humidity(v Vars) (bool, error) {
@@ -62,21 +59,8 @@ func transcript(t *testing.T, r *rig) []string {
 	return got
 }
 
-func TestGoHoldBehavesLikeTheCRD(t *testing.T) {
-	now := local("2026-06-15 12:00 BST")
-	values := map[string]map[string]any{"bathroom-sensor": {capability.Humidity: 40.0}}
-
-	crd := holdRule(t, "fan", `
-  while:
-    window: {start: "06:00", end: "12:15"}
-    when: devices["bathroom-sensor"]["sensor.relative-humidity"] > 70.0
-    onDelay: 2m
-    offDelay: 5m
-  hold: {device: bathroom-fan, capability: switch.on, value: true}
-`)
-	fromCRD := transcript(t, startRig(t, now, nil, values, nil, crd))
-
-	r := startRig(t, now, nil, values, nil)
+func TestGoHoldRunsItsDelaysAndWindow(t *testing.T) {
+	r := startRig(t, local("2026-06-15 12:00 BST"), nil, map[string]map[string]any{"bathroom-sensor": {capability.Humidity: 40.0}}, nil)
 	c, err := NewHold(goKey("fan"), Hold{
 		Device: "bathroom-fan", Capability: capability.SwitchOn, Value: true,
 		Window: &Window{Start: At{Time: "06:00"}, End: At{Time: "12:15"}},
@@ -86,13 +70,14 @@ func TestGoHoldBehavesLikeTheCRD(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.e.Load(c)
-	fromGo := transcript(t, r)
-
-	if strings.Join(fromCRD, "\n") != strings.Join(fromGo, "\n") {
-		t.Fatalf("CRD:\n%s\n\nGo:\n%s", strings.Join(fromCRD, "\n"), strings.Join(fromGo, "\n"))
-	}
-	if !strings.Contains(strings.Join(fromGo, "\n"), "after onDelay: bathroom-fan switch.on=true") {
-		t.Fatalf("the hold never started:\n%s", strings.Join(fromGo, "\n"))
+	got := strings.Join(transcript(t, r), "\n")
+	for _, want := range []string{
+		"before onDelay: active=0", "after onDelay: bathroom-fan switch.on=true", "after onDelay: active=1",
+		"before offDelay: active=1", "after offDelay: bathroom-fan switch.on=false", "after offDelay: active=0",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
+		}
 	}
 }
 
@@ -278,31 +263,5 @@ func TestGoRulesAreChecked(t *testing.T) {
 		if tc.err == nil || !strings.Contains(tc.err.Error(), tc.want) {
 			t.Errorf("error = %v, want it to contain %q", tc.err, tc.want)
 		}
-	}
-}
-
-func TestCRDForOfZeroIsStillRejected(t *testing.T) {
-	_, err := Compile(ruleYAML(t, `
-  triggers: [{change: {device: d, capability: sensor.occupancy-detected}}]
-  do:
-  - set: {device: d, capability: switch.on, value: true, for: 0s}
-`))
-	if err == nil || !strings.Contains(err.Error(), "do[0]: for must be positive") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestEngineNamesMatchTheCRD(t *testing.T) {
-	c, err := Compile(ruleYAML(t, `
-  mode: Restart
-  triggers: [{change: {device: d, capability: sensor.occupancy-detected}}]
-  do:
-  - set: {device: d, capability: switch.on, value: true, for: 1h, until: Next, priority: Safety}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a := c.actions[0]; c.Mode != ModeRestart || a.until != UntilNext || a.priority != PrioritySafety {
-		t.Errorf("mode %q, action %+v", c.Mode, a)
 	}
 }

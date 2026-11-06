@@ -65,19 +65,19 @@ Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and t
   A step's description holds its scope and acceptance:
 
   ```markdown
-  Scope: the files, commands (`kubebuilder create …`, `make manifests generate`) and risks.
+  Scope: the files, commands and risks.
   Acceptance:
-  - <observable outcome> (unit / integration / envtest / Kind e2e / manual)
+  - <observable outcome> (unit / integration / journey / manual)
   ```
 
-  Acceptance that needs real devices or the Home app, which CI and Kind can't provide, reads `(manual, in the Manual testing doc)`. Its check goes in the Linear document "Manual testing" (project `v0.2.0`), under a heading for the feature. The feature is done when its last step merges, and the check stays open in the document until the user has done it.
+  Acceptance that needs real devices or the Home app, which CI can't provide, reads `(manual, in the Manual testing doc)`. Its check goes in the Linear document "Manual testing" (project `v0.2.0`), under a heading for the feature. The feature is done when its last step merges, and the check stays open in the document until the user has done it.
 - **Order between features:**
 
   ```sh
   hack/plan block <blocked> <blocker>
   ```
 
-- **Releases:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "in Kind, X reaches `Ready=True`". Avoid criteria like "code written". To create one:
+- **Releases:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "`oikade status` shows X". Avoid criteria like "code written". To create one:
 
   ```sh
   hack/plan project new "<version>" <description file>

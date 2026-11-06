@@ -3,26 +3,24 @@ package engine
 import (
 	"encoding/json"
 	"math"
+	"reflect"
 	"slices"
 	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
-// checkpointEvery is how often a budget's run minutes alone are reported to status.today.
+// checkpointEvery is how often a budget's run minutes alone are reported and saved.
 const checkpointEvery = 5 * time.Minute
 
-// Reasons for the Planned condition.
+// Reasons in a BudgetReport.
 const (
 	ReasonPlanned = "Planned"
 	// ReasonNoControl: the budget's target has no control entry, which its limits come from.
@@ -34,33 +32,56 @@ const (
 )
 
 // budgetHold is a compiled budget: how to compile it against its target's control entry, which only
-// the runtime has, and the plan and Planned condition its status held when it loaded.
+// the host has.
 type budgetHold struct {
 	compile func(*control.Entry) (*schedule.Budget, error)
-	today   *homev1alpha1.BudgetDay
-	planned *metav1.Condition
-	// saves keeps the plan in the hold's saved state, for a hold with no status to keep it in.
-	saves bool
 }
 
 // savedBudget is a plan as kept in HoldState.Budget.
 type savedBudget struct {
-	Today homev1alpha1.BudgetDay `json:"today"`
+	Today BudgetDay `json:"today"`
 	// Failure is why the day's budget couldn't be evaluated.
 	Failure string `json:"failure,omitempty"`
 }
 
-// BudgetReport is what the engine reports about a budget hold: status.today and the Planned
-// condition.
+// BudgetBlock is a planned run.
+type BudgetBlock struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// BudgetDay is a budget hold's plan for a planning day, and how it's gone so far.
+type BudgetDay struct {
+	// Date is the planning day, YYYY-MM-DD, local time.
+	Date string `json:"date"`
+	// TargetSource is where the day's minutes came from.
+	TargetSource string `json:"targetSource"`
+	// TargetMinutes is the day's budget, rounded up to whole slots.
+	TargetMinutes int32 `json:"targetMinutes"`
+	// ScheduledMinutes is how much of it the plan places.
+	ScheduledMinutes int32 `json:"scheduledMinutes"`
+	// ShortfallMinutes is how much of it doesn't fit, within the forbid windows and the control
+	// entry's limits.
+	ShortfallMinutes int32         `json:"shortfallMinutes"`
+	Blocks           []BudgetBlock `json:"blocks,omitempty"`
+	// RunMinutes is how long the target has been on and available today, updated at most every
+	// 5 minutes.
+	RunMinutes int32 `json:"runMinutes"`
+	// Starts counts the planned runs the hold has started today.
+	Starts int32 `json:"starts"`
+}
+
+// BudgetReport is what the engine reports about a budget hold.
 type BudgetReport struct {
 	Generation int64
-	// Cleared is set when the Rule no longer has a budget, or is gone.
+	// Cleared is set when the rule no longer has a budget, or is gone.
 	Cleared bool
 	// Today is nil until a plan is made.
-	Today   *homev1alpha1.BudgetDay
-	Planned metav1.ConditionStatus
-	Reason  string
-	Message string
+	Today *BudgetDay
+	// Unplanned is set when the budget couldn't be planned. Reason and Message say why.
+	Unplanned bool
+	Reason    string
+	Message   string
 }
 
 // BudgetMetrics are the budget holds' gauges and counter, by namespace and rule.
@@ -68,7 +89,7 @@ type BudgetMetrics struct {
 	Target    *prometheus.GaugeVec
 	Scheduled *prometheus.GaugeVec
 	Run       *prometheus.CounterVec
-	// TodayRun is today's run minutes, as in status.today, to compare with Target.
+	// TodayRun is today's run minutes, to compare with Target.
 	TodayRun *prometheus.GaugeVec
 	Desired  *prometheus.GaugeVec
 }
@@ -164,7 +185,7 @@ type budgetState struct {
 	// reported is the last BudgetReport, and checkpointed when its run minutes were reported.
 	reported     *BudgetReport
 	checkpointed time.Time
-	// saved is the plan for HoldState.Budget, for a hold that saves it.
+	// saved is the plan for HoldState.Budget.
 	saved string
 	// compiled is the budget compiled for the Rule's compiledGeneration against compiledControl.
 	compiled           *schedule.Budget
@@ -202,7 +223,7 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 	// Editing the budget waits for the next planning day, but a new target is planned for at once.
 	if p == nil || p.date != date || p.device != h.device || p.capability != h.capability {
 		prev := p
-		p = e.restorePlan(key, h.budget, hs.saved.Budget, date, end, now)
+		p = e.restorePlan(key, hs.saved.Budget, date, end, now)
 		if p == nil {
 			read := func(device, name string) *schedule.Reading {
 				in, ok := e.Store.Get(types.NamespacedName{Namespace: key.Namespace, Name: device})
@@ -253,10 +274,10 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 	}
 
 	e.Budget.planned(key, p, on)
-	report = BudgetReport{Today: p.status(), Planned: metav1.ConditionTrue, Reason: ReasonPlanned,
+	report = BudgetReport{Today: p.status(), Reason: ReasonPlanned,
 		Message: planMessage(p.day)}
 	if p.failure != "" {
-		report.Planned, report.Reason, report.Message = metav1.ConditionFalse, ReasonEvaluationFailed, p.failure
+		report.Unplanned, report.Reason, report.Message = true, ReasonEvaluationFailed, p.failure
 	}
 	e.reportBudget(key, s, now, report)
 	return on, next
@@ -270,40 +291,35 @@ func (e *Engine) compileBudget(s *state, snap hub.Snapshot) (*schedule.Budget, B
 	i := slices.IndexFunc(snap.Control, func(c control.Entry) bool { return c.Capability == h.capability })
 	if i < 0 {
 		bs.compiled = nil
-		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonNoControl,
+		return nil, BudgetReport{Unplanned: true, Reason: ReasonNoControl,
 			Message: "Device " + h.device + " has no control entry for " + h.capability + ", which a budget needs"}
 	}
 	entry := snap.Control[i]
-	if bs.compiled != nil && bs.compiledGeneration == s.c.Generation && equality.Semantic.DeepEqual(bs.compiledControl, entry) {
+	if bs.compiled != nil && bs.compiledGeneration == s.c.Generation && reflect.DeepEqual(bs.compiledControl, entry) {
 		return bs.compiled, BudgetReport{}
 	}
 	b, err := h.budget.compile(&entry)
 	if err != nil {
 		bs.compiled = nil
-		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonInvalidBudget, Message: err.Error()}
+		return nil, BudgetReport{Unplanned: true, Reason: ReasonInvalidBudget, Message: err.Error()}
 	}
 	bs.compiled, bs.compiledGeneration, bs.compiledControl = b, s.c.Generation, entry
 	return b, BudgetReport{}
 }
 
-// restorePlan returns the plan status.today held when the Rule loaded, if it's for this planning
-// day. The block in progress counts as started already. It returns nil otherwise. Run minutes not
+// restorePlan returns the plan saved in the hold's state, if it's for this planning day. The block in progress counts as started already. It returns nil otherwise. Run minutes not
 // yet checkpointed, at most checkpointEvery of them, are lost.
-func (e *Engine) restorePlan(key types.NamespacedName, bh *budgetHold, saved, date string, end, now time.Time) *budgetPlan {
-	today, failure := bh.today, ""
-	// The Planned condition was written with status.today, so a failed day stays failed.
-	if c := bh.planned; c != nil && c.Reason == ReasonEvaluationFailed {
-		failure = c.Message
+func (e *Engine) restorePlan(key types.NamespacedName, saved, date string, end, now time.Time) *budgetPlan {
+	if saved == "" {
+		return nil
 	}
-	if bh.saves && saved != "" {
-		var s savedBudget
-		if err := json.Unmarshal([]byte(saved), &s); err != nil {
-			e.Log.Error(err, "Failed to read saved budget plan", "rule", key)
-			return nil
-		}
-		today, failure = &s.Today, s.Failure
+	var s savedBudget
+	if err := json.Unmarshal([]byte(saved), &s); err != nil {
+		e.Log.Error(err, "Failed to read saved budget plan", "rule", key)
+		return nil
 	}
-	if today == nil || today.Date != date {
+	today, failure := s.Today, s.Failure
+	if today.Date != date {
 		return nil
 	}
 	p := &budgetPlan{
@@ -317,9 +333,9 @@ func (e *Engine) restorePlan(key types.NamespacedName, bh *budgetHold, saved, da
 		ShortfallMinutes: int(today.ShortfallMinutes),
 	}
 	for _, b := range today.Blocks {
-		p.day.Blocks = append(p.day.Blocks, schedule.Block{Start: b.Start.Time, End: b.End.Time})
-		if !now.Before(b.Start.Time) && now.Before(b.End.Time) {
-			p.started = b.Start.Time
+		p.day.Blocks = append(p.day.Blocks, schedule.Block{Start: b.Start, End: b.End})
+		if !now.Before(b.Start) && now.Before(b.End) {
+			p.started = b.Start
 		}
 	}
 	return p
@@ -345,8 +361,8 @@ func (p *budgetPlan) credit(now time.Time, on bool, m *BudgetMetrics, key types.
 	p.credited, p.on = now, on
 }
 
-func (p *budgetPlan) status() *homev1alpha1.BudgetDay {
-	today := &homev1alpha1.BudgetDay{
+func (p *budgetPlan) status() *BudgetDay {
+	today := &BudgetDay{
 		Date:             p.date,
 		TargetSource:     string(p.day.TargetSource),
 		TargetMinutes:    int32(p.day.TargetMinutes),
@@ -356,7 +372,7 @@ func (p *budgetPlan) status() *homev1alpha1.BudgetDay {
 		Starts:           int32(p.starts),
 	}
 	for _, b := range p.day.Blocks {
-		today.Blocks = append(today.Blocks, homev1alpha1.BudgetBlock{Start: metav1.NewTime(b.Start), End: metav1.NewTime(b.End)})
+		today.Blocks = append(today.Blocks, BudgetBlock{Start: b.Start, End: b.End})
 	}
 	return today
 }
@@ -380,7 +396,7 @@ func (e *Engine) reportBudget(key types.NamespacedName, s *state, now time.Time,
 		}
 	}
 	bs.reported, bs.checkpointed = &r, now
-	if s.c.hold.budget.saves && r.Today != nil {
+	if r.Today != nil {
 		saved := savedBudget{Today: *r.Today}
 		if r.Reason == ReasonEvaluationFailed {
 			saved.Failure = r.Message
@@ -399,7 +415,7 @@ func (e *Engine) reportBudget(key types.NamespacedName, s *state, now time.Time,
 
 // sameBudget compares two reports apart from run minutes.
 func sameBudget(a, b BudgetReport) bool {
-	if a.Generation != b.Generation || a.Planned != b.Planned || a.Reason != b.Reason || a.Message != b.Message ||
+	if a.Generation != b.Generation || a.Unplanned != b.Unplanned || a.Reason != b.Reason || a.Message != b.Message ||
 		(a.Today == nil) != (b.Today == nil) {
 		return false
 	}
@@ -410,8 +426,8 @@ func sameBudget(a, b BudgetReport) bool {
 	x.RunMinutes, y.RunMinutes = 0, 0
 	return x.Date == y.Date && x.TargetSource == y.TargetSource && x.TargetMinutes == y.TargetMinutes &&
 		x.ScheduledMinutes == y.ScheduledMinutes && x.ShortfallMinutes == y.ShortfallMinutes &&
-		x.Starts == y.Starts && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q homev1alpha1.BudgetBlock) bool {
-		return p.Start.Equal(&q.Start) && p.End.Equal(&q.End)
+		x.Starts == y.Starts && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q BudgetBlock) bool {
+		return p.Start.Equal(q.Start) && p.End.Equal(q.End)
 	})
 }
 

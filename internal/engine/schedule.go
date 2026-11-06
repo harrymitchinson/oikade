@@ -7,11 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
-// Trigger types, as CEL sees them in trigger.type.
+// Trigger types, as a condition sees them in Vars["trigger"].
 const (
 	TypeChange = "change"
 	TypeAt     = "at"
@@ -33,34 +32,8 @@ type timeTrigger struct {
 	days []time.Weekday
 }
 
-var weekdays = map[homev1alpha1.Weekday]time.Weekday{
-	"Sun": time.Sunday, "Mon": time.Monday, "Tue": time.Tuesday, "Wed": time.Wednesday,
-	"Thu": time.Thursday, "Fri": time.Friday, "Sat": time.Saturday,
-}
-
-func compileDays(days []homev1alpha1.Weekday) ([]time.Weekday, error) {
-	out := make([]time.Weekday, 0, len(days))
-	for _, d := range days {
-		w, ok := weekdays[d]
-		if !ok {
-			return nil, fmt.Errorf("unknown day %q", d)
-		}
-		out = append(out, w)
-	}
-	return out, nil
-}
-
-// hhmm matches the CRD's pattern for at.time.
+// hhmm is a time of day, as HH:MM.
 var hhmm = regexp.MustCompile(`^([01][0-9]|2[0-3]):([0-5][0-9])$`)
-
-func compileAt(at *homev1alpha1.AtTrigger) (timeTrigger, error) {
-	t, err := atTime(at.Time)
-	if err != nil {
-		return t, err
-	}
-	t.days, err = compileDays(at.Days)
-	return t, err
-}
 
 // atTime parses an HH:MM time of day.
 func atTime(s string) (timeTrigger, error) {
@@ -71,27 +44,6 @@ func atTime(s string) (timeTrigger, error) {
 	h, _ := strconv.Atoi(parts[1])
 	m, _ := strconv.Atoi(parts[2])
 	return timeTrigger{typ: TypeAt, minutes: h*60 + m}, nil
-}
-
-func compileSun(s *homev1alpha1.SunTrigger) (timeTrigger, error) {
-	t := timeTrigger{typ: TypeSun}
-	switch s.Event {
-	case homev1alpha1.SunEventSunrise:
-		t.event = sun.Sunrise
-	case homev1alpha1.SunEventSunset:
-		t.event = sun.Sunset
-	default:
-		return t, fmt.Errorf("unknown event %q", s.Event)
-	}
-	if s.Offset != nil {
-		t.offset = s.Offset.Duration
-		if err := checkSunOffset(t.offset); err != nil {
-			return t, err
-		}
-	}
-	var err error
-	t.days, err = compileDays(s.Days)
-	return t, err
 }
 
 func checkSunOffset(d time.Duration) error {

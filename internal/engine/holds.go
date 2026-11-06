@@ -87,10 +87,6 @@ func (e *Engine) condition(key types.NamespacedName, h *hold, now time.Time, dev
 		devices = e.Store.Values(key.Namespace)
 	}
 	b, err := h.when(Vars{"devices": devices, "now": now, "tz": e.Location.String()})
-	if nb, ok := errors.AsType[notBool](err); ok {
-		e.Log.Info("Hold's when didn't evaluate to a bool; keeping its state", "rule", key, "value", nb.value)
-		return false, false, next
-	}
 	if broken, ok := errors.AsType[brokenCondition](err); ok {
 		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "error", broken.Error())
 		return false, false, next

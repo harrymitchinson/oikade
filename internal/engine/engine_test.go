@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,12 +14,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -26,94 +24,167 @@ import (
 
 const ns = "home"
 
-func set(device, name, value string) homev1alpha1.Action {
-	return homev1alpha1.Action{Set: &homev1alpha1.SetAction{
-		Device: device, Capability: name, Value: apiextensionsv1.JSON{Raw: []byte(value)},
-	}}
+func set(device, name, value string) Action {
+	return Set{Device: device, Capability: name, Value: parsed(value)}
 }
 
-func delay(d time.Duration) homev1alpha1.Action {
-	return homev1alpha1.Action{Delay: &metav1.Duration{Duration: d}}
+// parsed is a JSON value as Go.
+func parsed(value string) any {
+	var v any
+	_ = json.Unmarshal([]byte(value), &v)
+	return v
 }
 
-func rule(name string, spec homev1alpha1.RuleSpec) *homev1alpha1.Rule {
-	a := &homev1alpha1.Rule{Spec: spec}
-	a.Name, a.Namespace, a.Generation = name, ns, 1
-	return a
+func delay(d time.Duration) Action { return Delay(d) }
+
+// momentRule compiles a moment in the test namespace.
+func momentRule(t *testing.T, name string, m Moment) *Compiled {
+	t.Helper()
+	c, err := NewMoment(types.NamespacedName{Namespace: ns, Name: name}, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }
 
-var motionTrigger = []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "hallway-motion", Capability: capability.Occupancy}}}
+// holdRule compiles a hold in the test namespace.
+func holdRule(t *testing.T, name string, h Hold) *Compiled {
+	t.Helper()
+	c, err := NewHold(types.NamespacedName{Namespace: ns, Name: name}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
 
-func TestCompile(t *testing.T) {
+// reading is a device's value, as a condition sees it. Like a condition reading a device that hasn't
+// reported, it's an error until there is one.
+func reading(v Vars, device, name string) (any, error) {
+	devices, _ := v["devices"].(map[string]map[string]any)
+	value, ok := devices[device][name]
+	if !ok {
+		return nil, fmt.Errorf("%s %s hasn't reported", device, name)
+	}
+	return value, nil
+}
+
+// isTrue holds while a bool reading is true.
+func isTrue(device, name string) Condition {
+	return func(v Vars) (bool, error) {
+		value, err := reading(v, device, name)
+		b, _ := value.(bool)
+		return b, err
+	}
+}
+
+// above holds while a number reading is above limit.
+func above(device, name string, limit float64) Condition {
+	return func(v Vars) (bool, error) {
+		value, err := reading(v, device, name)
+		f, _ := value.(float64)
+		return f > limit, err
+	}
+}
+
+// below holds while a number reading is below limit.
+func below(device, name string, limit float64) Condition {
+	return func(v Vars) (bool, error) {
+		value, err := reading(v, device, name)
+		f, _ := value.(float64)
+		return f < limit, err
+	}
+}
+
+// triggered returns what fired the moment.
+func triggered(v Vars) map[string]any {
+	m, _ := v["trigger"].(map[string]any)
+	return m
+}
+
+// triggerValue holds when the change that fired was to true.
+func triggerValue(v Vars) (bool, error) {
+	b, _ := triggered(v)["value"].(bool)
+	return b, nil
+}
+
+// eveningMotion holds for motion from 18:00, local time.
+func eveningMotion(v Vars) (bool, error) {
+	on, _ := triggerValue(v)
+	tz, err := time.LoadLocation(v["tz"].(string))
+	if err != nil {
+		return false, err
+	}
+	return on && v["now"].(time.Time).In(tz).Hour() >= 18, nil
+}
+
+// timerFired holds when a timer fired, and not a change.
+func timerFired(v Vars) (bool, error) {
+	typ := triggered(v)[triggerType]
+	return typ == TypeAt || typ == TypeSun, nil
+}
+
+// hallwaySensor holds for the hallway's two motion sensors.
+func hallwaySensor(v Vars) (bool, error) {
+	device := triggered(v)["device"]
+	return device == "hallway-motion" || device == "landing-motion", nil
+}
+
+var motionTrigger = []Change{{Device: "hallway-motion", Capability: capability.Occupancy}}
+
+func TestNewMomentChecksItsActions(t *testing.T) {
 	for name, tc := range map[string]struct {
-		spec    homev1alpha1.RuleSpec
+		do      Action
 		wantErr string
 	}{
-		"valid": {spec: homev1alpha1.RuleSpec{
-			Triggers:  motionTrigger,
-			Condition: `trigger.value && devices["front-door"]["sensor.contact-open"] == false`,
-			Do:        []homev1alpha1.Action{set("hallway-light", capability.LightLevel, "40"), delay(time.Minute)},
-		}},
-		"syntax error":     {spec: homev1alpha1.RuleSpec{Triggers: motionTrigger, Condition: "trigger.value &&", Do: []homev1alpha1.Action{delay(time.Second)}}, wantErr: "condition"},
-		"non-bool":         {spec: homev1alpha1.RuleSpec{Triggers: motionTrigger, Condition: `"yes"`, Do: []homev1alpha1.Action{delay(time.Second)}}, wantErr: "must evaluate to a bool"},
-		"unknown variable": {spec: homev1alpha1.RuleSpec{Triggers: motionTrigger, Condition: "lights_on", Do: []homev1alpha1.Action{delay(time.Second)}}, wantErr: "undeclared reference"},
-		"unknown trigger":  {spec: homev1alpha1.RuleSpec{Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "x", Capability: "made.up"}}}, Do: []homev1alpha1.Action{delay(time.Second)}}, wantErr: "triggers[0].change"},
-		"read-only set":    {spec: homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: []homev1alpha1.Action{set("x", capability.Temperature, "20")}}, wantErr: "read-only"},
-		"wrong kind":       {spec: homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: []homev1alpha1.Action{set("x", capability.LightOn, `"ON"`)}}, wantErr: "takes a bool"},
-		"out of range":     {spec: homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: []homev1alpha1.Action{set("x", capability.LightLevel, "150")}}, wantErr: "between 0 and 100"},
+		"read-only set": {set("x", capability.Temperature, "20"), "read-only"},
+		"wrong kind":    {set("x", capability.LightOn, `"ON"`), "takes a bool"},
+		"out of range":  {set("x", capability.LightLevel, "150"), "between 0 and 100"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := Compile(rule("a", tc.spec))
-			if tc.wantErr == "" {
-				if err != nil {
-					t.Fatal(err)
-				}
-				return
-			}
+			_, err := NewMoment(goKey("a"), Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{tc.do}})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
 			}
 		})
 	}
+	unknown := Trigger{Changes: []Change{{Device: "x", Capability: "made.up"}}}
+	if _, err := NewMoment(goKey("a"), Moment{Trigger: unknown, Do: []Action{delay(time.Second)}}); err == nil || !strings.Contains(err.Error(), "changes[0]") {
+		t.Fatalf("error = %v, want it to name the change", err)
+	}
 }
 
-func TestCompileRoom(t *testing.T) {
-	c, err := Compile(rule("goodnight", homev1alpha1.RuleSpec{
-		Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Room: "hallway", Capability: capability.Occupancy}}},
-		Do:       []homev1alpha1.Action{roomLightOn("living-room", "false")},
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRoomMoment(t *testing.T) {
+	c := momentRule(t, "goodnight", Moment{
+		Trigger: Trigger{Changes: []Change{{Room: "hallway", Capability: capability.Occupancy}}},
+		Do:      []Action{roomLightOn("living-room", "false")},
+	})
 	if want := (action{room: "living-room", capability: capability.LightOn, value: false}); c.actions[0] != want {
 		t.Fatalf("action = %+v, want %+v", c.actions[0], want)
 	}
 
 	for name, tc := range map[string]struct {
-		spec    homev1alpha1.RuleSpec
+		m       Moment
 		wantErr string
 	}{
 		"trigger with neither": {
-			spec:    homev1alpha1.RuleSpec{Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Capability: capability.Occupancy}}}, Do: []homev1alpha1.Action{delay(time.Second)}},
-			wantErr: "triggers[0].change: exactly one of device or room is required",
+			Moment{Trigger: Trigger{Changes: []Change{{Capability: capability.Occupancy}}}, Do: []Action{delay(time.Second)}},
+			"changes[0]: exactly one of device or room is required",
 		},
 		"set with neither": {
-			spec:    homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: []homev1alpha1.Action{set("", capability.LightOn, "true")}},
-			wantErr: "do[0]: exactly one of device or room is required",
+			Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{set("", capability.LightOn, "true")}},
+			"do[0]: exactly one of device or room is required",
 		},
 		"trigger with both": {
-			spec:    homev1alpha1.RuleSpec{Triggers: []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Device: "m", Room: "hallway", Capability: capability.Occupancy}}}, Do: []homev1alpha1.Action{delay(time.Second)}},
-			wantErr: "triggers[0].change: exactly one of device or room is required",
+			Moment{Trigger: Trigger{Changes: []Change{{Device: "m", Room: "hallway", Capability: capability.Occupancy}}}, Do: []Action{delay(time.Second)}},
+			"changes[0]: exactly one of device or room is required",
 		},
 		"set with both": {
-			spec: homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: []homev1alpha1.Action{{Set: &homev1alpha1.SetAction{
-				Device: "lamp", Room: "hallway", Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte("true")},
-			}}}},
-			wantErr: "do[0]: exactly one of device or room is required",
+			Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{Set{Device: "lamp", Room: "hallway", Capability: capability.LightOn, Value: true}}},
+			"do[0]: exactly one of device or room is required",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := Compile(rule("a", tc.spec))
+			_, err := NewMoment(goKey("a"), tc.m)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
 			}
@@ -157,13 +228,13 @@ type harness struct {
 	setter *fakeSetter
 }
 
-func newHarness(t *testing.T, now time.Time, rules ...*homev1alpha1.Rule) *harness {
+func newHarness(t *testing.T, now time.Time, rules ...*Compiled) *harness {
 	t.Helper()
 	return newHarnessWith(t, now, nil, rules...)
 }
 
 // newHarnessWith is newHarness with a hook to configure the engine before its first Load.
-func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules ...*homev1alpha1.Rule) *harness {
+func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules ...*Compiled) *harness {
 	t.Helper()
 	london, err := time.LoadLocation("Europe/London")
 	if err != nil {
@@ -183,11 +254,7 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 	if configure != nil {
 		configure(h.e)
 	}
-	for _, a := range rules {
-		c, err := Compile(a)
-		if err != nil {
-			t.Fatal(err)
-		}
+	for _, c := range rules {
 		h.e.Load(c)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -234,11 +301,7 @@ func (h *harness) expectCalls(want ...call) {
 }
 
 func TestConditionUsesLocalTime(t *testing.T) {
-	a := rule("motion-light", homev1alpha1.RuleSpec{
-		Triggers:  motionTrigger,
-		Condition: "trigger.value && now.getHours(tz) >= 18",
-		Do:        []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
-	})
+	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger, Condition: eveningMotion}, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
 	// 17:30 UTC is 18:30 in London during BST.
 	h := newHarness(t, time.Date(2026, 6, 1, 17, 30, 0, 0, time.UTC), a)
 
@@ -250,16 +313,11 @@ func TestConditionUsesLocalTime(t *testing.T) {
 }
 
 func TestRestartKeepsLightOnUntilMotionStops(t *testing.T) {
-	a := rule("motion-light", homev1alpha1.RuleSpec{
-		Triggers:  motionTrigger,
-		Condition: "trigger.value",
-		Mode:      homev1alpha1.RuleModeRestart,
-		Do: []homev1alpha1.Action{
-			set("hallway-light", capability.LightOn, "true"),
-			delay(5 * time.Minute),
-			set("hallway-light", capability.LightOn, "false"),
-		},
-	})
+	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger, Condition: triggerValue}, Mode: ModeRestart, Do: []Action{
+		set("hallway-light", capability.LightOn, "true"),
+		delay(5 * time.Minute),
+		set("hallway-light", capability.LightOn, "false"),
+	}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 	on, off := call{"hallway-light", capability.LightOn, true}, call{"hallway-light", capability.LightOn, false}
 
@@ -285,10 +343,7 @@ func TestRestartKeepsLightOnUntilMotionStops(t *testing.T) {
 }
 
 func TestSingleIgnoresTriggersWhileRunning(t *testing.T) {
-	a := rule("motion-light", homev1alpha1.RuleSpec{
-		Triggers: motionTrigger,
-		Do:       []homev1alpha1.Action{delay(time.Minute), set("hallway-light", capability.LightOn, "true")},
-	})
+	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{delay(time.Minute), set("hallway-light", capability.LightOn, "true")}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 
 	h.motion(true)
@@ -300,13 +355,10 @@ func TestSingleIgnoresTriggersWhileRunning(t *testing.T) {
 }
 
 func TestFailedActionStopsTheRun(t *testing.T) {
-	a := rule("motion-light", homev1alpha1.RuleSpec{
-		Triggers: motionTrigger,
-		Do: []homev1alpha1.Action{
-			set("hallway-light", capability.LightOn, "true"),
-			set("hallway-light", capability.LightLevel, "40"),
-		},
-	})
+	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{
+		set("hallway-light", capability.LightOn, "true"),
+		set("hallway-light", capability.LightLevel, "40"),
+	}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 	h.setter.err = errors.New("not paired")
 
@@ -316,32 +368,31 @@ func TestFailedActionStopsTheRun(t *testing.T) {
 }
 
 func TestReloadingTheSameGenerationKeepsTheRun(t *testing.T) {
-	a := rule("motion-light", homev1alpha1.RuleSpec{
-		Triggers: motionTrigger,
-		Do:       []homev1alpha1.Action{delay(time.Minute), set("hallway-light", capability.LightOn, "true")},
-	})
-	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
+	a := func() *Compiled {
+		return momentRule(t, "motion-light", Moment{
+			Trigger: Trigger{Changes: motionTrigger},
+			Do:      []Action{delay(time.Minute), set("hallway-light", capability.LightOn, "true")},
+		})
+	}
+	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a())
 	h.motion(true)
 	h.eventually("delay to start", h.clock.HasWaiters)
 
-	c, _ := Compile(a)
-	h.e.Load(c)
+	h.e.Load(a())
 	h.clock.Step(time.Minute)
 	h.expectCalls(call{"hallway-light", capability.LightOn, true})
 
-	a.Generation = 2
-	c, _ = Compile(a)
+	edited := a()
+	edited.Generation = 2
 	h.motion(false)
 	h.eventually("second delay to start", h.clock.HasWaiters)
-	h.e.Load(c)
+	h.e.Load(edited)
 	h.eventually("cancelled by reload", func() bool { return h.runs(ResultCancelled) == 1 })
 }
 
 // roomLightOn sets light.on on every light in a room.
-func roomLightOn(room, value string) homev1alpha1.Action {
-	return homev1alpha1.Action{Set: &homev1alpha1.SetAction{
-		Room: room, Capability: capability.LightOn, Value: apiextensionsv1.JSON{Raw: []byte(value)},
-	}}
+func roomLightOn(room, value string) Action {
+	return Set{Room: room, Capability: capability.LightOn, Value: parsed(value)}
 }
 
 // member is a declared Device: its room, and its capabilities once discovered (nil if not yet).
@@ -371,12 +422,9 @@ func declare(store *hub.Store, devices map[string]member) {
 
 // runRoom executes a Rule's actions once against these devices, and returns the result
 // and the log lines.
-func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, actions ...homev1alpha1.Action) (string, []string) {
+func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, actions ...Action) (string, []string) {
 	t.Helper()
-	c, err := Compile(rule("goodnight", homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: actions}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := momentRule(t, "goodnight", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: actions})
 	var logs []string
 	e := &Engine{
 		Store: hub.NewStore(logr.Discard()), Setter: setter, Log: funcr.New(func(_, args string) {
@@ -389,11 +437,7 @@ func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, action
 }
 
 func TestRoomTriggerMatches(t *testing.T) {
-	a := rule("motion-light", homev1alpha1.RuleSpec{
-		Triggers:  []homev1alpha1.Trigger{{Change: &homev1alpha1.ChangeTrigger{Room: "hallway", Capability: capability.Occupancy}}},
-		Condition: `trigger.device in ["hallway-motion", "landing-motion"]`,
-		Do:        []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
-	})
+	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: []Change{{Room: "hallway", Capability: capability.Occupancy}}, Condition: hallwaySensor}, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 	declare(h.e.Store, map[string]member{
 		"hallway-motion": {room: "hallway"},
@@ -483,14 +527,11 @@ func TestRoomActionPartialFailure(t *testing.T) {
 }
 
 func TestRoomMembershipAtExecution(t *testing.T) {
-	a := rule("motion-light", homev1alpha1.RuleSpec{
-		Triggers: motionTrigger,
-		Do: []homev1alpha1.Action{
-			roomLightOn("hallway", "true"),
-			delay(5 * time.Minute),
-			roomLightOn("hallway", "false"),
-		},
-	})
+	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{
+		roomLightOn("hallway", "true"),
+		delay(5 * time.Minute),
+		roomLightOn("hallway", "false"),
+	}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 	devices := map[string]member{
 		"hallway-motion": {room: "hallway", caps: []string{capability.Occupancy}},

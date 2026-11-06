@@ -13,7 +13,6 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -234,7 +233,7 @@ func (i *inventory) claimed(name string) (holders []string, safety bool) {
 				continue
 			}
 			holders = append(holders, o.Source)
-			safety = safety || o.Level == homev1alpha1.ControlLevelSafety
+			safety = safety || o.Level == control.NameSafety
 		}
 	}
 	if len(status) == 0 {

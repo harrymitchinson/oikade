@@ -11,7 +11,7 @@ How the workflow fits together is in `docs/planning.md`. Read `references/surfac
 
 ## 1. Frame the problem
 
-Restate the request as a problem with a concrete scenario from the user's home ("when the last person leaves, everything downstairs turns off"), not as a solution ("add a Presence CRD"). Work out who notices the problem and when, and what "done" looks like in terms the user could observe.
+Restate the request as a problem with a concrete scenario from the user's home ("when the last person leaves, everything downstairs turns off"), not as a solution ("add a Presence type"). Work out who notices the problem and when, and what "done" looks like in terms the user could observe.
 
 If anything important is unclear, ask, but no more than three sharp questions at a time. Keep platform designs vendor-neutral: use "a device whose best library is in Python", not a specific product.
 
@@ -19,10 +19,10 @@ If anything important is unclear, ask, but no more than three sharp questions at
 
 It does if the work changes anything expensive to reverse:
 
-- **public API:** CRD fields and enums, capability names and semantics, `oikade_*` metric names and labels, the CEL environment, the plugin contract, Matter endpoint IDs
+- **public API:** `framework`, the `oikade` commands and their `--json`, capability names and semantics, `oikade_*` metric names and labels, the plugin contract, Matter endpoint IDs
 - **state that must survive:** the Matter bridge's setup code and fabrics, endpoint IDs, network keys
-- **component boundaries:** manager, runtime and matter
-- **a new kind, a new driver, or a new runtime dependency**
+- **component boundaries:** the host, your process and plugins
+- **a new driver or a new dependency**
 - **anything else** you can't cheaply undo
 
 It doesn't need its own if it only builds part of a design the user has already approved in another feature, and makes no decision that design doesn't. Then put a `Design: OIK-M` line in the description, naming that feature, and skip to step 5. Agents may build it on that approval. Don't use this to cover a new decision: if anything in the list above isn't settled by OIK-M's design, this feature needs its own review.
@@ -50,7 +50,7 @@ Then recommend one option and say what it gives up. Sketch the public names it i
 Constraints:
 
 - Never propose Home Assistant as a driver.
-- Plugins are Go first. First-party ones live here in `plugins/<name>` (OIK-155), and anyone else's in its own repo, `oikade-plugin-<name>`, started from `oikade-plugin-template`. This repo also keeps the contract, the Go SDK, the conformance suite and a test fixture. Drivers, CRDs and the operator stay here.
+- Plugins are Go first. First-party ones live here in `plugins/<name>` (OIK-155), and anyone else's in its own repo, `oikade-plugin-<name>`, started from `oikade-plugin-template`. This repo also keeps the contract, the Go SDK, the conformance suite and a test fixture.
 - When an earlier design constrains this one, check who decided it. An agent-written doc is the user's decision only if the user moved its issue out of Design Review (`hack/plan show` says so), was approved on GitHub before the move to Linear, or was merged from a design PR they reviewed. Otherwise, say so.
 
 ## 4. Write the design into the issue
@@ -70,7 +70,7 @@ Once the user has approved the design, or if it didn't need one of its own:
 
 - **Steps are one PR each,** and an agent running the work skill builds them in order, stacking each on the last until the user reviews them. Keep each one reviewable on its own. Each must leave `CGO_ENABLED=0 make test` green and deliver something reviewable: the API and generated code, then the controller, then the runtime, then the Matter mapping, then the docs. Put the risky or uncertain step first.
 - **Each step updates the docs it changes,** in the same PR: the README for what users write and see, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Say which in the step's scope. The docs describe the present and link the feature for why; they never copy the design.
-- **Each step is a sub-issue,** created in order with `hack/plan issue "<step>" <file> --parent OIK-N`, using the layout in the plan skill: its Scope and Acceptance. Acceptance is plain bullets of observable outcomes, each naming the test layer that proves it (unit, integration, envtest, Kind e2e or manual). A manual line reads `(manual, in the Manual testing doc)`: add its check, with a pass condition, to the Linear document "Manual testing" under a heading for the feature, so every manual check is in one place. Detail like exact types, failure modes and test names goes in the step it affects.
+- **Each step is a sub-issue,** created in order with `hack/plan issue "<step>" <file> --parent OIK-N`, using the layout in the plan skill: its Scope and Acceptance. Acceptance is plain bullets of observable outcomes, each naming the test layer that proves it (unit, integration, journey or manual). A manual line reads `(manual, in the Manual testing doc)`: add its check, with a pass condition, to the Linear document "Manual testing" under a heading for the feature, so every manual check is in one place. Detail like exact types, failure modes and test names goes in the step it affects.
 - **Separate features** if parts of the work don't depend on each other, so agents can build them in parallel. Link them with "blocked by" only where one really needs the other (the plan skill shows how).
 - **If the user hasn't approved it yet,** you can draft the steps, but the work skill won't touch the feature until the user moves it out of Design Review.
 

@@ -27,7 +27,7 @@ var (
 	lastSeenDesc = prometheus.NewDesc("oikade_device_last_seen_timestamp_seconds",
 		"When the driver last heard from the device.", deviceLabels, nil)
 	undeclaredDesc = prometheus.NewDesc("oikade_undeclared_devices",
-		"Devices paired with a driver instance that have no Device object.", []string{namespaceLabel, "instance"}, nil)
+		"Devices paired with a driver instance that aren't on record.", []string{namespaceLabel, "instance"}, nil)
 	pluginUpDesc = prometheus.NewDesc("oikade_plugin_up",
 		"1 while the plugin's retained status is online with a supported contract.", pluginLabels, nil)
 	pluginRejectedDesc = prometheus.NewDesc("oikade_plugin_rejected_messages_total",

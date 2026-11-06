@@ -40,7 +40,7 @@ The host supervises none of this: the process, its restarts and its broker are y
 
 ## Topics
 
-Every topic sits under the plugin's root, which the operator passes in `OIKADE_TOPIC`:
+Every topic sits under the plugin's root, which it gets in `OIKADE_TOPIC`:
 
 ```
 oikade/v1/<namespace>/<plugin>
@@ -56,19 +56,13 @@ oikade/v1/<namespace>/<plugin>
 | `<id>/availability` | plugin → Oikade | yes | `online` or `offline`, as a bare string. |
 | `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"switch.on":false}`. |
 
-Retain everything the plugin publishes. Oikade's runtime and every Matter bridge pod rebuild their picture from retained topics when they start or reconnect, and they may receive those topics in any order.
+Retain everything the plugin publishes. The host rebuilds its picture from retained topics when it starts or reconnects, and it may receive those topics in any order.
 
 Other topics under the root are reserved. Oikade ignores them.
 
 ### Oikade's own topics
 
-Oikade keeps its own topics under `oikade/v1/` in roots that start with `_`. No namespace starts with `_`, so they never collide with a plugin's root. Don't publish to them or depend on them. They aren't part of the contract, and they may change within `oikade/v1`.
-
-| Root | Retained | What it holds |
-|---|---|---|
-| `_runtime/` | yes | The runtime's state that must survive a restart, such as holds and claims. |
-| `_matter/<namespace>/<bridge>/writes` | no | Each write a Matter bridge makes for a controller, such as the Home app, announced just before it writes the device. The runtime uses it to record the change as from Matter rather than from the device. |
-| `_matter/<namespace>/<bridge>/fabrics` | yes | The fabrics a Matter bridge is commissioned into. The runtime copies them into the Bridge's status. |
+Roots under `oikade/v1/` that start with `_` are Oikade's. Don't publish to them or depend on them.
 
 ### `status`
 
@@ -89,8 +83,8 @@ Publish `{"state":"online","contract":1}` once connected, and set the Last Will 
 - List every device from the devices file (see [Environment](#environment)).
 - `found` is true once the plugin can reach the device. `manufacturer`, `model` and `capabilities` matter only when it's true.
 - `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `light.on`, `outlet.on`, `switch.on`, `light.level` or `sensor.temperature`. A plugin can't define new capabilities. Those go through Oikade's `add-capability` workflow.
-- `error` is a problem with the device's configuration, such as bad `parameters` or a missing key in the Secret. Oikade shows it on the Device as `Resolved=False` with reason `PluginError`. Leave it empty otherwise.
-- `undeclared` counts devices the plugin can see that have no Device object. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
+- `error` is a problem with the device's configuration, such as bad `parameters` or a missing secret. Leave it empty otherwise.
+- `undeclared` counts devices the plugin can see that Oikade doesn't have on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 
 Republish `devices` whenever any of this changes.
 
@@ -132,16 +126,16 @@ Relays don't know what they switch. Report `switch.on` by default. If a device's
 
 ## Environment
 
-The operator runs the plugin with:
+A plugin runs with:
 
 | Variable | Value |
 |---|---|
-| `OIKADE_MQTT_URL` | The broker, such as `mqtt://oikade-mosquitto.oikade-system.svc:1883`. |
+| `OIKADE_MQTT_URL` | The broker, such as `mqtt://broker:1883`. |
 | `OIKADE_TOPIC` | The topic root, `oikade/v1/<namespace>/<plugin>`. |
-| `OIKADE_DEVICES_FILE` | `/etc/oikade/config/devices.json` |
-| `OIKADE_SECRETS_DIR` | The directory of secrets, one file each. On the host it's always set, and holds what `oikade secret set` wrote. Under the operator it's `/etc/oikade/secrets`, present only when the Plugin sets `spec.secretRef`. |
+| `OIKADE_DEVICES_FILE` | Optional. A devices file, if you'd rather list a plugin's devices than have it report what it finds. |
+| `OIKADE_SECRETS_DIR` | The directory of secrets, one file each. Under the host it's always set, and holds what `oikade secret set` wrote. |
 
-The devices file lists the Devices declared for this plugin. The operator rewrites it and restarts the pod whenever they change.
+The devices file is yours to write, and lists the devices this plugin serves.
 
 ```json
 {
@@ -152,9 +146,9 @@ The devices file lists the Devices declared for this plugin. The operator rewrit
 }
 ```
 
-`parameters` is passed through from `Device.spec.plugin.parameters` without validation. Validating it is the plugin's job, and problems go in `devices[].error`.
+`parameters` is passed through without validation. Validating it is the plugin's job, and problems go in `devices[].error`.
 
-The secrets directory holds one file per key of the user's Secret, by convention one per device ID. The operator never reads it. Never log its contents.
+The secrets directory holds one file per secret, by convention one per device ID. Never log its contents.
 
 ## How Oikade treats bad messages
 
@@ -213,7 +207,7 @@ Inside this repo, `make test-conformance` runs the same suite under `go test` ag
 
 Plugins written in Go can use [the SDK](../sdk/plugin), which implements this contract, and the payload types in [`contract/v1`](../contract/v1), which Oikade's own decoder uses. Plugins in other languages implement this document directly and pass the conformance suite above. Oikade maintains no SDK for them.
 
-First-party plugins live in this repo, under [`plugins/`](../plugins). Anyone else's lives in its own repo, `oikade-plugin-<name>`, with its own releases and its image at `ghcr.io/<github-user>/oikade-plugin-<name>`. Its image must run as UID 1000, as every plugin pod does. Start a Go plugin from the GitHub template [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template): one `plugin.Run` with a simulated relay handler to replace, a distroless multi-arch Dockerfile, CI that runs `oikade-conformance`, and releases that push the image. [`oikade-plugin-example-switch`](https://github.com/harrymitchinson/oikade-plugin-example-switch) is a plugin started from it:
+First-party plugins live in this repo, under [`plugins/`](../plugins). Anyone else's lives in its own repo, `oikade-plugin-<name>`, with its own releases. Start a Go plugin from the GitHub template [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template): one `plugin.Run` with a simulated relay handler to replace, a distroless multi-arch Dockerfile, CI that runs `oikade-conformance`, and releases that push the image. [`oikade-plugin-example-switch`](https://github.com/harrymitchinson/oikade-plugin-example-switch) is a plugin started from it:
 
 ```sh
 gh repo create <you>/oikade-plugin-<name> --public --template harrymitchinson/oikade-plugin-template

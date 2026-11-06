@@ -14,21 +14,20 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
-// Environment is where the operator tells a plugin to connect and what to serve.
+// Environment is where a plugin is told to connect and what to serve.
 type Environment struct {
-	// MQTTURL is the broker, such as mqtt://oikade-mosquitto.oikade-system.svc:1883. For a plugin
+	// MQTTURL is the broker, such as mqtt://broker:1883. For a plugin
 	// your home imports, it's the host's --broker, empty if there's none: the SDK doesn't use it,
 	// but a plugin whose platform speaks MQTT can.
 	MQTTURL string
 	Root    contractv1.Root
-	// DevicesFile is the path of devices.json.
+	// DevicesFile is the path of devices.json, or empty for a plugin that reports what it finds.
 	DevicesFile string
-	// SecretsDir is the directory of secrets: what oikade secret set wrote, on the host. Under the
-	// operator it's the mounted user Secret, and empty when the Plugin has no spec.secretRef.
+	// SecretsDir is the directory of secrets: what oikade secret set wrote, under the host.
 	SecretsDir string
 }
 
-// ReadEnvironment reads the environment the operator sets on a plugin pod.
+// ReadEnvironment reads a plugin's environment.
 func ReadEnvironment() (Environment, error) {
 	return readEnvironment(os.Getenv)
 }
@@ -38,13 +37,13 @@ func readEnvironment(getenv func(string) string) (Environment, error) {
 	required := func(name string) string {
 		v := getenv(name)
 		if v == "" && missing == nil {
-			missing = fmt.Errorf("%s is not set; the Oikade operator sets it", name)
+			missing = fmt.Errorf("%s is not set", name)
 		}
 		return v
 	}
 	env := Environment{
 		MQTTURL:     required(contractv1.EnvMQTTURL),
-		DevicesFile: required(contractv1.EnvDevicesFile),
+		DevicesFile: getenv(contractv1.EnvDevicesFile),
 		SecretsDir:  getenv(contractv1.EnvSecretsDir),
 	}
 	topic := required(contractv1.EnvTopic)

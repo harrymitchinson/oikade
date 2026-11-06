@@ -1,4 +1,4 @@
-// Package driver defines how device integrations report to the runtime.
+// Package driver defines how device integrations report to the host.
 package driver
 
 import (
@@ -72,7 +72,7 @@ type Sink interface {
 	Availability(dev types.NamespacedName, online bool)
 	// Seen reports any message from the device, changed or not.
 	Seen(dev types.NamespacedName, t time.Time)
-	// Undeclared reports how many paired devices have no Device object, per driver instance.
+	// Undeclared reports how many paired devices aren't on record, per driver instance.
 	Undeclared(instance InstanceKey, count int)
 	// Inventory reports every device a driver instance sees in its app, sorted by ID. Nil means
 	// the instance doesn't list them, such as a plugin that doesn't discover.

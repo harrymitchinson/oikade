@@ -33,7 +33,7 @@ _<date> · handoff from a Claude Code session_
 ## Goal
 <What the user is trying to achieve and why, in 2–4 sentences. Include the
 user's own constraints and preferences that shaped the work, such as "arm64 only"
-or "don't touch the CRD". Name the Linear issue the work belongs to (OIK-N), if
+or "don't touch the contract". Name the Linear issue the work belongs to (OIK-N), if
 there is one.>
 
 ## Status
@@ -69,7 +69,7 @@ Leave out any section that would be empty except Goal, Status and Next steps, an
 
 ## Writing it well
 
-**Write for a cold reader.** The next session doesn't know what "the mapping issue" or "option B" means. Name things fully: file paths (`internal/matterbridge/mapping.go:142`), types, commands, CRD fields, topic names. Quote error messages exactly instead of paraphrasing them. A short code snippet is fine when it saves the reader rediscovering something.
+**Write for a cold reader.** The next session doesn't know what "the mapping issue" or "option B" means. Name things fully: file paths (`internal/matterbridge/mapping.go:142`), types, commands, topic names. Quote error messages exactly instead of paraphrasing them. A short code snippet is fine when it saves the reader rediscovering something.
 
 **Separate verified from believed.** "Tests pass" is only useful if it's true now. If the last test run came before later edits, say so. Wrong confidence in a handoff costs more than admitted uncertainty, because the next session acts on it without checking.
 

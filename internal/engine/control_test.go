@@ -5,28 +5,20 @@ import (
 	"testing"
 	"time"
 
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
-
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/control"
 )
 
-func controlEntry(capability, def string, resolve homev1alpha1.ControlResolve) homev1alpha1.CapabilityControl {
-	return homev1alpha1.CapabilityControl{
-		Capability: capability, Default: apiextensionsv1.JSON{Raw: []byte(def)},
-		Resolve: resolve, External: homev1alpha1.ControlExternalRevert,
-	}
+func controlEntry(capability, def, resolve string) control.Entry {
+	return control.Entry{Capability: capability, Default: []byte(def), Resolve: resolve, External: control.NameRevert}
 }
 
 func TestControlSettingsBool(t *testing.T) {
-	c := controlEntry("switch.on", "true", homev1alpha1.ControlResolvePreferOff)
-	c.External, c.OverrideHold = homev1alpha1.ControlExternalOverride, "2h"
-	c.MinimumOn, c.MaximumOn = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: 6 * time.Hour}
-	c.MinimumOff, c.MaximumStartsPerDay = &metav1.Duration{Duration: 30 * time.Minute}, ptr.To[int32](4)
+	c := controlEntry("switch.on", "true", control.NamePreferOff)
+	c.External, c.OverrideHold = control.NameOverride, "2h"
+	c.MinimumOn, c.MaximumOn = control.Duration(time.Hour), control.Duration(6*time.Hour)
+	c.MinimumOff, c.MaximumStartsPerDay = control.Duration(30*time.Minute), 4
 
-	got, err := ControlSettings(control.FromAPI(c), london)
+	got, err := ControlSettings(c, london)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,10 +33,10 @@ func TestControlSettingsBool(t *testing.T) {
 }
 
 func TestControlSettingsNumberUntilNext(t *testing.T) {
-	c := controlEntry("light.level", "40", homev1alpha1.ControlResolveHighest)
-	c.External, c.OverrideHold = homev1alpha1.ControlExternalOverride, homev1alpha1.OverrideHoldNext
+	c := controlEntry("light.level", "40", control.NameHighest)
+	c.External, c.OverrideHold = control.NameOverride, control.NameNext
 
-	got, err := ControlSettings(control.FromAPI(c), nil)
+	got, err := ControlSettings(c, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,32 +47,32 @@ func TestControlSettingsNumberUntilNext(t *testing.T) {
 
 func TestControlSettingsRejects(t *testing.T) {
 	for name, tc := range map[string]struct {
-		entry homev1alpha1.CapabilityControl
+		entry control.Entry
 		want  string
 	}{
-		"unknown capability": {controlEntry("light.hue", "1", homev1alpha1.ControlResolveHighest), "unknown capability"},
-		"read-only":          {controlEntry("sensor.temperature", "20", homev1alpha1.ControlResolveHighest), "read-only"},
+		"unknown capability": {controlEntry("light.hue", "1", control.NameHighest), "unknown capability"},
+		"read-only":          {controlEntry("sensor.temperature", "20", control.NameHighest), "read-only"},
 		"number resolve on a bool": {
-			controlEntry("light.on", "false", homev1alpha1.ControlResolveHighest), "resolve must be PreferOn or PreferOff",
+			controlEntry("light.on", "false", control.NameHighest), "resolve must be PreferOn or PreferOff",
 		},
 		"bool resolve on a number": {
-			controlEntry("light.level", "0", homev1alpha1.ControlResolvePreferOn), "resolve must be Highest or Lowest",
+			controlEntry("light.level", "0", control.NamePreferOn), "resolve must be Highest or Lowest",
 		},
-		"default of the wrong kind": {controlEntry("light.on", "1", homev1alpha1.ControlResolvePreferOn), "takes a bool"},
-		"default out of range":      {controlEntry("light.level", "150", homev1alpha1.ControlResolveLowest), "between 0 and 100"},
-		"override without a hold": {func() homev1alpha1.CapabilityControl {
-			c := controlEntry("switch.on", "false", homev1alpha1.ControlResolvePreferOn)
-			c.External = homev1alpha1.ControlExternalOverride
+		"default of the wrong kind": {controlEntry("light.on", "1", control.NamePreferOn), "takes a bool"},
+		"default out of range":      {controlEntry("light.level", "150", control.NameLowest), "between 0 and 100"},
+		"override without a hold": {func() control.Entry {
+			c := controlEntry("switch.on", "false", control.NamePreferOn)
+			c.External = control.NameOverride
 			return c
 		}(), "needs an override hold"},
-		"maximumOn shorter than minimumOn": {func() homev1alpha1.CapabilityControl {
-			c := controlEntry("switch.on", "false", homev1alpha1.ControlResolvePreferOn)
-			c.MinimumOn, c.MaximumOn = &metav1.Duration{Duration: time.Hour}, &metav1.Duration{Duration: time.Minute}
+		"maximumOn shorter than minimumOn": {func() control.Entry {
+			c := controlEntry("switch.on", "false", control.NamePreferOn)
+			c.MinimumOn, c.MaximumOn = control.Duration(time.Hour), control.Duration(time.Minute)
 			return c
 		}(), "maximumOn must not be shorter than minimumOn"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := ControlSettings(control.FromAPI(tc.entry), nil)
+			_, err := ControlSettings(tc.entry, nil)
 			if err == nil {
 				t.Fatal("want an error")
 			}

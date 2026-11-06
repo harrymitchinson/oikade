@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 )
 
 // ControlSettings compiles a Device's control entry into arbiter settings. Errors name the
-// capability, so the operator can report them on the Device as they are. loc is where a day
+// capability, so they can be reported as they are. loc is where a day
 // starts for maximumStartsPerDay.
 func ControlSettings(c control.Entry, loc *time.Location) (control.Settings, error) {
 	s, err := controlSettings(c, loc)
@@ -31,7 +30,7 @@ func controlSettings(c control.Entry, loc *time.Location) (control.Settings, err
 	}
 	s := control.Settings{Location: loc}
 	switch spec.Kind {
-	case homev1alpha1.CapabilityKindBool:
+	case capability.KindBool:
 		s.Kind = control.Bool
 	default:
 		s.Kind = control.Number

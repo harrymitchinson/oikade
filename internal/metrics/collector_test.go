@@ -20,7 +20,7 @@ func TestUndeclaredInstanceLabel(t *testing.T) {
 	store.Undeclared(driver.InstanceKey{Driver: driver.Plugin, NamespacedName: name}, 1)
 
 	want := `
-# HELP oikade_undeclared_devices Devices paired with a driver instance that have no Device object.
+# HELP oikade_undeclared_devices Devices paired with a driver instance that aren't on record.
 # TYPE oikade_undeclared_devices gauge
 oikade_undeclared_devices{instance="garden",namespace="home"} 3
 oikade_undeclared_devices{instance="plugin/garden",namespace="home"} 1

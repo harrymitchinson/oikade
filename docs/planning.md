@@ -29,10 +29,10 @@ Linear is the source of truth for the plan and for every design. The repo keeps 
 
 A design is needed only when the work changes something expensive to reverse:
 
-- **public API:** CRD fields, capability names and semantics, metric names and labels, the CEL environment, the plugin contract, Matter endpoint IDs
+- **public API:** `framework`, the `oikade` commands and their `--json`, capability names and semantics, metric names and labels, the plugin contract, Matter endpoint IDs
 - **state that must survive:** the Matter bridge's setup code and fabrics, network keys
-- **component boundaries:** manager, runtime and matter
-- **a new kind, a new driver, or a new runtime dependency**
+- **component boundaries:** the host, your process and plugins
+- **a new driver or a new dependency**
 - **anything else** an agent can't cheaply undo
 
 How it works:
@@ -63,10 +63,10 @@ Designs from before the move to Linear are in Done issues: room-targeted automat
 
 ## Merging
 
-The user's review is the design, before any code. Code is vouched for by CI, the code-review skill and unit tests and envtest.
+The user's review is the design, before any code. Code is vouched for by CI, the code-review skill and the tests.
 
-- **Agents never run Kind e2e within a step.** The bar for every PR is unit tests and envtest. CI doesn't run e2e on PRs: main runs it after each merge, nightly and before a release. If main's e2e breaks, fix it forward in a new PR.
-- **Test at the lowest level that shows the behaviour.** Mappings, coalescing and endpoint IDs in unit tests, controllers in envtest, Matter commissioning in an in-process node test (a Go controller talking to the node, no Kind). Don't add e2e specs per feature: e2e keeps a few journeys across components.
+- **Agents never run the journeys within a step.** The bar for every PR is `make test`, which runs a real host with simulated devices. CI doesn't run the journeys on PRs: main runs them after each merge, nightly and before a release. If they break on main, fix it forward in a new PR.
+- **Test at the lowest level that shows the behaviour.** Mappings, coalescing and endpoint IDs in unit tests, the host in `test/host`, Matter commissioning in an in-process node test (a Go controller talking to the node). Don't add a journey per feature: `test/journeys` keeps a few, across components.
 
 - **Agents merge every step** once its checks pass, with `hack/plan merge OIK-N PR`. It runs under the feature's claim: the session building the feature merges under its own, and if nobody holds one, as once that session has released it, the merge takes the claim while it runs, so an approved step still merges. Only the session holding a claim merges under it. It merges only if the PR is the bottom of its stack and up to date with main, and every check passed. If neither it nor the feature has `needs-review`, that's all, whatever the diff touches, CI and the agents' own tooling included. Otherwise it's held for the user, and merges only once their Approve covers its head.
 - **Nothing waits for the user by default** ([OIK-115](https://linear.app/oikade/issue/OIK-115)). `needs-review` is theirs to add, to a feature in Linear or to one PR, when they want to read the code first. Agents don't add it: a step that needs the user's decision asks in Linear (`hack/plan note`) instead. One change still needs the user's hand: `.claude/settings.json`, which Claude Code's auto mode won't let an agent loosen, so the user applies a change an agent proposes there. The user chose no floor at all (OIK-115), knowing the trade: a PR that changes `.claude/settings.json`, `hack/plan`, `hack/owner-approval` or the review-gate workflows merges like any other, so the deny list and `needs-review` hold because agents follow these docs and auto mode's classifier, not because a merge check enforces them.

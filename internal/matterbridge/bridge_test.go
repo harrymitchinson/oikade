@@ -5,17 +5,8 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
-	matterv1alpha1 "github.com/harrymitchinson/oikade/api/matter/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -23,29 +14,28 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 )
 
-func device(name string, caps ...string) *homev1alpha1.Device {
-	d := &homev1alpha1.Device{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "home"}}
-	for _, c := range caps {
-		d.Status.Capabilities = append(d.Status.Capabilities, homev1alpha1.DeviceCapability{Name: c})
-	}
-	return d
+// device is a Device on endpoint id.
+func device(name string, id uint16, caps ...string) Device {
+	return Device{Key: types.NamespacedName{Namespace: "home", Name: name}, Endpoint: id, Name: name, Capabilities: caps}
 }
 
-func newBridgeRig(t *testing.T, objs ...client.Object) (*Bridge, client.Client) {
-	t.Helper()
-	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, homev1alpha1.AddToScheme, matterv1alpha1.AddToScheme} {
-		if err := add(scheme); err != nil {
-			t.Fatal(err)
-		}
-	}
-	br := &matterv1alpha1.Bridge{ObjectMeta: metav1.ObjectMeta{Name: "upstairs", Namespace: "home"}}
-	br.Status.Endpoints = []matterv1alpha1.Endpoint{{Device: "desk-lamp", Endpoint: 2}, {Device: "hall-sensor", Endpoint: 3}, {Device: "router", Endpoint: 4}}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(append(objs, br)...).WithStatusSubresource(br, &homev1alpha1.Device{}).Build()
-	b := &Bridge{Client: c, Key: upstairs, Matter: clusters.NewBridge(clusters.Info{})}
+func newBridgeRig() *Bridge {
+	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logr.Discard(), b)
 	b.Writes = &Coalescer{Setter: &recorder{}, Current: func(types.NamespacedName, string) (any, bool) { return nil, false }}
-	return b, c
+	return b
+}
+
+// apply puts these devices on the bridge.
+func apply(t *testing.T, b *Bridge, devices ...Device) {
+	t.Helper()
+	want := map[uint16]Device{}
+	for _, d := range devices {
+		want[d.Endpoint] = d
+	}
+	if err := b.Apply(logr.Discard(), want); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func endpointIDs(b *Bridge) []uint16 {
@@ -59,13 +49,10 @@ func endpointIDs(b *Bridge) []uint16 {
 }
 
 func TestBridgeFollowsDevices(t *testing.T) {
-	lamp := device("desk-lamp", capability.LightOn, capability.LightLevel)
-	b, c := newBridgeRig(t, lamp, device("hall-sensor", capability.Occupancy), device("router", capability.LinkQuality),
-		device("unallocated", capability.SwitchOn))
-	if _, err := b.Reconcile(t.Context(), ctrl.Request{}); err != nil {
-		t.Fatal(err)
-	}
-	// The router has nothing Matter shows, and the unallocated Device has no endpoint yet.
+	lamp := device("desk-lamp", 2, capability.LightOn, capability.LightLevel)
+	sensor := device("hall-sensor", 3, capability.Occupancy)
+	b := newBridgeRig()
+	apply(t, b, lamp, sensor)
 	if got := endpointIDs(b); len(got) != 4 || got[2] != 2 || got[3] != 3 {
 		t.Fatalf("endpoints %v, want 0 1 2 3", got)
 	}
@@ -87,16 +74,8 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	})
 
 	// A Device that changes is rebuilt on its endpoint; one that goes away is removed.
-	lamp.Status.Capabilities = lamp.Status.Capabilities[:1]
-	if err := c.Status().Update(t.Context(), lamp); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Delete(t.Context(), device("hall-sensor")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := b.Reconcile(t.Context(), ctrl.Request{}); err != nil {
-		t.Fatal(err)
-	}
+	lamp.Capabilities = lamp.Capabilities[:1]
+	apply(t, b, lamp)
 	if got := endpointIDs(b); len(got) != 3 || got[2] != 2 {
 		t.Fatalf("endpoints %v, want 0 1 2", got)
 	}
@@ -110,12 +89,10 @@ func TestBridgeFollowsDevices(t *testing.T) {
 // A displayName change renames the bridged device in place: the same endpoint, keeping its state,
 // with a new NodeLabel.
 func TestBridgeRenamesInPlace(t *testing.T) {
-	sensor := device("hall-sensor", capability.Occupancy)
-	sensor.Spec.DisplayName = "Hall sensor"
-	b, c := newBridgeRig(t, sensor)
-	if _, err := b.Reconcile(t.Context(), ctrl.Request{}); err != nil {
-		t.Fatal(err)
-	}
+	sensor := device("hall-sensor", 3, capability.Occupancy)
+	sensor.Name = "Hall sensor"
+	b := newBridgeRig()
+	apply(t, b, sensor)
 	key := types.NamespacedName{Namespace: "home", Name: "hall-sensor"}
 	b.Changed(driver.Update{Device: key, Capability: capability.Occupancy, Value: true})
 	var before *im.Endpoint
@@ -124,13 +101,8 @@ func TestBridgeRenamesInPlace(t *testing.T) {
 		t.Fatalf("NodeLabel %q", got)
 	}
 
-	sensor.Spec.DisplayName = "Landing sensor"
-	if err := c.Update(t.Context(), sensor); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := b.Reconcile(t.Context(), ctrl.Request{}); err != nil {
-		t.Fatal(err)
-	}
+	sensor.Name = "Landing sensor"
+	apply(t, b, sensor)
 	b.Matter.Node.View(func() {
 		e := b.Matter.Node.Endpoint(3)
 		if e != before {
@@ -160,36 +132,6 @@ func readAttr(t *testing.T, e *im.Endpoint, cluster, attr uint32) any {
 }
 
 // Only changes that can move endpoints wake the bridge, not each reading's status update.
-func TestDeviceShapeChanged(t *testing.T) {
-	old := device("desk-lamp", capability.LightOn, capability.LightLevel)
-	for name, change := range map[string]struct {
-		edit func(d *homev1alpha1.Device)
-		want bool
-	}{
-		"reading":    {func(d *homev1alpha1.Device) { d.Status.Capabilities[0].Kind = "number" }, false},
-		"same names": {func(d *homev1alpha1.Device) { slices.Reverse(d.Status.Capabilities) }, false},
-		"capability added": {func(d *homev1alpha1.Device) {
-			d.Status.Capabilities = append(d.Status.Capabilities, homev1alpha1.DeviceCapability{Name: capability.Battery})
-		}, true},
-		"label":      {func(d *homev1alpha1.Device) { d.Labels = map[string]string{"room": "study"} }, true},
-		"generation": {func(d *homev1alpha1.Device) { d.Generation++ }, true},
-	} {
-		n := old.DeepCopy()
-		change.edit(n)
-		if got := deviceShapeChanged.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: n}); got != change.want {
-			t.Errorf("%s: %v, want %v", name, got, change.want)
-		}
-	}
-}
-
-// Changed never blocks, however often the node calls it before Run starts.
-func TestFabricsChangedDoesNotBlock(t *testing.T) {
-	p := &FabricsPublisher{}
-	for range 3 {
-		p.Changed()
-	}
-}
-
 func onOff(t *testing.T, b *Bridge, id uint16) bool {
 	t.Helper()
 	var on bool

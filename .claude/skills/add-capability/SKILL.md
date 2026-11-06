@@ -14,7 +14,7 @@ The capability's `name` and value semantics become a **public API**. They appear
 Decide these four things before touching code, and state them to the user in one or two lines so they can object:
 
 - **Name.** Use `<domain>.<quantity>` in kebab case, named after the physical quantity rather than the protocol. Examples: `sensor.illuminance`, `light.color-temperature`, `sensor.water-leak-detected`. Look at the existing names in `internal/capability/capability.go` and match their style. The name must make sense for drivers other than zigbee2mqtt (plugins, ESPHome later).
-- **Kind.** Only `Bool` and `Number` exist (`CapabilityKind` in `api/home/v1alpha1/device_types.go`). An enumerated state such as a thermostat mode or `lock.state` doesn't fit either one. **Stop and discuss that with the user** rather than encoding the enum as magic numbers, because it needs an API change: a new kind, `make manifests generate`, `Validate`, the metrics `Float` conversion and CEL typing. Often a bool works better anyway (`lock.locked`).
+- **Kind.** Only `Bool` and `Number` exist (`capability.Kind` in `internal/capability/capability.go`). An enumerated state such as a thermostat mode or `lock.state` doesn't fit either one. **Stop and discuss that with the user** rather than encoding the enum as magic numbers, because it needs an API change: a new kind, `Validate` and the metrics `Float` conversion. Often a bool works better anyway (`lock.locked`).
 - **Units and range.** Use SI units or percent, and pick the unit a person would write in a rule. Celsius, lux and watts are good. A scale that leaks the protocol, like 0–254 brightness, is not. The exception is when both sides already share a unit and the "human" unit would need a lossy conversion. Colour temperature is the example: zigbee2mqtt and Matter both use whole-number mireds, and kelvin can't make the round trip through them (2700 K comes back as 2703 K). Then prefer the shared unit, or put the trade-off to the user rather than deciding it silently. Set an honest `Min`/`Max` in the registry: `Validate` rejects out-of-range values rather than clamping them, so a range that's too tight silently drops real readings.
 - **Polarity.** A bool is `true` when the condition in its name holds. `sensor.contact-open` is true when the contact is open, even though zigbee2mqtt's `contact` is true when it's closed. Name the bool so that `true` is the interesting or alarming state.
 - **Writable.** Is it writable? Only make it writable if the driver can actually set it. The engine and the Matter bridge both use this flag to decide whether to accept writes.
@@ -68,17 +68,16 @@ Copy an existing panel's structure and query style: `max by (device)`, and the `
 ## 6. Docs, then verify
 
 - Add a row to the **Capabilities** table in `README.md` with the type, whether it's writable, and the Matter mapping. Note any polarity inversion or unit conversion.
-- Update `config/samples` only if a sample device would really have this capability.
 
-Verify. The macOS SDK breaks cgo, and golangci-lint needs an older toolchain, so run:
+Verify:
 
 ```sh
 CGO_ENABLED=0 go test ./internal/capability/... ./internal/driver/... ./internal/matterbridge/... ./internal/engine/...
-CGO_ENABLED=0 make test                 # the full suite, including envtest
-CGO_ENABLED=0 GOTOOLCHAIN=go1.26.0 make lint   # building golangci-lint hits the cgo bug too
+CGO_ENABLED=0 make test                 # the full suite
+make lint
 ```
 
-Run `make manifests generate` only if you changed anything under `api/`. Report what passed. Also say plainly what can't be verified without hardware: the real zigbee2mqtt payload shape (unless the user supplied it) and how the Home app renders the new device type.
+Report what passed. Also say plainly what can't be verified without hardware: the real zigbee2mqtt payload shape (unless the user supplied it) and how the Home app renders the new device type.
 
 ## What to hand back
 

@@ -51,12 +51,3 @@ func TestFloat(t *testing.T) {
 		t.Error("Float conversion is wrong")
 	}
 }
-
-func TestRegistryStatus(t *testing.T) {
-	for name, s := range registry {
-		st, ok := Status(name)
-		if !ok || st.Name != name || st.Kind != s.Kind || st.Writable != s.Writable {
-			t.Errorf("Status(%s) = %+v", name, st)
-		}
-	}
-}

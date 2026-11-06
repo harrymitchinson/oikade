@@ -2,9 +2,8 @@
 // (docs/plugin-contract.md), including its hard parts: the Last Will, re-announcing everything
 // after a reconnect, dispatching /set and going offline cleanly on SIGTERM.
 //
-// A plugin implements Handler and calls Run from main. Run reads the environment and devices.json
-// the operator provides, builds the handler from the declared devices, and serves until the pod
-// is stopped:
+// A plugin implements Handler and calls Run from main. Run reads the environment and devices.json,
+// builds the handler from the declared devices, and serves until it's stopped:
 //
 //	func main() {
 //		plugin.Run(func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {

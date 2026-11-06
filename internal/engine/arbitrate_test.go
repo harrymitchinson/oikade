@@ -3,15 +3,15 @@ package engine
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/go-logr/logr/funcr"
+
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -19,43 +19,36 @@ import (
 )
 
 // entry is a bool control entry.
-func entry(name, def string, resolve homev1alpha1.ControlResolve, external homev1alpha1.ControlExternal, hold string) homev1alpha1.CapabilityControl {
-	return homev1alpha1.CapabilityControl{
-		Capability: name, Default: apiextensionsv1.JSON{Raw: []byte(def)}, Resolve: resolve, External: external, OverrideHold: hold,
-	}
+func entry(name, def, resolve, external, hold string) control.Entry {
+	return control.Entry{Capability: name, Default: []byte(def), Resolve: resolve, External: external, OverrideHold: hold}
 }
 
-// status returns the device's reported control status for one capability.
-func (r *rig) status(dev, name string) homev1alpha1.CapabilityControlStatus {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, s := range r.control[dev] {
+// status returns the device's control status for one capability.
+func (r *rig) status(dev, name string) control.Status {
+	for _, s := range r.e.ControlOf(types.NamespacedName{Namespace: ns, Name: dev}) {
 		if s.Capability == name {
 			return s
 		}
 	}
-	return homev1alpha1.CapabilityControlStatus{}
+	return control.Status{}
 }
 
 // winner returns the winning claim's source and level, or the default.
-func winner(s homev1alpha1.CapabilityControlStatus) string {
+func winner(s control.Status) string {
 	for _, c := range s.Claims {
 		if c.Winner {
-			return c.Source + " " + string(c.Level)
+			return c.Source + " " + c.Level
 		}
 	}
-	return string(s.Level)
+	return s.Level
 }
 
 func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
-	light := holdRule(t, "hall-motion-light", `
-  while: {when: 'devices["hall-motion"]["sensor.occupancy-detected"]', offDelay: 5m}
-  hold: {device: hall-light, capability: light.on, value: true}
-`)
+	light := holdRule(t, "hall-motion-light", Hold{Device: "hall-light", Capability: capability.LightOn, Value: true, When: isTrue("hall-motion", capability.Occupancy), OffDelay: 5 * time.Minute})
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 19:59 BST"),
 		values:  map[string]map[string]any{"hall-motion": {capability.Occupancy: false}, "hall-light": {capability.LightOn: false}},
-		control: map[string][]homev1alpha1.CapabilityControl{"hall-light": {entry(capability.LightOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "Next")}},
+		control: map[string][]control.Entry{"hall-light": {entry(capability.LightOn, "false", control.NamePreferOn, control.NameOverride, "Next")}},
 	}, light)
 	r.expect()
 	r.at("2026-10-21 20:00 BST")
@@ -75,7 +68,7 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 	r.at("2026-10-21 20:10 BST")
 	r.change("hall-motion", capability.Occupancy, false)
 	r.at("2026-10-21 20:15 BST")
-	if s := r.status("hall-light", capability.LightOn); len(s.Claims) != 0 || s.Level != homev1alpha1.ControlLevelDefault {
+	if s := r.status("hall-light", capability.LightOn); len(s.Claims) != 0 || s.Level != control.NameDefault {
 		t.Errorf("20:15 status %+v, want the default with no claims", s)
 	}
 	// The next motion turns it on.
@@ -84,25 +77,18 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 	r.expect(call{"hall-light", capability.LightOn, true}, call{"hall-light", capability.LightOn, true})
 }
 
-func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states backend) {
-	rail := entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "Next")
-	rules := func() []*homev1alpha1.Rule {
-		evening := holdRule(t, "towel-rail-evenings", `
-  while: {window: {start: "18:00", end: "21:00"}}
-  hold: {device: towel-rail, capability: switch.on, value: true}
-`)
-		boost := holdRule(t, "towel-rail-boost", `
-  triggers: [{at: {time: "21:30"}}]
-  do: [{set: {device: towel-rail, capability: switch.on, value: true, for: 1h, until: Next}}]
-`)
-		boost.CreationTimestamp = metav1.NewTime(local("2026-10-21 12:00 BST"))
-		return []*homev1alpha1.Rule{evening, boost}
+func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBackend) {
+	rail := entry(capability.SwitchOn, "false", control.NamePreferOn, control.NameOverride, "Next")
+	rules := func() []*Compiled {
+		evening := holdRule(t, "towel-rail-evenings", Hold{Device: "towel-rail", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "18:00"}, End: At{Time: "21:00"}}})
+		boost := momentRule(t, "towel-rail-boost", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "21:30"}}, Since: local("2026-10-21 12:00 BST")}, Do: []Action{Set{Device: "towel-rail", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilNext}}})
+		return []*Compiled{evening, boost}
 	}
 	start := func(now string, on bool) *rig {
 		return startRigWith(t, rigOptions{
 			now: local(now), holds: states.holds(t), controls: states.controls(t),
 			values:  map[string]map[string]any{"towel-rail": {capability.SwitchOn: on}},
-			control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {rail}},
+			control: map[string][]control.Entry{"towel-rail": {rail}},
 		}, rules()...)
 	}
 	r := start("2026-10-21 17:59 BST", false)
@@ -110,7 +96,7 @@ func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states backend) 
 	r.at("2026-10-21 21:00 BST")
 	r.at("2026-10-21 21:30 BST")
 	s := r.status("towel-rail", capability.SwitchOn)
-	if w := winner(s); w != "Rule/towel-rail-boost Normal" || !s.Claims[0].Expires.Time.Equal(local("2026-10-21 22:30 BST")) {
+	if w := winner(s); w != "Rule/towel-rail-boost Normal" || !s.Claims[0].Expires.Equal(local("2026-10-21 22:30 BST")) {
 		t.Errorf("21:30 status %+v", s)
 	}
 	r.at("2026-10-21 21:45 BST")
@@ -123,25 +109,17 @@ func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states backend) 
 	r.expect(call{"towel-rail", capability.SwitchOn, false})
 }
 
-func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states backend) {
-	valve := entry(capability.SwitchOn, "true", homev1alpha1.ControlResolvePreferOff, homev1alpha1.ControlExternalRevert, "")
-	shutoff := func() *homev1alpha1.Rule {
-		return holdRule(t, "leak-shutoff", `
-  priority: Safety
-  while: {when: 'devices["leak-sensor"]["sensor.contact-open"]', latch: true}
-  hold: {device: main-valve, capability: switch.on, value: false}
-`)
+func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states *storeBackend) {
+	valve := entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameRevert, "")
+	shutoff := func() *Compiled {
+		return holdRule(t, "leak-shutoff", Hold{Device: "main-valve", Capability: capability.SwitchOn, Value: false, Priority: PrioritySafety, When: isTrue("leak-sensor", capability.ContactOpen), Latch: true})
 	}
-	reset := holdRule(t, "leak-reset", `
-  triggers: [{at: {time: "16:00"}}]
-  do: [{release: {rule: leak-shutoff}}]
-`)
-	reset.CreationTimestamp = metav1.NewTime(local("2026-10-21 12:00 BST"))
-	start := func(now string, open bool, rules ...*homev1alpha1.Rule) *rig {
+	reset := momentRule(t, "leak-reset", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "16:00"}}, Since: local("2026-10-21 12:00 BST")}, Do: []Action{Release("leak-shutoff")}})
+	start := func(now string, open bool, rules ...*Compiled) *rig {
 		return startRigWith(t, rigOptions{
 			now: local(now), holds: states.holds(t), controls: states.controls(t),
 			values:  map[string]map[string]any{"leak-sensor": {capability.ContactOpen: false}, "main-valve": {capability.SwitchOn: open}},
-			control: map[string][]homev1alpha1.CapabilityControl{"main-valve": {valve}},
+			control: map[string][]control.Entry{"main-valve": {valve}},
 		}, rules...)
 	}
 	r := start("2026-10-21 13:59 BST", true, shutoff())
@@ -151,7 +129,7 @@ func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states backend) 
 	r.expect(call{"main-valve", capability.SwitchOn, false})
 	r.change("main-valve", capability.SwitchOn, false)
 
-	// The Home app opens it at 14:05, and the runtime closes it again.
+	// The Home app opens it at 14:05, and the engine closes it again.
 	r.at("2026-10-21 14:05 BST")
 	r.change("main-valve", capability.SwitchOn, true)
 	r.expect(call{"main-valve", capability.SwitchOn, false}, call{"main-valve", capability.SwitchOn, false})
@@ -173,23 +151,16 @@ func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states backend) 
 }
 
 func TestScenario5LimitsHoldThePumpOn(t *testing.T) {
-	pump := entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "2h")
-	pump.MinimumOn = &metav1.Duration{Duration: time.Hour}
-	pump.MinimumOff = &metav1.Duration{Duration: 30 * time.Minute}
-	pump.MaximumStartsPerDay = new(int32(4))
-	slot := holdRule(t, "pump-slot", `
-  while: {window: {start: "22:00", end: "02:00"}}
-  hold: {device: pump, capability: switch.on, value: true}
-`)
-	frost := holdRule(t, "pump-frost", `
-  priority: Safety
-  while: {when: 'devices["workshop-temp"]["sensor.temperature"] < 0'}
-  hold: {device: pump, capability: switch.on, value: true}
-`)
+	pump := entry(capability.SwitchOn, "false", control.NamePreferOn, control.NameOverride, "2h")
+	pump.MinimumOn = control.Duration(time.Hour)
+	pump.MinimumOff = control.Duration(30 * time.Minute)
+	pump.MaximumStartsPerDay = 4
+	slot := holdRule(t, "pump-slot", Hold{Device: "pump", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "02:00"}}})
+	frost := holdRule(t, "pump-frost", Hold{Device: "pump", Capability: capability.SwitchOn, Value: true, Priority: PrioritySafety, When: below("workshop-temp", capability.Temperature, 0)})
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-22 01:00 BST"),
 		values:  map[string]map[string]any{"pump": {capability.SwitchOn: true}, "workshop-temp": {capability.Temperature: 5.0}},
-		control: map[string][]homev1alpha1.CapabilityControl{"pump": {pump}},
+		control: map[string][]control.Entry{"pump": {pump}},
 	}, slot, frost)
 	r.expect()
 	// A Home app tap turns it off at 01:40: an Override until 03:40.
@@ -208,36 +179,17 @@ func TestScenario5LimitsHoldThePumpOn(t *testing.T) {
 	r.expect(call{"pump", capability.SwitchOn, true}, call{"pump", capability.SwitchOn, false})
 }
 
-func TestStatusChangesAtTransitionsOnly(t *testing.T) {
-	r := startRigWith(t, rigOptions{
-		now:     local("2026-10-21 12:00 BST"),
-		values:  map[string]map[string]any{"towel-rail": {capability.SwitchOn: false}},
-		control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "1h")}},
-	})
-	r.mu.Lock()
-	before := r.reports
-	r.mu.Unlock()
-	for range 5 {
-		r.change("towel-rail", capability.SwitchOn, false)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.reports != before {
-		t.Errorf("reported %d more times for the same value", r.reports-before)
-	}
-}
-
 func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
-	rail := entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "1h")
+	rail := entry(capability.SwitchOn, "false", control.NamePreferOn, control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"towel-rail": {capability.SwitchOn: false}},
-		control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {rail}},
+		control: map[string][]control.Entry{"towel-rail": {rail}},
 	})
 	metas := map[types.NamespacedName]hub.Meta{
-		{Namespace: ns, Name: "towel-rail"}:  {Instance: z2m, Control: control.FromAPIList([]homev1alpha1.CapabilityControl{rail})},
+		{Namespace: ns, Name: "towel-rail"}:  {Instance: z2m, Control: []control.Entry{rail}},
 		{Namespace: ns, Name: "hall-motion"}: {Instance: z2m},
-		{Namespace: ns, Name: "bath-rail"}:   {Instance: z2m, Room: "bathroom", Control: control.FromAPIList([]homev1alpha1.CapabilityControl{rail})},
+		{Namespace: ns, Name: "bath-rail"}:   {Instance: z2m, Room: "bathroom", Control: []control.Entry{rail}},
 		{Namespace: ns, Name: "bath-fan"}:    {Instance: z2m, Room: "bathroom"},
 	}
 	r.store.SetDevices(z2m, metas)
@@ -246,32 +198,21 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 	}
 	// Let the bath rail's default write land before the run, so the order below is fixed.
 	r.settle()
-	c, err := Compile(holdRule(t, "bathroom-on", `
-  triggers: [{change: {device: hall-motion, capability: sensor.occupancy-detected}}]
-  do:
-  - set: {room: bathroom, capability: switch.on, value: true}
-  - set: {device: towel-rail, capability: switch.on, value: true}
-  - set: {room: bathroom, capability: switch.on, value: true, for: 10m}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := momentRule(t, "bathroom-on", Moment{Trigger: Trigger{Changes: []Change{{Device: "hall-motion", Capability: capability.Occupancy}}}, Do: []Action{Set{Room: "bathroom", Capability: capability.SwitchOn, Value: true}, Set{Device: "towel-rail", Capability: capability.SwitchOn, Value: true}, Set{Room: "bathroom", Capability: capability.SwitchOn, Value: true, For: 10 * time.Minute}}})
 	r.e.Load(c)
 	r.change("hall-motion", capability.Occupancy, true)
-	r.eventually("the skipped report", func() bool {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		return len(r.skipped["bathroom-on"]) > 0
-	})
+	r.eventually("the run", func() bool { return len(r.setter.got()) == 4 })
 	r.settle()
 	// The bath rail gets its default when it's discovered with no value. Then the endless sets
 	// write the fan and skip both rails, and the timed one claims the bath rail.
 	r.expect(call{"bath-rail", capability.SwitchOn, false}, call{"bath-fan", capability.SwitchOn, true},
 		call{"bath-fan", capability.SwitchOn, true}, call{"bath-rail", capability.SwitchOn, true})
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if got := strings.Join(r.skipped["bathroom-on"], ","); got != "bath-rail" {
-		t.Errorf("skipped %q, want bath-rail", got)
+	r.logs.mu.Lock()
+	defer r.logs.mu.Unlock()
+	if !slices.ContainsFunc(r.logs.lines, func(l string) bool {
+		return strings.Contains(l, "Skipped Room members") && strings.Contains(l, "bath-rail")
+	}) {
+		t.Errorf("no log of the skipped bath rail in %q", r.logs.lines)
 	}
 }
 
@@ -297,27 +238,24 @@ func (g *gate) Set(ctx context.Context, dev types.NamespacedName, c string, v an
 	return g.fakeSetter.Set(ctx, dev, c, v)
 }
 
-var railEntry = entry(capability.SwitchOn, "false", homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "1h")
+var railEntry = entry(capability.SwitchOn, "false", control.NamePreferOn, control.NameOverride, "1h")
 
-func railRig(t *testing.T, rules ...*homev1alpha1.Rule) *rig {
+func railRig(t *testing.T, rules ...*Compiled) *rig {
 	return startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"towel-rail": {capability.SwitchOn: false}},
-		control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {railEntry}},
+		control: map[string][]control.Entry{"towel-rail": {railEntry}},
 	}, rules...)
 }
 
-var railHold = `
-  while: {window: {start: "00:00", end: "00:00"}}
-  hold: {device: towel-rail, capability: switch.on, value: true}
-`
+var railHold = Hold{Device: "towel-rail", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "00:00"}, End: At{Time: "00:00"}}}
 
-func (r *rig) setControl(entries ...homev1alpha1.CapabilityControl) {
+func (r *rig) setControl(entries ...control.Entry) {
 	metas := map[types.NamespacedName]hub.Meta{}
 	for name := range holdDevices {
 		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[types.NamespacedName{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: control.FromAPIList(entries)}
+	metas[types.NamespacedName{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: entries}
 	r.store.SetDevices(z2m, metas)
 }
 
@@ -325,10 +263,7 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	r := railRig(t)
 	g := &gate{fakeSetter: r.setter, open: make(chan struct{})}
 	r.e.Setter = g
-	c, err := Compile(holdRule(t, "rail", railHold))
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := holdRule(t, "rail", railHold)
 	r.e.Load(c)
 	r.eventually("the write to start", func() bool {
 		r.e.mu.Lock()
@@ -337,7 +272,7 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 		return ar != nil && ar.writing
 	})
 	edited := railEntry
-	edited.MinimumOff = &metav1.Duration{Duration: time.Minute}
+	edited.MinimumOff = control.Duration(time.Minute)
 	r.setControl(edited)
 	time.Sleep(50 * time.Millisecond)
 	close(g.open)
@@ -421,13 +356,9 @@ func TestAWriteThatFailedIsTriedAgainWhenItsDeviceReports(t *testing.T) {
 
 func TestEditingAHoldsPriorityClaimsAgain(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
-	safety := holdRule(t, "rail", "  priority: Safety\n"+railHold)
-	safety.Generation = 2
-	c, err := Compile(safety)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.e.Load(c)
+	safety := railHold
+	safety.Priority, safety.Generation = PrioritySafety, 2
+	r.e.Load(holdRule(t, "rail", safety))
 	r.settle()
 	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Rule/rail Safety" {
 		t.Errorf("winner %q, want the hold at Safety", w)
@@ -488,7 +419,7 @@ func TestAMatterWriteIsAnOverrideFromMatter(t *testing.T) {
 	r.clock.Step(2 * time.Second)
 	r.change("towel-rail", capability.SwitchOn, true)
 	s := r.status("towel-rail", capability.SwitchOn)
-	if w := winner(s); w != "Matter Override" || !s.Claims[0].Expires.Time.Equal(local("2026-10-21 13:00 BST").Add(2*time.Second)) {
+	if w := winner(s); w != "Matter Override" || !s.Claims[0].Expires.Equal(local("2026-10-21 13:00 BST").Add(2*time.Second)) {
 		t.Errorf("status %+v, want a Matter override for an hour", s)
 	}
 	r.expect()
@@ -504,7 +435,7 @@ func TestAMatterWriteIsAnOverrideFromMatter(t *testing.T) {
 func TestAMatterWriteDuringARuntimeWriteIsFromMatter(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.SwitchOn, true})
-	// The Home app turns it off two seconds after the runtime's write. The report is held back
+	// The Home app turns it off two seconds after the engine's write. The report is held back
 	// until the write settles, and still matches.
 	r.clock.Step(2 * time.Second)
 	r.matter("towel-rail", capability.SwitchOn, false)
@@ -531,9 +462,9 @@ func TestChangesThatDontMatchAMatterWriteAreTheDevices(t *testing.T) {
 			r := startRigWith(t, rigOptions{
 				now:    local("2026-10-21 12:00 BST"),
 				values: map[string]map[string]any{"towel-rail": {capability.SwitchOn: tc.from}},
-				// Its default is what it starts as, so the runtime doesn't write it.
-				control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {
-					entry(capability.SwitchOn, fmt.Sprint(tc.from), homev1alpha1.ControlResolvePreferOn, homev1alpha1.ControlExternalOverride, "1h"),
+				// Its default is what it starts as, so the engine doesn't write it.
+				control: map[string][]control.Entry{"towel-rail": {
+					entry(capability.SwitchOn, fmt.Sprint(tc.from), control.NamePreferOn, control.NameOverride, "1h"),
 				}},
 			})
 			r.expect()
@@ -560,8 +491,8 @@ func TestAMatterDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now:    local("2026-10-21 20:00 BST"),
 		values: map[string]map[string]any{"hall-light": {capability.LightLevel: 0.0}},
-		control: map[string][]homev1alpha1.CapabilityControl{"hall-light": {
-			entry(capability.LightLevel, "0", homev1alpha1.ControlResolveHighest, homev1alpha1.ControlExternalOverride, "1h"),
+		control: map[string][]control.Entry{"hall-light": {
+			entry(capability.LightLevel, "0", control.NameHighest, control.NameOverride, "1h"),
 		}},
 	})
 	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, then
@@ -591,5 +522,22 @@ func TestAMatterWriteThatChangesNothingIsForgotten(t *testing.T) {
 	r.change("towel-rail", capability.SwitchOn, true)
 	if w := winner(r.status("towel-rail", capability.SwitchOn)); w != "Device Override" {
 		t.Errorf("winner %q, want the device's", w)
+	}
+}
+
+// A moment firing all day says once which Room members it leaves out, and again when that changes.
+func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
+	var logs []string
+	e := &Engine{Log: funcr.New(func(_, args string) { logs = append(logs, args) }, funcr.Options{})}
+	key := types.NamespacedName{Name: "bathroom-on"}
+	e.reportSkipped(key, []string{"rail", "towel", "rail"})
+	e.reportSkipped(key, []string{"towel", "rail"})
+	if len(logs) != 1 {
+		t.Fatalf("logged %d times: %q", len(logs), logs)
+	}
+	e.reportSkipped(key, nil)
+	e.reportSkipped(key, []string{"rail"})
+	if len(logs) != 2 {
+		t.Errorf("logged %d times: %q", len(logs), logs)
 	}
 }

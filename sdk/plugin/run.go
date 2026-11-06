@@ -45,9 +45,11 @@ func run(ctx context.Context, log *slog.Logger, o Options, newHandler Factory) i
 	if err != nil {
 		return failed(err)
 	}
-	devices, err := ReadDevices(env.DevicesFile)
-	if err != nil {
-		return failed(err)
+	var devices []contractv1.DeclaredDevice
+	if env.DevicesFile != "" {
+		if devices, err = ReadDevices(env.DevicesFile); err != nil {
+			return failed(err)
+		}
 	}
 	h, err := newHandler(env, devices)
 	if err != nil {

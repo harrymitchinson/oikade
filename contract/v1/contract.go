@@ -24,13 +24,12 @@ const (
 	Offline = "offline"
 )
 
-// The environment the operator sets on a plugin pod.
+// The environment a plugin runs with.
 const (
 	EnvMQTTURL     = "OIKADE_MQTT_URL"
 	EnvTopic       = "OIKADE_TOPIC"
 	EnvDevicesFile = "OIKADE_DEVICES_FILE"
-	// EnvSecretsDir is the directory of secrets, one file each. On the host it's always set. Under
-	// the operator it's set only when the Plugin has a spec.secretRef.
+	// EnvSecretsDir is the directory of secrets, one file each. Under the host it's always set.
 	EnvSecretsDir = "OIKADE_SECRETS_DIR"
 )
 
@@ -99,7 +98,7 @@ func ValidID(id string) bool { return idPattern.MatchString(id) }
 // Devices is the retained devices payload.
 type Devices struct {
 	Devices []DeviceReport `json:"devices"`
-	// Undeclared counts devices the plugin can see that have no Device object. Oikade ignores it
+	// Undeclared counts devices the plugin can see that Oikade doesn't have on record. Oikade ignores it
 	// when Discovered is set, and counts them from Discovered instead.
 	Undeclared int `json:"undeclared"`
 	// Discovered lists every device the plugin sees in its app, declared or not. Nil means the
@@ -225,7 +224,7 @@ func kind(v any) string {
 	return fmt.Sprintf("%T", v)
 }
 
-// DevicesFile is devices.json, written by the operator and read by the plugin.
+// DevicesFile is devices.json, read by the plugin.
 type DevicesFile struct {
 	Contract int              `json:"contract"`
 	Devices  []DeclaredDevice `json:"devices"`

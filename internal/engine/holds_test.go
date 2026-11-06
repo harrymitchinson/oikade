@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,20 +13,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/sun"
 )
-
-// holdRule decodes a Rule spec in the test namespace.
-func holdRule(t *testing.T, name, spec string) *homev1alpha1.Rule {
-	t.Helper()
-	r := ruleYAML(t, spec)
-	r.Name, r.Namespace, r.Generation = name, ns, 1
-	return r
-}
 
 // holdDevices are the devices every hold test declares, with their capabilities.
 var holdDevices = map[string][]string{
@@ -46,13 +37,10 @@ var holdDevices = map[string][]string{
 	"outdoor-temp":    {capability.Temperature},
 }
 
-// rig is an engine running holds against a fake clock, as one run of the runtime.
+// rig is an engine running holds against a fake clock, as one run of the host.
 type rig struct {
 	t       *testing.T
 	mu      sync.Mutex
-	control map[string][]homev1alpha1.CapabilityControlStatus
-	reports int
-	skipped map[string][]string
 	budgets map[string]BudgetReport
 	e       *Engine
 	clock   *clocktesting.FakeClock
@@ -75,22 +63,22 @@ func (l *logLines) add(_, args string) {
 }
 
 // startRig runs an engine from now with these saved states and device values, and loads the Rules.
-func startRig(t *testing.T, now time.Time, states HoldStates, values map[string]map[string]any, _ map[string]string, rules ...*homev1alpha1.Rule) *rig {
+func startRig(t *testing.T, now time.Time, states HoldStates, values map[string]map[string]any, _ map[string]string, rules ...*Compiled) *rig {
 	t.Helper()
 	return startRigWith(t, rigOptions{now: now, holds: states, values: values}, rules...)
 }
 
-// rigOptions are what a run of the runtime starts from.
+// rigOptions are what a run of the host starts from.
 type rigOptions struct {
 	now      time.Time
 	holds    HoldStates
 	controls ControlStates
 	values   map[string]map[string]any
 	// control is each device's control entries.
-	control map[string][]homev1alpha1.CapabilityControl
+	control map[string][]control.Entry
 }
 
-func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig {
+func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	t.Helper()
 	now, states, values := o.now, o.holds, o.values
 	logs := &logLines{}
@@ -100,7 +88,6 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig 
 		Log:  funcr.New(logs.add, funcr.Options{Verbosity: 1}),
 		Runs: NewRunsCounter(), NextChange: NewNextChangeGauge(), Active: NewActiveGauge(),
 		OnSchedule: r.sched.record, States: states, Controls: o.controls, ControlLevel: NewControlLevelGauge(),
-		OnControl: r.recordControl, OnSkipped: r.recordSkipped,
 		OnBudget: r.recordBudget, Budget: NewBudgetMetrics(),
 	}
 	r.e.Init()
@@ -108,7 +95,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig 
 	r.e.Store = r.store
 	metas := map[types.NamespacedName]hub.Meta{}
 	for name := range holdDevices {
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: control.FromAPIList(o.control[name])}
+		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: o.control[name]}
 	}
 	r.store.SetDevices(z2m, metas)
 	for name, caps := range holdDevices {
@@ -119,11 +106,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig 
 			r.store.Changed(driver.Update{Device: types.NamespacedName{Namespace: ns, Name: dev}, Capability: c, Value: v})
 		}
 	}
-	for _, rule := range rules {
-		c, err := Compile(rule)
-		if err != nil {
-			t.Fatal(err)
-		}
+	for _, c := range rules {
 		r.e.Load(c)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -180,16 +163,6 @@ func (r *rig) at(s string) {
 	}
 }
 
-func (r *rig) recordControl(dev types.NamespacedName, st []homev1alpha1.CapabilityControlStatus) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.control == nil {
-		r.control = map[string][]homev1alpha1.CapabilityControlStatus{}
-	}
-	r.control[dev.Name] = st
-	r.reports++
-}
-
 func (r *rig) recordBudget(key types.NamespacedName, b BudgetReport) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -203,15 +176,6 @@ func (r *rig) budget(name string) BudgetReport {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.budgets[name]
-}
-
-func (r *rig) recordSkipped(key types.NamespacedName, skipped []string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.skipped == nil {
-		r.skipped = map[string][]string{}
-	}
-	r.skipped[key.Name] = skipped
 }
 
 func (r *rig) change(dev, c string, v any) {
@@ -232,12 +196,9 @@ func (r *rig) active(name string) float64 {
 	return testutil.ToFloat64(r.e.Active.WithLabelValues(ns, name))
 }
 
-var heaterNight = `
-  while: {window: {start: "22:00", end: "06:00"}}
-  hold: {device: water-heater, capability: switch.on, value: true}
-`
+var heaterNight = Hold{Device: "water-heater", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}}
 
-func testWindowHoldRestartRespectsATap(t *testing.T, states backend) {
+func testWindowHoldRestartRespectsATap(t *testing.T, states *storeBackend) {
 	r := startRig(t, local("2026-10-21 21:59 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect()
 	r.at("2026-10-21 22:00 BST")
@@ -253,14 +214,14 @@ func testWindowHoldRestartRespectsATap(t *testing.T, states backend) {
 	r.change("water-heater", capability.SwitchOn, false)
 	r.stop()
 
-	// The runtime restarts at 02:00. The hold is still active, as saved, so it writes nothing.
+	// The process restarts at 02:00. The hold is still active, as saved, so it writes nothing.
 	r = startRig(t, local("2026-10-22 02:00 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect()
 	r.at("2026-10-22 06:00 BST")
 	r.expect(call{"water-heater", capability.SwitchOn, false})
 }
 
-func testWindowHoldStartsAfterDowntime(t *testing.T, states backend) {
+func testWindowHoldStartsAfterDowntime(t *testing.T, states *storeBackend) {
 	r := startRig(t, local("2026-10-21 21:50 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.stop()
 	r.expect()
@@ -270,11 +231,8 @@ func testWindowHoldStartsAfterDowntime(t *testing.T, states backend) {
 	r.expect(call{"water-heater", capability.SwitchOn, true})
 }
 
-func testOffDelaySurvivesARestart(t *testing.T, states backend) {
-	fan := holdRule(t, "bathroom-humid", `
-  while: {when: 'devices["bathroom-sensor"]["sensor.relative-humidity"] > 70', offDelay: 10m}
-  hold: {device: bathroom-fan, capability: switch.on, value: true}
-`)
+func testOffDelaySurvivesARestart(t *testing.T, states *storeBackend) {
+	fan := holdRule(t, "bathroom-humid", Hold{Device: "bathroom-fan", Capability: capability.SwitchOn, Value: true, When: above("bathroom-sensor", capability.Humidity, 70), OffDelay: 10 * time.Minute})
 	humidity := func(v float64) map[string]map[string]any {
 		return map[string]map[string]any{"bathroom-sensor": {capability.Humidity: v}}
 	}
@@ -299,11 +257,8 @@ func testOffDelaySurvivesARestart(t *testing.T, states backend) {
 	r.expect(call{"bathroom-fan", capability.SwitchOn, false})
 }
 
-func testMotionOffDelaySurvivesARestart(t *testing.T, states backend) {
-	light := holdRule(t, "hall-motion-light", `
-  while: {when: 'devices["hall-motion"]["sensor.occupancy-detected"]', offDelay: 5m}
-  hold: {device: hall-light, capability: light.on, value: true}
-`)
+func testMotionOffDelaySurvivesARestart(t *testing.T, states *storeBackend) {
+	light := holdRule(t, "hall-motion-light", Hold{Device: "hall-light", Capability: capability.LightOn, Value: true, When: isTrue("hall-motion", capability.Occupancy), OffDelay: 5 * time.Minute})
 	motion := func(v bool) map[string]map[string]any {
 		return map[string]map[string]any{"hall-motion": {capability.Occupancy: v}}
 	}
@@ -325,18 +280,13 @@ func testMotionOffDelaySurvivesARestart(t *testing.T, states backend) {
 	r.expect(call{"hall-light", capability.LightOn, false})
 }
 
-var overheat = `
-  priority: Safety
-  while: {when: 'devices["workshop-temp"]["sensor.temperature"] > 45', latch: true}
-  hold: {device: workshop-heater, capability: switch.on, value: false}
-`
+var overheat = Hold{Device: "workshop-heater", Capability: capability.SwitchOn, Value: false, Priority: PrioritySafety, When: above("workshop-temp", capability.Temperature, 45), Latch: true}
 
-func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states backend) {
+func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states *storeBackend) {
 	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}}
-	reset := holdRule(t, "workshop-overheat-reset", "  triggers: [{at: {time: \"09:00\"}}]\n  do: [{release: {rule: workshop-overheat}}]\n")
-	reset.CreationTimestamp.Time = local("2026-10-21 08:00 BST")
+	reset := momentRule(t, "workshop-overheat-reset", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "09:00"}}, Since: local("2026-10-21 08:00 BST")}, Do: []Action{Release("workshop-overheat")}})
 
-	// It overheated while the runtime was down: the latch acts on startup.
+	// It overheated while the host was down: the latch acts on startup.
 	r := startRig(t, local("2026-10-21 08:00 BST"), states.holds(t), hot, nil, holdRule(t, "workshop-overheat", overheat), reset)
 	r.expect(call{"workshop-heater", capability.SwitchOn, false})
 	r.change("workshop-temp", capability.Temperature, 20.0)
@@ -368,10 +318,7 @@ func TestWhenUnknownKeepsTheState(t *testing.T) {
 }
 
 func TestNumberHoldWritesNothingWhenItEnds(t *testing.T) {
-	r := startRig(t, local("2026-10-21 21:59 BST"), nil, nil, nil, holdRule(t, "hall-dim", `
-  while: {window: {start: "22:00", end: "23:00"}}
-  hold: {device: hall-light, capability: light.level, value: 30}
-`))
+	r := startRig(t, local("2026-10-21 21:59 BST"), nil, nil, nil, holdRule(t, "hall-dim", Hold{Device: "hall-light", Capability: capability.LightLevel, Value: 30, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "23:00"}}}))
 	r.at("2026-10-21 22:00 BST")
 	r.expect(call{"hall-light", capability.LightLevel, int64(30)})
 	r.at("2026-10-21 23:00 BST")
@@ -385,13 +332,9 @@ func TestEditingTheTargetEndsTheOldOne(t *testing.T) {
 	states := newMemoryStates[HoldState]()
 	r := startRig(t, local("2026-10-21 23:00 BST"), states, nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect(call{"water-heater", capability.SwitchOn, true})
-	edited := holdRule(t, "water-heater-night", strings.ReplaceAll(heaterNight, "water-heater", "bathroom-fan"))
-	edited.Generation = 2
-	c, err := Compile(edited)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.e.Load(c)
+	edited := heaterNight
+	edited.Device, edited.Generation = "bathroom-fan", 2
+	r.e.Load(holdRule(t, "water-heater-night", edited))
 	r.settle()
 	r.expect(call{"water-heater", capability.SwitchOn, true}, call{"water-heater", capability.SwitchOn, false},
 		call{"bathroom-fan", capability.SwitchOn, true})
@@ -433,14 +376,10 @@ func TestRemoveForgetsTheHold(t *testing.T) {
 }
 
 func TestWindowAt(t *testing.T) {
-	compile := func(spec string) *window {
-		c, err := Compile(holdRule(t, "w", spec+"\n  hold: {device: d, capability: switch.on, value: true}\n"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return c.hold.window
+	compile := func(w Window) *window {
+		return holdRule(t, "w", Hold{Device: "d", Capability: capability.SwitchOn, Value: true, Window: &w}).hold.window
 	}
-	night := compile(`  while: {window: {start: "22:00", end: "06:00", days: [Fri]}}`)
+	night := compile(Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}, Days: []time.Weekday{time.Friday}})
 	for _, tc := range []struct {
 		at   string
 		in   bool
@@ -456,20 +395,14 @@ func TestWindowAt(t *testing.T) {
 			t.Errorf("at %s: in %v, next %v; want %v, %s", tc.at, in, next, tc.in, tc.next)
 		}
 	}
-	allDay := compile(`  while: {window: {start: "07:00", end: "07:00"}}`)
+	allDay := compile(Window{Start: At{Time: "07:00"}, End: At{Time: "07:00"}})
 	if in, _ := allDay.at(local("2026-10-23 03:00 BST"), london, nil); !in {
 		t.Error("a window that ends when it starts isn't a whole day")
 	}
 }
 
 func TestSunWindowFollowsTheDay(t *testing.T) {
-	c, err := Compile(holdRule(t, "porch", `
-  while: {window: {start: {sun: Sunset, offset: -15m}, end: "23:00"}}
-  hold: {device: d, capability: switch.on, value: true}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := holdRule(t, "porch", Hold{Device: "d", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: SunTime{Event: sun.Sunset, Offset: -15 * time.Minute}, End: At{Time: "23:00"}}})
 	w := c.hold.window
 	for _, tc := range []struct{ day, sunset string }{
 		{"2026-06-21", "21:06 BST"},
@@ -509,13 +442,7 @@ func (r *rig) failing(devices ...string) {
 func TestRoomHoldWaitsForItsMembers(t *testing.T) {
 	r := startRig(t, local("2026-10-21 12:00 BST"), nil, nil, nil)
 	r.declareAlso(map[string]string{"porch-lamp": "porch"})
-	c, err := Compile(holdRule(t, "porch-day", `
-  while: {window: {start: "00:00", end: "00:00"}}
-  hold: {room: porch, capability: light.on, value: true}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := holdRule(t, "porch-day", Hold{Room: "porch", Capability: capability.LightOn, Value: true, Window: &Window{Start: At{Time: "00:00"}, End: At{Time: "00:00"}}})
 	r.e.Load(c)
 	r.settle()
 	r.expect()
@@ -561,13 +488,9 @@ func TestChangesDontSkipTheRetryWait(t *testing.T) {
 func TestEditedTargetEndsTheOldOneOnce(t *testing.T) {
 	r := startRig(t, local("2026-10-21 23:00 BST"), nil, nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.failing("bathroom-fan")
-	edited := holdRule(t, "water-heater-night", strings.ReplaceAll(heaterNight, "water-heater", "bathroom-fan"))
-	edited.Generation = 2
-	c, err := Compile(edited)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.e.Load(c)
+	edited := heaterNight
+	edited.Device, edited.Generation = "bathroom-fan", 2
+	r.e.Load(holdRule(t, "water-heater-night", edited))
 	r.settle()
 	r.at("2026-10-21 23:02 BST")
 	// The fan is retried, but the heater is ended only once.
@@ -582,18 +505,5 @@ func TestEditedTargetEndsTheOldOneOnce(t *testing.T) {
 	}
 	if heater != 2 || fan < 3 {
 		t.Fatalf("calls = %v, want the heater on and off once and the fan retried", r.setter.got())
-	}
-}
-
-func TestCompileBudgetHold(t *testing.T) {
-	// The rest of a budget is checked against its target's control entry, by schedule.Compile.
-	for spec, want := range map[string]string{
-		`
-  while: {budget: {minutes: {expression: "120"}}, when: "true"}
-  hold: {device: pump, capability: switch.on, value: true}`: "budget must be the only field",
-	} {
-		if _, err := Compile(holdRule(t, "x", spec)); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("Compile(%s) = %v, want %q", spec, err, want)
-		}
 	}
 }

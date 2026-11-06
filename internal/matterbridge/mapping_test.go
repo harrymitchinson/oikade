@@ -7,7 +7,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -19,7 +18,7 @@ type setCall struct {
 	value any
 }
 
-func mapDevice(t *testing.T, typ homev1alpha1.MatterDeviceType, caps ...string) (*Mapped, *[]setCall) {
+func mapDevice(t *testing.T, typ DeviceType, caps ...string) (*Mapped, *[]setCall) {
 	t.Helper()
 	var calls []setCall
 	m := Map(Device{Key: types.NamespacedName{Namespace: "home", Name: "d"}, Endpoint: 7, Name: "D", Capabilities: caps, Type: typ},
@@ -96,7 +95,7 @@ func invoke(t *testing.T, c *im.Cluster, cmd uint32, f func(w *tlv.Writer)) {
 
 func TestDeviceTypes(t *testing.T) {
 	for name, tc := range map[string]struct {
-		typ  homev1alpha1.MatterDeviceType
+		typ  DeviceType
 		caps []string
 		want []uint32
 	}{
@@ -104,9 +103,9 @@ func TestDeviceTypes(t *testing.T) {
 		"dimmable light":           {"", []string{capability.LightOn, capability.LightLevel}, []uint32{0x0101}},
 		"switch shown as a plug":   {"", []string{capability.SwitchOn}, []uint32{0x010A}},
 		"outlet":                   {"", []string{capability.OutletOn}, []uint32{0x010A}},
-		"switch as a light":        {homev1alpha1.MatterDeviceTypeLight, []string{capability.SwitchOn}, []uint32{0x0100}},
-		"switch as a wall control": {homev1alpha1.MatterDeviceTypeMountedControl, []string{capability.SwitchOn}, []uint32{0x010F}},
-		"dimmable light as a plug": {homev1alpha1.MatterDeviceTypePlugInUnit, []string{capability.LightOn, capability.LightLevel}, []uint32{0x010B}},
+		"switch as a light":        {TypeLight, []string{capability.SwitchOn}, []uint32{0x0100}},
+		"switch as a wall control": {TypeMountedControl, []string{capability.SwitchOn}, []uint32{0x010F}},
+		"dimmable light as a plug": {TypePlugInUnit, []string{capability.LightOn, capability.LightLevel}, []uint32{0x010B}},
 		"motion with temperature and battery": {"", []string{capability.Occupancy, capability.Temperature, capability.Battery, capability.LinkQuality},
 			[]uint32{0x0107, 0x0302, 0x0011}},
 		"contact":  {"", []string{capability.ContactOpen}, []uint32{0x0015}},

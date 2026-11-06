@@ -17,8 +17,43 @@ const (
 	NameNext = "Next"
 )
 
-// Entry is how a device arbitrates one capability, as written: a Device's control entry, a home's
-// declaration in Go, or what the host keeps for a device. engine.ControlSettings checks it.
+// The levels a Status names. NameOverride is one too.
+const (
+	NameSafety  = "Safety"
+	NameNormal  = "Normal"
+	NameDefault = "Default"
+)
+
+// Status says who holds an arbitrated capability, and why.
+type Status struct {
+	Capability string `json:"capability"`
+	// Value is the JSON value the device was last given.
+	Value json.RawMessage `json:"value,omitempty"`
+	// Level is the winning claim's level.
+	Level string `json:"level,omitempty"`
+	// Claims are the current claims, the winner among them.
+	Claims []ClaimStatus `json:"claims,omitempty"`
+}
+
+// ClaimStatus is one claim on a capability.
+type ClaimStatus struct {
+	// Source is the path the claim came in by: Matter, Device or Rule/<name>.
+	Source string `json:"source"`
+	Level  string `json:"level"`
+	// Value is the claimed JSON value.
+	Value json.RawMessage `json:"value"`
+	// Expires is when the claim ends, if it ends at a time.
+	Expires time.Time `json:"expires,omitzero"`
+	// Latched is true for a latched hold, which lasts until a release action.
+	Latched bool `json:"latched,omitempty"`
+	// Winner is true for the claim the device takes.
+	Winner bool `json:"winner,omitempty"`
+	// Reverted is true for an outside change that was written back.
+	Reverted bool `json:"reverted,omitempty"`
+}
+
+// Entry is how a device arbitrates one capability, as written: a home's declaration in Go, or what
+// the host keeps for a device. engine.ControlSettings checks it.
 type Entry struct {
 	Capability string `json:"capability"`
 	// Default is the JSON value the capability has when nothing claims it.

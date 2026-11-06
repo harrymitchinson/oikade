@@ -15,7 +15,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -100,7 +99,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 		Log: log.WithName("automations"),
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key types.NamespacedName, r engine.BudgetReport) {
-			if r.Planned == metav1.ConditionFalse {
+			if r.Unplanned {
 				log.Info("Could not plan budget", "rule", key.Name, "reason", r.Reason, "message", r.Message)
 			}
 		},

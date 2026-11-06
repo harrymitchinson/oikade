@@ -8,10 +8,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
@@ -37,20 +35,13 @@ func local(s string) time.Time {
 	return t
 }
 
-func atTrigger(hhmm string, days ...homev1alpha1.Weekday) homev1alpha1.Trigger {
-	return homev1alpha1.Trigger{At: &homev1alpha1.AtTrigger{Time: hhmm, Days: days}}
-}
+func atTrigger(hhmm string, days ...time.Weekday) Timer { return At{Time: hhmm, Days: days} }
 
-func sunsetTrigger(offset time.Duration) homev1alpha1.Trigger {
-	return homev1alpha1.Trigger{Sun: &homev1alpha1.SunTrigger{Event: homev1alpha1.SunEventSunset, Offset: &metav1.Duration{Duration: offset}}}
-}
+func sunsetTrigger(offset time.Duration) Timer { return SunTime{Event: sun.Sunset, Offset: offset} }
 
-func compiled(t *testing.T, triggers ...homev1alpha1.Trigger) *Compiled {
+func compiled(t *testing.T, triggers ...Timer) *Compiled {
 	t.Helper()
-	c, err := Compile(rule("timed", homev1alpha1.RuleSpec{Triggers: triggers, Do: []homev1alpha1.Action{delay(time.Second)}}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := momentRule(t, "timed", Moment{Trigger: Trigger{Timers: triggers}, Do: []Action{delay(time.Second)}})
 	return c
 }
 
@@ -97,7 +88,7 @@ func TestAtAcrossDaylightSaving(t *testing.T) {
 
 func TestDaysAreTheDayTheTriggerFires(t *testing.T) {
 	// Friday and Saturday nights at 00:30 fire on Saturday and Sunday.
-	got := follow(compiled(t, atTrigger("00:30", "Sat", "Sun")), local("2026-10-23 12:00 BST"), 3, nil)
+	got := follow(compiled(t, atTrigger("00:30", time.Saturday, time.Sunday)), local("2026-10-23 12:00 BST"), 3, nil)
 	expectTimes(t, got, "2026-10-24 00:30 BST", "2026-10-25 00:30 BST", "2026-10-31 00:30 GMT")
 }
 
@@ -117,24 +108,17 @@ func TestSunFollowsTheDay(t *testing.T) {
 
 func TestCompileTimeTriggers(t *testing.T) {
 	for name, tc := range map[string]struct {
-		trigger homev1alpha1.Trigger
+		trigger Timer
 		wantErr string
 	}{
-		"two kinds": {homev1alpha1.Trigger{
-			At:     &homev1alpha1.AtTrigger{Time: "07:00"},
-			Change: &homev1alpha1.ChangeTrigger{Device: "m", Capability: capability.Occupancy},
-		}, "exactly one of change, at or sun"},
-		"none":          {homev1alpha1.Trigger{}, "exactly one of change, at or sun"},
 		"short time":    {atTrigger("7:00"), "is not HH:MM"},
 		"bad time":      {atTrigger("24:00"), "is not HH:MM"},
-		"bad day":       {atTrigger("07:00", "Monday"), "unknown day"},
+		"bad day":       {atTrigger("07:00", 7), "unknown day"},
 		"long offset":   {sunsetTrigger(7 * time.Hour), "between -6h and 6h"},
-		"unknown event": {homev1alpha1.Trigger{Sun: &homev1alpha1.SunTrigger{Event: "Noon"}}, "unknown event"},
+		"unknown event": {SunTime{Event: 9}, "unknown event"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := Compile(rule("timed", homev1alpha1.RuleSpec{
-				Triggers: []homev1alpha1.Trigger{tc.trigger}, Do: []homev1alpha1.Action{delay(time.Second)},
-			}))
+			_, err := NewMoment(goKey("timed"), Moment{Trigger: Trigger{Timers: []Timer{tc.trigger}}, Do: []Action{delay(time.Second)}})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("got %v, want an error containing %q", err, tc.wantErr)
 			}
@@ -163,17 +147,13 @@ func (s *schedules) last() Schedule {
 }
 
 // timedHarness runs a Rule named lights-on that turns the hallway light on at its triggers.
-func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*homev1alpha1.Rule), triggers ...homev1alpha1.Trigger) (*harness, *schedules) {
+func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment), triggers ...Timer) (*harness, *schedules) {
 	t.Helper()
-	r := rule("lights-on", homev1alpha1.RuleSpec{
-		Triggers:  triggers,
-		Condition: `trigger.type == "at" || trigger.type == "sun"`,
-		Do:        []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
-	})
-	r.CreationTimestamp = metav1.NewTime(now.Add(-30 * 24 * time.Hour))
+	m := Moment{Trigger: Trigger{Timers: triggers, Condition: timerFired, Since: now.Add(-30 * 24 * time.Hour)}, Do: []Action{set("hallway-light", capability.LightOn, "true")}}
 	if edit != nil {
-		edit(r)
+		edit(&m)
 	}
+	r := momentRule(t, "lights-on", m)
 	s := &schedules{}
 	h := newHarnessWith(t, now, func(e *Engine) {
 		e.Site, e.OnSchedule, e.NextChange = site, s.record, NewNextChangeGauge()
@@ -199,8 +179,8 @@ func (h *harness) advance(t time.Time, n int) {
 }
 
 func TestAtFiresWithTheClock(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 06:59 BST"), nil, func(r *homev1alpha1.Rule) {
-		r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
+	h, s := timedHarness(t, local("2026-10-21 06:59 BST"), nil, func(r *Moment) {
+		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
 	if got := s.last().Next; !got.Equal(local("2026-10-21 07:00 BST")) {
 		t.Fatalf("next = %v, want 07:00", got)
@@ -229,18 +209,18 @@ func TestSunFiresWithTheClock(t *testing.T) {
 }
 
 func TestMissedFireInsideTheDeadlineRunsOnStartup(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *homev1alpha1.Rule) {
-		r.Spec.StartingDeadline = &metav1.Duration{Duration: 10 * time.Minute}
-		r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
+	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *Moment) {
+		r.StartingDeadline = 10 * time.Minute
+		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
 	h.expectCalls(lightOn)
 	h.eventually("lastFire", func() bool { return s.last().LastFire.Equal(local("2026-10-21 07:00 BST")) })
 }
 
 func TestMissedFireOutsideTheDeadlineIsCounted(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *homev1alpha1.Rule) {
-		r.Spec.StartingDeadline = &metav1.Duration{Duration: 10 * time.Minute}
-		r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
+	h, s := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *Moment) {
+		r.StartingDeadline = 10 * time.Minute
+		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
 	if got := h.result("lights-on", ResultMissed); got != 1 {
 		t.Errorf("missed = %v, want 1", got)
@@ -255,8 +235,8 @@ func TestMissedFireOutsideTheDeadlineIsCounted(t *testing.T) {
 }
 
 func TestMissedFireWithoutADeadlineIsSkipped(t *testing.T) {
-	h, _ := timedHarness(t, local("2026-10-21 07:01 BST"), nil, func(r *homev1alpha1.Rule) {
-		r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
+	h, _ := timedHarness(t, local("2026-10-21 07:01 BST"), nil, func(r *Moment) {
+		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
 	if got := h.result("lights-on", ResultMissed); got != 1 {
 		t.Errorf("missed = %v, want 1", got)
@@ -264,9 +244,9 @@ func TestMissedFireWithoutADeadlineIsSkipped(t *testing.T) {
 }
 
 func TestOnlyFiresSinceTheRuleWasCreated(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *homev1alpha1.Rule) {
-		r.Spec.StartingDeadline = &metav1.Duration{Duration: time.Hour}
-		r.CreationTimestamp = metav1.NewTime(local("2026-10-21 07:02 BST"))
+	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *Moment) {
+		r.StartingDeadline = time.Hour
+		r.Since = local("2026-10-21 07:02 BST")
 	}, atTrigger("07:00"))
 	time.Sleep(50 * time.Millisecond)
 	if calls := h.setter.got(); len(calls) != 0 || h.result("lights-on", ResultMissed) != 0 {
@@ -278,20 +258,11 @@ func TestOnlyFiresSinceTheRuleWasCreated(t *testing.T) {
 }
 
 func TestReloadDoesNotCatchUp(t *testing.T) {
-	h, _ := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *homev1alpha1.Rule) {
-		r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
+	h, _ := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *Moment) {
+		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
-	r := rule("lights-on", homev1alpha1.RuleSpec{
-		Triggers: []homev1alpha1.Trigger{atTrigger("07:00")}, StartingDeadline: &metav1.Duration{Duration: time.Hour},
-		Do: []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
-	})
-	r.Generation = 2
-	r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
-	c, err := Compile(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.e.Load(c)
+	r := momentRule(t, "lights-on", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2}, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
+	h.e.Load(r)
 	time.Sleep(50 * time.Millisecond)
 	if calls := h.setter.got(); len(calls) != 0 {
 		t.Errorf("calls = %v; only the first load looks for missed fires", calls)
@@ -315,12 +286,9 @@ func TestSunWithoutASiteIsReported(t *testing.T) {
 
 func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
 	h, s := timedHarness(t, local("2026-10-21 06:00 BST"), nil, nil, atTrigger("07:00"))
-	r := rule("lights-on", homev1alpha1.RuleSpec{Triggers: motionTrigger, Do: []homev1alpha1.Action{delay(time.Second)}})
+	r := momentRule(t, "lights-on", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{delay(time.Second)}})
 	r.Generation = 2
-	c, err := Compile(r)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := r
 	h.e.Load(c)
 	if got := s.last(); !got.Cleared || got.Generation != 2 {
 		t.Errorf("got %+v, want the schedule cleared for generation 2", got)
@@ -338,28 +306,17 @@ func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	}
 	// Recreated, it looks for missed fires again, but only since it was created.
 	h.clock.SetTime(local("2026-10-21 07:05 BST"))
-	r := rule("lights-on", homev1alpha1.RuleSpec{
-		Triggers: []homev1alpha1.Trigger{atTrigger("07:00")}, StartingDeadline: &metav1.Duration{Duration: time.Hour},
-		Do: []homev1alpha1.Action{set("hallway-light", capability.LightOn, "true")},
-	})
-	r.CreationTimestamp = metav1.NewTime(local("2026-10-21 07:01 BST"))
-	// The old Rule's lastFire is older than the new one.
-	r.Status.LastFire = metav1.NewTime(local("2026-10-20 07:00 BST"))
-	c, err := Compile(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.e.Load(c)
+	h.e.Load(momentRule(t, "lights-on", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST")}, Do: []Action{set("hallway-light", capability.LightOn, "true")}}))
 	time.Sleep(50 * time.Millisecond)
 	if calls := h.setter.got(); len(calls) != 0 {
-		t.Errorf("calls = %v; 07:00 was before the new Rule existed", calls)
+		t.Errorf("calls = %v; 07:00 was before the new rule existed", calls)
 	}
 }
 
 func TestPolarNightLooksAgain(t *testing.T) {
 	tromso := &sun.Site{Latitude: 69.6492, Longitude: 18.9553}
 	h, s := timedHarness(t, local("2026-12-10 12:00 GMT"), tromso, nil,
-		homev1alpha1.Trigger{Sun: &homev1alpha1.SunTrigger{Event: homev1alpha1.SunEventSunrise}})
+		SunTime{Event: sun.Sunrise})
 	if got := s.last().Next; !got.IsZero() {
 		t.Fatalf("next = %v, want none in the polar night", got)
 	}
@@ -372,7 +329,7 @@ func TestPolarNightLooksAgain(t *testing.T) {
 
 func TestCompileRejectsSignedTimes(t *testing.T) {
 	for _, tm := range []string{"-1:30", "+7:05", "07:5x"} {
-		if _, err := compileAt(&homev1alpha1.AtTrigger{Time: tm}); err == nil {
+		if _, err := atTime(tm); err == nil {
 			t.Errorf("%q compiled", tm)
 		}
 	}
