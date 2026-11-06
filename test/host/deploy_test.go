@@ -26,6 +26,7 @@ const (
 	restored = "Restored the last automations version"
 	stopping = "Stopping automations process for a new version"
 	ended    = "Ended the claims of a removed rule"
+	checked  = "Checked automations version"
 	// settle is long enough for a process to crash in, and short enough to wait for.
 	settle = "--settle=2s"
 )
@@ -394,6 +395,196 @@ func TestAFailedVersionLeavesNoClaimsOfItsOwn(t *testing.T) {
 	if got := r.ruleClaims("claimed"); len(got) != 0 {
 		t.Fatalf("got %+v", got)
 	}
+}
+
+// crashAfterLoading deploys a variant that crashes when told, and tells it once it has loaded.
+func (r *rig) crashAfterLoading(name string) {
+	r.t.Helper()
+	bin := variant(r.t, name)
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- err
+	}()
+	r.awaitLoaded()
+	r.sync()
+	if err := os.WriteFile(filepath.Join(r.dir, "crash"), nil, 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		r.t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+}
+
+// A version that failed hasn't earned ending a flow it doesn't have, whose run comes back with the
+// last version.
+func TestAFailedVersionLeavesAFlowItDroppedAlone(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch("--settle=30s")
+	r.awaitLoaded()
+	r.contact("claim-flow-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.sync()
+	r.crashAfterLoading("crash-noflow")
+	if got := r.awaitLoaded(); got != 1 {
+		t.Fatalf("resumed %d runs. The log:\n%s", got, r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.sync()
+	r.contact("claim-end", true)
+	r.wrote("claimed-flow", true)
+}
+
+// Only a deploy ends a flow, so a binary changed behind the host's back leaves its run and claims,
+// and the run carries on once the flow is back.
+func TestABinaryChangedWithoutADeployLeavesAFlowAlone(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.contact("claim-flow-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.sync()
+	r.stop()
+	r.launchWithout("--home", variant(t, "noflow"), "--simulate", devicesFile(t), settle)
+	r.awaitLoaded()
+	r.sync()
+	r.stop()
+	if got := r.ruleClaims("claimed-flow"); !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/claiming" }) {
+		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
+	}
+	r.launch(settle)
+	if got := r.awaitLoaded(); got != 1 {
+		t.Fatalf("resumed %d runs. The log:\n%s", got, r.dump())
+	}
+}
+
+// A confirmed version without a flow ends what its runs left, and forgets them.
+func TestADeployedVersionEndsAFlowItDropped(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.contact("claim-flow-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.sync()
+	r.mustDeploy("noflow")
+	if r.count(ended, "rule", "claiming") != 1 {
+		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
+	}
+	r.stop()
+	if got := r.ruleClaims("claimed-flow"); len(got) != 0 {
+		t.Fatalf("got %+v", got)
+	}
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	if runs, err := s.Journal().Runs(); err != nil || len(runs) != 0 {
+		t.Fatalf("got %v, %v", runs, err)
+	}
+}
+
+// orphanedSafety leaves a Safety claim and latch of a rule the running binary doesn't have, as a
+// binary changed in place does. A deploy that has the rule again raises no finding.
+func (r *rig) orphanedSafety() {
+	r.t.Helper()
+	r.launch("--settle=30s")
+	r.awaitLoaded()
+	r.change("leak-sensor", opened, true)
+	r.wrote("valve", false)
+	r.sync()
+	r.stop()
+	r.launchWithout("--home", variant(r.t, "noleak"), "--simulate", devicesFile(r.t), "--settle=30s")
+	r.awaitLoaded()
+	r.sync()
+}
+
+func (r *rig) expectSafetyKept() {
+	r.t.Helper()
+	got := r.ruleClaims("valve")
+	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/leak-shutoff" && c.Level == control.Safety }) {
+		r.t.Fatalf("got %+v. The log:\n%s", got, r.dump())
+	}
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("home/leak-shutoff"); err != nil || !ok {
+		r.t.Fatalf("the hold's state went: %v, %v", ok, err)
+	}
+}
+
+// A Safety claim the failed version had nothing to do with isn't its to end.
+func TestAFailedVersionCleansUpOnlyWhatItMade(t *testing.T) {
+	r := flowRig(t, "")
+	r.orphanedSafety()
+	r.crashAfterLoading("crash-told")
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.stop()
+	r.expectSafetyKept()
+}
+
+// The same goes for a deploy a host died during.
+func TestAnUnfinishedDeployCleansUpOnlyWhatItMade(t *testing.T) {
+	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployBegun))
+	r.orphanedSafety()
+	if _, err := r.deploy("same"); err == nil {
+		t.Fatalf("the host survived its fault. The log:\n%s", r.dump())
+	}
+	r.died()
+	r.launchWithout("--home", variant(t, "noleak"), "--simulate", devicesFile(t), settle)
+	r.waitFor(func(l line) bool { return l.is("Restored the last automations version; a deploy didn't finish") })
+	r.awaitLoaded()
+	r.stop()
+	r.expectSafetyKept()
+}
+
+// A Safety claim made once the check has read them still counts: the old version stops, the check
+// runs again, and it comes back.
+func TestASafetyClaimMadeAfterTheCheckStopsTheDeploy(t *testing.T) {
+	r := flowRig(t, fmt.Sprintf("%s 1 wait\n", fault.HostDeployChecked))
+	r.launch(settle)
+	r.awaitLoaded()
+	bin := variant(t, "nofail")
+	type result struct {
+		stderr string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		stderr, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- result{stderr, err}
+	}()
+	r.waitFor(func(l line) bool { return l.is(checked) })
+	r.contact("fail-go", true)
+	r.wrote("claimed-safety", false)
+	if err := os.WriteFile(filepath.Join(r.dir, "faults.go"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := <-done
+	if got.err == nil || !strings.Contains(got.stderr, `"failing"`) {
+		t.Fatalf("got %v, %s. The log:\n%s", got.err, got.stderr, r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.stop()
+	if claims := r.ruleClaims("claimed-safety"); len(claims) == 0 {
+		t.Fatalf("the claim went. The log:\n%s", r.dump())
+	}
+}
+
+// Redeploying the running version picks up a removal that failed.
+func TestRedeployingRetriesAFailedRemoval(t *testing.T) {
+	r := flowRig(t, fmt.Sprintf("%s 1 drop\n", fault.HostRemovals))
+	r.launch(settle)
+	r.awaitLoaded()
+	r.change("claim-go", opened, true)
+	r.sync()
+	stderr, err := r.deploy("removed")
+	if err == nil || !strings.Contains(stderr, "retry") {
+		t.Fatalf("got %v, %s", err, stderr)
+	}
+	if r.count(ended) != 0 {
+		t.Fatalf("the removal went ahead. The log:\n%s", r.dump())
+	}
+	if _, err := r.deploy("removed"); err != nil {
+		t.Fatal(err)
+	}
+	r.waitFor(func(l line) bool { return l.is(ended, "rule", "claim-moment") })
 }
 
 // Only a deploy ends a rule, so a binary changed behind the host's back can't get past the check.

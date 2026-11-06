@@ -248,9 +248,10 @@ type Saved struct {
 }
 
 // Recover works out what to resume from the runs a host kept, and returns a body for each flow
-// that has one to continue. A run that can't be resumed is dropped and logged: its flow has gone, or
-// a newer run of the flow replaced it. Unless a run of its flow carries on, its flow's claims go first,
-// as when any run ends badly. Call it before the engine runs.
+// that has one to continue. A run a newer one of its flow replaced, or with an unreadable journal, is
+// dropped and logged. Unless a run of its flow carries on, its flow's claims go first, as when any run
+// ends badly. A run of a flow this binary doesn't have is left alone: this binary hasn't proved itself,
+// so the host ends those once a deploy has. Call it before the engine runs.
 func Recover(ctx context.Context, namespace string, flows map[string]*Flow, saved []Saved, journal Journal, actions Actions) map[string]engine.Body {
 	log := logr.FromContextOrDiscard(ctx)
 	type candidate struct {
@@ -284,7 +285,7 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 		}
 		name := entries[0].ID
 		if flows[name] == nil {
-			retire(s.ID, name, "its flow has gone")
+			log.Info("Left flow run alone; this binary doesn't have its flow", "run", s.ID)
 			continue
 		}
 		cur, ok := newest[name]
@@ -300,7 +301,11 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 	}
 	for _, s := range unreadable {
 		// Its claims are under the flow's name, and a run that's carrying on may hold the same ones.
-		name := flowOf(s.ID)
+		name := FlowOf(s.ID)
+		if name != "" && flows[name] == nil {
+			log.Info("Left flow run alone; this binary doesn't have its flow", "run", s.ID)
+			continue
+		}
 		if _, carriesOn := newest[name]; carriesOn {
 			drop(s.ID, "its journal is unreadable")
 			continue
@@ -314,8 +319,8 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 	return bodies
 }
 
-// flowOf returns the flow a run ID names.
-func flowOf(id string) string {
+// FlowOf returns the flow a run ID names.
+func FlowOf(id string) string {
 	if i := strings.LastIndex(id, "/"); i >= 0 {
 		return id[:i]
 	}

@@ -39,10 +39,13 @@ func (p *process) failure() error {
 }
 
 // swap asks the supervisor to replace the binary it runs. started gets the new process, or nil if
-// path is empty.
+// path is empty. vet, if set, runs once the old process has gone and its session has ended, and an
+// error stops the new one starting: started gets a process that has already gone with that error, and
+// the supervisor waits for the next swap.
 type swap struct {
 	path    string
 	started chan *process
+	vet     func() error
 }
 
 // supervise keeps your process running until ctx ends. Only one runs at a time: each is waited for,
@@ -63,6 +66,15 @@ func (h *Host) supervise(ctx context.Context, srv *server, socket, path string, 
 				backoff = firstBackoff
 			}
 			continue
+		}
+		if next != nil && next.vet != nil {
+			if err := next.vet(); err != nil {
+				p := &process{gone: make(chan struct{}), err: err}
+				close(p.gone)
+				next.started <- p
+				next, path = nil, ""
+				continue
+			}
 		}
 		// The old process's session has ended, so a session from here on is this process's.
 		select {

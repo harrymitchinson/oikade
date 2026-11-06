@@ -8,15 +8,18 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
-// FileEnv names a file of faults, one per line: "<point> <n> <kill|drop>", which acts on the point's
-// nth hit in this process. A kill removes the file first, so the next process runs clean.
+// FileEnv names a file of faults, one per line: "<point> <n> <kill|drop|wait>", which acts on the
+// point's nth hit in this process. A kill removes the file first, so the next process runs clean. A
+// wait holds the point until the file's name with ".go" on the end exists.
 const FileEnv = "OIKADE_FAULTS"
 
 type planned struct {
 	at   int
 	drop bool
+	wait bool
 }
 
 var (
@@ -45,7 +48,7 @@ func load() {
 		if err != nil {
 			continue
 		}
-		plan[f[0]] = planned{at: n, drop: f[2] == "drop"}
+		plan[f[0]] = planned{at: n, drop: f[2] == "drop", wait: f[2] == "wait"}
 	}
 }
 
@@ -64,6 +67,17 @@ func due(point string, drop bool) bool {
 // Hit kills this process, as SIGKILL does, on the point's planned hit.
 func Hit(point string) {
 	if due(point, false) {
+		mu.Lock()
+		wait := plan[point].wait
+		mu.Unlock()
+		if wait {
+			for {
+				if _, err := os.Stat(os.Getenv(FileEnv) + ".go"); err == nil {
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
 		_ = os.Remove(os.Getenv(FileEnv))
 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
 		select {}

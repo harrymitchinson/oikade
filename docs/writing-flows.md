@@ -71,7 +71,7 @@ Only steps up to where the run had got to can be compared. A change after that p
 
 A flow's claims belong to the flow, not to the run that made them, so a flow holding an `UntilReleased` claim should reach its `r.Release`. If it can't, this is what happens to them:
 
-- **A run that ends badly** releases all the flow's claims except Safety ones. Failing, panicking, giving up and being dropped all count, including being dropped at startup because its flow has gone. That includes claims left by an earlier run that succeeded: a later failing run ending them is intended.
+- **A run that ends badly** releases all the flow's claims except Safety ones. Failing, panicking, giving up and being dropped all count. A flow you remove is different: its run and claims stay until a deploy without it is confirmed, then all of them end, Safety ones included, past the check that refuses that. That includes claims left by an earlier run that succeeded: a later failing run ending them is intended.
 - **Safety claims** end only by an explicit `r.Release`, so a failed notification can't reopen a valve that a flow closed, or when a deploy that removes their rule settles. `oikade deploy` refuses that unless told to go ahead.
 - **A run that was replaced** releases nothing. Its claims pass to the run that replaced it, and that run ending badly releases them.
 - **A run that succeeds** releases nothing. A claim it didn't release stays until a later `r.Release`, or until a later run ends badly.

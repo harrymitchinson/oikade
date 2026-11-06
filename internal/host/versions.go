@@ -43,6 +43,9 @@ type history struct {
 	Pending bool      `json:"pending,omitempty"`
 	// Removals is rules the running version doesn't have, whose claims and state are yet to go.
 	Removals bool `json:"removals,omitempty"`
+	// Spared is the rules with anything on record when the deploy in progress began. A failed
+	// version made none of that, and the check never looked at it, so its clean-up leaves it.
+	Spared []string `json:"spared,omitempty"`
 }
 
 // versions keeps your binaries. Only one deploy runs at a time, so it needs no lock of its own.
@@ -161,24 +164,25 @@ func (v *versions) discard(id string) error {
 // adopt records the version running now, which nothing deployed, so that a deploy has something to
 // go back to.
 func (v *versions) adopt(next version) error {
-	return v.save(history{Versions: []version{next}})
+	return v.save(history{Versions: []version{next}, Removals: v.state.Removals, Spared: v.state.Spared})
 }
 
 // begin makes next the running version, unconfirmed. Call it before the process changes.
-func (v *versions) begin(next version) error {
+func (v *versions) begin(next version, spared []string) error {
 	rest := slices.DeleteFunc(slices.Clone(v.state.Versions), func(k version) bool { return k.ID == next.ID })
-	return v.pending(append([]version{next}, rest...))
+	return v.pending(append([]version{next}, rest...), spared)
 }
 
 // beginRollback makes next, the version before the running one, the running one, unconfirmed. The
 // running one leaves the history, so that another rollback goes back further rather than to it.
-func (v *versions) beginRollback(next version) error {
-	return v.pending(append([]version{next}, v.state.Versions[2:]...))
+func (v *versions) beginRollback(next version, spared []string) error {
+	return v.pending(append([]version{next}, v.state.Versions[2:]...), spared)
 }
 
-func (v *versions) pending(next []version) error {
+func (v *versions) pending(next []version, spared []string) error {
 	return v.save(history{
-		Versions: next, Before: slices.Clone(v.state.Versions), Pending: true, Removals: v.state.Removals,
+		Versions: next, Before: slices.Clone(v.state.Versions), Pending: true,
+		Removals: v.state.Removals, Spared: spared,
 	})
 }
 
@@ -192,16 +196,16 @@ func (v *versions) commit() error {
 // removalsDone records that a confirmed version's removals have been dealt with.
 func (v *versions) removalsDone() error {
 	next := v.state
-	next.Removals = false
+	next.Removals, next.Spared = false, nil
 	return v.save(next)
 }
 
 // abort goes back to how things were before begin, and removes the failed binary. The failed version
-// may have left rules of its own, so removals are due. It goes back even if that can't be saved,
+// may have left rules of its own, so removals are due, sparing what was there before it. It goes back even if that can't be saved,
 // because it's no longer what runs, and the next start will find the deploy unfinished.
 func (v *versions) abort() error {
 	failed := v.state.Versions[0].ID
-	next := history{Versions: v.state.Before, Removals: true}
+	next := history{Versions: v.state.Before, Removals: true, Spared: v.state.Spared}
 	err := v.save(next)
 	v.state = next
 	if err != nil {

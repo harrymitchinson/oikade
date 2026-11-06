@@ -73,6 +73,10 @@ func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Re
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
 	}
 	if cur, ok := d.versions.current(); ok && cur.ID == id {
+		if d.versions.state.Pending {
+			// It settled, and confirming it failed, so this is the time to try that again.
+			return d.confirm(id)
+		}
 		if err := d.removals(); err != nil {
 			return api.Response{Error: removalsFailed(err), Version: id}
 		}
@@ -115,14 +119,15 @@ func (d *deployer) adopt(ctx context.Context) {
 }
 
 // removals ends what's left of rules the running version doesn't have, once a deploy has settled
-// either way. It's recorded, so a crash first finishes the job on the next start. It does nothing if
-// the version's rules aren't known, which would look like a version with none.
+// either way, sparing what a failed deploy found there. It's recorded, so a crash first finishes the
+// job on the next start. It does nothing for an unconfirmed version, or one whose rules aren't known,
+// which would look like a version with none, so that stays until the next confirmed one.
 func (d *deployer) removals() error {
 	cur, ok := d.versions.current()
-	if !ok || !d.versions.state.Removals || cur.Manifest.Protocol == 0 {
+	if !ok || !d.versions.state.Removals || d.versions.state.Pending || cur.Manifest.Protocol == 0 {
 		return nil
 	}
-	rules := make([]string, 0, len(cur.Manifest.Rules))
+	rules := slices.Clone(d.versions.state.Spared)
 	for _, r := range cur.Manifest.Rules {
 		rules = append(rules, r.Name)
 	}
@@ -142,7 +147,7 @@ func removalsFailed(err error) string {
 
 // takeOver checks a stored binary, stops what's running, starts it and watches it settle. If it fails
 // to, the last version comes back.
-func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin func(version) error) api.Response {
+func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin func(version, []string) error) api.Response {
 	reject := func(resp api.Response) api.Response {
 		if err := d.versions.discard(id); err != nil {
 			d.log.Error(err, "Failed to remove a rejected automations version", "version", id)
@@ -166,21 +171,50 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		return reject(api.Response{Error: "this would remove Safety rules", Findings: findings})
 	}
 
+	d.log.Info("Checked automations version", "version", id)
+	fault.Hit(fault.HostDeployChecked)
 	last := d.running
-	if err := begin(version{ID: id, Manifest: manifest, At: time.Now()}); err != nil {
+	spared, err := d.srv.leftovers()
+	if err != nil {
+		return reject(api.Response{Error: fmt.Sprintf("reading what's on record: %s", err)})
+	}
+	if err := begin(version{ID: id, Manifest: manifest, At: time.Now()}, spared); err != nil {
 		return reject(api.Response{Error: fmt.Sprintf("recording the version: %s", err)})
 	}
-	err = d.settled(ctx, d.versions.path(id))
+	fault.Hit(fault.HostDeployBegun)
+	// The old process could claim until it stopped, so the claims need reading again by then.
+	var late []string
+	vet := func() error {
+		if allow {
+			return nil
+		}
+		late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace))
+		if len(late) > 0 {
+			return errLateClaim
+		}
+		return nil
+	}
+	err = d.settled(ctx, d.versions.path(id), vet)
 	if ctx.Err() != nil {
 		// The next host works out what to do from the record.
 		return api.Response{Error: "the host stopped before the version settled"}
 	}
-	if err != nil {
-		return d.restore(ctx, id, last, err)
+	if errors.Is(err, errLateClaim) {
+		resp := d.restore(ctx, id, last, err)
+		resp.Findings = late
+		return resp
 	}
+	if err != nil {
+		return d.restore(ctx, id, last, fmt.Errorf("the new version failed: %w", err))
+	}
+	return d.confirm(id)
+}
+
+// confirm makes a version that has settled the running one for good.
+func (d *deployer) confirm(id string) api.Response {
 	if err := d.versions.commit(); err != nil {
 		d.log.Error(err, "Failed to confirm automations version", "version", id)
-		return api.Response{Error: fmt.Sprintf("confirming the version: %s", err), Version: id}
+		return api.Response{Error: fmt.Sprintf("confirming the version, which deploying it again will retry: %s", err), Version: id}
 	}
 	if err := d.versions.prune(); err != nil {
 		d.log.Error(err, "Failed to remove old automations versions")
@@ -199,11 +233,11 @@ func (d *deployer) restore(ctx context.Context, failed, last string, cause error
 	if err := d.versions.abort(); err != nil {
 		d.log.Error(err, "Failed to record the failed automations version", "version", failed)
 	}
-	resp := api.Response{Error: fmt.Sprintf("the new version failed: %s", cause), Restored: true}
+	resp := api.Response{Error: cause.Error(), Restored: true}
 	if cur, ok := d.versions.current(); ok {
 		resp.Version = cur.ID
 	}
-	if err := d.settled(ctx, last); err != nil {
+	if err := d.settled(ctx, last, nil); err != nil {
 		resp.Restored = false
 		resp.Error += fmt.Sprintf("; the last version failed too: %s", err)
 		d.log.Info("Failed to restore the last automations version", "reason", err.Error())
@@ -217,8 +251,8 @@ func (d *deployer) restore(ctx context.Context, failed, last string, cause error
 }
 
 // settled hands the supervisor a binary, and returns once it has connected and stayed up.
-func (d *deployer) settled(ctx context.Context, path string) error {
-	sw := &swap{path: path, started: make(chan *process, 1)}
+func (d *deployer) settled(ctx context.Context, path string, vet func() error) error {
+	sw := &swap{path: path, started: make(chan *process, 1), vet: vet}
 	select {
 	case d.swaps <- sw:
 	case <-ctx.Done():
@@ -324,3 +358,6 @@ func (l *limited) Write(p []byte) (int, error) {
 }
 
 var errExited = errors.New("it exited")
+
+// errLateClaim is a Safety claim the old version made after the check, so the check no longer holds.
+var errLateClaim = errors.New("a rule this version doesn't have made a Safety claim while the old version stopped")

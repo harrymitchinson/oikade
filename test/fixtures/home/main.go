@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/harrymitchinson/oikade/framework"
@@ -124,7 +126,7 @@ func start() {
 			time.Sleep(100 * time.Millisecond)
 			os.Exit(3)
 		}()
-	case "crash-told":
+	case "crash-told", "crash-noflow":
 		go func() {
 			for {
 				if _, err := os.Stat(os.Getenv("OIKADE_TEST_CRASH")); err == nil {
@@ -158,7 +160,7 @@ func main() {
 	case "badcheck":
 		extra = append(extra, framework.Moment{Name: leakShutoff})
 	}
-	framework.Run(framework.Home{
+	run(framework.Home{
 		Holds: []framework.Hold{
 			{
 				Name: "fan", Device: "fan", Capability: on, Value: true,
@@ -211,4 +213,18 @@ func main() {
 			claimMoment,
 		}, extra...),
 	})
+}
+
+// run leaves out what the variants without a rule leave out.
+func run(h framework.Home) {
+	if strings.Contains(variant, "noflow") {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "claiming" })
+	}
+	if variant == "nofail" {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "failing" })
+	}
+	if variant == "noleak" {
+		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "leak-shutoff" })
+	}
+	framework.Run(h)
 }

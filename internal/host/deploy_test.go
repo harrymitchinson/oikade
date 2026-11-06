@@ -145,7 +145,7 @@ func TestAnAbortedVersionLeavesEverythingAsItWas(t *testing.T) {
 	defer closeStore()
 	first, second := binary(t, v, "first"), binary(t, v, "second")
 	for _, id := range []string{first, second} {
-		if err := v.begin(version{ID: id}); err != nil {
+		if err := v.begin(version{ID: id}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := v.commit(); err != nil {
@@ -153,7 +153,7 @@ func TestAnAbortedVersionLeavesEverythingAsItWas(t *testing.T) {
 		}
 	}
 	bad := binary(t, v, "bad")
-	if err := v.begin(version{ID: bad}); err != nil {
+	if err := v.begin(version{ID: bad}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := v.abort(); err != nil {
@@ -166,7 +166,7 @@ func TestAnAbortedVersionLeavesEverythingAsItWas(t *testing.T) {
 		t.Fatalf("the failed binary stayed: %v", err)
 	}
 	// A failed rollback is the same, and keeps the version it tried.
-	if err := v.begin(version{ID: first}); err != nil {
+	if err := v.begin(version{ID: first}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := v.abort(); err != nil {
@@ -187,7 +187,7 @@ func TestVersionsAreBounded(t *testing.T) {
 	for i := range keptVersions + 3 {
 		id := binary(t, v, fmt.Sprintf("build %d", i))
 		added = append(added, id)
-		if err := v.begin(version{ID: id}); err != nil {
+		if err := v.begin(version{ID: id}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := v.commit(); err != nil {
@@ -217,7 +217,7 @@ func TestRollbackGoesFurtherBackEachTime(t *testing.T) {
 	defer closeStore()
 	first, second, third := binary(t, v, "first"), binary(t, v, "second"), binary(t, v, "third")
 	for _, id := range []string{first, second, third} {
-		if err := v.begin(version{ID: id}); err != nil {
+		if err := v.begin(version{ID: id}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := v.commit(); err != nil {
@@ -226,7 +226,7 @@ func TestRollbackGoesFurtherBackEachTime(t *testing.T) {
 	}
 	for _, want := range []string{second, first} {
 		prev, _ := v.previous()
-		if err := v.beginRollback(prev); err != nil {
+		if err := v.beginRollback(prev, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := v.commit(); err != nil {
@@ -259,7 +259,7 @@ func TestAFailedSaveLeavesTheHistoryAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	good, bad := binary(t, v, "good"), binary(t, v, "bad")
-	if err := v.begin(version{ID: good}); err != nil {
+	if err := v.begin(version{ID: good}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := v.commit(); err != nil {
@@ -268,7 +268,7 @@ func TestAFailedSaveLeavesTheHistoryAlone(t *testing.T) {
 	if err := data.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := v.begin(version{ID: bad}); err == nil {
+	if err := v.begin(version{ID: bad}, nil); err == nil {
 		t.Fatal("a save to a closed store worked")
 	}
 	if cur, _ := v.current(); cur.ID != good || v.state.Pending || v.known(bad) {
@@ -281,13 +281,13 @@ func TestAnUnfinishedDeployIsUndoneOnStartup(t *testing.T) {
 	dir := t.TempDir()
 	v, closeStore := openTestVersions(t, dir)
 	good, bad := binary(t, v, "good"), binary(t, v, "bad")
-	if err := v.begin(version{ID: good}); err != nil {
+	if err := v.begin(version{ID: good}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := v.commit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := v.begin(version{ID: bad}); err != nil {
+	if err := v.begin(version{ID: bad}, nil); err != nil {
 		t.Fatal(err)
 	}
 	closeStore()
@@ -315,13 +315,13 @@ func TestAFailedVersionIsGoneEvenIfThatCantBeSaved(t *testing.T) {
 		t.Fatal(err)
 	}
 	good, bad := binary(t, v, "good"), binary(t, v, "bad")
-	if err := v.begin(version{ID: good}); err != nil {
+	if err := v.begin(version{ID: good}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := v.commit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := v.begin(version{ID: bad}); err != nil {
+	if err := v.begin(version{ID: bad}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := data.Close(); err != nil {
@@ -339,7 +339,7 @@ func TestAFailedVersionIsGoneEvenIfThatCantBeSaved(t *testing.T) {
 func TestRemovalsWaitForKnownRules(t *testing.T) {
 	v, closeStore := openTestVersions(t, t.TempDir())
 	defer closeStore()
-	if err := v.begin(version{ID: binary(t, v, "first")}); err != nil {
+	if err := v.begin(version{ID: binary(t, v, "first")}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := v.commit(); err != nil {
@@ -347,5 +347,92 @@ func TestRemovalsWaitForKnownRules(t *testing.T) {
 	}
 	if err := (&deployer{versions: v}).removals(); err != nil || !v.state.Removals {
 		t.Fatalf("got %v, %+v", err, v.state)
+	}
+}
+
+// Confirming can fail, which leaves the version running but unconfirmed. Deploying it again retries
+// that, and doesn't call it done until it is.
+func TestRedeployingAnUnconfirmedVersionConfirmsIt(t *testing.T) {
+	dir := t.TempDir()
+	data, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := openVersions(dir, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := binary(t, v, "home")
+	if err := v.begin(version{ID: id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	d := &deployer{versions: v}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resp := d.deploy(context.Background(), v.path(id), false)
+	if resp.Error == "" || resp.Unchanged || !v.state.Pending {
+		t.Fatalf("got %+v, %+v", resp, v.state)
+	}
+	data, err = store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = data.Close() }()
+	v.values = data.Namespace(versionsNamespace)
+	resp = d.deploy(context.Background(), v.path(id), false)
+	if resp.Error != "" || resp.Unchanged || v.state.Pending {
+		t.Fatalf("got %+v, %+v", resp, v.state)
+	}
+}
+
+// An unconfirmed version mustn't end anything from its manifest, which nothing has confirmed.
+func TestRemovalsWaitForAConfirmedVersion(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	if err := v.begin(version{ID: binary(t, v, "first"), Manifest: manifest()}, nil); err != nil {
+		t.Fatal(err)
+	}
+	v.state.Removals = true
+	if err := (&deployer{versions: v}).removals(); err != nil || !v.state.Removals {
+		t.Fatalf("got %v, %+v", err, v.state)
+	}
+}
+
+// What a failed deploy spared survives a restart, and a version adopted after it.
+func TestAFailedDeployKeepsWhatItOwes(t *testing.T) {
+	dir := t.TempDir()
+	v, closeStore := openTestVersions(t, dir)
+	if err := v.begin(version{ID: binary(t, v, "bad")}, []string{"leak-shutoff"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.abort(); err != nil {
+		t.Fatal(err)
+	}
+	closeStore()
+	v, closeStore = openTestVersions(t, dir)
+	defer closeStore()
+	if err := v.adopt(version{ID: binary(t, v, "home")}); err != nil {
+		t.Fatal(err)
+	}
+	if !v.state.Removals || !slices.Equal(v.state.Spared, []string{"leak-shutoff"}) {
+		t.Fatalf("got %+v", v.state)
+	}
+	if err := v.begin(version{ID: binary(t, v, "next")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.commit(); err != nil {
+		t.Fatal(err)
+	}
+	if !v.state.Removals || v.state.Spared != nil {
+		t.Fatalf("a confirmed version spares nothing: %+v", v.state)
+	}
+}
+
+// A connection from before a disconnect is the process that's going, however late it gets here.
+func TestAStaleConnectionNeverAttaches(t *testing.T) {
+	s := &server{generation: 1}
+	if s.attach(&session{}, wire.Message{}, nil) {
+		t.Fatal("it attached")
 	}
 }
