@@ -27,4 +27,7 @@ const (
 	// HostRemovals is the host about to end what removed rules left, which a test can drop to make
 	// that fail.
 	HostRemovals = "host.removals"
+	// HostEndRule is the host about to end a removed rule's claims, which a test can drop to make
+	// that fail.
+	HostEndRule = "host.removals.end"
 )

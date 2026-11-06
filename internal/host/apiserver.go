@@ -56,6 +56,7 @@ func (s *apiServer) handle(conn net.Conn) {
 }
 
 func (s *apiServer) answer(req api.Request) api.Response {
+	s.log.Info("Received API request", "type", req.Type)
 	switch req.Type {
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}

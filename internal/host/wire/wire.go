@@ -24,6 +24,8 @@ const (
 	RoleAutomations = "automations"
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
 	RoleCheck = "check"
+	// KindFlow is the Kind of a RuleInfo for a flow.
+	KindFlow = "flow"
 	// SocketEnv names the host's socket to the process it starts.
 	SocketEnv = "OIKADE_SOCKET"
 	// Namespace is the home's namespace in the engine, whose rules and devices are keyed by one.
@@ -73,7 +75,7 @@ type Manifest struct {
 // RuleInfo is one rule of a home.
 type RuleInfo struct {
 	Name string `json:"name"`
-	// Kind is hold, moment or flow.
+	// Kind is hold, moment or KindFlow.
 	Kind string `json:"kind"`
 	// Safety is a rule with Safety priority, or a moment with a Safety set.
 	Safety bool `json:"safety,omitempty"`

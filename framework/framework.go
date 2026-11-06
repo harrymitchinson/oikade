@@ -330,7 +330,7 @@ func (h Home) manifest() wire.Manifest {
 		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: "moment", Safety: r.safety()})
 	}
 	for _, r := range h.Flows {
-		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: "flow", Safety: r.Priority == Safety})
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: wire.KindFlow, Safety: r.Priority == Safety})
 	}
 	return m
 }

@@ -86,7 +86,10 @@ func (s *server) serve(l net.Listener) {
 			}
 			return
 		}
-		go s.handle(wire.NewConn(c))
+		s.mu.Lock()
+		generation := s.generation
+		s.mu.Unlock()
+		go s.handle(wire.NewConn(c), generation)
 	}
 }
 
@@ -108,11 +111,8 @@ func listen(path string) (net.Listener, error) {
 	return l, nil
 }
 
-func (s *server) handle(conn *wire.Conn) {
+func (s *server) handle(conn *wire.Conn, generation uint64) {
 	defer func() { _ = conn.Close() }()
-	s.mu.Lock()
-	generation := s.generation
-	s.mu.Unlock()
 	_ = conn.SetReadDeadline(time.Now().Add(helloTimeout))
 	hello, err := conn.Read()
 	if err != nil {
@@ -286,11 +286,11 @@ func (s *server) disconnect() {
 	}
 }
 
-// reconcile ends what's left of rules not named: their claims, Safety ones too, their saved state and
-// the runs of their flows. Nothing else would, because their code has gone. Only a deploy calls it,
-// so a Safety rule goes only past the check that refuses that. An error means it should be tried
-// again.
-func (s *server) reconcile(rules []string) error {
+// reconcile ends what's left of rules not named, their claims, Safety ones too, and their saved state,
+// and the runs of flows not named. A flow can become another kind of rule, so a rule's name isn't a
+// flow's. Nothing else would end any of it, because its code has gone. Only a deploy calls it, so a
+// Safety rule goes only past the check that refuses that. An error means it should be tried again.
+func (s *server) reconcile(rules, flows []string) error {
 	if fault.Drop(fault.HostRemovals) {
 		return errors.New("dropped by a fault point")
 	}
@@ -303,7 +303,11 @@ func (s *server) reconcile(rules []string) error {
 		if slices.Contains(rules, rule) {
 			continue
 		}
-		if err := s.engine.EndRule(s.ctx, wire.Namespace, rule); err != nil {
+		err := s.engine.EndRule(s.ctx, wire.Namespace, rule)
+		if fault.Drop(fault.HostEndRule) {
+			err = errors.New("dropped by a fault point")
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", rule, err))
 			continue
 		}
@@ -334,7 +338,7 @@ func (s *server) reconcile(rules []string) error {
 	}
 	// Last, because a run's journal is the record of what it claimed.
 	for _, run := range runs {
-		if name := flow.FlowOf(run); name == "" || slices.Contains(rules, name) {
+		if name := flow.FlowOf(run); name == "" || slices.Contains(flows, name) {
 			continue
 		}
 		if err := s.journal.Delete(run); err != nil {

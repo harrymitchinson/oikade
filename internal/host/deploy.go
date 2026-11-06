@@ -40,6 +40,9 @@ type deployer struct {
 	home string
 	// running is the path of the binary the supervisor runs, or empty for none.
 	running string
+	// confirmable is a version that settled and couldn't be recorded as confirmed. Being unconfirmed
+	// doesn't say that on its own: a version the host stopped watching is unconfirmed too.
+	confirmable string
 	// swaps hands the supervisor the next binary, and connected hears of each session.
 	swaps     chan *swap
 	connected chan struct{}
@@ -73,9 +76,11 @@ func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Re
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
 	}
 	if cur, ok := d.versions.current(); ok && cur.ID == id {
-		if d.versions.state.Pending {
-			// It settled, and confirming it failed, so this is the time to try that again.
+		if d.confirmable == id {
 			return d.confirm(id)
+		}
+		if d.versions.state.Pending {
+			return api.Response{Error: "this version hasn't settled", Version: id}
 		}
 		if err := d.removals(); err != nil {
 			return api.Response{Error: removalsFailed(err), Version: id}
@@ -127,11 +132,14 @@ func (d *deployer) removals() error {
 	if !ok || !d.versions.state.Removals || d.versions.state.Pending || cur.Manifest.Protocol == 0 {
 		return nil
 	}
-	rules := slices.Clone(d.versions.state.Spared)
+	rules, flows := slices.Clone(d.versions.state.Spared), slices.Clone(d.versions.state.Spared)
 	for _, r := range cur.Manifest.Rules {
 		rules = append(rules, r.Name)
+		if r.Kind == wire.KindFlow {
+			flows = append(flows, r.Name)
+		}
 	}
-	if err := d.srv.reconcile(rules); err != nil {
+	if err := d.srv.reconcile(rules, flows); err != nil {
 		d.log.Error(err, "Failed to end what removed rules left; the next start will")
 		return err
 	}
@@ -178,6 +186,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	if err != nil {
 		return reject(api.Response{Error: fmt.Sprintf("reading what's on record: %s", err)})
 	}
+	d.confirmable = ""
 	if err := begin(version{ID: id, Manifest: manifest, At: time.Now()}, spared); err != nil {
 		return reject(api.Response{Error: fmt.Sprintf("recording the version: %s", err)})
 	}
@@ -214,8 +223,10 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 func (d *deployer) confirm(id string) api.Response {
 	if err := d.versions.commit(); err != nil {
 		d.log.Error(err, "Failed to confirm automations version", "version", id)
+		d.confirmable = id
 		return api.Response{Error: fmt.Sprintf("confirming the version, which deploying it again will retry: %s", err), Version: id}
 	}
+	d.confirmable = ""
 	if err := d.versions.prune(); err != nil {
 		d.log.Error(err, "Failed to remove old automations versions")
 	}

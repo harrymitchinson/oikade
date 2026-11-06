@@ -198,7 +198,7 @@ func main() {
 			{Name: "editable", On: []framework.Change{{Device: "edit-go", Capability: open}}, Run: editable},
 			{Name: "claiming", On: []framework.Change{{Device: "claim-flow-go", Capability: open}}, Run: claiming},
 			{Name: "failing", On: []framework.Change{{Device: "fail-go", Capability: open}}, Run: failing},
-			{Name: "parked", On: []framework.Change{{Device: "park-go", Capability: open}}, Run: parked},
+			{Name: parkedName, On: []framework.Change{{Device: "park-go", Capability: open}}, Run: parked},
 		},
 		Moments: append([]framework.Moment{
 			{
@@ -215,6 +215,9 @@ func main() {
 	})
 }
 
+// parkedName is the flow that waits, which some variants drop.
+const parkedName = "parked"
+
 // run leaves out what the variants without a rule leave out.
 func run(h framework.Home) {
 	if strings.Contains(variant, "noflow") {
@@ -223,11 +226,18 @@ func run(h framework.Home) {
 	if variant == "nofail" {
 		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "failing" })
 	}
+	if variant == "parkmoment" {
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == parkedName })
+		h.Moments = append(h.Moments, framework.Moment{
+			Name: parkedName, On: []framework.Change{{Device: "park-go", Capability: open}},
+			Do: []framework.Action{framework.Set{Device: "park-out", Capability: on, Value: true}},
+		})
+	}
 	if variant == "nofan" {
 		h.Holds = h.Holds[1:] // The fan comes first.
 	}
 	if variant == "nopark" {
-		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "parked" })
+		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == parkedName })
 	}
 	if variant == "noleak" {
 		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "leak-shutoff" })

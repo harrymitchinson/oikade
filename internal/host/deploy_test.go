@@ -352,7 +352,7 @@ func TestRemovalsWaitForKnownRules(t *testing.T) {
 
 // Confirming can fail, which leaves the version running but unconfirmed. Deploying it again retries
 // that, and doesn't call it done until it is.
-func TestRedeployingAnUnconfirmedVersionConfirmsIt(t *testing.T) {
+func TestRedeployingAVersionThatCouldntBeConfirmedRetries(t *testing.T) {
 	dir := t.TempDir()
 	data, err := store.Open(dir)
 	if err != nil {
@@ -370,6 +370,9 @@ func TestRedeployingAnUnconfirmedVersionConfirmsIt(t *testing.T) {
 	if err := data.Close(); err != nil {
 		t.Fatal(err)
 	}
+	if resp := d.confirm(id); resp.Error == "" {
+		t.Fatalf("a save to a closed store worked: %+v", resp)
+	}
 	resp := d.deploy(context.Background(), v.path(id), false)
 	if resp.Error == "" || resp.Unchanged || !v.state.Pending {
 		t.Fatalf("got %+v, %+v", resp, v.state)
@@ -382,6 +385,23 @@ func TestRedeployingAnUnconfirmedVersionConfirmsIt(t *testing.T) {
 	v.values = data.Namespace(versionsNamespace)
 	resp = d.deploy(context.Background(), v.path(id), false)
 	if resp.Error != "" || resp.Unchanged || v.state.Pending {
+		t.Fatalf("got %+v, %+v", resp, v.state)
+	}
+	if resp = d.deploy(context.Background(), v.path(id), false); !resp.Unchanged {
+		t.Fatalf("it was confirmed twice: %+v", resp)
+	}
+}
+
+// Unconfirmed alone isn't enough: nothing has said this one settled.
+func TestRedeployingAVersionThatHasntSettledConfirmsNothing(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	id := binary(t, v, "home")
+	if err := v.begin(version{ID: id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	resp := (&deployer{versions: v}).deploy(context.Background(), v.path(id), false)
+	if resp.Error == "" || resp.Unchanged || !v.state.Pending {
 		t.Fatalf("got %+v, %+v", resp, v.state)
 	}
 }

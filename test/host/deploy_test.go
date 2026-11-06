@@ -519,6 +519,111 @@ func TestAFailedVersionCleansUpOnlyWhatItMade(t *testing.T) {
 	r.expectSafetyKept()
 }
 
+// A deploy that was waiting when the host stopped says so, and confirms nothing that didn't settle.
+func TestAHostStoppingConfirmsNoDeployWaitingOnIt(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch("--settle=60s")
+	r.awaitLoaded()
+	r.change("claim-go", opened, true)
+	r.wrote("claimed", false)
+	r.sync()
+	bin := variant(t, "removed")
+	type result struct {
+		stderr string
+		err    error
+	}
+	done := make(chan result, 2)
+	deploy := func() {
+		stderr, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- result{stderr, err}
+	}
+	received := func(l line) bool { return l.is("Received API request", "type", "deploy") }
+	go deploy()
+	r.waitFor(received)
+	r.awaitLoaded()
+	go deploy()
+	r.waitFor(received)
+	r.stop()
+	for range 2 {
+		if got := <-done; got.err == nil {
+			t.Fatalf("a deploy says it worked: %s. The log:\n%s", got.stderr, r.dump())
+		}
+	}
+	if r.count(deployed) != 0 || r.count(ended) != 0 {
+		t.Fatalf("a version that never settled counted. The log:\n%s", r.dump())
+	}
+	if got := r.ruleClaims("claimed"); !holdsClaim(got, "Rule/claim-moment", -1) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// A flow that became a moment of the same name has left its run behind.
+func TestAFlowThatChangedKindLosesItsRuns(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.contact("park-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "parked") })
+	r.sync()
+	r.mustDeploy("parkmoment")
+	r.stop()
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	if runs, err := s.Journal().Runs(); err != nil || len(runs) != 0 {
+		t.Fatalf("got %v, %v. The log:\n%s", runs, err, r.dump())
+	}
+}
+
+// The override covers a gone flow's Safety claim and its run, as well as a hold's.
+func TestAllowedDeployEndsAGoneFlowsSafetyClaim(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.contact("fail-go", true)
+	r.wrote("claimed-safety", false)
+	r.sync()
+	if stderr, err := r.deploy("nofail"); err == nil || !strings.Contains(stderr, `"failing"`) {
+		t.Fatalf("got %v, %s", err, stderr)
+	}
+	r.mustDeploy("nofail", "--allow-safety-removal")
+	if r.count(ended, "rule", "failing", "highest", "Safety") != 1 {
+		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
+	}
+	r.stop()
+	if got := r.ruleClaims("claimed-safety"); holdsClaim(got, "Rule/failing", -1) {
+		t.Fatalf("got %+v", got)
+	}
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	if runs, err := s.Journal().Runs(); err != nil || len(runs) != 0 {
+		t.Fatalf("got %v, %v", runs, err)
+	}
+}
+
+// A run's journal is the record of what it claimed, so it outlasts a claim that wouldn't end.
+func TestAFailedEndKeepsARunsJournal(t *testing.T) {
+	r := flowRig(t, fmt.Sprintf("%s 1 drop\n", fault.HostEndRule))
+	r.launch(settle)
+	r.awaitLoaded()
+	r.contact("claim-flow-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.sync()
+	stderr, err := r.deploy("noflow")
+	if err == nil || !strings.Contains(stderr, "retry") {
+		t.Fatalf("got %v, %s", err, stderr)
+	}
+	const finished = "Dropped flow run; its flow has gone"
+	if r.count(finished) != 0 {
+		t.Fatalf("the journal went first. The log:\n%s", r.dump())
+	}
+	if _, err := r.deploy("noflow"); err != nil {
+		t.Fatal(err)
+	}
+	if r.count(finished) != 1 {
+		t.Fatalf("the retry left the journal. The log:\n%s", r.dump())
+	}
+}
+
 // A claim with nothing else on record is spared just the same.
 func TestAFailedVersionSparesAClaimOfARuleTheLastOneLacks(t *testing.T) {
 	r := flowRig(t, "")
