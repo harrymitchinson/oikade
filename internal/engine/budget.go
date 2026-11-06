@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"math"
 	"slices"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
@@ -31,12 +33,21 @@ const (
 	ReasonEvaluationFailed = "EvaluationFailed"
 )
 
-// budgetHold is a compiled while.budget: the spec to compile against its target's control entry,
-// which only the runtime has, and the plan and Planned condition its status held when it loaded.
+// budgetHold is a compiled budget: how to compile it against its target's control entry, which only
+// the runtime has, and the plan and Planned condition its status held when it loaded.
 type budgetHold struct {
-	spec    homev1alpha1.RuleSpec
+	compile func(*control.Entry) (*schedule.Budget, error)
 	today   *homev1alpha1.BudgetDay
 	planned *metav1.Condition
+	// saves keeps the plan in the hold's saved state, for a hold with no status to keep it in.
+	saves bool
+}
+
+// savedBudget is a plan as kept in HoldState.Budget.
+type savedBudget struct {
+	Today homev1alpha1.BudgetDay `json:"today"`
+	// Failure is why the day's budget couldn't be evaluated.
+	Failure string `json:"failure,omitempty"`
 }
 
 // BudgetReport is what the engine reports about a budget hold: status.today and the Planned
@@ -153,10 +164,12 @@ type budgetState struct {
 	// reported is the last BudgetReport, and checkpointed when its run minutes were reported.
 	reported     *BudgetReport
 	checkpointed time.Time
+	// saved is the plan for HoldState.Budget, for a hold that saves it.
+	saved string
 	// compiled is the budget compiled for the Rule's compiledGeneration against compiledControl.
 	compiled           *schedule.Budget
 	compiledGeneration int64
-	compiledControl    homev1alpha1.CapabilityControl
+	compiledControl    control.Entry
 }
 
 // budgetCondition plans the day if it hasn't been, credits the target's run, and reports
@@ -189,7 +202,7 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 	// Editing the budget waits for the next planning day, but a new target is planned for at once.
 	if p == nil || p.date != date || p.device != h.device || p.capability != h.capability {
 		prev := p
-		p = e.restorePlan(h.budget, date, end, now)
+		p = e.restorePlan(key, h.budget, hs.saved.Budget, date, end, now)
 		if p == nil {
 			read := func(device, name string) *schedule.Reading {
 				in, ok := e.Store.Get(types.NamespacedName{Namespace: key.Namespace, Name: device})
@@ -254,37 +267,48 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 // held.
 func (e *Engine) compileBudget(s *state, snap hub.Snapshot) (*schedule.Budget, BudgetReport) {
 	h, bs := s.c.hold, s.hold.budget
-	i := slices.IndexFunc(snap.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == h.capability })
+	i := slices.IndexFunc(snap.Control, func(c control.Entry) bool { return c.Capability == h.capability })
 	if i < 0 {
 		bs.compiled = nil
 		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonNoControl,
 			Message: "Device " + h.device + " has no control entry for " + h.capability + ", which a budget needs"}
 	}
-	control := snap.Control[i]
-	if bs.compiled != nil && bs.compiledGeneration == s.c.Generation && equality.Semantic.DeepEqual(bs.compiledControl, control) {
+	entry := snap.Control[i]
+	if bs.compiled != nil && bs.compiledGeneration == s.c.Generation && equality.Semantic.DeepEqual(bs.compiledControl, entry) {
 		return bs.compiled, BudgetReport{}
 	}
-	b, err := schedule.Compile(&homev1alpha1.Rule{Spec: h.budget.spec}, &control)
+	b, err := h.budget.compile(&entry)
 	if err != nil {
 		bs.compiled = nil
 		return nil, BudgetReport{Planned: metav1.ConditionFalse, Reason: ReasonInvalidBudget, Message: err.Error()}
 	}
-	bs.compiled, bs.compiledGeneration, bs.compiledControl = b, s.c.Generation, *control.DeepCopy()
+	bs.compiled, bs.compiledGeneration, bs.compiledControl = b, s.c.Generation, entry
 	return b, BudgetReport{}
 }
 
 // restorePlan returns the plan status.today held when the Rule loaded, if it's for this planning
 // day. The block in progress counts as started already. It returns nil otherwise. Run minutes not
 // yet checkpointed, at most checkpointEvery of them, are lost.
-func (e *Engine) restorePlan(bh *budgetHold, date string, end, now time.Time) *budgetPlan {
-	today := bh.today
+func (e *Engine) restorePlan(key types.NamespacedName, bh *budgetHold, saved, date string, end, now time.Time) *budgetPlan {
+	today, failure := bh.today, ""
+	// The Planned condition was written with status.today, so a failed day stays failed.
+	if c := bh.planned; c != nil && c.Reason == ReasonEvaluationFailed {
+		failure = c.Message
+	}
+	if bh.saves && saved != "" {
+		var s savedBudget
+		if err := json.Unmarshal([]byte(saved), &s); err != nil {
+			e.Log.Error(err, "Failed to read saved budget plan", "rule", key)
+			return nil
+		}
+		today, failure = &s.Today, s.Failure
+	}
 	if today == nil || today.Date != date {
 		return nil
 	}
-	p := &budgetPlan{date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute, starts: int(today.Starts)}
-	// The Planned condition was written with status.today, so a failed day stays failed.
-	if c := bh.planned; c != nil && c.Reason == ReasonEvaluationFailed {
-		p.failure = c.Message
+	p := &budgetPlan{
+		date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute, starts: int(today.Starts),
+		failure: failure,
 	}
 	p.day = schedule.Day{
 		TargetSource:     schedule.TargetSource(today.TargetSource),
@@ -356,6 +380,18 @@ func (e *Engine) reportBudget(key types.NamespacedName, s *state, now time.Time,
 		}
 	}
 	bs.reported, bs.checkpointed = &r, now
+	if s.c.hold.budget.saves && r.Today != nil {
+		saved := savedBudget{Today: *r.Today}
+		if r.Reason == ReasonEvaluationFailed {
+			saved.Failure = r.Message
+		}
+		raw, err := json.Marshal(saved)
+		if err != nil {
+			e.Log.Error(err, "Failed to save budget plan", "rule", key)
+		} else {
+			bs.saved = string(raw)
+		}
+	}
 	if e.OnBudget != nil {
 		e.OnBudget(key, r)
 	}

@@ -17,6 +17,8 @@ const (
 	Version = pluginwire.Version
 	// RoleAutomations is the one process that runs a home's holds and moments.
 	RoleAutomations = "automations"
+	// RoleDev runs the home against a simulated one, for oikade dev.
+	RoleDev = "dev"
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = pluginwire.RolePlugin
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
@@ -45,6 +47,8 @@ const (
 	TypePong            = pluginwire.TypePong
 	TypeChange     Type = "change"
 	TypeDiscovered Type = "discovered"
+	// TypeSeen is a device reporting, which a value that didn't change doesn't show.
+	TypeSeen       Type = "seen"
 	TypeClaim      Type = "claim"
 	TypeRelease    Type = "release"
 	TypeReleaseAll Type = "releaseAll"
@@ -70,6 +74,14 @@ type Manifest struct {
 	Rules    []RuleInfo `json:"rules"`
 	// Plugins names the plugins the binary imports.
 	Plugins []string `json:"plugins,omitempty"`
+	// Control is every device setting the home declares.
+	Control []DeviceControl `json:"control,omitempty"`
+}
+
+// DeviceControl is how a home arbitrates one capability of a device.
+type DeviceControl struct {
+	Device string        `json:"device"`
+	Entry  control.Entry `json:"entry"`
 }
 
 // RuleInfo is one rule of a home.
@@ -91,6 +103,8 @@ type Device struct {
 	Arbitrated   []string `json:"arbitrated,omitempty"`
 	Discovered   bool     `json:"discovered,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	// LastSeen is when the device last reported, which says how old its values are.
+	LastSeen time.Time `json:"lastSeen,omitzero"`
 	// Values are bools and numbers, by capability.
 	Values map[string]any `json:"values,omitempty"`
 }
@@ -116,6 +130,8 @@ type Message struct {
 	Rules []string `json:"rules,omitempty"`
 	// Info says what the process's rules are, for oikade status and pause.
 	Info []RuleInfo `json:"info,omitempty"`
+	// Control is every device setting the process's home declares.
+	Control []DeviceControl `json:"control,omitempty"`
 
 	// Paused is a Welcome's: rules not to run until a Resume says so.
 	Paused []string `json:"paused,omitempty"`

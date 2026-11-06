@@ -220,7 +220,7 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	devices := hub.NewStore(logr.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, devices, eng, logr.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logr.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
 		{ID: "lamp", Name: "lamp", Capabilities: []string{capability.SwitchOn}},

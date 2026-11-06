@@ -77,6 +77,8 @@ type Flow struct {
 	// Process ends when the process stops. A run stopped by that keeps its journal and resumes, and
 	// a run cancelled while it goes on, by a Restart flow's new trigger, is over.
 	Process context.Context
+	// OnPark, if set, hears a run begin waiting on the clock.
+	OnPark engine.Park
 
 	// claiming is held while a run acts, and while a run that ended badly releases its claims. A
 	// Restart flow's next run starts without waiting for the last to end, and claims under the same

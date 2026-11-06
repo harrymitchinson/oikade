@@ -530,6 +530,94 @@ spec:
   - Under `removalPolicy: Delete`, the Device gets the condition `RemovalPending` and a `RemovalPending` event. It's deleted once its device has been gone for `removalGracePeriod`, counted from the condition's `lastTransitionTime`, and the instance gets a `Removed` event. A device that comes back before then clears the condition, and the grace period starts over if it goes again. Turning `adopt` off, or taking the Device over in Git, cancels a pending removal.
   - Annotate a Device `oikade.dev/removal-policy: retain` to keep it under `Delete`. The annotation isn't a takeover, so the Device stays adopted.
 
+## Getting started in Go
+
+A home is a Go module. You need Go and the `oikade` binary, and no device, host or cluster:
+
+```sh
+go install github.com/harrymitchinson/oikade/cmd/oikade@main
+mkdir home && cd home
+oikade init
+oikade test
+```
+
+`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, using the variable `OIKADE_HOST`, as `user@address`, and the secrets `OIKADE_SSH_KEY` and `OIKADE_KNOWN_HOSTS`, which is the host's line from your `known_hosts`. `oikade types` replaces `devices.go` once you have real devices.
+
+```go
+func home() framework.Home {
+	return framework.Home{
+		Holds: []framework.Hold{{
+			Name:       "porch-light",
+			Device:     PorchLight,
+			Capability: "light.on",
+			Value:      true,
+			When: func(s framework.State) bool {
+				return s.Bool(PorchSensor, "sensor.occupancy-detected")
+			},
+			OffDelay: 5 * time.Minute,
+		}},
+	}
+}
+```
+
+`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes.
+
+`oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
+
+```text
+$ oikade dev
+Simulating 2 devices from Fri 18:41. Type help for the commands.
+set porch-sensor sensor.occupancy-detected true
+Fri 18:41 Wrote porch-light light.on = true
+Fri 18:41 Hold porch-light started
+set porch-sensor sensor.occupancy-detected false
+advance 6m
+Fri 18:46 Wrote porch-light light.on = false
+Fri 18:46 Hold porch-light ended
+```
+
+`status` shows every device and what holds it, and `restart` crashes your automations and starts them again. Your automations' log goes to standard error.
+
+`oikade test` is `go test`. The `hometest` package runs the real engine, arbiters and planner in your test: set device values, move a fake clock, and look at writes and claims. A restart in the middle of a flow is one call:
+
+```go
+func TestBedtimeSurvivesACrash(t *testing.T) {
+	h := hometest.New(t, home(), hometest.Options{})
+	h.Advance(22*time.Hour + 40*time.Minute) // Into the flow's 30-minute wait.
+	h.Restart()
+	h.Advance(21 * time.Minute)
+	h.ExpectValue(Lounge, "light.on", false)
+	h.ExpectFinished("bedtime")
+}
+```
+
+The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A mistake in a condition goes to the test's log, which `go test` shows when it fails.
+
+Arbitration and budgets are declared in the same `Home`. `Control` is [a Device's `control`](#arbitration), and a `Hold` with a `Budget` is [a budget Rule](#budgets), on the same planner:
+
+```go
+framework.Home{
+	Control: []framework.Control{{
+		Device: Dehumidifier, Capability: "switch.on", Default: false,
+		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: 2 * time.Hour,
+		MinimumOn: time.Hour, MinimumOff: 30 * time.Minute, MaximumStartsPerDay: 3,
+	}},
+	Holds: []framework.Hold{{
+		Name: "dehumidifier-daily", Device: Dehumidifier, Capability: "switch.on", Value: true,
+		Budget: &framework.Budget{
+			Bands: &framework.Bands{
+				Device: Cellar, Capability: "sensor.relative-humidity", Missing: 240,
+				Ranges: []framework.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
+			},
+			Prefer: []framework.Prefer{{Window: framework.Window{Start: "22:00", End: "06:00"}, Score: 3}},
+			Forbid: []framework.Window{{Start: "07:00", End: "08:30"}},
+		},
+	}},
+}
+```
+
+`Budget.Minutes` is a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
+
 ## Deploying to the host
 
 The host is how Oikade will run, and isn't yet ([OIK-143](https://linear.app/oikade/issue/OIK-143)). Your home is a Go module, and this replaces the running version from it:

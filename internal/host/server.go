@@ -13,6 +13,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
+	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
@@ -63,6 +64,11 @@ type server struct {
 	connected func()
 	// plugins takes the connections of plugins.
 	plugins *plugins
+	// settings, if set, takes up what a connecting process declares, and confirmedSettings replaces
+	// them with what a version that has settled declares.
+	settings, confirmedSettings func([]wire.DeviceControl) error
+	// attaching is held from a process's settings until it has attached: see open.
+	attaching sync.Mutex
 }
 
 // session is the connected automations process.
@@ -143,15 +149,8 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
 		generation: generation, rules: hello.Info,
 	}
-	welcome, runs, err := s.welcome(hello)
-	if err != nil {
-		s.log.Error(err, "Failed to read saved state for a process")
-		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "the host couldn't read its saved state"})
-		return
-	}
-	if !s.attach(sess, welcome, runs) {
-		s.log.Info("Refused automations process; one is already connected")
-		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "an automations process is already connected"})
+	if refusal := s.open(sess, hello); refusal != "" {
+		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: refusal})
 		return
 	}
 	s.log.Info("Connected automations process", "rules", len(hello.Rules))
@@ -265,6 +264,57 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 	}
 	welcome.Runs = len(runs)
 	return welcome, runs, nil
+}
+
+// open takes up a process's settings and attaches it, or says why it can't. The two go together, so
+// that a process turned away never had a say.
+func (s *server) open(sess *session, hello wire.Message) string {
+	s.attaching.Lock()
+	defer s.attaching.Unlock()
+	// Before the Welcome, so that it says what's arbitrated.
+	if err := s.takeSettings(sess.generation, hello.Control); err != nil {
+		s.log.Error(err, "Failed to save the home's device settings")
+		return "the host couldn't save the home's device settings"
+	}
+	welcome, runs, err := s.welcome(hello)
+	if err != nil {
+		s.log.Error(err, "Failed to read saved state for a process")
+		return "the host couldn't read its saved state"
+	}
+	if !s.attach(sess, welcome, runs) {
+		s.log.Info("Refused automations process; one is already connected")
+		return "an automations process is already connected"
+	}
+	return ""
+}
+
+// takeSettings takes up a process's device settings, unless attach is going to turn it away. Call
+// with attaching held.
+func (s *server) takeSettings(generation uint64, settings []wire.DeviceControl) error {
+	s.mu.Lock()
+	refused := s.session != nil || s.closed || generation != s.generation
+	s.mu.Unlock()
+	if refused || s.settings == nil {
+		return nil
+	}
+	return s.settings(settings)
+}
+
+// confirmSettings makes the device settings exactly what a settled version declares.
+func (s *server) confirmSettings(settings []wire.DeviceControl) error {
+	if s.confirmedSettings == nil {
+		return nil
+	}
+	return s.confirmedSettings(settings)
+}
+
+// safetyHeld says a Safety claim holds a capability.
+func (s *server) safetyHeld(device, name string) bool {
+	return slices.ContainsFunc(s.engine.ControlOf(key(device)), func(c homev1alpha1.CapabilityControlStatus) bool {
+		return c.Capability == name && slices.ContainsFunc(c.Claims, func(o homev1alpha1.ControlClaim) bool {
+			return o.Level == homev1alpha1.ControlLevelSafety
+		})
+	})
 }
 
 // attach makes sess the session and queues its Welcome, unless there is one already. The lock
@@ -500,6 +550,13 @@ func (s *server) Discovered(dev types.NamespacedName, _ driver.Info) {
 	s.broadcast(wire.Message{Type: wire.TypeDiscovered, Discovered: &d})
 }
 
+// Seen tells your process a device reported, which a budget's reading needs to know how old it is.
+func (s *server) Seen(dev types.NamespacedName, t time.Time) {
+	if dev.Namespace == wire.Namespace {
+		s.broadcast(wire.Message{Type: wire.TypeSeen, Device: dev.Name, Time: t})
+	}
+}
+
 // answer carries out a request and returns its Reply.
 func (s *server) answer(m wire.Message) wire.Message {
 	reply := wire.Message{Type: wire.TypeReply, ID: m.ID}
@@ -553,7 +610,7 @@ func key(name string) types.NamespacedName {
 func deviceOf(name string, snap hub.Snapshot) wire.Device {
 	d := wire.Device{
 		Name: name, Room: snap.Room, Discovered: snap.Discovered,
-		Capabilities: slices.Clone(snap.Info.Capabilities), Values: snap.Values,
+		Capabilities: slices.Clone(snap.Info.Capabilities), Values: snap.Values, LastSeen: snap.LastSeen,
 	}
 	for _, c := range snap.Control {
 		d.Arbitrated = append(d.Arbitrated, c.Capability)

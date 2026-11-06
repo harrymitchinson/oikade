@@ -13,7 +13,7 @@ import (
 // ControlSettings compiles a Device's control entry into arbiter settings. Errors name the
 // capability, so the operator can report them on the Device as they are. loc is where a day
 // starts for maximumStartsPerDay.
-func ControlSettings(c homev1alpha1.CapabilityControl, loc *time.Location) (control.Settings, error) {
+func ControlSettings(c control.Entry, loc *time.Location) (control.Settings, error) {
 	s, err := controlSettings(c, loc)
 	if err != nil {
 		return control.Settings{}, fmt.Errorf("control %s: %w", c.Capability, err)
@@ -21,7 +21,7 @@ func ControlSettings(c homev1alpha1.CapabilityControl, loc *time.Location) (cont
 	return s, nil
 }
 
-func controlSettings(c homev1alpha1.CapabilityControl, loc *time.Location) (control.Settings, error) {
+func controlSettings(c control.Entry, loc *time.Location) (control.Settings, error) {
 	spec, ok := capability.Lookup(c.Capability)
 	if !ok {
 		return control.Settings{}, errors.New("unknown capability")
@@ -38,19 +38,19 @@ func controlSettings(c homev1alpha1.CapabilityControl, loc *time.Location) (cont
 	}
 
 	var errs []error
-	if def, err := capability.ParseJSON(c.Capability, c.Default.Raw); err != nil {
+	if def, err := capability.ParseJSON(c.Capability, c.Default); err != nil {
 		errs = append(errs, fmt.Errorf("default: %w", err))
 	} else {
 		s.Default = capability.Float(def)
 	}
 	switch c.Resolve {
-	case homev1alpha1.ControlResolvePreferOn:
+	case control.NamePreferOn:
 		s.Resolve = control.On
-	case homev1alpha1.ControlResolvePreferOff:
+	case control.NamePreferOff:
 		s.Resolve = control.Off
-	case homev1alpha1.ControlResolveHighest:
+	case control.NameHighest:
 		s.Resolve = control.Highest
-	case homev1alpha1.ControlResolveLowest:
+	case control.NameLowest:
 		s.Resolve = control.Lowest
 	}
 	// Checked here rather than by the arbiter, so the message uses the API's names.
@@ -61,14 +61,14 @@ func controlSettings(c homev1alpha1.CapabilityControl, loc *time.Location) (cont
 		errs = append(errs, errors.New("resolve must be Highest or Lowest for a number capability"))
 	}
 	switch c.External {
-	case homev1alpha1.ControlExternalOverride:
+	case control.NameOverride:
 		s.External = control.ExternalOverride
-	case homev1alpha1.ControlExternalRevert:
+	case control.NameRevert:
 		s.External = control.ExternalRevert
 	}
 	switch c.OverrideHold {
 	case "":
-	case homev1alpha1.OverrideHoldNext:
+	case control.NameNext:
 		s.OverrideUntilNext = true
 	default:
 		d, err := time.ParseDuration(c.OverrideHold)
@@ -77,18 +77,10 @@ func controlSettings(c homev1alpha1.CapabilityControl, loc *time.Location) (cont
 		}
 		s.OverrideHold = d
 	}
-	if c.MinimumOn != nil {
-		s.MinimumOn = c.MinimumOn.Duration
-	}
-	if c.MaximumOn != nil {
-		s.MaximumOn = c.MaximumOn.Duration
-	}
-	if c.MinimumOff != nil {
-		s.MinimumOff = c.MinimumOff.Duration
-	}
-	if c.MaximumStartsPerDay != nil {
-		s.MaximumStartsPerDay = int(*c.MaximumStartsPerDay)
-	}
+	s.MinimumOn = time.Duration(c.MinimumOn)
+	s.MaximumOn = time.Duration(c.MaximumOn)
+	s.MinimumOff = time.Duration(c.MinimumOff)
+	s.MaximumStartsPerDay = c.MaximumStartsPerDay
 	if len(errs) == 0 {
 		// The kind, default and resolve are settled, so the arbiter's own checks report the rest.
 		errs = append(errs, s.Validate())

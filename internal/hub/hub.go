@@ -22,6 +22,7 @@ import (
 	zigbeev1alpha1 "github.com/harrymitchinson/oikade/api/zigbee/v1alpha1"
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
@@ -189,7 +190,7 @@ func metaFor(d *homev1alpha1.Device, instance driver.InstanceKey) Meta {
 	if d.Spec.RoomRef != nil {
 		m.Room = d.Spec.RoomRef.Name
 	}
-	m.Control = d.Spec.Control
+	m.Control = control.FromAPIList(d.Spec.Control)
 	return m
 }
 

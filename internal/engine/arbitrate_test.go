@@ -235,9 +235,9 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 		control: map[string][]homev1alpha1.CapabilityControl{"towel-rail": {rail}},
 	})
 	metas := map[types.NamespacedName]hub.Meta{
-		{Namespace: ns, Name: "towel-rail"}:  {Instance: z2m, Control: []homev1alpha1.CapabilityControl{rail}},
+		{Namespace: ns, Name: "towel-rail"}:  {Instance: z2m, Control: control.FromAPIList([]homev1alpha1.CapabilityControl{rail})},
 		{Namespace: ns, Name: "hall-motion"}: {Instance: z2m},
-		{Namespace: ns, Name: "bath-rail"}:   {Instance: z2m, Room: "bathroom", Control: []homev1alpha1.CapabilityControl{rail}},
+		{Namespace: ns, Name: "bath-rail"}:   {Instance: z2m, Room: "bathroom", Control: control.FromAPIList([]homev1alpha1.CapabilityControl{rail})},
 		{Namespace: ns, Name: "bath-fan"}:    {Instance: z2m, Room: "bathroom"},
 	}
 	r.store.SetDevices(z2m, metas)
@@ -317,7 +317,7 @@ func (r *rig) setControl(entries ...homev1alpha1.CapabilityControl) {
 	for name := range holdDevices {
 		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[types.NamespacedName{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: entries}
+	metas[types.NamespacedName{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: control.FromAPIList(entries)}
 	r.store.SetDevices(z2m, metas)
 }
 

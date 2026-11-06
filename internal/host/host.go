@@ -109,7 +109,11 @@ func (h *Host) Run(ctx context.Context) error {
 		sinks = append(sinks, bridge)
 	}
 	devices := hub.NewStore(h.Log.WithName("devices"), sinks...)
-	known := newInventory(devicesOnRecord, devices, eng, h.Log.WithName("registry"))
+	known := newInventory(devicesOnRecord, data.Namespace(homeSettingsNamespace), devices, eng, h.Log.WithName("registry"))
+	if err := known.loadHome(); err != nil {
+		return fmt.Errorf("reading the home's device settings: %w", err)
+	}
+	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
 	sim := &simulator{store: devices, known: known, log: h.Log.WithName("simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)

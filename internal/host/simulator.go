@@ -13,8 +13,8 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
@@ -27,10 +27,7 @@ type SimulatedDevice struct {
 	// Values are its first values, by capability.
 	Values map[string]any `json:"values,omitempty"`
 	// Control arbitrates capabilities, as a Device's spec does.
-	Control []homev1alpha1.CapabilityControl `json:"control,omitempty"`
-	// Plugin makes this no simulated device but the arbitration settings of one a plugin reports,
-	// with Name its ID there.
-	Plugin string `json:"plugin,omitempty"`
+	Control []control.Entry `json:"control,omitempty"`
 }
 
 // ReadSimulated reads the devices from a JSON file.
@@ -71,9 +68,6 @@ type simChange struct {
 func (s *simulator) start(devices []SimulatedDevice) error {
 	s.known.attach(simInstance)
 	for _, d := range devices {
-		if d.Plugin != "" {
-			continue
-		}
 		if err := s.pair(d); err != nil {
 			return err
 		}
@@ -136,10 +130,12 @@ func (s *simulator) report(dev types.NamespacedName, name string, value any) err
 	if !ok {
 		return fmt.Errorf("unknown device %s", dev.Name)
 	}
+	now := time.Now()
+	s.store.Seen(dev, now)
 	if previous, known := snap.Values[name]; known && previous == v {
 		return nil
 	}
-	s.store.Changed(driver.Update{Device: dev, Capability: name, Value: v, Previous: snap.Values[name], Time: time.Now()})
+	s.store.Changed(driver.Update{Device: dev, Capability: name, Value: v, Previous: snap.Values[name], Time: now})
 	return nil
 }
 

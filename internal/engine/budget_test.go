@@ -12,6 +12,7 @@ import (
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
 )
 
@@ -52,7 +53,7 @@ func (r *rig) setControlOf(dev string, entries ...homev1alpha1.CapabilityControl
 	for name := range holdDevices {
 		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[types.NamespacedName{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: entries}
+	metas[types.NamespacedName{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: control.FromAPIList(entries)}
 	r.store.SetDevices(z2m, metas)
 }
 

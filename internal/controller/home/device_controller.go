@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
@@ -42,7 +43,7 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	var errs []error
 	for _, c := range d.Spec.Control {
 		// The day boundary only matters to the runtime, so UTC does for validating.
-		if _, err := engine.ControlSettings(c, nil); err != nil {
+		if _, err := engine.ControlSettings(control.FromAPI(c), nil); err != nil {
 			errs = append(errs, err)
 		}
 	}

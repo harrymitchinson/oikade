@@ -24,7 +24,7 @@ A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a
 
 A device you remove with `oikade devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
 
-While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. A claim on one is written again as soon as it does, and a write its last process took with it is written again rather than read as somebody changing the device. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A plugin's device needs its arbitration settings from a `plugin` entry in the `--simulate` file until the home can declare them.
+While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. A claim on one is written again as soon as it does, and a write its last process took with it is written again rather than read as somebody changing the device. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A home declares a plugin device's arbitration settings in `framework.Home.Control`, as for any device.
 
 The messages are this contract's, on the host's socket rather than a broker, so the host checks them with the same decoder. A process that dies is marked offline by the host, as a Last Will would.
 

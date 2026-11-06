@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,14 +18,17 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/registry"
+	"github.com/harrymitchinson/oikade/internal/store"
 )
 
 // inventory keeps the live devices in step with the registry: the registry decides what exists and
 // what it's called, and each driver instance sees its own devices there.
 type inventory struct {
 	registry *registry.Registry
+	settings *store.Namespace
 	store    *hub.Store
 	engine   *engine.Engine
 	log      logr.Logger
@@ -34,11 +38,19 @@ type inventory struct {
 	// mu orders changes, so that the hub takes them up in the registry's order.
 	mu        sync.Mutex
 	instances map[string]driver.InstanceKey
+	// home is the device settings your home declares, which win over any on record.
+	home []wire.DeviceControl
 }
 
-func newInventory(reg *registry.Registry, store *hub.Store, eng *engine.Engine, log logr.Logger) *inventory {
+// homeSettingsNamespace keeps the device settings of the home last attached.
+const (
+	homeSettingsNamespace = "home-settings"
+	homeSettingsKey       = "control"
+)
+
+func newInventory(reg *registry.Registry, settings *store.Namespace, devices *hub.Store, eng *engine.Engine, log logr.Logger) *inventory {
 	return &inventory{
-		registry: reg, store: store, engine: eng, log: log, instances: map[string]driver.InstanceKey{},
+		registry: reg, settings: settings, store: devices, engine: eng, log: log, instances: map[string]driver.InstanceKey{},
 	}
 }
 
@@ -60,7 +72,7 @@ func (i *inventory) attach(instance driver.InstanceKey) {
 
 // paired records hardware a driver reports. It's in the registry and usable when this returns.
 func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
-	entries []homev1alpha1.CapabilityControl,
+	entries []control.Entry,
 ) (types.NamespacedName, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -91,13 +103,93 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 	if !ok || d.Removed || d.ID == "" {
 		return hub.Meta{}, false
 	}
-	var entries []homev1alpha1.CapabilityControl
+	var entries []control.Entry
 	if len(d.Control) > 0 {
 		if err := json.Unmarshal(d.Control, &entries); err != nil {
 			i.log.Error(err, "Ignored unreadable arbitration settings", "device", d.Name)
 		}
 	}
-	return hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: entries}, true
+	return hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.withHome(d.Name, entries)}, true
+}
+
+// withHome is what's on record for a device, overlaid with what the home says. Call with mu held.
+func (i *inventory) withHome(name string, entries []control.Entry) []control.Entry {
+	var out []control.Entry
+	for _, e := range entries {
+		if !slices.ContainsFunc(i.home, func(c wire.DeviceControl) bool {
+			return c.Device == name && c.Entry.Capability == e.Capability
+		}) {
+			out = append(out, e)
+		}
+	}
+	for _, c := range i.home {
+		if c.Device == name {
+			out = append(out, c.Entry)
+		}
+	}
+	return out
+}
+
+// loadHome takes up the settings saved by the last process to attach. They're there before any
+// process is: arbitration, Safety claims included, doesn't wait for your code to start.
+func (i *inventory) loadHome() error {
+	raw, ok, err := i.settings.Get(homeSettingsKey)
+	if err != nil || !ok {
+		return err
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return json.Unmarshal(raw, &i.home)
+}
+
+// takeHome takes up the settings of a process that's connecting, which adds and changes them. It
+// removes none: that ends claims, and this version hasn't proved itself. setHome does, once it has.
+func (i *inventory) takeHome(settings []wire.DeviceControl) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	merged := slices.Clone(settings)
+	for _, c := range i.home {
+		if !slices.ContainsFunc(settings, func(n wire.DeviceControl) bool {
+			return n.Device == c.Device && n.Entry.Capability == c.Entry.Capability
+		}) {
+			merged = append(merged, c)
+		}
+	}
+	return i.saveHome(merged)
+}
+
+// setHome replaces the device settings the home declares.
+func (i *inventory) setHome(settings []wire.DeviceControl) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.saveHome(settings)
+}
+
+// saveHome saves settings first, so a host that restarts arbitrates what the running code said. Call
+// with mu held.
+func (i *inventory) saveHome(settings []wire.DeviceControl) error {
+	if slices.EqualFunc(i.home, settings, sameSetting) {
+		return nil
+	}
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	if err := i.settings.Put(homeSettingsKey, raw); err != nil {
+		return err
+	}
+	i.home = settings
+	i.sync()
+	return nil
+}
+
+func sameSetting(a, b wire.DeviceControl) bool {
+	x, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	y, err := json.Marshal(b)
+	return err == nil && bytes.Equal(x, y)
 }
 
 // key finds a driver's device in the hub.

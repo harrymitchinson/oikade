@@ -143,6 +143,10 @@ func (d *deployer) removals() error {
 		d.log.Error(err, "Failed to end what removed rules left; the next start will")
 		return err
 	}
+	if err := d.srv.confirmSettings(cur.Manifest.Control); err != nil {
+		d.log.Error(err, "Failed to drop removed device settings; the next start will")
+		return err
+	}
 	if err := d.versions.removalsDone(); err != nil {
 		d.log.Error(err, "Failed to record that removed rules have gone", "version", cur.ID)
 	}
@@ -171,7 +175,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	if cur, ok := d.versions.current(); ok {
 		old = cur.Manifest
 	}
-	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace))
+	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace), d.srv.safetyHeld)
 	if d.running != "" && old.Protocol == 0 {
 		findings = append(findings, "the running version couldn't be kept or checked, so a Safety rule it has can't be seen, and a failed deploy has nothing to go back to")
 	}
@@ -197,7 +201,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		if allow {
 			return nil
 		}
-		late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace))
+		late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace), d.srv.safetyHeld)
 		if len(late) > 0 {
 			return errLateClaim
 		}
@@ -310,7 +314,7 @@ func (d *deployer) latest() (version, bool) {
 // safetyFindings lists what a new version would lose. A Safety rule's claims end with it, which could
 // reopen a valve, and a latch dies with its name, so a rule renamed is one removed. held catches a
 // Safety claim the rule's own declaration doesn't show, such as one a flow makes in a step.
-func safetyFindings(old, next wire.Manifest, held map[string]control.Level) []string {
+func safetyFindings(old, next wire.Manifest, held map[string]control.Level, safetyHeld func(device, capability string) bool) []string {
 	stays := func(name string) bool {
 		return slices.ContainsFunc(next.Rules, func(r wire.RuleInfo) bool { return r.Name == name })
 	}
@@ -330,6 +334,15 @@ func safetyFindings(old, next wire.Manifest, held map[string]control.Level) []st
 	for rule, level := range held {
 		if level >= control.Safety && !named[rule] && !stays(rule) {
 			findings = append(findings, fmt.Sprintf("rule %q is gone and holds a Safety claim, which would end", rule))
+		}
+	}
+	// A device stops being arbitrated with its Control, and that ends every claim on it.
+	for _, c := range old.Control {
+		kept := slices.ContainsFunc(next.Control, func(n wire.DeviceControl) bool {
+			return n.Device == c.Device && n.Entry.Capability == c.Entry.Capability
+		})
+		if !kept && safetyHeld(c.Device, c.Entry.Capability) {
+			findings = append(findings, fmt.Sprintf("%s on %s has no Control any more, which would end a Safety claim on it", c.Entry.Capability, c.Device))
 		}
 	}
 	slices.Sort(findings)

@@ -111,6 +111,11 @@ type Engine struct {
 	OnBudget func(key types.NamespacedName, r BudgetReport)
 	// Budget are the budget holds' metrics. Nil exports none.
 	Budget *BudgetMetrics
+	// OnEnd, if set, hears a run that OnStart heard end, with its result. OnPark, if set, hears a run
+	// begin waiting. Together they let a simulated home tell a run that's waiting from one that's
+	// working.
+	OnEnd  func(key types.NamespacedName, result string)
+	OnPark Park
 
 	events chan driver.Update
 	// wake makes Run look at the timers again.
@@ -615,6 +620,9 @@ func (e *Engine) launch(ctx context.Context, key types.NamespacedName, s *state,
 		defer cancel()
 		result := body(runCtx)
 		e.count(key, result)
+		if e.OnEnd != nil {
+			defer e.OnEnd(key, result)
+		}
 
 		e.mu.Lock()
 		defer e.mu.Unlock()
@@ -639,11 +647,15 @@ func (e *Engine) runActions(ctx context.Context, key types.NamespacedName, c *Co
 	failed := false
 	for _, a := range c.actions {
 		if a.delay > 0 {
+			timer := e.Clock.After(a.delay)
+			unpark := e.OnPark.Wait(e.Clock.Now().Add(a.delay), nil)
 			select {
 			case <-ctx.Done():
+				unpark()
 				return ResultCancelled, skipped
-			case <-e.Clock.After(a.delay):
+			case <-timer:
 			}
+			unpark()
 			continue
 		}
 		if ctx.Err() != nil {
@@ -752,6 +764,56 @@ func (e *Engine) reportSkipped(key types.NamespacedName, skipped []string) {
 		e.OnSkipped(key, skipped)
 	}
 }
+
+// Park hears that a run is waiting until wake, or until woken closes if that's not nil, and returns
+// what the run calls when it stops. It must not block.
+type Park func(wake time.Time, woken <-chan struct{}) (unpark func())
+
+// Wait is p, or nothing if p isn't set.
+func (p Park) Wait(wake time.Time, woken <-chan struct{}) func() {
+	if p == nil {
+		return func() {}
+	}
+	return p(wake, woken)
+}
+
+// Idle reports that the engine has caught up with the clock: nothing is queued, every rule has looked
+// and every write has finished. waiters says whether something waits on the clock, which is how a
+// timer just armed shows. A run's own progress isn't covered: see OnEnd and OnPark.
+func (e *Engine) Idle(waiters func() bool) bool {
+	e.mu.Lock()
+	empty := len(e.rules) == 0 && len(e.arbs) == 0
+	e.mu.Unlock()
+	if len(e.events) > 0 || !empty && !e.earliest().IsZero() && !waiters() {
+		return false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.Clock.Now()
+	if len(e.controlDue) > 0 {
+		return false
+	}
+	for _, arbs := range e.arbs {
+		for _, ar := range arbs {
+			if ar.writing || !ar.next.IsZero() && !ar.next.After(now) {
+				return false
+			}
+		}
+	}
+	for _, s := range e.rules {
+		if s.hold != nil && (!s.hold.loaded || s.hold.writing || s.next.At.IsZero()) {
+			return false
+		}
+		if !s.next.At.IsZero() && !s.next.At.After(now) {
+			return false
+		}
+	}
+	return true
+}
+
+// Earliest is when the engine next has something to do without a device changing. Zero means
+// nothing.
+func (e *Engine) Earliest() time.Time { return e.earliest() }
 
 func (e *Engine) count(key types.NamespacedName, result string) {
 	if e.Runs != nil {

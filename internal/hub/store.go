@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 
-	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 )
 
@@ -25,12 +25,12 @@ type Meta struct {
 	// Instance is the driver instance the device belongs to.
 	Instance driver.InstanceKey
 	// Control is the Device's control entries: the capabilities it arbitrates, and how.
-	Control []homev1alpha1.CapabilityControl
+	Control []control.Entry
 }
 
 // Controls reports whether the Device arbitrates the capability.
 func (m Meta) Controls(name string) bool {
-	return slices.ContainsFunc(m.Control, func(c homev1alpha1.CapabilityControl) bool { return c.Capability == name })
+	return slices.ContainsFunc(m.Control, func(c control.Entry) bool { return c.Capability == name })
 }
 
 // Snapshot is a copy of one device's state.

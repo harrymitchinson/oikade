@@ -12,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	homev1alpha1 "github.com/harrymitchinson/oikade/api/home/v1alpha1"
+	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
 var env = mustEnv()
@@ -178,7 +180,11 @@ func keepBudget(a *homev1alpha1.Rule, c *Compiled) {
 		c.staleBudget = a.Status.Today != nil || planned != nil
 		return
 	}
-	c.hold.budget = &budgetHold{spec: *a.Spec.DeepCopy(), today: a.Status.Today.DeepCopy(), planned: planned.DeepCopy()}
+	rule := &homev1alpha1.Rule{Spec: *a.Spec.DeepCopy()}
+	c.hold.budget = &budgetHold{
+		compile: func(e *control.Entry) (*schedule.Budget, error) { return schedule.Compile(rule, e) },
+		today:   a.Status.Today.DeepCopy(), planned: planned.DeepCopy(),
+	}
 }
 
 // compileActions validates a moment's actions.

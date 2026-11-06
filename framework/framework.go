@@ -23,6 +23,7 @@ package framework
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -34,9 +35,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -123,13 +126,15 @@ func (c Condition) toEngine() engine.Condition {
 	}
 }
 
-// Window is when a hold may be active, from Start until the next End, each "HH:MM".
+// Window is when a hold may be active, from Start until the next End, each "HH:MM", starting on Days
+// or on any day.
 type Window struct {
 	Start, End string
+	Days       []time.Weekday
 }
 
 // Hold keeps a capability at Value while its Window is open and When is true. It needs at least
-// one of them. Name it once: its state is kept by name.
+// one of them, or a Budget on its own. Name it once: its state is kept by name.
 type Hold struct {
 	Name       string
 	Device     string
@@ -144,6 +149,115 @@ type Hold struct {
 	OnDelay, OffDelay time.Duration
 	// Latch keeps the hold active once it starts, until a Release.
 	Latch bool
+	// Budget plans when the hold is active each day. It holds one device's bool capability at true,
+	// which needs a Control, whose limits it plans around.
+	Budget *Budget
+}
+
+// Budget places a number of minutes a day in the best slots.
+type Budget struct {
+	// PlanningTime starts each planning day, as "HH:MM". Empty means midnight.
+	PlanningTime string
+	// SlotMinutes is the length of the slots the day is planned in: 15, 30 or 60. Zero means 30.
+	SlotMinutes int
+	// Minutes works out the day's minutes at PlanningTime. A device that hasn't reported, or a panic,
+	// makes it zero for the day, and that's logged. Set this or Bands.
+	Minutes func(State) int
+	// Bands picks the day's minutes from a reading. Set this or Minutes.
+	Bands *Bands
+	// Prefer weights slots. Forbid rules them out, and beats a Prefer.
+	Prefer []Prefer
+	Forbid []Window
+}
+
+// Prefer weights the slots in a window, whose times are "HH:MM".
+type Prefer struct {
+	Window Window
+	Score  int
+}
+
+// Bands picks a day's minutes from the band a reading falls in.
+type Bands struct {
+	// Device and Capability are the reading, a number.
+	Device, Capability string
+	// MaxAge is how old the reading may be. Zero means 30 minutes.
+	MaxAge time.Duration
+	// Missing is the minutes when there's no reading that recent.
+	Missing int
+	// Ranges ascend by Below, and the first the reading is below wins.
+	Ranges []Band
+	// Otherwise is the minutes for a reading above them all.
+	Otherwise int
+}
+
+// Band is the minutes for readings below Below.
+type Band struct {
+	Below   float64
+	Minutes int
+}
+
+// Resolve picks between claims at the same level.
+type Resolve string
+
+const (
+	// PreferOn makes on win, for a bool capability.
+	PreferOn Resolve = "PreferOn"
+	// PreferOff makes off win, for a bool capability.
+	PreferOff Resolve = "PreferOff"
+	// Highest makes the highest win, for a number capability.
+	Highest Resolve = "Highest"
+	// Lowest makes the lowest win, for a number capability.
+	Lowest Resolve = "Lowest"
+)
+
+// External says what a change from outside your automations does, such as a tap in the Home app.
+type External string
+
+const (
+	// ExternalOverride holds the change as an Override claim, for OverrideHold.
+	ExternalOverride External = "Override"
+	// ExternalRevert puts the capability back.
+	ExternalRevert External = "Revert"
+)
+
+// Control arbitrates a capability of a device: rules claim it rather than write it, and the host
+// picks the winner, including when your automations aren't running. Name the device as your rules
+// do.
+type Control struct {
+	Device     string
+	Capability string
+	// Default is the value with no claims: a bool or a number.
+	Default  any
+	Resolve  Resolve
+	External External
+	// OverrideHold is how long an ExternalOverride lasts, unless OverrideUntilNext.
+	OverrideHold time.Duration
+	// OverrideUntilNext ends an ExternalOverride when the value without it next changes.
+	OverrideUntilNext bool
+	// MinimumOn and MinimumOff are the shortest run and rest. MaximumOn stops a longer run, and then
+	// rests for MinimumOff, or until nothing wants it on.
+	MinimumOn, MaximumOn, MinimumOff time.Duration
+	// MaximumStartsPerDay limits off-to-on transitions. Zero means unlimited.
+	MaximumStartsPerDay int
+}
+
+func (c Control) entry() (control.Entry, error) {
+	raw, err := json.Marshal(c.Default)
+	if err != nil {
+		return control.Entry{}, fmt.Errorf("default: %w", err)
+	}
+	e := control.Entry{
+		Capability: c.Capability, Default: raw, Resolve: string(c.Resolve), External: string(c.External),
+		MinimumOn: control.Duration(c.MinimumOn), MaximumOn: control.Duration(c.MaximumOn),
+		MinimumOff: control.Duration(c.MinimumOff), MaximumStartsPerDay: c.MaximumStartsPerDay,
+	}
+	switch {
+	case c.OverrideUntilNext:
+		e.OverrideHold = control.NameNext
+	case c.OverrideHold != 0:
+		e.OverrideHold = c.OverrideHold.String()
+	}
+	return e, nil
 }
 
 // Change is a capability changing on a device or on any device in a room.
@@ -280,6 +394,8 @@ type Home struct {
 	Holds   []Hold
 	Moments []Moment
 	Flows   []Flow
+	// Control says which capabilities are arbitrated, and how.
+	Control []Control
 	// Plugins are the plugins your home imports.
 	Plugins []Plugin
 }
@@ -318,8 +434,13 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		}
 		rules = append(rules, c)
 	}
+	settings, err := h.settings()
+	errs = append(errs, err)
 	for _, r := range h.Holds {
 		c, err := engine.NewHold(name(r.Name), r.toEngine())
+		if err == nil {
+			err = r.checkBudget(settings)
+		}
 		add(r.Name, c, err)
 	}
 	for _, r := range h.Moments {
@@ -347,6 +468,36 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	return rules, flows, errors.Join(errs...)
 }
 
+// settings checks the home's Control and turns it into what the host takes.
+func (h Home) settings() ([]wire.DeviceControl, error) {
+	var out []wire.DeviceControl
+	var errs []error
+	for _, c := range h.Control {
+		bad := func(err error) { errs = append(errs, fmt.Errorf("control %s on %s: %w", c.Capability, c.Device, err)) }
+		if c.Device == "" {
+			bad(errors.New("a device is required"))
+		}
+		if slices.ContainsFunc(out, func(o wire.DeviceControl) bool {
+			return o.Device == c.Device && o.Entry.Capability == c.Capability
+		}) {
+			bad(errors.New("declared twice"))
+		}
+		if c.OverrideUntilNext && c.OverrideHold != 0 {
+			bad(errors.New("OverrideHold and OverrideUntilNext are alternatives"))
+		}
+		e, err := c.entry()
+		if err == nil {
+			_, err = engine.ControlSettings(e, nil)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("device %s: %w", c.Device, err))
+			continue
+		}
+		out = append(out, wire.DeviceControl{Device: c.Device, Entry: e})
+	}
+	return out, errors.Join(errs...)
+}
+
 // manifest describes the home to the host, which judges a new version by it.
 func (h Home) manifest() wire.Manifest {
 	m := wire.Manifest{Protocol: wire.Version}
@@ -362,6 +513,8 @@ func (h Home) manifest() wire.Manifest {
 	for _, p := range h.Plugins {
 		m.Plugins = append(m.Plugins, p.Name)
 	}
+	// A home with a mistake in its settings doesn't compile, and never gets this far.
+	m.Control, _ = h.settings()
 	return m
 }
 
@@ -414,12 +567,76 @@ func (r Hold) toEngine() engine.Hold {
 	h := engine.Hold{
 		Device: r.Device, Room: r.Room, Capability: r.Capability, Value: r.Value,
 		Priority: engine.Priority(r.Priority), When: r.When.toEngine(),
-		OnDelay: r.OnDelay, OffDelay: r.OffDelay, Latch: r.Latch,
+		OnDelay: r.OnDelay, OffDelay: r.OffDelay, Latch: r.Latch, Budget: r.Budget.toSchedule(),
 	}
 	if r.Window != nil {
-		h.Window = &engine.Window{Start: engine.At{Time: r.Window.Start}, End: engine.At{Time: r.Window.End}}
+		h.Window = &engine.Window{
+			Start: engine.At{Time: r.Window.Start}, End: engine.At{Time: r.Window.End}, Days: r.Window.Days,
+		}
 	}
 	return h
+}
+
+// checkBudget checks a hold's budget against its Control, which the engine can't see until the
+// device has reported, so that a mistake here fails oikade check rather than today's plan.
+func (r Hold) checkBudget(settings []wire.DeviceControl) error {
+	if r.Budget == nil {
+		return nil
+	}
+	i := slices.IndexFunc(settings, func(c wire.DeviceControl) bool {
+		return c.Device == r.Device && c.Entry.Capability == r.Capability
+	})
+	if i < 0 {
+		return fmt.Errorf("a budget needs a Control for %s on %s", r.Capability, r.Device)
+	}
+	spec := *r.Budget.toSchedule()
+	spec.Device, spec.Capability, spec.Value = r.Device, r.Capability, r.Value
+	_, err := schedule.CompileSpec(spec, &settings[i].Entry)
+	return err
+}
+
+func (b *Budget) toSchedule() *schedule.Spec {
+	if b == nil {
+		return nil
+	}
+	s := &schedule.Spec{PlanningTime: b.PlanningTime, SlotMinutes: b.SlotMinutes}
+	if m := b.Minutes; m != nil {
+		s.Minutes = func(devices map[string]map[string]any, now time.Time, _ *time.Location) (minutes int, err error) {
+			// The engine plans holding its lock, so a mistake here must end as a failed day.
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("%v", r)
+				}
+			}()
+			_, err = Condition(func(st State) bool {
+				minutes = m(st)
+				return true
+			}).toEngine()(engine.Vars{"devices": devices, "now": now})
+			return minutes, err
+		}
+	}
+	if in := b.Bands; in != nil {
+		bands := &schedule.BandSpec{
+			Device: in.Device, Capability: in.Capability, MaxAge: in.MaxAge, MissingMinutes: in.Missing,
+		}
+		for _, r := range in.Ranges {
+			below := r.Below
+			bands.Ranges = append(bands.Ranges, schedule.Band{Below: &below, Minutes: r.Minutes})
+		}
+		bands.Ranges = append(bands.Ranges, schedule.Band{Minutes: in.Otherwise})
+		s.Bands = bands
+	}
+	for _, p := range b.Prefer {
+		s.Prefer = append(s.Prefer, schedule.PreferSpec{Window: p.Window.toSchedule(), Score: p.Score})
+	}
+	for _, f := range b.Forbid {
+		s.Forbid = append(s.Forbid, f.toSchedule())
+	}
+	return s
+}
+
+func (w Window) toSchedule() schedule.WindowSpec {
+	return schedule.WindowSpec{Start: w.Start, End: w.End, Days: w.Days}
 }
 
 // safety reports whether the moment has a Safety set.
@@ -450,7 +667,7 @@ func (r Moment) toEngine() engine.Moment {
 // writes and no session. Anything else is an error, because the home has nothing to do without the
 // host.
 func Run(h Home) {
-	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
+	log := logr.FromSlogHandler(slog.NewJSONHandler(logOutput(), nil))
 	if err := run(h, log); err != nil {
 		log.Error(err, "Stopped process")
 		fmt.Fprintln(os.Stderr, "Error:", err)
