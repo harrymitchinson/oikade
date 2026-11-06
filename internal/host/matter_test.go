@@ -116,16 +116,17 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 	}
 
 	setter := &writes{}
-	restored := 0
+	var restored []any
 	w := &matterWrites{
 		engine: eng, devices: devices, setter: setter,
-		restore: func(types.NamespacedName, string) { restored++ },
+		restore: func(_ types.NamespacedName, _ string, otherwise any) { restored = append(restored, otherwise) },
 	}
 	if err := w.Set(context.Background(), dev, capability.SwitchOn, true); err == nil {
 		t.Error("the write was let through")
 	}
-	if setter.calls != 0 || restored != 1 {
-		t.Errorf("writes %d, restored %d", setter.calls, restored)
+	// The device hasn't reported, so the claim is all a controller can be told.
+	if setter.calls != 0 || len(restored) != 1 || restored[0] != false {
+		t.Errorf("writes %d, restored %v", setter.calls, restored)
 	}
 	// What the claim wants anyway is no trouble.
 	if err := w.Set(context.Background(), dev, capability.SwitchOn, false); err != nil {
@@ -137,6 +138,52 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 	// Nor is a capability it doesn't hold.
 	if err := w.Set(context.Background(), dev, capability.LightLevel, 50.0); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestAFailedWriteTakesTheControllerBack(t *testing.T) {
+	data := openStore(t, t.TempDir())
+	t.Cleanup(func() { _ = data.Close() })
+	eng := &engine.Engine{
+		Log:      logr.Discard(),
+		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()},
+	}
+	devices := hub.NewStore(logr.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	restored := 0
+	w := &matterWrites{
+		engine: eng, devices: devices, setter: &writes{err: errors.New("no answer")},
+		restore: func(types.NamespacedName, string, any) { restored++ },
+	}
+	if err := w.Set(context.Background(), key("fan"), capability.SwitchOn, true); err == nil {
+		t.Error("the failure was lost")
+	}
+	if restored != 1 {
+		t.Errorf("restored %d", restored)
+	}
+}
+
+// TestAClaimOnWhatsNoLongerArbitratedRefusesNothing is a stale record: a device that says it doesn't
+// arbitrate a capability has nothing to enforce a claim with, and would refuse writes for good.
+func TestAClaimOnWhatsNoLongerArbitratedRefusesNothing(t *testing.T) {
+	data := openStore(t, t.TempDir())
+	t.Cleanup(func() { _ = data.Close() })
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()}
+	eng := &engine.Engine{Log: logr.Discard(), Controls: controls}
+	devices := hub.NewStore(logr.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	dev := key("valve")
+	devices.SetDevices(simInstance, map[types.NamespacedName]hub.Meta{dev: {Instance: simInstance}})
+	saved := engine.ControlState{capability.SwitchOn: control.State{
+		Claims: []control.Claim{{Source: "Rule/gone", Level: control.Safety}},
+	}}
+	if err := controls.Put(context.Background(), dev, saved); err != nil {
+		t.Fatal(err)
+	}
+	if holder, _ := heldAtSafety(eng, devices, dev, capability.SwitchOn, true); holder != "" {
+		t.Errorf("held by %s", holder)
 	}
 }
 

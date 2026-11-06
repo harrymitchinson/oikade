@@ -3,6 +3,7 @@ package matterbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -98,12 +99,17 @@ func (b *Bridge) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, er
 	return ctrl.Result{}, b.Apply(logf.FromContext(ctx), want)
 }
 
-// Restore puts a capability's clusters back to the device's value, after a write that was refused.
-func (b *Bridge) Restore(dev types.NamespacedName, name string) {
+// Restore takes a capability's clusters back after a write that didn't happen: to the device's value,
+// or to otherwise if the device hasn't reported one. Nil leaves them.
+func (b *Bridge) Restore(dev types.NamespacedName, name string, otherwise any) {
+	v := otherwise
 	if snap, ok := b.Store.Get(dev); ok {
-		if v, known := snap.Values[name]; known {
-			b.Changed(driver.Update{Device: dev, Capability: name, Value: v})
+		if known, has := snap.Values[name]; has {
+			v = known
 		}
+	}
+	if v != nil {
+		b.Changed(driver.Update{Device: dev, Capability: name, Value: v})
 	}
 }
 
@@ -128,20 +134,17 @@ func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
 		delete(b.endpoints, id)
 		log.Info("Removed bridged device", "device", e.device(), "endpoint", id)
 	}
-	// Names can swap, so what each endpoint is called now is worked out in one go.
-	stale := map[*endpoint]bool{}
+	// Names can swap, so what each endpoint is called now is worked out in one go. Different hardware
+	// can have taken a name with no event at all, so each is brought up to date.
 	byDevice := map[types.NamespacedName]*endpoint{}
 	for id, e := range b.endpoints {
 		d := want[id]
+		e.key.Store(&d.Key)
+		e.absent = d.Absent
 		byDevice[d.Key] = e
-		if e.device() != d.Key || e.absent != d.Absent {
-			e.key.Store(&d.Key)
-			e.absent = d.Absent
-			stale[e] = true
-		}
 	}
 	b.byDevice = byDevice
-	for e := range stale {
+	for _, e := range b.endpoints {
 		b.refresh(e)
 	}
 	ids := make([]uint16, 0, len(want))
@@ -149,6 +152,7 @@ func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
+	var failed error
 	for _, id := range ids {
 		if b.endpoints[id] != nil {
 			continue
@@ -159,7 +163,8 @@ func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
 		e.mapped = Map(d, func(name string, value any) { b.Writes.Add(e.device(), name, value) })
 		info, err := b.Matter.AddDeviceTypes(id, e.mapped.Types, e.label, d.uniqueID(), e.mapped.Clusters...)
 		if err != nil {
-			return fmt.Errorf("adding %s on endpoint %d: %w", d.Key, id, err)
+			failed = errors.Join(failed, fmt.Errorf("adding %s on endpoint %d: %w", d.Key, id, err))
+			continue
 		}
 		e.info = info
 		b.endpoints[id], b.byDevice[d.Key] = e, e
@@ -167,7 +172,7 @@ func (b *Bridge) Apply(log logr.Logger, want map[uint16]Device) error {
 		b.refresh(e)
 		log.Info("Added bridged device", "device", d.Key, "endpoint", id, "types", len(e.mapped.Types))
 	}
-	return nil
+	return failed
 }
 
 // refresh brings an endpoint's clusters up to date with the device it's for.

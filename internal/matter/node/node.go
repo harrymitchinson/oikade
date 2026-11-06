@@ -67,7 +67,9 @@ type Config struct {
 	// FabricsChanged, if set, is called after a fabric is committed or removed. It runs in the
 	// order of the changes, and may block briefly.
 	FabricsChanged func()
-	Log            logr.Logger
+	// Listening, if set, is called once the node's sockets are open.
+	Listening func()
+	Log       logr.Logger
 }
 
 // advertiser is what the node needs of an mDNS responder.
@@ -227,6 +229,9 @@ func (n *Node) Run(ctx context.Context) error {
 
 	served := make(chan error, 1)
 	go func() { served <- tr.Serve(ctx) }()
+	if n.cfg.Listening != nil {
+		n.cfg.Listening()
+	}
 
 	// Each fabric's controllers look for the node as soon as it's back, so advertise them all at
 	// once rather than probing one after another.

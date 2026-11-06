@@ -299,7 +299,7 @@ func earliestOf(a, b time.Time) time.Time {
 
 // writeControl writes a decision, records it, and decides again.
 func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, name string, ar *arb, value float64) {
-	err := e.Setter.Set(ctx, dev, name, valueOf(name, value))
+	err := e.Setter.Set(ctx, dev, name, ValueOf(name, value))
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ar.writing = false
@@ -325,8 +325,8 @@ func (e *Engine) writeControl(ctx context.Context, dev types.NamespacedName, nam
 	e.signal()
 }
 
-// valueOf turns an arbiter value into the capability's value.
-func valueOf(name string, v float64) any {
+// ValueOf turns an arbiter value into the capability's value.
+func ValueOf(name string, v float64) any {
 	if spec, ok := capability.Lookup(name); ok && spec.Kind == homev1alpha1.CapabilityKindBool {
 		return v != 0
 	}
@@ -607,19 +607,19 @@ func (e *Engine) SavedClaims(dev types.NamespacedName) []control.Claim {
 	return claims
 }
 
-// SavedSafety names a Safety claim on record against value, for a capability with no arbiter yet.
-func (e *Engine) SavedSafety(dev types.NamespacedName, name string, value float64) string {
+// SavedSafety finds a Safety claim on record against value, for a capability with no arbiter yet.
+func (e *Engine) SavedSafety(dev types.NamespacedName, name string, value float64) (control.Claim, bool) {
 	saved, ok := e.Controls.Get(dev)
 	if !ok {
-		return ""
+		return control.Claim{}, false
 	}
 	now := e.Clock.Now()
 	for _, c := range saved[name].Claims {
 		if c.Level == control.Safety && c.Value != value && (c.Expires.IsZero() || c.Expires.After(now)) {
-			return c.Source
+			return c, true
 		}
 	}
-	return ""
+	return control.Claim{}, false
 }
 
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
@@ -753,7 +753,7 @@ func levelName(l control.Level) homev1alpha1.ControlLevel {
 }
 
 func jsonValue(name string, v float64) apiextensionsv1.JSON {
-	raw, _ := json.Marshal(valueOf(name, v))
+	raw, _ := json.Marshal(ValueOf(name, v))
 	return apiextensionsv1.JSON{Raw: raw}
 }
 

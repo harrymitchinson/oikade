@@ -254,6 +254,16 @@ func TestARenameKeepsTheBridgedDevice(t *testing.T) {
 		t.Errorf("unique ID %v became %v", unique, got)
 	}
 	c.reachesHardware("alarm", "siren")
+
+	// A restart builds the endpoint again, which is when a unique ID from the name would change.
+	c.r.stop()
+	c.r.launch(matterFlag(c.port))
+	c.r.waitFor(func(l line) bool { return l.is(attached) })
+	c.r.until("the fabric", func() bool { return c.r.matter().Serving })
+	c.admin = c.cm.CASE(nodetest.Addr(c.port))
+	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
+		t.Errorf("after a restart, unique ID %v became %v", unique, got)
+	}
 }
 
 func TestAControllerGoesThroughArbitration(t *testing.T) {
@@ -296,12 +306,43 @@ func TestATakenPortLeavesTheHomeRunning(t *testing.T) {
 	}
 	defer func() { _ = pc.Close() }()
 	r := start(t, matterFlag(uint16(pc.LocalAddr().(*net.UDPAddr).Port)))
-	r.until("the bridge to give up", func() bool { return !r.matter().Serving })
+	r.until("the bridge to give up", func() bool { return r.count("Matter bridge stopped") > 0 })
+	if m := r.matter(); m.Serving {
+		t.Errorf("it says it's serving: %+v", m)
+	}
 	r.change("leak-sensor", "sensor.contact-open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
-	if out := string(r.stdout(nil, "matter")); !strings.Contains(out, "down") {
+	out := string(r.stdout(nil, "matter"))
+	if !strings.Contains(out, "down") || strings.Contains(out, "window") {
 		t.Errorf("oikade matter says: %s", out)
 	}
+}
+
+func TestAnInterfaceThatIsntThereLeavesTheHomeRunning(t *testing.T) {
+	t.Parallel()
+	r := start(t, matterFlag(freeUDP(t)), "--matter-interfaces=nothing0")
+	r.until("the bridge to give up", func() bool { return r.count("Matter bridge stopped") > 0 })
+	r.change("leak-sensor", "sensor.contact-open", true)
+	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
+}
+
+// TestReplacedHardwareReachesTheController is a name taking other hardware, which no driver event says.
+func TestReplacedHardwareReachesTheController(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	c.r.pair("old-lamp", "old-lamp")
+	c.r.pair("new-lamp", "new-lamp")
+	c.r.change("new-lamp", "switch.on", true)
+	endpoint := c.endpoint("old-lamp")
+	c.r.until("old-lamp on the bridge", func() bool {
+		_, ok := c.read(endpoint, clusters.IDOnOff, 0)
+		return ok
+	})
+	if c.isOn(endpoint) {
+		t.Fatal("old-lamp is on already")
+	}
+	c.r.stdout(nil, "devices", "replace", "old-lamp", "new-lamp", "--allow-safety")
+	c.r.until("the new hardware's value", func() bool { return c.isOn(endpoint) })
 }
 
 func TestMatterOffIsSaid(t *testing.T) {

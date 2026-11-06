@@ -17,6 +17,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/hub"
 )
 
 // rulesInfo says what the running code's rules are: from the process, or if it's down, from the
@@ -134,7 +135,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	if err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	if holder := heldAtSafety(s.srv.engine, dev, req.Capability, value); holder != "" {
+	if holder, _ := heldAtSafety(s.srv.engine, s.srv.devices, dev, req.Capability, value); holder != "" {
 		return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
 	}
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
@@ -144,19 +145,27 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	return api.Response{}
 }
 
-// heldAtSafety names what holds a capability at Safety against value, if anything does: a write would
-// only be written back. A claim counts from the moment the host starts, arbiter or no arbiter yet.
-func heldAtSafety(eng *engine.Engine, dev types.NamespacedName, name string, value any) string {
+// heldAtSafety finds what holds a capability at Safety against value, if anything does: a write would
+// only be written back. It returns who holds it and what they want. A claim counts from the moment the
+// host starts, before there's an arbiter for it, unless the capability is known not to be arbitrated
+// any more.
+func heldAtSafety(eng *engine.Engine, devices *hub.Store, dev types.NamespacedName, name string, value any) (string, any) {
 	for _, c := range eng.ControlOf(dev) {
 		if c.Capability != name {
 			continue
 		}
 		if holder := safetyHolder(c); c.Level == homev1alpha1.ControlLevelSafety && holder != "" && !sameValue(c, value) {
-			return holder
+			return holder, rawValue(c.Value.Raw)
 		}
-		return ""
+		return "", nil
 	}
-	return eng.SavedSafety(dev, name, capability.Float(value))
+	if snap, ok := devices.Get(dev); ok && !snap.Controls(name) {
+		return "", nil
+	}
+	if c, ok := eng.SavedSafety(dev, name, capability.Float(value)); ok {
+		return c.Source, engine.ValueOf(name, c.Value)
+	}
+	return "", nil
 }
 
 func safetyHolder(c homev1alpha1.CapabilityControlStatus) string {

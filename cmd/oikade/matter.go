@@ -40,6 +40,7 @@ func printMatter(out io.Writer, m *api.Matter) {
 	}
 	_, _ = fmt.Fprintf(out, "Matter bridge: %s\nManual code: %s\nQR code: %s\n", state, m.ManualCode, m.QRCode)
 	switch {
+	case !m.Serving:
 	case m.Window:
 		_, _ = fmt.Fprintln(out, "Ready to pair.")
 	case len(m.Fabrics) == 0:

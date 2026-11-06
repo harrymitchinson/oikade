@@ -38,6 +38,8 @@ const (
 	fabricsKey      = "fabrics"
 	// matterWriteTimeout bounds one write from a controller.
 	matterWriteTimeout = 5 * time.Second
+	// matterRetry is how soon a bridge that couldn't take a device tries again.
+	matterRetry = time.Minute
 )
 
 // Matter configures the bridge a host serves.
@@ -118,6 +120,8 @@ type matterBridge struct {
 	known   *inventory
 	changes chan struct{}
 	serving atomic.Bool
+	// broken is why the bridge can't serve at all.
+	broken error
 }
 
 // openMatter makes the bridge, loading what must survive. It serves nothing until run.
@@ -138,32 +142,33 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 		return nil, fmt.Errorf("reading the Matter attestation: %w", err)
 	}
 	log := h.Log.WithName("matter")
+	port := h.Matter.Port
+	if port == 0 {
+		port = DefaultMatterPort
+	}
+	m := &matterBridge{log: log, port: port, id: id, changes: make(chan struct{}, 1)}
 	cfg := node.Config{
 		Fabrics: fabricStore{values}, Setup: node.Setup{Passcode: id.Passcode, Discriminator: id.Discriminator},
-		Attestation: creds, Port: h.Matter.Port, DeviceName: h.Matter.Name, Log: log,
+		Attestation: creds, Port: port, DeviceName: h.Matter.Name, Log: log,
+		Listening: func() {
+			m.serving.Store(true)
+			log.Info("Started Matter bridge", "port", port, "fabrics", m.node.Fabrics().Count())
+		},
 	}
 	if len(h.Matter.Interfaces) > 0 {
+		// An interface that isn't up yet is the same as a taken port: not worth stopping a home for.
 		list, err := node.Interfaces(h.Matter.Interfaces)
-		if err != nil {
-			return nil, err
-		}
+		m.broken = err
 		cfg.MDNS = mdns.Options{Interfaces: list}
 	}
 	cfg.Info.UniqueID = id.UniqueID
 	cfg.Info.VendorName, cfg.Info.ProductName, cfg.Info.NodeLabel = "Oikade", "Oikade bridge", h.Matter.Name
 	cfg.Info.SoftwareVersion, cfg.Info.SoftwareVersionString = 1, h.Matter.Version
-	n, err := node.New(cfg)
-	if err != nil {
+	if m.node, err = node.New(cfg); err != nil {
 		return nil, fmt.Errorf("opening the Matter bridge: %w", err)
 	}
-	port := h.Matter.Port
-	if port == 0 {
-		port = DefaultMatterPort
-	}
-	return &matterBridge{
-		Bridge: &matterbridge.Bridge{Matter: n.Bridge()}, log: log, node: n, port: port, id: id,
-		changes: make(chan struct{}, 1),
-	}, nil
+	m.Bridge = &matterbridge.Bridge{Matter: m.node.Bridge()}
+	return m, nil
 }
 
 // connect gives the bridge what it needs of the host, which needs the bridge to exist first.
@@ -195,6 +200,9 @@ func (m *matterBridge) changed() {
 // Discovered implements driver.Sink: a device's first report makes it reachable.
 func (m *matterBridge) Discovered(types.NamespacedName, driver.Info) { m.changed() }
 
+// Reassigned implements hub.Reassigner: a device's state changed with no driver event.
+func (m *matterBridge) Reassigned(types.NamespacedName) { m.changed() }
+
 // want is what should be on the bridge. A device on record stays there while its driver is away, so
 // controllers don't see it vanish, and only reserved and removed ones are left out.
 func (m *matterBridge) want() map[uint16]matterbridge.Device {
@@ -215,19 +223,25 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 	return out
 }
 
-func (m *matterBridge) apply() {
+// apply brings the bridge up to date, and says when to try again if it couldn't.
+func (m *matterBridge) apply() <-chan time.Time {
 	if err := m.Apply(m.log, m.want()); err != nil {
 		m.log.Error(err, "Failed to update the Matter bridge")
+		return time.After(matterRetry)
 	}
+	return nil
 }
 
 // run serves the bridge until ctx ends. A bridge that can't start is worth saying loudly, and not
 // worth stopping a home for: automations don't need it.
 func (m *matterBridge) run(ctx context.Context) {
+	if m.broken != nil {
+		m.log.Error(m.broken, "Matter bridge stopped")
+		return
+	}
 	m.Writes.Start(logr.NewContext(ctx, m.log))
-	m.apply()
+	retry := m.apply()
 	done := make(chan struct{})
-	m.serving.Store(true)
 	go func() {
 		defer close(done)
 		defer m.serving.Store(false)
@@ -235,13 +249,14 @@ func (m *matterBridge) run(ctx context.Context) {
 			m.log.Error(err, "Matter bridge stopped")
 		}
 	}()
-	m.log.Info("Started Matter bridge", "port", m.port, "fabrics", m.node.Fabrics().Count())
 	for {
 		select {
 		case <-done:
 			return
 		case <-m.changes:
-			m.apply()
+			retry = m.apply()
+		case <-retry:
+			retry = m.apply()
 		}
 	}
 }
@@ -253,7 +268,8 @@ type matterWrites struct {
 	engine  *engine.Engine
 	devices *hub.Store
 	setter  driver.Setter
-	restore func(dev types.NamespacedName, name string)
+	// restore takes the clusters back after a write that didn't happen.
+	restore func(dev types.NamespacedName, name string, otherwise any)
 }
 
 // Set implements driver.Setter.
@@ -261,14 +277,18 @@ func (w *matterWrites) Set(ctx context.Context, dev types.NamespacedName, name s
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if holder := heldAtSafety(w.engine, dev, name, value); holder != "" {
-		w.restore(dev, name)
+	if holder, wants := heldAtSafety(w.engine, w.devices, dev, name, value); holder != "" {
+		w.restore(dev, name, wants)
 		return fmt.Errorf("%s holds it at Safety", holder)
 	}
 	if snap, ok := w.devices.Get(dev); ok && (snap.Online == nil || *snap.Online) {
 		w.engine.MatterWrote(dev, name, value)
 	}
-	return w.setter.Set(ctx, dev, name, value)
+	err := w.setter.Set(ctx, dev, name, value)
+	if err != nil {
+		w.restore(dev, name, nil)
+	}
+	return err
 }
 
 // matter answers oikade matter.

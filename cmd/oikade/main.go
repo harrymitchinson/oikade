@@ -23,8 +23,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
-// version is the release this binary was built from. Releases set it with
-// -ldflags "-X main.version=v0.1.0".
+// version is the release this binary was built from. No release builds it yet, so it's what a Matter
+// bridge reports until one does, with -ldflags "-X main.version=v0.1.0".
 var version = "dev"
 
 // defaultDataDir is where a host keeps its state, unless told otherwise.
@@ -133,7 +133,9 @@ func runHost(ctx context.Context, args []string) error {
 	if *matterPort != 0 {
 		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: version}
 		if *matterInterfaces != "" {
-			h.Matter.Interfaces = strings.Split(*matterInterfaces, ",")
+			for name := range strings.SplitSeq(*matterInterfaces, ",") {
+				h.Matter.Interfaces = append(h.Matter.Interfaces, strings.TrimSpace(name))
+			}
 		}
 	}
 	if *simulate != "" {
