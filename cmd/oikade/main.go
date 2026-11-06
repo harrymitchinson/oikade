@@ -34,6 +34,10 @@ const defaultDataDir = "/var/lib/oikade"
 const usage = `Usage:
   oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
               [--metrics-addr ADDRESS] [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST]
+  oikade init [DIR] [--module PATH] [--source DIR]
+  oikade check [--module DIR]
+  oikade test [--module DIR] [PACKAGES...]
+  oikade dev [--module DIR] [--types FILE]
   oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
   oikade rollback [--allow-safety-removal]
   oikade status [DEVICE] [--json]
@@ -51,7 +55,7 @@ const usage = `Usage:
   oikade types [--out FILE] [--package NAME]
   oikade matter [--json]
 
-Every command but host takes --data-dir DIR and --host NAME, which runs it on that SSH host.`
+Every command that talks to a host takes --data-dir DIR and --host NAME, which runs it on that SSH host.`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -65,6 +69,14 @@ func main() {
 	switch command {
 	case "host":
 		err = runHost(ctx, args)
+	case "init":
+		err = runInit(ctx, args)
+	case "check":
+		err = runCheck(ctx, args)
+	case "test":
+		err = runTest(ctx, args)
+	case "dev":
+		err = runDev(ctx, args)
 	case "deploy":
 		err = runDeploy(ctx, args)
 	case "rollback":
