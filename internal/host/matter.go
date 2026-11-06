@@ -7,18 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/matter/setup"
@@ -113,7 +113,7 @@ func (f fabricStore) Save(b []byte) error { return f.values.Put(fabricsKey, b) }
 // controller. It's a driver.Sink, so it follows devices without your process.
 type matterBridge struct {
 	*matterbridge.Bridge
-	log     logr.Logger
+	log     *slog.Logger
 	node    *node.Node
 	port    uint16
 	id      identity
@@ -139,7 +139,7 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 	if len(h.Matter.Name) > 32 {
 		return nil, errors.New("a Matter bridge's name is at most 32 bytes")
 	}
-	m := &matterBridge{log: h.Log.WithName("matter"), port: h.Matter.Port, retry: h.Matter.Retry, changes: make(chan struct{}, 1)}
+	m := &matterBridge{log: h.Log.With("logger", "matter"), port: h.Matter.Port, retry: h.Matter.Retry, changes: make(chan struct{}, 1)}
 	if m.port == 0 {
 		m.port = DefaultMatterPort
 	}
@@ -148,7 +148,7 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 	}
 	if err := m.open(h.Matter, data.Namespace(matterNamespace)); err != nil {
 		m.broken, m.node = err, nil
-		m.log.Error(err, "Matter bridge stopped")
+		m.log.Error("Matter bridge stopped", "err", err)
 	}
 	return m, nil
 }
@@ -240,7 +240,7 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 // apply brings the bridge up to date, and says when to try again if it couldn't.
 func (m *matterBridge) apply() <-chan time.Time {
 	if err := m.Apply(m.log, m.want()); err != nil {
-		m.log.Error(err, "Failed to update the Matter bridge")
+		m.log.Error("Failed to update the Matter bridge", "err", err)
 		return time.After(matterRetry)
 	}
 	return nil
@@ -248,7 +248,7 @@ func (m *matterBridge) apply() <-chan time.Time {
 
 // run serves the bridge until ctx ends.
 func (m *matterBridge) run(ctx context.Context) {
-	m.Writes.Start(logr.NewContext(ctx, m.log))
+	m.Writes.Start(logging.NewContext(ctx, m.log))
 	retry := m.apply()
 	done := make(chan struct{})
 	go func() {
@@ -282,7 +282,7 @@ func (m *matterBridge) serve(ctx context.Context) {
 		}
 		why := err.Error()
 		m.down.Store(&why)
-		m.log.Error(err, "Matter bridge stopped", "retry", m.retry.String())
+		m.log.Error("Matter bridge stopped", "err", err, "retry", m.retry.String())
 		select {
 		case <-ctx.Done():
 			return

@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -60,7 +59,7 @@ func TestAMonthOfAHouseStaysInsideTheDefaultBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = data.Close() }()
-	log := newEventLog(data.Events(), store.Bound{}, logr.Discard())
+	log := newEventLog(data.Events(), store.Bound{}, logging.Discard())
 	start := time.Now().Add(-30 * 24 * time.Hour)
 	for day := range 30 {
 		at := start.Add(time.Duration(day) * 24 * time.Hour)
@@ -120,7 +119,7 @@ func TestQueueNeverWaitsAndCountsWhatItDrops(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = data.Close() }()
-	log := newEventLog(data.Events(), store.Bound{}, logr.Discard())
+	log := newEventLog(data.Events(), store.Bound{}, logging.Discard())
 	for range eventQueue + 10 {
 		log.add(api.Event{Time: time.Now(), Type: api.EventChange, Device: "d", Capability: "sensor.temperature", Value: 1.0})
 	}

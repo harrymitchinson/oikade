@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -30,7 +29,7 @@ type inventory struct {
 	settings *store.Namespace
 	store    *hub.Store
 	engine   *engine.Engine
-	log      logr.Logger
+	log      *slog.Logger
 	// changed hear that the list changed. They must not block.
 	changed []func()
 
@@ -47,7 +46,7 @@ const (
 	homeSettingsKey       = "control"
 )
 
-func newInventory(reg *registry.Registry, settings *store.Namespace, devices *hub.Store, eng *engine.Engine, log logr.Logger) *inventory {
+func newInventory(reg *registry.Registry, settings *store.Namespace, devices *hub.Store, eng *engine.Engine, log *slog.Logger) *inventory {
 	return &inventory{
 		registry: reg, settings: settings, store: devices, engine: eng, log: log, instances: map[string]driver.InstanceKey{},
 	}
@@ -105,7 +104,7 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 	var entries []control.Entry
 	if len(d.Control) > 0 {
 		if err := json.Unmarshal(d.Control, &entries); err != nil {
-			i.log.Error(err, "Ignored unreadable arbitration settings", "device", d.Name)
+			i.log.Error("Ignored unreadable arbitration settings", "err", err, "device", d.Name)
 		}
 	}
 	return hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.withHome(d.Name, entries)}, true

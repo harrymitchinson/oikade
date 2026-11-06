@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -18,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -106,9 +105,9 @@ func (w *writes) Set(context.Context, ident.ID, string, any) error {
 func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T) {
 	data := openStore(t, t.TempDir())
 	t.Cleanup(func() { _ = data.Close() })
-	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()}
-	eng := &engine.Engine{Log: logr.Discard(), Controls: controls}
-	devices := hub.NewStore(logr.Discard(), eng)
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
+	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
+	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
 	dev := key("valve")
@@ -149,10 +148,10 @@ func TestAFailedWriteTakesTheControllerBack(t *testing.T) {
 	data := openStore(t, t.TempDir())
 	t.Cleanup(func() { _ = data.Close() })
 	eng := &engine.Engine{
-		Log:      logr.Discard(),
-		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()},
+		Log:      logging.Discard(),
+		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()},
 	}
-	devices := hub.NewStore(logr.Discard(), eng)
+	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
 	restored := 0
@@ -173,9 +172,9 @@ func TestAFailedWriteTakesTheControllerBack(t *testing.T) {
 func TestAClaimOnWhatsNoLongerArbitratedRefusesNothing(t *testing.T) {
 	data := openStore(t, t.TempDir())
 	t.Cleanup(func() { _ = data.Close() })
-	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()}
-	eng := &engine.Engine{Log: logr.Discard(), Controls: controls}
-	devices := hub.NewStore(logr.Discard(), eng)
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
+	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
+	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
 	dev := key("valve")
@@ -214,13 +213,13 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	eng := &engine.Engine{
-		Log:      logr.Discard(),
-		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()},
+		Log:      logging.Discard(),
+		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()},
 	}
-	devices := hub.NewStore(logr.Discard(), eng)
+	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logr.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
 		{ID: "lamp", Name: "lamp", Capabilities: []string{capability.SwitchOn}},
@@ -244,7 +243,7 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	}
 	devices.Discovered(key("lamp"), driver.Info{Found: true})
 
-	m := &matterBridge{devices: devices, known: known, id: identity{UniqueID: "BRIDGE"}}
+	m := &matterBridge{log: logging.Discard(), devices: devices, known: known, id: identity{UniqueID: "BRIDGE"}}
 	want := m.want()
 	if len(want) != 2 {
 		t.Fatalf("on the bridge: %+v", want)
@@ -269,7 +268,7 @@ func TestABridgeTriesAgainUntilItsPortIsFree(t *testing.T) {
 	}
 	defer func() { _ = taken.Close() }()
 	dir := tempDir(t)
-	h := &Host{DataDir: dir, Log: logr.Discard(), Matter: &Matter{
+	h := &Host{DataDir: dir, Log: logging.Discard(), Matter: &Matter{
 		Port: uint16(taken.LocalAddr().(*net.UDPAddr).Port), Retry: 20 * time.Millisecond,
 	}}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -309,8 +308,8 @@ func TestClaimsThatCantBeReadRefuseEveryWrite(t *testing.T) {
 	data := openStore(t, t.TempDir())
 	t.Cleanup(func() { _ = data.Close() })
 	values := data.Namespace(engine.ControlStatesNamespace)
-	eng := &engine.Engine{Log: logr.Discard(), Controls: &engine.Stored[engine.ControlState]{Values: values, Log: logr.Discard()}}
-	devices := hub.NewStore(logr.Discard(), eng)
+	eng := &engine.Engine{Log: logging.Discard(), Controls: &engine.Stored[engine.ControlState]{Values: values, Log: logging.Discard()}}
+	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
 	inner := &writes{}

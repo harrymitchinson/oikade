@@ -15,13 +15,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/netip"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
@@ -269,7 +269,7 @@ type CASEResponder struct {
 	Now func() time.Time
 	// OnSession is called with each session CASE establishes.
 	OnSession func(*transport.Session)
-	Log       logr.Logger
+	Log       *slog.Logger
 
 	mu     sync.Mutex
 	active int
@@ -283,12 +283,13 @@ type cachedKeys struct {
 
 // Register starts answering Sigma1 on the Transport.
 func (r *CASEResponder) Register() {
+	r.Log = logging.OrDiscard(r.Log)
 	r.Transport.Handle(transport.SecureChannel, []uint8{OpSigma1}, r.serve)
 }
 
 func (r *CASEResponder) serve(ctx context.Context, ex *transport.Exchange, first transport.Message) {
 	defer ex.Close()
-	log := r.Log.WithValues("peer", ex.Session().Peer())
+	log := r.Log.With("peer", ex.Session().Peer())
 
 	if ex.Session().Secure() {
 		log.Info("Refused CASE over a secure session")
@@ -326,7 +327,7 @@ func (r *CASEResponder) serve(ctx context.Context, ex *transport.Exchange, first
 
 func (r *CASEResponder) status(ctx context.Context, ex *transport.Exchange, sr StatusReport) {
 	if err := ex.Send(ctx, sr.Message()); err != nil {
-		r.Log.V(1).Info("Could not send status report", "error", err.Error())
+		r.Log.Debug("Could not send status report", "error", err.Error())
 	}
 }
 
@@ -359,7 +360,7 @@ func (r *CASEResponder) fabricKeys() []*fabricKeys {
 		if !ok {
 			c.keys, c.err = f.keys()
 			if c.err != nil {
-				r.Log.Error(c.err, "Could not use fabric for CASE", "fabric", f.Index)
+				r.Log.Error("Could not use fabric for CASE", "err", c.err, "fabric", f.Index)
 			}
 		}
 		cache[f] = c

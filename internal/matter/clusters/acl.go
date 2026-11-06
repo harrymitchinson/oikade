@@ -125,7 +125,7 @@ func (c *Commissioning) writeACL(req *im.Request, r *tlv.Reader, op im.WriteOp) 
 		if err == fabric.ErrInvalidIndex {
 			return im.StatusUnsupportedAccess
 		}
-		c.log.Error(err, "Could not save the ACL")
+		c.log.Error("Could not save the ACL", "err", err)
 		return im.StatusFailure
 	}
 	c.acl.Changed(0x0000)

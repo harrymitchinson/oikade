@@ -16,15 +16,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"k8s.io/utils/clock"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 const (
@@ -73,7 +74,7 @@ type Flow struct {
 	Journal Journal
 	Actions Actions
 	Clock   clock.Clock
-	Log     logr.Logger
+	Log     *slog.Logger
 	// Process ends when the process stops. A run stopped by that keeps its journal and resumes, and
 	// a run cancelled while it goes on, by a Restart flow's new trigger, is over.
 	Process context.Context
@@ -93,7 +94,7 @@ type Flow struct {
 func (f *Flow) Start(ctx context.Context) string {
 	id, err := newRunID(f.Key.Name)
 	if err != nil {
-		f.Log.Error(err, "Failed to start flow run", "rule", f.Key.Name)
+		f.Log.Error("Failed to start flow run", "err", err, "rule", f.Key.Name)
 		return engine.ResultFailed
 	}
 	return f.run(ctx, id, nil)
@@ -145,7 +146,7 @@ func (f *Flow) run(ctx context.Context, id string, recorded []entry) string {
 	if !r.live {
 		r.pos = 1 // Its start.
 	}
-	log := f.Log.WithValues("rule", f.Key.Name, "run", id)
+	log := f.Log.With("rule", f.Key.Name, "run", id)
 	var failure error
 	func() {
 		defer func() {
@@ -170,14 +171,14 @@ func (f *Flow) run(ctx context.Context, id string, recorded []entry) string {
 }
 
 // conclude ends a run, keeping its journal only if it can carry on later.
-func (r *Run) conclude(log logr.Logger, failure error) string {
+func (r *Run) conclude(log *slog.Logger, failure error) string {
 	f := r.f
 	result := engine.ResultSucceeded
 	// A run told to stop that ended some other way was still stopped: a newer run may be going, or
 	// the process is stopping, and either way what it left is no longer its to clean up.
 	if s := r.stopped; r.ctx.Err() != nil && ((s == nil && failure != nil) || (s != nil && s.reason != stopLost)) {
 		if failure != nil {
-			log.Error(failure, "Failed flow run after it was told to stop")
+			log.Error("Failed flow run after it was told to stop", "err", failure)
 		}
 		r.stopped, failure = &stop{reason: stopCancelled}, nil
 	}
@@ -204,7 +205,7 @@ func (r *Run) conclude(log logr.Logger, failure error) string {
 			result = engine.ResultFailed
 		}
 	} else if failure != nil {
-		log.Error(failure, "Failed flow run")
+		log.Error("Failed flow run", "err", failure)
 		result = engine.ResultFailed
 	}
 	if result == ResultGaveUp || result == ResultDropped || result == engine.ResultFailed {
@@ -213,12 +214,12 @@ func (r *Run) conclude(log logr.Logger, failure error) string {
 			log.Info("Paused flow run; the process is stopping")
 			return engine.ResultCancelled
 		case err != nil:
-			log.Error(err, "Failed to release the claims of a flow run; the next process will")
+			log.Error("Failed to release the claims of a flow run; the next process will", "err", err)
 			return result
 		}
 	}
 	if err := f.Journal.Finish(context.WithoutCancel(r.ctx), r.id); err != nil {
-		log.Error(err, "Failed to finish flow run; the next process will")
+		log.Error("Failed to finish flow run; the next process will", "err", err)
 		return result
 	}
 	if result == engine.ResultSucceeded {
@@ -258,7 +259,7 @@ type Saved struct {
 // ends badly. A run of a flow this binary doesn't have is left alone: this binary hasn't proved itself,
 // so the host ends those once a deploy has. Call it before the engine runs.
 func Recover(ctx context.Context, namespace string, flows map[string]*Flow, saved []Saved, journal Journal, actions Actions) map[string]engine.Body {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	type candidate struct {
 		id      string
 		entries []entry
@@ -267,7 +268,7 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 	drop := func(id, reason string) {
 		log.Info("Dropped flow run", "run", id, "reason", reason)
 		if err := journal.Finish(ctx, id); err != nil {
-			log.Error(err, "Failed to drop flow run", "run", id)
+			log.Error("Failed to drop flow run", "err", err, "run", id)
 		}
 	}
 	// retire ends a run nothing will continue, and with it what its flow was left holding.
@@ -275,7 +276,7 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 		if name != "" {
 			key := ident.ID{Namespace: namespace, Name: name}
 			if err := actions.ReleaseFlow(ctx, key); err != nil {
-				log.Error(err, "Failed to release the claims of a flow run; the next process will", "run", id)
+				log.Error("Failed to release the claims of a flow run; the next process will", "err", err, "run", id)
 				return
 			}
 		}

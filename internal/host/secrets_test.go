@@ -8,9 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 func TestListSkipsWhatACrashLeft(t *testing.T) {
@@ -68,7 +67,7 @@ func TestSetOnAReadOnlyDirectorySaysWhereToChangeIt(t *testing.T) {
 }
 
 func TestAnAPIRefusalNeverEchoesTheValue(t *testing.T) {
-	s := &apiServer{log: logr.Discard(), secrets: secrets{dir: filepath.Join(t.TempDir(), "gone")}}
+	s := &apiServer{log: logging.Discard(), secrets: secrets{dir: filepath.Join(t.TempDir(), "gone")}}
 	resp := s.secret(api.Request{Type: api.TypeSecretSet, Secret: "api-key", SecretValue: "the-value"})
 	if resp.Error == "" || strings.Contains(resp.Error, "the-value") {
 		t.Errorf("error = %q", resp.Error)

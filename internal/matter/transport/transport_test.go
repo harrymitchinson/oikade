@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strings"
@@ -14,8 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 var echo = ProtocolID{Vendor: 0xFFF1, ID: 0x0042}
@@ -67,12 +67,12 @@ type logBuffer struct {
 	b  strings.Builder
 }
 
-func (l *logBuffer) logger() logr.Logger {
-	return funcr.New(func(prefix, args string) {
+func (l *logBuffer) logger() *slog.Logger {
+	return logging.Lines(func(line string) {
 		l.mu.Lock()
 		defer l.mu.Unlock()
-		fmt.Fprintln(&l.b, prefix, args)
-	}, funcr.Options{Verbosity: 1})
+		fmt.Fprintln(&l.b, line)
+	}, slog.LevelDebug)
 }
 
 func (l *logBuffer) String() string {
@@ -321,7 +321,7 @@ func TestDropsUnknownSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, "the drop to be logged", func() bool {
-		return strings.Contains(dev.log.String(), `"reason"="unknown session"`)
+		return strings.Contains(dev.log.String(), `reason="unknown session"`)
 	})
 	_ = raw.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	if n, err := raw.Read(make([]byte, 64)); err == nil {

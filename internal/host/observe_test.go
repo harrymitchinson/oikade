@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
 
@@ -18,11 +17,12 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	eng := &engine.Engine{ControlLevel: engine.NewControlLevelGauge()}
-	store := hub.NewStore(logr.Discard())
+	store := hub.NewStore(logging.Discard())
 	dev := ident.ID{Namespace: "home", Name: "fan"}
 	inst := driver.InstanceKey{Driver: "test"}
 	store.SetDevices(inst, map[ident.ID]hub.Meta{dev: {Instance: inst}})

@@ -12,8 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
@@ -64,7 +63,7 @@ func newNode(t *testing.T, dir string) *node {
 		t.Fatal(err)
 	}
 	n.comm, err = NewCommissioning(CommissioningConfig{
-		Fabrics: n.table, Attestation: creds, Log: testr.New(t),
+		Fabrics: n.table, Attestation: creds, Log: logging.Test(t),
 		Hooks: Hooks{
 			FabricAdded: func(i uint8) {
 				n.mu.Lock()
@@ -97,14 +96,14 @@ func newNode(t *testing.T, dir string) *node {
 	if _, err := n.bridge.AddDevice(2, DeviceOnOffLight, "Porch", "porch-1", onoff.Cluster()); err != nil {
 		t.Fatal(err)
 	}
-	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Log: testr.New(t)}
+	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Log: logging.Test(t)}
 	n.server.Register(n.devTr)
 	v, err := mcrypto.NewVerifier(passcode, salt, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	(&securechannel.Responder{Transport: n.devTr, Verifier: v, Salt: salt, Iterations: 1000, Log: testr.New(t)}).Register()
-	(&securechannel.CASEResponder{Transport: n.devTr, Fabrics: n.table.CASE(), Resumption: n.resumption, Log: testr.New(t)}).Register()
+	(&securechannel.Responder{Transport: n.devTr, Verifier: v, Salt: salt, Iterations: 1000, Log: logging.Test(t)}).Register()
+	(&securechannel.CASEResponder{Transport: n.devTr, Fabrics: n.table.CASE(), Resumption: n.resumption, Log: logging.Test(t)}).Register()
 	return n
 }
 

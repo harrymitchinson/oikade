@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -52,7 +51,7 @@ var simInstance = driver.InstanceKey{Driver: "simulated", ID: ident.ID{Name: "si
 type simulator struct {
 	store *hub.Store
 	known *inventory
-	log   logr.Logger
+	log   *slog.Logger
 	mu    sync.Mutex
 }
 
@@ -98,12 +97,12 @@ func (s *simulator) read(r io.Reader) {
 	for lines.Scan() {
 		var c simChange
 		if err := json.Unmarshal(lines.Bytes(), &c); err != nil {
-			s.log.Error(err, "Ignored unreadable simulated change")
+			s.log.Error("Ignored unreadable simulated change", "err", err)
 			continue
 		}
 		if c.Pair != nil {
 			if err := s.pair(*c.Pair); err != nil {
-				s.log.Error(err, "Ignored simulated device", "device", c.Pair.Name)
+				s.log.Error("Ignored simulated device", "err", err, "device", c.Pair.Name)
 			}
 			continue
 		}
@@ -113,7 +112,7 @@ func (s *simulator) read(r io.Reader) {
 			continue
 		}
 		if err := s.report(dev, c.Capability, c.Value); err != nil {
-			s.log.Error(err, "Ignored simulated change", "device", c.Device, "capability", c.Capability)
+			s.log.Error("Ignored simulated change", "err", err, "device", c.Device, "capability", c.Capability)
 		}
 	}
 }

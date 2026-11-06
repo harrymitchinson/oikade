@@ -16,8 +16,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/flowcheck"
 	"github.com/harrymitchinson/oikade/internal/host"
@@ -179,7 +177,7 @@ func runHost(ctx context.Context, args []string) error {
 		return fmt.Errorf("--matter-port %d isn't a UDP port", *matterPort)
 	}
 
-	log := logr.FromSlogHandler(slog.NewJSONHandler(os.Stdout, nil))
+	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if *brokerPassword != "" {
 		dir := *secretsDir
 		if dir == "" {
@@ -191,7 +189,7 @@ func runHost(ctx context.Context, args []string) error {
 			*broker = withPassword
 		case errors.Is(err, os.ErrNotExist):
 			// oikade secret set needs a running host, so a first start comes before the secret does.
-			log.Error(err, "Could not read the broker's password; restart the host once it's set",
+			log.Error("Could not read the broker's password; restart the host once it's set", "err", err,
 				"secret", *brokerPassword)
 		default:
 			return err

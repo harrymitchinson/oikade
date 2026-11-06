@@ -4,12 +4,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 )
@@ -21,7 +20,7 @@ func device(name string, id uint16, caps ...string) Device {
 
 func newBridgeRig() *Bridge {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
-	b.Store = hub.NewStore(logr.Discard(), b)
+	b.Store = hub.NewStore(logging.Discard(), b)
 	b.Writes = &Coalescer{Setter: &recorder{}, Current: func(ident.ID, string) (any, bool) { return nil, false }}
 	return b
 }
@@ -33,7 +32,7 @@ func apply(t *testing.T, b *Bridge, devices ...Device) {
 	for _, d := range devices {
 		want[d.Endpoint] = d
 	}
-	if err := b.Apply(logr.Discard(), want); err != nil {
+	if err := b.Apply(logging.Discard(), want); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -149,15 +148,15 @@ func onOff(t *testing.T, b *Bridge, id uint16) bool {
 // device that has its name now.
 func TestApplyFollowsNamesThatSwap(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
-	b.Store = hub.NewStore(logr.Discard(), b)
+	b.Store = hub.NewStore(logging.Discard(), b)
 	first, second := ident.ID{Namespace: "home", Name: "first"}, ident.ID{Namespace: "home", Name: "second"}
 	dev := func(key ident.ID, id uint16) Device {
 		return Device{Key: key, Endpoint: id, Name: key.Name, Capabilities: []string{capability.SwitchOn}, Unique: "u"}
 	}
-	if err := b.Apply(logr.Discard(), map[uint16]Device{2: dev(first, 2), 3: dev(second, 3)}); err != nil {
+	if err := b.Apply(logging.Discard(), map[uint16]Device{2: dev(first, 2), 3: dev(second, 3)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Apply(logr.Discard(), map[uint16]Device{2: dev(second, 2), 3: dev(first, 3)}); err != nil {
+	if err := b.Apply(logging.Discard(), map[uint16]Device{2: dev(second, 2), 3: dev(first, 3)}); err != nil {
 		t.Fatal(err)
 	}
 	if got := endpointIDs(b); !slices.Contains(got, 2) || !slices.Contains(got, 3) {
@@ -172,7 +171,7 @@ func TestApplyFollowsNamesThatSwap(t *testing.T) {
 // TestAbsentIsUnreachableUntilTheDeviceReports keeps a device on the bridge while its driver is away.
 func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
-	b.Store = hub.NewStore(logr.Discard(), b)
+	b.Store = hub.NewStore(logging.Discard(), b)
 	key := ident.ID{Namespace: "home", Name: "lamp"}
 	d := Device{Key: key, Endpoint: 2, Name: "lamp", Capabilities: []string{capability.SwitchOn}, Unique: "u", Absent: true}
 	reachable := func() bool {
@@ -186,14 +185,14 @@ func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
 		})
 		return r
 	}
-	if err := b.Apply(logr.Discard(), map[uint16]Device{2: d}); err != nil {
+	if err := b.Apply(logging.Discard(), map[uint16]Device{2: d}); err != nil {
 		t.Fatal(err)
 	}
 	if reachable() {
 		t.Error("an absent device is reachable")
 	}
 	d.Absent = false
-	if err := b.Apply(logr.Discard(), map[uint16]Device{2: d}); err != nil {
+	if err := b.Apply(logging.Discard(), map[uint16]Device{2: d}); err != nil {
 		t.Fatal(err)
 	}
 	if !reachable() {

@@ -7,12 +7,12 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
@@ -52,7 +52,7 @@ type Responder struct {
 	Params *SessionParams
 	// OnSession is called with each session PASE establishes.
 	OnSession func(*transport.Session)
-	Log       logr.Logger
+	Log       *slog.Logger
 
 	mu   sync.Mutex
 	busy bool
@@ -60,12 +60,13 @@ type Responder struct {
 
 // Register starts answering PBKDFParamRequests on the Transport.
 func (r *Responder) Register() {
+	r.Log = logging.OrDiscard(r.Log)
 	r.Transport.Handle(transport.SecureChannel, []uint8{OpPBKDFParamRequest}, r.serve)
 }
 
 func (r *Responder) serve(ctx context.Context, ex *transport.Exchange, first transport.Message) {
 	defer ex.Close()
-	log := r.Log.WithValues("peer", ex.Session().Peer())
+	log := r.Log.With("peer", ex.Session().Peer())
 
 	if ex.Session().Secure() {
 		log.Info("Refused PASE over a secure session")
@@ -211,7 +212,7 @@ func expectWithin(ctx context.Context, ex *transport.Exchange, op uint8, failed 
 
 func (r *Responder) status(ctx context.Context, ex *transport.Exchange, general, code uint16) {
 	if err := ex.Send(ctx, secureChannelStatus(general, code).Message()); err != nil {
-		r.Log.V(1).Info("Could not send status report", "error", err.Error())
+		r.Log.Debug("Could not send status report", "error", err.Error())
 	}
 }
 

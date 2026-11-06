@@ -256,7 +256,7 @@ func (s *Session) sendStandaloneAck(key exchangeKey, counter uint32) {
 	}
 	pkt, _, err := s.encode(&ph, nil)
 	if err != nil {
-		s.t.log.Error(err, "Could not encode standalone acknowledgement")
+		s.t.log.Error("Could not encode standalone acknowledgement", "err", err)
 		return
 	}
 	s.t.write(pkt, s.peer)
@@ -462,7 +462,7 @@ func (ex *Exchange) retransmit(r *retransmission) {
 		return
 	}
 	if r.sends >= ex.s.mrp.MaxTransmissions {
-		t.log.V(1).Info("Gave up on message", "peer", ex.s.peer, "exchange", ex.key.id, "counter", r.counter)
+		t.log.Debug("Gave up on message", "peer", ex.s.peer, "exchange", ex.key.id, "counter", r.counter)
 		ex.fail(ErrNoAck)
 		return
 	}

@@ -2,11 +2,11 @@ package engine
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/utils/clock"
 
@@ -15,6 +15,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -73,7 +74,7 @@ type Engine struct {
 	Setter   driver.Setter
 	Clock    clock.Clock
 	Location *time.Location
-	Log      logr.Logger
+	Log      *slog.Logger
 	// Site is where sun triggers are computed for. Nil means they never fire.
 	Site *sun.Site
 	// Runs counts trigger outcomes by namespace, rule and result.
@@ -179,6 +180,7 @@ func NewDroppedCounter() prometheus.Counter {
 
 // Init prepares the engine. Call it before Load, Changed or Run.
 func (e *Engine) Init() {
+	e.Log = logging.OrDiscard(e.Log)
 	e.events = make(chan driver.Update, 1024)
 	e.wake = make(chan struct{}, 1)
 	e.rules = map[ident.ID]*state{}
@@ -557,7 +559,7 @@ func (e *Engine) trigger(ctx context.Context, key ident.ID, s *state, vars Vars)
 	ok, err := s.c.eval(vars)
 	switch {
 	case err != nil:
-		e.Log.Error(err, "Failed to evaluate Rule condition", "rule", key)
+		e.Log.Error("Failed to evaluate Rule condition", "err", err, "rule", key)
 		e.count(key, ResultConditionError)
 		return
 	case !ok:
@@ -653,7 +655,7 @@ func (e *Engine) reportSkipped(key ident.ID, skipped []string) {
 
 // runActions is execute, returning the Room members left out as well.
 func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (result string, skipped []string) {
-	log := e.Log.WithValues("rule", key)
+	log := e.Log.With("rule", key)
 	failed := false
 	for _, a := range c.actions {
 		if a.delay > 0 {
@@ -698,7 +700,7 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 			}
 		}
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
-			log.Error(err, "Failed to run Rule action", "device", a.device, "capability", a.capability)
+			log.Error("Failed to run Rule action", "err", err, "device", a.device, "capability", a.capability)
 			return ResultFailed, skipped
 		}
 	}
@@ -713,7 +715,7 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 // all of them succeeded. A member that arbitrates the capability gets a claim, or, when the set
 // has no end, is left out and returned.
 func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, skipped []string) {
-	log := e.Log.WithValues("rule", key)
+	log := e.Log.With("rule", key)
 	ok, matched := true, false
 	for _, dev := range e.Store.Room(key.Namespace, a.room) {
 		snap, found := e.Store.Get(dev)
@@ -734,12 +736,12 @@ func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, 
 			}
 		}
 		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
-			log.Error(err, "Failed to run Rule action", "device", dev.Name, "room", a.room, "capability", a.capability)
+			log.Error("Failed to run Rule action", "err", err, "device", dev.Name, "room", a.room, "capability", a.capability)
 			ok = false
 		}
 	}
 	if !matched {
-		log.V(1).Info("Matched no Devices in Room", "room", a.room, "capability", a.capability)
+		log.Debug("Matched no Devices in Room", "room", a.room, "capability", a.capability)
 	}
 	return ok, skipped
 }

@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -25,6 +25,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 const (
@@ -81,7 +82,7 @@ type Options struct {
 	Start   time.Time
 	// Location is where the home is. Nil means Start's.
 	Location *time.Location
-	Log      logr.Logger
+	Log      *slog.Logger
 	// Dry makes no outside call from a flow. Each takes its answer from Calls, by CallKey and in
 	// order, or goes without and is counted.
 	Dry   bool
@@ -96,7 +97,7 @@ type Sim struct {
 	devices  []Device
 	clock    *clocktesting.FakeClock
 	location *time.Location
-	log      logr.Logger
+	log      *slog.Logger
 	store    *hub.Store
 
 	holds    *memory[engine.HoldState]
@@ -127,7 +128,7 @@ type Sim struct {
 // New starts a home.
 func New(o Options) (*Sim, error) {
 	s := &Sim{
-		home: o.Home, devices: o.Devices, clock: clocktesting.NewFakeClock(o.Start), location: o.Location, log: o.Log,
+		home: o.Home, devices: o.Devices, clock: clocktesting.NewFakeClock(o.Start), location: o.Location, log: logging.OrDiscard(o.Log),
 		holds: newMemory[engine.HoldState](), controls: newMemory[engine.ControlState](), journal: newJournal(),
 		ended: map[string][]string{}, fires: map[string]time.Time{}, active: map[string]bool{},
 		runs: map[string]int{}, parked: map[int]parked{}, dry: o.Dry, calls: maps.Clone(o.Calls), skipped: map[string]int{},
@@ -135,7 +136,7 @@ func New(o Options) (*Sim, error) {
 	if s.location == nil {
 		s.location = o.Start.Location()
 	}
-	s.store = hub.NewStore(logr.Discard())
+	s.store = hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range o.Devices {
 		metas[key(d.Name)] = hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d.Name)}
@@ -181,7 +182,7 @@ func (s *Sim) start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	eng := &engine.Engine{
 		Store: s.store, Setter: driver.SetterFunc(s.set), States: s.holds, Controls: s.controls, Clock: s.clock,
-		Location: s.location, Log: s.log.WithName("automations"),
+		Location: s.location, Log: s.log.With("logger", "automations"),
 		OnPark: s.park,
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
@@ -235,7 +236,7 @@ func (s *Sim) start() error {
 		eng.Load(r)
 	}
 	for _, f := range flows {
-		f.Journal, f.Actions, f.Clock, f.Log, f.Process = s.journal, eng, s.clock, s.log.WithName("flows"), ctx
+		f.Journal, f.Actions, f.Clock, f.Log, f.Process = s.journal, eng, s.clock, s.log.With("logger", "flows"), ctx
 		f.OnPark = eng.OnPark
 		if s.dry {
 			f.Dry = func(call string, result any) error { return s.answer(f.Key.Name, call, result) }

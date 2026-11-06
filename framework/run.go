@@ -13,9 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -24,6 +21,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -33,7 +31,7 @@ const dialTimeout = 10 * time.Second
 
 var hostInstance = driver.InstanceKey{Driver: "host"}
 
-func run(h Home, log logr.Logger) error {
+func run(h Home, log *slog.Logger) error {
 	rules, flows, err := h.compile()
 	if err != nil {
 		return err
@@ -59,14 +57,14 @@ func run(h Home, log logr.Logger) error {
 	if os.Args[1] == wire.RolePlugin {
 		return runPlugin(ctx, h, socket)
 	}
-	return runAutomations(logr.NewContext(ctx, log), h, rules, flows, socket)
+	return runAutomations(logging.NewContext(ctx, log), h, rules, flows, socket)
 }
 
 // runAutomations is the one process that runs a home's rules.
 func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows map[string]*flow.Flow,
 	socket string,
 ) error {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	names := make([]string, 0, len(rules))
 	for _, r := range rules {
 		names = append(names, r.Key.Name)
@@ -85,7 +83,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 
 	// The mirror is the host's device state, here so that conditions never wait for a socket. It's
 	// filled before the engine listens, so a Welcome doesn't look like a change to anything.
-	mirror := hub.NewStore(logr.Discard())
+	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range welcome.Devices {
 		metas[deviceKey(d.Name)] = meta(d, settings)
@@ -96,7 +94,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	}
 	eng := &engine.Engine{
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
-		Log: log.WithName("automations"),
+		Log: log.With("logger", "automations"),
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
@@ -104,7 +102,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 			}
 		},
 	}
-	gather := observe(logr.NewContext(ctx, log), eng, client)
+	gather := observe(logging.NewContext(ctx, log), eng, client)
 	fires := make(chan timerFire, firesWaiting)
 	eng.OnSchedule = func(key ident.ID, s engine.Schedule) {
 		if s.LastFire.IsZero() {
@@ -135,7 +133,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 		eng.Load(r)
 	}
 	for _, f := range flows {
-		f.Journal, f.Actions, f.Clock, f.Log, f.Process = client, eng, eng.Clock, log.WithName("flows"), ctx
+		f.Journal, f.Actions, f.Clock, f.Log, f.Process = client, eng, eng.Clock, log.With("logger", "flows"), ctx
 	}
 
 	pings := make(chan uint64, 1)
@@ -162,8 +160,8 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 			return fmt.Errorf("saving a timer: %w", err)
 		}
 	}
-	go saveFires(logr.NewContext(ctx, log), client, fires)
-	flowCtx := logr.NewContext(ctx, log.WithName("flows"))
+	go saveFires(logging.NewContext(ctx, log), client, fires)
+	flowCtx := logging.NewContext(ctx, log.With("logger", "flows"))
 	// The host drops a paused flow's runs. This is for a pause that landed since.
 	bodies := flow.Recover(flowCtx, wire.Namespace, paused.without(flows), savedRuns(welcome.Unfinished), client, eng)
 	log.Info("Loaded rules", "rules", len(rules), "devices", len(welcome.Devices), "resumedRuns", len(bodies))
@@ -204,7 +202,7 @@ func runDev(h Home) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// Standard output is the conversation with you, so the log goes beside it.
-	log := funcr.New(func(prefix, args string) { fmt.Fprintln(os.Stderr, prefix, args) }, funcr.Options{})
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	return simhome.Dev(ctx, simhome.Options{
 		Home: home, Devices: devices, Start: time.Now().Truncate(time.Minute), Location: time.Local, Log: log,
 	}, os.Stdin, os.Stdout)
@@ -227,7 +225,7 @@ func runReplay(h Home) error {
 	}
 	// Errors only: a mistake in a condition is what explains a missing write, and a week of the rest
 	// would bury it.
-	log := funcr.New(func(prefix, args string) { fmt.Fprintln(os.Stderr, prefix, args) }, funcr.Options{Verbosity: -1})
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	report, err := simhome.ReplayFile(simhome.Options{Home: home, Devices: devices, Log: log}, os.Args[2])
 	if err != nil {
 		return err
@@ -282,7 +280,7 @@ type timerFire struct {
 
 // saveFires tells the host about fires, apart from the engine, which can't wait for a socket.
 func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -291,7 +289,7 @@ func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire)
 			return
 		case f := <-fires:
 			if err := client.SaveFire(ctx, f.rule, f.at); err != nil {
-				log.Error(err, "Failed to save timer fire", "rule", f.rule)
+				log.Error("Failed to save timer fire", "err", err, "rule", f.rule)
 			}
 		}
 	}

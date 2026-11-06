@@ -211,7 +211,7 @@ func (e *Engine) ensure(dev ident.ID) {
 				if err := e.unreadableClaims(dev); err != nil {
 					// It may hold a Safety claim, so it stays, and no arbiter starts empty to save
 					// over it. UnreadableClaim refuses writes in the meantime.
-					e.Log.Error(err, "Refused writes to a device whose claims can't be read", "device", dev)
+					e.Log.Error("Refused writes to a device whose claims can't be read", "err", err, "device", dev)
 					return
 				}
 				saved, _ = e.Controls.Get(dev)
@@ -221,7 +221,7 @@ func (e *Engine) ensure(dev ident.ID) {
 		}
 		a, err := control.New(settings, e.Clock, st)
 		if err != nil {
-			e.Log.Error(err, "Failed to start arbiter", "device", dev, "capability", c.Capability)
+			e.Log.Error("Failed to start arbiter", "err", err, "device", dev, "capability", c.Capability)
 			e.dropArb(dev, c.Capability, true)
 			continue
 		}
@@ -360,7 +360,7 @@ func (e *Engine) writeControl(ctx context.Context, dev ident.ID, name string, ar
 		if ctx.Err() != nil {
 			return
 		}
-		e.Log.Error(err, "Failed to write arbitrated capability", "device", dev, "capability", name)
+		e.Log.Error("Failed to write arbitrated capability", "err", err, "device", dev, "capability", name)
 		cur.retry = now.Add(retryFailed)
 	} else {
 		cur.a.Wrote(value)
@@ -406,7 +406,7 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 		ar.lost = false
 		ar.a.Wrote(v)
 	case ar.writing || e.Clock.Since(ar.wrote) < staleReport:
-		e.Log.V(1).Info("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
+		e.Log.Debug("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
 		ar.dropped = true
 		if !ar.writing {
 			ar.next = earliestOf(ar.next, ar.wrote.Add(staleReport))
@@ -429,7 +429,7 @@ func (e *Engine) recordOutside(dev ident.ID, name string, ar *arb, v float64) {
 		source = w.source
 	}
 	if err := ar.a.Outside(source, v); err != nil {
-		e.Log.Error(err, "Failed to record outside change", "device", dev, "capability", name, "source", source)
+		e.Log.Error("Failed to record outside change", "err", err, "device", dev, "capability", name, "source", source)
 	}
 }
 
@@ -550,7 +550,7 @@ func (e *Engine) Claim(ctx context.Context, dev ident.ID, name string, c control
 // makeClaim gives the arbiter a claim and decides again. Call with e.mu held.
 func (e *Engine) makeClaim(ctx context.Context, dev ident.ID, name string, ar *arb, c control.Claim) {
 	if err := ar.a.Claim(c); err != nil {
-		e.Log.Error(err, "Failed to claim", "device", dev, "capability", name, "source", c.Source)
+		e.Log.Error("Failed to claim", "err", err, "device", dev, "capability", name, "source", c.Source)
 		return
 	}
 	e.decide(ctx, dev, name, ar)
@@ -751,7 +751,7 @@ func (e *Engine) savedDevices(namespace string) []ident.ID {
 	}
 	names, err := listed.Names(namespace)
 	if err != nil {
-		e.Log.Error(err, "Failed to list saved claims", "namespace", namespace)
+		e.Log.Error("Failed to list saved claims", "err", err, "namespace", namespace)
 		return nil
 	}
 	var devices []ident.ID
@@ -984,7 +984,7 @@ func (e *Engine) saveDevices(ctx context.Context) []ident.ID {
 		}
 		if err != nil {
 			if ctx.Err() == nil {
-				e.Log.Error(err, "Failed to save control state", "device", dev)
+				e.Log.Error("Failed to save control state", "err", err, "device", dev)
 			}
 			failed = append(failed, dev)
 			continue

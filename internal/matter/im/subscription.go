@@ -86,9 +86,9 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 		defer stop()
 		defer s.endSubscription(sub)
 		err := s.runSubscription(runCtx, sub)
-		s.Log.V(1).Info("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "reason", err.Error())
+		s.Log.Debug("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "reason", err.Error())
 	}()
-	s.Log.V(1).Info("Started subscription", "subscription", sub.id, "peer", session.Peer(), "max", sub.max)
+	s.Log.Debug("Started subscription", "subscription", sub.id, "peer", session.Peer(), "max", sub.max)
 	return nil
 }
 

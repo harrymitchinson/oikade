@@ -32,7 +32,7 @@ func (s *apiServer) backup() api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	if err := PruneBackups(dir); err != nil {
-		s.log.Error(err, "Failed to remove old backups")
+		s.log.Error("Failed to remove old backups", "err", err)
 	}
 	s.log.Info("Wrote backup", "path", path)
 	return api.Response{Backup: path}

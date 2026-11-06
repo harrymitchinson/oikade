@@ -3,13 +3,13 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -62,7 +62,7 @@ const (
 // <namespace>/<name>. Put and Delete return once the change is on disk.
 type Stored[T any] struct {
 	Values *store.Namespace
-	Log    logr.Logger
+	Log    *slog.Logger
 }
 
 var _ HoldStates = (*Stored[HoldState])(nil)
@@ -72,7 +72,7 @@ var _ HoldStates = (*Stored[HoldState])(nil)
 func (s *Stored[T]) Get(key ident.ID) (T, bool) {
 	state, ok, err := s.read(key)
 	if err != nil {
-		s.Log.Error(err, "Ignored unreadable saved state", "key", key.String())
+		logging.OrDiscard(s.Log).Error("Ignored unreadable saved state", "err", err, "key", key.String())
 		var none T
 		return none, false
 	}

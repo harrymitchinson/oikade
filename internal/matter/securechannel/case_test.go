@@ -16,8 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -187,7 +186,7 @@ func newCASENode(t *testing.T) *caseNode {
 		t.Fatal(err)
 	}
 	conn := &opcodeConn{PacketConn: pc}
-	tr := transport.New(conn, transport.Options{Log: testr.New(t)})
+	tr := transport.New(conn, transport.Options{Log: logging.Test(t)})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
@@ -214,9 +213,9 @@ func newCASEDevice(t *testing.T, fs ...*Fabric) *caseDevice {
 			return nil
 		}}},
 	}}})
-	(&im.Server{Node: node, Access: allowAll{}, Log: testr.New(t)}).Register(d.t)
+	(&im.Server{Node: node, Access: allowAll{}, Log: logging.Test(t)}).Register(d.t)
 	d.responder = &CASEResponder{
-		Transport: d.t, Fabrics: fabrics(fs), Resumption: NewResumptionStore(0), Log: testr.New(t),
+		Transport: d.t, Fabrics: fabrics(fs), Resumption: NewResumptionStore(0), Log: logging.Test(t),
 		Params:    &SessionParams{Idle: 500 * time.Millisecond},
 		OnSession: func(s *transport.Session) { d.sessions <- s },
 		Now: func() time.Time {
@@ -566,7 +565,7 @@ func TestPASEAndCASEShareTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	(&Responder{Transport: dev.t, Verifier: v, Salt: testSalt, Iterations: 1000, Log: testr.New(t)}).Register()
+	(&Responder{Transport: dev.t, Verifier: v, Salt: testSalt, Iterations: 1000, Log: logging.Test(t)}).Register()
 	ctl := newCASENode(t)
 	ps, err := EstablishPASE(timeout(t), ctl.t, dev.addr(), testPasscode, nil)
 	if err != nil {

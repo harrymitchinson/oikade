@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"slices"
 	"sync"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -37,7 +36,7 @@ const (
 // server serves the socket. It's a driver.Sink, streaming what the host hears to the session.
 type server struct {
 	hub.NopSink
-	log     logr.Logger
+	log     *slog.Logger
 	ctx     context.Context
 	devices *hub.Store
 	engine  *engine.Engine
@@ -103,7 +102,7 @@ func (s *server) serve(l net.Listener) {
 		c, err := l.Accept()
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
-				s.log.Error(err, "Failed to accept connection")
+				s.log.Error("Failed to accept connection", "err", err)
 			}
 			return
 		}
@@ -137,7 +136,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 	_ = conn.SetReadDeadline(time.Now().Add(helloTimeout))
 	hello, err := conn.Read()
 	if err != nil {
-		s.log.V(1).Info("Dropped connection before its hello", "error", err.Error())
+		s.log.Debug("Dropped connection before its hello", "error", err.Error())
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
@@ -278,12 +277,12 @@ func (s *server) open(sess *session, hello wire.Message) string {
 	defer s.attaching.Unlock()
 	// Before the Welcome, so that it says what's arbitrated.
 	if err := s.takeSettings(sess.generation, hello.Control); err != nil {
-		s.log.Error(err, "Failed to save the home's device settings")
+		s.log.Error("Failed to save the home's device settings", "err", err)
 		return "the host couldn't save the home's device settings"
 	}
 	welcome, runs, err := s.welcome(hello)
 	if err != nil {
-		s.log.Error(err, "Failed to read saved state for a process")
+		s.log.Error("Failed to read saved state for a process", "err", err)
 		return "the host couldn't read its saved state"
 	}
 	if !s.attach(sess, welcome, runs) {

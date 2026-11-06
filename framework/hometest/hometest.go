@@ -12,13 +12,12 @@ package hometest
 
 import (
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
-
 	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
 
@@ -99,8 +98,8 @@ func New(t testing.TB, home framework.Home, o Options) *Home {
 }
 
 // testLog sends your automations' log to the test's, which shows a mistake in a condition.
-func testLog(t testing.TB) logr.Logger {
-	return funcr.New(func(prefix, args string) { t.Log(prefix, args) }, funcr.Options{})
+func testLog(t testing.TB) *slog.Logger {
+	return logging.Test(t)
 }
 
 // Now is the time in the home.

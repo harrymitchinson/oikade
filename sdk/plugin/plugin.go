@@ -16,10 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -113,8 +112,8 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing MQTT URL: %w", err)
 	}
-	// Logged by internal/mqtt, which takes a logr.Logger from the context.
-	life, stop := context.WithCancel(logr.NewContext(context.WithoutCancel(ctx), logr.FromSlogHandler(o.Logger.Handler())))
+	// Logged by internal/mqtt, which takes a *slog.Logger from the context.
+	life, stop := context.WithCancel(logging.NewContext(context.WithoutCancel(ctx), o.Logger))
 	p := newPlugin(root, o.Logger, o.OnSet, o.CloseTimeout, life, stop)
 
 	startCtx, cancel := context.WithTimeout(ctx, o.StartTimeout)

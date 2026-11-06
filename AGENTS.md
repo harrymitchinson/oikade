@@ -56,7 +56,7 @@ Tests are plain Go `testing`. A simulated home on a fake clock is `internal/simh
 
 - **Everything that must survive lives in the host,** in `internal/store`, not in your process.
 - **The host only ever crashes safe:** check that a write reaches disk before anything depends on it.
-- **Structured logging:** a `logr.Logger`, with key-value pairs.
+- **Structured logging:** a `*slog.Logger`, with key-value pairs.
 
 ### Logging
 
@@ -72,7 +72,7 @@ Tests are plain Go `testing`. A simulated home on a fake clock is `internal/simh
 ```go
 log.Info("Started host")
 log.Info("Added bridged device", "device", name)
-log.Error(err, "Failed to start Plugin", "name", name)
+log.Error("Failed to start Plugin", "err", err, "name", name)
 ```
 
 **Reference:** https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines

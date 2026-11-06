@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	testclock "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -15,6 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // gatedControls is a store whose saves wait for the test, and can fail.
@@ -35,8 +35,8 @@ func (g *gatedControls) Put(ctx context.Context, key ident.ID, s ControlState) e
 func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, ident.ID) {
 	t.Helper()
 	dev := ident.ID{Namespace: ns, Name: "valve"}
-	eng := &Engine{Clock: testclock.NewFakeClock(time.Now()), Log: logr.Discard(), Controls: controls}
-	store := hub.NewStore(logr.Discard(), eng)
+	eng := &Engine{Clock: testclock.NewFakeClock(time.Now()), Log: logging.Discard(), Controls: controls}
+	store := hub.NewStore(logging.Discard(), eng)
 	eng.Store, eng.Setter = store, &fakeSetter{}
 	eng.Init()
 	store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: {

@@ -6,12 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"runtime"
 	"sync"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -26,7 +25,7 @@ const writeTimeout = 5 * time.Second
 // apiServer answers the oikade command. A call outlives its connection: a deploy that has begun
 // finishes even if the command that asked goes away.
 type apiServer struct {
-	log     logr.Logger
+	log     *slog.Logger
 	ctx     context.Context
 	deploys *deployer
 	srv     *server
@@ -47,7 +46,7 @@ func (s *apiServer) serve(l net.Listener) {
 		c, err := l.Accept()
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
-				s.log.Error(err, "Failed to accept connection")
+				s.log.Error("Failed to accept connection", "err", err)
 			}
 			return
 		}
@@ -60,7 +59,7 @@ func (s *apiServer) handle(conn net.Conn) {
 	_ = conn.SetReadDeadline(time.Now().Add(requestTimeout))
 	var req api.Request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		s.log.V(1).Info("Dropped connection before its request", "error", err.Error())
+		s.log.Debug("Dropped connection before its request", "error", err.Error())
 		return
 	}
 	if req.Type == api.TypeTail {
@@ -72,7 +71,7 @@ func (s *apiServer) handle(conn net.Conn) {
 		return
 	}
 	if err := json.NewEncoder(conn).Encode(s.answer(req)); err != nil {
-		s.log.V(1).Info("Could not answer a request; the caller left", "error", err.Error())
+		s.log.Debug("Could not answer a request; the caller left", "error", err.Error())
 	}
 }
 

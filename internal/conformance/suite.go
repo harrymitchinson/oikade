@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"os/exec"
@@ -18,8 +19,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -72,7 +71,7 @@ type Config struct {
 	// Timeout bounds every step. Zero means DefaultTimeout.
 	Timeout time.Duration
 	// Log receives the decoder's logs. The zero value discards them.
-	Log logr.Logger
+	Log *slog.Logger
 }
 
 // Check is one named part of the suite. Checks run in order, against the same plugin process,

@@ -92,7 +92,7 @@ func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices map[str
 		return false, false, next
 	}
 	if err != nil {
-		e.Log.V(1).Info("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
+		e.Log.Debug("Could not evaluate hold; keeping its state", "rule", key, "error", err.Error())
 		return false, false, next
 	}
 	return b, true, next
@@ -242,7 +242,7 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 	// state again and retries.
 	if ended {
 		if err := e.States.Put(ctx, key, st); err != nil && ctx.Err() == nil {
-			e.Log.Error(err, "Failed to save hold state", "rule", key)
+			e.Log.Error("Failed to save hold state", "err", err, "rule", key)
 		}
 	}
 
@@ -274,7 +274,7 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 
 func (e *Engine) deleteState(key ident.ID) {
 	if err := e.States.Delete(context.Background(), key); err != nil {
-		e.Log.Error(err, "Failed to delete hold state", "rule", key)
+		e.Log.Error("Failed to delete hold state", "err", err, "rule", key)
 	}
 }
 
@@ -289,7 +289,7 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 	if b, ok := value.(bool); ok && !start {
 		value = !b
 	}
-	log := e.Log.WithValues("rule", key, "capability", t.Capability)
+	log := e.Log.With("rule", key, "capability", t.Capability)
 	var devices []ident.ID
 	if t.Device != "" {
 		devices = []ident.ID{{Namespace: key.Namespace, Name: t.Device}}
@@ -308,7 +308,7 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 		// With no member to write yet, as on startup, wait for the undiscovered ones. Once some
 		// are written, one that never reports doesn't keep rewriting the rest.
 		if len(devices) == 0 && waiting {
-			log.V(1).Info("Waiting for Room members before writing hold", "room", t.Room)
+			log.Debug("Waiting for Room members before writing hold", "room", t.Room)
 			return retryUndiscovered, fmt.Errorf("no member of room %s is discovered", t.Room)
 		}
 	}
@@ -323,13 +323,13 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 			continue
 		}
 		if !ok || !snap.Discovered {
-			log.V(1).Info("Waiting for Device before writing hold", "device", dev.Name)
+			log.Debug("Waiting for Device before writing hold", "device", dev.Name)
 			retry, failed = max(retry, retryUndiscovered), fmt.Errorf("device %s isn't discovered", dev.Name)
 			continue
 		}
 		if err := e.Setter.Set(ctx, dev, t.Capability, value); err != nil {
 			if ctx.Err() == nil {
-				log.Error(err, "Failed to write hold", "device", dev.Name)
+				log.Error("Failed to write hold", "err", err, "device", dev.Name)
 			}
 			retry, failed = retryFailed, err
 		}

@@ -9,11 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -21,7 +20,7 @@ import (
 func startHost(t *testing.T, dir string) (socket string, stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
-	h := &Host{DataDir: dir, Log: logr.Discard(), Devices: []SimulatedDevice{
+	h := &Host{DataDir: dir, Log: logging.Discard(), Devices: []SimulatedDevice{
 		{Name: "lamp", Room: "hall", Capabilities: []string{"switch.on"}, Values: map[string]any{"switch.on": false}},
 	}}
 	done := make(chan error, 1)

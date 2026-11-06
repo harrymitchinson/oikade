@@ -9,11 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -94,7 +93,7 @@ func setup(t *testing.T) (*Instance, *mqtt.Memory, *recorder) {
 	now := time.Date(2026, 10, 17, 19, 0, 0, 0, time.UTC)
 	i := &Instance{
 		Key: dev("z2m"), BaseTopic: "z2m", Bus: bus, Sink: rec,
-		Now: func() time.Time { return now }, Log: logr.Discard(),
+		Now: func() time.Time { return now }, Log: logging.Discard(),
 	}
 	i.SetDevices(map[string]ident.ID{
 		"0x000b57fffe000001": lamp,
@@ -313,7 +312,7 @@ func TestMessagesFromBeforeTheDeviceListAreKept(t *testing.T) {
 	now := time.Date(2026, 10, 17, 19, 0, 0, 0, time.UTC)
 	i := &Instance{
 		Key: dev("z2m"), BaseTopic: "z2m", Bus: bus, Sink: rec,
-		Now: func() time.Time { return now }, Log: logr.Discard(),
+		Now: func() time.Time { return now }, Log: logging.Discard(),
 	}
 	i.SetDevices(map[string]ident.ID{"0x00158d0000000003": door})
 	if err := i.Start(ctx); err != nil {

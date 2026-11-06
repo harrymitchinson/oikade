@@ -5,18 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/funcr"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 var epoch = time.Date(2026, 11, 5, 22, 0, 0, 0, time.UTC)
@@ -150,16 +150,16 @@ type logs struct {
 	onLine func(string)
 }
 
-func (l *logs) logger() logr.Logger {
-	return funcr.New(func(_, args string) {
+func (l *logs) logger() *slog.Logger {
+	return logging.Lines(func(line string) {
 		l.mu.Lock()
-		l.lines = append(l.lines, args)
+		l.lines = append(l.lines, line)
 		onLine := l.onLine
 		l.mu.Unlock()
 		if onLine != nil {
-			onLine(args)
+			onLine(line)
 		}
-	}, funcr.Options{})
+	}, slog.LevelInfo)
 }
 
 func (l *logs) has(want string) bool {
@@ -183,7 +183,7 @@ func newFlow(h *fakeHome, c *clocktesting.FakeClock, l *logs, body func(*Run) er
 // resume restarts the flow's one saved run, as a new process does, and returns its result.
 func resume(ctx context.Context, t *testing.T, f *Flow, h *fakeHome, l *logs) <-chan string {
 	t.Helper()
-	bodies := Recover(logr.NewContext(ctx, l.logger()), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+	bodies := Recover(logging.NewContext(ctx, l.logger()), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 	body := bodies[f.Key.Name]
 	if body == nil {
 		t.Fatal("nothing to resume")

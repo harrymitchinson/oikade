@@ -5,18 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -38,7 +38,7 @@ type Instance struct {
 	Bus  mqtt.Bus
 	Sink driver.Sink
 	Now  func() time.Time
-	Log  logr.Logger
+	Log  *slog.Logger
 
 	// counting is held from computing the undeclared count until it's sent, so an older count
 	// can't overtake a newer one. Take it before mu.
@@ -82,6 +82,7 @@ var _ driver.Setter = (*Instance)(nil)
 
 // Start subscribes to the plugin's topics.
 func (i *Instance) Start(ctx context.Context) error {
+	i.Log = logging.OrDiscard(i.Log)
 	unsubscribe, err := i.Bus.Subscribe(ctx, i.Root.Filter(), i.handle)
 	i.mu.Lock()
 	i.unsubscribe = unsubscribe

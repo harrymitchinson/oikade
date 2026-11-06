@@ -11,8 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
-
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/mdns"
@@ -74,7 +73,7 @@ func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	if cfg.Port == 0 {
 		cfg.Port = freePort(t)
 	}
-	cfg.Setup, cfg.Log, cfg.Info = testSetup, testr.New(t), clusters.Info{VendorName: "Oikade"}
+	cfg.Setup, cfg.Log, cfg.Info = testSetup, logging.Test(t), clusters.Info{VendorName: "Oikade"}
 	n, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +185,7 @@ func TestWindow(t *testing.T) {
 }
 
 func TestPayload(t *testing.T) {
-	n, err := New(Config{DataDir: t.TempDir(), Setup: testSetup, Log: testr.New(t)})
+	n, err := New(Config{DataDir: t.TempDir(), Setup: testSetup, Log: logging.Test(t)})
 	if err != nil {
 		t.Fatal(err)
 	}

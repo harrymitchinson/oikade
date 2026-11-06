@@ -8,10 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // coalesceWindow is how long writes to a device gather before the latest is sent. Controllers
@@ -113,11 +112,11 @@ func (c *Coalescer) flush(dev ident.ID) {
 		}
 		return strings.Compare(a.name, b.name)
 	})
-	log := logr.FromContextOrDiscard(c.ctx)
+	log := logging.FromContext(c.ctx)
 	for _, w := range writes {
 		k := writeKey{dev, w.name}
 		if reflect.DeepEqual(c.baseline(k), w.value) {
-			log.V(1).Info("Skipped Matter write that changes nothing", "device", dev, "capability", w.name)
+			log.Debug("Skipped Matter write that changes nothing", "device", dev, "capability", w.name)
 			continue
 		}
 		c.mu.Lock()
@@ -125,7 +124,7 @@ func (c *Coalescer) flush(dev ident.ID) {
 		c.mu.Unlock()
 		ctx, cancel := context.WithTimeout(c.ctx, c.Timeout)
 		if err := c.Setter.Set(ctx, dev, w.name, w.value); err != nil {
-			log.Error(err, "Failed to set capability from Matter", "device", dev, "capability", w.name)
+			log.Error("Failed to set capability from Matter", "err", err, "device", dev, "capability", w.name)
 			c.mu.Lock()
 			delete(c.sent, k)
 			c.mu.Unlock()

@@ -14,6 +14,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	mrand "math/rand/v2"
 	"net"
 	"net/netip"
@@ -21,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 // Port is the UDP port Matter nodes listen on.
@@ -70,7 +71,7 @@ type Security interface {
 
 // Options configures a Transport.
 type Options struct {
-	Log logr.Logger
+	Log *slog.Logger
 	// MRP is what the Transport assumes of a peer until a session says otherwise. Zero fields
 	// take the spec's defaults.
 	MRP MRPConfig
@@ -79,7 +80,7 @@ type Options struct {
 // Transport is the Matter message layer on one UDP socket.
 type Transport struct {
 	conn net.PacketConn
-	log  logr.Logger
+	log  *slog.Logger
 	mrp  MRPConfig
 
 	mu        sync.Mutex
@@ -109,7 +110,7 @@ func Listen(addr string, opts Options) (*Transport, error) {
 func New(conn net.PacketConn, opts Options) *Transport {
 	return &Transport{
 		conn:      conn,
-		log:       opts.Log,
+		log:       logging.OrDiscard(opts.Log),
 		mrp:       opts.MRP.withDefaults(),
 		handlers:  map[handlerKey]Handler{},
 		unsecured: map[unsecuredKey]*Session{},
@@ -335,7 +336,7 @@ func (t *Transport) receive(pkt []byte, from netip.AddrPort) {
 		if ph.Reliable {
 			s.sendStandaloneAck(exchangeKey{id: ph.ExchangeID, initiator: !ph.Initiator}, h.Counter)
 		}
-		t.log.V(1).Info("Dropped duplicate message", "peer", from, "session", h.SessionID, "counter", h.Counter)
+		t.log.Debug("Dropped duplicate message", "peer", from, "session", h.SessionID, "counter", h.Counter)
 		return
 	}
 	if s.security != nil {
@@ -400,7 +401,7 @@ func (t *Transport) roomForResponder() bool {
 	if oldest == nil {
 		return false
 	}
-	t.log.V(1).Info("Evicted unsecured session", "peer", oldest.peer)
+	t.log.Debug("Evicted unsecured session", "peer", oldest.peer)
 	oldest.closeLocked()
 	return true
 }
@@ -441,12 +442,12 @@ func (t *Transport) shutdown() {
 // write sends pkt to peer. The caller holds t.mu.
 func (t *Transport) write(pkt []byte, peer netip.AddrPort) {
 	if _, err := t.conn.WriteTo(pkt, net.UDPAddrFromAddrPort(peer)); err != nil {
-		t.log.V(1).Info("Could not send message", "peer", peer, "error", err.Error())
+		t.log.Debug("Could not send message", "peer", peer, "error", err.Error())
 	}
 }
 
 func (t *Transport) drop(from netip.AddrPort, reason string, kv ...any) {
-	t.log.V(1).Info("Dropped message", append([]any{"peer", from, "reason", reason}, kv...)...)
+	t.log.Debug("Dropped message", append([]any{"peer", from, "reason", reason}, kv...)...)
 }
 
 func (t *Transport) nextCounter() uint32 {
