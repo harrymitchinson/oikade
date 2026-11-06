@@ -1146,8 +1146,9 @@ func TestRecoverKeepsOnlyTheNewestRunOfAFlow(t *testing.T) {
 	if len(bodies) != 1 || bodies["bedtime"] == nil {
 		t.Fatalf("resumed %v", bodies)
 	}
-	var kept []string
-	for _, s := range h.saved() {
+	saved := h.saved()
+	kept := make([]string, 0, len(saved))
+	for _, s := range saved {
 		kept = append(kept, s.ID)
 	}
 	slices.Sort(kept)

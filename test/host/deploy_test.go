@@ -449,7 +449,7 @@ func TestABinaryChangedWithoutADeployLeavesAFlowAlone(t *testing.T) {
 	r.awaitLoaded()
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/claiming" }) {
+	if got := r.ruleClaims("claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
 		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 	r.launch(settle)
@@ -499,7 +499,7 @@ func (r *rig) orphanedSafety() {
 func (r *rig) expectSafetyKept() {
 	r.t.Helper()
 	got := r.ruleClaims("valve")
-	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/leak-shutoff" && c.Level == control.Safety }) {
+	if !holdsClaim(got, "Rule/leak-shutoff", control.Safety) {
 		r.t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 	s := r.openStore()
@@ -742,6 +742,13 @@ func TestRollbackGoesBackAVersionAtATime(t *testing.T) {
 	r.sync()
 	r.contact("park-end", true)
 	r.wrote("park-out", true)
+}
+
+// holdsClaim says whether a source holds a claim, at level if that isn't negative.
+func holdsClaim(claims []control.Claim, source string, level control.Level) bool {
+	return slices.ContainsFunc(claims, func(c control.Claim) bool {
+		return c.Source == source && (level < 0 || c.Level == level)
+	})
 }
 
 // ruleClaims reads a stopped host's saved claims on a device's switch.

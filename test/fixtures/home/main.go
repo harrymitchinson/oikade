@@ -224,7 +224,7 @@ func run(h framework.Home) {
 		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "failing" })
 	}
 	if variant == "nofan" {
-		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "fan" })
+		h.Holds = h.Holds[1:] // The fan comes first.
 	}
 	if variant == "nopark" {
 		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "parked" })
