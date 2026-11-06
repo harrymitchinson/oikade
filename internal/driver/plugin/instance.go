@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -33,7 +33,7 @@ const (
 // Instance follows one plugin on the bus.
 type Instance struct {
 	// Key is the Plugin object.
-	Key  types.NamespacedName
+	Key  ident.ID
 	Root contractv1.Root
 	Bus  mqtt.Bus
 	Sink driver.Sink
@@ -45,7 +45,7 @@ type Instance struct {
 	counting    sync.Mutex
 	mu          sync.Mutex
 	unsubscribe func()
-	declared    map[string]types.NamespacedName // id -> Device
+	declared    map[string]ident.ID // id -> Device
 	// status is nil until the plugin's status topic is seen.
 	status *contractv1.Status
 	// announced is nil until the devices topic is seen.
@@ -101,7 +101,7 @@ func (i *Instance) Stop() {
 }
 
 // SetDevices replaces the declared devices (plugin-local id -> Device) and re-reports discovery.
-func (i *Instance) SetDevices(declared map[string]types.NamespacedName) {
+func (i *Instance) SetDevices(declared map[string]ident.ID) {
 	i.counting.Lock()
 	defer i.counting.Unlock()
 	i.mu.Lock()
@@ -118,7 +118,7 @@ func (i *Instance) SetDevices(declared map[string]types.NamespacedName) {
 }
 
 func (i *Instance) key() driver.InstanceKey {
-	return driver.InstanceKey{Driver: driver.Plugin, NamespacedName: i.Key}
+	return driver.InstanceKey{Driver: driver.Plugin, ID: i.Key}
 }
 
 func (i *Instance) sendUndeclared(n int) { i.Sink.Undeclared(i.key(), n) }
@@ -179,7 +179,7 @@ func (i *Instance) Forget() {
 }
 
 // Set publishes a one-capability /set command. The value must already be validated.
-func (i *Instance) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+func (i *Instance) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	i.mu.Lock()
 	var id string
 	for k, d := range i.declared {
@@ -452,7 +452,7 @@ func (i *Instance) replayLocked() func() {
 // Until the devices topic is seen there is nothing to report, so devices stay waiting.
 func (i *Instance) discoveryLocked() func() {
 	type found struct {
-		dev  types.NamespacedName
+		dev  ident.ID
 		info driver.Info
 	}
 	var events []found

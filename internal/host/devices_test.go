@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -15,6 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -32,7 +32,7 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logr.Discard()}
 	eng := &engine.Engine{Log: logr.Discard(), Controls: controls}
 	devices := hub.NewStore(logr.Discard(), eng)
-	eng.Store, eng.Setter = devices, driver.SetterFunc(func(context.Context, types.NamespacedName, string, any) error { return nil })
+	eng.Store, eng.Setter = devices, driver.SetterFunc(func(context.Context, ident.ID, string, any) error { return nil })
 	eng.Init()
 	ctx, cancel := context.WithCancel(context.Background())
 	running := make(chan struct{})

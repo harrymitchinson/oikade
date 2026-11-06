@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -21,7 +21,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 	}
 	defer func() { _ = data.Close() }()
 	controls := &Stored[ControlState]{Values: data.Namespace(ControlStatesNamespace), Log: logr.Discard()}
-	valve := types.NamespacedName{Namespace: "home", Name: "valve"}
+	valve := ident.ID{Namespace: "home", Name: "valve"}
 	st := ControlState{"switch.on": control.State{Claims: []control.Claim{
 		{Source: "Rule/leak", Level: control.Safety, Value: 0},
 		{Source: "Rule/other", Level: control.Override, Value: 1},

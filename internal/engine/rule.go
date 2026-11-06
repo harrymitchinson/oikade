@@ -7,10 +7,9 @@ import (
 	"slices"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
@@ -217,7 +216,7 @@ type Trigger struct {
 	Generation int64
 }
 
-func (t Trigger) compile(key types.NamespacedName) (*Compiled, []error) {
+func (t Trigger) compile(key ident.ID) (*Compiled, []error) {
 	c := &Compiled{
 		Key: key, Generation: max(t.Generation, 1), Mode: ModeSingle, condition: guarded(t.Condition),
 		StartingDeadline: t.StartingDeadline, Since: t.Since, sinceLoad: t.Since.IsZero(), changes: slices.Clone(t.Changes),
@@ -261,7 +260,7 @@ type Moment struct {
 }
 
 // NewMoment compiles a moment written in Go. It reports every problem.
-func NewMoment(key types.NamespacedName, m Moment) (*Compiled, error) {
+func NewMoment(key ident.ID, m Moment) (*Compiled, error) {
 	c, errs := m.compile(key)
 	switch m.Mode {
 	case "":
@@ -301,7 +300,7 @@ type Flow struct {
 }
 
 // NewFlow compiles a flow written in Go.
-func NewFlow(key types.NamespacedName, f Flow) (*Compiled, error) {
+func NewFlow(key ident.ID, f Flow) (*Compiled, error) {
 	c, errs := f.compile(key)
 	switch f.Mode {
 	case "":
@@ -330,12 +329,12 @@ func (c *Compiled) HasTimers() bool { return len(c.timers) > 0 }
 // arbitrated capability. Unlike a moment, a flow can act on what went wrong, so what a moment only
 // logs is an error here: a set with no end on an arbitrated capability, and an action cut short by
 // ctx, which a flow must not take for done.
-func (e *Engine) Apply(ctx context.Context, key types.NamespacedName, a Action) error {
+func (e *Engine) Apply(ctx context.Context, key ident.ID, a Action) error {
 	act, err := a.action()
 	if err != nil {
 		return err
 	}
-	if act.device != "" && !act.ends() && e.arbitrated(types.NamespacedName{Namespace: key.Namespace, Name: act.device}, act.capability) {
+	if act.device != "" && !act.ends() && e.arbitrated(ident.ID{Namespace: key.Namespace, Name: act.device}, act.capability) {
 		return fmt.Errorf("%s %s is arbitrated, so a set needs for or until", act.device, act.capability)
 	}
 	result, skipped := e.runActions(ctx, key, &Compiled{actions: []action{act}})
@@ -357,7 +356,7 @@ const waitRecheck = 30 * time.Second
 // WaitFor returns true once cond holds, or false at until. Zero means no limit. It looks now, and
 // again after each change. Like any condition, cond runs with the engine's lock held, so one stuck
 // in a loop stops heartbeats and gets the process replaced.
-func (e *Engine) WaitFor(ctx context.Context, key types.NamespacedName, cond Condition, until time.Time) (bool, error) {
+func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, until time.Time) (bool, error) {
 	if cond == nil {
 		return false, errors.New("a wait needs a condition")
 	}
@@ -399,7 +398,7 @@ func (e *Engine) WaitFor(ctx context.Context, key types.NamespacedName, cond Con
 
 // look evaluates a wait's condition, and returns what will close on the next change. Nothing that
 // goes wrong in it can leave e.mu held, which would stop every rule and heartbeat.
-func (e *Engine) look(key types.NamespacedName, cond Condition) (changed <-chan struct{}, ok bool, err error) {
+func (e *Engine) look(key ident.ID, cond Condition) (changed <-chan struct{}, ok bool, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	changed = e.changes
@@ -408,7 +407,7 @@ func (e *Engine) look(key types.NamespacedName, cond Condition) (changed <-chan 
 }
 
 // NewTrigger compiles a trigger with nothing to run yet, for a flow to attach to.
-func NewTrigger(key types.NamespacedName, t Trigger) (*Compiled, error) {
+func NewTrigger(key ident.ID, t Trigger) (*Compiled, error) {
 	c, errs := t.compile(key)
 	return c, errors.Join(errs...)
 }
@@ -463,7 +462,7 @@ type Hold struct {
 }
 
 // NewHold compiles a hold written in Go. It reports every problem.
-func NewHold(key types.NamespacedName, h Hold) (*Compiled, error) {
+func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 	c := &Compiled{Key: key, Generation: max(h.Generation, 1), Mode: ModeSingle}
 	c.hold = &hold{
 		device: h.Device, room: h.Room, capability: h.Capability, priority: h.Priority, when: guarded(h.When),

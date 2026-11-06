@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -117,7 +117,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		_ = client.Disconnect(leaving)
 	}()
 	b.instance = &Instance{
-		Key:           types.NamespacedName{Name: b.config.BaseTopic},
+		Key:           ident.ID{Name: b.config.BaseTopic},
 		BaseTopic:     b.config.BaseTopic,
 		Bus:           client,
 		Sink:          b,
@@ -192,7 +192,7 @@ func (b *bridge) check(err error, msg, id string) {
 func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 	reports := make([]contractv1.DeviceReport, 0, len(devices)+len(b.declared))
 	discovered := make([]contractv1.DiscoveredDevice, 0, len(devices))
-	paired := make(map[string]types.NamespacedName, len(devices))
+	paired := make(map[string]ident.ID, len(devices))
 	for _, d := range devices {
 		paired[d.ID] = device(d.ID)
 		reports = append(reports, contractv1.DeviceReport{
@@ -222,7 +222,7 @@ func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 }
 
 // Availability implements driver.Sink.
-func (b *bridge) Availability(dev types.NamespacedName, online bool) {
+func (b *bridge) Availability(dev ident.ID, online bool) {
 	b.mu.Lock()
 	b.online[dev.Name] = online
 	_, reported := b.reported[dev.Name]
@@ -247,7 +247,7 @@ func (b *bridge) Changed(u driver.Update) {
 
 // Seen implements driver.Sink. A message that changes nothing is published too: it's how Oikade
 // knows a steady sensor is alive.
-func (b *bridge) Seen(dev types.NamespacedName, _ time.Time) {
+func (b *bridge) Seen(dev ident.ID, _ time.Time) {
 	b.mu.Lock()
 	values := b.heard[dev.Name]
 	delete(b.heard, dev.Name)
@@ -259,13 +259,13 @@ func (b *bridge) Seen(dev types.NamespacedName, _ time.Time) {
 }
 
 // Discovered implements driver.Sink. Inventory reports the same thing.
-func (b *bridge) Discovered(types.NamespacedName, driver.Info) {}
+func (b *bridge) Discovered(ident.ID, driver.Info) {}
 
 // Undeclared implements driver.Sink. Every device is reported, so none are.
 func (b *bridge) Undeclared(driver.InstanceKey, int) {}
 
 // device is how the plugin names a device to an Instance: by its ID, in no namespace.
-func device(id string) types.NamespacedName { return types.NamespacedName{Name: id} }
+func device(id string) ident.ID { return ident.ID{Name: id} }
 
 // onlinePayload reads Zigbee2MQTT's states: {"state":"online"} from 2.x, and a bare string before.
 func onlinePayload(payload []byte) bool {

@@ -8,19 +8,19 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
 type recorder struct {
 	mu         sync.Mutex
-	discovered map[types.NamespacedName]driver.Info
+	discovered map[ident.ID]driver.Info
 	changes    []driver.Update
-	available  map[types.NamespacedName]bool
-	seen       map[types.NamespacedName]time.Time
+	available  map[ident.ID]bool
+	seen       map[ident.ID]time.Time
 	undeclared int
 	inventory  []driver.AppDevice
 	inventoryN int // how many times Inventory was called
@@ -28,14 +28,14 @@ type recorder struct {
 
 func newRecorder() *recorder {
 	return &recorder{
-		discovered: map[types.NamespacedName]driver.Info{},
-		available:  map[types.NamespacedName]bool{},
-		seen:       map[types.NamespacedName]time.Time{},
+		discovered: map[ident.ID]driver.Info{},
+		available:  map[ident.ID]bool{},
+		seen:       map[ident.ID]time.Time{},
 		undeclared: -1,
 	}
 }
 
-func (r *recorder) Discovered(d types.NamespacedName, i driver.Info) {
+func (r *recorder) Discovered(d ident.ID, i driver.Info) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.discovered[d] = i
@@ -45,12 +45,12 @@ func (r *recorder) Changed(u driver.Update) {
 	defer r.mu.Unlock()
 	r.changes = append(r.changes, u)
 }
-func (r *recorder) Availability(d types.NamespacedName, online bool) {
+func (r *recorder) Availability(d ident.ID, online bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.available[d] = online
 }
-func (r *recorder) Seen(d types.NamespacedName, t time.Time) {
+func (r *recorder) Seen(d ident.ID, t time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seen[d] = t
@@ -75,8 +75,8 @@ func (r *recorder) takeChanges() []driver.Update {
 	return c
 }
 
-func dev(name string) types.NamespacedName {
-	return types.NamespacedName{Namespace: "home", Name: name}
+func dev(name string) ident.ID {
+	return ident.ID{Namespace: "home", Name: name}
 }
 
 const root = "oikade/v1/home/sonoff"
@@ -117,7 +117,7 @@ func setup(t *testing.T, retained map[string]string) (*Instance, *mqtt.Memory, *
 	if err := i.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	i.SetDevices(map[string]types.NamespacedName{"1000aa": porch, "1000bb": hall, "1000ff": ghost})
+	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall, "1000ff": ghost})
 	return i, bus, rec
 }
 
@@ -212,7 +212,7 @@ func TestRetainedStateBeforeDeclaration(t *testing.T) {
 	}
 
 	// Re-declaring re-reports discovery but doesn't repeat changes.
-	i.SetDevices(map[string]types.NamespacedName{"1000aa": porch})
+	i.SetDevices(map[string]ident.ID{"1000aa": porch})
 	if got := rec.takeChanges(); len(got) != 0 {
 		t.Errorf("re-declaring repeated changes: %+v", got)
 	}
@@ -251,7 +251,7 @@ func TestStatusOfflineAndContract(t *testing.T) {
 	if i.Stats().Up {
 		t.Errorf("up after offline status")
 	}
-	for _, d := range []types.NamespacedName{porch, hall, ghost} {
+	for _, d := range []ident.ID{porch, hall, ghost} {
 		if rec.available[d] {
 			t.Errorf("%s still available after the plugin went offline", d)
 		}
@@ -365,7 +365,7 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 	}
 
 	// Declaring 1000cc leaves nothing undeclared.
-	i.SetDevices(map[string]types.NamespacedName{"1000aa": porch, "1000cc": hall})
+	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000cc": hall})
 	if rec.undeclared != 0 {
 		t.Errorf("undeclared after declaring = %d, want 0", rec.undeclared)
 	}

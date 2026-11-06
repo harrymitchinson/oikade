@@ -1,7 +1,9 @@
 package control
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
 	"time"
 )
 
@@ -69,6 +71,14 @@ type Entry struct {
 	MinimumOff   Duration `json:"minimumOff,omitzero"`
 	// MaximumStartsPerDay limits off-to-on transitions. Zero means unlimited.
 	MaximumStartsPerDay int `json:"maximumStartsPerDay,omitempty"`
+}
+
+// Equal reports whether two entries are written the same, byte for byte in Default. An empty
+// Default equals a missing one.
+func (e Entry) Equal(other Entry) bool {
+	same := bytes.Equal(e.Default, other.Default)
+	e.Default, other.Default = nil, nil
+	return same && reflect.DeepEqual(e, other)
 }
 
 // Duration is a time.Duration written as "30m".

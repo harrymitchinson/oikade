@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
@@ -127,7 +127,7 @@ func (m *BudgetMetrics) Collectors() []prometheus.Collector {
 }
 
 // planned sets a budget's metrics from its plan, and whether the plan wants the target on now.
-func (m *BudgetMetrics) planned(key types.NamespacedName, p *budgetPlan, on bool) {
+func (m *BudgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
 	if m == nil {
 		return
 	}
@@ -139,7 +139,7 @@ func (m *BudgetMetrics) planned(key types.NamespacedName, p *budgetPlan, on bool
 
 // unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
 // run is kept for when it can plan again.
-func (m *BudgetMetrics) unplanned(key types.NamespacedName) {
+func (m *BudgetMetrics) unplanned(key ident.ID) {
 	if m == nil {
 		return
 	}
@@ -148,7 +148,7 @@ func (m *BudgetMetrics) unplanned(key types.NamespacedName) {
 	m.Desired.WithLabelValues(key.Namespace, key.Name).Set(0)
 }
 
-func (m *BudgetMetrics) delete(key types.NamespacedName) {
+func (m *BudgetMetrics) delete(key ident.ID) {
 	if m == nil {
 		return
 	}
@@ -196,13 +196,13 @@ type budgetState struct {
 // budgetCondition plans the day if it hasn't been, credits the target's run, and reports
 // whether the plan wants the target on now, and when that next changes. It never returns
 // unknown: a budget that can't be planned keeps the target off. Call with e.mu held.
-func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Time, devices map[string]map[string]any) (on bool, next time.Time) {
+func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices map[string]map[string]any) (on bool, next time.Time) {
 	h, hs := s.c.hold, s.hold
 	if hs.budget == nil {
 		hs.budget = &budgetState{}
 	}
 	bs := hs.budget
-	dev := types.NamespacedName{Namespace: key.Namespace, Name: h.device}
+	dev := ident.ID{Namespace: key.Namespace, Name: h.device}
 	snap, _ := e.Store.Get(dev)
 	// A driver that never reports availability counts as available.
 	targetOn := snap.Discovered && (snap.Online == nil || *snap.Online) && capability.Float(snap.Values[h.capability]) != 0
@@ -226,7 +226,7 @@ func (e *Engine) budgetCondition(key types.NamespacedName, s *state, now time.Ti
 		p = e.restorePlan(key, hs.saved.Budget, date, end, now)
 		if p == nil {
 			read := func(device, name string) *schedule.Reading {
-				in, ok := e.Store.Get(types.NamespacedName{Namespace: key.Namespace, Name: device})
+				in, ok := e.Store.Get(ident.ID{Namespace: key.Namespace, Name: device})
 				v, has := in.Values[name]
 				if !ok || !has {
 					return nil
@@ -309,7 +309,7 @@ func (e *Engine) compileBudget(s *state, snap hub.Snapshot) (*schedule.Budget, B
 
 // restorePlan returns the plan saved in the hold's state, if it's for this planning day. The block in progress counts as started already. It returns nil otherwise. Run minutes not
 // yet checkpointed, at most checkpointEvery of them, are lost.
-func (e *Engine) restorePlan(key types.NamespacedName, saved, date string, end, now time.Time) *budgetPlan {
+func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Time) *budgetPlan {
 	if saved == "" {
 		return nil
 	}
@@ -344,7 +344,7 @@ func (e *Engine) restorePlan(key types.NamespacedName, saved, date string, end, 
 // credit adds the time since the last credit to run, if the target was on and available then,
 // and records whether it is now. The engine credits when the target changes, so its state between
 // credits is the one recorded at the last.
-func (p *budgetPlan) credit(now time.Time, on bool, m *BudgetMetrics, key types.NamespacedName) {
+func (p *budgetPlan) credit(now time.Time, on bool, m *BudgetMetrics, key ident.ID) {
 	if p.on && now.After(p.credited) {
 		until := now
 		if p.end.Before(until) {
@@ -387,7 +387,7 @@ func planMessage(d schedule.Day) string {
 
 // reportBudget reports a budget hold's status, unless only its run minutes changed and they were
 // reported less than checkpointEvery ago. Call with e.mu held.
-func (e *Engine) reportBudget(key types.NamespacedName, s *state, now time.Time, r BudgetReport) {
+func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetReport) {
 	bs := s.hold.budget
 	r.Generation = s.c.Generation
 	if prev := bs.reported; prev != nil && sameBudget(*prev, r) {
@@ -444,7 +444,7 @@ func planningDay(now time.Time, loc *time.Location, planningMinute int) (int, ti
 
 // clearBudget reports that a Rule no longer has a budget, and drops its metrics. Call with e.mu
 // held.
-func (e *Engine) clearBudget(key types.NamespacedName, generation int64) {
+func (e *Engine) clearBudget(key ident.ID, generation int64) {
 	e.Budget.delete(key)
 	if e.OnBudget != nil {
 		e.OnBudget(key, BudgetReport{Generation: generation, Cleared: true})

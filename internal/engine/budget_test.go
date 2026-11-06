@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 )
 
@@ -33,18 +33,18 @@ var pumpFrost = Hold{Device: "pump", Capability: capability.SwitchOn, Value: tru
 
 // setControlOf replaces one device's control entries, leaving the others' empty.
 func (r *rig) setControlOf(dev string, entries ...control.Entry) {
-	metas := map[types.NamespacedName]hub.Meta{}
+	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[types.NamespacedName{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: entries}
+	metas[ident.ID{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: entries}
 	r.store.SetDevices(z2m, metas)
 }
 
 // report reports a device value, as a driver does: seen, then changed.
 func (r *rig) report(dev, c string, v any) {
 	r.t.Helper()
-	r.store.Seen(types.NamespacedName{Namespace: ns, Name: dev}, r.clock.Now())
+	r.store.Seen(ident.ID{Namespace: ns, Name: dev}, r.clock.Now())
 	r.change(dev, c, v)
 }
 
@@ -241,7 +241,7 @@ func TestEditingOutTheBudgetClearsItsStatus(t *testing.T) {
 
 func TestCreditCountsOnlyWhileOnAndAvailable(t *testing.T) {
 	t0 := local("2026-10-21 10:00 BST")
-	key := types.NamespacedName{Namespace: ns, Name: "pump-daily"}
+	key := ident.ID{Namespace: ns, Name: "pump-daily"}
 	for name, tc := range map[string]struct {
 		steps []bool
 		want  time.Duration
@@ -321,14 +321,14 @@ func TestANewTargetIsPlannedForAtOnce(t *testing.T) {
 		},
 	}, holdRule(t, "pump-daily", pumpBudget))
 	r.e.mu.Lock()
-	planned := r.e.rules[types.NamespacedName{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
+	planned := r.e.rules[ident.ID{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
 	r.e.mu.Unlock()
 	edited := pumpBudget
 	edited.Device, edited.Generation = "towel-rail", 2
 	r.e.Load(holdRule(t, "pump-daily", edited))
 	r.settle()
 	r.e.mu.Lock()
-	p := r.e.rules[types.NamespacedName{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
+	p := r.e.rules[ident.ID{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
 	r.e.mu.Unlock()
 	if p == planned || p.device != "towel-rail" {
 		t.Errorf("plan for %s, want a new one for towel-rail", p.device)

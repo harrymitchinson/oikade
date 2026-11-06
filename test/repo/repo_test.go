@@ -48,6 +48,32 @@ func TestNothingImportsAnAPIPackage(t *testing.T) {
 	})
 }
 
+// Oikade has no Kubernetes target (OIK-143), so nothing needs Kubernetes' types or its controller
+// framework. k8s.io/utils stays for its clock, which brings in nothing else from Kubernetes.
+func TestNoKubernetesModules(t *testing.T) {
+	module := regexp.MustCompile(`(sigs\.)?k8s\.io/[\w.-]+`)
+	banned := func(text string) string {
+		if found := module.FindString(text); found != "k8s.io/utils" {
+			return found
+		}
+		return ""
+	}
+	lines(t, sourceDirs, ".go", func(path string, number int, line string) {
+		if banned(line) != "" && !strings.HasSuffix(path, "repo_test.go") {
+			t.Errorf("%s:%d imports it: %s", path, number, strings.TrimSpace(line))
+		}
+	})
+	mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(mod), "\n") {
+		if found := banned(line); found != "" {
+			t.Errorf("go.mod requires %s", found)
+		}
+	}
+}
+
 // Oikade reaches Apple Home through Matter (OIK-76). HomeKit's own protocol and its library are
 // gone, and nothing in the internals should bring them back.
 func TestNoHomeKit(t *testing.T) {

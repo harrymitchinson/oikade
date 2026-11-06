@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // SimulatedDevice is a device with no hardware behind it, from the file --simulate names.
@@ -45,7 +45,7 @@ func ReadSimulated(path string) ([]SimulatedDevice, error) {
 
 // simInstance is the driver instance simulated devices belong to. A simulated device's name in the
 // file is its ID, and its name in its app.
-var simInstance = driver.InstanceKey{Driver: "simulated", NamespacedName: types.NamespacedName{Name: "simulator"}}
+var simInstance = driver.InstanceKey{Driver: "simulated", ID: ident.ID{Name: "simulator"}}
 
 // simulator is a driver with no hardware: writes take effect at once, and lines of JSON on its
 // input change a device as if from outside.
@@ -119,7 +119,7 @@ func (s *simulator) read(r io.Reader) {
 }
 
 // report records a device's new value.
-func (s *simulator) report(dev types.NamespacedName, name string, value any) error {
+func (s *simulator) report(dev ident.ID, name string, value any) error {
 	v, err := capability.Validate(name, value)
 	if err != nil {
 		return err
@@ -140,7 +140,7 @@ func (s *simulator) report(dev types.NamespacedName, name string, value any) err
 }
 
 // Set implements driver.Setter.
-func (s *simulator) Set(_ context.Context, dev types.NamespacedName, name string, value any) error {
+func (s *simulator) Set(_ context.Context, dev ident.ID, name string, value any) error {
 	if err := s.report(dev, name, value); err != nil {
 		return err
 	}

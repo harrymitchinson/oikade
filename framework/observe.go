@@ -10,11 +10,11 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 const (
@@ -39,7 +39,7 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 	registry.MustRegister(eng.Budget.Collectors()...)
 
 	runs := make(chan ruleRun, runsWaiting)
-	eng.OnRun = func(key types.NamespacedName, result string) {
+	eng.OnRun = func(key ident.ID, result string) {
 		if result == engine.ResultConditionFalse {
 			return // Every change to anything a condition reads. Too much to watch.
 		}

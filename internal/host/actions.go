@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -18,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // rulesInfo says what the running code's rules are: from the process, or if it's down, from the
@@ -149,7 +148,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 // only be written back. It returns who holds it and what they want. A claim counts from the moment the
 // host starts, before there's an arbiter for it, unless the capability is known not to be arbitrated
 // any more. Claims that can't be read count as Safety, with nothing to say what they want.
-func heldAtSafety(eng *engine.Engine, devices *hub.Store, dev types.NamespacedName, name string, value any) (string, any) {
+func heldAtSafety(eng *engine.Engine, devices *hub.Store, dev ident.ID, name string, value any) (string, any) {
 	if c, ok := eng.UnreadableClaim(dev); ok {
 		return c.Source, nil
 	}
@@ -179,7 +178,7 @@ type claimedSetter struct {
 }
 
 // Set implements driver.Setter.
-func (s claimedSetter) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+func (s claimedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	if c, ok := s.engine.UnreadableClaim(dev); ok {
 		return fmt.Errorf("%s holds %s", c.Source, dev.Name)
 	}
@@ -194,7 +193,7 @@ type recordedSetter struct {
 }
 
 // Set implements driver.Setter.
-func (s recordedSetter) Set(ctx context.Context, dev types.NamespacedName, name string, value any) error {
+func (s recordedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	if dev.Namespace == wire.Namespace {
 		s.emit(api.Event{Time: time.Now(), Type: api.EventWrite, Device: dev.Name, Capability: name, Value: value})
 	}

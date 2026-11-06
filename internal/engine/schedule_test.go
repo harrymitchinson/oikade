@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -131,7 +131,7 @@ type schedules struct {
 	got []Schedule
 }
 
-func (s *schedules) record(_ types.NamespacedName, sched Schedule) {
+func (s *schedules) record(_ ident.ID, sched Schedule) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.got = append(s.got, sched)
@@ -300,7 +300,7 @@ func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
 
 func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	h, s := timedHarness(t, local("2026-10-21 06:00 BST"), nil, nil, atTrigger("07:00"))
-	h.e.Remove(types.NamespacedName{Namespace: ns, Name: "lights-on"})
+	h.e.Remove(ident.ID{Namespace: ns, Name: "lights-on"})
 	if !s.last().Cleared {
 		t.Errorf("got %+v, want the schedule cleared", s.last())
 	}

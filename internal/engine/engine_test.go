@@ -14,12 +14,12 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 const ns = "home"
@@ -40,7 +40,7 @@ func delay(d time.Duration) Action { return Delay(d) }
 // momentRule compiles a moment in the test namespace.
 func momentRule(t *testing.T, name string, m Moment) *Compiled {
 	t.Helper()
-	c, err := NewMoment(types.NamespacedName{Namespace: ns, Name: name}, m)
+	c, err := NewMoment(ident.ID{Namespace: ns, Name: name}, m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func momentRule(t *testing.T, name string, m Moment) *Compiled {
 // holdRule compiles a hold in the test namespace.
 func holdRule(t *testing.T, name string, h Hold) *Compiled {
 	t.Helper()
-	c, err := NewHold(types.NamespacedName{Namespace: ns, Name: name}, h)
+	c, err := NewHold(ident.ID{Namespace: ns, Name: name}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ type fakeSetter struct {
 	fail map[string]bool
 }
 
-func (f *fakeSetter) Set(_ context.Context, dev types.NamespacedName, c string, v any) error {
+func (f *fakeSetter) Set(_ context.Context, dev ident.ID, c string, v any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, call{dev.Name, c, v})
@@ -241,7 +241,7 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 		t.Fatal(err)
 	}
 	store := hub.NewStore(logr.Discard())
-	store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{
+	store.SetDevices(z2m, map[ident.ID]hub.Meta{
 		{Namespace: ns, Name: "hallway-motion"}: {},
 		{Namespace: ns, Name: "hallway-light"}:  {},
 	})
@@ -266,7 +266,7 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 
 func (h *harness) motion(v bool) {
 	h.e.Changed(driver.Update{
-		Device: types.NamespacedName{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupancy, Value: v,
+		Device: ident.ID{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupancy, Value: v,
 	})
 }
 
@@ -404,18 +404,18 @@ type member struct {
 var lampCaps = []string{capability.LightOn, capability.LightLevel, capability.LinkQuality}
 
 // z2m is the driver instance every test device belongs to.
-var z2m = driver.InstanceKey{Driver: driver.Zigbee2MQTT, NamespacedName: types.NamespacedName{Namespace: ns, Name: "z2m"}}
+var z2m = driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: ident.ID{Namespace: ns, Name: "z2m"}}
 
 // declare replaces the store's devices with these.
 func declare(store *hub.Store, devices map[string]member) {
-	m := map[types.NamespacedName]hub.Meta{}
+	m := map[ident.ID]hub.Meta{}
 	for name, d := range devices {
-		m[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Room: d.room}
+		m[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Room: d.room}
 	}
 	store.SetDevices(z2m, m)
 	for name, d := range devices {
 		if d.caps != nil {
-			store.Discovered(types.NamespacedName{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: d.caps})
+			store.Discovered(ident.ID{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: d.caps})
 		}
 	}
 }
@@ -446,7 +446,7 @@ func TestRoomTriggerMatches(t *testing.T) {
 		"loft-motion":    {},
 	})
 	change := func(device string) {
-		h.e.Changed(driver.Update{Device: types.NamespacedName{Namespace: ns, Name: device}, Capability: capability.Occupancy, Value: true})
+		h.e.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: device}, Capability: capability.Occupancy, Value: true})
 	}
 	on := call{"hallway-light", capability.LightOn, true}
 

@@ -20,13 +20,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
@@ -92,7 +92,7 @@ type Suite struct {
 	wait    time.Duration
 	inst    *plugin.Instance
 	sink    *recorder
-	devices map[string]types.NamespacedName // id -> Device
+	devices map[string]ident.ID // id -> Device
 	p       *process
 	// t is the top-level test: plugin processes outlive the check that starts them.
 	t T
@@ -134,7 +134,7 @@ func New(t T, cfg Config) *Suite {
 		t.Fatal(err)
 	}
 	s.inst = &plugin.Instance{
-		Key:  types.NamespacedName{Namespace: namespace, Name: name},
+		Key:  ident.ID{Namespace: namespace, Name: name},
 		Root: root, Bus: bus, Sink: s.sink, Now: time.Now, Log: cfg.Log,
 	}
 	if err := s.inst.Start(ctx); err != nil {
@@ -179,7 +179,7 @@ func (s *Suite) Checks() []Check {
 }
 
 // readDeclared returns the devices file's ids, each mapped to a Device the decoder reports for.
-func readDeclared(t T, file string) map[string]types.NamespacedName {
+func readDeclared(t T, file string) map[string]ident.ID {
 	t.Helper()
 	raw, err := os.ReadFile(file)
 	if err != nil {
@@ -190,9 +190,9 @@ func readDeclared(t T, file string) map[string]types.NamespacedName {
 	if err != nil || declared.Contract != contractv1.Contract || len(declared.Devices) == 0 {
 		t.Fatalf("%s must be a contract %d devices file with at least one device: %v", file, contractv1.Contract, err)
 	}
-	devices := map[string]types.NamespacedName{}
+	devices := map[string]ident.ID{}
 	for _, d := range declared.Devices {
-		devices[d.ID] = types.NamespacedName{Namespace: namespace, Name: "device-" + d.ID}
+		devices[d.ID] = ident.ID{Namespace: namespace, Name: "device-" + d.ID}
 	}
 	return devices
 }
@@ -539,22 +539,22 @@ func (l *lockedBuffer) String() string {
 // recorder is a driver.Sink that keeps the latest of everything.
 type recorder struct {
 	mu        sync.Mutex
-	infos     map[types.NamespacedName]driver.Info
-	available map[types.NamespacedName]bool
-	values    map[types.NamespacedName]map[string]any
-	seen      map[types.NamespacedName]bool
+	infos     map[ident.ID]driver.Info
+	available map[ident.ID]bool
+	values    map[ident.ID]map[string]any
+	seen      map[ident.ID]bool
 }
 
 func newRecorder() *recorder {
 	return &recorder{
-		infos:     map[types.NamespacedName]driver.Info{},
-		available: map[types.NamespacedName]bool{},
-		values:    map[types.NamespacedName]map[string]any{},
-		seen:      map[types.NamespacedName]bool{},
+		infos:     map[ident.ID]driver.Info{},
+		available: map[ident.ID]bool{},
+		values:    map[ident.ID]map[string]any{},
+		seen:      map[ident.ID]bool{},
 	}
 }
 
-func (r *recorder) Discovered(dev types.NamespacedName, info driver.Info) {
+func (r *recorder) Discovered(dev ident.ID, info driver.Info) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.infos[dev] = info
@@ -569,13 +569,13 @@ func (r *recorder) Changed(u driver.Update) {
 	r.values[u.Device][u.Capability] = u.Value
 }
 
-func (r *recorder) Availability(dev types.NamespacedName, online bool) {
+func (r *recorder) Availability(dev ident.ID, online bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.available[dev] = online
 }
 
-func (r *recorder) Seen(dev types.NamespacedName, _ time.Time) {
+func (r *recorder) Seen(dev ident.ID, _ time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seen[dev] = true
@@ -584,16 +584,16 @@ func (r *recorder) Seen(dev types.NamespacedName, _ time.Time) {
 func (r *recorder) Undeclared(driver.InstanceKey, int)               {}
 func (r *recorder) Inventory(driver.InstanceKey, []driver.AppDevice) {}
 
-func (r *recorder) info(dev types.NamespacedName) driver.Info {
+func (r *recorder) info(dev ident.ID) driver.Info {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.infos[dev]
 }
 
-func (r *recorder) foundDevices() []types.NamespacedName {
+func (r *recorder) foundDevices() []ident.ID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []types.NamespacedName
+	var out []ident.ID
 	for d, i := range r.infos {
 		if i.Found {
 			out = append(out, d)
@@ -602,20 +602,20 @@ func (r *recorder) foundDevices() []types.NamespacedName {
 	return out
 }
 
-func (r *recorder) online(dev types.NamespacedName) (online, ok bool) {
+func (r *recorder) online(dev ident.ID) (online, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	online, ok = r.available[dev]
 	return online, ok
 }
 
-func (r *recorder) seenAt(dev types.NamespacedName) bool {
+func (r *recorder) seenAt(dev ident.ID) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.seen[dev]
 }
 
-func (r *recorder) value(dev types.NamespacedName, c string) (any, bool) {
+func (r *recorder) value(dev ident.ID, c string) (any, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v, ok := r.values[dev][c]

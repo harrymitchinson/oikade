@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -40,9 +40,9 @@ type HoldTarget struct {
 // States keeps state, by Rule or Device, where it survives a restart.
 type States[T any] interface {
 	// Get returns the saved state, if there is one.
-	Get(key types.NamespacedName) (T, bool)
-	Put(ctx context.Context, key types.NamespacedName, s T) error
-	Delete(ctx context.Context, key types.NamespacedName) error
+	Get(key ident.ID) (T, bool)
+	Put(ctx context.Context, key ident.ID, s T) error
+	Delete(ctx context.Context, key ident.ID) error
 }
 
 // HoldStates keeps HoldStates, by Rule.
@@ -69,7 +69,7 @@ var _ HoldStates = (*Stored[HoldState])(nil)
 
 // Get implements States. A state it can't decode counts as none, as with Retained. The store fails
 // a read only once it's closed, when Put fails too, so that can't overwrite a state.
-func (s *Stored[T]) Get(key types.NamespacedName) (T, bool) {
+func (s *Stored[T]) Get(key ident.ID) (T, bool) {
 	state, ok, err := s.read(key)
 	if err != nil {
 		s.Log.Error(err, "Ignored unreadable saved state", "key", key.String())
@@ -80,12 +80,12 @@ func (s *Stored[T]) Get(key types.NamespacedName) (T, bool) {
 }
 
 // Unreadable implements unreadableStates.
-func (s *Stored[T]) Unreadable(key types.NamespacedName) error {
+func (s *Stored[T]) Unreadable(key ident.ID) error {
 	_, _, err := s.read(key)
 	return err
 }
 
-func (s *Stored[T]) read(key types.NamespacedName) (T, bool, error) {
+func (s *Stored[T]) read(key ident.ID) (T, bool, error) {
 	var state T
 	payload, ok, err := s.Values.Get(key.String())
 	if err != nil || !ok {
@@ -103,9 +103,10 @@ func (s *Stored[T]) Names(namespace string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	prefix := ident.ID{Namespace: namespace}.String()
 	var names []string
 	for _, k := range keys {
-		if name, ok := strings.CutPrefix(k, namespace+string(types.Separator)); ok {
+		if name, ok := strings.CutPrefix(k, prefix); ok {
 			names = append(names, name)
 		}
 	}
@@ -116,7 +117,7 @@ func (s *Stored[T]) Names(namespace string) ([]string, error) {
 //
 // It ignores ctx: the write is local, and a hold that has just written its device must save that
 // even during shutdown, or it would repeat the write after the restart.
-func (s *Stored[T]) Put(_ context.Context, key types.NamespacedName, state T) error {
+func (s *Stored[T]) Put(_ context.Context, key ident.ID, state T) error {
 	payload, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -125,35 +126,35 @@ func (s *Stored[T]) Put(_ context.Context, key types.NamespacedName, state T) er
 }
 
 // Delete implements States. It ignores ctx, as Put does.
-func (s *Stored[T]) Delete(_ context.Context, key types.NamespacedName) error {
+func (s *Stored[T]) Delete(_ context.Context, key ident.ID) error {
 	return s.Values.Delete(key.String())
 }
 
 // memoryStates is States that doesn't survive a restart, for an engine without one.
 type memoryStates[T any] struct {
 	mu     sync.Mutex
-	states map[types.NamespacedName]T
+	states map[ident.ID]T
 }
 
 func newMemoryStates[T any]() *memoryStates[T] {
-	return &memoryStates[T]{states: map[types.NamespacedName]T{}}
+	return &memoryStates[T]{states: map[ident.ID]T{}}
 }
 
-func (m *memoryStates[T]) Get(key types.NamespacedName) (T, bool) {
+func (m *memoryStates[T]) Get(key ident.ID) (T, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.states[key]
 	return s, ok
 }
 
-func (m *memoryStates[T]) Put(_ context.Context, key types.NamespacedName, s T) error {
+func (m *memoryStates[T]) Put(_ context.Context, key ident.ID, s T) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.states[key] = s
 	return nil
 }
 
-func (m *memoryStates[T]) Delete(_ context.Context, key types.NamespacedName) error {
+func (m *memoryStates[T]) Delete(_ context.Context, key ident.ID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.states, key)

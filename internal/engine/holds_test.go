@@ -10,13 +10,13 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -93,17 +93,17 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	r.e.Init()
 	r.store = hub.NewStore(logr.Discard(), r.e)
 	r.e.Store = r.store
-	metas := map[types.NamespacedName]hub.Meta{}
+	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: o.control[name]}
+		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: o.control[name]}
 	}
 	r.store.SetDevices(z2m, metas)
 	for name, caps := range holdDevices {
-		r.store.Discovered(types.NamespacedName{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: caps})
+		r.store.Discovered(ident.ID{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: caps})
 	}
 	for dev, vs := range values {
 		for c, v := range vs {
-			r.store.Changed(driver.Update{Device: types.NamespacedName{Namespace: ns, Name: dev}, Capability: c, Value: v})
+			r.store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: dev}, Capability: c, Value: v})
 		}
 	}
 	for _, c := range rules {
@@ -163,7 +163,7 @@ func (r *rig) at(s string) {
 	}
 }
 
-func (r *rig) recordBudget(key types.NamespacedName, b BudgetReport) {
+func (r *rig) recordBudget(key ident.ID, b BudgetReport) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.budgets == nil {
@@ -180,7 +180,7 @@ func (r *rig) budget(name string) BudgetReport {
 
 func (r *rig) change(dev, c string, v any) {
 	r.t.Helper()
-	r.store.Changed(driver.Update{Device: types.NamespacedName{Namespace: ns, Name: dev}, Capability: c, Value: v})
+	r.store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: dev}, Capability: c, Value: v})
 	r.settle()
 }
 
@@ -347,7 +347,7 @@ func TestFailedHoldWriteRetries(t *testing.T) {
 	r.setter.fail = map[string]bool{"water-heater": true}
 	r.setter.mu.Unlock()
 	r.at("2026-10-21 22:00 BST")
-	if s, _ := states.Get(types.NamespacedName{Namespace: ns, Name: "water-heater-night"}); s.Active {
+	if s, _ := states.Get(ident.ID{Namespace: ns, Name: "water-heater-night"}); s.Active {
 		t.Error("saved a failed write as active")
 	}
 	r.setter.mu.Lock()
@@ -359,7 +359,7 @@ func TestFailedHoldWriteRetries(t *testing.T) {
 
 func TestRemoveForgetsTheHold(t *testing.T) {
 	states := newMemoryStates[HoldState]()
-	key := types.NamespacedName{Namespace: ns, Name: "water-heater-night"}
+	key := ident.ID{Namespace: ns, Name: "water-heater-night"}
 	r := startRig(t, local("2026-10-21 23:00 BST"), states, nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.e.Unload(key)
 	if _, ok := states.Get(key); !ok {
@@ -420,12 +420,12 @@ func TestSunWindowFollowsTheDay(t *testing.T) {
 
 // declareAlso adds devices to the rig's store, in rooms, undiscovered.
 func (r *rig) declareAlso(rooms map[string]string) {
-	metas := map[types.NamespacedName]hub.Meta{}
+	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
 	}
 	for name, room := range rooms {
-		metas[types.NamespacedName{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Room: room}
+		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Room: room}
 	}
 	r.store.SetDevices(z2m, metas)
 }
@@ -446,7 +446,7 @@ func TestRoomHoldWaitsForItsMembers(t *testing.T) {
 	r.e.Load(c)
 	r.settle()
 	r.expect()
-	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "porch-lamp"}, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
+	r.store.Discovered(ident.ID{Namespace: ns, Name: "porch-lamp"}, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
 	r.at("2026-10-21 12:01 BST")
 	r.expect(call{"porch-lamp", capability.LightOn, true})
 }
@@ -457,9 +457,9 @@ func TestReleaseWhileWhenIsUnknown(t *testing.T) {
 	r.expect(call{"workshop-heater", capability.SwitchOn, false})
 	// The sensor drops out of the store, so when can't be evaluated.
 	r.declareAlso(nil)
-	r.store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{{Namespace: ns, Name: "workshop-heater"}: {Instance: z2m}})
-	r.store.Discovered(types.NamespacedName{Namespace: ns, Name: "workshop-heater"}, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
-	r.e.release(types.NamespacedName{Namespace: ns, Name: "workshop-overheat"})
+	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{{Namespace: ns, Name: "workshop-heater"}: {Instance: z2m}})
+	r.store.Discovered(ident.ID{Namespace: ns, Name: "workshop-heater"}, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
+	r.e.release(ident.ID{Namespace: ns, Name: "workshop-overheat"})
 	r.settle()
 	r.expect(call{"workshop-heater", capability.SwitchOn, false})
 	// It's back, and cool: the released hold ends rather than latching again.

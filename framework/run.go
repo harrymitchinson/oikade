@@ -15,7 +15,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
-	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -24,6 +23,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -86,7 +86,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	// The mirror is the host's device state, here so that conditions never wait for a socket. It's
 	// filled before the engine listens, so a Welcome doesn't look like a change to anything.
 	mirror := hub.NewStore(logr.Discard())
-	metas := map[types.NamespacedName]hub.Meta{}
+	metas := map[ident.ID]hub.Meta{}
 	for _, d := range welcome.Devices {
 		metas[deviceKey(d.Name)] = meta(d, settings)
 	}
@@ -98,7 +98,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
 		Log: log.WithName("automations"),
 		// A budget has no Rule to show this on, so the log is where you find it.
-		OnBudget: func(key types.NamespacedName, r engine.BudgetReport) {
+		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
 				log.Info("Could not plan budget", "rule", key.Name, "reason", r.Reason, "message", r.Message)
 			}
@@ -106,7 +106,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	}
 	gather := observe(logr.NewContext(ctx, log), eng, client)
 	fires := make(chan timerFire, firesWaiting)
-	eng.OnSchedule = func(key types.NamespacedName, s engine.Schedule) {
+	eng.OnSchedule = func(key ident.ID, s engine.Schedule) {
 		if s.LastFire.IsZero() {
 			return
 		}
@@ -321,8 +321,8 @@ func answerPings(ctx context.Context, client *wire.Client, eng *engine.Engine, p
 	}
 }
 
-func deviceKey(name string) types.NamespacedName {
-	return types.NamespacedName{Namespace: wire.Namespace, Name: name}
+func deviceKey(name string) ident.ID {
+	return ident.ID{Namespace: wire.Namespace, Name: name}
 }
 
 func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
@@ -357,7 +357,7 @@ func seed(mirror *hub.Store, d wire.Device) {
 // discovered brings a device up to date, adding it if it's new since the Welcome. metas are the
 // mirror's devices, which it replaces as a set. Only the read goroutine calls this, after the
 // Welcome's seeding.
-func discovered(mirror *hub.Store, metas map[types.NamespacedName]hub.Meta, settings []wire.DeviceControl,
+func discovered(mirror *hub.Store, metas map[ident.ID]hub.Meta, settings []wire.DeviceControl,
 	d wire.Device,
 ) {
 	metas[deviceKey(d.Name)] = meta(d, settings)

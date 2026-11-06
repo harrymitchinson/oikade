@@ -5,24 +5,24 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 )
 
 // device is a Device on endpoint id.
 func device(name string, id uint16, caps ...string) Device {
-	return Device{Key: types.NamespacedName{Namespace: "home", Name: name}, Endpoint: id, Name: name, Capabilities: caps}
+	return Device{Key: ident.ID{Namespace: "home", Name: name}, Endpoint: id, Name: name, Capabilities: caps}
 }
 
 func newBridgeRig() *Bridge {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logr.Discard(), b)
-	b.Writes = &Coalescer{Setter: &recorder{}, Current: func(types.NamespacedName, string) (any, bool) { return nil, false }}
+	b.Writes = &Coalescer{Setter: &recorder{}, Current: func(ident.ID, string) (any, bool) { return nil, false }}
 	return b
 }
 
@@ -58,11 +58,11 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	}
 
 	// The bus reaches the clusters, and availability is Reachable.
-	b.Store.SetDevices(driver.InstanceKey{}, map[types.NamespacedName]hub.Meta{
+	b.Store.SetDevices(driver.InstanceKey{}, map[ident.ID]hub.Meta{
 		{Namespace: "home", Name: "desk-lamp"}: {},
 	})
-	b.Changed(driver.Update{Device: types.NamespacedName{Namespace: "home", Name: "desk-lamp"}, Capability: capability.LightOn, Value: true})
-	b.Availability(types.NamespacedName{Namespace: "home", Name: "desk-lamp"}, false)
+	b.Changed(driver.Update{Device: ident.ID{Namespace: "home", Name: "desk-lamp"}, Capability: capability.LightOn, Value: true})
+	b.Availability(ident.ID{Namespace: "home", Name: "desk-lamp"}, false)
 	b.Matter.Node.View(func() {
 		e := b.Matter.Node.Endpoint(2)
 		var on, reachable bool
@@ -93,7 +93,7 @@ func TestBridgeRenamesInPlace(t *testing.T) {
 	sensor.Name = "Hall sensor"
 	b := newBridgeRig()
 	apply(t, b, sensor)
-	key := types.NamespacedName{Namespace: "home", Name: "hall-sensor"}
+	key := ident.ID{Namespace: "home", Name: "hall-sensor"}
 	b.Changed(driver.Update{Device: key, Capability: capability.Occupancy, Value: true})
 	var before *im.Endpoint
 	b.Matter.Node.View(func() { before = b.Matter.Node.Endpoint(3) })
@@ -150,8 +150,8 @@ func onOff(t *testing.T, b *Bridge, id uint16) bool {
 func TestApplyFollowsNamesThatSwap(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logr.Discard(), b)
-	first, second := types.NamespacedName{Namespace: "home", Name: "first"}, types.NamespacedName{Namespace: "home", Name: "second"}
-	dev := func(key types.NamespacedName, id uint16) Device {
+	first, second := ident.ID{Namespace: "home", Name: "first"}, ident.ID{Namespace: "home", Name: "second"}
+	dev := func(key ident.ID, id uint16) Device {
 		return Device{Key: key, Endpoint: id, Name: key.Name, Capabilities: []string{capability.SwitchOn}, Unique: "u"}
 	}
 	if err := b.Apply(logr.Discard(), map[uint16]Device{2: dev(first, 2), 3: dev(second, 3)}); err != nil {
@@ -173,7 +173,7 @@ func TestApplyFollowsNamesThatSwap(t *testing.T) {
 func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logr.Discard(), b)
-	key := types.NamespacedName{Namespace: "home", Name: "lamp"}
+	key := ident.ID{Namespace: "home", Name: "lamp"}
 	d := Device{Key: key, Endpoint: 2, Name: "lamp", Capabilities: []string{capability.SwitchOn}, Unique: "u", Absent: true}
 	reachable := func() bool {
 		var r bool

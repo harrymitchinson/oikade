@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -21,6 +20,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -412,7 +412,7 @@ func (s *server) reconcile(rules, flows []string) error {
 	}
 	for _, saved := range []interface {
 		Names(namespace string) ([]string, error)
-		Delete(ctx context.Context, key types.NamespacedName) error
+		Delete(ctx context.Context, key ident.ID) error
 	}{s.holds, s.fires, s.paused} {
 		names, err := saved.Names(wire.Namespace)
 		if err != nil {
@@ -561,7 +561,7 @@ func (s *server) Changed(u driver.Update) {
 }
 
 // Discovered implements driver.Sink.
-func (s *server) Discovered(dev types.NamespacedName, _ driver.Info) {
+func (s *server) Discovered(dev ident.ID, _ driver.Info) {
 	snap, ok := s.devices.Get(dev)
 	if !ok || dev.Namespace != wire.Namespace {
 		return
@@ -571,7 +571,7 @@ func (s *server) Discovered(dev types.NamespacedName, _ driver.Info) {
 }
 
 // Seen tells your process a device reported, which a budget's reading needs to know how old it is.
-func (s *server) Seen(dev types.NamespacedName, t time.Time) {
+func (s *server) Seen(dev ident.ID, t time.Time) {
 	if dev.Namespace == wire.Namespace {
 		s.broadcast(wire.Message{Type: wire.TypeSeen, Device: dev.Name, Time: t})
 	}
@@ -625,8 +625,8 @@ func (s *server) answer(m wire.Message) wire.Message {
 	return reply
 }
 
-func key(name string) types.NamespacedName {
-	return types.NamespacedName{Namespace: wire.Namespace, Name: name}
+func key(name string) ident.ID {
+	return ident.ID{Namespace: wire.Namespace, Name: name}
 }
 
 func deviceOf(name string, snap hub.Snapshot) wire.Device {

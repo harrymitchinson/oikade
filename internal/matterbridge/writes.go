@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"github.com/go-logr/logr"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // coalesceWindow is how long writes to a device gather before the latest is sent. Controllers
@@ -23,7 +23,7 @@ const coalesceWindow = 50 * time.Millisecond
 const sentFor = 10 * time.Second
 
 type writeKey struct {
-	dev  types.NamespacedName
+	dev  ident.ID
 	name string
 }
 
@@ -38,7 +38,7 @@ type sent struct {
 type Coalescer struct {
 	Setter driver.Setter
 	// Current returns a capability's current value on the device, if known.
-	Current func(dev types.NamespacedName, name string) (any, bool)
+	Current func(dev ident.ID, name string) (any, bool)
 	// Window is how long writes gather; 0 means 50 ms.
 	Window time.Duration
 	// Timeout bounds each write.
@@ -48,7 +48,7 @@ type Coalescer struct {
 
 	mu      sync.Mutex
 	pending map[writeKey]any
-	timers  map[types.NamespacedName]*time.Timer
+	timers  map[ident.ID]*time.Timer
 	sent    map[writeKey]sent
 	ctx     context.Context
 }
@@ -64,11 +64,11 @@ func (c *Coalescer) now() time.Time {
 }
 
 // Add takes a write. It doesn't block.
-func (c *Coalescer) Add(dev types.NamespacedName, name string, value any) {
+func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.pending == nil {
-		c.pending, c.timers, c.sent = map[writeKey]any{}, map[types.NamespacedName]*time.Timer{}, map[writeKey]sent{}
+		c.pending, c.timers, c.sent = map[writeKey]any{}, map[ident.ID]*time.Timer{}, map[writeKey]sent{}
 	}
 	c.pending[writeKey{dev, name}] = value
 	if c.timers[dev] == nil {
@@ -82,7 +82,7 @@ func (c *Coalescer) Add(dev types.NamespacedName, name string, value any) {
 
 // flush sends a device's latest writes: a level before turning on, and turning off before
 // anything else, so a light doesn't flash at its old level.
-func (c *Coalescer) flush(dev types.NamespacedName) {
+func (c *Coalescer) flush(dev ident.ID) {
 	type write struct {
 		name  string
 		value any
@@ -113,7 +113,7 @@ func (c *Coalescer) flush(dev types.NamespacedName) {
 		}
 		return strings.Compare(a.name, b.name)
 	})
-	log := logf.FromContext(c.ctx)
+	log := logr.FromContextOrDiscard(c.ctx)
 	for _, w := range writes {
 		k := writeKey{dev, w.name}
 		if reflect.DeepEqual(c.baseline(k), w.value) {
@@ -136,7 +136,7 @@ func (c *Coalescer) flush(dev types.NamespacedName) {
 
 // Reported says the device has spoken, so what was last sent no longer says what it's doing: anything
 // could have moved it since. A repeated write then counts against the device's own state.
-func (c *Coalescer) Reported(dev types.NamespacedName, name string) {
+func (c *Coalescer) Reported(dev ident.ID, name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.sent, writeKey{dev, name})

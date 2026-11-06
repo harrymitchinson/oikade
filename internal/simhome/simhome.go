@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -25,6 +24,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 const (
@@ -35,7 +35,7 @@ const (
 )
 
 // instance is the driver instance simulated devices belong to.
-var instance = driver.InstanceKey{Driver: "simulated", NamespacedName: types.NamespacedName{Name: "home"}}
+var instance = driver.InstanceKey{Driver: "simulated", ID: ident.ID{Name: "home"}}
 
 // Home is a home to run. Compile runs again at each restart, as a new process would.
 type Home struct {
@@ -136,7 +136,7 @@ func New(o Options) (*Sim, error) {
 		s.location = o.Start.Location()
 	}
 	s.store = hub.NewStore(logr.Discard())
-	metas := map[types.NamespacedName]hub.Meta{}
+	metas := map[ident.ID]hub.Meta{}
 	for _, d := range o.Devices {
 		metas[key(d.Name)] = hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d.Name)}
 	}
@@ -158,8 +158,8 @@ func New(o Options) (*Sim, error) {
 	return s, s.settle()
 }
 
-func key(name string) types.NamespacedName {
-	return types.NamespacedName{Namespace: wire.Namespace, Name: name}
+func key(name string) ident.ID {
+	return ident.ID{Namespace: wire.Namespace, Name: name}
 }
 
 func (s *Sim) entries(device string) []control.Entry {
@@ -183,14 +183,14 @@ func (s *Sim) start() error {
 		Store: s.store, Setter: driver.SetterFunc(s.set), States: s.holds, Controls: s.controls, Clock: s.clock,
 		Location: s.location, Log: s.log.WithName("automations"),
 		OnPark: s.park,
-		OnBudget: func(key types.NamespacedName, r engine.BudgetReport) {
+		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
 				s.mu.Lock()
 				defer s.mu.Unlock()
 				s.note("Budget "+key.Name, " couldn't plan: "+r.Message)
 			}
 		},
-		OnEnd: func(key types.NamespacedName, result string) {
+		OnEnd: func(key ident.ID, result string) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.runs[key.Name]--
@@ -199,7 +199,7 @@ func (s *Sim) start() error {
 				s.note(key.Name, " "+result)
 			}
 		},
-		OnSchedule: func(key types.NamespacedName, sc engine.Schedule) {
+		OnSchedule: func(key ident.ID, sc engine.Schedule) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if sc.Hold && sc.Active != s.active[key.Name] {
@@ -211,7 +211,7 @@ func (s *Sim) start() error {
 			}
 		},
 	}
-	eng.OnStart = func(key types.NamespacedName, _ time.Time) {
+	eng.OnStart = func(key ident.ID, _ time.Time) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.runs[key.Name]++
@@ -266,7 +266,7 @@ func (s *Sim) notice(eng *engine.Engine) {
 }
 
 // set is a device taking a write, which works at once.
-func (s *Sim) set(_ context.Context, dev types.NamespacedName, name string, value any) error {
+func (s *Sim) set(_ context.Context, dev ident.ID, name string, value any) error {
 	v, err := capability.Validate(name, value)
 	if err != nil {
 		return err
@@ -278,7 +278,7 @@ func (s *Sim) set(_ context.Context, dev types.NamespacedName, name string, valu
 	return s.report(dev, name, v)
 }
 
-func (s *Sim) report(dev types.NamespacedName, name string, value any) error {
+func (s *Sim) report(dev ident.ID, name string, value any) error {
 	snap, ok := s.store.Get(dev)
 	if !ok {
 		return fmt.Errorf("no device %s", dev.Name)

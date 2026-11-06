@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -128,7 +128,7 @@ func TestSocketIsPrivate(t *testing.T) {
 func TestHoldStateIsReturnedToTheNextSession(t *testing.T) {
 	dir := tempDir(t)
 	socket, stop := startHost(t, dir)
-	key := types.NamespacedName{Namespace: wire.Namespace, Name: "porch"}
+	key := ident.ID{Namespace: wire.Namespace, Name: "porch"}
 	c, _ := dial(t, socket, "porch")
 	want := engine.HoldState{Active: true, Latched: true, Target: engine.HoldTarget{Device: "lamp", Capability: "switch.on", Value: true}}
 	if err := c.Put(t.Context(), key, want); err != nil {

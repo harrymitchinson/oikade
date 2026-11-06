@@ -4,12 +4,12 @@ package engine
 import (
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // Compiled is a validated rule, ready to run.
 type Compiled struct {
-	Key types.NamespacedName
+	Key ident.ID
 	// Generation is the rule's version.
 	Generation int64
 	Mode       Mode

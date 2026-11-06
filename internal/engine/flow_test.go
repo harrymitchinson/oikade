@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 	testclock "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // gatedControls is a store whose saves wait for the test, and can fail.
@@ -24,7 +24,7 @@ type gatedControls struct {
 	err  atomic.Pointer[error]
 }
 
-func (g *gatedControls) Put(ctx context.Context, key types.NamespacedName, s ControlState) error {
+func (g *gatedControls) Put(ctx context.Context, key ident.ID, s ControlState) error {
 	<-g.gate
 	if err := g.err.Load(); err != nil {
 		return *err
@@ -32,14 +32,14 @@ func (g *gatedControls) Put(ctx context.Context, key types.NamespacedName, s Con
 	return g.States.Put(ctx, key, s)
 }
 
-func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, types.NamespacedName) {
+func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, ident.ID) {
 	t.Helper()
-	dev := types.NamespacedName{Namespace: ns, Name: "valve"}
+	dev := ident.ID{Namespace: ns, Name: "valve"}
 	eng := &Engine{Clock: testclock.NewFakeClock(time.Now()), Log: logr.Discard(), Controls: controls}
 	store := hub.NewStore(logr.Discard(), eng)
 	eng.Store, eng.Setter = store, &fakeSetter{}
 	eng.Init()
-	store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{dev: {
+	store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: {
 		Instance: z2m,
 		Control:  []control.Entry{entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h")},
 	}})
@@ -195,7 +195,7 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 		woke <- ok
 	}()
 	report := func(v bool) {
-		h.e.Store.Changed(driver.Update{Device: types.NamespacedName{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupancy, Value: v})
+		h.e.Store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupancy, Value: v})
 		h.motion(v)
 	}
 	report(false)
@@ -303,10 +303,10 @@ func TestWaitForRefusesNoConditionAndLeavesTheEngineFree(t *testing.T) {
 // failingFor is a store that can't save one device.
 type failingFor struct {
 	States[ControlState]
-	broken types.NamespacedName
+	broken ident.ID
 }
 
-func (f *failingFor) Put(ctx context.Context, key types.NamespacedName, s ControlState) error {
+func (f *failingFor) Put(ctx context.Context, key ident.ID, s ControlState) error {
 	if key == f.broken {
 		return errors.New("disk full")
 	}
@@ -314,9 +314,9 @@ func (f *failingFor) Put(ctx context.Context, key types.NamespacedName, s Contro
 }
 
 func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
-	broken := types.NamespacedName{Namespace: ns, Name: "broken"}
+	broken := ident.ID{Namespace: ns, Name: "broken"}
 	eng, dev := arbitratedEngine(t, &failingFor{States: newMemoryStates[ControlState](), broken: broken})
-	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{
+	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{
 		dev:    {Instance: z2m, Control: []control.Entry{entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h")}},
 		broken: {Instance: z2m, Control: []control.Entry{entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h")}},
 	})
@@ -341,16 +341,16 @@ func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
 
 func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
-	other := types.NamespacedName{Namespace: ns, Name: "other"}
-	third := types.NamespacedName{Namespace: ns, Name: "third"}
+	other := ident.ID{Namespace: ns, Name: "other"}
+	third := ident.ID{Namespace: ns, Name: "third"}
 	meta := hub.Meta{Instance: z2m, Control: []control.Entry{
 		entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h"),
 	}}
-	eng.Store.SetDevices(z2m, map[types.NamespacedName]hub.Meta{dev: meta, other: meta, third: meta})
+	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: meta, other: meta, third: meta})
 	ctx := context.Background()
 	key := goKey("routine")
 	expires := time.Now().Add(time.Hour)
-	for d, level := range map[types.NamespacedName]control.Level{dev: control.Normal, other: control.Override, third: control.Safety} {
+	for d, level := range map[ident.ID]control.Level{dev: control.Normal, other: control.Override, third: control.Safety} {
 		claim := control.Claim{Source: ruleSource(key.Name), Level: level, Expires: expires}
 		if _, err := eng.Claim(ctx, d, capability.SwitchOn, claim); err != nil {
 			t.Fatal(err)
@@ -359,7 +359,7 @@ func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	if err := eng.ReleaseFlow(ctx, key); err != nil {
 		t.Fatal(err)
 	}
-	claims := func(d types.NamespacedName) int { return len(eng.arbs[d][capability.SwitchOn].a.State().Claims) }
+	claims := func(d ident.ID) int { return len(eng.arbs[d][capability.SwitchOn].a.State().Claims) }
 	if claims(dev) != 0 || claims(other) != 0 {
 		t.Fatalf("claims stayed: normal %d, override %d", claims(dev), claims(other))
 	}

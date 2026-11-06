@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -18,6 +17,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -96,7 +96,7 @@ type writes struct {
 	err   error
 }
 
-func (w *writes) Set(context.Context, types.NamespacedName, string, any) error {
+func (w *writes) Set(context.Context, ident.ID, string, any) error {
 	w.calls++
 	return w.err
 }
@@ -123,7 +123,7 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 	var restored []any
 	w := &matterWrites{
 		engine: eng, devices: devices, setter: setter,
-		restore: func(_ types.NamespacedName, _ string, otherwise any) { restored = append(restored, otherwise) },
+		restore: func(_ ident.ID, _ string, otherwise any) { restored = append(restored, otherwise) },
 	}
 	if err := w.Set(context.Background(), dev, capability.SwitchOn, true); err == nil {
 		t.Error("the write was let through")
@@ -158,7 +158,7 @@ func TestAFailedWriteTakesTheControllerBack(t *testing.T) {
 	restored := 0
 	w := &matterWrites{
 		engine: eng, devices: devices, setter: &writes{err: errors.New("no answer")},
-		restore: func(types.NamespacedName, string, any) { restored++ },
+		restore: func(ident.ID, string, any) { restored++ },
 	}
 	if err := w.Set(context.Background(), key("fan"), capability.SwitchOn, true); err == nil {
 		t.Error("the failure was lost")
@@ -179,7 +179,7 @@ func TestAClaimOnWhatsNoLongerArbitratedRefusesNothing(t *testing.T) {
 	eng.Store = devices
 	eng.Init()
 	dev := key("valve")
-	devices.SetDevices(simInstance, map[types.NamespacedName]hub.Meta{dev: {Instance: simInstance}})
+	devices.SetDevices(simInstance, map[ident.ID]hub.Meta{dev: {Instance: simInstance}})
 	saved := engine.ControlState{capability.SwitchOn: control.State{
 		Claims: []control.Claim{{Source: "Rule/gone", Level: control.Safety}},
 	}}
