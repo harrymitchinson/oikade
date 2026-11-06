@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -203,22 +202,12 @@ func (p *plugins) pair(h *hosted) {
 		if removed[id] && h.listed[id] {
 			continue
 		}
-		if _, err := p.known.paired(h.key, apps[id], p.control(h.name, id)); err != nil {
+		if _, err := p.known.paired(h.key, apps[id], nil); err != nil {
 			p.log.Error(err, "Failed to record device", "plugin", h.name, "id", id)
 		}
 	}
 	h.listed = seen
 	h.driver.SetDevices(p.onRecord(h))
-}
-
-// control finds a plugin device's arbitration settings.
-func (p *plugins) control(plugin, id string) []control.Entry {
-	for _, d := range p.host.Devices {
-		if d.Plugin == plugin && d.Name == id {
-			return d.Control
-		}
-	}
-	return nil
 }
 
 // use asks that the plugins run from this binary. It doesn't wait, so the plugins can't hold up your

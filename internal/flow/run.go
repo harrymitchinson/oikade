@@ -158,10 +158,14 @@ func (r *Run) Sleep(d time.Duration) {
 	r.live = true
 	r.waiting(e.Wake)
 	if d := e.Wake.Sub(r.f.Clock.Now()); d > 0 {
+		timer := r.f.Clock.After(d)
+		r.f.park(1)
 		select {
 		case <-r.ctx.Done():
+			r.f.park(-1)
 			r.check()
-		case <-r.f.Clock.After(d):
+		case <-timer:
+			r.f.park(-1)
 		}
 	}
 	r.checkLate(e.Wake)

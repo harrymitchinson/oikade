@@ -77,11 +77,19 @@ type Flow struct {
 	// Process ends when the process stops. A run stopped by that keeps its journal and resumes, and
 	// a run cancelled while it goes on, by a Restart flow's new trigger, is over.
 	Process context.Context
+	// OnPark, if set, hears a run begin waiting on the clock (1) and stop (-1).
+	OnPark func(delta int)
 
 	// claiming is held while a run acts, and while a run that ended badly releases its claims. A
 	// Restart flow's next run starts without waiting for the last to end, and claims under the same
 	// source, so this keeps the release from landing on the newer claim.
 	claiming sync.Mutex
+}
+
+func (f *Flow) park(delta int) {
+	if f.OnPark != nil {
+		f.OnPark(delta)
+	}
 }
 
 // Start is a new run, as an engine.Body.

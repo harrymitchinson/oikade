@@ -308,6 +308,16 @@ func run(h framework.Home) {
 	}
 	if strings.Contains(variant, "plugins") {
 		h.Plugins = []framework.Plugin{{Name: "relays", New: faultyRelays}, {Name: "quiet", New: quietRelays}}
+		h.Control = []framework.Control{
+			{
+				Device: valve, Capability: on, Default: true, Resolve: framework.PreferOff,
+				External: framework.ExternalOverride, OverrideHold: time.Hour,
+			},
+			{
+				Device: once, Capability: on, Default: false, Resolve: framework.PreferOn,
+				External: framework.ExternalOverride, OverrideHold: time.Hour,
+			},
+		}
 		h.Holds = append(h.Holds, framework.Hold{
 			Name: "once", Device: once, Capability: on, Value: true,
 			When: func(s framework.State) bool { return s.Bool("once-sensor", open) },

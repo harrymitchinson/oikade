@@ -36,19 +36,7 @@ func pluginDevices(t *testing.T) string {
 	if err := json.Unmarshal(raw, &devices); err != nil {
 		t.Fatal(err)
 	}
-	devices = append(devices, map[string]any{
-		"plugin": "relays", "name": "valve", "capabilities": []string{"switch.on"},
-		"control": []map[string]any{{
-			"capability": "switch.on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h",
-		}},
-	})
 	devices = append(devices, map[string]any{"name": "once-sensor", "capabilities": []string{opened}})
-	devices = append(devices, map[string]any{
-		"plugin": "relays", "name": "once", "capabilities": []string{"switch.on"},
-		"control": []map[string]any{{
-			"capability": "switch.on", "default": false, "resolve": "PreferOn", "external": "Override", "overrideHold": "1h",
-		}},
-	})
 	out, err := json.Marshal(devices)
 	if err != nil {
 		t.Fatal(err)

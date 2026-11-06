@@ -81,7 +81,7 @@ func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
 func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	mirror := hub.NewStore(logr.Discard())
 	metas := map[types.NamespacedName]hub.Meta{}
-	discovered(mirror, metas, wire.Device{
+	discovered(mirror, metas, nil, wire.Device{
 		Name: "lamp", Room: "hall", Arbitrated: []string{"switch.on"}, Discovered: true,
 		Capabilities: []string{"switch.on"}, Values: map[string]any{"switch.on": true},
 	})
@@ -132,5 +132,86 @@ func TestPluginsAreChecked(t *testing.T) {
 	}
 	if m := (Home{Plugins: []Plugin{{Name: "a", New: made}}}).manifest(); !slices.Equal(m.Plugins, []string{"a"}) {
 		t.Errorf("got %v", m.Plugins)
+	}
+}
+
+func valveControl() Control {
+	return Control{
+		Device: "pump", Capability: "switch.on", Default: false, Resolve: PreferOn,
+		External: ExternalOverride, OverrideHold: time.Hour, MinimumOn: time.Hour, MinimumOff: 30 * time.Minute,
+	}
+}
+
+func budgetHome(c Control, b Budget) Home {
+	return Home{
+		Control: []Control{c},
+		Holds:   []Hold{{Name: "pump-daily", Device: "pump", Capability: "switch.on", Value: true, Budget: &b}},
+	}
+}
+
+func TestHomeChecksControlAndBudgets(t *testing.T) {
+	minutes := func(State) int { return 120 }
+	for name, tc := range map[string]struct {
+		home Home
+		want string
+	}{
+		"fine": {budgetHome(valveControl(), Budget{Minutes: minutes}), ""},
+		"bands": {budgetHome(valveControl(), Budget{Bands: &Bands{
+			Device: "water", Capability: "sensor.temperature", Ranges: []Band{{Below: 12, Minutes: 60}}, Otherwise: 90,
+		}}), ""},
+		"no minutes":     {budgetHome(valveControl(), Budget{}), "exactly one of bands or expression"},
+		"both minutes":   {budgetHome(valveControl(), Budget{Minutes: minutes, Bands: &Bands{}}), "exactly one"},
+		"bad slot":       {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 20}), "slotMinutes"},
+		"off the slots":  {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 60, Forbid: []Window{{Start: "7", End: "8"}}}), "not HH:MM"},
+		"limit off slot": {budgetHome(func() Control { c := valveControl(); c.MinimumOn = 45 * time.Minute; return c }(), Budget{Minutes: minutes}), "isn't a multiple"},
+		"no control": {Home{Holds: []Hold{{
+			Name: "pump-daily", Device: "pump", Capability: "switch.on", Value: true, Budget: &Budget{Minutes: minutes},
+		}}}, "needs a Control"},
+		"twice":        {Home{Control: []Control{valveControl(), valveControl()}}, "declared twice"},
+		"no device":    {Home{Control: []Control{{Capability: "switch.on", Default: false, Resolve: PreferOn, External: ExternalRevert}}}, "a device is required"},
+		"bool resolve": {Home{Control: []Control{{Device: "x", Capability: "switch.on", Default: false, Resolve: Highest, External: ExternalRevert}}}, "PreferOn or PreferOff"},
+		"read-only":    {Home{Control: []Control{{Device: "x", Capability: "sensor.temperature", Default: 1.0, Resolve: Highest, External: ExternalRevert}}}, "read-only"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := tc.home.compile()
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatal(err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Fatalf("got %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
+	devices := map[string]map[string]any{"water": {}}
+	for name, f := range map[string]func(State) int{
+		"hasn't reported": func(s State) int { return int(s.Number("water", "sensor.temperature")) },
+		"no such device":  func(s State) int { return int(s.Number("nothing", "sensor.temperature")) },
+		"a bug":           func(State) int { panic("oops") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := (&Budget{Minutes: f}).toSchedule()
+			if _, err := spec.Minutes(devices, time.Now(), time.UTC); err == nil {
+				t.Fatal("no error")
+			}
+		})
+	}
+	spec := (&Budget{Minutes: func(State) int { return 90 }}).toSchedule()
+	if got, err := spec.Minutes(devices, time.Now(), time.UTC); err != nil || got != 90 {
+		t.Fatalf("got %d, %v", got, err)
+	}
+}
+
+func TestMetaHasTheLimitsOfTheHomesControl(t *testing.T) {
+	h := Home{Control: []Control{valveControl()}}
+	settings, err := h.settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := meta(wire.Device{Name: "pump", Arbitrated: []string{"switch.on", "light.on"}}, settings)
+	if len(m.Control) != 2 || time.Duration(m.Control[0].MinimumOn) != time.Hour || m.Control[1].Capability != "light.on" {
+		t.Fatalf("got %+v", m.Control)
 	}
 }

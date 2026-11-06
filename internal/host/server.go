@@ -63,6 +63,8 @@ type server struct {
 	connected func()
 	// plugins takes the connections of plugins.
 	plugins *plugins
+	// settings, if set, takes up the device settings a home declares.
+	settings func([]wire.DeviceControl) error
 }
 
 // session is the connected automations process.
@@ -142,6 +144,13 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 	sess := &session{
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
 		generation: generation, rules: hello.Info,
+	}
+	// Before the Welcome, so that it says what's arbitrated. A process about to be refused has no
+	// say, and one turned away for being second finds the first one's settings still there.
+	if err := s.takeSettings(hello.Control); err != nil {
+		s.log.Error(err, "Failed to save the home's device settings")
+		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: "the host couldn't save the home's device settings"})
+		return
 	}
 	welcome, runs, err := s.welcome(hello)
 	if err != nil {
@@ -270,6 +279,17 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 // attach makes sess the session and queues its Welcome, unless there is one already. The lock
 // orders the Welcome before anything sent after it. A change that lands between the snapshot and
 // the attach's end reaches the process twice at worst, and it ignores a value it already has.
+// takeSettings takes up a process's device settings, unless it's going to be turned away.
+func (s *server) takeSettings(settings []wire.DeviceControl) error {
+	s.mu.Lock()
+	busy := s.session != nil || s.closed
+	s.mu.Unlock()
+	if busy || s.settings == nil {
+		return nil
+	}
+	return s.settings(settings)
+}
+
 func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -500,6 +520,13 @@ func (s *server) Discovered(dev types.NamespacedName, _ driver.Info) {
 	s.broadcast(wire.Message{Type: wire.TypeDiscovered, Discovered: &d})
 }
 
+// Seen tells your process a device reported, which a budget's reading needs to know how old it is.
+func (s *server) Seen(dev types.NamespacedName, t time.Time) {
+	if dev.Namespace == wire.Namespace {
+		s.broadcast(wire.Message{Type: wire.TypeSeen, Device: dev.Name, Time: t})
+	}
+}
+
 // answer carries out a request and returns its Reply.
 func (s *server) answer(m wire.Message) wire.Message {
 	reply := wire.Message{Type: wire.TypeReply, ID: m.ID}
@@ -553,7 +580,7 @@ func key(name string) types.NamespacedName {
 func deviceOf(name string, snap hub.Snapshot) wire.Device {
 	d := wire.Device{
 		Name: name, Room: snap.Room, Discovered: snap.Discovered,
-		Capabilities: slices.Clone(snap.Info.Capabilities), Values: snap.Values,
+		Capabilities: slices.Clone(snap.Info.Capabilities), Values: snap.Values, LastSeen: snap.LastSeen,
 	}
 	for _, c := range snap.Control {
 		d.Arbitrated = append(d.Arbitrated, c.Capability)

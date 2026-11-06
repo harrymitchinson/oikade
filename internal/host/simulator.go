@@ -28,9 +28,6 @@ type SimulatedDevice struct {
 	Values map[string]any `json:"values,omitempty"`
 	// Control arbitrates capabilities, as a Device's spec does.
 	Control []control.Entry `json:"control,omitempty"`
-	// Plugin makes this no simulated device but the arbitration settings of one a plugin reports,
-	// with Name its ID there.
-	Plugin string `json:"plugin,omitempty"`
 }
 
 // ReadSimulated reads the devices from a JSON file.
@@ -71,9 +68,6 @@ type simChange struct {
 func (s *simulator) start(devices []SimulatedDevice) error {
 	s.known.attach(simInstance)
 	for _, d := range devices {
-		if d.Plugin != "" {
-			continue
-		}
 		if err := s.pair(d); err != nil {
 			return err
 		}

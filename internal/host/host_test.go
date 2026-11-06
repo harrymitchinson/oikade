@@ -62,7 +62,7 @@ func dial(t *testing.T, socket string, rules ...string) (*wire.Client, wire.Mess
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	c, welcome, err := wire.Dial(ctx, socket, rules)
+	c, welcome, err := wire.Dial(ctx, socket, rules, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestHoldStateIsReturnedToTheNextSession(t *testing.T) {
 		deadline := time.Now().Add(5 * time.Second)
 		for {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			next, welcome, err := wire.Dial(ctx, socket, []string{"porch"})
+			next, welcome, err := wire.Dial(ctx, socket, []string{"porch"}, nil)
 			cancel()
 			if err == nil {
 				got := welcome.Holds["porch"]

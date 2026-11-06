@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -21,6 +23,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
+	"github.com/harrymitchinson/oikade/internal/simhome"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -36,6 +39,9 @@ func run(h Home, log logr.Logger) error {
 	}
 	if len(os.Args) > 1 && os.Args[1] == wire.RoleCheck {
 		return json.NewEncoder(os.Stdout).Encode(h.manifest())
+	}
+	if len(os.Args) > 1 && os.Args[1] == wire.RoleDev {
+		return runDev(h, log)
 	}
 	if len(os.Args) < 2 || (os.Args[1] != wire.RoleAutomations && os.Args[1] != wire.RolePlugin) {
 		return errors.New("this is a home: run it with oikade host")
@@ -56,7 +62,11 @@ func run(h Home, log logr.Logger) error {
 	}
 	dial, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
-	client, welcome, err := wire.Dial(dial, socket, names, h.manifest().Rules...)
+	settings, err := h.settings()
+	if err != nil {
+		return err
+	}
+	client, welcome, err := wire.Dial(dial, socket, names, settings, h.manifest().Rules...)
 	if err != nil {
 		return err
 	}
@@ -67,7 +77,7 @@ func run(h Home, log logr.Logger) error {
 	mirror := hub.NewStore(logr.Discard())
 	metas := map[types.NamespacedName]hub.Meta{}
 	for _, d := range welcome.Devices {
-		metas[deviceKey(d.Name)] = meta(d)
+		metas[deviceKey(d.Name)] = meta(d, settings)
 	}
 	mirror.SetDevices(hostInstance, metas)
 	for _, d := range welcome.Devices {
@@ -76,6 +86,12 @@ func run(h Home, log logr.Logger) error {
 	eng := &engine.Engine{
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
 		Log: log.WithName("automations"),
+		// A budget has no Rule to show this on, so the log is where you find it.
+		OnBudget: func(key types.NamespacedName, r engine.BudgetReport) {
+			if r.Planned == metav1.ConditionFalse {
+				log.Info("Could not plan budget", "rule", key.Name, "reason", r.Reason, "message", r.Message)
+			}
+		},
 	}
 	gather := observe(logr.NewContext(ctx, log), eng, client)
 	fires := make(chan timerFire, firesWaiting)
@@ -115,7 +131,8 @@ func run(h Home, log logr.Logger) error {
 	go answerPings(ctx, client, eng, pings)
 	go client.Listen(wire.Events{
 		Changed:    func(m wire.Message) { changed(mirror, m) },
-		Discovered: func(d wire.Device) { discovered(mirror, metas, d) },
+		Discovered: func(d wire.Device) { discovered(mirror, metas, settings, d) },
+		Seen:       func(m wire.Message) { mirror.Seen(deviceKey(m.Device), m.Time) },
 		Ping: func(id uint64) {
 			select {
 			case pings <- id:
@@ -156,6 +173,46 @@ func run(h Home, log logr.Logger) error {
 	case <-ctx.Done():
 		<-done
 		return nil
+	}
+}
+
+// runDev is oikade dev: the home on a simulated one, driven from standard input. The devices are the
+// ones in the file oikade types wrote, named after the role.
+func runDev(h Home, log logr.Logger) error {
+	if len(os.Args) != 3 {
+		return errors.New("run this with oikade dev")
+	}
+	devices, err := simhome.ReadTypes(os.Args[2])
+	if err != nil {
+		return err
+	}
+	home, err := h.simulated()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return simhome.Dev(ctx, simhome.Options{
+		Home: home, Devices: devices, Start: time.Now().Truncate(time.Minute), Location: time.Local, Log: log,
+	}, os.Stdin, os.Stdout)
+}
+
+// simulated is the home for a simulated one to run.
+func (h Home) simulated() (simhome.Home, error) {
+	settings, err := h.settings()
+	if err != nil {
+		return simhome.Home{}, err
+	}
+	return simhome.Home{Compile: h.compile, Control: settings}, nil
+}
+
+func init() {
+	simhome.FromFramework = func(home any) (simhome.Home, error) {
+		h, ok := home.(Home)
+		if !ok {
+			return simhome.Home{}, fmt.Errorf("%T isn't a framework.Home", home)
+		}
+		return h.simulated()
 	}
 }
 
@@ -226,11 +283,18 @@ func deviceKey(name string) types.NamespacedName {
 	return types.NamespacedName{Namespace: wire.Namespace, Name: name}
 }
 
-func meta(d wire.Device) hub.Meta {
+func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
 	m := hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: hostInstance}
 	for _, c := range d.Arbitrated {
-		// Only the name matters here. The host holds the settings, and runs the arbiter.
-		m.Control = append(m.Control, control.Entry{Capability: c})
+		// The host runs the arbiter, so only the name matters here to a claim. A budget plans around
+		// the limits, which the home declared.
+		entry := control.Entry{Capability: c}
+		if i := slices.IndexFunc(settings, func(s wire.DeviceControl) bool {
+			return s.Device == d.Name && s.Entry.Capability == c
+		}); i >= 0 {
+			entry = settings[i].Entry
+		}
+		m.Control = append(m.Control, entry)
 	}
 	return m
 }
@@ -240,6 +304,9 @@ func seed(mirror *hub.Store, d wire.Device) {
 	for name, v := range d.Values {
 		mirror.Changed(driver.Update{Device: key, Capability: name, Value: v})
 	}
+	if !d.LastSeen.IsZero() {
+		mirror.Seen(key, d.LastSeen)
+	}
 	if d.Discovered {
 		mirror.Discovered(key, driver.Info{Found: true, Capabilities: d.Capabilities})
 	}
@@ -248,8 +315,8 @@ func seed(mirror *hub.Store, d wire.Device) {
 // discovered brings a device up to date, adding it if it's new since the Welcome. metas are the
 // mirror's devices, which it replaces as a set. Only the read goroutine calls this, after the
 // Welcome's seeding.
-func discovered(mirror *hub.Store, metas map[types.NamespacedName]hub.Meta, d wire.Device) {
-	metas[deviceKey(d.Name)] = meta(d)
+func discovered(mirror *hub.Store, metas map[types.NamespacedName]hub.Meta, settings []wire.DeviceControl, d wire.Device) {
+	metas[deviceKey(d.Name)] = meta(d, settings)
 	mirror.SetDevices(hostInstance, metas)
 	for name, v := range d.Values {
 		changed(mirror, wire.Message{Device: d.Name, Capability: name, Value: v})
@@ -269,4 +336,13 @@ func changed(mirror *hub.Store, m wire.Message) {
 	mirror.Changed(driver.Update{
 		Device: key, Capability: m.Capability, Value: m.Value, Previous: m.Previous, Time: m.Time,
 	})
+}
+
+// logOutput is where the process logs. oikade dev talks to you on standard output, so its log stays
+// out of the way there.
+func logOutput() io.Writer {
+	if len(os.Args) > 1 && os.Args[1] == wire.RoleDev {
+		return io.Discard
+	}
+	return os.Stdout
 }

@@ -24,6 +24,8 @@ const requestTimeout = 30 * time.Second
 type Events struct {
 	Changed    func(Message)
 	Discovered func(Device)
+	// Seen says a device reported, in Message's Device and Time.
+	Seen func(Message)
 	Ping       func(id uint64)
 	// Paused says a rule was paused, or resumed if paused is false.
 	Paused func(rule string, paused bool)
@@ -52,15 +54,15 @@ var (
 	_ engine.HoldStates  = (*Client)(nil)
 )
 
-// Dial opens a session as the automations process, and returns the Welcome. info says what the rules
-// are, if the caller knows.
-func Dial(ctx context.Context, socket string, rules []string, info ...RuleInfo) (*Client, Message, error) {
+// Dial opens a session as the automations process, and returns the Welcome. settings are every device
+// setting the home declares, and info says what the rules are, if the caller knows.
+func Dial(ctx context.Context, socket string, rules []string, settings []DeviceControl, info ...RuleInfo) (*Client, Message, error) {
 	raw, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return nil, Message{}, fmt.Errorf("connecting to the host: %w", err)
 	}
 	conn := NewConn(raw)
-	if err := conn.Write(Message{Type: TypeHello, Version: Version, Role: RoleAutomations, Rules: rules, Info: info}); err != nil {
+	if err := conn.Write(Message{Type: TypeHello, Version: Version, Role: RoleAutomations, Rules: rules, Info: info, Control: settings}); err != nil {
 		_ = conn.Close()
 		return nil, Message{}, fmt.Errorf("greeting the host: %w", err)
 	}
@@ -111,6 +113,10 @@ func (c *Client) Listen(ev Events) {
 		case TypeDiscovered:
 			if m.Discovered != nil {
 				ev.Discovered(*m.Discovered)
+			}
+		case TypeSeen:
+			if ev.Seen != nil {
+				ev.Seen(m)
 			}
 		case TypePing:
 			ev.Ping(m.ID)

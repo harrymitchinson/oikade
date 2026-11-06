@@ -10,6 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -382,12 +384,16 @@ func (e *Engine) WaitFor(ctx context.Context, key types.NamespacedName, cond Con
 			}
 			wait = min(wait, rest)
 		}
+		timer := e.Clock.After(wait)
+		e.park(1)
 		select {
 		case <-ctx.Done():
+			e.park(-1)
 			return false, ctx.Err()
 		case <-changed:
-		case <-e.Clock.After(wait):
+		case <-timer:
 		}
+		e.park(-1)
 	}
 }
 
@@ -435,7 +441,7 @@ func windowTime(t Timer) (timeTrigger, error) {
 }
 
 // Hold keeps a capability at Value while its Window is open and When is true. It needs at least
-// one of them. Budgets are only available from a Rule so far.
+// one of them, or else a Budget, which is then the only one.
 type Hold struct {
 	Device     string
 	Room       string
@@ -450,6 +456,8 @@ type Hold struct {
 	OnDelay, OffDelay time.Duration
 	// Latch keeps the hold active once it starts, until a Release. It needs When.
 	Latch bool
+	// Budget, if set, plans when the hold is active each day. Its target and value are the hold's.
+	Budget *schedule.Spec
 	// Generation is the rule's version, as on a Trigger. Zero means 1.
 	Generation int64
 }
@@ -473,7 +481,18 @@ func NewHold(key types.NamespacedName, h Hold) (*Compiled, error) {
 	if err := checkPriority(h.Priority); err != nil {
 		errs = append(errs, err)
 	}
-	if h.Window == nil && h.When == nil {
+	switch {
+	case h.Budget != nil:
+		if h.Window != nil || h.When != nil || h.OnDelay != 0 || h.OffDelay != 0 || h.Latch {
+			errs = append(errs, errors.New("hold: budget must be the only condition"))
+		}
+		spec := *h.Budget
+		spec.Device, spec.Capability, spec.Value = h.Device, h.Capability, h.Value
+		c.hold.budget = &budgetHold{
+			compile: func(e *control.Entry) (*schedule.Budget, error) { return schedule.CompileSpec(spec, e) },
+			saves:   true,
+		}
+	case h.Window == nil && h.When == nil:
 		errs = append(errs, errors.New("hold: a window or when is required"))
 	}
 	if h.Latch && h.When == nil {

@@ -136,6 +136,9 @@ func (e *Engine) evaluate(ctx context.Context, key types.NamespacedName, s *stat
 	if h.budget != nil {
 		on, next = e.budgetCondition(key, s, now, devices)
 		known = true
+		if saved := hs.budget.saved; saved != "" {
+			st.Budget = saved
+		}
 	} else {
 		on, known, next = e.condition(key, h, now, devices)
 	}

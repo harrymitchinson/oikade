@@ -28,6 +28,9 @@ type HoldState struct {
 	OffAt time.Time `json:"offAt,omitzero"`
 	// Target is what the hold writes, so an edit that changes it can end the old one.
 	Target HoldTarget `json:"target"`
+	// Budget is a budget hold's plan and progress as JSON, kept here when it has no Rule status to
+	// keep them in. A string, so that HoldStates still compare.
+	Budget string `json:"budget,omitempty"`
 }
 
 // HoldTarget is a hold's device or room, capability and value.

@@ -140,33 +140,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*homev1alpha1.Rule) *rig 
 // timer armed.
 func (r *rig) settle() {
 	r.t.Helper()
-	idle := func() bool {
-		r.e.mu.Lock()
-		empty := len(r.e.rules) == 0 && len(r.e.arbs) == 0
-		r.e.mu.Unlock()
-		if len(r.e.events) > 0 || !empty && !r.e.earliest().IsZero() && !r.clock.HasWaiters() {
-			return false
-		}
-		r.e.mu.Lock()
-		defer r.e.mu.Unlock()
-		now := r.clock.Now()
-		if len(r.e.controlDue) > 0 {
-			return false
-		}
-		for _, arbs := range r.e.arbs {
-			for _, ar := range arbs {
-				if ar.writing || !ar.next.IsZero() && !ar.next.After(now) {
-					return false
-				}
-			}
-		}
-		for _, s := range r.e.rules {
-			if s.hold != nil && (!s.hold.loaded || s.hold.writing || s.next.At.IsZero() || !s.next.At.After(now)) {
-				return false
-			}
-		}
-		return true
-	}
+	idle := func() bool { return r.e.Idle(r.clock.HasWaiters) && r.holdsArmed() }
 	for range 500 {
 		if idle() {
 			time.Sleep(5 * time.Millisecond)
@@ -177,6 +151,19 @@ func (r *rig) settle() {
 		time.Sleep(5 * time.Millisecond)
 	}
 	r.t.Fatal("timed out waiting for the engine to settle")
+}
+
+// holdsArmed says every hold has a next look due.
+func (r *rig) holdsArmed() bool {
+	r.e.mu.Lock()
+	defer r.e.mu.Unlock()
+	now := r.clock.Now()
+	for _, s := range r.e.rules {
+		if s.hold != nil && !s.next.At.After(now) {
+			return false
+		}
+	}
+	return true
 }
 
 // at moves the clock to t, step by step so every timer on the way fires, and waits to settle.

@@ -30,7 +30,7 @@ func TestUnfinishedRunsFarLargerThanAMessageReachTheNextProcess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	for {
-		c, welcome, err := wire.Dial(ctx, socket, nil)
+		c, welcome, err := wire.Dial(ctx, socket, nil, nil)
 		if errors.Is(err, wire.ErrRejected) && ctx.Err() == nil {
 			continue // The first session is still ending.
 		}
