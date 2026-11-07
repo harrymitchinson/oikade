@@ -18,10 +18,17 @@ import (
 	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
 )
 
-const (
-	on   = "switch.on"
-	open = "sensor.contact-open"
-)
+// The tests bring their own devices, so this home has no devices.go: these are its handles.
+func on(device string) framework.Handle[bool] {
+	return framework.Handle[bool]{Device: device, Capability: framework.SwitchOn}
+}
+
+func open(device string) framework.Handle[bool] {
+	return framework.Handle[bool]{Device: device, Capability: framework.ContactOpen}
+}
+
+// humidity is the bathroom's, which the fan follows.
+var humidity = framework.Handle[float64]{Device: "bathroom-sensor", Capability: framework.Humidity}
 
 // The devices a test has plugins do something with.
 const (
@@ -49,7 +56,7 @@ func (f faulty) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := f.Handler.Serve(ctx, p); err != nil {
 		return err
 	}
-	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: on, Value: true})
+	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: string(framework.SwitchOn), Value: true})
 }
 
 func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
@@ -91,7 +98,7 @@ func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Ha
 func routine(r *framework.FlowRun) error {
 	began := r.Now()
 	for _, lamp := range []string{"lamp-0", "lamp-1"} {
-		if err := r.Set(framework.Set{Device: lamp, Capability: on, Value: true}); err != nil {
+		if err := r.Set(on(lamp).To(true)); err != nil {
 			return err
 		}
 	}
@@ -106,12 +113,12 @@ func routine(r *framework.FlowRun) error {
 	case "long":
 		r.Sleep(50 * time.Millisecond)
 	default:
-		return r.Set(framework.Set{Device: "routine-wrong", Capability: on, Value: true})
+		return r.Set(on("routine-wrong").To(true))
 	}
 	if r.Now().Before(began) {
 		return errors.New("the recorded time went backwards")
 	}
-	return r.Set(framework.Set{Device: "routine-done", Capability: on, Value: true})
+	return r.Set(on("routine-done").To(true))
 }
 
 // call is an outside call the tests can count, as a line in a file.
@@ -132,7 +139,7 @@ func editable(r *framework.FlowRun) error {
 		wait = time.Millisecond
 	}
 	r.Sleep(wait)
-	return r.Set(framework.Set{Device: "edit-out", Capability: on, Value: true})
+	return r.Set(on("edit-out").To(true))
 }
 
 // parked waits for a sensor, with a limit that says which step it's waiting at. A deploy can land
@@ -142,21 +149,21 @@ func parked(r *framework.FlowRun) error {
 	if variant == "edited" {
 		limit = 2 * time.Hour
 	}
-	r.WaitFor(func(s framework.State) bool { return s.Bool("park-end", open) }, limit)
+	r.WaitFor(func(s framework.State) bool { return s.Get(open("park-end")) }, limit)
 	out := "park-out"
 	if variant == "tail" {
 		out = "park-tail"
 	}
-	return r.Set(framework.Set{Device: out, Capability: on, Value: true})
+	return r.Set(on(out).To(true))
 }
 
 // claiming holds a claim until a sensor says so, and releases it.
 func claiming(r *framework.FlowRun) error {
-	err := r.Set(framework.Set{Device: "claimed-flow", Capability: on, Value: false, UntilReleased: true})
+	err := r.Set(on("claimed-flow").To(false).UntilReleased())
 	if err != nil {
 		return err
 	}
-	if !r.WaitFor(func(s framework.State) bool { return s.Bool("claim-end", open) }, time.Hour) {
+	if !r.WaitFor(func(s framework.State) bool { return s.Get(open("claim-end")) }, time.Hour) {
 		return errors.New("nobody ended the claim")
 	}
 	return r.Release("claiming")
@@ -164,16 +171,14 @@ func claiming(r *framework.FlowRun) error {
 
 // failing holds a normal claim and a Safety one, and fails when a sensor says so.
 func failing(r *framework.FlowRun) error {
-	err := r.Set(framework.Set{Device: "claimed-normal", Capability: on, Value: false, UntilReleased: true})
+	err := r.Set(on("claimed-normal").To(false).UntilReleased())
 	if err != nil {
 		return err
 	}
-	safety := framework.Set{Device: "claimed-safety", Capability: on, Value: false, UntilReleased: true}
-	safety.Priority = framework.Safety
-	if err = r.Set(safety); err != nil {
+	if err = r.Set(on("claimed-safety").To(false).UntilReleased().Priority(framework.Safety)); err != nil {
 		return err
 	}
-	r.WaitFor(func(s framework.State) bool { return s.Bool("fail-now", open) }, time.Hour)
+	r.WaitFor(func(s framework.State) bool { return s.Get(open("fail-now")) }, time.Hour)
 	return errors.New("this flow fails on purpose")
 }
 
@@ -220,12 +225,12 @@ func main() {
 	if at := os.Getenv("OIKADE_TEST_AT"); at != "" {
 		extra = append(extra, framework.Moment{
 			Name: "timed", At: []string{at},
-			Do: []framework.Action{framework.Set{Device: "timed-out", Capability: on, Value: true}},
+			Do: []framework.Action{on("timed-out").To(true)},
 		})
 	}
 	leakShutoff, claimMoment := "leak-shutoff", framework.Moment{
-		Name: "claim-moment", On: []framework.Change{{Device: "claim-go", Capability: open}},
-		Do: []framework.Action{framework.Set{Device: "claimed", Capability: on, Value: false, For: time.Hour}},
+		Name: "claim-moment", On: []framework.Change{open("claim-go")},
+		Do: []framework.Action{on("claimed").To(false).For(time.Hour)},
 	}
 	switch variant {
 	case "renamed":
@@ -238,30 +243,30 @@ func main() {
 	run(framework.Home{
 		Holds: []framework.Hold{
 			{
-				Name: "fan", Device: "fan", Capability: on, Value: true,
+				Name: "fan", Set: on("fan").To(true),
 				When: func(s framework.State) bool {
-					return s.Number("bathroom-sensor", "sensor.relative-humidity") > 70
+					return s.Get(humidity) > 70
 				},
 			},
 			{
-				Name: leakShutoff, Device: valve, Capability: on, Value: false,
+				Name: leakShutoff, Set: on(valve).To(false),
 				Priority: framework.Safety, Latch: true,
 				When: func(s framework.State) bool {
-					return s.Bool("leak-sensor", open)
+					return s.Get(open("leak-sensor"))
 				},
 			},
 			{
 				// With no arbiter to hold a claim, only the hold's saved state remembers this latch.
-				Name: "leak-alarm", Device: "siren", Capability: on, Value: true, Latch: true,
+				Name: "leak-alarm", Set: on("siren").To(true), Latch: true,
 				When: func(s framework.State) bool {
-					return s.Bool("leak-sensor", open)
+					return s.Get(open("leak-sensor"))
 				},
 			},
 			{
 				// A bug in a home: a condition that never returns once the sensor says so.
-				Name: "stuck", Device: "trap-light", Capability: on, Value: true,
+				Name: "stuck", Set: on("trap-light").To(true),
 				When: func(s framework.State) bool {
-					for s.Bool("trap", open) {
+					for s.Get(open("trap")) {
 						continue
 					}
 					return false
@@ -269,20 +274,20 @@ func main() {
 			},
 		},
 		Flows: []framework.Flow{
-			{Name: "routine", On: []framework.Change{{Device: "flow-go", Capability: open}}, Run: routine},
-			{Name: "editable", On: []framework.Change{{Device: "edit-go", Capability: open}}, Run: editable},
-			{Name: "claiming", On: []framework.Change{{Device: "claim-flow-go", Capability: open}}, Run: claiming},
-			{Name: "failing", On: []framework.Change{{Device: "fail-go", Capability: open}}, Run: failing},
-			{Name: parkedName, On: []framework.Change{{Device: "park-go", Capability: open}}, Run: parked},
+			{Name: "routine", On: []framework.Change{open("flow-go")}, Run: routine},
+			{Name: "editable", On: []framework.Change{open("edit-go")}, Run: editable},
+			{Name: "claiming", On: []framework.Change{open("claim-flow-go")}, Run: claiming},
+			{Name: "failing", On: []framework.Change{open("fail-go")}, Run: failing},
+			{Name: parkedName, On: []framework.Change{open("park-go")}, Run: parked},
 		},
 		Moments: append([]framework.Moment{
 			{
 				// A change here gets an answer, so a test knows when the process has caught up.
-				Name: "probe", On: []framework.Change{{Device: "probe", Capability: open}}, Restart: true,
-				Do: []framework.Action{framework.Set{Device: "probe-out", Capability: on, Value: true}},
+				Name: "probe", On: []framework.Change{open("probe")}, Restart: true,
+				Do: []framework.Action{on("probe-out").To(true)},
 			},
 			{
-				Name: "reset", On: []framework.Change{{Device: "reset", Capability: open}},
+				Name: "reset", On: []framework.Change{open("reset")},
 				Do: []framework.Action{framework.Release(leakShutoff), framework.Release("leak-alarm")},
 			},
 			claimMoment,
@@ -304,8 +309,8 @@ func run(h framework.Home) {
 	if variant == "parkmoment" {
 		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == parkedName })
 		h.Moments = append(h.Moments, framework.Moment{
-			Name: parkedName, On: []framework.Change{{Device: "park-go", Capability: open}},
-			Do: []framework.Action{framework.Set{Device: "park-out", Capability: on, Value: true}},
+			Name: parkedName, On: []framework.Change{open("park-go")},
+			Do: []framework.Action{on("park-out").To(true)},
 		})
 	}
 	if variant == "nofan" {
@@ -321,17 +326,17 @@ func run(h framework.Home) {
 		h.Plugins = []framework.Plugin{{Name: "relays", New: faultyRelays}, {Name: "quiet", New: quietRelays}}
 		h.Control = []framework.Control{
 			{
-				Device: valve, Capability: on, Default: true, Resolve: framework.PreferOff,
+				Default: on(valve).To(true), Resolve: framework.PreferOff,
 				External: framework.ExternalOverride, OverrideHold: time.Hour,
 			},
 			{
-				Device: once, Capability: on, Default: false, Resolve: framework.PreferOn,
+				Default: on(once).To(false), Resolve: framework.PreferOn,
 				External: framework.ExternalOverride, OverrideHold: time.Hour,
 			},
 		}
 		h.Holds = append(h.Holds, framework.Hold{
-			Name: "once", Device: once, Capability: on, Value: true,
-			When: func(s framework.State) bool { return s.Bool("once-sensor", open) },
+			Name: "once", Set: on(once).To(true),
+			When: func(s framework.State) bool { return s.Get(open("once-sensor")) },
 		})
 	}
 	if variant == "zigbee" {

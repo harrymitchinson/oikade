@@ -326,8 +326,8 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 
 // FlowOf returns the flow a run ID names.
 func FlowOf(id string) string {
-	if i := strings.LastIndex(id, "/"); i >= 0 {
-		return id[:i]
+	if before, _, ok := strings.CutLast(id, "/"); ok {
+		return before
 	}
 	return ""
 }

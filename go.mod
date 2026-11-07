@@ -1,6 +1,6 @@
 module github.com/harrymitchinson/oikade
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/eclipse/paho.golang v0.23.0

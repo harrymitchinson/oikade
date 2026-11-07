@@ -245,7 +245,7 @@ func knownAnswer(known []dnsmessage.Resource, rec record) bool {
 
 // reply packs an mDNS response.
 func reply(answers, additionals []record) ([]byte, error) {
-	m := dnsmessage.Message{Header: dnsmessage.Header{Response: true, Authoritative: true}}
+	m := dnsmessage.Message{Response: true, Authoritative: true}
 	for _, rec := range answers {
 		m.Answers = append(m.Answers, rec.resource(rec.ttl, true))
 	}
@@ -259,7 +259,7 @@ func reply(answers, additionals []record) ([]byte, error) {
 // cache-flush bits (RFC 6762, 6.7).
 func legacyReply(q *dnsmessage.Message, answers, additionals []record) ([]byte, error) {
 	m := dnsmessage.Message{
-		Header:    dnsmessage.Header{ID: q.ID, Response: true, Authoritative: true},
+		ID: q.ID, Response: true, Authoritative: true,
 		Questions: q.Questions,
 	}
 	for i := range m.Questions {

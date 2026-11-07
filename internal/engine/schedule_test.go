@@ -41,7 +41,7 @@ func sunsetTrigger(offset time.Duration) Timer { return SunTime{Event: sun.Sunse
 
 func compiled(t *testing.T, triggers ...Timer) *Compiled {
 	t.Helper()
-	c := momentRule(t, "timed", Moment{Trigger: Trigger{Timers: triggers}, Do: []Action{delay(time.Second)}})
+	c := momentRule(t, "timed", Moment{Timers: triggers, Do: []Action{delay(time.Second)}})
 	return c
 }
 
@@ -118,7 +118,7 @@ func TestCompileTimeTriggers(t *testing.T) {
 		"unknown event": {SunTime{Event: 9}, "unknown event"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewMoment(goKey("timed"), Moment{Trigger: Trigger{Timers: []Timer{tc.trigger}}, Do: []Action{delay(time.Second)}})
+			_, err := NewMoment(goKey("timed"), Moment{Timers: []Timer{tc.trigger}, Do: []Action{delay(time.Second)}})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("got %v, want an error containing %q", err, tc.wantErr)
 			}
@@ -149,7 +149,7 @@ func (s *schedules) last() Schedule {
 // timedHarness runs a Rule named lights-on that turns the hallway light on at its triggers.
 func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment), triggers ...Timer) (*harness, *schedules) {
 	t.Helper()
-	m := Moment{Trigger: Trigger{Timers: triggers, Condition: timerFired, Since: now.Add(-30 * 24 * time.Hour)}, Do: []Action{set("hallway-light", capability.LightOn, "true")}}
+	m := Moment{Timers: triggers, Condition: timerFired, Since: now.Add(-30 * 24 * time.Hour), Do: []Action{set("hallway-light", capability.LightOn, "true")}}
 	if edit != nil {
 		edit(&m)
 	}
@@ -261,7 +261,7 @@ func TestReloadDoesNotCatchUp(t *testing.T) {
 	h, _ := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *Moment) {
 		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
-	r := momentRule(t, "lights-on", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2}, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
+	r := momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
 	h.e.Load(r)
 	time.Sleep(50 * time.Millisecond)
 	if calls := h.setter.got(); len(calls) != 0 {
@@ -286,7 +286,7 @@ func TestSunWithoutASiteIsReported(t *testing.T) {
 
 func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
 	h, s := timedHarness(t, local("2026-10-21 06:00 BST"), nil, nil, atTrigger("07:00"))
-	r := momentRule(t, "lights-on", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{delay(time.Second)}})
+	r := momentRule(t, "lights-on", Moment{Changes: motionTrigger, Do: []Action{delay(time.Second)}})
 	r.Generation = 2
 	c := r
 	h.e.Load(c)
@@ -306,7 +306,7 @@ func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	}
 	// Recreated, it looks for missed fires again, but only since it was created.
 	h.clock.SetTime(local("2026-10-21 07:05 BST"))
-	h.e.Load(momentRule(t, "lights-on", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST")}, Do: []Action{set("hallway-light", capability.LightOn, "true")}}))
+	h.e.Load(momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST"), Do: []Action{set("hallway-light", capability.LightOn, "true")}}))
 	time.Sleep(50 * time.Millisecond)
 	if calls := h.setter.got(); len(calls) != 0 {
 		t.Errorf("calls = %v; 07:00 was before the new rule existed", calls)

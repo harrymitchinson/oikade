@@ -411,7 +411,11 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	if strings.Contains(string(first), "\nconst Evil") {
 		t.Errorf("a room wrote code:\n%s", first)
 	}
-	for _, want := range []string{`AppleLamp = "apple-lamp"`, `ZebraLamp = "zebra-lamp"`, `Porch = "porch"`, "reserved"} {
+	for _, want := range []string{
+		"var AppleLamp = struct", `Name:     "apple-lamp"`, "var ZebraLamp = struct",
+		`SwitchOn: framework.Handle[bool]{Device: "zebra-lamp", Capability: framework.SwitchOn}`,
+		"var Porch = struct {\n\tName string\n}{\n\tName: \"porch\",\n}", "reserved",
+	} {
 		if !strings.Contains(string(first), want) {
 			t.Errorf("no %q in:\n%s", want, first)
 		}
@@ -440,8 +444,8 @@ func TestRenderLeavesOutRemovedDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(file), "Lamp =") {
-		t.Errorf("the constant stayed:\n%s", file)
+	if strings.Contains(string(file), "var Lamp") || strings.Contains(string(file), "import") {
+		t.Errorf("the device stayed:\n%s", file)
 	}
 	back, err := Parse(file)
 	if err != nil {

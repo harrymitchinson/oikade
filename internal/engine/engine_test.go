@@ -141,7 +141,7 @@ func TestNewMomentChecksItsActions(t *testing.T) {
 		"out of range":  {set("x", capability.LightLevel, "150"), "between 0 and 100"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewMoment(goKey("a"), Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{tc.do}})
+			_, err := NewMoment(goKey("a"), Moment{Changes: motionTrigger, Do: []Action{tc.do}})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
 			}
@@ -155,7 +155,7 @@ func TestNewMomentChecksItsActions(t *testing.T) {
 
 func TestRoomMoment(t *testing.T) {
 	c := momentRule(t, "goodnight", Moment{
-		Trigger: Trigger{Changes: []Change{{Room: "hallway", Capability: capability.Occupancy}}},
+		Changes: []Change{{Room: "hallway", Capability: capability.Occupancy}},
 		Do:      []Action{roomLightOn("living-room", "false")},
 	})
 	if want := (action{room: "living-room", capability: capability.LightOn, value: false}); c.actions[0] != want {
@@ -167,19 +167,19 @@ func TestRoomMoment(t *testing.T) {
 		wantErr string
 	}{
 		"trigger with neither": {
-			Moment{Trigger: Trigger{Changes: []Change{{Capability: capability.Occupancy}}}, Do: []Action{delay(time.Second)}},
+			Moment{Changes: []Change{{Capability: capability.Occupancy}}, Do: []Action{delay(time.Second)}},
 			"changes[0]: exactly one of device or room is required",
 		},
 		"set with neither": {
-			Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{set("", capability.LightOn, "true")}},
+			Moment{Changes: motionTrigger, Do: []Action{set("", capability.LightOn, "true")}},
 			"do[0]: exactly one of device or room is required",
 		},
 		"trigger with both": {
-			Moment{Trigger: Trigger{Changes: []Change{{Device: "m", Room: "hallway", Capability: capability.Occupancy}}}, Do: []Action{delay(time.Second)}},
+			Moment{Changes: []Change{{Device: "m", Room: "hallway", Capability: capability.Occupancy}}, Do: []Action{delay(time.Second)}},
 			"changes[0]: exactly one of device or room is required",
 		},
 		"set with both": {
-			Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{Set{Device: "lamp", Room: "hallway", Capability: capability.LightOn, Value: true}}},
+			Moment{Changes: motionTrigger, Do: []Action{Set{Device: "lamp", Room: "hallway", Capability: capability.LightOn, Value: true}}},
 			"do[0]: exactly one of device or room is required",
 		},
 	} {
@@ -301,7 +301,7 @@ func (h *harness) expectCalls(want ...call) {
 }
 
 func TestConditionUsesLocalTime(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger, Condition: eveningMotion}, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
+	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Condition: eveningMotion, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
 	// 17:30 UTC is 18:30 in London during BST.
 	h := newHarness(t, time.Date(2026, 6, 1, 17, 30, 0, 0, time.UTC), a)
 
@@ -313,7 +313,7 @@ func TestConditionUsesLocalTime(t *testing.T) {
 }
 
 func TestRestartKeepsLightOnUntilMotionStops(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger, Condition: triggerValue}, Mode: ModeRestart, Do: []Action{
+	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Condition: triggerValue, Mode: ModeRestart, Do: []Action{
 		set("hallway-light", capability.LightOn, "true"),
 		delay(5 * time.Minute),
 		set("hallway-light", capability.LightOn, "false"),
@@ -343,7 +343,7 @@ func TestRestartKeepsLightOnUntilMotionStops(t *testing.T) {
 }
 
 func TestSingleIgnoresTriggersWhileRunning(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{delay(time.Minute), set("hallway-light", capability.LightOn, "true")}})
+	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Do: []Action{delay(time.Minute), set("hallway-light", capability.LightOn, "true")}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 
 	h.motion(true)
@@ -355,7 +355,7 @@ func TestSingleIgnoresTriggersWhileRunning(t *testing.T) {
 }
 
 func TestFailedActionStopsTheRun(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{
+	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Do: []Action{
 		set("hallway-light", capability.LightOn, "true"),
 		set("hallway-light", capability.LightLevel, "40"),
 	}})
@@ -370,7 +370,7 @@ func TestFailedActionStopsTheRun(t *testing.T) {
 func TestReloadingTheSameGenerationKeepsTheRun(t *testing.T) {
 	a := func() *Compiled {
 		return momentRule(t, "motion-light", Moment{
-			Trigger: Trigger{Changes: motionTrigger},
+			Changes: motionTrigger,
 			Do:      []Action{delay(time.Minute), set("hallway-light", capability.LightOn, "true")},
 		})
 	}
@@ -404,7 +404,7 @@ type member struct {
 var lampCaps = []string{capability.LightOn, capability.LightLevel, capability.LinkQuality}
 
 // z2m is the driver instance every test device belongs to.
-var z2m = driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: ident.ID{Namespace: ns, Name: "z2m"}}
+var z2m = driver.InstanceKey{Driver: driver.Zigbee2MQTT, Namespace: ns, Name: "z2m"}
 
 // declare replaces the store's devices with these.
 func declare(store *hub.Store, devices map[string]member) {
@@ -424,7 +424,7 @@ func declare(store *hub.Store, devices map[string]member) {
 // and the log lines.
 func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, actions ...Action) (string, []string) {
 	t.Helper()
-	c := momentRule(t, "goodnight", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: actions})
+	c := momentRule(t, "goodnight", Moment{Changes: motionTrigger, Do: actions})
 	var logs []string
 	e := &Engine{
 		Store: hub.NewStore(logging.Discard()), Setter: setter, Log: logging.Lines(func(line string) {
@@ -437,7 +437,7 @@ func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, action
 }
 
 func TestRoomTriggerMatches(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: []Change{{Room: "hallway", Capability: capability.Occupancy}}, Condition: hallwaySensor}, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
+	a := momentRule(t, "motion-light", Moment{Changes: []Change{{Room: "hallway", Capability: capability.Occupancy}}, Condition: hallwaySensor, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 	declare(h.e.Store, map[string]member{
 		"hallway-motion": {room: "hallway"},
@@ -527,7 +527,7 @@ func TestRoomActionPartialFailure(t *testing.T) {
 }
 
 func TestRoomMembershipAtExecution(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Trigger: Trigger{Changes: motionTrigger}, Do: []Action{
+	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Do: []Action{
 		roomLightOn("hallway", "true"),
 		delay(5 * time.Minute),
 		roomLightOn("hallway", "false"),

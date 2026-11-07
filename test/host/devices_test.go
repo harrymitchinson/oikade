@@ -167,16 +167,21 @@ func TestARemovedDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 	}
 }
 
-// goBuild builds a module of main.go and the generated devices.go, with nothing else to fetch.
+// goBuild builds a module of main.go and the generated devices.go, on this checkout's framework,
+// with nothing else to fetch.
 func goBuild(t *testing.T, dir, code string) error {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module home\n\ngo 1.24\n"), 0o644); err != nil {
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeModule(repo, dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return run(dir, nil, "build", "-o", filepath.Join(dir, "home"), ".")
+	return run(dir, []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}, "build", "-o", filepath.Join(dir, "home"), ".")
 }
 
 func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
@@ -193,7 +198,7 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 	if again := r.stdout(nil, "types", "--out", "-"); string(again) != string(first) {
 		t.Errorf("two runs differ:\n%s\n%s", first, again)
 	}
-	const code = "package main\n\nfunc main() { println(Fan, PorchLight) }\n"
+	const code = "package main\n\nfunc main() { println(Fan.SwitchOn.Device, PorchLight.Name) }\n"
 	if err := goBuild(t, dir, code); err != nil {
 		t.Fatalf("code naming its devices didn't compile: %v\n%s", err, first)
 	}

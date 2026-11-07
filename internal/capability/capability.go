@@ -5,7 +5,9 @@ package capability
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 )
 
 // Canonical capability names.
@@ -43,6 +45,8 @@ const (
 
 // Spec describes a capability's type and valid range.
 type Spec struct {
+	// Go is the capability's name in a home: framework's constant, and a handle's field.
+	Go       string
 	Kind     Kind
 	Writable bool
 	// Min and Max bound numeric values (inclusive).
@@ -50,16 +54,21 @@ type Spec struct {
 }
 
 var registry = map[string]Spec{
-	LightOn:     {Kind: KindBool, Writable: true},
-	LightLevel:  {Kind: KindNumber, Writable: true, Min: 0, Max: 100},
-	SwitchOn:    {Kind: KindBool, Writable: true},
-	OutletOn:    {Kind: KindBool, Writable: true},
-	Temperature: {Kind: KindNumber, Min: -273.15, Max: 1000},
-	Humidity:    {Kind: KindNumber, Min: 0, Max: 100},
-	ContactOpen: {Kind: KindBool},
-	Occupancy:   {Kind: KindBool},
-	Battery:     {Kind: KindNumber, Min: 0, Max: 100},
-	LinkQuality: {Kind: KindNumber, Min: 0, Max: 255},
+	LightOn:     {Go: "LightOn", Kind: KindBool, Writable: true},
+	LightLevel:  {Go: "LightLevel", Kind: KindNumber, Writable: true, Min: 0, Max: 100},
+	SwitchOn:    {Go: "SwitchOn", Kind: KindBool, Writable: true},
+	OutletOn:    {Go: "OutletOn", Kind: KindBool, Writable: true},
+	Temperature: {Go: "Temperature", Kind: KindNumber, Min: -273.15, Max: 1000},
+	Humidity:    {Go: "Humidity", Kind: KindNumber, Min: 0, Max: 100},
+	ContactOpen: {Go: "ContactOpen", Kind: KindBool},
+	Occupancy:   {Go: "Occupancy", Kind: KindBool},
+	Battery:     {Go: "Battery", Kind: KindNumber, Min: 0, Max: 100},
+	LinkQuality: {Go: "LinkQuality", Kind: KindNumber, Min: 0, Max: 255},
+}
+
+// Names are every capability's name, sorted.
+func Names() []string {
+	return slices.Sorted(maps.Keys(registry))
 }
 
 // Lookup returns the spec for a capability name.

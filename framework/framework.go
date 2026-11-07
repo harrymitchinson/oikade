@@ -4,16 +4,17 @@
 //	func main() {
 //		framework.Run(framework.Home{
 //			Holds: []framework.Hold{{
-//				Name:       "bathroom-fan",
-//				Device:     "bathroom-fan",
-//				Capability: "switch.on",
-//				Value:      true,
+//				Name: "bathroom-fan",
+//				Set:  BathroomFan.SwitchOn.To(true),
 //				When: func(s framework.State) bool {
-//					return s.Number("bathroom-sensor", "sensor.relative-humidity") > 70
+//					return s.Get(BathroomSensor.Humidity) > 70
 //				},
 //			}},
 //		})
 //	}
+//
+// BathroomFan and BathroomSensor come from devices.go, which oikadectl types writes from the home's
+// devices, with a Handle for each capability each one has.
 //
 // A flow is ordinary Go that can wait for hours and survive a crash: docs/writing-flows.md.
 //
@@ -70,24 +71,15 @@ func (s State) value(device, capability string) any {
 	return v
 }
 
-// Bool reads a bool capability. A condition reading a value nobody has reported yet stops there:
+// Get reads a device's capability. A condition reading a value nobody has reported yet stops there:
 // a hold keeps its state, and a moment doesn't run. So does one with a mistake in it, such as a
 // device that doesn't exist, which is logged.
-func (s State) Bool(device, capability string) bool {
-	b, ok := s.value(device, capability).(bool)
+func (s State) Get[T Value](h Handle[T]) T {
+	v, ok := s.value(h.Device, string(h.Capability)).(T)
 	if !ok {
-		panic(fmt.Sprintf("%s %s isn't a bool", device, capability))
+		panic(fmt.Sprintf("%s %s isn't a %T", h.Device, h.Capability, v))
 	}
-	return b
-}
-
-// Number reads a number capability, as Bool does.
-func (s State) Number(device, capability string) float64 {
-	f, ok := s.value(device, capability).(float64)
-	if !ok {
-		panic(fmt.Sprintf("%s %s isn't a number", device, capability))
-	}
-	return f
+	return v
 }
 
 // Now is the time of this look at the home.
@@ -131,15 +123,13 @@ type Window struct {
 	Days       []time.Weekday
 }
 
-// Hold keeps a capability at Value while its Window is open and When is true. It needs at least
+// Hold keeps a capability at a value while its Window is open and When is true. It needs at least
 // one of them, or a Budget on its own. Name it once: its state is kept by name.
 type Hold struct {
-	Name       string
-	Device     string
-	Room       string
-	Capability string
-	// Value is a bool or a number.
-	Value    any
+	Name string
+	// Set is what the hold keeps, such as PorchLight.LightOn.To(true), or InRoom's. The hold's
+	// Priority is its own, so the Set takes no For, Until or Priority.
+	Set      Set
 	Priority Priority
 	Window   *Window
 	When     Condition
@@ -147,8 +137,8 @@ type Hold struct {
 	OnDelay, OffDelay time.Duration
 	// Latch keeps the hold active once it starts, until a Release.
 	Latch bool
-	// Budget plans when the hold is active each day. It holds one device's bool capability at true,
-	// which needs a Control, whose limits it plans around.
+	// Budget plans when the hold is active each day. It holds one device's Bool at true, which needs
+	// a Control, whose limits it plans around.
 	Budget *Budget
 }
 
@@ -176,8 +166,8 @@ type Prefer struct {
 
 // Bands picks a day's minutes from the band a reading falls in.
 type Bands struct {
-	// Device and Capability are the reading, a number.
-	Device, Capability string
+	// Reading is what picks the band.
+	Reading Handle[float64]
 	// MaxAge is how old the reading may be. Zero means 30 minutes.
 	MaxAge time.Duration
 	// Missing is the minutes when there's no reading that recent.
@@ -219,13 +209,11 @@ const (
 )
 
 // Control arbitrates a capability of a device: rules claim it rather than write it, and the host
-// picks the winner, including when your automations aren't running. Name the device as your rules
-// do.
+// picks the winner, including when your automations aren't running.
 type Control struct {
-	Device     string
-	Capability string
-	// Default is the value with no claims: a bool or a number.
-	Default  any
+	// Default is the capability, at its value with no claims: Heater.SwitchOn.To(false). It names a
+	// device, not a room, and takes no For, Until or Priority.
+	Default  Set
 	Resolve  Resolve
 	External External
 	// OverrideHold is how long an ExternalOverride lasts, unless OverrideUntilNext.
@@ -240,12 +228,15 @@ type Control struct {
 }
 
 func (c Control) entry() (control.Entry, error) {
-	raw, err := json.Marshal(c.Default)
+	if err := c.Default.plain("a Control's Default", true); err != nil {
+		return control.Entry{}, err
+	}
+	raw, err := json.Marshal(c.Default.value)
 	if err != nil {
 		return control.Entry{}, fmt.Errorf("default: %w", err)
 	}
 	e := control.Entry{
-		Capability: c.Capability, Default: raw, Resolve: string(c.Resolve), External: string(c.External),
+		Capability: c.Default.capability, Default: raw, Resolve: string(c.Resolve), External: string(c.External),
 		MinimumOn: control.Duration(c.MinimumOn), MaximumOn: control.Duration(c.MaximumOn),
 		MinimumOff: control.Duration(c.MinimumOff), MaximumStartsPerDay: c.MaximumStartsPerDay,
 	}
@@ -256,13 +247,6 @@ func (c Control) entry() (control.Entry, error) {
 		e.OverrideHold = c.OverrideHold.String()
 	}
 	return e, nil
-}
-
-// Change is a capability changing on a device or on any device in a room.
-type Change struct {
-	Device     string
-	Room       string
-	Capability string
 }
 
 // Moment runs Do when a trigger fires and If, if set, is true. It needs a trigger: a Change, or a
@@ -320,12 +304,12 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 	return r.run.WaitFor(c.toEngine(), timeout)
 }
 
-// Set writes a capability, or claims it if it's arbitrated, which needs For, UntilReleased or
-// UntilNext, and is an error without one. It may run more than once, after a crash, so set a value
-// and never toggle one.
+// Set writes a capability, such as Hallway.LightOn.To(true), or claims it if it's arbitrated, which
+// needs For, UntilReleased or UntilNext, and is an error without one. It may run more than once,
+// after a crash, so set a value and never toggle one.
 func (r *FlowRun) Set(s Set) error {
-	if s.Priority == Normal {
-		s.Priority = r.priority
+	if s.priority == Normal {
+		s.priority = r.priority
 	}
 	return r.run.Apply(s.toEngine())
 }
@@ -346,35 +330,69 @@ type Action interface {
 	toEngine() engine.Action
 }
 
-// Set writes a capability. For and Until make it a claim on an arbitrated capability, which needs
-// one of them.
+// Set writes a capability, from a Handle's To or InRoom's. For, UntilReleased and UntilNext make it a
+// claim on an arbitrated capability, which needs one of them:
+//
+//	Heater.SwitchOn.To(true).For(time.Hour)
 type Set struct {
-	Device     string
-	Room       string
-	Capability string
-	// Value is a bool or a number.
-	Value any
-	// For ends the claim after this long.
-	For time.Duration
-	// UntilReleased ends the claim at a Release.
-	UntilReleased bool
-	// UntilNext ends the claim when the value without it next changes.
-	UntilNext bool
-	Priority  Priority
+	device, room, capability string
+	value                    any
+	claimFor                 time.Duration
+	until                    engine.Until
+	priority                 Priority
+}
+
+// For ends the claim after d.
+func (s Set) For(d time.Duration) Set {
+	s.claimFor = d
+	return s
+}
+
+// UntilReleased ends the claim at a Release. It can't be combined with UntilNext.
+func (s Set) UntilReleased() Set { return s.endUntil(engine.UntilReleased) }
+
+// UntilNext ends the claim when the value without it next changes.
+func (s Set) UntilNext() Set { return s.endUntil(engine.UntilNext) }
+
+// bothUntils is the engine's error for a Set given both: an until it doesn't know.
+const bothUntils engine.Until = "UntilReleased or UntilNext, not both"
+
+func (s Set) endUntil(u engine.Until) Set {
+	if s.until != "" && s.until != u {
+		u = bothUntils
+	}
+	s.until = u
+	return s
+}
+
+// Priority is the level of the claim. Without it, a moment's Set is Normal and a flow's is the
+// flow's Priority.
+func (s Set) Priority(p Priority) Set {
+	s.priority = p
+	return s
+}
+
+// plain checks a Set that's only a capability and a value, as a hold's and a Control's are, and
+// one that names a device if it must.
+func (s Set) plain(what string, device bool) error {
+	switch {
+	case s.capability == "":
+		return fmt.Errorf("%s needs a capability: a handle's To", what)
+	case s.claimFor != 0 || s.until != "" || s.priority != Normal:
+		return fmt.Errorf("%s takes no For, Until or Priority", what)
+	case device && s.room != "":
+		return fmt.Errorf("%s names a device, not a room", what)
+	case device && s.device == "":
+		return fmt.Errorf("%s needs a device", what)
+	}
+	return nil
 }
 
 func (s Set) toEngine() engine.Action {
-	set := engine.Set{
-		Device: s.Device, Room: s.Room, Capability: s.Capability, Value: s.Value, For: s.For,
-		Priority: engine.Priority(s.Priority),
+	return engine.Set{
+		Device: s.device, Room: s.room, Capability: s.capability, Value: s.value, For: s.claimFor,
+		Until: s.until, Priority: engine.Priority(s.priority),
 	}
-	switch {
-	case s.UntilReleased:
-		set.Until = engine.UntilReleased
-	case s.UntilNext:
-		set.Until = engine.UntilNext
-	}
-	return set
 }
 
 // Wait waits before the next action.
@@ -435,7 +453,12 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	settings, err := h.settings()
 	errs = append(errs, err)
 	for _, r := range h.Holds {
-		c, err := engine.NewHold(name(r.Name), r.toEngine())
+		key := name(r.Name)
+		err := r.Set.plain("a hold's Set", false)
+		var c *engine.Compiled
+		if err == nil {
+			c, err = engine.NewHold(key, r.toEngine())
+		}
 		if err == nil {
 			err = r.checkBudget(settings)
 		}
@@ -443,13 +466,13 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	}
 	for _, r := range h.Moments {
 		c, err := engine.NewMoment(name(r.Name), r.toEngine())
-		add(r.Name, c, err)
+		add(r.Name, c, errors.Join(err, nilChange(r.On)))
 	}
 	for _, r := range h.Flows {
 		f := r.toFlow(name(r.Name))
 		flows[r.Name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
-		add(r.Name, c, err)
+		add(r.Name, c, errors.Join(err, nilChange(r.On)))
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.Plugins {
@@ -471,12 +494,10 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 	var out []wire.DeviceControl
 	var errs []error
 	for _, c := range h.Control {
-		bad := func(err error) { errs = append(errs, fmt.Errorf("control %s on %s: %w", c.Capability, c.Device, err)) }
-		if c.Device == "" {
-			bad(errors.New("a device is required"))
-		}
+		device, capability := c.Default.device, c.Default.capability
+		bad := func(err error) { errs = append(errs, fmt.Errorf("control %s on %s: %w", capability, device, err)) }
 		if slices.ContainsFunc(out, func(o wire.DeviceControl) bool {
-			return o.Device == c.Device && o.Entry.Capability == c.Capability
+			return o.Device == device && o.Entry.Capability == capability
 		}) {
 			bad(errors.New("declared twice"))
 		}
@@ -488,10 +509,10 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 			_, err = engine.ControlSettings(e, nil)
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("device %s: %w", c.Device, err))
+			bad(err)
 			continue
 		}
-		out = append(out, wire.DeviceControl{Device: c.Device, Entry: e})
+		out = append(out, wire.DeviceControl{Device: device, Entry: e})
 	}
 	return out, errors.Join(errs...)
 }
@@ -534,12 +555,22 @@ const neverLate = 100 * 365 * 24 * time.Hour
 func trigger(on []Change, at []string, cond Condition, late time.Duration, safety bool) engine.Trigger {
 	t := engine.Trigger{Condition: cond.toEngine(), StartingDeadline: lateness(late, safety)}
 	for _, c := range on {
-		t.Changes = append(t.Changes, engine.Change(c))
+		if c != nil { // nilChange reports it.
+			t.Changes = append(t.Changes, c.change())
+		}
 	}
 	for _, a := range at {
 		t.Timers = append(t.Timers, engine.At{Time: a})
 	}
 	return t
+}
+
+// nilChange reports a nil in a rule's On, which trigger leaves out.
+func nilChange(on []Change) error {
+	if i := slices.Index(on, nil); i >= 0 {
+		return fmt.Errorf("a nil change, at On[%d]: give a handle, or InRoom", i)
+	}
+	return nil
 }
 
 func (r Flow) toFlow(key ident.ID) *flow.Flow {
@@ -563,7 +594,7 @@ func (r Flow) toEngine(f *flow.Flow) engine.Flow {
 
 func (r Hold) toEngine() engine.Hold {
 	h := engine.Hold{
-		Device: r.Device, Room: r.Room, Capability: r.Capability, Value: r.Value,
+		Device: r.Set.device, Room: r.Set.room, Capability: r.Set.capability, Value: r.Set.value,
 		Priority: engine.Priority(r.Priority), When: r.When.toEngine(),
 		OnDelay: r.OnDelay, OffDelay: r.OffDelay, Latch: r.Latch, Budget: r.Budget.toSchedule(),
 	}
@@ -582,13 +613,13 @@ func (r Hold) checkBudget(settings []wire.DeviceControl) error {
 		return nil
 	}
 	i := slices.IndexFunc(settings, func(c wire.DeviceControl) bool {
-		return c.Device == r.Device && c.Entry.Capability == r.Capability
+		return c.Device == r.Set.device && c.Entry.Capability == r.Set.capability
 	})
 	if i < 0 {
-		return fmt.Errorf("a budget needs a Control for %s on %s", r.Capability, r.Device)
+		return fmt.Errorf("a budget needs a Control for %s on %s", r.Set.capability, r.Set.device)
 	}
 	spec := *r.Budget.toSchedule()
-	spec.Device, spec.Capability, spec.Value = r.Device, r.Capability, r.Value
+	spec.Device, spec.Capability, spec.Value = r.Set.device, r.Set.capability, r.Set.value
 	_, err := schedule.CompileSpec(spec, &settings[i].Entry)
 	return err
 }
@@ -615,7 +646,7 @@ func (b *Budget) toSchedule() *schedule.Spec {
 	}
 	if in := b.Bands; in != nil {
 		bands := &schedule.BandSpec{
-			Device: in.Device, Capability: in.Capability, MaxAge: in.MaxAge, MissingMinutes: in.Missing,
+			Device: in.Reading.Device, Capability: string(in.Reading.Capability), MaxAge: in.MaxAge, MissingMinutes: in.Missing,
 		}
 		for _, r := range in.Ranges {
 			below := r.Below
@@ -641,7 +672,7 @@ func (w Window) toSchedule() schedule.WindowSpec {
 func (r Moment) safety() bool {
 	return slices.ContainsFunc(r.Do, func(a Action) bool {
 		s, ok := a.(Set)
-		return ok && s.Priority == Safety
+		return ok && s.priority == Safety
 	})
 }
 

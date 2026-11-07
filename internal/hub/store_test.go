@@ -164,7 +164,7 @@ func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
 
 func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 	s := NewStore(logging.Discard())
-	instance := driver.InstanceKey{Driver: "test", ID: ident.ID{Name: "a"}}
+	instance := driver.InstanceKey{Driver: "test", Name: "a"}
 	a, b := ident.ID{Name: "a"}, ident.ID{Name: "b"}
 	s.SetDevices(instance, map[ident.ID]Meta{a: {Instance: instance}, b: {Instance: instance}})
 	s.Changed(driver.Update{Device: a, Capability: "switch.on", Value: true})

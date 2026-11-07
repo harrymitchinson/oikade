@@ -35,7 +35,7 @@ const (
 )
 
 // instance is the driver instance simulated devices belong to.
-var instance = driver.InstanceKey{Driver: "simulated", ID: ident.ID{Name: "home"}}
+var instance = driver.InstanceKey{Driver: "simulated", Name: "home"}
 
 // Home is a home to run. Compile runs again at each restart, as a new process would.
 type Home struct {

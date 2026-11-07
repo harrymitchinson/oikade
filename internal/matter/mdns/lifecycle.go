@@ -205,7 +205,7 @@ func (r *Responder) multicast(build func(ifIndex int) ([]byte, error)) {
 // response packs an unsolicited multicast response with recs as answers. ttl overrides their
 // TTLs unless it's negative.
 func response(recs []record, ttl int64) ([]byte, error) {
-	m := dnsmessage.Message{Header: dnsmessage.Header{Response: true, Authoritative: true}}
+	m := dnsmessage.Message{Response: true, Authoritative: true}
 	for _, rec := range recs {
 		t := rec.ttl
 		if ttl >= 0 {

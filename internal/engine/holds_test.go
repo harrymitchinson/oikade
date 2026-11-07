@@ -284,7 +284,7 @@ var overheat = Hold{Device: "workshop-heater", Capability: capability.SwitchOn, 
 
 func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states *storeBackend) {
 	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}}
-	reset := momentRule(t, "workshop-overheat-reset", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "09:00"}}, Since: local("2026-10-21 08:00 BST")}, Do: []Action{Release("workshop-overheat")}})
+	reset := momentRule(t, "workshop-overheat-reset", Moment{Timers: []Timer{At{Time: "09:00"}}, Since: local("2026-10-21 08:00 BST"), Do: []Action{Release("workshop-overheat")}})
 
 	// It overheated while the host was down: the latch acts on startup.
 	r := startRig(t, local("2026-10-21 08:00 BST"), states.holds(t), hot, nil, holdRule(t, "workshop-overheat", overheat), reset)

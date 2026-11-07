@@ -1,7 +1,7 @@
 # The oikade image: oikade-host, for linux/arm64 and linux/amd64. It holds no Node and nothing else to
 # run, because you bring your own Zigbee2MQTT and broker (OIK-155), and your code arrives by deploy.
-# Override BASE_IMAGE to build from another registry, e.g. docker.io/library/golang:1.26
-ARG BASE_IMAGE=golang:1.26
+# Override BASE_IMAGE to build from another registry, e.g. docker.io/library/golang:1.27
+ARG BASE_IMAGE=golang:1.27
 FROM ${BASE_IMAGE} AS builder
 ARG TARGETOS
 ARG TARGETARCH

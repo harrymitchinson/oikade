@@ -100,7 +100,7 @@ func TestReplayingUnchangedCodeShowsNoDifferences(t *testing.T) {
 }
 
 // fanAt finds the fixture's fan threshold.
-var fanAt = regexp.MustCompile(`s\.Number\("bathroom-sensor", "sensor\.relative-humidity"\) > \d+`)
+var fanAt = regexp.MustCompile(`s\.Get\(humidity\) > \d+`)
 
 func TestReplayingAChangedThresholdShowsExactlyTheWritesThatGo(t *testing.T) {
 	t.Parallel()
@@ -113,7 +113,7 @@ func TestReplayingAChangedThresholdShowsExactlyTheWritesThatGo(t *testing.T) {
 		if !fanAt.MatchString(s) {
 			t.Fatal("the fixture has no fan threshold to change")
 		}
-		return fanAt.ReplaceAllString(s, `s.Number("bathroom-sensor", "sensor.relative-humidity") > 90`)
+		return fanAt.ReplaceAllString(s, `s.Get(humidity) > 90`)
 	}))
 	if len(report.Added) != 0 {
 		t.Fatalf("Added = %v", report.Added)

@@ -123,7 +123,7 @@ func TestFlowBodyRunsAsARunInProgress(t *testing.T) {
 	stop := make(chan struct{})
 	key := goKey("motion-light")
 	c, err := NewFlow(key, Flow{
-		Trigger: Trigger{Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}}},
+		Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
 		Body: func(context.Context) string {
 			started <- struct{}{}
 			<-stop
@@ -147,7 +147,7 @@ func TestResumedRunHoldsItsPlace(t *testing.T) {
 	runs := make(chan string, 2)
 	stop := make(chan struct{})
 	c, err := NewFlow(key, Flow{
-		Trigger: Trigger{Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}}},
+		Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
 		Body:    func(context.Context) string { runs <- "new"; return ResultSucceeded },
 	})
 	if err != nil {
@@ -383,7 +383,7 @@ func TestReleaseWithAllLevelsEndsSafetyClaims(t *testing.T) {
 }
 
 func TestNewFlowNeedsABody(t *testing.T) {
-	if _, err := NewFlow(goKey("x"), Flow{Trigger: Trigger{Changes: []Change{{Device: "a", Capability: capability.Occupancy}}}}); err == nil {
+	if _, err := NewFlow(goKey("x"), Flow{Changes: []Change{{Device: "a", Capability: capability.Occupancy}}}); err == nil {
 		t.Fatal("a flow with no body compiled")
 	}
 }
@@ -391,8 +391,8 @@ func TestNewFlowNeedsABody(t *testing.T) {
 func TestKeepSinceCatchesUpOnAMissedTime(t *testing.T) {
 	timer := func(deadline time.Duration) *Compiled {
 		c, err := NewMoment(goKey("motion-light"), Moment{
-			Trigger: Trigger{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: deadline},
-			Do:      []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
+			Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: deadline,
+			Do: []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
 		})
 		if err != nil {
 			t.Fatal(err)

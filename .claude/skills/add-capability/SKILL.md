@@ -22,7 +22,8 @@ Decide these four things before touching code, and state them to the user in one
 ## 2. The registry: `internal/capability`
 
 - Add an exported const with a doc comment that states the unit and polarity. That comment is the definition other drivers will follow.
-- Add the registry entry with `Kind`, `Writable`, `Min` and `Max`.
+- Add the registry entry with `Go`, `Kind`, `Writable`, `Min` and `Max`. `Go` is its name in a home, as a `framework` constant and a handle's field in `devices.go`.
+- Add the same constant to `framework/capability.go`, as a `framework.Bool` or `framework.Number`, and to `TestTheConstantsAreTheRegistrys`.
 - Add `TestValidate` rows to `capability_test.go`: one valid value, one out of range, and one of the wrong type.
 
 `TestRegistryStatus` covers the rest automatically.
