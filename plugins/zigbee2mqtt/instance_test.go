@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -117,6 +118,13 @@ func TestDiscovery(t *testing.T) {
 	if got := rec.discovered[lamp]; !got.Found || got.Manufacturer != "IKEA" ||
 		!slices.Equal(got.Capabilities, []string{capability.On, capability.Brightness, capability.LinkQuality}) {
 		t.Errorf("lamp = %+v", got)
+	}
+	// Nobody set it: the light expose with a brightness says so.
+	if got := rec.discovered[lamp].DeviceType; got != devicetype.DimmableLight {
+		t.Errorf("lamp is %q, want DimmableLight", got)
+	}
+	if got := rec.discovered[plug].DeviceType; got != "" {
+		t.Errorf("a switch says it's %q, want nothing", got)
 	}
 	if got := rec.discovered[motion].Capabilities; !slices.Equal(got,
 		[]string{capability.Occupied, capability.Temperature, capability.Battery, capability.LinkQuality}) {

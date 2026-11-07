@@ -583,6 +583,7 @@ func TestSetDiscovered(t *testing.T) {
 		{{ID: "a/b"}},
 		{lamp, lamp},
 		{{ID: "x", Capabilities: []string{"light.sparkle"}}},
+		{{ID: "x", Capabilities: []string{"on"}, DeviceType: "Lamp"}},
 	} {
 		if err := p.SetDiscovered(ctx, bad); err == nil {
 			t.Errorf("SetDiscovered(%+v) succeeded, want an error", bad)
@@ -592,6 +593,10 @@ func TestSetDiscovered(t *testing.T) {
 	old := []contractv1.DeviceReport{{ID: "relay", Found: true, Capabilities: []string{"switch.on"}}}
 	if err := p.SetDevices(ctx, old, 0); err == nil || !strings.Contains(err.Error(), "unknown capability switch.on") {
 		t.Errorf("SetDevices with switch.on: %v", err)
+	}
+	typed := []contractv1.DeviceReport{{ID: "relay", Found: true, Capabilities: []string{"on"}, DeviceType: "Kettle"}}
+	if err := p.SetDevices(ctx, typed, 0); err == nil || !strings.Contains(err.Error(), "unknown device type Kettle") {
+		t.Errorf("SetDevices with an unknown device type: %v", err)
 	}
 	// Before SetDevices, the list waits for it.
 	if err := p.SetDiscovered(ctx, []contractv1.DiscoveredDevice{lamp}); err != nil {

@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 )
 
 // Exposes, as published in <base>/bridge/devices. Only the fields Oikade uses.
@@ -38,10 +39,13 @@ type expose struct {
 // can't answer.
 const accessGet = 0b100
 
-// Zigbee2MQTT expose types.
+// Zigbee2MQTT expose types, and the feature that switches a light or a switch.
 const (
 	exposeBinary  = "binary"
 	exposeNumeric = "numeric"
+	exposeLight   = "light"
+	exposeSwitch  = "switch"
+	featureState  = "state"
 )
 
 // binding maps one Zigbee2MQTT property to a canonical capability.
@@ -67,11 +71,11 @@ func bindings(exposes []expose) []binding {
 			continue
 		}
 		switch e.Type {
-		case "light":
+		case exposeLight:
 			for _, f := range e.Features {
 				switch {
 				case f.Endpoint != "":
-				case f.Name == "state" && f.Type == exposeBinary:
+				case f.Name == featureState && f.Type == exposeBinary:
 					out = append(out, binding{capability: capability.On, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
 				case f.Name == "brightness" && f.Type == exposeNumeric:
 					max := 254.0
@@ -81,9 +85,9 @@ func bindings(exposes []expose) []binding {
 					out = append(out, binding{capability: capability.Brightness, property: f.Property, scale: max, get: f.gettable()})
 				}
 			}
-		case "switch":
+		case exposeSwitch:
 			for _, f := range e.Features {
-				if f.Endpoint == "" && f.Name == "state" && f.Type == exposeBinary {
+				if f.Endpoint == "" && f.Name == featureState && f.Type == exposeBinary {
 					out = append(out, binding{capability: capability.On, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
 				}
 			}
@@ -108,6 +112,32 @@ func bindings(exposes []expose) []binding {
 		seen[b.capability] = true
 		return dup
 	})
+}
+
+// deviceType is what a device is, from the expose it's switched by: the first at its root with a
+// state, as bindings takes. A light is an on/off or a dimmable light, by whether it has a
+// brightness. A switch says nothing, because a relay can't tell what it switches.
+func deviceType(exposes []expose) devicetype.Type {
+	for _, e := range exposes {
+		if e.Endpoint != "" || (e.Type != exposeLight && e.Type != exposeSwitch) {
+			continue
+		}
+		if !slices.ContainsFunc(e.Features, func(f expose) bool {
+			return f.Endpoint == "" && f.Name == featureState && f.Type == exposeBinary
+		}) {
+			continue
+		}
+		if e.Type == exposeSwitch {
+			return ""
+		}
+		if slices.ContainsFunc(e.Features, func(f expose) bool {
+			return f.Endpoint == "" && f.Name == "brightness" && f.Type == exposeNumeric
+		}) {
+			return devicetype.DimmableLight
+		}
+		return devicetype.OnOffLight
+	}
+	return ""
 }
 
 func (e expose) gettable() bool { return e.Access&accessGet != 0 }

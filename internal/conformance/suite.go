@@ -274,6 +274,9 @@ func (s *Suite) announces(t T) {
 		if len(info.Capabilities) == 0 {
 			t.Errorf("device %s is found but announces no capabilities Oikade knows", id)
 		}
+		if info.DeviceType != "" && !slices.Contains(info.Capabilities, capability.On) {
+			t.Errorf("device %s says it's %s, but has no %s for that to describe", id, info.DeviceType, capability.On)
+		}
 		s.eventually(t, "availability for "+id, func() bool { _, ok := s.sink.online(dev); return ok })
 		s.eventually(t, "state for "+id, func() bool { return s.sink.seenAt(dev) })
 		for _, c := range info.Capabilities {

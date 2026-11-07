@@ -209,6 +209,7 @@ func (i *Instance) handleDevices(payload []byte) {
 		bs := bindings(d.Definition.Exposes)
 		p := &paired{bindings: bs, info: driver.Info{
 			Found: true, Manufacturer: d.Definition.Vendor, Model: d.Definition.Model,
+			DeviceType: deviceType(d.Definition.Exposes),
 		}}
 		for _, b := range bs {
 			p.info.Capabilities = append(p.info.Capabilities, b.capability)
@@ -217,7 +218,7 @@ func (i *Instance) handleDevices(payload []byte) {
 		i.byName[d.FriendlyName] = d.IEEEAddress
 		app := driver.AppDevice{
 			ID: d.IEEEAddress, Manufacturer: p.info.Manufacturer, Model: p.info.Model,
-			Capabilities: slices.Clone(p.info.Capabilities),
+			Capabilities: slices.Clone(p.info.Capabilities), DeviceType: p.info.DeviceType,
 		}
 		// Zigbee2MQTT names a device by its IEEE address until you rename it.
 		if d.FriendlyName != d.IEEEAddress {

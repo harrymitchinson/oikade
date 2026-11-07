@@ -15,6 +15,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -191,9 +192,14 @@ func (p *plugins) pair(h *hosted) {
 	for _, d := range listed {
 		app := driver.AppDevice{
 			ID: d.ID, Name: d.Name, Room: d.Room, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: d.Capabilities,
+			DeviceType: devicetype.Type(d.DeviceType),
 		}
+		// What the plugin reports for a device it serves wins over its discovered list.
 		if known, ok := apps[d.ID]; ok {
-			app.Capabilities, app.DeviceType = known.Capabilities, known.DeviceType
+			app.Capabilities = known.Capabilities
+			if known.DeviceType != "" {
+				app.DeviceType = known.DeviceType
+			}
 		}
 		apps[d.ID] = app
 	}

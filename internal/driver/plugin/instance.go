@@ -14,6 +14,7 @@ import (
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -28,6 +29,7 @@ const (
 	ReasonInvalidValue          = "invalid_value"
 	ReasonUndeclaredDevice      = "undeclared_device"
 	ReasonUnannouncedCapability = "unannounced_capability"
+	ReasonUnknownDeviceType     = "unknown_device_type"
 )
 
 // Instance follows one plugin on the bus.
@@ -133,7 +135,7 @@ func (i *Instance) inventoryLocked() []driver.AppDevice {
 	for _, d := range i.discovered {
 		out = append(out, driver.AppDevice{
 			ID: d.ID, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: slices.Clone(d.Capabilities),
-			Name: d.Name, Room: d.Room,
+			DeviceType: devicetype.Type(d.DeviceType), Name: d.Name, Room: d.Room,
 		})
 	}
 	slices.SortFunc(out, func(a, b driver.AppDevice) int { return strings.Compare(a.ID, b.ID) })
@@ -311,6 +313,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 					info.Capabilities = append(info.Capabilities, c)
 				}
 			}
+			info.DeviceType = i.deviceTypeLocked(d.ID, d.DeviceType, topic)
 		}
 		i.announced[d.ID] = info
 	}
@@ -497,9 +500,20 @@ func (i *Instance) validDiscoveredLocked(discovered []contractv1.DiscoveredDevic
 			}
 		}
 		d.Capabilities = caps
+		d.DeviceType = string(i.deviceTypeLocked(d.ID, d.DeviceType, topic))
 		valid = append(valid, d)
 	}
 	return valid
+}
+
+// deviceTypeLocked is a device type the contract allows, or empty, counting any other as rejected.
+// The device itself stays: only what it is falls back to what its capabilities say.
+func (i *Instance) deviceTypeLocked(id, t, topic string) devicetype.Type {
+	if !contractv1.ValidDeviceType(t) {
+		i.rejectLocked(ReasonUnknownDeviceType, id, topic)
+		return ""
+	}
+	return devicetype.Type(t)
 }
 
 // undeclaredLocked counts the discovered devices without a Device, or returns the plugin's own

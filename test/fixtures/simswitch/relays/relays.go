@@ -70,6 +70,7 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 		r := &relay{id: d.ID, capability: c}
 		s.order = append(s.order, r)
 		s.relays[d.ID] = r
+		// No DeviceType: a relay can't tell what it switches.
 		s.reports = append(s.reports, contractv1.DeviceReport{
 			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
 		})
