@@ -466,13 +466,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 	never := func(Vars) (bool, error) { return false, nil }
 	waiting := func(t *testing.T, c *clock.Fake) {
 		t.Helper()
-		deadline := time.Now().Add(10 * time.Second)
-		for !c.HasWaiters() {
-			if time.Now().After(deadline) {
-				t.Fatal("nothing waited on the clock")
-			}
-			time.Sleep(time.Millisecond)
-		}
+		poll(t, "something to wait on the clock", c.HasWaiters)
 	}
 	finished := func(t *testing.T, done <-chan struct{}) {
 		t.Helper()

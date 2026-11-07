@@ -32,8 +32,6 @@ import (
 const (
 	// settleTimeout is how long the engine has to catch up with one move of the clock.
 	settleTimeout = 10 * time.Second
-	// quiet is how long the engine must stay idle to count as settled, for work it hasn't seen yet.
-	quiet = 200 * time.Microsecond
 )
 
 // instance is the driver instance simulated devices belong to.
@@ -244,7 +242,7 @@ func (s *Sim) start() error {
 	}
 	for _, f := range flows {
 		f.Journal, f.Actions, f.Clock, f.Log, f.Process = s.journal, eng, s.clock, s.log.With("logger", "flows"), ctx
-		f.OnPark = eng.OnPark
+		f.OnPark = eng.Park
 		if s.dry {
 			f.Dry = func(call string, result any) error { return s.answer(f.Key.Name, call, result) }
 		}
@@ -476,42 +474,12 @@ func (s *Sim) park(wake time.Time, woken <-chan struct{}) func() {
 	}
 }
 
-// runsWaiting says every run is waiting for something that hasn't happened yet, so none is working
-// or about to.
-func (s *Sim) runsWaiting() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	running := 0
-	for _, n := range s.runs {
-		running += n
-	}
-	if running != len(s.parked) {
-		return false
-	}
-	now := s.clock.Now()
-	for _, p := range s.parked {
-		if !p.wake.After(now) {
-			return false
-		}
-		select {
-		case <-p.woken:
-			return false
-		default:
-		}
-	}
-	return true
-}
-
 // settle waits for the engine and every run to catch up with the clock.
 func (s *Sim) settle() error {
-	settled := func() bool { return s.engine.Idle(s.clock.HasWaiters) && s.runsWaiting() }
 	deadline := time.Now().Add(settleTimeout)
 	for time.Now().Before(deadline) {
-		if settled() {
-			time.Sleep(quiet)
-			if settled() {
-				return nil
-			}
+		if s.engine.Idle() {
+			return nil
 		}
 		time.Sleep(50 * time.Microsecond)
 	}

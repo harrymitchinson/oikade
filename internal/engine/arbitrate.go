@@ -267,10 +267,7 @@ func (e *Engine) dropArb(dev ident.ID, name string, forget bool) {
 // markSave asks saveControls to save the device's arbiters. Call with e.mu held.
 func (e *Engine) markSave(dev ident.ID) {
 	e.saveDue[dev] = true
-	select {
-	case e.saveWake <- struct{}{}:
-	default:
-	}
+	e.askSave()
 }
 
 // syncControls brings the device's arbiters up to date with its control entries and decides
@@ -334,7 +331,7 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	}
 	ar.writing = true
 	value := d.Value
-	e.runs.Go(func() { e.writeControl(ctx, dev, name, ar, value) })
+	e.goBusy(func() { e.writeControl(ctx, dev, name, ar, value) })
 }
 
 // earliestOf returns the earlier of two times, where zero means none.
@@ -913,6 +910,7 @@ const saveTimeout = 5 * time.Second
 // then saves what's left. A failed save is tried again.
 func (e *Engine) saveControls(ctx context.Context) {
 	var retry <-chan time.Time
+	asked := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -921,12 +919,27 @@ func (e *Engine) saveControls(ctx context.Context) {
 			e.saveDevices(last)
 			return
 		case <-e.saveWake:
+			asked = true
 		case <-retry:
 		}
 		retry = nil
 		if failed := e.saveDevices(ctx); len(failed) > 0 {
 			retry = time.After(retryFailed)
 		}
+		if asked {
+			asked = false
+			e.busy.Add(-1)
+		}
+	}
+}
+
+// askSave wakes saveControls, which counts as busy until it has saved.
+func (e *Engine) askSave() {
+	e.busy.Add(1)
+	select {
+	case e.saveWake <- struct{}{}:
+	default:
+		e.busy.Add(-1) // a save is already asked for
 	}
 }
 
@@ -939,10 +952,7 @@ func (e *Engine) flushControls(ctx context.Context, devices ...ident.ID) error {
 	if len(failed) == 0 {
 		return nil
 	}
-	select {
-	case e.saveWake <- struct{}{}:
-	default:
-	}
+	e.askSave()
 	if len(devices) > 0 && !slices.ContainsFunc(devices, func(d ident.ID) bool { return slices.Contains(failed, d) }) {
 		return nil
 	}

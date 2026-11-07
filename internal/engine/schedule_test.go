@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -167,15 +166,15 @@ func (h *harness) result(name, result string) float64 {
 
 var lightOn = call{"hallway-light", capability.On, true}
 
-// advance sets the clock to t until the engine has made n calls. Setting it again fires a timer
-// the engine created just after the first set.
+// advance sets the clock to t once the engine has caught up, and waits for it to make n calls.
 func (h *harness) advance(t time.Time, n int) {
 	h.t.Helper()
-	h.eventually("the timer", h.clock.HasWaiters)
-	h.eventually(fmt.Sprintf("%d calls at %v", n, t), func() bool {
-		h.clock.SetTime(t)
-		return len(h.setter.got()) >= n
-	})
+	h.settle()
+	h.clock.SetTime(t)
+	h.settle()
+	if got := h.setter.got(); len(got) < n {
+		h.t.Fatalf("%d calls at %v, want %d: %v", len(got), t, n, got)
+	}
 }
 
 func TestAtFiresWithTheClock(t *testing.T) {
@@ -228,7 +227,7 @@ func TestMissedFireOutsideTheDeadlineIsCounted(t *testing.T) {
 	if got := s.last().LastFire; !got.Equal(local("2026-10-21 07:00 BST")) {
 		t.Errorf("lastFire = %v, want 07:00, so the next restart doesn't count it again", got)
 	}
-	time.Sleep(50 * time.Millisecond)
+	h.settle()
 	if calls := h.setter.got(); len(calls) != 0 {
 		t.Errorf("calls = %v, want none", calls)
 	}
@@ -248,7 +247,7 @@ func TestOnlyFiresSinceTheRuleWasCreated(t *testing.T) {
 		r.StartingDeadline = time.Hour
 		r.Since = local("2026-10-21 07:02 BST")
 	}, atTrigger("07:00"))
-	time.Sleep(50 * time.Millisecond)
+	h.settle()
 	if calls := h.setter.got(); len(calls) != 0 || h.result("lights-on", ResultMissed) != 0 {
 		t.Errorf("calls = %v; a Rule created after 07:00 shouldn't fire for it", calls)
 	}
@@ -263,7 +262,7 @@ func TestReloadDoesNotCatchUp(t *testing.T) {
 	}, atTrigger("07:00"))
 	r := momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2, Do: []Action{set("hallway-light", capability.On, "true")}})
 	h.e.Load(r)
-	time.Sleep(50 * time.Millisecond)
+	h.settle()
 	if calls := h.setter.got(); len(calls) != 0 {
 		t.Errorf("calls = %v; only the first load looks for missed fires", calls)
 	}
@@ -306,7 +305,7 @@ func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	// Recreated, it looks for missed fires again, but only since it was created.
 	h.clock.SetTime(local("2026-10-21 07:05 BST"))
 	h.e.Load(momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST"), Do: []Action{set("hallway-light", capability.On, "true")}}))
-	time.Sleep(50 * time.Millisecond)
+	h.settle()
 	if calls := h.setter.got(); len(calls) != 0 {
 		t.Errorf("calls = %v; 07:00 was before the new rule existed", calls)
 	}
@@ -319,11 +318,12 @@ func TestPolarNightLooksAgain(t *testing.T) {
 	if got := s.last().Next; !got.IsZero() {
 		t.Fatalf("next = %v, want none in the polar night", got)
 	}
-	h.eventually("the recheck timer", h.clock.HasWaiters)
-	h.eventually("a sunrise in late January", func() bool {
-		h.clock.SetTime(local("2027-01-25 00:00 GMT"))
-		return !s.last().Next.IsZero()
-	})
+	h.settle()
+	h.clock.SetTime(local("2027-01-25 00:00 GMT"))
+	h.settle()
+	if s.last().Next.IsZero() {
+		t.Error("no sunrise found in late January")
+	}
 }
 
 func TestCompileRejectsSignedTimes(t *testing.T) {

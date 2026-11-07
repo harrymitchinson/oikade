@@ -218,13 +218,7 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 
 func (r *rig) eventually(what string, cond func() bool) {
 	r.t.Helper()
-	for range 300 {
-		if cond() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	r.t.Fatalf("timed out waiting for %s", what)
+	poll(r.t, what, cond)
 }
 
 // gate holds every Set until it's opened.
@@ -274,7 +268,8 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	edited := railEntry
 	edited.MinimumOff = control.Duration(time.Minute)
 	r.setControl(edited)
-	time.Sleep(50 * time.Millisecond)
+	// The edit is handled with the write still held: it's all the engine has left.
+	r.eventually("the edit", func() bool { return r.e.busy.Load() == 1 })
 	close(g.open)
 	r.settle()
 	r.expect(call{"towel-rail", capability.On, true})
@@ -369,9 +364,7 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	controls := r.e.Controls
 	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{})
-	r.settle()
-	// Give the saver its turn: it mustn't delete the state.
-	time.Sleep(100 * time.Millisecond)
+	r.settle() // the saver too: it mustn't delete the state
 	if _, ok := controls.Get(ident.ID{Namespace: ns, Name: "towel-rail"}); !ok {
 		t.Fatal("a device that left the store lost its saved state")
 	}
@@ -391,7 +384,7 @@ func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 	if err := r.e.ForgetDevice(context.Background(), dev); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	r.settle()
 	if _, ok := r.e.Controls.Get(dev); ok {
 		t.Fatal("its saved claims stayed for the next device of that name")
 	}

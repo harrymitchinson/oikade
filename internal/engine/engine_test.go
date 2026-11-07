@@ -275,16 +275,15 @@ func (h *harness) runs(result string) float64 {
 	return testutil.ToFloat64(h.e.Runs.WithLabelValues(ns, "motion-light", result))
 }
 
-// eventually polls cond for up to two seconds.
 func (h *harness) eventually(what string, cond func() bool) {
 	h.t.Helper()
-	for range 200 {
-		if cond() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	h.t.Fatalf("timed out waiting for %s", what)
+	poll(h.t, what, cond)
+}
+
+// settle waits for the engine to catch up with the clock.
+func (h *harness) settle() {
+	h.t.Helper()
+	waitIdle(h.t, h.e)
 }
 
 func (h *harness) expectCalls(want ...call) {
@@ -333,7 +332,7 @@ func TestRestartKeepsLightOnUntilMotionStops(t *testing.T) {
 	h.eventually("first run cancelled", func() bool { return h.runs(ResultCancelled) == 1 })
 	h.eventually("second delay to start", h.clock.HasWaiters)
 	h.clock.Step(3 * time.Minute)
-	time.Sleep(50 * time.Millisecond)
+	h.settle()
 	if got := len(h.setter.got()); got != 2 {
 		t.Fatalf("light turned off early: %v", h.setter.got())
 	}

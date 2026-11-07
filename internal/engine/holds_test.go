@@ -123,17 +123,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 // timer armed.
 func (r *rig) settle() {
 	r.t.Helper()
-	idle := func() bool { return r.e.Idle(r.clock.HasWaiters) && r.holdsArmed() }
-	for range 500 {
-		if idle() {
-			time.Sleep(5 * time.Millisecond)
-			if idle() {
-				return
-			}
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	r.t.Fatal("timed out waiting for the engine to settle")
+	poll(r.t, "the engine to settle", func() bool { return r.e.Idle() && r.holdsArmed() })
 }
 
 // holdsArmed says every hold has a next look due.
