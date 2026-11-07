@@ -41,7 +41,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
-	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -63,7 +62,6 @@ type State struct {
 	members  map[string]hub.Member
 	now      time.Time
 	location *time.Location
-	site     *sun.Site
 }
 
 // notReported ends a condition that read a value nobody has reported yet.
@@ -176,7 +174,7 @@ func (s State) Now() time.Time { return s.now }
 // edge, where a hold's own Window changes on it. A window with a mistake in it, such as a time
 // that isn't one, stops the condition, and that's logged.
 func (s State) Within(w Window) bool {
-	in, err := w.toEngine().Contains(s.now, s.location, s.site)
+	in, err := w.toEngine().Contains(s.now, s.location, nil)
 	if err != nil {
 		panic(fmt.Sprintf("window: %v", err))
 	}
@@ -197,9 +195,8 @@ func (c Condition) toEngine() engine.Condition {
 		now, _ := v["now"].(time.Time)
 		location, _ := v["location"].(*time.Location)
 		if location == nil {
-			location = now.Location()
+			location = time.Local // as the engine's
 		}
-		site, _ := v["site"].(*sun.Site)
 		defer func() {
 			r := recover()
 			if r == nil {
@@ -220,7 +217,7 @@ func (c Condition) toEngine() engine.Condition {
 			}
 			panic(r)
 		}()
-		return c(State{devices: devices, members: members, now: now, location: location, site: site}), nil
+		return c(State{devices: devices, members: members, now: now, location: location}), nil
 	}
 }
 

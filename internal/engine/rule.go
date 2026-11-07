@@ -46,8 +46,7 @@ const (
 
 // Vars are what a condition sees: "devices", each device's capability values by name; "members",
 // each device's hub.Member by name, for reading a room; "now", a time.Time; "tz", the household's
-// IANA timezone, and "location", the same as a *time.Location; "site", the *sun.Site sun times are
-// for, or nil; and for a moment, "trigger".
+// IANA timezone, and "location", the same as a *time.Location; and for a moment, "trigger".
 type Vars = map[string]any
 
 // Condition is a rule's condition. An error means it can't be evaluated yet, as before a device it

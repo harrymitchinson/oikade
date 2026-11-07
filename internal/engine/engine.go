@@ -527,7 +527,6 @@ func (e *Engine) conditionVars(namespace string, now time.Time, h *home) Vars {
 		"now":      now,
 		"tz":       e.Location.String(),
 		"location": e.Location,
-		"site":     e.Site,
 	}
 }
 
