@@ -52,12 +52,12 @@ func onOf(t *testing.T, st api.Status, device string) api.Capability {
 			continue
 		}
 		for _, c := range d.Capabilities {
-			if c.Name == "switch.on" {
+			if c.Name == "on" {
 				return c
 			}
 		}
 	}
-	t.Fatalf("no switch.on on %s in %+v", device, st)
+	t.Fatalf("no on on %s in %+v", device, st)
 	return api.Capability{}
 }
 
@@ -83,37 +83,37 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 		t.Errorf("fan: %+v", c)
 	}
 
-	r.stdout(nil, "set", "claimed", "switch.on", "off", "--json")
+	r.stdout(nil, "set", "claimed", "on", "off", "--json")
 	r.wrote("claimed", false)
 	c := onOf(t, r.status(), "claimed")
 	if c.Value != false || c.Level != "Override" || winner(c) != "Command" {
 		t.Errorf("after set: %+v", c)
 	}
 
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
 	c = onOf(t, r.status(), "valve")
 	if c.Level != "Safety" || winner(c) != "Rule/leak-shutoff" {
 		t.Errorf("a Safety hold: %+v", c)
 	}
-	stderr, err := r.oikade(nil, "set", "valve", "switch.on", "on")
-	if err == nil || !strings.Contains(stderr, "Rule/leak-shutoff holds valve switch.on at Safety") {
+	stderr, err := r.oikade(nil, "set", "valve", "on", "on")
+	if err == nil || !strings.Contains(stderr, "Rule/leak-shutoff holds valve on at Safety") {
 		t.Errorf("set against Safety: %v: %s", err, stderr)
 	}
 	if v := onOf(t, r.status(), "valve").Value; v != false {
 		t.Errorf("the valve moved: %v", v)
 	}
-	if _, err := r.oikade(nil, "set", "nothing", "switch.on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "nothing", "on", "on"); err == nil {
 		t.Error("set an unknown device")
 	}
-	if _, err := r.oikade(nil, "set", "fan", "switch.on", "12"); err == nil {
+	if _, err := r.oikade(nil, "set", "fan", "on", "12"); err == nil {
 		t.Error("set a bad value")
 	}
-	if _, err := r.oikade(nil, "set", "leak-sensor", "sensor.contact-open", "true"); err == nil {
+	if _, err := r.oikade(nil, "set", "leak-sensor", "open", "true"); err == nil {
 		t.Error("set a read-only capability")
 	}
-	if _, err := r.oikade(nil, "set", "fan", "light.level", "12"); err == nil {
+	if _, err := r.oikade(nil, "set", "fan", "brightness", "12"); err == nil {
 		t.Error("set a capability the device doesn't have")
 	}
 }
@@ -151,7 +151,7 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "fan") })
 	r.sync()
 
-	r.change("bathroom-sensor", "sensor.relative-humidity", 80)
+	r.change("bathroom-sensor", "humidity", 80)
 	r.sync()
 	if n := r.count(wrote, "device", "fan"); n != 0 {
 		t.Fatalf("a paused hold wrote %d times", n)
@@ -173,7 +173,7 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	if !paused(t, r.status(), "fan") {
 		t.Error("a restart ended the pause")
 	}
-	r.change("bathroom-sensor", "sensor.relative-humidity", 90)
+	r.change("bathroom-sensor", "humidity", 90)
 	r.sync()
 	if n := r.count(wrote, "device", "fan"); n != 0 {
 		t.Fatalf("a paused hold wrote after a restart")
@@ -193,7 +193,7 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("claim-go", "sensor.contact-open", true)
+	r.change("claim-go", "open", true)
 	r.wrote("claimed", false)
 	r.sync()
 	if c := onOf(t, r.status(), "claimed"); winner(c) != "Rule/claim-moment" {
@@ -203,8 +203,8 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	r.wrote("claimed", true)
 	r.sync()
 	writes := r.count(wrote, "device", "claimed")
-	r.change("claim-go", "sensor.contact-open", false)
-	r.change("claim-go", "sensor.contact-open", true)
+	r.change("claim-go", "open", false)
+	r.change("claim-go", "open", true)
 	r.sync()
 	if n := r.count(wrote, "device", "claimed"); n != writes {
 		t.Fatal("a paused moment ran")
@@ -212,7 +212,7 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	r.stdout(nil, "resume", "claim-moment")
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claim-moment", "paused", false) })
 	r.sync()
-	r.change("claim-go", "sensor.contact-open", false)
+	r.change("claim-go", "open", false)
 	r.wrote("claimed", false)
 }
 
@@ -220,7 +220,7 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.wrote("valve", false)
 	r.sync()
 
@@ -242,7 +242,7 @@ func TestPausingAFlowHoldingASafetyClaimNeedsAsking(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("fail-go", "sensor.contact-open", true)
+	r.change("fail-go", "open", true)
 	r.wrote("claimed-safety", false)
 	r.sync()
 	stderr, err := r.oikade(nil, "pause", "failing")
@@ -256,7 +256,7 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("claim-flow-go", "sensor.contact-open", true)
+	r.change("claim-flow-go", "open", true)
 	r.wrote("claimed-flow", false)
 	r.stdout(nil, "pause", "claiming")
 	r.wrote("claimed-flow", true)
@@ -266,7 +266,7 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 	r.stdout(nil, "resume", "claiming")
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claiming", "paused", false) })
 	r.sync()
-	r.change("claim-flow-go", "sensor.contact-open", false)
+	r.change("claim-flow-go", "open", false)
 	r.wrote("claimed-flow", false)
 }
 
@@ -324,7 +324,7 @@ func tailStarted(r *rig, events <-chan api.Event) {
 	r.t.Helper()
 	deadline := time.After(waitLimit)
 	for v := 60; ; v++ {
-		r.send("bathroom-sensor", "sensor.relative-humidity", v%10+50)
+		r.send("bathroom-sensor", "humidity", v%10+50)
 		select {
 		case e, ok := <-events:
 			if !ok {
@@ -347,14 +347,14 @@ func TestTailStreamsChangesAndRunsAcrossAProcessRestart(t *testing.T) {
 	events := r.tailing(nil)
 	tailStarted(r, events)
 
-	r.change("claim-go", "sensor.contact-open", true)
+	r.change("claim-go", "open", true)
 	awaitEvent(t, events, func(e api.Event) bool { return e.Type == api.EventRule && e.Rule == "claim-moment" })
 
 	r.kill()
 	awaitEvent(t, events, func(e api.Event) bool { return e.Type == api.EventProcess && e.Message == "disconnected" })
 	awaitEvent(t, events, func(e api.Event) bool { return e.Type == api.EventProcess && e.Message == "connected" })
 
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	awaitEvent(t, events, func(e api.Event) bool {
 		return e.Type == api.EventChange && e.Device == "leak-sensor" && e.Value == true
 	})
@@ -393,7 +393,7 @@ func TestMetricsAndHealthAreServedOverHTTP(t *testing.T) {
 		t.Errorf("host metrics missing: %s", got)
 	}
 	// Rules run in your process, which reports every few seconds.
-	r.change("bathroom-sensor", "sensor.relative-humidity", 80)
+	r.change("bathroom-sensor", "humidity", 80)
 	deadline := time.Now().Add(waitLimit)
 	for !strings.Contains(fetch("/metrics"), "oikade_rule_active{") {
 		if time.Now().After(deadline) {

@@ -5,7 +5,7 @@
 //	func TestFanRunsWhenItsHumid(t *testing.T) {
 //		h := hometest.New(t, home(), hometest.Options{})
 //		h.Set(BathroomSensor.Humidity, 80)
-//		h.ExpectValue(BathroomFan.SwitchOn, true)
+//		h.ExpectValue(BathroomFan.On, true)
 //		h.Advance(time.Hour)
 //	}
 package hometest

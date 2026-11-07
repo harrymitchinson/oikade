@@ -13,15 +13,15 @@ func TestValidate(t *testing.T) {
 		want any
 		ok   bool
 	}{
-		{LightOn, true, true, true},
-		{LightOn, "ON", nil, false},
-		{LightOn, 1.0, nil, false},
-		{LightLevel, 40, 40.0, true},
-		{LightLevel, json.Number("12.5"), 12.5, true},
-		{LightLevel, 101.0, nil, false},
-		{LightLevel, -1.0, nil, false},
-		{LightLevel, math.NaN(), nil, false},
-		{LightLevel, true, nil, false},
+		{On, true, true, true},
+		{On, "ON", nil, false},
+		{On, 1.0, nil, false},
+		{Brightness, 40, 40.0, true},
+		{Brightness, json.Number("12.5"), 12.5, true},
+		{Brightness, 101.0, nil, false},
+		{Brightness, -1.0, nil, false},
+		{Brightness, math.NaN(), nil, false},
+		{Brightness, true, nil, false},
 		{Temperature, -12.3, -12.3, true},
 		{LinkQuality, 255, 255.0, true},
 		{"made.up", true, nil, false},
@@ -38,10 +38,10 @@ func TestValidate(t *testing.T) {
 }
 
 func TestParseJSON(t *testing.T) {
-	if v, err := ParseJSON(LightLevel, []byte("40")); err != nil || v != 40.0 {
+	if v, err := ParseJSON(Brightness, []byte("40")); err != nil || v != 40.0 {
 		t.Errorf("ParseJSON(level, 40) = %v, %v", v, err)
 	}
-	if _, err := ParseJSON(LightOn, []byte(`"true"`)); err == nil {
+	if _, err := ParseJSON(On, []byte(`"true"`)); err == nil {
 		t.Error("ParseJSON accepted a string for a bool capability")
 	}
 }

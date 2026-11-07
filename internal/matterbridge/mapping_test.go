@@ -2,6 +2,7 @@ package matterbridge
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"unicode/utf8"
 
@@ -98,16 +99,15 @@ func TestDeviceTypes(t *testing.T) {
 		caps []string
 		want []uint32
 	}{
-		"on/off light":             {"", []string{capability.LightOn}, []uint32{0x0100}},
-		"dimmable light":           {"", []string{capability.LightOn, capability.LightLevel}, []uint32{0x0101}},
-		"switch shown as a plug":   {"", []string{capability.SwitchOn}, []uint32{0x010A}},
-		"outlet":                   {"", []string{capability.OutletOn}, []uint32{0x010A}},
-		"switch as a light":        {TypeLight, []string{capability.SwitchOn}, []uint32{0x0100}},
-		"switch as a wall control": {TypeMountedControl, []string{capability.SwitchOn}, []uint32{0x010F}},
-		"dimmable light as a plug": {TypePlugInUnit, []string{capability.LightOn, capability.LightLevel}, []uint32{0x010B}},
-		"motion with temperature and battery": {"", []string{capability.Occupancy, capability.Temperature, capability.Battery, capability.LinkQuality},
+		// Until a device says what it is (OIK-142), on alone is a plug, and with a brightness a light.
+		"on alone shown as a plug": {"", []string{capability.On}, []uint32{0x010A}},
+		"dimmable light":           {"", []string{capability.On, capability.Brightness}, []uint32{0x0101}},
+		"on/off light":             {TypeLight, []string{capability.On}, []uint32{0x0100}},
+		"switch as a wall control": {TypeMountedControl, []string{capability.On}, []uint32{0x010F}},
+		"dimmable light as a plug": {TypePlugInUnit, []string{capability.On, capability.Brightness}, []uint32{0x010B}},
+		"motion with temperature and battery": {"", []string{capability.Occupied, capability.Temperature, capability.Battery, capability.LinkQuality},
 			[]uint32{0x0107, 0x0302, 0x0011}},
-		"contact":  {"", []string{capability.ContactOpen}, []uint32{0x0015}},
+		"contact":  {"", []string{capability.Open}, []uint32{0x0015}},
 		"humidity": {"", []string{capability.Humidity, capability.Temperature}, []uint32{0x0302, 0x0307}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -128,19 +128,19 @@ func TestUnsupported(t *testing.T) {
 }
 
 func TestDimmableLight(t *testing.T) {
-	m, calls := mapDevice(t, "", capability.LightOn, capability.LightLevel)
+	m, calls := mapDevice(t, "", capability.On, capability.Brightness)
 	onoff, level := cluster(t, m, clusters.IDOnOff), cluster(t, m, clusters.IDLevelControl)
 	if onoff.FeatureMap&1 == 0 {
 		t.Error("a light's On/Off has no Lighting feature")
 	}
 
 	// The bus reaches the attributes.
-	m.Update(capability.LightOn, true)
-	m.Update(capability.LightLevel, 50.0)
+	m.Update(capability.On, true)
+	m.Update(capability.Brightness, 50.0)
 	if read(t, onoff, 0) != true || read(t, level, 0) != uint64(128) {
 		t.Errorf("OnOff %v, CurrentLevel %v", read(t, onoff, 0), read(t, level, 0))
 	}
-	m.Update(capability.LightLevel, 100.0)
+	m.Update(capability.Brightness, 100.0)
 	if read(t, level, 0) != uint64(254) {
 		t.Errorf("CurrentLevel at 100%% %v", read(t, level, 0))
 	}
@@ -166,10 +166,10 @@ func TestDimmableLight(t *testing.T) {
 		w.PutUint(tlv.Context(3), 0)
 	})
 	want := []setCall{
-		{capability.LightOn, false},
-		{capability.LightOn, false}, // the minimum level with On/Off turns the light off, at its old level
-		{capability.LightLevel, 100.0},
-		{capability.LightLevel, 1.0}, {capability.LightOn, true}, // not 0%, which would read as off
+		{capability.On, false},
+		{capability.On, false}, // the minimum level with On/Off turns the light off, at its old level
+		{capability.Brightness, 100.0},
+		{capability.Brightness, 1.0}, {capability.On, true}, // not 0%, which would read as off
 	}
 	if !reflect.DeepEqual(*calls, want) {
 		t.Errorf("writes %v, want %v", *calls, want)
@@ -177,26 +177,26 @@ func TestDimmableLight(t *testing.T) {
 }
 
 func TestSwitchAsPlug(t *testing.T) {
-	m, calls := mapDevice(t, "", capability.SwitchOn)
+	m, calls := mapDevice(t, "", capability.On)
 	onoff := cluster(t, m, clusters.IDOnOff)
 	if onoff.FeatureMap != 0 {
 		t.Errorf("a plug's On/Off has features %#x", onoff.FeatureMap)
 	}
-	m.Update(capability.SwitchOn, true)
+	m.Update(capability.On, true)
 	invoke(t, onoff, 0x02, nil) // Toggle
-	if read(t, onoff, 0) != false || !reflect.DeepEqual(*calls, []setCall{{capability.SwitchOn, false}}) {
+	if read(t, onoff, 0) != false || !reflect.DeepEqual(*calls, []setCall{{capability.On, false}}) {
 		t.Errorf("OnOff %v, writes %v", read(t, onoff, 0), *calls)
 	}
 }
 
 func TestSensors(t *testing.T) {
-	m, _ := mapDevice(t, "", capability.Occupancy, capability.ContactOpen, capability.Temperature, capability.Humidity, capability.Battery)
+	m, _ := mapDevice(t, "", capability.Occupied, capability.Open, capability.Temperature, capability.Humidity, capability.Battery)
 	temp := cluster(t, m, clusters.IDTemperatureMeasurement)
 	if read(t, temp, 0) != nil {
 		t.Errorf("temperature before any report %v, want null", read(t, temp, 0))
 	}
-	m.Update(capability.Occupancy, true)
-	m.Update(capability.ContactOpen, true)
+	m.Update(capability.Occupied, true)
+	m.Update(capability.Open, true)
 	m.Update(capability.Temperature, 19.55)
 	m.Update(capability.Humidity, 61.2)
 	m.Update(capability.Battery, 15.0)
@@ -232,5 +232,36 @@ func TestLabelAndUniqueID(t *testing.T) {
 	a, b := UniqueID(ident.ID{Namespace: "home", Name: "lamp"}), UniqueID(ident.ID{Namespace: "home", Name: "lamp2"})
 	if len(a) != 32 || a == b || a != UniqueID(ident.ID{Namespace: "home", Name: "lamp"}) {
 		t.Errorf("unique IDs %q, %q", a, b)
+	}
+}
+
+// The bridge shows each capability as the attribute the registry names for it.
+func TestTheBridgeShowsTheRegistrysMatterAttributes(t *testing.T) {
+	for _, name := range capability.Names() {
+		spec, _ := capability.Lookup(name)
+		if spec.Matter == nil {
+			continue
+		}
+		caps := []string{name}
+		switch name {
+		case capability.Brightness:
+			caps = append(caps, capability.On) // A brightness belongs to a light.
+		case capability.Battery:
+			caps = append(caps, capability.Occupied) // A battery powers a device.
+		}
+		m, _ := mapDevice(t, "", caps...)
+		c := cluster(t, m, spec.Matter.ClusterID)
+		if !slices.ContainsFunc(c.Attributes, func(a im.Attribute) bool { return a.ID == spec.Matter.AttributeID }) {
+			t.Errorf("%s: cluster %#x has no attribute %#x", name, spec.Matter.ClusterID, spec.Matter.AttributeID)
+		}
+	}
+}
+
+// A shut door is open false, which Boolean State shows as true: contact.
+func TestAShutDoorIsBooleanStateTrue(t *testing.T) {
+	m, _ := mapDevice(t, "", capability.Open)
+	m.Update(capability.Open, false)
+	if got := read(t, cluster(t, m, clusters.IDBooleanState), 0); got != true {
+		t.Fatalf("Boolean State is %v, want true", got)
 	}
 }

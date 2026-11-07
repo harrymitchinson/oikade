@@ -120,6 +120,28 @@ func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
 	}
 }
 
+func TestFailsAPluginThatNamesAnOldCapability(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real plugin process")
+	}
+	bin := fixturePlugin(t)
+	devices := filepath.Join(t.TempDir(), "devices.json")
+	old := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +
+		`"displayName":"Desk lamp","parameters":{"simulate":"old-name"}}]}`
+	if err := os.WriteFile(devices, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--devices", devices, "--timeout", "2s", "--", bin}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
+	}
+	// The SDK refuses it before it reaches the wire.
+	if out := stdout.String(); !strings.Contains(out, "unknown capability switch.on") {
+		t.Errorf("output doesn't say the capability is unknown:\n%s", out)
+	}
+}
+
 func TestFailsAPluginThatCannotStart(t *testing.T) {
 	fromTestdata(t)
 	var stdout, stderr bytes.Buffer

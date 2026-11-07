@@ -233,7 +233,7 @@ func crash(t *testing.T, f *Flow, c *clock.Fake) {
 
 func bedtime(r *Run) error {
 	r.Sleep(time.Hour)
-	return r.Apply(engine.Set{Device: "downstairs", Capability: "switch.on", Value: false})
+	return r.Apply(engine.Set{Device: "downstairs", Capability: "on", Value: false})
 }
 
 func TestAWaitOutlivesARestartAndWakesAtItsOriginalTime(t *testing.T) {
@@ -324,7 +324,7 @@ func TestRunDownBetweenStepsIsLateFromItsLastStep(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), &logs{}
 	body := func(r *Run) error {
 		r.Now()
-		return r.Apply(engine.Set{Device: "a", Capability: "switch.on", Value: true})
+		return r.Apply(engine.Set{Device: "a", Capability: "on", Value: true})
 	}
 	f := newFlow(h, c, l, body)
 	if _, err := h.Journal(context.Background(), "bedtime/x", mustEntry(t, entry{Kind: kindStart, ID: "bedtime", At: epoch})); err != nil {
@@ -391,7 +391,7 @@ func TestWaitForKeepsItsDeadlineAndResult(t *testing.T) {
 		if r.WaitFor(never, time.Hour) {
 			return nil
 		}
-		return r.Apply(engine.Set{Device: "timed-out", Capability: "switch.on", Value: true})
+		return r.Apply(engine.Set{Device: "timed-out", Capability: "on", Value: true})
 	})
 	// The fake's wait ends with its context, and a flow past its deadline takes the timeout path.
 	process, die := context.WithCancel(context.Background())
@@ -458,7 +458,7 @@ func TestChangedFlowIsDropped(t *testing.T) {
 		"a different wait": func(r *Run) error { r.Sleep(2 * time.Hour); return nil },
 		"a different step": func(r *Run) error { r.Now(); return nil },
 		"a step put first": func(r *Run) error {
-			if err := r.Apply(engine.Set{Device: "new", Capability: "switch.on", Value: true}); err != nil {
+			if err := r.Apply(engine.Set{Device: "new", Capability: "on", Value: true}); err != nil {
 				return err
 			}
 			r.Sleep(time.Hour)
@@ -515,7 +515,7 @@ func TestRunStopsWithoutFinishingWhenTheJournalFails(t *testing.T) {
 		h.mu.Lock()
 		h.failing = errors.New("disk full")
 		h.mu.Unlock()
-		return r.Apply(engine.Set{Device: "a", Capability: "switch.on", Value: true})
+		return r.Apply(engine.Set{Device: "a", Capability: "on", Value: true})
 	})
 	if got := f.Start(context.Background()); got != engine.ResultFailed {
 		t.Fatalf("got %q", got)
@@ -553,7 +553,7 @@ func TestRecoveringFromAStopDoesNotContinueTheRun(t *testing.T) {
 			defer func() { _ = recover() }()
 			r.Sleep(time.Hour)
 		}()
-		return r.Apply(engine.Set{Device: "after", Capability: "switch.on", Value: true})
+		return r.Apply(engine.Set{Device: "after", Capability: "on", Value: true})
 	})
 	crash(t, f, c)
 	if got := h.appliedTo(); len(got) != 0 {
@@ -568,7 +568,7 @@ func TestRunAfterACompletedWaitIsStillLate(t *testing.T) {
 	f := newFlow(h, c, l, func(r *Run) error {
 		r.WaitFor(met, time.Hour)
 		r.Sleep(time.Hour)
-		return r.Apply(engine.Set{Device: "a", Capability: "switch.on", Value: true})
+		return r.Apply(engine.Set{Device: "a", Capability: "on", Value: true})
 	})
 	crash(t, f, c)
 
@@ -580,7 +580,7 @@ func TestRunAfterACompletedWaitIsStillLate(t *testing.T) {
 	h.journal[saved[0].ID] = saved[0].Entries[:3]
 	f.Body = func(r *Run) error {
 		r.WaitFor(met, time.Hour)
-		return r.Apply(engine.Set{Device: "a", Capability: "switch.on", Value: true})
+		return r.Apply(engine.Set{Device: "a", Capability: "on", Value: true})
 	}
 	c.Step(11 * time.Minute)
 	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
@@ -611,7 +611,7 @@ func TestLongJournalEndsTheRun(t *testing.T) {
 
 // set claims a device for a test's flow until it's released, at normal priority.
 func set(device string) engine.Set {
-	return engine.Set{Device: device, Capability: "switch.on", Value: false, Until: engine.UntilReleased}
+	return engine.Set{Device: device, Capability: "on", Value: false, Until: engine.UntilReleased}
 }
 
 // claimThenSleep claims the lamp and parks, so a crash leaves the claim in its journal.

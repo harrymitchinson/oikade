@@ -57,9 +57,9 @@ func home() framework.Home {
 	return framework.Home{
 		Holds: []framework.Hold{{
 			Name: "porch-light",
-			Set:  PorchLight.LightOn.To(true),
+			Set:  PorchLight.On.To(true),
 			When: func(s framework.State) bool {
-				return s.Get(PorchSensor.Occupancy)
+				return s.Get(PorchSensor.Occupied)
 			},
 			OffDelay: 5 * time.Minute,
 		}},
@@ -67,7 +67,7 @@ func home() framework.Home {
 }
 ```
 
-`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.LightOn` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.LightOn`, for [rooms](#rooms).
+`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.On`, for [rooms](#rooms).
 
 `oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes.
 
@@ -76,12 +76,12 @@ func home() framework.Home {
 ```text
 $ oikade dev
 Simulating 2 devices from Fri 18:41. Type help for the commands.
-set porch-sensor sensor.occupancy-detected true
-Fri 18:41 Wrote porch-light light.on = true
+set porch-sensor occupied true
+Fri 18:41 Wrote porch-light on = true
 Fri 18:41 Hold porch-light started
-set porch-sensor sensor.occupancy-detected false
+set porch-sensor occupied false
 advance 6m
-Fri 18:46 Wrote porch-light light.on = false
+Fri 18:46 Wrote porch-light on = false
 Fri 18:46 Hold porch-light ended
 ```
 
@@ -95,7 +95,7 @@ func TestBedtimeSurvivesACrash(t *testing.T) {
 	h.Advance(22*time.Hour + 40*time.Minute) // Into the flow's 30-minute wait.
 	h.Restart()
 	h.Advance(21 * time.Minute)
-	h.ExpectValue(Lounge.LightOn, false)
+	h.ExpectValue(Lounge.On, false)
 	h.ExpectFinished("bedtime")
 }
 ```
@@ -107,8 +107,8 @@ The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherw
 ```text
 $ oikade replay
 Replayed Fri 30 Oct 19:02:11 to Fri 6 Nov 19:02:11: 161240 changes. The deployed version wrote 412 times, your code 414.
-- Mon 2 Nov 07:12:40 bathroom-fan switch.on = true
-+ Mon 2 Nov 07:04:10 bathroom-fan switch.on = true
+- Mon 2 Nov 07:12:40 bathroom-fan on = true
++ Mon 2 Nov 07:04:10 bathroom-fan on = true
 ```
 
 A `-` is a write the deployed version made and your code doesn't, and a `+` the reverse. Two writes within 5 seconds count as the same one. Unchanged code shows `No differences.` `--since 48h` compares a shorter time, though your code always runs from the start of the log so that it gets there in the right state. `--json` prints the report. A week of 40 busy devices took about a minute on a laptop, so a full 14-day log takes about two.
@@ -122,12 +122,12 @@ Arbitration and budgets are declared in the same `Home`. `Control` is [arbitrati
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Default: Dehumidifier.SwitchOn.To(false),
+		Default: Dehumidifier.On.To(false),
 		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: 2 * time.Hour,
 		MinimumOn: time.Hour, MinimumOff: 30 * time.Minute, MaximumStartsPerDay: 3,
 	}},
 	Holds: []framework.Hold{{
-		Name: "dehumidifier-daily", Set: Dehumidifier.SwitchOn.To(true),
+		Name: "dehumidifier-daily", Set: Dehumidifier.On.To(true),
 		Budget: &framework.Budget{
 			Bands: &framework.Bands{
 				Reading: Cellar.Humidity, Missing: 240,
@@ -157,15 +157,15 @@ Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`
 framework.Moment{
 	Name:    "hallway-motion-light",
 	Restart: true, // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On:      []framework.Change{HallwayMotion.Occupancy},
+	On:      []framework.Change{HallwayMotion.Occupied},
 	If: func(s framework.State) bool {
 		hour := s.Now().Hour()
-		return s.Get(HallwayMotion.Occupancy) && (hour >= 18 || hour < 7)
+		return s.Get(HallwayMotion.Occupied) && (hour >= 18 || hour < 7)
 	},
 	Do: []framework.Action{
-		HallwayLight.LightOn.To(true),
+		HallwayLight.On.To(true),
 		framework.Wait(5 * time.Minute),
-		HallwayLight.LightOn.To(false),
+		HallwayLight.On.To(false),
 	},
 }
 ```
@@ -183,7 +183,7 @@ framework.Moment{
 	Name: "downstairs-bedtime",
 	At:   []string{"23:30"},
 	Late: 10 * time.Minute,
-	Do:   []framework.Action{PorchLight.LightOn.To(false)},
+	Do:   []framework.Action{PorchLight.On.To(false)},
 }
 ```
 
@@ -197,13 +197,13 @@ framework.Moment{
 ```go
 framework.Moment{
 	Name: "lights-out",
-	On:   []framework.Change{framework.InRoom("hallway", framework.Occupancy)},          // any sensor in the hallway
-	Do:   []framework.Action{framework.InRoom("living-room", framework.LightOn).To(false)}, // every light there
+	On:   []framework.Change{framework.InRoom("hallway", framework.Occupied)},          // any sensor in the hallway
+	Do:   []framework.Action{framework.InRoom("living-room", framework.On).To(false)}, // every light there
 }
 ```
 
 - **Room triggers** fire on a change from any device in the room at the time of the change.
-- **Room actions** set every device in the room that has reported the capability, in name order, and skip the rest. So `light.on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
+- **Room actions** set every device in the room that has reported the capability, in name order, and skip the rest. So `on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
 - **If some devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
 - **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Wait` longer than the time your sensor holds occupancy after the last movement.
 - **A room `Set` with no end skips arbitrated members,** because a claim must end (see [one-off claims](#one-off-claims)). The log names them.
@@ -214,10 +214,10 @@ A hold keeps a capability at the value its `Set` gives while its `Window` is ope
 
 ```go
 []framework.Hold{{
-	Name: "water-heater-night", Set: WaterHeater.SwitchOn.To(true),
+	Name: "water-heater-night", Set: WaterHeater.On.To(true),
 	Window: &framework.Window{Start: "22:00", End: "06:00"}, // an end at or before the start is the next morning
 }, {
-	Name: "bathroom-humid", Set: BathroomFan.SwitchOn.To(true),
+	Name: "bathroom-humid", Set: BathroomFan.On.To(true),
 	When: func(s framework.State) bool {
 		return s.Get(BathroomSensor.Humidity) > 70
 	},
@@ -248,14 +248,14 @@ A budget hold runs a device for a number of minutes a day, and plans when. Here 
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Default: LoftFan.SwitchOn.To(false),
+		Default: LoftFan.On.To(false),
 		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: time.Hour,
 		MinimumOn:           time.Hour,        // each run at least an hour
 		MinimumOff:          30 * time.Minute, // and half an hour's rest between runs
 		MaximumStartsPerDay: 3,
 	}},
 	Holds: []framework.Hold{{
-		Name: "loft-airing", Set: LoftFan.SwitchOn.To(true),
+		Name: "loft-airing", Set: LoftFan.On.To(true),
 		Budget: &framework.Budget{
 			Bands: &framework.Bands{
 				Reading: LoftHumidity.Humidity,
@@ -290,14 +290,14 @@ A capability is arbitrated when your home has a `Control` for it. The host saves
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Default:           HallLight.LightOn.To(false), // what's left when nobody claims it
+		Default:           HallLight.On.To(false), // what's left when nobody claims it
 		Resolve:           framework.PreferOn,        // two claims at one level: on wins
 		External:          framework.ExternalOverride, // a wall switch or Home app tap becomes a claim...
 		OverrideUntilNext: true,                      // ...until what the rules want next changes
 	}},
 	Holds: []framework.Hold{{
-		Name: "hall-motion-light", Set: HallLight.LightOn.To(true),
-		When:     func(s framework.State) bool { return s.Get(HallMotion.Occupancy) },
+		Name: "hall-motion-light", Set: HallLight.On.To(true),
+		When:     func(s framework.State) bool { return s.Get(HallMotion.Occupied) },
 		OffDelay: 5 * time.Minute,
 	}},
 }
@@ -332,7 +332,7 @@ A `Set` on an arbitrated capability is a claim, so it must say when it ends:
 framework.Moment{
 	Name: "towel-rail-boost",
 	At:   []string{"21:30"},
-	Do: []framework.Action{TowelRail.SwitchOn.To(true).For(time.Hour).UntilNext()},
+	Do: []framework.Action{TowelRail.On.To(true).For(time.Hour).UntilNext()},
 }
 ```
 
@@ -351,18 +351,18 @@ A latched hold stays active once it has started, until another rule releases it.
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Default: GarageHeater.SwitchOn.To(true),
+		Default: GarageHeater.On.To(true),
 		Resolve: framework.PreferOff, External: framework.ExternalRevert,
 	}},
 	Holds: []framework.Hold{{
-		Name: "garage-overheat", Set: GarageHeater.SwitchOn.To(false),
+		Name: "garage-overheat", Set: GarageHeater.On.To(false),
 		Priority: framework.Safety, Latch: true,
 		When: func(s framework.State) bool { return s.Get(GarageTemperature.Temperature) > 40 },
 	}},
 	Moments: []framework.Moment{{
 		Name: "garage-overheat-reset",
-		On:   []framework.Change{GarageDoor.ContactOpen},
-		If:   func(s framework.State) bool { return s.Get(GarageDoor.ContactOpen) },
+		On:   []framework.Change{GarageDoor.Open},
+		If:   func(s framework.State) bool { return s.Get(GarageDoor.Open) },
 		Do:   []framework.Action{framework.Release("garage-overheat")},
 	}},
 }
@@ -376,27 +376,25 @@ Overheating turns the heater off. Turning it on from the Home app is reverted at
 
 ```console
 $ oikade status hall-light
-hall-light  light.on  false  Device wants false at Override
+hall-light  on  false  Device wants false at Override
 ```
 
 `oikade status --json` lists every claim, with `expires` when it ends at a set time, `latched` for a latched hold, and `reverted` for an outside change that `ExternalRevert` wrote back. `oikade_device_control_level` has the winning level over time.
 
 ## Capabilities
 
-Drivers translate to and from a protocol-neutral set of capabilities. Matter, metrics and rules only ever see these. A device with several sensors is one Matter endpoint with several device types, and a battery is a Power Source on it.
+Drivers translate to and from a protocol-neutral set of capabilities, named as a person would say them ([OIK-181](https://linear.app/oikade/issue/OIK-181)). Matter, metrics and rules only ever see these, and any other name is unknown. A device with several sensors is one Matter endpoint with several device types, and a battery is a Power Source on it. [docs/capabilities.md](docs/capabilities.md) lists each one's range and Matter attribute, generated from the registry.
 
 | Capability | Type | Writable | Matter |
 |---|---|---|---|
-| `light.on` | bool | ✓ | On/Off Light, or Dimmable Light with `light.level` |
-| `light.level` | 0–100 | ✓ | Level Control on a Dimmable Light |
-| `switch.on` | bool | ✓ | On/Off Plug-in Unit |
-| `outlet.on` | bool | ✓ | On/Off Plug-in Unit |
-| `sensor.temperature` | °C | | Temperature Sensor |
-| `sensor.relative-humidity` | % | | Humidity Sensor |
-| `sensor.contact-open` | bool | | Contact Sensor (Boolean State, `true` for closed). `true` means open, the inverse of Zigbee2MQTT's `contact`. |
-| `sensor.occupancy-detected` | bool | | Occupancy Sensor (passive infrared) |
-| `battery.level` | % | | Power Source, with a warning below 20% |
-| `link.quality` | 0–255 | | (metrics only) |
+| `on` | bool | ✓ | Dimmable Light with `brightness`, and an On/Off Plug-in Unit without, until a device says what it is ([OIK-142](https://linear.app/oikade/issue/OIK-142)) |
+| `brightness` | 0–100 | ✓ | Level Control on a Dimmable Light |
+| `temperature` | °C | | Temperature Sensor |
+| `humidity` | % | | Humidity Sensor |
+| `open` | bool | | Contact Sensor (Boolean State, `true` for closed). `true` means open, the inverse of Zigbee2MQTT's `contact`. |
+| `occupied` | bool | | Occupancy Sensor (passive infrared) |
+| `battery` | % | | Power Source, with a warning below 20% |
+| `link-quality` | 0–255 | | (metrics only) |
 
 ## Plugins
 
@@ -505,7 +503,7 @@ These talk to the host through a Unix socket in its data directory, which only t
 oikade status                     # the running version, every device, and your rules
 oikade status valve               # one device
 oikade tail                       # changes, writes and rule runs as they happen
-oikade set fan switch.on off      # turn it off
+oikade set fan on off      # turn it off
 oikade pause fan                  # stop a rule
 oikade resume fan
 ```
@@ -607,7 +605,7 @@ A controller's write goes through [arbitration](#arbitration) in the host, shown
 Add the bridge to a controller, such as the Home app, with the 11-digit manual code, or a QR code of the `MT:` payload. In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the code. Apple Home warns that it's an uncertified accessory: choose Add Anyway. It needs a home hub. To add the bridge to a second controller, open a window from the first one (in the Home app: the bridge's settings, Turn On Pairing Mode).
 
 - **Writes:** a burst of commands from a controller, such as a swipe in the Home app, is gathered for 50 ms per device and capability, and only the last is written, unless the device is already in that state.
-- **Unsupported devices:** a device none of whose capabilities map to Matter, such as one with only `link.quality`, keeps its endpoint ID but isn't on the bridge.
+- **Unsupported devices:** a device none of whose capabilities map to Matter, such as one with only `link-quality`, keeps its endpoint ID but isn't on the bridge.
 
 ## Devices
 
@@ -623,9 +621,9 @@ oikade devices remove porch-light
 oikade types                                 # write devices.go from the registry
 ```
 
-`oikade types` writes a Go file with a value for each device, with its name and a handle for each of its capabilities, such as `PorchLight.LightOn`, and you commit it. So code naming a device that's gone, or a capability it no longer has, stops compiling, builds need no host, and Git has a reviewable copy of your inventory. `--out` and `--package` say where it goes. The registry is the authority, and the file is its snapshot. Two names that come out the same in Go, such as `a-1` and `a1`, fail until you rename one. Running code loses track of a renamed device until you deploy, so run `oikade types` and deploy straight after. While a Safety rule runs, `name` and `replace` need `--allow-safety`, because a Safety rule that names the device stops protecting anything until that deploy.
+`oikade types` writes a Go file with a value for each device, with its name and a handle for each of its capabilities, such as `PorchLight.On`, and you commit it. So code naming a device that's gone, or a capability it no longer has, stops compiling, builds need no host, and Git has a reviewable copy of your inventory. `--out` and `--package` say where it goes. The registry is the authority, and the file is its snapshot. Two names that come out the same in Go, such as `a-1` and `a1`, fail until you rename one. Running code loses track of a renamed device until you deploy, so run `oikade types` and deploy straight after. While a Safety rule runs, `name` and `replace` need `--allow-safety`, because a Safety rule that names the device stops protecting anything until that deploy.
 
-`reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`: until you pair it, name a capability with a handle of your own, such as `framework.Handle[bool]{Device: ShedHeater.Name, Capability: framework.SwitchOn}`, and run `oikade types` once it's paired. Pair it, and `oikade devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
+`reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`: until you pair it, name a capability with a handle of your own, such as `framework.Handle[bool]{Device: ShedHeater.Name, Capability: framework.On}`, and run `oikade types` once it's paired. Pair it, and `oikade devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
 
 `remove` keeps the device on record with its endpoint, so hardware that comes back gets its name, room and endpoint back. Remove a device from its app first, because one that's still paired comes back when it next reports. A device stays until you remove it, reported or not. Renaming a device, moving its hardware onto another name, or restoring a file that would move its name, is refused while something claims it, because claims stay with a name. Removing a device ends its claims, and one that a Safety claim holds needs `--allow-safety`.
 

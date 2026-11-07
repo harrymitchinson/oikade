@@ -20,11 +20,11 @@ var aHouse = []struct {
 	capability string
 	perDay     int
 }{
-	{"climate", 15, "sensor.temperature", 288}, // every 5 minutes
-	{"climate", 15, "sensor.relative-humidity", 288},
-	{"plug", 10, "link.quality", 1440}, // a chatty device, every minute
-	{"motion", 10, "sensor.occupancy-detected", 60},
-	{"light", 15, "light.on", 12},
+	{"climate", 15, "temperature", 288}, // every 5 minutes
+	{"climate", 15, "humidity", 288},
+	{"plug", 10, "link-quality", 1440}, // a chatty device, every minute
+	{"motion", 10, "occupied", 60},
+	{"light", 15, "on", 12},
 }
 
 func eventsPerDay() int {
@@ -121,7 +121,7 @@ func TestQueueNeverWaitsAndCountsWhatItDrops(t *testing.T) {
 	defer func() { _ = data.Close() }()
 	log := newEventLog(data.Events(), store.Bound{}, logging.Discard())
 	for range eventQueue + 10 {
-		log.add(api.Event{Time: time.Now(), Type: api.EventChange, Device: "d", Capability: "sensor.temperature", Value: 1.0})
+		log.add(api.Event{Time: time.Now(), Type: api.EventChange, Device: "d", Capability: "temperature", Value: 1.0})
 	}
 	if log.dropped != 10 {
 		t.Fatalf("dropped %d, want 10", log.dropped)
@@ -140,19 +140,19 @@ func TestQueueNeverWaitsAndCountsWhatItDrops(t *testing.T) {
 }
 
 func TestDroppedChangesLiveOnInTheBaseline(t *testing.T) {
-	raw, err := encodeEvent(api.Event{Type: api.EventChange, Device: "lamp", Capability: "light.on", Value: true})
+	raw, err := encodeEvent(api.Event{Type: api.EventChange, Device: "lamp", Capability: "on", Value: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	write, err := encodeEvent(api.Event{Type: api.EventWrite, Device: "lamp", Capability: "light.on", Value: false})
+	write, err := encodeEvent(api.Event{Type: api.EventWrite, Device: "lamp", Capability: "on", Value: false})
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseline, err := foldBaseline([]byte(`{"sensor":{"sensor.temperature":3}}`), []store.Record{{Data: raw}, {Data: write}})
+	baseline, err := foldBaseline([]byte(`{"sensor":{"temperature":3}}`), []store.Record{{Data: raw}, {Data: write}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"lamp":{"light.on":true},"sensor":{"sensor.temperature":3}}`; string(baseline) != want {
+	if want := `{"lamp":{"on":true},"sensor":{"temperature":3}}`; string(baseline) != want {
 		t.Fatalf("baseline = %s, want %s: only a change says what a device's value is", baseline, want)
 	}
 }

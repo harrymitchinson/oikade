@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	on       = string(framework.SwitchOn)
+	on       = string(framework.On)
 	humidity = string(framework.Humidity)
-	contact  = string(framework.ContactOpen)
+	contact  = string(framework.Open)
 )
 
 func switchOf(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.SwitchOn}
+	return framework.Handle[bool]{Device: device, Capability: framework.On}
 }
 
 func humidityOf(device string) framework.Handle[float64] {
@@ -29,7 +29,7 @@ func humidityOf(device string) framework.Handle[float64] {
 }
 
 func contactOf(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.ContactOpen}
+	return framework.Handle[bool]{Device: device, Capability: framework.Open}
 }
 
 var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)

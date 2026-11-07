@@ -227,12 +227,12 @@ func TestANewHomeRunsOnAHost(t *testing.T) {
 	}
 	until(t, "your process", func() bool { s, ok := h.status(); return ok && s.Process })
 
-	h.change("porch-sensor", "sensor.occupancy-detected", true)
-	until(t, "the porch light", func() bool { return h.value("porch-light", "light.on") == true })
+	h.change("porch-sensor", "occupied", true)
+	until(t, "the porch light", func() bool { return h.value("porch-light", "on") == true })
 	page := "http://" + address + "/metrics"
 	until(t, "the metrics Grafana reads", func() bool {
 		return strings.Contains(metrics(t.Context(), page),
-			`oikade_capability_value{capability="light.on",device="porch-light"`)
+			`oikade_capability_value{capability="on",device="porch-light"`)
 	})
 
 	h.stop()
@@ -359,9 +359,9 @@ func TestChipToolPairsAndDrivesADevice(t *testing.T) {
 		return chipRead(container, "onoff", "on-off", light) == "FALSE"
 	})
 	docker(t, "exec", container, "chip-tool", "onoff", "toggle", chipNode, light)
-	until(t, "the host to have the write", func() bool { return h.value("porch-light", "light.on") == true })
+	until(t, "the host to have the write", func() bool { return h.value("porch-light", "on") == true })
 
-	h.change("shed-temperature", "sensor.temperature", 21.5)
+	h.change("shed-temperature", "temperature", 21.5)
 	until(t, "chip-tool to read the sensor", func() bool {
 		return chipRead(container, "temperaturemeasurement", "measured-value", shed) == "2150"
 	})

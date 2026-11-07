@@ -103,7 +103,7 @@ func TestZigbeeDevicesPairAndCanBeSetThroughAZigbee2MQTTYouRun(t *testing.T) {
 	if d.ID != deskPlug || d.Driver != "plugin/home/zigbee" || d.Endpoint == 0 {
 		t.Fatalf("got %+v", d)
 	}
-	r.stdout(nil, "set", "desk-plug", "switch.on", "on")
+	r.stdout(nil, "set", "desk-plug", "on", "on")
 	r.untilValue("desk-plug", true)
 	z.mu.Lock()
 	writes := append([]string(nil), z.writes...)
@@ -119,7 +119,7 @@ func TestZigbeeDevicesPairAndCanBeSetThroughAZigbee2MQTTYouRun(t *testing.T) {
 		return online != nil && !*online
 	})
 	r.sync()
-	r.change("bathroom-sensor", "sensor.relative-humidity", 80)
+	r.change("bathroom-sensor", "humidity", 80)
 	r.wrote("fan", true)
 
 	z.publish(t, "bridge/state", `{"state":"online"}`)
@@ -127,7 +127,7 @@ func TestZigbeeDevicesPairAndCanBeSetThroughAZigbee2MQTTYouRun(t *testing.T) {
 		online := plugOnline(r)
 		return online != nil && *online
 	})
-	r.stdout(nil, "set", "desk-plug", "switch.on", "off")
+	r.stdout(nil, "set", "desk-plug", "on", "off")
 	r.untilValue("desk-plug", false)
 }
 
@@ -181,7 +181,7 @@ func TestZigbeeDevicesComeBackAfterThePluginDies(t *testing.T) {
 		online := plugOnline(r)
 		return online != nil && *online
 	})
-	r.stdout(nil, "set", "desk-plug", "switch.on", "on")
+	r.stdout(nil, "set", "desk-plug", "on", "on")
 	r.untilValue("desk-plug", true)
 }
 

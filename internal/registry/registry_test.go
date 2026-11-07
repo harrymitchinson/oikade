@@ -29,7 +29,7 @@ func open(t *testing.T) (*Registry, *store.Namespace) {
 
 func report(t *testing.T, r *Registry, id, name string) Device {
 	t.Helper()
-	d, _, err := r.Report(Report{ID: id, Driver: "sim", Name: name, Capabilities: []string{"switch.on"}})
+	d, _, err := r.Report(Report{ID: id, Driver: "sim", Name: name, Capabilities: []string{"on"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,11 +47,11 @@ func get(t *testing.T, r *Registry, name string) Device {
 
 func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	r, _ := open(t)
-	d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Room: "Hall", Capabilities: []string{"switch.on"}})
+	d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Room: "Hall", Capabilities: []string{"on"}})
 	if err != nil || !changed {
 		t.Fatal(changed, err)
 	}
-	if _, changed, _ := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Capabilities: []string{"switch.on"}}); changed {
+	if _, changed, _ := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Capabilities: []string{"on"}}); changed {
 		t.Error("the same report changed something")
 	}
 	if d.Name != "hall-lamp" || d.Room != "Hall" || d.Endpoint != FirstEndpoint {
@@ -63,7 +63,7 @@ func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	if err := r.Move("lamp", "Attic"); err != nil {
 		t.Fatal(err)
 	}
-	again, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"switch.on", "light.level"}})
+	again, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"on", "brightness"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,8 +412,8 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 		t.Errorf("a room wrote code:\n%s", first)
 	}
 	for _, want := range []string{
-		"var AppleLamp = struct", `Name:     "apple-lamp"`, "var ZebraLamp = struct",
-		`SwitchOn: framework.Handle[bool]{Device: "zebra-lamp", Capability: framework.SwitchOn}`,
+		"var AppleLamp = struct", `Name: "apple-lamp"`, "var ZebraLamp = struct",
+		`On:   framework.Handle[bool]{Device: "zebra-lamp", Capability: framework.On}`,
 		"var Porch = struct {\n\tName string\n}{\n\tName: \"porch\",\n}", "reserved",
 	} {
 		if !strings.Contains(string(first), want) {
@@ -562,7 +562,7 @@ func TestRestoreNeedsNoForceWhenNothingDisagrees(t *testing.T) {
 
 func TestArbitrationStaysOnRecordAndWithTheName(t *testing.T) {
 	r, values := open(t)
-	settings := []byte(`[{"capability":"switch.on"}]`)
+	settings := []byte(`[{"capability":"on"}]`)
 	if _, _, err := r.Report(Report{ID: "a", Driver: "sim", Name: "valve", Control: settings}); err != nil {
 		t.Fatal(err)
 	}

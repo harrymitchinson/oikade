@@ -13,9 +13,9 @@ import (
 // drying is a dehumidifier's budget, by the cellar's humidity.
 func drying() Spec {
 	return Spec{
-		Device: "cellar-dehumidifier", Capability: "switch.on", Value: true, SlotMinutes: 30,
+		Device: "cellar-dehumidifier", Capability: "on", Value: true, SlotMinutes: 30,
 		Bands: &BandSpec{
-			Device: "cellar-humidity", Capability: "sensor.relative-humidity", MaxAge: time.Hour, MissingMinutes: 180,
+			Device: "cellar-humidity", Capability: "humidity", MaxAge: time.Hour, MissingMinutes: 180,
 			Ranges: []Band{{Below: new(55.0), Minutes: 60}, {Below: new(65.5), Minutes: 180}, {Minutes: 360}},
 		},
 		Prefer: []PreferSpec{
@@ -28,7 +28,7 @@ func drying() Spec {
 
 func dehumidifierControl() *control.Entry {
 	return &control.Entry{
-		Capability: "switch.on", MinimumOn: control.Duration(time.Hour), MinimumOff: control.Duration(30 * time.Minute),
+		Capability: "on", MinimumOn: control.Duration(time.Hour), MinimumOff: control.Duration(30 * time.Minute),
 		MaximumStartsPerDay: 4,
 	}
 }
@@ -40,7 +40,7 @@ func TestCompileToPlanInput(t *testing.T) {
 	}
 	reading := &Reading{Value: 60, At: saturday.Add(-10 * time.Minute)}
 	got := b.Input(2026, time.July, 4, saturday, paris, nil, func(device, capability string) *Reading {
-		if device != "cellar-humidity" || capability != "sensor.relative-humidity" {
+		if device != "cellar-humidity" || capability != "humidity" {
 			t.Errorf("read(%s, %s), want the bands input", device, capability)
 		}
 		return reading
@@ -69,14 +69,14 @@ func TestCompileToPlanInput(t *testing.T) {
 
 func TestCompileMinutes(t *testing.T) {
 	minutes := func(devices map[string]map[string]any, _ time.Time, _ *time.Location) (int, error) {
-		if devices["cellar-humidity"]["sensor.relative-humidity"].(float64) > 60 {
+		if devices["cellar-humidity"]["humidity"].(float64) > 60 {
 			return 240, nil
 		}
 		return 90, nil
 	}
 	b, err := CompileSpec(Spec{
-		Device: "cellar-dehumidifier", Capability: "switch.on", Value: true, PlanningTime: "06:30", SlotMinutes: 15, Minutes: minutes,
-	}, &control.Entry{Capability: "switch.on"})
+		Device: "cellar-dehumidifier", Capability: "on", Value: true, PlanningTime: "06:30", SlotMinutes: 15, Minutes: minutes,
+	}, &control.Entry{Capability: "on"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,13 +84,13 @@ func TestCompileMinutes(t *testing.T) {
 		t.Errorf("planning minute %d, slots %d; want 390, 15", b.PlanningMinute, b.SlotMinutes)
 	}
 	in := b.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{
-		"cellar-humidity": {"sensor.relative-humidity": 72.0},
+		"cellar-humidity": {"humidity": 72.0},
 	}, nil)
 	if n, err := in.Minutes.Expression(); n != 240 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 240", n, err)
 	}
 	in = b.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{
-		"cellar-humidity": {"sensor.relative-humidity": 50.0},
+		"cellar-humidity": {"humidity": 50.0},
 	}, nil)
 	if n, err := in.Minutes.Expression(); n != 90 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 90", n, err)
@@ -108,12 +108,12 @@ func TestCompileErrors(t *testing.T) {
 		return 0, errors.New("unused")
 	}
 	bands := func(capability string, ranges ...Band) Spec {
-		return Spec{Device: "d", Capability: "switch.on", Value: true, Bands: &BandSpec{Device: "h", Capability: capability, Ranges: ranges}}
+		return Spec{Device: "d", Capability: "on", Value: true, Bands: &BandSpec{Device: "h", Capability: capability, Ranges: ranges}}
 	}
 	onMinutes := func(capability string, value any) Spec {
 		return Spec{Device: "d", Capability: capability, Value: value, Minutes: minutes}
 	}
-	both := bands("sensor.temperature", Band{Minutes: 1})
+	both := bands("temperature", Band{Minutes: 1})
 	both.Minutes = minutes
 	for name, tc := range map[string]struct {
 		spec    Spec
@@ -122,18 +122,18 @@ func TestCompileErrors(t *testing.T) {
 	}{
 		"minimumOn off the slots":  {drying(), &control.Entry{MinimumOn: control.Duration(45 * time.Minute)}, "control minimumOn 45m0s isn't a multiple of budget.slotMinutes (30)"},
 		"minimumOff off the slots": {drying(), &control.Entry{MinimumOff: control.Duration(10 * time.Minute)}, "control minimumOff 10m0s isn't a multiple"},
-		"no control entry":         {drying(), nil, "switch.on on cellar-dehumidifier has no control entry"},
+		"no control entry":         {drying(), nil, "on on cellar-dehumidifier has no control entry"},
 		"both bands and minutes":   {both, nil, "exactly one of bands or minutes"},
-		"neither":                  {Spec{Device: "d", Capability: "switch.on", Value: true}, nil, "exactly one of bands or minutes"},
+		"neither":                  {Spec{Device: "d", Capability: "on", Value: true}, nil, "exactly one of bands or minutes"},
 		"bands out of order": {
-			bands("sensor.temperature", Band{Below: new(16.0), Minutes: 1}, Band{Below: new(12.0), Minutes: 2}, Band{Minutes: 3}), nil,
+			bands("temperature", Band{Below: new(16.0), Minutes: 1}, Band{Below: new(12.0), Minutes: 2}, Band{Minutes: 3}), nil,
 			"ranges[1]: below must be greater than the band before",
 		},
-		"an open band before the last": {bands("sensor.temperature", Band{Minutes: 1}, Band{Below: new(12.0), Minutes: 2}), nil, "ranges[0]: only the last band omits below"},
-		"a bounded last band":          {bands("sensor.temperature", Band{Below: new(12.0), Minutes: 2}), nil, "ranges[0]: the last band omits below"},
-		"a bool input":                 {bands("sensor.contact-open", Band{Minutes: 2}), nil, `"sensor.contact-open" isn't a number capability`},
-		"a number target":              {onMinutes("light.level", 40), nil, "a budget needs a writable bool capability"},
-		"held off":                     {onMinutes("switch.on", false), nil, "a budget holds its capability at true"},
+		"an open band before the last": {bands("temperature", Band{Minutes: 1}, Band{Below: new(12.0), Minutes: 2}), nil, "ranges[0]: only the last band omits below"},
+		"a bounded last band":          {bands("temperature", Band{Below: new(12.0), Minutes: 2}), nil, "ranges[0]: the last band omits below"},
+		"a bool input":                 {bands("open", Band{Minutes: 2}), nil, `"open" isn't a number capability`},
+		"a number target":              {onMinutes("brightness", 40), nil, "a budget needs a writable bool capability"},
+		"held off":                     {onMinutes("on", false), nil, "a budget holds its capability at true"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := CompileSpec(tc.spec, tc.control)

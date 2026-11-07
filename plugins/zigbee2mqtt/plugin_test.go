@@ -183,7 +183,7 @@ func TestEveryPairedDeviceIsReportedAndCanBeSet(t *testing.T) {
 	h.mu.Unlock()
 
 	if i := slices.IndexFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == plugIEEE }); i < 0 ||
-		got.Discovered[i].Name != "desk-plug" || !slices.Equal(got.Discovered[i].Capabilities, []string{"switch.on"}) {
+		got.Discovered[i].Name != "desk-plug" || !slices.Equal(got.Discovered[i].Capabilities, []string{"on"}) {
 		t.Errorf("the plug: %+v", got.Discovered)
 	}
 	if slices.ContainsFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == "0x00124b0000000001" }) {
@@ -198,11 +198,11 @@ func TestEveryPairedDeviceIsReportedAndCanBeSet(t *testing.T) {
 
 	// A sleeping sensor reports one value at a time, and that's published as far as it's known.
 	h.publish(t, base+"/hallway-motion", `{"occupancy":true}`, false)
-	h.waitState(t, motionIEEE, contractv1.State{"sensor.occupancy-detected": true})
+	h.waitState(t, motionIEEE, contractv1.State{"occupied": true})
 	h.publish(t, base+"/hallway-motion", `{"battery":90}`, false)
-	h.waitState(t, motionIEEE, contractv1.State{"sensor.occupancy-detected": true, "battery.level": 90.0})
+	h.waitState(t, motionIEEE, contractv1.State{"occupied": true, "battery": 90.0})
 
-	cmd, err := contractv1.SetCommand{ID: plugIEEE, Capability: "switch.on", Value: true}.Payload()
+	cmd, err := contractv1.SetCommand{ID: plugIEEE, Capability: "on", Value: true}.Payload()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestARestartKeepsWhatZigbee2MQTTRetains(t *testing.T) {
 	h.publish(t, base+"/front-door", `{"contact":true}`, true)
 	h.publish(t, base+"/front-door/availability", `{"state":"offline"}`, true)
 	stop := run(t, url)
-	h.waitState(t, doorIEEE, contractv1.State{"sensor.contact-open": false})
+	h.waitState(t, doorIEEE, contractv1.State{"open": false})
 	h.waitFor(t, root.Availability(doorIEEE), contractv1.Offline)
 
 	// A deploy waits for this, with the automations stopped.
@@ -234,7 +234,7 @@ func TestARestartKeepsWhatZigbee2MQTTRetains(t *testing.T) {
 	h.mu.Unlock()
 
 	run(t, url)
-	h.waitState(t, doorIEEE, contractv1.State{"sensor.contact-open": false})
+	h.waitState(t, doorIEEE, contractv1.State{"open": false})
 	h.waitFor(t, root.Availability(doorIEEE), contractv1.Offline)
 }
 
@@ -268,7 +268,7 @@ func TestDevicesFollowZigbee2MQTTOfflineAndBack(t *testing.T) {
 func TestAWriteIsRefusedWhileZigbee2MQTTIsOffline(t *testing.T) {
 	bus := mqtt.NewMemory()
 	b := &bridge{up: false, instance: &Instance{BaseTopic: base, Bus: bus}}
-	err := b.Set(context.Background(), nil, contractv1.SetCommand{ID: plugIEEE, Capability: "switch.on", Value: true})
+	err := b.Set(context.Background(), nil, contractv1.SetCommand{ID: plugIEEE, Capability: "on", Value: true})
 	if !errors.Is(err, errBridgeOffline) {
 		t.Fatalf("got %v", err)
 	}
@@ -364,7 +364,7 @@ func TestAMessageIsReportedWholeAndOnceEvenIfNothingChanged(t *testing.T) {
 	h.wait(t, "devices", func(topics map[string]string) bool { return topics[root.Devices()] != "" })
 
 	h.publish(t, base+"/hallway-motion", `{"occupancy":true,"battery":90}`, false)
-	h.waitState(t, motionIEEE, contractv1.State{"sensor.occupancy-detected": true, "battery.level": 90.0})
+	h.waitState(t, motionIEEE, contractv1.State{"occupied": true, "battery": 90.0})
 	h.publish(t, base+"/hallway-motion", `{"occupancy":true,"battery":90}`, false)
 	deadline := time.Now().Add(waitLimit)
 	for time.Now().Before(deadline) {

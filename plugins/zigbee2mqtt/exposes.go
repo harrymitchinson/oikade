@@ -70,19 +70,19 @@ func bindings(exposes []expose) []binding {
 				switch {
 				case f.Endpoint != "":
 				case f.Name == "state" && f.Type == exposeBinary:
-					out = append(out, binding{capability: capability.LightOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
+					out = append(out, binding{capability: capability.On, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
 				case f.Name == "brightness" && f.Type == exposeNumeric:
 					max := 254.0
 					if f.ValueMax != nil && *f.ValueMax > 0 {
 						max = *f.ValueMax
 					}
-					out = append(out, binding{capability: capability.LightLevel, property: f.Property, scale: max, get: f.gettable()})
+					out = append(out, binding{capability: capability.Brightness, property: f.Property, scale: max, get: f.gettable()})
 				}
 			}
 		case "switch":
 			for _, f := range e.Features {
 				if f.Endpoint == "" && f.Name == "state" && f.Type == exposeBinary {
-					out = append(out, binding{capability: capability.SwitchOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
+					out = append(out, binding{capability: capability.On, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
 				}
 			}
 		case exposeNumeric:
@@ -92,9 +92,9 @@ func bindings(exposes []expose) []binding {
 		case exposeBinary:
 			switch e.Name {
 			case "contact":
-				out = append(out, binding{capability: capability.ContactOpen, property: e.Property, invert: true, get: e.gettable()})
+				out = append(out, binding{capability: capability.Open, property: e.Property, invert: true, get: e.gettable()})
 			case "occupancy":
-				out = append(out, binding{capability: capability.Occupancy, property: e.Property, get: e.gettable()})
+				out = append(out, binding{capability: capability.Occupied, property: e.Property, get: e.gettable()})
 			}
 		}
 	}

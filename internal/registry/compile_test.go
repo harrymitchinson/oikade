@@ -11,9 +11,9 @@ import (
 
 // homeDevices are a home's devices, one of them reserved.
 var homeDevices = Snapshot{Next: 6, Devices: []Device{
-	{Name: "porch-light", Room: "porch", Capabilities: []string{"light.on"}, Endpoint: 2},
-	{Name: "porch-sensor", Room: "porch", Capabilities: []string{"sensor.occupancy-detected"}, Endpoint: 3},
-	{Name: "hallway", Capabilities: []string{"light.on", "light.level"}, Endpoint: 4},
+	{Name: "porch-light", Room: "porch", Capabilities: []string{"on"}, Endpoint: 2},
+	{Name: "porch-sensor", Room: "porch", Capabilities: []string{"occupied"}, Endpoint: 3},
+	{Name: "hallway", Capabilities: []string{"on", "brightness"}, Endpoint: 4},
 	{Name: "garden-light", Endpoint: 5},
 }}
 
@@ -53,36 +53,36 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 		"fine": {body: `
 		Holds: []framework.Hold{{
 			Name: "porch-light",
-			Set:  PorchLight.LightOn.To(true),
-			When: func(s framework.State) bool { return s.Get(PorchSensor.Occupancy) },
+			Set:  PorchLight.On.To(true),
+			When: func(s framework.State) bool { return s.Get(PorchSensor.Occupied) },
 			OffDelay: 5 * time.Minute,
 		}},
 		Moments: []framework.Moment{{
 			Name: "goodnight", At: []string{"23:30"},
-			On:   []framework.Change{PorchSensor.Occupancy, framework.InRoom("porch", framework.Occupancy)},
+			On:   []framework.Change{PorchSensor.Occupied, framework.InRoom("porch", framework.Occupied)},
 			Do: []framework.Action{
-				framework.InRoom("living-room", framework.LightOn).To(false),
-				Hallway.LightLevel.To(10).For(time.Hour),
+				framework.InRoom("living-room", framework.On).To(false),
+				Hallway.Brightness.To(10).For(time.Hour),
 			},
 		}},`},
 		"a capability the device hasn't": {
-			body: `Holds: []framework.Hold{{Name: "a", Set: PorchLight.Occupancy.To(true)}},`,
-			want: "PorchLight.Occupancy undefined",
+			body: `Holds: []framework.Hold{{Name: "a", Set: PorchLight.Occupied.To(true)}},`,
+			want: "PorchLight.Occupied undefined",
 		},
 		"a reserved device's capability": {
-			body: `Holds: []framework.Hold{{Name: "a", Set: GardenLight.LightOn.To(true)}},`,
-			want: "GardenLight.LightOn undefined",
+			body: `Holds: []framework.Hold{{Name: "a", Set: GardenLight.On.To(true)}},`,
+			want: "GardenLight.On undefined",
 		},
 		"a number set to a bool": {
-			body: `Moments: []framework.Moment{{Name: "a", Do: []framework.Action{Hallway.LightLevel.To(true)}}},`,
+			body: `Moments: []framework.Moment{{Name: "a", Do: []framework.Action{Hallway.Brightness.To(true)}}},`,
 			want: "cannot use true",
 		},
 		"a bool read as a number": {
-			body: `Holds: []framework.Hold{{Name: "a", When: func(s framework.State) bool { return s.Get(Hallway.LightOn) > 5 }}},`,
+			body: `Holds: []framework.Hold{{Name: "a", When: func(s framework.State) bool { return s.Get(Hallway.On) > 5 }}},`,
 			want: "mismatched types",
 		},
 		"a room's capability set to the wrong type": {
-			body: `Moments: []framework.Moment{{Name: "a", Do: []framework.Action{framework.InRoom("hall", framework.LightOn).To(10)}}},`,
+			body: `Moments: []framework.Moment{{Name: "a", Do: []framework.Action{framework.InRoom("hall", framework.On).To(10)}}},`,
 			want: "cannot use 10",
 		},
 	} {

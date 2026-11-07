@@ -142,7 +142,7 @@ func (c *controller) reachesHardware(name, id string) {
 	}
 	c.command(endpoint, command)
 	c.r.until(name+" to change", func() bool { return onOf(c.t, c.r.status(), name).Value == want })
-	c.r.send(id, "switch.on", !want)
+	c.r.send(id, "on", !want)
 	c.r.until("the controller to hear "+name, func() bool { return c.isOn(endpoint) != want })
 }
 
@@ -279,13 +279,13 @@ func TestASafetyClaimRefusesAController(t *testing.T) {
 	t.Parallel()
 	c := commissioned(t)
 	endpoint := c.endpoint("valve")
-	c.r.change("leak-sensor", "sensor.contact-open", true)
+	c.r.change("leak-sensor", "open", true)
 	c.r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	c.r.until("the controller to see the valve shut", func() bool { return !c.isOn(endpoint) })
 
 	c.command(endpoint, turnOn)
 	c.r.waitFor(func(l line) bool {
-		return l.is("Failed to set capability from Matter", "capability", "switch.on")
+		return l.is("Failed to set capability from Matter", "capability", "on")
 	})
 	if !strings.Contains(c.r.dump(), "Rule/leak-shutoff holds it at Safety") {
 		t.Errorf("the log doesn't say who refused it:\n%s", c.r.dump())
@@ -308,7 +308,7 @@ func TestATakenPortLeavesTheHomeRunning(t *testing.T) {
 	if m := r.matter(); m.Serving {
 		t.Errorf("it says it's serving: %+v", m)
 	}
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	out := string(r.stdout(nil, "matter"))
 	if !strings.Contains(out, "down") || strings.Contains(out, "window") {
@@ -320,7 +320,7 @@ func TestAnInterfaceThatIsntThereLeavesTheHomeRunning(t *testing.T) {
 	t.Parallel()
 	r := start(t, matterFlag(freeUDP(t)), "--matter-interfaces=nothing0")
 	r.until("the bridge to give up", func() bool { return r.count("Matter bridge stopped") > 0 })
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 }
 
@@ -330,7 +330,7 @@ func TestReplacedHardwareReachesTheController(t *testing.T) {
 	c := commissioned(t)
 	c.r.pair("old-lamp", "old-lamp")
 	c.r.pair("new-lamp", "new-lamp")
-	c.r.change("new-lamp", "switch.on", true)
+	c.r.change("new-lamp", "on", true)
 	endpoint := c.endpoint("old-lamp")
 	c.r.until("old-lamp on the bridge", func() bool {
 		_, ok := c.read(endpoint, clusters.IDOnOff, 0)
@@ -363,7 +363,7 @@ func TestARepeatedWriteIsRefusedOnceSafetyHasShutAValve(t *testing.T) {
 	c.r.wrote("valve", true)
 	c.r.until("the controller to see it open", func() bool { return c.isOn(endpoint) })
 
-	c.r.change("leak-sensor", "sensor.contact-open", true)
+	c.r.change("leak-sensor", "open", true)
 	c.r.until("the controller to see the valve shut", func() bool { return !c.isOn(endpoint) })
 	c.command(endpoint, turnOn)
 	c.r.until("the write to be refused", func() bool { return c.r.count("Failed to set capability from Matter") > 0 })
@@ -384,7 +384,7 @@ func TestUnreadableMatterStateLeavesTheHomeRunning(t *testing.T) {
 			r.launch(matterFlag(freeUDP(t)))
 			r.waitFor(func(l line) bool { return l.is(attached) })
 
-			r.change("leak-sensor", "sensor.contact-open", true)
+			r.change("leak-sensor", "open", true)
 			r.wrote("valve", false)
 			if m := r.matter(); m.Serving || m.Problem == "" || len(m.Fabrics) != 0 {
 				t.Errorf("oikade matter --json says %+v", m)
@@ -420,11 +420,11 @@ func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 	r.launch(matterFlag(port))
 	r.waitFor(func(l line) bool { return l.is(attached) })
 
-	stderr, err := r.oikade(nil, "set", "valve", "switch.on", "off")
+	stderr, err := r.oikade(nil, "set", "valve", "on", "off")
 	if err == nil || !strings.Contains(stderr, "unreadable") {
 		t.Errorf("a person's write: %v: %s", err, stderr)
 	}
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.until("a rule's write to be refused", func() bool {
 		return strings.Contains(r.dump(), "unreadable claim record holds valve")
 	})

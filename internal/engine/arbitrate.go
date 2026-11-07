@@ -58,7 +58,7 @@ const staleReport = 5 * time.Second
 const bridgeMatch = 30 * time.Second
 
 // bridgeTolerance is how far a reported number may be from a bridge's write and still match it.
-// Drivers round on the way to and from the device: a light.level of 40 comes back from
+// Drivers round on the way to and from the device: a brightness of 40 comes back from
 // Zigbee2MQTT as 40.2. Bools are 0 and 1, so it can't confuse them.
 const bridgeTolerance = 0.5
 

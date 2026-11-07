@@ -9,16 +9,16 @@ import (
 )
 
 const (
-	on       = string(framework.SwitchOn)
+	on       = string(framework.On)
 	humidity = string(framework.Humidity)
 )
 
 // The devices' handles, as oikade types would write them.
 var (
 	sensor = framework.Handle[float64]{Device: "sensor", Capability: framework.Humidity}
-	fan    = framework.Handle[bool]{Device: "fan", Capability: framework.SwitchOn}
-	pump   = framework.Handle[bool]{Device: "pump", Capability: framework.SwitchOn}
-	light  = framework.Handle[bool]{Device: "light", Capability: framework.SwitchOn}
+	fan    = framework.Handle[bool]{Device: "fan", Capability: framework.On}
+	pump   = framework.Handle[bool]{Device: "pump", Capability: framework.On}
+	light  = framework.Handle[bool]{Device: "light", Capability: framework.On}
 )
 
 func devices() []hometest.Device {

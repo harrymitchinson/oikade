@@ -52,9 +52,9 @@ oikade/v1/<namespace>/<plugin>
 |---|---|---|---|
 | `status` | plugin → Oikade | yes | `{"state":"online","contract":1}`. Set the MQTT Last Will to `{"state":"offline","contract":1}`, retained. |
 | `devices` | plugin → Oikade | yes | The devices the plugin serves. See below. |
-| `<id>/state` | plugin → Oikade | yes | The device's **full** current values, such as `{"switch.on":true}`, leaving out only values a device has yet to report and can't be asked for. |
+| `<id>/state` | plugin → Oikade | yes | The device's **full** current values, such as `{"on":true}`, leaving out only values a device has yet to report and can't be asked for. |
 | `<id>/availability` | plugin → Oikade | yes | `online` or `offline`, as a bare string. |
-| `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"switch.on":false}`. |
+| `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"on":false}`. |
 
 Retain everything the plugin publishes. The host rebuilds its picture from retained topics when it starts or reconnects, and it may receive those topics in any order.
 
@@ -73,7 +73,7 @@ Publish `{"state":"online","contract":1}` once connected, and set the Last Will 
 ```json
 {
   "devices": [
-    {"id": "1000aabbcc", "found": true, "manufacturer": "SONOFF", "model": "MINIR4", "capabilities": ["light.on"]},
+    {"id": "1000aabbcc", "found": true, "manufacturer": "SONOFF", "model": "MINIR4", "capabilities": ["on"]},
     {"id": "1000ddeeff", "found": false, "error": "no LAN key for 1000ddeeff"}
   ],
   "undeclared": 1
@@ -82,7 +82,7 @@ Publish `{"state":"online","contract":1}` once connected, and set the Last Will 
 
 - List every device from the devices file (see [Environment](#environment)).
 - `found` is true once the plugin can reach the device. `manufacturer`, `model` and `capabilities` matter only when it's true.
-- `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `light.on`, `outlet.on`, `switch.on`, `light.level` or `sensor.temperature`. A plugin can't define new capabilities. Those go through Oikade's `add-capability` workflow.
+- `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. Those go through Oikade's `add-capability` workflow.
 - `error` is a problem with the device's configuration, such as bad `parameters` or a missing secret. Leave it empty otherwise.
 - `undeclared` counts devices the plugin can see that Oikade doesn't have on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 
@@ -97,7 +97,7 @@ A plugin that can list the devices in its app (a hub, a cloud account, a LAN sca
   "devices": [],
   "undeclared": 0,
   "discovered": [
-    {"id": "3f2a9c71-0b1e-4c2d-9a8f-5e6d7c8b9a01", "manufacturer": "Signify", "model": "LCA001", "capabilities": ["light.on", "light.level"], "name": "Desk lamp", "room": "Study"}
+    {"id": "3f2a9c71-0b1e-4c2d-9a8f-5e6d7c8b9a01", "manufacturer": "Signify", "model": "LCA001", "capabilities": ["on", "brightness"], "name": "Desk lamp", "room": "Study"}
   ]
 }
 ```
@@ -122,7 +122,7 @@ Oikade sends one capability per message, already validated against the registry 
 
 ## Relay-like devices
 
-Relays don't know what they switch. Report `switch.on` by default. If a device's `parameters.capability` is `light.on` or `outlet.on`, report that instead, so Matter controllers show a light or an outlet. Reject any other value by setting `error` in `devices`.
+Relays don't know what they switch, and they don't have to: a relay reports `on`, whether it switches a light, an outlet or a fan. What a device is comes from [OIK-142](https://linear.app/oikade/issue/OIK-142)'s device types, not from its capability.
 
 ## Environment
 
@@ -141,7 +141,7 @@ The devices file is yours to write, and lists the devices this plugin serves.
 {
   "contract": 1,
   "devices": [
-    {"id": "1000aabbcc", "name": "porch-light", "displayName": "Porch light", "room": "porch", "parameters": {"capability": "light.on", "model": "MINIR4"}}
+    {"id": "1000aabbcc", "name": "porch-light", "displayName": "Porch light", "room": "porch", "parameters": {"model": "MINIR4"}}
   ]
 }
 ```

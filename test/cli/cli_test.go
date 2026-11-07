@@ -145,7 +145,7 @@ func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
 func TestCheckFailsOnAMisspeltDevice(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.LightOn", "PorchLigth.LightOn")
+	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.On", "PorchLigth.On")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -159,12 +159,12 @@ func TestCheckFailsOnAMisspeltDevice(t *testing.T) {
 func TestCheckFailsOnACapabilityTheDeviceHasnt(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.LightOn", "PorchLight.Occupancy")
+	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.On", "PorchLight.Occupied")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
 	}
-	if !strings.Contains(out, "PorchLight.Occupancy undefined") {
+	if !strings.Contains(out, "PorchLight.Occupied undefined") {
 		t.Errorf("oikade check said:\n%s", out)
 	}
 }
@@ -214,9 +214,9 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	script := strings.Join([]string{
-		"set porch-sensor sensor.occupancy-detected true",
+		"set porch-sensor occupied true",
 		"status",
-		"set porch-sensor sensor.occupancy-detected false",
+		"set porch-sensor occupied false",
 		"advance 6m",
 		"bogus",
 		"quit",
@@ -231,7 +231,7 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 		t.Errorf("no hold starting then ending in:\n%s", out)
 	}
 	for _, want := range []string{
-		"Wrote porch-light light.on = true", "Wrote porch-light light.on = false", "that isn't a command",
+		"Wrote porch-light on = true", "Wrote porch-light on = false", "that isn't a command",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in:\n%s", want, out)

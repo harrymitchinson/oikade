@@ -13,7 +13,7 @@ func controlEntry(capability, def, resolve string) control.Entry {
 }
 
 func TestControlSettingsBool(t *testing.T) {
-	c := controlEntry("switch.on", "true", control.NamePreferOff)
+	c := controlEntry("on", "true", control.NamePreferOff)
 	c.External, c.OverrideHold = control.NameOverride, "2h"
 	c.MinimumOn, c.MaximumOn = control.Duration(time.Hour), control.Duration(6*time.Hour)
 	c.MinimumOff, c.MaximumStartsPerDay = control.Duration(30*time.Minute), 4
@@ -33,7 +33,7 @@ func TestControlSettingsBool(t *testing.T) {
 }
 
 func TestControlSettingsNumberUntilNext(t *testing.T) {
-	c := controlEntry("light.level", "40", control.NameHighest)
+	c := controlEntry("brightness", "40", control.NameHighest)
 	c.External, c.OverrideHold = control.NameOverride, control.NameNext
 
 	got, err := ControlSettings(c, nil)
@@ -51,22 +51,22 @@ func TestControlSettingsRejects(t *testing.T) {
 		want  string
 	}{
 		"unknown capability": {controlEntry("light.hue", "1", control.NameHighest), "unknown capability"},
-		"read-only":          {controlEntry("sensor.temperature", "20", control.NameHighest), "read-only"},
+		"read-only":          {controlEntry("temperature", "20", control.NameHighest), "read-only"},
 		"number resolve on a bool": {
-			controlEntry("light.on", "false", control.NameHighest), "resolve must be PreferOn or PreferOff",
+			controlEntry("on", "false", control.NameHighest), "resolve must be PreferOn or PreferOff",
 		},
 		"bool resolve on a number": {
-			controlEntry("light.level", "0", control.NamePreferOn), "resolve must be Highest or Lowest",
+			controlEntry("brightness", "0", control.NamePreferOn), "resolve must be Highest or Lowest",
 		},
-		"default of the wrong kind": {controlEntry("light.on", "1", control.NamePreferOn), "takes a bool"},
-		"default out of range":      {controlEntry("light.level", "150", control.NameLowest), "between 0 and 100"},
+		"default of the wrong kind": {controlEntry("on", "1", control.NamePreferOn), "takes a bool"},
+		"default out of range":      {controlEntry("brightness", "150", control.NameLowest), "between 0 and 100"},
 		"override without a hold": {func() control.Entry {
-			c := controlEntry("switch.on", "false", control.NamePreferOn)
+			c := controlEntry("on", "false", control.NamePreferOn)
 			c.External = control.NameOverride
 			return c
 		}(), "needs an override hold"},
 		"maximumOn shorter than minimumOn": {func() control.Entry {
-			c := controlEntry("switch.on", "false", control.NamePreferOn)
+			c := controlEntry("on", "false", control.NamePreferOn)
 			c.MinimumOn, c.MaximumOn = control.Duration(time.Hour), control.Duration(time.Minute)
 			return c
 		}(), "maximumOn must not be shorter than minimumOn"},

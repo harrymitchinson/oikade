@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	opened   = "sensor.contact-open"
+	opened   = "open"
 	finished = "Finished flow run"
 	loaded   = "Loaded rules"
 	waiting  = "Waiting in flow run"
@@ -308,7 +308,7 @@ func (r *rig) claimsOf(device string) []control.Claim {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		r.t.Fatal(err)
 	}
-	return slices.DeleteFunc(st["switch.on"].Claims, func(c control.Claim) bool { return c.Source != "Rule/failing" })
+	return slices.DeleteFunc(st["on"].Claims, func(c control.Claim) bool { return c.Source != "Rule/failing" })
 }
 
 func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
@@ -395,7 +395,7 @@ func TestClaimSurvivesTheHostDyingRightAfterItsAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimed := func(c control.Claim) bool { return c.Source == "Rule/claim-moment" }
-	if !slices.ContainsFunc(st["switch.on"].Claims, claimed) {
+	if !slices.ContainsFunc(st["on"].Claims, claimed) {
 		t.Fatalf("the answered claim wasn't saved: %s", raw)
 	}
 }

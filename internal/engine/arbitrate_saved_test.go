@@ -21,7 +21,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 	defer func() { _ = data.Close() }()
 	controls := &Stored[ControlState]{Values: data.Namespace(ControlStatesNamespace), Log: logging.Discard()}
 	valve := ident.ID{Namespace: "home", Name: "valve"}
-	st := ControlState{"switch.on": control.State{Claims: []control.Claim{
+	st := ControlState{"on": control.State{Claims: []control.Claim{
 		{Source: "Rule/leak", Level: control.Safety, Value: 0},
 		{Source: "Rule/other", Level: control.Override, Value: 1},
 	}}}
@@ -44,7 +44,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 	}
 	saved, _ := controls.Get(valve)
 	raw, _ := json.Marshal(saved)
-	if len(saved["switch.on"].Claims) != 1 {
+	if len(saved["on"].Claims) != 1 {
 		t.Fatalf("got %s", raw)
 	}
 }

@@ -18,7 +18,7 @@ import (
 
 func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 	when := func(State) bool { return true }
-	d := Handle[bool]{Device: "d", Capability: SwitchOn}
+	d := Handle[bool]{Device: "d", Capability: On}
 	for name, tc := range map[string]struct {
 		home Home
 		want string
@@ -57,14 +57,14 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 
 func TestConditionSeesTheHome(t *testing.T) {
 	now := time.Date(2026, 11, 6, 7, 0, 0, 0, time.UTC)
-	door := Handle[bool]{Device: "door", Capability: ContactOpen}
+	door := Handle[bool]{Device: "door", Capability: Open}
 	room := Handle[float64]{Device: "room", Capability: Temperature}
 	cond := Condition(func(s State) bool {
 		return s.Get(door) && s.Get(room) > 20 && s.Now().Equal(now)
 	}).toEngine()
 	ok, err := cond(engine.Vars{"now": now, "devices": map[string]map[string]any{
-		"door": {"sensor.contact-open": true},
-		"room": {"sensor.temperature": 21.5},
+		"door": {"open": true},
+		"room": {"temperature": 21.5},
 	}})
 	if err != nil || !ok {
 		t.Fatalf("got %v, %v", ok, err)
@@ -73,7 +73,7 @@ func TestConditionSeesTheHome(t *testing.T) {
 
 // A hold has to keep its state until the devices it reads have reported, so that isn't false.
 func TestConditionReadingAnUnreportedValueIsAnError(t *testing.T) {
-	door := Handle[bool]{Device: "door", Capability: ContactOpen}
+	door := Handle[bool]{Device: "door", Capability: Open}
 	cond := Condition(func(s State) bool { return !s.Get(door) }).toEngine()
 	devices := map[string]map[string]any{"door": {}}
 	if _, err := cond(engine.Vars{"devices": devices}); err == nil {
@@ -84,7 +84,7 @@ func TestConditionReadingAnUnreportedValueIsAnError(t *testing.T) {
 // A device that doesn't exist will never report, so it mustn't pass for one that hasn't yet. The
 // engine recovers this panic and logs it.
 func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
-	cond := Condition(func(s State) bool { return s.Get(Handle[bool]{Device: "dor", Capability: ContactOpen}) }).toEngine()
+	cond := Condition(func(s State) bool { return s.Get(Handle[bool]{Device: "dor", Capability: Open}) }).toEngine()
 	defer func() {
 		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "no device dor") {
 			t.Fatalf("got %v", r)
@@ -97,15 +97,15 @@ func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	discovered(mirror, metas, nil, wire.Device{
-		Name: "lamp", Room: "hall", Arbitrated: []string{"switch.on"}, Discovered: true,
-		Capabilities: []string{"switch.on"}, Values: map[string]any{"switch.on": true},
+		Name: "lamp", Room: "hall", Arbitrated: []string{"on"}, Discovered: true,
+		Capabilities: []string{"on"}, Values: map[string]any{"on": true},
 	})
 	snap, ok := mirror.Get(deviceKey("lamp"))
-	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("switch.on") || snap.Values["switch.on"] != true {
+	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("on") || snap.Values["on"] != true {
 		t.Fatalf("got %+v, %v", snap, ok)
 	}
-	changed(mirror, wire.Message{Device: "lamp", Capability: "switch.on", Value: false})
-	if snap, _ := mirror.Get(deviceKey("lamp")); snap.Values["switch.on"] != false {
+	changed(mirror, wire.Message{Device: "lamp", Capability: "on", Value: false})
+	if snap, _ := mirror.Get(deviceKey("lamp")); snap.Values["on"] != false {
 		t.Fatalf("a later change didn't reach it: %+v", snap)
 	}
 }
@@ -151,7 +151,7 @@ func TestPluginsAreChecked(t *testing.T) {
 }
 
 var (
-	pump  = Handle[bool]{Device: "pump", Capability: SwitchOn}
+	pump  = Handle[bool]{Device: "pump", Capability: On}
 	water = Handle[float64]{Device: "water", Capability: Temperature}
 )
 
@@ -194,11 +194,11 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		}}}, "needs a Control"},
 		"twice": {Home{Control: []Control{valveControl(), valveControl()}}, "declared twice"},
 		"a room": {control(Control{
-			Default: InRoom("hall", SwitchOn).To(false), Resolve: PreferOn, External: ExternalRevert,
+			Default: InRoom("hall", On).To(false), Resolve: PreferOn, External: ExternalRevert,
 		}), "names a device, not a room"},
 		"no default": {control(Control{Resolve: PreferOn, External: ExternalRevert}), "needs a capability"},
 		"no device": {control(Control{
-			Default: Handle[bool]{Capability: SwitchOn}.To(false), Resolve: PreferOn, External: ExternalRevert,
+			Default: Handle[bool]{Capability: On}.To(false), Resolve: PreferOn, External: ExternalRevert,
 		}), "needs a device"},
 		"a claim": {control(Control{
 			Default: pump.To(false).UntilNext(), Resolve: PreferOn, External: ExternalRevert,
@@ -249,8 +249,9 @@ func TestMetaHasTheLimitsOfTheHomesControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := meta(wire.Device{Name: "pump", Arbitrated: []string{"switch.on", "light.on"}}, settings)
-	if len(m.Control) != 2 || time.Duration(m.Control[0].MinimumOn) != time.Hour || m.Control[1].Capability != "light.on" {
+	m := meta(wire.Device{Name: "pump", Arbitrated: []string{"on", "brightness"}}, settings)
+	if len(m.Control) != 2 || time.Duration(m.Control[0].MinimumOn) != time.Hour ||
+		m.Control[1].Capability != "brightness" {
 		t.Fatalf("got %+v", m.Control)
 	}
 }

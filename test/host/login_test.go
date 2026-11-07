@@ -51,7 +51,7 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"status", "--json"},
-		{"set", "siren", "switch.on", "on"},
+		{"set", "siren", "on", "on"},
 		{"pause", "fan"},
 		{"resume", "fan"},
 		{"devices", "--json"},

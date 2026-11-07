@@ -20,11 +20,11 @@ import (
 
 // The tests bring their own devices, so this home has no devices.go: these are its handles.
 func on(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.SwitchOn}
+	return framework.Handle[bool]{Device: device, Capability: framework.On}
 }
 
 func open(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.ContactOpen}
+	return framework.Handle[bool]{Device: device, Capability: framework.Open}
 }
 
 // humidity is the bathroom's, which the fan follows.
@@ -56,7 +56,7 @@ func (f faulty) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := f.Handler.Serve(ctx, p); err != nil {
 		return err
 	}
-	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: string(framework.SwitchOn), Value: true})
+	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: string(framework.On), Value: true})
 }
 
 func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {

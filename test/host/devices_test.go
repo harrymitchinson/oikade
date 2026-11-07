@@ -36,7 +36,7 @@ func deviceOf(t *testing.T, list registry.Snapshot, name string) registry.Device
 func (r *rig) pair(id, app string) {
 	r.t.Helper()
 	raw, err := json.Marshal(map[string]any{"pair": map[string]any{
-		"name": id, "capabilities": []string{"switch.on"}, "values": map[string]any{"switch.on": false},
+		"name": id, "capabilities": []string{"on"}, "values": map[string]any{"on": false},
 	}})
 	if err != nil {
 		r.t.Fatal(err)
@@ -56,7 +56,7 @@ func TestAPairedDeviceIsUsableAtOnce(t *testing.T) {
 	if d.ID != "hall-lamp" || d.Endpoint < registry.FirstEndpoint {
 		t.Errorf("got %+v", d)
 	}
-	r.stdout(nil, "set", "hall-lamp", "switch.on", "on")
+	r.stdout(nil, "set", "hall-lamp", "on", "on")
 	r.wrote("hall-lamp", true)
 	if !strings.Contains(string(r.stdout(nil, "devices")), "hall-lamp") {
 		t.Error("the table left it out")
@@ -72,7 +72,7 @@ func TestRenamingKeepsADeviceWorkingAndSurvivesARestart(t *testing.T) {
 
 	r.stdout(nil, "devices", "name", "fan", "ceiling-fan", "--allow-safety")
 	r.stdout(nil, "devices", "room", "ceiling-fan", "Bathroom")
-	r.stdout(nil, "set", "ceiling-fan", "switch.on", "on")
+	r.stdout(nil, "set", "ceiling-fan", "on", "on")
 	r.wrote("ceiling-fan", true)
 	if c := onOf(t, r.status("ceiling-fan"), "ceiling-fan"); c.Value != true {
 		t.Errorf("got %+v", c)
@@ -97,7 +97,7 @@ func TestReplacingHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
 	before := deviceOf(t, r.devices(), "valve")
@@ -131,7 +131,7 @@ func TestAReservedNameTakesItsHardwareLater(t *testing.T) {
 	if d := deviceOf(t, r.devices(), "porch-light"); !d.Reserved() || d.Room != "Porch" {
 		t.Errorf("got %+v", d)
 	}
-	if _, err := r.oikade(nil, "set", "porch-light", "switch.on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "porch-light", "on", "on"); err == nil {
 		t.Error("set a device with no hardware")
 	}
 	endpoint := deviceOf(t, r.devices(), "porch-light").Endpoint
@@ -141,7 +141,7 @@ func TestAReservedNameTakesItsHardwareLater(t *testing.T) {
 	if d.Reserved() || d.ID != "0xabc" || d.Endpoint != endpoint || d.Room != "Porch" {
 		t.Errorf("got %+v, want endpoint %d", d, endpoint)
 	}
-	r.stdout(nil, "set", "porch-light", "switch.on", "on")
+	r.stdout(nil, "set", "porch-light", "on", "on")
 	r.wrote("porch-light", true)
 }
 
@@ -151,7 +151,7 @@ func TestARemovedDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 	r.pair("shed-lamp", "shed-lamp")
 	endpoint := deviceOf(t, r.devices(), "shed-lamp").Endpoint
 	r.stdout(nil, "devices", "remove", "shed-lamp")
-	if _, err := r.oikade(nil, "set", "shed-lamp", "switch.on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "shed-lamp", "on", "on"); err == nil {
 		t.Error("set a removed device")
 	}
 	if strings.Contains(string(r.stdout(nil, "devices")), "shed-lamp") {
@@ -198,7 +198,7 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 	if again := r.stdout(nil, "types", "--out", "-"); string(again) != string(first) {
 		t.Errorf("two runs differ:\n%s\n%s", first, again)
 	}
-	const code = "package main\n\nfunc main() { println(Fan.SwitchOn.Device, PorchLight.Name) }\n"
+	const code = "package main\n\nfunc main() { println(Fan.On.Device, PorchLight.Name) }\n"
 	if err := goBuild(t, dir, code); err != nil {
 		t.Fatalf("code naming its devices didn't compile: %v\n%s", err, first)
 	}
@@ -234,7 +234,7 @@ func TestRestoringFromTheCommittedFile(t *testing.T) {
 			t.Errorf("%s: got %+v, want %+v", name, g, w)
 		}
 	}
-	lost.stdout(nil, "set", "fan", "switch.on", "on")
+	lost.stdout(nil, "set", "fan", "on", "on")
 	lost.wrote("fan", true)
 }
 
@@ -242,7 +242,7 @@ func TestASafetyDeviceCanBeRemovedOnPurpose(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
 	r.stdout(nil, "devices", "remove", "valve", "--allow-safety")
@@ -255,7 +255,7 @@ func TestRestoreRefusesToMoveAClaimedName(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("leak-sensor", "sensor.contact-open", true)
+	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
 	list := r.devices()

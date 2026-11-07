@@ -29,7 +29,7 @@ func goodDay(r *rig) {
 	r.sync()
 }
 
-const humidityCap = "sensor.relative-humidity"
+const humidityCap = "humidity"
 
 // fixtureModule copies the home's module, edited, with devices.go from the host.
 func fixtureModule(r *rig, edit func(string) string) string {

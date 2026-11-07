@@ -149,7 +149,7 @@ func (s *schedules) last() Schedule {
 // timedHarness runs a Rule named lights-on that turns the hallway light on at its triggers.
 func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment), triggers ...Timer) (*harness, *schedules) {
 	t.Helper()
-	m := Moment{Timers: triggers, Condition: timerFired, Since: now.Add(-30 * 24 * time.Hour), Do: []Action{set("hallway-light", capability.LightOn, "true")}}
+	m := Moment{Timers: triggers, Condition: timerFired, Since: now.Add(-30 * 24 * time.Hour), Do: []Action{set("hallway-light", capability.On, "true")}}
 	if edit != nil {
 		edit(&m)
 	}
@@ -165,7 +165,7 @@ func (h *harness) result(name, result string) float64 {
 	return testutil.ToFloat64(h.e.Runs.WithLabelValues(ns, name, result))
 }
 
-var lightOn = call{"hallway-light", capability.LightOn, true}
+var lightOn = call{"hallway-light", capability.On, true}
 
 // advance sets the clock to t until the engine has made n calls. Setting it again fires a timer
 // the engine created just after the first set.
@@ -261,7 +261,7 @@ func TestReloadDoesNotCatchUp(t *testing.T) {
 	h, _ := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *Moment) {
 		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
-	r := momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2, Do: []Action{set("hallway-light", capability.LightOn, "true")}})
+	r := momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2, Do: []Action{set("hallway-light", capability.On, "true")}})
 	h.e.Load(r)
 	time.Sleep(50 * time.Millisecond)
 	if calls := h.setter.got(); len(calls) != 0 {
@@ -306,7 +306,7 @@ func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	}
 	// Recreated, it looks for missed fires again, but only since it was created.
 	h.clock.SetTime(local("2026-10-21 07:05 BST"))
-	h.e.Load(momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST"), Do: []Action{set("hallway-light", capability.LightOn, "true")}}))
+	h.e.Load(momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST"), Do: []Action{set("hallway-light", capability.On, "true")}}))
 	time.Sleep(50 * time.Millisecond)
 	if calls := h.setter.got(); len(calls) != 0 {
 		t.Errorf("calls = %v; 07:00 was before the new rule existed", calls)

@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 const root = "../.."
@@ -146,6 +148,25 @@ func TestTheDashboardQueriesMetricsThatExist(t *testing.T) {
 		}
 		if !defined[metric] {
 			t.Errorf("the dashboard queries %s, which nothing defines", metric)
+		}
+	}
+}
+
+// A query for a capability the registry doesn't have, such as an old name, matches nothing.
+func TestTheDashboardQueriesCapabilitiesThatExist(t *testing.T) {
+	dashboard, err := os.ReadFile(filepath.Join(root, "config", "grafana", "oikade-home.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queried := regexp.MustCompile(`capability=~?\\"([^\\]*)\\"`).FindAllStringSubmatch(string(dashboard), -1)
+	if len(queried) == 0 {
+		t.Fatal("the dashboard queries no capabilities")
+	}
+	for _, m := range queried {
+		for name := range strings.SplitSeq(m[1], "|") {
+			if _, ok := capability.Lookup(name); !ok {
+				t.Errorf("the dashboard queries capability %q, which the registry doesn't have", name)
+			}
 		}
 	}
 }

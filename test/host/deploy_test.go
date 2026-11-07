@@ -134,7 +134,7 @@ func TestVersionThatCrashesOnStartIsRolledBack(t *testing.T) {
 			}
 			r.waitFor(func(l line) bool { return l.is(restored) })
 			r.sync()
-			r.change("bathroom-sensor", "sensor.relative-humidity", 80)
+			r.change("bathroom-sensor", "humidity", 80)
 			r.wrote("fan", true)
 		})
 	}
@@ -911,7 +911,7 @@ func (r *rig) ruleClaims(device string) []control.Claim {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		r.t.Fatal(err)
 	}
-	return st["switch.on"].Claims
+	return st["on"].Claims
 }
 
 func TestDeployBuildsAModuleAndChecksItsFlows(t *testing.T) {

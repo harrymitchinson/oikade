@@ -1,12 +1,15 @@
 package framework
 
-import "github.com/harrymitchinson/oikade/internal/engine"
+import (
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/engine"
+)
 
 // Value is what a capability holds: a bool or a number.
 type Value interface{ bool | float64 }
 
 // Capability is the name of a capability whose values are T. The constants below are every
-// capability there is, as oikade devices shows them.
+// capability there is.
 type Capability[T Value] string
 
 // Bool is a capability that's true or false.
@@ -15,32 +18,28 @@ type Bool = Capability[bool]
 // Number is a capability that's a number.
 type Number = Capability[float64]
 
-// The capabilities.
+// The capabilities, as oikade devices shows them and plugins name them in contract/v1.
 const (
-	// LightOn is a light's on/off state.
-	LightOn Bool = "light.on"
-	// LightLevel is a light's brightness in percent, which doesn't turn it on or off.
-	LightLevel Number = "light.level"
-	// SwitchOn is a switch that's neither a light nor an outlet.
-	SwitchOn Bool = "switch.on"
-	// OutletOn is a smart plug's relay.
-	OutletOn Bool = "outlet.on"
+	// On is whether a light, switch or outlet is on.
+	On Bool = contractv1.On
+	// Brightness is a light's brightness in percent, which doesn't turn it on or off.
+	Brightness Number = contractv1.Brightness
 	// Temperature is in degrees Celsius.
-	Temperature Number = "sensor.temperature"
+	Temperature Number = contractv1.Temperature
 	// Humidity is relative humidity in percent.
-	Humidity Number = "sensor.relative-humidity"
-	// ContactOpen is true while a door or window is open.
-	ContactOpen Bool = "sensor.contact-open"
-	// Occupancy is true while motion or presence is detected.
-	Occupancy Bool = "sensor.occupancy-detected"
+	Humidity Number = contractv1.Humidity
+	// Open is true while a door or window is open.
+	Open Bool = contractv1.Open
+	// Occupied is true while motion or presence is detected.
+	Occupied Bool = contractv1.Occupied
 	// Battery is a battery's charge in percent.
-	Battery Number = "battery.level"
-	// LinkQuality is the radio link's quality, from 0 to 255.
-	LinkQuality Number = "link.quality"
+	Battery Number = contractv1.Battery
+	// LinkQuality is a radio link's quality, from 0 to 255.
+	LinkQuality Number = contractv1.LinkQuality
 )
 
 // Handle is one capability of one device. oikade types writes one for each capability each of your
-// devices has, as PorchLight.LightOn, so that a condition, a trigger or a write naming a capability
+// devices has, as PorchLight.On, so that a condition, a trigger or a write naming a capability
 // the device doesn't have, or a value of the wrong type, doesn't compile.
 type Handle[T Value] struct {
 	Device     string

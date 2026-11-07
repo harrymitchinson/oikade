@@ -96,7 +96,7 @@ func TestStatesKeepHoldsAcrossARestart(t *testing.T) {
 	deleted := ident.ID{Namespace: ns, Name: "deleted"}
 	want := HoldState{
 		Active: true, Latched: true, OnAt: time.Date(2026, 11, 5, 22, 0, 0, 0, time.UTC),
-		Target: HoldTarget{Device: "main-valve", Capability: "switch.on", Value: false},
+		Target: HoldTarget{Device: "main-valve", Capability: "on", Value: false},
 	}
 	s := b.holds(t)
 	if _, ok := s.Get(kept); ok {
@@ -132,7 +132,7 @@ func TestStatesKeepHoldsAcrossARestart(t *testing.T) {
 func TestStatesKeepControlsAcrossARestart(t *testing.T) {
 	b := newStoreBackend(t)
 	key := ident.ID{Namespace: ns, Name: "main-valve"}
-	want := ControlState{"switch.on": control.State{}}
+	want := ControlState{"on": control.State{}}
 	_ = b.holds(t)
 	if err := b.controls(t).Put(t.Context(), key, want); err != nil {
 		t.Fatal(err)

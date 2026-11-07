@@ -77,7 +77,7 @@ func writeFile(t *testing.T, dir, name, content string) string {
 func TestReadDevices(t *testing.T) {
 	file := writeFile(t, t.TempDir(), "devices.json", `{"contract":1,"devices":[
 		{"id":"1000aabbcc","name":"porch-light","displayName":"Porch light","room":"porch",
-		 "parameters":{"capability":"light.on"}},
+		 "parameters":{"model":"MINIR4"}},
 		{"id":"2","name":"hall","displayName":"hall"}]}`)
 	got, err := ReadDevices(file)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestReadDevices(t *testing.T) {
 	}
 	want := []contractv1.DeclaredDevice{
 		{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
-			Parameters: map[string]string{"capability": "light.on"}},
+			Parameters: map[string]string{"model": "MINIR4"}},
 		{ID: "2", Name: "hall", DisplayName: "hall"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -143,23 +143,6 @@ func TestReadSecret(t *testing.T) {
 		if _, ok, err := ReadSecret(env, key); ok || err == nil {
 			t.Fatalf("got %v, %v for key %q, want it refused", ok, err, key)
 		}
-	}
-}
-
-func TestRelayCapability(t *testing.T) {
-	for params, want := range map[string]string{"": "switch.on", "light.on": "light.on", "outlet.on": "outlet.on"} {
-		got, err := RelayCapability(map[string]string{"capability": params})
-		if got != want || err != nil {
-			t.Fatalf("got %q, %v for %q, want %q", got, err, params, want)
-		}
-	}
-	if got, err := RelayCapability(nil); got != "switch.on" || err != nil {
-		t.Fatalf("got %q, %v without parameters, want switch.on", got, err)
-	}
-	_, err := RelayCapability(map[string]string{"capability": "fan.on"})
-	want := "parameters.capability must be one of switch.on, light.on, outlet.on, got fan.on"
-	if err == nil || err.Error() != want {
-		t.Fatalf("got %v, want %q", err, want)
 	}
 }
 

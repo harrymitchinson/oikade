@@ -21,7 +21,7 @@ import (
 const root contractv1.Root = "oikade/v1/home/example"
 
 const relayDevices = `{"devices":[{"id":"relay-1","found":true,"manufacturer":"Oikade",` +
-	`"model":"Simulated switch","capabilities":["switch.on"]}],"undeclared":0}`
+	`"model":"Simulated switch","capabilities":["on"]}],"undeclared":0}`
 
 const (
 	online  = `{"state":"online","contract":1}`
@@ -30,7 +30,7 @@ const (
 
 var relay = contractv1.DeviceReport{
 	ID: "relay-1", Found: true, Manufacturer: "Oikade", Model: "Simulated switch",
-	Capabilities: []string{"switch.on"},
+	Capabilities: []string{"on"},
 }
 
 // logBuffer collects the plugin's JSON log lines.
@@ -178,12 +178,12 @@ func TestAnnounceOrder(t *testing.T) {
 	if err := p.SetAvailability(ctx, "relay-1", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.SetState(ctx, "relay-1", contractv1.State{"switch.on": true}); err != nil {
+	if err := p.SetState(ctx, "relay-1", contractv1.State{"on": true}); err != nil {
 		t.Fatal(err)
 	}
 	devices := root.Devices() + `={"devices":[{"id":"relay-1","found":true,"manufacturer":"Oikade",` +
-		`"model":"Simulated switch","capabilities":["switch.on"]},{"id":"bad","found":false,"error":"nope"}],"undeclared":2}`
-	announced := []string{devices, root.Availability("relay-1") + "=online", root.State("relay-1") + `={"switch.on":true}`}
+		`"model":"Simulated switch","capabilities":["on"]},{"id":"bad","found":false,"error":"nope"}],"undeclared":2}`
+	announced := []string{devices, root.Availability("relay-1") + "=online", root.State("relay-1") + `={"on":true}`}
 	w.expect(announced...)
 
 	b.Kick(t, p.clientID)
@@ -200,7 +200,7 @@ func TestReconnectRepublishes(t *testing.T) {
 	if err := p.SetAvailability(ctx, "relay-1", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.SetState(ctx, "relay-1", contractv1.State{"switch.on": true}); err != nil {
+	if err := p.SetState(ctx, "relay-1", contractv1.State{"on": true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -210,7 +210,7 @@ func TestReconnectRepublishes(t *testing.T) {
 		root.Status():                online,
 		root.Devices():               relayDevices,
 		root.Availability("relay-1"): "online",
-		root.State("relay-1"):        `{"switch.on":true}`,
+		root.State("relay-1"):        `{"on":true}`,
 	}
 	for {
 		got := map[string]string{}
@@ -330,13 +330,13 @@ func TestSetStateValidates(t *testing.T) {
 	// a concurrent retained publish.
 	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{})
-	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"on", "brightness"}}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay, lamp, {ID: "lost"}}, 0); err != nil {
 		t.Fatal(err)
 	}
 	w.expect(root.Status()+"="+online, root.Devices()+`={"devices":[`+
-		`{"id":"relay-1","found":true,"manufacturer":"Oikade","model":"Simulated switch","capabilities":["switch.on"]},`+
-		`{"id":"lamp","found":true,"capabilities":["light.on","light.level"]},{"id":"lost","found":false}],"undeclared":0}`)
+		`{"id":"relay-1","found":true,"manufacturer":"Oikade","model":"Simulated switch","capabilities":["on"]},`+
+		`{"id":"lamp","found":true,"capabilities":["on","brightness"]},{"id":"lost","found":false}],"undeclared":0}`)
 
 	for _, tc := range []struct {
 		name  string
@@ -344,12 +344,12 @@ func TestSetStateValidates(t *testing.T) {
 		state contractv1.State
 		want  string
 	}{
-		{"unannounced capability", "relay-1", contractv1.State{"light.on": true}, "has not announced capability light.on"},
-		{"unknown device", "unknown", contractv1.State{"switch.on": true}, "device unknown is not reported found"},
+		{"unannounced", "relay-1", contractv1.State{"brightness": 40.0}, "has not announced capability brightness"},
+		{"unknown device", "unknown", contractv1.State{"on": true}, "device unknown is not reported found"},
 		{"device not found", "lost", contractv1.State{}, "device lost is not reported found"},
-		{"out of range", "lamp", contractv1.State{"light.level": 150.0}, "light.level must be between 0 and 100"},
-		{"wrong kind", "relay-1", contractv1.State{"switch.on": "on"}, "switch.on takes a bool"},
-		{"incomplete", "lamp", contractv1.State{"light.on": true}, "no value for announced capability light.level"},
+		{"out of range", "lamp", contractv1.State{"brightness": 150.0}, "brightness must be between 0 and 100"},
+		{"wrong kind", "relay-1", contractv1.State{"on": "on"}, "on takes a bool"},
+		{"incomplete", "lamp", contractv1.State{"on": true}, "no value for announced capability brightness"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := p.SetState(ctx, tc.id, tc.state)
@@ -369,11 +369,11 @@ func TestSetStateValidates(t *testing.T) {
 	}
 
 	// Nothing reached the broker: the next state message is a valid one, normalised.
-	if err := p.SetState(ctx, "lamp", contractv1.State{"light.on": true, "light.level": 40}); err != nil {
+	if err := p.SetState(ctx, "lamp", contractv1.State{"on": true, "brightness": 40}); err != nil {
 		t.Fatal(err)
 	}
-	w.expect(root.State("lamp") + `={"light.level":40,"light.on":true}`)
-	if got := p.State("lamp"); !reflect.DeepEqual(got, contractv1.State{"light.on": true, "light.level": 40.0}) {
+	w.expect(root.State("lamp") + `={"brightness":40,"on":true}`)
+	if got := p.State("lamp"); !reflect.DeepEqual(got, contractv1.State{"on": true, "brightness": 40.0}) {
 		t.Fatalf("stored %#v, want float64 values", got)
 	}
 }
@@ -382,17 +382,17 @@ func TestUpdateStateMerges(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
 	p, _ := start(ctx, t, b.URL, Options{})
-	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"on", "brightness"}}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.SetState(ctx, "lamp", contractv1.State{"light.on": true, "light.level": 40.0}); err != nil {
+	if err := p.SetState(ctx, "lamp", contractv1.State{"on": true, "brightness": 40.0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.UpdateState(ctx, "lamp", contractv1.State{"light.level": 80.0}); err != nil {
+	if err := p.UpdateState(ctx, "lamp", contractv1.State{"brightness": 80.0}); err != nil {
 		t.Fatal(err)
 	}
-	if got := p.State("lamp"); !reflect.DeepEqual(got, contractv1.State{"light.on": true, "light.level": 80.0}) {
+	if got := p.State("lamp"); !reflect.DeepEqual(got, contractv1.State{"on": true, "brightness": 80.0}) {
 		t.Fatalf("got %v, want the merged state", got)
 	}
 }
@@ -402,20 +402,20 @@ func TestSetDevicesDropsStale(t *testing.T) {
 	b := mqtttest.NewBroker(t)
 	w := watchLive(ctx, t, b.URL) // first, as in TestSetStateValidates
 	p, _ := start(ctx, t, b.URL, Options{})
-	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.on", "light.level"}}
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"on", "brightness"}}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.SetState(ctx, "lamp", contractv1.State{"light.on": true, "light.level": 40.0}); err != nil {
+	if err := p.SetState(ctx, "lamp", contractv1.State{"on": true, "brightness": 40.0}); err != nil {
 		t.Fatal(err)
 	}
 	w.expect(
 		root.Status()+"="+online,
-		root.Devices()+`={"devices":[{"id":"lamp","found":true,"capabilities":["light.on","light.level"]}],"undeclared":0}`,
-		root.State("lamp")+`={"light.level":40,"light.on":true}`,
+		root.Devices()+`={"devices":[{"id":"lamp","found":true,"capabilities":["on","brightness"]}],"undeclared":0}`,
+		root.State("lamp")+`={"brightness":40,"on":true}`,
 	)
 
-	lamp.Capabilities = []string{"light.on"}
+	lamp.Capabilities = []string{"on"}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{lamp}, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -423,8 +423,8 @@ func TestSetDevicesDropsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.expect(
-		root.Devices()+`={"devices":[{"id":"lamp","found":true,"capabilities":["light.on"]}],"undeclared":0}`,
-		root.State("lamp")+`={"light.on":true}`,
+		root.Devices()+`={"devices":[{"id":"lamp","found":true,"capabilities":["on"]}],"undeclared":0}`,
+		root.State("lamp")+`={"on":true}`,
 		root.Devices()+`={"devices":[{"id":"lamp","found":false}],"undeclared":0}`,
 		root.State("lamp")+`={}`,
 	)
@@ -453,7 +453,7 @@ func TestSetDispatch(t *testing.T) {
 		return nil
 	}
 	p, logs := start(ctx, t, b.URL, Options{OnSet: onSet})
-	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"light.level"}}
+	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"brightness"}}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{relay, lamp}, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -469,17 +469,17 @@ func TestSetDispatch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	send(root.Set("relay-1"), `{"light.on":false}`)
-	send(root.Set("other"), `{"switch.on":false}`)
+	send(root.Set("relay-1"), `{"brightness":50}`)
+	send(root.Set("other"), `{"on":false}`)
 	send(root.Set("relay-1"), `not json`)
-	send(root.Set("lamp"), `{"light.level":150}`)
-	send(root.State("relay-1"), `{"switch.on":false}`)
+	send(root.Set("lamp"), `{"brightness":150}`)
+	send(root.State("relay-1"), `{"on":false}`)
 	want := make([]contractv1.SetCommand, 0, 10)
 	for i := range 10 {
-		send(root.Set("relay-1"), fmt.Sprintf(`{"switch.on":%v}`, i%2 == 0))
-		want = append(want, contractv1.SetCommand{ID: "relay-1", Capability: "switch.on", Value: i%2 == 0})
+		send(root.Set("relay-1"), fmt.Sprintf(`{"on":%v}`, i%2 == 0))
+		want = append(want, contractv1.SetCommand{ID: "relay-1", Capability: "on", Value: i%2 == 0})
 	}
-	send(root.Set("lamp"), `{"light.level":30}`)
+	send(root.Set("lamp"), `{"brightness":30}`)
 
 	for {
 		mu.Lock()
@@ -499,7 +499,7 @@ func TestSetDispatch(t *testing.T) {
 	var relayCmds []contractv1.SetCommand
 	for _, c := range got {
 		if c.ID == "lamp" {
-			if c != (contractv1.SetCommand{ID: "lamp", Capability: "light.level", Value: 30.0}) {
+			if c != (contractv1.SetCommand{ID: "lamp", Capability: "brightness", Value: 30.0}) {
 				t.Fatalf("got %+v for the lamp", c)
 			}
 			continue
@@ -525,7 +525,7 @@ func TestRetainedSetIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = pub.Disconnect(context.Background()) }()
-	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"switch.on":true}`), true); err != nil {
+	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"on":true}`), true); err != nil {
 		t.Fatal(err)
 	}
 	_, logs := start(ctx, t, b.URL, Options{OnSet: func(context.Context, *Plugin, contractv1.SetCommand) error {
@@ -556,11 +556,11 @@ func TestSetHandlerFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = pub.Disconnect(context.Background()) }()
-	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"switch.on":true}`), false); err != nil {
+	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"on":true}`), false); err != nil {
 		t.Fatal(err)
 	}
 	want := `"msg":"Could not apply set command","topic":"oikade/v1/home/example/relay-1/set",` +
-		`"capability":"switch.on","err":"relay unreachable"`
+		`"capability":"on","err":"relay unreachable"`
 	for !strings.Contains(logs.String(), want) {
 		select {
 		case <-ctx.Done():
@@ -576,7 +576,7 @@ func TestSetDiscovered(t *testing.T) {
 	w := watchLive(ctx, t, b.URL) // first, as in TestSetStateValidates
 	p, _ := start(ctx, t, b.URL, Options{})
 	lamp := contractv1.DiscoveredDevice{
-		ID: "lamp-9c71", Model: "LCA001", Capabilities: []string{"light.on"}, Name: "Desk lamp", Room: "Study",
+		ID: "lamp-9c71", Model: "LCA001", Capabilities: []string{"on"}, Name: "Desk lamp", Room: "Study",
 	}
 
 	for _, bad := range [][]contractv1.DiscoveredDevice{
@@ -601,7 +601,7 @@ func TestSetDiscovered(t *testing.T) {
 	w.expect(
 		root.Status()+"="+online,
 		root.Devices()+`={"devices":[],"undeclared":5,"discovered":[{"id":"lamp-9c71","model":"LCA001",`+
-			`"capabilities":["light.on"],"name":"Desk lamp","room":"Study"}]}`,
+			`"capabilities":["on"],"name":"Desk lamp","room":"Study"}]}`,
 		root.Devices()+`={"devices":[],"undeclared":5,"discovered":[]}`,
 	)
 
@@ -625,32 +625,32 @@ func TestReportStatePublishesWhatsKnown(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	p, _ := start(ctx, t, url, Options{OnSet: func(context.Context, *Plugin, contractv1.SetCommand) error { return nil }})
 	sensor := contractv1.DeviceReport{
-		ID: "sensor-1", Found: true, Capabilities: []string{"sensor.temperature", "battery.level"},
+		ID: "sensor-1", Found: true, Capabilities: []string{"temperature", "battery"},
 	}
 	if err := p.SetDevices(ctx, []contractv1.DeviceReport{sensor}, 0); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := p.UpdateState(ctx, "sensor-1", contractv1.State{"sensor.temperature": 21.5}); err == nil {
+	if err := p.UpdateState(ctx, "sensor-1", contractv1.State{"temperature": 21.5}); err == nil {
 		t.Fatal("UpdateState took a state with a value missing")
 	}
-	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"sensor.temperature": 21.5}); err != nil {
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"temperature": 21.5}); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"battery.level": 80.0}); err != nil {
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"battery": 80.0}); err != nil {
 		t.Fatal(err)
 	}
-	want := contractv1.State{"sensor.temperature": 21.5, "battery.level": 80.0}
+	want := contractv1.State{"temperature": 21.5, "battery": 80.0}
 	if got := p.State("sensor-1"); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v", got)
 	}
-	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"switch.on": true}); err == nil {
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"on": true}); err == nil {
 		t.Error("took a capability the device hasn't announced")
 	}
-	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"battery.level": 900.0}); err == nil {
+	if err := p.ReportState(ctx, "sensor-1", contractv1.State{"battery": 900.0}); err == nil {
 		t.Error("took a value out of range")
 	}
-	if err := p.ReportState(ctx, "nobody", contractv1.State{"battery.level": 80.0}); err == nil {
+	if err := p.ReportState(ctx, "nobody", contractv1.State{"battery": 80.0}); err == nil {
 		t.Error("took a device that isn't found")
 	}
 }
