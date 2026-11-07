@@ -427,7 +427,7 @@ func TestAHeldMessageDoesNotUndoANewerOne(t *testing.T) {
 
 // startRequesting starts an Instance on bus, with every paired device in the fixture declared but
 // the ZBMINI, and waits for its first round of /get requests to end.
-func startRequesting(t *testing.T, bus *mqtt.Memory, log *slog.Logger) *recorder {
+func startRequesting(t *testing.T, bus *mqtt.Memory, log *slog.Logger) (*Instance, *recorder) {
 	t.Helper()
 	devices, err := os.ReadFile("testdata/bridge-devices.json")
 	if err != nil {
@@ -439,8 +439,13 @@ func startRequesting(t *testing.T, bus *mqtt.Memory, log *slog.Logger) *recorder
 	done := make(chan struct{}, 1)
 	i := &Instance{
 		Key: dev("z2m"), BaseTopic: "z2m", Bus: bus, Sink: rec, Now: time.Now, Log: log,
-		GetInterval: time.Millisecond,
-		requested:   func() { done <- struct{}{} },
+		getInterval: time.Millisecond,
+		requested: func() {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		},
 	}
 	i.SetDevices(map[string]ident.ID{
 		"0x000b57fffe000001": lamp,
@@ -457,7 +462,7 @@ func startRequesting(t *testing.T, bus *mqtt.Memory, log *slog.Logger) *recorder
 	case <-time.After(5 * time.Second):
 		t.Fatal("the /get requests never ended")
 	}
-	return rec
+	return i, rec
 }
 
 // gets is every /get sent, as topic=payload.
@@ -476,11 +481,28 @@ func gets(bus *mqtt.Memory) []string {
 func TestARetainedValueIsNotRequested(t *testing.T) {
 	bus := mqtt.NewMemory()
 	_ = bus.Publish(context.Background(), "z2m/desk-plug", []byte(`{"state":"OFF"}`), true)
-	startRequesting(t, bus, logging.Discard())
+	i, _ := startRequesting(t, bus, logging.Discard())
 	want := []string{
 		`z2m/0x000b57fffe000001/get={"state":""}`,
 		`z2m/0x000b57fffe000001/get={"brightness":""}`,
 	}
+	if got := gets(bus); !slices.Equal(got, want) {
+		t.Errorf("gets:\n got %v\nwant %v", got, want)
+	}
+	// The broker echoes each /get back, and it isn't held for the next device list.
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if len(i.early) != 0 {
+		t.Errorf("holding %v", i.early)
+	}
+}
+
+// A device Zigbee2MQTT says is offline can't answer, so it isn't asked.
+func TestAnOfflineDeviceIsNotAsked(t *testing.T) {
+	bus := mqtt.NewMemory()
+	_ = bus.Publish(context.Background(), "z2m/0x000b57fffe000001/availability", []byte(`{"state":"offline"}`), true)
+	startRequesting(t, bus, logging.Discard())
+	want := []string{`z2m/0x00124b0000000004/get={"state":""}`}
 	if got := gets(bus); !slices.Equal(got, want) {
 		t.Errorf("gets:\n got %v\nwant %v", got, want)
 	}
@@ -495,7 +517,7 @@ func TestAReplyIsAFirstValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := startRequesting(t, bus, logging.Discard())
+	_, rec := startRequesting(t, bus, logging.Discard())
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	if len(rec.changes) != 2 || rec.changes[0].Previous != nil || rec.changes[1].Previous != nil ||
@@ -513,7 +535,7 @@ func TestAReplyIsAFirstValue(t *testing.T) {
 func TestADeviceThatNeverAnswersStaysUnknown(t *testing.T) {
 	bus := mqtt.NewMemory()
 	var logs bytes.Buffer
-	rec := startRequesting(t, bus, slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	_, rec := startRequesting(t, bus, slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	if len(gets(bus)) == 0 {
 		t.Fatal("nothing was requested")
 	}
