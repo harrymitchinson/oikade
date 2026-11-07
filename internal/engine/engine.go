@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/utils/clock"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -186,7 +186,7 @@ func (e *Engine) Init() {
 	e.rules = map[ident.ID]*state{}
 	e.loaded = map[ident.ID]bool{}
 	if e.Clock == nil {
-		e.Clock = clock.RealClock{}
+		e.Clock = clock.Real{}
 	}
 	if e.Location == nil {
 		e.Location = time.Local

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	clocktesting "k8s.io/utils/clock/testing"
+	"github.com/harrymitchinson/oikade/internal/clock"
 )
 
 var london = mustLocation("Europe/London")
@@ -43,7 +43,7 @@ const (
 
 type harness struct {
 	t     *testing.T
-	clock *clocktesting.FakeClock
+	clock *clock.Fake
 	a     *Arbiter
 }
 
@@ -52,7 +52,7 @@ func newHarness(t *testing.T, s Settings, start string) *harness {
 	if s.Location == nil {
 		s.Location = london
 	}
-	c := clocktesting.NewFakeClock(at(start))
+	c := clock.NewFake(at(start))
 	a, err := New(s, c, State{})
 	if err != nil {
 		t.Fatal(err)

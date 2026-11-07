@@ -12,7 +12,6 @@ require (
 	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/tools v0.49.0
-	k8s.io/utils v0.0.0-20260626114624-be93311217bd
 )
 
 require (

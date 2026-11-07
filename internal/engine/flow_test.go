@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	testclock "k8s.io/utils/clock/testing"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -35,7 +34,7 @@ func (g *gatedControls) Put(ctx context.Context, key ident.ID, s ControlState) e
 func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, ident.ID) {
 	t.Helper()
 	dev := ident.ID{Namespace: ns, Name: "valve"}
-	eng := &Engine{Clock: testclock.NewFakeClock(time.Now()), Log: logging.Discard(), Controls: controls}
+	eng := &Engine{Clock: clock.NewFake(time.Now()), Log: logging.Discard(), Controls: controls}
 	store := hub.NewStore(logging.Discard(), eng)
 	eng.Store, eng.Setter = store, &fakeSetter{}
 	eng.Init()

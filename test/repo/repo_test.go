@@ -48,18 +48,11 @@ func TestNothingImportsAnAPIPackage(t *testing.T) {
 	})
 }
 
-// Oikade has no Kubernetes target (OIK-143), so nothing needs Kubernetes' types or its controller
-// framework. k8s.io/utils stays for its clock, which brings in nothing else from Kubernetes.
+// Oikade has no Kubernetes target (OIK-143), so it uses nothing from Kubernetes, down to the clock.
 func TestNoKubernetesModules(t *testing.T) {
-	module := regexp.MustCompile(`(sigs\.)?k8s\.io/[\w.-]+`)
-	banned := func(text string) string {
-		if found := module.FindString(text); found != "k8s.io/utils" {
-			return found
-		}
-		return ""
-	}
+	banned := regexp.MustCompile(`(sigs\.)?k8s\.io/[\w.-]+`)
 	lines(t, sourceDirs, ".go", func(path string, number int, line string) {
-		if banned(line) != "" && !strings.HasSuffix(path, "repo_test.go") {
+		if banned.MatchString(line) && !strings.HasSuffix(path, "repo_test.go") {
 			t.Errorf("%s:%d imports it: %s", path, number, strings.TrimSpace(line))
 		}
 	})
@@ -67,10 +60,8 @@ func TestNoKubernetesModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for line := range strings.SplitSeq(string(mod), "\n") {
-		if found := banned(line); found != "" {
-			t.Errorf("go.mod requires %s", found)
-		}
+	if found := banned.FindString(string(mod)); found != "" {
+		t.Errorf("go.mod requires %s", found)
 	}
 }
 

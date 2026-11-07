@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -43,7 +43,7 @@ type rig struct {
 	mu      sync.Mutex
 	budgets map[string]BudgetReport
 	e       *Engine
-	clock   *clocktesting.FakeClock
+	clock   *clock.Fake
 	setter  *fakeSetter
 	store   *hub.Store
 	sched   *schedules
@@ -82,7 +82,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	t.Helper()
 	now, states, values := o.now, o.holds, o.values
 	logs := &logLines{}
-	r := &rig{t: t, clock: clocktesting.NewFakeClock(now), setter: &fakeSetter{}, sched: &schedules{}, logs: logs}
+	r := &rig{t: t, clock: clock.NewFake(now), setter: &fakeSetter{}, sched: &schedules{}, logs: logs}
 	r.e = &Engine{
 		Setter: r.setter, Clock: r.clock, Location: london, Site: londonSite,
 		Log:  logging.Lines(logs.add, slog.LevelDebug),

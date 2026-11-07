@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/utils/clock"
+	"github.com/harrymitchinson/oikade/internal/clock"
 )
 
 // Kind is the capability's value kind.
@@ -241,12 +241,12 @@ type Decision struct {
 // Arbiter arbitrates one capability. It isn't safe for concurrent use.
 type Arbiter struct {
 	settings Settings
-	clock    clock.PassiveClock
+	clock    clock.Clock
 	st       State
 }
 
 // New returns an arbiter that continues from st, which may be the zero State.
-func New(s Settings, c clock.PassiveClock, st State) (*Arbiter, error) {
+func New(s Settings, c clock.Clock, st State) (*Arbiter, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
