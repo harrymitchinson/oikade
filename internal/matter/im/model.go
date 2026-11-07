@@ -312,15 +312,22 @@ func (n *Node) Parts(e *Endpoint) []uint16 {
 // Update runs f with the Node's lock held, for changes from outside the Interaction Model, such
 // as a device reporting new state. f calls Cluster.Changed for what it changes.
 func (n *Node) Update(f func()) {
-	n.announce(n.update(f))
+	// Announced even if f panics, so subscribers hear what it changed before then.
+	defer func() { n.announce(n.taken()) }()
+	n.update(f)
 }
 
-// update runs f with the lock, and returns what it changed. The lock goes with defer, so a panic in f
-// leaves it free, and what f changed is announced by the next Update.
-func (n *Node) update(f func()) []Path {
+// update runs f with the lock, which goes with defer, so a panic in f leaves it free.
+func (n *Node) update(f func()) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	f()
+}
+
+// taken takes what Updates changed, to announce.
+func (n *Node) taken() []Path {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	changes := n.pending
 	n.pending = nil
 	return changes

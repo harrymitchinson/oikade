@@ -3,8 +3,9 @@
 // not the home.
 //
 // Only work whose state goes with it is contained: a packet, an exchange's handler, a subscription,
-// an mDNS query. A panic in a timer or a commissioning hook would leave the node's state half moved,
-// such as a window that never closes, so those still stop the host, which starts again clean.
+// an mDNS query. A panic in a timer, a commissioning hook or a commissioning command would leave the
+// node's state half moved, such as a window that never closes, so those still stop the host, which
+// starts again clean. Critical marks the commands.
 //
 // A recover covers only its own goroutine, so each such goroutine defers Recover itself. The locks
 // taken on those paths go with defer, so a contained panic can't leave one held, which would turn a
@@ -17,7 +18,7 @@ import (
 	"runtime/debug"
 )
 
-// Where a panic was contained. Each is a label of oikade_matter_panics_total.
+// Where a panic was contained. Each is a site, the label of oikade_matter_panics_total.
 const (
 	Receive      = "receive"      // the transport reading a packet
 	Handler      = "handler"      // a protocol handler on its exchange
@@ -28,16 +29,35 @@ const (
 // Parts is every place, in order.
 var Parts = []string{Receive, Handler, Subscription, MDNS}
 
-// Panicked hears each panic contained, with where.
-type Panicked func(part string)
+// Panicked hears each panic contained, with its site.
+type Panicked func(site string)
+
+// fatal is a panic that Recover passes on, so it stops the host.
+type fatal struct{ value any }
+
+func (f fatal) String() string { return fmt.Sprintf("%v", f.value) }
+
+// Critical makes a panic in what's running fatal, even under a Recover: defer it directly in work
+// that a panic would leave half done, as defer contain.Critical().
+func Critical() {
+	if r := recover(); r != nil {
+		if _, ok := r.(fatal); ok {
+			panic(r)
+		}
+		panic(fatal{r})
+	}
+}
 
 // Recover contains a panic: it logs it with its stack, tells panicked, if set, and then calls after,
 // if set, to end what the panic left half done, such as its session. Defer it directly, as
 // defer contain.Recover(log, contain.Handler, panicked, nil): recover works only there.
-func Recover(log *slog.Logger, part string, panicked Panicked, after func()) {
+func Recover(log *slog.Logger, site string, panicked Panicked, after func()) {
 	r := recover()
 	if r == nil {
 		return
+	}
+	if _, ok := r.(fatal); ok {
+		panic(r)
 	}
 	if log == nil {
 		log = slog.Default()
@@ -46,9 +66,9 @@ func Recover(log *slog.Logger, part string, panicked Panicked, after func()) {
 	if !ok {
 		err = fmt.Errorf("%v", r)
 	}
-	log.Error("Contained a panic in Matter", "err", err, "part", part, "stack", string(debug.Stack()))
+	log.Error("Contained a panic in Matter", "err", err, "site", site, "stack", string(debug.Stack()))
 	if panicked != nil {
-		panicked(part)
+		panicked(site)
 	}
 	if after != nil {
 		after()

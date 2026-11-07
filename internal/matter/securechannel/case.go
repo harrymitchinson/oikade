@@ -316,6 +316,7 @@ func (r *CASEResponder) serve(ctx context.Context, ex *transport.Exchange, first
 		log.Info("CASE failed", "err", err)
 		return
 	}
+	defer removeOnPanic(r.Transport, s)
 	log.Info("Established CASE session", "session", s.LocalSessionID(), "fabric", s.FabricIndex(),
 		"node", fmt.Sprintf("%016X", s.PeerNodeID()), "resumed", resumed)
 	if r.OnSession != nil {

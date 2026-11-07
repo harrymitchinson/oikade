@@ -109,6 +109,9 @@ func (s *Session) Done() <-chan struct{} { return s.done }
 // Secure reports whether the session encrypts its messages.
 func (s *Session) Secure() bool { return s.security != nil }
 
+// Transport is the Transport the session is on.
+func (s *Session) Transport() *Transport { return s.t }
+
 // LocalSessionID returns a secure session's local ID, and 0 for an unsecured one.
 func (s *Session) LocalSessionID() uint16 { return s.localID }
 

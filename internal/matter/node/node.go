@@ -453,13 +453,17 @@ func (n *Node) endPASE() {
 // endSession tells the peer that s is closing, then closes it. CloseSession isn't acknowledged
 // (Core spec, 4.11.1.3), so it's sent once.
 func (n *Node) endSession(s *transport.Session) {
-	if ex, err := s.NewExchange(); err == nil {
-		_ = ex.SendUnreliable(securechannel.StatusReport{
-			General: securechannel.GeneralSuccess, Protocol: transport.SecureChannel, Code: securechannel.CodeCloseSession,
-		}.Message())
-		ex.Close()
+	// CloseSession means something only on a secure session: an unsecured one just goes.
+	if s.Secure() {
+		if ex, err := s.NewExchange(); err == nil {
+			_ = ex.SendUnreliable(securechannel.StatusReport{
+				General: securechannel.GeneralSuccess, Protocol: transport.SecureChannel, Code: securechannel.CodeCloseSession,
+			}.Message())
+			ex.Close()
+		}
 	}
-	n.run.Load().tr.RemoveSession(s)
+	// Its own Transport, which may be an earlier Run's.
+	s.Transport().RemoveSession(s)
 }
 
 // statusReport handles a status report a peer sends on a new exchange: CloseSession ends the

@@ -189,14 +189,19 @@ func (t *Transport) Serve(ctx context.Context) error {
 	}
 }
 
-// receiveContained is receive, with a panic costing only the packet: receive lets its locks go with
-// defer.
+// receiveContained is receive, with a panic costing only the packet and the session it came on, which
+// may be half updated: receive lets its locks go with defer.
 func (t *Transport) receiveContained(pkt []byte, from netip.AddrPort) {
-	defer contain.Recover(t.log, contain.Receive, t.panicked, nil)
+	var on *Session
+	defer contain.Recover(t.log, contain.Receive, t.panicked, func() {
+		if on != nil {
+			t.ended(on)
+		}
+	})
 	if f := t.received.Load(); f != nil {
 		(*f)(pkt)
 	}
-	t.receive(pkt, from)
+	t.receive(pkt, from, &on)
 }
 
 // NewUnsecuredSession starts an unsecured session with peer, as its initiator, such as a
@@ -299,7 +304,8 @@ func (t *Transport) newSession(peer netip.AddrPort) *Session {
 }
 
 // receive handles one datagram. pkt is the Transport's to keep.
-func (t *Transport) receive(pkt []byte, from netip.AddrPort) {
+// receive handles a packet, and sets on to the session it's on once it has one.
+func (t *Transport) receive(pkt []byte, from netip.AddrPort, on **Session) {
 	h, n, err := ParseHeader(pkt)
 	if err != nil {
 		t.drop(from, err.Error())
@@ -349,6 +355,7 @@ func (t *Transport) receive(pkt []byte, from netip.AddrPort) {
 		t.drop(from, "session closed", "session", h.SessionID)
 		return
 	}
+	*on = s
 
 	verdict := s.recv.check(h.Counter)
 	if verdict == counterTooOld {

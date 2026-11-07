@@ -133,6 +133,7 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 	spread := int64(r.timing.maxDelay - r.timing.minDelay)
 	delay := r.timing.minDelay + time.Duration(mrand.Int64N(spread+1))
 	r.after(delay, func() {
+		defer contain.Recover(r.log, contain.MDNS, r.panicked, nil) // still answering the packet
 		r.sendMu.Lock()
 		defer r.sendMu.Unlock()
 		// Leave out what was withdrawn in the meantime.

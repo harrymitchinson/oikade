@@ -91,6 +91,7 @@ func (r *Responder) serve(ctx context.Context, ex *transport.Exchange, first tra
 		log.Info("PASE failed", "err", err)
 		return
 	}
+	defer removeOnPanic(r.Transport, s)
 	log.Info("Established PASE session", "session", s.LocalSessionID())
 	if r.OnSession != nil {
 		r.OnSession(s)

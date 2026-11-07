@@ -25,9 +25,9 @@ func newMatterMetrics(bridge *matterBridge) *matterMetrics {
 	panics := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "oikade_matter_panics_total",
 		Help: "Panics in handling a Matter message that cost only that message and its session, by where. Each is a bug.",
-	}, []string{"part"})
-	for _, part := range contain.Parts {
-		panics.WithLabelValues(part) // a series from the start, so a rate has something to go up from
+	}, []string{"site"})
+	for _, site := range contain.Parts {
+		panics.WithLabelValues(site) // a series from the start, so a rate has something to go up from
 	}
 	return &matterMetrics{
 		panics: panics,
@@ -71,7 +71,7 @@ func (m *matterMetrics) Invoked(cluster uint32, st im.Status) {
 func (m *matterMetrics) Reported() { m.reports.Inc() }
 
 // Panicked implements im.Observer.
-func (m *matterMetrics) Panicked(part string) { m.panics.WithLabelValues(part).Inc() }
+func (m *matterMetrics) Panicked(site string) { m.panics.WithLabelValues(site).Inc() }
 
 // Describe implements prometheus.Collector.
 func (m *matterMetrics) Describe(ch chan<- *prometheus.Desc) {
