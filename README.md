@@ -159,8 +159,8 @@ framework.Moment{
 	Restart: true, // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
 	On:      []framework.Change{framework.InRoom("hallway", framework.Occupied)},
 	If: func(s framework.State) bool {
-		hour := s.Now().Hour()
-		return s.Any(framework.InRoom("hallway", framework.Occupied)) && (hour >= 18 || hour < 7)
+		return s.Any(framework.InRoom("hallway", framework.Occupied)) &&
+			s.Within(framework.Window{Start: framework.Clock("18:00"), End: framework.Clock("07:00")})
 	},
 	Do: []framework.Action{
 		HallwayLight.On.To(true),
@@ -170,7 +170,7 @@ framework.Moment{
 }
 ```
 
-A condition reads the home through its `State`: `Get` reads a handle, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. `Lookup` carries on instead, and reports whether there's a value:
+A condition reads the home through its `State`: `Get` reads a handle, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), `Within` says whether it's inside a [window](#holds), by the rules a hold's `Window` keeps, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. `Lookup` carries on instead, and reports whether there's a value:
 
 ```go
 if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
@@ -277,6 +277,8 @@ A hold keeps a capability at the value its `Set` gives while its `Window` is ope
 | `Budget` | Runs a device for a number of minutes a day instead, in the slots that suit it best. It's the only condition of its hold. See [Budgets](#budgets). |
 
 A hold needs a `Window`, a `When` or a `Budget`, and everything in it must be true together.
+
+A `When` is looked at again on every device change and at least once a minute, so one that uses `s.Within` changes within a minute of the window's edge. A hold's own `Window` changes on the edge, and `oikade status` shows when it next does, so prefer it when the window is the whole story.
 
 - **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its `Default` is what's left when the hold ends.
 - **Without a `Control`, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
