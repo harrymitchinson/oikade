@@ -34,8 +34,8 @@ func withKeySetID(id uint64) func(w *tlv.Writer) {
 	return func(w *tlv.Writer) { w.PutUint(tlv.Context(0), id) }
 }
 
-// status is a command's status, with no response.
-func status(t *testing.T, res *im.InvokeResult) im.Status {
+// commandStatus is a command's status, with no response.
+func commandStatus(t *testing.T, res *im.InvokeResult) im.Status {
 	t.Helper()
 	if res.Response != nil {
 		t.Fatalf("got response %+v, want a status", res.Response)
@@ -51,14 +51,20 @@ func TestGroupKeySets(t *testing.T) {
 		return invoke(t, admin, IDGroupKeyManagement, command, fields, false)
 	}
 
-	set := response(t, invokeKeys(0x01, withKeySetID(0)), 0x02)[0].(map[uint8]any)
-	if set[0] != uint64(0) || set[1] != uint64(0) || set[2] != nil {
-		t.Errorf("KeySetRead(0): %+v, want keyset 0, TrustFirst, and no keys", set)
+	set, ok := response(t, invokeKeys(0x01, withKeySetID(0)), 0x02)[0].(map[uint8]any)
+	if !ok || set[0] != uint64(0) || set[1] != uint64(0) || set[3] != uint64(0) {
+		t.Errorf("KeySetRead(0): %+v, want keyset 0, TrustFirst and epoch start 0", set)
 	}
-	if st := status(t, invokeKeys(0x01, withKeySetID(1))); st != im.StatusNotFound {
+	// The keys are null, never sent, but present: the struct has them all.
+	for _, tag := range []uint8{2, 4, 5, 6, 7} {
+		if v, present := set[tag]; !present || v != nil {
+			t.Errorf("KeySetRead(0): field %d is %v (present %v), want null", tag, v, present)
+		}
+	}
+	if st := commandStatus(t, invokeKeys(0x01, withKeySetID(1))); st != im.StatusNotFound {
 		t.Errorf("KeySetRead(1): %#x, want NOT_FOUND", st)
 	}
-	if st := status(t, invokeKeys(0x01, nil)); st != im.StatusInvalidCommand {
+	if st := commandStatus(t, invokeKeys(0x01, nil)); st != im.StatusInvalidCommand {
 		t.Errorf("KeySetRead with no ID: %#x, want INVALID_COMMAND", st)
 	}
 
@@ -85,7 +91,7 @@ func TestGroupKeySets(t *testing.T) {
 		"KeySetRemove of another": {0x03, withKeySetID(2), im.StatusNotFound},
 		"KeySetRemove with no ID": {0x03, nil, im.StatusInvalidCommand},
 	} {
-		if st := status(t, invokeKeys(tt.command, tt.fields)); st != tt.want {
+		if st := commandStatus(t, invokeKeys(tt.command, tt.fields)); st != tt.want {
 			t.Errorf("%s: %#x, want %#x", name, st, tt.want)
 		}
 	}
@@ -103,8 +109,11 @@ func TestNOCsAndFabricLabels(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatalf("NOCs %+v", list)
 	}
-	f, _ := n.table.Fabric(index)
-	got := list[0].(map[uint8]any)
+	f, ok := n.table.Fabric(index)
+	if !ok {
+		t.Fatalf("no fabric %d", index)
+	}
+	got, _ := list[0].(map[uint8]any)
 	if noc, _ := got[1].([]byte); !bytes.Equal(noc, f.NOC) || got[2] != nil || got[0xFE] != uint64(index) {
 		t.Errorf("NOCStruct %+v, want the fabric's NOC, no ICAC and index %d", got, index)
 	}
@@ -118,14 +127,19 @@ func TestNOCsAndFabricLabels(t *testing.T) {
 	if f, _ := n.table.Fabric(index); f.Label != "Kitchen" {
 		t.Errorf("label %q, want Kitchen", f.Label)
 	}
-	fabrics, _ := im.DecodeValue(readAttr(t, admin, IDOperationalCredentials, 0x0001).Data)
-	if l := fabrics.([]any)[0].(map[uint8]any)[5]; l != "Kitchen" {
-		t.Errorf("Fabrics says label %v, want Kitchen", l)
+	fabrics, err := im.DecodeValue(readAttr(t, admin, IDOperationalCredentials, 0x0001).Data)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if st := status(t, label(strings.Repeat("x", maxLabelLength+1))); st != im.StatusConstraintError {
+	if list, _ := fabrics.([]any); len(list) != 1 {
+		t.Errorf("Fabrics %+v, want one", fabrics)
+	} else if fd, _ := list[0].(map[uint8]any); fd[5] != "Kitchen" {
+		t.Errorf("Fabrics says label %v, want Kitchen", fd[5])
+	}
+	if st := commandStatus(t, label(strings.Repeat("x", maxLabelLength+1))); st != im.StatusConstraintError {
 		t.Errorf("a label too long: %#x, want CONSTRAINT_ERROR", st)
 	}
-	if st := status(t, invoke(t, admin, IDOperationalCredentials, 0x09, nil, false)); st != im.StatusInvalidCommand {
+	if st := commandStatus(t, invoke(t, admin, IDOperationalCredentials, 0x09, nil, false)); st != im.StatusInvalidCommand {
 		t.Errorf("no label: %#x, want INVALID_COMMAND", st)
 	}
 }

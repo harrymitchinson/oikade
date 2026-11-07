@@ -1,6 +1,8 @@
 package im
 
 import (
+	"errors"
+	"slices"
 	"sync"
 	"testing"
 
@@ -35,8 +37,8 @@ func readFiltered(t *testing.T, c *Client, filters func(w *tlv.Writer)) ([]Attri
 	return reports, err
 }
 
-// filter writes a DataVersionFilterIB.
-func filter(endpoint uint16, cluster, version uint32) func(w *tlv.Writer) {
+// versionFilter writes a DataVersionFilterIB.
+func versionFilter(endpoint uint16, cluster, version uint32) func(w *tlv.Writer) {
 	return func(w *tlv.Writer) {
 		w.StartStructure(tlv.Anonymous)
 		w.StartList(tlv.Context(0)) // ClusterPathIB
@@ -55,7 +57,7 @@ func TestADataVersionFilterSkipsAClusterTheControllerHas(t *testing.T) {
 	client, _ := pair(t, node)
 	current := c.DataVersion()
 
-	reports, err := readFiltered(t, client, filter(1, 6, current))
+	reports, err := readFiltered(t, client, versionFilter(1, 6, current))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +67,7 @@ func TestADataVersionFilterSkipsAClusterTheControllerHas(t *testing.T) {
 		}
 	}
 
-	reports, err = readFiltered(t, client, filter(1, 6, current-1))
+	reports, err = readFiltered(t, client, versionFilter(1, 6, current-1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +76,7 @@ func TestADataVersionFilterSkipsAClusterTheControllerHas(t *testing.T) {
 	}
 
 	// A filter for another endpoint leaves this one alone.
-	if reports, err := readFiltered(t, client, filter(2, 6, current)); err != nil || len(reports) == 0 {
+	if reports, err := readFiltered(t, client, versionFilter(2, 6, current)); err != nil || len(reports) == 0 {
 		t.Fatalf("a filter for another endpoint: %+v, %v", reports, err)
 	}
 }
@@ -91,8 +93,8 @@ func TestADataVersionFilterWithoutAVersionIsRefused(t *testing.T) {
 		w.End()
 		w.End()
 	})
-	if err == nil {
-		t.Fatal("a read with a filter missing its version was answered")
+	if !errors.Is(err, StatusInvalidAction) {
+		t.Fatalf("a read with a filter missing its version: %v, want INVALID_ACTION", err)
 	}
 }
 
@@ -121,8 +123,8 @@ func (o *outcomes) Invoked(cluster uint32, st Status) {
 func (*outcomes) Reported()       {}
 func (*outcomes) Panicked(string) {}
 
-// send sends a raw message on a new exchange and returns the status it's answered with.
-func send(t *testing.T, c *Client, op uint8, payload []byte) Status {
+// sendRaw sends a raw message on a new exchange and returns the status it's answered with.
+func sendRaw(t *testing.T, c *Client, op uint8, payload []byte) Status {
 	t.Helper()
 	ctx := timeoutCtx(t)
 	ex, err := c.Session.NewExchange()
@@ -194,13 +196,17 @@ func TestARefusedInteractionIsAnsweredAndCounted(t *testing.T) {
 		"an invoke that says it's timed": {OpInvokeRequest, invoke(true, 1), StatusTimedRequestMismatch},
 		"an invoke of two commands":      {OpInvokeRequest, invoke(false, 2), StatusInvalidAction},
 	} {
-		if st := send(t, client, tt.op, tt.msg); st != tt.want {
+		if st := sendRaw(t, client, tt.op, tt.msg); st != tt.want {
 			t.Errorf("%s: status %#x, want %#x", name, st, tt.want)
 		}
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if len(o.wrote) != 2 || len(o.invoked) != 2 {
-		t.Errorf("observed writes %v and invokes %v refused, want two of each", o.wrote, o.invoked)
+	slices.Sort(o.wrote)
+	slices.Sort(o.invoked)
+	want := []Status{StatusInvalidAction, StatusTimedRequestMismatch}
+	slices.Sort(want)
+	if !slices.Equal(o.wrote, want) || !slices.Equal(o.invoked, want) {
+		t.Errorf("observed writes %v and invokes %v refused, want %v of each", o.wrote, o.invoked, want)
 	}
 }
