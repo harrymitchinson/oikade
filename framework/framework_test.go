@@ -104,6 +104,111 @@ func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
 	_, _ = cond(engine.Vars{"devices": map[string]map[string]any{"door": {}}})
 }
 
+func TestLookupCarriesOnWithoutAValue(t *testing.T) {
+	cellar := Handle[float64]{Device: "cellar", Capability: Humidity}
+	attic := Handle[float64]{Device: "attic", Capability: Humidity}
+	cond := Condition(func(s State) bool {
+		if _, ok := s.Lookup(cellar); ok {
+			t.Error("Lookup found a value nobody reported")
+		}
+		v, ok := s.Lookup(attic)
+		return ok && v > 60
+	}).toEngine()
+	ok, err := cond(engine.Vars{"devices": map[string]map[string]any{"cellar": {}, "attic": {"humidity": 70.0}}})
+	if err != nil || !ok {
+		t.Fatalf("got %v, %v", ok, err)
+	}
+}
+
+func TestLookupOfAnUndeclaredDevicePanics(t *testing.T) {
+	cond := Condition(func(s State) bool {
+		_, ok := s.Lookup(Handle[bool]{Device: "dor", Capability: Open})
+		return ok
+	}).toEngine()
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "no device dor") {
+			t.Fatalf("got %v", r)
+		}
+	}()
+	_, _ = cond(engine.Vars{"devices": map[string]map[string]any{"door": {}}})
+}
+
+// hallway has three motion sensors, one of which has never reported, a light and a plug, and the
+// kitchen has a sensor that's occupied.
+func hallway() engine.Vars {
+	return engine.Vars{
+		"devices": map[string]map[string]any{
+			"hall-motion-1": {"occupied": false},
+			"hall-motion-2": {"occupied": true},
+			"hall-motion-3": {},
+			"hall-light":    {"on": true},
+			"hall-plug":     {"on": false},
+			"kitchen":       {"occupied": true},
+			"cellar":        {},
+		},
+		"members": map[string]hub.Member{
+			"hall-motion-1": {Room: "hallway"},
+			"hall-motion-2": {Room: "hallway"},
+			"hall-motion-3": {Room: "hallway"},
+			"hall-light":    {Room: "hallway", DeviceTypes: []devicetype.Type{devicetype.Type(OnOffLight)}},
+			"hall-plug":     {Room: "hallway", DeviceTypes: []devicetype.Type{devicetype.Type(OnOffPlugInUnit)}},
+			"kitchen":       {Room: "kitchen"},
+			"cellar":        {Room: "cellar"},
+		},
+	}
+}
+
+func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cond Condition
+		want bool
+	}{
+		"any":         {func(s State) bool { return s.Any(InRoom("hallway", Occupied)) }, true},
+		"all":         {func(s State) bool { return s.All(InRoom("hallway", Occupied)) }, false},
+		"count":       {func(s State) bool { return s.Count(InRoom("hallway", Occupied)) == 1 }, true},
+		"all on":      {func(s State) bool { return s.All(InRoom("hallway", On)) }, false},
+		"lights only": {func(s State) bool { return s.All(InRoom("hallway", On).Types(OnOffLight, DimmableLight)) }, true},
+		"plugs only":  {func(s State) bool { return s.Any(InRoom("hallway", On).Types(OnOffPlugInUnit)) }, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ok, err := tc.cond.toEngine()(hallway())
+			if err != nil || ok != tc.want {
+				t.Fatalf("got %v, %v; want %v", ok, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadingsAreInDeviceNameOrder(t *testing.T) {
+	var got []float64
+	cond := Condition(func(s State) bool {
+		got = s.Readings(InRoom("cellar", Humidity))
+		return slices.Max(got) > 65
+	}).toEngine()
+	ok, err := cond(engine.Vars{
+		"devices": map[string]map[string]any{"b": {"humidity": 70.0}, "a": {"humidity": 50.0}, "c": {}},
+		"members": map[string]hub.Member{"a": {Room: "cellar"}, "b": {Room: "cellar"}, "c": {Room: "cellar"}},
+	})
+	if err != nil || !ok || !slices.Equal(got, []float64{50, 70}) {
+		t.Fatalf("got %v, %v, %v", ok, err, got)
+	}
+}
+
+// A hold keeps its state while it can't tell, as with a single device that hasn't reported.
+func TestARoomWhereNothingHasReportedIsAnError(t *testing.T) {
+	for name, cond := range map[string]Condition{
+		"nothing reported": func(s State) bool { return s.Any(InRoom("cellar", Occupied)) },
+		"no such room":     func(s State) bool { return s.Any(InRoom("loft", Occupied)) },
+		"no such type":     func(s State) bool { return s.Any(InRoom("hallway", On).Types(DimmableLight)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := cond.toEngine()(hallway()); err == nil {
+				t.Fatal("got no error")
+			}
+		})
+	}
+}
+
 func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
@@ -235,7 +340,7 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 }
 
 func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
-	devices := map[string]map[string]any{"water": {}}
+	vars := map[string]any{"devices": map[string]map[string]any{"water": {}}}
 	nothing := Handle[float64]{Device: "nothing", Capability: Temperature}
 	for name, f := range map[string]func(State) int{
 		"hasn't reported": func(s State) int { return int(s.Get(water)) },
@@ -244,13 +349,13 @@ func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := (&Budget{Minutes: f}).toSchedule()
-			if _, err := spec.Minutes(devices, time.Now(), time.UTC); err == nil {
+			if _, err := spec.Minutes(vars, time.Now(), time.UTC); err == nil {
 				t.Fatal("no error")
 			}
 		})
 	}
 	spec := (&Budget{Minutes: func(State) int { return 90 }}).toSchedule()
-	if got, err := spec.Minutes(devices, time.Now(), time.UTC); err != nil || got != 90 {
+	if got, err := spec.Minutes(vars, time.Now(), time.UTC); err != nil || got != 90 {
 		t.Fatalf("got %d, %v", got, err)
 	}
 }

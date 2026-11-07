@@ -233,10 +233,8 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 				}
 				return &schedule.Reading{Value: capability.Float(v), At: in.LastSeen}
 			}
-			if devices == nil {
-				devices = e.Store.Values(key.Namespace)
-			}
-			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, devices, read))}
+			vars := e.conditionVars(key.Namespace, now, devices)
+			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}
 			for _, err := range p.day.Errors {
 				e.Log.Info("Budget planned with an error", "rule", key, "err", err)
 			}

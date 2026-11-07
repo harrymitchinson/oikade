@@ -287,8 +287,8 @@ func TestPlanningDay(t *testing.T) {
 }
 
 func TestAFailedDayStaysFailedAfterARestart(t *testing.T) {
-	failing := func(devices map[string]map[string]any, _ time.Time, _ *time.Location) (int, error) {
-		if _, ok := devices["water-temp"][capability.Temperature]; !ok {
+	failing := func(vars map[string]any, _ time.Time, _ *time.Location) (int, error) {
+		if _, ok := vars["devices"].(map[string]map[string]any)["water-temp"][capability.Temperature]; !ok {
 			return 0, errors.New("water-temp hasn't reported")
 		}
 		return 60, nil

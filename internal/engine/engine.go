@@ -508,10 +508,21 @@ func (e *Engine) fireDue(ctx context.Context) {
 const triggerType = "type"
 
 func (e *Engine) vars(namespace string, trigger map[string]any) Vars {
+	v := e.conditionVars(namespace, e.Clock.Now(), nil)
+	v["trigger"] = trigger
+	return v
+}
+
+// conditionVars are what a condition sees at now. devices are the namespace's values, or nil to
+// read them.
+func (e *Engine) conditionVars(namespace string, now time.Time, devices map[string]map[string]any) Vars {
+	if devices == nil {
+		devices = e.Store.Values(namespace)
+	}
 	return Vars{
-		"devices": e.Store.Values(namespace),
-		"trigger": trigger,
-		"now":     e.Clock.Now(),
+		"devices": devices,
+		"members": e.Store.Members(namespace),
+		"now":     now,
 		"tz":      e.Location.String(),
 	}
 }
@@ -555,6 +566,24 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 	}
 	close(e.changes)
 	e.changes = make(chan struct{})
+}
+
+// membersChanged makes Run evaluate again the holds whose when may read a room in the namespace,
+// as handle does on a change.
+func (e *Engine) membersChanged(namespace string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.Clock.Now()
+	due := false
+	for key, s := range e.rules {
+		if key.Namespace == namespace && s.hold != nil && s.hold.loaded && s.c.hold.when != nil {
+			s.next = fire{At: now}
+			due = true
+		}
+	}
+	if due {
+		e.signal()
+	}
 }
 
 // trigger runs the Rule if its condition holds and its mode allows. Call with e.mu held.

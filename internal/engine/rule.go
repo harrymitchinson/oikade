@@ -44,8 +44,9 @@ const (
 	UntilReleased Until = "Released"
 )
 
-// Vars are what a condition sees: "devices", each device's capability values by name; "now", a
-// time.Time; "tz", the household's IANA timezone; and for a moment, "trigger".
+// Vars are what a condition sees: "devices", each device's capability values by name; "members",
+// each device's hub.Member by name, for reading a room; "now", a time.Time; "tz", the household's
+// IANA timezone; and for a moment, "trigger".
 type Vars = map[string]any
 
 // Condition is a rule's condition. An error means it can't be evaluated yet, as before a device it

@@ -157,10 +157,10 @@ Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`
 framework.Moment{
 	Name:    "hallway-motion-light",
 	Restart: true, // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On:      []framework.Change{HallwayMotion.Occupied},
+	On:      []framework.Change{framework.InRoom("hallway", framework.Occupied)},
 	If: func(s framework.State) bool {
 		hour := s.Now().Hour()
-		return s.Get(HallwayMotion.Occupied) && (hour >= 18 || hour < 7)
+		return s.Any(framework.InRoom("hallway", framework.Occupied)) && (hour >= 18 || hour < 7)
 	},
 	Do: []framework.Action{
 		HallwayLight.On.To(true),
@@ -170,7 +170,11 @@ framework.Moment{
 }
 ```
 
-A condition reads the home through its `State`: `Get` reads a handle, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run.
+A condition reads the home through its `State`: `Get` reads a handle, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. `Lookup` carries on instead, and reports whether there's a value:
+
+```go
+if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
+```
 
 The 5 minutes in this example live in your process's memory, so a restart during them leaves the light on. The [hold](#holds) version below doesn't have that problem, and a flow's `Sleep` survives it too.
 
@@ -194,7 +198,7 @@ framework.Moment{
 
 ### Rooms
 
-`framework.InRoom` is a capability of every device in a room, as a `Change`, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
+`framework.InRoom` is a capability of every device in a room, as a `Change`, a condition's read, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
 
 ```go
 framework.Moment{
@@ -210,7 +214,18 @@ A room without types means every device in it with the capability, and `on` is a
 framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false) // the lights, not the plugs
 ```
 
-A device whose type isn't listed is left alone, and the log names it, so a new kind of light is left alone until you add its type. `Types` is only for writes: a room trigger fires for any device in the room.
+A device whose type isn't listed is left alone, and the log names it, so a new kind of light is left alone until you add its type. A room read takes `Types` too, but a room trigger doesn't: it fires for any device in the room.
+
+A condition reads a room with `State`'s `Any`, `All` and `Count` for a `bool` capability, and `Readings` for a number, whose values go to `slices.Max`, `slices.Min` or an average:
+
+```go
+// A dehumidifier that runs on whichever cellar sensors have reported.
+When: func(s framework.State) bool {
+	return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
+},
+```
+
+A read covers the devices in the room now that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. If none has reported, the condition stops, as at a `Get`. A hold that reads a room looks again when a device moves in or out with `oikade devices room`, with no deploy. A sensor that reported and then died keeps its last value.
 
 - **Room triggers** fire on a change from any device in the room at the time of the change.
 - **Room actions** set every device in the room that has reported the capability, and is one of the `Types` if there are any, in name order, and skip the rest. So `on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.

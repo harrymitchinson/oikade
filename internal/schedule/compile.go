@@ -34,8 +34,9 @@ type Budget struct {
 	minutes                      MinutesFunc
 }
 
-// MinutesFunc works out a day's budget at planningTime, from the namespace's values.
-type MinutesFunc func(devices map[string]map[string]any, now time.Time, loc *time.Location) (int, error)
+// MinutesFunc works out a day's budget at planningTime, from what a condition sees then: the
+// engine's Vars.
+type MinutesFunc func(vars map[string]any, now time.Time, loc *time.Location) (int, error)
 
 // Spec is a budget as written.
 type Spec struct {
@@ -188,10 +189,10 @@ func (out *Budget) compileMinutes(s *Spec) []error {
 }
 
 // Input returns the PlanInput for the planning day that starts on the given local date at
-// planningTime. now is the planning time, devices are the namespace's values for the minutes, and
+// planningTime. now is the planning time, vars are what the minutes read, and
 // read returns the bands input's latest reading, or nil if it has never reported.
 func (out *Budget) Input(year int, month time.Month, day int, now time.Time, loc *time.Location,
-	devices map[string]map[string]any, read func(device, name string) *Reading,
+	vars map[string]any, read func(device, name string) *Reading,
 ) PlanInput {
 	in := PlanInput{
 		Now:         now,
@@ -206,7 +207,7 @@ func (out *Budget) Input(year int, month time.Month, day int, now time.Time, loc
 		bands.Input = read(out.inputDevice, out.inputCapability)
 		in.Minutes = &Minutes{Bands: &bands}
 	case out.minutes != nil:
-		in.Minutes = &Minutes{Expression: func() (int, error) { return out.minutes(devices, now, loc) }}
+		in.Minutes = &Minutes{Expression: func() (int, error) { return out.minutes(vars, now, loc) }}
 	}
 	return in
 }

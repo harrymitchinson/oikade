@@ -89,10 +89,7 @@ func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices map[str
 	if !on || h.when == nil {
 		return on, true, next
 	}
-	if devices == nil {
-		devices = e.Store.Values(key.Namespace)
-	}
-	b, err := h.when(Vars{"devices": devices, "now": now, "tz": e.Location.String()})
+	b, err := h.when(e.conditionVars(key.Namespace, now, devices))
 	if broken, ok := errors.AsType[brokenCondition](err); ok {
 		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "err", broken)
 		return false, false, next

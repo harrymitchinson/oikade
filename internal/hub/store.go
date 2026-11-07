@@ -241,6 +241,30 @@ func (s *Store) Values(namespace string) map[string]map[string]any {
 	return out
 }
 
+// Member is where a device is and what it is, for a condition that reads a room.
+type Member struct {
+	Room        string
+	DeviceTypes []devicetype.Type
+}
+
+// OfTypes reports whether the device is one of types. No types means any device.
+func (m Member) OfTypes(types []devicetype.Type) bool {
+	return devicetype.Any(m.DeviceTypes, types)
+}
+
+// Members returns device name -> Member for one namespace.
+func (s *Store) Members(namespace string) map[string]Member {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := map[string]Member{}
+	for k, e := range s.devices {
+		if k.Namespace == namespace {
+			out[k.Name] = Member{Room: e.Room, DeviceTypes: slices.Clone(e.DeviceTypes)}
+		}
+	}
+	return out
+}
+
 // Room returns the declared devices whose room is room in one namespace, sorted by name.
 func (s *Store) Room(namespace, room string) []ident.ID {
 	if room == "" {

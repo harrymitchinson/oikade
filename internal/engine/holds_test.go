@@ -507,3 +507,21 @@ func TestEditedTargetEndsTheOldOneOnce(t *testing.T) {
 		t.Fatalf("calls = %v, want the heater on and off once and the fan retried", r.setter.got())
 	}
 }
+
+// A device moving room changes no value, so the host announces it again, and a hold whose when
+// reads rooms looks again then rather than at its next change.
+func TestAHoldLooksAgainWhenADeviceIsAnnounced(t *testing.T) {
+	inBathroom := func(v Vars) (bool, error) {
+		return v["members"].(map[string]hub.Member)["bathroom-sensor"].Room == "bathroom", nil
+	}
+	r := startRig(t, local("2026-10-21 12:00 BST"), nil, nil, nil,
+		holdRule(t, "bathroom-fan", Hold{Device: "bathroom-fan", Capability: capability.On, Value: true, When: inBathroom}))
+	r.expect()
+	r.declareAlso(map[string]string{"bathroom-sensor": "bathroom"})
+	r.settle()
+	r.expect()
+	sensor := ident.ID{Namespace: ns, Name: "bathroom-sensor"}
+	r.store.Discovered(sensor, driver.Info{Found: true, Capabilities: holdDevices["bathroom-sensor"]})
+	r.settle()
+	r.expect(call{"bathroom-fan", capability.On, true})
+}

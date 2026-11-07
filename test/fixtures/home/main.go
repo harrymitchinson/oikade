@@ -263,6 +263,13 @@ func main() {
 				},
 			},
 			{
+				// Reads whichever devices are in the cellar now, which oikade devices room changes.
+				Name: "cellar-damp", Set: on("dehumidifier").To(true),
+				When: func(s framework.State) bool {
+					return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
+				},
+			},
+			{
 				// A bug in a home: a condition that never returns once the sensor says so.
 				Name: "stuck", Set: on("trap-light").To(true),
 				When: func(s framework.State) bool {

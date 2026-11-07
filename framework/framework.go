@@ -38,6 +38,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
@@ -58,11 +59,15 @@ const (
 // State is what a condition reads: the home now.
 type State struct {
 	devices map[string]map[string]any
+	members map[string]hub.Member
 	now     time.Time
 }
 
 // notReported ends a condition that read a value nobody has reported yet.
 type notReported struct{ device, capability string }
+
+// roomNotReported ends a condition that read a room where no device has reported the capability.
+type roomNotReported struct{ room, capability string }
 
 func (s State) value(device, capability string) any {
 	v, ok := s.devices[device][capability]
@@ -74,13 +79,85 @@ func (s State) value(device, capability string) any {
 
 // Get reads a device's capability. A condition reading a value nobody has reported yet stops there:
 // a hold keeps its state, and a moment doesn't run. So does one with a mistake in it, such as a
-// device that doesn't exist, which is logged.
+// device that doesn't exist, which is logged. Lookup carries on instead.
 func (s State) Get[T Value](h Handle[T]) T {
-	v, ok := s.value(h.Device, string(h.Capability)).(T)
-	if !ok {
-		panic(fmt.Sprintf("%s %s isn't a %T", h.Device, h.Capability, v))
+	return as[T](h.Device, string(h.Capability), s.value(h.Device, string(h.Capability)))
+}
+
+// Lookup reads a device's capability, and reports false if nobody has reported it yet, so that a
+// condition can carry on without it:
+//
+//	if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
+func (s State) Lookup[T Value](h Handle[T]) (T, bool) {
+	values, declared := s.devices[h.Device]
+	if !declared {
+		panic(fmt.Sprintf("no device %s", h.Device))
 	}
-	return v
+	v, ok := values[string(h.Capability)]
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	return as[T](h.Device, string(h.Capability), v), true
+}
+
+func as[T Value](device, capability string, v any) T {
+	t, ok := v.(T)
+	if !ok {
+		panic(fmt.Sprintf("%s %s isn't a %T", device, capability, t))
+	}
+	return t
+}
+
+// Any reports whether the capability is true on any of the room's devices that have reported it.
+//
+//	s.Any(framework.InRoom("hallway", framework.Occupied))
+//
+// A room read, like Any, All, Count and Readings, covers the devices in the room now, of its Types if
+// it has them, and ignores those that haven't reported the capability. If none has, the condition
+// stops there, as at a Get.
+func (s State) Any(r RoomRead[bool]) bool { return s.Count(r) > 0 }
+
+// All reports whether the capability is true on all of the room's devices that have reported it.
+func (s State) All(r RoomRead[bool]) bool { return s.Count(r) == len(roomValues(s, r)) }
+
+// Count is how many of the room's devices that have reported the capability have it true.
+func (s State) Count(r RoomRead[bool]) int {
+	n := 0
+	for _, v := range roomValues(s, r) {
+		if v {
+			n++
+		}
+	}
+	return n
+}
+
+// Readings are the capability's values on the room's devices that have reported it, in device name
+// order, for slices.Max or an average.
+//
+//	slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity)))
+func (s State) Readings(r RoomRead[float64]) []float64 { return roomValues(s, r) }
+
+// roomValues are the reported values of a room's capability, in device name order.
+func roomValues[T Value](s State, r RoomRead[T]) []T {
+	room, c, types := r.read()
+	var names []string
+	for name, m := range s.members {
+		if m.Room == room && m.OfTypes(types) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	var out []T
+	for _, name := range names {
+		if v, ok := s.devices[name][string(c)]; ok {
+			out = append(out, as[T](name, string(c), v))
+		}
+	}
+	if len(out) == 0 {
+		panic(roomNotReported{room, string(c)})
+	}
+	return out
 }
 
 // Now is the time of this look at the home.
@@ -96,6 +173,7 @@ func (c Condition) toEngine() engine.Condition {
 	}
 	return func(v engine.Vars) (ok bool, err error) {
 		devices, _ := v["devices"].(map[string]map[string]any)
+		members, _ := v["members"].(map[string]hub.Member)
 		now, _ := v["now"].(time.Time)
 		defer func() {
 			r := recover()
@@ -104,16 +182,20 @@ func (c Condition) toEngine() engine.Condition {
 			}
 			// Waiting for a device to report is normal. Anything else is a bug: the engine
 			// recovers it, and logs it where a person will see it.
-			if n, waiting := r.(notReported); waiting {
+			switch n := r.(type) {
+			case notReported:
 				if _, declared := devices[n.device]; declared {
 					ok, err = false, fmt.Errorf("%s %s hasn't reported", n.device, n.capability)
 					return
 				}
 				panic(fmt.Sprintf("no device %s", n.device))
+			case roomNotReported:
+				ok, err = false, fmt.Errorf("no device in room %s has reported %s", n.room, n.capability)
+				return
 			}
 			panic(r)
 		}()
-		return c(State{devices: devices, now: now}), nil
+		return c(State{devices: devices, members: members, now: now}), nil
 	}
 }
 
@@ -669,7 +751,7 @@ func (b *Budget) toSchedule() *schedule.Spec {
 	}
 	s := &schedule.Spec{PlanningTime: b.PlanningTime, SlotMinutes: b.SlotMinutes}
 	if m := b.Minutes; m != nil {
-		s.Minutes = func(devices map[string]map[string]any, now time.Time, _ *time.Location) (minutes int, err error) {
+		s.Minutes = func(vars map[string]any, _ time.Time, _ *time.Location) (minutes int, err error) {
 			// The engine plans holding its lock, so a mistake here must end as a failed day.
 			defer func() {
 				if r := recover(); r != nil {
@@ -679,7 +761,7 @@ func (b *Budget) toSchedule() *schedule.Spec {
 			_, err = Condition(func(st State) bool {
 				minutes = m(st)
 				return true
-			}).toEngine()(engine.Vars{"devices": devices, "now": now})
+			}).toEngine()(vars)
 			return minutes, err
 		}
 	}
