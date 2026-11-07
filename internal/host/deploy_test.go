@@ -466,9 +466,9 @@ func TestDroppingAControlThatHoldsASafetyClaimIsAFinding(t *testing.T) {
 	entry := func(c string) wire.DeviceControl {
 		return wire.DeviceControl{Device: "valve", Entry: control.Entry{Capability: c}}
 	}
-	old := wire.Manifest{Control: []wire.DeviceControl{entry("switch.on"), entry("light.on")}}
-	next := wire.Manifest{Control: []wire.DeviceControl{entry("light.on")}}
-	held := func(device, name string) bool { return device == "valve" && name == "switch.on" }
+	old := wire.Manifest{Control: []wire.DeviceControl{entry("on"), entry("brightness")}}
+	next := wire.Manifest{Control: []wire.DeviceControl{entry("on")}}
+	held := func(device, name string) bool { return device == "valve" && name == "brightness" }
 	if got := safetyFindings(old, next, nil, held); len(got) != 1 {
 		t.Fatalf("findings %v, want one", got)
 	}

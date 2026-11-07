@@ -33,6 +33,27 @@ const (
 	EnvSecretsDir = "OIKADE_SECRETS_DIR"
 )
 
+// The capabilities a plugin may announce and report, as docs/plugin-contract.md lists them.
+// Oikade's registry gives each one's type and range, and rejects any other name.
+const (
+	// On is whether a light, switch or outlet is on: a bool.
+	On = "on"
+	// Brightness is a light's brightness in percent.
+	Brightness = "brightness"
+	// Temperature is in degrees Celsius.
+	Temperature = "temperature"
+	// Humidity is relative humidity in percent.
+	Humidity = "humidity"
+	// Open is true while a door or window is open.
+	Open = "open"
+	// Occupied is true while motion or presence is detected.
+	Occupied = "occupied"
+	// Battery is a battery's charge in percent.
+	Battery = "battery"
+	// LinkQuality is a radio link's quality, from 0 to 255.
+	LinkQuality = "link-quality"
+)
+
 const prefix = "oikade/v1/"
 
 // Root is a plugin's topic root, oikade/v1/<namespace>/<plugin>.

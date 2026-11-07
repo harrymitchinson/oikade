@@ -43,12 +43,12 @@ func TestCoalescerLatestWins(t *testing.T) {
 		Current: func(ident.ID, string) (any, bool) { return false, true }}
 	c.Start(t.Context())
 	for _, v := range []bool{true, false, true, true} {
-		c.Add(porchFan, capability.SwitchOn, v)
+		c.Add(porchFan, capability.On, v)
 	}
-	c.Add(deskLamp, capability.LightOn, true)
+	c.Add(deskLamp, capability.On, true)
 	time.Sleep(150 * time.Millisecond)
 	got := rec.list()
-	if len(got) != 2 || !contains(got, "porch-fan switch.on=true") || !contains(got, "desk-lamp light.on=true") {
+	if len(got) != 2 || !contains(got, "porch-fan on=true") || !contains(got, "desk-lamp on=true") {
 		t.Errorf("writes %v", got)
 	}
 }
@@ -59,8 +59,8 @@ func TestCoalescerSkipsNoChange(t *testing.T) {
 	c := &Coalescer{Setter: rec, Window: 30 * time.Millisecond, Timeout: time.Second,
 		Current: func(ident.ID, string) (any, bool) { return true, true }}
 	c.Start(t.Context())
-	c.Add(porchFan, capability.SwitchOn, false)
-	c.Add(porchFan, capability.SwitchOn, true)
+	c.Add(porchFan, capability.On, false)
+	c.Add(porchFan, capability.On, true)
 	time.Sleep(150 * time.Millisecond)
 	if got := rec.list(); len(got) != 0 {
 		t.Errorf("writes %v, want none", got)
@@ -76,20 +76,20 @@ func TestCoalescerComparesWithWhatItSent(t *testing.T) {
 		Current: func(ident.ID, string) (any, bool) { return false, true },
 		Now:     func() time.Time { return now }}
 	c.Start(t.Context())
-	c.Add(porchFan, capability.SwitchOn, true)
+	c.Add(porchFan, capability.On, true)
 	time.Sleep(60 * time.Millisecond)
-	c.Add(porchFan, capability.SwitchOn, false) // the device still reports false
+	c.Add(porchFan, capability.On, false) // the device still reports false
 	time.Sleep(60 * time.Millisecond)
-	c.Add(porchFan, capability.SwitchOn, false) // already sent: skipped
+	c.Add(porchFan, capability.On, false) // already sent: skipped
 	time.Sleep(60 * time.Millisecond)
-	want := []string{"porch-fan switch.on=true", "porch-fan switch.on=false"}
+	want := []string{"porch-fan on=true", "porch-fan on=false"}
 	if got := rec.list(); !slices.Equal(got, want) {
 		t.Errorf("writes %v, want %v", got, want)
 	}
 
 	// Once the device has had time to report, its state is the baseline again.
 	now = now.Add(sentFor)
-	c.Add(porchFan, capability.SwitchOn, false)
+	c.Add(porchFan, capability.On, false)
 	time.Sleep(60 * time.Millisecond)
 	if got := rec.list(); len(got) != 2 {
 		t.Errorf("writes %v, want no more", got)
@@ -103,12 +103,12 @@ func TestCoalescerOrdersWrites(t *testing.T) {
 		c := &Coalescer{Setter: rec, Window: 10 * time.Millisecond, Timeout: time.Second,
 			Current: func(ident.ID, string) (any, bool) { return nil, false }}
 		c.Start(t.Context())
-		c.Add(deskLamp, capability.LightOn, on)
-		c.Add(deskLamp, capability.LightLevel, 40.0)
+		c.Add(deskLamp, capability.On, on)
+		c.Add(deskLamp, capability.Brightness, 40.0)
 		time.Sleep(60 * time.Millisecond)
-		want := []string{"desk-lamp light.level=40", "desk-lamp light.on=true"}
+		want := []string{"desk-lamp brightness=40", "desk-lamp on=true"}
 		if !on {
-			want = []string{"desk-lamp light.on=false", "desk-lamp light.level=40"}
+			want = []string{"desk-lamp on=false", "desk-lamp brightness=40"}
 		}
 		if got := rec.list(); !slices.Equal(got, want) {
 			t.Errorf("on=%v: writes %v, want %v", on, got, want)

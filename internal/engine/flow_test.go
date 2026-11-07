@@ -40,7 +40,7 @@ func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, ident.ID) 
 	eng.Init()
 	store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: {
 		Instance: z2m,
-		Control:  []control.Entry{entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h")},
+		Control:  []control.Entry{entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h")},
 	}})
 	return eng, dev
 }
@@ -54,7 +54,7 @@ func TestClaimAnswersOnlyOnceSaved(t *testing.T) {
 	eng, dev := arbitratedEngine(t, controls)
 	answered := make(chan error, 1)
 	go func() {
-		_, err := eng.Claim(context.Background(), dev, capability.SwitchOn, testClaim())
+		_, err := eng.Claim(context.Background(), dev, capability.On, testClaim())
 		answered <- err
 	}()
 	select {
@@ -72,7 +72,7 @@ func TestClaimAnswersOnlyOnceSaved(t *testing.T) {
 		t.Fatal("the claim was never answered")
 	}
 	saved, ok := controls.Get(dev)
-	if !ok || len(saved[capability.SwitchOn].Claims) != 1 {
+	if !ok || len(saved[capability.On].Claims) != 1 {
 		t.Fatalf("saved %+v", saved)
 	}
 }
@@ -83,7 +83,7 @@ func TestClaimReportsAFailedSave(t *testing.T) {
 	failure := errors.New("disk full")
 	controls.err.Store(&failure)
 	eng, dev := arbitratedEngine(t, controls)
-	if _, err := eng.Claim(context.Background(), dev, capability.SwitchOn, testClaim()); err == nil {
+	if _, err := eng.Claim(context.Background(), dev, capability.On, testClaim()); err == nil {
 		t.Fatal("a claim that wasn't saved was reported as saved")
 	}
 	// It stays marked, so the next save still carries it.
@@ -91,7 +91,7 @@ func TestClaimReportsAFailedSave(t *testing.T) {
 	if err := eng.flushControls(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if saved, _ := controls.Get(dev); len(saved[capability.SwitchOn].Claims) != 1 {
+	if saved, _ := controls.Get(dev); len(saved[capability.On].Claims) != 1 {
 		t.Fatalf("saved %+v", saved)
 	}
 }
@@ -100,20 +100,20 @@ func TestReleaseAnswersOnlyOnceSaved(t *testing.T) {
 	controls := newMemoryStates[ControlState]()
 	eng, dev := arbitratedEngine(t, controls)
 	c := testClaim()
-	if ok, err := eng.Claim(context.Background(), dev, capability.SwitchOn, c); !ok || err != nil {
+	if ok, err := eng.Claim(context.Background(), dev, capability.On, c); !ok || err != nil {
 		t.Fatalf("claim: %v %v", ok, err)
 	}
-	if ok, err := eng.ReleaseClaim(context.Background(), dev, capability.SwitchOn, c.Source); !ok || err != nil {
+	if ok, err := eng.ReleaseClaim(context.Background(), dev, capability.On, c.Source); !ok || err != nil {
 		t.Fatalf("release: %v %v", ok, err)
 	}
-	if saved, _ := controls.Get(dev); len(saved[capability.SwitchOn].Claims) != 0 {
+	if saved, _ := controls.Get(dev); len(saved[capability.On].Claims) != 0 {
 		t.Fatalf("still saved: %+v", saved)
 	}
 }
 
 func TestClaimOnAnUnarbitratedCapabilityIsRefused(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
-	if ok, err := eng.Claim(context.Background(), dev, capability.LightOn, testClaim()); ok || err != nil {
+	if ok, err := eng.Claim(context.Background(), dev, capability.Brightness, testClaim()); ok || err != nil {
 		t.Fatalf("got %v %v", ok, err)
 	}
 }
@@ -123,7 +123,7 @@ func TestFlowBodyRunsAsARunInProgress(t *testing.T) {
 	stop := make(chan struct{})
 	key := goKey("motion-light")
 	c, err := NewFlow(key, Flow{
-		Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
+		Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupied}},
 		Body: func(context.Context) string {
 			started <- struct{}{}
 			<-stop
@@ -147,7 +147,7 @@ func TestResumedRunHoldsItsPlace(t *testing.T) {
 	runs := make(chan string, 2)
 	stop := make(chan struct{})
 	c, err := NewFlow(key, Flow{
-		Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
+		Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupied}},
 		Body:    func(context.Context) string { runs <- "new"; return ResultSucceeded },
 	})
 	if err != nil {
@@ -179,7 +179,7 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 	key := goKey("motion-light")
 	occupied := func(v Vars) (bool, error) {
 		devices, _ := v["devices"].(map[string]map[string]any)
-		on, ok := devices["hallway-motion"][capability.Occupancy].(bool)
+		on, ok := devices["hallway-motion"][capability.Occupied].(bool)
 		if !ok {
 			return false, errors.New("not reported")
 		}
@@ -194,7 +194,7 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 		woke <- ok
 	}()
 	report := func(v bool) {
-		h.e.Store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupancy, Value: v})
+		h.e.Store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupied, Value: v})
 		h.motion(v)
 	}
 	report(false)
@@ -226,15 +226,15 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 func TestApplyRunsOneAction(t *testing.T) {
 	h := newHarness(t, time.Now())
 	key := goKey("motion-light")
-	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}); err != nil {
+	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: capability.On, Value: true}); err != nil {
 		t.Fatal(err)
 	}
-	h.expectCalls(call{"hallway-light", capability.LightOn, true})
+	h.expectCalls(call{"hallway-light", capability.On, true})
 	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: "no.such", Value: true}); err == nil {
 		t.Fatal("an invalid set was applied")
 	}
 	h.setter.err = errors.New("offline")
-	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}); err == nil {
+	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: capability.On, Value: true}); err == nil {
 		t.Fatal("a failed write wasn't reported")
 	}
 }
@@ -242,7 +242,7 @@ func TestApplyRunsOneAction(t *testing.T) {
 func TestApplyIsAnErrorWhereAMomentOnlyLogs(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
 	key := goKey("routine")
-	unended := Set{Device: dev.Name, Capability: capability.SwitchOn, Value: false}
+	unended := Set{Device: dev.Name, Capability: capability.On, Value: false}
 	if err := eng.Apply(context.Background(), key, unended); err == nil {
 		t.Fatal("a set with no end on an arbitrated capability looked done")
 	}
@@ -262,7 +262,7 @@ func TestFlushReportsOnlyTheDeviceItWasAskedAbout(t *testing.T) {
 	failure := errors.New("disk full")
 	controls.err.Store(&failure)
 	eng.mu.Lock()
-	eng.arbiter(dev, capability.SwitchOn)
+	eng.arbiter(dev, capability.On)
 	eng.markSave(dev)
 	eng.mu.Unlock()
 	if err := eng.flushControls(context.Background(), goKey("another")); err != nil {
@@ -316,14 +316,14 @@ func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
 	broken := ident.ID{Namespace: ns, Name: "broken"}
 	eng, dev := arbitratedEngine(t, &failingFor{States: newMemoryStates[ControlState](), broken: broken})
 	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{
-		dev:    {Instance: z2m, Control: []control.Entry{entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h")}},
-		broken: {Instance: z2m, Control: []control.Entry{entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h")}},
+		dev:    {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h")}},
+		broken: {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h")}},
 	})
 	ctx := context.Background()
-	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, testClaim()); err != nil {
+	if _, err := eng.Claim(ctx, dev, capability.On, testClaim()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := eng.Claim(ctx, broken, capability.SwitchOn, control.Claim{Source: "Rule/stuck", Level: control.Normal, Expires: time.Now().Add(time.Hour)}); err == nil {
+	if _, err := eng.Claim(ctx, broken, capability.On, control.Claim{Source: "Rule/stuck", Level: control.Normal, Expires: time.Now().Add(time.Hour)}); err == nil {
 		t.Fatal("the broken device saved")
 	}
 
@@ -343,7 +343,7 @@ func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	other := ident.ID{Namespace: ns, Name: "other"}
 	third := ident.ID{Namespace: ns, Name: "third"}
 	meta := hub.Meta{Instance: z2m, Control: []control.Entry{
-		entry(capability.SwitchOn, "true", control.NamePreferOff, control.NameOverride, "1h"),
+		entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h"),
 	}}
 	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: meta, other: meta, third: meta})
 	ctx := context.Background()
@@ -351,14 +351,14 @@ func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	expires := time.Now().Add(time.Hour)
 	for d, level := range map[ident.ID]control.Level{dev: control.Normal, other: control.Override, third: control.Safety} {
 		claim := control.Claim{Source: ruleSource(key.Name), Level: level, Expires: expires}
-		if _, err := eng.Claim(ctx, d, capability.SwitchOn, claim); err != nil {
+		if _, err := eng.Claim(ctx, d, capability.On, claim); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := eng.ReleaseFlow(ctx, key); err != nil {
 		t.Fatal(err)
 	}
-	claims := func(d ident.ID) int { return len(eng.arbs[d][capability.SwitchOn].a.State().Claims) }
+	claims := func(d ident.ID) int { return len(eng.arbs[d][capability.On].a.State().Claims) }
 	if claims(dev) != 0 || claims(other) != 0 {
 		t.Fatalf("claims stayed: normal %d, override %d", claims(dev), claims(other))
 	}
@@ -371,19 +371,19 @@ func TestReleaseWithAllLevelsEndsSafetyClaims(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
 	ctx := context.Background()
 	claim := control.Claim{Source: "Rule/x", Level: control.Safety, Expires: time.Now().Add(time.Hour)}
-	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, claim); err != nil {
+	if _, err := eng.Claim(ctx, dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
 	if err := eng.ReleaseClaims(ctx, ns, "Rule/x", allLevels); err != nil {
 		t.Fatal(err)
 	}
-	if got := eng.arbs[dev][capability.SwitchOn].a.State().Claims; len(got) != 0 {
+	if got := eng.arbs[dev][capability.On].a.State().Claims; len(got) != 0 {
 		t.Fatalf("an explicit release left %+v", got)
 	}
 }
 
 func TestNewFlowNeedsABody(t *testing.T) {
-	if _, err := NewFlow(goKey("x"), Flow{Changes: []Change{{Device: "a", Capability: capability.Occupancy}}}); err == nil {
+	if _, err := NewFlow(goKey("x"), Flow{Changes: []Change{{Device: "a", Capability: capability.Occupied}}}); err == nil {
 		t.Fatal("a flow with no body compiled")
 	}
 }
@@ -392,7 +392,7 @@ func TestKeepSinceCatchesUpOnAMissedTime(t *testing.T) {
 	timer := func(deadline time.Duration) *Compiled {
 		c, err := NewMoment(goKey("motion-light"), Moment{
 			Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: deadline,
-			Do: []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
+			Do: []Action{Set{Device: "hallway-light", Capability: capability.On, Value: true}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -403,7 +403,7 @@ func TestKeepSinceCatchesUpOnAMissedTime(t *testing.T) {
 	now := local("2026-06-15 07:05 BST")
 	h := newHarness(t, now)
 	h.e.Load(timer(10 * time.Minute))
-	h.expectCalls(call{"hallway-light", capability.LightOn, true})
+	h.expectCalls(call{"hallway-light", capability.On, true})
 
 	h = newHarness(t, now)
 	h.e.Load(timer(time.Minute))
@@ -419,7 +419,7 @@ func TestRuleClaimsAndEndRule(t *testing.T) {
 		{Source: "Rule/leak-too", Level: control.Normal, Expires: time.Now().Add(time.Hour)},
 		{Source: "Device", Level: control.Override, Expires: time.Now().Add(time.Hour)},
 	} {
-		if _, err := eng.Claim(ctx, dev, capability.SwitchOn, c); err != nil {
+		if _, err := eng.Claim(ctx, dev, capability.On, c); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -444,7 +444,7 @@ func TestRuleClaimsCountsClaimsStillOnDisk(t *testing.T) {
 	eng, dev := arbitratedEngine(t, controls)
 	ctx := context.Background()
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Expires: time.Now().Add(time.Hour)}
-	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, claim); err != nil {
+	if _, err := eng.Claim(ctx, dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
 	restarted, _ := arbitratedEngine(t, controls)

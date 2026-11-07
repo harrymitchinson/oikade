@@ -10,7 +10,7 @@ import (
 
 func TestCompileChecksFlows(t *testing.T) {
 	run := func(*FlowRun) error { return nil }
-	on := []Change{Handle[bool]{Device: "hall", Capability: ContactOpen}}
+	on := []Change{Handle[bool]{Device: "hall", Capability: Open}}
 	for name, tc := range map[string]struct {
 		flow Flow
 		want string
@@ -45,7 +45,7 @@ func TestLateness(t *testing.T) {
 	if DefaultLate != flow.DefaultLate {
 		t.Fatalf("the public default is %s and the runner's is %s", DefaultLate, flow.DefaultLate)
 	}
-	on := []Change{Handle[bool]{Device: "hall", Capability: ContactOpen}}
+	on := []Change{Handle[bool]{Device: "hall", Capability: Open}}
 	rules, flows, err := Home{
 		Flows: []Flow{
 			{Name: "normal", On: on, Run: func(*FlowRun) error { return nil }},
@@ -56,7 +56,7 @@ func TestLateness(t *testing.T) {
 			{Name: "moment", On: on, Do: []Action{Wait(time.Second)}},
 			{
 				Name: "safety-moment", On: on,
-				Do: []Action{Handle[bool]{Device: "valve", Capability: SwitchOn}.To(false).Priority(Safety)},
+				Do: []Action{Handle[bool]{Device: "valve", Capability: On}.To(false).Priority(Safety)},
 			},
 		},
 	}.compile()

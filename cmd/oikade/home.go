@@ -211,8 +211,8 @@ func moduleFromSource(dir, name, source string) error {
 // homeFiles are a new home's files, by path.
 func homeFiles() (map[string][]byte, error) {
 	devices, err := registry.Render(registry.Snapshot{Next: 4, Devices: []registry.Device{
-		{Name: "porch-light", Room: "porch", Capabilities: []string{"light.on"}, Endpoint: 2},
-		{Name: "porch-sensor", Room: "porch", Capabilities: []string{"sensor.occupancy-detected"}, Endpoint: 3},
+		{Name: "porch-light", Room: "porch", Capabilities: []string{"on"}, Endpoint: 2},
+		{Name: "porch-sensor", Room: "porch", Capabilities: []string{"occupied"}, Endpoint: 3},
 	}}, "main")
 	if err != nil {
 		return nil, errors.New("rendering the example devices: " + err.Error())
@@ -243,9 +243,9 @@ func home() framework.Home {
 	return framework.Home{
 		Holds: []framework.Hold{{
 			Name: "porch-light",
-			Set:  PorchLight.LightOn.To(true),
+			Set:  PorchLight.On.To(true),
 			When: func(s framework.State) bool {
-				return s.Get(PorchSensor.Occupancy)
+				return s.Get(PorchSensor.Occupied)
 			},
 			OffDelay: 5 * time.Minute,
 		}},
@@ -269,15 +269,15 @@ import (
 func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 	h := hometest.New(t, home(), hometest.Options{})
 
-	h.Set(PorchSensor.Occupancy, true)
-	h.ExpectValue(PorchLight.LightOn, true)
+	h.Set(PorchSensor.Occupied, true)
+	h.ExpectValue(PorchLight.On, true)
 
-	h.Set(PorchSensor.Occupancy, false)
+	h.Set(PorchSensor.Occupied, false)
 	h.Advance(4 * time.Minute)
-	h.ExpectValue(PorchLight.LightOn, true)
+	h.ExpectValue(PorchLight.On, true)
 
 	h.Advance(2 * time.Minute)
-	h.ExpectValue(PorchLight.LightOn, false)
+	h.ExpectValue(PorchLight.On, false)
 }
 `
 

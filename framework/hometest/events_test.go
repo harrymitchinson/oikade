@@ -9,7 +9,7 @@ import (
 )
 
 func TestAPlanThatFailsIsAnEvent(t *testing.T) {
-	pump := framework.Handle[bool]{Device: "pump", Capability: framework.SwitchOn}
+	pump := framework.Handle[bool]{Device: "pump", Capability: framework.On}
 	home := framework.Home{
 		Control: []framework.Control{{
 			Default: pump.To(false), Resolve: framework.PreferOn,
@@ -21,7 +21,7 @@ func TestAPlanThatFailsIsAnEvent(t *testing.T) {
 		}},
 	}
 	h := New(t, home, Options{Devices: []Device{{
-		Name: "pump", Capabilities: []string{"switch.on"}, Values: map[string]any{"switch.on": false},
+		Name: "pump", Capabilities: []string{"on"}, Values: map[string]any{"on": false},
 	}}})
 	h.Advance(0)
 	for _, e := range h.sim.Events() {

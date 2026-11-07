@@ -21,7 +21,7 @@ import (
 // Node's lock.
 type SetFunc func(name string, value any)
 
-// DeviceType is the Matter device type family of a switch.on device.
+// DeviceType is the Matter device type family of a device that's on or off.
 type DeviceType string
 
 const (
@@ -41,7 +41,8 @@ type Device struct {
 	Name     string
 	// Capabilities are the device's capability names.
 	Capabilities []string
-	// Type overrides the device type family of a switch.on device.
+	// Type overrides the device type family of a device that's on or off. Without it, one with a
+	// brightness is a light, and any other a plug-in unit.
 	Type DeviceType
 	// Unique is the bridged device's UniqueID. Empty derives it from Key, which suits a Key that never
 	// changes.
@@ -74,16 +75,16 @@ func (m *Mapped) Update(name string, v any) {
 	}
 }
 
-// actuators are the writable on/off capabilities, in the order the mapping prefers them.
-var actuators = []string{capability.LightOn, capability.SwitchOn, capability.OutletOn}
+// mapped are the capabilities that make a device worth showing.
+var mapped = append([]string{capability.On}, sensors...)
 
 // sensors are the read-only capabilities the mapping shows.
-var sensors = []string{capability.Occupancy, capability.ContactOpen, capability.Temperature, capability.Humidity}
+var sensors = []string{capability.Occupied, capability.Open, capability.Temperature, capability.Humidity}
 
 // Supported reports whether any of a Device's capabilities map to a Matter device type. Battery
 // alone doesn't: it's a power source, not a device.
 func Supported(caps []string) bool {
-	for _, c := range append(slices.Clone(actuators), sensors...) {
+	for _, c := range mapped {
 		if slices.Contains(caps, c) {
 			return true
 		}
@@ -100,22 +101,15 @@ func Map(d Device, set SetFunc) *Mapped {
 	has := func(c string) bool { return slices.Contains(d.Capabilities, c) }
 	m := &Mapped{update: map[string]func(any){}}
 
-	actuator := ""
-	for _, c := range actuators {
-		if has(c) {
-			actuator = c
-			break
-		}
-	}
-	if actuator != "" {
+	if has(capability.On) {
+		dimmable := has(capability.Brightness)
 		family := d.Type
 		if family == "" {
 			family = TypePlugInUnit
-			if actuator == capability.LightOn {
+			if dimmable {
 				family = TypeLight
 			}
 		}
-		dimmable := actuator == capability.LightOn && has(capability.LightLevel)
 		m.Types = append(m.Types, deviceType(family, dimmable))
 
 		var onoff *clusters.OnOff
@@ -124,9 +118,9 @@ func Map(d Device, set SetFunc) *Mapped {
 		} else {
 			onoff = clusters.NewOnOff()
 		}
-		onoff.OnChange = func(on bool) { set(actuator, on) }
+		onoff.OnChange = func(on bool) { set(capability.On, on) }
 		m.Clusters = append(m.Clusters, onoff.Cluster())
-		m.update[actuator] = func(v any) {
+		m.update[capability.On] = func(v any) {
 			if b, ok := v.(bool); ok {
 				onoff.Set(b)
 			}
@@ -137,36 +131,36 @@ func Map(d Device, set SetFunc) *Mapped {
 				// The WithOnOff commands turn the device off at the minimum level, and on above it.
 				if withOnOff && atMinimum {
 					onoff.Set(false)
-					set(actuator, false)
+					set(capability.On, false)
 					return
 				}
-				set(capability.LightLevel, percent)
+				set(capability.Brightness, percent)
 				if withOnOff {
 					onoff.Set(true)
-					set(actuator, true)
+					set(capability.On, true)
 				}
 			}
 			m.Clusters = append(m.Clusters, level.Cluster())
-			m.update[capability.LightLevel] = func(v any) { level.Set(capability.Float(v)) }
+			m.update[capability.Brightness] = func(v any) { level.Set(capability.Float(v)) }
 		}
 	}
 
-	if has(capability.Occupancy) {
+	if has(capability.Occupied) {
 		c := clusters.NewOccupancy()
 		m.Types = append(m.Types, clusters.DeviceOccupancySensor)
 		m.Clusters = append(m.Clusters, c.Cluster())
-		m.update[capability.Occupancy] = func(v any) {
+		m.update[capability.Occupied] = func(v any) {
 			if b, ok := v.(bool); ok {
 				c.Set(b)
 			}
 		}
 	}
-	if has(capability.ContactOpen) {
+	if has(capability.Open) {
 		c := clusters.NewBooleanState()
 		m.Types = append(m.Types, clusters.DeviceContactSensor)
 		m.Clusters = append(m.Clusters, c.Cluster())
-		// Boolean State is true for contact: closed, the inverse of sensor.contact-open.
-		m.update[capability.ContactOpen] = func(v any) {
+		// Boolean State is true for contact: closed, the inverse of open.
+		m.update[capability.Open] = func(v any) {
 			if b, ok := v.(bool); ok {
 				c.Set(!b)
 			}

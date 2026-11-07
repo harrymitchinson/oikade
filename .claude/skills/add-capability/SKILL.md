@@ -5,7 +5,7 @@ description: Add a new device capability to Oikade end to end, from the capabili
 
 # Adding a capability to Oikade
 
-A capability is Oikade's protocol-neutral name for one piece of device state, such as `light.on` or `sensor.temperature`. Drivers translate their protocol to capabilities. The Matter bridge, metrics and rules only ever see capabilities. So a new capability is one small, careful change that ripples through about six places, and it is easy to finish five of them and forget the sixth. This skill is the checklist and the reasoning behind each step.
+A capability is Oikade's protocol-neutral name for one piece of device state, such as `on` or `temperature`. Drivers translate their protocol to capabilities. The Matter bridge, metrics and rules only ever see capabilities. So a new capability is one small, careful change that ripples through about six places, and it is easy to finish five of them and forget the sixth. This skill is the checklist and the reasoning behind each step.
 
 The capability's `name` and value semantics become a **public API**. They appear in Rule YAML in users' Git repos, in PromQL in their dashboards, and in `Device.status`. Renaming a capability later breaks all of that. So spend the most thought on step 1.
 
@@ -13,10 +13,10 @@ The capability's `name` and value semantics become a **public API**. They appear
 
 Decide these four things before touching code, and state them to the user in one or two lines so they can object:
 
-- **Name.** Use `<domain>.<quantity>` in kebab case, named after the physical quantity rather than the protocol. Examples: `sensor.illuminance`, `light.color-temperature`, `sensor.water-leak-detected`. Look at the existing names in `internal/capability/capability.go` and match their style. The name must make sense for drivers other than zigbee2mqtt (plugins, ESPHome later).
-- **Kind.** Only `Bool` and `Number` exist (`capability.Kind` in `internal/capability/capability.go`). An enumerated state such as a thermostat mode or `lock.state` doesn't fit either one. **Stop and discuss that with the user** rather than encoding the enum as magic numbers, because it needs an API change: a new kind, `Validate` and the metrics `Float` conversion. Often a bool works better anyway (`lock.locked`).
+- **Name.** Follow the naming guide in `internal/capability`'s package doc: what a person would say, one word if it can be, with no protocol or domain prefix. Examples: `illuminance`, `colour-temperature`, `leak`. Add it to `contract/v1`'s names too, and give its `Spec.Matter` attribute, then regenerate `docs/capabilities.md` with `go test ./internal/capability -update`.
+- **Kind.** Only `Bool` and `Number` exist (`capability.Kind` in `internal/capability/capability.go`). An enumerated state such as a thermostat mode or a lock's state doesn't fit either one. **Stop and discuss that with the user** rather than encoding the enum as magic numbers, because it needs an API change: a new kind, `Validate` and the metrics `Float` conversion. Often a bool works better anyway (`locked`).
 - **Units and range.** Use SI units or percent, and pick the unit a person would write in a rule. Celsius, lux and watts are good. A scale that leaks the protocol, like 0–254 brightness, is not. The exception is when both sides already share a unit and the "human" unit would need a lossy conversion. Colour temperature is the example: zigbee2mqtt and Matter both use whole-number mireds, and kelvin can't make the round trip through them (2700 K comes back as 2703 K). Then prefer the shared unit, or put the trade-off to the user rather than deciding it silently. Set an honest `Min`/`Max` in the registry: `Validate` rejects out-of-range values rather than clamping them, so a range that's too tight silently drops real readings.
-- **Polarity.** A bool is `true` when the condition in its name holds. `sensor.contact-open` is true when the contact is open, even though zigbee2mqtt's `contact` is true when it's closed. Name the bool so that `true` is the interesting or alarming state.
+- **Polarity.** A bool is `true` when the condition in its name holds. `open` is true when the contact is open, even though zigbee2mqtt's `contact` is true when it's closed. Name the bool so that `true` is the interesting or alarming state.
 - **Writable.** Is it writable? Only make it writable if the driver can actually set it. The engine and the Matter bridge both use this flag to decide whether to accept writes.
 
 ## 2. The registry: `internal/capability`
@@ -52,7 +52,7 @@ In `Map`, add the device type to `m.Types` and its cluster to `m.Clusters`, and 
 
 **Endpoint IDs never move:** the controller allocates them, so the mapping can't break them. A Device that gains a capability changes its `Signature`, and the bridge rebuilds it on the same endpoint ID. That part is handled.
 
-Some capabilities have no Matter representation, like `link.quality`. That's fine: leave them unmapped, and say so in the README table.
+Some capabilities have no Matter representation, like `link-quality`. That's fine: leave `Spec.Matter` nil, and regenerate `docs/capabilities.md`.
 
 Tests: add cases to `internal/matterbridge/mapping_test.go` that map a Device with the capability, check its device types and clusters, push a value through `Update` and read the attribute, and, if it's writable, invoke a command and check the write. Commissioning and reads over the wire are covered by the in-process node test in `internal/matter/node`.
 

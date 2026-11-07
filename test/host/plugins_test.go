@@ -69,7 +69,7 @@ func (r *rig) launchPlugins(args ...string) {
 func (r *rig) setting(device, value string) {
 	r.t.Helper()
 	r.until("a write to "+device, func() bool {
-		_, err := r.oikade(nil, "set", device, "switch.on", value)
+		_, err := r.oikade(nil, "set", device, "on", value)
 		return err == nil
 	})
 }
@@ -87,7 +87,7 @@ func (r *rig) untilValue(device string, want any) {
 				continue
 			}
 			for _, c := range d.Capabilities {
-				if c.Name == "switch.on" {
+				if c.Name == "on" {
 					return c.Value == want
 				}
 			}
@@ -100,7 +100,7 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.untilValue("relay", false)
-	r.stdout(nil, "set", "relay", "switch.on", "on")
+	r.stdout(nil, "set", "relay", "on", "on")
 	r.untilValue("relay", true)
 	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/home/relays" || d.Endpoint == 0 {
 		t.Fatalf("got %+v", d)
@@ -119,7 +119,7 @@ func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 
 	// A restart is the plugin listing everything again.
 	connected := r.count(pluginConnected)
-	r.oikade(nil, "set", "panics", "switch.on", "on") //nolint:errcheck // It dies taking this.
+	r.oikade(nil, "set", "panics", "on", "on") //nolint:errcheck // It dies taking this.
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected) > connected })
 	r.untilValue("panics", false)
 	for _, d := range r.devices().Devices {
@@ -149,10 +149,10 @@ func TestAPluginThatPanicsIsRestartedWhileTheRestCarriesOn(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.untilValue("relay", false)
-	r.stdout(nil, "set", "relay", "switch.on", "on")
+	r.stdout(nil, "set", "relay", "on", "on")
 	r.untilValue("relay", true)
 	automations := r.pid()
-	r.stdout(nil, "set", "panics", "switch.on", "on")
+	r.stdout(nil, "set", "panics", "on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	if r.pid() != automations || r.count(attached) != 1 || r.count(pluginConnected, "plugin", "quiet") != 1 {
@@ -170,7 +170,7 @@ func TestAPluginThatHangsIsKilledAndRestarted(t *testing.T) {
 	r := startPlugins(t, "--heartbeat-timeout=1s", "--plugin-set-timeout=100ms")
 	r.untilValue("relay", false)
 	automations := r.pid()
-	r.stdout(nil, "set", "hangs", "switch.on", "on")
+	r.stdout(nil, "set", "hangs", "on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginKilled, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	if r.pid() != automations {
@@ -190,7 +190,7 @@ func TestASafetyClaimOutlastsItsPlugin(t *testing.T) {
 	// Its valve starts open, so coming back is a change the claim has to undo.
 	const changed = "Changed capability"
 	before := r.count(changed, "device", "valve")
-	r.stdout(nil, "set", "panics", "switch.on", "on")
+	r.stdout(nil, "set", "panics", "on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	r.until("the valve to be seen open and shut again", func() bool {
@@ -200,7 +200,7 @@ func TestASafetyClaimOutlastsItsPlugin(t *testing.T) {
 	if st.Level != "Safety" {
 		t.Fatalf("got %+v. The log:\n%s", st, r.dump())
 	}
-	if _, err := r.oikade(nil, "set", "valve", "switch.on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "valve", "on", "on"); err == nil {
 		t.Fatal("a write beat the Safety claim")
 	}
 }
@@ -212,9 +212,9 @@ func TestAWriteToADownPluginFailsOutLoud(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.dir, "plugin-down"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r.stdout(nil, "set", "panics", "switch.on", "on")
+	r.stdout(nil, "set", "panics", "on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
-	stderr, err := r.oikade(nil, "set", "relay", "switch.on", "on")
+	stderr, err := r.oikade(nil, "set", "relay", "on", "on")
 	if err == nil || !strings.Contains(stderr, "offline") {
 		t.Fatalf("got %v, %q", err, stderr)
 	}
@@ -259,7 +259,7 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	endpoint := c.endpoint("relay")
 	c.command(endpoint, turnOn)
 	r.untilValue("relay", true)
-	r.stdout(nil, "set", "relay", "switch.on", "off")
+	r.stdout(nil, "set", "relay", "on", "off")
 	r.until("the controller to hear relay", func() bool { return !c.isOn(endpoint) })
 }
 
@@ -304,14 +304,14 @@ func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = p.Close(context.Background()) })
-	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"switch.on"}}}, 0)
+	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Reported until heard: nothing retains it for a host that subscribes later.
 	r.until("the kettle", func() bool {
-		_ = p.SetState(ctx, "kettle", contractv1.State{"switch.on": false})
-		_ = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"switch.on"}}}, 0)
+		_ = p.SetState(ctx, "kettle", contractv1.State{"on": false})
+		_ = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 		return slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Name == "kettle" })
 	})
 }
@@ -338,18 +338,18 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = p.Close(context.Background()) })
-	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"switch.on"}}}, 0)
+	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := p.SetAvailability(ctx, "kettle", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.SetState(ctx, "kettle", contractv1.State{"switch.on": false}); err != nil {
+	if err := p.SetState(ctx, "kettle", contractv1.State{"on": false}); err != nil {
 		t.Fatal(err)
 	}
 	r.untilValue("kettle", false)
-	r.stdout(nil, "set", "kettle", "switch.on", "on")
+	r.stdout(nil, "set", "kettle", "on", "on")
 	r.untilValue("kettle", true)
 	if device.sets.Load() != 1 {
 		t.Fatalf("got %d sets", device.sets.Load())

@@ -9,12 +9,12 @@ import (
 )
 
 func TestCompileHold(t *testing.T) {
-	c := holdRule(t, "r", Hold{Device: "workshop-heater", Capability: capability.SwitchOn, Value: false, Priority: PrioritySafety, Window: &Window{Start: SunTime{Event: sun.Sunset, Offset: -15 * time.Minute}, End: At{Time: "23:30"}, Days: []time.Weekday{time.Friday, time.Saturday}}, When: above("workshop-temperature", capability.Temperature, 45), OnDelay: time.Minute, OffDelay: 5 * time.Minute, Latch: true})
+	c := holdRule(t, "r", Hold{Device: "workshop-heater", Capability: capability.On, Value: false, Priority: PrioritySafety, Window: &Window{Start: SunTime{Event: sun.Sunset, Offset: -15 * time.Minute}, End: At{Time: "23:30"}, Days: []time.Weekday{time.Friday, time.Saturday}}, When: above("workshop-temperature", capability.Temperature, 45), OnDelay: time.Minute, OffDelay: 5 * time.Minute, Latch: true})
 	h := c.hold
 	if h == nil {
 		t.Fatal("no hold")
 	}
-	if h.device != "workshop-heater" || h.capability != "switch.on" || h.value != false || h.priority != PrioritySafety {
+	if h.device != "workshop-heater" || h.capability != "on" || h.value != false || h.priority != PrioritySafety {
 		t.Errorf("hold target: %+v", h)
 	}
 	if h.when == nil || !h.latch || h.onDelay != time.Minute || h.offDelay != 5*time.Minute {
@@ -33,7 +33,7 @@ func TestCompileHold(t *testing.T) {
 }
 
 func TestCompileClaims(t *testing.T) {
-	c := momentRule(t, "r", Moment{Changes: []Change{{Device: "b", Capability: capability.ContactOpen}}, Do: []Action{Set{Device: "rail", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilNext, Priority: PriorityOverride}, Set{Device: "rail", Capability: capability.SwitchOn, Value: false, Until: UntilReleased}, Release("other")}})
+	c := momentRule(t, "r", Moment{Changes: []Change{{Device: "b", Capability: capability.Open}}, Do: []Action{Set{Device: "rail", Capability: capability.On, Value: true, For: time.Hour, Until: UntilNext, Priority: PriorityOverride}, Set{Device: "rail", Capability: capability.On, Value: false, Until: UntilReleased}, Release("other")}})
 	if a := c.actions[0]; a.claimFor != time.Hour || a.until != UntilNext || a.priority != PriorityOverride {
 		t.Errorf("first set: %+v", a)
 	}
@@ -50,7 +50,7 @@ func TestReleaseActionDoesNotSet(t *testing.T) {
 	setter := &fakeSetter{}
 	result, _ := runRoom(t, setter, nil,
 		Release("workshop-overheat"),
-		set("hallway-light", "light.on", "true"))
+		set("hallway-light", "on", "true"))
 	if result != ResultSucceeded {
 		t.Fatalf("result = %s, want %s", result, ResultSucceeded)
 	}

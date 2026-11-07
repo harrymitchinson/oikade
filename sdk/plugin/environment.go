@@ -7,11 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 // Environment is where a plugin is told to connect and what to serve.
@@ -108,22 +106,4 @@ func ReadSecret(env Environment, key string) (value string, ok bool, err error) 
 		return "", false, err
 	}
 	return string(raw), true, nil
-}
-
-// relayCapabilities are the capabilities a relay-like device may report (docs/plugin-contract.md,
-// "Relay-like devices").
-var relayCapabilities = []string{capability.SwitchOn, capability.LightOn, capability.OutletOn}
-
-// RelayCapability picks the capability a relay reports from its parameters["capability"]:
-// switch.on by default, or light.on or outlet.on. Report any error in the device's DeviceReport.
-func RelayCapability(parameters map[string]string) (string, error) {
-	wanted := parameters["capability"]
-	if wanted == "" {
-		return capability.SwitchOn, nil
-	}
-	if slices.Contains(relayCapabilities, wanted) {
-		return wanted, nil
-	}
-	return "", fmt.Errorf("parameters.capability must be one of %s, got %s",
-		strings.Join(relayCapabilities, ", "), wanted)
 }

@@ -326,7 +326,7 @@ func (r *rig) sync() {
 	for range 2 {
 		r.probe = !r.probe
 		before := r.count(wrote, "device", "probe-out")
-		r.send("probe", "sensor.contact-open", r.probe)
+		r.send("probe", "open", r.probe)
 		timeout := time.After(waitLimit)
 		for r.count(wrote, "device", "probe-out") == before {
 			r.mu.Lock()
@@ -425,9 +425,9 @@ func TestHomeReactsAndWritesThroughTheHost(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("bathroom-sensor", "sensor.relative-humidity", 80)
+	r.change("bathroom-sensor", "humidity", 80)
 	r.wrote("fan", true)
-	r.change("bathroom-sensor", "sensor.relative-humidity", 50)
+	r.change("bathroom-sensor", "humidity", 50)
 	r.wrote("fan", false)
 }
 
@@ -435,7 +435,7 @@ func TestKilledProcessLeavesTheHostAndRepeatsNothing(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.change("bathroom-sensor", "sensor.relative-humidity", 80)
+	r.change("bathroom-sensor", "humidity", 80)
 	r.wrote("fan", true)
 	r.sync()
 
@@ -454,7 +454,7 @@ func TestKilledProcessLeavesTheHostAndRepeatsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.waitFor(func(l line) bool { return l.is("Restarting automations process") })
-	r.change("bathroom-sensor", "sensor.relative-humidity", 40)
+	r.change("bathroom-sensor", "humidity", 40)
 	r.hostRunning()
 	r.restarted(old)
 	r.wrote("fan", false)
@@ -470,13 +470,13 @@ func TestLatchedSafetyHoldSurvivesAKillMidWay(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.send("leak-sensor", "sensor.contact-open", true)
+	r.send("leak-sensor", "open", true)
 	r.wrote("valve", false)
 	r.kill()
 	r.sync()
 
 	// The leak has stopped, and the hold is latched, so nothing changes.
-	r.change("leak-sensor", "sensor.contact-open", false)
+	r.change("leak-sensor", "open", false)
 	r.sync()
 	r.kill()
 	r.sync()
@@ -492,7 +492,7 @@ func TestLatchedSafetyHoldSurvivesAKillMidWay(t *testing.T) {
 	if n := r.count(wrote, "device", "siren", "value", false); n != 0 {
 		t.Fatalf("siren stopped while latched\n%s", r.dump())
 	}
-	r.change("reset", "sensor.contact-open", true)
+	r.change("reset", "open", true)
 	r.wrote("valve", true)
 	// Your process ends the hold in its own time after the release, which sync doesn't wait for, and
 	// it can land either side of the host's write to the valve.
@@ -525,10 +525,10 @@ func TestStuckConditionCannotStopTheHost(t *testing.T) {
 	r := start(t, "--heartbeat-timeout=3s")
 	r.sync()
 	old := r.pid()
-	r.change("trap", "sensor.contact-open", true)
+	r.change("trap", "open", true)
 
 	// With the condition spinning, the host still takes changes and refuses a second process.
-	r.change("bathroom-sensor", "sensor.relative-humidity", 45)
+	r.change("bathroom-sensor", "humidity", 45)
 	raw, err := net.Dial("unix", filepath.Join(r.dir, "host.sock"))
 	if err != nil {
 		t.Fatal(err)
@@ -545,7 +545,7 @@ func TestStuckConditionCannotStopTheHost(t *testing.T) {
 	r.hostRunning()
 
 	r.waitFor(func(l line) bool { return l.is("Killing automations process; it stopped answering") })
-	r.change("trap", "sensor.contact-open", false)
+	r.change("trap", "open", false)
 	r.restarted(old)
 	r.sync()
 }

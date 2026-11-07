@@ -17,7 +17,7 @@ func TestDevicesStayFreshWhileOthersKeepTheClockBusy(t *testing.T) {
 	start := time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 	sim, err := New(Options{
 		Home: Home{Compile: noRules}, Start: start, Log: logging.Discard(),
-		Devices: []Device{{Name: "quiet", Capabilities: []string{"sensor.temperature"}}},
+		Devices: []Device{{Name: "quiet", Capabilities: []string{"temperature"}}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -19,9 +19,8 @@ func TestTheConstantsAreTheRegistrys(t *testing.T) {
 	b := func(name string, c Bool) constant { return constant{name, string(c), capability.KindBool} }
 	n := func(name string, c Number) constant { return constant{name, string(c), capability.KindNumber} }
 	all := []constant{
-		b("LightOn", LightOn), n("LightLevel", LightLevel), b("SwitchOn", SwitchOn), b("OutletOn", OutletOn),
-		n("Temperature", Temperature), n("Humidity", Humidity), b("ContactOpen", ContactOpen),
-		b("Occupancy", Occupancy), n("Battery", Battery), n("LinkQuality", LinkQuality),
+		b("On", On), n("Brightness", Brightness), n("Temperature", Temperature), n("Humidity", Humidity),
+		b("Open", Open), b("Occupied", Occupied), n("Battery", Battery), n("LinkQuality", LinkQuality),
 	}
 	values := make([]string, 0, len(all))
 	for _, c := range all {
@@ -41,37 +40,37 @@ func TestTheConstantsAreTheRegistrys(t *testing.T) {
 }
 
 func TestASetReachesTheEngineWhole(t *testing.T) {
-	heater := Handle[bool]{Device: "heater", Capability: SwitchOn}
+	heater := Handle[bool]{Device: "heater", Capability: On}
 	for name, tc := range map[string]struct {
 		set  Set
 		want engine.Set
 	}{
-		"a write": {heater.To(true), engine.Set{Device: "heater", Capability: "switch.on", Value: true}},
+		"a write": {heater.To(true), engine.Set{Device: "heater", Capability: "on", Value: true}},
 		"a claim": {
 			heater.To(true).For(time.Hour).UntilNext().Priority(Override),
 			engine.Set{
-				Device: "heater", Capability: "switch.on", Value: true, For: time.Hour, Until: engine.UntilNext,
+				Device: "heater", Capability: "on", Value: true, For: time.Hour, Until: engine.UntilNext,
 				Priority: engine.Priority(Override),
 			},
 		},
 		"until released": {
 			heater.To(false).UntilReleased(),
-			engine.Set{Device: "heater", Capability: "switch.on", Value: false, Until: engine.UntilReleased},
+			engine.Set{Device: "heater", Capability: "on", Value: false, Until: engine.UntilReleased},
 		},
 		"a room": {
-			InRoom("hall", LightLevel).To(20),
-			engine.Set{Room: "hall", Capability: "light.level", Value: 20.0},
+			InRoom("hall", Brightness).To(20),
+			engine.Set{Room: "hall", Capability: "brightness", Value: 20.0},
 		},
 	} {
 		if got := tc.set.toEngine(); got != tc.want {
 			t.Errorf("%s: got %+v, want %+v", name, got, tc.want)
 		}
 	}
-	want := engine.Change{Room: "hall", Capability: "sensor.occupancy-detected"}
-	if got := InRoom("hall", Occupancy).change(); got != want {
+	want := engine.Change{Room: "hall", Capability: "occupied"}
+	if got := InRoom("hall", Occupied).change(); got != want {
 		t.Errorf("a room's change is %+v", got)
 	}
-	if got := heater.change(); got != (engine.Change{Device: "heater", Capability: "switch.on"}) {
+	if got := heater.change(); got != (engine.Change{Device: "heater", Capability: "on"}) {
 		t.Errorf("a handle's change is %+v", got)
 	}
 }
@@ -79,11 +78,11 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 // Only a home that builds its own handles can get a type wrong, and a condition that does stops,
 // which the engine logs.
 func TestGettingAValueOfTheWrongTypePanics(t *testing.T) {
-	wrong := Handle[float64]{Device: "door", Capability: "sensor.contact-open"}
+	wrong := Handle[float64]{Device: "door", Capability: "open"}
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("no panic")
 		}
 	}()
-	State{devices: map[string]map[string]any{"door": {"sensor.contact-open": true}}}.Get(wrong)
+	State{devices: map[string]map[string]any{"door": {"open": true}}}.Get(wrong)
 }

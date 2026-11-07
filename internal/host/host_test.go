@@ -21,7 +21,7 @@ func startHost(t *testing.T, dir string) (socket string, stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	h := &Host{DataDir: dir, Log: logging.Discard(), Devices: []SimulatedDevice{
-		{Name: "lamp", Room: "hall", Capabilities: []string{"switch.on"}, Values: map[string]any{"switch.on": false}},
+		{Name: "lamp", Room: "hall", Capabilities: []string{"on"}, Values: map[string]any{"on": false}},
 	}}
 	done := make(chan error, 1)
 	go func() { done <- h.Run(ctx) }()
@@ -77,7 +77,7 @@ func TestWelcomeListsTheDevices(t *testing.T) {
 		t.Fatalf("got %+v", welcome.Devices)
 	}
 	d := welcome.Devices[0]
-	if d.Name != "lamp" || d.Room != "hall" || !d.Discovered || d.Values["switch.on"] != false {
+	if d.Name != "lamp" || d.Room != "hall" || !d.Discovered || d.Values["on"] != false {
 		t.Fatalf("got %+v", d)
 	}
 }
@@ -129,7 +129,7 @@ func TestHoldStateIsReturnedToTheNextSession(t *testing.T) {
 	socket, stop := startHost(t, dir)
 	key := ident.ID{Namespace: wire.Namespace, Name: "porch"}
 	c, _ := dial(t, socket, "porch")
-	want := engine.HoldState{Active: true, Latched: true, Target: engine.HoldTarget{Device: "lamp", Capability: "switch.on", Value: true}}
+	want := engine.HoldState{Active: true, Latched: true, Target: engine.HoldTarget{Device: "lamp", Capability: "on", Value: true}}
 	if err := c.Put(t.Context(), key, want); err != nil {
 		t.Fatal(err)
 	}

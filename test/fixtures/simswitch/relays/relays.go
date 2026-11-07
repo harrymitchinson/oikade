@@ -43,7 +43,7 @@ const (
 // spare is a relay in the simulated app that no Device declares.
 var spare = contractv1.DiscoveredDevice{
 	ID: "spare-relay", Manufacturer: manufacturer, Model: model,
-	Capabilities: []string{"switch.on"}, Name: "Spare relay",
+	Capabilities: []string{"on"}, Name: "Spare relay",
 }
 
 var _ plugin.Handler = (*switches)(nil)
@@ -51,17 +51,21 @@ var _ plugin.Handler = (*switches)(nil)
 // New returns a plugin of simulated relays for the devices.
 func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitches(devices) }
 
-// newSwitches turns the declared devices into relays and the devices report. A device with a bad
-// capability parameter is reported not found, with the reason. A device with the parameter
-// simulate: unstable-id is discovered under a new ID each start, which breaks the contract, so the
-// conformance suite's own tests can see it fail.
+// newSwitches turns the declared devices into relays and the devices report. A device with the
+// parameter simulate: misconfigured is reported not found, with the reason, as a plugin reports
+// configuration it can't use. One with simulate: unstable-id is discovered under a new ID each start,
+// and one with simulate: old-name reports a capability by a name Oikade no longer knows. Both break
+// the contract, so the conformance suite's own tests can see it fail.
 func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 	s := &switches{relays: map[string]*relay{}}
 	for _, d := range declared {
-		c, err := plugin.RelayCapability(d.Parameters)
-		if err != nil {
-			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: err.Error()})
+		if d.Parameters["simulate"] == "misconfigured" {
+			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: "this relay was told it's misconfigured"})
 			continue
+		}
+		c := contractv1.On
+		if d.Parameters["simulate"] == "old-name" {
+			c = "switch.on" // A name from before OIK-181, which Oikade no longer knows.
 		}
 		r := &relay{id: d.ID, capability: c}
 		s.order = append(s.order, r)

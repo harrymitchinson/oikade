@@ -26,7 +26,7 @@ func goPumpBudget() *schedule.Spec {
 func goPumpHold(t *testing.T) *Compiled {
 	t.Helper()
 	c, err := NewHold(ident.ID{Namespace: ns, Name: "pump-daily"}, Hold{
-		Device: "pump", Capability: capability.SwitchOn, Value: true, Budget: goPumpBudget(),
+		Device: "pump", Capability: capability.On, Value: true, Budget: goPumpBudget(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func pumpRig(t *testing.T, now string, b *storeBackend, rules ...*Compiled) *rig
 	t.Helper()
 	return startRigWith(t, rigOptions{
 		now: local(now), holds: b.holds(t), controls: b.controls(t),
-		values:  map[string]map[string]any{"pump": {capability.SwitchOn: false}},
+		values:  map[string]map[string]any{"pump": {capability.On: false}},
 		control: map[string][]control.Entry{"pump": {pumpEntry()}},
 	}, rules...)
 }
@@ -73,7 +73,7 @@ func TestBudgetInGoKeepsItsPlanAcrossARestart(t *testing.T) {
 	first.settle()
 	first.report("water-temp", capability.Temperature, 14.0)
 	first.at("2026-10-22 00:00 BST")
-	first.report("pump", capability.SwitchOn, true)
+	first.report("pump", capability.On, true)
 	first.at("2026-10-22 00:30 BST")
 	before := first.budget("pump-daily").Today
 	if before == nil || before.RunMinutes == 0 || before.Starts == 0 {
@@ -95,7 +95,7 @@ func TestBudgetInGoKeepsItsPlanAcrossARestart(t *testing.T) {
 
 func TestNewHoldBudgetIsTheOnlyCondition(t *testing.T) {
 	_, err := NewHold(ident.ID{Namespace: ns, Name: "x"}, Hold{
-		Device: "pump", Capability: capability.SwitchOn, Value: true, Budget: goPumpBudget(), Latch: true,
+		Device: "pump", Capability: capability.On, Value: true, Budget: goPumpBudget(), Latch: true,
 		When: func(Vars) (bool, error) { return true, nil },
 	})
 	if err == nil {

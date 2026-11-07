@@ -5,7 +5,7 @@
 //		framework.Run(framework.Home{
 //			Holds: []framework.Hold{{
 //				Name: "bathroom-fan",
-//				Set:  BathroomFan.SwitchOn.To(true),
+//				Set:  BathroomFan.On.To(true),
 //				When: func(s framework.State) bool {
 //					return s.Get(BathroomSensor.Humidity) > 70
 //				},
@@ -127,7 +127,7 @@ type Window struct {
 // one of them, or a Budget on its own. Name it once: its state is kept by name.
 type Hold struct {
 	Name string
-	// Set is what the hold keeps, such as PorchLight.LightOn.To(true), or InRoom's. The hold's
+	// Set is what the hold keeps, such as PorchLight.On.To(true), or InRoom's. The hold's
 	// Priority is its own, so the Set takes no For, Until or Priority.
 	Set      Set
 	Priority Priority
@@ -211,7 +211,7 @@ const (
 // Control arbitrates a capability of a device: rules claim it rather than write it, and the host
 // picks the winner, including when your automations aren't running.
 type Control struct {
-	// Default is the capability, at its value with no claims: Heater.SwitchOn.To(false). It names a
+	// Default is the capability, at its value with no claims: Heater.On.To(false). It names a
 	// device, not a room, and takes no For, Until or Priority.
 	Default  Set
 	Resolve  Resolve
@@ -304,7 +304,7 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 	return r.run.WaitFor(c.toEngine(), timeout)
 }
 
-// Set writes a capability, such as Hallway.LightOn.To(true), or claims it if it's arbitrated, which
+// Set writes a capability, such as Hallway.On.To(true), or claims it if it's arbitrated, which
 // needs For, UntilReleased or UntilNext, and is an error without one. It may run more than once,
 // after a crash, so set a value and never toggle one.
 func (r *FlowRun) Set(s Set) error {
@@ -333,7 +333,7 @@ type Action interface {
 // Set writes a capability, from a Handle's To or InRoom's. For, UntilReleased and UntilNext make it a
 // claim on an arbitrated capability, which needs one of them:
 //
-//	Heater.SwitchOn.To(true).For(time.Hour)
+//	Heater.On.To(true).For(time.Hour)
 type Set struct {
 	device, room, capability string
 	value                    any

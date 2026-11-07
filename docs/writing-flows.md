@@ -6,7 +6,7 @@ This belongs to [the host](architecture.md#the-host). `hometest` tests a flow on
 
 ```go
 func bedtime(r *framework.FlowRun) error {
-	if err := r.Set(framework.InRoom("downstairs", framework.LightLevel).To(20)); err != nil {
+	if err := r.Set(framework.InRoom("downstairs", framework.Brightness).To(20)); err != nil {
 		return err
 	}
 	r.Sleep(30 * time.Minute)
@@ -22,7 +22,7 @@ func bedtime(r *framework.FlowRun) error {
 	if late {
 		r.Sleep(time.Hour)
 	}
-	return r.Set(framework.InRoom("downstairs", framework.LightOn).To(false))
+	return r.Set(LoungeLamp.On.To(false))
 }
 
 func main() {
@@ -41,7 +41,7 @@ Everything that happens outside the flow, or varies between runs, is a step on i
 | `r.Now()` | The time, instead of `time.Now` |
 | `r.Sleep(d)` | Waits. A restart doesn't move the time it ends |
 | `r.WaitFor(cond, timeout)` | Waits until `cond` is true and returns true, or returns false at the timeout. Zero means no limit |
-| `r.Set(Hallway.LightOn.To(true))` | Writes a capability. On an arbitrated one it's a claim, which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()` |
+| `r.Set(Hallway.On.To(true))` | Writes a capability. On an arbitrated one it's a claim, which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()` |
 | `r.Release(rule)` | Ends a rule's claims, and a hold's latch |
 | `r.Do(name, &result, call)` | Makes an outside call, and records its result and error |
 

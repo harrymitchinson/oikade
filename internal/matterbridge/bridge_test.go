@@ -48,8 +48,8 @@ func endpointIDs(b *Bridge) []uint16 {
 }
 
 func TestBridgeFollowsDevices(t *testing.T) {
-	lamp := device("desk-lamp", 2, capability.LightOn, capability.LightLevel)
-	sensor := device("hall-sensor", 3, capability.Occupancy)
+	lamp := device("desk-lamp", 2, capability.On, capability.Brightness)
+	sensor := device("hall-sensor", 3, capability.Occupied)
 	b := newBridgeRig()
 	apply(t, b, lamp, sensor)
 	if got := endpointIDs(b); len(got) != 4 || got[2] != 2 || got[3] != 3 {
@@ -60,7 +60,7 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	b.Store.SetDevices(driver.InstanceKey{}, map[ident.ID]hub.Meta{
 		{Namespace: "home", Name: "desk-lamp"}: {},
 	})
-	b.Changed(driver.Update{Device: ident.ID{Namespace: "home", Name: "desk-lamp"}, Capability: capability.LightOn, Value: true})
+	b.Changed(driver.Update{Device: ident.ID{Namespace: "home", Name: "desk-lamp"}, Capability: capability.On, Value: true})
 	b.Availability(ident.ID{Namespace: "home", Name: "desk-lamp"}, false)
 	b.Matter.Node.View(func() {
 		e := b.Matter.Node.Endpoint(2)
@@ -80,7 +80,7 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	}
 	b.Matter.Node.View(func() {
 		if b.Matter.Node.Endpoint(2).Cluster(clusters.IDLevelControl) != nil {
-			t.Error("the lamp kept Level Control after it lost light.level")
+			t.Error("the lamp kept Level Control after it lost brightness")
 		}
 	})
 }
@@ -88,12 +88,12 @@ func TestBridgeFollowsDevices(t *testing.T) {
 // A displayName change renames the bridged device in place: the same endpoint, keeping its state,
 // with a new NodeLabel.
 func TestBridgeRenamesInPlace(t *testing.T) {
-	sensor := device("hall-sensor", 3, capability.Occupancy)
+	sensor := device("hall-sensor", 3, capability.Occupied)
 	sensor.Name = "Hall sensor"
 	b := newBridgeRig()
 	apply(t, b, sensor)
 	key := ident.ID{Namespace: "home", Name: "hall-sensor"}
-	b.Changed(driver.Update{Device: key, Capability: capability.Occupancy, Value: true})
+	b.Changed(driver.Update{Device: key, Capability: capability.Occupied, Value: true})
 	var before *im.Endpoint
 	b.Matter.Node.View(func() { before = b.Matter.Node.Endpoint(3) })
 	if got := readLabel(t, b, 3); got != "Hall sensor" {
@@ -108,7 +108,7 @@ func TestBridgeRenamesInPlace(t *testing.T) {
 			t.Error("the endpoint was rebuilt")
 		}
 		if occupied := readAttr(t, e, clusters.IDOccupancySensing, 0); occupied != uint64(1) {
-			t.Errorf("Occupancy %v after the rename, want it kept", occupied)
+			t.Errorf("Occupied %v after the rename, want it kept", occupied)
 		}
 	})
 	if got := readLabel(t, b, 3); got != "Landing sensor" {
@@ -151,7 +151,7 @@ func TestApplyFollowsNamesThatSwap(t *testing.T) {
 	b.Store = hub.NewStore(logging.Discard(), b)
 	first, second := ident.ID{Namespace: "home", Name: "first"}, ident.ID{Namespace: "home", Name: "second"}
 	dev := func(key ident.ID, id uint16) Device {
-		return Device{Key: key, Endpoint: id, Name: key.Name, Capabilities: []string{capability.SwitchOn}, Unique: "u"}
+		return Device{Key: key, Endpoint: id, Name: key.Name, Capabilities: []string{capability.On}, Unique: "u"}
 	}
 	if err := b.Apply(logging.Discard(), map[uint16]Device{2: dev(first, 2), 3: dev(second, 3)}); err != nil {
 		t.Fatal(err)
@@ -162,7 +162,7 @@ func TestApplyFollowsNamesThatSwap(t *testing.T) {
 	if got := endpointIDs(b); !slices.Contains(got, 2) || !slices.Contains(got, 3) {
 		t.Fatalf("endpoints %v", got)
 	}
-	b.Changed(driver.Update{Device: first, Capability: capability.SwitchOn, Value: true})
+	b.Changed(driver.Update{Device: first, Capability: capability.On, Value: true})
 	if !onOff(t, b, 3) || onOff(t, b, 2) {
 		t.Errorf("first is on endpoint 3 now: 2 is %v, 3 is %v", onOff(t, b, 2), onOff(t, b, 3))
 	}
@@ -173,7 +173,7 @@ func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logging.Discard(), b)
 	key := ident.ID{Namespace: "home", Name: "lamp"}
-	d := Device{Key: key, Endpoint: 2, Name: "lamp", Capabilities: []string{capability.SwitchOn}, Unique: "u", Absent: true}
+	d := Device{Key: key, Endpoint: 2, Name: "lamp", Capabilities: []string{capability.On}, Unique: "u", Absent: true}
 	reachable := func() bool {
 		var r bool
 		b.Matter.Node.View(func() {

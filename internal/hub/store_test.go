@@ -90,8 +90,8 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 	light := ident.ID{Namespace: "home", Name: "porch-light"}
 
 	s.SetDevices(z2m, map[ident.ID]Meta{light: {Instance: z2m}})
-	s.Discovered(light, driver.Info{Found: true, Capabilities: []string{capability.LightOn}})
-	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: true})
+	s.Discovered(light, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	s.Changed(driver.Update{Device: light, Capability: capability.On, Value: true})
 	s.Availability(light, true)
 
 	// The Plugin reconciler can run before the Zigbee2MQTT one drops the device.
@@ -106,7 +106,7 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 	}
 
 	// The same instance re-declaring keeps state, and isn't a reassignment.
-	s.Changed(driver.Update{Device: light, Capability: capability.LightOn, Value: false})
+	s.Changed(driver.Update{Device: light, Capability: capability.On, Value: false})
 	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug, Room: "porch"}})
 	if snap, _ := s.Get(light); len(snap.Values) != 1 || snap.Room != "porch" {
 		t.Errorf("state lost on re-declaration: %+v", snap)
@@ -151,7 +151,7 @@ func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
 	name := ident.ID{Namespace: "home", Name: "landing"}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
 	lamp := ident.ID{Namespace: "home", Name: "landing-lamp"}
-	entry := control.Entry{Capability: "switch.on"}
+	entry := control.Entry{Capability: "on"}
 
 	s.SetDevices(plug, map[ident.ID]Meta{lamp: {Instance: plug, Control: []control.Entry{}}})      // empty
 	s.SetDevices(plug, map[ident.ID]Meta{lamp: {Instance: plug}})                                  // still none
@@ -167,17 +167,17 @@ func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 	instance := driver.InstanceKey{Driver: "test", Name: "a"}
 	a, b := ident.ID{Name: "a"}, ident.ID{Name: "b"}
 	s.SetDevices(instance, map[ident.ID]Meta{a: {Instance: instance}, b: {Instance: instance}})
-	s.Changed(driver.Update{Device: a, Capability: "switch.on", Value: true})
-	s.Changed(driver.Update{Device: b, Capability: "switch.on", Value: false})
+	s.Changed(driver.Update{Device: a, Capability: "on", Value: true})
+	s.Changed(driver.Update{Device: b, Capability: "on", Value: false})
 
 	s.Rename(map[ident.ID]Move{
 		a: {To: b, Meta: Meta{Room: "for-b", Instance: instance}},
 		b: {To: a, Meta: Meta{Room: "for-a", Instance: instance}},
 	})
-	if snap, ok := s.Get(b); !ok || snap.Values["switch.on"] != true || snap.Room != "for-b" {
+	if snap, ok := s.Get(b); !ok || snap.Values["on"] != true || snap.Room != "for-b" {
 		t.Errorf("b: %+v, %v", snap, ok)
 	}
-	if snap, ok := s.Get(a); !ok || snap.Values["switch.on"] != false || snap.Room != "for-a" {
+	if snap, ok := s.Get(a); !ok || snap.Values["on"] != false || snap.Room != "for-a" {
 		t.Errorf("a: %+v, %v", snap, ok)
 	}
 

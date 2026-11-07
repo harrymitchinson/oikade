@@ -39,19 +39,19 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	t.Cleanup(func() { cancel(); <-running })
 
 	var entries []control.Entry
-	raw := `[{"capability":"switch.on","default":true,"resolve":"PreferOff","external":"Override","overrideHold":"1h"}]`
+	raw := `[{"capability":"on","default":true,"resolve":"PreferOff","external":"Override","overrideHold":"1h"}]`
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
 		t.Fatal(err)
 	}
 	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
-	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.SwitchOn}}, entries)
+	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.On}}, entries)
 	if err != nil {
 		t.Fatal(err)
 	}
-	devices.Discovered(dev, driver.Info{Found: true, Capabilities: []string{capability.SwitchOn}})
+	devices.Discovered(dev, driver.Info{Found: true, Capabilities: []string{capability.On}})
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Expires: time.Now().Add(time.Hour)}
-	if _, err := eng.Claim(ctx, dev, capability.SwitchOn, claim); err != nil {
+	if _, err := eng.Claim(ctx, dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +87,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	state := engine.ControlState{capability.SwitchOn: control.State{Claims: []control.Claim{
+	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{
 		{Source: "Rule/leak", Level: control.Safety},
 		{Source: "Rule/old", Level: control.Normal, Expires: time.Now().Add(-time.Hour)},
 	}}}
@@ -136,8 +136,8 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 		return known, devices
 	}
 	known, devices := open()
-	recorded := control.Entry{Capability: capability.SwitchOn, Default: json.RawMessage("true"), Resolve: control.NamePreferOff, External: control.NameRevert}
-	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.SwitchOn}}, []control.Entry{recorded})
+	recorded := control.Entry{Capability: capability.On, Default: json.RawMessage("true"), Resolve: control.NamePreferOff, External: control.NameRevert}
+	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.On}}, []control.Entry{recorded})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	}
 	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
 	setting := func(device, resolve string) wire.DeviceControl {
-		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.SwitchOn, Resolve: resolve}}
+		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.On, Resolve: resolve}}
 	}
 	if err := known.takeHome([]wire.DeviceControl{setting("a", control.NamePreferOn), setting("b", control.NamePreferOn)}); err != nil {
 		t.Fatal(err)

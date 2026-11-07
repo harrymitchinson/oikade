@@ -26,10 +26,10 @@ func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	dev := ident.ID{Namespace: "home", Name: "fan"}
 	inst := driver.InstanceKey{Driver: "test"}
 	store.SetDevices(inst, map[ident.ID]hub.Meta{dev: {Instance: inst}})
-	store.Changed(driver.Update{Device: dev, Capability: "switch.on", Value: true, Time: time.Now()})
+	store.Changed(driver.Update{Device: dev, Capability: "on", Value: true, Time: time.Now()})
 	store.Availability(dev, true)
 	store.Seen(dev, time.Now())
-	eng.ControlLevel.WithLabelValues("home", "fan", "switch.on").Set(1)
+	eng.ControlLevel.WithLabelValues("home", "fan", "on").Set(1)
 
 	// Your process's own registry, as its metrics reach the host.
 	process := prometheus.NewRegistry()

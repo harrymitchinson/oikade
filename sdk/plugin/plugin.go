@@ -197,7 +197,15 @@ func newClientID() string {
 
 // SetDevices publishes the devices this plugin serves. List every device from devices.json.
 // Values a device no longer announces are dropped from its state, and that state is republished.
+// It refuses a capability Oikade doesn't know, and publishes nothing.
 func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceReport, undeclared int) error {
+	for _, d := range devices {
+		for _, c := range d.Capabilities {
+			if _, ok := capability.Lookup(c); !ok {
+				return fmt.Errorf("device %s: unknown capability %s", d.ID, c)
+			}
+		}
+	}
 	if err := p.lock(ctx); err != nil {
 		return err
 	}

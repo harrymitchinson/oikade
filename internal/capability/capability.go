@@ -1,5 +1,22 @@
 // Package capability is the registry of protocol-neutral capabilities. Drivers translate to and
 // from these; Matter, metrics and rules only ever see them.
+//
+// # Naming a capability
+//
+// A capability is named for the person writing a rule, not for a protocol:
+//
+//   - What a person would say: "is the porch occupied", not "occupancy-detected".
+//   - One word if it can be, in kebab case if it can't (link-quality). No protocol, vendor or
+//     domain prefix, because any driver reports it: not zigbee.link-quality or sensor.temperature.
+//   - What the device is, a light or an outlet, isn't in the name: one on serves both.
+//   - A bool is true in the state its name says: open is true while the door is open, whatever
+//     Zigbee2MQTT's contact or Matter's Boolean State say. Inverting is the mapping's job.
+//   - Units are the ones a person writes: degrees Celsius and percent, never a protocol's scale
+//     such as 0-254.
+//
+// Each name is a judgement call, so a new one is checked against these and the existing names.
+// contract/v1 holds the names, framework gives them to homes as typed constants, and Spec.Matter
+// says what the Matter bridge shows each one as. docs/capabilities.md is generated from here.
 package capability
 
 import (
@@ -8,31 +25,30 @@ import (
 	"maps"
 	"math"
 	"slices"
+
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
-// Canonical capability names.
+// The capabilities. contract/v1 holds their names.
 const (
-	// LightOn is a light's on/off state.
-	LightOn = "light.on"
-	// LightLevel is brightness in percent (0-100). It is independent of LightOn: setting level 0
-	// does not turn the light off, and drivers report LightOn changes separately.
-	LightLevel = "light.level"
-	// SwitchOn is a generic switch. Prefer LightOn or OutletOn when the physical class is known.
-	SwitchOn = "switch.on"
-	// OutletOn is a smart plug's relay.
-	OutletOn = "outlet.on"
+	// On is whether a light, switch or outlet is on.
+	On = contractv1.On
+	// Brightness is a light's brightness in percent (0-100). It doesn't turn the light on or off:
+	// drivers report On separately.
+	Brightness = contractv1.Brightness
 	// Temperature is in degrees Celsius.
-	Temperature = "sensor.temperature"
+	Temperature = contractv1.Temperature
 	// Humidity is relative humidity in percent.
-	Humidity = "sensor.relative-humidity"
-	// ContactOpen is true when a door or window is open. Note Zigbee2MQTT's "contact" is the inverse.
-	ContactOpen = "sensor.contact-open"
-	// Occupancy is true while motion or presence is detected.
-	Occupancy = "sensor.occupancy-detected"
-	// Battery is battery charge in percent.
-	Battery = "battery.level"
-	// LinkQuality is the Zigbee link quality indicator (0-255).
-	LinkQuality = "link.quality"
+	Humidity = contractv1.Humidity
+	// Open is true while a door or window is open. Zigbee2MQTT's "contact" and Matter's Boolean
+	// State are both true while it's shut.
+	Open = contractv1.Open
+	// Occupied is true while motion or presence is detected.
+	Occupied = contractv1.Occupied
+	// Battery is a battery's charge in percent.
+	Battery = contractv1.Battery
+	// LinkQuality is a radio link's quality, from 0 to 255.
+	LinkQuality = contractv1.LinkQuality
 )
 
 // Kind is a capability's value type.
@@ -51,18 +67,42 @@ type Spec struct {
 	Writable bool
 	// Min and Max bound numeric values (inclusive).
 	Min, Max float64
+	// Unit is what a number is in, for people.
+	Unit string
+	// Matter is the Matter attribute the bridge shows it as, if any.
+	Matter *Matter
+}
+
+// Matter is a Matter cluster's attribute.
+type Matter struct {
+	Cluster, Attribute     string
+	ClusterID, AttributeID uint32
+	// Inverted is true when the attribute is true while the capability is false.
+	Inverted bool
 }
 
 var registry = map[string]Spec{
-	LightOn:     {Go: "LightOn", Kind: KindBool, Writable: true},
-	LightLevel:  {Go: "LightLevel", Kind: KindNumber, Writable: true, Min: 0, Max: 100},
-	SwitchOn:    {Go: "SwitchOn", Kind: KindBool, Writable: true},
-	OutletOn:    {Go: "OutletOn", Kind: KindBool, Writable: true},
-	Temperature: {Go: "Temperature", Kind: KindNumber, Min: -273.15, Max: 1000},
-	Humidity:    {Go: "Humidity", Kind: KindNumber, Min: 0, Max: 100},
-	ContactOpen: {Go: "ContactOpen", Kind: KindBool},
-	Occupancy:   {Go: "Occupancy", Kind: KindBool},
-	Battery:     {Go: "Battery", Kind: KindNumber, Min: 0, Max: 100},
+	On: {Go: "On", Kind: KindBool, Writable: true, Matter: &Matter{
+		Cluster: "On/Off", ClusterID: 0x0006, Attribute: "OnOff", AttributeID: 0x0000,
+	}},
+	Brightness: {Go: "Brightness", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Matter: &Matter{
+		Cluster: "Level Control", ClusterID: 0x0008, Attribute: "CurrentLevel", AttributeID: 0x0000,
+	}},
+	Temperature: {Go: "Temperature", Kind: KindNumber, Min: -273.15, Max: 1000, Unit: "°C", Matter: &Matter{
+		Cluster: "Temperature Measurement", ClusterID: 0x0402, Attribute: "MeasuredValue", AttributeID: 0x0000,
+	}},
+	Humidity: {Go: "Humidity", Kind: KindNumber, Min: 0, Max: 100, Unit: "%", Matter: &Matter{
+		Cluster: "Relative Humidity Measurement", ClusterID: 0x0405, Attribute: "MeasuredValue", AttributeID: 0x0000,
+	}},
+	Open: {Go: "Open", Kind: KindBool, Matter: &Matter{
+		Cluster: "Boolean State", ClusterID: 0x0045, Attribute: "StateValue", AttributeID: 0x0000, Inverted: true,
+	}},
+	Occupied: {Go: "Occupied", Kind: KindBool, Matter: &Matter{
+		Cluster: "Occupancy Sensing", ClusterID: 0x0406, Attribute: "Occupancy", AttributeID: 0x0000,
+	}},
+	Battery: {Go: "Battery", Kind: KindNumber, Min: 0, Max: 100, Unit: "%", Matter: &Matter{
+		Cluster: "Power Source", ClusterID: 0x002F, Attribute: "BatPercentRemaining", AttributeID: 0x000C,
+	}},
 	LinkQuality: {Go: "LinkQuality", Kind: KindNumber, Min: 0, Max: 255},
 }
 

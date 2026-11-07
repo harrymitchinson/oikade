@@ -2,167 +2,167 @@
 {
 "name": "bathroom-sensor",
 "capabilities": [
-"sensor.relative-humidity"
+"humidity"
 ],
 "values": {
-"sensor.relative-humidity": 50
+"humidity": 50
 }
 },
 {
 "name": "fan",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "leak-sensor",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "siren",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "trap",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "trap-light",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "probe",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "probe-out",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "reset",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "flow-go",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "lamp-0",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "lamp-1",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "routine-done",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "routine-wrong",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "edit-go",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "edit-out",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "claim-go",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "claimed",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": true
+"on": true
 },
 "control": [
 {
-"capability": "switch.on",
+"capability": "on",
 "default": true,
 "resolve": "PreferOff",
 "external": "Override",
@@ -173,32 +173,32 @@
 {
 "name": "claim-flow-go",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "claim-end",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "claimed-flow",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": true
+"on": true
 },
 "control": [
 {
-"capability": "switch.on",
+"capability": "on",
 "default": true,
 "resolve": "PreferOff",
 "external": "Override",
@@ -209,77 +209,77 @@
 {
 "name": "timed-out",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "park-go",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "park-end",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "park-out",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "park-tail",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": false
+"on": false
 }
 },
 {
 "name": "fail-go",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "fail-now",
 "capabilities": [
-"sensor.contact-open"
+"open"
 ],
 "values": {
-"sensor.contact-open": false
+"open": false
 }
 },
 {
 "name": "claimed-normal",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": true
+"on": true
 },
 "control": [
 {
-"capability": "switch.on",
+"capability": "on",
 "default": true,
 "resolve": "PreferOff",
 "external": "Override",
@@ -290,14 +290,14 @@
 {
 "name": "claimed-safety",
 "capabilities": [
-"switch.on"
+"on"
 ],
 "values": {
-"switch.on": true
+"on": true
 },
 "control": [
 {
-"capability": "switch.on",
+"capability": "on",
 "default": true,
 "resolve": "PreferOff",
 "external": "Override",
