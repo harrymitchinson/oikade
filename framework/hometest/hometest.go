@@ -78,6 +78,9 @@ func New(t testing.TB, home framework.Home, o Options) *Home {
 	}
 	devices := make([]simhome.Device, 0, len(o.Devices))
 	for _, d := range o.Devices {
+		if d.DeviceType != "" && !devicetype.Choosable(devicetype.Type(d.DeviceType)) {
+			t.Fatalf("Device %s has device type %q: use one of %s", d.Name, d.DeviceType, devicetype.Join(devicetype.OnOff))
+		}
 		devices = append(devices, simhome.Device{
 			Name: d.Name, Room: d.Room, Capabilities: d.Capabilities, Values: d.Values,
 			DeviceTypes: devicetype.Of(devicetype.Type(d.DeviceType), "", d.Capabilities),

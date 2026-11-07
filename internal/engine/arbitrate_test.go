@@ -588,3 +588,39 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 		t.Error("a hold limited to a sensor type compiled")
 	}
 }
+
+// A plug retyped out of a typed hold while the hold holds it loses the hold's claim when the hold
+// ends, rather than keeping it for good.
+func TestATypedHoldLetsGoOfAMemberRetypedOutOfIt(t *testing.T) {
+	plug := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-21 12:00 BST"),
+		values:  map[string]map[string]any{"porch-plug": {capability.On: false}, "porch-door": {capability.Open: false}},
+		control: map[string][]control.Entry{"porch-plug": {plug}},
+	})
+	plugs := []devicetype.Type{devicetype.OnOffPlugInUnit}
+	metas := func(types ...devicetype.Type) map[ident.ID]hub.Meta {
+		return map[ident.ID]hub.Meta{
+			{Namespace: ns, Name: "porch-door"}: {Instance: z2m},
+			{Namespace: ns, Name: "porch-plug"}: {Instance: z2m, Room: "porch", Control: []control.Entry{plug}, DeviceTypes: types},
+		}
+	}
+	r.store.SetDevices(z2m, metas(plugs...))
+	r.store.Discovered(ident.ID{Namespace: ns, Name: "porch-door"}, driver.Info{Found: true, Capabilities: []string{capability.Open}})
+	r.store.Discovered(ident.ID{Namespace: ns, Name: "porch-plug"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	r.settle()
+	r.e.Load(holdRule(t, "porch-plugs", Hold{
+		Room: "porch", DeviceTypes: plugs, Capability: capability.On, Value: true, Priority: PrioritySafety,
+		When: isTrue("porch-door", capability.Open),
+	}))
+	r.change("porch-door", capability.Open, true)
+	r.eventually("the claim", func() bool { return winner(r.status("porch-plug", capability.On)) == "Rule/porch-plugs Safety" })
+
+	r.store.SetDevices(z2m, metas(devicetype.OnOffLight))
+	r.change("porch-door", capability.Open, false)
+	r.eventually("the claim to go", func() bool {
+		return !slices.ContainsFunc(r.status("porch-plug", capability.On).Claims, func(c control.ClaimStatus) bool {
+			return c.Source == "Rule/porch-plugs"
+		})
+	})
+}

@@ -32,7 +32,7 @@ type Meta struct {
 
 // OfTypes reports whether the Device is one of types. No types means any device.
 func (m Meta) OfTypes(types []devicetype.Type) bool {
-	return len(types) == 0 || slices.ContainsFunc(m.DeviceTypes, func(t devicetype.Type) bool { return slices.Contains(types, t) })
+	return devicetype.Any(m.DeviceTypes, types)
 }
 
 // Controls reports whether the Device arbitrates the capability.

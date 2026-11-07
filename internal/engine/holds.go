@@ -312,6 +312,11 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 				continue
 			}
 			if !snap.OfTypes(t.DeviceTypes) {
+				// A member retyped while the hold was active may still hold its claim, which its end
+				// lets go of. It writes nothing to one: the hold never wrote it.
+				if !start && snap.Controls(t.Capability) {
+					e.releaseClaim(ctx, dev, t.Capability, claim.Source)
+				}
 				skipped = append(skipped, otherType(dev, snap))
 				continue
 			}
@@ -361,6 +366,10 @@ func (e *Engine) claimHold(ctx context.Context, key ident.ID, t HoldTarget, clai
 	}
 	for _, dev := range devices {
 		if snap, ok := e.Store.Get(dev); ok && !snap.OfTypes(t.DeviceTypes) {
+			// It was retyped out of the hold, so its claim goes rather than staying at the old level.
+			if e.arbitrated(dev, t.Capability) {
+				e.releaseClaim(ctx, dev, t.Capability, claim.Source)
+			}
 			continue
 		}
 		if e.arbitrated(dev, t.Capability) {

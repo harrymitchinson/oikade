@@ -432,8 +432,7 @@ func (s *apiServer) typedOut(name string, t devicetype.Type) []string {
 			if room.Room != d.Room || !slices.Contains(d.Capabilities, room.Capability) {
 				return false
 			}
-			was, is := hub.Meta{DeviceTypes: before}, hub.Meta{DeviceTypes: after}
-			return was.OfTypes(room.DeviceTypes) && !is.OfTypes(room.DeviceTypes)
+			return devicetype.Any(before, room.DeviceTypes) && !devicetype.Any(after, room.DeviceTypes)
 		}) {
 			out = append(out, r.Name)
 		}

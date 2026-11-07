@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -661,14 +662,7 @@ func arbitrates(dev ident.ID, name string) string {
 
 // otherType is a Room member left out because it isn't one of the rule's device types.
 func otherType(dev ident.ID, snap hub.Snapshot) string {
-	return fmt.Sprintf("%s (%s, not one of the rule's device types)", dev.Name, or(devicetype.Join(snap.DeviceTypes), "no device type"))
-}
-
-func or(s, otherwise string) string {
-	if s == "" {
-		return otherwise
-	}
-	return s
+	return fmt.Sprintf("%s (%s, not one of the rule's device types)", dev.Name, cmp.Or(devicetype.Join(snap.DeviceTypes), "no device type"))
 }
 
 // runActions is execute, returning the Room members left out as well.
