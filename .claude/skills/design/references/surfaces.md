@@ -32,7 +32,7 @@ These appear in users' Git repos, dashboards, alert rules and Home app setups. C
 
 - **`framework`,** the Go API a home is written in. `framework/hometest` too.
 - **The `oikade` and `oikade-host` commands, their flags and their `--json`.** Scripts and a home's CI use them.
-- **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `open: true` means open. They appear in a home's code and in PromQL. The `add-capability` skill owns this procedure.
+- **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `open: true` means open. They appear in a home's code and in PromQL. `internal/capability`'s package doc says how to name one, and `docs/capabilities.md` is generated from the registry.
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.
 - **The plugin contract** (`docs/plugin-contract.md`, `contract/v1`, `sdk/plugin`) **and `oikade-conformance`'s name and flags.** Plugin repos depend on them through their `go.mod` and CI, and each plugin is released on its own schedule. A change reaches a Go plugin when it bumps `oikade`, and a plugin in another language when it changes the version it pins in `go install …@vX.Y.Z`.
 - **The host protocol** (`docs/host-protocol.md`) between the host and a process built against another version.
