@@ -584,9 +584,9 @@ Point Prometheus at it, and import [`config/grafana/oikade-home.json`](config/gr
 | `oikade_matter_fabrics` | Fabrics the bridge is paired on, one for each controller's home |
 | `oikade_matter_sessions` | CASE sessions that paired controllers hold |
 | `oikade_matter_subscriptions` | Subscriptions that controllers hold |
-| `oikade_matter_reports_total` | Reports sent on those subscriptions, keep-alives included |
-| `oikade_matter_interactions_total{interaction,cluster,result}` | Attribute `write`s and command `invoke`s from controllers, by cluster (`on_off`, `level_control`, …, or `other`) and the status they were answered with (`success`, `unsupported_access`, …) |
-| `oikade_matter_write_duration_seconds` | Histogram of how long a controller's change takes to get through arbitration to its device's driver |
+| `oikade_matter_reports_total` | Reports sent on those subscriptions, the first one and keep-alives included |
+| `oikade_matter_interactions_total{interaction,cluster,result}` | Attribute `write`s and command `invoke`s from controllers, by cluster (`on_off`, `level_control`, …, or `other`, which includes a whole request refused before any cluster was looked at) and the status they were answered with (`success`, `unsupported_access`, …) |
+| `oikade_matter_write_duration_seconds` | Histogram of how long a controller's change takes to get through arbitration to its device's driver, for changes that worked. Writes gather for 50 ms first, which this leaves out |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.
 

@@ -305,7 +305,7 @@ type matterWrites struct {
 	setter  driver.Setter
 	// restore takes the clusters back after a write that didn't happen.
 	restore func(dev ident.ID, name string, otherwise any)
-	// took, if set, hears how long each write took.
+	// took, if set, hears how long each write that reached its driver took.
 	took prometheus.Observer
 }
 
@@ -314,9 +314,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if w.took != nil {
-		defer func(start time.Time) { w.took.Observe(time.Since(start).Seconds()) }(time.Now())
-	}
+	start := time.Now()
 	if holder, wants := heldAtSafety(w.engine, w.devices, dev, name, value); holder != "" {
 		w.restore(dev, name, wants)
 		return fmt.Errorf("%s holds it at Safety", holder)
@@ -328,8 +326,14 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	if err != nil {
 		w.engine.ForgetMatterWrite(dev, name)
 		w.restore(dev, name, nil)
+		return err
 	}
-	return err
+	// Only writes that worked: one refused at Safety takes no time, and one that timed out says how
+	// long the timeout is.
+	if w.took != nil {
+		w.took.Observe(time.Since(start).Seconds())
+	}
+	return nil
 }
 
 // matter answers oikade matter.

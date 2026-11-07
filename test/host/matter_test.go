@@ -480,9 +480,8 @@ func TestTheBridgeReportsWhatControllersDo(t *testing.T) {
 	if got := r.metric(commissioning); got == "" {
 		t.Error("commissioning's commands aren't counted")
 	}
-	if got := r.metric("oikade_matter_write_duration_seconds_count"); got != "1" {
-		t.Errorf("writes through arbitration: %q, want 1", got)
-	}
+	// The write is timed once its driver answers, which can be after the device reports.
+	r.until("the write to be timed", func() bool { return r.metric("oikade_matter_write_duration_seconds_count") == "1" })
 
 	// A command to an endpoint that isn't there is counted by what it was answered with.
 	path := im.CommandPath{Endpoint: 0xFFF0, Cluster: clusters.IDOnOff, Command: turnOn}

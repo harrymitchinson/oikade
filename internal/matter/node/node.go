@@ -277,11 +277,12 @@ func (n *Node) Run(ctx context.Context) error {
 	return <-served
 }
 
-// Sessions returns how many CASE sessions controllers hold: those a commissioned controller uses.
+// Sessions returns how many CASE sessions controllers hold on fabrics the node is still on: those a
+// commissioned controller uses. A removed fabric's last a moment longer, to hear the answer.
 func (n *Node) Sessions() int {
 	count := 0
 	for _, s := range n.sessions.list() {
-		if s.AuthMode() == transport.AuthCASE {
+		if _, ok := n.table.Fabric(s.FabricIndex()); ok && s.AuthMode() == transport.AuthCASE {
 			count++
 		}
 	}

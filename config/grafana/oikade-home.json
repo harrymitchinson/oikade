@@ -1402,8 +1402,8 @@
     {
       "id": 30,
       "type": "timeseries",
-      "title": "Controller writes",
-      "description": "Attribute writes and commands from controllers, by cluster and the status they were answered with. Commissioning shows as operational_credentials and general_commissioning.",
+      "title": "Controller interactions",
+      "description": "Attribute writes and commands from controllers, by cluster and the status they were answered with. Commissioning shows as operational_credentials and general_commissioning invokes.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -1411,7 +1411,7 @@
       "gridPos": {
         "x": 0,
         "y": 80,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "targets": [
@@ -1423,13 +1423,56 @@
           "refId": "A",
           "expr": "sum by (interaction, cluster, result) (increase(oikade_matter_interactions_total[$__rate_interval]))",
           "legendFormat": "{{interaction}} {{cluster}} {{result}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": true,
+            "drawStyle": "bars"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Reports sent",
+      "description": "Reports the bridge sends controllers on their subscriptions, the first one and keep-alives included. Changes to devices make more.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 80,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "B",
+          "refId": "A",
           "expr": "sum(increase(oikade_matter_reports_total[$__rate_interval]))",
           "legendFormat": "reports sent"
         }
@@ -1470,9 +1513,9 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 12,
+        "x": 16,
         "y": 80,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "targets": [

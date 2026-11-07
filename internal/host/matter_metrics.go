@@ -27,11 +27,12 @@ func newMatterMetrics(bridge *matterBridge) *matterMetrics {
 		}, []string{"interaction", "cluster", "result"}),
 		reports: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "oikade_matter_reports_total",
-			Help: "Reports sent to controllers on their subscriptions, keep-alives included.",
+			Help: "Reports sent to controllers on their subscriptions, the first and keep-alives included.",
 		}),
 		writes: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "oikade_matter_write_duration_seconds",
-			Help:    "How long a controller's change took to get through arbitration to its device's driver.",
+			Name: "oikade_matter_write_duration_seconds",
+			Help: "How long a controller's change took to get through arbitration to its device's driver, " +
+				"once gathered, for changes that worked.",
 			Buckets: prometheus.DefBuckets,
 		}),
 		fabrics: prometheus.NewDesc("oikade_matter_fabrics",

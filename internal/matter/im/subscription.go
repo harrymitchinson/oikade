@@ -67,6 +67,9 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	rq := newRequest(session, req.fabricFiltered)
 	s.Node.View(func() { reports = s.reports(rq, req.attributes, req.filters) })
 	err = sendReports(ctx, ex, reports, &sub.id, false)
+	if err == nil && s.Observer != nil {
+		s.Observer.Reported()
+	}
 	if err == nil {
 		var w tlv.Writer
 		w.StartStructure(tlv.Anonymous)
