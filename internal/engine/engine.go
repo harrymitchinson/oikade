@@ -119,7 +119,8 @@ type Engine struct {
 	parked  map[int]parking
 	parkSeq int
 
-	events chan driver.Update
+	// events are reports, each the changes of one, from one device.
+	events chan []driver.Update
 	// wake makes Run look at the timers again.
 	wake chan struct{}
 
@@ -139,6 +140,8 @@ type Engine struct {
 	saveWake chan struct{}
 	// changes closes after a change has been handled, for flows waiting on a condition.
 	changes chan struct{}
+	// holdWrites are the hold writes the current look at the rules has started, for startWrites.
+	holdWrites []holdWrite
 	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
 	bridgeWrites map[ident.ID]map[string]bridgeWrite
 
@@ -189,7 +192,7 @@ func NewDroppedCounter() prometheus.Counter {
 // Init prepares the engine. Call it before Load, Changed or Run.
 func (e *Engine) Init() {
 	e.Log = logging.OrDiscard(e.Log)
-	e.events = make(chan driver.Update, 1024)
+	e.events = make(chan []driver.Update, 1024)
 	e.wake = make(chan struct{}, 1)
 	e.parked = map[int]parking{}
 	e.rules = map[ident.ID]*state{}
@@ -380,17 +383,22 @@ func (e *Engine) unload(key ident.ID) *state {
 	return s
 }
 
-// Changed implements driver.Sink. It never blocks the driver.
-func (e *Engine) Changed(u driver.Update) {
+// Changed implements driver.Sink. It never blocks the driver, and takes a report in as a whole.
+func (e *Engine) Changed(changes ...driver.Update) {
+	if len(changes) == 0 {
+		return
+	}
 	e.busy.Add(1)
 	select {
-	case e.events <- u:
+	case e.events <- changes:
 	default:
 		e.busy.Add(-1)
 		if e.Dropped != nil {
-			e.Dropped.Inc()
+			e.Dropped.Add(float64(len(changes)))
 		}
-		e.Log.Info("Dropped capability change; the rule engine is behind", "device", u.Device, "capability", u.Capability)
+		for _, u := range changes {
+			e.Log.Info("Dropped capability change; the rule engine is behind", "device", u.Device, "capability", u.Capability)
+		}
 	}
 }
 
@@ -431,8 +439,8 @@ func (e *Engine) Run(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case u := <-e.events:
-				e.handle(ctx, u)
+			case changes := <-e.events:
+				e.handle(ctx, changes)
 				e.busy.Add(-1)
 			case <-e.wake:
 				woke = true
@@ -540,6 +548,7 @@ func (e *Engine) fireDue(ctx context.Context) {
 		sched.Next = e.reschedule(s, now)
 		e.report(key, sched)
 	}
+	e.startWrites()
 }
 
 // triggerType is the key of a trigger's type in Vars.
@@ -578,39 +587,52 @@ func (e *Engine) conditionVars(namespace string, now time.Time, h *home) Vars {
 	}
 }
 
-func (e *Engine) handle(ctx context.Context, u driver.Update) {
-	vars := e.vars(u.Device.Namespace, map[string]any{
-		triggerType: TypeChange, "device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
-	})
+// handle takes in one report, its changes all from one device. Every value is in the store before
+// any rule looks, so a hold sees the whole report, and the holds' writes start once all have looked.
+func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
+	dev := changes[0].Device
 	var room string
-	if snap, ok := e.Store.Get(u.Device); ok {
+	if snap, ok := e.Store.Get(dev); ok {
 		room = snap.Room
 	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.outside(ctx, u)
+	for _, u := range changes {
+		e.outside(ctx, u)
+	}
 	now := e.Clock.Now()
 	evaluated := false
 	var devices *home
+	// vars are each change's, read once a rule needs them.
+	vars := make([]Vars, len(changes))
 	for key, s := range e.rules {
-		if key.Namespace != u.Device.Namespace {
+		if key.Namespace != dev.Namespace {
 			continue
 		}
 		// A hold with when may read any device in its namespace, and a budget credits its target's
 		// run as it changes.
-		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.budget != nil && s.c.hold.device == u.Device.Name) {
+		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.budget != nil && s.c.hold.device == dev.Name) {
 			if devices == nil {
-				devices = e.home(u.Device.Namespace)
+				devices = e.home(dev.Namespace)
 			}
 			e.evaluate(ctx, key, s, now, devices)
 			evaluated = true
 			continue
 		}
-		if s.c.matches(u.Device.Name, room, u.Capability) {
-			e.trigger(ctx, key, s, vars)
+		for i, u := range changes {
+			if !s.c.matches(u.Device.Name, room, u.Capability) {
+				continue
+			}
+			if vars[i] == nil {
+				vars[i] = e.vars(u.Device.Namespace, map[string]any{
+					triggerType: TypeChange, "device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
+				})
+			}
+			e.trigger(ctx, key, s, vars[i])
 		}
 	}
+	e.startWrites()
 	if evaluated {
 		// The evaluation may have moved a hold's next look earlier.
 		e.signal()

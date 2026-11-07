@@ -22,8 +22,8 @@ const (
 	// binary built against something else. Version 2 added releaseAll's below, and 3 pausing rules,
 	// the rule facts in a hello, and reporting rule runs and metrics, 4 plugin sessions and a
 	// Manifest's plugins, 5 the home's control in a hello, lastSeen and seen, and 6 device types on a
-	// device and a rule's rooms limited to them.
-	Version = 6
+	// device and a rule's rooms limited to them, and 7 a change carrying every value of one report.
+	Version = 7
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = "plugin"
 

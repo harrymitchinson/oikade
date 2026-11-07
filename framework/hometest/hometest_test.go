@@ -485,3 +485,53 @@ func TestExpectWriteSeesAWriteTheDeviceMovedOnFrom(t *testing.T) {
 		t.Error("ExpectWrite passed for a device nothing wrote to")
 	}
 }
+
+// A report that starts a Safety hold and a Normal hold on the same device at once writes only the
+// Safety value: the Normal hold never gets a moment to win (OIK-212). Either value may come first
+// in the report.
+func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
+	occupied := framework.Handle[bool]{Device: "hall", Capability: framework.Occupied}
+	damp := framework.Handle[float64]{Device: "hall", Capability: framework.Humidity}
+	hot := framework.Handle[float64]{Device: "hall", Capability: framework.Temperature}
+	heater := framework.Handle[bool]{Device: "heater", Capability: framework.On}
+	for _, tc := range []struct {
+		name   string
+		safety func(framework.State) bool
+		report framework.Set
+	}{
+		// Humidity sorts before occupied, and temperature after it.
+		{"safety first", func(s framework.State) bool { return s.Get(damp) > 65 }, damp.To(72)},
+		{"safety last", func(s framework.State) bool { return s.Get(hot) > 30 }, hot.To(35)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := framework.Home{
+				Control: []framework.Control{{
+					Default: heater.To(false), Resolve: framework.PreferOn,
+					External: framework.ExternalOverride, OverrideHold: time.Hour,
+				}},
+				Holds: []framework.Hold{
+					{Name: "warm", Set: heater.To(true), When: func(s framework.State) bool { return s.Get(occupied) }},
+					{Name: "cutoff", Set: heater.To(false), Priority: framework.Safety, Latch: true, When: tc.safety},
+				},
+			}
+			// The bug was a race, so give it room to show.
+			for range 20 {
+				h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+					{
+						Name: "hall", Capabilities: []string{humidity, string(framework.Occupied), string(framework.Temperature)},
+						Values: map[string]any{humidity: 40.0, string(framework.Occupied): false, string(framework.Temperature): 20.0},
+					},
+					{Name: "heater", Capabilities: []string{on}, Values: map[string]any{on: false}},
+				}})
+				h.Report(occupied.To(true), tc.report)
+				h.ExpectValue(heater, false)
+				h.ExpectClaim(heater, "Rule/cutoff", "Safety")
+				for _, w := range h.Writes() {
+					if w.Device == "heater" && w.Value == true {
+						t.Fatalf("wrote the heater on: %v", h.Writes())
+					}
+				}
+			}
+		})
+	}
+}

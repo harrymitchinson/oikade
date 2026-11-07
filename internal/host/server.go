@@ -544,19 +544,32 @@ func (s *server) emit(e api.Event) {
 	s.events.add(e)
 }
 
-// Changed implements driver.Sink.
-func (s *server) Changed(u driver.Update) {
-	if u.Device.Namespace != wire.Namespace {
-		return
+// Changed implements driver.Sink. A report goes to your process as one message, so it takes in
+// every value before a rule looks.
+func (s *server) Changed(changes ...driver.Update) {
+	for len(changes) > 0 {
+		dev := changes[0].Device
+		n := 1
+		for n < len(changes) && changes[n].Device == dev {
+			n++
+		}
+		report := changes[:n]
+		changes = changes[n:]
+		if dev.Namespace != wire.Namespace {
+			continue
+		}
+		m := wire.Message{Type: wire.TypeChange, Device: dev.Name, Time: report[0].Time}
+		for _, u := range report {
+			m.Changes = append(m.Changes, wire.Change{Capability: u.Capability, Value: u.Value, Previous: u.Previous})
+		}
+		s.broadcast(m)
+		for _, u := range report {
+			s.emit(api.Event{
+				Time: u.Time, Type: api.EventChange, Device: u.Device.Name, Capability: u.Capability,
+				Value: u.Value, Previous: u.Previous,
+			})
+		}
 	}
-	s.broadcast(wire.Message{
-		Type: wire.TypeChange, Device: u.Device.Name, Capability: u.Capability,
-		Value: u.Value, Previous: u.Previous, Time: u.Time,
-	})
-	s.emit(api.Event{
-		Time: u.Time, Type: api.EventChange, Device: u.Device.Name, Capability: u.Capability,
-		Value: u.Value, Previous: u.Previous,
-	})
 }
 
 // Discovered implements driver.Sink.

@@ -43,10 +43,10 @@ func (r *recorder) Discovered(d ident.ID, i driver.Info) {
 	defer r.mu.Unlock()
 	r.discovered[d] = i
 }
-func (r *recorder) Changed(u driver.Update) {
+func (r *recorder) Changed(changes ...driver.Update) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.changes = append(r.changes, u)
+	r.changes = append(r.changes, changes...)
 }
 func (r *recorder) Availability(d ident.ID, online bool) {
 	r.mu.Lock()

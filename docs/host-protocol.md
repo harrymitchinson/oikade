@@ -9,7 +9,7 @@ Nobody writes this protocol by hand. `framework.Run` speaks it, and the code is 
 The host starts your binary as `<binary> automations`, with the socket's path in `OIKADE_SOCKET`. A process has 5 seconds to send its `hello`:
 
 ```json
-{"type":"hello","version":6,"role":"automations","rules":["fan","leak-shutoff"]}
+{"type":"hello","version":7,"role":"automations","rules":["fan","leak-shutoff"]}
 ```
 
 A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks, and a Safety hold's or moment's `rooms`, each `room`, `capability` and `deviceTypes` it writes at Safety limited to device types, which `oikade devices type` checks, and `control`, each `device` and `entry` the home arbitrates. `control` adds and changes settings, and takes effect before the `welcome`. One the home has dropped stays until a deploy of that version settles.
@@ -25,7 +25,7 @@ The host streams from the `welcome` on. A change landing as the session opens ca
 
 | Type | Fields | Means |
 |---|---|---|
-| `change` | `device`, `capability`, `value`, `previous`, `time` | A value changed |
+| `change` | `device`, `changes` (each a `capability`, `value` and `previous`), `time` | One report from the device changed these values. Take them in together, before any rule looks |
 | `discovered` | `discovered` (a device) | A device reported for the first time |
 | `seen` | `device`, `time` | A device reported, changed or not |
 | `ping` | `id` | Answer with a `pong` with this `id` |
@@ -57,7 +57,7 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 A plugin your home imports has its own session on the same socket. The host starts your binary as `<binary> plugin <name>`, and `<name>` comes from `plugins` in what check mode prints. The process says who it is:
 
 ```json
-{"type":"hello","version":6,"role":"plugin","plugin":"ewelink"}
+{"type":"hello","version":7,"role":"plugin","plugin":"ewelink"}
 ```
 
 The `welcome` has `topic`, the plugin's topic root, `declared`, the devices on record for it, and `setTimeout`. The host refuses a plugin it doesn't know, and a second connection for one that's connected.

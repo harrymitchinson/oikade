@@ -351,6 +351,33 @@ func (s *Sim) Set(device, name string, value any) error {
 	return s.settle()
 }
 
+// Report changes several of a device's values from outside the home, as one message from it would,
+// so the home takes them in together, then waits for the home to catch up.
+func (s *Sim) Report(device string, values map[string]any) error {
+	dev := key(device)
+	snap, ok := s.store.Get(dev)
+	if !ok {
+		return fmt.Errorf("no device %s", device)
+	}
+	now := s.clock.Now()
+	var changes []driver.Update
+	for _, name := range slices.Sorted(maps.Keys(values)) {
+		if !slices.Contains(snap.Info.Capabilities, name) {
+			return fmt.Errorf("device %s has no %s", device, name)
+		}
+		v, err := capability.Validate(name, values[name])
+		if err != nil {
+			return err
+		}
+		if previous, known := snap.Values[name]; !known || previous != v {
+			changes = append(changes, driver.Update{Device: dev, Capability: name, Value: v, Previous: snap.Values[name], Time: now})
+		}
+	}
+	s.store.Seen(dev, now)
+	s.store.Changed(changes...)
+	return s.settle()
+}
+
 // Advance moves the clock on, from one thing the home has to do to the next.
 func (s *Sim) Advance(d time.Duration) error {
 	to := s.clock.Now().Add(d)

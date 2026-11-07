@@ -124,6 +124,33 @@ func (h *Home) Set[T framework.Value](c framework.Handle[T], value T) {
 	}
 }
 
+// Report changes several values of one device at once, as one message from it would, and waits for
+// your automations to take it in. Your automations see every value before any of them acts, as
+// they do on a real host:
+//
+//	h.Report(HallSensor.Humidity.To(72), HallSensor.Occupied.To(true))
+func (h *Home) Report(values ...framework.Set) {
+	h.t.Helper()
+	var device string
+	report := map[string]any{}
+	for _, set := range values {
+		dev, name, v, err := simhome.FromSet(set)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		if device != "" && dev != device {
+			h.t.Fatalf("Report has %s and %s: a report is one device's", device, dev)
+		}
+		device, report[name] = dev, v
+	}
+	if device == "" {
+		h.t.Fatal("Report has no values")
+	}
+	if err := h.sim.Report(device, report); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
 // Advance moves the clock on and waits for your automations to catch up.
 func (h *Home) Advance(d time.Duration) {
 	h.t.Helper()

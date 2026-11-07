@@ -566,13 +566,15 @@ func (r *recorder) Discovered(dev ident.ID, info driver.Info) {
 	r.infos[dev] = info
 }
 
-func (r *recorder) Changed(u driver.Update) {
+func (r *recorder) Changed(changes ...driver.Update) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.values[u.Device] == nil {
-		r.values[u.Device] = map[string]any{}
+	for _, u := range changes {
+		if r.values[u.Device] == nil {
+			r.values[u.Device] = map[string]any{}
+		}
+		r.values[u.Device][u.Capability] = u.Value
 	}
-	r.values[u.Device][u.Capability] = u.Value
 }
 
 func (r *recorder) Availability(dev ident.ID, online bool) {

@@ -10,6 +10,7 @@ import (
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -301,9 +302,34 @@ func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("on") || snap.Values["on"] != true {
 		t.Fatalf("got %+v, %v", snap, ok)
 	}
-	changed(mirror, wire.Message{Device: "lamp", Capability: "on", Value: false})
+	changed(mirror, wire.Message{Device: "lamp", Changes: []wire.Change{{Capability: "on", Value: false}}})
 	if snap, _ := mirror.Get(deviceKey("lamp")); snap.Values["on"] != false {
 		t.Fatalf("a later change didn't reach it: %+v", snap)
+	}
+}
+
+type reports struct {
+	hub.NopSink
+	got [][]driver.Update
+}
+
+func (r *reports) Changed(changes ...driver.Update) { r.got = append(r.got, changes) }
+
+// A change message is one report, so the engine takes in all of it at once (OIK-212).
+func TestAChangeReachesTheEngineAsOneReport(t *testing.T) {
+	r := &reports{}
+	mirror := hub.NewStore(logging.Discard(), r)
+	discovered(mirror, map[ident.ID]hub.Meta{}, nil, wire.Device{
+		Name: "hall", Discovered: true, Capabilities: []string{"humidity", "occupied"},
+		Values: map[string]any{"humidity": 40.0, "occupied": false},
+	})
+	r.got = nil
+	changed(mirror, wire.Message{Device: "hall", Changes: []wire.Change{
+		{Capability: "humidity", Value: 72.0, Previous: 40.0},
+		{Capability: "occupied", Value: true, Previous: false},
+	}})
+	if len(r.got) != 1 || len(r.got[0]) != 2 {
+		t.Fatalf("reports %+v, want one with both values", r.got)
 	}
 }
 

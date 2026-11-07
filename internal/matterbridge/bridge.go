@@ -44,15 +44,17 @@ type Bridge struct {
 }
 
 // Changed implements driver.Sink.
-func (b *Bridge) Changed(u driver.Update) {
-	if b.Writes != nil {
-		b.Writes.Reported(u.Device, u.Capability)
-	}
-	b.mu.Lock()
-	e := b.byDevice[u.Device]
-	b.mu.Unlock()
-	if e != nil {
-		b.Matter.Node.Update(func() { e.mapped.Update(u.Capability, u.Value) })
+func (b *Bridge) Changed(changes ...driver.Update) {
+	for _, u := range changes {
+		if b.Writes != nil {
+			b.Writes.Reported(u.Device, u.Capability)
+		}
+		b.mu.Lock()
+		e := b.byDevice[u.Device]
+		b.mu.Unlock()
+		if e != nil {
+			b.Matter.Node.Update(func() { e.mapped.Update(u.Capability, u.Value) })
+		}
 	}
 }
 

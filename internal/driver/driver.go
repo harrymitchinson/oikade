@@ -74,7 +74,9 @@ type Update struct {
 // Sink receives driver events. Calls arrive on the driver's receive goroutine and must not block.
 type Sink interface {
 	Discovered(dev ident.ID, info Info)
-	Changed(u Update)
+	// Changed reports what one report from a device changed, all of it in one call, so nothing
+	// downstream acts on part of a report: a rule sees every value it carried at once.
+	Changed(changes ...Update)
 	Availability(dev ident.ID, online bool)
 	// Seen reports any message from the device, changed or not.
 	Seen(dev ident.ID, t time.Time)

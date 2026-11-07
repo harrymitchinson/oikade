@@ -108,6 +108,13 @@ type RoomOfTypes struct {
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
 }
 
+// Change is one value a change message carries.
+type Change struct {
+	Capability string `json:"capability"`
+	Value      any    `json:"value"`
+	Previous   any    `json:"previous,omitempty"`
+}
+
 // Device is one device as the host knows it.
 type Device struct {
 	Name string `json:"name"`
@@ -166,6 +173,9 @@ type Message struct {
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
 	Previous   any    `json:"previous,omitempty"`
+	// Changes are a change's: every value one report from Device changed, which your process takes
+	// in together.
+	Changes []Change `json:"changes,omitempty"`
 	// Discovered is a Discovered's device.
 	Discovered *Device   `json:"discovered,omitempty"`
 	Time       time.Time `json:"time,omitzero"`

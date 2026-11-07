@@ -102,6 +102,8 @@ func TestBedtimeSurvivesACrash(t *testing.T) {
 
 The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A mistake in a condition goes to the test's log, which `go test` shows when it fails.
 
+`h.Set` changes one value. A sensor often reports several at once, and your rules see all of them before any acts, so a Safety hold on one is never late for a Normal hold on another. `h.Report(Hall.Humidity.To(72), Hall.Occupied.To(true))` sends one device's values as one report, as the host does.
+
 `oikade replay` shows what your code would have done last week. It fetches the host's event log, runs the code in your working copy against it on a fake clock, and compares that with what the deployed version did:
 
 ```text

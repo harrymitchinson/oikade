@@ -321,21 +321,32 @@ func (s *Store) Discovered(dev ident.ID, info driver.Info) {
 	}
 }
 
-// Changed implements driver.Sink.
-func (s *Store) Changed(u driver.Update) {
-	if !s.update(u.Device, func(e *entry) {
+// Changed implements driver.Sink. A report's values all land before any listener hears of them.
+func (s *Store) Changed(changes ...driver.Update) {
+	known := make([]driver.Update, 0, len(changes))
+	s.mu.Lock()
+	for _, u := range changes {
+		e, ok := s.devices[u.Device]
+		if !ok {
+			continue
+		}
 		e.Values[u.Capability] = u.Value
 		e.Changes[u.Capability]++
-	}) {
+		known = append(known, u)
+	}
+	s.mu.Unlock()
+	if len(known) == 0 {
 		return
 	}
-	// Link quality changes on almost every message; logging it would drown the rest.
-	if u.Capability != capability.LinkQuality {
-		s.Log.Info("Changed capability", "namespace", u.Device.Namespace, "device", u.Device.Name,
-			"capability", u.Capability, "value", u.Value, "previous", u.Previous)
+	for _, u := range known {
+		// Link quality changes on almost every message; logging it would drown the rest.
+		if u.Capability != capability.LinkQuality {
+			s.Log.Info("Changed capability", "namespace", u.Device.Namespace, "device", u.Device.Name,
+				"capability", u.Capability, "value", u.Value, "previous", u.Previous)
+		}
 	}
 	for _, l := range s.Listeners {
-		l.Changed(u)
+		l.Changed(known...)
 	}
 }
 
@@ -389,7 +400,7 @@ func (s *Store) Inventory(instance driver.InstanceKey, devices []driver.AppDevic
 type NopSink struct{}
 
 func (NopSink) Discovered(ident.ID, driver.Info)                 {}
-func (NopSink) Changed(driver.Update)                            {}
+func (NopSink) Changed(...driver.Update)                         {}
 func (NopSink) Availability(ident.ID, bool)                      {}
 func (NopSink) Seen(ident.ID, time.Time)                         {}
 func (NopSink) Undeclared(driver.InstanceKey, int)               {}

@@ -418,8 +418,8 @@ func (i *Instance) applyStateLocked(id string, state contractv1.State, at time.T
 	}
 	return func() {
 		i.Sink.Seen(dev, at)
-		for _, u := range updates {
-			i.Sink.Changed(u)
+		if len(updates) > 0 {
+			i.Sink.Changed(updates...)
 		}
 	}
 }

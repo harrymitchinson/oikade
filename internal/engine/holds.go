@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -159,7 +160,9 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)
 	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim {
 		hs.writing, hs.dirty, hs.claimed = true, false, &claim
-		e.goBusy(func() { e.write(ctx, key, hs, st, active, end, claim, reclaim) })
+		e.holdWrites = append(e.holdWrites, holdWrite{level: claim.Level, key: key, run: func() {
+			e.write(ctx, key, hs, st, active, end, claim, reclaim)
+		}})
 		s.next = fire{}
 	} else {
 		s.next = fire{At: lookAgain(h, st, next, now)}
@@ -168,6 +171,36 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 		}
 	}
 	e.reportHold(key, s, st, next)
+}
+
+// holdWrite is a hold's write, waiting for every hold that looks at the same moment to have looked.
+type holdWrite struct {
+	level control.Level
+	key   ident.ID
+	run   func()
+}
+
+// startWrites makes the hold writes evaluate queued, one after another on one goroutine, highest
+// level first. So when one report or one moment starts a Safety hold and a Normal hold on the same
+// device, the Safety claim is in before the Normal one, and the Normal value is never written.
+// Call with e.mu held, after every evaluate of the look.
+func (e *Engine) startWrites() {
+	writes := e.holdWrites
+	if len(writes) == 0 {
+		return
+	}
+	e.holdWrites = nil
+	slices.SortStableFunc(writes, func(a, b holdWrite) int {
+		if a.level != b.level {
+			return cmp.Compare(b.level, a.level)
+		}
+		return cmp.Compare(a.key.Name, b.key.Name)
+	})
+	e.goBusy(func() {
+		for _, w := range writes {
+			w.run()
+		}
+	})
 }
 
 // step moves a hold's state on to now, given its condition, and returns whether it should be
