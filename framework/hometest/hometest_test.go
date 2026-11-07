@@ -7,6 +7,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/framework"
 	"github.com/harrymitchinson/oikade/framework/hometest"
+	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
 const (
@@ -298,4 +299,82 @@ func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
 	h.ExpectValue(dehumidifier, true)
 	h.Set(cellar("cellar-2"), 60.0)
 	h.ExpectValue(dehumidifier, false)
+}
+
+// greenwich is a home's Site, rounded to two decimals.
+var greenwich = &framework.Site{Latitude: 51.48, Longitude: -0.01}
+
+// sunset is when the sun sets at a site on a day, which internal/sun checks against published tables.
+func sunset(t *testing.T, site *framework.Site, day time.Time) time.Time {
+	t.Helper()
+	at, ok := sun.Site{Latitude: site.Latitude, Longitude: site.Longitude}.
+		Time(sun.Sunset, day.Year(), day.Month(), day.Day(), day.Location())
+	if !ok {
+		t.Fatalf("the sun doesn't set on %v", day)
+	}
+	return at
+}
+
+func TestAMomentFiresBeforeSunset(t *testing.T) {
+	london, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := framework.Home{Site: greenwich, Moments: []framework.Moment{{
+		Name: "porch-at-dusk", At: []framework.Time{framework.Sunset(-20 * time.Minute)},
+		Do: []framework.Action{light.To(false)},
+	}}}
+	// Midwinter and midsummer, whose sunsets are more than five hours apart.
+	for _, day := range []time.Time{
+		time.Date(2030, 1, 7, 0, 0, 0, 0, london), time.Date(2030, 6, 21, 0, 0, 0, 0, london),
+	} {
+		h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: day})
+		h.Advance(24 * time.Hour)
+		want := sunset(t, greenwich, day).Add(-20 * time.Minute)
+		if got := h.Writes(); len(got) != 1 || !got[0].Time.Equal(want) {
+			t.Errorf("on %s, writes %+v, want one at %v", day.Format(time.DateOnly), got, want)
+		}
+	}
+}
+
+func TestAWindowOpensAtSunset(t *testing.T) {
+	home := framework.Home{Site: greenwich, Holds: []framework.Hold{{
+		Name: "garden-pump", Set: pump.To(true),
+		Window: &framework.Window{Start: framework.Sunset(0), End: framework.Clock("23:30")},
+	}}}
+	start := time.Date(2030, 3, 20, 0, 0, 0, 0, time.UTC)
+	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
+	opens := sunset(t, greenwich, start)
+	h.Advance(opens.Sub(start) - time.Minute)
+	h.ExpectValue(pump, false)
+	h.Advance(2 * time.Minute)
+	h.ExpectValue(pump, true)
+	h.Advance(start.Add(23*time.Hour + 29*time.Minute).Sub(h.Now()))
+	h.ExpectValue(pump, true)
+	h.Advance(2 * time.Minute)
+	h.ExpectValue(pump, false)
+}
+
+// In Svalbard in June the sun doesn't set, so a sunset neither fires nor opens a window.
+func TestADayWithNoSunsetDoesNothing(t *testing.T) {
+	svalbard := &framework.Site{Latitude: 78.22, Longitude: 15.65}
+	home := framework.Home{
+		Site: svalbard,
+		Moments: []framework.Moment{{
+			Name: "dusk", At: []framework.Time{framework.Sunset(0)}, Do: []framework.Action{light.To(false)},
+		}},
+		Holds: []framework.Hold{{
+			Name: "evening-pump", Set: pump.To(true),
+			Window: &framework.Window{Start: framework.Sunset(0), End: framework.Clock("23:30")},
+		}},
+	}
+	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 6, 21, 0, 0, 0, 0, time.UTC)})
+	for range 24 {
+		h.Advance(time.Hour)
+		h.ExpectValue(pump, false)
+	}
+	h.ExpectValue(light, true)
+	if got := h.Writes(); len(got) != 0 {
+		t.Errorf("writes %+v, want none", got)
+	}
 }

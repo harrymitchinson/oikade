@@ -387,9 +387,6 @@ func (e *Engine) reportHold(key ident.ID, s *state, st HoldState, next time.Time
 			}
 		}
 	}
-	if s.c.needsSite() && e.Site == nil {
-		sched.Reason = ReasonNoLocation
-	}
 	if r := s.hold.reported; r != nil && *r == sched {
 		return
 	}

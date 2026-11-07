@@ -41,9 +41,6 @@ const (
 	labelRule      = "rule"
 )
 
-// ReasonNoLocation is the Scheduled reason for a sun trigger with no location.
-const ReasonNoLocation = "NoLocation"
-
 // maxWait bounds how long Run sleeps, so a wall clock that steps forward, as NTP does on a
 // Raspberry Pi without a clock battery, delays a fire by at most this.
 const maxWait = time.Minute
@@ -62,8 +59,6 @@ type Schedule struct {
 	// LastFire is the scheduled time of the last fire the engine ran or skipped. Zero means it
 	// hasn't changed since the Rule loaded.
 	LastFire time.Time
-	// Reason is ReasonNoLocation when sun triggers or sun windows can't fire, and empty otherwise.
-	Reason string
 	// Hold is set for a Rule with a hold, which reports Active rather than fires.
 	Hold bool
 	// Active is whether the hold is active.
@@ -262,10 +257,6 @@ func (e *Engine) Load(c *Compiled) {
 func (e *Engine) schedule(key ident.ID, s *state, first bool) {
 	now := e.Clock.Now()
 	sched := Schedule{Generation: s.c.Generation}
-	if s.c.needsSite() && e.Site == nil {
-		sched.Reason = ReasonNoLocation
-		e.Log.Info("Sun triggers won't fire; set --latitude and --longitude", "rule", key)
-	}
 	if first {
 		if f, ok := s.c.lastFire(s.c.Since, now, e.Location, e.Site); ok {
 			if now.Sub(f.At) <= s.c.StartingDeadline {

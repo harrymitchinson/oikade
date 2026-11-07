@@ -26,6 +26,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
 const (
@@ -42,6 +43,8 @@ var instance = driver.InstanceKey{Driver: "simulated", Name: "home"}
 type Home struct {
 	Compile func() ([]*engine.Compiled, map[string]*flow.Flow, error)
 	Control []wire.DeviceControl
+	// Site is where sunrise and sunset are worked out for. Nil means they never happen.
+	Site *sun.Site
 }
 
 // Device is a simulated device.
@@ -186,7 +189,7 @@ func (s *Sim) start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	eng := &engine.Engine{
 		Store: s.store, Setter: driver.SetterFunc(s.set), States: s.holds, Controls: s.controls, Clock: s.clock,
-		Location: s.location, Log: s.log.With("logger", "automations"),
+		Location: s.location, Site: s.home.Site, Log: s.log.With("logger", "automations"),
 		OnPark: s.park,
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {

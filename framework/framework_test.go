@@ -15,6 +15,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -49,6 +50,28 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		},
 		"a window with no end": {
 			Home{Holds: []Hold{{Name: "evening", Set: d.To(true), Window: &Window{Start: Clock("18:00")}}}}, "end: no time",
+		},
+		"a sunset with no site": {
+			Home{Moments: []Moment{{Name: "porch-at-dusk", At: []Time{Sunset(0)}, Do: []Action{Wait(time.Second)}}}},
+			"rule porch-at-dusk: a sunrise or sunset needs the home's Site",
+		},
+		"a sunrise window with no site": {
+			Home{Holds: []Hold{{
+				Name: "a", Set: d.To(true), Window: &Window{Start: Sunrise(0), End: Clock("09:00")},
+			}}},
+			"rule a: a sunrise or sunset needs the home's Site",
+		},
+		"a latitude off the earth": {
+			Home{Site: &Site{Latitude: 91}, Holds: []Hold{{Name: "a", Set: d.To(true), When: when}}}, "latitude 91 isn't",
+		},
+		"a longitude off the earth": {
+			Home{Site: &Site{Longitude: -181}, Holds: []Hold{{Name: "a", Set: d.To(true), When: when}}}, "longitude -181 isn't",
+		},
+		"an offset too far": {
+			Home{Site: &Site{}, Flows: []Flow{{
+				Name: "a", At: []Time{Sunrise(7 * time.Hour)}, Run: func(*FlowRun) error { return nil },
+			}}},
+			"offset 7h0m0s is not between -6h and 6h",
 		},
 		"both untils": {
 			Home{Moments: []Moment{{
@@ -406,6 +429,30 @@ func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s has rooms %+v, want %+v", r.Name, got, want)
 		}
+	}
+}
+
+func TestABudgetTakesClockTimesOnly(t *testing.T) {
+	home := budgetHome(valveControl(), Budget{
+		Minutes: func(State) int { return 60 },
+		Prefer:  []Prefer{{Window: Window{Start: Sunset(0), End: Clock("23:00")}, Score: 3}},
+	})
+	home.Site = &Site{Latitude: 51.48, Longitude: -0.01}
+	if _, _, err := home.compile(); err == nil || !strings.Contains(err.Error(), "clock times only") {
+		t.Fatalf("got %v, want a budget's windows to take clock times only", err)
+	}
+}
+
+func TestASunTimeReachesTheEngine(t *testing.T) {
+	m := Moment{
+		Name: "a", At: []Time{Sunset(-20 * time.Minute), Sunrise(0), Clock("18:00")}, Do: []Action{Wait(time.Second)},
+	}
+	want := []engine.Timer{
+		engine.SunTime{Event: sun.Sunset, Offset: -20 * time.Minute}, engine.SunTime{Event: sun.Sunrise},
+		engine.At{Time: "18:00"},
+	}
+	if got := m.toEngine().Timers; !reflect.DeepEqual(got, want) {
+		t.Errorf("timers %+v, want %+v", got, want)
 	}
 }
 

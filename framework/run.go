@@ -94,7 +94,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	}
 	eng := &engine.Engine{
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
-		Log: log.With("logger", "automations"),
+		Site: h.Site.toSun(), Log: log.With("logger", "automations"),
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
@@ -243,7 +243,7 @@ func (h Home) simulated() (simhome.Home, error) {
 	if err != nil {
 		return simhome.Home{}, err
 	}
-	return simhome.Home{Compile: h.compile, Control: settings}, nil
+	return simhome.Home{Compile: h.compile, Control: settings, Site: h.Site.toSun()}, nil
 }
 
 func init() {
