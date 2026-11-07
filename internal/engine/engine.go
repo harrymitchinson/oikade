@@ -522,10 +522,12 @@ func (e *Engine) conditionVars(namespace string, now time.Time, h *home) Vars {
 		h = e.home(namespace)
 	}
 	return Vars{
-		"devices": h.devices,
-		"members": h.members,
-		"now":     now,
-		"tz":      e.Location.String(),
+		"devices":  h.devices,
+		"members":  h.members,
+		"now":      now,
+		"tz":       e.Location.String(),
+		"location": e.Location,
+		"site":     e.Site,
 	}
 }
 

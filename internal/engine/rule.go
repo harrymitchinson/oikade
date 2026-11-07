@@ -46,7 +46,8 @@ const (
 
 // Vars are what a condition sees: "devices", each device's capability values by name; "members",
 // each device's hub.Member by name, for reading a room; "now", a time.Time; "tz", the household's
-// IANA timezone; and for a moment, "trigger".
+// IANA timezone, and "location", the same as a *time.Location; "site", the *sun.Site sun times are
+// for, or nil; and for a moment, "trigger".
 type Vars = map[string]any
 
 // Condition is a rule's condition. An error means it can't be evaluated yet, as before a device it
@@ -456,6 +457,18 @@ func (w *Window) compile() (*window, error) {
 		endErr = fmt.Errorf("end: %w", endErr)
 	}
 	return &window{start: start, end: end, days: slices.Clone(w.Days)}, errors.Join(startErr, endErr, checkDays(w.Days))
+}
+
+// Contains reports whether t is inside the window, by the rules a hold's window keeps, in loc and
+// at site, which may be nil when the window has no sun times. An error is a window that doesn't
+// compile.
+func (w *Window) Contains(t time.Time, loc *time.Location, site *sun.Site) (bool, error) {
+	c, err := w.compile()
+	if err != nil {
+		return false, err
+	}
+	in, _ := c.at(t, loc, site)
+	return in, nil
 }
 
 func windowTime(t Timer) (timeTrigger, error) {

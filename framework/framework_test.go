@@ -238,6 +238,58 @@ func TestARoomWhereNothingHasReportedIsAnError(t *testing.T) {
 	}
 }
 
+func within(t *testing.T, w Window, at time.Time) bool {
+	t.Helper()
+	var in bool
+	ok, err := Condition(func(s State) bool {
+		in = s.Within(w)
+		return true
+	}).toEngine()(engine.Vars{"now": at, "location": at.Location()})
+	if err != nil || !ok {
+		t.Fatalf("got %v, %v", ok, err)
+	}
+	return in
+}
+
+func TestWithinIsAHoldsWindow(t *testing.T) {
+	evening := Window{Start: Clock("18:00"), End: Clock("07:00")}
+	// Friday 6 November 2026, in Paris.
+	paris, err := time.LoadLocation("Europe/Paris")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(day, hour, minute int) time.Time { return time.Date(2026, 11, day, hour, minute, 0, 0, paris) }
+	for _, tc := range []struct {
+		w    Window
+		at   time.Time
+		want bool
+	}{
+		{evening, at(6, 23, 0), true},
+		{evening, at(7, 6, 59), true},
+		{evening, at(7, 7, 0), false},
+		{evening, at(7, 12, 0), false},
+		{evening, at(6, 18, 0), true},
+		// Starting on Fridays, it's still open early on Saturday, and not early on Friday.
+		{Window{Start: Clock("20:00"), End: Clock("04:00"), Days: []time.Weekday{time.Friday}}, at(7, 2, 0), true},
+		{Window{Start: Clock("20:00"), End: Clock("04:00"), Days: []time.Weekday{time.Friday}}, at(6, 2, 0), false},
+	} {
+		if got := within(t, tc.w, tc.at); got != tc.want {
+			t.Errorf("Within(%v to %v) at %s = %v, want %v", tc.w.Start, tc.w.End, tc.at, got, tc.want)
+		}
+	}
+}
+
+func TestWithinAWindowWithAMistakeIsABug(t *testing.T) {
+	bad := Window{Start: Clock("25:00"), End: Clock("07:00")}
+	cond := Condition(func(s State) bool { return s.Within(bad) }).toEngine()
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "window") {
+			t.Fatalf("got %v", r)
+		}
+	}()
+	_, _ = cond(engine.Vars{"now": time.Now()})
+}
+
 func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}

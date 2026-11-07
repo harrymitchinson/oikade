@@ -59,9 +59,11 @@ const (
 
 // State is what a condition reads: the home now.
 type State struct {
-	devices map[string]map[string]any
-	members map[string]hub.Member
-	now     time.Time
+	devices  map[string]map[string]any
+	members  map[string]hub.Member
+	now      time.Time
+	location *time.Location
+	site     *sun.Site
 }
 
 // notReported ends a condition that read a value nobody has reported yet.
@@ -166,6 +168,21 @@ func roomValues[T Value](s State, r RoomRead[T]) []T {
 // Now is the time of this look at the home.
 func (s State) Now() time.Time { return s.now }
 
+// Within reports whether Now is inside the window, by the same rules as a hold's Window:
+//
+//	s.Within(framework.Window{Start: framework.Clock("18:00"), End: framework.Clock("07:00")})
+//
+// A hold looks again every minute, so one whose When uses it changes within a minute of the window's
+// edge, where a hold's own Window changes on it. A window with a mistake in it, such as a time
+// that isn't one, stops the condition, and that's logged.
+func (s State) Within(w Window) bool {
+	in, err := w.toEngine().Contains(s.now, s.location, s.site)
+	if err != nil {
+		panic(fmt.Sprintf("window: %v", err))
+	}
+	return in
+}
+
 // Condition decides from the home now. It must not block: it holds up every other rule, and one
 // that runs for too long gets the process replaced.
 type Condition func(State) bool
@@ -178,6 +195,11 @@ func (c Condition) toEngine() engine.Condition {
 		devices, _ := v["devices"].(map[string]map[string]any)
 		members, _ := v["members"].(map[string]hub.Member)
 		now, _ := v["now"].(time.Time)
+		location, _ := v["location"].(*time.Location)
+		if location == nil {
+			location = now.Location()
+		}
+		site, _ := v["site"].(*sun.Site)
 		defer func() {
 			r := recover()
 			if r == nil {
@@ -198,7 +220,7 @@ func (c Condition) toEngine() engine.Condition {
 			}
 			panic(r)
 		}()
-		return c(State{devices: devices, members: members, now: now}), nil
+		return c(State{devices: devices, members: members, now: now, location: location, site: site}), nil
 	}
 }
 
@@ -784,11 +806,13 @@ func (r Hold) toEngine() engine.Hold {
 		OnDelay: r.OnDelay, OffDelay: r.OffDelay, Latch: r.Latch, Budget: r.Budget.toSchedule(),
 	}
 	if r.Window != nil {
-		h.Window = &engine.Window{
-			Start: r.Window.Start.timer(), End: r.Window.End.timer(), Days: r.Window.Days,
-		}
+		h.Window = r.Window.toEngine()
 	}
 	return h
+}
+
+func (w Window) toEngine() *engine.Window {
+	return &engine.Window{Start: w.Start.timer(), End: w.End.timer(), Days: w.Days}
 }
 
 // checkBudget checks a hold's budget against its Control, which the engine can't see until the

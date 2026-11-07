@@ -378,3 +378,63 @@ func TestADayWithNoSunsetDoesNothing(t *testing.T) {
 		t.Errorf("writes %+v, want none", got)
 	}
 }
+
+// A hold whose When reads a window opens within a minute of it, with no device changing.
+func TestAHoldWithinAWindowOpensWithinAMinute(t *testing.T) {
+	home := framework.Home{Holds: []framework.Hold{{
+		Name: "evening", Set: light.To(false),
+		When: func(s framework.State) bool {
+			return s.Within(framework.Window{Start: framework.Clock("18:00"), End: framework.Clock("07:00")})
+		},
+	}}}
+	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 1, 7, 12, 0, 0, 0, time.UTC)})
+	h.Advance(6*time.Hour - time.Second)
+	h.ExpectValue(light, true)
+	h.Advance(time.Minute + time.Second)
+	h.ExpectValue(light, false)
+}
+
+// Within in a When and a hold's own Window agree, minute by minute, across the night the clocks go
+// back, when 01:00 to 02:00 happens twice.
+func TestWithinAgreesWithAHoldsWindowAcrossDaylightSaving(t *testing.T) {
+	london, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := framework.Window{Start: framework.Clock("01:30"), End: framework.Clock("02:15")}
+	// Clocks go back at 02:00 BST on Sunday 27 October 2030.
+	agree(t, w, nil, time.Date(2030, 10, 26, 23, 0, 0, 0, london), 5*time.Hour)
+}
+
+// Within with a sunset edge agrees with a hold's Window with the same edge.
+func TestWithinAgreesWithAHoldsWindowAtSunset(t *testing.T) {
+	w := framework.Window{Start: framework.Sunset(0), End: framework.Clock("23:30")}
+	start := time.Date(2030, 3, 20, 12, 0, 0, 0, time.UTC)
+	agree(t, w, greenwich, start, 12*time.Hour)
+}
+
+// agree runs a hold with w as its Window beside one whose When is s.Within(w), and checks they
+// agree after every minute.
+func agree(t *testing.T, w framework.Window, site *framework.Site, start time.Time, d time.Duration) {
+	t.Helper()
+	home := framework.Home{Site: site, Holds: []framework.Hold{
+		{Name: "by-window", Set: fan.To(true), Window: &w},
+		{Name: "by-within", Set: pump.To(true), When: func(s framework.State) bool { return s.Within(w) }},
+	}}
+	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
+	opened := 0
+	for range int(d / time.Minute) {
+		h.Advance(time.Minute)
+		byWindow, _ := h.Value(fan)
+		byWithin, _ := h.Value(pump)
+		if byWindow != byWithin {
+			t.Fatalf("at %s the window says %v and Within says %v", h.Now(), byWindow, byWithin)
+		}
+		if byWindow {
+			opened++
+		}
+	}
+	if opened == 0 {
+		t.Fatal("the window never opened")
+	}
+}
