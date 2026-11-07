@@ -82,10 +82,11 @@ log.Error("Failed to start Plugin", "err", err, "name", name)
 
 ```bash
 export IMG=<registry>/oikade:<version>
-make docker-build docker-push IMG=$IMG
+make docker-build docker-push IMG=$IMG   # oikade-host's image, for this machine's platform
+make release-snapshot                    # everything a release ships, into dist/, publishing nothing
 ```
 
-Releases build the image, and `dist/oikadectl-<os>-<arch>` and `dist/oikade-host-<os>-<arch>` for linux/arm64 and linux/amd64: `.github/workflows/release.yml`.
+Releases are GoReleaser (`.goreleaser.yaml`), run by `.github/workflows/release.yml` on release-please's tag: `oikadectl-<os>-<arch>.tar.gz` for darwin and linux, `oikade-host-linux-<arch>.tar.gz`, `checksums.txt`, and the image for linux/arm64 and linux/amd64. The Dockerfile compiles nothing: it copies a prebuilt `oikade-host` from `<os>/<arch>/` in its context.
 
 ## Planning
 

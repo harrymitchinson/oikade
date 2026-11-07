@@ -66,12 +66,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
-      IMG: ghcr.io/harrymitchinson/oikade:${{ needs.release-please.outputs.tag_name }}
     steps:
+      # GoReleaser reads the version from the tag, so it needs the tags as well as the commit.
       - name: Clone the code at the tag
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Go
@@ -86,18 +87,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # make docker-buildx creates its own builder. The builder stage runs on the
-      # runner's platform and cross-compiles, so no QEMU.
-      - name: Build and push the image for arm64 and amd64
-        run: make docker-buildx IMG="$IMG" VERSION="$TAG" PLATFORMS=linux/arm64,linux/amd64
+      # The default docker driver can't push an image for two platforms. The Dockerfile only copies
+      # the prebuilt binary, so there's nothing to emulate and no QEMU.
+      - name: Create a buildx builder
+        run: docker buildx create --use --name oikade-builder
 
-      - name: Build the binaries
-        run: make release-binaries VERSION="$TAG" PLATFORMS=linux/arm64,linux/amd64
-
-      - name: Attach the binaries to the Release
+      # .goreleaser.yaml: the archives and checksums go on the Release release-please made, keeping
+      # its notes, and the image goes to ghcr.io.
+      - name: Build and publish with GoReleaser
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/oikadectl-linux-* dist/oikade-host-linux-* --clobber --repo "$GITHUB_REPOSITORY"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make release
 
       # prerelease: true in release-please-config.json marks every 0.x release as a
       # pre-release. Only the alphas between milestones are, so a milestone release

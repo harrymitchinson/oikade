@@ -10,10 +10,10 @@ Oikade runs as one process on one machine, so one Pi is all a home needs ([OIK-1
 go install github.com/harrymitchinson/oikade/cmd/oikadectl@<version>   # the release the Pi runs
 ```
 
-**Install.** The Pi needs only `oikade-host`. Put the release's `oikade-host-linux-arm64` at `/usr/local/bin/oikade-host`:
+**Install.** The Pi needs only `oikade-host`, from the release's `oikade-host-linux-arm64.tar.gz`:
 
 ```sh
-curl -fsSLo oikade-host https://github.com/harrymitchinson/oikade/releases/download/<version>/oikade-host-linux-arm64
+curl -fsSL https://github.com/harrymitchinson/oikade/releases/download/<version>/oikade-host-linux-arm64.tar.gz | tar xz oikade-host
 sudo install -m 755 oikade-host /usr/local/bin/oikade-host
 sudo useradd --system --home-dir /var/lib/oikade --shell /usr/sbin/nologin oikade
 ```
@@ -97,7 +97,7 @@ The `cp` puts the snapshot where the store goes, since the `oikade.db` in the co
 ```sh
 oikadectl backup                                                          # on your Mac
 sudo cp -p /usr/local/bin/oikade-host /usr/local/bin/oikade-host.previous
-sudo install -m 755 oikade-host /usr/local/bin/oikade-host                # the new release's oikade-host-linux-arm64
+sudo install -m 755 oikade-host /usr/local/bin/oikade-host                # from the new release's oikade-host-linux-arm64.tar.gz
 sudo systemctl restart oikade
 ```
 
