@@ -13,7 +13,7 @@
 //		})
 //	}
 //
-// BathroomFan and BathroomSensor come from devices.go, which oikade types writes from the home's
+// BathroomFan and BathroomSensor come from devices.go, which oikadectl types writes from the home's
 // devices, with a Handle for each capability each one has.
 //
 // A flow is ordinary Go that can wait for hours and survive a crash: docs/writing-flows.md.

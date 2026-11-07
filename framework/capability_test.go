@@ -9,7 +9,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
-// oikade types names a handle's field and its type from the registry, so each constant here must
+// oikadectl types names a handle's field and its type from the registry, so each constant here must
 // agree with it, and every capability there must have one.
 func TestTheConstantsAreTheRegistrys(t *testing.T) {
 	type constant struct {
