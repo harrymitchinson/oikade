@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
@@ -49,5 +50,16 @@ func TestChoosable(t *testing.T) {
 		if Choosable(typ) {
 			t.Errorf("%q is choosable", typ)
 		}
+	}
+}
+
+// The contract's device types are the ones you can choose, so a plugin can report any of them.
+func TestTheContractHasTheChoosableTypes(t *testing.T) {
+	ours := make([]string, 0, len(OnOff))
+	for _, typ := range OnOff {
+		ours = append(ours, string(typ))
+	}
+	if got := contractv1.DeviceTypes(); !slices.Equal(got, ours) {
+		t.Errorf("the contract has %v, want %v", got, ours)
 	}
 }

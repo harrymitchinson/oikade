@@ -9,20 +9,22 @@ import (
 	"slices"
 	"strings"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
 // Type is a Matter device type's name.
 type Type string
 
-// The device types of a device that's on or off, which you or its driver choose between.
+// The device types of a device that's on or off, which you or its driver choose between. They're
+// the plugin contract's, so a plugin can report any of them.
 const (
-	OnOffLight                 Type = "OnOffLight"
-	DimmableLight              Type = "DimmableLight"
-	OnOffPlugInUnit            Type = "OnOffPlugInUnit"
-	DimmablePlugInUnit         Type = "DimmablePlugInUnit"
-	MountedOnOffControl        Type = "MountedOnOffControl"
-	MountedDimmableLoadControl Type = "MountedDimmableLoadControl"
+	OnOffLight                 Type = contractv1.OnOffLight
+	DimmableLight              Type = contractv1.DimmableLight
+	OnOffPlugInUnit            Type = contractv1.OnOffPlugInUnit
+	DimmablePlugInUnit         Type = contractv1.DimmablePlugInUnit
+	MountedOnOffControl        Type = contractv1.MountedOnOffControl
+	MountedDimmableLoadControl Type = contractv1.MountedDimmableLoadControl
 )
 
 // The device types that follow from a sensor's capabilities.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -399,5 +400,34 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 	}
 	if _, ok := i.Discovered(); ok || rec.undeclared != 0 {
 		t.Errorf("after a wrong contract, Discovered() ok = %v and undeclared = %d, want false and 0", ok, rec.undeclared)
+	}
+}
+
+func TestADeviceTypeIsTakenAndAnUnknownOneRejected(t *testing.T) {
+	retained := online()
+	retained["devices"] = `{"devices":[
+		{"id":"1000aa","found":true,"capabilities":["on","brightness"],"deviceType":"DimmableLight"},
+		{"id":"1000bb","found":true,"capabilities":["on"],"deviceType":"Toaster"},
+		{"id":"1000ff","found":true,"capabilities":["on"]}
+	],"discovered":[
+		{"id":"1000aa","capabilities":["on","brightness"],"deviceType":"DimmableLight"},
+		{"id":"1000cc","capabilities":["on"],"deviceType":"lamp"}
+	]}`
+	i, _, rec := setup(t, retained)
+
+	if got := rec.discovered[porch]; got.DeviceType != devicetype.DimmableLight {
+		t.Errorf("porch = %+v, want DimmableLight", got)
+	}
+	if got := rec.discovered[hall]; !got.Found || got.DeviceType != "" || !slices.Equal(got.Capabilities, []string{capability.On}) {
+		t.Errorf("hall = %+v, want found with no device type", got)
+	}
+	if got := rec.discovered[ghost]; !got.Found || got.DeviceType != "" {
+		t.Errorf("a device with no deviceType = %+v", got)
+	}
+	if len(rec.inventory) != 2 || rec.inventory[0].DeviceType != devicetype.DimmableLight || rec.inventory[1].DeviceType != "" {
+		t.Errorf("inventory = %+v", rec.inventory)
+	}
+	if got := i.Stats().Rejected[ReasonUnknownDeviceType]; got != 2 {
+		t.Errorf("unknown_device_type = %d, want 2: %v", got, i.Stats().Rejected)
 	}
 }

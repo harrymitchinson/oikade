@@ -197,13 +197,16 @@ func newClientID() string {
 
 // SetDevices publishes the devices this plugin serves. List every device from devices.json.
 // Values a device no longer announces are dropped from its state, and that state is republished.
-// It refuses a capability Oikade doesn't know, and publishes nothing.
+// It refuses a capability or a device type Oikade doesn't know, and publishes nothing.
 func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceReport, undeclared int) error {
 	for _, d := range devices {
 		for _, c := range d.Capabilities {
 			if _, ok := capability.Lookup(c); !ok {
 				return fmt.Errorf("device %s: unknown capability %s", d.ID, c)
 			}
+		}
+		if !contractv1.ValidDeviceType(d.DeviceType) {
+			return fmt.Errorf("device %s: unknown device type %s", d.ID, d.DeviceType)
 		}
 	}
 	if err := p.lock(ctx); err != nil {
@@ -252,9 +255,9 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 // such as a MAC address or serial number, if the app's own ID doesn't.
 //
 // Pass nil to stop reporting the list, if the plugin can no longer see its app: an empty list
-// means the app has no devices. It refuses an invalid or repeated ID and a capability Oikade
-// doesn't know, and publishes nothing. The list is published with the devices from SetDevices, and waits for the first
-// SetDevices if that hasn't been called yet.
+// means the app has no devices. It refuses an invalid or repeated ID, and a capability or device
+// type Oikade doesn't know, and publishes nothing. The list is published with the devices from
+// SetDevices, and waits for the first SetDevices if that hasn't been called yet.
 func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.DiscoveredDevice) error {
 	var next []contractv1.DiscoveredDevice
 	if discovered != nil {
@@ -273,6 +276,9 @@ func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.Disc
 			if _, ok := capability.Lookup(c); !ok {
 				return fmt.Errorf("discovered device %s: unknown capability %s", d.ID, c)
 			}
+		}
+		if !contractv1.ValidDeviceType(d.DeviceType) {
+			return fmt.Errorf("discovered device %s: unknown device type %s", d.ID, d.DeviceType)
 		}
 		d.Capabilities = slices.Clone(d.Capabilities)
 		next[i] = d

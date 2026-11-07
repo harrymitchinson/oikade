@@ -22,6 +22,7 @@ import (
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -273,6 +274,12 @@ func (s *Suite) announces(t T) {
 		}
 		if len(info.Capabilities) == 0 {
 			t.Errorf("device %s is found but announces no capabilities Oikade knows", id)
+		}
+		if info.DeviceType != "" && !slices.Contains(info.Capabilities, capability.On) {
+			t.Errorf("device %s says it's %s, but has no %s for that to describe", id, info.DeviceType, capability.On)
+		}
+		if devicetype.Dimmable(info.DeviceType) && !slices.Contains(info.Capabilities, capability.Brightness) {
+			t.Errorf("device %s says it's %s, but has no %s to dim", id, info.DeviceType, capability.Brightness)
 		}
 		s.eventually(t, "availability for "+id, func() bool { _, ok := s.sink.online(dev); return ok })
 		s.eventually(t, "state for "+id, func() bool { return s.sink.seenAt(dev) })

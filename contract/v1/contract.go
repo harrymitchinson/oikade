@@ -54,6 +54,36 @@ const (
 	LinkQuality = "link-quality"
 )
 
+// The device types a plugin may report for a device that's on or off, in Matter's names. A device's
+// other types follow from its capabilities. Report one only if the plugin knows what the device is:
+// a relay doesn't, as it can't tell what it switches.
+const (
+	OnOffLight                 = "OnOffLight"
+	DimmableLight              = "DimmableLight"
+	OnOffPlugInUnit            = "OnOffPlugInUnit"
+	DimmablePlugInUnit         = "DimmablePlugInUnit"
+	MountedOnOffControl        = "MountedOnOffControl"
+	MountedDimmableLoadControl = "MountedDimmableLoadControl"
+)
+
+// DeviceTypes lists the device types a plugin may report.
+func DeviceTypes() []string {
+	return []string{
+		OnOffLight, DimmableLight, OnOffPlugInUnit, DimmablePlugInUnit, MountedOnOffControl, MountedDimmableLoadControl,
+	}
+}
+
+// ValidDeviceType reports whether t may be a device's deviceType. Empty is valid: the plugin doesn't
+// know.
+func ValidDeviceType(t string) bool {
+	switch t {
+	case "", OnOffLight, DimmableLight, OnOffPlugInUnit, DimmablePlugInUnit,
+		MountedOnOffControl, MountedDimmableLoadControl:
+		return true
+	}
+	return false
+}
+
 const prefix = "oikade/v1/"
 
 // Root is a plugin's topic root, oikade/v1/<namespace>/<plugin>.
@@ -136,6 +166,8 @@ type DiscoveredDevice struct {
 	Manufacturer string   `json:"manufacturer,omitempty"`
 	Model        string   `json:"model,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	// DeviceType is what the device is, one of DeviceTypes, empty if the plugin doesn't know.
+	DeviceType string `json:"deviceType,omitempty"`
 	// Name and Room are as the user named them in the device's app, empty if it has none.
 	Name string `json:"name,omitempty"`
 	Room string `json:"room,omitempty"`
@@ -145,10 +177,12 @@ type DiscoveredDevice struct {
 type DeviceReport struct {
 	ID    string `json:"id"`
 	Found bool   `json:"found"`
-	// Manufacturer, Model and Capabilities matter only when Found is true.
+	// Manufacturer, Model, Capabilities and DeviceType matter only when Found is true.
 	Manufacturer string   `json:"manufacturer,omitempty"`
 	Model        string   `json:"model,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	// DeviceType is what the device is, one of DeviceTypes, empty if the plugin doesn't know.
+	DeviceType string `json:"deviceType,omitempty"`
 	// Error is a problem with the device's configuration, empty otherwise.
 	Error string `json:"error,omitempty"`
 }
