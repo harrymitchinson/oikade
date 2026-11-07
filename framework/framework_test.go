@@ -145,6 +145,7 @@ func hallway() engine.Vars {
 			"hall-plug":     {"on": false},
 			"kitchen":       {"occupied": true},
 			"cellar":        {},
+			"porch":         {"occupied": true},
 		},
 		"members": map[string]hub.Member{
 			"hall-motion-1": {Room: "hallway"},
@@ -154,6 +155,7 @@ func hallway() engine.Vars {
 			"hall-plug":     {Room: "hallway", DeviceTypes: []devicetype.Type{devicetype.Type(OnOffPlugInUnit)}},
 			"kitchen":       {Room: "kitchen"},
 			"cellar":        {Room: "cellar"},
+			"porch":         {},
 		},
 	}
 }
@@ -199,6 +201,7 @@ func TestARoomWhereNothingHasReportedIsAnError(t *testing.T) {
 	for name, cond := range map[string]Condition{
 		"nothing reported": func(s State) bool { return s.Any(InRoom("cellar", Occupied)) },
 		"no such room":     func(s State) bool { return s.Any(InRoom("loft", Occupied)) },
+		"no room":          func(s State) bool { return s.Any(InRoom("", Occupied)) },
 		"no such type":     func(s State) bool { return s.Any(InRoom("hallway", On).Types(DimmableLight)) },
 	} {
 		t.Run(name, func(t *testing.T) {

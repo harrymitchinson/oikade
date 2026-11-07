@@ -527,6 +527,20 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 		}
 	})
 
+	t.Run("WaitFor woken by a device announced again", func(t *testing.T) {
+		eng, c := bare(t)
+		var met atomic.Bool
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = eng.WaitFor(context.Background(), key, func(Vars) (bool, error) { return met.Load(), nil }, time.Time{})
+		}()
+		waiting(t, c)
+		met.Store(true)
+		eng.membersChanged(ns)
+		finished(t, done)
+	})
+
 	t.Run("a delay cancelled", func(t *testing.T) {
 		eng, c := bare(t)
 		ctx, cancel := context.WithCancel(context.Background())

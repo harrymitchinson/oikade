@@ -110,16 +110,16 @@ type RoomOfTypes[T Value] struct {
 // To is a write of v to every device in the room of one of the types, with the capability.
 func (r RoomOfTypes[T]) To(v T) Set {
 	s := r.room.To(v)
-	s.types = r.engineTypes()
+	s.types = engineTypes(r.types)
 	return s
 }
 
-func (r RoomOfTypes[T]) engineTypes() []devicetype.Type {
-	if len(r.types) == 0 {
+func engineTypes(types []DeviceType) []devicetype.Type {
+	if len(types) == 0 {
 		return nil
 	}
-	out := make([]devicetype.Type, 0, len(r.types))
-	for _, t := range r.types {
+	out := make([]devicetype.Type, 0, len(types))
+	for _, t := range types {
 		out = append(out, devicetype.Type(t))
 	}
 	return out
@@ -128,13 +128,13 @@ func (r RoomOfTypes[T]) engineTypes() []devicetype.Type {
 // RoomRead is a room's capability a condition reads, with State's Any, All, Count or Readings:
 // InRoom's, or with its Types.
 type RoomRead[T Value] interface {
-	read() (room string, c Capability[T], types []devicetype.Type)
+	read() (room string, c Capability[T], types []DeviceType)
 }
 
-func (r Room[T]) read() (string, Capability[T], []devicetype.Type) { return r.room, r.capability, nil }
+func (r Room[T]) read() (string, Capability[T], []DeviceType) { return r.room, r.capability, nil }
 
-func (r RoomOfTypes[T]) read() (string, Capability[T], []devicetype.Type) {
-	return r.room.room, r.room.capability, r.engineTypes()
+func (r RoomOfTypes[T]) read() (string, Capability[T], []DeviceType) {
+	return r.room.room, r.room.capability, r.types
 }
 
 // Change is what triggers a moment or a flow: a capability changing on a device, as a Handle, or on

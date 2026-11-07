@@ -80,8 +80,8 @@ func sameTarget(a, b HoldTarget) bool {
 
 // condition reports whether the hold's while is true at now, and when the window next changes.
 // known is false when when can't be evaluated, as before a device it reads has reported. devices
-// are the namespace's values, or nil to read them.
-func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices map[string]map[string]any) (on, known bool, next time.Time) {
+// are the namespace's, or nil to read them.
+func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices *home) (on, known bool, next time.Time) {
 	on = true
 	if h.window != nil {
 		on, next = h.window.at(now, e.Location, e.Site)
@@ -102,9 +102,9 @@ func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices map[str
 }
 
 // evaluate works out whether a hold is active now, starts the write and save that follow, and
-// sets when to look again. devices are the namespace's values, or nil to read them. Call with
+// sets when to look again. devices are the namespace's, or nil to read them. Call with
 // e.mu held.
-func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.Time, devices map[string]map[string]any) {
+func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.Time, devices *home) {
 	hs, h := s.hold, s.c.hold
 	if hs.writing {
 		// The write's end signals Run, which looks again.

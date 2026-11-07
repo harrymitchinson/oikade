@@ -119,7 +119,7 @@ func as[T Value](device, capability string, v any) T {
 func (s State) Any(r RoomRead[bool]) bool { return s.Count(r) > 0 }
 
 // All reports whether the capability is true on all of the room's devices that have reported it.
-func (s State) All(r RoomRead[bool]) bool { return s.Count(r) == len(roomValues(s, r)) }
+func (s State) All(r RoomRead[bool]) bool { return !slices.Contains(roomValues(s, r), false) }
 
 // Count is how many of the room's devices that have reported the capability have it true.
 func (s State) Count(r RoomRead[bool]) int {
@@ -140,10 +140,12 @@ func (s State) Readings(r RoomRead[float64]) []float64 { return roomValues(s, r)
 
 // roomValues are the reported values of a room's capability, in device name order.
 func roomValues[T Value](s State, r RoomRead[T]) []T {
-	room, c, types := r.read()
+	room, c, wanted := r.read()
+	types := engineTypes(wanted)
 	var names []string
 	for name, m := range s.members {
-		if m.Room == room && m.OfTypes(types) {
+		// A device with no room is in none, as for a room's writes and triggers.
+		if room != "" && m.Room == room && m.OfTypes(types) {
 			names = append(names, name)
 		}
 	}
