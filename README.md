@@ -506,10 +506,31 @@ oikade deploy --host pi --module .
 
 `oikade host --api-addr :8443` also serves the API over TLS, for clients with a token. It's off without the flag, and an address with no port uses 8443. If the port is taken, the host logs that and carries on without it, and a restart tries again. Its first start makes a key and a self-signed certificate, kept in the store, and the log line `Serving API over TLS` gives its `pin`: the SHA-256 of its public key, which a client checks instead of a name or an expiry, so it works by IP address.
 
+To use it from your laptop, on the host's machine run:
+
 ```sh
-oikade client add ci --token     # on the host's machine: prints a token and the pin, for CI
+oikade client add laptop
+```
+
+It prints a line to run on the laptop within 10 minutes:
+
+```sh
+oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
+```
+
+The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. A config file others can read is refused.
+
+CI has no one to type a code, so give it a token instead:
+
+```sh
+oikade client add ci --token     # on the host's machine: prints a token and the pin
+```
+
+Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikade login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one for every command.
+
+```sh
 oikade client list               # who has a token, and when each last used it
-oikade client revoke ci          # its token stops working at once
+oikade client revoke laptop      # its token stops working at once
 ```
 
 `client add` works only on the host's machine, through the socket, so a stolen token can't make more of them. `revoke` works over the network API too, so any client can cut off a lost one, and it ends that client's open streams. It works while the listener is down, so a token can't come back when the port frees. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.

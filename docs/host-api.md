@@ -27,8 +27,10 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/devices/replace` | `device`, `to`, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/restore` | `registry`, `force` | `moved`, `needsForce` |
 | `GET /v1/clients` | | `clients`, never their tokens |
-| `POST /v1/clients/add` | `client` | `token`, shown only once, and `pin`. Only on the socket. |
+| `POST /v1/clients/add` | `client` | `code`, `expires`, `pin` and `address`. Only on the socket. |
+| `POST /v1/clients/add` with `token: true` | `client` | `token`, shown only once, and `pin` |
 | `POST /v1/clients/revoke` | `client` | |
+| `POST /v1/login` | `code` | `token`, shown only once, and `client` |
 
 A call has 5 seconds to send its body. Secret values go only in a body, and never in a path or a log.
 
@@ -37,6 +39,8 @@ A call has 5 seconds to send its body. Secret values go only in a body, and neve
 ## Over TLS
 
 The host's certificate is self-signed, and a client trusts it by its pin: `sha256:` and the hex SHA-256 of the certificate's `SubjectPublicKeyInfo`. TLS 1.3 only. Every call needs `Authorization: Bearer <token>`, which is checked before any body is read. A missing, wrong or revoked token gets a `401`, and counts in `oikade_api_auth_failures_total`. `POST /v1/clients/add` is refused over TLS, so a token can't make more of them.
+
+`POST /v1/login` is the one call that takes no token. It trades a code from `clients/add` for a new client's token. A code works once, for 10 minutes, and only in memory, so a host restart ends it. A wrong, used or expired code gets a `422` that doesn't say which, and counts as an auth failure.
 
 ## Answers
 

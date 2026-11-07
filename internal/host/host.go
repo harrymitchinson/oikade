@@ -239,6 +239,22 @@ func (h *Host) listenAPI(data *store.Store, calls *apiServer) net.Listener {
 		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
 		return nil
 	}
+	calls.address = reachableAt(l.Addr())
 	h.Log.Info("Serving API over TLS", "address", l.Addr().String(), "pin", pin)
 	return tls.NewListener(l, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})
+}
+
+// reachableAt guesses where clients reach a listener: its address, or this machine's name for one on
+// every address.
+func reachableAt(addr net.Addr) string {
+	host, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() {
+		if name, err := os.Hostname(); err == nil && name != "" {
+			host = name
+		}
+	}
+	return net.JoinHostPort(host, port)
 }

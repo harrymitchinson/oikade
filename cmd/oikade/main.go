@@ -40,8 +40,9 @@ const usage = `Usage:
   oikade secret set NAME [--json]      The value comes from stdin, or is asked for.
   oikade secret remove NAME [--json]
   oikade client list [--json]
-  oikade client add NAME --token [--json]   A token for the network API, for CI. Only on the host's machine.
+  oikade client add NAME [--token] [--json] A code to log in with, or a token for CI. Only on the host's machine.
   oikade client revoke NAME [--json]
+  oikade login ADDRESS --pin PIN [--code CODE] [--context NAME]
   oikade version
   oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
               [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS] [--api-addr ADDRESS]
@@ -69,7 +70,9 @@ const usage = `Usage:
   oikade types [--out FILE] [--package NAME]
   oikade matter [--json]
 
-Every command that talks to a host takes --data-dir DIR and --host NAME, which runs it on that SSH host.`
+Every command that talks to a host takes --data-dir DIR, --host NAME, which runs it on that SSH host, and
+--context NAME, which reaches a host you logged in to over its network API. Without any of them, a command
+uses the context oikade login last saved, or the host on this machine. OIKADE_TOKEN replaces a context's token.`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -123,6 +126,8 @@ func main() {
 		err = runSecret(ctx, args)
 	case "client":
 		err = runClient(ctx, args)
+	case "login":
+		err = runLogin(ctx, args)
 	case "version":
 		fmt.Println(currentVersion())
 	case "proxy":

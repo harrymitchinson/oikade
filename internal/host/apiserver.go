@@ -49,8 +49,9 @@ type apiServer struct {
 	secrets secrets
 	// clients are the network API's. They're nil if its listener isn't on, or couldn't start.
 	clients *clients
-	// pin is the network API's public key, as clients check it.
-	pin          string
+	// pin is the network API's public key, as clients check it, and address where it thinks it's
+	// reached.
+	pin, address string
 	authFailures prometheus.Counter
 }
 
@@ -71,6 +72,11 @@ func (s *apiServer) serveNetwork(l net.Listener) {
 // authenticated refuses a call without a valid token before reading any of it.
 func (s *apiServer) authenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == api.LoginPath {
+			// A login has a code instead, which the call itself checks.
+			next.ServeHTTP(w, r.WithContext(withCaller(r.Context(), caller{name: "login"})))
+			return
+		}
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		var name string
 		var revoked <-chan struct{}
@@ -258,7 +264,7 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) answer(c caller, req api.Request) api.Response {
 	s.log.Info("Received API request", "type", req.Type, "client", c.name)
 	switch req.Type {
-	case api.TypeClients, api.TypeClientAdd, api.TypeClientRevoke:
+	case api.TypeClients, api.TypeClientAdd, api.TypeClientRevoke, api.TypeLogin:
 		return s.client(c, req)
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
@@ -300,12 +306,31 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 		if !c.local {
 			return api.Response{Error: errNotLocal.Error()}
 		}
+		if !req.Token {
+			code, expires, err := s.clients.issue(req.Client)
+			if err != nil {
+				return api.Response{Error: err.Error()}
+			}
+			s.log.Info("Issued API login code", "name", req.Client, "expires", expires)
+			return api.Response{Code: code, Expires: expires, Pin: s.pin, Address: s.address}
+		}
 		token, err := s.clients.add(req.Client)
 		if err != nil {
 			return api.Response{Error: err.Error()}
 		}
 		s.log.Info("Added API client", "name", req.Client)
 		return api.Response{Token: token, Pin: s.pin}
+	case api.TypeLogin:
+		name, token, err := s.clients.redeem(req.Code)
+		if err != nil {
+			if !c.local {
+				s.authFailures.Inc()
+			}
+			s.log.Info("Refused API login", "err", err)
+			return api.Response{Error: err.Error()}
+		}
+		s.log.Info("Added API client", "name", name, "by", "login")
+		return api.Response{Token: token, Client: name}
 	case api.TypeClientRevoke:
 		if err := s.clients.revoke(req.Client); err != nil {
 			return api.Response{Error: err.Error()}

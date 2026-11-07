@@ -39,7 +39,12 @@ const (
 	lastUseEvery = time.Minute
 	// tokenPrefix starts every token, so a secret scanner can tell one.
 	tokenPrefix = "oik_"
+	// codeLifetime is how long a login code works. It works once, and a restart ends it.
+	codeLifetime = 10 * time.Minute
 )
+
+// errBadCode is a login with a code that's wrong, used or expired. It doesn't say which.
+var errBadCode = errors.New("that code doesn't work: it's wrong, used or more than 10 minutes old. Run oikade client add again")
 
 // clientName is what a client can be called.
 var clientName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
@@ -145,12 +150,20 @@ type clients struct {
 	byHash  map[string]string       // hash -> name
 	// revoked closes when the client is revoked, which ends its streams.
 	revoked map[string]chan struct{}
+	// codes are login codes waiting to be used, by hash. They're only in memory.
+	codes map[string]pendingLogin
+}
+
+type pendingLogin struct {
+	name    string
+	expires time.Time
 }
 
 func loadClients(values *store.Namespace) (*clients, error) {
 	c := &clients{
 		values: values, now: time.Now,
 		records: map[string]clientRecord{}, byHash: map[string]string{}, revoked: map[string]chan struct{}{},
+		codes: map[string]pendingLogin{},
 	}
 	keys, err := values.Keys()
 	if err != nil {
@@ -209,6 +222,44 @@ func (c *clients) add(name string) (string, error) {
 	}
 	c.records[name], c.byHash[rec.Hash], c.revoked[name] = rec, name, make(chan struct{})
 	return token, nil
+}
+
+// issue makes a code that a login trades for a token for a new client, once, within codeLifetime.
+// A new code for the same name replaces the last.
+func (c *clients) issue(name string) (string, time.Time, error) {
+	if !clientName.MatchString(name) {
+		return "", time.Time{}, fmt.Errorf("%q can't name a client: use lower-case letters, digits, '.', '_' and '-'", name)
+	}
+	secret := make([]byte, 16)
+	_, _ = rand.Read(secret)
+	code := base64.RawURLEncoding.EncodeToString(secret)
+	expires := c.now().UTC().Add(codeLifetime)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, taken := c.records[name]; taken {
+		return "", time.Time{}, fmt.Errorf("there's already a client called %s: revoke it first", name)
+	}
+	for hash, p := range c.codes {
+		if p.name == name || !c.now().Before(p.expires) {
+			delete(c.codes, hash)
+		}
+	}
+	c.codes[hashToken(code)] = pendingLogin{name: name, expires: expires}
+	return code, expires, nil
+}
+
+// redeem trades a code for a client and its token. A code goes on its first try, right or not.
+func (c *clients) redeem(code string) (string, string, error) {
+	hash := hashToken(code)
+	c.mu.Lock()
+	p, ok := c.codes[hash]
+	delete(c.codes, hash)
+	c.mu.Unlock()
+	if !ok || !c.now().Before(p.expires) {
+		return "", "", errBadCode
+	}
+	token, err := c.add(p.name)
+	return p.name, token, err
 }
 
 // revoke removes a client, so its token stops working at once, and its streams end. It's off disk
