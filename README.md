@@ -48,6 +48,8 @@ oikadectl init
 oikadectl test
 ```
 
+Or take `oikadectl` from a [release](https://github.com/harrymitchinson/oikade/releases): `oikadectl-<os>-<arch>.tar.gz`, for darwin or linux on arm64 or amd64, holds it with this README and the licence, and `checksums.txt` has each archive's SHA-256.
+
 `init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikadectl check` and `oikadectl test` on every change, and `oikadectl deploy` once one reaches `main`, over the [network API](#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade-host client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. GitHub's own runners can reach the host only if its API is on the internet, which it shouldn't be, so run the job on a self-hosted runner on your network, or join the runner to your network over a VPN first. `oikadectl types` replaces `devices.go` once you have real devices.
 
 ```go
@@ -424,7 +426,7 @@ Removing a Safety rule is refused, and so is renaming one, because a rule's clai
 
 ## Running the host
 
-The host is one long-running process, `oikade-host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Put `oikade-host` from a [release](https://github.com/harrymitchinson/oikade/releases) at `/usr/local/bin/oikade-host`, make a user for it that nobody logs in as, and run it under systemd:
+The host is one long-running process, `oikade-host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Put `oikade-host` from a [release](https://github.com/harrymitchinson/oikade/releases), in `oikade-host-linux-<arch>.tar.gz`, at `/usr/local/bin/oikade-host`, make a user for it that nobody logs in as, and run it under systemd:
 
 ```sh
 sudo useradd --system --home-dir /var/lib/oikade --shell /usr/sbin/nologin oikade
@@ -693,7 +695,7 @@ While the major version is 0, the API is still settling, and versions follow the
 
 `1.0.0` is a deliberate decision, not something a commit triggers.
 
-Releases are cut by merging the release PR that [release-please](https://github.com/googleapis/release-please) keeps open on `main`. That gives the tag, a GitHub Release with notes and the `oikadectl` and `oikade-host` binaries for linux/arm64 and linux/amd64, and the image `ghcr.io/harrymitchinson/oikade:<tag>` for arm64 and amd64. CI doesn't run on the release PR, because it's opened with `GITHUB_TOKEN`. That's fine, since it only changes `CHANGELOG.md` and `.release-please-manifest.json`. release-please needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on. The first release creates the ghcr package as private, so set its visibility to public once, in the package's settings.
+Releases are cut by merging the release PR that [release-please](https://github.com/googleapis/release-please) keeps open on `main`. That gives the tag and a GitHub Release with notes. [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) then adds `oikadectl` for darwin and linux, `oikade-host` for linux, each on arm64 and amd64 as a `.tar.gz`, and `checksums.txt`, and pushes the image `ghcr.io/harrymitchinson/oikade:<tag>` for arm64 and amd64. `make release-snapshot` builds all of it into `dist/` without publishing, and every PR that could change it runs that. CI doesn't run on the release PR, because it's opened with `GITHUB_TOKEN`. That's fine, since it only changes `CHANGELOG.md` and `.release-please-manifest.json`. release-please needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on. The first release creates the ghcr package as private, so set its visibility to public once, in the package's settings.
 
 To ship a milestone:
 

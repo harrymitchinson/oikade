@@ -1,0 +1,75 @@
+# GoReleaser builds what a release ships: oikadectl and oikade-host as archives, their checksums and
+# the image (OIK-170). release-please makes the tag and the GitHub Release first, and the publish job
+# in .github/workflows/release.yml runs this on that tag, adding to the Release rather than writing
+# its notes.
+version: 2
+
+project_name: oikade
+
+# A snapshot isn't a release, so it mustn't call itself one. Without a v, oikadectl doesn't take it
+# for a version go can fetch.
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+# The second build takes everything from the first, but what it names. make docker-build uses the
+# same flags.
+builds:
+  - &build
+    id: oikadectl
+    main: ./cmd/oikadectl
+    binary: oikadectl
+    goos: [linux, darwin]
+    goarch: [arm64, amd64]
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - <<: *build
+    id: oikade-host
+    main: ./cmd/oikade-host
+    binary: oikade-host
+    goos: [linux]
+
+# One archive per binary and platform, so a laptop downloads only oikadectl and a host only
+# oikade-host. Room for shell completions later.
+archives:
+  - id: oikadectl
+    ids: [oikadectl]
+    formats: [tar.gz]
+    name_template: "oikadectl-{{ .Os }}-{{ .Arch }}"
+    files: [LICENSE, README.md]
+  - id: oikade-host
+    ids: [oikade-host]
+    formats: [tar.gz]
+    name_template: "oikade-host-{{ .Os }}-{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+# The prebuilt oikade-host, in the image of the same Dockerfile make docker-build uses.
+dockers_v2:
+  - id: oikade
+    ids: [oikade-host]
+    dockerfile: Dockerfile
+    images: [ghcr.io/harrymitchinson/oikade]
+    tags: ["{{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }}"]
+    platforms: [linux/arm64, linux/amd64]
+    labels:
+      org.opencontainers.image.source: https://github.com/harrymitchinson/oikade
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: Apache-2.0
+
+# release-please writes the notes and CHANGELOG.md.
+changelog:
+  disable: true
+
+# The notes stay release-please's. Assets of the same name are replaced, so a publish job that failed
+# part way can be re-run. An -alpha.N tag is a pre-release. The workflow marks a milestone as the
+# latest itself, after this, so an alpha never is.
+release:
+  mode: keep-existing
+  replace_existing_artifacts: true
+  prerelease: auto
+  make_latest: "false"

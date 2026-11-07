@@ -16,9 +16,6 @@ endif
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
 
-comma := ,
-space := $(empty) $(empty)
-
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
@@ -107,50 +104,35 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
-# PLATFORMS are what a release ships, the binaries and the image alike.
-PLATFORMS ?= linux/arm64,linux/amd64
-
 .PHONY: build
 build: fmt vet ## Build bin/oikadectl and bin/oikade-host.
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/ ./cmd/oikadectl ./cmd/oikade-host
 
-.PHONY: release-binaries
-release-binaries: ## Build dist/oikadectl-<os>-<arch> and dist/oikade-host-<os>-<arch> for each of PLATFORMS.
-	mkdir -p dist
-	for platform in $(subst $(comma),$(space),$(PLATFORMS)); do \
-		os=$${platform%/*} arch=$${platform#*/}; \
-		for name in oikadectl oikade-host; do \
-			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-				go build -ldflags "-X main.version=$(VERSION)" -o "dist/$$name-$$os-$$arch" ./cmd/$$name || exit 1; \
-		done; \
-	done
+# A release is built by GoReleaser (.goreleaser.yaml): the archives, their checksums and the image.
+# This builds them all into dist/, and the image for each platform, without publishing anything.
+.PHONY: release-snapshot
+release-snapshot: goreleaser ## Build what a release ships into dist/, publishing nothing.
+	"$(GORELEASER)" release --snapshot --clean
 
-# If you wish to build the image targeting other platforms you can use the --platform flag.
-# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
-# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# Override BASE_IMAGE to build from another registry, e.g.
-# make docker-build IMG=<img> BASE_IMAGE=docker.io/library/golang:1.27
+# release publishes the tag that's checked out, to its GitHub Release and ghcr.io. Only the release
+# workflow runs it, with GITHUB_TOKEN set and a buildx builder that can push two platforms.
+.PHONY: release
+release: goreleaser ## Publish a release from the checked-out tag (CI only).
+	"$(GORELEASER)" release --clean
+
+# The Dockerfile compiles nothing, so the image's context is oikade-host built for this machine's
+# platform, at <os>/<arch>/oikade-host as GoReleaser lays it out, with .goreleaser.yaml's flags.
+DOCKER_CONTEXT ?= dist/docker
+DOCKER_ARCH ?= $(shell go env GOARCH)
 .PHONY: docker-build
-docker-build: ## Build the oikade image.
-	$(CONTAINER_TOOL) build $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) -t ${IMG} .
+docker-build: ## Build the oikade image for this machine's platform, from source.
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(DOCKER_ARCH) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" \
+		-o "$(DOCKER_CONTEXT)/linux/$(DOCKER_ARCH)/oikade-host" ./cmd/oikade-host
+	$(CONTAINER_TOOL) build --platform linux/$(DOCKER_ARCH) -f Dockerfile -t ${IMG} "$(DOCKER_CONTEXT)"
 
 .PHONY: docker-push
 docker-push: ## Push the oikade image.
 	$(CONTAINER_TOOL) push ${IMG}
-
-# docker-buildx needs BuildKit, and a registry you can push IMG to.
-# More info: https://docs.docker.com/build/buildx/
-.PHONY: docker-buildx
-docker-buildx: ## Build and push the oikade image for each of PLATFORMS.
-	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
-	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name oikade-builder
-	$(CONTAINER_TOOL) buildx use oikade-builder
-	# A failed build fails the target, after cleaning up, so a release never ships without its image.
-	status=0; $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE)) --build-arg VERSION=$(VERSION) --tag ${IMG} -f Dockerfile.cross . || status=$$?; \
-	$(CONTAINER_TOOL) buildx rm oikade-builder; \
-	rm Dockerfile.cross; \
-	exit $$status
 
 ##@ Dependencies
 
@@ -161,15 +143,23 @@ $(LOCALBIN):
 
 ## Tool Binaries
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+GORELEASER = $(LOCALBIN)/goreleaser
 
 ## Tool Versions
 GOLANGCI_LINT_VERSION ?= v2.15.0
+# The newest GoReleaser that builds with go.mod's Go, as CI runs with GOTOOLCHAIN=local. Raise both together.
+GORELEASER_VERSION ?= v2.18.0
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 # bin/ is order-only: a restored CI cache leaves it newer than the binary, which
 # would rebuild it every run.
 $(GOLANGCI_LINT): | $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: goreleaser
+goreleaser: $(GORELEASER) ## Download GoReleaser locally if necessary.
+$(GORELEASER): | $(LOCALBIN)
+	$(call go-install-tool,$(GORELEASER),github.com/goreleaser/goreleaser/v2,$(GORELEASER_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
