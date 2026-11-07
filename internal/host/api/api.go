@@ -6,6 +6,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +49,10 @@ const (
 	TypeDeviceRemove  = "deviceRemove"
 	TypeDeviceReplace = "deviceReplace"
 	TypeDeviceRestore = "deviceRestore"
+
+	TypeClients      = "clients"
+	TypeClientAdd    = "clientAdd"
+	TypeClientRevoke = "clientRevoke"
 )
 
 // ContentType is what every answer but a stream's is.
@@ -90,6 +96,10 @@ var Routes = []Route{
 	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false},
 	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false},
 	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore", false},
+
+	{TypeClients, http.MethodGet, Prefix + "/clients", false},
+	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false},
+	{TypeClientRevoke, http.MethodPost, Prefix + "/clients/revoke", false},
 }
 
 func routeOf(requestType string) (Route, bool) {
@@ -130,6 +140,8 @@ type Request struct {
 	Secret string `json:"secret,omitempty"`
 	// SecretValue is what to set it to. It's in no answer and no log.
 	SecretValue string `json:"secretValue,omitempty"`
+	// Client names a client of the network API to add or revoke.
+	Client string `json:"client,omitempty"`
 }
 
 // Response is its answer.
@@ -163,6 +175,28 @@ type Response struct {
 	Backup string `json:"backup,omitempty"`
 	// Secrets are the secrets the host has, and never their values.
 	Secrets []Secret `json:"secrets,omitempty"`
+	// Clients are the network API's clients, and never their tokens.
+	Clients []Client `json:"clients,omitempty"`
+	// Token is a new client's, shown only once.
+	Token string `json:"token,omitempty"`
+	// Pin is the network API's public key, as a client checks it. It's empty while the host has no
+	// network listener.
+	Pin string `json:"pin,omitempty"`
+}
+
+// Client is a client of the network API. Its JSON is what oikade client list --json prints, so
+// scripts rely on it: add to it, and don't rename.
+type Client struct {
+	Name     string    `json:"name"`
+	Created  time.Time `json:"created"`
+	LastUsed time.Time `json:"lastUsed,omitzero"`
+}
+
+// Pin is how a client recognises the host: the SHA-256 of its certificate's public key, from
+// SubjectPublicKeyInfo.
+func Pin(publicKeyInfo []byte) string {
+	sum := sha256.Sum256(publicKeyInfo)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // Secret is what the host says about a credential. Its JSON is what oikade secret list --json prints,

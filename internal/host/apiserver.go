@@ -10,7 +10,10 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -43,12 +46,51 @@ type apiServer struct {
 	data    *store.Store
 	dataDir string
 	secrets secrets
+	// clients are the network API's. They're nil if its listener isn't on, or couldn't start.
+	clients *clients
+	// pin is the network API's public key, as clients check it.
+	pin          string
+	authFailures prometheus.Counter
 }
 
-// serve answers calls until the listener closes, and returns once every call has finished.
+// serve answers calls on the socket until the listener closes, and returns once every call has
+// finished. The socket's permissions are its authentication.
 func (s *apiServer) serve(l net.Listener) {
+	routes := s.routes()
+	s.serveWith(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routes.ServeHTTP(w, r.WithContext(withCaller(r.Context(), localCaller)))
+	}))
+}
+
+// serveNetwork answers calls over TLS, each of which needs a client's token.
+func (s *apiServer) serveNetwork(l net.Listener) {
+	s.serveWith(l, s.authenticated(s.routes()))
+}
+
+// authenticated refuses a call without a valid token before reading any of it.
+func (s *apiServer) authenticated(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		name, known := "", false
+		if ok {
+			name, known = s.clients.check(token)
+		}
+		if !known {
+			s.authFailures.Inc()
+			s.log.Info("Refused API request without a valid token", "remote", r.RemoteAddr, "path", r.URL.Path)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="oikade"`)
+			respond(s.log, w, http.StatusUnauthorized, api.Response{
+				Error: "the host needs a valid token for this: log in again, or ask for a new one with oikade client add",
+			})
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(withCaller(r.Context(), caller{name: name})))
+	})
+}
+
+func (s *apiServer) serveWith(l net.Listener, handler http.Handler) {
 	server := &http.Server{
-		Handler:           s.routes(),
+		Handler:           handler,
 		ReadHeaderTimeout: requestTimeout,
 		// oikade makes one call a connection, and another client may keep one open.
 		IdleTimeout: idleTimeout,
@@ -109,7 +151,7 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 			return
 		}
 		req.Type = route.Type
-		resp := s.answer(req)
+		resp := s.answer(callerOf(r.Context()), req)
 		status := http.StatusOK
 		if resp.Error != "" {
 			status = http.StatusUnprocessableEntity
@@ -191,9 +233,11 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *apiServer) answer(req api.Request) api.Response {
-	s.log.Info("Received API request", "type", req.Type)
+func (s *apiServer) answer(c caller, req api.Request) api.Response {
+	s.log.Info("Received API request", "type", req.Type, "client", c.name)
 	switch req.Type {
+	case api.TypeClients, api.TypeClientAdd, api.TypeClientRevoke:
+		return s.client(c, req)
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	case api.TypeDeploy:
@@ -219,4 +263,33 @@ func (s *apiServer) answer(req api.Request) api.Response {
 		return s.device(req)
 	}
 	return api.Response{Error: fmt.Sprintf("unknown request %q", req.Type)}
+}
+
+// client manages the network API's clients. Adding one works only on the socket, so a stolen token
+// can't make more. Revoking works from anywhere, so a lost laptop can be cut off from another.
+func (s *apiServer) client(c caller, req api.Request) api.Response {
+	if s.clients == nil {
+		return api.Response{Error: "the host has no network API: start it with --api-addr"}
+	}
+	switch req.Type {
+	case api.TypeClients:
+		return api.Response{Clients: s.clients.list()}
+	case api.TypeClientAdd:
+		if !c.local {
+			return api.Response{Error: errNotLocal.Error()}
+		}
+		token, err := s.clients.add(req.Client)
+		if err != nil {
+			return api.Response{Error: err.Error()}
+		}
+		s.log.Info("Added API client", "name", req.Client)
+		return api.Response{Token: token, Pin: s.pin}
+	case api.TypeClientRevoke:
+		if err := s.clients.revoke(req.Client); err != nil {
+			return api.Response{Error: err.Error()}
+		}
+		s.log.Info("Revoked API client", "name", req.Client, "client", c.name)
+		return api.Response{}
+	}
+	return api.Response{Error: "unknown client request"}
 }

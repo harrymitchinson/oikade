@@ -39,9 +39,12 @@ const usage = `Usage:
   oikade secret list [--json]
   oikade secret set NAME [--json]      The value comes from stdin, or is asked for.
   oikade secret remove NAME [--json]
+  oikade client list [--json]
+  oikade client add NAME --token [--json]   A token for the network API, for CI. Only on the host's machine.
+  oikade client revoke NAME [--json]
   oikade version
   oikade host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
-              [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS]
+              [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS] [--api-addr ADDRESS]
               [--broker URL] [--broker-password-secret NAME] [--outside-plugins LIST] [--secrets-dir DIR]
               [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST]
   oikade init [DIR] [--module PATH] [--source DIR]
@@ -118,6 +121,8 @@ func main() {
 		err = runBackup(ctx, args)
 	case "secret":
 		err = runSecret(ctx, args)
+	case "client":
+		err = runClient(ctx, args)
 	case "version":
 		fmt.Println(currentVersion())
 	case "proxy":
@@ -157,6 +162,8 @@ func runHost(ctx context.Context, args []string) error {
 	logMiB := fs.Uint64("event-log-mib", host.DefaultEventLogBytes>>20,
 		"The most oikade replay's event log holds, in MiB.")
 	metricsAddr := fs.String("metrics-addr", ":8080", "Where to serve metrics and health over HTTP. Empty serves neither.")
+	apiAddr := fs.String("api-addr", "",
+		"Where to serve the API over TLS, for clients with a token, such as :8443. Empty serves it only on the socket.")
 	matterPort := fs.Uint("matter-port", host.DefaultMatterPort, "The Matter bridge's UDP port. 0 turns Matter off.")
 	matterName := fs.String("matter-name", "Oikade", "The Matter bridge's name, at most 32 bytes.")
 	matterInterfaces := fs.String("matter-interfaces", "",
@@ -197,7 +204,8 @@ func runHost(ctx context.Context, args []string) error {
 	}
 
 	h := &host.Host{
-		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, MetricsAddr: *metricsAddr, Log: log,
+		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, Log: log,
+		MetricsAddr: *metricsAddr, APIAddr: *apiAddr,
 		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, SecretsDir: *secretsDir,
 		EventLog: store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},
 	}
