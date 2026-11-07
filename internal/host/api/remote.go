@@ -27,11 +27,6 @@ func (r Remote) Dial(ctx context.Context) (net.Conn, error) {
 	return dialer.DialContext(ctx, "tcp", r.Address)
 }
 
-// Upload implements Transport.
-func (r Remote) Upload(context.Context, string) (string, func(), error) {
-	return "", nil, errors.New("deploying over the network API isn't supported yet: use --host or the host's machine")
-}
-
 func (r Remote) token() string { return r.Token }
 
 // authorizer is a Transport whose calls carry a token.

@@ -495,7 +495,7 @@ A pause is state, like tapping a light: it's in the store, needs no Git and last
 
 `--json` on `status`, `tail`, `replay`, `set`, `pause`, `resume`, `devices` and `matter` prints JSON whose fields stay stable for scripts.
 
-`--host NAME`, before or after the command, runs any of these and `deploy` and `rollback` on another machine over SSH, using your own SSH config. The SSH user must be the one running the host, with `oikade` on its `PATH`, and `--data-dir` means the directory over there. `deploy` copies the binary across first.
+`--host NAME`, before or after the command, runs any of these and `deploy` and `rollback` on another machine over SSH, using your own SSH config. The SSH user must be the one running the host, with `oikade` on its `PATH`, and `--data-dir` means the directory over there. `deploy` sends the binary along with the call.
 
 ```sh
 oikade --host pi status

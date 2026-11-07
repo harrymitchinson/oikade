@@ -125,8 +125,6 @@ type failing struct{ err error }
 
 func (f failing) Dial(context.Context) (net.Conn, error) { return nil, f.err }
 
-func (f failing) Upload(context.Context, string) (string, func(), error) { return "", nil, f.err }
-
 // runLogin trusts a host's network API by its pin, and saves it as the current context.
 func runLogin(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("login", flag.ExitOnError)

@@ -15,8 +15,6 @@ type dialer func(ctx context.Context) (net.Conn, error)
 
 func (d dialer) Dial(ctx context.Context) (net.Conn, error) { return d(ctx) }
 
-func (dialer) Upload(context.Context, string) (string, func(), error) { return "", func() {}, nil }
-
 // hangsUp reads a request, then closes the connection without answering.
 func hangsUp(context.Context) (net.Conn, error) {
 	client, host := net.Pipe()

@@ -254,11 +254,6 @@ func runDeploy(ctx context.Context, args []string) error {
 	_ = fs.Parse(args)
 
 	transport := target.transport()
-	if _, ok := transport.(api.Remote); ok {
-		// Before a build that would go nowhere.
-		return errors.New("deploying over the network API isn't supported yet: " +
-			"use --host, or --data-dir on the host's machine")
-	}
 	path := *binary
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
@@ -278,12 +273,7 @@ func runDeploy(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	remote, uploaded, err := transport.Upload(ctx, path)
-	if err != nil {
-		return err
-	}
-	defer uploaded()
-	resp, err := api.Call(ctx, transport, api.Request{Type: api.TypeDeploy, Binary: remote, AllowSafetyRemoval: *allow})
+	resp, err := api.Deploy(ctx, transport, path, *allow)
 	if err != nil {
 		return err
 	}

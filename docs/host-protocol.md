@@ -109,7 +109,7 @@ A failure, or a `protocol` other than the host's, rejects the version.
 
 `oikade deploy` and `oikade rollback` talk to the host through its [API](host-api.md), on `api.sock`, also in the data directory and also mode `0600`. A deploy goes in this order, and any failure leaves or brings back the last version:
 
-1. The host copies the binary to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running changes nothing.
+1. The command streams the binary to the host, which keeps it in `uploads` until it has all of it, then copies it to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running changes nothing.
 2. It runs check mode, and compares the result with the running version. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafetyRemoval`. A rename counts, because a hold's latch lives under its name.
 3. It records the version as unconfirmed, along with every rule that has anything on record, sends the old process `SIGTERM`, kills it after 5 seconds if it's still there, and ends its session. It reads the claims again, because the old process could claim until it stopped, and a new finding brings the old version back unless it said `allowSafetyRemoval`. Only then does the new process start, so two never overlap. Waiting runs keep their journals and resume.
 4. It waits for the new process to connect, then for the settle period, 5 seconds by default. If the process goes away at any point before that's up, the last version comes back at once, and the command says why.

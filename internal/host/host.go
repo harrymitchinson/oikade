@@ -93,6 +93,9 @@ func (h *Host) Run(ctx context.Context) error {
 	if h.Settle <= 0 {
 		h.Settle = DefaultSettle
 	}
+	if err := clearUploads(h.DataDir); err != nil {
+		return fmt.Errorf("clearing unfinished uploads: %w", err)
+	}
 	kept, err := openVersions(h.DataDir, data)
 	if err != nil {
 		return err

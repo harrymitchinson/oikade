@@ -14,13 +14,10 @@ import (
 	"time"
 )
 
-// Transport reaches a host's API, and puts files where it can read them.
+// Transport reaches a host's API.
 type Transport interface {
 	// Dial opens a connection to the API.
 	Dial(ctx context.Context) (net.Conn, error)
-	// Upload makes a local file readable by the host. It returns the file's path there, and what to
-	// call once the host has taken it.
-	Upload(ctx context.Context, path string) (remote string, done func(), err error)
 }
 
 // Local is a host on this machine.
@@ -32,12 +29,6 @@ type Local struct {
 // Dial implements Transport.
 func (l Local) Dial(ctx context.Context) (net.Conn, error) {
 	return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(l.DataDir, SocketName))
-}
-
-// Upload implements Transport. The host reads the file where it is.
-func (l Local) Upload(_ context.Context, path string) (string, func(), error) {
-	abs, err := filepath.Abs(path)
-	return abs, func() {}, err
 }
 
 // SSH is a host on another machine, reached with the user's own ssh and its config. The socket's
@@ -111,7 +102,8 @@ func (p *piped) Close() error {
 	return nil
 }
 
-// Upload implements Transport, copying the file to a new private directory there.
+// Upload copies a file to a new private directory there, for oikade install. It returns the file's
+// path there, and what removes it.
 func (s SSH) Upload(ctx context.Context, path string) (string, func(), error) {
 	f, err := os.Open(path)
 	if err != nil {
