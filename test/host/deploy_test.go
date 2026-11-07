@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
