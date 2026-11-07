@@ -73,7 +73,6 @@ Say which layer proves each behaviour. Don't just write "add tests".
 | Unit | `go test ./internal/...` | Registry, z2m exposes against fixture JSON, the Matter mapping and coalescer, engine timing with a fake clock, Matter commissioning in an in-process node test |
 | Integration | `make test` (`test/host`, `test/cli`) | A real host and process with simulated devices: crashes, deploys, commands, plugins |
 | Conformance | `make test-conformance` | The plugin contract, against the simswitch fixture |
-| Install | `make test-install` | `oikade install` and `upgrade` in a container with systemd |
 | Journeys | `make test-journeys`, on main and nightly only: agents don't run them | From `oikade init` to a running host, and chip-tool as the controller |
 | Manual, in the Manual testing doc | Real devices and the Home app | Pairing with the Home app, real Zigbee payloads, the Home app's rendering, arm64 resource use |
 

@@ -48,7 +48,7 @@ oikade init
 oikade test
 ```
 
-`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, using the variable `OIKADE_HOST`, as `user@address`, and the secrets `OIKADE_SSH_KEY` and `OIKADE_KNOWN_HOSTS`, which is the host's line from your `known_hosts`. `oikade types` replaces `devices.go` once you have real devices.
+`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, over the [network API](#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. `oikade types` replaces `devices.go` once you have real devices.
 
 ```go
 func home() framework.Home {
@@ -425,18 +425,31 @@ returns to the version before the running one. The host keeps the last five.
 
 Removing a Safety rule is refused, and so is renaming one, because a rule's claims end with it and a hold's latch lives under its name, which could reopen a valve. `--allow-safety-removal` on either command goes ahead. `--binary FILE` deploys something already built for the host, and skips the checks that need your source.
 
-## Installing the host
+## Running the host
 
-`oikade install` sets up a host on a machine with systemd. The contract is one long-running process, one data directory, secrets as files, logs on stdout, and metrics and health over HTTP.
+The host is one long-running process, `oikade host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Put the binary from a [release](https://github.com/harrymitchinson/oikade/releases) at `/usr/local/bin/oikade` and run it under systemd:
 
-```sh
-oikade install --host pi -- --broker mqtt://broker:1883   # a machine you can ssh to, with sudo
-sudo oikade install                                       # this machine
+```ini
+# /etc/systemd/system/oikade.service
+[Unit]
+Description=Oikade host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/oikade host --data-dir /var/lib/oikade --api-addr :8443
+StateDirectory=oikade
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-Anything after `--` is a flag for `oikade host`. Running `install` again with the same flags changes nothing, and with different ones it rewrites the unit and restarts the host. `--print` shows the unit.
+```sh
+sudo systemctl enable --now oikade
+```
 
-It installs `/usr/local/bin/oikade`, the unit `oikade.service` and the data directory `/var/lib/oikade`. The host runs as whoever logged in, because `oikade --host` has to log in as the user running the host; `--user NAME` picks another. Logging in as root gets a system user `oikade`, which nobody can log in as, so `oikade deploy --host` won't work until you pick a user who can. Over SSH it uses this `oikade` if that fits the machine, or builds this version with Go. A local build has no version to build, so pass `--binary FILE`.
+Add any other flags for `oikade host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. On the host's own machine, commands use the socket in the data directory, so run them as root, or give the unit a `User=` and run them as that user.
 
 ### In Docker
 
@@ -448,7 +461,7 @@ docker run -d --name oikade --restart unless-stopped --network host \
 docker exec oikade oikade status
 ```
 
-Run commands with `docker exec`, as `--host` only speaks SSH. To deploy, copy your binary in with `docker cp` and run `oikade deploy --binary`, built for the container's platform. To upgrade, run `oikade backup`, then replace the container on the same volume.
+Add `--api-addr :8443` to reach it from other machines over the [network API](#the-network-api), and run `docker exec oikade oikade client add laptop` to log in. To upgrade, run `oikade backup`, then replace the container on the same volume.
 
 ### Secrets
 
@@ -467,10 +480,12 @@ A broker's password belongs in a secret, not a flag: use `--broker mqtt://oikade
 ### Upgrading the host
 
 ```sh
-oikade upgrade --host pi    # to this oikade's version
+sudo oikade backup                          # a snapshot of the store, in backups/
+sudo cp oikade /usr/local/bin/oikade        # the new version
+sudo systemctl restart oikade
 ```
 
-Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back. It takes a backup of the store first, and won't go on without one. Then it swaps the binary, restarts the host, waits for Matter to serve again and says how long that took. The Home app shows the bridge as not responding until it reconnects. If the new version doesn't come up within a minute, the old binary goes back, and the command says so.
+Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back, and the Home app shows the bridge as not responding until it reconnects. The new `oikade` opens the same data directory, so nothing needs pairing again. If it doesn't come up, put the old binary back and restart.
 
 A new host may speak a new protocol to your code, in which case your process is turned away until you bump `oikade` in your module and deploy. Do that straight after upgrading.
 
@@ -495,12 +510,7 @@ A pause is state, like tapping a light: it's in the store, needs no Git and last
 
 `--json` on `status`, `tail`, `replay`, `set`, `pause`, `resume`, `devices` and `matter` prints JSON whose fields stay stable for scripts.
 
-`--host NAME`, before or after the command, runs any of these and `deploy` and `rollback` on another machine over SSH, using your own SSH config. The SSH user must be the one running the host, with `oikade` on its `PATH`, and `--data-dir` means the directory over there. `deploy` sends the binary along with the call.
-
-```sh
-oikade --host pi status
-oikade deploy --host pi --module .
-```
+From another machine, these and `deploy` and `rollback` go over the [network API](#the-network-api), once you've logged in.
 
 ### The network API
 
@@ -518,7 +528,7 @@ It prints a line to run on the laptop within 10 minutes:
 oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
 ```
 
-The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade client add` always means this machine, unless you give `--context` or `--host`. A config file others can read is refused.
+The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade client add` always means this machine, unless you give `--context`. A config file others can read is refused.
 
 CI has no one to type a code, so give it a token instead:
 
@@ -638,7 +648,7 @@ Every paired device enters the registry by its IEEE address, except the coordina
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
 - **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions, your secrets, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets are in there in the clear, so keep the copy somewhere as private as the machine.
-  - **Upgrade:** `oikade upgrade` takes that snapshot first, and a new `oikade` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
+  - **Upgrade:** take that snapshot first with `oikade backup`, and a new `oikade` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
   - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
   - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them. A restore keeps the network API's pin and every token, including any revoked since that backup, so revoke those again.
 - **The device registry** is in the data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikade types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikade types` aren't in it, so run it after pairing.
@@ -646,7 +656,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 
 ## Security notes
 
-- The API is a Unix socket only the host's user can reach. `--host` goes over your own SSH. With `--api-addr` it's on the network too, over TLS 1.3, and every call needs a token, which is as good as a login on the host. Keep it off the open internet.
+- The API is a Unix socket only the host's user can reach. With `--api-addr` it's on the network too, over TLS 1.3, and every call needs a token, which is as good as a login on the host. Keep it off the open internet.
 - The metrics listener is read-only, but open to whoever can reach the port, and it shows device names and values. Move it with `--metrics-addr`.
 - Importing a plugin means trusting its code, because it runs as you.
 - An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password, and keep it in a [secret](#secrets).
@@ -681,7 +691,6 @@ To ship a milestone:
 make test               # unit and integration tests, with a real host and simulated devices
 make lint
 make test-conformance   # builds the simswitch test fixture and drives it through the plugin contract and the Go API
-make test-install       # oikade install, upgrade and a restart in a container with systemd
 make test-journeys      # from oikade init to a running host, and pairing chip-tool with it (test/journeys/chip-tool, linux/arm64 only)
 ```
 

@@ -46,7 +46,6 @@ Run the `code-review` skill (`/code-review`) on the branch and fix or explain ea
 ```bash
 make test              # Unit and integration tests, with a real host and simulated devices
 make test-conformance  # The plugin contract
-make test-install      # oikade install and upgrade, in a container with systemd
 make test-journeys     # From oikade init to a running host, and chip-tool (Docker, linux/arm64)
 ```
 

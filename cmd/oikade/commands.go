@@ -7,9 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,34 +18,29 @@ import (
 
 // target says which host a command is for.
 type target struct {
-	fs                     *flag.FlagSet
-	dataDir, host, context *string
+	fs               *flag.FlagSet
+	dataDir, context *string
 }
 
 func addTarget(fs *flag.FlagSet) target {
 	return target{
 		fs:      fs,
 		dataDir: fs.String("data-dir", defaultDataDir, "The host's data directory, on this machine."),
-		host:    fs.String("host", "", "Run this on that SSH host, using your SSH config."),
 		context: fs.String("context", "", "The host to reach over its network API, from oikade login."),
 	}
 }
 
-// local is this machine's host unless --host or --context say otherwise, for a command that only
-// works there.
+// local is this machine's host unless --context says otherwise, for a command that only works there.
 func (t target) local() api.Transport {
-	if *t.host == "" && *t.context == "" {
+	if *t.context == "" {
 		return api.Local{DataDir: *t.dataDir}
 	}
 	return t.transport()
 }
 
-// transport is --host, then --context, then the socket if --data-dir is given, then the current
-// context, then the socket.
+// transport is --context, then the socket if --data-dir is given, then the current context, then the
+// socket.
 func (t target) transport() api.Transport {
-	if *t.host != "" {
-		return api.SSH{Host: *t.host, DataDir: *t.dataDir}
-	}
 	given := false
 	t.fs.Visit(func(f *flag.Flag) { given = given || f.Name == "data-dir" })
 	if given && *t.context == "" {
@@ -302,25 +295,4 @@ func done(resp api.Response, asJSON bool, message string) error {
 		return errors.New(resp.Error)
 	}
 	return nil
-}
-
-// runProxy joins stdin and stdout to the API socket. It's the far end of oikade --host.
-func runProxy(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("proxy", flag.ExitOnError)
-	dataDir := fs.String("data-dir", defaultDataDir, "The host's data directory.")
-	_ = fs.Parse(args)
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(*dataDir, api.SocketName))
-	if err != nil {
-		return fmt.Errorf("reaching the host: %w", err)
-	}
-	defer func() { _ = conn.Close() }()
-	go func() {
-		_, _ = io.Copy(conn, os.Stdin)
-		// The other end has gone. A call under way may still answer, and a tail stops here.
-		if u, ok := conn.(*net.UnixConn); ok {
-			_ = u.CloseWrite()
-		}
-	}()
-	_, err = io.Copy(os.Stdout, conn)
-	return err
 }

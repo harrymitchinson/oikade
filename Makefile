@@ -54,10 +54,10 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-# The journeys and the install test need Docker and take minutes, so they have their own targets.
+# The journeys need Docker and take minutes, so they have their own target.
 .PHONY: test
 test: fmt vet ## Run the tests.
-	go test $$(go list ./... | grep -v -e /test/install -e /test/journeys) -coverprofile cover.out
+	go test $$(go list ./... | grep -v -e /test/journeys) -coverprofile cover.out
 
 # The chip-tool image is tagged by its Dockerfile's hash, so it's built once per change to it.
 # Building it pulls connectedhomeip's 6 GB image, which is linux/arm64 only.
@@ -84,10 +84,6 @@ simswitch: ## Build the simulated-relay test fixture into bin/.
 test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract and the Go API (default: the simswitch fixture).
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 	OIKADE_CONFORMANCE_PLUGIN=bin/simhome OIKADE_CONFORMANCE_IMPORTED=simswitch go test ./test/conformance/ -v -count=1
-
-.PHONY: test-install
-test-install: ## Run oikade install, upgrade and a restart in a container with systemd. Needs Docker.
-	OIKADE_REQUIRE_DOCKER=1 go test ./test/install/ -v -timeout 15m
 
 .PHONY: test-hack
 test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval and plugin-repo steps with gh stubbed, and no raw gh writes in skills.
