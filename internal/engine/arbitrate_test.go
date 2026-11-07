@@ -201,7 +201,7 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 	c := momentRule(t, "bathroom-on", Moment{Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}}, Do: []Action{Set{Room: "bathroom", Capability: capability.On, Value: true}, Set{Device: "towel-rail", Capability: capability.On, Value: true}, Set{Room: "bathroom", Capability: capability.On, Value: true, For: 10 * time.Minute}}})
 	r.e.Load(c)
 	r.change("hall-motion", capability.Occupied, true)
-	r.eventually("the run", func() bool { return len(r.setter.got()) == 4 })
+	r.wrote(4, "the run")
 	r.settle()
 	// The bath rail gets its default when it's discovered with no value. Then the endless sets
 	// write the fan and skip both rails, and the timed one claims the bath rail.
@@ -216,15 +216,19 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 	}
 }
 
+// wrote waits for the engine to have made n writes, and for them to have finished.
+func (r *rig) wrote(n int, what string) {
+	r.t.Helper()
+	r.eventually(what, func() bool { return len(r.setter.got()) >= n })
+	r.settle()
+	if got := r.setter.got(); len(got) != n {
+		r.t.Fatalf("%s: calls = %v, want %d", what, got, n)
+	}
+}
+
 func (r *rig) eventually(what string, cond func() bool) {
 	r.t.Helper()
-	for range 300 {
-		if cond() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	r.t.Fatalf("timed out waiting for %s", what)
+	poll(r.t, what, cond)
 }
 
 // gate holds every Set until it's opened.
@@ -274,7 +278,12 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	edited := railEntry
 	edited.MinimumOff = control.Duration(time.Minute)
 	r.setControl(edited)
-	time.Sleep(50 * time.Millisecond)
+	r.eventually("the edit to reach the arbiter", func() bool {
+		r.e.mu.Lock()
+		defer r.e.mu.Unlock()
+		ar := r.e.arbs[ident.ID{Namespace: ns, Name: "towel-rail"}][capability.On]
+		return ar != nil && ar.spec.MinimumOff == edited.MinimumOff
+	})
 	close(g.open)
 	r.settle()
 	r.expect(call{"towel-rail", capability.On, true})
@@ -308,7 +317,7 @@ func TestAWriteLostWithItsDriverIsNotAnOverride(t *testing.T) {
 	r.e.DriverReturned(snap.Instance)
 	// The new process reports what the old one never changed, which the store already holds.
 	r.e.Discovered(dev, driver.Info{})
-	r.eventually("the write again", func() bool { return len(r.setter.got()) == 2 })
+	r.wrote(2, "the write again")
 	r.at("2026-10-21 12:01 BST")
 	if w := winner(r.status("towel-rail", capability.On)); w != "Rule/rail Normal" {
 		t.Errorf("winner %q, want the rule's claim to stand", w)
@@ -324,11 +333,11 @@ func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
 	if _, err := r.e.Claim(context.Background(), dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
-	r.eventually("the Safety write", func() bool { return len(r.setter.got()) == 2 })
+	r.wrote(2, "the Safety write")
 	if _, err := r.e.ReleaseClaim(context.Background(), dev, capability.On, claim.Source); err != nil {
 		t.Fatal(err)
 	}
-	r.eventually("the rule's write", func() bool { return len(r.setter.got()) == 3 })
+	r.wrote(3, "the rule's write")
 	snap, _ := r.store.Get(dev)
 	r.e.DriverReturned(snap.Instance)
 	// The rule wrote on: a new process says it's off, which is news to the store.
@@ -348,10 +357,10 @@ func TestAWriteThatFailedIsTriedAgainWhenItsDeviceReports(t *testing.T) {
 	if _, err := r.e.Claim(context.Background(), dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
-	r.eventually("the write that fails", func() bool { return len(r.setter.got()) == 2 })
+	r.wrote(2, "the write that fails")
 	r.failing()
 	r.e.Discovered(dev, driver.Info{})
-	r.eventually("the write again, with no time passing", func() bool { return len(r.setter.got()) == 3 })
+	r.wrote(3, "the write again, with no time passing")
 }
 
 func TestEditingAHoldsPriorityClaimsAgain(t *testing.T) {
@@ -369,9 +378,7 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	controls := r.e.Controls
 	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{})
-	r.settle()
-	// Give the saver its turn: it mustn't delete the state.
-	time.Sleep(100 * time.Millisecond)
+	r.settle() // the saver too: it mustn't delete the state
 	if _, ok := controls.Get(ident.ID{Namespace: ns, Name: "towel-rail"}); !ok {
 		t.Fatal("a device that left the store lost its saved state")
 	}
@@ -391,7 +398,7 @@ func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 	if err := r.e.ForgetDevice(context.Background(), dev); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	r.settle()
 	if _, ok := r.e.Controls.Get(dev); ok {
 		t.Fatal("its saved claims stayed for the next device of that name")
 	}
@@ -563,7 +570,7 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 	})
 	r.e.Load(c)
 	r.change("hall-motion", capability.Occupied, true)
-	r.eventually("the run", func() bool { return len(r.setter.got()) == 2 })
+	r.wrote(2, "the run")
 	r.settle()
 	r.expect(call{"ceiling-light", capability.On, false}, call{"floor-lamp", capability.On, false})
 	r.logs.mu.Lock()

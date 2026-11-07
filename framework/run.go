@@ -134,6 +134,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	}
 	for _, f := range flows {
 		f.Journal, f.Actions, f.Clock, f.Log, f.Process = client, eng, eng.Clock, log.With("logger", "flows"), ctx
+		f.OnPark = eng.Park
 	}
 
 	pings := make(chan uint64, 1)

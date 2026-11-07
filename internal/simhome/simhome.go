@@ -32,8 +32,6 @@ import (
 const (
 	// settleTimeout is how long the engine has to catch up with one move of the clock.
 	settleTimeout = 10 * time.Second
-	// quiet is how long the engine must stay idle to count as settled, for work it hasn't seen yet.
-	quiet = 200 * time.Microsecond
 )
 
 // instance is the driver instance simulated devices belong to.
@@ -119,11 +117,9 @@ type Sim struct {
 	events []Event
 	active map[string]bool
 	ended  map[string][]string
-	// runs counts the runs going on, by rule, and parked says which of them are waiting.
-	runs   map[string]int
-	parked map[int]parked
-	parks  int
-	fires  map[string]time.Time
+	// runs counts the runs going on, by rule.
+	runs  map[string]int
+	fires map[string]time.Time
 	// swept is when a replay last counted its devices as seen.
 	swept time.Time
 	// skipped counts the outside calls a dry run left out, by name.
@@ -136,7 +132,7 @@ func New(o Options) (*Sim, error) {
 		home: o.Home, devices: o.Devices, clock: clock.NewFake(o.Start), location: o.Location, log: logging.OrDiscard(o.Log),
 		holds: newMemory[engine.HoldState](), controls: newMemory[engine.ControlState](), journal: newJournal(),
 		ended: map[string][]string{}, fires: map[string]time.Time{}, active: map[string]bool{},
-		runs: map[string]int{}, parked: map[int]parked{}, dry: o.Dry, calls: maps.Clone(o.Calls), skipped: map[string]int{},
+		runs: map[string]int{}, dry: o.Dry, calls: maps.Clone(o.Calls), skipped: map[string]int{},
 	}
 	if s.location == nil {
 		s.location = o.Start.Location()
@@ -190,7 +186,6 @@ func (s *Sim) start() error {
 	eng := &engine.Engine{
 		Store: s.store, Setter: driver.SetterFunc(s.set), States: s.holds, Controls: s.controls, Clock: s.clock,
 		Location: s.location, Site: s.home.Site, Log: s.log.With("logger", "automations"),
-		OnPark: s.park,
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
 				s.mu.Lock()
@@ -244,7 +239,7 @@ func (s *Sim) start() error {
 	}
 	for _, f := range flows {
 		f.Journal, f.Actions, f.Clock, f.Log, f.Process = s.journal, eng, s.clock, s.log.With("logger", "flows"), ctx
-		f.OnPark = eng.OnPark
+		f.OnPark = eng.Park
 		if s.dry {
 			f.Dry = func(call string, result any) error { return s.answer(f.Key.Name, call, result) }
 		}
@@ -364,13 +359,9 @@ func (s *Sim) Advance(d time.Duration) error {
 		if at := s.engine.Earliest(); !at.IsZero() && at.Before(next) {
 			next = at
 		}
-		s.mu.Lock()
-		for _, p := range s.parked {
-			if p.wake.Before(next) {
-				next = p.wake
-			}
+		if at := s.engine.ParkedUntil(); !at.IsZero() && at.Before(next) {
+			next = at
 		}
-		s.mu.Unlock()
 		if !next.After(s.clock.Now()) {
 			next = s.clock.Now().Add(time.Second)
 		}
@@ -394,7 +385,6 @@ func (s *Sim) Restart() error {
 	<-s.stopped
 	s.mu.Lock()
 	clear(s.runs)
-	clear(s.parked)
 	s.mu.Unlock()
 	if err := s.start(); err != nil {
 		return err
@@ -457,61 +447,12 @@ func (s *Sim) Failed(rule string) []string {
 	return slices.DeleteFunc(slices.Clone(s.ended[rule]), func(r string) bool { return r == engine.ResultSucceeded })
 }
 
-// parked is a run that's waiting.
-type parked struct {
-	wake  time.Time
-	woken <-chan struct{}
-}
-
-func (s *Sim) park(wake time.Time, woken <-chan struct{}) func() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	id := s.parks
-	s.parks++
-	s.parked[id] = parked{wake, woken}
-	return func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		delete(s.parked, id)
-	}
-}
-
-// runsWaiting says every run is waiting for something that hasn't happened yet, so none is working
-// or about to.
-func (s *Sim) runsWaiting() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	running := 0
-	for _, n := range s.runs {
-		running += n
-	}
-	if running != len(s.parked) {
-		return false
-	}
-	now := s.clock.Now()
-	for _, p := range s.parked {
-		if !p.wake.After(now) {
-			return false
-		}
-		select {
-		case <-p.woken:
-			return false
-		default:
-		}
-	}
-	return true
-}
-
 // settle waits for the engine and every run to catch up with the clock.
 func (s *Sim) settle() error {
-	settled := func() bool { return s.engine.Idle(s.clock.HasWaiters) && s.runsWaiting() }
 	deadline := time.Now().Add(settleTimeout)
 	for time.Now().Before(deadline) {
-		if settled() {
-			time.Sleep(quiet)
-			if settled() {
-				return nil
-			}
+		if s.engine.Idle() {
+			return nil
 		}
 		time.Sleep(50 * time.Microsecond)
 	}

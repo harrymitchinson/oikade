@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -104,10 +105,19 @@ type Engine struct {
 	// Budget are the budget holds' metrics. Nil exports none.
 	Budget *BudgetMetrics
 	// OnEnd, if set, hears a run that OnStart heard end, with its result. OnPark, if set, hears a run
-	// begin waiting. Together they let a simulated home tell a run that's waiting from one that's
-	// working.
+	// begin waiting.
 	OnEnd  func(key ident.ID, result string)
 	OnPark Park
+
+	// busy counts the work Idle can't see in the engine's state: changes queued, a wake or save
+	// asked for and not yet done, and goroutines working rather than parked.
+	busy atomic.Int64
+	// armed is when Run's timer fires, or zero for none. Guarded by mu.
+	armed time.Time
+	// parked are the runs waiting on the clock or a change, by Park's id for them.
+	parkMu  sync.Mutex
+	parked  map[int]parking
+	parkSeq int
 
 	events chan driver.Update
 	// wake makes Run look at the timers again.
@@ -181,6 +191,7 @@ func (e *Engine) Init() {
 	e.Log = logging.OrDiscard(e.Log)
 	e.events = make(chan driver.Update, 1024)
 	e.wake = make(chan struct{}, 1)
+	e.parked = map[int]parking{}
 	e.rules = map[ident.ID]*state{}
 	e.loaded = map[ident.ID]bool{}
 	if e.Clock == nil {
@@ -299,10 +310,21 @@ func (e *Engine) report(key ident.ID, sched Schedule) {
 }
 
 func (e *Engine) signal() {
+	e.busy.Add(1)
 	select {
 	case e.wake <- struct{}{}:
 	default:
+		e.busy.Add(-1) // a wake is already asked for
 	}
+}
+
+// goBusy runs f on its own goroutine, counted as busy until it ends or parks.
+func (e *Engine) goBusy(f func()) {
+	e.busy.Add(1)
+	e.runs.Go(func() {
+		defer e.busy.Add(-1)
+		f()
+	})
 }
 
 // Remove drops a deleted Rule, cancels its run and forgets its hold's state. A hold that is
@@ -319,7 +341,7 @@ func (e *Engine) Remove(key ident.ID) {
 	_ = e.endClaims(context.Background(), key.Namespace, ruleSource(key.Name), allLevels)
 	// A Rule unloaded as invalid before it was deleted has a state too.
 	if _, ok := e.States.Get(key); ok {
-		e.runs.Go(func() { e.deleteState(key) })
+		e.goBusy(func() { e.deleteState(key) })
 	}
 }
 
@@ -360,9 +382,11 @@ func (e *Engine) unload(key ident.ID) *state {
 
 // Changed implements driver.Sink. It never blocks the driver.
 func (e *Engine) Changed(u driver.Update) {
+	e.busy.Add(1)
 	select {
 	case e.events <- u:
 	default:
+		e.busy.Add(-1)
 		if e.Dropped != nil {
 			e.Dropped.Inc()
 		}
@@ -388,11 +412,16 @@ func (e *Engine) Run(ctx context.Context) {
 			timer.Stop()
 		}
 	}()
+	woke := false
 	for {
 		if timer != nil {
 			timer.Stop()
 		}
 		timer = e.arm(ctx)
+		if woke {
+			woke = false
+			e.busy.Add(-1)
+		}
 		var fired <-chan time.Time
 		if timer != nil {
 			fired = timer.C()
@@ -404,7 +433,9 @@ func (e *Engine) Run(ctx context.Context) {
 				return
 			case u := <-e.events:
 				e.handle(ctx, u)
+				e.busy.Add(-1)
 			case <-e.wake:
+				woke = true
 				break wait
 			case <-fired:
 				break wait
@@ -420,18 +451,34 @@ func (e *Engine) arm(ctx context.Context) clock.Timer {
 		e.fireDue(ctx)
 		next := e.earliest()
 		if next.IsZero() {
+			e.setArmed(time.Time{})
 			return nil
 		}
-		if d := next.Sub(e.Clock.Now()); d > 0 {
-			return e.Clock.NewTimer(min(d, maxWait))
+		now := e.Clock.Now()
+		if d := next.Sub(now); d > 0 {
+			timer := e.Clock.NewTimer(min(d, maxWait))
+			e.setArmed(now.Add(min(d, maxWait)))
+			return timer
 		}
 	}
+}
+
+// setArmed records when Run's timer fires, or that there's none, for Idle.
+func (e *Engine) setArmed(at time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.armed = at
 }
 
 // earliest returns the earliest next fire of any Rule, or zero.
 func (e *Engine) earliest() time.Time {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.earliestLocked()
+}
+
+// earliestLocked is earliest, with e.mu held.
+func (e *Engine) earliestLocked() time.Time {
 	var next time.Time
 	for _, s := range e.rules {
 		if at := s.next.At; !at.IsZero() && (next.IsZero() || at.Before(next)) {
@@ -640,15 +687,28 @@ func (e *Engine) Resume(ctx context.Context, key ident.ID, body Body) bool {
 
 // launch runs body as the rule's run in progress. Call with e.mu held.
 func (e *Engine) launch(ctx context.Context, key ident.ID, s *state, body Body) {
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(context.WithValue(ctx, inRun{}, true))
+	// A run cancelled while it waits is busy again until it ends: it no longer waits for anything.
+	// ended makes sure that's counted once, and only before the run ends.
+	var ended atomic.Bool
 	s.run++
-	s.cancel = cancel
+	s.cancel = func() {
+		if ended.CompareAndSwap(false, true) {
+			e.busy.Add(1)
+		}
+		cancel()
+	}
 	run := s.run
 	if e.OnStart != nil {
 		e.OnStart(key, e.Clock.Now())
 	}
-	e.runs.Go(func() {
+	e.goBusy(func() {
 		defer cancel()
+		defer func() {
+			if !ended.CompareAndSwap(false, true) {
+				e.busy.Add(-1) // the cancel's
+			}
+		}()
 		result := body(runCtx)
 		e.count(key, result)
 		if e.OnEnd != nil {
@@ -708,7 +768,7 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 	for _, a := range c.actions {
 		if a.delay > 0 {
 			timer := e.Clock.NewTimer(a.delay)
-			unpark := e.OnPark.Wait(e.Clock.Now().Add(a.delay), nil)
+			unpark := e.park(ctx, e.Clock.Now().Add(a.delay), nil)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -818,6 +878,75 @@ func (e *Engine) setClaim(key ident.ID, a action) control.Claim {
 // what the run calls when it stops. It must not block.
 type Park func(wake time.Time, woken <-chan struct{}) (unpark func())
 
+type parking struct {
+	wake  time.Time
+	woken <-chan struct{}
+}
+
+// inRun marks a run's context: the run is counted as busy, so it stops counting while it waits.
+type inRun struct{}
+
+// park is Park for a wait with ctx: one outside a run, such as a test's, only tells OnPark.
+func (e *Engine) park(ctx context.Context, wake time.Time, woken <-chan struct{}) (unpark func()) {
+	if ctx.Value(inRun{}) == nil {
+		return e.OnPark.Wait(wake, woken)
+	}
+	return e.Park(wake, woken)
+}
+
+// Park says a run of this engine's, such as a flow's, is waiting until wake, or until woken closes
+// if that's not nil, and returns what the run calls when it stops waiting. While it waits, it isn't
+// busy. OnPark hears it too. Call it only from a run the engine started.
+func (e *Engine) Park(wake time.Time, woken <-chan struct{}) (unpark func()) {
+	e.parkMu.Lock()
+	id := e.parkSeq
+	e.parkSeq++
+	e.parked[id] = parking{wake, woken}
+	e.parkMu.Unlock()
+	e.busy.Add(-1)
+	heard := e.OnPark.Wait(wake, woken)
+	return func() {
+		heard()
+		e.busy.Add(1)
+		e.parkMu.Lock()
+		delete(e.parked, id)
+		e.parkMu.Unlock()
+	}
+}
+
+// ParkedUntil is the earliest time a parked run wakes, or zero if none is parked.
+func (e *Engine) ParkedUntil() time.Time {
+	e.parkMu.Lock()
+	defer e.parkMu.Unlock()
+	var next time.Time
+	for _, p := range e.parked {
+		if next.IsZero() || p.wake.Before(next) {
+			next = p.wake
+		}
+	}
+	return next
+}
+
+// parkedWaiting says every parked run is still waiting: its time hasn't come and nothing woke it.
+func (e *Engine) parkedWaiting() bool {
+	e.parkMu.Lock()
+	defer e.parkMu.Unlock()
+	now := e.Clock.Now()
+	for _, p := range e.parked {
+		if !p.wake.After(now) {
+			return false
+		}
+		if p.woken != nil {
+			select {
+			case <-p.woken:
+				return false
+			default:
+			}
+		}
+	}
+	return true
+}
+
 // Wait is p, or nothing if p isn't set.
 func (p Park) Wait(wake time.Time, woken <-chan struct{}) func() {
 	if p == nil {
@@ -826,19 +955,27 @@ func (p Park) Wait(wake time.Time, woken <-chan struct{}) func() {
 	return p(wake, woken)
 }
 
-// Idle reports that the engine has caught up with the clock: nothing is queued, every rule has looked
-// and every write has finished. waiters says whether something waits on the clock, which is how a
-// timer just armed shows. A run's own progress isn't covered: see OnEnd and OnPark.
-func (e *Engine) Idle(waiters func() bool) bool {
-	e.mu.Lock()
-	empty := len(e.rules) == 0 && len(e.arbs) == 0
-	e.mu.Unlock()
-	if len(e.events) > 0 || !empty && !e.earliest().IsZero() && !waiters() {
+// Idle reports that the engine has caught up with the clock: nothing is queued or asked for, every
+// rule has looked, every write and save has finished, Run's timer is set for a time still to come,
+// and every run is waiting for a time still to come or a change. Runs count only if they park
+// through Park, as the engine's own waits and a flow's with OnPark set to it do.
+func (e *Engine) Idle() bool {
+	// The order matters. Whatever makes the state below busy again is counted in busy first, and a
+	// run leaves parked only once it has counted itself busy, so busy is read last.
+	if !e.stateIdle() || !e.parkedWaiting() {
 		return false
 	}
+	return e.busy.Load() == 0 && len(e.events) == 0
+}
+
+// stateIdle says Run's timer is set for a time still to come and no rule or arbiter is due.
+func (e *Engine) stateIdle() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.Clock.Now()
+	if !e.earliestLocked().IsZero() && !e.armed.After(now) {
+		return false // Run's timer has fired, or isn't set yet
+	}
 	if len(e.controlDue) > 0 {
 		return false
 	}

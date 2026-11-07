@@ -159,7 +159,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)
 	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim {
 		hs.writing, hs.dirty, hs.claimed = true, false, &claim
-		e.runs.Go(func() { e.write(ctx, key, hs, st, active, end, claim, reclaim) })
+		e.goBusy(func() { e.write(ctx, key, hs, st, active, end, claim, reclaim) })
 		s.next = fire{}
 	} else {
 		s.next = fire{At: lookAgain(h, st, next, now)}
@@ -254,7 +254,7 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 	hs.writing = false
 	if hs.deleted {
 		// The Rule was deleted while this ran: its state stays deleted.
-		e.runs.Go(func() { e.deleteState(key) })
+		e.goBusy(func() { e.deleteState(key) })
 		return
 	}
 	if ended {
