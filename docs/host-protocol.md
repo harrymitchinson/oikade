@@ -107,7 +107,7 @@ A failure, or a `protocol` other than the host's, rejects the version.
 
 ## Deploys
 
-`oikade deploy` and `oikade rollback` talk to the host over `api.sock`, also in the data directory and also mode `0600`, one JSON request and one JSON response per connection. `internal/host/api` is the code. A deploy goes in this order, and any failure leaves or brings back the last version:
+`oikade deploy` and `oikade rollback` talk to the host through its [API](host-api.md), on `api.sock`, also in the data directory and also mode `0600`. A deploy goes in this order, and any failure leaves or brings back the last version:
 
 1. The host copies the binary to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running changes nothing.
 2. It runs check mode, and compares the result with the running version. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafetyRemoval`. A rename counts, because a hold's latch lives under its name.

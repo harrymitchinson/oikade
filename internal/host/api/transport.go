@@ -11,12 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Transport reaches a host's API, and puts files where it can read them.
 type Transport interface {
 	// Dial opens a connection to the API.
-	Dial(ctx context.Context) (io.ReadWriteCloser, error)
+	Dial(ctx context.Context) (net.Conn, error)
 	// Upload makes a local file readable by the host. It returns the file's path there, and what to
 	// call once the host has taken it.
 	Upload(ctx context.Context, path string) (remote string, done func(), err error)
@@ -29,7 +30,7 @@ type Local struct {
 }
 
 // Dial implements Transport.
-func (l Local) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
+func (l Local) Dial(ctx context.Context) (net.Conn, error) {
 	return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(l.DataDir, SocketName))
 }
 
@@ -58,8 +59,8 @@ func (s SSH) command(ctx context.Context, remote string) (*exec.Cmd, error) {
 }
 
 // Dial implements Transport, with oikade proxy on the other end joining the session to the socket.
-func (s SSH) Dial(ctx context.Context) (io.ReadWriteCloser, error) {
-	// Not ctx: Call closes the connection when it ends, and needs to read until then.
+func (s SSH) Dial(ctx context.Context) (net.Conn, error) {
+	// Not ctx: the HTTP client closes the connection when a call ends, and reads until then.
 	cmd, err := s.command(context.WithoutCancel(ctx), "oikade proxy --data-dir "+Quote(s.DataDir))
 	if err != nil {
 		return nil, err
@@ -87,6 +88,19 @@ type piped struct {
 }
 
 func (p *piped) Write(b []byte) (int, error) { return p.in.Write(b) }
+
+// A process has no addresses, and its pipes take no deadlines here: the HTTP client ends a call by
+// closing the connection.
+func (p *piped) LocalAddr() net.Addr              { return pipeAddr{} }
+func (p *piped) RemoteAddr() net.Addr             { return pipeAddr{} }
+func (p *piped) SetDeadline(time.Time) error      { return nil }
+func (p *piped) SetReadDeadline(time.Time) error  { return nil }
+func (p *piped) SetWriteDeadline(time.Time) error { return nil }
+
+type pipeAddr struct{}
+
+func (pipeAddr) Network() string { return "pipe" }
+func (pipeAddr) String() string  { return "ssh" }
 
 func (p *piped) Close() error {
 	p.once.Do(func() {

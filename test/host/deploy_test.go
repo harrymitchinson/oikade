@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
@@ -240,6 +241,22 @@ func TestRollbackWithNothingToGoBackTo(t *testing.T) {
 	if stderr, err := r.oikade(nil, "rollback"); err == nil || !strings.Contains(stderr, "no earlier version") {
 		t.Fatalf("got %v: %s", err, stderr)
 	}
+}
+
+func TestDeployFinishesAfterTheCommandThatAskedIsKilled(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	cmd := exec.Command(hostBin, "deploy", "--data-dir", r.dir, "--binary", variant(t, "second"))
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	r.waitFor(func(l line) bool { return l.is("Received API request", "type", api.TypeDeploy) })
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	r.waitFor(func(l line) bool { return l.is(deployed) })
 }
 
 func TestDeployingTheRunningVersionChangesNothing(t *testing.T) {
