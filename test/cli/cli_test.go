@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -34,7 +35,12 @@ func oikade(t *testing.T) string {
 func binary(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
-	cmd := exec.Command("go", "build", "-o", path, "./cmd/"+name)
+	args := []string{"build", "-o", path}
+	// make cover-binaries measures what these binaries run.
+	if os.Getenv("OIKADE_COVER") != "" {
+		args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...")
+	}
+	cmd := exec.Command("go", append(args, "./cmd/"+name)...)
 	cmd.Dir = repo(t)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building %s: %v\n%s", name, err, out)
@@ -232,27 +238,43 @@ func TestDevFiresAtSunsetForTheHomesSite(t *testing.T) {
 	replaceIn(t, main, "return framework.Home{",
 		"return framework.Home{\n\t\tSite: &framework.Site{Latitude: 51.48, Longitude: -0.01},")
 	// oikade dev starts now, in this machine's zone, so the next sunset is within a day.
-	start := time.Now().Truncate(time.Minute)
+	before := time.Now()
 	out, err := run(t, bin, dir, "advance 25h\nquit\n", "dev")
 	if err != nil {
 		t.Fatalf("oikade dev: %v\n%s", err, out)
 	}
+	start := devStart(t, out, before)
 	site := sun.Site{Latitude: 51.48, Longitude: -0.01}
 	var want time.Time
 	for day := start; want.IsZero(); day = day.AddDate(0, 0, 1) {
 		at, ok := site.Time(sun.Sunset, day.Year(), day.Month(), day.Day(), time.Local)
-		if ok && at.Add(-20*time.Minute).After(start) {
+		// The banner gives dev's start to the minute, so a time within that minute may be before or
+		// after it: the next day's is the first one certain to come.
+		if ok && at.Add(-20*time.Minute).Sub(start) >= time.Minute {
 			want = at.Add(-20 * time.Minute)
 		}
-	}
-	// dev starts a moment after start, so a sunset that close may be before its clock does.
-	if want.Sub(start) < 2*time.Minute {
-		t.Skip("sunset is too close to now")
 	}
 	line := want.Format("Mon 15:04") + " Wrote porch-light on = true"
 	if !strings.Contains(out, line) {
 		t.Errorf("no %q in:\n%s", line, out)
 	}
+}
+
+// devStart reads when oikade dev's clock started from its banner, which names the day and the
+// minute: the first such minute from before, the moment before it ran.
+func devStart(t *testing.T, out string, before time.Time) time.Time {
+	t.Helper()
+	m := regexp.MustCompile(`from (\w{3} \d{2}:\d{2})\.`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no start time in:\n%s", out)
+	}
+	for at := before.Truncate(time.Minute); at.Before(before.Add(48 * time.Hour)); at = at.Add(time.Minute) {
+		if at.Format("Mon 15:04") == m[1] {
+			return at
+		}
+	}
+	t.Fatalf("start %q isn't after %v", m[1], before)
+	return time.Time{}
 }
 
 func TestCheckFailsOnAFlowThatWouldntReplay(t *testing.T) {

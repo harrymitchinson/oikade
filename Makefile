@@ -56,6 +56,21 @@ vet: ## Run go vet against code.
 test: fmt vet ## Run the tests.
 	go test $$(go list ./... | grep -v -e /test/journeys) -coverprofile cover.out
 
+# The race detector, on everything that runs in this process: test/host and test/cli run built
+# binaries, which test-race doesn't rebuild.
+.PHONY: test-race
+test-race: ## Run the tests in this process under the race detector.
+	go test -race $$(go list ./... | grep -v -e /test/journeys -e /test/host -e /test/cli)
+
+# test/host and test/cli run built binaries, which make test's coverage can't see. This builds them
+# with coverage and writes what they ran to cover-binaries.out.
+.PHONY: cover-binaries
+cover-binaries: ## Measure the coverage of the binaries test/host and test/cli run.
+	rm -rf $(LOCALBIN)/cover && mkdir -p $(LOCALBIN)/cover
+	OIKADE_COVER=1 GOCOVERDIR=$(LOCALBIN)/cover go test ./test/host ./test/cli -count=1
+	go tool covdata textfmt -i=$(LOCALBIN)/cover -o cover-binaries.out
+	go tool covdata percent -i=$(LOCALBIN)/cover
+
 # The chip-tool image is tagged by its Dockerfile's hash, so it's built once per change to it.
 # Building it pulls connectedhomeip's 6 GB image, which is linux/arm64 only.
 CHIP_TOOL_IMG ?= oikade-chip-tool:$(shell git hash-object test/journeys/chip-tool/Dockerfile | cut -c1-12)

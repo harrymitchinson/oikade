@@ -31,6 +31,9 @@ const (
 	checked  = "Checked automations version"
 	// settle is long enough for a process to crash in, and short enough to wait for.
 	settle = "--settle=2s"
+	// longSettle is long enough for a test to act on a new version before it settles. A failed version
+	// waits it out again while the last one is restored, so it's no longer than that needs.
+	longSettle = "--settle=10s"
 )
 
 var (
@@ -48,10 +51,7 @@ func variant(t *testing.T, name string) string {
 		return path
 	}
 	path := filepath.Join(buildDir, "home-"+name)
-	args := []string{"build", "-tags", "faultpoints", "-ldflags", "-X main.variant=" + name}
-	if raceBuild {
-		args = append(args, "-race")
-	}
+	args := buildArgs("-ldflags", "-X main.variant="+name)
 	module := filepath.Join(buildDir, "module")
 	if err := run(module, []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}, append(args, "-o", path, ".")...); err != nil {
 		t.Fatal(err)
@@ -415,7 +415,7 @@ func TestAFailedVersionDoesNotEndTheClaimsOfRulesItDropped(t *testing.T) {
 // A failed version's own rules go with it, because no code is left to end what they claimed.
 func TestAFailedVersionLeavesNoClaimsOfItsOwn(t *testing.T) {
 	r := flowRig(t, "")
-	r.launch("--settle=30s")
+	r.launch(longSettle)
 	r.awaitLoaded()
 	bin := variant(t, "crash-told")
 	done := make(chan error, 1)
@@ -462,7 +462,7 @@ func (r *rig) crashAfterLoading(name string) {
 // last version.
 func TestAFailedVersionLeavesAFlowItDroppedAlone(t *testing.T) {
 	r := flowRig(t, "")
-	r.launch("--settle=30s")
+	r.launch(longSettle)
 	r.awaitLoaded()
 	r.contact("claim-flow-go", true)
 	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
@@ -527,13 +527,13 @@ func TestADeployedVersionEndsAFlowItDropped(t *testing.T) {
 // binary changed in place does. A deploy that has the rule again raises no finding.
 func (r *rig) orphanedSafety() {
 	r.t.Helper()
-	r.launch("--settle=30s")
+	r.launch(longSettle)
 	r.awaitLoaded()
 	r.change("leak-sensor", opened, true)
 	r.wrote("valve", false)
 	r.sync()
 	r.stop()
-	r.launchWithout("--home", variant(r.t, "noleak"), "--simulate", devicesFile(r.t), "--settle=30s")
+	r.launchWithout("--home", variant(r.t, "noleak"), "--simulate", devicesFile(r.t), longSettle)
 	r.awaitLoaded()
 	r.sync()
 }

@@ -41,12 +41,35 @@ jobs:
       - name: Install the arm64 emulator
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
 
+      # Fails instead of tidying, so an untidy go.mod can't hide behind CI.
+      - name: Check go.mod is tidy
+        run: go mod tidy -diff
+
       - name: Running Tests
         env:
           OIKADE_REQUIRE_EMULATOR: "1"
-        run: |
-          go mod tidy
-          make test
+        run: make test
+
+  race:
+    permissions:
+      contents: read
+    name: Race detector
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run the tests under the race detector
+        run: make test-race
 
   plugins:
     permissions:
