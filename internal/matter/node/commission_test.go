@@ -160,6 +160,8 @@ func (h *heard) Invoked(cluster uint32, st im.Status) {
 	h.invoked = append(h.invoked, clusters.Name(cluster)+" "+st.Name())
 }
 
+func (h *heard) Panicked(string) {}
+
 func (h *heard) Reported() {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -316,6 +316,7 @@ func (r *CASEResponder) serve(ctx context.Context, ex *transport.Exchange, first
 		log.Info("CASE failed", "err", err)
 		return
 	}
+	defer removeOnPanic(r.Transport, s)
 	log.Info("Established CASE session", "session", s.LocalSessionID(), "fabric", s.FabricIndex(),
 		"node", fmt.Sprintf("%016X", s.PeerNodeID()), "resumed", resumed)
 	if r.OnSession != nil {
@@ -424,6 +425,7 @@ func (r *CASEResponder) handshake(ctx context.Context, ex *transport.Exchange, f
 // message finds it, and keeps it only if the initiator hears.
 func (r *CASEResponder) establish(ctx context.Context, ex *transport.Exchange, c transport.SecureSessionConfig) (*transport.Session, error) {
 	s := r.Transport.AddSecureSession(c)
+	defer removeOnPanic(r.Transport, s)
 	ackCtx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
 	if err := ex.Send(ackCtx, secureChannelStatus(GeneralSuccess, CodeSessionEstablishmentSuccess).Message()); err != nil {
@@ -578,6 +580,7 @@ func (r *CASEResponder) resume(ctx context.Context, ex *transport.Exchange, s1 *
 		LocalNodeID: f.nodeID, PeerNodeID: res.node, FabricIndex: f.Index, CATs: res.cats, Auth: transport.AuthCASE, AttestationChallenge: sk.AttestationChallenge,
 		Security: sec, PeerMRP: s1.params.MRP(),
 	})
+	defer removeOnPanic(tr, s)
 	established = true
 	msg := (&sigma2Resume{resumptionID: newID, resumeMIC: mic, responderSessionID: localID, params: r.Params}).encode()
 	if err := ex.Send(ctx, message(OpSigma2Resume, msg)); err != nil {

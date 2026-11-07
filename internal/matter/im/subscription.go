@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
@@ -88,6 +89,13 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	go func() {
 		defer stop()
 		defer s.endSubscription(sub)
+		defer cancel()
+		// A panic ends the subscription, and its session, so the controller starts again.
+		defer contain.Recover(s.Log, contain.Subscription, s.panicked, func() {
+			if s.EndSession != nil {
+				s.EndSession(session)
+			}
+		})
 		err := s.runSubscription(runCtx, sub)
 		s.Log.Debug("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "reason", err.Error())
 	}()
@@ -95,9 +103,11 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	return nil
 }
 
-// changed is the Node's listener: it marks what the subscription covers.
-func (sub *subscription) changed(changes []Path) {
+// mark marks the changes the subscription covers, and says whether there were any. It runs on a
+// handler's goroutine, so its lock goes with defer.
+func (sub *subscription) mark(changes []Path) bool {
 	sub.mu.Lock()
+	defer sub.mu.Unlock()
 	marked := false
 	for _, c := range changes {
 		for _, p := range sub.paths {
@@ -108,8 +118,12 @@ func (sub *subscription) changed(changes []Path) {
 			}
 		}
 	}
-	sub.mu.Unlock()
-	if marked {
+	return marked
+}
+
+// changed is the Node's listener: it marks what the subscription covers.
+func (sub *subscription) changed(changes []Path) {
+	if sub.mark(changes) {
 		select {
 		case sub.wake <- struct{}{}:
 		default:

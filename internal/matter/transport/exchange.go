@@ -6,6 +6,8 @@ import (
 	mrand "math/rand/v2"
 	"net/netip"
 	"time"
+
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 )
 
 // MRPConfig holds the Message Reliability Protocol's timing (Core spec, 4.12.8). Idle, Active and
@@ -107,6 +109,9 @@ func (s *Session) Done() <-chan struct{} { return s.done }
 // Secure reports whether the session encrypts its messages.
 func (s *Session) Secure() bool { return s.security != nil }
 
+// Transport is the Transport the session is on.
+func (s *Session) Transport() *Transport { return s.t }
+
 // LocalSessionID returns a secure session's local ID, and 0 for an unsecured one.
 func (s *Session) LocalSessionID() uint16 { return s.localID }
 
@@ -193,7 +198,15 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 		if ph.Reliable {
 			ex.needAck(counter)
 		}
-		s.t.handling.Go(func() { h(s.t.ctx, ex, msg) })
+		s.t.handling.Go(func() {
+			// A handler that panics may have left its session's state half updated, so the session goes
+			// with it, and the peer starts again.
+			defer contain.Recover(s.t.log, contain.Handler, s.t.panicked, func() {
+				ex.Close()
+				s.t.ended(s)
+			})
+			h(s.t.ctx, ex, msg)
+		})
 		return true
 	}
 	if ex.closed {

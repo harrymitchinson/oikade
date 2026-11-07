@@ -20,9 +20,11 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 )
 
 // Port is the UDP port Matter nodes listen on.
@@ -75,13 +77,22 @@ type Options struct {
 	// MRP is what the Transport assumes of a peer until a session says otherwise. Zero fields
 	// take the spec's defaults.
 	MRP MRPConfig
+	// Panicked, if set, hears each panic contained in reading a packet or in a Handler.
+	Panicked contain.Panicked
+	// EndSession, if set, ends a session whose Handler panicked, which may have left it half updated.
+	// Nil removes it.
+	EndSession func(*Session)
 }
 
 // Transport is the Matter message layer on one UDP socket.
 type Transport struct {
-	conn net.PacketConn
-	log  *slog.Logger
-	mrp  MRPConfig
+	conn       net.PacketConn
+	log        *slog.Logger
+	panicked   contain.Panicked
+	endSession func(*Session)
+	// received, if set, sees each packet before it's handled. Tests set it.
+	received atomic.Pointer[func(pkt []byte)]
+	mrp      MRPConfig
 
 	mu        sync.Mutex
 	handlers  map[handlerKey]Handler
@@ -109,14 +120,16 @@ func Listen(addr string, opts Options) (*Transport, error) {
 // New returns a Transport on conn. Serve reads from it.
 func New(conn net.PacketConn, opts Options) *Transport {
 	return &Transport{
-		conn:      conn,
-		log:       logging.OrDiscard(opts.Log),
-		mrp:       opts.MRP.withDefaults(),
-		handlers:  map[handlerKey]Handler{},
-		unsecured: map[unsecuredKey]*Session{},
-		secure:    map[uint16]*Session{},
-		counter:   initialCounter(),
-		ctx:       context.Background(),
+		conn:       conn,
+		log:        logging.OrDiscard(opts.Log),
+		panicked:   opts.Panicked,
+		endSession: opts.EndSession,
+		mrp:        opts.MRP.withDefaults(),
+		handlers:   map[handlerKey]Handler{},
+		unsecured:  map[unsecuredKey]*Session{},
+		secure:     map[uint16]*Session{},
+		counter:    initialCounter(),
+		ctx:        context.Background(),
 	}
 }
 
@@ -172,8 +185,23 @@ func (t *Transport) Serve(ctx context.Context) error {
 			t.drop(addr, "message too large", "bytes", n)
 			continue
 		}
-		t.receive(append([]byte(nil), buf[:n]...), addr)
+		t.receiveContained(append([]byte(nil), buf[:n]...), addr)
 	}
+}
+
+// receiveContained is receive, with a panic costing only the packet and the session it came on, which
+// may be half updated: receive lets its locks go with defer.
+func (t *Transport) receiveContained(pkt []byte, from netip.AddrPort) {
+	var on *Session
+	defer contain.Recover(t.log, contain.Receive, t.panicked, func() {
+		if on != nil {
+			t.ended(on)
+		}
+	})
+	if f := t.received.Load(); f != nil {
+		(*f)(pkt)
+	}
+	t.receive(pkt, from, &on)
 }
 
 // NewUnsecuredSession starts an unsecured session with peer, as its initiator, such as a
@@ -276,7 +304,8 @@ func (t *Transport) newSession(peer netip.AddrPort) *Session {
 }
 
 // receive handles one datagram. pkt is the Transport's to keep.
-func (t *Transport) receive(pkt []byte, from netip.AddrPort) {
+// receive handles a packet, and sets on to the session it's on once it has one.
+func (t *Transport) receive(pkt []byte, from netip.AddrPort, on **Session) {
 	h, n, err := ParseHeader(pkt)
 	if err != nil {
 		t.drop(from, err.Error())
@@ -326,6 +355,7 @@ func (t *Transport) receive(pkt []byte, from netip.AddrPort) {
 		t.drop(from, "session closed", "session", h.SessionID)
 		return
 	}
+	*on = s
 
 	verdict := s.recv.check(h.Counter)
 	if verdict == counterTooOld {
@@ -417,6 +447,15 @@ func (t *Transport) SecureSessions() int {
 		}
 	}
 	return n
+}
+
+// ended ends a session whose Handler panicked.
+func (t *Transport) ended(s *Session) {
+	if t.endSession != nil {
+		t.endSession(s)
+		return
+	}
+	t.RemoveSession(s)
 }
 
 // RemoveSession closes s and all its exchanges.

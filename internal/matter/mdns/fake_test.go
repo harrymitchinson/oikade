@@ -98,7 +98,7 @@ func (c *fakeConn) none() {
 func newTestResponder(t testing.TB) (*Responder, *fakeConn) {
 	c := newFakeConn(t)
 	addrs := func(int) []netip.Addr { return []netip.Addr{testAddr4, testAddr6} }
-	r, err := newResponder([]packetConn{c}, []int{testIf}, "DCA632A1B2C3", addrs, logging.Test(t))
+	r, err := newResponder([]packetConn{c}, []int{testIf}, "DCA632A1B2C3", addrs, logging.Test(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

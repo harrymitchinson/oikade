@@ -19,6 +19,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/fabric"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -193,7 +194,10 @@ func New(cfg Config) (*Node, error) {
 	info.VendorID, info.ProductID = attestation.TestVendorID, attestation.TestProductID
 	n.cfg.Info = info
 	n.bridge = clusters.NewBridge(info, n.comm.Clusters()...)
-	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Observer: cfg.Observer, Log: cfg.Log.With("part", "im")}
+	n.server = &im.Server{
+		Node: n.bridge.Node, Access: n.comm, Observer: cfg.Observer, EndSession: n.endSession,
+		Log: cfg.Log.With("part", "im"),
+	}
 	return n, nil
 }
 
@@ -229,11 +233,13 @@ func (n *Node) Run(ctx context.Context) error {
 		}
 		opts.Interfaces = list
 	}
-	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{Log: n.log.With("part", "transport")})
+	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{
+		Log: n.log.With("part", "transport"), Panicked: n.panicked(), EndSession: n.endSession,
+	})
 	if err != nil {
 		return err
 	}
-	opts.Log = n.log.With("part", "mdns")
+	opts.Log, opts.Panicked = n.log.With("part", "mdns"), n.panicked()
 	responder, err := n.listenMDNS(opts)
 	if err != nil {
 		_ = tr.Serve(cancelled()) // closes the socket
@@ -291,6 +297,14 @@ func (n *Node) Sessions() int {
 
 // Subscriptions returns how many subscriptions controllers hold.
 func (n *Node) Subscriptions() int { return n.server.Subscriptions() }
+
+// panicked is where the node's parts report a contained panic: the Observer, if there is one.
+func (n *Node) panicked() contain.Panicked {
+	if n.cfg.Observer == nil {
+		return nil
+	}
+	return n.cfg.Observer.Panicked
+}
 
 // WindowOpen reports whether a commissioning window is open.
 func (n *Node) WindowOpen() bool { return n.comm.WindowOpen() }
@@ -439,13 +453,17 @@ func (n *Node) endPASE() {
 // endSession tells the peer that s is closing, then closes it. CloseSession isn't acknowledged
 // (Core spec, 4.11.1.3), so it's sent once.
 func (n *Node) endSession(s *transport.Session) {
-	if ex, err := s.NewExchange(); err == nil {
-		_ = ex.SendUnreliable(securechannel.StatusReport{
-			General: securechannel.GeneralSuccess, Protocol: transport.SecureChannel, Code: securechannel.CodeCloseSession,
-		}.Message())
-		ex.Close()
+	// CloseSession means something only on a secure session: an unsecured one just goes.
+	if s.Secure() {
+		if ex, err := s.NewExchange(); err == nil {
+			_ = ex.SendUnreliable(securechannel.StatusReport{
+				General: securechannel.GeneralSuccess, Protocol: transport.SecureChannel, Code: securechannel.CodeCloseSession,
+			}.Message())
+			ex.Close()
+		}
 	}
-	n.run.Load().tr.RemoveSession(s)
+	// Its own Transport, which may be an earlier Run's.
+	s.Transport().RemoveSession(s)
 }
 
 // statusReport handles a status report a peer sends on a new exchange: CloseSession ends the

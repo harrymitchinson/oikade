@@ -70,9 +70,14 @@ func pairServer(t *testing.T, node *Node) (*Client, *countingConn, *Server, *tra
 // pairAs pairs over a session that the device sees as dev describes, served with access.
 func pairAs(t *testing.T, node *Node, access AccessControl, devCfg transport.SecureSessionConfig) (*Client, *countingConn, *Server, *transport.Transport) {
 	t.Helper()
+	return pairWith(t, &Server{Node: node, Access: access, Log: logging.Test(t)}, devCfg)
+}
+
+// pairWith is pairAs, served by srv.
+func pairWith(t *testing.T, srv *Server, devCfg transport.SecureSessionConfig) (*Client, *countingConn, *Server, *transport.Transport) {
+	t.Helper()
 	conn := &countingConn{PacketConn: listen(t)}
 	dev, cli := serveOn(t, conn), serveOn(t, listen(t))
-	srv := &Server{Node: node, Access: access, Log: logging.Test(t)}
 	srv.Register(dev)
 	did, _ := dev.AllocateSessionID()
 	cid, _ := cli.AllocateSessionID()

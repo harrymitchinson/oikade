@@ -4,6 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 )
 
@@ -15,11 +16,21 @@ type matterMetrics struct {
 	reports      prometheus.Counter
 	writes       prometheus.Histogram
 
+	panics *prometheus.CounterVec
+
 	fabrics, sessions, subscriptions, serving *prometheus.Desc
 }
 
 func newMatterMetrics(bridge *matterBridge) *matterMetrics {
+	panics := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "oikade_matter_panics_total",
+		Help: "Panics in handling a Matter message that cost only that message and its session, by where. Each is a bug.",
+	}, []string{"site"})
+	for _, site := range contain.Parts {
+		panics.WithLabelValues(site) // a series from the start, so a rate has something to go up from
+	}
 	return &matterMetrics{
+		panics: panics,
 		bridge: bridge,
 		interactions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "oikade_matter_interactions_total",
@@ -59,6 +70,9 @@ func (m *matterMetrics) Invoked(cluster uint32, st im.Status) {
 // Reported implements im.Observer.
 func (m *matterMetrics) Reported() { m.reports.Inc() }
 
+// Panicked implements im.Observer.
+func (m *matterMetrics) Panicked(site string) { m.panics.WithLabelValues(site).Inc() }
+
 // Describe implements prometheus.Collector.
 func (m *matterMetrics) Describe(ch chan<- *prometheus.Desc) {
 	m.interactions.Describe(ch)
@@ -68,6 +82,7 @@ func (m *matterMetrics) Describe(ch chan<- *prometheus.Desc) {
 	ch <- m.sessions
 	ch <- m.subscriptions
 	ch <- m.serving
+	m.panics.Describe(ch)
 }
 
 // Collect implements prometheus.Collector. A bridge whose state couldn't be read has no node, and
@@ -81,6 +96,7 @@ func (m *matterMetrics) Collect(ch chan<- prometheus.Metric) {
 		serving = 1
 	}
 	ch <- prometheus.MustNewConstMetric(m.serving, prometheus.GaugeValue, serving)
+	m.panics.Collect(ch)
 	if !m.bridge.working() {
 		return
 	}

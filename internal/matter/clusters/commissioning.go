@@ -8,6 +8,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/fabric"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
@@ -155,12 +156,41 @@ func NewCommissioning(cfg CommissioningConfig) (*Commissioning, error) {
 	c.acl = c.accessControl()
 	c.groupKeys = c.groupKeyManagement()
 	c.admin = c.administratorCommissioning()
+	for _, cl := range c.Clusters() {
+		critical(cl)
+	}
 	return c, nil
 }
 
 // Clusters returns the clusters, for the root endpoint.
 func (c *Commissioning) Clusters() []*im.Cluster {
 	return []*im.Cluster{c.general, c.opCreds, c.network, c.acl, c.groupKeys, c.admin}
+}
+
+// critical makes a panic in any of the cluster's commands or writes stop the host, even though it runs
+// on a handler, where a panic is contained: it would leave a window, a fail-safe or the fabrics half
+// moved.
+func critical(cl *im.Cluster) {
+	for i := range cl.Commands {
+		invoke := cl.Commands[i].Invoke
+		if invoke == nil {
+			continue
+		}
+		cl.Commands[i].Invoke = func(req *im.Request, fields *tlv.Reader) (*im.Response, error) {
+			defer contain.Critical()
+			return invoke(req, fields)
+		}
+	}
+	for i := range cl.Attributes {
+		write := cl.Attributes[i].Write
+		if write == nil {
+			continue
+		}
+		cl.Attributes[i].Write = func(req *im.Request, r *tlv.Reader, op im.WriteOp) im.Status {
+			defer contain.Critical()
+			return write(req, r, op)
+		}
+	}
 }
 
 // update runs f under the Node's lock, from a timer.
