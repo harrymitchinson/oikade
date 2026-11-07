@@ -196,10 +196,7 @@ func (p *plugins) pair(h *hosted) {
 		}
 		// What the plugin reports for a device it serves wins over its discovered list.
 		if known, ok := apps[d.ID]; ok {
-			app.Capabilities = known.Capabilities
-			if known.DeviceType != "" {
-				app.DeviceType = known.DeviceType
-			}
+			app.Capabilities, app.DeviceType = known.Capabilities, known.DeviceType
 		}
 		apps[d.ID] = app
 	}

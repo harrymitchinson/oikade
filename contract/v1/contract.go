@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -76,7 +75,14 @@ func DeviceTypes() []string {
 
 // ValidDeviceType reports whether t may be a device's deviceType. Empty is valid: the plugin doesn't
 // know.
-func ValidDeviceType(t string) bool { return t == "" || slices.Contains(DeviceTypes(), t) }
+func ValidDeviceType(t string) bool {
+	switch t {
+	case "", OnOffLight, DimmableLight, OnOffPlugInUnit, DimmablePlugInUnit,
+		MountedOnOffControl, MountedDimmableLoadControl:
+		return true
+	}
+	return false
+}
 
 const prefix = "oikade/v1/"
 

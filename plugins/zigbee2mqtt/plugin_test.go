@@ -22,6 +22,7 @@ import (
 const (
 	waitLimit  = 20 * time.Second
 	plugIEEE   = "0x00124b0000000004"
+	lampIEEE   = "0x000b57fffe000001"
 	motionIEEE = "0x00158d0000000002"
 	doorIEEE   = "0x00158d0000000003"
 	base       = "z2m"
@@ -192,8 +193,18 @@ func TestEveryPairedDeviceIsReportedAndCanBeSet(t *testing.T) {
 	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == "0x00aa000000000000" }); i < 0 || got.Devices[i].Found {
 		t.Errorf("a device on record that's gone: %+v", got.Devices)
 	}
-	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == plugIEEE }); i < 0 || !got.Devices[i].Found {
+	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == plugIEEE }); i < 0 || !got.Devices[i].Found ||
+		got.Devices[i].DeviceType != "" {
 		t.Errorf("the plug: %+v", got.Devices)
+	}
+	// The light says what it is, in both lists, with nobody setting it.
+	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == lampIEEE }); i < 0 ||
+		got.Devices[i].DeviceType != contractv1.DimmableLight {
+		t.Errorf("the lamp: %+v", got.Devices)
+	}
+	if i := slices.IndexFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == lampIEEE }); i < 0 ||
+		got.Discovered[i].DeviceType != contractv1.DimmableLight {
+		t.Errorf("the lamp: %+v", got.Discovered)
 	}
 
 	// A sleeping sensor reports one value at a time, and that's published as far as it's known.
