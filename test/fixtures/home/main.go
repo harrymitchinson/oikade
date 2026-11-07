@@ -344,6 +344,14 @@ func run(h framework.Home) {
 		h.Holds = append(h.Holds, framework.Hold{
 			Name: "once", Set: on(once).To(true),
 			When: func(s framework.State) bool { return s.Get(open("once-sensor")) },
+		}, framework.Hold{
+			// Names a plugin's device, which a test moves to another room.
+			Name: "quiet-held", Set: on("quiet-held").To(true),
+			When: func(s framework.State) bool { return s.Get(on("quiet")) },
+		})
+		h.Moments = append(h.Moments, framework.Moment{
+			Name: "quiet-heard", On: []framework.Change{on("quiet")},
+			Do: []framework.Action{on("quiet-heard").To(true)},
 		})
 	}
 	if variant == "typed" {

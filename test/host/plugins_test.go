@@ -37,6 +37,9 @@ func pluginDevices(t *testing.T) string {
 		t.Fatal(err)
 	}
 	devices = append(devices, map[string]any{"name": "once-sensor", "capabilities": []string{opened}})
+	for _, name := range []string{"quiet-held", "quiet-heard"} {
+		devices = append(devices, map[string]any{"name": name, "capabilities": []string{"on"}, "values": map[string]any{"on": false}})
+	}
 	out, err := json.Marshal(devices)
 	if err != nil {
 		t.Fatal(err)
