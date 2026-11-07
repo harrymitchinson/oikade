@@ -30,7 +30,8 @@ func runDevices(ctx context.Context, args []string) error {
 	all := fs.Bool("all", false, "List removed devices too, which keep their Matter endpoints.")
 	room := fs.String("room", "", "The room of a reserved name.")
 	allow := fs.Bool("allow-safety", false,
-		"Remove a device under a Safety claim, or change a name while a Safety rule runs.")
+		"Remove a device under a Safety claim, change a name while a Safety rule runs, or change a type "+
+			"that takes a device out of a Safety rule's room.")
 	force := fs.Bool("force", false, "Restore a file that disagrees with the registry.")
 	words := cli.Parse(fs, args)
 	if len(words) == 0 {

@@ -339,6 +339,14 @@ func run(h framework.Home) {
 			When: func(s framework.State) bool { return s.Get(open("once-sensor")) },
 		})
 	}
+	if variant == "typed" {
+		// A Safety rule that keeps the porch's plugs on, and only its plugs.
+		h.Holds = append(h.Holds, framework.Hold{
+			Name: "porch-plugs", Priority: framework.Safety,
+			Set:  framework.InRoom("porch", framework.On).Types(framework.OnOffPlugInUnit).To(true),
+			When: func(s framework.State) bool { return s.Get(open("porch-go")) },
+		})
+	}
 	if variant == "zigbee" {
 		h.Plugins = []framework.Plugin{{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})}}
 	}

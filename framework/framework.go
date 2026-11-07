@@ -34,6 +34,7 @@ import (
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -336,10 +337,12 @@ type Action interface {
 //	Heater.On.To(true).For(time.Hour)
 type Set struct {
 	device, room, capability string
-	value                    any
-	claimFor                 time.Duration
-	until                    engine.Until
-	priority                 Priority
+	// types limits a room's write to devices of these types.
+	types    []devicetype.Type
+	value    any
+	claimFor time.Duration
+	until    engine.Until
+	priority Priority
 }
 
 // For ends the claim after d.
@@ -388,9 +391,18 @@ func (s Set) plain(what string, device bool) error {
 	return nil
 }
 
+// roomOfTypes adds the set to rooms if it's a room's limited to device types, which the host
+// checks a change of device type against.
+func (s Set) roomOfTypes(rooms []wire.RoomOfTypes) []wire.RoomOfTypes {
+	if s.room == "" || len(s.types) == 0 {
+		return rooms
+	}
+	return append(rooms, wire.RoomOfTypes{Room: s.room, Capability: s.capability, DeviceTypes: slices.Clone(s.types)})
+}
+
 func (s Set) toEngine() engine.Action {
 	return engine.Set{
-		Device: s.device, Room: s.room, Capability: s.capability, Value: s.value, For: s.claimFor,
+		Device: s.device, Room: s.room, DeviceTypes: s.types, Capability: s.capability, Value: s.value, For: s.claimFor,
 		Until: s.until, Priority: engine.Priority(s.priority),
 	}
 }
@@ -521,10 +533,20 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 func (h Home) manifest() wire.Manifest {
 	m := wire.Manifest{Protocol: wire.Version}
 	for _, r := range h.Holds {
-		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: "hold", Safety: r.Priority == Safety, Latch: r.Latch})
+		info := wire.RuleInfo{Name: r.Name, Kind: "hold", Safety: r.Priority == Safety, Latch: r.Latch}
+		if info.Safety {
+			info.Rooms = r.Set.roomOfTypes(nil)
+		}
+		m.Rules = append(m.Rules, info)
 	}
 	for _, r := range h.Moments {
-		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: "moment", Safety: r.safety()})
+		info := wire.RuleInfo{Name: r.Name, Kind: "moment", Safety: r.safety()}
+		for _, a := range r.Do {
+			if s, ok := a.(Set); ok && s.priority == Safety {
+				info.Rooms = s.roomOfTypes(info.Rooms)
+			}
+		}
+		m.Rules = append(m.Rules, info)
 	}
 	for _, r := range h.Flows {
 		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: wire.KindFlow, Safety: r.Priority == Safety})
@@ -594,7 +616,7 @@ func (r Flow) toEngine(f *flow.Flow) engine.Flow {
 
 func (r Hold) toEngine() engine.Hold {
 	h := engine.Hold{
-		Device: r.Set.device, Room: r.Set.room, Capability: r.Set.capability, Value: r.Set.value,
+		Device: r.Set.device, Room: r.Set.room, DeviceTypes: r.Set.types, Capability: r.Set.capability, Value: r.Set.value,
 		Priority: engine.Priority(r.Priority), When: r.When.toEngine(),
 		OnDelay: r.OnDelay, OffDelay: r.OffDelay, Latch: r.Latch, Budget: r.Budget.toSchedule(),
 	}

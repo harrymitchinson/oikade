@@ -22,7 +22,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/secrets/remove` | `secret` | |
 | `POST /v1/devices/name` | `device`, `to`, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/room` | `device`, `room` | |
-| `POST /v1/devices/type` | `device`, `deviceType`, empty to go back to its driver's | |
+| `POST /v1/devices/type` | `device`, `deviceType`, empty to go back to its driver's, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/reserve` | `device`, `room` | |
 | `POST /v1/devices/remove` | `device`, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/replace` | `device`, `to`, `allowSafety` | `needsAllowSafety` |

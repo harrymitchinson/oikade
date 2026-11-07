@@ -65,6 +65,11 @@ func Join(types []Type) string {
 	return strings.Join(names, ", ")
 }
 
+// Any reports whether have has one of want. No want means anything does.
+func Any(have, want []Type) bool {
+	return len(want) == 0 || slices.ContainsFunc(have, func(t Type) bool { return slices.Contains(want, t) })
+}
+
 // Choosable says t is one you or a driver can choose for a device that's on or off.
 func Choosable(t Type) bool { return slices.Contains(OnOff, t) }
 

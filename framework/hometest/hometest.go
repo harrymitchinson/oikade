@@ -17,6 +17,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/framework"
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
@@ -25,6 +26,9 @@ import (
 type Device struct {
 	Name, Room   string
 	Capabilities []string
+	// DeviceType is what a device that's on or off is, as oikade devices type would say. Empty is
+	// what its capabilities say: a dimmable light with framework.Brightness, and a plug without.
+	DeviceType framework.DeviceType
 	// Values are its first values, by capability.
 	Values map[string]any
 }
@@ -74,7 +78,13 @@ func New(t testing.TB, home framework.Home, o Options) *Home {
 	}
 	devices := make([]simhome.Device, 0, len(o.Devices))
 	for _, d := range o.Devices {
-		devices = append(devices, simhome.Device(d))
+		if d.DeviceType != "" && !devicetype.Choosable(devicetype.Type(d.DeviceType)) {
+			t.Fatalf("Device %s has device type %q: use one of %s", d.Name, d.DeviceType, devicetype.Join(devicetype.OnOff))
+		}
+		devices = append(devices, simhome.Device{
+			Name: d.Name, Room: d.Room, Capabilities: d.Capabilities, Values: d.Values,
+			DeviceTypes: devicetype.Of(devicetype.Type(d.DeviceType), "", d.Capabilities),
+		})
 	}
 	if len(devices) == 0 {
 		if o.Types == "" {

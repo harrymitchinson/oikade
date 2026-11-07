@@ -398,3 +398,27 @@ func TestChangingANameWaitsForAllowSafetyWhileASafetyRuleRuns(t *testing.T) {
 	r.stdout(nil, "devices", "name", "fan", "ceiling-fan", "--allow-safety")
 	deviceOf(t, r.devices(), "ceiling-fan")
 }
+
+func TestRetypingADeviceOutOfASafetyRuleNeedsAllowSafety(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.mustDeploy("typed")
+	r.stdout(nil, "devices", "room", "fan", "porch")
+
+	// The fan is a plug, which porch-plugs keeps on at Safety: as a light, it wouldn't be.
+	stderr, err := r.oikade(nil, "devices", "type", "fan", "OnOffLight")
+	if err == nil || !strings.Contains(stderr, "porch-plugs") || !strings.Contains(stderr, "--allow-safety") {
+		t.Fatalf("retyped out of a Safety rule: %v: %s", err, stderr)
+	}
+	if d := deviceOf(t, r.devices(), "fan"); d.DeviceType != "" {
+		t.Errorf("the refused type stuck: %+v", d)
+	}
+	r.stdout(nil, "devices", "type", "fan", "OnOffLight", "--allow-safety")
+	if d := deviceOf(t, r.devices(), "fan"); d.DeviceType != "OnOffLight" {
+		t.Errorf("with --allow-safety: %+v", d)
+	}
+	// Back into the rule takes nothing out of it, and needs no flag.
+	r.stdout(nil, "devices", "type", "fan", "")
+	// Nor does a device in another room.
+	r.stdout(nil, "devices", "type", "siren", "OnOffLight")
+}

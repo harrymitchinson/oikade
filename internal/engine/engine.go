@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -648,9 +651,18 @@ func (e *Engine) reportSkipped(key ident.ID, skipped []string) {
 	}
 	e.mu.Unlock()
 	if !same && len(skipped) > 0 {
-		e.Log.Info("Skipped Room members that arbitrate the capability; the set needs for or until",
-			"rule", key, "devices", skipped)
+		e.Log.Info("Skipped Room members", "rule", key, "devices", skipped)
 	}
+}
+
+// arbitrates is a Room member left out because it arbitrates the capability, for the skipped log.
+func arbitrates(dev ident.ID, name string) string {
+	return fmt.Sprintf("%s (arbitrates %s, so the set needs for or until)", dev.Name, name)
+}
+
+// otherType is a Room member left out because it isn't one of the rule's device types.
+func otherType(dev ident.ID, snap hub.Snapshot) string {
+	return fmt.Sprintf("%s (%s, not one of the rule's device types)", dev.Name, cmp.Or(devicetype.Join(snap.DeviceTypes), "no device type"))
 }
 
 // runActions is execute, returning the Room members left out as well.
@@ -723,13 +735,17 @@ func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, 
 		if !found || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, a.capability) {
 			continue
 		}
+		if !snap.OfTypes(a.types) {
+			skipped = append(skipped, otherType(dev, snap))
+			continue
+		}
 		if ctx.Err() != nil {
 			return ok, skipped
 		}
 		matched = true
 		if snap.Controls(a.capability) {
 			if !a.ends() {
-				skipped = append(skipped, dev.Name)
+				skipped = append(skipped, arbitrates(dev, a.capability))
 				continue
 			}
 			if e.claim(ctx, key, dev, a.capability, e.setClaim(key, a)) {

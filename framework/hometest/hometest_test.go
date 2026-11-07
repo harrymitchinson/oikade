@@ -180,3 +180,33 @@ func TestARunInProgressIsntFinished(t *testing.T) {
 	h.Advance(6 * time.Minute)
 	h.ExpectFinished("porch")
 }
+
+// "Living room off" limited to lights turns off the lamps and leaves the fridge's plug, in the same
+// room, on.
+func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
+	brightness := string(framework.Brightness)
+	lamp := framework.Handle[bool]{Device: "floor-lamp", Capability: framework.On}
+	ceiling := framework.Handle[bool]{Device: "ceiling-light", Capability: framework.On}
+	fridge := framework.Handle[bool]{Device: "fridge-plug", Capability: framework.On}
+	home := framework.Home{Moments: []framework.Moment{{
+		Name: "living-room-off", At: []string{"23:00"},
+		Do: []framework.Action{
+			framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false),
+		},
+	}}}
+	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+		{
+			Name: "floor-lamp", Room: "living-room", Capabilities: []string{on, brightness},
+			Values: map[string]any{on: true, brightness: 80.0},
+		},
+		{
+			Name: "ceiling-light", Room: "living-room", Capabilities: []string{on}, DeviceType: framework.OnOffLight,
+			Values: map[string]any{on: true},
+		},
+		{Name: "fridge-plug", Room: "living-room", Capabilities: []string{on}, Values: map[string]any{on: true}},
+	}})
+	h.Advance(23*time.Hour + time.Minute)
+	h.ExpectValue(lamp, false)
+	h.ExpectValue(ceiling, false)
+	h.ExpectValue(fridge, true)
+}

@@ -202,11 +202,19 @@ framework.Moment{
 }
 ```
 
+A room without types means every device in it with the capability, and `on` is a light's, a switch's and an outlet's alike, so that turns off the fridge's plug too. `Types` limits a room write, a moment's or a hold's, to devices of some [device types](#what-a-device-is):
+
+```go
+framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false) // the lights, not the plugs
+```
+
+A device whose type isn't listed is left alone, and the log names it, so a new kind of light is left alone until you add its type. `Types` is only for writes: a room trigger fires for any device in the room.
+
 - **Room triggers** fire on a change from any device in the room at the time of the change.
-- **Room actions** set every device in the room that has reported the capability, in name order, and skip the rest. `on` is a light's, a switch's and an outlet's alike, so `framework.InRoom("living-room", framework.On).To(false)` turns off a plug there too, until room rules can be limited to what a device is ([OIK-187](https://linear.app/oikade/issue/OIK-187)). Name devices with handles to leave the rest alone. So `on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
+- **Room actions** set every device in the room that has reported the capability, and is one of the `Types` if there are any, in name order, and skip the rest. So `on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
 - **If some devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
 - **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Wait` longer than the time your sensor holds occupancy after the last movement.
-- **A room `Set` with no end skips arbitrated members,** because a claim must end (see [one-off claims](#one-off-claims)). The log names them.
+- **A room `Set` with no end skips arbitrated members,** because a claim must end (see [one-off claims](#one-off-claims)). The log names them, with members of other types, as `Skipped Room members`.
 
 ### Holds
 
@@ -385,7 +393,7 @@ hall-light  on  false  Device wants false at Override
 
 A device's capabilities say what it can do, and its device types say what it is, in Matter's names ([OIK-142](https://linear.app/oikade/issue/OIK-142)). `oikade devices` shows them in its `DEVICE TYPES` column, and `--json` as `deviceTypes`. Only a device that's `on` or off can be more than one thing, so that's the one you choose: `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` (a switch in the wall) or `MountedDimmableLoadControl` (a dimmer in the wall). A sensor's types follow from its capabilities, so a motion sensor with a thermometer is an `OccupancySensor` and a `TemperatureSensor`.
 
-Yours wins, then its driver's, if the driver knows: a Zigbee2MQTT light is an `OnOffLight`, or a `DimmableLight` with a brightness, and a plugin may report one. A Zigbee2MQTT switch doesn't say, because a relay can't tell what it switches. Otherwise a device with `brightness` is a `DimmableLight`, and one without an `OnOffPlugInUnit`, because a bare relay could be driving anything. `oikade devices type DEVICE ""` goes back to what its driver says. A dimmable type needs `brightness`, and an on/off type on a device that has it leaves dimming out of Matter. The type you set stays with the name, as a room does, through `replace`, a restart, `oikade types` and a restore. A reserved name takes any of the six, and once it's paired, a type its hardware can't be falls back as above.
+Yours wins, then its driver's, if the driver knows: a Zigbee2MQTT light is an `OnOffLight`, or a `DimmableLight` with a brightness, and a plugin may report one. A Zigbee2MQTT switch doesn't say, because a relay can't tell what it switches. Otherwise a device with `brightness` is a `DimmableLight`, and one without an `OnOffPlugInUnit`, because a bare relay could be driving anything. `oikade devices type DEVICE ""` goes back to what its driver says. A dimmable type needs `brightness`, and an on/off type on a device that has it leaves dimming out of Matter. Changing a device's type so that a Safety rule's room write limited to types would leave it out, such as a plug a Safety hold keeps on that you now call a light, needs `--allow-safety`, and the error names the rule. That's Safety holds and moments: what a flow writes isn't known until it runs. The type you set stays with the name, as a room does, through `replace`, a restart, `oikade types` and a restore. A reserved name takes any of the six, and once it's paired, a type its hardware can't be falls back as above.
 
 ## Capabilities
 

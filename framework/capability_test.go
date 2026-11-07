@@ -1,11 +1,13 @@
 package framework
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
@@ -61,8 +63,15 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 			InRoom("hall", Brightness).To(20),
 			engine.Set{Room: "hall", Capability: "brightness", Value: 20.0},
 		},
+		"a room's lights": {
+			InRoom("hall", On).Types(OnOffLight, DimmableLight).To(false),
+			engine.Set{
+				Room: "hall", DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight},
+				Capability: "on", Value: false,
+			},
+		},
 	} {
-		if got := tc.set.toEngine(); got != tc.want {
+		if got := tc.set.toEngine(); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", name, got, tc.want)
 		}
 	}

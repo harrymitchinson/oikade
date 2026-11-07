@@ -62,7 +62,13 @@ func NewActiveGauge() *prometheus.GaugeVec {
 
 func (c *Compiled) target() HoldTarget {
 	h := c.hold
-	return HoldTarget{Device: h.device, Room: h.room, Capability: h.capability, Value: h.value}
+	return HoldTarget{Device: h.device, Room: h.room, DeviceTypes: h.types, Capability: h.capability, Value: h.value}
+}
+
+// same reports whether two states are the same, comparing targets as sameTarget does.
+func (s HoldState) same(o HoldState) bool {
+	return s.Active == o.Active && s.Latched == o.Latched && s.OnAt.Equal(o.OnAt) && s.OffAt.Equal(o.OffAt) &&
+		s.Budget == o.Budget && sameTarget(s.Target, o.Target)
 }
 
 // sameTarget compares targets as JSON, since a saved value decodes as float64.
@@ -154,7 +160,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	// An active hold claims again when its priority or latch changed, or it has just loaded.
 	claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)
-	if active != st.Active || st != hs.saved || hs.dirty || end != nil || reclaim {
+	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim {
 		hs.writing, hs.dirty, hs.claimed = true, false, &claim
 		e.runs.Go(func() { e.write(ctx, key, hs, st, active, end, claim, reclaim) })
 		s.next = fire{}
@@ -298,12 +304,26 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 	var failed error
 	if t.Room != "" {
 		waiting := false
+		var skipped []string
 		for _, dev := range e.Store.Room(key.Namespace, t.Room) {
 			snap, ok := e.Store.Get(dev)
 			waiting = waiting || !ok || !snap.Discovered
-			if ok && snap.Discovered && slices.Contains(snap.Info.Capabilities, t.Capability) {
-				devices = append(devices, dev)
+			if !ok || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, t.Capability) {
+				continue
 			}
+			if !snap.OfTypes(t.DeviceTypes) {
+				// A member retyped while the hold was active may still hold its claim, which its end
+				// lets go of. It writes nothing to one: the hold never wrote it.
+				if !start && snap.Controls(t.Capability) {
+					e.releaseClaim(ctx, dev, t.Capability, claim.Source)
+				}
+				skipped = append(skipped, otherType(dev, snap))
+				continue
+			}
+			devices = append(devices, dev)
+		}
+		if start {
+			e.reportSkipped(key, skipped)
 		}
 		// With no member to write yet, as on startup, wait for the undiscovered ones. Once some
 		// are written, one that never reports doesn't keep rewriting the rest.
@@ -345,6 +365,13 @@ func (e *Engine) claimHold(ctx context.Context, key ident.ID, t HoldTarget, clai
 		devices = []ident.ID{{Namespace: key.Namespace, Name: t.Device}}
 	}
 	for _, dev := range devices {
+		if snap, ok := e.Store.Get(dev); ok && !snap.OfTypes(t.DeviceTypes) {
+			// It was retyped out of the hold, so its claim goes rather than staying at the old level.
+			if e.arbitrated(dev, t.Capability) {
+				e.releaseClaim(ctx, dev, t.Capability, claim.Source)
+			}
+			continue
+		}
 		if e.arbitrated(dev, t.Capability) {
 			e.claim(ctx, key, dev, t.Capability, claim)
 		}

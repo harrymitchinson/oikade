@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -158,7 +159,7 @@ func TestRoomMoment(t *testing.T) {
 		Changes: []Change{{Room: "hallway", Capability: capability.Occupied}},
 		Do:      []Action{roomLightOn("living-room", "false")},
 	})
-	if want := (action{room: "living-room", capability: capability.On, value: false}); c.actions[0] != want {
+	if want := (action{room: "living-room", capability: capability.On, value: false}); !reflect.DeepEqual(c.actions[0], want) {
 		t.Fatalf("action = %+v, want %+v", c.actions[0], want)
 	}
 
