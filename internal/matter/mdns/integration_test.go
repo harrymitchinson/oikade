@@ -73,9 +73,6 @@ func multicastLoops(ifi net.Interface) bool {
 // TestMulticast advertises a commissionable service on a real interface, and queries it over
 // multicast as a legacy resolver would, from a port other than 5353.
 func TestMulticast(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Probing takes a second")
-	}
 	ifi := multicastInterface(t)
 	r, err := Listen(Options{Log: logging.Test(t), Interfaces: []net.Interface{ifi}, Host: "oikade-test-" + randomHex(4)})
 	if err != nil {

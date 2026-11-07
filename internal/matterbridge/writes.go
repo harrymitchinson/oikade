@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -42,41 +43,66 @@ type Coalescer struct {
 	Window time.Duration
 	// Timeout bounds each write.
 	Timeout time.Duration
-	// Now is the clock; nil is time.Now.
-	Now func() time.Time
+	// Clock is the time writes gather and are compared on; nil is the real clock.
+	Clock clock.Clock
 
 	mu      sync.Mutex
 	pending map[writeKey]any
-	timers  map[ident.ID]*time.Timer
+	waiting map[ident.ID]bool
 	sent    map[writeKey]sent
 	ctx     context.Context
+	// flushes counts the bursts gathering or being sent.
+	flushes sync.WaitGroup
 }
 
 // Start sets the context writes run in. Call it before Add.
-func (c *Coalescer) Start(ctx context.Context) { c.ctx = ctx }
-
-func (c *Coalescer) now() time.Time {
-	if c.Now != nil {
-		return c.Now()
-	}
-	return time.Now()
+func (c *Coalescer) Start(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ctx = ctx
 }
+
+func (c *Coalescer) clock() clock.Clock {
+	if c.Clock != nil {
+		return c.Clock
+	}
+	return clock.Real{}
+}
+
+func (c *Coalescer) now() time.Time { return c.clock().Now() }
 
 // Add takes a write. It doesn't block.
 func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.ctx == nil {
+		// A write before Start still goes, rather than crashing the host.
+		c.ctx = context.Background()
+	}
 	if c.pending == nil {
-		c.pending, c.timers, c.sent = map[writeKey]any{}, map[ident.ID]*time.Timer{}, map[writeKey]sent{}
+		c.pending, c.waiting, c.sent = map[writeKey]any{}, map[ident.ID]bool{}, map[writeKey]sent{}
 	}
 	c.pending[writeKey{dev, name}] = value
-	if c.timers[dev] == nil {
-		w := c.Window
-		if w == 0 {
-			w = coalesceWindow
-		}
-		c.timers[dev] = time.AfterFunc(w, func() { c.flush(dev) })
+	if c.waiting[dev] {
+		return
 	}
+	c.waiting[dev] = true
+	w := c.Window
+	if w == 0 {
+		w = coalesceWindow
+	}
+	timer := c.clock().NewTimer(w)
+	c.flushes.Go(func() {
+		defer timer.Stop()
+		c.mu.Lock()
+		ctx := c.ctx
+		c.mu.Unlock()
+		select {
+		case <-timer.C():
+			c.flush(dev)
+		case <-ctx.Done():
+		}
+	})
 }
 
 // flush sends a device's latest writes: a level before turning on, and turning off before
@@ -87,7 +113,7 @@ func (c *Coalescer) flush(dev ident.ID) {
 		value any
 	}
 	c.mu.Lock()
-	delete(c.timers, dev)
+	delete(c.waiting, dev)
 	var writes []write
 	for k, v := range c.pending {
 		if k.dev == dev {

@@ -126,10 +126,7 @@ func check(t *testing.T, s *Store) {
 }
 
 func TestAcknowledgedEntriesSurviveSIGKILL(t *testing.T) {
-	kills := 40
-	if testing.Short() {
-		kills = 5
-	}
+	const kills = 40
 	dir := t.TempDir()
 	acked := map[string]uint64{}
 	for kill := range kills {

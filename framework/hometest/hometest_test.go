@@ -1,6 +1,8 @@
 package hometest_test
 
 import (
+	"fmt"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -436,5 +438,50 @@ func agree(t *testing.T, w framework.Window, site *framework.Site, start time.Ti
 	}
 	if opened == 0 {
 		t.Fatal("the window never opened")
+	}
+}
+
+// fatalT records a Fatalf inside fails instead of failing the test, so a test can see an Expect
+// fail. Anywhere else, a Fatalf fails the test as usual.
+type fatalT struct {
+	testing.TB
+	catching bool
+	failed   string
+}
+
+func (f *fatalT) Fatalf(format string, args ...any) {
+	if !f.catching {
+		f.TB.Fatalf(format, args...)
+	}
+	f.failed = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+// fails says whether expect called Fatalf on f.
+func (f *fatalT) fails(expect func()) bool {
+	f.catching, f.failed = true, ""
+	defer func() { f.catching = false }()
+	done := make(chan struct{})
+	go func() { defer close(done); expect() }()
+	<-done
+	return f.failed != ""
+}
+
+// A write counts once made, even after the device has moved on, unlike a value.
+func TestExpectWriteSeesAWriteTheDeviceMovedOnFrom(t *testing.T) {
+	ft := &fatalT{TB: t}
+	h := hometest.New(ft, framework.Home{Holds: []framework.Hold{fanHold()}}, hometest.Options{Devices: devices()})
+	if !ft.fails(func() { h.ExpectWrite(fan, true) }) {
+		t.Error("ExpectWrite passed before anything wrote")
+	}
+	h.Set(sensor, 80.0)
+	h.Set(sensor, 50.0)
+	h.Advance(11 * time.Minute)
+	h.ExpectValue(fan, false)
+	if ft.fails(func() { h.ExpectWrite(fan, true) }) {
+		t.Errorf("ExpectWrite missed the write: %s", ft.failed)
+	}
+	if !ft.fails(func() { h.ExpectWrite(light, false) }) {
+		t.Error("ExpectWrite passed for a device nothing wrote to")
 	}
 }

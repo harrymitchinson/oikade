@@ -29,9 +29,6 @@ func fromTestdata(t *testing.T) {
 }
 
 func TestPassesAgainstAnImportedPlugin(t *testing.T) {
-	if testing.Short() {
-		t.Skip("drives a real plugin process")
-	}
 	bin := filepath.Join(t.TempDir(), "simhome")
 	out, err := exec.Command("go", "build", "-o", bin, "../../test/fixtures/simswitch/home").CombinedOutput()
 	if err != nil {
@@ -46,9 +43,6 @@ func TestPassesAgainstAnImportedPlugin(t *testing.T) {
 }
 
 func TestPassesAgainstTheFixtureFromAnotherDirectory(t *testing.T) {
-	if testing.Short() {
-		t.Skip("drives a real plugin process")
-	}
 	bin := fixturePlugin(t)
 	fromTestdata(t)
 	var stdout, stderr bytes.Buffer
@@ -68,9 +62,6 @@ func TestPassesAgainstTheFixtureFromAnotherDirectory(t *testing.T) {
 }
 
 func TestFailsAPluginThatNeverComesOnline(t *testing.T) {
-	if testing.Short() {
-		t.Skip("drives a real plugin process")
-	}
 	fromTestdata(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--devices", "devices.json", "--timeout", "500ms", "--", "sleep", "30"}, &stdout, &stderr)
@@ -90,9 +81,6 @@ func TestFailsAPluginThatNeverComesOnline(t *testing.T) {
 }
 
 func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
-	if testing.Short() {
-		t.Skip("drives a real plugin process")
-	}
 	bin := fixturePlugin(t)
 	devices := filepath.Join(t.TempDir(), "devices.json")
 	unstable := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +
@@ -121,9 +109,6 @@ func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
 }
 
 func TestFailsAPluginThatNamesAnOldCapability(t *testing.T) {
-	if testing.Short() {
-		t.Skip("drives a real plugin process")
-	}
 	bin := fixturePlugin(t)
 	devices := filepath.Join(t.TempDir(), "devices.json")
 	old := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +

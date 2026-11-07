@@ -70,10 +70,7 @@ func build(t *testing.T) {
 			return
 		}
 		// Fault points are in these binaries alone: they compile to nothing in a normal build.
-		args := []string{"build", "-tags", "faultpoints"}
-		if raceBuild {
-			args = append(args, "-race")
-		}
+		args := buildArgs()
 		if buildErr = run(repo, nil, append(args, "-o", hostBin, "./cmd/oikade-host")...); buildErr != nil {
 			return
 		}
@@ -89,6 +86,19 @@ func build(t *testing.T) {
 	if buildErr != nil {
 		t.Fatal(buildErr)
 	}
+}
+
+// buildArgs starts a go build of the host, the CLI or the home: with fault points, the race detector
+// when this test has it, and coverage when make cover-binaries asks for it.
+func buildArgs(extra ...string) []string {
+	args := append([]string{"build", "-tags", "faultpoints"}, extra...)
+	if raceBuild {
+		args = append(args, "-race")
+	}
+	if os.Getenv("OIKADE_COVER") != "" {
+		args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...")
+	}
+	return args
 }
 
 func run(dir string, env []string, args ...string) error {
