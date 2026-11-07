@@ -223,8 +223,8 @@ func TestATakenAPIPortLeavesTheHostRunning(t *testing.T) {
 	}
 }
 
-// metric is a host metric's value, with no labels, as /metrics shows it.
-func (r *rig) metric(name string) string {
+// metrics is what the host's /metrics shows.
+func (r *rig) metrics() string {
 	r.t.Helper()
 	resp, err := http.Get(fmt.Sprintf("http://%s/metrics", r.logged("Serving metrics and health", "address")))
 	if err != nil {
@@ -232,8 +232,15 @@ func (r *rig) metric(name string) string {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
-	for row := range strings.SplitSeq(string(raw), "\n") {
-		if value, ok := strings.CutPrefix(row, name+" "); ok {
+	return string(raw)
+}
+
+// metric is a host metric's value as /metrics shows it, named with its labels if it has any, such as
+// a{b="c"}.
+func (r *rig) metric(series string) string {
+	r.t.Helper()
+	for row := range strings.SplitSeq(r.metrics(), "\n") {
+		if value, ok := strings.CutPrefix(row, series+" "); ok {
 			return value
 		}
 	}

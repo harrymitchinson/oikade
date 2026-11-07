@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -127,6 +129,8 @@ type matterBridge struct {
 	broken error
 	// down is why it isn't serving now, which trying again may mend.
 	down atomic.Pointer[string]
+	// metrics is what it exports, broken or not.
+	metrics *matterMetrics
 }
 
 // openMatter makes the bridge, serving nothing until run. State it can't read leaves it broken rather
@@ -140,6 +144,7 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 		return nil, errors.New("a Matter bridge's name is at most 32 bytes")
 	}
 	m := &matterBridge{log: h.Log.With("logger", "matter"), port: h.Matter.Port, retry: h.Matter.Retry, changes: make(chan struct{}, 1)}
+	m.metrics = newMatterMetrics(m)
 	if m.port == 0 {
 		m.port = DefaultMatterPort
 	}
@@ -165,7 +170,7 @@ func (m *matterBridge) open(c *Matter, values *store.Namespace) error {
 	}
 	cfg := node.Config{
 		Fabrics: fabricStore{values}, Setup: node.Setup{Passcode: m.id.Passcode, Discriminator: m.id.Discriminator},
-		Attestation: creds, Port: m.port, DeviceName: c.Name, Interfaces: c.Interfaces, Log: m.log,
+		Attestation: creds, Port: m.port, DeviceName: c.Name, Interfaces: c.Interfaces, Observer: m.metrics, Log: m.log,
 		Listening: func() {
 			m.serving.Store(true)
 			m.down.Store(nil)
@@ -190,7 +195,7 @@ func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine
 	m.devices, m.known, m.Store = devices, known, devices
 	known.changed = append(known.changed, m.changed)
 	m.Writes = &matterbridge.Coalescer{
-		Setter: &matterWrites{engine: eng, devices: devices, setter: setter, restore: m.Restore},
+		Setter: &matterWrites{engine: eng, devices: devices, setter: setter, restore: m.Restore, took: m.metrics.writes},
 		Current: func(dev ident.ID, name string) (any, bool) {
 			snap, ok := devices.Get(dev)
 			if !ok {
@@ -300,6 +305,8 @@ type matterWrites struct {
 	setter  driver.Setter
 	// restore takes the clusters back after a write that didn't happen.
 	restore func(dev ident.ID, name string, otherwise any)
+	// took, if set, hears how long each write that reached its driver took.
+	took prometheus.Observer
 }
 
 // Set implements driver.Setter.
@@ -307,6 +314,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	start := time.Now()
 	if holder, wants := heldAtSafety(w.engine, w.devices, dev, name, value); holder != "" {
 		w.restore(dev, name, wants)
 		return fmt.Errorf("%s holds it at Safety", holder)
@@ -318,8 +326,14 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	if err != nil {
 		w.engine.ForgetMatterWrite(dev, name)
 		w.restore(dev, name, nil)
+		return err
 	}
-	return err
+	// Only writes that worked: one refused at Safety takes no time, and one that timed out says how
+	// long the timeout is.
+	if w.took != nil {
+		w.took.Observe(time.Since(start).Seconds())
+	}
+	return nil
 }
 
 // matter answers oikade matter.

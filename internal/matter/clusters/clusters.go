@@ -20,6 +20,28 @@ const (
 	IDBridgedDeviceBasicInformation uint32 = 0x0039
 )
 
+// names are the clusters a node serves, by ID.
+var names = map[uint32]string{
+	IDIdentify: "identify", IDOnOff: "on_off", IDLevelControl: "level_control", IDDescriptor: "descriptor",
+	IDAccessControl: "access_control", IDBasicInformation: "basic_information",
+	IDGeneralCommissioning: "general_commissioning", IDNetworkCommissioning: "network_commissioning",
+	IDGeneralDiagnostics: "general_diagnostics", IDPowerSource: "power_source",
+	IDBridgedDeviceBasicInformation: "bridged_device_basic_information",
+	IDAdministratorCommissioning:    "administrator_commissioning", IDOperationalCredentials: "operational_credentials",
+	IDGroupKeyManagement: "group_key_management", IDBooleanState: "boolean_state",
+	IDTemperatureMeasurement: "temperature_measurement", IDRelativeHumidityMeasurement: "relative_humidity_measurement",
+	IDOccupancySensing: "occupancy_sensing",
+}
+
+// Name is the name of a cluster a node serves, in snake case, such as on_off. Any other is "other", so
+// that a controller can't make up names.
+func Name(id uint32) string {
+	if name, ok := names[id]; ok {
+		return name
+	}
+	return "other"
+}
+
 // Device types (Matter Device Library Specification).
 var (
 	DeviceRootNode    = im.DeviceType{ID: 0x0016, Revision: 2}

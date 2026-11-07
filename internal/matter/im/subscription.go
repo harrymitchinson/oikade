@@ -67,6 +67,9 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	rq := newRequest(session, req.fabricFiltered)
 	s.Node.View(func() { reports = s.reports(rq, req.attributes, req.filters) })
 	err = sendReports(ctx, ex, reports, &sub.id, false)
+	if err == nil && s.Observer != nil {
+		s.Observer.Reported()
+	}
 	if err == nil {
 		var w tlv.Writer
 		w.StartStructure(tlv.Anonymous)
@@ -165,7 +168,13 @@ func (s *Server) report(ctx context.Context, sub *subscription, reports [][]byte
 		return err
 	}
 	defer ex.Close()
-	return sendReports(ctx, ex, reports, &sub.id, false)
+	if err := sendReports(ctx, ex, reports, &sub.id, false); err != nil {
+		return err
+	}
+	if s.Observer != nil {
+		s.Observer.Reported()
+	}
+	return nil
 }
 
 func (s *Server) endSubscription(sub *subscription) {

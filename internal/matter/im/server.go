@@ -32,10 +32,24 @@ type Server struct {
 	Node *Node
 	// Access decides what CASE sessions may do. nil grants them nothing.
 	Access AccessControl
-	Log    *slog.Logger
+	// Observer, if set, hears what controllers do, for metrics.
+	Observer Observer
+	Log      *slog.Logger
 
 	mu   sync.Mutex
 	subs map[uint32]*subscription
+}
+
+// Observer hears what controllers do. It's called on the goroutine serving the interaction, after the
+// Node's lock is let go, so its methods should be quick.
+type Observer interface {
+	// Wrote is one attribute write's outcome. A write refused as a whole, before any attribute in it
+	// was looked at, has cluster 0, which no node serves.
+	Wrote(cluster uint32, st Status)
+	// Invoked is one command's outcome, with cluster 0 for an invoke refused as a whole.
+	Invoked(cluster uint32, st Status)
+	// Reported is a report sent on a subscription, a keep-alive included.
+	Reported()
 }
 
 // Register starts serving on tr.
@@ -66,6 +80,18 @@ func (s *Server) serve(ctx context.Context, ex *transport.Exchange, m transport.
 	if err != nil {
 		s.Log.Debug("Interaction failed", "peer", ex.Session().Peer(), "opcode", m.Opcode, "err", err)
 	}
+}
+
+// refuse answers a whole write or invoke with a status, and tells the Observer.
+func (s *Server) refuse(ctx context.Context, ex *transport.Exchange, write bool, st Status, err error) error {
+	switch {
+	case s.Observer == nil:
+	case write:
+		s.Observer.Wrote(0, st)
+	default:
+		s.Observer.Invoked(0, st)
+	}
+	return fail(ctx, ex, st, err)
 }
 
 // fail answers a whole request with a status.
@@ -325,10 +351,10 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 	for {
 		req, err := decodeWriteRequest(b)
 		if err != nil {
-			return fail(ctx, ex, StatusInvalidAction, err)
+			return s.refuse(ctx, ex, true, StatusInvalidAction, err)
 		}
 		if req.timed != timed {
-			return fail(ctx, ex, StatusTimedRequestMismatch, errors.New("timed flag doesn't match the interaction"))
+			return s.refuse(ctx, ex, true, StatusTimedRequestMismatch, errors.New("timed flag doesn't match the interaction"))
 		}
 		statuses := make([]Status, len(req.writes))
 		s.Node.Update(func() {
@@ -336,6 +362,11 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 				statuses[i] = s.apply(rq, d, granted)
 			}
 		})
+		if s.Observer != nil {
+			for i, d := range req.writes {
+				s.Observer.Wrote(d.path.Cluster, statuses[i])
+			}
+		}
 		if !req.suppressResponse {
 			var w tlv.Writer
 			w.StartStructure(tlv.Anonymous)
@@ -364,7 +395,7 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 			return err
 		}
 		if next.Opcode != OpWriteRequest {
-			return fail(ctx, ex, StatusInvalidAction, fmt.Errorf("opcode %#x in a chunked write", next.Opcode))
+			return s.refuse(ctx, ex, true, StatusInvalidAction, fmt.Errorf("opcode %#x in a chunked write", next.Opcode))
 		}
 		b = next.Payload
 	}
@@ -417,20 +448,23 @@ func (s *Server) apply(req *Request, d attributeData, granted map[Path]bool) Sta
 func (s *Server) invoke(ctx context.Context, ex *transport.Exchange, b []byte, timed bool) error {
 	req, err := decodeInvokeRequest(b)
 	if err != nil {
-		return fail(ctx, ex, StatusInvalidAction, err)
+		return s.refuse(ctx, ex, false, StatusInvalidAction, err)
 	}
 	if req.timed != timed {
-		return fail(ctx, ex, StatusTimedRequestMismatch, errors.New("timed flag doesn't match the interaction"))
+		return s.refuse(ctx, ex, false, StatusTimedRequestMismatch, errors.New("timed flag doesn't match the interaction"))
 	}
 	if len(req.commands) != 1 {
 		// MaxPathsPerInvoke is 1.
-		return fail(ctx, ex, StatusInvalidAction, fmt.Errorf("%d commands in one invoke", len(req.commands)))
+		return s.refuse(ctx, ex, false, StatusInvalidAction, fmt.Errorf("%d commands in one invoke", len(req.commands)))
 	}
 	cmd := req.commands[0]
 	var resp *Response
 	var st error
 	rq := newRequest(ex.Session(), false)
 	s.Node.Update(func() { resp, st = s.run(rq, cmd, timed) })
+	if s.Observer != nil {
+		s.Observer.Invoked(cmd.path.Cluster, statusOf(st))
+	}
 	if req.suppressResponse {
 		return nil
 	}
@@ -494,23 +528,32 @@ func (s *Server) run(req *Request, cmd commandData, timed bool) (*Response, erro
 	return command.Invoke(req, fields)
 }
 
-// putCommandStatus writes a StatusIB for a command's result: nil, a Status or a ClusterStatus.
-func putCommandStatus(w *tlv.Writer, tag tlv.Tag, err error) {
+// statusOf is the status a command's result answers with: nil, a Status or a ClusterStatus.
+func statusOf(err error) Status {
 	var cs ClusterStatus
 	var st Status
 	switch {
 	case err == nil:
-		putStatus(w, tag, StatusSuccess)
+		return StatusSuccess
 	case errors.As(err, &cs):
+		return cs.Status
+	case errors.As(err, &st):
+		return st
+	}
+	return StatusFailure
+}
+
+// putCommandStatus writes a StatusIB for a command's result: nil, a Status or a ClusterStatus, whose
+// cluster-specific code goes with it.
+func putCommandStatus(w *tlv.Writer, tag tlv.Tag, err error) {
+	if cs, ok := errors.AsType[ClusterStatus](err); ok {
 		w.StartStructure(tag)
 		w.PutUint(tlv.Context(0), uint64(cs.Status))
 		w.PutUint(tlv.Context(1), uint64(cs.Code))
 		w.End()
-	case errors.As(err, &st):
-		putStatus(w, tag, st)
-	default:
-		putStatus(w, tag, StatusFailure)
+		return
 	}
+	putStatus(w, tag, statusOf(err))
 }
 
 // timed handles a Timed Request: the Write or Invoke that follows on the exchange must arrive

@@ -138,6 +138,12 @@ func TestTheDashboardQueriesMetricsThatExist(t *testing.T) {
 		}
 	})
 	for _, metric := range queried {
+		// A histogram is defined by its name, and queried by its series.
+		for _, series := range []string{"_bucket", "_count", "_sum"} {
+			if base, ok := strings.CutSuffix(metric, series); ok && defined[base] {
+				metric = base
+			}
+		}
 		if !defined[metric] {
 			t.Errorf("the dashboard queries %s, which nothing defines", metric)
 		}
