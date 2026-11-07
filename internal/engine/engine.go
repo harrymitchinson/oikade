@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/utils/clock"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -186,7 +186,7 @@ func (e *Engine) Init() {
 	e.rules = map[ident.ID]*state{}
 	e.loaded = map[ident.ID]bool{}
 	if e.Clock == nil {
-		e.Clock = clock.RealClock{}
+		e.Clock = clock.Real{}
 	}
 	if e.Location == nil {
 		e.Location = time.Local
@@ -659,13 +659,14 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 	failed := false
 	for _, a := range c.actions {
 		if a.delay > 0 {
-			timer := e.Clock.After(a.delay)
+			timer := e.Clock.NewTimer(a.delay)
 			unpark := e.OnPark.Wait(e.Clock.Now().Add(a.delay), nil)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				unpark()
 				return ResultCancelled, skipped
-			case <-timer:
+			case <-timer.C():
 			}
 			unpark()
 			continue

@@ -405,7 +405,7 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	case ar.lost && !ar.writing:
 		ar.lost = false
 		ar.a.Wrote(v)
-	case ar.writing || e.Clock.Since(ar.wrote) < staleReport:
+	case ar.writing || e.Clock.Now().Sub(ar.wrote) < staleReport:
 		e.Log.Debug("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
 		ar.dropped = true
 		if !ar.writing {

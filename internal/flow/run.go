@@ -158,13 +158,14 @@ func (r *Run) Sleep(d time.Duration) {
 	r.live = true
 	r.waiting(e.Wake)
 	if d := e.Wake.Sub(r.f.Clock.Now()); d > 0 {
-		timer := r.f.Clock.After(d)
+		timer := r.f.Clock.NewTimer(d)
 		unpark := r.f.OnPark.Wait(e.Wake, nil)
 		select {
 		case <-r.ctx.Done():
+			timer.Stop()
 			unpark()
 			r.check()
-		case <-timer:
+		case <-timer.C():
 			unpark()
 		}
 	}

@@ -21,8 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/utils/clock"
-
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"

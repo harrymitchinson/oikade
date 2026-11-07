@@ -14,9 +14,8 @@ import (
 	"sync"
 	"time"
 
-	clocktesting "k8s.io/utils/clock/testing"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -95,7 +94,7 @@ type Sim struct {
 	dry      bool
 	calls    map[string][]api.Event
 	devices  []Device
-	clock    *clocktesting.FakeClock
+	clock    *clock.Fake
 	location *time.Location
 	log      *slog.Logger
 	store    *hub.Store
@@ -128,7 +127,7 @@ type Sim struct {
 // New starts a home.
 func New(o Options) (*Sim, error) {
 	s := &Sim{
-		home: o.Home, devices: o.Devices, clock: clocktesting.NewFakeClock(o.Start), location: o.Location, log: logging.OrDiscard(o.Log),
+		home: o.Home, devices: o.Devices, clock: clock.NewFake(o.Start), location: o.Location, log: logging.OrDiscard(o.Log),
 		holds: newMemory[engine.HoldState](), controls: newMemory[engine.ControlState](), journal: newJournal(),
 		ended: map[string][]string{}, fires: map[string]time.Time{}, active: map[string]bool{},
 		runs: map[string]int{}, parked: map[int]parked{}, dry: o.Dry, calls: maps.Clone(o.Calls), skipped: map[string]int{},

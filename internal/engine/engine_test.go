@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -224,7 +224,7 @@ func (f *fakeSetter) got() []call {
 type harness struct {
 	t      *testing.T
 	e      *Engine
-	clock  *clocktesting.FakeClock
+	clock  *clock.Fake
 	setter *fakeSetter
 }
 
@@ -245,7 +245,7 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 		{Namespace: ns, Name: "hallway-motion"}: {},
 		{Namespace: ns, Name: "hallway-light"}:  {},
 	})
-	h := &harness{t: t, clock: clocktesting.NewFakeClock(now), setter: &fakeSetter{}}
+	h := &harness{t: t, clock: clock.NewFake(now), setter: &fakeSetter{}}
 	h.e = &Engine{
 		Store: store, Setter: h.setter, Clock: h.clock, Location: london, Log: logging.Discard(),
 		Runs: NewRunsCounter(),

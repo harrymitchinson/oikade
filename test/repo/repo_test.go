@@ -38,9 +38,9 @@ func lines(t *testing.T, dirs []string, suffix string, found func(path string, n
 	}
 }
 
-// Oikade has no API types of its own any more: each type lives in the package that owns it.
-func TestNothingImportsAnAPIPackage(t *testing.T) {
-	banned := regexp.MustCompile(`"github\.com/harrymitchinson/oikade/api(/|")`)
+// noImports fails for each line of the code that matches banned.
+func noImports(t *testing.T, banned *regexp.Regexp) {
+	t.Helper()
 	lines(t, sourceDirs, ".go", func(path string, number int, line string) {
 		if banned.MatchString(line) && !strings.HasSuffix(path, "repo_test.go") {
 			t.Errorf("%s:%d imports it: %s", path, number, strings.TrimSpace(line))
@@ -48,29 +48,21 @@ func TestNothingImportsAnAPIPackage(t *testing.T) {
 	})
 }
 
-// Oikade has no Kubernetes target (OIK-143), so nothing needs Kubernetes' types or its controller
-// framework. k8s.io/utils stays for its clock, which brings in nothing else from Kubernetes.
+// Oikade has no API types of its own any more: each type lives in the package that owns it.
+func TestNothingImportsAnAPIPackage(t *testing.T) {
+	noImports(t, regexp.MustCompile(`"github\.com/harrymitchinson/oikade/api(/|")`))
+}
+
+// Oikade has no Kubernetes target (OIK-143), so it uses nothing from Kubernetes, down to the clock.
 func TestNoKubernetesModules(t *testing.T) {
-	module := regexp.MustCompile(`(sigs\.)?k8s\.io/[\w.-]+`)
-	banned := func(text string) string {
-		if found := module.FindString(text); found != "k8s.io/utils" {
-			return found
-		}
-		return ""
-	}
-	lines(t, sourceDirs, ".go", func(path string, number int, line string) {
-		if banned(line) != "" && !strings.HasSuffix(path, "repo_test.go") {
-			t.Errorf("%s:%d imports it: %s", path, number, strings.TrimSpace(line))
-		}
-	})
+	banned := regexp.MustCompile(`(sigs\.)?k8s\.io/[\w.-]+`)
+	noImports(t, banned)
 	mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for line := range strings.SplitSeq(string(mod), "\n") {
-		if found := banned(line); found != "" {
-			t.Errorf("go.mod requires %s", found)
-		}
+	for _, found := range banned.FindAllString(string(mod), -1) {
+		t.Errorf("go.mod requires %s", found)
 	}
 }
 
