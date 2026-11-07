@@ -142,13 +142,11 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 			return &paho.Disconnect{ReasonCode: 0}
 		},
 		OnConnectError: func(err error) { log.Error("Failed to connect to MQTT broker", "err", err, "server", u.Host) },
-		ClientConfig: paho.ClientConfig{
-			ClientID: clientID,
-			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
-				func(pr paho.PublishReceived) (bool, error) {
-					c.dispatch(Message{Topic: pr.Packet.Topic, Payload: pr.Packet.Payload, Retained: pr.Packet.Retain})
-					return true, nil
-				},
+		ClientID:       clientID,
+		OnPublishReceived: []func(paho.PublishReceived) (bool, error){
+			func(pr paho.PublishReceived) (bool, error) {
+				c.dispatch(Message{Topic: pr.Packet.Topic, Payload: pr.Packet.Payload, Retained: pr.Packet.Retain})
+				return true, nil
 			},
 		},
 	}

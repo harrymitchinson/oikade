@@ -110,7 +110,7 @@ func TestMulticast(t *testing.T) {
 		t.Helper()
 		id := uint16(time.Now().UnixNano())
 		if _, err := q.WriteTo(pack(t, dnsmessage.Message{
-			Header:    dnsmessage.Header{ID: id},
+			ID:        id,
 			Questions: []dnsmessage.Question{{Name: mustName(name), Type: typ, Class: dnsmessage.ClassINET}},
 		}), nil, group4); err != nil {
 			t.Fatal(err)

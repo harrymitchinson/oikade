@@ -25,7 +25,7 @@ func FuzzHandle(f *testing.F) {
 		Questions: []dnsmessage.Question{{Name: mustName(testInstance), Type: dnsmessage.TypeALL, Class: dnsmessage.ClassINET}},
 		Answers:   []dnsmessage.Resource{recs[0].resource(otherTTL, false)},
 	})
-	resp := dnsmessage.Message{Header: dnsmessage.Header{Response: true}}
+	resp := dnsmessage.Message{Response: true}
 	for _, rec := range recs {
 		resp.Answers = append(resp.Answers, rec.resource(rec.ttl, true))
 	}

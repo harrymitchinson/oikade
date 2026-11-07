@@ -33,7 +33,7 @@ func TestCompileHold(t *testing.T) {
 }
 
 func TestCompileClaims(t *testing.T) {
-	c := momentRule(t, "r", Moment{Trigger: Trigger{Changes: []Change{{Device: "b", Capability: capability.ContactOpen}}}, Do: []Action{Set{Device: "rail", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilNext, Priority: PriorityOverride}, Set{Device: "rail", Capability: capability.SwitchOn, Value: false, Until: UntilReleased}, Release("other")}})
+	c := momentRule(t, "r", Moment{Changes: []Change{{Device: "b", Capability: capability.ContactOpen}}, Do: []Action{Set{Device: "rail", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilNext, Priority: PriorityOverride}, Set{Device: "rail", Capability: capability.SwitchOn, Value: false, Until: UntilReleased}, Release("other")}})
 	if a := c.actions[0]; a.claimFor != time.Hour || a.until != UntilNext || a.priority != PriorityOverride {
 		t.Errorf("first set: %+v", a)
 	}

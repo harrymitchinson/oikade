@@ -53,13 +53,11 @@ type Request struct {
 // newRequest describes a request on session.
 func newRequest(session *transport.Session, fabricFiltered bool) *Request {
 	return &Request{
-		Subject: Subject{
-			Session:     session,
-			AuthMode:    session.AuthMode(),
-			FabricIndex: session.FabricIndex(),
-			NodeID:      session.PeerNodeID(),
-			CATs:        session.CATs(),
-		},
+		Session:        session,
+		AuthMode:       session.AuthMode(),
+		FabricIndex:    session.FabricIndex(),
+		NodeID:         session.PeerNodeID(),
+		CATs:           session.CATs(),
 		FabricFiltered: fabricFiltered,
 	}
 }

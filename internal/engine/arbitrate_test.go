@@ -80,7 +80,7 @@ func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBac
 	rail := entry(capability.SwitchOn, "false", control.NamePreferOn, control.NameOverride, "Next")
 	rules := func() []*Compiled {
 		evening := holdRule(t, "towel-rail-evenings", Hold{Device: "towel-rail", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "18:00"}, End: At{Time: "21:00"}}})
-		boost := momentRule(t, "towel-rail-boost", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "21:30"}}, Since: local("2026-10-21 12:00 BST")}, Do: []Action{Set{Device: "towel-rail", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilNext}}})
+		boost := momentRule(t, "towel-rail-boost", Moment{Timers: []Timer{At{Time: "21:30"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Set{Device: "towel-rail", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilNext}}})
 		return []*Compiled{evening, boost}
 	}
 	start := func(now string, on bool) *rig {
@@ -113,7 +113,7 @@ func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states *storeBac
 	shutoff := func() *Compiled {
 		return holdRule(t, "leak-shutoff", Hold{Device: "main-valve", Capability: capability.SwitchOn, Value: false, Priority: PrioritySafety, When: isTrue("leak-sensor", capability.ContactOpen), Latch: true})
 	}
-	reset := momentRule(t, "leak-reset", Moment{Trigger: Trigger{Timers: []Timer{At{Time: "16:00"}}, Since: local("2026-10-21 12:00 BST")}, Do: []Action{Release("leak-shutoff")}})
+	reset := momentRule(t, "leak-reset", Moment{Timers: []Timer{At{Time: "16:00"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Release("leak-shutoff")}})
 	start := func(now string, open bool, rules ...*Compiled) *rig {
 		return startRigWith(t, rigOptions{
 			now: local(now), holds: states.holds(t), controls: states.controls(t),
@@ -197,7 +197,7 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 	}
 	// Let the bath rail's default write land before the run, so the order below is fixed.
 	r.settle()
-	c := momentRule(t, "bathroom-on", Moment{Trigger: Trigger{Changes: []Change{{Device: "hall-motion", Capability: capability.Occupancy}}}, Do: []Action{Set{Room: "bathroom", Capability: capability.SwitchOn, Value: true}, Set{Device: "towel-rail", Capability: capability.SwitchOn, Value: true}, Set{Room: "bathroom", Capability: capability.SwitchOn, Value: true, For: 10 * time.Minute}}})
+	c := momentRule(t, "bathroom-on", Moment{Changes: []Change{{Device: "hall-motion", Capability: capability.Occupancy}}, Do: []Action{Set{Room: "bathroom", Capability: capability.SwitchOn, Value: true}, Set{Device: "towel-rail", Capability: capability.SwitchOn, Value: true}, Set{Room: "bathroom", Capability: capability.SwitchOn, Value: true, For: 10 * time.Minute}}})
 	r.e.Load(c)
 	r.change("hall-motion", capability.Occupancy, true)
 	r.eventually("the run", func() bool { return len(r.setter.got()) == 4 })

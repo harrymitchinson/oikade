@@ -44,7 +44,7 @@ func ReadSimulated(path string) ([]SimulatedDevice, error) {
 
 // simInstance is the driver instance simulated devices belong to. A simulated device's name in the
 // file is its ID, and its name in its app.
-var simInstance = driver.InstanceKey{Driver: "simulated", ID: ident.ID{Name: "simulator"}}
+var simInstance = driver.InstanceKey{Driver: "simulated", Name: "simulator"}
 
 // simulator is a driver with no hardware: writes take effect at once, and lines of JSON on its
 // input change a device as if from outside.

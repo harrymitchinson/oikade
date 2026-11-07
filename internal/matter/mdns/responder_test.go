@@ -145,8 +145,8 @@ func TestAddConflict(t *testing.T) {
 	ours := mustRecords(t, r.host, testService())
 	self := &net.UDPAddr{IP: testAddr4.AsSlice(), Port: Port}
 	r.handle(c, testIf, self, pack(t, dnsmessage.Message{
-		Header:  dnsmessage.Header{Response: true},
-		Answers: []dnsmessage.Resource{ours[len(ours)-1].resource(otherTTL, true)},
+		Response: true,
+		Answers:  []dnsmessage.Resource{ours[len(ours)-1].resource(otherTTL, true)},
 	}))
 	select {
 	case err := <-errc:
@@ -154,7 +154,7 @@ func TestAddConflict(t *testing.T) {
 	case <-time.After(5 * time.Millisecond):
 	}
 	other := dnsmessage.Message{
-		Header: dnsmessage.Header{Response: true},
+		Response: true,
 		Answers: []dnsmessage.Resource{{
 			Header: dnsmessage.ResourceHeader{Name: mustName(testInstance), Type: dnsmessage.TypeSRV, Class: dnsmessage.ClassINET, TTL: 120},
 			Body:   &dnsmessage.SRVResource{Port: 1234, Target: mustName("other.local.")},
@@ -261,7 +261,7 @@ func query(t testing.TB, name string, typ dnsmessage.Type, qu bool) []byte {
 		class |= unicastResponse
 	}
 	return pack(t, dnsmessage.Message{
-		Header:    dnsmessage.Header{ID: 7},
+		ID:        7,
 		Questions: []dnsmessage.Question{{Name: mustName(name), Type: typ, Class: class}},
 	})
 }

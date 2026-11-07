@@ -83,10 +83,8 @@ func TestGoHoldRunsItsDelaysAndWindow(t *testing.T) {
 func TestGoMomentRuns(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
 	c, err := NewMoment(goKey("motion-light"), Moment{
-		Trigger: Trigger{
-			Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
-			Condition: func(v Vars) (bool, error) { return v["trigger"] != nil && v["now"] != nil, nil },
-		},
+		Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
+		Condition: func(v Vars) (bool, error) { return v["trigger"] != nil && v["now"] != nil, nil },
 		Do: []Action{
 			Set{Device: "hallway-light", Capability: capability.LightOn, Value: true},
 			Delay(time.Minute),
@@ -110,11 +108,9 @@ func TestGoMomentRuns(t *testing.T) {
 func TestGoConditionErrorCountsAsAConditionError(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
 	c, err := NewMoment(goKey("motion-light"), Moment{
-		Trigger: Trigger{
-			Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
-			Condition: func(Vars) (bool, error) { return false, fmt.Errorf("not yet") },
-		},
-		Do: []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
+		Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
+		Condition: func(Vars) (bool, error) { return false, fmt.Errorf("not yet") },
+		Do:        []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -130,11 +126,9 @@ func TestGoConditionErrorCountsAsAConditionError(t *testing.T) {
 func TestGoConditionPanicIsAConditionError(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
 	c, err := NewMoment(goKey("motion-light"), Moment{
-		Trigger: Trigger{
-			Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
-			Condition: func(Vars) (bool, error) { panic("no reading yet") },
-		},
-		Do: []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
+		Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupancy}},
+		Condition: func(Vars) (bool, error) { panic("no reading yet") },
+		Do:        []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -164,8 +158,8 @@ func TestGoRuleReplacedByAHigherGeneration(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
 	moment := func(generation int64, value bool) *Compiled {
 		c, err := NewMoment(goKey("motion-light"), Moment{
-			Trigger: Trigger{Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}}, Generation: generation},
-			Do:      []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: value}},
+			Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupancy}}, Generation: generation,
+			Do: []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: value}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -181,8 +175,8 @@ func TestGoRuleReplacedByAHigherGeneration(t *testing.T) {
 func TestGoTimerIsNotMissedBeforeItLoads(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
 	c, err := NewMoment(goKey("motion-light"), Moment{
-		Trigger: Trigger{Timers: []Timer{At{Time: "19:00"}}, StartingDeadline: 2 * time.Hour},
-		Do:      []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
+		Timers: []Timer{At{Time: "19:00"}}, StartingDeadline: 2 * time.Hour,
+		Do: []Action{Set{Device: "hallway-light", Capability: capability.LightOn, Value: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -234,23 +228,23 @@ func TestGoRulesAreChecked(t *testing.T) {
 		want string
 	}{
 		{moment(Moment{Do: []Action{set}}), "a trigger is required"},
-		{moment(Moment{Trigger: Trigger{Changes: on}}), "do is required"},
-		{moment(Moment{Trigger: Trigger{Changes: []Change{{Capability: capability.Occupancy}}}, Do: []Action{set}}), "changes[0]: exactly one of device or room"},
-		{moment(Moment{Trigger: Trigger{Changes: []Change{{Device: "d", Capability: "nope"}}}, Do: []Action{set}}), `unknown capability "nope"`},
-		{moment(Moment{Trigger: Trigger{Timers: []Timer{At{Time: "25:00"}}}, Do: []Action{set}}), `timers[0]: time "25:00" is not HH:MM`},
-		{moment(Moment{Trigger: Trigger{Timers: []Timer{SunTime{Event: sun.Sunrise, Offset: 7 * time.Hour}}}, Do: []Action{set}}), "not between -6h and 6h"},
-		{moment(Moment{Trigger: Trigger{Changes: on, StartingDeadline: -1}, Do: []Action{set}}), "startingDeadline must not be negative"},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Mode: "Queued", Do: []Action{set}}), `unknown mode "Queued"`},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Delay(0)}}), "do[0]: delay must be positive"},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Release("")}}), "release needs a rule"},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{nil}}), "do[0]: no action"},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.Temperature, Value: 1.0}}}), "read-only"},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: "on"}}}), "do[0]: "},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilReleased}}}), "can't be combined"},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, For: -time.Hour}}}), "for must be positive"},
-		{moment(Moment{Trigger: Trigger{Changes: on}, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, Priority: "Top"}}}), `unknown priority "Top"`},
-		{moment(Moment{Trigger: Trigger{Timers: []Timer{At{Time: "19:00", Days: []time.Weekday{7}}}}, Do: []Action{set}}), "unknown day 7"},
-		{moment(Moment{Trigger: Trigger{Timers: []Timer{SunTime{Event: sun.Sunset, Days: []time.Weekday{-1}}}}, Do: []Action{set}}), "unknown day -1"},
+		{moment(Moment{Changes: on}), "do is required"},
+		{moment(Moment{Changes: []Change{{Capability: capability.Occupancy}}, Do: []Action{set}}), "changes[0]: exactly one of device or room"},
+		{moment(Moment{Changes: []Change{{Device: "d", Capability: "nope"}}, Do: []Action{set}}), `unknown capability "nope"`},
+		{moment(Moment{Timers: []Timer{At{Time: "25:00"}}, Do: []Action{set}}), `timers[0]: time "25:00" is not HH:MM`},
+		{moment(Moment{Timers: []Timer{SunTime{Event: sun.Sunrise, Offset: 7 * time.Hour}}, Do: []Action{set}}), "not between -6h and 6h"},
+		{moment(Moment{Changes: on, StartingDeadline: -1, Do: []Action{set}}), "startingDeadline must not be negative"},
+		{moment(Moment{Changes: on, Mode: "Queued", Do: []Action{set}}), `unknown mode "Queued"`},
+		{moment(Moment{Changes: on, Do: []Action{Delay(0)}}), "do[0]: delay must be positive"},
+		{moment(Moment{Changes: on, Do: []Action{Release("")}}), "release needs a rule"},
+		{moment(Moment{Changes: on, Do: []Action{nil}}), "do[0]: no action"},
+		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.Temperature, Value: 1.0}}}), "read-only"},
+		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: "on"}}}), "do[0]: "},
+		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, For: time.Hour, Until: UntilReleased}}}), "can't be combined"},
+		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, For: -time.Hour}}}), "for must be positive"},
+		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.SwitchOn, Value: true, Priority: "Top"}}}), `unknown priority "Top"`},
+		{moment(Moment{Timers: []Timer{At{Time: "19:00", Days: []time.Weekday{7}}}, Do: []Action{set}}), "unknown day 7"},
+		{moment(Moment{Timers: []Timer{SunTime{Event: sun.Sunset, Days: []time.Weekday{-1}}}, Do: []Action{set}}), "unknown day -1"},
 		{hold(Hold{Device: "d", Capability: capability.SwitchOn, Value: true, Window: &Window{Start: At{Time: "06:00"}, End: At{Time: "07:00"}, Days: []time.Weekday{9}}}), "unknown day 9"},
 		{hold(Hold{Device: "d", Capability: capability.SwitchOn, Value: true}), "a window or when is required"},
 		{hold(Hold{Capability: capability.SwitchOn, Value: true, When: always}), "exactly one of device or room"},
