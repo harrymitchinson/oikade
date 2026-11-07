@@ -168,11 +168,10 @@ type Message struct {
 	// Unfinished is a Run's run, one per message, and in what Dial returns, all of them.
 	Unfinished []Run `json:"unfinished,omitempty"`
 
-	// Device, Capability, Value and Previous address a device.
+	// Device, Capability and Value address a device.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
-	Previous   any    `json:"previous,omitempty"`
 	// Changes are a change's: every value one report from Device changed, which your process takes
 	// in together.
 	Changes []Change `json:"changes,omitempty"`

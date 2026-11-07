@@ -426,8 +426,8 @@ func (i *Instance) handleState(name string, payload []byte) {
 	}
 	i.mu.Unlock()
 
-	for _, u := range updates {
-		i.Sink.Changed(u)
+	if len(updates) > 0 {
+		i.Sink.Changed(updates...)
 	}
 	i.Sink.Seen(dev, now)
 }

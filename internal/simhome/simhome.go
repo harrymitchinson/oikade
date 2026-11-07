@@ -334,21 +334,7 @@ func (s *Sim) Events() []Event {
 
 // Set changes a device from outside your automations, as its sensor or a tap in an app would.
 func (s *Sim) Set(device, name string, value any) error {
-	snap, ok := s.store.Get(key(device))
-	if !ok {
-		return fmt.Errorf("no device %s", device)
-	}
-	if !slices.Contains(snap.Info.Capabilities, name) {
-		return fmt.Errorf("device %s has no %s", device, name)
-	}
-	v, err := capability.Validate(name, value)
-	if err != nil {
-		return err
-	}
-	if err := s.report(key(device), name, v); err != nil {
-		return err
-	}
-	return s.settle()
+	return s.Report(device, map[string]any{name: value})
 }
 
 // Report changes several of a device's values from outside the home, as one message from it would,

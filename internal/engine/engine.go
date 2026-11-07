@@ -140,8 +140,10 @@ type Engine struct {
 	saveWake chan struct{}
 	// changes closes after a change has been handled, for flows waiting on a condition.
 	changes chan struct{}
-	// holdWrites are the hold writes the current look at the rules has started, for startWrites.
+	// holdWrites are the hold writes the current look at the rules has started, and triggers the
+	// moments it set off, for startWrites.
 	holdWrites []holdWrite
+	triggers   []pendingTrigger
 	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
 	bridgeWrites map[ident.ID]map[string]bridgeWrite
 
@@ -385,9 +387,19 @@ func (e *Engine) unload(key ident.ID) *state {
 
 // Changed implements driver.Sink. It never blocks the driver, and takes a report in as a whole.
 func (e *Engine) Changed(changes ...driver.Update) {
-	if len(changes) == 0 {
-		return
+	// A report is one device's: a call with several devices' changes is one report from each.
+	for len(changes) > 0 {
+		n := 1
+		for n < len(changes) && changes[n].Device == changes[0].Device {
+			n++
+		}
+		e.queue(changes[:n])
+		changes = changes[n:]
 	}
+}
+
+// queue puts one report on the events queue, or drops it when the engine is behind.
+func (e *Engine) queue(changes []driver.Update) {
 	e.busy.Add(1)
 	select {
 	case e.events <- changes:
@@ -542,13 +554,13 @@ func (e *Engine) fireDue(ctx context.Context) {
 		}
 		sched := Schedule{Generation: s.c.Generation}
 		if f.Typ != "" {
-			e.trigger(ctx, key, s, e.vars(key.Namespace, map[string]any{triggerType: f.Typ}))
+			e.triggerAfterWrites(key, s, e.vars(key.Namespace, map[string]any{triggerType: f.Typ}))
 			sched.LastFire = f.At
 		}
 		sched.Next = e.reschedule(s, now)
 		e.report(key, sched)
 	}
-	e.startWrites()
+	e.startWrites(ctx)
 }
 
 // triggerType is the key of a trigger's type in Vars.
@@ -629,10 +641,10 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 					triggerType: TypeChange, "device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
 				})
 			}
-			e.trigger(ctx, key, s, vars[i])
+			e.triggerAfterWrites(key, s, vars[i])
 		}
 	}
-	e.startWrites()
+	e.startWrites(ctx)
 	if evaluated {
 		// The evaluation may have moved a hold's next look earlier.
 		e.signal()

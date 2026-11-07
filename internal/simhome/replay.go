@@ -116,15 +116,25 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 	if head.Since.After(r.From) {
 		r.From = head.Since
 	}
-	for _, e := range outside {
+	// A device's changes at the same moment came in one report, which the host took in as a whole.
+	for len(outside) > 0 {
+		e, n := outside[0], 1
+		for n < len(outside) && outside[n].Device == e.Device && outside[n].Time.Equal(e.Time) {
+			n++
+		}
+		report := map[string]any{}
+		for _, c := range outside[:n] {
+			report[c.Capability] = c.Value
+		}
+		outside = outside[n:]
 		if err := sim.replayTo(e.Time); err != nil {
 			return Report{}, err
 		}
-		if err := sim.Set(e.Device, e.Capability, e.Value); err != nil {
-			return Report{}, fmt.Errorf("replaying %s %s at %s: %w", e.Device, e.Capability, e.Time, err)
+		if err := sim.Report(e.Device, report); err != nil {
+			return Report{}, fmt.Errorf("replaying %s at %s: %w", e.Device, e.Time, err)
 		}
 		if e.Time.After(r.From) {
-			r.Changes++
+			r.Changes += n
 		}
 	}
 	if err := sim.replayTo(r.To); err != nil {

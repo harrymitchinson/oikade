@@ -141,6 +141,9 @@ func (h *Home) Report(values ...framework.Set) {
 		if device != "" && dev != device {
 			h.t.Fatalf("Report has %s and %s: a report is one device's", device, dev)
 		}
+		if _, twice := report[name]; twice {
+			h.t.Fatalf("Report has %s's %s twice", dev, name)
+		}
 		device, report[name] = dev, v
 	}
 	if device == "" {
