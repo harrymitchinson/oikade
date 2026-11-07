@@ -40,6 +40,9 @@ func publishedVersion() string {
 	return "main"
 }
 
+// errContextOverSSH is install and upgrade given a context, which they can't use: they go over SSH.
+var errContextOverSSH = errors.New("install and upgrade go over SSH, with --host, not a context")
+
 func runInstall(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	t := addTarget(fs)
@@ -49,6 +52,9 @@ func runInstall(ctx context.Context, args []string) error {
 		"oikade --host needs to log in as them.")
 	printOnly := fs.Bool("print", false, "Print the systemd unit, and install nothing.")
 	_ = fs.Parse(args)
+	if *t.context != "" {
+		return errContextOverSSH
+	}
 	hostArgs := fs.Args()
 	if slices.ContainsFunc(hostArgs, func(a string) bool {
 		return strings.HasPrefix(strings.TrimLeft(a, "-"), "data-dir")
@@ -179,6 +185,9 @@ func runUpgrade(ctx context.Context, args []string) error {
 	binary := fs.String("binary", "", "The oikade to upgrade to, built for that machine. "+
 		"Defaults to this one, or a build of this version.")
 	_ = fs.Parse(args)
+	if *t.context != "" {
+		return errContextOverSSH
+	}
 	return onMachine(ctx, *t.host, *t.dataDir, *binary, "", "upgrade", nil,
 		func(m install.Machine) error { return m.Upgrade(ctx) })
 }

@@ -142,3 +142,49 @@ func TestAPIAddressDefaultsThePort(t *testing.T) {
 		}
 	}
 }
+
+func TestALoginCodeWorksOnceAndNotForLong(t *testing.T) {
+	c, err := loadClients(openAPIStore(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return now }
+
+	code, _, err := c.issue("laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, token, err := c.redeem(code)
+	if err != nil || name != "laptop" {
+		t.Fatalf("redeeming: %q, %v", name, err)
+	}
+	if got, _, ok := c.check(token); !ok || got != "laptop" {
+		t.Errorf("the login's token: %q, %v", got, ok)
+	}
+	if _, _, err := c.redeem(code); err == nil {
+		t.Error("a code worked twice")
+	}
+
+	code, _, _ = c.issue("phone")
+	now = now.Add(codeLifetime)
+	if _, _, err := c.redeem(code); err == nil {
+		t.Error("an expired code worked")
+	}
+
+	// A wrong guess uses nothing up, and a new code for a name replaces the last.
+	first, _, _ := c.issue("tablet")
+	second, _, _ := c.issue("tablet")
+	if _, _, err := c.redeem("nothing"); err == nil {
+		t.Error("a made-up code worked")
+	}
+	if _, _, err := c.redeem(first); err == nil {
+		t.Error("a replaced code worked")
+	}
+	if _, _, err := c.redeem(second); err != nil {
+		t.Errorf("the newest code: %v", err)
+	}
+	if _, _, err := c.issue("laptop"); err == nil {
+		t.Error("a code for a name a client has")
+	}
+}

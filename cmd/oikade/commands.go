@@ -20,21 +20,61 @@ import (
 
 // target says which host a command is for.
 type target struct {
-	dataDir, host *string
+	fs                     *flag.FlagSet
+	dataDir, host, context *string
 }
 
 func addTarget(fs *flag.FlagSet) target {
 	return target{
-		dataDir: fs.String("data-dir", defaultDataDir, "The host's data directory."),
+		fs:      fs,
+		dataDir: fs.String("data-dir", defaultDataDir, "The host's data directory, on this machine."),
 		host:    fs.String("host", "", "Run this on that SSH host, using your SSH config."),
+		context: fs.String("context", "", "The host to reach over its network API, from oikade login."),
 	}
 }
 
+// local is this machine's host unless --host or --context say otherwise, for a command that only
+// works there.
+func (t target) local() api.Transport {
+	if *t.host == "" && *t.context == "" {
+		return api.Local{DataDir: *t.dataDir}
+	}
+	return t.transport()
+}
+
+// transport is --host, then --context, then the socket if --data-dir is given, then the current
+// context, then the socket.
 func (t target) transport() api.Transport {
 	if *t.host != "" {
 		return api.SSH{Host: *t.host, DataDir: *t.dataDir}
 	}
-	return api.Local{DataDir: *t.dataDir}
+	given := false
+	t.fs.Visit(func(f *flag.Flag) { given = given || f.Name == "data-dir" })
+	if given && *t.context == "" {
+		return api.Local{DataDir: *t.dataDir}
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		if *t.context != "" {
+			return failing{err}
+		}
+		// Asked for nothing, so this machine's host, as before there was a config. The problem is
+		// still worth hearing about.
+		_, _ = fmt.Fprintln(os.Stderr, "Warning: not using any context:", err)
+		return api.Local{DataDir: *t.dataDir}
+	}
+	name := *t.context
+	if name == "" {
+		name = cfg.Current
+	}
+	if name == "" {
+		return api.Local{DataDir: *t.dataDir}
+	}
+	c, ok := cfg.Contexts[name]
+	if !ok {
+		return failing{fmt.Errorf("there's no context called %s: oikade login makes one", name)}
+	}
+	return remote(c)
 }
 
 // parse takes flags from anywhere among the positional arguments. A negative number is a value, not

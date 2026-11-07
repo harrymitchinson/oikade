@@ -53,6 +53,7 @@ const (
 	TypeClients      = "clients"
 	TypeClientAdd    = "clientAdd"
 	TypeClientRevoke = "clientRevoke"
+	TypeLogin        = "login"
 )
 
 // ContentType is what every answer but a stream's is.
@@ -69,37 +70,40 @@ type Route struct {
 	Type, Method, Path string
 	// Stream answers lines of JSON, not one Response.
 	Stream bool
+	// Public is a route the network API takes without a token.
+	Public bool
 }
 
 // Routes are the API's routes.
 var Routes = []Route{
-	{TypeInfo, http.MethodGet, Prefix + "/info", false},
-	{TypeDeploy, http.MethodPost, Prefix + "/deploy", false},
-	{TypeRollback, http.MethodPost, Prefix + "/rollback", false},
-	{TypeStatus, http.MethodGet, Prefix + "/status", false},
-	{TypeSet, http.MethodPost, Prefix + "/set", false},
-	{TypePause, http.MethodPost, Prefix + "/pause", false},
-	{TypeResume, http.MethodPost, Prefix + "/resume", false},
-	{TypeTail, http.MethodGet, Prefix + "/tail", true},
-	{TypeEvents, http.MethodGet, Prefix + "/events", true},
-	{TypeMatter, http.MethodGet, Prefix + "/matter", false},
-	{TypeBackup, http.MethodPost, Prefix + "/backup", false},
+	{TypeInfo, http.MethodGet, Prefix + "/info", false, false},
+	{TypeDeploy, http.MethodPost, Prefix + "/deploy", false, false},
+	{TypeRollback, http.MethodPost, Prefix + "/rollback", false, false},
+	{TypeStatus, http.MethodGet, Prefix + "/status", false, false},
+	{TypeSet, http.MethodPost, Prefix + "/set", false, false},
+	{TypePause, http.MethodPost, Prefix + "/pause", false, false},
+	{TypeResume, http.MethodPost, Prefix + "/resume", false, false},
+	{TypeTail, http.MethodGet, Prefix + "/tail", true, false},
+	{TypeEvents, http.MethodGet, Prefix + "/events", true, false},
+	{TypeMatter, http.MethodGet, Prefix + "/matter", false, false},
+	{TypeBackup, http.MethodPost, Prefix + "/backup", false, false},
 
-	{TypeSecrets, http.MethodGet, Prefix + "/secrets", false},
-	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set", false},
-	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false},
+	{TypeSecrets, http.MethodGet, Prefix + "/secrets", false, false},
+	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set", false, false},
+	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false, false},
 
-	{TypeDevices, http.MethodGet, Prefix + "/devices", false},
-	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name", false},
-	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room", false},
-	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false},
-	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false},
-	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false},
-	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore", false},
+	{TypeDevices, http.MethodGet, Prefix + "/devices", false, false},
+	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name", false, false},
+	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room", false, false},
+	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false, false},
+	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false, false},
+	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false, false},
+	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore", false, false},
 
-	{TypeClients, http.MethodGet, Prefix + "/clients", false},
-	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false},
-	{TypeClientRevoke, http.MethodPost, Prefix + "/clients/revoke", false},
+	{TypeClients, http.MethodGet, Prefix + "/clients", false, false},
+	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false, false},
+	{TypeClientRevoke, http.MethodPost, Prefix + "/clients/revoke", false, false},
+	{TypeLogin, http.MethodPost, Prefix + "/login", false, true},
 }
 
 func routeOf(requestType string) (Route, bool) {
@@ -142,6 +146,10 @@ type Request struct {
 	SecretValue string `json:"secretValue,omitempty"`
 	// Client names a client of the network API to add or revoke.
 	Client string `json:"client,omitempty"`
+	// Token asks client add for a token rather than a code to log in with.
+	Token bool `json:"token,omitempty"`
+	// Code is what a login trades for a token.
+	Code string `json:"code,omitempty"`
 }
 
 // Response is its answer.
@@ -179,6 +187,15 @@ type Response struct {
 	Clients []Client `json:"clients,omitempty"`
 	// Token is a new client's, shown only once.
 	Token string `json:"token,omitempty"`
+	// Code is what a new client logs in with, once, before Expires.
+	Code    string    `json:"code,omitempty"`
+	Expires time.Time `json:"expires,omitzero"`
+	// Address is where the host thinks it can be reached. A client may know better.
+	Address string `json:"address,omitempty"`
+	// Client is who a login made.
+	Client string `json:"client,omitempty"`
+	// Close ends the connection after the answer, as a failed login does.
+	Close bool `json:"-"`
 	// Pin is the network API's public key, as a client checks it. It's empty while the host has no
 	// network listener.
 	Pin string `json:"pin,omitempty"`
@@ -431,9 +448,13 @@ func open(ctx context.Context, t Transport, req Request) (io.ReadCloser, error) 
 		body = bytes.NewReader(raw)
 	}
 	// The host name is a formality: the transport decides where this goes.
+	// http, as the transport's own connection is TLS if it needs to be.
 	call, err := http.NewRequestWithContext(ctx, route.Method, "http://oikade"+route.Path, body)
 	if err != nil {
 		return nil, fmt.Errorf("sending to the host: %w", err)
+	}
+	if a, ok := t.(authorizer); ok && a.token() != "" {
+		call.Header.Set("Authorization", "Bearer "+a.token())
 	}
 	var dialed atomic.Bool
 	client := &http.Client{Transport: &http.Transport{

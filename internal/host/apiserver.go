@@ -33,6 +33,9 @@ const idleTimeout = 30 * time.Second
 // maxRequest bounds a request's body. The largest is a restore's registry.
 const maxRequest = 16 << 20
 
+// maxPublicRequest bounds the body of a call that needs no token, such as a login.
+const maxPublicRequest = 4 << 10
+
 // apiServer answers the oikade command. A call outlives its connection: a deploy that has begun
 // finishes even if the command that asked goes away.
 type apiServer struct {
@@ -49,8 +52,9 @@ type apiServer struct {
 	secrets secrets
 	// clients are the network API's. They're nil if its listener isn't on, or couldn't start.
 	clients *clients
-	// pin is the network API's public key, as clients check it.
-	pin          string
+	// pin is the network API's public key, as clients check it, and address where it thinks it's
+	// reached.
+	pin, address string
 	authFailures prometheus.Counter
 }
 
@@ -63,9 +67,30 @@ func (s *apiServer) serve(l net.Listener) {
 	}))
 }
 
-// serveNetwork answers calls over TLS, each of which needs a client's token.
+// serveNetwork answers calls over TLS, each of which needs a client's token but a public one's.
 func (s *apiServer) serveNetwork(l net.Listener) {
-	s.serveWith(l, s.authenticated(s.routes()))
+	s.serveWith(l, s.networkRoutes())
+}
+
+// networkRoutes is the API with a token checked on every route but a public one, which a stranger
+// can call, so its body is kept small.
+func (s *apiServer) networkRoutes() http.Handler {
+	routes := s.routes()
+	authenticated := s.authenticated(routes)
+	public := map[string]bool{}
+	for _, r := range api.Routes {
+		if r.Public {
+			public[r.Method+" "+r.Path] = true
+		}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !public[r.Method+" "+r.URL.Path] {
+			authenticated.ServeHTTP(w, r)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxPublicRequest)
+		routes.ServeHTTP(w, r.WithContext(withCaller(r.Context(), caller{name: "login"})))
+	})
 }
 
 // authenticated refuses a call without a valid token before reading any of it.
@@ -177,6 +202,9 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 		if resp.Error != "" {
 			status = http.StatusUnprocessableEntity
 		}
+		if resp.Close {
+			w.Header().Set("Connection", "close")
+		}
 		respond(s.log, w, status, resp)
 	}
 }
@@ -258,7 +286,7 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) answer(c caller, req api.Request) api.Response {
 	s.log.Info("Received API request", "type", req.Type, "client", c.name)
 	switch req.Type {
-	case api.TypeClients, api.TypeClientAdd, api.TypeClientRevoke:
+	case api.TypeClients, api.TypeClientAdd, api.TypeClientRevoke, api.TypeLogin:
 		return s.client(c, req)
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
@@ -300,12 +328,34 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 		if !c.local {
 			return api.Response{Error: errNotLocal.Error()}
 		}
+		if !req.Token && s.address == "" {
+			return api.Response{Error: "the host isn't serving its network API, so nothing could log in: its log says why"}
+		}
+		if !req.Token {
+			code, expires, err := s.clients.issue(req.Client)
+			if err != nil {
+				return api.Response{Error: err.Error()}
+			}
+			s.log.Info("Issued API login code", "name", req.Client, "expires", expires)
+			return api.Response{Code: code, Expires: expires, Pin: s.pin, Address: s.address}
+		}
 		token, err := s.clients.add(req.Client)
 		if err != nil {
 			return api.Response{Error: err.Error()}
 		}
 		s.log.Info("Added API client", "name", req.Client)
 		return api.Response{Token: token, Pin: s.pin}
+	case api.TypeLogin:
+		name, token, err := s.clients.redeem(req.Code)
+		if err != nil {
+			if !c.local {
+				s.authFailures.Inc()
+			}
+			s.log.Info("Refused API login", "err", err)
+			return api.Response{Error: err.Error(), Close: true}
+		}
+		s.log.Info("Added API client", "name", name, "by", "login")
+		return api.Response{Token: token, Client: name}
 	case api.TypeClientRevoke:
 		if err := s.clients.revoke(req.Client); err != nil {
 			return api.Response{Error: err.Error()}
