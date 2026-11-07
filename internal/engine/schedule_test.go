@@ -269,13 +269,12 @@ func TestReloadDoesNotCatchUp(t *testing.T) {
 	}
 }
 
-func TestSunWithoutASiteIsReported(t *testing.T) {
+// An engine with no Site, as for arbitration alone, never fires a sun time. A home with one fails
+// oikade check, so only a test gets here.
+func TestSunWithoutASiteNeverFires(t *testing.T) {
 	h, s := timedHarness(t, local("2026-10-21 12:00 BST"), nil, nil,
 		sunsetTrigger(0), atTrigger("23:00"))
 	sched := s.last()
-	if sched.Reason != ReasonNoLocation {
-		t.Errorf("reason = %q, want %q", sched.Reason, ReasonNoLocation)
-	}
 	// The at trigger still fires.
 	if !sched.Next.Equal(local("2026-10-21 23:00 BST")) {
 		t.Errorf("next = %v, want 23:00", sched.Next)

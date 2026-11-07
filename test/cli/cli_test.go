@@ -9,6 +9,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
 // repo is this checkout, which a new home builds against so that nothing needs fetching.
@@ -197,6 +200,58 @@ func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 	}
 	if !strings.Contains(out, `rule lights-out: timers[0]: time "25:00" is not HH:MM`) {
 		t.Errorf("oikade check said:\n%s", out)
+	}
+}
+
+// duskMoment is a moment for oikade init's home, after its hold.
+const duskMoment = `OffDelay: 5 * time.Minute,
+		}},
+		Moments: []framework.Moment{{
+			Name: "porch-at-dusk", At: []framework.Time{framework.Sunset(-20 * time.Minute)},
+			Do: []framework.Action{PorchLight.On.To(true)},
+		}},`
+
+func TestCheckFailsOnASunsetWithNoSite(t *testing.T) {
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t\t}},", duskMoment)
+	out, err := run(t, bin, dir, "", "check")
+	if err == nil {
+		t.Fatalf("oikade check passed:\n%s", out)
+	}
+	if !strings.Contains(out, "rule porch-at-dusk: a sunrise or sunset needs the home's Site") {
+		t.Errorf("oikade check said:\n%s", out)
+	}
+}
+
+func TestDevFiresAtSunsetForTheHomesSite(t *testing.T) {
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	main := filepath.Join(dir, "main.go")
+	replaceIn(t, main, "OffDelay: 5 * time.Minute,\n\t\t}},", duskMoment)
+	replaceIn(t, main, "return framework.Home{",
+		"return framework.Home{\n\t\tSite: &framework.Site{Latitude: 51.48, Longitude: -0.01},")
+	// oikade dev starts now, in this machine's zone, so the next sunset is within a day.
+	start := time.Now().Truncate(time.Minute)
+	out, err := run(t, bin, dir, "advance 25h\nquit\n", "dev")
+	if err != nil {
+		t.Fatalf("oikade dev: %v\n%s", err, out)
+	}
+	site := sun.Site{Latitude: 51.48, Longitude: -0.01}
+	var want time.Time
+	for day := start; want.IsZero(); day = day.AddDate(0, 0, 1) {
+		at, ok := site.Time(sun.Sunset, day.Year(), day.Month(), day.Day(), time.Local)
+		if ok && at.Add(-20*time.Minute).After(start) {
+			want = at.Add(-20 * time.Minute)
+		}
+	}
+	// dev starts a moment after start, so a sunset that close may be before its clock does.
+	if want.Sub(start) < 2*time.Minute {
+		t.Skip("sunset is too close to now")
+	}
+	line := want.Format("Mon 15:04") + " Wrote porch-light on = true"
+	if !strings.Contains(out, line) {
+		t.Errorf("no %q in:\n%s", line, out)
 	}
 }
 

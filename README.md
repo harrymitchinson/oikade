@@ -191,8 +191,25 @@ framework.Moment{
 }
 ```
 
-- **A time that isn't one,** such as `Clock("25:00")`, fails `oikade check`, naming the rule.
-- **Several times** fire at each, and the same time twice fires once.
+`framework.Sunrise` and `framework.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Site`, its latitude and longitude in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
+
+```go
+framework.Home{
+	Site: &framework.Site{Latitude: 51.48, Longitude: -0.01}, // round to 2 decimals
+	Moments: []framework.Moment{{
+		Name: "porch-at-dusk",
+		At:   []framework.Time{framework.Sunset(-20 * time.Minute)}, // 20 minutes before sunset
+		Do:   []framework.Action{PorchLight.On.To(true)},
+	}},
+}
+```
+
+Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Site`, and a `Site` with neither set fails `oikade check`.
+
+- **A time that isn't one,** such as `Clock("25:00")`, a sun time with no `Site`, or an offset over 6 hours, fails `oikade check`, naming the rule.
+- **Several times** fire at each, so `{Clock("18:00"), Sunset(0)}` fires at both, and the same time twice fires once.
+- **A day the sun doesn't rise or set,** as near the poles, that time doesn't fire, and a window with it as an edge stays shut.
+- **A window with a sun edge and a clock edge** ends at the first `End` after its `Start`, as any window does. So in midsummer `Window{Start: Sunset(3 * time.Hour), End: Clock("23:30")}` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
 - **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A moment with a Safety `Set` fires however late it is. Only the latest missed time counts.
 
@@ -252,7 +269,7 @@ A hold keeps a capability at the value its `Set` gives while its `Window` is ope
 
 | Field | |
 |---|---|
-| `Window` | `Start` and `End` are times of day, such as `framework.Clock("22:00")`, as in [`At`](#times-of-day). `Days` limits it to windows that start on those days. |
+| `Window` | `Start` and `End` are times of day, such as `framework.Clock("22:00")` or `framework.Sunset(0)`, as in [`At`](#times-of-day). `Days` limits it to windows that start on those days. |
 | `When` | A condition, as in a moment. |
 | `OnDelay` | How long `When` must stay true before the hold starts. |
 | `OffDelay` | How long the hold stays active after `When` stops being true. |
@@ -303,6 +320,8 @@ framework.Home{
 | `Minutes` | Or a function of the home at planning time. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. |
 | `Prefer` | Windows the minutes go in first. Each slot a window touches gains its `Score`, from -100 to 100, and overlapping windows add up. |
 | `Forbid` | Windows the minutes never go in. |
+
+A budget's windows take clock times only, because the day is planned in slots.
 
 A budget holds one device's `Bool` capability at `true`, and that capability needs a `Control`: its `MinimumOn`, `MinimumOff` and `MaximumStartsPerDay` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. `oikade check` says if there's no `Control`. Something that must run whatever the budget says, such as frost protection, is a separate `Safety` hold on the same capability, which wins over the budget.
 

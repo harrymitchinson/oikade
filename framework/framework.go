@@ -41,6 +41,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
+	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -201,21 +202,80 @@ func (c Condition) toEngine() engine.Condition {
 	}
 }
 
-// Time is a time of day, in At and a Window. Clock makes one.
+// Time is a time of day, in At and a Window. Clock, Sunrise and Sunset make one.
 type Time struct {
 	clock string
+	// sun is the event of a sunrise or sunset, and zero for a clock time.
+	sun    sun.Event
+	offset time.Duration
 }
 
 // Clock is a wall-clock time, "HH:MM" from 00:00 to 23:59, in the host's time zone. A time that
 // isn't fails oikade check.
 func Clock(hhmm string) Time { return Time{clock: hhmm} }
 
+// Sunrise is the day's sunrise at the home's Site, moved by offset: -20*time.Minute is 20 minutes
+// before. The offset is at most 6 hours either way. A day the sun doesn't rise, it doesn't happen.
+func Sunrise(offset time.Duration) Time { return Time{sun: sun.Sunrise, offset: offset} }
+
+// Sunset is the day's sunset at the home's Site, moved by offset, as Sunrise is.
+func Sunset(offset time.Duration) Time { return Time{sun: sun.Sunset, offset: offset} }
+
+// isSun reports whether it's a sunrise or sunset.
+func (t Time) isSun() bool { return t.sun != 0 }
+
 // timer is the engine's time. A zero Time is none, which the engine rejects.
 func (t Time) timer() engine.Timer {
-	if t == (Time{}) {
+	switch {
+	case t.isSun():
+		return engine.SunTime{Event: t.sun, Offset: t.offset}
+	case t == (Time{}):
 		return nil
 	}
 	return engine.At{Time: t.clock}
+}
+
+// Site is where the home is, in degrees, for sunrise and sunset. North and east are positive. Two
+// decimals, about a kilometre, move them by seconds, so round to that.
+type Site struct {
+	Latitude, Longitude float64
+}
+
+func (s *Site) check() error {
+	switch {
+	case s == nil:
+		return nil
+	case *s == (Site{}):
+		return errors.New("the Site has no latitude or longitude")
+	case !(s.Latitude >= -90 && s.Latitude <= 90):
+		return fmt.Errorf("the Site's latitude %v isn't between -90 and 90", s.Latitude)
+	case !(s.Longitude >= -180 && s.Longitude <= 180):
+		return fmt.Errorf("the Site's longitude %v isn't between -180 and 180", s.Longitude)
+	}
+	return nil
+}
+
+func (s *Site) toSun() *sun.Site {
+	if s == nil {
+		return nil
+	}
+	return &sun.Site{Latitude: s.Latitude, Longitude: s.Longitude}
+}
+
+// needsSite says, for a rule with these times, why it can't run without a Site.
+func needsSite(site *Site, times ...Time) error {
+	if site == nil && slices.ContainsFunc(times, Time.isSun) {
+		return errors.New("a sunrise or sunset needs the home's Site")
+	}
+	return nil
+}
+
+// times are the window's edges, or none.
+func (w *Window) times() []Time {
+	if w == nil {
+		return nil
+	}
+	return []Time{w.Start, w.End}
 }
 
 // Window is when a hold may be active, from Start until the next End, starting on Days or on any
@@ -520,6 +580,8 @@ func (r Release) toEngine() engine.Action { return engine.Release(r) }
 
 // Home is a home's automations.
 type Home struct {
+	// Site is where the home is, for Sunrise and Sunset. A home without them needs none.
+	Site    *Site
 	Holds   []Hold
 	Moments []Moment
 	Flows   []Flow
@@ -564,7 +626,7 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		rules = append(rules, c)
 	}
 	settings, err := h.settings()
-	errs = append(errs, err)
+	errs = append(errs, err, h.Site.check())
 	for _, r := range h.Holds {
 		key := name(r.Name)
 		err := r.Set.plain("a hold's Set", false)
@@ -575,17 +637,17 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		if err == nil {
 			err = r.checkBudget(settings)
 		}
-		add(r.Name, c, err)
+		add(r.Name, c, errors.Join(err, needsSite(h.Site, r.Window.times()...)))
 	}
 	for _, r := range h.Moments {
 		c, err := engine.NewMoment(name(r.Name), r.toEngine())
-		add(r.Name, c, errors.Join(err, nilChange(r.On)))
+		add(r.Name, c, errors.Join(err, nilChange(r.On), needsSite(h.Site, r.At...)))
 	}
 	for _, r := range h.Flows {
 		f := r.toFlow(name(r.Name))
 		flows[r.Name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
-		add(r.Name, c, errors.Join(err, nilChange(r.On)))
+		add(r.Name, c, errors.Join(err, nilChange(r.On), needsSite(h.Site, r.At...)))
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.Plugins {
@@ -735,6 +797,9 @@ func (r Hold) checkBudget(settings []wire.DeviceControl) error {
 	if r.Budget == nil {
 		return nil
 	}
+	if err := r.Budget.clockOnly(); err != nil {
+		return err
+	}
 	i := slices.IndexFunc(settings, func(c wire.DeviceControl) bool {
 		return c.Device == r.Set.device && c.Entry.Capability == r.Set.capability
 	})
@@ -785,6 +850,16 @@ func (b *Budget) toSchedule() *schedule.Spec {
 		s.Forbid = append(s.Forbid, f.toSchedule())
 	}
 	return s
+}
+
+// clockOnly rejects a sunrise or sunset in a budget's windows, which are planned in slots.
+func (b *Budget) clockOnly() error {
+	sunEdged := func(w Window) bool { return w.Start.isSun() || w.End.isSun() }
+	preferred := func(p Prefer) bool { return sunEdged(p.Window) }
+	if slices.ContainsFunc(b.Forbid, sunEdged) || slices.ContainsFunc(b.Prefer, preferred) {
+		return errors.New("a budget's windows take clock times only, not a sunrise or sunset")
+	}
+	return nil
 }
 
 func (w Window) toSchedule() schedule.WindowSpec {
