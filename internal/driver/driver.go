@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
@@ -35,6 +36,9 @@ type Info struct {
 	// Found is false while the device is declared but not paired with the driver.
 	Found        bool
 	Capabilities []string
+	// DeviceType is what the device is, one of devicetype.OnOff, if the driver knows. A relay
+	// doesn't, as it can't tell what it switches.
+	DeviceType   devicetype.Type
 	Manufacturer string
 	Model        string
 	// Error is a driver-reported problem with the device, such as bad plugin parameters.
@@ -49,6 +53,8 @@ type AppDevice struct {
 	Manufacturer string
 	Model        string
 	Capabilities []string
+	// DeviceType is what the device is, if the driver knows, as in Info.
+	DeviceType devicetype.Type
 	// Name and Room are as named in the app, empty if it has none.
 	Name string
 	Room string

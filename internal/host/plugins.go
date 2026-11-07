@@ -183,17 +183,19 @@ func (p *plugins) pair(h *hosted) {
 		if info.Found {
 			apps[id] = driver.AppDevice{
 				ID: id, Name: id, Manufacturer: info.Manufacturer, Model: info.Model, Capabilities: info.Capabilities,
+				DeviceType: info.DeviceType,
 			}
 		}
 	}
 	listed, _ := h.driver.Discovered()
 	for _, d := range listed {
-		if known, ok := apps[d.ID]; ok {
-			d.Capabilities = known.Capabilities
-		}
-		apps[d.ID] = driver.AppDevice{
+		app := driver.AppDevice{
 			ID: d.ID, Name: d.Name, Room: d.Room, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: d.Capabilities,
 		}
+		if known, ok := apps[d.ID]; ok {
+			app.Capabilities, app.DeviceType = known.Capabilities, known.DeviceType
+		}
+		apps[d.ID] = app
 	}
 	removed := p.removed(h)
 	seen := make(map[string]bool, len(apps))

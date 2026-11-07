@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -363,13 +365,15 @@ func TestRestoreRefusesABadCopy(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "a", "first")
 	for name, s := range map[string]Snapshot{
-		"no next":       {},
-		"past next":     {Next: 3, Devices: []Device{{Name: "a", Endpoint: 3}}},
-		"root endpoint": {Next: 3, Devices: []Device{{Name: "a", Endpoint: 1}}},
-		"same endpoint": {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "b", Endpoint: 2}}},
-		"same name":     {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "a", Endpoint: 3}}},
-		"same hardware": {Next: 5, Devices: []Device{{Name: "a", ID: "x", Endpoint: 2}, {Name: "b", ID: "x", Endpoint: 3}}},
-		"a bad name":    {Next: 3, Devices: []Device{{Name: "Not Valid", Endpoint: 2}}},
+		"no next":             {},
+		"past next":           {Next: 3, Devices: []Device{{Name: "a", Endpoint: 3}}},
+		"root endpoint":       {Next: 3, Devices: []Device{{Name: "a", Endpoint: 1}}},
+		"same endpoint":       {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "b", Endpoint: 2}}},
+		"same name":           {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "a", Endpoint: 3}}},
+		"same hardware":       {Next: 5, Devices: []Device{{Name: "a", ID: "x", Endpoint: 2}, {Name: "b", ID: "x", Endpoint: 3}}},
+		"a bad name":          {Next: 3, Devices: []Device{{Name: "Not Valid", Endpoint: 2}}},
+		"a bad type":          {Next: 3, Devices: []Device{{Name: "a", Endpoint: 2, DeviceType: devicetype.ContactSensor}}},
+		"a bad driver's type": {Next: 3, Devices: []Device{{Name: "a", Endpoint: 2, DriverDeviceType: "Toaster"}}},
 	} {
 		before := r.List()
 		if _, err := r.Restore(s, true); err == nil {
@@ -590,5 +594,119 @@ func TestArbitrationStaysOnRecordAndWithTheName(t *testing.T) {
 	}
 	if i := live(back, "valve"); i < 0 || !bytes.Equal(back.Devices[i].Control, settings) {
 		t.Errorf("the file lost them: %+v", back)
+	}
+}
+
+func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
+	r, values := open(t)
+	report := func(typ devicetype.Type, caps ...string) Device {
+		t.Helper()
+		d, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "bulb", Capabilities: caps, DeviceType: typ})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	types := func() []devicetype.Type { return get(t, r, "bulb").DeviceTypes() }
+
+	report("", capability.On)
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffPlugInUnit}) {
+		t.Errorf("an undescribed on device is %v", got)
+	}
+	if _, changed, _ := r.Report(Report{ID: "0x1", Driver: "sim", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight}); !changed {
+		t.Error("the driver's new device type wasn't taken up")
+	}
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffLight}) {
+		t.Errorf("with the driver's type it's %v", got)
+	}
+	if err := r.SetDeviceType("bulb", devicetype.MountedOnOffControl); err != nil {
+		t.Fatal(err)
+	}
+	report(devicetype.OnOffLight, capability.On)
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.MountedOnOffControl}) {
+		t.Errorf("yours didn't win: %v", got)
+	}
+
+	again, err := Open(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := again.Get("bulb"); d.DeviceType != devicetype.MountedOnOffControl || d.DriverDeviceType != devicetype.OnOffLight {
+		t.Errorf("after reopening: %+v", d)
+	}
+
+	if err := r.SetDeviceType("bulb", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffLight}) {
+		t.Errorf("going back gave %v, want the driver's", got)
+	}
+}
+
+func TestSetDeviceTypeRefusesWhatCantBe(t *testing.T) {
+	r, _ := open(t)
+	if _, _, err := r.Report(Report{ID: "1", Driver: "sim", Name: "plug", Capabilities: []string{capability.On}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.Report(Report{ID: "2", Driver: "sim", Name: "door", Capabilities: []string{capability.Open}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Reserve("future", ""); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		device string
+		typ    devicetype.Type
+	}{
+		"not a type":           {"plug", "Toaster"},
+		"a sensor's type":      {"plug", devicetype.ContactSensor},
+		"dimmable, no dimming": {"plug", devicetype.DimmableLight},
+		"not on or off":        {"door", devicetype.OnOffLight},
+		"no such device":       {"nothing", devicetype.OnOffLight},
+	} {
+		if err := r.SetDeviceType(tc.device, tc.typ); err == nil {
+			t.Errorf("%s: set %s on %s", name, tc.typ, tc.device)
+		}
+	}
+	if err := r.SetDeviceType("future", devicetype.DimmableLight); err != nil {
+		t.Errorf("a reserved name, whose capabilities aren't known yet: %v", err)
+	}
+}
+
+func TestADeviceTypeIsInTheTypesFile(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "0x1", "lamp")
+	if err := r.SetDeviceType("lamp", devicetype.OnOffLight); err != nil {
+		t.Fatal(err)
+	}
+	file, err := Render(r.List(), "home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := Parse(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Devices) != 1 || back.Devices[0].DeviceType != devicetype.OnOffLight {
+		t.Errorf("read back %+v", back.Devices)
+	}
+}
+
+func TestADeviceTypeStaysWithItsNameThroughAReplace(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "old", "porch-light")
+	if _, _, err := r.Report(Report{ID: "new", Driver: "sim", Name: "lamp-3", Capabilities: []string{capability.On},
+		DeviceType: devicetype.OnOffLight}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetDeviceType("lamp-3", devicetype.MountedOnOffControl); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Replace("porch-light", "lamp-3"); err != nil {
+		t.Fatal(err)
+	}
+	d := get(t, r, "porch-light")
+	if d.DeviceType != "" || d.DriverDeviceType != devicetype.OnOffLight {
+		t.Errorf("after the replace: %+v, want no type of yours and the new hardware's driver's", d)
 	}
 }

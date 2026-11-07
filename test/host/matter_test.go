@@ -3,6 +3,7 @@ package host
 import (
 	"encoding/json"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -500,5 +501,69 @@ func TestAHostWithMatterOffExportsNoMatterSeries(t *testing.T) {
 	r := start(t)
 	if strings.Contains(r.metrics(), "oikade_matter_") {
 		t.Errorf("Matter is off, and /metrics has:\n%s", r.metrics())
+	}
+}
+
+// deviceTypes are the device types a controller reads from an endpoint's Descriptor.
+func (c *controller) deviceTypes(endpoint uint16) []uint64 {
+	c.t.Helper()
+	v, ok := c.read(endpoint, clusters.IDDescriptor, 0)
+	if !ok {
+		return nil
+	}
+	var out []uint64
+	for _, entry := range v.([]any) {
+		out = append(out, entry.(map[uint8]any)[0].(uint64))
+	}
+	return out
+}
+
+func TestAControllerReadsTheDeviceTypeYouSetThroughARestart(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	endpoint := c.endpoint("fan")
+	plug, light := uint64(clusters.DeviceOnOffPlug.ID), uint64(clusters.DeviceOnOffLight.ID)
+	if got := c.deviceTypes(endpoint); !slices.Contains(got, plug) {
+		t.Fatalf("an undescribed fan's device types are %#x, want an on/off plug", got)
+	}
+
+	c.r.stdout(nil, "devices", "type", "fan", "OnOffLight")
+	c.r.until("the fan to be a light", func() bool { return slices.Contains(c.deviceTypes(endpoint), light) })
+	if got := c.endpoint("fan"); got != endpoint {
+		t.Errorf("the fan moved from endpoint %d to %d", endpoint, got)
+	}
+	var listed struct {
+		Devices []struct {
+			Name        string   `json:"name"`
+			DeviceTypes []string `json:"deviceTypes"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(c.r.stdout(nil, "devices", "--json"), &listed); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range listed.Devices {
+		if d.Name == "fan" && !slices.Equal(d.DeviceTypes, []string{"OnOffLight"}) {
+			t.Errorf("oikade devices --json says the fan is %v", d.DeviceTypes)
+		}
+	}
+	table := string(c.r.stdout(nil, "devices"))
+	if !strings.Contains(table, "DEVICE TYPES") || !strings.Contains(table, "OnOffLight") {
+		t.Errorf("the table leaves out what it is:\n%s", table)
+	}
+	c.reaches("fan")
+
+	c.r.stop()
+	c.r.launch(matterFlag(c.port))
+	c.r.waitFor(func(l line) bool { return l.is(attached) })
+	c.admin = c.cm.CASE(nodetest.Addr(c.port))
+	c.r.until("the fan on the bridge again", func() bool { return slices.Contains(c.deviceTypes(endpoint), light) })
+	if got := c.endpoint("fan"); got != endpoint {
+		t.Errorf("after a restart the fan moved from endpoint %d to %d", endpoint, got)
+	}
+
+	c.r.stdout(nil, "devices", "type", "fan", "")
+	c.r.until("the fan to be a plug again", func() bool { return slices.Contains(c.deviceTypes(endpoint), plug) })
+	if _, err := c.r.oikade(nil, "devices", "type", "fan", "Toaster"); err == nil {
+		t.Error("the fan became a toaster")
 	}
 }

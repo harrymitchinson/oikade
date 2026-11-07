@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -21,18 +22,15 @@ import (
 // Node's lock.
 type SetFunc func(name string, value any)
 
-// DeviceType is the Matter device type family of a device that's on or off.
-type DeviceType string
-
-const (
-	// TypeLight is an On/Off Light or a Dimmable Light.
-	TypeLight DeviceType = "Light"
-	// TypePlugInUnit is an On/Off Plug-in Unit or a Dimmable Plug-In Unit: an outlet.
-	TypePlugInUnit DeviceType = "PlugInUnit"
-	// TypeMountedControl is a Mounted On/Off Control or a Mounted Dimmable Load Control: a switch
-	// wired into the wall.
-	TypeMountedControl DeviceType = "MountedControl"
-)
+// onOffTypes are the Matter device types of a device that's on or off.
+var onOffTypes = map[devicetype.Type]im.DeviceType{
+	devicetype.OnOffLight:                 clusters.DeviceOnOffLight,
+	devicetype.DimmableLight:              clusters.DeviceDimmableLight,
+	devicetype.OnOffPlugInUnit:            clusters.DeviceOnOffPlug,
+	devicetype.DimmablePlugInUnit:         clusters.DeviceDimmablePlug,
+	devicetype.MountedOnOffControl:        clusters.DeviceMountedOnOffControl,
+	devicetype.MountedDimmableLoadControl: clusters.DeviceMountedDimmableLoad,
+}
 
 // Device is everything needed to map a device to a bridged endpoint.
 type Device struct {
@@ -41,9 +39,10 @@ type Device struct {
 	Name     string
 	// Capabilities are the device's capability names.
 	Capabilities []string
-	// Type overrides the device type family of a device that's on or off. Without it, one with a
-	// brightness is a light, and any other a plug-in unit.
-	Type DeviceType
+	// Type is what a device that's on or off is, as devicetype.OnOffOf says. A dimmable type has
+	// Level Control, and an on/off one doesn't, even with a brightness. Empty is what its
+	// capabilities say.
+	Type devicetype.Type
 	// Unique is the bridged device's UniqueID. Empty derives it from Key, which suits a Key that never
 	// changes.
 	Unique string
@@ -102,18 +101,12 @@ func Map(d Device, set SetFunc) *Mapped {
 	m := &Mapped{update: map[string]func(any){}}
 
 	if has(capability.On) {
-		dimmable := has(capability.Brightness)
-		family := d.Type
-		if family == "" {
-			family = TypePlugInUnit
-			if dimmable {
-				family = TypeLight
-			}
-		}
-		m.Types = append(m.Types, deviceType(family, dimmable))
+		typ := devicetype.OnOffOf(d.Type, "", d.Capabilities)
+		dimmable := devicetype.Dimmable(typ)
+		m.Types = append(m.Types, onOffTypes[typ])
 
 		var onoff *clusters.OnOff
-		if dimmable || family == TypeLight {
+		if dimmable || devicetype.Light(typ) {
 			onoff = clusters.NewLightOnOff()
 		} else {
 			onoff = clusters.NewOnOff()
@@ -185,23 +178,6 @@ func Map(d Device, set SetFunc) *Mapped {
 		m.update[capability.Battery] = func(v any) { c.Set(capability.Float(v)) }
 	}
 	return m
-}
-
-func deviceType(family DeviceType, dimmable bool) im.DeviceType {
-	switch {
-	case family == TypeLight && dimmable:
-		return clusters.DeviceDimmableLight
-	case family == TypeLight:
-		return clusters.DeviceOnOffLight
-	case family == TypeMountedControl && dimmable:
-		return clusters.DeviceMountedDimmableLoad
-	case family == TypeMountedControl:
-		return clusters.DeviceMountedOnOffControl
-	case dimmable:
-		return clusters.DeviceDimmablePlug
-	default:
-		return clusters.DeviceOnOffPlug
-	}
 }
 
 // Label returns a Device's name cut to the 32 bytes a NodeLabel holds.

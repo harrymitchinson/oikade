@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -46,6 +47,7 @@ const (
 	TypeDevices       = "devices"
 	TypeDeviceName    = "deviceName"
 	TypeDeviceRoom    = "deviceRoom"
+	TypeDeviceType    = "deviceType"
 	TypeDeviceReserve = "deviceReserve"
 	TypeDeviceRemove  = "deviceRemove"
 	TypeDeviceReplace = "deviceReplace"
@@ -102,6 +104,7 @@ var Routes = []Route{
 	{TypeDevices, http.MethodGet, Prefix + "/devices", false, false},
 	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name", false, false},
 	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room", false, false},
+	{TypeDeviceType, http.MethodPost, Prefix + "/devices/type", false, false},
 	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false, false},
 	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false, false},
 	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false, false},
@@ -137,6 +140,8 @@ type Request struct {
 	To string `json:"to,omitempty"`
 	// Room is a device's room.
 	Room string `json:"room,omitempty"`
+	// DeviceType is what a device is, one of devicetype.OnOff. Empty goes back to what its driver says.
+	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// Registry is what a restore reads back.
 	Registry *registry.Snapshot `json:"registry,omitempty"`
 	// Force restores a file that disagrees with the registry.
