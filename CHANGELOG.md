@@ -1,5 +1,77 @@
 # Changelog
 
+## [0.2.0-alpha.1](https://github.com/harrymitchinson/oikade/compare/v0.1.0...v0.2.0-alpha.1) (2026-11-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **framework:** Moment.At, Flow.At, Window.Start and Window.End take framework.Time instead of string: write framework.Clock("23:30").
+* **framework:** the host protocol is version 6, so a binary built against version 5 is refused until it's rebuilt.
+* every capability name changes, with no aliases: homes, plugins, PromQL and the bundled dashboard. sdk/plugin's RelayCapability is gone, because a relay reports on whatever it switches.
+* the CLI's binary, its cmd/ path and its release archives are oikade, not oikadectl.
+* **release:** release assets are oikadectl-<os>-<arch>.tar.gz and oikade-host-linux-<arch>.tar.gz, not bare binaries.
+* **framework:** Hold, Set, Change, Control and Bands lose their Device, Room, Capability and Value fields, State.Bool and State.Number become State.Get, hometest takes handles, and devices.go has a value per device rather than a string constant.
+* the oikade binary is gone. Run oikadectl for every command, and oikade-host in place of oikade host: a systemd unit's ExecStart, and the image, whose entrypoint is now oikade-host with no host argument. client add is oikade-host client add, on the host's machine.
+* --host, oikade proxy, oikade install and oikade upgrade are gone, as is make test-install. Reach a host with oikade login, and run it under your own systemd unit.
+* the Kubernetes install, every CRD, the manager binary and install.yaml are gone. A home is a Go module run by oikade host.
+
+### Features
+
+* **adopt:** adopt discovered devices as Devices ([#168](https://github.com/harrymitchinson/oikade/issues/168)) ([63ca84e](https://github.com/harrymitchinson/oikade/commit/63ca84e47d362b999dce6b138994a24c86249796))
+* **adopt:** copy a device's name in its app once, and never follow it ([#173](https://github.com/harrymitchinson/oikade/issues/173)) ([8ed2170](https://github.com/harrymitchinson/oikade/commit/8ed21701b3ebf3a5a31f63e9402ccd1ea67ead94))
+* **adopt:** removal policy for adopted Devices ([#169](https://github.com/harrymitchinson/oikade/issues/169)) ([0cce30b](https://github.com/harrymitchinson/oikade/commit/0cce30b7b0b19b1012eff0d96290837dd1b2a007))
+* **adopt:** replace a reset device's ID with oikade.dev/replace-with ([#170](https://github.com/harrymitchinson/oikade/issues/170)) ([1731731](https://github.com/harrymitchinson/oikade/commit/1731731978bb5db3a859c5885e502bf21e0eadd1))
+* **api:** serve the host API over HTTP on its socket ([#193](https://github.com/harrymitchinson/oikade/issues/193)) ([0267363](https://github.com/harrymitchinson/oikade/commit/0267363bfc53e1735eb20d50010b05501ed416ac))
+* **api:** serve the host API over TLS, with a token per client ([#194](https://github.com/harrymitchinson/oikade/issues/194)) ([52d3cfa](https://github.com/harrymitchinson/oikade/commit/52d3cfab9a38d6b42ed2e835603266cd5abd82f7))
+* **api:** spec.discovery on Plugin and Zigbee2MQTT ([#166](https://github.com/harrymitchinson/oikade/issues/166)) ([bdce604](https://github.com/harrymitchinson/oikade/commit/bdce604685da68c427a264b733f6a924ee2396fd))
+* **cli:** oikade init, check, dev and test ([#186](https://github.com/harrymitchinson/oikade/issues/186)) ([4474395](https://github.com/harrymitchinson/oikade/commit/4474395c5201c6ea270770665c6faf4de2757249))
+* **cli:** oikade login, with a pinned host and contexts ([#195](https://github.com/harrymitchinson/oikade/issues/195)) ([9652506](https://github.com/harrymitchinson/oikade/commit/96525063a41ea1cdd316b08c8ea130204c21497b))
+* **contract:** device types from Zigbee2MQTT and the plugin contract ([#209](https://github.com/harrymitchinson/oikade/issues/209)) ([1d89792](https://github.com/harrymitchinson/oikade/commit/1d89792382f3e2c4441857f925b55188408fafec))
+* **contract:** discovered devices with stable IDs ([#165](https://github.com/harrymitchinson/oikade/issues/165)) ([f8af2a3](https://github.com/harrymitchinson/oikade/commit/f8af2a3acf6ea7d6b9841a076d1e472cb0dfd42a))
+* **deploy:** stream the binary to the host with the call ([#196](https://github.com/harrymitchinson/oikade/issues/196)) ([c7edfd0](https://github.com/harrymitchinson/oikade/commit/c7edfd015b82fb651abc83a0704c2ed5848b8075))
+* **devices:** device types in the registry, oikade devices type and the Matter mapping ([#208](https://github.com/harrymitchinson/oikade/issues/208)) ([02e12f6](https://github.com/harrymitchinson/oikade/commit/02e12f6122f458c2ad72e53ceaec03347e8543e8))
+* **engine:** know exactly when the engine is idle ([#217](https://github.com/harrymitchinson/oikade/issues/217)) ([7c6633c](https://github.com/harrymitchinson/oikade/commit/7c6633c9e36acb6f71f26e6cee2aa60896cc27b7))
+* **engine:** run rules written in Go ([#177](https://github.com/harrymitchinson/oikade/issues/177)) ([b68febf](https://github.com/harrymitchinson/oikade/commit/b68febf22c8f70b8be6cd75d2ae01ba50167b60d))
+* **flow:** run durable flows in Go ([#179](https://github.com/harrymitchinson/oikade/issues/179)) ([24b75ad](https://github.com/harrymitchinson/oikade/commit/24b75add93c5c22622fc5353e11db19fea929179))
+* **framework:** Home.Site, Sunrise and Sunset ([#213](https://github.com/harrymitchinson/oikade/issues/213)) ([c19bf75](https://github.com/harrymitchinson/oikade/commit/c19bf752ee8368566c08fa8176b0fad4bf5ba788))
+* **framework:** limit room rules to device types ([#210](https://github.com/harrymitchinson/oikade/issues/210)) ([a3e96ec](https://github.com/harrymitchinson/oikade/commit/a3e96ec610233b4336e8f7c9625ad52cc29bb83e))
+* **framework:** State.Lookup and room reads in conditions ([#212](https://github.com/harrymitchinson/oikade/issues/212)) ([5b57e24](https://github.com/harrymitchinson/oikade/commit/5b57e24a8255c6a614a7ae4145835b9392adc5da))
+* **framework:** State.Within, a hold's window in a condition ([#214](https://github.com/harrymitchinson/oikade/issues/214)) ([e7e752e](https://github.com/harrymitchinson/oikade/commit/e7e752ee8df5be652d87d0a24321dcc9de23ca3e))
+* **framework:** typed capability handles, from oikadectl types ([#202](https://github.com/harrymitchinson/oikade/issues/202)) ([e37f499](https://github.com/harrymitchinson/oikade/commit/e37f499fb52901e75a4b93da4027f5dc20ae9854))
+* **framework:** typed clock times in At and Window ([#211](https://github.com/harrymitchinson/oikade/issues/211)) ([e373306](https://github.com/harrymitchinson/oikade/commit/e3733069d28e57d153725866efd23068e9d88010))
+* **host:** deploy and roll back your code ([#180](https://github.com/harrymitchinson/oikade/issues/180)) ([1d14e93](https://github.com/harrymitchinson/oikade/commit/1d14e938d6365fd672719cdb598f94704fc20535))
+* **host:** keep a device registry, with oikade devices and oikade types ([#182](https://github.com/harrymitchinson/oikade/issues/182)) ([3fc4d9f](https://github.com/harrymitchinson/oikade/commit/3fc4d9fc2f000efc73d8b77d79d9d60d19ff18bc))
+* **host:** run automations in a process apart from the host ([#178](https://github.com/harrymitchinson/oikade/issues/178)) ([7981856](https://github.com/harrymitchinson/oikade/commit/7981856c7596a467685ab901e37aabc223fc575a))
+* **host:** run imported plugins, one process each ([#184](https://github.com/harrymitchinson/oikade/issues/184)) ([523a2bd](https://github.com/harrymitchinson/oikade/commit/523a2bd0158b307abf08e79c54094c30eb1f5e98))
+* **host:** run the Matter bridge in the host ([#183](https://github.com/harrymitchinson/oikade/issues/183)) ([c140fbf](https://github.com/harrymitchinson/oikade/commit/c140fbfecb02675c91670de470118732164afc5d))
+* **host:** status, set, tail and pause, over SSH too ([#181](https://github.com/harrymitchinson/oikade/issues/181)) ([94344cb](https://github.com/harrymitchinson/oikade/commit/94344cbd3f9f948c2bddd4575a98d94a1222d740))
+* **install:** oikade install, upgrade, backup and secrets ([#188](https://github.com/harrymitchinson/oikade/issues/188)) ([9272475](https://github.com/harrymitchinson/oikade/commit/9272475e80e72d8acc4c2bc6bf292b490797915f))
+* **matter:** contain a panic in handling one message ([#199](https://github.com/harrymitchinson/oikade/issues/199)) ([bf8fa4f](https://github.com/harrymitchinson/oikade/commit/bf8fa4f86f42ad24d5477b38b15c979142b605a3))
+* **matter:** export the bridge's metrics, with a Grafana row ([#198](https://github.com/harrymitchinson/oikade/issues/198)) ([e952bc5](https://github.com/harrymitchinson/oikade/commit/e952bc5f0550b6fb02dbcaf74c9eae22721b0a73))
+* **matter:** rename a bridged device in place on a displayName change ([#172](https://github.com/harrymitchinson/oikade/issues/172)) ([964f993](https://github.com/harrymitchinson/oikade/commit/964f993dfe05071fe8ffded132191f4980dbee64))
+* name capabilities for people ([#205](https://github.com/harrymitchinson/oikade/issues/205)) ([d615391](https://github.com/harrymitchinson/oikade/commit/d615391fcbb83ac4f5fae1681974f56c6ff6dbd4))
+* **release:** build releases and the image with GoReleaser ([#203](https://github.com/harrymitchinson/oikade/issues/203)) ([7422c4b](https://github.com/harrymitchinson/oikade/commit/7422c4be0210b08bce53a9b0925a9390985d838a))
+* remove SSH, oikade install and oikade upgrade ([#197](https://github.com/harrymitchinson/oikade/issues/197)) ([1b95167](https://github.com/harrymitchinson/oikade/commit/1b951676b7ae0182200791c41f04fde44c5c931b))
+* remove the operator and CRDs ([#189](https://github.com/harrymitchinson/oikade/issues/189)) ([aa98a30](https://github.com/harrymitchinson/oikade/commit/aa98a30f4735ca16cfb64baeb05405e7d43992f0))
+* rename oikadectl to oikade ([#204](https://github.com/harrymitchinson/oikade/issues/204)) ([41b9343](https://github.com/harrymitchinson/oikade/commit/41b9343e1257ad095aed396657d5d49fd54f8ff3))
+* **replay:** oikade replay and a bounded event log ([#187](https://github.com/harrymitchinson/oikade/issues/187)) ([afd9fb1](https://github.com/harrymitchinson/oikade/commit/afd9fb17ce1eff779a46be6a2b030afe8ae57bdc))
+* **runtime:** discovered devices in Plugin and Zigbee2MQTT status ([#167](https://github.com/harrymitchinson/oikade/issues/167)) ([d476c49](https://github.com/harrymitchinson/oikade/commit/d476c49734753027e9b79dfff9394c4a83c3836d))
+* split oikade into oikadectl and oikade-host ([#201](https://github.com/harrymitchinson/oikade/issues/201)) ([95f0f30](https://github.com/harrymitchinson/oikade/commit/95f0f30096cb6d6fc09b98ec8c6dd11e44b2ba76))
+* **store:** add the embedded store and write-ahead journal ([#176](https://github.com/harrymitchinson/oikade/issues/176)) ([67d9a46](https://github.com/harrymitchinson/oikade/commit/67d9a46720b5d625c97bd1b9fdd31f9f37dc2bd4))
+* **zigbee2mqtt:** ask for each value nothing retained, after a device list ([#200](https://github.com/harrymitchinson/oikade/issues/200)) ([2c415e8](https://github.com/harrymitchinson/oikade/commit/2c415e8f81eb7d5a3a0c4e04222363093b576fbf))
+* **zigbee2mqtt:** run Zigbee as a plugin on a Zigbee2MQTT you run ([#185](https://github.com/harrymitchinson/oikade/issues/185)) ([21fa5c5](https://github.com/harrymitchinson/oikade/commit/21fa5c5dcec7fbc552a7ba419ae7da25405abf7d))
+* **zigbee2mqtt:** stop writing friendly names into Zigbee2MQTT ([#171](https://github.com/harrymitchinson/oikade/issues/171)) ([887c60b](https://github.com/harrymitchinson/oikade/commit/887c60bac9803f5a03e71ad32001eb2513e0bf23))
+
+
+### Bug Fixes
+
+* **matterbridge:** send a device's bursts in order ([#216](https://github.com/harrymitchinson/oikade/issues/216)) ([5fa5923](https://github.com/harrymitchinson/oikade/commit/5fa5923088a688a475c81fc1510d1caf6b1fc3b9))
+
+
+### Documentation
+
+* **deploy:** install v0.1.0, and say later versions are v0.2.0 alphas ([#163](https://github.com/harrymitchinson/oikade/issues/163)) ([530f059](https://github.com/harrymitchinson/oikade/commit/530f05905a09bf64990bc556e1fc178e1ffdcea2))
+
 ## [0.1.0](https://github.com/harrymitchinson/oikade/compare/v0.1.0-alpha.1...v0.1.0) (2026-11-04)
 
 
