@@ -588,6 +588,11 @@ func TestSetDiscovered(t *testing.T) {
 			t.Errorf("SetDiscovered(%+v) succeeded, want an error", bad)
 		}
 	}
+	// An old name is as unknown as a made-up one, and SetDevices refuses it as SetDiscovered does.
+	old := []contractv1.DeviceReport{{ID: "relay", Found: true, Capabilities: []string{"switch.on"}}}
+	if err := p.SetDevices(ctx, old, 0); err == nil || !strings.Contains(err.Error(), "unknown capability switch.on") {
+		t.Errorf("SetDevices with switch.on: %v", err)
+	}
 	// Before SetDevices, the list waits for it.
 	if err := p.SetDiscovered(ctx, []contractv1.DiscoveredDevice{lamp}); err != nil {
 		t.Fatal(err)

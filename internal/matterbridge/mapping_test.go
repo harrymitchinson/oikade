@@ -257,11 +257,13 @@ func TestTheBridgeShowsTheRegistrysMatterAttributes(t *testing.T) {
 	}
 }
 
-// A shut door is open false, which Boolean State shows as true: contact.
+// A shut door is open false, which Boolean State shows as true: contact. The registry says it's
+// inverted, and so the docs do.
 func TestAShutDoorIsBooleanStateTrue(t *testing.T) {
+	spec, _ := capability.Lookup(capability.Open)
 	m, _ := mapDevice(t, "", capability.Open)
 	m.Update(capability.Open, false)
-	if got := read(t, cluster(t, m, clusters.IDBooleanState), 0); got != true {
-		t.Fatalf("Boolean State is %v, want true", got)
+	if got := read(t, cluster(t, m, spec.Matter.ClusterID), spec.Matter.AttributeID); got != spec.Matter.Inverted {
+		t.Fatalf("Boolean State is %v for a shut door, and the registry says inverted is %v", got, spec.Matter.Inverted)
 	}
 }

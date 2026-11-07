@@ -22,7 +22,7 @@ func bedtime(r *framework.FlowRun) error {
 	if late {
 		r.Sleep(time.Hour)
 	}
-	return r.Set(framework.InRoom("downstairs", framework.On).To(false))
+	return r.Set(LoungeLamp.On.To(false))
 }
 
 func main() {

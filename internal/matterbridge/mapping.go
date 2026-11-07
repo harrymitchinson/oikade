@@ -75,13 +75,16 @@ func (m *Mapped) Update(name string, v any) {
 	}
 }
 
+// mapped are the capabilities that make a device worth showing.
+var mapped = append([]string{capability.On}, sensors...)
+
 // sensors are the read-only capabilities the mapping shows.
 var sensors = []string{capability.Occupied, capability.Open, capability.Temperature, capability.Humidity}
 
 // Supported reports whether any of a Device's capabilities map to a Matter device type. Battery
 // alone doesn't: it's a power source, not a device.
 func Supported(caps []string) bool {
-	for _, c := range append([]string{capability.On}, sensors...) {
+	for _, c := range mapped {
 		if slices.Contains(caps, c) {
 			return true
 		}
@@ -99,7 +102,6 @@ func Map(d Device, set SetFunc) *Mapped {
 	m := &Mapped{update: map[string]func(any){}}
 
 	if has(capability.On) {
-		actuator := capability.On
 		dimmable := has(capability.Brightness)
 		family := d.Type
 		if family == "" {
@@ -116,9 +118,9 @@ func Map(d Device, set SetFunc) *Mapped {
 		} else {
 			onoff = clusters.NewOnOff()
 		}
-		onoff.OnChange = func(on bool) { set(actuator, on) }
+		onoff.OnChange = func(on bool) { set(capability.On, on) }
 		m.Clusters = append(m.Clusters, onoff.Cluster())
-		m.update[actuator] = func(v any) {
+		m.update[capability.On] = func(v any) {
 			if b, ok := v.(bool); ok {
 				onoff.Set(b)
 			}
@@ -129,13 +131,13 @@ func Map(d Device, set SetFunc) *Mapped {
 				// The WithOnOff commands turn the device off at the minimum level, and on above it.
 				if withOnOff && atMinimum {
 					onoff.Set(false)
-					set(actuator, false)
+					set(capability.On, false)
 					return
 				}
 				set(capability.Brightness, percent)
 				if withOnOff {
 					onoff.Set(true)
-					set(actuator, true)
+					set(capability.On, true)
 				}
 			}
 			m.Clusters = append(m.Clusters, level.Cluster())

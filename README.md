@@ -198,12 +198,12 @@ framework.Moment{
 framework.Moment{
 	Name: "lights-out",
 	On:   []framework.Change{framework.InRoom("hallway", framework.Occupied)},          // any sensor in the hallway
-	Do:   []framework.Action{framework.InRoom("living-room", framework.On).To(false)}, // every light there
+	Do:   []framework.Action{framework.InRoom("living-room", framework.On).To(false)}, // everything there that has on
 }
 ```
 
 - **Room triggers** fire on a change from any device in the room at the time of the change.
-- **Room actions** set every device in the room that has reported the capability, in name order, and skip the rest. So `on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
+- **Room actions** set every device in the room that has reported the capability, in name order, and skip the rest. `on` is a light's, a switch's and an outlet's alike, so `framework.InRoom("living-room", framework.On).To(false)` turns off a plug there too, until room rules can be limited to what a device is ([OIK-187](https://linear.app/oikade/issue/OIK-187)). Name devices with handles to leave the rest alone. So `on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
 - **If some devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
 - **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Wait` longer than the time your sensor holds occupancy after the last movement.
 - **A room `Set` with no end skips arbitrated members,** because a claim must end (see [one-off claims](#one-off-claims)). The log names them.

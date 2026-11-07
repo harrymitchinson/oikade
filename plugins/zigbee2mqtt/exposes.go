@@ -1,6 +1,8 @@
 package zigbee2mqtt
 
 import (
+	"slices"
+
 	"github.com/harrymitchinson/oikade/internal/capability"
 )
 
@@ -98,7 +100,14 @@ func bindings(exposes []expose) []binding {
 			}
 		}
 	}
-	return out
+	// A device with a light and a switch at its root has two properties for on. The first is the
+	// one it's switched by and reports, so the other can't flip the value back and forth.
+	seen := map[string]bool{}
+	return slices.DeleteFunc(out, func(b binding) bool {
+		dup := seen[b.capability]
+		seen[b.capability] = true
+		return dup
+	})
 }
 
 func (e expose) gettable() bool { return e.Access&accessGet != 0 }
