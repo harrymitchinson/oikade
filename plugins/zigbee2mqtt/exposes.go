@@ -26,8 +26,15 @@ type expose struct {
 	ValueOn  any      `json:"value_on"`
 	ValueOff any      `json:"value_off"`
 	ValueMax *float64 `json:"value_max"`
+	Access   int      `json:"access"`
 	Features []expose `json:"features"`
 }
+
+// accessGet is the bit of an expose's access that says the property can be read with a /get
+// (https://www.zigbee2mqtt.io/guide/usage/exposes.html#access). Zigbee2MQTT sets access on the leaf
+// features, not on a light or a switch. A sleeping sensor's properties have it clear, since it
+// can't answer.
+const accessGet = 0b100
 
 // Zigbee2MQTT expose types.
 const (
@@ -45,6 +52,8 @@ type binding struct {
 	invert bool
 	// scale is the raw maximum that maps to 100% (brightness).
 	scale float64
+	// get is whether the property can be read with a /get.
+	get bool
 }
 
 // bindings derives capability bindings from a device's exposes. Endpoint-specific features
@@ -61,36 +70,38 @@ func bindings(exposes []expose) []binding {
 				switch {
 				case f.Endpoint != "":
 				case f.Name == "state" && f.Type == exposeBinary:
-					out = append(out, binding{capability: capability.LightOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff})
+					out = append(out, binding{capability: capability.LightOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
 				case f.Name == "brightness" && f.Type == exposeNumeric:
 					max := 254.0
 					if f.ValueMax != nil && *f.ValueMax > 0 {
 						max = *f.ValueMax
 					}
-					out = append(out, binding{capability: capability.LightLevel, property: f.Property, scale: max})
+					out = append(out, binding{capability: capability.LightLevel, property: f.Property, scale: max, get: f.gettable()})
 				}
 			}
 		case "switch":
 			for _, f := range e.Features {
 				if f.Endpoint == "" && f.Name == "state" && f.Type == exposeBinary {
-					out = append(out, binding{capability: capability.SwitchOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff})
+					out = append(out, binding{capability: capability.SwitchOn, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
 				}
 			}
 		case exposeNumeric:
 			if c, ok := numeric[e.Name]; ok {
-				out = append(out, binding{capability: c, property: e.Property})
+				out = append(out, binding{capability: c, property: e.Property, get: e.gettable()})
 			}
 		case exposeBinary:
 			switch e.Name {
 			case "contact":
-				out = append(out, binding{capability: capability.ContactOpen, property: e.Property, invert: true})
+				out = append(out, binding{capability: capability.ContactOpen, property: e.Property, invert: true, get: e.gettable()})
 			case "occupancy":
-				out = append(out, binding{capability: capability.Occupancy, property: e.Property})
+				out = append(out, binding{capability: capability.Occupancy, property: e.Property, get: e.gettable()})
 			}
 		}
 	}
 	return out
 }
+
+func (e expose) gettable() bool { return e.Access&accessGet != 0 }
 
 var numeric = map[string]string{
 	"temperature": capability.Temperature,

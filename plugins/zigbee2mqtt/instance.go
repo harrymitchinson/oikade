@@ -20,6 +20,10 @@ import (
 // earlyLimit bounds what's kept for the next device list.
 const earlyLimit = 4096
 
+// defaultGetInterval paces the /get requests after a device list, so that a large network doesn't
+// flood the broker, or Zigbee2MQTT's queue behind it.
+const defaultGetInterval = 200 * time.Millisecond
+
 // Instance follows one Zigbee2MQTT instance on the bus.
 type Instance struct {
 	// Key is the Zigbee2MQTT object.
@@ -33,9 +37,15 @@ type Instance struct {
 	// and whatever it resolved.
 	OnBridgeState func(online bool)
 	OnListed      func()
+	// GetInterval is the time between /get requests. Zero is defaultGetInterval.
+	GetInterval time.Duration
+	// requested, if set, runs when a round of /get requests ends. Tests wait for it.
+	requested func()
 
 	mu          sync.Mutex
+	ctx         context.Context
 	unsubscribe func()
+	stopGets    context.CancelFunc
 	declared    map[string]ident.ID       // IEEE address -> Device
 	paired      map[string]*paired        // IEEE address -> paired device
 	byName      map[string]string         // friendly name -> IEEE address
@@ -56,6 +66,9 @@ var _ driver.Setter = (*Instance)(nil)
 // Start subscribes to the instance's topics.
 func (i *Instance) Start(ctx context.Context) error {
 	i.Log = logging.OrDiscard(i.Log)
+	i.mu.Lock()
+	i.ctx = ctx
+	i.mu.Unlock()
 	unsubscribe, err := i.Bus.Subscribe(ctx, i.BaseTopic+"/#", i.handle)
 	i.mu.Lock()
 	i.unsubscribe = unsubscribe
@@ -68,6 +81,9 @@ func (i *Instance) Stop() {
 	i.mu.Lock()
 	unsubscribe := i.unsubscribe
 	i.unsubscribe = nil
+	if i.stopGets != nil {
+		i.stopGets()
+	}
 	i.mu.Unlock()
 	if unsubscribe != nil {
 		unsubscribe()
@@ -218,9 +234,93 @@ func (i *Instance) handleDevices(payload []byte) {
 	for _, rest := range slices.Sorted(maps.Keys(early)) {
 		i.handleDevice(rest, early[rest])
 	}
+	i.requestState()
 	if i.OnListed != nil {
 		i.OnListed()
 	}
+}
+
+// request is one /get: a property to read from a device.
+type request struct {
+	ieee string
+	b    binding
+}
+
+// requestState asks for each value a device can be asked for and that nothing has reported, such
+// as a device that doesn't retain its state. It runs after the held messages are replayed, so a
+// retained value is neither re-requested nor overwritten. A device list replaces the last round.
+//
+// A reply is a state message like any other, and the first value of a capability counts as no
+// change, so it fires nothing a retained value wouldn't. A device that doesn't answer, such as one
+// asleep, leaves its value unknown: Zigbee2MQTT says nothing, and neither does Oikade.
+func (i *Instance) requestState() {
+	i.mu.Lock()
+	if i.stopGets != nil {
+		i.stopGets()
+	}
+	if i.ctx == nil {
+		i.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(i.ctx)
+	i.stopGets = cancel
+	var requests []request
+	for _, ieee := range slices.Sorted(maps.Keys(i.paired)) {
+		if _, ok := i.declared[ieee]; !ok {
+			continue
+		}
+		for _, b := range i.paired[ieee].bindings {
+			if b.get && !i.knownLocked(ieee, b.capability) {
+				requests = append(requests, request{ieee, b})
+			}
+		}
+	}
+	i.mu.Unlock()
+	go i.get(ctx, requests)
+}
+
+// get sends requests one interval apart, skipping any value reported meanwhile.
+func (i *Instance) get(ctx context.Context, requests []request) {
+	if i.requested != nil {
+		defer i.requested()
+	}
+	interval := i.GetInterval
+	if interval <= 0 {
+		interval = defaultGetInterval
+	}
+	t := time.NewTimer(interval)
+	defer t.Stop()
+	for _, r := range requests {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		t.Reset(interval)
+		i.mu.Lock()
+		known := i.knownLocked(r.ieee, r.b.capability)
+		i.mu.Unlock()
+		if known {
+			continue
+		}
+		// Zigbee2MQTT's documented payload names one property, with an empty value. It's addressed
+		// by IEEE, like a /set.
+		payload, err := json.Marshal(map[string]string{r.b.property: ""})
+		if err != nil {
+			return
+		}
+		if err := i.Bus.Publish(ctx, i.BaseTopic+"/"+r.ieee+"/get", payload, false); err != nil {
+			// The broker has gone. When it's back, it replays what's retained, and the next device
+			// list asks again.
+			i.Log.Debug("Stopped requesting device state", "instance", i.Key, "err", err)
+			return
+		}
+	}
+}
+
+func (i *Instance) knownLocked(ieee, capability string) bool {
+	_, ok := i.values[ieee][capability]
+	return ok
 }
 
 // discoveryLocked computes discovery events; call the returned func after unlocking.
