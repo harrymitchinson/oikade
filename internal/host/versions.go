@@ -50,13 +50,18 @@ type history struct {
 
 // versions keeps your binaries. Only one deploy runs at a time, so it needs no lock of its own.
 type versions struct {
-	dir    string
-	values *store.Namespace
-	state  history
+	dir string
+	// uploads is where deploys arrive, which a version takes by renaming rather than copying.
+	uploads string
+	values  *store.Namespace
+	state   history
 }
 
 func openVersions(dataDir string, data *store.Store) (*versions, error) {
-	v := &versions{dir: filepath.Join(dataDir, versionsDir), values: data.Namespace(versionsNamespace)}
+	v := &versions{
+		dir: filepath.Join(dataDir, versionsDir), uploads: filepath.Join(dataDir, uploadsDir),
+		values: data.Namespace(versionsNamespace),
+	}
 	if err := os.MkdirAll(v.dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -136,6 +141,37 @@ func (v *versions) add(path string) (string, error) {
 	}
 	id := hex.EncodeToString(sum.Sum(nil))[:32]
 	if err := os.Rename(tmp.Name(), v.path(id)); err != nil {
+		return "", err
+	}
+	return id, syncDir(v.dir)
+}
+
+// take stores a binary, as add does. One that arrived as an upload is moved, not copied, as it's on
+// the same disk and nothing else wants it.
+func (v *versions) take(path string) (string, error) {
+	if v.uploads == "" || filepath.Dir(path) != v.uploads {
+		return v.add(path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.New()
+	_, err = io.Copy(sum, f)
+	if err == nil {
+		err = f.Chmod(0o700)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", err
+	}
+	id := hex.EncodeToString(sum.Sum(nil))[:32]
+	if err := os.Rename(path, v.path(id)); err != nil {
 		return "", err
 	}
 	return id, syncDir(v.dir)

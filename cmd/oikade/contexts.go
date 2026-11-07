@@ -107,7 +107,16 @@ func saveConfig(cfg clientConfig) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	// The rename too, or a crash could lose a login whose code is spent.
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	return dir.Sync()
 }
 
 // remote is a context's transport. One saved with no token, as CI's is, takes OIKADE_TOKEN, so a
@@ -143,6 +152,10 @@ func runLogin(ctx context.Context, args []string) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
+	}
+	if old, ok := cfg.Contexts[*name]; ok && old.Address != address {
+		return fmt.Errorf("there's already a context called %s, for %s: give this one another with --context",
+			*name, old.Address)
 	}
 	saved := hostContext{Address: address, Pin: *pin}
 	who := ""

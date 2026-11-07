@@ -200,8 +200,6 @@ type Response struct {
 	Address string `json:"address,omitempty"`
 	// Client is who a login made.
 	Client string `json:"client,omitempty"`
-	// Close ends the connection after the answer, as a failed login does.
-	Close bool `json:"-"`
 	// Pin is the network API's public key, as a client checks it. It's empty while the host has no
 	// network listener.
 	Pin string `json:"pin,omitempty"`
@@ -391,8 +389,13 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bo
 	if allowSafetyRemoval {
 		target += "?" + url.Values{AllowSafetyRemovalParam: {"true"}}.Encode()
 	}
-	body, err := send(ctx, t, route, target, f, info.Size(), BinaryContentType)
+	sent := &counting{r: f}
+	body, err := send(ctx, t, route, target, sent, info.Size(), BinaryContentType)
 	if err != nil {
+		if sent.n < info.Size() && !errors.Is(err, errUnreachable) {
+			// The host deploys nothing it didn't get all of.
+			return Response{}, fmt.Errorf("lost the host during the upload, so nothing was deployed: %w", errors.Unwrap(err))
+		}
 		return Response{}, err
 	}
 	defer func() { _ = body.Close() }()
@@ -402,6 +405,21 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bo
 	}
 	return resp, nil
 }
+
+// counting counts what's read through it.
+type counting struct {
+	r io.Reader
+	n int64
+}
+
+func (c *counting) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// errUnreachable is a call that never reached the host.
+var errUnreachable = errors.New("reaching the host")
 
 // Tail streams events to each until ctx ends, each returns an error, or the host goes. It starts
 // once the host is listening, which the first Event, with no type, says.
@@ -522,7 +540,7 @@ func send(ctx context.Context, t Transport, route Route, target string, body io.
 			// The host may have the call, and may still be doing it.
 			return nil, fmt.Errorf("lost the host before it answered: %w", err)
 		}
-		return nil, fmt.Errorf("reaching the host: %w", err)
+		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
 	}
 	if answer.StatusCode < http.StatusBadRequest {
 		return answer.Body, nil

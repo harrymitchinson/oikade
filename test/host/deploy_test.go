@@ -269,8 +269,8 @@ func TestAnUploadCutShortDeploysNothingAndLeavesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = fmt.Fprintf(conn, "POST /v1/deploy HTTP/1.1\r\nHost: oikade\r\nContent-Length: 1000000\r\n\r\n%s",
-		strings.Repeat("x", 1000))
+	head := "POST /v1/deploy HTTP/1.1\r\nHost: oikade\r\nContent-Type: %s\r\nContent-Length: 1000000\r\n\r\n%s"
+	_, _ = fmt.Fprintf(conn, head, api.BinaryContentType, strings.Repeat("x", 1000))
 	_ = conn.Close()
 	r.waitFor(func(l line) bool { return l.is("Dropped deploy upload") })
 	if r.count(stopping) != 0 {

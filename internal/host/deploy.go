@@ -70,7 +70,7 @@ func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Re
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.adopt(ctx)
-	id, err := d.versions.add(binary)
+	id, err := d.versions.take(binary)
 	if err != nil {
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
 	}

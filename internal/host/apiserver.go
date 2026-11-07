@@ -200,7 +200,8 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 		}
 		req.Type = route.Type
 		resp := s.answer(callerOf(r.Context()), req)
-		if resp.Close {
+		if route.Public && resp.Error != "" {
+			// A stranger's call that failed, such as a wrong login code, keeps nothing open.
 			w.Header().Set("Connection", "close")
 		}
 		respond(s.log, w, statusOf(resp), resp)
@@ -356,7 +357,7 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 				s.authFailures.Inc()
 			}
 			s.log.Info("Refused API login", "err", err)
-			return api.Response{Error: err.Error(), Close: true}
+			return api.Response{Error: err.Error()}
 		}
 		s.log.Info("Added API client", "name", name, "by", "login")
 		return api.Response{Token: token, Client: name}

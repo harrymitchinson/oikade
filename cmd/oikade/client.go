@@ -33,9 +33,11 @@ func runClient(ctx context.Context, args []string) error {
 	default:
 		return errors.New(clientUsage)
 	}
-	transport := t.transport()
+	var transport api.Transport
 	if req.Type == api.TypeClientAdd {
 		transport = t.local()
+	} else {
+		transport = t.transport()
 	}
 	resp, err := api.Call(ctx, transport, req)
 	if err != nil {
