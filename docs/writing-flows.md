@@ -27,7 +27,7 @@ func bedtime(r *framework.FlowRun) error {
 
 func main() {
 	framework.Run(framework.Home{
-		Flows: []framework.Flow{{Name: "bedtime", At: []string{"22:30"}, Run: bedtime}},
+		Flows: []framework.Flow{{Name: "bedtime", At: []framework.Time{framework.Clock("22:30")}, Run: bedtime}},
 	})
 }
 ```

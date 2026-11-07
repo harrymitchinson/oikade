@@ -19,7 +19,7 @@ func TestCompileChecksFlows(t *testing.T) {
 		"no trigger": {Flow{Name: "a", Run: run}, "a trigger is required"},
 		"no run":     {Flow{Name: "a", On: on}, "needs a body"},
 		"negative":   {Flow{Name: "a", On: on, Run: run, Late: -time.Minute}, "must not be negative"},
-		"bad time":   {Flow{Name: "a", At: []string{"25:00"}, Run: run}, "timers[0]"},
+		"bad time":   {Flow{Name: "a", At: []Time{Clock("25:00")}, Run: run}, "timers[0]"},
 		"bad change": {
 			Flow{Name: "a", On: []Change{Handle[bool]{Device: "hall", Capability: "no.such"}}, Run: run}, "unknown capability",
 		},

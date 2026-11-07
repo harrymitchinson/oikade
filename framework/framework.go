@@ -117,10 +117,27 @@ func (c Condition) toEngine() engine.Condition {
 	}
 }
 
-// Window is when a hold may be active, from Start until the next End, each "HH:MM", starting on Days
-// or on any day.
+// Time is a time of day, in At and a Window. Clock makes one.
+type Time struct {
+	clock string
+}
+
+// Clock is a wall-clock time, "HH:MM" from 00:00 to 23:59, in the host's time zone. A time that
+// isn't fails oikade check.
+func Clock(hhmm string) Time { return Time{clock: hhmm} }
+
+// timer is the engine's time. A zero Time is none, which the engine rejects.
+func (t Time) timer() engine.Timer {
+	if t == (Time{}) {
+		return nil
+	}
+	return engine.At{Time: t.clock}
+}
+
+// Window is when a hold may be active, from Start until the next End, starting on Days or on any
+// day. An End at or before its Start is the next day.
 type Window struct {
-	Start, End string
+	Start, End Time
 	Days       []time.Weekday
 }
 
@@ -159,7 +176,7 @@ type Budget struct {
 	Forbid []Window
 }
 
-// Prefer weights the slots in a window, whose times are "HH:MM".
+// Prefer weights the slots in a window.
 type Prefer struct {
 	Window Window
 	Score  int
@@ -251,11 +268,11 @@ func (c Control) entry() (control.Entry, error) {
 }
 
 // Moment runs Do when a trigger fires and If, if set, is true. It needs a trigger: a Change, or a
-// time of day in At as "HH:MM".
+// time of day in At, such as Clock("23:30").
 type Moment struct {
 	Name string
 	On   []Change
-	At   []string
+	At   []Time
 	If   Condition
 	// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
 	Restart bool
@@ -275,7 +292,7 @@ const DefaultLate = 10 * time.Minute
 type Flow struct {
 	Name string
 	On   []Change
-	At   []string
+	At   []Time
 	If   Condition
 	// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
 	Restart bool
@@ -574,15 +591,18 @@ func lateness(late time.Duration, safety bool) time.Duration {
 // neverLate is as long as a Safety rule's missed time of day counts for.
 const neverLate = 100 * 365 * 24 * time.Hour
 
-func trigger(on []Change, at []string, cond Condition, late time.Duration, safety bool) engine.Trigger {
+func trigger(on []Change, at []Time, cond Condition, late time.Duration, safety bool) engine.Trigger {
 	t := engine.Trigger{Condition: cond.toEngine(), StartingDeadline: lateness(late, safety)}
 	for _, c := range on {
 		if c != nil { // nilChange reports it.
 			t.Changes = append(t.Changes, c.change())
 		}
 	}
-	for _, a := range at {
-		t.Timers = append(t.Timers, engine.At{Time: a})
+	for i, a := range at {
+		// The same time twice fires once.
+		if !slices.Contains(at[:i], a) || a == (Time{}) {
+			t.Timers = append(t.Timers, a.timer())
+		}
 	}
 	return t
 }
@@ -622,7 +642,7 @@ func (r Hold) toEngine() engine.Hold {
 	}
 	if r.Window != nil {
 		h.Window = &engine.Window{
-			Start: engine.At{Time: r.Window.Start}, End: engine.At{Time: r.Window.End}, Days: r.Window.Days,
+			Start: r.Window.Start.timer(), End: r.Window.End.timer(), Days: r.Window.Days,
 		}
 	}
 	return h
@@ -687,7 +707,7 @@ func (b *Budget) toSchedule() *schedule.Spec {
 }
 
 func (w Window) toSchedule() schedule.WindowSpec {
-	return schedule.WindowSpec{Start: w.Start, End: w.End, Days: w.Days}
+	return schedule.WindowSpec{Start: w.Start.clock, End: w.End.clock, Days: w.Days}
 }
 
 // safety reports whether the moment has a Safety set.

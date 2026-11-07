@@ -133,8 +133,8 @@ framework.Home{
 				Reading: Cellar.Humidity, Missing: 240,
 				Ranges: []framework.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
 			},
-			Prefer: []framework.Prefer{{Window: framework.Window{Start: "22:00", End: "06:00"}, Score: 3}},
-			Forbid: []framework.Window{{Start: "07:00", End: "08:30"}},
+			Prefer: []framework.Prefer{{Window: framework.Window{Start: framework.Clock("22:00"), End: framework.Clock("06:00")}, Score: 3}},
+			Forbid: []framework.Window{{Start: framework.Clock("07:00"), End: framework.Clock("08:30")}},
 		},
 	}},
 }
@@ -176,17 +176,19 @@ The 5 minutes in this example live in your process's memory, so a restart during
 
 ### Times of day
 
-`At` fires at a local time, as `"HH:MM"`, instead of or as well as `On`:
+`At` fires at times of day, instead of or as well as `On`. `framework.Clock("23:30")` is a local time, in the host machine's zone, from `"00:00"` to `"23:59"`:
 
 ```go
 framework.Moment{
 	Name: "downstairs-bedtime",
-	At:   []string{"23:30"},
+	At:   []framework.Time{framework.Clock("23:30")},
 	Late: 10 * time.Minute,
 	Do:   []framework.Action{PorchLight.On.To(false)},
 }
 ```
 
+- **A time that isn't one,** such as `Clock("25:00")`, fails `oikade check`, naming the rule.
+- **Several times** fire at each, and the same time twice fires once.
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
 - **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A moment with a Safety `Set` fires however late it is. Only the latest missed time counts.
 
@@ -223,7 +225,7 @@ A hold keeps a capability at the value its `Set` gives while its `Window` is ope
 ```go
 []framework.Hold{{
 	Name: "water-heater-night", Set: WaterHeater.On.To(true),
-	Window: &framework.Window{Start: "22:00", End: "06:00"}, // an end at or before the start is the next morning
+	Window: &framework.Window{Start: framework.Clock("22:00"), End: framework.Clock("06:00")}, // an end at or before the start is the next morning
 }, {
 	Name: "bathroom-humid", Set: BathroomFan.On.To(true),
 	When: func(s framework.State) bool {
@@ -235,7 +237,7 @@ A hold keeps a capability at the value its `Set` gives while its `Window` is ope
 
 | Field | |
 |---|---|
-| `Window` | `Start` and `End` are `"HH:MM"` local times. `Days` limits it to windows that start on those days. |
+| `Window` | `Start` and `End` are times of day, such as `framework.Clock("22:00")`, as in [`At`](#times-of-day). `Days` limits it to windows that start on those days. |
 | `When` | A condition, as in a moment. |
 | `OnDelay` | How long `When` must stay true before the hold starts. |
 | `OffDelay` | How long the hold stays active after `When` stops being true. |
@@ -271,8 +273,8 @@ framework.Home{
 				Ranges:    []framework.Band{{Below: 55, Minutes: 60}, {Below: 70, Minutes: 180}},
 				Otherwise: 300,
 			},
-			Prefer: []framework.Prefer{{Window: framework.Window{Start: "23:00", End: "07:00"}, Score: 3}},
-			Forbid: []framework.Window{{Start: "18:00", End: "22:00"}},
+			Prefer: []framework.Prefer{{Window: framework.Window{Start: framework.Clock("23:00"), End: framework.Clock("07:00")}, Score: 3}},
+			Forbid: []framework.Window{{Start: framework.Clock("18:00"), End: framework.Clock("22:00")}},
 		},
 	}},
 }
@@ -339,7 +341,7 @@ A `Set` on an arbitrated capability is a claim, so it must say when it ends:
 ```go
 framework.Moment{
 	Name: "towel-rail-boost",
-	At:   []string{"21:30"},
+	At: []framework.Time{framework.Clock("21:30")},
 	Do: []framework.Action{TowelRail.On.To(true).For(time.Hour).UntilNext()},
 }
 ```

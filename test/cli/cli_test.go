@@ -182,6 +182,24 @@ func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
 	}
 }
 
+func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t\t}},", `OffDelay: 5 * time.Minute,
+		}},
+		Moments: []framework.Moment{{
+			Name: "lights-out", At: []framework.Time{framework.Clock("25:00")},
+			Do: []framework.Action{PorchLight.On.To(false)},
+		}},`)
+	out, err := run(t, bin, dir, "", "check")
+	if err == nil {
+		t.Fatalf("oikade check passed:\n%s", out)
+	}
+	if !strings.Contains(out, `rule lights-out: timers[0]: time "25:00" is not HH:MM`) {
+		t.Errorf("oikade check said:\n%s", out)
+	}
+}
+
 func TestCheckFailsOnAFlowThatWouldntReplay(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)

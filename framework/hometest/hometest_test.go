@@ -54,7 +54,7 @@ func TestAHoldFollowsADeviceAndTheClock(t *testing.T) {
 
 func bedtime() framework.Home {
 	return framework.Home{Flows: []framework.Flow{{
-		Name: "bedtime", At: []string{"22:30"},
+		Name: "bedtime", At: []framework.Time{framework.Clock("22:30")},
 		Run: func(r *framework.FlowRun) error {
 			r.Sleep(30 * time.Minute)
 			return r.Set(light.To(false))
@@ -86,7 +86,7 @@ func arbitrated() framework.Home {
 		}},
 		Holds: []framework.Hold{{
 			Name: "pump", Set: pump.To(true), Priority: framework.Safety,
-			Window: &framework.Window{Start: "01:00", End: "02:00"},
+			Window: &framework.Window{Start: framework.Clock("01:00"), End: framework.Clock("02:00")},
 		}},
 	}
 }
@@ -189,7 +189,7 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	ceiling := framework.Handle[bool]{Device: "ceiling-light", Capability: framework.On}
 	fridge := framework.Handle[bool]{Device: "fridge-plug", Capability: framework.On}
 	home := framework.Home{Moments: []framework.Moment{{
-		Name: "living-room-off", At: []string{"23:00"},
+		Name: "living-room-off", At: []framework.Time{framework.Clock("23:00")},
 		Do: []framework.Action{
 			framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false),
 		},
@@ -209,4 +209,44 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	h.ExpectValue(lamp, false)
 	h.ExpectValue(ceiling, false)
 	h.ExpectValue(fridge, true)
+}
+
+func TestAClockTimeFiresAcrossADaylightSavingChange(t *testing.T) {
+	london, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := framework.Home{Moments: []framework.Moment{{
+		Name: "lights-out", At: []framework.Time{framework.Clock("23:30")},
+		Do: []framework.Action{light.To(false)},
+	}}}
+	// The clocks go back at 02:00 on Sunday 27 October 2030, so that day is 25 hours long.
+	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 10, 26, 23, 0, 0, 0, london)})
+	h.Advance(31 * time.Minute)
+	h.ExpectValue(light, false)
+	h.Set(light, true)
+	h.Advance(24 * time.Hour) // 22:31 on Sunday
+	h.ExpectValue(light, true)
+	h.Advance(time.Hour)
+	h.ExpectValue(light, false)
+	if got := h.Writes(); len(got) != 2 || !got[1].Time.Equal(time.Date(2030, 10, 27, 23, 30, 0, 0, london)) {
+		t.Errorf("writes %+v, want one at 23:30 each night", got)
+	}
+}
+
+func TestAWindowIsOpenOvernight(t *testing.T) {
+	home := framework.Home{Holds: []framework.Hold{{
+		Name: "night-pump", Set: pump.To(true),
+		Window: &framework.Window{Start: framework.Clock("22:00"), End: framework.Clock("06:00")},
+	}}}
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	h.ExpectValue(pump, true) // midnight is inside the window that opened at 22:00 the night before
+	h.Advance(5*time.Hour + 59*time.Minute)
+	h.ExpectValue(pump, true)
+	h.Advance(2 * time.Minute) // 06:01
+	h.ExpectValue(pump, false)
+	h.Advance(15*time.Hour + 57*time.Minute) // 21:58
+	h.ExpectValue(pump, false)
+	h.Advance(2 * time.Minute)
+	h.ExpectValue(pump, true)
 }

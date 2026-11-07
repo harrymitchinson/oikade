@@ -28,14 +28,14 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		"no name": {Home{Holds: []Hold{{Set: d.To(true), When: when}}}, "needs a name"},
 		"twice": {Home{
 			Holds:   []Hold{{Name: "a", Set: d.To(true), When: when}},
-			Moments: []Moment{{Name: "a", At: []string{"07:00"}, Do: []Action{Wait(time.Second)}}},
+			Moments: []Moment{{Name: "a", At: []Time{Clock("07:00")}, Do: []Action{Wait(time.Second)}}},
 		}, "declared twice"},
 		"unknown capability": {
 			Home{Holds: []Hold{{Name: "a", Set: Handle[bool]{Device: "d", Capability: "nope"}.To(true), When: when}}},
 			"unknown capability",
 		},
 		"no trigger": {Home{Moments: []Moment{{Name: "a", Do: []Action{Wait(time.Second)}}}}, "trigger"},
-		"nil action": {Home{Moments: []Moment{{Name: "a", At: []string{"07:00"}, Do: []Action{nil}}}}, "no action"},
+		"nil action": {Home{Moments: []Moment{{Name: "a", At: []Time{Clock("07:00")}, Do: []Action{nil}}}}, "no action"},
 		"no set":     {Home{Holds: []Hold{{Name: "a", When: when}}}, "needs a capability"},
 		"claim": {
 			Home{Holds: []Hold{{Name: "a", Set: d.To(true).For(time.Hour), When: when}}}, "takes no For, Until or Priority",
@@ -43,8 +43,17 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		"nil change": {
 			Home{Moments: []Moment{{Name: "a", On: []Change{nil}, Do: []Action{Wait(time.Second)}}}}, "a nil change, at On[0]",
 		},
+		"a time that isn't one": {
+			Home{Moments: []Moment{{Name: "bedtime", At: []Time{Clock("25:00")}, Do: []Action{Wait(time.Second)}}}},
+			`rule bedtime: timers[0]: time "25:00" is not HH:MM`,
+		},
+		"a window with no end": {
+			Home{Holds: []Hold{{Name: "evening", Set: d.To(true), Window: &Window{Start: Clock("18:00")}}}}, "end: no time",
+		},
 		"both untils": {
-			Home{Moments: []Moment{{Name: "a", At: []string{"07:00"}, Do: []Action{d.To(true).UntilReleased().UntilNext()}}}},
+			Home{Moments: []Moment{{
+				Name: "a", At: []Time{Clock("07:00")}, Do: []Action{d.To(true).UntilReleased().UntilNext()},
+			}}},
 			"not both",
 		},
 	} {
@@ -188,7 +197,8 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		"both minutes": {budgetHome(valveControl(), Budget{Minutes: minutes, Bands: &Bands{}}), "exactly one"},
 		"bad slot":     {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 20}), "slotMinutes"},
 		"bad window": {
-			budgetHome(valveControl(), Budget{Minutes: minutes, Forbid: []Window{{Start: "7", End: "8"}}}), "not HH:MM",
+			budgetHome(valveControl(), Budget{Minutes: minutes, Forbid: []Window{{Start: Clock("7"), End: Clock("8")}}}),
+			"not HH:MM",
 		},
 		"limit off the slots": {budgetHome(limited, Budget{Minutes: minutes}), "isn't a multiple"},
 		"no control": {Home{Holds: []Hold{{
@@ -264,10 +274,13 @@ func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 	lights := InRoom("hall", On).Types(OnOffLight, DimmableLight)
 	m := Home{
 		Holds: []Hold{
-			{Name: "night-lights", Priority: Safety, Set: lights.To(true), Window: &Window{Start: "22:00", End: "06:00"}},
-			{Name: "evening", Set: lights.To(true), Window: &Window{Start: "18:00", End: "22:00"}},
+			{
+				Name: "night-lights", Priority: Safety, Set: lights.To(true),
+				Window: &Window{Start: Clock("22:00"), End: Clock("06:00")},
+			},
+			{Name: "evening", Set: lights.To(true), Window: &Window{Start: Clock("18:00"), End: Clock("22:00")}},
 		},
-		Moments: []Moment{{Name: "alarm", At: []string{"03:00"}, Do: []Action{
+		Moments: []Moment{{Name: "alarm", At: []Time{Clock("03:00")}, Do: []Action{
 			lights.To(true).For(time.Hour).Priority(Safety), InRoom("hall", On).To(true).For(time.Hour).Priority(Safety),
 		}}},
 	}.manifest()
@@ -285,5 +298,26 @@ func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s has rooms %+v, want %+v", r.Name, got, want)
 		}
+	}
+}
+
+func TestTheSameTimeTwiceFiresOnce(t *testing.T) {
+	m := Moment{Name: "a", At: []Time{Clock("07:00"), Clock("18:00"), Clock("07:00")}, Do: []Action{Wait(time.Second)}}
+	got := m.toEngine().Timers
+	want := []engine.Timer{engine.At{Time: "07:00"}, engine.At{Time: "18:00"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("timers %+v, want %+v", got, want)
+	}
+}
+
+func TestAWindowReachesTheEngine(t *testing.T) {
+	h := Hold{Name: "a", Set: Handle[bool]{Device: "d", Capability: On}.To(true), Window: &Window{
+		Start: Clock("22:00"), End: Clock("06:00"), Days: []time.Weekday{time.Friday},
+	}}
+	want := &engine.Window{
+		Start: engine.At{Time: "22:00"}, End: engine.At{Time: "06:00"}, Days: []time.Weekday{time.Friday},
+	}
+	if got := h.toEngine().Window; !reflect.DeepEqual(got, want) {
+		t.Errorf("window %+v, want %+v", got, want)
 	}
 }
