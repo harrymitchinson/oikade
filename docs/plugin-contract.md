@@ -82,7 +82,7 @@ Publish `{"state":"online","contract":1}` once connected, and set the Last Will 
 
 - List every device from the devices file (see [Environment](#environment)).
 - `found` is true once the plugin can reach the device. `manufacturer`, `model` and `capabilities` matter only when it's true.
-- `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. Those go through Oikade's `add-capability` workflow.
+- `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. They're added to Oikade's registry, named by the guide in `internal/capability`'s package doc.
 - `error` is a problem with the device's configuration, such as bad `parameters` or a missing secret. Leave it empty otherwise.
 - `undeclared` counts devices the plugin can see that Oikade doesn't have on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 

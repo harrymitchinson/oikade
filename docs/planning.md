@@ -93,7 +93,6 @@ Agents act as themselves, so only the user's decisions count as the user's.
 | `design` | Decide whether a design is needed, write it into the issue, and once the user approves it, write the steps |
 | `plan` | What's next, ideas, releases and the README's "Not doing" |
 | `work` | Take the next ready feature, build its steps, review them and open the PRs |
-| `add-capability` | A new capability end to end |
 | `handoff` | A handoff note, and the status and next steps on the feature, so another agent can see them |
 
 ## Not doing
