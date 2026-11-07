@@ -178,6 +178,8 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 	switch route.Type {
 	case api.TypeTail:
 		return s.tail
+	case api.TypeDeploy:
+		return s.deployUpload
 	case api.TypeEvents:
 		return func(w http.ResponseWriter, r *http.Request) {
 			s.log.Info("Received API request", "type", route.Type, "client", callerOf(r.Context()).name)
@@ -198,15 +200,20 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 		}
 		req.Type = route.Type
 		resp := s.answer(callerOf(r.Context()), req)
-		status := http.StatusOK
-		if resp.Error != "" {
-			status = http.StatusUnprocessableEntity
-		}
-		if resp.Close {
+		if route.Public && resp.Error != "" {
+			// A stranger's call that failed, such as a wrong login code, keeps nothing open.
 			w.Header().Set("Connection", "close")
 		}
-		respond(s.log, w, status, resp)
+		respond(s.log, w, statusOf(resp), resp)
 	}
+}
+
+// statusOf is a Response's status: a 422 for one that didn't do what was asked.
+func statusOf(resp api.Response) int {
+	if resp.Error != "" {
+		return http.StatusUnprocessableEntity
+	}
+	return http.StatusOK
 }
 
 // read takes a POST's body within requestTimeout. An empty body is a request with no fields.
@@ -290,8 +297,6 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 		return s.client(c, req)
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
-	case api.TypeDeploy:
-		return s.deploys.deploy(s.ctx, req.Binary, req.AllowSafetyRemoval)
 	case api.TypeRollback:
 		return s.deploys.rollback(s.ctx, req.AllowSafetyRemoval)
 	case api.TypeStatus:
@@ -352,7 +357,7 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 				s.authFailures.Inc()
 			}
 			s.log.Info("Refused API login", "err", err)
-			return api.Response{Error: err.Error(), Close: true}
+			return api.Response{Error: err.Error()}
 		}
 		s.log.Info("Added API client", "name", name, "by", "login")
 		return api.Response{Token: token, Client: name}

@@ -62,6 +62,19 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 		}
 	}
 	r.waitFor(func(l line) bool { return l.is("Received API request", "type", "backup", "client", "laptop") })
+
+	// A deploy streams the binary, so the host needn't share a disk with the laptop.
+	out, err = away(t, laptop, nil, "deploy", "--binary", variant(t, "renamed"))
+	if err == nil || !strings.Contains(out, "--allow-safety-removal") {
+		t.Errorf("a deploy that drops a Safety rule went ahead over TLS: %v: %s", err, out)
+	}
+	out, err = away(t, laptop, nil, "deploy", "--binary", variant(t, "renamed"), "--allow-safety-removal")
+	if err != nil {
+		t.Errorf("deploying over TLS: %v: %s", err, out)
+	}
+	if out, err := away(t, laptop, nil, "rollback", "--allow-safety-removal"); err != nil {
+		t.Errorf("rolling back over TLS: %v: %s", err, out)
+	}
 	if out, err := away(t, laptop, nil, "client", "add", "more"); err == nil {
 		t.Errorf("client add over TLS: %s", out)
 	}

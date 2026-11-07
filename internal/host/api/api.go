@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -61,6 +62,12 @@ const ContentType = "application/json"
 
 // StreamContentType is a tail's and an event log's: lines of JSON.
 const StreamContentType = "application/x-ndjson"
+
+// AllowSafetyRemovalParam is a deploy's query parameter for AllowSafetyRemoval.
+const AllowSafetyRemovalParam = "allowSafetyRemoval"
+
+// BinaryContentType is a deploy's body.
+const BinaryContentType = "application/octet-stream"
 
 // Prefix starts every route, and changes if the API ever breaks.
 const Prefix = "/v1"
@@ -119,9 +126,8 @@ func routeOf(requestType string) (Route, bool) {
 type Request struct {
 	// Type says which call. A route sets it, so it isn't in the body.
 	Type string `json:"-"`
-	// Binary is the file a deploy takes. The host copies it.
-	Binary string `json:"binary,omitempty"`
-	// AllowSafetyRemoval goes ahead even though a Safety rule would go.
+	// AllowSafetyRemoval goes ahead even though a Safety rule would go. A deploy sends it as a query
+	// parameter, as its body is the binary.
 	AllowSafetyRemoval bool `json:"allowSafetyRemoval,omitempty"`
 	// Device, Capability and Value are a set's.
 	Device     string `json:"device,omitempty"`
@@ -194,8 +200,6 @@ type Response struct {
 	Address string `json:"address,omitempty"`
 	// Client is who a login made.
 	Client string `json:"client,omitempty"`
-	// Close ends the connection after the answer, as a failed login does.
-	Close bool `json:"-"`
 	// Pin is the network API's public key, as a client checks it. It's empty while the host has no
 	// network listener.
 	Pin string `json:"pin,omitempty"`
@@ -368,6 +372,55 @@ func Call(ctx context.Context, t Transport, req Request) (Response, error) {
 	return resp, nil
 }
 
+// Deploy sends the binary at path to the host, which runs it as your home's new version. It waits
+// for as long as that takes, as Call does.
+func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bool) (Response, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return Response{}, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return Response{}, err
+	}
+	route, _ := routeOf(TypeDeploy)
+	target := route.Path
+	if allowSafetyRemoval {
+		target += "?" + url.Values{AllowSafetyRemovalParam: {"true"}}.Encode()
+	}
+	sent := &counting{r: f}
+	body, err := send(ctx, t, route, target, sent, info.Size(), BinaryContentType)
+	if err != nil {
+		if sent.n < info.Size() && !errors.Is(err, errUnreachable) {
+			// The host deploys nothing it didn't get all of.
+			return Response{}, fmt.Errorf("lost the host during the upload, so nothing was deployed: %w", errors.Unwrap(err))
+		}
+		return Response{}, err
+	}
+	defer func() { _ = body.Close() }()
+	var resp Response
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		return Response{}, fmt.Errorf("reading the host's answer: %w", err)
+	}
+	return resp, nil
+}
+
+// counting counts what's read through it.
+type counting struct {
+	r io.Reader
+	n int64
+}
+
+func (c *counting) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// errUnreachable is a call that never reached the host.
+var errUnreachable = errors.New("reaching the host")
+
 // Tail streams events to each until ctx ends, each returns an error, or the host goes. It starts
 // once the host is listening, which the first Event, with no type, says.
 func Tail(ctx context.Context, t Transport, each func(Event) error) error {
@@ -440,18 +493,29 @@ func open(ctx context.Context, t Transport, req Request) (io.ReadCloser, error) 
 		return nil, fmt.Errorf("unknown request %q", req.Type)
 	}
 	var body io.Reader
+	length := int64(0)
 	if route.Method == http.MethodPost {
 		raw, err := json.Marshal(req)
 		if err != nil {
 			return nil, fmt.Errorf("sending to the host: %w", err)
 		}
-		body = bytes.NewReader(raw)
+		body, length = bytes.NewReader(raw), int64(len(raw))
 	}
-	// The host name is a formality: the transport decides where this goes.
-	// http, as the transport's own connection is TLS if it needs to be.
-	call, err := http.NewRequestWithContext(ctx, route.Method, "http://oikade"+route.Path, body)
+	return send(ctx, t, route, route.Path, body, length, ContentType)
+}
+
+// send makes a call to target, a route's path and query, with body as its content.
+func send(ctx context.Context, t Transport, route Route, target string, body io.Reader, length int64,
+	contentType string) (io.ReadCloser, error) {
+	// The host name is a formality: the transport decides where this goes. http, as the transport's
+	// own connection is TLS if it needs to be.
+	call, err := http.NewRequestWithContext(ctx, route.Method, "http://oikade"+target, body)
 	if err != nil {
 		return nil, fmt.Errorf("sending to the host: %w", err)
+	}
+	if body != nil {
+		call.ContentLength = length
+		call.Header.Set("Content-Type", contentType)
 	}
 	if a, ok := t.(authorizer); ok && a.token() != "" {
 		call.Header.Set("Authorization", "Bearer "+a.token())
@@ -476,7 +540,7 @@ func open(ctx context.Context, t Transport, req Request) (io.ReadCloser, error) 
 			// The host may have the call, and may still be doing it.
 			return nil, fmt.Errorf("lost the host before it answered: %w", err)
 		}
-		return nil, fmt.Errorf("reaching the host: %w", err)
+		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
 	}
 	if answer.StatusCode < http.StatusBadRequest {
 		return answer.Body, nil

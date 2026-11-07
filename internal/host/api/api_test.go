@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,8 +16,6 @@ import (
 type dialer func(ctx context.Context) (net.Conn, error)
 
 func (d dialer) Dial(ctx context.Context) (net.Conn, error) { return d(ctx) }
-
-func (dialer) Upload(context.Context, string) (string, func(), error) { return "", func() {}, nil }
 
 // hangsUp reads a request, then closes the connection without answering.
 func hangsUp(context.Context) (net.Conn, error) {
@@ -52,5 +52,17 @@ func TestTailCancelledBeforeTheHostAnswersIsNoError(t *testing.T) {
 	})
 	if err := Tail(ctx, waits, func(Event) error { return nil }); err != nil {
 		t.Errorf("a cancelled tail: %v", err)
+	}
+}
+
+func TestADeployCutOffSaysNothingWasDeployed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "home")
+	if err := os.WriteFile(path, make([]byte, 4<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The host reads the request's head, then goes.
+	_, err := Deploy(context.Background(), dialer(hangsUp), path, false)
+	if err == nil || !strings.Contains(err.Error(), "nothing was deployed") {
+		t.Errorf("a deploy cut off mid-upload: %v", err)
 	}
 }

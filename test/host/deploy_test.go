@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -251,12 +252,35 @@ func TestDeployFinishesAfterTheCommandThatAskedIsKilled(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	r.waitFor(func(l line) bool { return l.is("Received API request", "type", api.TypeDeploy) })
+	// Once the binary is all there: before that, a deploy that's cut off is no deploy.
+	r.waitFor(func(l line) bool { return l.is("Received deploy upload") })
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	_ = cmd.Wait()
 	r.waitFor(func(l line) bool { return l.is(deployed) })
+}
+
+func TestAnUploadCutShortDeploysNothingAndLeavesNothing(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	conn, err := net.Dial("unix", filepath.Join(r.dir, api.SocketName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := "POST /v1/deploy HTTP/1.1\r\nHost: oikade\r\nContent-Type: %s\r\nContent-Length: 1000000\r\n\r\n%s"
+	_, _ = fmt.Fprintf(conn, head, api.BinaryContentType, strings.Repeat("x", 1000))
+	_ = conn.Close()
+	r.waitFor(func(l line) bool { return l.is("Dropped deploy upload") })
+	if r.count(stopping) != 0 {
+		t.Errorf("a cut-off upload stopped the process. The log:\n%s", r.dump())
+	}
+	left, err := os.ReadDir(filepath.Join(r.dir, "uploads"))
+	if err != nil || len(left) != 0 {
+		t.Errorf("left %v behind: %v", left, err)
+	}
+	r.mustDeploy("second")
 }
 
 func TestDeployingTheRunningVersionChangesNothing(t *testing.T) {

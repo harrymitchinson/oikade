@@ -13,7 +13,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/matter` | | `matter` |
 | `GET /v1/devices` | | `registry` |
 | `GET /v1/secrets` | | `secrets`, never their values |
-| `POST /v1/deploy` | `binary`, `allowSafetyRemoval` | `version`, `unchanged`, `restored`, `findings` |
+| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings` |
 | `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings` |
 | `POST /v1/set` | `device`, `capability`, `value` | |
 | `POST /v1/pause`, `POST /v1/resume` | `rule`, `allowSafety` | `needsAllowSafety` |
@@ -32,7 +32,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/clients/revoke` | `client` | |
 | `POST /v1/login` | `code` | `token`, shown only once, and `client` |
 
-A call has 5 seconds to send its body. Secret values go only in a body, and never in a path or a log.
+A call has 5 seconds to send its body, except a deploy, which may send its binary for as long as it keeps sending: up to 30 seconds with nothing, and 1 GiB in all. The host keeps the upload in `uploads` in its data directory until the deploy has copied it, and an upload that's cut off, or a host that stops during one, leaves nothing there and deploys nothing. Secret values go only in a body, and never in a path or a log.
 
 **A call outlives its connection.** Once the host has a request it finishes it, so a deploy that has begun goes on after the command that asked is killed. The answer then has nowhere to go, and `oikade status` shows how it ended.
 
