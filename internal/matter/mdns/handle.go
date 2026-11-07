@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
+
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 )
 
 // serve reads packets from c until it's closed.
@@ -30,8 +32,14 @@ func (r *Responder) serve(c packetConn) {
 		if !slices.Contains(r.ifaces, ifIndex) {
 			continue // another socket joined the group on an interface we don't serve
 		}
-		r.handle(c, ifIndex, src, b[:n])
+		r.handleContained(c, ifIndex, src, b[:n])
 	}
+}
+
+// handleContained is handle, with a panic costing only the packet.
+func (r *Responder) handleContained(c packetConn, ifIndex int, src *net.UDPAddr, b []byte) {
+	defer contain.Recover(r.log, contain.MDNS, nil)
+	r.handle(c, ifIndex, src, b)
 }
 
 // handle answers a query, or checks a response for conflicts with names being probed. It

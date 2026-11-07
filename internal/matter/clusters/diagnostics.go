@@ -3,6 +3,7 @@ package clusters
 import (
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 )
@@ -115,6 +116,7 @@ func (id *identify) start(seconds uint16) {
 	}
 	var t *time.Timer
 	t = time.AfterFunc(time.Duration(seconds)*time.Second, func() {
+		defer contain.Recover(nil, contain.Timer, nil)
 		if n := id.cluster.Node(); n != nil {
 			n.Update(func() {
 				if id.timer == t {

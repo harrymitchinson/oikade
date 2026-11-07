@@ -459,9 +459,10 @@ func TestTheBridgeReportsWhatControllersDo(t *testing.T) {
 	c.reaches("fan")
 	r := c.r
 	for series, want := range map[string]string{
-		"oikade_matter_fabrics":       "1",
-		"oikade_matter_serving":       "1",
-		"oikade_matter_subscriptions": "0",
+		"oikade_matter_fabrics":                      "1",
+		"oikade_matter_serving":                      "1",
+		"oikade_matter_subscriptions":                "0",
+		`oikade_matter_panics_total{part="handler"}`: "0",
 	} {
 		if got := r.metric(series); got != want {
 			t.Errorf("%s: %q, want %s", series, got, want)

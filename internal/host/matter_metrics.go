@@ -4,6 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 )
 
@@ -15,7 +16,7 @@ type matterMetrics struct {
 	reports      prometheus.Counter
 	writes       prometheus.Histogram
 
-	fabrics, sessions, subscriptions, serving *prometheus.Desc
+	fabrics, sessions, subscriptions, serving, panics *prometheus.Desc
 }
 
 func newMatterMetrics(bridge *matterBridge) *matterMetrics {
@@ -43,6 +44,9 @@ func newMatterMetrics(bridge *matterBridge) *matterMetrics {
 			"Subscriptions that controllers hold.", nil, nil),
 		serving: prometheus.NewDesc("oikade_matter_serving",
 			"1 while the bridge serves controllers, 0 while it can't.", nil, nil),
+		panics: prometheus.NewDesc("oikade_matter_panics_total",
+			"Panics in handling Matter messages that cost only that message, by where they happened. Each is a bug.",
+			[]string{"part"}, nil),
 	}
 }
 
@@ -68,6 +72,7 @@ func (m *matterMetrics) Describe(ch chan<- *prometheus.Desc) {
 	ch <- m.sessions
 	ch <- m.subscriptions
 	ch <- m.serving
+	ch <- m.panics
 }
 
 // Collect implements prometheus.Collector. A bridge whose state couldn't be read has no node, and
@@ -81,6 +86,9 @@ func (m *matterMetrics) Collect(ch chan<- prometheus.Metric) {
 		serving = 1
 	}
 	ch <- prometheus.MustNewConstMetric(m.serving, prometheus.GaugeValue, serving)
+	for _, part := range contain.Parts {
+		ch <- prometheus.MustNewConstMetric(m.panics, prometheus.CounterValue, float64(contain.Panics(part)), part)
+	}
 	if !m.bridge.working() {
 		return
 	}

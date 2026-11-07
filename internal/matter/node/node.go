@@ -19,6 +19,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/fabric"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -266,7 +267,10 @@ func (n *Node) Run(ctx context.Context) error {
 	// Each fabric's controllers look for the node as soon as it's back, so advertise them all at
 	// once rather than probing one after another.
 	for _, f := range n.table.Fabrics() {
-		go n.advertiseFabric(f.Index)
+		go func() {
+			defer contain.Recover(n.log, contain.MDNS, nil)
+			n.advertiseFabric(f.Index)
+		}()
 	}
 	switch {
 	case window != nil:
@@ -472,6 +476,7 @@ func (n *Node) fabricRemoved(index uint8) {
 		}
 	}
 	time.AfterFunc(fabricSessionGrace, func() {
+		defer contain.Recover(n.log, contain.Timer, nil)
 		for _, s := range ending {
 			n.endSession(s)
 		}

@@ -20,9 +20,11 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 )
 
 // Port is the UDP port Matter nodes listen on.
@@ -81,7 +83,9 @@ type Options struct {
 type Transport struct {
 	conn net.PacketConn
 	log  *slog.Logger
-	mrp  MRPConfig
+	// received, if set, sees each packet before it's handled. Tests set it.
+	received atomic.Pointer[func(pkt []byte)]
+	mrp      MRPConfig
 
 	mu        sync.Mutex
 	handlers  map[handlerKey]Handler
@@ -172,8 +176,18 @@ func (t *Transport) Serve(ctx context.Context) error {
 			t.drop(addr, "message too large", "bytes", n)
 			continue
 		}
-		t.receive(append([]byte(nil), buf[:n]...), addr)
+		t.receiveContained(append([]byte(nil), buf[:n]...), addr)
 	}
+}
+
+// receiveContained is receive, with a panic costing only the packet: receive lets its locks go with
+// defer.
+func (t *Transport) receiveContained(pkt []byte, from netip.AddrPort) {
+	defer contain.Recover(t.log, contain.Receive, nil)
+	if f := t.received.Load(); f != nil {
+		(*f)(pkt)
+	}
+	t.receive(pkt, from)
 }
 
 // NewUnsecuredSession starts an unsecured session with peer, as its initiator, such as a

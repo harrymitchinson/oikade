@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
@@ -88,6 +89,8 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	go func() {
 		defer stop()
 		defer s.endSubscription(sub)
+		// The subscription ends with a panic, and the controller subscribes again.
+		defer contain.Recover(s.Log, contain.Subscription, nil)
 		err := s.runSubscription(runCtx, sub)
 		s.Log.Debug("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "reason", err.Error())
 	}()

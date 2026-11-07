@@ -312,12 +312,18 @@ func (n *Node) Parts(e *Endpoint) []uint16 {
 // Update runs f with the Node's lock held, for changes from outside the Interaction Model, such
 // as a device reporting new state. f calls Cluster.Changed for what it changes.
 func (n *Node) Update(f func()) {
+	n.announce(n.update(f))
+}
+
+// update runs f with the lock, and returns what it changed. The lock goes with defer, so a panic in f
+// leaves it free, and what f changed is announced by the next Update.
+func (n *Node) update(f func()) []Path {
 	n.mu.Lock()
+	defer n.mu.Unlock()
 	f()
 	changes := n.pending
 	n.pending = nil
-	n.mu.Unlock()
-	n.announce(changes)
+	return changes
 }
 
 // View runs f with the Node's read lock held.

@@ -3,6 +3,7 @@ package clusters
 import (
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
@@ -192,6 +193,7 @@ func (c *Commissioning) openWindow(fabric uint8, initial bool, w Window) {
 	c.window = window{
 		status: status, initial: initial, adminFabric: fabric, adminVendor: vendor, generation: gen,
 		timer: time.AfterFunc(w.Timeout, func() {
+			defer contain.Recover(c.log, contain.Timer, nil)
 			c.update(func() {
 				if c.window.generation == gen {
 					c.log.Info("Commissioning window timed out")

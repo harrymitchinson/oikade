@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
+
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 )
 
 // Update replaces an added service's subtypes, port and TXT strings with svc's, which has the
@@ -170,6 +172,7 @@ func (r *Responder) after(d time.Duration, f func()) {
 		return
 	}
 	r.wg.Go(func() {
+		defer contain.Recover(r.log, contain.MDNS, nil)
 		t := time.NewTimer(d)
 		defer t.Stop()
 		select {
