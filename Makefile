@@ -147,7 +147,8 @@ GORELEASER = $(LOCALBIN)/goreleaser
 
 ## Tool Versions
 GOLANGCI_LINT_VERSION ?= v2.15.0
-GORELEASER_VERSION ?= v2.20.0
+# The newest GoReleaser that builds with go.mod's Go, as CI runs with GOTOOLCHAIN=local. Raise both together.
+GORELEASER_VERSION ?= v2.14.0
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 # bin/ is order-only: a restored CI cache leaves it newer than the binary, which
