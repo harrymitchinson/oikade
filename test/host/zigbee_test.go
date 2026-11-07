@@ -19,16 +19,23 @@ const (
 	deskPlug   = "0x00124b0000000004"
 )
 
-// fakeZigbee2MQTT does what a real one does on the broker: it retains its device list and state, and
-// answers a /set by publishing the device's new state.
+// fakeZigbee2MQTT does what a real one does on the broker: it retains its device list and, with
+// device_options.retain, its state. It answers a /set by publishing the device's new state, and a
+// /get by publishing its state.
 type fakeZigbee2MQTT struct {
 	bus *mqtt.Client
 
 	mu     sync.Mutex
 	writes []string
+	gets   int
 }
 
 func startFakeZigbee2MQTT(t *testing.T, url string) *fakeZigbee2MQTT {
+	t.Helper()
+	return startFakeZigbee2MQTTRetaining(t, url, true)
+}
+
+func startFakeZigbee2MQTTRetaining(t *testing.T, url string, retain bool) *fakeZigbee2MQTT {
 	t.Helper()
 	// The connection lasts as long as this context.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -38,6 +45,7 @@ func startFakeZigbee2MQTT(t *testing.T, url string) *fakeZigbee2MQTT {
 		t.Fatal(err)
 	}
 	z := &fakeZigbee2MQTT{bus: bus}
+	state := `{"state":"OFF"}`
 	devices, err := os.ReadFile(filepath.Join("..", "..", "plugins", "zigbee2mqtt", "testdata", "bridge-devices.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -45,8 +53,21 @@ func startFakeZigbee2MQTT(t *testing.T, url string) *fakeZigbee2MQTT {
 	_, err = bus.Subscribe(ctx, zigbeeBase+"/"+deskPlug+"/set", func(m mqtt.Message) {
 		z.mu.Lock()
 		z.writes = append(z.writes, string(m.Payload))
+		state = string(m.Payload)
 		z.mu.Unlock()
-		if err := bus.Publish(ctx, zigbeeBase+"/desk-plug", m.Payload, true); err != nil {
+		if err := bus.Publish(ctx, zigbeeBase+"/desk-plug", m.Payload, retain); err != nil {
+			t.Error(err)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = bus.Subscribe(ctx, zigbeeBase+"/"+deskPlug+"/get", func(mqtt.Message) {
+		z.mu.Lock()
+		z.gets++
+		reply := state
+		z.mu.Unlock()
+		if err := bus.Publish(ctx, zigbeeBase+"/desk-plug", []byte(reply), retain); err != nil {
 			t.Error(err)
 		}
 	})
@@ -54,7 +75,9 @@ func startFakeZigbee2MQTT(t *testing.T, url string) *fakeZigbee2MQTT {
 		t.Fatal(err)
 	}
 	z.publish(t, "bridge/state", `{"state":"online"}`)
-	z.publish(t, "desk-plug", `{"state":"OFF"}`)
+	if retain {
+		z.publish(t, "desk-plug", state)
+	}
 	z.publish(t, "bridge/devices", string(devices))
 	return z
 }
@@ -106,6 +129,24 @@ func TestZigbeeDevicesPairAndCanBeSetThroughAZigbee2MQTTYouRun(t *testing.T) {
 	})
 	r.stdout(nil, "set", "desk-plug", "switch.on", "off")
 	r.untilValue("desk-plug", false)
+}
+
+// A Zigbee2MQTT that retains nothing still has the state of a device that can answer, straight after
+// the plugin starts.
+func TestAZigbeeDeviceThatRetainsNothingIsAskedForItsState(t *testing.T) {
+	t.Parallel()
+	url := mqtttest.StartBroker(t)
+	z := startFakeZigbee2MQTTRetaining(t, url, false)
+	r := prepare(t)
+	r.launchWithout("--home", variant(t, "zigbee"), "--simulate", devicesFile(t), "--broker", url)
+	r.waitFor(func(l line) bool { return l.is(attached) })
+	r.untilValue("desk-plug", false)
+	z.mu.Lock()
+	gets := z.gets
+	z.mu.Unlock()
+	if gets != 1 {
+		t.Fatalf("Zigbee2MQTT got %d /get requests, want 1", gets)
+	}
 }
 
 func plugOnline(r *rig) *bool {

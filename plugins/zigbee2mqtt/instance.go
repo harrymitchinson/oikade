@@ -20,6 +20,10 @@ import (
 // earlyLimit bounds what's kept for the next device list.
 const earlyLimit = 4096
 
+// defaultGetInterval paces the /get requests after a device list, so that a large network doesn't
+// flood the broker, or Zigbee2MQTT's queue behind it.
+const defaultGetInterval = 200 * time.Millisecond
+
 // Instance follows one Zigbee2MQTT instance on the bus.
 type Instance struct {
 	// Key is the Zigbee2MQTT object.
@@ -33,13 +37,20 @@ type Instance struct {
 	// and whatever it resolved.
 	OnBridgeState func(online bool)
 	OnListed      func()
+	// getInterval is the time between /get requests. Zero is defaultGetInterval.
+	getInterval time.Duration
+	// requested, if set, runs when a round of /get requests ends. Tests wait for it.
+	requested func()
 
 	mu          sync.Mutex
+	ctx         context.Context
 	unsubscribe func()
+	stopGets    context.CancelFunc
 	declared    map[string]ident.ID       // IEEE address -> Device
 	paired      map[string]*paired        // IEEE address -> paired device
 	byName      map[string]string         // friendly name -> IEEE address
 	values      map[string]map[string]any // IEEE address -> capability -> value
+	offline     map[string]bool           // IEEE address -> whether its last availability was offline
 	// early holds the latest message on each topic that resolves to no device, until the next device
 	// list, which may be what resolves it: a broker sends retained messages in any order, and a new
 	// device can report before it's listed.
@@ -56,6 +67,9 @@ var _ driver.Setter = (*Instance)(nil)
 // Start subscribes to the instance's topics.
 func (i *Instance) Start(ctx context.Context) error {
 	i.Log = logging.OrDiscard(i.Log)
+	i.mu.Lock()
+	i.ctx = ctx
+	i.mu.Unlock()
 	unsubscribe, err := i.Bus.Subscribe(ctx, i.BaseTopic+"/#", i.handle)
 	i.mu.Lock()
 	i.unsubscribe = unsubscribe
@@ -68,6 +82,11 @@ func (i *Instance) Stop() {
 	i.mu.Lock()
 	unsubscribe := i.unsubscribe
 	i.unsubscribe = nil
+	// A device list taken in meanwhile starts no round.
+	i.ctx = nil
+	if i.stopGets != nil {
+		i.stopGets()
+	}
 	i.mu.Unlock()
 	if unsubscribe != nil {
 		unsubscribe()
@@ -123,10 +142,27 @@ func (i *Instance) handle(m mqtt.Message) {
 			i.OnBridgeState(onlinePayload(m.Payload))
 		}
 	case strings.HasPrefix(rest, "bridge/"):
+	case i.ownCommand(rest):
 	case i.hold(rest, m.Payload):
 	default:
 		i.handleDevice(rest, m.Payload)
 	}
+}
+
+// ownCommand says whether a topic is a /get or a /set sent to an IEEE address, as the plugin sends
+// them: the broker echoes them back, and they mustn't be held for the next device list.
+func (i *Instance) ownCommand(rest string) bool {
+	ieee, ok := strings.CutSuffix(rest, "/get")
+	if !ok {
+		ieee, ok = strings.CutSuffix(rest, "/set")
+	}
+	return ok && isIEEE(ieee)
+}
+
+// isIEEE says whether s is an IEEE address as Zigbee2MQTT writes one, such as 0x00124b0000000004.
+func isIEEE(s string) bool {
+	hex, ok := strings.CutPrefix(s, "0x")
+	return ok && len(hex) == 16 && strings.Trim(hex, "0123456789abcdef") == ""
 }
 
 // hold keeps a message that resolves to no device for the next device list, and says whether it did.
@@ -218,9 +254,90 @@ func (i *Instance) handleDevices(payload []byte) {
 	for _, rest := range slices.Sorted(maps.Keys(early)) {
 		i.handleDevice(rest, early[rest])
 	}
+	i.requestState()
 	if i.OnListed != nil {
 		i.OnListed()
 	}
+}
+
+// request is one /get: a property to read from a device, for a capability.
+type request struct {
+	ieee, property, capability string
+}
+
+// requestState asks for each value a device can be asked for and that nothing has reported, such
+// as a device that doesn't retain its state. A device Zigbee2MQTT says is offline isn't asked. It runs after the held messages are replayed, so a
+// retained value is neither re-requested nor overwritten. A device list replaces the last round.
+//
+// A reply is a state message like any other, and the first value of a capability counts as no
+// change, so it fires nothing a retained value wouldn't. A device that doesn't answer, such as one
+// asleep, leaves its value unknown: Zigbee2MQTT says nothing, and neither does Oikade.
+func (i *Instance) requestState() {
+	i.mu.Lock()
+	if i.stopGets != nil {
+		i.stopGets()
+	}
+	if i.ctx == nil {
+		i.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(i.ctx)
+	i.stopGets = cancel
+	var requests []request
+	for _, ieee := range slices.Sorted(maps.Keys(i.paired)) {
+		// The plugin declares every paired device as it takes in the list, before this runs.
+		if _, ok := i.declared[ieee]; !ok || i.offline[ieee] {
+			continue
+		}
+		for _, b := range i.paired[ieee].bindings {
+			if b.get && !i.knownLocked(ieee, b.capability) {
+				requests = append(requests, request{ieee, b.property, b.capability})
+			}
+		}
+	}
+	i.mu.Unlock()
+	go i.get(ctx, requests)
+}
+
+// get sends requests one interval apart, skipping any value reported meanwhile.
+func (i *Instance) get(ctx context.Context, requests []request) {
+	if i.requested != nil {
+		defer i.requested()
+	}
+	interval := i.getInterval
+	if interval <= 0 {
+		interval = defaultGetInterval
+	}
+	t := time.NewTimer(interval)
+	defer t.Stop()
+	for _, r := range requests {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		t.Reset(interval)
+		i.mu.Lock()
+		skip := i.knownLocked(r.ieee, r.capability) || i.offline[r.ieee]
+		i.mu.Unlock()
+		if skip {
+			continue
+		}
+		// Zigbee2MQTT's documented payload names one property, with an empty value. It's addressed
+		// by IEEE, like a /set.
+		payload, _ := json.Marshal(map[string]string{r.property: ""})
+		if err := i.Bus.Publish(ctx, i.BaseTopic+"/"+r.ieee+"/get", payload, false); err != nil {
+			// The broker has gone. When it's back, it replays what's retained, and the next device
+			// list asks again.
+			i.Log.Debug("Stopped requesting device state", "instance", i.Key, "err", err)
+			return
+		}
+	}
+}
+
+func (i *Instance) knownLocked(ieee, capability string) bool {
+	_, ok := i.values[ieee][capability]
+	return ok
 }
 
 // discoveryLocked computes discovery events; call the returned func after unlocking.
@@ -255,11 +372,18 @@ func (i *Instance) discoveryLocked() func() {
 }
 
 func (i *Instance) handleAvailability(name string, payload []byte) {
+	online := onlinePayload(payload)
 	i.mu.Lock()
 	dev, ok := i.deviceLocked(name)
+	if ok {
+		if i.offline == nil {
+			i.offline = map[string]bool{}
+		}
+		i.offline[i.byName[name]] = !online
+	}
 	i.mu.Unlock()
 	if ok {
-		i.Sink.Availability(dev, onlinePayload(payload))
+		i.Sink.Availability(dev, online)
 	}
 }
 

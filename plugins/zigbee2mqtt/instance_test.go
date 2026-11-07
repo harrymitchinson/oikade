@@ -1,7 +1,9 @@
 package zigbee2mqtt
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -105,6 +107,7 @@ func setup(t *testing.T) (*Instance, *mqtt.Memory, *recorder) {
 	if err := i.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(i.Stop)
 	return i, bus, rec
 }
 
@@ -419,5 +422,129 @@ func TestAHeldMessageDoesNotUndoANewerOne(t *testing.T) {
 	}
 	if len(rec.changes) != 1 || rec.changes[0].Value != false {
 		t.Errorf("changes = %+v, want only the newer report, of a closed door", rec.changes)
+	}
+}
+
+// startRequesting starts an Instance on bus, with every paired device in the fixture declared but
+// the ZBMINI, and waits for its first round of /get requests to end.
+func startRequesting(t *testing.T, bus *mqtt.Memory, log *slog.Logger) (*Instance, *recorder) {
+	t.Helper()
+	devices, err := os.ReadFile("testdata/bridge-devices.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	_ = bus.Publish(ctx, "z2m/bridge/devices", devices, true)
+	rec := newRecorder()
+	done := make(chan struct{}, 1)
+	i := &Instance{
+		Key: dev("z2m"), BaseTopic: "z2m", Bus: bus, Sink: rec, Now: time.Now, Log: log,
+		getInterval: time.Millisecond,
+		requested: func() {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		},
+	}
+	i.SetDevices(map[string]ident.ID{
+		"0x000b57fffe000001": lamp,
+		"0x00158d0000000002": motion,
+		"0x00158d0000000003": door,
+		"0x00124b0000000004": plug,
+	})
+	if err := i.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(i.Stop)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the /get requests never ended")
+	}
+	return i, rec
+}
+
+// gets is every /get sent, as topic=payload.
+func gets(bus *mqtt.Memory) []string {
+	var out []string
+	for _, m := range slices.Clone(bus.Published) {
+		if strings.HasSuffix(m.Topic, "/get") {
+			out = append(out, m.Topic+"="+string(m.Payload))
+		}
+	}
+	return out
+}
+
+// Only what a device can answer and nothing retained is asked for: the plug's state is retained, and
+// the sensors' properties can't be read. Nothing is asked of a device that isn't declared.
+func TestARetainedValueIsNotRequested(t *testing.T) {
+	bus := mqtt.NewMemory()
+	_ = bus.Publish(context.Background(), "z2m/desk-plug", []byte(`{"state":"OFF"}`), true)
+	i, _ := startRequesting(t, bus, logging.Discard())
+	want := []string{
+		`z2m/0x000b57fffe000001/get={"state":""}`,
+		`z2m/0x000b57fffe000001/get={"brightness":""}`,
+	}
+	if got := gets(bus); !slices.Equal(got, want) {
+		t.Errorf("gets:\n got %v\nwant %v", got, want)
+	}
+	// The broker echoes each /get back, and it isn't held for the next device list.
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if len(i.early) != 0 {
+		t.Errorf("holding %v", i.early)
+	}
+}
+
+// A device Zigbee2MQTT says is offline can't answer, so it isn't asked.
+func TestAnOfflineDeviceIsNotAsked(t *testing.T) {
+	bus := mqtt.NewMemory()
+	_ = bus.Publish(context.Background(), "z2m/0x000b57fffe000001/availability", []byte(`{"state":"offline"}`), true)
+	startRequesting(t, bus, logging.Discard())
+	want := []string{`z2m/0x00124b0000000004/get={"state":""}`}
+	if got := gets(bus); !slices.Equal(got, want) {
+		t.Errorf("gets:\n got %v\nwant %v", got, want)
+	}
+}
+
+// A reply is a first value, as a retained one is: it has no previous value, so it fires nothing.
+func TestAReplyIsAFirstValue(t *testing.T) {
+	bus := mqtt.NewMemory()
+	_, err := bus.Subscribe(context.Background(), "z2m/0x000b57fffe000001/get", func(mqtt.Message) {
+		_ = bus.Publish(context.Background(), "z2m/0x000b57fffe000001", []byte(`{"state":"ON","brightness":254}`), false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rec := startRequesting(t, bus, logging.Discard())
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.changes) != 2 || rec.changes[0].Previous != nil || rec.changes[1].Previous != nil ||
+		rec.changes[0].Value != true || rec.changes[1].Value != 100.0 {
+		t.Errorf("changes = %+v, want the lamp's state and level, each with no previous value", rec.changes)
+	}
+	// Answered once, its brightness isn't asked for as well.
+	lampGets := slices.DeleteFunc(gets(bus), func(g string) bool { return !strings.HasPrefix(g, "z2m/0x000b57fffe000001/") })
+	if len(lampGets) != 1 {
+		t.Errorf("gets of the lamp = %v, want only the first", lampGets)
+	}
+}
+
+// A device asleep doesn't answer, and that isn't an error: its value stays unknown until it reports.
+func TestADeviceThatNeverAnswersStaysUnknown(t *testing.T) {
+	bus := mqtt.NewMemory()
+	var logs bytes.Buffer
+	_, rec := startRequesting(t, bus, slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	if len(gets(bus)) == 0 {
+		t.Fatal("nothing was requested")
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.changes) != 0 {
+		t.Errorf("changes = %+v, want none", rec.changes)
+	}
+	if logs.Len() != 0 {
+		t.Errorf("logged %s", logs.String())
 	}
 }
