@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	stdlog "log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -71,20 +72,36 @@ func (s *apiServer) serveNetwork(l net.Listener) {
 func (s *apiServer) authenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		name, known := "", false
+		var name string
+		var revoked <-chan struct{}
+		known := false
 		if ok {
-			name, known = s.clients.check(token)
+			name, revoked, known = s.clients.check(token)
 		}
 		if !known {
+			// Nothing of the body is read, and the connection goes, so a stranger can't keep it open.
+			w.Header().Set("Connection", "close")
+			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(requestTimeout))
 			s.authFailures.Inc()
 			s.log.Info("Refused API request without a valid token", "remote", r.RemoteAddr, "path", r.URL.Path)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="oikade"`)
 			respond(s.log, w, http.StatusUnauthorized, api.Response{
-				Error: "the host needs a valid token for this: log in again, or ask for a new one with oikade client add",
+				Error: "the host needs a valid token for this: ask for one with oikade client add on the host's machine",
 			})
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(withCaller(r.Context(), caller{name: name})))
+		// A revoke ends the client's streams. A call that has begun still finishes, as it does without
+		// its connection.
+		ctx, cancel := context.WithCancel(withCaller(r.Context(), caller{name: name}))
+		defer cancel()
+		go func() {
+			select {
+			case <-revoked:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -94,7 +111,7 @@ func (s *apiServer) serveWith(l net.Listener, handler http.Handler) {
 		ReadHeaderTimeout: requestTimeout,
 		// oikade makes one call a connection, and another client may keep one open.
 		IdleTimeout: idleTimeout,
-		ErrorLog:    slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
+		ErrorLog:    stdlog.New(httpErrors{s.log}, "", 0),
 	}
 	if err := server.Serve(l); !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		s.log.Error("Failed to accept connection", "err", err)
@@ -138,7 +155,11 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 		return s.tail
 	case api.TypeEvents:
 		return func(w http.ResponseWriter, r *http.Request) {
-			s.srv.events.stream(s.ctx, newLines(w), func(err error) {
+			s.log.Info("Received API request", "type", route.Type, "client", callerOf(r.Context()).name)
+			ctx, cancel := context.WithCancel(r.Context())
+			defer cancel()
+			defer context.AfterFunc(s.ctx, cancel)()
+			s.srv.events.stream(ctx, newLines(w), func(err error) {
 				respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
 			})
 		}
@@ -212,6 +233,7 @@ func (l *lines) flush() bool {
 
 // tail streams events until the caller goes, the host stops, or the caller falls behind.
 func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
+	s.log.Info("Received API request", "type", api.TypeTail, "client", callerOf(r.Context()).name)
 	events, stop := s.srv.feed.subscribe()
 	defer stop()
 	out := newLines(w)
@@ -269,7 +291,7 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 // can't make more. Revoking works from anywhere, so a lost laptop can be cut off from another.
 func (s *apiServer) client(c caller, req api.Request) api.Response {
 	if s.clients == nil {
-		return api.Response{Error: "the host has no network API: start it with --api-addr"}
+		return api.Response{Error: "the host has no network API clients: start it with --api-addr, and its log says why if it was"}
 	}
 	switch req.Type {
 	case api.TypeClients:
@@ -292,4 +314,18 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 		return api.Response{}
 	}
 	return api.Response{Error: "unknown client request"}
+}
+
+// httpErrors takes net/http's own log lines, which aren't in this repo's style. A failed TLS handshake
+// is anyone on the network, such as a port scan or a client that pins something else, so it's Debug.
+type httpErrors struct{ log *slog.Logger }
+
+func (h httpErrors) Write(p []byte) (int, error) {
+	line := strings.TrimSpace(string(p))
+	if strings.Contains(line, "TLS handshake error") {
+		h.log.Debug("Failed TLS handshake", "err", line)
+	} else {
+		h.log.Warn("Logged HTTP server error", "err", line)
+	}
+	return len(p), nil
 }

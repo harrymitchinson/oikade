@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -10,24 +11,31 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
 const servingAPI = "Serving API over TLS"
 
+// logged is a field of the last log line with this message, anywhere in the log.
+func (r *rig) logged(msg, field string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	value := ""
+	for _, l := range r.lines {
+		if l.is(msg) {
+			value, _ = l[field].(string)
+		}
+	}
+	return value
+}
+
 // network is where a rig's host serves its API over TLS, and the pin it serves it with. The host says
 // so before it's attached.
 func (r *rig) network() (address, pin string) {
 	r.t.Helper()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, l := range r.lines {
-		if l.is(servingAPI) {
-			address, _ = l["address"].(string)
-			pin, _ = l["pin"].(string)
-		}
-	}
+	address, pin = r.logged(servingAPI, "address"), r.logged(servingAPI, "pin")
 	if address == "" {
 		r.t.Fatalf("the host isn't serving its API over TLS. The log:\n%s", r.dump())
 	}
@@ -126,6 +134,54 @@ func TestNetworkAPINeedsAValidToken(t *testing.T) {
 	}
 }
 
+func TestRevokingEndsATailAndAStrangerCantHoldAConnection(t *testing.T) {
+	t.Parallel()
+	r := start(t, "--api-addr", "127.0.0.1:0")
+	address, pin := r.network()
+	token, _ := r.addClient("laptop")
+	c := pinned(pin)
+
+	req, err := http.NewRequest("GET", "https://"+address+"/v1/tail", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = io.Copy(io.Discard, resp.Body)
+	}()
+	r.stdout(nil, "client", "revoke", "laptop")
+	select {
+	case <-ended:
+	case <-time.After(waitLimit):
+		t.Error("a revoked client's tail kept streaming")
+	}
+
+	// A body promised and never sent: the refusal comes at once, and the connection goes.
+	// It's the test's own host, and the call never gets as far as anything a pin protects.
+	conn, err := tls.Dial("tcp", address, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	_, _ = fmt.Fprint(conn, "POST /v1/deploy HTTP/1.1\r\nHost: x\r\nContent-Length: 200000\r\n\r\n{")
+	_ = conn.SetReadDeadline(time.Now().Add(waitLimit))
+	answer, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = answer.Body.Close()
+	if answer.StatusCode != http.StatusUnauthorized || !answer.Close {
+		t.Errorf("a stranger's call: %d, close %v", answer.StatusCode, answer.Close)
+	}
+}
+
 func TestNetworkAPIKeepsItsIdentity(t *testing.T) {
 	t.Parallel()
 	r := start(t, "--api-addr", "127.0.0.1:0")
@@ -160,23 +216,17 @@ func TestATakenAPIPortLeavesTheHostRunning(t *testing.T) {
 	if st := r.status(); st.Devices == nil {
 		t.Errorf("status over the socket: %+v", st)
 	}
-	if _, err := r.oikade(nil, "client", "list"); err == nil {
-		t.Error("client list worked with no network API")
+	// A token must stay revocable while the port is taken, or it would work again once it's free.
+	r.addClient("laptop")
+	if stderr, err := r.oikade(nil, "client", "revoke", "laptop"); err != nil {
+		t.Errorf("revoking with no listener: %v: %s", err, stderr)
 	}
 }
 
 // metric is a host metric's value, with no labels, as /metrics shows it.
 func (r *rig) metric(name string) string {
 	r.t.Helper()
-	var address string
-	r.mu.Lock()
-	for _, l := range r.lines {
-		if l.is("Serving metrics and health") {
-			address, _ = l["address"].(string)
-		}
-	}
-	r.mu.Unlock()
-	resp, err := http.Get(fmt.Sprintf("http://%s/metrics", address))
+	resp, err := http.Get(fmt.Sprintf("http://%s/metrics", r.logged("Serving metrics and health", "address")))
 	if err != nil {
 		r.t.Fatal(err)
 	}

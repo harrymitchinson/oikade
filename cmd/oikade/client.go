@@ -19,7 +19,7 @@ func runClient(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("client", flag.ExitOnError)
 	t := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	token := fs.Bool("token", false, "Print a token for the client to use, such as CI's OIKADE_TOKEN.")
+	token := fs.Bool("token", false, "Print a token for the client to send, such as CI.")
 	words := parse(fs, args)
 	req := api.Request{}
 	switch {

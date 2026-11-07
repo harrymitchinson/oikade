@@ -512,7 +512,7 @@ oikade client list               # who has a token, and when each last used it
 oikade client revoke ci          # its token stops working at once
 ```
 
-`client add` works only on the host's machine, through the socket, so a stolen token can't make more of them. `revoke` works from anywhere. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.
+`client add` works only on the host's machine, through the socket, so a stolen token can't make more of them. `revoke` works over the network API too, so any client can cut off a lost one, and it ends that client's open streams. It works while the listener is down, so a token can't come back when the port frees. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.
 
 ## Metrics
 

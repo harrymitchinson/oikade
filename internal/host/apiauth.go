@@ -137,13 +137,21 @@ type clients struct {
 	values *store.Namespace
 	now    func() time.Time
 
+	// disk orders writes to the store, so a last use can't write back a client a revoke deleted. It's
+	// taken before mu.
+	disk    sync.Mutex
 	mu      sync.Mutex
 	records map[string]clientRecord // name -> record
 	byHash  map[string]string       // hash -> name
+	// revoked closes when the client is revoked, which ends its streams.
+	revoked map[string]chan struct{}
 }
 
 func loadClients(values *store.Namespace) (*clients, error) {
-	c := &clients{values: values, now: time.Now, records: map[string]clientRecord{}, byHash: map[string]string{}}
+	c := &clients{
+		values: values, now: time.Now,
+		records: map[string]clientRecord{}, byHash: map[string]string{}, revoked: map[string]chan struct{}{},
+	}
 	keys, err := values.Keys()
 	if err != nil {
 		return nil, fmt.Errorf("reading the API's clients: %w", err)
@@ -161,7 +169,7 @@ func loadClients(values *store.Namespace) (*clients, error) {
 		if err := json.Unmarshal(raw, &rec); err != nil {
 			return nil, fmt.Errorf("reading client %s: %w", name, err)
 		}
-		c.records[name], c.byHash[rec.Hash] = rec, name
+		c.records[name], c.byHash[rec.Hash], c.revoked[name] = rec, name, make(chan struct{})
 	}
 	return c, nil
 }
@@ -187,6 +195,8 @@ func (c *clients) add(name string) (string, error) {
 	secret := make([]byte, 32)
 	_, _ = rand.Read(secret)
 	token := tokenPrefix + base64.RawURLEncoding.EncodeToString(secret)
+	c.disk.Lock()
+	defer c.disk.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, taken := c.records[name]; taken {
@@ -197,24 +207,29 @@ func (c *clients) add(name string) (string, error) {
 	if err := c.save(name, rec); err != nil {
 		return "", fmt.Errorf("saving client %s: %w", name, err)
 	}
-	c.records[name], c.byHash[rec.Hash] = rec, name
+	c.records[name], c.byHash[rec.Hash], c.revoked[name] = rec, name, make(chan struct{})
 	return token, nil
 }
 
-// revoke removes a client, so its token stops working at once.
+// revoke removes a client, so its token stops working at once, and its streams end. It's off disk
+// before it's off the list, so a revoke that failed can be tried again, and one that worked can't
+// come back with a restart.
 func (c *clients) revoke(name string) error {
+	c.disk.Lock()
+	defer c.disk.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	rec, ok := c.records[name]
 	if !ok {
 		return fmt.Errorf("there's no client called %s", name)
 	}
-	// Gone from memory first: a token that's being revoked shouldn't work while it's written.
-	delete(c.records, name)
-	delete(c.byHash, rec.Hash)
 	if err := c.values.Delete(apiTokenPrefix + name); err != nil {
 		return fmt.Errorf("revoking client %s: %w", name, err)
 	}
+	delete(c.records, name)
+	delete(c.byHash, rec.Hash)
+	close(c.revoked[name])
+	delete(c.revoked, name)
 	return nil
 }
 
@@ -229,26 +244,46 @@ func (c *clients) list() []api.Client {
 	return out
 }
 
-// check says whose token this is. A token is a hash lookup, so its time says nothing about others.
-func (c *clients) check(token string) (string, bool) {
+// check says whose token this is, and returns what closes when it's revoked. A token is a hash
+// lookup, so its time says nothing about others.
+func (c *clients) check(token string) (string, <-chan struct{}, bool) {
 	if !strings.HasPrefix(token, tokenPrefix) {
-		return "", false
+		return "", nil, false
 	}
 	hash := hashToken(token)
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	name, ok := c.byHash[hash]
 	if !ok {
-		return "", false
+		c.mu.Unlock()
+		return "", nil, false
 	}
-	rec := c.records[name]
-	if now := c.now().UTC(); now.Sub(rec.LastUsed) >= lastUseEvery {
+	rec, revoked := c.records[name], c.revoked[name]
+	now := c.now().UTC()
+	due := now.Sub(rec.LastUsed) >= lastUseEvery
+	if due {
 		rec.LastUsed = now
 		c.records[name] = rec
-		// Worth keeping, not worth refusing a call over.
+	}
+	c.mu.Unlock()
+	if due {
+		// Outside the lock, as it waits for the disk. Worth keeping, not worth refusing a call over, and
+		// a revoke meanwhile wins: a record it deleted isn't written back.
+		c.saveIfKnown(name, rec)
+	}
+	return name, revoked, true
+}
+
+// saveIfKnown writes a last use, unless the client has gone since. Only disk is held while it
+// writes, so other calls' checks don't wait.
+func (c *clients) saveIfKnown(name string, rec clientRecord) {
+	c.disk.Lock()
+	defer c.disk.Unlock()
+	c.mu.Lock()
+	current, ok := c.records[name]
+	c.mu.Unlock()
+	if ok && current.Hash == rec.Hash {
 		_ = c.save(name, rec)
 	}
-	return name, true
 }
 
 // caller is who made a call: a client by name over the network, or anyone on the socket.

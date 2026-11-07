@@ -43,17 +43,23 @@ func TestTokensAreKeptOnlyAsHashes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if name, ok := again.check(token); !ok || name != "laptop" {
+	name, revoked, ok := again.check(token)
+	if !ok || name != "laptop" {
 		t.Errorf("the token after a restart: %q, %v", name, ok)
 	}
-	if _, ok := again.check(token + "x"); ok {
+	if _, _, ok := again.check(token + "x"); ok {
 		t.Error("a wrong token worked")
 	}
 	if err := again.revoke("laptop"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := again.check(token); ok {
+	if _, _, ok := again.check(token); ok {
 		t.Error("a revoked token worked")
+	}
+	select {
+	case <-revoked:
+	default:
+		t.Error("revoking didn't say so to the client's streams")
 	}
 	if last, err := loadClients(values); err != nil || len(last.list()) != 0 {
 		t.Errorf("a revoked client came back: %v, %v", last.list(), err)

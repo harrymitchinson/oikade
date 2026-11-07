@@ -334,8 +334,6 @@ type EventLog struct {
 	Offset int    `json:"offset"`
 	// Baseline is each device's values before the log's first event, by device and capability.
 	Baseline map[string]map[string]any `json:"baseline,omitempty"`
-	// Error is why the log can't be read.
-	Error string `json:"error,omitempty"`
 }
 
 // Call makes a request over t, and waits for as long as it takes: a deploy watches the new version
@@ -393,9 +391,6 @@ func Events(ctx context.Context, t Transport, begin func(EventLog) error, each f
 	var log EventLog
 	if err := events.Decode(&log); err != nil {
 		return fmt.Errorf("reading the event log: %w", err)
-	}
-	if log.Error != "" {
-		return errors.New(log.Error)
 	}
 	if err := begin(log); err != nil {
 		return err

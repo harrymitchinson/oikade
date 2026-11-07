@@ -220,22 +220,25 @@ func (h *Host) listenAPI(data *store.Store, calls *apiServer) net.Listener {
 	}
 	addr := APIAddress(h.APIAddr)
 	values := data.Namespace(apiNamespace)
-	cert, pin, err := loadAPIIdentity(values)
-	if err != nil {
-		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
-		return nil
-	}
+	// Clients come first, and whatever happens to the listener: a token must be revocable while the
+	// port is taken, or it would work again once it's free.
 	known, err := loadClients(values)
 	if err != nil {
 		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
 		return nil
 	}
+	calls.clients = known
+	cert, pin, err := loadAPIIdentity(values)
+	if err != nil {
+		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
+		return nil
+	}
+	calls.pin = pin
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
 		return nil
 	}
-	calls.clients, calls.pin = known, pin
 	h.Log.Info("Serving API over TLS", "address", l.Addr().String(), "pin", pin)
 	return tls.NewListener(l, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})
 }
