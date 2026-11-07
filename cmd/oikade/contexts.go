@@ -18,7 +18,7 @@ import (
 // tokenEnv overrides a context's token, as CI has one in a secret.
 const tokenEnv = "OIKADE_TOKEN"
 
-// clientConfig is oikadectl's own settings: the hosts it has logged in to. It holds tokens,
+// clientConfig is oikade's own settings: the hosts it has logged in to. It holds tokens,
 // so only its owner may read it.
 type clientConfig struct {
 	// Current is the context commands use when they're given none.
@@ -143,7 +143,7 @@ func runLogin(ctx context.Context, args []string) error {
 	name := flags.String("context", "", "What to call this host. Defaults to its name.")
 	words := cli.Parse(flags, args)
 	if len(words) != 1 || *pin == "" {
-		return errors.New("usage: oikadectl login ADDRESS --pin PIN [--code CODE] [--context NAME]")
+		return errors.New("usage: oikade login ADDRESS --pin PIN [--code CODE] [--context NAME]")
 	}
 	address := api.Address(words[0])
 	if *name == "" {
@@ -171,7 +171,7 @@ func runLogin(ctx context.Context, args []string) error {
 		saved.Token, who = resp.Token, resp.Client
 	} else {
 		if os.Getenv(tokenEnv) == "" {
-			return fmt.Errorf("oikadectl login needs --code, or a token in %s", tokenEnv)
+			return fmt.Errorf("oikade login needs --code, or a token in %s", tokenEnv)
 		}
 		// Checked now, rather than at the first command.
 		resp, err := api.Call(ctx, remote(saved), api.Request{Type: api.TypeInfo})
@@ -192,7 +192,7 @@ func runLogin(ctx context.Context, args []string) error {
 		}
 		// The code is used up, so the token is all there is: say it rather than lose it.
 		return fmt.Errorf("saving the login: %w. Your token for %s is %s: keep it in %s, "+
-			"then run oikadectl login %s --pin %s", err, address, saved.Token, tokenEnv, address, *pin)
+			"then run oikade login %s --pin %s", err, address, saved.Token, tokenEnv, address, *pin)
 	}
 	switch who {
 	case "":

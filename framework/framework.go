@@ -13,7 +13,7 @@
 //		})
 //	}
 //
-// BathroomFan and BathroomSensor come from devices.go, which oikadectl types writes from the home's
+// BathroomFan and BathroomSensor come from devices.go, which oikade types writes from the home's
 // devices, with a Handle for each capability each one has.
 //
 // A flow is ordinary Go that can wait for hours and survive a crash: docs/writing-flows.md.
@@ -607,7 +607,7 @@ func (r Hold) toEngine() engine.Hold {
 }
 
 // checkBudget checks a hold's budget against its Control, which the engine can't see until the
-// device has reported, so that a mistake here fails oikadectl check rather than today's plan.
+// device has reported, so that a mistake here fails oikade check rather than today's plan.
 func (r Hold) checkBudget(settings []wire.DeviceControl) error {
 	if r.Budget == nil {
 		return nil

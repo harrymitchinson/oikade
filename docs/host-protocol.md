@@ -12,7 +12,7 @@ The host starts your binary as `<binary> automations`, with the socket's path in
 {"type":"hello","version":5,"role":"automations","rules":["fan","leak-shutoff"]}
 ```
 
-A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikadectl status` shows and `oikadectl pause` checks, and `control`, each `device` and `entry` the home arbitrates. `control` adds and changes settings, and takes effect before the `welcome`. One the home has dropped stays until a deploy of that version settles.
+A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks, and `control`, each `device` and `entry` the home arbitrates. `control` adds and changes settings, and takes effect before the `welcome`. One the home has dropped stays until a deploy of that version settles.
 
 `version` comes first so that it can change, and it rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, which it says in its log, so a process from before `below` existed can never reach `releaseAll`. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
@@ -49,7 +49,7 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 | `journal` | `run`, `data` | Appends a journal entry. The reply means it's on disk | `seq`, its place in the run |
 | `finish` | `run` | Forgets a run's journal. The reply means it's on disk | |
 | `pong` | `id` | Answers a `ping`. It isn't a request, so it gets no reply | |
-| `ruleRun` | `rule`, `result`, `time` | How a rule's run ended, for `oikadectl tail`. No reply. Runs whose condition was false aren't sent | |
+| `ruleRun` | `rule`, `result`, `time` | How a rule's run ended, for `oikade tail`. No reply. Runs whose condition was false aren't sent | |
 | `metrics` | `metrics` | The process's rule metrics in Prometheus's text format, for the host to serve. No reply | |
 
 ## Plugins
@@ -107,7 +107,7 @@ A failure, or a `protocol` other than the host's, rejects the version.
 
 ## Deploys
 
-`oikadectl deploy` and `oikadectl rollback` talk to the host through its [API](host-api.md), on `api.sock`, also in the data directory and also mode `0600`. A deploy goes in this order, and any failure leaves or brings back the last version:
+`oikade deploy` and `oikade rollback` talk to the host through its [API](host-api.md), on `api.sock`, also in the data directory and also mode `0600`. A deploy goes in this order, and any failure leaves or brings back the last version:
 
 1. The command streams the binary to the host, which keeps it in `uploads` until it has all of it, then copies it to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running changes nothing.
 2. It runs check mode, and compares the result with the running version. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafetyRemoval`. A rename counts, because a hold's latch lives under its name.

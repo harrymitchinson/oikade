@@ -1,5 +1,5 @@
 // Package host tests the host and your process as what they are: separate programs. It builds
-// oikade-host and oikadectl, and a home as a module of its own, then starts, kills and freezes them.
+// oikade-host and oikade, and a home as a module of its own, then starts, kills and freezes them.
 //
 // Nothing here orders events with a sleep. A test waits for a line of the host's log, and sync
 // proves the process has caught up.
@@ -62,7 +62,7 @@ func build(t *testing.T) {
 			return
 		}
 		buildDir = dir
-		hostBin, ctlBin = filepath.Join(dir, "oikade-host"), filepath.Join(dir, "oikadectl")
+		hostBin, ctlBin = filepath.Join(dir, "oikade-host"), filepath.Join(dir, "oikade")
 		homeBin = filepath.Join(dir, "home")
 		repo, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
@@ -77,7 +77,7 @@ func build(t *testing.T) {
 		if buildErr = run(repo, nil, append(args, "-o", hostBin, "./cmd/oikade-host")...); buildErr != nil {
 			return
 		}
-		if buildErr = run(repo, nil, append(args, "-o", ctlBin, "./cmd/oikadectl")...); buildErr != nil {
+		if buildErr = run(repo, nil, append(args, "-o", ctlBin, "./cmd/oikade")...); buildErr != nil {
 			return
 		}
 		module := filepath.Join(dir, "module")
@@ -606,7 +606,7 @@ func TestHomeRefusesToRunWithoutTheHost(t *testing.T) {
 }
 
 // binFor is the binary a command belongs to: oikade-host trusts a client on the host's machine, and
-// oikadectl does everything else.
+// oikade does everything else.
 func binFor(args []string) string {
 	if len(args) > 1 && args[0] == "client" && args[1] == "add" {
 		return hostBin

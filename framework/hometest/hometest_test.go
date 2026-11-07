@@ -13,7 +13,7 @@ const (
 	humidity = string(framework.Humidity)
 )
 
-// The devices' handles, as oikadectl types would write them.
+// The devices' handles, as oikade types would write them.
 var (
 	sensor = framework.Handle[float64]{Device: "sensor", Capability: framework.Humidity}
 	fan    = framework.Handle[bool]{Device: "fan", Capability: framework.SwitchOn}

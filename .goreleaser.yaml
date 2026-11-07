@@ -1,4 +1,4 @@
-# GoReleaser builds what a release ships: oikadectl and oikade-host as archives, their checksums and
+# GoReleaser builds what a release ships: oikade and oikade-host as archives, their checksums and
 # the image (OIK-170). release-please makes the tag and the GitHub Release first, and the publish job
 # in .github/workflows/release.yml runs this on that tag, adding to the Release rather than writing
 # its notes.
@@ -6,7 +6,7 @@ version: 2
 
 project_name: oikade
 
-# A snapshot isn't a release, so it mustn't call itself one. Without a v, oikadectl doesn't take it
+# A snapshot isn't a release, so it mustn't call itself one. Without a v, oikade doesn't take it
 # for a version go can fetch.
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
@@ -15,9 +15,9 @@ snapshot:
 # same flags.
 builds:
   - &build
-    id: oikadectl
-    main: ./cmd/oikadectl
-    binary: oikadectl
+    id: oikade
+    main: ./cmd/oikade
+    binary: oikade
     goos: [linux, darwin]
     goarch: [arm64, amd64]
     env: [CGO_ENABLED=0]
@@ -30,13 +30,13 @@ builds:
     binary: oikade-host
     goos: [linux]
 
-# One archive per binary and platform, so a laptop downloads only oikadectl and a host only
+# One archive per binary and platform, so a laptop downloads only oikade and a host only
 # oikade-host. Room for shell completions later.
 archives:
-  - id: oikadectl
-    ids: [oikadectl]
+  - id: oikade
+    ids: [oikade]
     formats: [tar.gz]
-    name_template: "oikadectl-{{ .Os }}-{{ .Arch }}"
+    name_template: "oikade-{{ .Os }}-{{ .Arch }}"
     files: [LICENSE, README.md]
   - id: oikade-host
     ids: [oikade-host]

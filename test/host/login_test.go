@@ -78,7 +78,7 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 		t.Errorf("rolling back over TLS: %v: %s", err, out)
 	}
 	if out, err := away(t, laptop, nil, "client", "add", "more"); err == nil {
-		t.Errorf("oikadectl client add: %s", out)
+		t.Errorf("oikade client add: %s", out)
 	}
 	// Only the socket trusts a client, so a token can't make more of them.
 	token, _ := r.addClient("thief")

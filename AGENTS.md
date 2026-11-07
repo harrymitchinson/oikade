@@ -3,7 +3,7 @@
 ## Project Structure
 
 ```
-cmd/oikadectl/*                oikadectl: every command you run, from a laptop or CI
+cmd/oikade/*                   oikade: every command you run, from a laptop or CI
 cmd/oikade-host/*              oikade-host: the host, plus client add
 framework/*                    What a home is written with (public API)
 internal/host/*                The host
@@ -47,7 +47,7 @@ Run the `code-review` skill (`/code-review`) on the branch and fix or explain ea
 ```bash
 make test              # Unit and integration tests, with a real host and simulated devices
 make test-conformance  # The plugin contract
-make test-journeys     # From oikadectl init to a running host, and chip-tool (Docker, linux/arm64)
+make test-journeys     # From oikade init to a running host, and chip-tool (Docker, linux/arm64)
 ```
 
 Tests are plain Go `testing`. A simulated home on a fake clock is `internal/simhome`, and a real host with simulated devices is `test/host`.
@@ -86,7 +86,7 @@ make docker-build docker-push IMG=$IMG   # oikade-host's image, for this machine
 make release-snapshot                    # everything a release ships, into dist/, publishing nothing
 ```
 
-Releases are GoReleaser (`.goreleaser.yaml`), run by `.github/workflows/release.yml` on release-please's tag: `oikadectl-<os>-<arch>.tar.gz` for darwin and linux, `oikade-host-linux-<arch>.tar.gz`, `checksums.txt`, and the image for linux/arm64 and linux/amd64. The Dockerfile compiles nothing: it copies a prebuilt `oikade-host` from `<os>/<arch>/` in its context.
+Releases are GoReleaser (`.goreleaser.yaml`), run by `.github/workflows/release.yml` on release-please's tag: `oikade-<os>-<arch>.tar.gz` for darwin and linux, `oikade-host-linux-<arch>.tar.gz`, `checksums.txt`, and the image for linux/arm64 and linux/amd64. The Dockerfile compiles nothing: it copies a prebuilt `oikade-host` from `<os>/<arch>/` in its context.
 
 ## Planning
 

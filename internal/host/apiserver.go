@@ -36,7 +36,7 @@ const maxRequest = 16 << 20
 // maxPublicRequest bounds the body of a call that needs no token, such as a login.
 const maxPublicRequest = 4 << 10
 
-// apiServer answers oikadectl. A call outlives its connection: a deploy that has begun
+// apiServer answers oikade. A call outlives its connection: a deploy that has begun
 // finishes even if the command that asked goes away.
 type apiServer struct {
 	log     *slog.Logger

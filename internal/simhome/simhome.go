@@ -1,5 +1,5 @@
 // Package simhome runs a home in one process, with no host and no hardware, on a clock it moves
-// itself. It's the real engine, with the real arbiters and planner, which is what oikadectl dev and the
+// itself. It's the real engine, with the real arbiters and planner, which is what oikade dev and the
 // hometest package are made of.
 package simhome
 

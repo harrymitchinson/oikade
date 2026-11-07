@@ -58,12 +58,12 @@ type Host struct {
 	// Broker is an MQTT broker of yours, for Outside and for imported plugins that use one.
 	Broker string
 	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
-	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikadectl secret set says so.
+	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade secret set says so.
 	SecretsDir string
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
 	// Broker, under oikade/v1/home/<name>.
 	Outside []string
-	// EventLog bounds what the host keeps for oikadectl replay. Zero fields take the defaults.
+	// EventLog bounds what the host keeps for oikade replay. Zero fields take the defaults.
 	EventLog store.Bound
 	// PluginSetTimeout is how long a plugin's Set may run. It defaults to DefaultPluginSetTimeout.
 	PluginSetTimeout time.Duration

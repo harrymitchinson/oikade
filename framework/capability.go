@@ -6,7 +6,7 @@ import "github.com/harrymitchinson/oikade/internal/engine"
 type Value interface{ bool | float64 }
 
 // Capability is the name of a capability whose values are T. The constants below are every
-// capability there is, as oikadectl devices shows them.
+// capability there is, as oikade devices shows them.
 type Capability[T Value] string
 
 // Bool is a capability that's true or false.
@@ -39,7 +39,7 @@ const (
 	LinkQuality Number = "link.quality"
 )
 
-// Handle is one capability of one device. oikadectl types writes one for each capability each of your
+// Handle is one capability of one device. oikade types writes one for each capability each of your
 // devices has, as PorchLight.LightOn, so that a condition, a trigger or a write naming a capability
 // the device doesn't have, or a value of the wrong type, doesn't compile.
 type Handle[T Value] struct {

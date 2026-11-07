@@ -27,7 +27,7 @@ Toggling a light from your phone is state, so Git doesn't care, and a deploy doe
 - **`oikade-host`** is long-lived. It owns everything that must survive, and serves Matter, metrics on `:8080` and a local API. Run one per home.
 - **Your process** is your module's binary. The host starts it, restarts it if it dies, and swaps it on a deploy, while Matter stays up and your devices stay as they are.
 - **Plugins** are processes too, each supervised by the host, so one that hangs is restarted while the rest carry on.
-- **`oikadectl`** is the command you run, on your laptop or in CI: `init`, `test`, `dev`, `deploy`, `status` and the rest. It reaches the host over its API, and carries nothing of the host itself.
+- **`oikade`** is the command you run, on your laptop or in CI: `init`, `test`, `dev`, `deploy`, `status` and the rest. It reaches the host over its API, and carries nothing of the host itself.
 
 ## Requirements
 
@@ -39,18 +39,18 @@ Toggling a light from your phone is state, so Git doesn't care, and a deploy doe
 
 ## Getting started in Go
 
-A home is a Go module. You need Go and `oikadectl`, and no device or host:
+A home is a Go module. You need Go and `oikade`, and no device or host:
 
 ```sh
-go install github.com/harrymitchinson/oikade/cmd/oikadectl@main
+go install github.com/harrymitchinson/oikade/cmd/oikade@main
 mkdir home && cd home
-oikadectl init
-oikadectl test
+oikade init
+oikade test
 ```
 
-Or take `oikadectl` from a [release](https://github.com/harrymitchinson/oikade/releases): `oikadectl-<os>-<arch>.tar.gz`, for darwin or linux on arm64 or amd64, holds it with this README and the licence, and `checksums.txt` has each archive's SHA-256.
+Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/releases): `oikade-<os>-<arch>.tar.gz`, for darwin or linux on arm64 or amd64, holds it with this README and the licence, and `checksums.txt` has each archive's SHA-256.
 
-`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikadectl check` and `oikadectl test` on every change, and `oikadectl deploy` once one reaches `main`, over the [network API](#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade-host client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. GitHub's own runners can reach the host only if its API is on the internet, which it shouldn't be, so run the job on a self-hosted runner on your network, or join the runner to your network over a VPN first. `oikadectl types` replaces `devices.go` once you have real devices.
+`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, over the [network API](#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade-host client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. GitHub's own runners can reach the host only if its API is on the internet, which it shouldn't be, so run the job on a self-hosted runner on your network, or join the runner to your network over a VPN first. `oikade types` replaces `devices.go` once you have real devices.
 
 ```go
 func home() framework.Home {
@@ -69,12 +69,12 @@ func home() framework.Home {
 
 `devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.LightOn` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.LightOn`, for [rooms](#rooms).
 
-`oikadectl check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes.
+`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes.
 
-`oikadectl dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
+`oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
 
 ```text
-$ oikadectl dev
+$ oikade dev
 Simulating 2 devices from Fri 18:41. Type help for the commands.
 set porch-sensor sensor.occupancy-detected true
 Fri 18:41 Wrote porch-light light.on = true
@@ -87,7 +87,7 @@ Fri 18:46 Hold porch-light ended
 
 `status` shows every device and what holds it, and `restart` crashes your automations and starts them again. Your automations' log goes to standard error.
 
-`oikadectl test` is `go test`. The `hometest` package runs the real engine, arbiters and planner in your test: set device values, move a fake clock, and look at writes and claims. A restart in the middle of a flow is one call:
+`oikade test` is `go test`. The `hometest` package runs the real engine, arbiters and planner in your test: set device values, move a fake clock, and look at writes and claims. A restart in the middle of a flow is one call:
 
 ```go
 func TestBedtimeSurvivesACrash(t *testing.T) {
@@ -102,10 +102,10 @@ func TestBedtimeSurvivesACrash(t *testing.T) {
 
 The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A mistake in a condition goes to the test's log, which `go test` shows when it fails.
 
-`oikadectl replay` shows what your code would have done last week. It fetches the host's event log, runs the code in your working copy against it on a fake clock, and compares that with what the deployed version did:
+`oikade replay` shows what your code would have done last week. It fetches the host's event log, runs the code in your working copy against it on a fake clock, and compares that with what the deployed version did:
 
 ```text
-$ oikadectl replay
+$ oikade replay
 Replayed Fri 30 Oct 19:02:11 to Fri 6 Nov 19:02:11: 161240 changes. The deployed version wrote 412 times, your code 414.
 - Mon 2 Nov 07:12:40 bathroom-fan switch.on = true
 + Mon 2 Nov 07:04:10 bathroom-fan switch.on = true
@@ -113,7 +113,7 @@ Replayed Fri 30 Oct 19:02:11 to Fri 6 Nov 19:02:11: 161240 changes. The deployed
 
 A `-` is a write the deployed version made and your code doesn't, and a `+` the reverse. Two writes within 5 seconds count as the same one. Unchanged code shows `No differences.` `--since 48h` compares a shorter time, though your code always runs from the start of the log so that it gets there in the right state. `--json` prints the report. A week of 40 busy devices took about a minute on a laptop, so a full 14-day log takes about two.
 
-A replay never reaches a device: your code runs in `simhome`, as in `oikadectl dev`, and asks the host only for its status and its log. A flow's `Do` isn't called. It gets the answer the deployed version got, or none if that call isn't on record, and the report says so. What it can't know comes as a note: a pause, a deploy, or your automations being down. It also runs a rule the deployed version had paused, a device that went quiet counts as alive, and a host that died outright leaves no note. Anything your code prints goes to standard error, with its errors. A device renamed during the log looks like two devices.
+A replay never reaches a device: your code runs in `simhome`, as in `oikade dev`, and asks the host only for its status and its log. A flow's `Do` isn't called. It gets the answer the deployed version got, or none if that call isn't on record, and the report says so. What it can't know comes as a note: a pause, a deploy, or your automations being down. It also runs a rule the deployed version had paused, a device that went quiet counts as alive, and a host that died outright leaves no note. Anything your code prints goes to standard error, with its errors. A device renamed during the log looks like two devices.
 
 The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade-host --event-log-age 336h --event-log-mib 64` are the defaults. Prometheus stays the place for history: this exists to be replayed, and losing it costs nothing else.
 
@@ -140,7 +140,7 @@ framework.Home{
 }
 ```
 
-`Budget.Minutes` is a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikadectl check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
+`Budget.Minutes` is a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
 
 ## Automations
 
@@ -149,7 +149,7 @@ A home has two kinds of rule, plus [flows](docs/writing-flows.md) for anything w
 - **Moments** do something when a trigger fires: a capability changes, or a time of day comes.
 - **Holds** keep a capability at a value for as long as a window or a condition holds. The engine works out from the clock and the devices' state whether a hold is active, so it stays right across a restart.
 
-Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`](#arbitration). Then rules, Matter controllers and the device itself make claims, the device takes the winner, and `oikadectl status` says why.
+Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`](#arbitration). Then rules, Matter controllers and the device itself make claims, the device takes the winner, and `oikade status` says why.
 
 ### Moments
 
@@ -279,7 +279,7 @@ framework.Home{
 | `Prefer` | Windows the minutes go in first. Each slot a window touches gains its `Score`, from -100 to 100, and overlapping windows add up. |
 | `Forbid` | Windows the minutes never go in. |
 
-A budget holds one device's `Bool` capability at `true`, and that capability needs a `Control`: its `MinimumOn`, `MinimumOff` and `MaximumStartsPerDay` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. `oikadectl check` says if there's no `Control`. Something that must run whatever the budget says, such as frost protection, is a separate `Safety` hold on the same capability, which wins over the budget.
+A budget holds one device's `Bool` capability at `true`, and that capability needs a `Control`: its `MinimumOn`, `MinimumOff` and `MaximumStartsPerDay` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. `oikade check` says if there's no `Control`. Something that must run whatever the budget says, such as frost protection, is a separate `Safety` hold on the same capability, which wins over the budget.
 
 At `PlanningTime` your process plans the day and freezes the plan. The hold is active in the planned blocks, as a Normal claim, so a Safety hold or a Home app tap still beats it. Run minutes count only while the device reports on and is available. The plan and run minutes are saved in the host, so a deploy in the middle of the day doesn't run it again. Editing a budget takes effect at the next `PlanningTime`. Automations that start with no plan for today plan from then, so the hours already gone are lost to the day.
 
@@ -308,7 +308,7 @@ Rules, Matter controllers and the device itself make **claims**. The highest lev
 | Level | Who claims | Ends |
 |---|---|---|
 | Safety | Rules with `Priority: framework.Safety` | A rule's claim ends when its hold ends (for a latched hold, at a `Release`), or as its `Set` says |
-| Override | Outside changes (a Matter controller, `oikadectl set`, or the device by itself), and rules with `Priority: framework.Override` | An outside change ends after `OverrideHold`. A rule's claim ends as above. |
+| Override | Outside changes (a Matter controller, `oikade set`, or the device by itself), and rules with `Priority: framework.Override` | An outside change ends after `OverrideHold`. A rule's claim ends as above. |
 | Normal | Ordinary rules | As above |
 | Default | Nobody | Never |
 
@@ -322,7 +322,7 @@ Rules, Matter controllers and the device itself make **claims**. The highest lev
 
 In this example, motion turns the light on, and it goes off 5 minutes after the motion stops. A wall switch turned off during that is an Override, so the light stays off until the motion hold ends. A wall switch turned on with nobody about lasts until the next motion starts, and the light then goes off 5 minutes after the motion stops. The hold's off-delay is saved, so a restart doesn't leave the light on.
 
-An outside change is recorded by the path it came in by: `Matter` for a command through the bridge, such as a Home app tap, `Command` for `oikadectl set`, and `Device` for anything else, such as a wall switch. A rule's claim is `Rule/<name>`. Oikade can't tell what a person did, so nothing is called "manual".
+An outside change is recorded by the path it came in by: `Matter` for a command through the bridge, such as a Home app tap, `Command` for `oikade set`, and `Device` for anything else, such as a wall switch. A rule's claim is `Rule/<name>`. Oikade can't tell what a person did, so nothing is called "manual".
 
 ### One-off claims
 
@@ -372,14 +372,14 @@ Overheating turns the heater off. Turning it on from the Home app is reverted at
 
 ### Reading status
 
-`oikadectl status` shows each capability, and for an arbitrated one, the claim that won:
+`oikade status` shows each capability, and for an arbitrated one, the claim that won:
 
 ```console
-$ oikadectl status hall-light
+$ oikade status hall-light
 hall-light  light.on  false  Device wants false at Override
 ```
 
-`oikadectl status --json` lists every claim, with `expires` when it ends at a set time, `latched` for a latched hold, and `reverted` for an outside change that `ExternalRevert` wrote back. `oikade_device_control_level` has the winning level over time.
+`oikade status --json` lists every claim, with `expires` when it ends at a set time, `latched` for a latched hold, and `reverted` for an outside change that `ExternalRevert` wrote back. `oikade_device_control_level` has the winning level over time.
 
 ## Capabilities
 
@@ -411,13 +411,13 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 Your home is a Go module, and this replaces the running version from it:
 
 ```sh
-oikadectl deploy --data-dir /var/lib/oikade --module .
+oikade deploy --data-dir /var/lib/oikade --module .
 ```
 
 That rejects code that would break a flow's replay, builds your module for the host, and hands it over. The host runs its check, then swaps it in with automations stopped for about a second and your device state untouched. Holds are worked out again, and waiting flows carry on from where they were. A flow whose next step changed is dropped and logged. If the new version crashes within the settle period, 5 seconds by default, the last one comes back and the command fails.
 
 ```sh
-oikadectl rollback --data-dir /var/lib/oikade
+oikade rollback --data-dir /var/lib/oikade
 ```
 
 returns to the version before the running one. The host keeps the last five.
@@ -456,7 +456,7 @@ WantedBy=multi-user.target
 sudo systemctl enable --now oikade
 ```
 
-Add any other flags for `oikade-host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikadectl` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
+Add any other flags for `oikade-host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
 
 ### In Docker
 
@@ -468,32 +468,32 @@ docker run -d --name oikade --restart unless-stopped --network host \
 docker exec oikade oikade-host client add laptop
 ```
 
-The flags after the image are `oikade-host`'s. `client add` prints the `oikadectl login` line to run on your laptop, and from then on you use the container from there, over the [network API](#the-network-api). To upgrade, run `oikadectl backup`, then replace the container on the same volume.
+The flags after the image are `oikade-host`'s. `client add` prints the `oikade login` line to run on your laptop, and from then on you use the container from there, over the [network API](#the-network-api). To upgrade, run `oikade backup`, then replace the container on the same volume.
 
 ### Secrets
 
 ```sh
-oikadectl secret set api-key         # asks for the value, or reads it from stdin
-oikadectl secret list                # names only, with --json too
-oikadectl secret remove api-key
+oikade secret set api-key         # asks for the value, or reads it from stdin
+oikade secret list                # names only, with --json too
+oikade secret remove api-key
 ```
 
-Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them. Your code reads one with `framework.Secret`, and a plugin with `plugin.ReadSecret`, when it next asks. `oikadectl secret set` restarts nothing, so code that reads a secret once at start sees the new value after your next deploy.
+Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them. Your code reads one with `framework.Secret`, and a plugin with `plugin.ReadSecret`, when it next asks. `oikade secret set` restarts nothing, so code that reads a secret once at start sees the new value after your next deploy.
 
-`--secrets-dir DIR` on `oikade-host` points at another directory, which can be read-only, such as a systemd credentials directory. `oikadectl secret list` shows what's in it, and `set` says to change it where it's mounted from.
+`--secrets-dir DIR` on `oikade-host` points at another directory, which can be read-only, such as a systemd credentials directory. `oikade secret list` shows what's in it, and `set` says to change it where it's mounted from.
 
 A broker's password belongs in a secret, not a flag: use `--broker mqtt://oikade@broker:1883 --broker-password-secret broker`. The host never logs one.
 
 ### Upgrading the host
 
 ```sh
-oikadectl backup                                                          # a snapshot of the store, in backups/
+oikade backup                                                             # a snapshot of the store, in backups/
 sudo cp -p /usr/local/bin/oikade-host /usr/local/bin/oikade-host.previous # to go back to
 sudo install -m 755 oikade-host /usr/local/bin/oikade-host                # the new version, as a new file
 sudo systemctl restart oikade
 ```
 
-Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back, and the Home app shows the bridge as not responding until it reconnects. The new `oikade-host` opens the same data directory, so nothing needs pairing again. If it doesn't come up, `sudo install -m 755 /usr/local/bin/oikade-host.previous /usr/local/bin/oikade-host` and restart. Update `oikadectl` on the machines you run commands from to the same version, as an older or newer client may not speak this host's API.
+Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back, and the Home app shows the bridge as not responding until it reconnects. The new `oikade-host` opens the same data directory, so nothing needs pairing again. If it doesn't come up, `sudo install -m 755 /usr/local/bin/oikade-host.previous /usr/local/bin/oikade-host` and restart. Update `oikade` on the machines you run commands from to the same version, as an older or newer client may not speak this host's API.
 
 A new host may speak a new protocol to your code, in which case your process is turned away until you bump `oikade` in your module and deploy. Do that straight after upgrading.
 
@@ -502,19 +502,19 @@ A new host may speak a new protocol to your code, in which case your process is 
 These talk to the host through a Unix socket in its data directory, which only the user running the host can reach. The [host API](docs/host-api.md) is also served over TLS if you ask for it, with a [token](#the-network-api).
 
 ```sh
-oikadectl status                     # the running version, every device, and your rules
-oikadectl status valve               # one device
-oikadectl tail                       # changes, writes and rule runs as they happen
-oikadectl set fan switch.on off      # turn it off
-oikadectl pause fan                  # stop a rule
-oikadectl resume fan
+oikade status                     # the running version, every device, and your rules
+oikade status valve               # one device
+oikade tail                       # changes, writes and rule runs as they happen
+oikade set fan switch.on off      # turn it off
+oikade pause fan                  # stop a rule
+oikade resume fan
 ```
 
-`oikadectl status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`.
+`oikade status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`.
 
-`oikadectl set` acts like tapping the device. An arbitrated capability treats it as an outside change, shown as `Command`, so its `external` and `overrideHold` settings decide how long it lasts. A capability a Safety claim holds refuses it, rather than writing it back a moment later.
+`oikade set` acts like tapping the device. An arbitrated capability treats it as an outside change, shown as `Command`, so its `external` and `overrideHold` settings decide how long it lasts. A capability a Safety claim holds refuses it, rather than writing it back a moment later.
 
-A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikadectl resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a Safety rule stops that protection, so it needs `--allow-safety`. So does pausing a rule holding a Safety claim, and anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause.
+A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a Safety rule stops that protection, so it needs `--allow-safety`. So does pausing a rule holding a Safety claim, and anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause.
 
 `--json` on `status`, `tail`, `replay`, `set`, `pause`, `resume`, `devices` and `matter` prints JSON whose fields stay stable for scripts.
 
@@ -533,10 +533,10 @@ sudo -u oikade oikade-host client add laptop
 It prints a line to run on the laptop within 10 minutes:
 
 ```sh
-oikadectl login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
+oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
 ```
 
-The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikadectl status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade-host client add` always means the host on its own machine, through the socket, so it has no `--context`. A config file others can read is refused.
+The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade-host client add` always means the host on its own machine, through the socket, so it has no `--context`. A config file others can read is refused.
 
 CI has no one to type a code, so give it a token instead:
 
@@ -544,11 +544,11 @@ CI has no one to type a code, so give it a token instead:
 sudo -u oikade oikade-host client add ci --token     # on the host's machine: prints a token and the pin
 ```
 
-Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikadectl login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.
+Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikade login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.
 
 ```sh
-oikadectl client list               # who has a token, and when each last used it
-oikadectl client revoke laptop      # its token stops working at once
+oikade client list               # who has a token, and when each last used it
+oikade client revoke laptop      # its token stops working at once
 ```
 
 `client add` works only on the host's machine, through the socket, so a stolen token can't make more of them. `revoke` works over the network API too, so any client can cut off a lost one, and it ends that client's open streams. It works while the listener is down, so a token can't come back when the port frees. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.
@@ -579,7 +579,7 @@ Point Prometheus at it, and import [`config/grafana/oikade-home.json`](config/gr
 | `oikade_device_control_level{namespace,device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 | `oikade_api_auth_failures_total` | Calls to the network API refused for want of a valid token |
-| `oikade_matter_serving` | 1 while the Matter bridge serves controllers, 0 while it can't. `oikadectl matter` says why |
+| `oikade_matter_serving` | 1 while the Matter bridge serves controllers, 0 while it can't. `oikade matter` says why |
 | `oikade_matter_fabrics` | Fabrics the bridge is paired on, one for each controller's home |
 | `oikade_matter_sessions` | CASE sessions that paired controllers hold |
 | `oikade_matter_subscriptions` | Subscriptions that controllers hold |
@@ -595,14 +595,14 @@ Every capability change is also logged as `"Changed capability"` with structured
 Oikade reaches the Home app and other controllers through Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The bridge runs inside `oikade-host`, so nothing your code does reaches a controller: a deploy, a crash or a stuck process leaves sessions up and devices working ([OIK-143](https://linear.app/oikade/issue/OIK-143)). A host crash does take the bridge down, until it restarts.
 
 ```sh
-oikadectl matter    # the pairing codes, whether it's ready to pair, and what it's paired with
+oikade matter    # the pairing codes, whether it's ready to pair, and what it's paired with
 ```
 
-The host needs host networking on its machine: the same L2 network as your controllers, with mDNS and IPv6. `--matter-port` moves the bridge from UDP 5540, and 0 turns Matter off. `--matter-name` names it, and `--matter-interfaces` limits where it advertises. If its port is taken, or an interface isn't there, the host logs that and carries on without it, tries again every minute, and `oikadectl matter` says it's down and why: automations don't need it. While it's on no fabric, the commissioning window stays open for 15 minutes after the host starts. Restart the host to open it again.
+The host needs host networking on its machine: the same L2 network as your controllers, with mDNS and IPv6. `--matter-port` moves the bridge from UDP 5540, and 0 turns Matter off. `--matter-name` names it, and `--matter-interfaces` limits where it advertises. If its port is taken, or an interface isn't there, the host logs that and carries on without it, tries again every minute, and `oikade matter` says it's down and why: automations don't need it. While it's on no fabric, the commissioning window stays open for 15 minutes after the host starts. Restart the host to open it again.
 
 Every device on record with something Matter can show is on the bridge, at its [registry](#devices) endpoint, as soon as it's paired. Its label is its name, and a rename changes that in place: the endpoint and unique ID stay, so a controller keeps its room and scenes. Removing a device takes it off. A device whose driver hasn't reported yet stays on, unreachable, so controllers don't see it vanish.
 
-A controller's write goes through [arbitration](#arbitration) in the host, shown as `Matter`, and doesn't need your process. A capability a Safety claim holds refuses it, including a claim still on disk from before a restart: the write never reaches the device, the controller sees the value go back, and the log says who holds it. A device whose claim record can't be read counts as held at Safety: nothing writes it, nothing writes over the record, and the log says so. `oikadectl devices remove --allow-safety` clears it.
+A controller's write goes through [arbitration](#arbitration) in the host, shown as `Matter`, and doesn't need your process. A capability a Safety claim holds refuses it, including a claim still on disk from before a restart: the write never reaches the device, the controller sees the value go back, and the log says who holds it. A device whose claim record can't be read counts as held at Safety: nothing writes it, nothing writes over the record, and the log says so. `oikade devices remove --allow-safety` clears it.
 
 Add the bridge to a controller, such as the Home app, with the 11-digit manual code, or a QR code of the `MT:` payload. In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the code. Apple Home warns that it's an uncertified accessory: choose Add Anyway. It needs a home hub. To add the bridge to a second controller, open a window from the first one (in the Home app: the bridge's settings, Turn On Pairing Mode).
 
@@ -614,22 +614,22 @@ Add the bridge to a controller, such as the Home app, with the 11-digit manual c
 The host owns the list of devices, in its registry in the data directory. A paired device enters it the moment a driver reports it, and it's usable at once, under a name copied from its app once. Oikade never writes to an app's names, or follows them after that.
 
 ```sh
-oikadectl devices                               # every device, and how it's doing
-oikadectl devices name lamp-2 porch-light       # call it something else
-oikadectl devices room porch-light Porch        # move it between rooms
-oikadectl devices reserve shed-heater           # hold a name for hardware you haven't paired yet
-oikadectl devices replace porch-light lamp-3    # move a name onto new hardware
-oikadectl devices remove porch-light
-oikadectl types                                 # write devices.go from the registry
+oikade devices                               # every device, and how it's doing
+oikade devices name lamp-2 porch-light       # call it something else
+oikade devices room porch-light Porch        # move it between rooms
+oikade devices reserve shed-heater           # hold a name for hardware you haven't paired yet
+oikade devices replace porch-light lamp-3    # move a name onto new hardware
+oikade devices remove porch-light
+oikade types                                 # write devices.go from the registry
 ```
 
-`oikadectl types` writes a Go file with a value for each device, with its name and a handle for each of its capabilities, such as `PorchLight.LightOn`, and you commit it. So code naming a device that's gone, or a capability it no longer has, stops compiling, builds need no host, and Git has a reviewable copy of your inventory. `--out` and `--package` say where it goes. The registry is the authority, and the file is its snapshot. Two names that come out the same in Go, such as `a-1` and `a1`, fail until you rename one. Running code loses track of a renamed device until you deploy, so run `oikadectl types` and deploy straight after. While a Safety rule runs, `name` and `replace` need `--allow-safety`, because a Safety rule that names the device stops protecting anything until that deploy.
+`oikade types` writes a Go file with a value for each device, with its name and a handle for each of its capabilities, such as `PorchLight.LightOn`, and you commit it. So code naming a device that's gone, or a capability it no longer has, stops compiling, builds need no host, and Git has a reviewable copy of your inventory. `--out` and `--package` say where it goes. The registry is the authority, and the file is its snapshot. Two names that come out the same in Go, such as `a-1` and `a1`, fail until you rename one. Running code loses track of a renamed device until you deploy, so run `oikade types` and deploy straight after. While a Safety rule runs, `name` and `replace` need `--allow-safety`, because a Safety rule that names the device stops protecting anything until that deploy.
 
-`reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. A reserved device has no capabilities yet, so `oikadectl types` gives it only its `Name`: until you pair it, name a capability with a handle of your own, such as `framework.Handle[bool]{Device: ShedHeater.Name, Capability: framework.SwitchOn}`, and run `oikadectl types` once it's paired. Pair it, and `oikadectl devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
+`reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`: until you pair it, name a capability with a handle of your own, such as `framework.Handle[bool]{Device: ShedHeater.Name, Capability: framework.SwitchOn}`, and run `oikade types` once it's paired. Pair it, and `oikade devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
 
 `remove` keeps the device on record with its endpoint, so hardware that comes back gets its name, room and endpoint back. Remove a device from its app first, because one that's still paired comes back when it next reports. A device stays until you remove it, reported or not. Renaming a device, moving its hardware onto another name, or restoring a file that would move its name, is refused while something claims it, because claims stay with a name. Removing a device ends its claims, and one that a Safety claim holds needs `--allow-safety`.
 
-If the registry is lost, `oikadectl devices restore devices.go` reads the file back: names, rooms, reservations, arbitration settings and endpoint IDs, matched by hardware. The registry is the authority, so a file that disagrees with one in use is refused, which is what an old file does. After a real loss the drivers may have reported again first, under their apps' names, so pass `--force` there and the file wins. With `--force`, devices the file doesn't have stay, and get a new endpoint or name if the file gives theirs to something else. A claimed name never moves.
+If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, reservations, arbitration settings and endpoint IDs, matched by hardware. The registry is the authority, so a file that disagrees with one in use is refused, which is what an old file does. After a real loss the drivers may have reported again first, under their apps' names, so pass `--force` there and the file wins. With `--force`, devices the file doesn't have stay, and get a new endpoint or name if the file gives theirs to something else. A claimed name never moves.
 
 ## Zigbee
 
@@ -665,11 +665,11 @@ Every paired device enters the registry by its IEEE address, except the coordina
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
-- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions, your secrets, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikadectl backup` and then copy the directory. `oikadectl backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets are in there in the clear, so keep the copy somewhere as private as the machine.
-  - **Upgrade:** take that snapshot first with `oikadectl backup`, and a new `oikade-host` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
+- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions, your secrets, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets are in there in the clear, so keep the copy somewhere as private as the machine.
+  - **Upgrade:** take that snapshot first with `oikade backup`, and a new `oikade-host` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
   - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
-  - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikadectl matter` say why, until you restore them. A restore keeps the network API's pin and every token, including any revoked since that backup, so revoke those again.
-- **The device registry** is in the data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikadectl types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikadectl types` aren't in it, so run it after pairing.
+  - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them. A restore keeps the network API's pin and every token, including any revoked since that backup, so revoke those again.
+- **The device registry** is in the data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikade types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikade types` aren't in it, so run it after pairing.
 - **The Zigbee network key and database are yours,** because they belong to the Zigbee2MQTT you run. They aren't in Oikade's data directory, so back up Zigbee2MQTT's own data directory as well. Oikade's backup doesn't cover it. Losing it means pairing every device again.
 
 ## Security notes
@@ -685,7 +685,7 @@ The host writes structured JSON logs to standard output, and your process and pl
 
 ## Versioning
 
-Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is `framework`, the `oikadectl` and `oikade-host` commands and their `--json`, the plugin contract and SDK, capability names, metric names and labels, and Matter endpoint IDs.
+Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is `framework`, the `oikade` and `oikade-host` commands and their `--json`, the plugin contract and SDK, capability names, metric names and labels, and Matter endpoint IDs.
 
 While the major version is 0, the API is still settling, and versions follow the milestones, which are the releases in the plan (`docs/planning.md`):
 
@@ -695,7 +695,7 @@ While the major version is 0, the API is still settling, and versions follow the
 
 `1.0.0` is a deliberate decision, not something a commit triggers.
 
-Releases are cut by merging the release PR that [release-please](https://github.com/googleapis/release-please) keeps open on `main`. That gives the tag and a GitHub Release with notes. [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) then adds `oikadectl` for darwin and linux, `oikade-host` for linux, each on arm64 and amd64 as a `.tar.gz`, and `checksums.txt`, and pushes the image `ghcr.io/harrymitchinson/oikade:<tag>` for arm64 and amd64. `make release-snapshot` builds all of it into `dist/` without publishing, and every PR that could change it runs that. CI doesn't run on the release PR, because it's opened with `GITHUB_TOKEN`. That's fine, since it only changes `CHANGELOG.md` and `.release-please-manifest.json`. release-please needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on. The first release creates the ghcr package as private, so set its visibility to public once, in the package's settings.
+Releases are cut by merging the release PR that [release-please](https://github.com/googleapis/release-please) keeps open on `main`. That gives the tag and a GitHub Release with notes. [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) then adds `oikade` for darwin and linux, `oikade-host` for linux, each on arm64 and amd64 as a `.tar.gz`, and `checksums.txt`, and pushes the image `ghcr.io/harrymitchinson/oikade:<tag>` for arm64 and amd64. `make release-snapshot` builds all of it into `dist/` without publishing, and every PR that could change it runs that. CI doesn't run on the release PR, because it's opened with `GITHUB_TOKEN`. That's fine, since it only changes `CHANGELOG.md` and `.release-please-manifest.json`. release-please needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** turned on. The first release creates the ghcr package as private, so set its visibility to public once, in the package's settings.
 
 To ship a milestone:
 
@@ -709,7 +709,7 @@ To ship a milestone:
 make test               # unit and integration tests, with a real host and simulated devices
 make lint
 make test-conformance   # builds the simswitch test fixture and drives it through the plugin contract and the Go API
-make test-journeys      # from oikadectl init to a running host, and pairing chip-tool with it (test/journeys/chip-tool, linux/arm64 only)
+make test-journeys      # from oikade init to a running host, and pairing chip-tool with it (test/journeys/chip-tool, linux/arm64 only)
 ```
 
 The plugin SDK, the conformance suite and the simswitch fixture are Go, in the same module, so `make test` and `make lint` cover them. How the host, rule engine and Matter bridge work inside is in [docs/architecture.md](docs/architecture.md).

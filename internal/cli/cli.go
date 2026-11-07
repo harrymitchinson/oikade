@@ -1,4 +1,4 @@
-// Package cli is what oikadectl and oikade-host share as commands: how they read their arguments,
+// Package cli is what oikade and oikade-host share as commands: how they read their arguments,
 // print JSON and say their version, and where a host keeps its state.
 package cli
 
@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// DefaultDataDir is where a host keeps its state, unless told otherwise. oikadectl finds a host on
+// DefaultDataDir is where a host keeps its state, unless told otherwise. oikade finds a host on
 // its own machine there.
 const DefaultDataDir = "/var/lib/oikade"
 

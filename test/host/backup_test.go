@@ -28,7 +28,7 @@ func (r *rig) setSecret(name string) error {
 		return &exec.ExitError{Stderr: out.Bytes()}
 	}
 	if strings.Contains(out.String(), secretValue) {
-		r.t.Errorf("oikadectl secret set printed the value: %s", out.String())
+		r.t.Errorf("oikade secret set printed the value: %s", out.String())
 	}
 	return nil
 }
@@ -220,7 +220,7 @@ func TestASecretsNameCantLeaveTheDirectory(t *testing.T) {
 	}
 }
 
-// oikadectl secret set needs a running host, so a host can't refuse to start for want of a secret.
+// oikade secret set needs a running host, so a host can't refuse to start for want of a secret.
 func TestAHostStartsBeforeItsBrokerPasswordIsSet(t *testing.T) {
 	t.Parallel()
 	r := start(t, "--broker", "mqtt://oikade@127.0.0.1:1", "--broker-password-secret", "broker")
