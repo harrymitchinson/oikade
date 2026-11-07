@@ -3,7 +3,7 @@
 ## Project Structure
 
 ```
-cmd/oikade/*                oikade: every command you run, from a laptop or CI
+cmd/oikade/*                   oikade: every command you run, from a laptop or CI
 cmd/oikade-host/*              oikade-host: the host, plus client add
 framework/*                    What a home is written with (public API)
 internal/host/*                The host

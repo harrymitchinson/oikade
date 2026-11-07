@@ -101,7 +101,7 @@ sudo install -m 755 oikade-host /usr/local/bin/oikade-host                # from
 sudo systemctl restart oikade
 ```
 
-Matter stops with the host, so the Home app shows no response until it's back. If the new version doesn't come up, `sudo install -m 755 /usr/local/bin/oikade-host.previous /usr/local/bin/oikade-host` and restart. Afterwards, `go install` the same version of `oikade` on your Mac, update `oikade` in your home's `go.mod` and run `oikade deploy`, as your code is built against the old version.
+Matter stops with the host, so the Home app shows no response until it's back. If the new version doesn't come up, `sudo install -m 755 /usr/local/bin/oikade-host.previous /usr/local/bin/oikade-host` and restart. Afterwards, `go install` the same version of `cmd/oikade` on your Mac, update `github.com/harrymitchinson/oikade` in your home's `go.mod` and run `oikade deploy`, as your code is built against the old version.
 
 **Monitor.** Oikade serves Prometheus metrics, so point any Prometheus at it. This job is the whole of what it needs:
 

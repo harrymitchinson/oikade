@@ -314,8 +314,8 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 	if err == nil {
 		t.Errorf("oikade-host client add with no host: %s", out)
 	}
-	ctl := oikade(t)
-	out, err = run(t, ctl, dir, "", "client", "add", "laptop")
+	cli := oikade(t)
+	out, err = run(t, cli, dir, "", "client", "add", "laptop")
 	if err == nil || !strings.Contains(out, "oikade-host client add") {
 		t.Errorf("oikade client add should point at oikade-host: %v: %s", err, out)
 	}
