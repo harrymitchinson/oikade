@@ -1,21 +1,23 @@
-// Package api is the local API: how the oikade command talks to a running host, over a Unix socket
-// in the data directory. Each connection carries one JSON request and one JSON response, or for a
-// tail, a stream of them. It has no network listener, and it's apart from the socket your process
-// uses. A Transport reaches it, from this machine or another.
+// Package api is the host's API: how the oikade command talks to a running host. It's HTTP over a
+// Unix socket in the data directory, apart from the socket your process uses, with its routes in
+// docs/host-api.md. A Transport reaches it, from this machine or another.
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-// SocketName is the local API's socket in the data directory.
+// SocketName is the API's socket in the data directory.
 const SocketName = "api.sock"
 
 // Request types.
@@ -45,9 +47,60 @@ const (
 	TypeDeviceRestore = "deviceRestore"
 )
 
+// ContentType is what every answer but a stream's is.
+const ContentType = "application/json"
+
+// StreamContentType is a tail's and an event log's: lines of JSON.
+const StreamContentType = "application/x-ndjson"
+
+// Prefix starts every route, and changes if the API ever breaks.
+const Prefix = "/v1"
+
+// Route is where a request type lives. A POST's body is its Request as JSON.
+type Route struct {
+	Type, Method, Path string
+}
+
+// Routes are the API's routes.
+var Routes = []Route{
+	{TypeInfo, http.MethodGet, Prefix + "/info"},
+	{TypeDeploy, http.MethodPost, Prefix + "/deploy"},
+	{TypeRollback, http.MethodPost, Prefix + "/rollback"},
+	{TypeStatus, http.MethodGet, Prefix + "/status"},
+	{TypeSet, http.MethodPost, Prefix + "/set"},
+	{TypePause, http.MethodPost, Prefix + "/pause"},
+	{TypeResume, http.MethodPost, Prefix + "/resume"},
+	{TypeTail, http.MethodGet, Prefix + "/tail"},
+	{TypeEvents, http.MethodGet, Prefix + "/events"},
+	{TypeMatter, http.MethodGet, Prefix + "/matter"},
+	{TypeBackup, http.MethodPost, Prefix + "/backup"},
+
+	{TypeSecrets, http.MethodGet, Prefix + "/secrets"},
+	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set"},
+	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove"},
+
+	{TypeDevices, http.MethodGet, Prefix + "/devices"},
+	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name"},
+	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room"},
+	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve"},
+	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove"},
+	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace"},
+	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore"},
+}
+
+func routeOf(requestType string) (Route, bool) {
+	for _, r := range Routes {
+		if r.Type == requestType {
+			return r, true
+		}
+	}
+	return Route{}, false
+}
+
 // Request is one call.
 type Request struct {
-	Type string `json:"type"`
+	// Type says which call. A route sets it, so it isn't in the body.
+	Type string `json:"-"`
 	// Binary is the file a deploy takes. The host copies it.
 	Binary string `json:"binary,omitempty"`
 	// AllowSafetyRemoval goes ahead even though a Safety rule would go.
@@ -327,18 +380,45 @@ func Events(ctx context.Context, t Transport, begin func(EventLog) error, each f
 func LogEnd(message string) Event { return Event{Type: eventEnd, Message: message} }
 
 func open(ctx context.Context, t Transport, req Request) (io.Reader, func(), error) {
-	conn, err := t.Dial(ctx)
+	route, ok := routeOf(req.Type)
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown request %q", req.Type)
+	}
+	var body io.Reader
+	if route.Method == http.MethodPost {
+		raw, err := json.Marshal(req)
+		if err != nil {
+			return nil, nil, fmt.Errorf("sending to the host: %w", err)
+		}
+		body = bytes.NewReader(raw)
+	}
+	// The host name is a formality: the transport decides where this goes.
+	call, err := http.NewRequestWithContext(ctx, route.Method, "http://oikade"+route.Path, body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("sending to the host: %w", err)
+	}
+	client := &http.Client{Transport: &http.Transport{
+		// One connection a call, as a connection over SSH is a process to end.
+		DisableKeepAlives: true,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return t.Dial(ctx)
+		},
+	}}
+	answer, err := client.Do(call)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reaching the host: %w", err)
 	}
-	cancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	stop := func() {
-		cancel()
-		_ = conn.Close()
+	stop := func() { _ = answer.Body.Close() }
+	if answer.StatusCode < http.StatusBadRequest {
+		return answer.Body, stop, nil
 	}
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		stop()
-		return nil, nil, fmt.Errorf("sending to the host: %w", err)
+	if answer.Header.Get("Content-Type") == ContentType && req.Type != TypeTail && req.Type != TypeEvents {
+		return answer.Body, stop, nil // Call reads why from the Response.
 	}
-	return conn, stop, nil
+	defer stop()
+	var refused Response
+	if json.NewDecoder(answer.Body).Decode(&refused) == nil && refused.Error != "" {
+		return nil, nil, errors.New(refused.Error)
+	}
+	return nil, nil, fmt.Errorf("the host answered %s", answer.Status)
 }

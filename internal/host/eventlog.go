@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,13 +137,8 @@ func foldBaseline(baseline []byte, dropped []store.Record) ([]byte, error) {
 
 // stream writes the log to conn, in pages, until it catches up or ctx ends. Events added meanwhile
 // are included.
-func (l *eventLog) stream(ctx context.Context, conn net.Conn) {
+func (l *eventLog) stream(ctx context.Context, write func(any) bool) {
 	l.flush()
-	out := json.NewEncoder(conn)
-	write := func(v any) bool {
-		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-		return out.Encode(v) == nil
-	}
 	now := time.Now()
 	head := api.EventLog{Now: now, Zone: zoneName()}
 	_, head.Offset = now.Zone()
