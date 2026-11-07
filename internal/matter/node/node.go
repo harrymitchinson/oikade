@@ -194,7 +194,10 @@ func New(cfg Config) (*Node, error) {
 	info.VendorID, info.ProductID = attestation.TestVendorID, attestation.TestProductID
 	n.cfg.Info = info
 	n.bridge = clusters.NewBridge(info, n.comm.Clusters()...)
-	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Observer: cfg.Observer, Log: cfg.Log.With("part", "im")}
+	n.server = &im.Server{
+		Node: n.bridge.Node, Access: n.comm, Observer: cfg.Observer, EndSession: n.endSession,
+		Log: cfg.Log.With("part", "im"),
+	}
 	return n, nil
 }
 
@@ -230,11 +233,13 @@ func (n *Node) Run(ctx context.Context) error {
 		}
 		opts.Interfaces = list
 	}
-	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{Log: n.log.With("part", "transport")})
+	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{
+		Log: n.log.With("part", "transport"), Panicked: n.panicked(), EndSession: n.endSession,
+	})
 	if err != nil {
 		return err
 	}
-	opts.Log = n.log.With("part", "mdns")
+	opts.Log, opts.Panicked = n.log.With("part", "mdns"), n.panicked()
 	responder, err := n.listenMDNS(opts)
 	if err != nil {
 		_ = tr.Serve(cancelled()) // closes the socket
@@ -267,10 +272,7 @@ func (n *Node) Run(ctx context.Context) error {
 	// Each fabric's controllers look for the node as soon as it's back, so advertise them all at
 	// once rather than probing one after another.
 	for _, f := range n.table.Fabrics() {
-		go func() {
-			defer contain.Recover(n.log, contain.MDNS, nil)
-			n.advertiseFabric(f.Index)
-		}()
+		go n.advertiseFabric(f.Index)
 	}
 	switch {
 	case window != nil:
@@ -295,6 +297,14 @@ func (n *Node) Sessions() int {
 
 // Subscriptions returns how many subscriptions controllers hold.
 func (n *Node) Subscriptions() int { return n.server.Subscriptions() }
+
+// panicked is where the node's parts report a contained panic: the Observer, if there is one.
+func (n *Node) panicked() contain.Panicked {
+	if n.cfg.Observer == nil {
+		return nil
+	}
+	return n.cfg.Observer.Panicked
+}
 
 // WindowOpen reports whether a commissioning window is open.
 func (n *Node) WindowOpen() bool { return n.comm.WindowOpen() }
@@ -476,7 +486,6 @@ func (n *Node) fabricRemoved(index uint8) {
 		}
 	}
 	time.AfterFunc(fabricSessionGrace, func() {
-		defer contain.Recover(n.log, contain.Timer, nil)
 		for _, s := range ending {
 			n.endSession(s)
 		}

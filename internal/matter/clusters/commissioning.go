@@ -8,7 +8,6 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/fabric"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
@@ -97,7 +96,6 @@ type Commissioning struct {
 
 // hookQueue runs hooks one at a time, in order, in a goroutine that lives while there are any.
 type hookQueue struct {
-	log     *slog.Logger
 	mu      sync.Mutex
 	pending []func()
 	running bool
@@ -124,14 +122,8 @@ func (q *hookQueue) run() {
 		f := q.pending[0]
 		q.pending = q.pending[1:]
 		q.mu.Unlock()
-		q.call(f)
+		f()
 	}
-}
-
-// call runs one hook: one that panics is lost, and the next still runs.
-func (q *hookQueue) call(f func()) {
-	defer contain.Recover(q.log, contain.Commissioning, nil)
-	f()
 }
 
 // failSafe is the fail-safe context (Core spec, 11.10.7.2). The Node's lock guards it.
@@ -157,7 +149,6 @@ func NewCommissioning(cfg CommissioningConfig) (*Commissioning, error) {
 		return nil, errors.New("matter: commissioning needs a fabric table and attestation credentials")
 	}
 	c := &Commissioning{fabrics: cfg.Fabrics, creds: cfg.Attestation, hooks: cfg.Hooks, log: logging.OrDiscard(cfg.Log)}
-	c.queue.log = c.log
 	c.general = c.generalCommissioning()
 	c.opCreds = c.operationalCredentials()
 	c.network = networkCommissioning()
@@ -292,7 +283,6 @@ func (c *Commissioning) armTimer(d time.Duration) {
 	fs.generation++
 	gen := fs.generation
 	fs.timer = time.AfterFunc(d, func() {
-		defer contain.Recover(c.log, contain.Timer, nil)
 		c.update(func() {
 			if c.failSafe.armed && c.failSafe.generation == gen {
 				c.log.Info("Fail-safe expired: rolling back")

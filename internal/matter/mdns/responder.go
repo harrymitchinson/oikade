@@ -23,6 +23,7 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 )
 
 // Errors from a Responder.
@@ -42,6 +43,8 @@ type Options struct {
 	// first interface that has one, in upper-case hex, as Matter nodes name themselves (Core
 	// spec, 4.3.4), or random hex if none has.
 	Host string
+	// Panicked, if set, hears each panic contained in answering a packet.
+	Panicked contain.Panicked
 }
 
 // timing is the protocol's delays, which tests shorten.
@@ -63,12 +66,13 @@ var defaultTiming = timing{
 
 // Responder answers mDNS queries for the services added to it.
 type Responder struct {
-	log    *slog.Logger
-	host   dnsmessage.Name
-	conns  []packetConn
-	ifaces []int
-	addrs  func(ifIndex int) []netip.Addr // the host's addresses on an interface
-	timing timing
+	log      *slog.Logger
+	panicked contain.Panicked
+	host     dnsmessage.Name
+	conns    []packetConn
+	ifaces   []int
+	addrs    func(ifIndex int) []netip.Addr // the host's addresses on an interface
+	timing   timing
 
 	// sendMu orders announcements, delayed answers and goodbyes, so that a record that has
 	// been said goodbye to isn't sent again after it.
@@ -135,7 +139,7 @@ func Listen(opts Options) (*Responder, error) {
 	for i, ifi := range ifaces {
 		indexes[i] = ifi.Index
 	}
-	r, err := newResponder(conns, indexes, host, interfaceAddrs, opts.Log)
+	r, err := newResponder(conns, indexes, host, interfaceAddrs, opts.Log, opts.Panicked)
 	if err != nil {
 		for _, c := range conns {
 			_ = c.Close()
@@ -145,7 +149,9 @@ func Listen(opts Options) (*Responder, error) {
 	return r, nil
 }
 
-func newResponder(conns []packetConn, ifaces []int, host string, addrs func(int) []netip.Addr, log *slog.Logger) (*Responder, error) {
+func newResponder(
+	conns []packetConn, ifaces []int, host string, addrs func(int) []netip.Addr, log *slog.Logger, panicked contain.Panicked,
+) (*Responder, error) {
 	if !validLabel(host) {
 		return nil, fmt.Errorf("mdns: host name %q isn't one DNS label", host)
 	}
@@ -155,6 +161,7 @@ func newResponder(conns []packetConn, ifaces []int, host string, addrs func(int)
 	}
 	r := &Responder{
 		log:      log,
+		panicked: panicked,
 		host:     hostName,
 		conns:    conns,
 		ifaces:   ifaces,

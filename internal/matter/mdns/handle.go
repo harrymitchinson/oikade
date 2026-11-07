@@ -38,7 +38,7 @@ func (r *Responder) serve(c packetConn) {
 
 // handleContained is handle, with a panic costing only the packet.
 func (r *Responder) handleContained(c packetConn, ifIndex int, src *net.UDPAddr, b []byte) {
-	defer contain.Recover(r.log, contain.MDNS, nil)
+	defer contain.Recover(r.log, contain.MDNS, r.panicked, nil)
 	r.handle(c, ifIndex, src, b)
 }
 
@@ -180,23 +180,30 @@ func (r *Responder) asksForUs(qs []dnsmessage.Question) bool {
 // announced services, and the host's addresses there once the host name has been probed. It
 // returns none once the Responder is closing.
 func (r *Responder) answerable(ifIndex int) []record {
-	r.mu.Lock()
-	if r.closed {
-		r.mu.Unlock()
+	recs, hostReady, open := r.answering()
+	if !open {
 		return nil
 	}
-	var recs []record
+	if hostReady {
+		recs = append(recs, addressRecords(r.host, r.addrs(ifIndex))...)
+	}
+	return recs
+}
+
+// answering returns the announced services' records, whether the host name has been probed, and whether
+// the Responder is still open. It answers packets, so its lock goes with defer.
+func (r *Responder) answering() (recs []record, hostReady, open bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil, false, false
+	}
 	for _, e := range r.services {
 		if e.ready {
 			recs = append(recs, e.records...)
 		}
 	}
-	hostReady := r.hostReady
-	r.mu.Unlock()
-	if hostReady {
-		recs = append(recs, addressRecords(r.host, r.addrs(ifIndex))...)
-	}
-	return recs
+	return recs, r.hostReady, true
 }
 
 // additional returns the records that a querier will want next (RFC 6763, 12): the SRV and TXT
@@ -266,25 +273,33 @@ func legacyReply(q *dnsmessage.Message, answers, additionals []record) ([]byte, 
 	return m.Pack()
 }
 
+// probing returns the probes running and the records of our services. It answers packets, so its
+// lock goes with defer.
+func (r *Responder) probing() (probes []*probe, ours []record) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.probes) == 0 {
+		return nil, nil
+	}
+	probes = make([]*probe, 0, len(r.probes))
+	for p := range r.probes {
+		probes = append(probes, p)
+	}
+	for _, e := range r.services {
+		ours = append(ours, e.records...)
+	}
+	return probes, ours
+}
+
 // checkConflicts reports to each probe a record in the response m that has a name it's probing
 // but isn't one of ours (RFC 6762, 9). Our own packets, which multicast loopback and other
 // interfaces on the same link bring back, hold only records identical to ours, so they aren't
 // conflicts; another responder on this host that claims one of our names with other data is.
 func (r *Responder) checkConflicts(m *dnsmessage.Message) {
-	r.mu.Lock()
-	if len(r.probes) == 0 {
-		r.mu.Unlock()
+	probes, ours := r.probing()
+	if len(probes) == 0 {
 		return
 	}
-	probes := make([]*probe, 0, len(r.probes))
-	for p := range r.probes {
-		probes = append(probes, p)
-	}
-	var ours []record
-	for _, e := range r.services {
-		ours = append(ours, e.records...)
-	}
-	r.mu.Unlock()
 	for _, ifIndex := range r.ifaces {
 		ours = append(ours, addressRecords(r.host, r.addrs(ifIndex))...)
 	}

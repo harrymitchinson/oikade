@@ -88,14 +88,18 @@ type node struct {
 	log  *logBuffer
 }
 
-func newNode(t *testing.T) *node {
+func newNode(t *testing.T) *node { return newNodeWith(t, Options{}) }
+
+// newNodeWith is newNode, with opts: its log and MRP are the test's.
+func newNodeWith(t *testing.T, opts Options) *node {
 	t.Helper()
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	n := &node{conn: &faultyConn{PacketConn: pc}, log: &logBuffer{}}
-	n.t = New(n.conn, Options{Log: n.log.logger(), MRP: fastMRP})
+	opts.Log, opts.MRP = n.log.logger(), fastMRP
+	n.t = New(n.conn, opts)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- n.t.Serve(ctx) }()
@@ -754,9 +758,37 @@ func TestSendUnreliable(t *testing.T) {
 	}
 }
 
-// A handler that panics costs its own session, and every other session is still served.
+// panics counts contained panics by part.
+type panics struct {
+	mu sync.Mutex
+	by map[string]int
+}
+
+func (p *panics) panicked(part string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.by == nil {
+		p.by = map[string]int{}
+	}
+	p.by[part]++
+}
+
+func (p *panics) in(part string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.by[part]
+}
+
+// A handler that panics costs its own session, which is ended as the node says, and every other
+// session is still served.
 func TestAHandlerThatPanicsCostsOnlyItsSession(t *testing.T) {
-	dev, cli := newNode(t), newNode(t)
+	counted := &panics{}
+	var ended atomic.Int32
+	dev := newNodeWith(t, Options{Panicked: counted.panicked, EndSession: func(s *Session) {
+		ended.Add(1)
+		s.t.RemoveSession(s)
+	}})
+	cli := newNode(t)
 	var calls atomic.Int32
 	echoes := echoHandler(&calls)
 	dev.t.Handle(echo, echoOps, func(ctx context.Context, ex *Exchange, m Message) {
@@ -765,7 +797,6 @@ func TestAHandlerThatPanicsCostsOnlyItsSession(t *testing.T) {
 		}
 		echoes(ctx, ex, m)
 	})
-	before := contain.Panics(contain.Handler)
 	send := func(s *Session, payload string) error {
 		ex, err := s.NewExchange()
 		if err != nil {
@@ -780,11 +811,13 @@ func TestAHandlerThatPanicsCostsOnlyItsSession(t *testing.T) {
 		_, err = ex.Recv(c)
 		return err
 	}
-	bad := cli.t.NewUnsecuredSession(dev.addr())
-	if err := send(bad, "boom"); err == nil {
+	if err := send(cli.t.NewUnsecuredSession(dev.addr()), "boom"); err == nil {
 		t.Error("a handler that panicked answered")
 	}
-	eventually(t, "the panic to be counted", func() bool { return contain.Panics(contain.Handler) == before+1 })
+	eventually(t, "the panic to be counted", func() bool { return counted.in(contain.Handler) == 1 })
+	if ended.Load() != 1 {
+		t.Errorf("%d sessions ended, want 1", ended.Load())
+	}
 	if !strings.Contains(dev.log.String(), "Contained a panic in Matter") {
 		t.Errorf("the panic wasn't logged:\n%s", dev.log)
 	}
@@ -795,17 +828,17 @@ func TestAHandlerThatPanicsCostsOnlyItsSession(t *testing.T) {
 
 // A panic in reading one packet leaves Serve reading the next.
 func TestAPanicInTheReadLoopLeavesServeRunning(t *testing.T) {
-	dev, cli := newNode(t), newNode(t)
+	counted := &panics{}
+	dev, cli := newNodeWith(t, Options{Panicked: counted.panicked}), newNode(t)
 	var calls atomic.Int32
 	dev.t.Handle(echo, echoOps, echoHandler(&calls))
 	var first atomic.Bool
-	panics := func([]byte) {
+	panicking := func([]byte) {
 		if first.CompareAndSwap(false, true) {
 			panic("a bug in a parser")
 		}
 	}
-	dev.t.received.Store(&panics)
-	before := contain.Panics(contain.Receive)
+	dev.t.received.Store(&panicking)
 	ex, err := cli.t.NewUnsecuredSession(dev.addr()).NewExchange()
 	if err != nil {
 		t.Fatal(err)
@@ -818,7 +851,7 @@ func TestAPanicInTheReadLoopLeavesServeRunning(t *testing.T) {
 	if m, err := ex.Recv(ctx(t)); err != nil || string(m.Payload) != "cba" {
 		t.Fatalf("after a panic: %+v, %v", m, err)
 	}
-	if got := contain.Panics(contain.Receive); got != before+1 {
-		t.Errorf("%d panics counted, want %d", got, before+1)
+	if got := counted.in(contain.Receive); got != 1 {
+		t.Errorf("%d panics counted, want 1", got)
 	}
 }

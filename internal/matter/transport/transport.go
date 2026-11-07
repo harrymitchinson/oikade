@@ -77,12 +77,19 @@ type Options struct {
 	// MRP is what the Transport assumes of a peer until a session says otherwise. Zero fields
 	// take the spec's defaults.
 	MRP MRPConfig
+	// Panicked, if set, hears each panic contained in reading a packet or in a Handler.
+	Panicked contain.Panicked
+	// EndSession, if set, ends a session whose Handler panicked, which may have left it half updated.
+	// Nil removes it.
+	EndSession func(*Session)
 }
 
 // Transport is the Matter message layer on one UDP socket.
 type Transport struct {
-	conn net.PacketConn
-	log  *slog.Logger
+	conn       net.PacketConn
+	log        *slog.Logger
+	panicked   contain.Panicked
+	endSession func(*Session)
 	// received, if set, sees each packet before it's handled. Tests set it.
 	received atomic.Pointer[func(pkt []byte)]
 	mrp      MRPConfig
@@ -113,14 +120,16 @@ func Listen(addr string, opts Options) (*Transport, error) {
 // New returns a Transport on conn. Serve reads from it.
 func New(conn net.PacketConn, opts Options) *Transport {
 	return &Transport{
-		conn:      conn,
-		log:       logging.OrDiscard(opts.Log),
-		mrp:       opts.MRP.withDefaults(),
-		handlers:  map[handlerKey]Handler{},
-		unsecured: map[unsecuredKey]*Session{},
-		secure:    map[uint16]*Session{},
-		counter:   initialCounter(),
-		ctx:       context.Background(),
+		conn:       conn,
+		log:        logging.OrDiscard(opts.Log),
+		panicked:   opts.Panicked,
+		endSession: opts.EndSession,
+		mrp:        opts.MRP.withDefaults(),
+		handlers:   map[handlerKey]Handler{},
+		unsecured:  map[unsecuredKey]*Session{},
+		secure:     map[uint16]*Session{},
+		counter:    initialCounter(),
+		ctx:        context.Background(),
 	}
 }
 
@@ -183,7 +192,7 @@ func (t *Transport) Serve(ctx context.Context) error {
 // receiveContained is receive, with a panic costing only the packet: receive lets its locks go with
 // defer.
 func (t *Transport) receiveContained(pkt []byte, from netip.AddrPort) {
-	defer contain.Recover(t.log, contain.Receive, nil)
+	defer contain.Recover(t.log, contain.Receive, t.panicked, nil)
 	if f := t.received.Load(); f != nil {
 		(*f)(pkt)
 	}
@@ -431,6 +440,15 @@ func (t *Transport) SecureSessions() int {
 		}
 	}
 	return n
+}
+
+// ended ends a session whose Handler panicked.
+func (t *Transport) ended(s *Session) {
+	if t.endSession != nil {
+		t.endSession(s)
+		return
+	}
+	t.RemoveSession(s)
 }
 
 // RemoveSession closes s and all its exchanges.

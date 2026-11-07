@@ -34,7 +34,10 @@ type Server struct {
 	Access AccessControl
 	// Observer, if set, hears what controllers do, for metrics.
 	Observer Observer
-	Log      *slog.Logger
+	// EndSession, if set, ends the session of a subscription that panicked, so its controller starts
+	// again rather than wait for reports that won't come. Nil leaves the session.
+	EndSession func(*transport.Session)
+	Log        *slog.Logger
 
 	mu   sync.Mutex
 	subs map[uint32]*subscription
@@ -50,6 +53,8 @@ type Observer interface {
 	Invoked(cluster uint32, st Status)
 	// Reported is a report sent on a subscription, a keep-alive included.
 	Reported()
+	// Panicked is a panic contained, with where (contain.Parts).
+	Panicked(part string)
 }
 
 // Register starts serving on tr.
@@ -79,6 +84,13 @@ func (s *Server) serve(ctx context.Context, ex *transport.Exchange, m transport.
 	}
 	if err != nil {
 		s.Log.Debug("Interaction failed", "peer", ex.Session().Peer(), "opcode", m.Opcode, "err", err)
+	}
+}
+
+// panicked tells the Observer of a contained panic.
+func (s *Server) panicked(part string) {
+	if s.Observer != nil {
+		s.Observer.Panicked(part)
 	}
 }
 

@@ -186,6 +186,7 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 		Peer: ex.Session().Peer(), Security: sec, PeerMRP: req.params.MRP(),
 		Auth: transport.AuthPASE, AttestationChallenge: sk.AttestationChallenge,
 	})
+	defer removeOnPanic(tr, s)
 	established = true
 	// Keep the session only if the commissioner hears that it was established.
 	ackCtx, cancel := context.WithTimeout(ctx, stepTimeout)

@@ -198,9 +198,9 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 		s.t.handling.Go(func() {
 			// A handler that panics may have left its session's state half updated, so the session goes
 			// with it, and the peer starts again.
-			defer contain.Recover(s.t.log, contain.Handler, func() {
+			defer contain.Recover(s.t.log, contain.Handler, s.t.panicked, func() {
 				ex.Close()
-				s.t.RemoveSession(s)
+				s.t.ended(s)
 			})
 			h(s.t.ctx, ex, msg)
 		})
@@ -461,10 +461,7 @@ func (ex *Exchange) transmit(r *retransmission) {
 	ex.s.t.write(r.pkt, ex.s.peer)
 	after := ex.s.retransmitAfter(r.sends)
 	r.sends++
-	r.timer = time.AfterFunc(after, func() {
-		defer contain.Recover(ex.s.t.log, contain.Timer, nil)
-		ex.retransmit(r)
-	})
+	r.timer = time.AfterFunc(after, func() { ex.retransmit(r) })
 }
 
 func (ex *Exchange) retransmit(r *retransmission) {
@@ -505,7 +502,6 @@ func (ex *Exchange) needAck(counter uint32) {
 	if ex.ackTimer == nil {
 		var timer *time.Timer
 		timer = time.AfterFunc(ex.s.mrp.StandaloneAckTimeout, func() {
-			defer contain.Recover(ex.s.t.log, contain.Timer, nil)
 			ex.s.t.mu.Lock()
 			defer ex.s.t.mu.Unlock()
 			if ex.ackTimer == timer { // not stopped and replaced while this waited for the lock
