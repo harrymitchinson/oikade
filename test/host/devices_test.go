@@ -216,6 +216,7 @@ func TestRestoringFromTheCommittedFile(t *testing.T) {
 	r.pair("hall-lamp", "hall-lamp")
 	r.stdout(nil, "devices", "name", "hall-lamp", "lamp", "--allow-safety")
 	r.stdout(nil, "devices", "room", "lamp", "Hall")
+	r.stdout(nil, "devices", "type", "lamp", "OnOffLight")
 	r.stdout(nil, "devices", "reserve", "porch-light", "--room", "Porch")
 	want := r.devices()
 	file := filepath.Join(t.TempDir(), "devices.go")
@@ -230,9 +231,12 @@ func TestRestoringFromTheCommittedFile(t *testing.T) {
 	}
 	for _, name := range []string{"fan", "lamp", "porch-light"} {
 		w, g := deviceOf(t, want, name), deviceOf(t, got, name)
-		if g.Endpoint != w.Endpoint || g.Room != w.Room || g.ID != w.ID {
+		if g.Endpoint != w.Endpoint || g.Room != w.Room || g.ID != w.ID || g.DeviceType != w.DeviceType {
 			t.Errorf("%s: got %+v, want %+v", name, g, w)
 		}
+	}
+	if lamp := deviceOf(t, got, "lamp"); lamp.DeviceType != "OnOffLight" {
+		t.Errorf("the lamp lost its device type: %+v", lamp)
 	}
 	lost.stdout(nil, "set", "fan", "on", "on")
 	lost.wrote("fan", true)

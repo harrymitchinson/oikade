@@ -313,7 +313,7 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 		return s.backup()
 	case api.TypeSecrets, api.TypeSecretSet, api.TypeSecretRemove:
 		return s.secret(req)
-	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceReserve,
+	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceType, api.TypeDeviceReserve,
 		api.TypeDeviceRemove, api.TypeDeviceReplace, api.TypeDeviceRestore:
 		return s.device(req)
 	}

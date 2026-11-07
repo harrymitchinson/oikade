@@ -12,11 +12,12 @@ import (
 	"text/tabwriter"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM | reserve NAME | " +
+const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM | type DEVICE TYPE | reserve NAME | " +
 	"replace DEVICE WITH | remove DEVICE | restore FILE]"
 
 // typesReminder is what a change to a device's name leaves for you to do.
@@ -46,6 +47,9 @@ func runDevices(ctx context.Context, args []string) error {
 	case verb == "room" && len(words) == 2:
 		req.Type, req.Device, req.Room = api.TypeDeviceRoom, words[0], words[1]
 		message = fmt.Sprintf("Moved %s to %s", words[0], or(words[1], "no room"))
+	case verb == "type" && len(words) == 2:
+		req.Type, req.Device, req.DeviceType = api.TypeDeviceType, words[0], devicetype.Type(words[1])
+		message = fmt.Sprintf("%s is %s", words[0], or(words[1], "what its driver says"))
 	case verb == "reserve" && len(words) == 1:
 		req.Type, req.Device, req.Room = api.TypeDeviceReserve, words[0], *room
 		message = fmt.Sprintf("Reserved %s", words[0])
@@ -108,7 +112,7 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 		list.Devices = slices.DeleteFunc(list.Devices, func(d registry.Device) bool { return d.Removed })
 	}
 	if asJSON {
-		return cli.PrintJSON(list)
+		return cli.PrintJSON(listed(list))
 	}
 	printDevices(os.Stdout, list)
 	return nil
@@ -117,7 +121,7 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 func printDevices(out io.Writer, list registry.Snapshot) {
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tDRIVER\tID\tENDPOINT\tCAPABILITIES")
+	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tDRIVER\tID\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
 	for _, d := range list.Devices {
 		state := "paired"
 		switch {
@@ -126,10 +130,36 @@ func printDevices(out io.Writer, list registry.Snapshot) {
 		case d.Reserved():
 			state = "reserved"
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
-			or(d.ID, "-"), d.Endpoint, strings.Join(d.Capabilities, ", "))
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
+			or(d.ID, "-"), d.Endpoint, or(typeNames(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
 	}
 	_ = w.Flush()
+}
+
+// listedDevice is a device as oikade devices --json prints it: as on record, with what it is.
+type listedDevice struct {
+	registry.Device
+	DeviceTypes []devicetype.Type `json:"deviceTypes"`
+}
+
+// listed is the registry as oikade devices --json prints it.
+func listed(list registry.Snapshot) any {
+	devices := make([]listedDevice, 0, len(list.Devices))
+	for _, d := range list.Devices {
+		devices = append(devices, listedDevice{Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...)})
+	}
+	return struct {
+		Next    uint16         `json:"next"`
+		Devices []listedDevice `json:"devices"`
+	}{list.Next, devices}
+}
+
+func typeNames(types []devicetype.Type) string {
+	names := make([]string, len(types))
+	for i, t := range types {
+		names[i] = string(t)
+	}
+	return strings.Join(names, ", ")
 }
 
 func runTypes(ctx context.Context, args []string) error {

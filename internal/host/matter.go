@@ -15,6 +15,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -234,6 +235,7 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 		snap, live := m.devices.Get(dev)
 		out[d.Endpoint] = matterbridge.Device{
 			Key: dev, Endpoint: d.Endpoint, Name: d.Name, Capabilities: d.Capabilities,
+			Type: devicetype.OnOffOf(d.DeviceType, d.DriverDeviceType, d.Capabilities),
 			// A name can move, and an endpoint can't, so a controller keeps its device through either.
 			Unique: matterbridge.UniqueID(ident.ID{Namespace: m.id.UniqueID, Name: strconv.Itoa(int(d.Endpoint))}),
 			Absent: !live || !snap.Discovered,

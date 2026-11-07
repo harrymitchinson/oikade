@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -84,7 +85,7 @@ func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
 	}
 	d, changed, err := i.registry.Report(registry.Report{
 		ID: app.ID, Driver: instanceName(instance), Name: app.Name, Room: app.Room,
-		Capabilities: app.Capabilities, Control: settings,
+		Capabilities: app.Capabilities, DeviceType: app.DeviceType, Control: settings,
 	})
 	if err != nil {
 		return ident.ID{}, err
@@ -279,6 +280,19 @@ func (i *inventory) move(name, room string) error {
 	return nil
 }
 
+// setType says what a device is. The Matter bridge rebuilds its endpoint, on the same ID.
+func (i *inventory) setType(name string, t devicetype.Type) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if err := i.registry.SetDeviceType(name, t); err != nil {
+		return err
+	}
+	i.sync()
+	d, _ := i.registry.Get(name)
+	i.log.Info("Set device type", "device", name, "deviceType", t, "deviceTypes", d.DeviceTypes())
+	return nil
+}
+
 func (i *inventory) reserve(name, room string) error {
 	if err := i.registry.Reserve(name, room); err != nil {
 		return err
@@ -427,6 +441,8 @@ func (s *apiServer) device(req api.Request) api.Response {
 		err = s.devices.rename(req.Device, req.To)
 	case api.TypeDeviceRoom:
 		err = s.devices.move(req.Device, req.Room)
+	case api.TypeDeviceType:
+		err = s.devices.setType(req.Device, req.DeviceType)
 	case api.TypeDeviceReserve:
 		err = s.devices.reserve(req.Device, req.Room)
 	case api.TypeDeviceRemove:

@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -18,7 +19,7 @@ type setCall struct {
 	value any
 }
 
-func mapDevice(t *testing.T, typ DeviceType, caps ...string) (*Mapped, *[]setCall) {
+func mapDevice(t *testing.T, typ devicetype.Type, caps ...string) (*Mapped, *[]setCall) {
 	t.Helper()
 	var calls []setCall
 	m := Map(Device{Key: ident.ID{Namespace: "home", Name: "d"}, Endpoint: 7, Name: "D", Capabilities: caps, Type: typ},
@@ -95,16 +96,18 @@ func invoke(t *testing.T, c *im.Cluster, cmd uint32, f func(w *tlv.Writer)) {
 
 func TestDeviceTypes(t *testing.T) {
 	for name, tc := range map[string]struct {
-		typ  DeviceType
+		typ  devicetype.Type
 		caps []string
 		want []uint32
 	}{
-		// Until a device says what it is (OIK-142), on alone is a plug, and with a brightness a light.
+		// A device that doesn't say what it is is a plug, and with a brightness a light.
 		"on alone shown as a plug": {"", []string{capability.On}, []uint32{0x010A}},
 		"dimmable light":           {"", []string{capability.On, capability.Brightness}, []uint32{0x0101}},
-		"on/off light":             {TypeLight, []string{capability.On}, []uint32{0x0100}},
-		"switch as a wall control": {TypeMountedControl, []string{capability.On}, []uint32{0x010F}},
-		"dimmable light as a plug": {TypePlugInUnit, []string{capability.On, capability.Brightness}, []uint32{0x010B}},
+		"on/off light":             {devicetype.OnOffLight, []string{capability.On}, []uint32{0x0100}},
+		"switch as a wall control": {devicetype.MountedOnOffControl, []string{capability.On}, []uint32{0x010F}},
+		"dimmer in the wall":       {devicetype.MountedDimmableLoadControl, []string{capability.On, capability.Brightness}, []uint32{0x0110}},
+		"dimmable light as a plug": {devicetype.DimmablePlugInUnit, []string{capability.On, capability.Brightness}, []uint32{0x010B}},
+		"nothing to dim":           {devicetype.DimmableLight, []string{capability.On}, []uint32{0x0100}},
 		"motion with temperature and battery": {"", []string{capability.Occupied, capability.Temperature, capability.Battery, capability.LinkQuality},
 			[]uint32{0x0107, 0x0302, 0x0011}},
 		"contact":  {"", []string{capability.Open}, []uint32{0x0015}},
@@ -266,4 +269,21 @@ func TestAShutDoorIsBooleanStateTrue(t *testing.T) {
 	if got := read(t, cluster(t, m, spec.Matter.ClusterID), spec.Matter.AttributeID); got != spec.Matter.Inverted {
 		t.Fatalf("Boolean State is %v for a shut door, and the registry says inverted is %v", got, spec.Matter.Inverted)
 	}
+}
+
+// A device you say is an on/off light is one, brightness or not: Level Control would make it dimmable.
+func TestAnOnOffTypeLeavesOutLevelControl(t *testing.T) {
+	m, _ := mapDevice(t, devicetype.OnOffLight, capability.On, capability.Brightness)
+	if got := ids(m.Types); !slices.Equal(got, []uint32{0x0100}) {
+		t.Errorf("device types %#x", got)
+	}
+	for _, c := range m.Clusters {
+		if c.ID == clusters.IDLevelControl {
+			t.Error("an on/off light has Level Control")
+		}
+	}
+	if cluster(t, m, clusters.IDOnOff).FeatureMap&1 == 0 {
+		t.Error("a light's On/Off has no Lighting feature")
+	}
+	m.Update(capability.Brightness, 40.0) // Nothing to update, and nothing breaks.
 }

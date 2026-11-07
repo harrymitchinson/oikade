@@ -15,6 +15,8 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -53,6 +55,11 @@ type Device struct {
 	Driver       string   `json:"driver,omitempty"`
 	Room         string   `json:"room,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	// DeviceType is what you say it is, from oikade devices type, which wins over its driver. It
+	// stays with the name, as a room does.
+	DeviceType devicetype.Type `json:"deviceType,omitempty"`
+	// DriverDeviceType is what its driver says it is, if the driver knows.
+	DriverDeviceType devicetype.Type `json:"driverDeviceType,omitempty"`
 	// Endpoint is its Matter endpoint ID, and follows the name onto replacement hardware.
 	Endpoint uint16 `json:"endpoint"`
 	// Removed keeps the device on record, holding its endpoint, in case it comes back.
@@ -60,6 +67,11 @@ type Device struct {
 	// Control is how it's arbitrated, opaque here. It's on record so that claims hold from the moment
 	// the host starts, before a driver has reported.
 	Control json.RawMessage `json:"control,omitempty"`
+}
+
+// DeviceTypes are what it is: yours, else its driver's, else what its capabilities say.
+func (d Device) DeviceTypes() []devicetype.Type {
+	return devicetype.Of(d.DeviceType, d.DriverDeviceType, d.Capabilities)
 }
 
 // Reserved says the name has no hardware yet.
@@ -77,6 +89,8 @@ type Report struct {
 	ID           string
 	Driver       string
 	Capabilities []string
+	// DeviceType is what the driver says it is, empty if it doesn't know.
+	DeviceType devicetype.Type
 	// Control is how it's arbitrated. Nil leaves what's on record.
 	Control json.RawMessage
 	// Name and Room are as named in its app, and are only read the first time.
@@ -172,6 +186,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 	r.mu.RLock()
 	i := hardware(r.state, report.Driver, report.ID)
 	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
+		r.state.Devices[i].DriverDeviceType == report.DeviceType &&
 		(report.Control == nil || bytes.Equal(r.state.Devices[i].Control, report.Control))
 	var known Device
 	if same {
@@ -199,7 +214,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if d.Removed {
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
-		d.Capabilities = slices.Clone(report.Capabilities)
+		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
 		if report.Control != nil {
 			d.Control = bytes.Clone(report.Control)
 		}
@@ -258,6 +273,39 @@ func (r *Registry) Move(name, room string) error {
 	})
 }
 
+// SetDeviceType says what a device is, one of devicetype.OnOff. An empty type goes back to what its
+// driver says. A dimmable type needs a brightness, unless the device isn't paired yet.
+func (r *Registry) SetDeviceType(name string, t devicetype.Type) error {
+	if t != "" && !devicetype.Choosable(t) {
+		return fmt.Errorf("%q isn't a device type: use one of %s", t, joined(devicetype.OnOff))
+	}
+	return r.change(func(s *Snapshot) error {
+		i := live(*s, name)
+		if i < 0 {
+			return fmt.Errorf("%w: %s", ErrNoDevice, name)
+		}
+		d := &s.Devices[i]
+		if t != "" && !d.Reserved() {
+			if !slices.Contains(d.Capabilities, capability.On) {
+				return fmt.Errorf("%s isn't on or off, so what it is follows from its capabilities", name)
+			}
+			if devicetype.Dimmable(t) && !slices.Contains(d.Capabilities, capability.Brightness) {
+				return fmt.Errorf("%s has no brightness, so it can't be %s", name, t)
+			}
+		}
+		d.DeviceType = t
+		return nil
+	})
+}
+
+func joined(types []devicetype.Type) string {
+	out := make([]string, len(types))
+	for i, t := range types {
+		out[i] = string(t)
+	}
+	return strings.Join(out, ", ")
+}
+
 // Remove takes a device out of use. It stays on record, keeping its endpoint.
 func (r *Registry) Remove(name string) error {
 	return r.change(func(s *Snapshot) error {
@@ -291,6 +339,10 @@ func (r *Registry) Replace(name, with string) error {
 		}
 		d := &s.Devices[i]
 		d.ID, d.Driver, d.Capabilities = source.ID, source.Driver, slices.Clone(source.Capabilities)
+		d.DriverDeviceType = source.DriverDeviceType
+		if d.DeviceType == "" {
+			d.DeviceType = source.DeviceType
+		}
 		if len(d.Control) == 0 {
 			d.Control = bytes.Clone(source.Control)
 		}

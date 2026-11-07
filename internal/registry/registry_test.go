@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -590,5 +592,100 @@ func TestArbitrationStaysOnRecordAndWithTheName(t *testing.T) {
 	}
 	if i := live(back, "valve"); i < 0 || !bytes.Equal(back.Devices[i].Control, settings) {
 		t.Errorf("the file lost them: %+v", back)
+	}
+}
+
+func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
+	r, values := open(t)
+	report := func(typ devicetype.Type, caps ...string) Device {
+		t.Helper()
+		d, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "bulb", Capabilities: caps, DeviceType: typ})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	types := func() []devicetype.Type { return get(t, r, "bulb").DeviceTypes() }
+
+	report("", capability.On)
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffPlugInUnit}) {
+		t.Errorf("an undescribed on device is %v", got)
+	}
+	if _, changed, _ := r.Report(Report{ID: "0x1", Driver: "sim", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight}); !changed {
+		t.Error("the driver's new device type wasn't taken up")
+	}
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffLight}) {
+		t.Errorf("with the driver's type it's %v", got)
+	}
+	if err := r.SetDeviceType("bulb", devicetype.MountedOnOffControl); err != nil {
+		t.Fatal(err)
+	}
+	report(devicetype.OnOffLight, capability.On)
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.MountedOnOffControl}) {
+		t.Errorf("yours didn't win: %v", got)
+	}
+
+	again, err := Open(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := again.Get("bulb"); d.DeviceType != devicetype.MountedOnOffControl || d.DriverDeviceType != devicetype.OnOffLight {
+		t.Errorf("after reopening: %+v", d)
+	}
+
+	if err := r.SetDeviceType("bulb", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffLight}) {
+		t.Errorf("going back gave %v, want the driver's", got)
+	}
+}
+
+func TestSetDeviceTypeRefusesWhatCantBe(t *testing.T) {
+	r, _ := open(t)
+	if _, _, err := r.Report(Report{ID: "1", Driver: "sim", Name: "plug", Capabilities: []string{capability.On}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.Report(Report{ID: "2", Driver: "sim", Name: "door", Capabilities: []string{capability.Open}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Reserve("future", ""); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		device string
+		typ    devicetype.Type
+	}{
+		"not a type":           {"plug", "Toaster"},
+		"a sensor's type":      {"plug", devicetype.ContactSensor},
+		"dimmable, no dimming": {"plug", devicetype.DimmableLight},
+		"not on or off":        {"door", devicetype.OnOffLight},
+		"no such device":       {"nothing", devicetype.OnOffLight},
+	} {
+		if err := r.SetDeviceType(tc.device, tc.typ); err == nil {
+			t.Errorf("%s: set %s on %s", name, tc.typ, tc.device)
+		}
+	}
+	if err := r.SetDeviceType("future", devicetype.DimmableLight); err != nil {
+		t.Errorf("a reserved name, whose capabilities aren't known yet: %v", err)
+	}
+}
+
+func TestADeviceTypeIsInTheTypesFile(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "0x1", "lamp")
+	if err := r.SetDeviceType("lamp", devicetype.OnOffLight); err != nil {
+		t.Fatal(err)
+	}
+	file, err := Render(r.List(), "home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := Parse(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Devices) != 1 || back.Devices[0].DeviceType != devicetype.OnOffLight {
+		t.Errorf("read back %+v", back.Devices)
 	}
 }
