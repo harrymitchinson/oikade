@@ -11,6 +11,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -538,5 +539,52 @@ func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
 	e.reportSkipped(key, []string{"rail"})
 	if len(logs) != 2 {
 		t.Errorf("logged %d times: %q", len(logs), logs)
+	}
+}
+
+// A room set limited to lights leaves the fridge plug in the same room alone, and says so. A hold
+// limited the same way writes only the lights too.
+func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
+	r := startRigWith(t, rigOptions{now: local("2026-10-21 22:00 BST")})
+	lights := []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight}
+	metas := map[ident.ID]hub.Meta{
+		{Namespace: ns, Name: "hall-motion"}:   {Instance: z2m},
+		{Namespace: ns, Name: "floor-lamp"}:    {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.DimmableLight}},
+		{Namespace: ns, Name: "ceiling-light"}: {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}},
+		{Namespace: ns, Name: "fridge-plug"}:   {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OnOffPlugInUnit}},
+	}
+	r.store.SetDevices(z2m, metas)
+	for dev := range metas {
+		r.store.Discovered(dev, driver.Info{Found: true, Capabilities: []string{capability.On, capability.Occupied}})
+	}
+	c := momentRule(t, "living-room-off", Moment{
+		Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}},
+		Do:      []Action{Set{Room: "living-room", DeviceTypes: lights, Capability: capability.On, Value: false}},
+	})
+	r.e.Load(c)
+	r.change("hall-motion", capability.Occupied, true)
+	r.eventually("the run", func() bool { return len(r.setter.got()) == 2 })
+	r.settle()
+	r.expect(call{"ceiling-light", capability.On, false}, call{"floor-lamp", capability.On, false})
+	r.logs.mu.Lock()
+	skippedLogged := slices.ContainsFunc(r.logs.lines, func(l string) bool {
+		return strings.Contains(l, "Skipped Room members") && strings.Contains(l, "fridge-plug (OnOffPlugInUnit")
+	})
+	r.logs.mu.Unlock()
+	if !skippedLogged {
+		t.Errorf("no log of the skipped fridge plug in %q", r.logs.lines)
+	}
+
+	if _, err := NewMoment(ident.ID{Namespace: ns, Name: "bad"}, Moment{
+		Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}},
+		Do:      []Action{Set{Device: "fridge-plug", DeviceTypes: lights, Capability: capability.On, Value: false}},
+	}); err == nil {
+		t.Error("device types on a device, not a room, compiled")
+	}
+	if _, err := NewHold(ident.ID{Namespace: ns, Name: "bad"}, Hold{
+		Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OccupancySensor}, Capability: capability.On, Value: true,
+		Window: &Window{Start: At{Time: "20:00"}, End: At{Time: "23:00"}},
+	}); err == nil {
+		t.Error("a hold limited to a sensor type compiled")
 	}
 }

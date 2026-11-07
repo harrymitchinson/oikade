@@ -2,6 +2,7 @@ package framework
 
 import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
@@ -55,6 +56,20 @@ func (h Handle[T]) change() engine.Change {
 	return engine.Change{Device: h.Device, Capability: string(h.Capability)}
 }
 
+// DeviceType is what a device that's on or off is, in Matter's names, as oikade devices shows it. A
+// room write can be limited to some, with Types.
+type DeviceType string
+
+// The device types a device that's on or off can be.
+const (
+	OnOffLight                 DeviceType = contractv1.OnOffLight
+	DimmableLight              DeviceType = contractv1.DimmableLight
+	OnOffPlugInUnit            DeviceType = contractv1.OnOffPlugInUnit
+	DimmablePlugInUnit         DeviceType = contractv1.DimmablePlugInUnit
+	MountedOnOffControl        DeviceType = contractv1.MountedOnOffControl
+	MountedDimmableLoadControl DeviceType = contractv1.MountedDimmableLoadControl
+)
+
 // Room is a capability of every device in a room that has it, from InRoom. A room's devices can
 // change without a deploy, so it takes the capability rather than handles.
 type Room[T Value] struct {
@@ -74,6 +89,30 @@ func (r Room[T]) To(v T) Set {
 
 func (r Room[T]) change() engine.Change {
 	return engine.Change{Room: r.room, Capability: string(r.capability)}
+}
+
+// Types limits a write to the room's devices of these types, so that turning off the lights
+// leaves the fridge's plug alone. Without it, a room means every device in it with the capability.
+// It's only for writes: a trigger on a room fires for any of its devices.
+//
+//	framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false)
+func (r Room[T]) Types(types ...DeviceType) RoomOfTypes[T] {
+	return RoomOfTypes[T]{room: r, types: types}
+}
+
+// RoomOfTypes is a capability of a room's devices of some types, from Room's Types.
+type RoomOfTypes[T Value] struct {
+	room  Room[T]
+	types []DeviceType
+}
+
+// To is a write of v to every device in the room of one of the types, with the capability.
+func (r RoomOfTypes[T]) To(v T) Set {
+	s := r.room.To(v)
+	for _, t := range r.types {
+		s.types = append(s.types, devicetype.Type(t))
+	}
+	return s
 }
 
 // Change is what triggers a moment or a flow: a capability changing on a device, as a Handle, or on

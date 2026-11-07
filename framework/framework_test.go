@@ -2,12 +2,14 @@ package framework
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -128,7 +130,7 @@ func TestManifestDescribesTheHome(t *testing.T) {
 		{Name: "alarm", Kind: "moment", Safety: true}, {Name: "lamp", Kind: "moment"},
 		{Name: "shutoff", Kind: "flow", Safety: true}, {Name: "bedtime", Kind: "flow"},
 	}
-	if !slices.Equal(m.Rules, want) {
+	if !reflect.DeepEqual(m.Rules, want) {
 		t.Fatalf("got %+v", m.Rules)
 	}
 }
@@ -253,5 +255,35 @@ func TestMetaHasTheLimitsOfTheHomesControl(t *testing.T) {
 	if len(m.Control) != 2 || time.Duration(m.Control[0].MinimumOn) != time.Hour ||
 		m.Control[1].Capability != "brightness" {
 		t.Fatalf("got %+v", m.Control)
+	}
+}
+
+// A Safety rule's room writes limited to device types are in the manifest, which the host checks a
+// device's new type against. Other rules' aren't.
+func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
+	lights := InRoom("hall", On).Types(OnOffLight, DimmableLight)
+	m := Home{
+		Holds: []Hold{
+			{Name: "night-lights", Priority: Safety, Set: lights.To(true), Window: &Window{Start: "22:00", End: "06:00"}},
+			{Name: "evening", Set: lights.To(true), Window: &Window{Start: "18:00", End: "22:00"}},
+		},
+		Moments: []Moment{{Name: "alarm", At: []string{"03:00"}, Do: []Action{
+			lights.To(true).For(time.Hour).Priority(Safety), InRoom("hall", On).To(true).For(time.Hour).Priority(Safety),
+		}}},
+	}.manifest()
+	want := []wire.RoomOfTypes{{
+		Room: "hall", Capability: "on", DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight},
+	}}
+	for _, r := range m.Rules {
+		got := r.Rooms
+		if r.Name == "evening" {
+			if got != nil {
+				t.Errorf("evening isn't Safety, and has rooms %+v", got)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s has rooms %+v, want %+v", r.Name, got, want)
+		}
 	}
 }

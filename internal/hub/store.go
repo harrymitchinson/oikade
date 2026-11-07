@@ -12,6 +12,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -25,6 +26,13 @@ type Meta struct {
 	Instance driver.InstanceKey
 	// Control is the Device's control entries: the capabilities it arbitrates, and how.
 	Control []control.Entry
+	// DeviceTypes are what it is, as devicetype.Of says, which a room rule can be limited to.
+	DeviceTypes []devicetype.Type
+}
+
+// OfTypes reports whether the Device is one of types. No types means any device.
+func (m Meta) OfTypes(types []devicetype.Type) bool {
+	return len(types) == 0 || slices.ContainsFunc(m.DeviceTypes, func(t devicetype.Type) bool { return slices.Contains(types, t) })
 }
 
 // Controls reports whether the Device arbitrates the capability.

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -31,10 +32,12 @@ type HoldState struct {
 
 // HoldTarget is a hold's device or room, capability and value.
 type HoldTarget struct {
-	Device     string `json:"device,omitempty"`
-	Room       string `json:"room,omitempty"`
-	Capability string `json:"capability"`
-	Value      any    `json:"value"`
+	Device string `json:"device,omitempty"`
+	Room   string `json:"room,omitempty"`
+	// DeviceTypes limits a room to devices of these types.
+	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
+	Capability  string            `json:"capability"`
+	Value       any               `json:"value"`
 }
 
 // States keeps state, by Rule or Device, where it survives a restart.

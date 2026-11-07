@@ -27,7 +27,7 @@ func ReadTypes(path string) ([]Device, error) {
 	var out []Device
 	for _, d := range snapshot.Devices {
 		if !d.Removed {
-			out = append(out, Device{Name: d.Name, Room: d.Room, Capabilities: d.Capabilities})
+			out = append(out, Device{Name: d.Name, Room: d.Room, Capabilities: d.Capabilities, DeviceTypes: d.DeviceTypes()})
 		}
 	}
 	return out, nil

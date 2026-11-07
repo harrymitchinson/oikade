@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -86,6 +87,8 @@ func TestHostRefusesAnotherVersionAndARole(t *testing.T) {
 	socket, _ := startHost(t, tempDir(t))
 	for name, hello := range map[string]wire.Message{
 		"version": {Type: wire.TypeHello, Version: wire.Version + 1, Role: wire.RoleAutomations},
+		// A process from before device types would write a room's every device.
+		"the last version": {Type: wire.TypeHello, Version: wire.Version - 1, Role: wire.RoleAutomations},
 		// A process from before releaseAll's below would release Safety claims if it were let in.
 		"old version": {Type: wire.TypeHello, Version: 1, Role: wire.RoleAutomations},
 		"no version":  {Type: wire.TypeHello, Role: wire.RoleAutomations},
@@ -108,6 +111,10 @@ func TestHostRefusesAnotherVersionAndARole(t *testing.T) {
 			}
 			if m.Type != wire.TypeRejected {
 				t.Fatalf("got %+v", m)
+			}
+			if want := fmt.Sprintf("protocol version %d isn't supported, want %d", hello.Version, wire.Version); hello.Type == wire.TypeHello &&
+				hello.Role == wire.RoleAutomations && !strings.Contains(m.Error, want) {
+				t.Errorf("rejected with %q, want %q", m.Error, want)
 			}
 		})
 	}

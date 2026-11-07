@@ -279,6 +279,8 @@ type Device struct {
 	Room         string       `json:"room,omitempty"`
 	Online       *bool        `json:"online,omitempty"`
 	Capabilities []Capability `json:"capabilities"`
+	// DeviceTypes are what it is.
+	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
 }
 
 // Capability is a device's capability, and who has it if it's arbitrated.

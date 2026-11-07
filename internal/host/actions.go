@@ -47,7 +47,10 @@ func (s *apiServer) status() api.Response {
 		if dev.Namespace != wire.Namespace {
 			continue
 		}
-		d := api.Device{Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{}}
+		d := api.Device{
+			Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
+			DeviceTypes: slices.Clone(snap.DeviceTypes),
+		}
 		held := s.srv.engine.ControlOf(dev)
 		names := slices.Clone(snap.Info.Capabilities)
 		for name := range snap.Values {

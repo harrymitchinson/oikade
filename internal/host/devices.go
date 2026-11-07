@@ -108,7 +108,9 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 			i.log.Error("Ignored unreadable arbitration settings", "err", err, "device", d.Name)
 		}
 	}
-	return hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.withHome(d.Name, entries)}, true
+	return hub.Meta{
+		DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.withHome(d.Name, entries), DeviceTypes: d.DeviceTypes(),
+	}, true
 }
 
 // withHome is what's on record for a device, overlaid with what the home says. Call with mu held.
@@ -288,6 +290,7 @@ func (i *inventory) setType(name string, t devicetype.Type) error {
 		return err
 	}
 	i.sync()
+	i.announce(key(name))
 	d, _ := i.registry.Get(name)
 	i.log.Info("Set device type", "device", name, "deviceType", t, "deviceTypes", d.DeviceTypes())
 	return nil
@@ -409,6 +412,35 @@ func restoreMoves(from registry.Snapshot, d registry.Device) bool {
 	return false
 }
 
+// typedOut names the running code's Safety rules that a device would drop out of with device type t:
+// a room write limited to types it's one of now and wouldn't be.
+func (s *apiServer) typedOut(name string, t devicetype.Type) []string {
+	d, ok := s.devices.registry.Get(name)
+	if !ok {
+		return nil
+	}
+	before := d.DeviceTypes()
+	d.DeviceType = t
+	after := d.DeviceTypes()
+	rules, _ := s.rulesInfo()
+	var out []string
+	for _, r := range rules {
+		if !r.Safety {
+			continue
+		}
+		if slices.ContainsFunc(r.Rooms, func(room wire.RoomOfTypes) bool {
+			if room.Room != d.Room || !slices.Contains(d.Capabilities, room.Capability) {
+				return false
+			}
+			was, is := hub.Meta{DeviceTypes: before}, hub.Meta{DeviceTypes: after}
+			return was.OfTypes(room.DeviceTypes) && !is.OfTypes(room.DeviceTypes)
+		}) {
+			out = append(out, r.Name)
+		}
+	}
+	return out
+}
+
 // safetyRule names a Safety rule of the running code, if there is one.
 func (s *apiServer) safetyRule() string {
 	rules, _ := s.rulesInfo()
@@ -442,6 +474,13 @@ func (s *apiServer) device(req api.Request) api.Response {
 	case api.TypeDeviceRoom:
 		err = s.devices.move(req.Device, req.Room)
 	case api.TypeDeviceType:
+		if rules := s.typedOut(req.Device, req.DeviceType); len(rules) > 0 && !req.AllowSafety {
+			return api.Response{
+				Error: fmt.Sprintf("%s would no longer be one of the device types %s writes at Safety, so it would stop "+
+					"protecting it", req.Device, strings.Join(rules, ", ")),
+				NeedsAllowSafety: true,
+			}
+		}
 		err = s.devices.setType(req.Device, req.DeviceType)
 	case api.TypeDeviceReserve:
 		err = s.devices.reserve(req.Device, req.Room)

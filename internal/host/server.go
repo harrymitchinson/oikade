@@ -631,7 +631,8 @@ func key(name string) ident.ID {
 func deviceOf(name string, snap hub.Snapshot) wire.Device {
 	d := wire.Device{
 		Name: name, Room: snap.Room, Discovered: snap.Discovered,
-		Capabilities: slices.Clone(snap.Info.Capabilities), Values: snap.Values, LastSeen: snap.LastSeen,
+		Capabilities: slices.Clone(snap.Info.Capabilities), DeviceTypes: slices.Clone(snap.DeviceTypes),
+		Values: snap.Values, LastSeen: snap.LastSeen,
 	}
 	for _, c := range snap.Control {
 		d.Arbitrated = append(d.Arbitrated, c.Capability)

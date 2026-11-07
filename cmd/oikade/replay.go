@@ -90,7 +90,7 @@ func fetchLog(ctx context.Context, t api.Transport, path string, since time.Dura
 	}
 	var devices []simhome.Device
 	for _, d := range resp.Status.Devices {
-		device := simhome.Device{Name: d.Name, Room: d.Room}
+		device := simhome.Device{Name: d.Name, Room: d.Room, DeviceTypes: d.DeviceTypes}
 		for _, c := range d.Capabilities {
 			device.Capabilities = append(device.Capabilities, c.Name)
 		}

@@ -20,9 +20,10 @@ const (
 	// Version is the protocol's version. A process sends it first, and the host refuses any other.
 	// Raise it with any change to what a message means: a host outlives a deploy, so it can meet a
 	// binary built against something else. Version 2 added releaseAll's below, and 3 pausing rules,
-	// the rule facts in a hello, and reporting rule runs and metrics, and 4
-	// plugin sessions and a Manifest's plugins.
-	Version = 5
+	// the rule facts in a hello, and reporting rule runs and metrics, 4 plugin sessions and a
+	// Manifest's plugins, 5 the home's control in a hello, lastSeen and seen, and 6 device types on a
+	// device and a rule's rooms limited to them.
+	Version = 6
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = "plugin"
 

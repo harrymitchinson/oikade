@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -14,6 +15,7 @@ import (
 type hold struct {
 	device     string
 	room       string
+	types      []devicetype.Type
 	capability string
 	value      any
 	priority   Priority

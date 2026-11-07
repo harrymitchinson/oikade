@@ -9,6 +9,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/internal/sun"
@@ -143,9 +144,12 @@ type Action interface {
 // Set writes a capability on a device or a room. For, Until and Priority make it a claim on an
 // arbitrated capability.
 type Set struct {
-	Device     string
-	Room       string
-	Capability string
+	Device string
+	Room   string
+	// DeviceTypes limits a room's set to devices of these types, from devicetype.OnOff. None means
+	// every device in the room with the capability.
+	DeviceTypes []devicetype.Type
+	Capability  string
 	// Value is a bool or a number.
 	Value    any
 	For      time.Duration
@@ -156,6 +160,9 @@ type Set struct {
 func (s Set) action() (action, error) {
 	if (s.Device == "") == (s.Room == "") {
 		return action{}, errors.New("exactly one of device or room is required")
+	}
+	if err := checkTypes(s.Room, s.DeviceTypes); err != nil {
+		return action{}, err
 	}
 	v, err := writableValue(s.Capability, s.Value)
 	if err != nil {
@@ -176,7 +183,24 @@ func (s Set) action() (action, error) {
 	if err := checkPriority(s.Priority); err != nil {
 		return action{}, err
 	}
-	return action{device: s.Device, room: s.Room, capability: s.Capability, value: v, claimFor: s.For, until: s.Until, priority: s.Priority}, nil
+	return action{
+		device: s.Device, room: s.Room, types: slices.Clone(s.DeviceTypes), capability: s.Capability, value: v,
+		claimFor: s.For, until: s.Until, priority: s.Priority,
+	}, nil
+}
+
+// checkTypes checks a room rule's device types: only a room takes them, and each is one a device
+// that's on or off can be.
+func checkTypes(room string, types []devicetype.Type) error {
+	if len(types) > 0 && room == "" {
+		return errors.New("device types limit a room, and there's no room")
+	}
+	for _, t := range types {
+		if !devicetype.Choosable(t) {
+			return fmt.Errorf("unknown device type %q: use one of %s", t, devicetype.Join(devicetype.OnOff))
+		}
+	}
+	return nil
 }
 
 // Delay waits before the next action.
@@ -444,9 +468,11 @@ func windowTime(t Timer) (timeTrigger, error) {
 // Hold keeps a capability at Value while its Window is open and When is true. It needs at least
 // one of them, or else a Budget, which is then the only one.
 type Hold struct {
-	Device     string
-	Room       string
-	Capability string
+	Device string
+	Room   string
+	// DeviceTypes limits a room's hold to devices of these types, as on a Set.
+	DeviceTypes []devicetype.Type
+	Capability  string
 	// Value is a bool or a number.
 	Value    any
 	Priority Priority
@@ -467,12 +493,16 @@ type Hold struct {
 func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 	c := &Compiled{Key: key, Generation: max(h.Generation, 1), Mode: ModeSingle}
 	c.hold = &hold{
-		device: h.Device, room: h.Room, capability: h.Capability, priority: h.Priority, when: guarded(h.When),
+		device: h.Device, room: h.Room, types: slices.Clone(h.DeviceTypes), capability: h.Capability, priority: h.Priority,
+		when:    guarded(h.When),
 		onDelay: h.OnDelay, offDelay: h.OffDelay, latch: h.Latch,
 	}
 	var errs []error
 	if (h.Device == "") == (h.Room == "") {
 		errs = append(errs, errors.New("hold: exactly one of device or room is required"))
+	}
+	if err := checkTypes(h.Room, h.DeviceTypes); err != nil {
+		errs = append(errs, fmt.Errorf("hold: %w", err))
 	}
 	v, err := writableValue(h.Capability, h.Value)
 	if err != nil {

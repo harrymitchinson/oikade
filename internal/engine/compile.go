@@ -4,6 +4,7 @@ package engine
 import (
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
@@ -35,8 +36,10 @@ type action struct {
 	device     string
 	room       string
 	capability string
-	value      any
-	delay      time.Duration
+	// types limits a room's set to devices of these types. None means every device.
+	types []devicetype.Type
+	value any
+	delay time.Duration
 	// release names the Rule a release action releases.
 	release string
 	// claimFor, until and priority shape a set on an arbitrated capability as a claim.

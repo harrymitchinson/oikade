@@ -17,6 +17,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
@@ -47,7 +48,9 @@ type Home struct {
 type Device struct {
 	Name, Room   string
 	Capabilities []string
-	Values       map[string]any
+	// DeviceTypes are what it is, which a room write can be limited to.
+	DeviceTypes []devicetype.Type
+	Values      map[string]any
 }
 
 // Write is something your automations wrote to a device.
@@ -138,7 +141,9 @@ func New(o Options) (*Sim, error) {
 	s.store = hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range o.Devices {
-		metas[key(d.Name)] = hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d.Name)}
+		metas[key(d.Name)] = hub.Meta{
+			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d.Name), DeviceTypes: d.DeviceTypes,
+		}
 	}
 	s.store.SetDevices(instance, metas)
 	for _, d := range o.Devices {

@@ -8,6 +8,7 @@ import (
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
 )
@@ -95,6 +96,16 @@ type RuleInfo struct {
 	Safety bool `json:"safety,omitempty"`
 	// Latch is a hold that stays active until a release.
 	Latch bool `json:"latch,omitempty"`
+	// Rooms are a Safety rule's room writes limited to device types, so that a device's new type
+	// can't take it out of one unnoticed.
+	Rooms []RoomOfTypes `json:"rooms,omitempty"`
+}
+
+// RoomOfTypes is a room write limited to device types.
+type RoomOfTypes struct {
+	Room        string            `json:"room"`
+	Capability  string            `json:"capability"`
+	DeviceTypes []devicetype.Type `json:"deviceTypes"`
 }
 
 // Device is one device as the host knows it.
@@ -105,6 +116,8 @@ type Device struct {
 	Arbitrated   []string `json:"arbitrated,omitempty"`
 	Discovered   bool     `json:"discovered,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	// DeviceTypes are what it is, which a room write can be limited to.
+	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
 	// LastSeen is when the device last reported, which says how old its values are.
 	LastSeen time.Time `json:"lastSeen,omitzero"`
 	// Values are bools and numbers, by capability.
