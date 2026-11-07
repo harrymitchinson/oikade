@@ -522,7 +522,7 @@ func send(ctx context.Context, t Transport, route Route, target string, body io.
 	}
 	var dialed atomic.Bool
 	client := &http.Client{Transport: &http.Transport{
-		// One connection a call, as a connection over SSH is a process to end.
+		// One connection a call: oikade makes few, and a stream holds its own.
 		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			conn, err := t.Dial(ctx)

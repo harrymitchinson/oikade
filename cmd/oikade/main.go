@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 
@@ -33,8 +32,6 @@ const devVersion = "dev"
 const defaultDataDir = "/var/lib/oikade"
 
 const usage = `Usage:
-  oikade install [--binary FILE] [--user NAME] [--print] [-- HOST FLAGS...]
-  oikade upgrade [--binary FILE]
   oikade backup
   oikade secret list [--json]
   oikade secret set NAME [--json]      The value comes from stdin, or is asked for.
@@ -70,10 +67,10 @@ const usage = `Usage:
   oikade types [--out FILE] [--package NAME]
   oikade matter [--json]
 
-Every command that talks to a host takes --data-dir DIR, --host NAME, which runs it on that SSH host, and
---context NAME, which reaches a host you logged in to over its network API. Without any of them, a command
-uses the context oikade login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context
-saved without one.`
+Every command that talks to a host takes --data-dir DIR, for the host on this machine, and --context NAME,
+which reaches a host you logged in to over its network API. Without either, a command uses the context
+oikade login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context saved
+without one.`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -82,7 +79,7 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	command, args := splitCommand(os.Args[1:])
+	command, args := os.Args[1], os.Args[2:]
 	var err error
 	switch command {
 	case "host":
@@ -117,10 +114,6 @@ func main() {
 		err = runTypes(ctx, args)
 	case "matter":
 		err = runMatter(ctx, args)
-	case "install":
-		err = runInstall(ctx, args)
-	case "upgrade":
-		err = runUpgrade(ctx, args)
 	case "backup":
 		err = runBackup(ctx, args)
 	case "secret":
@@ -131,28 +124,16 @@ func main() {
 		err = runLogin(ctx, args)
 	case "version":
 		fmt.Println(currentVersion())
-	case "proxy":
-		err = runProxy(ctx, args)
+	case "help", "-h", "--help":
+		fmt.Println(usage)
 	default:
-		fmt.Fprintln(os.Stderr, usage)
+		fmt.Fprintf(os.Stderr, "Error: unknown command %s\n\n%s\n", command, usage)
 		os.Exit(2)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-}
-
-// splitCommand finds the command, so that oikade --host pi status works as well as oikade status
-// --host pi.
-func splitCommand(args []string) (string, []string) {
-	if len(args) >= 3 && args[0] == "--host" {
-		return args[2], append(slices.Clone(args[:2]), args[3:]...)
-	}
-	if len(args) >= 2 && strings.HasPrefix(args[0], "--host=") {
-		return args[1], append(slices.Clone(args[:1]), args[2:]...)
-	}
-	return args[0], args[1:]
 }
 
 func runHost(ctx context.Context, args []string) error {

@@ -67,9 +67,6 @@ func TestTargetChoosesTheHost(t *testing.T) {
 	if _, ok := pick("--data-dir", "/var/lib/oikade").(api.Local); !ok {
 		t.Error("--data-dir should mean this machine")
 	}
-	if _, ok := pick("--host", "pi").(api.SSH); !ok {
-		t.Error("--host should win")
-	}
 	if _, ok := pick("--context", "nowhere").(failing); !ok {
 		t.Error("an unknown context should fail")
 	}

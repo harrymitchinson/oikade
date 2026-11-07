@@ -282,9 +282,10 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 `
 
 // homeWorkflow tests every change, and deploys what reaches main. It needs three settings: the
-// variable OIKADE_HOST, as user@address, and the secrets OIKADE_SSH_KEY, a key that logs in there, and
-// OIKADE_KNOWN_HOSTS, the host's line from known_hosts, because a key taken from whatever answers
-// proves nothing.
+// secret OIKADE_TOKEN, from oikade client add ci --token, and the variables OIKADE_ADDRESS, where the
+// host serves its API, and OIKADE_PIN, the pin client add printed, because a key taken from whatever
+// answers proves nothing. GitHub's runners reach the host only if it's on the internet, so the README says
+// to run it on a self-hosted runner, or over a VPN.
 const homeWorkflow = `name: Home
 
 on:
@@ -306,13 +307,10 @@ jobs:
       - name: Deploy
         if: github.event_name == 'push'
         env:
-          OIKADE_SSH_KEY: ${{ secrets.OIKADE_SSH_KEY }}
-          OIKADE_KNOWN_HOSTS: ${{ secrets.OIKADE_KNOWN_HOSTS }}
-          OIKADE_HOST: ${{ vars.OIKADE_HOST }}
+          OIKADE_TOKEN: ${{ secrets.OIKADE_TOKEN }}
+          OIKADE_ADDRESS: ${{ vars.OIKADE_ADDRESS }}
+          OIKADE_PIN: ${{ vars.OIKADE_PIN }}
         run: |
-          install -m 700 -d ~/.ssh
-          printenv OIKADE_SSH_KEY > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printenv OIKADE_KNOWN_HOSTS > ~/.ssh/known_hosts
-          oikade --host "$OIKADE_HOST" deploy
+          oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"
+          oikade deploy
 `

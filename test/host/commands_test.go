@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -357,60 +356,6 @@ func TestTailStreamsChangesAndRunsAcrossAProcessRestart(t *testing.T) {
 	awaitEvent(t, events, func(e api.Event) bool {
 		return e.Type == api.EventChange && e.Device == "leak-sensor" && e.Value == true
 	})
-}
-
-// fakeSSH is an ssh that runs its command here, as sshd would, after checking how it was called.
-func fakeSSH(t *testing.T) []string {
-	t.Helper()
-	dir, err := os.MkdirTemp("", "oikssh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	script := `#!/bin/sh
-[ "$1" = -T ] && [ "$2" = -- ] && [ "$3" = pi ] || { echo "bad ssh arguments: $*" >&2; exit 255; }
-exec sh -c "$4"
-`
-	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	path := []string{dir, buildDir, os.Getenv("PATH")}
-	return []string{"PATH=" + strings.Join(path, string(os.PathListSeparator))}
-}
-
-func TestHostFlagRunsEveryCommandOverSSH(t *testing.T) {
-	t.Parallel()
-	r := start(t, settle)
-	r.sync()
-	env := fakeSSH(t)
-	remote := []string{"--host", "pi"}
-
-	st := r.stdout(env, append([]string{"status", "--json"}, remote...)...)
-	if !strings.Contains(string(st), `"fan"`) {
-		t.Errorf("status over SSH: %s", st)
-	}
-	r.stdout(env, append([]string{"set", "claimed", "switch.on", "off"}, remote...)...)
-	r.wrote("claimed", false)
-	r.stdout(env, append([]string{"pause", "fan"}, remote...)...)
-	r.stdout(env, append([]string{"resume", "fan"}, remote...)...)
-
-	events := r.tailing(env, remote...)
-	tailStarted(r, events)
-
-	r.stdout(env, append([]string{"deploy", "--binary", variant(t, "second")}, remote...)...)
-	r.waitFor(func(l line) bool { return l.is(deployed) })
-
-	// The flag can come first too, and a failure on the far side comes back.
-	cmd := exec.Command(hostBin, "--host", "pi", "status", "--data-dir", filepath.Join(r.dir, "nothing"))
-	cmd.Env = append(os.Environ(), env...)
-	if err := cmd.Run(); err == nil {
-		t.Error("reached a host that isn't there")
-	}
-	cmd = exec.Command(hostBin, "--host", "pi", "status", "--json", "--data-dir", r.dir)
-	cmd.Env = append(os.Environ(), env...)
-	if out, err := cmd.Output(); err != nil || !strings.Contains(string(out), `"fan"`) {
-		t.Errorf("--host before the command: %v: %s", err, out)
-	}
 }
 
 func TestMetricsAndHealthAreServedOverHTTP(t *testing.T) {

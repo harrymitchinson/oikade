@@ -16,7 +16,7 @@ framework.Run(framework.Home{
 })
 ```
 
-**Importing a plugin means trusting its code.** It runs as your user, with everything your user can reach.
+**Importing a plugin means trusting its code.** It runs as the host's user, with everything that user can reach.
 
 The host runs your binary again as `<binary> plugin <name>`, one process per plugin, each with its own heartbeat. So a plugin that panics, or hangs, is restarted with backoff while automations, Matter and the other plugins carry on. A plugin hangs if its process stops answering, or a `Set` runs for longer than `--plugin-set-timeout` (30 seconds). Only the binary changing restarts a plugin that's working, so a deploy does, and a crash of your automations doesn't.
 

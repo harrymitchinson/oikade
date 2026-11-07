@@ -63,6 +63,19 @@ func TestInitThenTestAndCheckPass(t *testing.T) {
 			t.Error(err)
 		}
 	}
+	workflow, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "deploy.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// CI deploys over the host's API with a token, and has no way in over SSH.
+	for _, want := range []string{"secrets.OIKADE_TOKEN", `oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"`} {
+		if !strings.Contains(string(workflow), want) {
+			t.Errorf("the workflow has no %s:\n%s", want, workflow)
+		}
+	}
+	if strings.Contains(string(workflow), "ssh") || strings.Contains(string(workflow), "--host") {
+		t.Errorf("the workflow still uses SSH:\n%s", workflow)
+	}
 	if out, err := run(t, bin, dir, "", "test"); err != nil {
 		t.Fatalf("oikade test: %v\n%s", err, out)
 	}
@@ -202,6 +215,23 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in:\n%s", want, out)
+		}
+	}
+}
+
+// Hosts are reached over their API: there's no SSH, and no installer, left to call.
+func TestRemovedCommandsAreUnknown(t *testing.T) {
+	bin := oikade(t)
+	dir := t.TempDir()
+	for _, args := range [][]string{{"install"}, {"upgrade"}, {"proxy"}, {"--host", "pi", "status"}} {
+		out, err := run(t, bin, dir, "", args...)
+		if err == nil || !strings.Contains(out, "unknown") {
+			t.Errorf("oikade %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+	}
+	for _, help := range []string{"help", "-h", "--help"} {
+		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "Usage:") {
+			t.Errorf("oikade %s: %v: %s", help, err, out)
 		}
 	}
 }

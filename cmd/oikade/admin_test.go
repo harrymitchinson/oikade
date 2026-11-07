@@ -18,20 +18,6 @@ func TestPublishedVersionIsOneGoCanFetch(t *testing.T) {
 	}
 }
 
-func TestParsePlatform(t *testing.T) {
-	for uname, want := range map[string]string{"Linux aarch64\n": "arm64", "Linux x86_64\n": "amd64"} {
-		goos, goarch, err := parsePlatform(uname)
-		if err != nil || goos != "linux" || goarch != want {
-			t.Errorf("%q: %s %s %v", uname, goos, goarch, err)
-		}
-	}
-	for _, uname := range []string{"Darwin arm64", "Linux armv7l", ""} {
-		if _, _, err := parsePlatform(uname); err == nil {
-			t.Errorf("%q has a build", uname)
-		}
-	}
-}
-
 func TestReadSecretTakesOneLineEndingOff(t *testing.T) {
 	for in, want := range map[string]string{
 		"value\n": "value", "value\r\n": "value", "value": "value", "two\nlines\n": "two\nlines",
