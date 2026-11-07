@@ -1,12 +1,13 @@
 // Package devicetype says what a device is, in Matter's names: an on/off light, a plug, a wall
 // switch, or a sensor. A device's capabilities say what it can do, and only a device that's on or off
 // can be more than one thing, so that's the type you or its driver can choose. The rest follow from
-// its capabilities. One function, Of, gives the answer that the Matter bridge, oikade devices and
-// rules all read.
+// its capabilities. One function, Of, gives the answer that the Matter bridge and oikade devices
+// read.
 package devicetype
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 )
@@ -51,6 +52,15 @@ var sensors = []struct {
 	{capability.Open, ContactSensor},
 	{capability.Temperature, TemperatureSensor},
 	{capability.Humidity, HumiditySensor},
+}
+
+// Join lists types, comma-separated.
+func Join(types []Type) string {
+	names := make([]string, len(types))
+	for i, t := range types {
+		names[i] = string(t)
+	}
+	return strings.Join(names, ", ")
 }
 
 // Choosable says t is one you or a driver can choose for a device that's on or off.

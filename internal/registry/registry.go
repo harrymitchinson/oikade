@@ -277,7 +277,7 @@ func (r *Registry) Move(name, room string) error {
 // driver says. A dimmable type needs a brightness, unless the device isn't paired yet.
 func (r *Registry) SetDeviceType(name string, t devicetype.Type) error {
 	if t != "" && !devicetype.Choosable(t) {
-		return fmt.Errorf("%q isn't a device type: use one of %s", t, joined(devicetype.OnOff))
+		return fmt.Errorf("%q isn't a device type: use one of %s", t, devicetype.Join(devicetype.OnOff))
 	}
 	return r.change(func(s *Snapshot) error {
 		i := live(*s, name)
@@ -296,14 +296,6 @@ func (r *Registry) SetDeviceType(name string, t devicetype.Type) error {
 		d.DeviceType = t
 		return nil
 	})
-}
-
-func joined(types []devicetype.Type) string {
-	out := make([]string, len(types))
-	for i, t := range types {
-		out[i] = string(t)
-	}
-	return strings.Join(out, ", ")
 }
 
 // Remove takes a device out of use. It stays on record, keeping its endpoint.
@@ -340,9 +332,6 @@ func (r *Registry) Replace(name, with string) error {
 		d := &s.Devices[i]
 		d.ID, d.Driver, d.Capabilities = source.ID, source.Driver, slices.Clone(source.Capabilities)
 		d.DriverDeviceType = source.DriverDeviceType
-		if d.DeviceType == "" {
-			d.DeviceType = source.DeviceType
-		}
 		if len(d.Control) == 0 {
 			d.Control = bytes.Clone(source.Control)
 		}
@@ -448,6 +437,11 @@ func check(s Snapshot) error {
 		endpoints[d.Endpoint] = true
 		if err := checkName(d.Name); err != nil {
 			return err
+		}
+		for _, t := range []devicetype.Type{d.DeviceType, d.DriverDeviceType} {
+			if t != "" && !devicetype.Choosable(t) {
+				return fmt.Errorf("%s has device type %q, which isn't one of %s", d.Name, t, devicetype.Join(devicetype.OnOff))
+			}
 		}
 		if !d.Removed {
 			if names[d.Name] {

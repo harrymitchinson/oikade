@@ -365,13 +365,15 @@ func TestRestoreRefusesABadCopy(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "a", "first")
 	for name, s := range map[string]Snapshot{
-		"no next":       {},
-		"past next":     {Next: 3, Devices: []Device{{Name: "a", Endpoint: 3}}},
-		"root endpoint": {Next: 3, Devices: []Device{{Name: "a", Endpoint: 1}}},
-		"same endpoint": {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "b", Endpoint: 2}}},
-		"same name":     {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "a", Endpoint: 3}}},
-		"same hardware": {Next: 5, Devices: []Device{{Name: "a", ID: "x", Endpoint: 2}, {Name: "b", ID: "x", Endpoint: 3}}},
-		"a bad name":    {Next: 3, Devices: []Device{{Name: "Not Valid", Endpoint: 2}}},
+		"no next":             {},
+		"past next":           {Next: 3, Devices: []Device{{Name: "a", Endpoint: 3}}},
+		"root endpoint":       {Next: 3, Devices: []Device{{Name: "a", Endpoint: 1}}},
+		"same endpoint":       {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "b", Endpoint: 2}}},
+		"same name":           {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "a", Endpoint: 3}}},
+		"same hardware":       {Next: 5, Devices: []Device{{Name: "a", ID: "x", Endpoint: 2}, {Name: "b", ID: "x", Endpoint: 3}}},
+		"a bad name":          {Next: 3, Devices: []Device{{Name: "Not Valid", Endpoint: 2}}},
+		"a bad type":          {Next: 3, Devices: []Device{{Name: "a", Endpoint: 2, DeviceType: devicetype.ContactSensor}}},
+		"a bad driver's type": {Next: 3, Devices: []Device{{Name: "a", Endpoint: 2, DriverDeviceType: "Toaster"}}},
 	} {
 		before := r.List()
 		if _, err := r.Restore(s, true); err == nil {
@@ -687,5 +689,24 @@ func TestADeviceTypeIsInTheTypesFile(t *testing.T) {
 	}
 	if len(back.Devices) != 1 || back.Devices[0].DeviceType != devicetype.OnOffLight {
 		t.Errorf("read back %+v", back.Devices)
+	}
+}
+
+func TestADeviceTypeStaysWithItsNameThroughAReplace(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "old", "porch-light")
+	if _, _, err := r.Report(Report{ID: "new", Driver: "sim", Name: "lamp-3", Capabilities: []string{capability.On},
+		DeviceType: devicetype.OnOffLight}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetDeviceType("lamp-3", devicetype.MountedOnOffControl); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Replace("porch-light", "lamp-3"); err != nil {
+		t.Fatal(err)
+	}
+	d := get(t, r, "porch-light")
+	if d.DeviceType != "" || d.DriverDeviceType != devicetype.OnOffLight {
+		t.Errorf("after the replace: %+v, want no type of yours and the new hardware's driver's", d)
 	}
 }

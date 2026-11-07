@@ -49,7 +49,7 @@ func runDevices(ctx context.Context, args []string) error {
 		message = fmt.Sprintf("Moved %s to %s", words[0], or(words[1], "no room"))
 	case verb == "type" && len(words) == 2:
 		req.Type, req.Device, req.DeviceType = api.TypeDeviceType, words[0], devicetype.Type(words[1])
-		message = fmt.Sprintf("%s is %s", words[0], or(words[1], "what its driver says"))
+		message = fmt.Sprintf("%s is %s", words[0], or(words[1], "what its driver or its capabilities say"))
 	case verb == "reserve" && len(words) == 1:
 		req.Type, req.Device, req.Room = api.TypeDeviceReserve, words[0], *room
 		message = fmt.Sprintf("Reserved %s", words[0])
@@ -131,7 +131,7 @@ func printDevices(out io.Writer, list registry.Snapshot) {
 			state = "reserved"
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
-			or(d.ID, "-"), d.Endpoint, or(typeNames(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
+			or(d.ID, "-"), d.Endpoint, or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
 	}
 	_ = w.Flush()
 }
@@ -148,18 +148,12 @@ func listed(list registry.Snapshot) any {
 	for _, d := range list.Devices {
 		devices = append(devices, listedDevice{Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...)})
 	}
+	// Devices here is shallower than the Snapshot's, so it's the one encoding/json writes, and any
+	// other field of a Snapshot comes along.
 	return struct {
-		Next    uint16         `json:"next"`
+		registry.Snapshot
 		Devices []listedDevice `json:"devices"`
-	}{list.Next, devices}
-}
-
-func typeNames(types []devicetype.Type) string {
-	names := make([]string, len(types))
-	for i, t := range types {
-		names[i] = string(t)
-	}
-	return strings.Join(names, ", ")
+	}{list, devices}
 }
 
 func runTypes(ctx context.Context, args []string) error {
