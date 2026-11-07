@@ -6,25 +6,29 @@ version: 2
 
 project_name: oikade
 
+# A snapshot isn't a release, so it mustn't call itself one. Without a v, oikadectl doesn't take it
+# for a version go can fetch.
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+# The second build takes everything from the first, but what it names. make docker-build uses the
+# same flags.
 builds:
-  - id: oikadectl
+  - &build
+    id: oikadectl
     main: ./cmd/oikadectl
     binary: oikadectl
-    env: [CGO_ENABLED=0]
     goos: [linux, darwin]
     goarch: [arm64, amd64]
+    env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    ldflags: ["-s -w -X main.version={{ .Tag }}"]
+    ldflags: ["-s -w -X main.version={{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }}"]
     mod_timestamp: "{{ .CommitTimestamp }}"
-  - id: oikade-host
+  - <<: *build
+    id: oikade-host
     main: ./cmd/oikade-host
     binary: oikade-host
-    env: [CGO_ENABLED=0]
     goos: [linux]
-    goarch: [arm64, amd64]
-    flags: [-trimpath]
-    ldflags: ["-s -w -X main.version={{ .Tag }}"]
-    mod_timestamp: "{{ .CommitTimestamp }}"
 
 # One archive per binary and platform, so a laptop downloads only oikadectl and a host only
 # oikade-host. Room for shell completions later.
@@ -49,11 +53,11 @@ dockers_v2:
     ids: [oikade-host]
     dockerfile: Dockerfile
     images: [ghcr.io/harrymitchinson/oikade]
-    tags: ["{{ .Tag }}"]
+    tags: ["{{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }}"]
     platforms: [linux/arm64, linux/amd64]
     labels:
       org.opencontainers.image.source: https://github.com/harrymitchinson/oikade
-      org.opencontainers.image.version: "{{ .Tag }}"
+      org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.licenses: Apache-2.0
 
@@ -61,9 +65,11 @@ dockers_v2:
 changelog:
   disable: true
 
-# The notes stay release-please's. An -alpha.N tag is a pre-release. The workflow marks a milestone
-# as the latest itself, after this, so an alpha never is.
+# The notes stay release-please's. Assets of the same name are replaced, so a publish job that failed
+# part way can be re-run. An -alpha.N tag is a pre-release. The workflow marks a milestone as the
+# latest itself, after this, so an alpha never is.
 release:
   mode: keep-existing
+  replace_existing_artifacts: true
   prerelease: auto
   make_latest: "false"

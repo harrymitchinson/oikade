@@ -16,7 +16,6 @@ endif
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
 
-
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
@@ -122,12 +121,12 @@ release: goreleaser ## Publish a release from the checked-out tag (CI only).
 	"$(GORELEASER)" release --clean
 
 # The Dockerfile compiles nothing, so the image's context is oikade-host built for this machine's
-# platform, at <os>/<arch>/oikade-host as GoReleaser lays it out.
+# platform, at <os>/<arch>/oikade-host as GoReleaser lays it out, with .goreleaser.yaml's flags.
 DOCKER_CONTEXT ?= dist/docker
 DOCKER_ARCH ?= $(shell go env GOARCH)
 .PHONY: docker-build
 docker-build: ## Build the oikade image for this machine's platform, from source.
-	CGO_ENABLED=0 GOOS=linux GOARCH=$(DOCKER_ARCH) go build -ldflags "-X main.version=$(VERSION)" \
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(DOCKER_ARCH) go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" \
 		-o "$(DOCKER_CONTEXT)/linux/$(DOCKER_ARCH)/oikade-host" ./cmd/oikade-host
 	$(CONTAINER_TOOL) build --platform linux/$(DOCKER_ARCH) -f Dockerfile -t ${IMG} "$(DOCKER_CONTEXT)"
 

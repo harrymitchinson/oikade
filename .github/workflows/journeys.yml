@@ -107,5 +107,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # GoReleaser is built from source, so keep it between runs.
+      - name: Cache tool binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin
+          key: bin-release-${{ runner.os }}-${{ hashFiles('Makefile', 'go.mod') }}
+
       - name: Build a release snapshot
         run: make release-snapshot
+
+      # The other way to the same Dockerfile, for building one image locally.
+      - name: Build the image from source
+        run: make docker-build IMG=oikade:ci

@@ -101,7 +101,8 @@ jobs:
 
       # prerelease: true in release-please-config.json marks every 0.x release as a
       # pre-release. Only the alphas between milestones are, so a milestone release
-      # (v0.1.0) is marked as the latest one.
+      # (v0.1.0) is marked as the latest one. GoReleaser's prerelease: auto may already
+      # have cleared the flag; this owns marking it the latest, which GoReleaser never does.
       - name: Mark a milestone release as the latest
         if: ${{ !contains(needs.release-please.outputs.tag_name, '-') }}
         env:
