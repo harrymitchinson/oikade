@@ -12,6 +12,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/registry"
@@ -59,33 +61,35 @@ const Prefix = "/v1"
 // Route is where a request type lives. A POST's body is its Request as JSON.
 type Route struct {
 	Type, Method, Path string
+	// Stream answers lines of JSON, not one Response.
+	Stream bool
 }
 
 // Routes are the API's routes.
 var Routes = []Route{
-	{TypeInfo, http.MethodGet, Prefix + "/info"},
-	{TypeDeploy, http.MethodPost, Prefix + "/deploy"},
-	{TypeRollback, http.MethodPost, Prefix + "/rollback"},
-	{TypeStatus, http.MethodGet, Prefix + "/status"},
-	{TypeSet, http.MethodPost, Prefix + "/set"},
-	{TypePause, http.MethodPost, Prefix + "/pause"},
-	{TypeResume, http.MethodPost, Prefix + "/resume"},
-	{TypeTail, http.MethodGet, Prefix + "/tail"},
-	{TypeEvents, http.MethodGet, Prefix + "/events"},
-	{TypeMatter, http.MethodGet, Prefix + "/matter"},
-	{TypeBackup, http.MethodPost, Prefix + "/backup"},
+	{TypeInfo, http.MethodGet, Prefix + "/info", false},
+	{TypeDeploy, http.MethodPost, Prefix + "/deploy", false},
+	{TypeRollback, http.MethodPost, Prefix + "/rollback", false},
+	{TypeStatus, http.MethodGet, Prefix + "/status", false},
+	{TypeSet, http.MethodPost, Prefix + "/set", false},
+	{TypePause, http.MethodPost, Prefix + "/pause", false},
+	{TypeResume, http.MethodPost, Prefix + "/resume", false},
+	{TypeTail, http.MethodGet, Prefix + "/tail", true},
+	{TypeEvents, http.MethodGet, Prefix + "/events", true},
+	{TypeMatter, http.MethodGet, Prefix + "/matter", false},
+	{TypeBackup, http.MethodPost, Prefix + "/backup", false},
 
-	{TypeSecrets, http.MethodGet, Prefix + "/secrets"},
-	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set"},
-	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove"},
+	{TypeSecrets, http.MethodGet, Prefix + "/secrets", false},
+	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set", false},
+	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false},
 
-	{TypeDevices, http.MethodGet, Prefix + "/devices"},
-	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name"},
-	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room"},
-	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve"},
-	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove"},
-	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace"},
-	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore"},
+	{TypeDevices, http.MethodGet, Prefix + "/devices", false},
+	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name", false},
+	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room", false},
+	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false},
+	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false},
+	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false},
+	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore", false},
 }
 
 func routeOf(requestType string) (Route, bool) {
@@ -303,13 +307,13 @@ type EventLog struct {
 // Call makes a request over t, and waits for as long as it takes: a deploy watches the new version
 // settle.
 func Call(ctx context.Context, t Transport, req Request) (Response, error) {
-	conn, stop, err := open(ctx, t, req)
+	body, err := open(ctx, t, req)
 	if err != nil {
 		return Response{}, err
 	}
-	defer stop()
+	defer func() { _ = body.Close() }()
 	var resp Response
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
 		return Response{}, fmt.Errorf("reading the host's answer: %w", err)
 	}
 	return resp, nil
@@ -318,12 +322,15 @@ func Call(ctx context.Context, t Transport, req Request) (Response, error) {
 // Tail streams events to each until ctx ends, each returns an error, or the host goes. It starts
 // once the host is listening, which the first Event, with no type, says.
 func Tail(ctx context.Context, t Transport, each func(Event) error) error {
-	conn, stop, err := open(ctx, t, Request{Type: TypeTail})
+	body, err := open(ctx, t, Request{Type: TypeTail})
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
-	defer stop()
-	events := json.NewDecoder(conn)
+	defer func() { _ = body.Close() }()
+	events := json.NewDecoder(body)
 	for {
 		var e Event
 		if err := events.Decode(&e); err != nil {
@@ -343,12 +350,12 @@ func Tail(ctx context.Context, t Transport, each func(Event) error) error {
 
 // Events reads the host's event log to its end: begin gets its opening, and each gets every event.
 func Events(ctx context.Context, t Transport, begin func(EventLog) error, each func(Event) error) error {
-	conn, stop, err := open(ctx, t, Request{Type: TypeEvents})
+	body, err := open(ctx, t, Request{Type: TypeEvents})
 	if err != nil {
 		return err
 	}
-	defer stop()
-	events := json.NewDecoder(conn)
+	defer func() { _ = body.Close() }()
+	events := json.NewDecoder(body)
 	var log EventLog
 	if err := events.Decode(&log); err != nil {
 		return fmt.Errorf("reading the event log: %w", err)
@@ -379,46 +386,58 @@ func Events(ctx context.Context, t Transport, begin func(EventLog) error, each f
 // LogEnd is the line that closes an event log. A message says it didn't get to the end.
 func LogEnd(message string) Event { return Event{Type: eventEnd, Message: message} }
 
-func open(ctx context.Context, t Transport, req Request) (io.Reader, func(), error) {
+// open makes a call, and returns its answer's body: a Response, or a stream's lines. A refused
+// stream comes back as an error.
+func open(ctx context.Context, t Transport, req Request) (io.ReadCloser, error) {
 	route, ok := routeOf(req.Type)
 	if !ok {
-		return nil, nil, fmt.Errorf("unknown request %q", req.Type)
+		return nil, fmt.Errorf("unknown request %q", req.Type)
 	}
 	var body io.Reader
 	if route.Method == http.MethodPost {
 		raw, err := json.Marshal(req)
 		if err != nil {
-			return nil, nil, fmt.Errorf("sending to the host: %w", err)
+			return nil, fmt.Errorf("sending to the host: %w", err)
 		}
 		body = bytes.NewReader(raw)
 	}
 	// The host name is a formality: the transport decides where this goes.
 	call, err := http.NewRequestWithContext(ctx, route.Method, "http://oikade"+route.Path, body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("sending to the host: %w", err)
+		return nil, fmt.Errorf("sending to the host: %w", err)
 	}
+	var dialed atomic.Bool
 	client := &http.Client{Transport: &http.Transport{
 		// One connection a call, as a connection over SSH is a process to end.
 		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return t.Dial(ctx)
+			conn, err := t.Dial(ctx)
+			dialed.Store(err == nil)
+			return conn, err
 		},
 	}}
 	answer, err := client.Do(call)
 	if err != nil {
-		return nil, nil, fmt.Errorf("reaching the host: %w", err)
+		// Not the URL, which is made up.
+		if u, ok := errors.AsType[*url.Error](err); ok {
+			err = u.Err
+		}
+		if dialed.Load() {
+			// The host may have the call, and may still be doing it.
+			return nil, fmt.Errorf("lost the host before it answered: %w", err)
+		}
+		return nil, fmt.Errorf("reaching the host: %w", err)
 	}
-	stop := func() { _ = answer.Body.Close() }
 	if answer.StatusCode < http.StatusBadRequest {
-		return answer.Body, stop, nil
+		return answer.Body, nil
 	}
-	if answer.Header.Get("Content-Type") == ContentType && req.Type != TypeTail && req.Type != TypeEvents {
-		return answer.Body, stop, nil // Call reads why from the Response.
+	if answer.Header.Get("Content-Type") == ContentType && !route.Stream {
+		return answer.Body, nil // Call reads why from the Response.
 	}
-	defer stop()
+	defer func() { _ = answer.Body.Close() }()
 	var refused Response
 	if json.NewDecoder(answer.Body).Decode(&refused) == nil && refused.Error != "" {
-		return nil, nil, errors.New(refused.Error)
+		return nil, errors.New(refused.Error)
 	}
-	return nil, nil, fmt.Errorf("the host answered %s", answer.Status)
+	return nil, fmt.Errorf("the host answered %s", answer.Status)
 }

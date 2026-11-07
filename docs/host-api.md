@@ -38,7 +38,8 @@ A call has 5 seconds to send its body. Secret values go only in a body, and neve
 | `200` | It worked. |
 | `400` | The body isn't JSON, or is over 16 MiB. |
 | `404` | No such route, which includes the wrong method. `error` says which API this host speaks. |
-| `422` | The host refused it, and `error` says why. `findings`, `needsAllowSafety` and `needsForce` say more. |
+| `422` | It didn't do what was asked, and `error` says why: the host refused it, or it failed there. The other fields can still say what happened, such as `restored` on a deploy whose version failed and was rolled back, and `findings`, `needsAllowSafety` and `needsForce` on a refusal. |
+| `500` | The event log can't be read. |
 
 An answer is `application/json`, and a failure's is a `Response` with `error` set.
 

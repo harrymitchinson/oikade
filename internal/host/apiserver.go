@@ -23,6 +23,9 @@ const requestTimeout = 5 * time.Second
 // hold it open.
 const writeTimeout = 5 * time.Second
 
+// idleTimeout closes a kept-alive connection that's doing nothing.
+const idleTimeout = 30 * time.Second
+
 // maxRequest bounds a request's body. The largest is a restore's registry.
 const maxRequest = 16 << 20
 
@@ -47,7 +50,9 @@ func (s *apiServer) serve(l net.Listener) {
 	server := &http.Server{
 		Handler:           s.routes(),
 		ReadHeaderTimeout: requestTimeout,
-		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelDebug),
+		// oikade makes one call a connection, and another client may keep one open.
+		IdleTimeout: idleTimeout,
+		ErrorLog:    slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
 	if err := server.Serve(l); !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		s.log.Error("Failed to accept connection", "err", err)
@@ -62,7 +67,7 @@ func (s *apiServer) serve(l net.Listener) {
 func (s *apiServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	for _, r := range api.Routes {
-		mux.Handle(r.Method+" "+r.Path, s.handler(r))
+		mux.Handle(r.Method+" "+r.Path, crashes(s.handler(r)))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		respond(s.log, w, http.StatusNotFound, api.Response{
@@ -72,16 +77,31 @@ func (s *apiServer) routes() http.Handler {
 	return mux
 }
 
-func (s *apiServer) handler(route api.Route) http.Handler {
+// crashes runs h on a goroutine of its own, so that a panic in a call crashes the host, as it does
+// anywhere else, rather than net/http recovering it and leaving whatever it held half done.
+func crashes(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			h(w, r)
+		}()
+		<-done
+	}
+}
+
+func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 	switch route.Type {
 	case api.TypeTail:
-		return http.HandlerFunc(s.tail)
+		return s.tail
 	case api.TypeEvents:
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			s.srv.events.stream(s.ctx, s.lines(w))
-		})
+		return func(w http.ResponseWriter, r *http.Request) {
+			s.srv.events.stream(s.ctx, newLines(w), func(err error) {
+				respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
+			})
+		}
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		var req api.Request
 		if err := s.read(w, r, &req); err != nil {
 			s.log.Debug("Dropped API request", "err", err)
@@ -95,7 +115,7 @@ func (s *apiServer) handler(route api.Route) http.Handler {
 			status = http.StatusUnprocessableEntity
 		}
 		respond(s.log, w, status, resp)
-	})
+	}
 }
 
 // read takes a POST's body within requestTimeout. An empty body is a request with no fields.
@@ -120,22 +140,40 @@ func respond(log *slog.Logger, w http.ResponseWriter, status int, resp api.Respo
 	}
 }
 
-// lines starts a stream, and returns what writes one line of it, which says false once it can't.
-func (s *apiServer) lines(w http.ResponseWriter) func(any) bool {
-	w.Header().Set("Content-Type", api.StreamContentType)
-	control := http.NewResponseController(w)
-	out := json.NewEncoder(w)
-	return func(v any) bool {
-		_ = control.SetWriteDeadline(time.Now().Add(writeTimeout))
-		return out.Encode(v) == nil && control.Flush() == nil
+// lines is a stream's answer, whose header goes with its first line.
+type lines struct {
+	w       http.ResponseWriter
+	control *http.ResponseController
+	out     *json.Encoder
+	started bool
+}
+
+var _ lineWriter = (*lines)(nil)
+
+func newLines(w http.ResponseWriter) *lines {
+	return &lines{w: w, control: http.NewResponseController(w), out: json.NewEncoder(w)}
+}
+
+func (l *lines) write(v any) bool {
+	if !l.started {
+		l.w.Header().Set("Content-Type", api.StreamContentType)
+		l.started = true
 	}
+	_ = l.control.SetWriteDeadline(time.Now().Add(writeTimeout))
+	return l.out.Encode(v) == nil
+}
+
+func (l *lines) flush() bool {
+	_ = l.control.SetWriteDeadline(time.Now().Add(writeTimeout))
+	return l.control.Flush() == nil
 }
 
 // tail streams events until the caller goes, the host stops, or the caller falls behind.
 func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	events, stop := s.srv.feed.subscribe()
 	defer stop()
-	write := s.lines(w)
+	out := newLines(w)
+	write := func(e api.Event) bool { return out.write(e) && out.flush() }
 	if !write(api.Event{}) { // Says the feed has started.
 		return
 	}

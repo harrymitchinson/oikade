@@ -135,9 +135,16 @@ func foldBaseline(baseline []byte, dropped []store.Record) ([]byte, error) {
 	return json.Marshal(values)
 }
 
-// stream writes the log to conn, in pages, until it catches up or ctx ends. Events added meanwhile
-// are included.
-func (l *eventLog) stream(ctx context.Context, write func(any) bool) {
+// lineWriter writes a stream's lines. write buffers one, and flush sends what's buffered. Each says
+// false once the caller has gone.
+type lineWriter interface {
+	write(v any) bool
+	flush() bool
+}
+
+// stream writes the log to out, a page at a time, until it catches up or ctx ends. Events added
+// meanwhile are included. A log that can't be read goes to fail instead, before any line.
+func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error)) {
 	l.flush()
 	now := time.Now()
 	head := api.EventLog{Now: now, Zone: zoneName()}
@@ -148,10 +155,15 @@ func (l *eventLog) stream(ctx context.Context, write func(any) bool) {
 		err = json.Unmarshal(raw, &head.Baseline)
 	}
 	if err != nil {
-		write(api.EventLog{Error: fmt.Sprintf("reading the event log: %v", err)})
+		fail(fmt.Errorf("reading the event log: %w", err))
 		return
 	}
-	if !write(head) {
+	end := func(message string) {
+		if out.write(api.LogEnd(message)) {
+			out.flush()
+		}
+	}
+	if !out.write(head) {
 		return
 	}
 	for len(page) > 0 {
@@ -161,20 +173,23 @@ func (l *eventLog) stream(ctx context.Context, write func(any) bool) {
 		for _, r := range page {
 			var e api.Event
 			if err := json.Unmarshal(r.Data, &e); err != nil {
-				write(api.LogEnd(fmt.Sprintf("event %d: %v", r.Seq, err)))
+				end(fmt.Sprintf("event %d: %v", r.Seq, err))
 				return
 			}
 			e.Time = r.Time
-			if !write(e) {
+			if !out.write(e) {
 				return
 			}
 		}
+		if !out.flush() {
+			return
+		}
 		if page, err = l.store.Read(page[len(page)-1].Seq, eventPage); err != nil {
-			write(api.LogEnd(err.Error()))
+			end(err.Error())
 			return
 		}
 	}
-	write(api.LogEnd(""))
+	end("")
 }
 
 // zoneName finds this machine's time zone's IANA name, which Go doesn't say, by the rules Go uses to
