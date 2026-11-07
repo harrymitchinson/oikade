@@ -221,10 +221,13 @@ func Sunrise(offset time.Duration) Time { return Time{sun: sun.Sunrise, offset: 
 // Sunset is the day's sunset at the home's Site, moved by offset, as Sunrise is.
 func Sunset(offset time.Duration) Time { return Time{sun: sun.Sunset, offset: offset} }
 
+// isSun reports whether it's a sunrise or sunset.
+func (t Time) isSun() bool { return t.sun != 0 }
+
 // timer is the engine's time. A zero Time is none, which the engine rejects.
 func (t Time) timer() engine.Timer {
 	switch {
-	case t.sun != 0:
+	case t.isSun():
 		return engine.SunTime{Event: t.sun, Offset: t.offset}
 	case t == (Time{}):
 		return nil
@@ -242,6 +245,8 @@ func (s *Site) check() error {
 	switch {
 	case s == nil:
 		return nil
+	case *s == (Site{}):
+		return errors.New("the Site has no latitude or longitude")
 	case !(s.Latitude >= -90 && s.Latitude <= 90):
 		return fmt.Errorf("the Site's latitude %v isn't between -90 and 90", s.Latitude)
 	case !(s.Longitude >= -180 && s.Longitude <= 180):
@@ -259,7 +264,7 @@ func (s *Site) toSun() *sun.Site {
 
 // needsSite says, for a rule with these times, why it can't run without a Site.
 func needsSite(site *Site, times ...Time) error {
-	if site == nil && slices.ContainsFunc(times, func(t Time) bool { return t.sun != 0 }) {
+	if site == nil && slices.ContainsFunc(times, Time.isSun) {
 		return errors.New("a sunrise or sunset needs the home's Site")
 	}
 	return nil
@@ -849,14 +854,10 @@ func (b *Budget) toSchedule() *schedule.Spec {
 
 // clockOnly rejects a sunrise or sunset in a budget's windows, which are planned in slots.
 func (b *Budget) clockOnly() error {
-	windows := slices.Clone(b.Forbid)
-	for _, p := range b.Prefer {
-		windows = append(windows, p.Window)
-	}
-	for _, w := range windows {
-		if w.Start.sun != 0 || w.End.sun != 0 {
-			return errors.New("a budget's windows take clock times only, not a sunrise or sunset")
-		}
+	sunEdged := func(w Window) bool { return w.Start.isSun() || w.End.isSun() }
+	preferred := func(p Prefer) bool { return sunEdged(p.Window) }
+	if slices.ContainsFunc(b.Forbid, sunEdged) || slices.ContainsFunc(b.Prefer, preferred) {
+		return errors.New("a budget's windows take clock times only, not a sunrise or sunset")
 	}
 	return nil
 }

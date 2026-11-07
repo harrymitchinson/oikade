@@ -245,6 +245,10 @@ func TestDevFiresAtSunsetForTheHomesSite(t *testing.T) {
 			want = at.Add(-20 * time.Minute)
 		}
 	}
+	// dev starts a moment after start, so a sunset that close may be before its clock does.
+	if want.Sub(start) < 2*time.Minute {
+		t.Skip("sunset is too close to now")
+	}
 	line := want.Format("Mon 15:04") + " Wrote porch-light on = true"
 	if !strings.Contains(out, line) {
 		t.Errorf("no %q in:\n%s", line, out)

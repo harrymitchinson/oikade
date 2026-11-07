@@ -204,11 +204,12 @@ framework.Home{
 }
 ```
 
-Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Site`.
+Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Site`, and a `Site` with neither set fails `oikade check`.
 
 - **A time that isn't one,** such as `Clock("25:00")`, a sun time with no `Site`, or an offset over 6 hours, fails `oikade check`, naming the rule.
 - **Several times** fire at each, so `{Clock("18:00"), Sunset(0)}` fires at both, and the same time twice fires once.
 - **A day the sun doesn't rise or set,** as near the poles, that time doesn't fire, and a window with it as an edge stays shut.
+- **A window with a sun edge and a clock edge** ends at the first `End` after its `Start`, as any window does. So in midsummer `Window{Start: Sunset(3 * time.Hour), End: Clock("23:30")}` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
 - **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A moment with a Safety `Set` fires however late it is. Only the latest missed time counts.
 

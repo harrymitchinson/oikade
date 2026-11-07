@@ -64,11 +64,14 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		"a latitude off the earth": {
 			Home{Site: &Site{Latitude: 91}, Holds: []Hold{{Name: "a", Set: d.To(true), When: when}}}, "latitude 91 isn't",
 		},
+		"a site with nothing in it": {
+			Home{Site: &Site{}, Holds: []Hold{{Name: "a", Set: d.To(true), When: when}}}, "no latitude or longitude",
+		},
 		"a longitude off the earth": {
 			Home{Site: &Site{Longitude: -181}, Holds: []Hold{{Name: "a", Set: d.To(true), When: when}}}, "longitude -181 isn't",
 		},
 		"an offset too far": {
-			Home{Site: &Site{}, Flows: []Flow{{
+			Home{Site: &Site{Latitude: 51.48}, Flows: []Flow{{
 				Name: "a", At: []Time{Sunrise(7 * time.Hour)}, Run: func(*FlowRun) error { return nil },
 			}}},
 			"offset 7h0m0s is not between -6h and 6h",
