@@ -44,7 +44,7 @@ func runCheck(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
 	module := fs.String("module", ".", "Your home's module.")
 	if extra := parseFlags(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikade check takes no %q", extra[0])
+		return fmt.Errorf("oikadectl check takes no %q", extra[0])
 	}
 	path, done, err := buildHome(ctx, *module)
 	if err != nil {
@@ -96,9 +96,9 @@ func runTest(ctx context.Context, args []string) error {
 func runDev(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("dev", flag.ExitOnError)
 	module := fs.String("module", ".", "Your home's module.")
-	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")
+	types := fs.String("types", "devices.go", "The file oikadectl types wrote, in your module.")
 	if extra := parseFlags(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikade dev takes no %q", extra[0])
+		return fmt.Errorf("oikadectl dev takes no %q", extra[0])
 	}
 	path, done, err := buildHome(ctx, *module)
 	if err != nil {
@@ -121,7 +121,7 @@ func runInit(ctx context.Context, args []string) error {
 	source := fs.String("source", "", "A checkout of Oikade to build against, rather than a published version.")
 	extra := parseFlags(fs, args)
 	if len(extra) > 1 {
-		return fmt.Errorf("oikade init takes one directory, not %q", extra[1])
+		return fmt.Errorf("oikadectl init takes one directory, not %q", extra[1])
 	}
 	dir := "."
 	if len(extra) == 1 {
@@ -163,7 +163,7 @@ func runInit(ctx context.Context, args []string) error {
 		_ = os.Remove(filepath.Join(dir, ".github"))
 		return err
 	}
-	fmt.Println("Started a home. Next: oikade test, then oikade dev.")
+	fmt.Println("Started a home. Next: oikadectl test, then oikadectl dev.")
 	return nil
 }
 
@@ -225,8 +225,8 @@ func homeFiles() (map[string][]byte, error) {
 	}, nil
 }
 
-const homeMain = `// Command home is your home. Run oikade dev to try it, oikade test to test it and oikade deploy to
-// ship it.
+const homeMain = `// Command home is your home. Run oikadectl dev to try it, oikadectl test to test it and
+// oikadectl deploy to ship it.
 package main
 
 import (
@@ -235,7 +235,7 @@ import (
 	"github.com/harrymitchinson/oikade/framework"
 )
 
-// home is your automations. PorchLight and PorchSensor come from devices.go, which oikade types
+// home is your automations. PorchLight and PorchSensor come from devices.go, which oikadectl types
 // writes from your real devices: replace these two with yours.
 func home() framework.Home {
 	return framework.Home{
@@ -282,7 +282,7 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 `
 
 // homeWorkflow tests every change, and deploys what reaches main. It needs three settings: the
-// secret OIKADE_TOKEN, from oikade client add ci --token, and the variables OIKADE_ADDRESS, where the
+// secret OIKADE_TOKEN, from oikade-host client add ci --token, and the variables OIKADE_ADDRESS, where the
 // host serves its API, and OIKADE_PIN, the pin client add printed, because a key taken from whatever
 // answers proves nothing. GitHub's runners reach the host only if it's on the internet, so the README says
 // to run it on a self-hosted runner, or over a VPN.
@@ -301,9 +301,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
-      - run: oikade check
-      - run: oikade test
+      - run: go install github.com/harrymitchinson/oikade/cmd/oikadectl@OIKADE_VERSION
+      - run: oikadectl check
+      - run: oikadectl test
       - name: Deploy
         if: github.event_name == 'push'
         env:
@@ -311,6 +311,6 @@ jobs:
           OIKADE_ADDRESS: ${{ vars.OIKADE_ADDRESS }}
           OIKADE_PIN: ${{ vars.OIKADE_PIN }}
         run: |
-          oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"
-          oikade deploy
+          oikadectl login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"
+          oikadectl deploy
 `

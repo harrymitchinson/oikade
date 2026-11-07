@@ -26,16 +26,8 @@ func addTarget(fs *flag.FlagSet) target {
 	return target{
 		fs:      fs,
 		dataDir: fs.String("data-dir", defaultDataDir, "The host's data directory, on this machine."),
-		context: fs.String("context", "", "The host to reach over its network API, from oikade login."),
+		context: fs.String("context", "", "The host to reach over its network API, from oikadectl login."),
 	}
-}
-
-// local is this machine's host unless --context says otherwise, for a command that only works there.
-func (t target) local() api.Transport {
-	if *t.context == "" {
-		return api.Local{DataDir: *t.dataDir}
-	}
-	return t.transport()
 }
 
 // transport is --context, then the socket if --data-dir is given, then the current context, then the
@@ -65,7 +57,7 @@ func (t target) transport() api.Transport {
 	}
 	c, ok := cfg.Contexts[name]
 	if !ok {
-		return failing{fmt.Errorf("there's no context called %s: oikade login makes one", name)}
+		return failing{fmt.Errorf("there's no context called %s: oikadectl login makes one", name)}
 	}
 	return remote(c)
 }
@@ -229,7 +221,7 @@ func runSet(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	words := parse(fs, args)
 	if len(words) != 3 {
-		return errors.New("usage: oikade set DEVICE CAPABILITY VALUE")
+		return errors.New("usage: oikadectl set DEVICE CAPABILITY VALUE")
 	}
 	resp, err := api.Call(ctx, target.transport(), api.Request{
 		Type: api.TypeSet, Device: words[0], Capability: words[1], Value: parseValue(words[2]),

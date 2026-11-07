@@ -49,7 +49,7 @@ type server struct {
 	journal *store.Journal
 	// paused are the rules paused, with when.
 	paused *engine.Stored[time.Time]
-	// feed is what oikade tail streams, events what oikade replay reads, and pushed your process's
+	// feed is what oikadectl tail streams, events what oikadectl replay reads, and pushed your process's
 	// latest metrics.
 	feed   *feed
 	events *eventLog

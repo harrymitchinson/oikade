@@ -11,14 +11,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
 // tokenEnv overrides a context's token, as CI has one in a secret.
 const tokenEnv = "OIKADE_TOKEN"
 
-// clientConfig is the oikade command's own settings: the hosts it has logged in to. It holds tokens,
+// clientConfig is oikadectl's own settings: the hosts it has logged in to. It holds tokens,
 // so only its owner may read it.
 type clientConfig struct {
 	// Current is the context commands use when they're given none.
@@ -137,14 +136,15 @@ func (f failing) Dial(context.Context) (net.Conn, error) { return nil, f.err }
 // runLogin trusts a host's network API by its pin, and saves it as the current context.
 func runLogin(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("login", flag.ExitOnError)
-	pin := flags.String("pin", "", "The host's pin, from oikade client add.")
-	code := flags.String("code", "", "The code from oikade client add. Without one, the token comes from "+tokenEnv+".")
+	pin := flags.String("pin", "", "The host's pin, from oikade-host client add.")
+	code := flags.String("code", "",
+		"The code from oikade-host client add. Without one, the token comes from "+tokenEnv+".")
 	name := flags.String("context", "", "What to call this host. Defaults to its name.")
 	words := parse(flags, args)
 	if len(words) != 1 || *pin == "" {
-		return errors.New("usage: oikade login ADDRESS --pin PIN [--code CODE] [--context NAME]")
+		return errors.New("usage: oikadectl login ADDRESS --pin PIN [--code CODE] [--context NAME]")
 	}
-	address := host.APIAddress(words[0])
+	address := api.Address(words[0])
 	if *name == "" {
 		*name, _, _ = net.SplitHostPort(address)
 	}
@@ -170,7 +170,7 @@ func runLogin(ctx context.Context, args []string) error {
 		saved.Token, who = resp.Token, resp.Client
 	} else {
 		if os.Getenv(tokenEnv) == "" {
-			return fmt.Errorf("oikade login needs --code, or a token in %s", tokenEnv)
+			return fmt.Errorf("oikadectl login needs --code, or a token in %s", tokenEnv)
 		}
 		// Checked now, rather than at the first command.
 		resp, err := api.Call(ctx, remote(saved), api.Request{Type: api.TypeInfo})
@@ -191,7 +191,7 @@ func runLogin(ctx context.Context, args []string) error {
 		}
 		// The code is used up, so the token is all there is: say it rather than lose it.
 		return fmt.Errorf("saving the login: %w. Your token for %s is %s: keep it in %s, "+
-			"then run oikade login %s --pin %s", err, address, saved.Token, tokenEnv, address, *pin)
+			"then run oikadectl login %s --pin %s", err, address, saved.Token, tokenEnv, address, *pin)
 	}
 	switch who {
 	case "":

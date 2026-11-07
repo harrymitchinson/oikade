@@ -20,7 +20,7 @@ const secretValue = "correct-horse-battery-staple"
 // setSecret sets a secret as a script does, with its value on stdin.
 func (r *rig) setSecret(name string) error {
 	r.t.Helper()
-	cmd := exec.Command(hostBin, "secret", "set", "--data-dir", r.dir, name)
+	cmd := exec.Command(ctlBin, "secret", "set", "--data-dir", r.dir, name)
 	cmd.Stdin = strings.NewReader(secretValue + "\n")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -28,7 +28,7 @@ func (r *rig) setSecret(name string) error {
 		return &exec.ExitError{Stderr: out.Bytes()}
 	}
 	if strings.Contains(out.String(), secretValue) {
-		r.t.Errorf("oikade secret set printed the value: %s", out.String())
+		r.t.Errorf("oikadectl secret set printed the value: %s", out.String())
 	}
 	return nil
 }
@@ -220,7 +220,7 @@ func TestASecretsNameCantLeaveTheDirectory(t *testing.T) {
 	}
 }
 
-// oikade secret set needs a running host, so a host can't refuse to start for want of a secret.
+// oikadectl secret set needs a running host, so a host can't refuse to start for want of a secret.
 func TestAHostStartsBeforeItsBrokerPasswordIsSet(t *testing.T) {
 	t.Parallel()
 	r := start(t, "--broker", "mqtt://oikade@127.0.0.1:1", "--broker-password-secret", "broker")

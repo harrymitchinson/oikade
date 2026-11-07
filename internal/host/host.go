@@ -51,19 +51,19 @@ type Host struct {
 	// MetricsAddr is where metrics and health are served over HTTP, read-only. Empty serves none.
 	MetricsAddr string
 	// APIAddr is where the API is served over TLS, for clients with a token. Empty serves it only on
-	// the socket. A missing port is DefaultAPIPort.
+	// the socket. A missing port is api.DefaultPort.
 	APIAddr string
 	// Matter serves a Matter bridge. Nil serves none.
 	Matter *Matter
 	// Broker is an MQTT broker of yours, for Outside and for imported plugins that use one.
 	Broker string
 	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
-	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade secret set says so.
+	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikadectl secret set says so.
 	SecretsDir string
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
 	// Broker, under oikade/v1/home/<name>.
 	Outside []string
-	// EventLog bounds what the host keeps for oikade replay. Zero fields take the defaults.
+	// EventLog bounds what the host keeps for oikadectl replay. Zero fields take the defaults.
 	EventLog store.Bound
 	// PluginSetTimeout is how long a plugin's Set may run. It defaults to DefaultPluginSetTimeout.
 	PluginSetTimeout time.Duration
@@ -227,7 +227,7 @@ func (h *Host) listenAPI(data *store.Store, calls *apiServer) net.Listener {
 	if h.APIAddr == "" {
 		return nil
 	}
-	addr := APIAddress(h.APIAddr)
+	addr := api.Address(h.APIAddr)
 	values := data.Namespace(apiNamespace)
 	// Clients come first, and whatever happens to the listener: a token must be revocable while the
 	// port is taken, or it would work again once it's free.

@@ -32,7 +32,7 @@ const (
 // hostZone names the fixed offset used for a host that can't name its time zone.
 const hostZone = "host"
 
-// ReplayHeader is the first line of the file oikade replay hands your binary. Its events follow, a
+// ReplayHeader is the first line of the file oikadectl replay hands your binary. Its events follow, a
 // line of JSON each.
 type ReplayHeader struct {
 	Log api.EventLog `json:"log"`
@@ -43,7 +43,7 @@ type ReplayHeader struct {
 	Devices []Device `json:"devices"`
 }
 
-// Report is what a replay found. Its JSON is what oikade replay --json prints, so scripts rely on it:
+// Report is what a replay found. Its JSON is what oikadectl replay --json prints, so scripts rely on it:
 // add to it, and don't rename.
 type Report struct {
 	From time.Time `json:"from"`
@@ -63,7 +63,7 @@ type Report struct {
 	Notes []string `json:"notes,omitempty"`
 }
 
-// ReplayFile runs a home against the file oikade replay wrote. o says what the home is, and which
+// ReplayFile runs a home against the file oikadectl replay wrote. o says what the home is, and which
 // devices it has beyond the host's.
 func ReplayFile(o Options, path string) (Report, error) {
 	f, err := os.Open(path)
@@ -372,7 +372,7 @@ func stamp(t time.Time, zone *time.Location) string {
 	return t.In(zone).Format("Mon 2 Jan 15:04")
 }
 
-// String is a write as oikade replay shows it.
+// String is a write as oikadectl replay shows it.
 func (w Write) String() string {
 	return fmt.Sprintf("%s %s = %v", w.Device, w.Capability, w.Value)
 }

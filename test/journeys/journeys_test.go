@@ -1,5 +1,5 @@
 // Package journeys follows a person through Oikade from outside: the real binary, a home made by
-// oikade init, simulated devices, and for Matter a controller nobody here wrote. It runs on main and
+// oikadectl init, simulated devices, and for Matter a controller nobody here wrote. It runs on main and
 // nightly (make test-journeys), not on PRs, because test/host covers each part faster.
 package journeys
 
@@ -50,15 +50,15 @@ func command(t *testing.T, dir string, env []string, name string, args ...string
 	return string(out)
 }
 
-// oikade builds the binary, for this machine or another one's env.
-func oikade(t *testing.T, env ...string) string {
+// binary builds oikadectl or oikade-host, for this machine or another one's env.
+func binary(t *testing.T, name string, env ...string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "oikade")
-	command(t, repo(t), env, "go", "build", "-o", path, "./cmd/oikade")
+	path := filepath.Join(t.TempDir(), name)
+	command(t, repo(t), env, "go", "build", "-o", path, "./cmd/"+name)
 	return path
 }
 
-// newHome makes a home with oikade init, in a directory short enough for the host's socket.
+// newHome makes a home with oikadectl init, in a directory short enough for the host's socket.
 func newHome(t *testing.T, bin string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -77,7 +77,7 @@ func until(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// host is a running oikade host. command is how it's started, and client how anything else talks
+// host is a running oikade-host. command is how it's started, and client how anything else talks
 // to it.
 type host struct {
 	t      *testing.T
@@ -140,7 +140,7 @@ func (h *host) change(device, capability string, value any) {
 	}
 }
 
-// status is oikade status, and false if the host isn't answering yet.
+// status is oikadectl status, and false if the host isn't answering yet.
 func (h *host) status() (api.Status, bool) {
 	var s api.Status
 	out, err := h.client("status", "--json").Output()
@@ -191,9 +191,9 @@ func metrics(ctx context.Context, url string) string {
 	return b.String()
 }
 
-// From oikade init to a rule running on a host, then a restart that changes nothing.
+// From oikadectl init to a rule running on a host, then a restart that changes nothing.
 func TestANewHomeRunsOnAHost(t *testing.T) {
-	bin := oikade(t)
+	bin, hostBin := binary(t, "oikadectl"), binary(t, "oikade-host")
 	module := newHome(t, bin)
 	command(t, module, []string{"GOPROXY=off", "GOFLAGS=-mod=mod"}, bin, "test")
 	command(t, module, []string{"GOPROXY=off", "GOFLAGS=-mod=mod"}, bin, "check")
@@ -211,7 +211,7 @@ func TestANewHomeRunsOnAHost(t *testing.T) {
 	address := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	h := &host{t: t,
 		start: func() *exec.Cmd {
-			return exec.Command(bin, "host", "--data-dir", data, "--simulate", devices,
+			return exec.Command(hostBin, "--data-dir", data, "--simulate", devices,
 				"--matter-port=0", "--metrics-addr="+address)
 		},
 		client: func(args ...string) *exec.Cmd { return exec.Command(bin, append(args, "--data-dir", data)...) },
@@ -223,7 +223,7 @@ func TestANewHomeRunsOnAHost(t *testing.T) {
 	deploy := h.client("deploy", "--module", module)
 	deploy.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod")
 	if out, err := deploy.CombinedOutput(); err != nil {
-		t.Fatalf("oikade deploy: %v\n%s", err, out)
+		t.Fatalf("oikadectl deploy: %v\n%s", err, out)
 	}
 	until(t, "your process", func() bool { s, ok := h.status(); return ok && s.Process })
 
@@ -297,34 +297,33 @@ func TestChipToolPairsAndDrivesADevice(t *testing.T) {
 	container := chipTool(t)
 	arch := strings.TrimSpace(docker(t, "version", "-f", "{{.Server.Arch}}"))
 	target := []string{"CGO_ENABLED=0", "GOOS=linux", "GOARCH=" + arch}
-	native := oikade(t)
-	module := newHome(t, native)
-	bin := oikade(t, target...)
-	binary := filepath.Join(t.TempDir(), "home")
+	module := newHome(t, binary(t, "oikadectl"))
+	home := filepath.Join(t.TempDir(), "home")
 	build := slices.Concat(target, []string{"GOPROXY=off", "GOFLAGS=-mod=mod"})
-	command(t, module, build, "go", "build", "-o", binary, ".")
-	docker(t, "cp", bin, container+":/usr/local/bin/oikade")
-	docker(t, "cp", binary, container+":/usr/local/bin/home")
+	command(t, module, build, "go", "build", "-o", home, ".")
+	docker(t, "cp", binary(t, "oikade-host", target...), container+":/usr/local/bin/oikade-host")
+	docker(t, "cp", binary(t, "oikadectl", target...), container+":/usr/local/bin/oikadectl")
+	docker(t, "cp", home, container+":/usr/local/bin/home")
 	docker(t, "cp", filepath.Join("testdata", "devices.json"), container+":/devices.json")
 
 	h := &host{t: t,
 		start: func() *exec.Cmd {
-			return exec.Command("docker", "exec", "-i", container, "oikade", "host", "--data-dir", inContainer,
+			return exec.Command("docker", "exec", "-i", container, "oikade-host", "--data-dir", inContainer,
 				"--home", "/usr/local/bin/home", "--simulate", "/devices.json", "--metrics-addr=127.0.0.1:0")
 		},
 		client: func(args ...string) *exec.Cmd {
 			args = append(args, "--data-dir", inContainer)
-			return exec.Command("docker", append([]string{"exec", container, "oikade"}, args...)...)
+			return exec.Command("docker", append([]string{"exec", container, "oikadectl"}, args...)...)
 		},
 	}
 	h.launch()
 	// docker exec passes on no signal, and exiting says nothing of the process inside, whose lock on
 	// the store the next host needs.
 	stop := func() {
-		_ = exec.Command("docker", "exec", container, "pkill", "-INT", "-x", "oikade").Run()
+		_ = exec.Command("docker", "exec", container, "pkill", "-INT", "-x", "oikade-host").Run()
 		h.stop()
 		until(t, "the host to stop", func() bool {
-			return exec.Command("docker", "exec", container, "pgrep", "-x", "oikade").Run() != nil
+			return exec.Command("docker", "exec", container, "pgrep", "-x", "oikade-host").Run() != nil
 		})
 	}
 	t.Cleanup(stop)

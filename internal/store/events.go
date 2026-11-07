@@ -52,7 +52,7 @@ type Bound struct {
 // Fold takes what's being dropped into the baseline, the summary of everything older than the log.
 type Fold func(baseline []byte, dropped []Record) ([]byte, error)
 
-// Events is a bounded log of what happened, kept for oikade replay. It's a history you can lose, not
+// Events is a bounded log of what happened, kept for oikadectl replay. It's a history you can lose, not
 // state: unlike the journal, nothing depends on it.
 func (s *Store) Events() *Events {
 	return &Events{db: s.db}

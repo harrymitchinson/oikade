@@ -1,4 +1,4 @@
-// Package cli drives the oikade binary as a person would, from an empty directory.
+// Package cli drives the oikadectl and oikade-host binaries as a person would, from an empty directory.
 package cli
 
 import (
@@ -21,19 +21,25 @@ func repo(t *testing.T) string {
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
-// oikade builds the binary, once a test.
-func oikade(t *testing.T) string {
+// oikadectl builds the CLI, once a test.
+func oikadectl(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "oikade")
-	cmd := exec.Command("go", "build", "-o", path, "./cmd/oikade")
+	return binary(t, "oikadectl")
+}
+
+// binary builds one of cmd's binaries.
+func binary(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	cmd := exec.Command("go", "build", "-o", path, "./cmd/"+name)
 	cmd.Dir = repo(t)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building oikade: %v\n%s", err, out)
+		t.Fatalf("building %s: %v\n%s", name, err, out)
 	}
 	return path
 }
 
-// run runs oikade in dir, with GOPROXY off to prove a home needs only Go and the binary.
+// run runs a binary in dir, with GOPROXY off to prove a home needs only Go and the binary.
 func run(t *testing.T, bin, dir, stdin string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
@@ -50,13 +56,13 @@ func newHome(t *testing.T, bin string) string {
 	t.Helper()
 	dir := t.TempDir()
 	if out, err := run(t, bin, dir, "", "init", "--source", repo(t)); err != nil {
-		t.Fatalf("oikade init: %v\n%s", err, out)
+		t.Fatalf("oikadectl init: %v\n%s", err, out)
 	}
 	return dir
 }
 
 func TestInitThenTestAndCheckPass(t *testing.T) {
-	bin := oikade(t)
+	bin := oikadectl(t)
 	dir := newHome(t, bin)
 	for _, want := range []string{"go.mod", "main.go", "home_test.go", "devices.go", ".github/workflows/deploy.yml"} {
 		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
@@ -68,7 +74,7 @@ func TestInitThenTestAndCheckPass(t *testing.T) {
 		t.Fatal(err)
 	}
 	// CI deploys over the host's API with a token, and has no way in over SSH.
-	for _, want := range []string{"secrets.OIKADE_TOKEN", `oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"`} {
+	for _, want := range []string{"secrets.OIKADE_TOKEN", `oikadectl login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"`} {
 		if !strings.Contains(string(workflow), want) {
 			t.Errorf("the workflow has no %s:\n%s", want, workflow)
 		}
@@ -77,17 +83,17 @@ func TestInitThenTestAndCheckPass(t *testing.T) {
 		t.Errorf("the workflow still uses SSH:\n%s", workflow)
 	}
 	if out, err := run(t, bin, dir, "", "test"); err != nil {
-		t.Fatalf("oikade test: %v\n%s", err, out)
+		t.Fatalf("oikadectl test: %v\n%s", err, out)
 	}
 	out, err := run(t, bin, dir, "", "check")
 	if err != nil {
-		t.Fatalf("oikade check: %v\n%s", err, out)
+		t.Fatalf("oikadectl check: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, "1 rules") {
-		t.Errorf("oikade check said %q", out)
+		t.Errorf("oikadectl check said %q", out)
 	}
 	if out, err := run(t, bin, dir, "", "init", "--source", repo(t)); err == nil {
-		t.Errorf("oikade init ran over a home: %s", out)
+		t.Errorf("oikadectl init ran over a home: %s", out)
 	}
 }
 
@@ -106,7 +112,7 @@ func replaceIn(t *testing.T, path, from, to string) {
 }
 
 func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
-	bin := oikade(t)
+	bin := oikadectl(t)
 	dir := t.TempDir()
 	mine := filepath.Join(dir, ".github", "workflows", "ci.yml")
 	if err := os.MkdirAll(filepath.Dir(mine), 0o755); err != nil {
@@ -137,33 +143,33 @@ func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
 }
 
 func TestCheckFailsOnAMisspeltDevice(t *testing.T) {
-	bin := oikade(t)
+	bin := oikadectl(t)
 	dir := newHome(t, bin)
 	replaceIn(t, filepath.Join(dir, "main.go"), "Device:     PorchLight", "Device:     PorchLigth")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
+		t.Fatalf("oikadectl check passed:\n%s", out)
 	}
 	if !strings.Contains(out, "undefined: PorchLigth") {
-		t.Errorf("oikade check said:\n%s", out)
+		t.Errorf("oikadectl check said:\n%s", out)
 	}
 }
 
 func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
-	bin := oikade(t)
+	bin := oikadectl(t)
 	dir := newHome(t, bin)
 	replaceIn(t, filepath.Join(dir, "main.go"), `Capability: "light.on"`, `Capability: "light.onn"`)
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
+		t.Fatalf("oikadectl check passed:\n%s", out)
 	}
 	if !strings.Contains(out, "light.onn") {
-		t.Errorf("oikade check said:\n%s", out)
+		t.Errorf("oikadectl check said:\n%s", out)
 	}
 }
 
 func TestCheckFailsOnAFlowThatWouldntReplay(t *testing.T) {
-	bin := oikade(t)
+	bin := oikadectl(t)
 	dir := newHome(t, bin)
 	flow := `package main
 
@@ -183,15 +189,15 @@ func late(r *framework.FlowRun) error {
 	}
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
+		t.Fatalf("oikadectl check passed:\n%s", out)
 	}
 	if !strings.Contains(out, "time.Now") {
-		t.Errorf("oikade check said:\n%s", out)
+		t.Errorf("oikadectl check said:\n%s", out)
 	}
 }
 
 func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
-	bin := oikade(t)
+	bin := oikadectl(t)
 	dir := newHome(t, bin)
 	script := strings.Join([]string{
 		"set porch-sensor sensor.occupancy-detected true",
@@ -203,7 +209,7 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	}, "\n") + "\n"
 	out, err := run(t, bin, dir, script, "dev")
 	if err != nil {
-		t.Fatalf("oikade dev: %v\n%s", err, out)
+		t.Fatalf("oikadectl dev: %v\n%s", err, out)
 	}
 	started := strings.Index(out, "Hold porch-light started")
 	ended := strings.Index(out, "Hold porch-light ended")
@@ -219,19 +225,71 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	}
 }
 
-// Hosts are reached over their API: there's no SSH, and no installer, left to call.
+// Hosts are reached over their API: there's no SSH, and no installer, left to call. Running a host,
+// and trusting a client on its machine, are oikade-host's.
 func TestRemovedCommandsAreUnknown(t *testing.T) {
-	bin := oikade(t)
+	bin := oikadectl(t)
 	dir := t.TempDir()
-	for _, args := range [][]string{{"install"}, {"upgrade"}, {"proxy"}, {"--host", "pi", "status"}} {
+	for _, args := range [][]string{{"install"}, {"upgrade"}, {"proxy"}, {"--host", "pi", "status"}, {"host"}} {
 		out, err := run(t, bin, dir, "", args...)
 		if err == nil || !strings.Contains(out, "unknown") {
-			t.Errorf("oikade %s: %v: %s", strings.Join(args, " "), err, out)
+			t.Errorf("oikadectl %s: %v: %s", strings.Join(args, " "), err, out)
 		}
 	}
 	for _, help := range []string{"help", "-h", "--help"} {
 		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "Usage:") {
-			t.Errorf("oikade %s: %v: %s", help, err, out)
+			t.Errorf("oikadectl %s: %v: %s", help, err, out)
 		}
+	}
+}
+
+// oikadectl runs on a laptop, so it carries nothing of the host: not the host, not Matter.
+func TestOikadectlLinksNothingOfTheHost(t *testing.T) {
+	deps := func(pkg string) []string {
+		cmd := exec.Command("go", "list", "-deps", pkg)
+		cmd.Dir = repo(t)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("go list %s: %v", pkg, err)
+		}
+		return strings.Fields(string(out))
+	}
+	const module = "github.com/harrymitchinson/oikade/"
+	for _, dep := range deps("./cmd/oikadectl") {
+		if dep == module+"internal/host" || strings.HasPrefix(dep, module+"internal/matter") {
+			t.Errorf("oikadectl links %s", dep)
+		}
+	}
+	for _, dep := range deps("./cmd/oikade-host") {
+		if dep == module+"internal/flowcheck" || dep == module+"internal/simhome" {
+			t.Errorf("oikade-host links %s, which only oikadectl's commands need", dep)
+		}
+	}
+}
+
+func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
+	bin := binary(t, "oikade-host")
+	dir := t.TempDir()
+	if out, err := run(t, bin, dir, "", "version"); err != nil || strings.TrimSpace(out) == "" {
+		t.Errorf("oikade-host version: %v: %q", err, out)
+	}
+	if out, err := run(t, bin, dir, "", "help"); err != nil || !strings.HasPrefix(out, "Usage:") {
+		t.Errorf("oikade-host help: %v: %s", err, out)
+	}
+	for _, args := range [][]string{{"deploy"}, {"status"}, {"init"}} {
+		out, err := run(t, bin, dir, "", args...)
+		if err == nil || !strings.Contains(out, "unknown command") {
+			t.Errorf("oikade-host %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+	}
+	// Adding a client needs the host's socket, so with no host there it says so rather than pass.
+	out, err := run(t, bin, dir, "", "client", "add", "laptop", "--data-dir", dir)
+	if err == nil {
+		t.Errorf("oikade-host client add with no host: %s", out)
+	}
+	ctl := oikadectl(t)
+	out, err = run(t, ctl, dir, "", "client", "add", "laptop")
+	if err == nil || !strings.Contains(out, "oikade-host client add") {
+		t.Errorf("oikadectl client add should point at oikade-host: %v: %s", err, out)
 	}
 }

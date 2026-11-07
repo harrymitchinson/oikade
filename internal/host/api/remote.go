@@ -6,7 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 )
+
+// DefaultPort is the network API's port when an address has none.
+const DefaultPort = "8443"
+
+// Address fills in the port of an address that has none.
+func Address(addr string) string {
+	if _, _, err := net.SplitHostPort(addr); err == nil {
+		return addr
+	}
+	return net.JoinHostPort(strings.Trim(addr, "[]"), DefaultPort)
+}
 
 // Remote is a host's network API, over TLS. It trusts only the host whose public key has Pin, with
 // no CA and no name, so it works by IP address.

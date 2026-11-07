@@ -67,7 +67,7 @@ func runSecret(ctx context.Context, args []string) error {
 	case len(words) == 2 && words[0] == "remove":
 		req = api.Request{Type: api.TypeSecretRemove, Secret: words[1]}
 	default:
-		return errors.New("usage: oikade secret list | set NAME | remove NAME")
+		return errors.New("usage: oikadectl secret list | set NAME | remove NAME")
 	}
 	resp, err := api.Call(ctx, t.transport(), req)
 	if err != nil {

@@ -1,6 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= oikade:latest
-# VERSION is baked into the oikade binary (`oikade version`). Releases set it to the tag.
+# VERSION is baked into oikadectl and oikade-host (`oikadectl version`, `oikade-host version`). Releases set it to the tag.
 VERSION ?= dev
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -69,7 +69,7 @@ chip-tool-image: ## Build the chip-tool image for the journeys, unless it's alre
 		$(CONTAINER_TOOL) build -t $(CHIP_TOOL_IMG) test/journeys/chip-tool
 
 .PHONY: test-journeys
-test-journeys: chip-tool-image ## Follow a home from oikade init to a running host, and pair chip-tool with it. Needs Docker.
+test-journeys: chip-tool-image ## Follow a home from oikadectl init to a running host, and pair chip-tool with it. Needs Docker.
 	OIKADE_CHIP_TOOL_IMAGE=$(CHIP_TOOL_IMG) go test ./test/journeys/ -v -count=1 -timeout 15m
 
 # CONFORMANCE_PLUGIN is the command the conformance suite runs, from the repository root.
@@ -111,16 +111,18 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 PLATFORMS ?= linux/arm64,linux/amd64
 
 .PHONY: build
-build: fmt vet ## Build the oikade binary.
-	go build -ldflags "-X main.version=$(VERSION)" -o bin/oikade ./cmd/oikade
+build: fmt vet ## Build bin/oikadectl and bin/oikade-host.
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/ ./cmd/oikadectl ./cmd/oikade-host
 
 .PHONY: release-binaries
-release-binaries: ## Build dist/oikade-<os>-<arch> for each of PLATFORMS.
+release-binaries: ## Build dist/oikadectl-<os>-<arch> and dist/oikade-host-<os>-<arch> for each of PLATFORMS.
 	mkdir -p dist
 	for platform in $(subst $(comma),$(space),$(PLATFORMS)); do \
 		os=$${platform%/*} arch=$${platform#*/}; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-			go build -ldflags "-X main.version=$(VERSION)" -o "dist/oikade-$$os-$$arch" ./cmd/oikade; \
+		for name in oikadectl oikade-host; do \
+			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
+				go build -ldflags "-X main.version=$(VERSION)" -o "dist/$$name-$$os-$$arch" ./cmd/$$name || exit 1; \
+		done; \
 	done
 
 # If you wish to build the image targeting other platforms you can use the --platform flag.

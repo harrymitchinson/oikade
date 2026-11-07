@@ -1,4 +1,4 @@
-// Package api is the host's API: how the oikade command talks to a running host. It's HTTP over a
+// Package api is the host's API: how oikadectl talks to a running host. It's HTTP over a
 // Unix socket in the data directory, apart from the socket your process uses, with its routes in
 // docs/host-api.md. A Transport reaches it, from this machine or another.
 package api
@@ -205,7 +205,7 @@ type Response struct {
 	Pin string `json:"pin,omitempty"`
 }
 
-// Client is a client of the network API. Its JSON is what oikade client list --json prints, so
+// Client is a client of the network API. Its JSON is what oikadectl client list --json prints, so
 // scripts rely on it: add to it, and don't rename.
 type Client struct {
 	Name     string    `json:"name"`
@@ -220,7 +220,7 @@ func Pin(publicKeyInfo []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// Secret is what the host says about a credential. Its JSON is what oikade secret list --json prints,
+// Secret is what the host says about a credential. Its JSON is what oikadectl secret list --json prints,
 // so scripts rely on it: add to it, and don't rename.
 type Secret struct {
 	Name string `json:"name"`
@@ -228,7 +228,7 @@ type Secret struct {
 	Changed time.Time `json:"changed"`
 }
 
-// Matter is the host's Matter bridge. Its JSON is what oikade matter --json prints, so scripts rely on
+// Matter is the host's Matter bridge. Its JSON is what oikadectl matter --json prints, so scripts rely on
 // it: add to it, and don't rename.
 type Matter struct {
 	// Serving is whether the bridge is up. It's down if its port is taken, mDNS wouldn't start, or
@@ -257,7 +257,7 @@ type Fabric struct {
 	Label    string `json:"label,omitempty"`
 }
 
-// Status is what the host knows now. Its JSON is what oikade status --json prints, so scripts rely on
+// Status is what the host knows now. Its JSON is what oikadectl status --json prints, so scripts rely on
 // it: add to it, and don't rename.
 type Status struct {
 	// Version is the running version, if known. A deploy under way hides it.
@@ -314,7 +314,7 @@ const (
 	EventRule    = "rule"
 	EventProcess = "process"
 	EventPause   = "pause"
-	// EventWrite is your automations writing to a device. A person's write isn't one: oikade set and
+	// EventWrite is your automations writing to a device. A person's write isn't one: oikadectl set and
 	// the Home app show up as the change they make.
 	EventWrite = "write"
 	// EventCall is an outside call from a flow, which a replay answers rather than makes.
@@ -325,7 +325,7 @@ const (
 	eventEnd = "end"
 )
 
-// Event is one line of a tail. Its JSON is what oikade tail --json prints, so scripts rely on it: add
+// Event is one line of a tail. Its JSON is what oikadectl tail --json prints, so scripts rely on it: add
 // to it, and don't rename.
 type Event struct {
 	Time time.Time `json:"time,omitzero"`

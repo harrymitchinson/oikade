@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,13 +33,13 @@ func (r *rig) status(args ...string) api.Status {
 func (r *rig) stdout(env []string, args ...string) []byte {
 	r.t.Helper()
 	args = append(args[:1:1], append([]string{"--data-dir", r.dir}, args[1:]...)...)
-	cmd := exec.Command(hostBin, args...)
+	cmd := exec.Command(binFor(args), args...)
 	cmd.Env = append(os.Environ(), env...)
 	var errOut bytes.Buffer
 	cmd.Stderr = &errOut
 	out, err := cmd.Output()
 	if err != nil {
-		r.t.Fatalf("oikade %v: %v: %s", args, err, errOut.String())
+		r.t.Fatalf("%s %v: %v: %s", filepath.Base(binFor(args)), args, err, errOut.String())
 	}
 	return out
 }
@@ -268,10 +269,10 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 	r.wrote("claimed-flow", false)
 }
 
-// tailing reads oikade tail --json until the test ends.
+// tailing reads oikadectl tail --json until the test ends.
 func (r *rig) tailing(env []string, args ...string) <-chan api.Event {
 	r.t.Helper()
-	cmd := exec.Command(hostBin, append([]string{"tail", "--json", "--data-dir", r.dir}, args...)...)
+	cmd := exec.Command(ctlBin, append([]string{"tail", "--json", "--data-dir", r.dir}, args...)...)
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.StdoutPipe()
@@ -317,7 +318,7 @@ func awaitEvent(t *testing.T, events <-chan api.Event, match func(api.Event) boo
 	}
 }
 
-// tailStarted changes a device until the tail hears it, since oikade tail has no way to say it's on.
+// tailStarted changes a device until the tail hears it, since oikadectl tail has no way to say it's on.
 func tailStarted(r *rig, events <-chan api.Event) {
 	r.t.Helper()
 	deadline := time.After(waitLimit)

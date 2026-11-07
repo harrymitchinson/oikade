@@ -36,7 +36,7 @@ const maxRequest = 16 << 20
 // maxPublicRequest bounds the body of a call that needs no token, such as a login.
 const maxPublicRequest = 4 << 10
 
-// apiServer answers the oikade command. A call outlives its connection: a deploy that has begun
+// apiServer answers oikadectl. A call outlives its connection: a deploy that has begun
 // finishes even if the command that asked goes away.
 type apiServer struct {
 	log     *slog.Logger
@@ -111,7 +111,7 @@ func (s *apiServer) authenticated(next http.Handler) http.Handler {
 			s.log.Info("Refused API request without a valid token", "remote", r.RemoteAddr, "path", r.URL.Path)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="oikade"`)
 			respond(s.log, w, http.StatusUnauthorized, api.Response{
-				Error: "the host needs a valid token for this: ask for one with oikade client add on the host's machine",
+				Error: "the host needs a valid token for this: ask for one with oikade-host client add on the host's machine",
 			})
 			return
 		}

@@ -64,7 +64,7 @@ func variant(t *testing.T, name string) string {
 func (r *rig) oikade(env []string, args ...string) (stderr string, err error) {
 	r.t.Helper()
 	args = append(args[:1:1], append([]string{"--data-dir", r.dir}, args[1:]...)...)
-	cmd := exec.Command(hostBin, args...)
+	cmd := exec.Command(binFor(args), args...)
 	cmd.Env = append(os.Environ(), env...)
 	var errOut bytes.Buffer
 	cmd.Stderr = &errOut
@@ -248,7 +248,7 @@ func TestDeployFinishesAfterTheCommandThatAskedIsKilled(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	cmd := exec.Command(hostBin, "deploy", "--data-dir", r.dir, "--binary", variant(t, "second"))
+	cmd := exec.Command(ctlBin, "deploy", "--data-dir", r.dir, "--binary", variant(t, "second"))
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

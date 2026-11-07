@@ -36,7 +36,7 @@ type Options struct {
 	Start time.Time
 	// Devices are the devices. Empty means the ones in Types.
 	Devices []Device
-	// Types is the file oikade types wrote, which a test finds beside itself. Empty means devices.go.
+	// Types is the file oikadectl types wrote, which a test finds beside itself. Empty means devices.go.
 	Types string
 }
 
@@ -82,7 +82,7 @@ func New(t testing.TB, home framework.Home, o Options) *Home {
 		}
 		var err error
 		if devices, err = simhome.ReadTypes(o.Types); err != nil {
-			t.Fatalf("Reading the home's devices: %v. Run oikade types, or give Options.Devices", err)
+			t.Fatalf("Reading the home's devices: %v. Run oikadectl types, or give Options.Devices", err)
 		}
 	}
 	compiled, err := simhome.FromFramework(home)

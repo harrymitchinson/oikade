@@ -466,7 +466,7 @@ func TestRenderRefusesNamesThatMeetInGo(t *testing.T) {
 
 func TestParseRefusesOtherFiles(t *testing.T) {
 	if _, err := Parse([]byte("package main\n")); err == nil {
-		t.Error("read a file oikade types didn't write")
+		t.Error("read a file oikadectl types didn't write")
 	}
 	if _, err := Parse([]byte(registryLine + "{\n")); err == nil {
 		t.Error("read a broken file")

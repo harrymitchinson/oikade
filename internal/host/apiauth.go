@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net"
 	"regexp"
 	"slices"
 	"strings"
@@ -33,8 +32,6 @@ const (
 	apiNamespace   = "api"
 	apiIdentityKey = "identity"
 	apiTokenPrefix = "token/"
-	// DefaultAPIPort is the network API's port when an address has none.
-	DefaultAPIPort = "8443"
 	// lastUseEvery bounds how often a client's last use is written, so calls aren't store writes.
 	lastUseEvery = time.Minute
 	// tokenPrefix starts every token, so a secret scanner can tell one.
@@ -44,7 +41,7 @@ const (
 )
 
 // errBadCode is a login with a code that's wrong, used or expired. It doesn't say which.
-var errBadCode = fmt.Errorf("that code doesn't work: it's wrong, used or more than %v old. Run oikade client add again",
+var errBadCode = fmt.Errorf("that code doesn't work: it's wrong, used or more than %v old. Run oikade-host client add again",
 	codeLifetime)
 
 // clientName is what a client can be called.
@@ -55,14 +52,6 @@ func validClientName(name string) error {
 		return fmt.Errorf("%q can't name a client: use lower-case letters, digits, '.', '_' and '-'", name)
 	}
 	return nil
-}
-
-// APIAddress fills in the port of an address that has none.
-func APIAddress(addr string) string {
-	if _, _, err := net.SplitHostPort(addr); err == nil {
-		return addr
-	}
-	return net.JoinHostPort(strings.Trim(addr, "[]"), DefaultAPIPort)
 }
 
 // apiIdentity is the network API's key and self-signed certificate. Clients pin its public key, so
