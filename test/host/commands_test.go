@@ -32,14 +32,15 @@ func (r *rig) status(args ...string) api.Status {
 // stdout runs a command that must succeed.
 func (r *rig) stdout(env []string, args ...string) []byte {
 	r.t.Helper()
+	bin := binFor(args)
 	args = append(args[:1:1], append([]string{"--data-dir", r.dir}, args[1:]...)...)
-	cmd := exec.Command(binFor(args), args...)
+	cmd := exec.Command(bin, args...)
 	cmd.Env = append(os.Environ(), env...)
 	var errOut bytes.Buffer
 	cmd.Stderr = &errOut
 	out, err := cmd.Output()
 	if err != nil {
-		r.t.Fatalf("%s %v: %v: %s", filepath.Base(binFor(args)), args, err, errOut.String())
+		r.t.Fatalf("%s %v: %v: %s", filepath.Base(bin), args, err, errOut.String())
 	}
 	return out
 }

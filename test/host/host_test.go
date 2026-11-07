@@ -608,7 +608,7 @@ func TestHomeRefusesToRunWithoutTheHost(t *testing.T) {
 // binFor is the binary a command belongs to: oikade-host trusts a client on the host's machine, and
 // oikadectl does everything else.
 func binFor(args []string) string {
-	if len(args) > 0 && args[0] == "client" && slices.Contains(args, "add") {
+	if len(args) > 1 && args[0] == "client" && args[1] == "add" {
 		return hostBin
 	}
 	return ctlBin

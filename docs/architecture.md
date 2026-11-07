@@ -15,7 +15,7 @@ This page says how things work, not why they were chosen. Each section links the
 
 ## Components
 
-There are two binaries ([OIK-170](https://linear.app/oikade/issue/OIK-170)). `oikade-host` (`cmd/oikade-host`) is the host, and `oikadectl` (`cmd/oikadectl`) is every command you run, which reach the host over its API. `oikadectl` links neither `internal/host` nor Matter, and `test/cli` checks that it stays so. [The host](#the-host) is one process per home, with your process and each plugin as children it supervises. There's no second host, because two would run every rule twice. Anything that assumes it's highly available, or needs leader election, is a design decision.
+There are two binaries ([OIK-170](https://linear.app/oikade/issue/OIK-170)). `oikade-host` (`cmd/oikade-host`) is the host, and `oikadectl` (`cmd/oikadectl`) is every command you run, which reach the host over its API. `oikadectl` links neither `internal/host` nor Matter, and `test/cli` checks that it stays so. What both share as commands, such as reading flags and the version, is `internal/cli`. [The host](#the-host) is one process per home, with your process and each plugin as children it supervises. There's no second host, because two would run every rule twice. Anything that assumes it's highly available, or needs leader election, is a design decision.
 
 ### The data path
 

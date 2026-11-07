@@ -273,8 +273,21 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 	if out, err := run(t, bin, dir, "", "version"); err != nil || strings.TrimSpace(out) == "" {
 		t.Errorf("oikade-host version: %v: %q", err, out)
 	}
-	if out, err := run(t, bin, dir, "", "help"); err != nil || !strings.HasPrefix(out, "Usage:") {
-		t.Errorf("oikade-host help: %v: %s", err, out)
+	for _, help := range []string{"help", "-h", "--help"} {
+		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "Usage:") {
+			t.Errorf("oikade-host %s: %v: %s", help, err, out)
+		}
+	}
+	if out, err := run(t, bin, dir, "", "--version"); err != nil || strings.TrimSpace(out) == "" {
+		t.Errorf("oikade-host --version: %v: %q", err, out)
+	}
+	// A command after a flag is refused, rather than ignored while a host starts on the directory.
+	out, err := run(t, bin, dir, "", "--data-dir", dir, "client", "add", "laptop")
+	if err == nil || !strings.Contains(out, "comes first") {
+		t.Errorf("oikade-host with a command after a flag: %v: %s", err, out)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("it started a host, which left %v", entries)
 	}
 	for _, args := range [][]string{{"deploy"}, {"status"}, {"init"}} {
 		out, err := run(t, bin, dir, "", args...)
@@ -283,7 +296,7 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 		}
 	}
 	// Adding a client needs the host's socket, so with no host there it says so rather than pass.
-	out, err := run(t, bin, dir, "", "client", "add", "laptop", "--data-dir", dir)
+	out, err = run(t, bin, dir, "", "client", "add", "laptop", "--data-dir", dir)
 	if err == nil {
 		t.Errorf("oikade-host client add with no host: %s", out)
 	}

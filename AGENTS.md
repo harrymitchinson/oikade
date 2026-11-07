@@ -85,7 +85,7 @@ export IMG=<registry>/oikade:<version>
 make docker-build docker-push IMG=$IMG
 ```
 
-Releases build the image and `dist/oikade-<os>-<arch>` for linux/arm64 and linux/amd64: `.github/workflows/release.yml`.
+Releases build the image, and `dist/oikadectl-<os>-<arch>` and `dist/oikade-host-<os>-<arch>` for linux/arm64 and linux/amd64: `.github/workflows/release.yml`.
 
 ## Planning
 

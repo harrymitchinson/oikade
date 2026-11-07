@@ -63,8 +63,9 @@ func variant(t *testing.T, name string) string {
 // oikade runs the command against the rig's host.
 func (r *rig) oikade(env []string, args ...string) (stderr string, err error) {
 	r.t.Helper()
+	bin := binFor(args)
 	args = append(args[:1:1], append([]string{"--data-dir", r.dir}, args[1:]...)...)
-	cmd := exec.Command(binFor(args), args...)
+	cmd := exec.Command(bin, args...)
 	cmd.Env = append(os.Environ(), env...)
 	var errOut bytes.Buffer
 	cmd.Stderr = &errOut

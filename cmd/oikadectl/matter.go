@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -15,7 +16,7 @@ func runMatter(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("matter", flag.ExitOnError)
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	parse(fs, args)
+	cli.Parse(fs, args)
 	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeMatter})
 	if err != nil {
 		return err
@@ -27,7 +28,7 @@ func runMatter(ctx context.Context, args []string) error {
 		return errors.New("the host sent nothing about Matter")
 	}
 	if *asJSON {
-		return printJSON(resp.Matter)
+		return cli.PrintJSON(resp.Matter)
 	}
 	printMatter(os.Stdout, resp.Matter)
 	return nil

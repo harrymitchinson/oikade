@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -140,7 +141,7 @@ func runLogin(ctx context.Context, args []string) error {
 	code := flags.String("code", "",
 		"The code from oikade-host client add. Without one, the token comes from "+tokenEnv+".")
 	name := flags.String("context", "", "What to call this host. Defaults to its name.")
-	words := parse(flags, args)
+	words := cli.Parse(flags, args)
 	if len(words) != 1 || *pin == "" {
 		return errors.New("usage: oikadectl login ADDRESS --pin PIN [--code CODE] [--context NAME]")
 	}

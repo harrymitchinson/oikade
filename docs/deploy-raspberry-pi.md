@@ -54,7 +54,7 @@ ssh pi sudo systemctl restart oikade
 
 If that Pi runs a firewall, open Matter's port, mDNS and the API: `sudo ufw allow 5540/udp`, `sudo ufw allow 5353/udp` and `sudo ufw allow 8443/tcp`.
 
-**Log in from your Mac.** On the Pi, run `sudo oikade-host client add mac`. It prints a line to run on your Mac within 10 minutes:
+**Log in from your Mac.** On the Pi, run `sudo -u oikade oikade-host client add mac`. It prints a line to run on your Mac within 10 minutes:
 
 ```sh
 oikadectl login pi.home:8443 --pin sha256:9f2c… --code k7Qx…

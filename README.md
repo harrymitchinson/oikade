@@ -528,7 +528,7 @@ From another machine, these and `deploy` and `rollback` go over the [network API
 To use it from your laptop, on the host's machine run:
 
 ```sh
-oikade-host client add laptop
+sudo -u oikade oikade-host client add laptop
 ```
 
 It prints a line to run on the laptop within 10 minutes:
@@ -542,7 +542,7 @@ The pin is in the line, so the laptop trusts nothing it hasn't been told. It che
 CI has no one to type a code, so give it a token instead:
 
 ```sh
-oikade-host client add ci --token     # on the host's machine: prints a token and the pin
+sudo -u oikade oikade-host client add ci --token     # on the host's machine: prints a token and the pin
 ```
 
 Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikadectl login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.

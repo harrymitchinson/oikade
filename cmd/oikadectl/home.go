@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/registry"
@@ -43,7 +44,7 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 func runCheck(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
 	module := fs.String("module", ".", "Your home's module.")
-	if extra := parseFlags(fs, args); len(extra) > 0 {
+	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
 		return fmt.Errorf("oikadectl check takes no %q", extra[0])
 	}
 	path, done, err := buildHome(ctx, *module)
@@ -97,7 +98,7 @@ func runDev(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("dev", flag.ExitOnError)
 	module := fs.String("module", ".", "Your home's module.")
 	types := fs.String("types", "devices.go", "The file oikadectl types wrote, in your module.")
-	if extra := parseFlags(fs, args); len(extra) > 0 {
+	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
 		return fmt.Errorf("oikadectl dev takes no %q", extra[0])
 	}
 	path, done, err := buildHome(ctx, *module)
@@ -119,7 +120,7 @@ func runInit(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	name := fs.String("module", "home", "Your module's path.")
 	source := fs.String("source", "", "A checkout of Oikade to build against, rather than a published version.")
-	extra := parseFlags(fs, args)
+	extra := cli.ParseFlags(fs, args)
 	if len(extra) > 1 {
 		return fmt.Errorf("oikadectl init takes one directory, not %q", extra[1])
 	}

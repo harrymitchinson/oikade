@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
@@ -30,7 +31,7 @@ func runDevices(ctx context.Context, args []string) error {
 	allow := fs.Bool("allow-safety", false,
 		"Remove a device under a Safety claim, or change a name while a Safety rule runs.")
 	force := fs.Bool("force", false, "Restore a file that disagrees with the registry.")
-	words := parse(fs, args)
+	words := cli.Parse(fs, args)
 	if len(words) == 0 {
 		return listDevices(ctx, target, *asJSON, *all)
 	}
@@ -107,7 +108,7 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 		list.Devices = slices.DeleteFunc(list.Devices, func(d registry.Device) bool { return d.Removed })
 	}
 	if asJSON {
-		return printJSON(list)
+		return cli.PrintJSON(list)
 	}
 	printDevices(os.Stdout, list)
 	return nil
@@ -136,7 +137,7 @@ func runTypes(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	out := fs.String("out", "devices.go", "The file to write, or - for standard output.")
 	pkg := fs.String("package", "main", "The file's Go package.")
-	if extra := parse(fs, args); len(extra) > 0 {
+	if extra := cli.Parse(fs, args); len(extra) > 0 {
 		return fmt.Errorf("oikadectl types takes no %q", extra[0])
 	}
 	list, err := registryOf(ctx, target)

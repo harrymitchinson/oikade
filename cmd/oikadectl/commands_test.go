@@ -4,9 +4,11 @@ import (
 	"flag"
 	"slices"
 	"testing"
+
+	"github.com/harrymitchinson/oikade/internal/cli"
 )
 
-func TestParseTakesNegativeNumbersAndFlagsAnywhere(t *testing.T) {
+func TestParseValueTakesNegativeNumbers(t *testing.T) {
 	for _, args := range [][]string{
 		{"dev", "cap", "-5", "--json"},
 		{"--json", "dev", "cap", "-5"},
@@ -14,9 +16,9 @@ func TestParseTakesNegativeNumbersAndFlagsAnywhere(t *testing.T) {
 	} {
 		fs := flag.NewFlagSet("set", flag.ContinueOnError)
 		asJSON := fs.Bool("json", false, "")
-		got := parse(fs, args)
+		got := cli.Parse(fs, args)
 		if !slices.Equal(got, []string{"dev", "cap", "-5"}) || !*asJSON {
-			t.Errorf("parse(%v) = %v, json %v", args, got, *asJSON)
+			t.Errorf("cli.Parse(%v) = %v, json %v", args, got, *asJSON)
 		}
 	}
 	if v := parseValue("-5"); v != -5.0 {

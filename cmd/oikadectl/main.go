@@ -13,18 +13,13 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/flowcheck"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
 // version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".
-var version = devVersion
-
-// devVersion is a build no release or go install put a version on.
-const devVersion = "dev"
-
-// defaultDataDir is where a host on this machine keeps its state, unless told otherwise.
-const defaultDataDir = "/var/lib/oikade"
+var version = cli.DevVersion
 
 const usage = `Usage:
   oikadectl init [DIR] [--module PATH] [--source DIR]
@@ -111,7 +106,7 @@ func main() {
 	case "login":
 		err = runLogin(ctx, args)
 	case "version":
-		fmt.Println(currentVersion())
+		fmt.Println(cli.Version(version))
 	case "help", "-h", "--help":
 		fmt.Println(usage)
 	default:

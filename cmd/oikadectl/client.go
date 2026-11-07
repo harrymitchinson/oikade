@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -20,7 +21,7 @@ func runClient(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("client", flag.ExitOnError)
 	t := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	words := parse(fs, args)
+	words := cli.Parse(fs, args)
 	req := api.Request{}
 	switch {
 	case len(words) == 1 && words[0] == "list":
@@ -39,7 +40,7 @@ func runClient(ctx context.Context, args []string) error {
 	}
 	if req.Type == api.TypeClients {
 		if *asJSON {
-			return printJSON(resp.Clients)
+			return cli.PrintJSON(resp.Clients)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		_, _ = fmt.Fprintln(w, "NAME\tCREATED\tLAST USED")
@@ -53,7 +54,7 @@ func runClient(ctx context.Context, args []string) error {
 		return w.Flush()
 	}
 	if *asJSON {
-		return printJSON(struct{}{})
+		return cli.PrintJSON(struct{}{})
 	}
 	fmt.Printf("Revoked %s\n", words[1])
 	return nil

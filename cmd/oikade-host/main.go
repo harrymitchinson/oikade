@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,25 +12,19 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
 // version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".
-var version = devVersion
-
-// devVersion is a build no release or go install put a version on.
-const devVersion = "dev"
-
-// defaultDataDir is where the host keeps its state, unless told otherwise.
-const defaultDataDir = "/var/lib/oikade"
+var version = cli.DevVersion
 
 const usage = `Usage:
   oikade-host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
@@ -51,6 +44,12 @@ func main() {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, args = args[0], args[1:]
 	}
+	switch {
+	case command == "" && len(args) == 1 && (args[0] == "-h" || args[0] == "--help"):
+		command = "help"
+	case command == "" && len(args) == 1 && args[0] == "--version":
+		command = "version"
+	}
 	var err error
 	switch command {
 	case "":
@@ -58,7 +57,7 @@ func main() {
 	case "client":
 		err = runClient(ctx, args)
 	case "version":
-		fmt.Println(currentVersion())
+		fmt.Println(cli.Version(version))
 	case "help":
 		fmt.Println(usage)
 	default:
@@ -71,20 +70,9 @@ func main() {
 	}
 }
 
-// currentVersion is this binary's: what a release's -ldflags said, or what go install recorded.
-func currentVersion() string {
-	if version != devVersion {
-		return version
-	}
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		return info.Main.Version
-	}
-	return version
-}
-
 func runHost(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("oikade-host", flag.ExitOnError)
-	dataDir := fs.String("data-dir", defaultDataDir, "Directory with all the host's state.")
+	dataDir := fs.String("data-dir", cli.DefaultDataDir, "Directory with all the host's state.")
 	home := fs.String("home", "", "Your home's binary, until one is deployed.")
 	simulate := fs.String("simulate", "", "JSON file of simulated devices. Lines of JSON on stdin change them.")
 	heartbeat := fs.Duration("heartbeat-timeout", host.DefaultHeartbeatTimeout,
@@ -113,6 +101,10 @@ func runHost(ctx context.Context, args []string) error {
 	pluginSetTimeout := fs.Duration("plugin-set-timeout", host.DefaultPluginSetTimeout,
 		"How long a plugin's Set may run before the plugin counts as hung.")
 	_ = fs.Parse(args)
+	if fs.NArg() > 0 {
+		// A command after a flag would otherwise start a second host on the data directory.
+		return fmt.Errorf("%q isn't a flag: a command such as client add comes first, before any flags", fs.Arg(0))
+	}
 	if *matterPort > math.MaxUint16 {
 		return fmt.Errorf("--matter-port %d isn't a UDP port", *matterPort)
 	}
@@ -155,7 +147,7 @@ func runHost(ctx context.Context, args []string) error {
 		}
 	}
 	if *matterPort != 0 {
-		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: currentVersion()}
+		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: cli.Version(version)}
 		if *matterInterfaces != "" {
 			for name := range strings.SplitSeq(*matterInterfaces, ",") {
 				h.Matter.Interfaces = append(h.Matter.Interfaces, strings.TrimSpace(name))
@@ -178,11 +170,11 @@ const clientUsage = "usage: oikade-host client add NAME [--token] [--data-dir DI
 // can't make more of them. oikadectl lists and revokes them.
 func runClient(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("client", flag.ExitOnError)
-	dataDir := fs.String("data-dir", defaultDataDir, "The host's data directory.")
+	dataDir := fs.String("data-dir", cli.DefaultDataDir, "The host's data directory.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	token := fs.Bool("token", false,
 		"Print a token for the client to send, such as CI, rather than a code to log in with.")
-	words := parse(fs, args)
+	words := cli.Parse(fs, args)
 	if len(words) != 2 || words[0] != "add" {
 		return errors.New(clientUsage)
 	}
@@ -197,7 +189,7 @@ func runClient(ctx context.Context, args []string) error {
 	}
 	if !*token {
 		if *asJSON {
-			return printJSON(struct {
+			return cli.PrintJSON(struct {
 				Name    string    `json:"name"`
 				Code    string    `json:"code"`
 				Expires time.Time `json:"expires"`
@@ -215,7 +207,7 @@ func runClient(ctx context.Context, args []string) error {
 			"The host has no network API identity, so this token has nothing to reach yet: its log says why")
 	}
 	if *asJSON {
-		return printJSON(struct {
+		return cli.PrintJSON(struct {
 			Name  string `json:"name"`
 			Token string `json:"token"`
 			Pin   string `json:"pin"`
@@ -224,21 +216,4 @@ func runClient(ctx context.Context, args []string) error {
 	fmt.Printf("Token for %s. It isn't shown again, and it can do anything you can:\n  %s\n", name, resp.Token)
 	fmt.Printf("The host's pin, which a client checks it by:\n  %s\n", resp.Pin)
 	return nil
-}
-
-// parse takes flags from anywhere among the positional arguments.
-func parse(fs *flag.FlagSet, args []string) []string {
-	var positional []string
-	for {
-		_ = fs.Parse(args)
-		if fs.NArg() == 0 {
-			return positional
-		}
-		positional = append(positional, fs.Arg(0))
-		args = fs.Args()[1:]
-	}
-}
-
-func printJSON(v any) error {
-	return json.NewEncoder(os.Stdout).Encode(v)
 }
