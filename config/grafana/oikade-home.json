@@ -1255,7 +1255,7 @@
       "id": 26,
       "type": "stat",
       "title": "Serving",
-      "description": "1 while the bridge serves controllers. 0 means the Home app shows every device as not responding: `oikadectl matter` says why.",
+      "description": "1 while the bridge serves controllers. 0 means the Home app shows every device as not responding: `oikade matter` says why.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"

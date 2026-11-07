@@ -30,11 +30,11 @@ func runReplay(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("replay", flag.ExitOnError)
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module.")
-	types := fs.String("types", "devices.go", "The file oikadectl types wrote, in your module.")
+	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")
 	since := fs.Duration("since", defaultReplay, "How far back to compare.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikadectl replay takes no %q", extra[0])
+		return fmt.Errorf("oikade replay takes no %q", extra[0])
 	}
 	if *since <= 0 {
 		return fmt.Errorf("--since must be more than zero, not %s", *since)

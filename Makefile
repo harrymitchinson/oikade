@@ -1,6 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= oikade:latest
-# VERSION is baked into oikadectl and oikade-host (`oikadectl version`, `oikade-host version`). Releases set it to the tag.
+# VERSION is baked into oikade and oikade-host (`oikade version`, `oikade-host version`). Releases set it to the tag.
 VERSION ?= dev
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -66,7 +66,7 @@ chip-tool-image: ## Build the chip-tool image for the journeys, unless it's alre
 		$(CONTAINER_TOOL) build -t $(CHIP_TOOL_IMG) test/journeys/chip-tool
 
 .PHONY: test-journeys
-test-journeys: chip-tool-image ## Follow a home from oikadectl init to a running host, and pair chip-tool with it. Needs Docker.
+test-journeys: chip-tool-image ## Follow a home from oikade init to a running host, and pair chip-tool with it. Needs Docker.
 	OIKADE_CHIP_TOOL_IMAGE=$(CHIP_TOOL_IMG) go test ./test/journeys/ -v -count=1 -timeout 15m
 
 # CONFORMANCE_PLUGIN is the command the conformance suite runs, from the repository root.
@@ -105,8 +105,8 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: fmt vet ## Build bin/oikadectl and bin/oikade-host.
-	go build -ldflags "-X main.version=$(VERSION)" -o bin/ ./cmd/oikadectl ./cmd/oikade-host
+build: fmt vet ## Build bin/oikade and bin/oikade-host.
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/ ./cmd/oikade ./cmd/oikade-host
 
 # A release is built by GoReleaser (.goreleaser.yaml): the archives, their checksums and the image.
 # This builds them all into dist/, and the image for each platform, without publishing anything.

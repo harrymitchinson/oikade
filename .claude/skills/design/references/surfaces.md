@@ -16,7 +16,7 @@ This is the checklist the `design` and `plan` skills use. Oikade is small, but e
 
 | Owner | Holds |
 |---|---|
-| Git, as a Go module | A home's automations, and a copy of its device list from `oikadectl types` |
+| Git, as a Go module | A home's automations, and a copy of its device list from `oikade types` |
 | The host's data directory | Devices, names, rooms, endpoints, claims, latches, journals, deployed versions, Matter's identity, secrets |
 | Prometheus, Grafana, Loki | Values over time, changes, rule runs |
 
@@ -31,7 +31,7 @@ Ask these questions of every feature:
 These appear in users' Git repos, dashboards, alert rules and Home app setups. Changing them breaks someone, so a design has to call out any change to them explicitly. Nothing here needs a migration while Oikade is greenfield, but a design still says what changes.
 
 - **`framework`,** the Go API a home is written in. `framework/hometest` too.
-- **The `oikadectl` and `oikade-host` commands, their flags and their `--json`.** Scripts and a home's CI use them.
+- **The `oikade` and `oikade-host` commands, their flags and their `--json`.** Scripts and a home's CI use them.
 - **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `sensor.contact-open: true` means open. They appear in a home's code and in PromQL. The `add-capability` skill owns this procedure.
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.
 - **The plugin contract** (`docs/plugin-contract.md`, `contract/v1`, `sdk/plugin`) **and `oikade-conformance`'s name and flags.** Plugin repos depend on them through their `go.mod` and CI, and each plugin is released on its own schedule. A change reaches a Go plugin when it bumps `oikade`, and a plugin in another language when it changes the version it pins in `go install …@vX.Y.Z`.
@@ -73,7 +73,7 @@ Say which layer proves each behaviour. Don't just write "add tests".
 | Unit | `go test ./internal/...` | Registry, z2m exposes against fixture JSON, the Matter mapping and coalescer, engine timing with a fake clock, Matter commissioning in an in-process node test |
 | Integration | `make test` (`test/host`, `test/cli`) | A real host and process with simulated devices: crashes, deploys, commands, plugins |
 | Conformance | `make test-conformance` | The plugin contract, against the simswitch fixture |
-| Journeys | `make test-journeys`, on main and nightly only: agents don't run them | From `oikadectl init` to a running host, and chip-tool as the controller |
+| Journeys | `make test-journeys`, on main and nightly only: agents don't run them | From `oikade init` to a running host, and chip-tool as the controller |
 | Manual, in the Manual testing doc | Real devices and the Home app | Pairing with the Home app, real Zigbee payloads, the Home app's rendering, arm64 resource use |
 
 Lint with `make lint`.

@@ -270,7 +270,7 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 	r.wrote("claimed-flow", false)
 }
 
-// tailing reads oikadectl tail --json until the test ends.
+// tailing reads oikade tail --json until the test ends.
 func (r *rig) tailing(env []string, args ...string) <-chan api.Event {
 	r.t.Helper()
 	cmd := exec.Command(ctlBin, append([]string{"tail", "--json", "--data-dir", r.dir}, args...)...)
@@ -319,7 +319,7 @@ func awaitEvent(t *testing.T, events <-chan api.Event, match func(api.Event) boo
 	}
 }
 
-// tailStarted changes a device until the tail hears it, since oikadectl tail has no way to say it's on.
+// tailStarted changes a device until the tail hears it, since oikade tail has no way to say it's on.
 func tailStarted(r *rig, events <-chan api.Event) {
 	r.t.Helper()
 	deadline := time.After(waitLimit)

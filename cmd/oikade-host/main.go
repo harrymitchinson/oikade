@@ -1,5 +1,5 @@
 // Command oikade-host is the host: the one process per home that runs your binary and plugins, and
-// serves Matter and the API. Everything you run from your laptop is oikadectl.
+// serves Matter and the API. Everything you run from your laptop is oikade.
 package main
 
 import (
@@ -32,10 +32,10 @@ const usage = `Usage:
               [--broker URL] [--broker-password-secret NAME] [--outside-plugins LIST] [--secrets-dir DIR]
               [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST] [--plugin-set-timeout DURATION]
   oikade-host client add NAME [--token] [--data-dir DIR] [--json]
-                              A code for oikadectl login, or a token for CI, from the host running here.
+                              A code for oikade login, or a token for CI, from the host running here.
   oikade-host version
 
-With no command, oikade-host runs the host. Everything else, from deploy to status, is oikadectl.`
+With no command, oikade-host runs the host. Everything else, from deploy to status, is oikade.`
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -79,9 +79,9 @@ func runHost(ctx context.Context, args []string) error {
 		"How long your process may go without answering.")
 	settle := fs.Duration("settle", host.DefaultSettle, "How long a new version must stay up.")
 	logAge := fs.Duration("event-log-age", host.DefaultEventLogAge,
-		"How long oikadectl replay's event log keeps events.")
+		"How long oikade replay's event log keeps events.")
 	logMiB := fs.Uint64("event-log-mib", host.DefaultEventLogBytes>>20,
-		"The most oikadectl replay's event log holds, in MiB.")
+		"The most oikade replay's event log holds, in MiB.")
 	metricsAddr := fs.String("metrics-addr", ":8080", "Where to serve metrics and health over HTTP. Empty serves neither.")
 	apiAddr := fs.String("api-addr", "",
 		"Where to serve the API over TLS, for clients with a token, such as :8443. Empty serves it only on the socket.")
@@ -120,7 +120,7 @@ func runHost(ctx context.Context, args []string) error {
 		case err == nil:
 			*broker = withPassword
 		case errors.Is(err, os.ErrNotExist):
-			// oikadectl secret set needs a running host, so a first start comes before the secret does.
+			// oikade secret set needs a running host, so a first start comes before the secret does.
 			log.Error("Could not read the broker's password; restart the host once it's set", "err", err,
 				"secret", *brokerPassword)
 		default:
@@ -167,7 +167,7 @@ func runHost(ctx context.Context, args []string) error {
 const clientUsage = "usage: oikade-host client add NAME [--token] [--data-dir DIR] [--json]"
 
 // runClient trusts a new client of the network API. It goes only over the socket, so a stolen token
-// can't make more of them. oikadectl lists and revokes them.
+// can't make more of them. oikade lists and revokes them.
 func runClient(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("client", flag.ExitOnError)
 	dataDir := fs.String("data-dir", cli.DefaultDataDir, "The host's data directory.")
@@ -197,7 +197,7 @@ func runClient(ctx context.Context, args []string) error {
 				Address string    `json:"address"`
 			}{name, resp.Code, resp.Expires, resp.Pin, resp.Address})
 		}
-		fmt.Printf("On %s, by %s, run:\n  oikadectl login %s --pin %s --code %s\n",
+		fmt.Printf("On %s, by %s, run:\n  oikade login %s --pin %s --code %s\n",
 			name, resp.Expires.Local().Format(time.TimeOnly), resp.Address, resp.Pin, resp.Code)
 		fmt.Println("The code works once. If the host's name doesn't reach it from there, use its address.")
 		return nil

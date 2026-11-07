@@ -336,7 +336,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	return nil
 }
 
-// matter answers oikadectl matter.
+// matter answers oikade matter.
 func (s *apiServer) matter() api.Response {
 	m := s.bridge
 	if m == nil {

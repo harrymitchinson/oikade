@@ -29,7 +29,7 @@ Linear is the source of truth for the plan and for every design. The repo keeps 
 
 A design is needed only when the work changes something expensive to reverse:
 
-- **public API:** `framework`, the `oikadectl` and `oikade-host` commands and their `--json`, capability names and semantics, metric names and labels, the plugin contract, Matter endpoint IDs
+- **public API:** `framework`, the `oikade` and `oikade-host` commands and their `--json`, capability names and semantics, metric names and labels, the plugin contract, Matter endpoint IDs
 - **state that must survive:** the Matter bridge's setup code and fabrics, network keys
 - **component boundaries:** the host, your process and plugins
 - **a new driver or a new dependency**

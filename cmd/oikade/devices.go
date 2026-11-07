@@ -16,11 +16,11 @@ import (
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-const devicesUsage = "usage: oikadectl devices [name DEVICE NAME | room DEVICE ROOM | reserve NAME | " +
+const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM | reserve NAME | " +
 	"replace DEVICE WITH | remove DEVICE | restore FILE]"
 
 // typesReminder is what a change to a device's name leaves for you to do.
-const typesReminder = "Run oikadectl types and deploy, because running code has lost track of it until then."
+const typesReminder = "Run oikade types and deploy, because running code has lost track of it until then."
 
 func runDevices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("devices", flag.ExitOnError)
@@ -138,7 +138,7 @@ func runTypes(ctx context.Context, args []string) error {
 	out := fs.String("out", "devices.go", "The file to write, or - for standard output.")
 	pkg := fs.String("package", "main", "The file's Go package.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikadectl types takes no %q", extra[0])
+		return fmt.Errorf("oikade types takes no %q", extra[0])
 	}
 	list, err := registryOf(ctx, target)
 	if err != nil {

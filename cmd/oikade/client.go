@@ -13,7 +13,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
-const clientUsage = "usage: oikadectl client list | revoke NAME. " +
+const clientUsage = "usage: oikade client list | revoke NAME. " +
 	"To add one, run oikade-host client add NAME on the host's machine"
 
 // runClient lists and revokes who may call the host's network API.

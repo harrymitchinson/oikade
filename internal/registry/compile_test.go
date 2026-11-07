@@ -37,7 +37,7 @@ var _ = time.Minute
 }
 
 // The compiler is what checks a home's capabilities, so these homes are built against the file
-// oikadectl types writes.
+// oikade types writes.
 func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds homes")

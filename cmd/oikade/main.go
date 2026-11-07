@@ -1,4 +1,4 @@
-// Command oikadectl is how you build a home and work with its host: init, test and dev on your laptop,
+// Command oikade is how you build a home and work with its host: init, test and dev on your laptop,
 // and deploy, status and the rest over the host's API. The host itself is oikade-host.
 package main
 
@@ -22,39 +22,39 @@ import (
 var version = cli.DevVersion
 
 const usage = `Usage:
-  oikadectl init [DIR] [--module PATH] [--source DIR]
-  oikadectl check [--module DIR]
-  oikadectl test [--module DIR] [PACKAGES...]
-  oikadectl dev [--module DIR] [--types FILE]
-  oikadectl replay [--module DIR] [--types FILE] [--since DURATION] [--json]
-  oikadectl deploy [--module DIR | --binary FILE] [--allow-safety-removal]
-  oikadectl rollback [--allow-safety-removal]
-  oikadectl status [DEVICE] [--json]
-  oikadectl tail [--json]
-  oikadectl set DEVICE CAPABILITY VALUE [--json]
-  oikadectl pause RULE [--allow-safety] [--json]
-  oikadectl resume RULE [--json]
-  oikadectl devices [--all] [--json]
-  oikadectl devices name DEVICE NAME [--allow-safety] [--json]
-  oikadectl devices room DEVICE ROOM [--json]
-  oikadectl devices reserve NAME [--room ROOM] [--json]
-  oikadectl devices replace DEVICE WITH [--allow-safety] [--json]
-  oikadectl devices remove DEVICE [--allow-safety] [--json]
-  oikadectl devices restore FILE [--force] [--json]
-  oikadectl types [--out FILE] [--package NAME]
-  oikadectl matter [--json]
-  oikadectl backup
-  oikadectl secret list [--json]
-  oikadectl secret set NAME [--json]      The value comes from stdin, or is asked for.
-  oikadectl secret remove NAME [--json]
-  oikadectl client list [--json]
-  oikadectl client revoke NAME [--json]
-  oikadectl login ADDRESS --pin PIN [--code CODE] [--context NAME]
-  oikadectl version
+  oikade init [DIR] [--module PATH] [--source DIR]
+  oikade check [--module DIR]
+  oikade test [--module DIR] [PACKAGES...]
+  oikade dev [--module DIR] [--types FILE]
+  oikade replay [--module DIR] [--types FILE] [--since DURATION] [--json]
+  oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
+  oikade rollback [--allow-safety-removal]
+  oikade status [DEVICE] [--json]
+  oikade tail [--json]
+  oikade set DEVICE CAPABILITY VALUE [--json]
+  oikade pause RULE [--allow-safety] [--json]
+  oikade resume RULE [--json]
+  oikade devices [--all] [--json]
+  oikade devices name DEVICE NAME [--allow-safety] [--json]
+  oikade devices room DEVICE ROOM [--json]
+  oikade devices reserve NAME [--room ROOM] [--json]
+  oikade devices replace DEVICE WITH [--allow-safety] [--json]
+  oikade devices remove DEVICE [--allow-safety] [--json]
+  oikade devices restore FILE [--force] [--json]
+  oikade types [--out FILE] [--package NAME]
+  oikade matter [--json]
+  oikade backup
+  oikade secret list [--json]
+  oikade secret set NAME [--json]      The value comes from stdin, or is asked for.
+  oikade secret remove NAME [--json]
+  oikade client list [--json]
+  oikade client revoke NAME [--json]
+  oikade login ADDRESS --pin PIN [--code CODE] [--context NAME]
+  oikade version
 
 Every command that talks to a host takes --data-dir DIR, for the host on this machine, and --context NAME,
 which reaches a host you logged in to over its network API. Without either, a command uses the context
-oikadectl login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context saved
+oikade login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context saved
 without one. To trust a new client, run oikade-host client add NAME on the host's machine.`
 
 func main() {
