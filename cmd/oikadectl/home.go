@@ -237,16 +237,15 @@ import (
 )
 
 // home is your automations. PorchLight and PorchSensor come from devices.go, which oikadectl types
-// writes from your real devices: replace these two with yours.
+// writes from your real devices, with a field for each thing each one can do: replace these two with
+// yours.
 func home() framework.Home {
 	return framework.Home{
 		Holds: []framework.Hold{{
-			Name:       "porch-light",
-			Device:     PorchLight,
-			Capability: "light.on",
-			Value:      true,
+			Name: "porch-light",
+			Set:  PorchLight.LightOn.To(true),
 			When: func(s framework.State) bool {
-				return s.Bool(PorchSensor, "sensor.occupancy-detected")
+				return s.Get(PorchSensor.Occupancy)
 			},
 			OffDelay: 5 * time.Minute,
 		}},
@@ -270,15 +269,15 @@ import (
 func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 	h := hometest.New(t, home(), hometest.Options{})
 
-	h.Set(PorchSensor, "sensor.occupancy-detected", true)
-	h.ExpectValue(PorchLight, "light.on", true)
+	h.Set(PorchSensor.Occupancy, true)
+	h.ExpectValue(PorchLight.LightOn, true)
 
-	h.Set(PorchSensor, "sensor.occupancy-detected", false)
+	h.Set(PorchSensor.Occupancy, false)
 	h.Advance(4 * time.Minute)
-	h.ExpectValue(PorchLight, "light.on", true)
+	h.ExpectValue(PorchLight.LightOn, true)
 
 	h.Advance(2 * time.Minute)
-	h.ExpectValue(PorchLight, "light.on", false)
+	h.ExpectValue(PorchLight.LightOn, false)
 }
 `
 

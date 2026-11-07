@@ -54,12 +54,10 @@ oikadectl test
 func home() framework.Home {
 	return framework.Home{
 		Holds: []framework.Hold{{
-			Name:       "porch-light",
-			Device:     PorchLight,
-			Capability: "light.on",
-			Value:      true,
+			Name: "porch-light",
+			Set:  PorchLight.LightOn.To(true),
 			When: func(s framework.State) bool {
-				return s.Bool(PorchSensor, "sensor.occupancy-detected")
+				return s.Get(PorchSensor.Occupancy)
 			},
 			OffDelay: 5 * time.Minute,
 		}},
@@ -67,7 +65,9 @@ func home() framework.Home {
 }
 ```
 
-`oikadectl check` finds what's wrong before anything runs: the compiler, so a misspelt device doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes.
+`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.LightOn` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.LightOn`, for [rooms](#rooms).
+
+`oikadectl check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes.
 
 `oikadectl dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
 
@@ -93,7 +93,7 @@ func TestBedtimeSurvivesACrash(t *testing.T) {
 	h.Advance(22*time.Hour + 40*time.Minute) // Into the flow's 30-minute wait.
 	h.Restart()
 	h.Advance(21 * time.Minute)
-	h.ExpectValue(Lounge, "light.on", false)
+	h.ExpectValue(Lounge.LightOn, false)
 	h.ExpectFinished("bedtime")
 }
 ```
@@ -120,15 +120,15 @@ Arbitration and budgets are declared in the same `Home`. `Control` is [arbitrati
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Device: Dehumidifier, Capability: "switch.on", Default: false,
+		Default: Dehumidifier.SwitchOn.To(false),
 		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: 2 * time.Hour,
 		MinimumOn: time.Hour, MinimumOff: 30 * time.Minute, MaximumStartsPerDay: 3,
 	}},
 	Holds: []framework.Hold{{
-		Name: "dehumidifier-daily", Device: Dehumidifier, Capability: "switch.on", Value: true,
+		Name: "dehumidifier-daily", Set: Dehumidifier.SwitchOn.To(true),
 		Budget: &framework.Budget{
 			Bands: &framework.Bands{
-				Device: Cellar, Capability: "sensor.relative-humidity", Missing: 240,
+				Reading: Cellar.Humidity, Missing: 240,
 				Ranges: []framework.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
 			},
 			Prefer: []framework.Prefer{{Window: framework.Window{Start: "22:00", End: "06:00"}, Score: 3}},
@@ -155,20 +155,20 @@ Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`
 framework.Moment{
 	Name:    "hallway-motion-light",
 	Restart: true, // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On:      []framework.Change{{Device: HallwayMotion, Capability: "sensor.occupancy-detected"}},
+	On:      []framework.Change{HallwayMotion.Occupancy},
 	If: func(s framework.State) bool {
 		hour := s.Now().Hour()
-		return s.Bool(HallwayMotion, "sensor.occupancy-detected") && (hour >= 18 || hour < 7)
+		return s.Get(HallwayMotion.Occupancy) && (hour >= 18 || hour < 7)
 	},
 	Do: []framework.Action{
-		framework.Set{Device: HallwayLight, Capability: "light.on", Value: true},
+		HallwayLight.LightOn.To(true),
 		framework.Wait(5 * time.Minute),
-		framework.Set{Device: HallwayLight, Capability: "light.on", Value: false},
+		HallwayLight.LightOn.To(false),
 	},
 }
 ```
 
-A condition reads the home through its `State`, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run.
+A condition reads the home through its `State`: `Get` reads a handle, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run.
 
 The 5 minutes in this example live in your process's memory, so a restart during them leaves the light on. The [hold](#holds) version below doesn't have that problem, and a flow's `Sleep` survives it too.
 
@@ -181,7 +181,7 @@ framework.Moment{
 	Name: "downstairs-bedtime",
 	At:   []string{"23:30"},
 	Late: 10 * time.Minute,
-	Do:   []framework.Action{framework.Set{Device: PorchLight, Capability: "light.on", Value: false}},
+	Do:   []framework.Action{PorchLight.LightOn.To(false)},
 }
 ```
 
@@ -190,13 +190,13 @@ framework.Moment{
 
 ### Rooms
 
-A `Change`, a `Set` or a `Hold` can name a `Room` instead of a `Device`, but not both. A device is in a room when the [registry](#devices) says so, so a lamp added to the room later is covered without a deploy.
+`framework.InRoom` is a capability of every device in a room, as a `Change`, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
 
 ```go
 framework.Moment{
 	Name: "lights-out",
-	On:   []framework.Change{{Room: "hallway", Capability: "sensor.occupancy-detected"}}, // any sensor in the hallway
-	Do:   []framework.Action{framework.Set{Room: "living-room", Capability: "light.on", Value: false}}, // every light there
+	On:   []framework.Change{framework.InRoom("hallway", framework.Occupancy)},          // any sensor in the hallway
+	Do:   []framework.Action{framework.InRoom("living-room", framework.LightOn).To(false)}, // every light there
 }
 ```
 
@@ -208,16 +208,16 @@ framework.Moment{
 
 ### Holds
 
-A hold keeps a capability at `Value` while its `Window` is open and `When` is true:
+A hold keeps a capability at the value its `Set` gives while its `Window` is open and `When` is true:
 
 ```go
 []framework.Hold{{
-	Name: "water-heater-night", Device: WaterHeater, Capability: "switch.on", Value: true,
+	Name: "water-heater-night", Set: WaterHeater.SwitchOn.To(true),
 	Window: &framework.Window{Start: "22:00", End: "06:00"}, // an end at or before the start is the next morning
 }, {
-	Name: "bathroom-humid", Device: BathroomFan, Capability: "switch.on", Value: true,
+	Name: "bathroom-humid", Set: BathroomFan.SwitchOn.To(true),
 	When: func(s framework.State) bool {
-		return s.Number(BathroomSensor, "sensor.relative-humidity") > 70
+		return s.Get(BathroomSensor.Humidity) > 70
 	},
 	OffDelay: 10 * time.Minute, // run on for 10 minutes after it drops
 }}
@@ -234,7 +234,7 @@ A hold keeps a capability at `Value` while its `Window` is open and `When` is tr
 
 A hold needs a `Window`, a `When` or a `Budget`, and everything in it must be true together.
 
-- **When a hold starts,** your process writes `Value`. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its `Default` is what's left when the hold ends.
+- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its `Default` is what's left when the hold ends.
 - **Without a `Control`, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
 - **Restarts are safe.** The host saves each hold's state, and a new process writes only if the hold started or ended meanwhile. A restart at 02:00 doesn't undo the 23:00 tap, but automations down from 21:50 to 02:00 turn the heater on when they come back. `OffDelay` deadlines are saved too, so the fan still stops on time.
 - **Two holds on one capability need a `Control`** to decide between them.
@@ -246,17 +246,17 @@ A budget hold runs a device for a number of minutes a day, and plans when. Here 
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Device: LoftFan, Capability: "switch.on", Default: false,
+		Default: LoftFan.SwitchOn.To(false),
 		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: time.Hour,
 		MinimumOn:           time.Hour,        // each run at least an hour
 		MinimumOff:          30 * time.Minute, // and half an hour's rest between runs
 		MaximumStartsPerDay: 3,
 	}},
 	Holds: []framework.Hold{{
-		Name: "loft-airing", Device: LoftFan, Capability: "switch.on", Value: true,
+		Name: "loft-airing", Set: LoftFan.SwitchOn.To(true),
 		Budget: &framework.Budget{
 			Bands: &framework.Bands{
-				Device: LoftHumidity, Capability: "sensor.relative-humidity",
+				Reading: LoftHumidity.Humidity,
 				MaxAge: time.Hour, Missing: 180, // if the sensor hasn't reported in the last hour
 				Ranges:    []framework.Band{{Below: 55, Minutes: 60}, {Below: 70, Minutes: 180}},
 				Otherwise: 300,
@@ -277,7 +277,7 @@ framework.Home{
 | `Prefer` | Windows the minutes go in first. Each slot a window touches gains its `Score`, from -100 to 100, and overlapping windows add up. |
 | `Forbid` | Windows the minutes never go in. |
 
-A budget holds one device's bool capability at `true`, and that capability needs a `Control`: its `MinimumOn`, `MinimumOff` and `MaximumStartsPerDay` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. `oikadectl check` says if there's no `Control`. Something that must run whatever the budget says, such as frost protection, is a separate `Safety` hold on the same capability, which wins over the budget.
+A budget holds one device's `Bool` capability at `true`, and that capability needs a `Control`: its `MinimumOn`, `MinimumOff` and `MaximumStartsPerDay` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. `oikadectl check` says if there's no `Control`. Something that must run whatever the budget says, such as frost protection, is a separate `Safety` hold on the same capability, which wins over the budget.
 
 At `PlanningTime` your process plans the day and freezes the plan. The hold is active in the planned blocks, as a Normal claim, so a Safety hold or a Home app tap still beats it. Run minutes count only while the device reports on and is available. The plan and run minutes are saved in the host, so a deploy in the middle of the day doesn't run it again. Editing a budget takes effect at the next `PlanningTime`. Automations that start with no plan for today plan from then, so the hours already gone are lost to the day.
 
@@ -288,15 +288,14 @@ A capability is arbitrated when your home has a `Control` for it. The host saves
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Device: HallLight, Capability: "light.on",
-		Default:           false,                     // what's left when nobody claims it
+		Default:           HallLight.LightOn.To(false), // what's left when nobody claims it
 		Resolve:           framework.PreferOn,        // two claims at one level: on wins
 		External:          framework.ExternalOverride, // a wall switch or Home app tap becomes a claim...
 		OverrideUntilNext: true,                      // ...until what the rules want next changes
 	}},
 	Holds: []framework.Hold{{
-		Name: "hall-motion-light", Device: HallLight, Capability: "light.on", Value: true,
-		When:     func(s framework.State) bool { return s.Bool(HallMotion, "sensor.occupancy-detected") },
+		Name: "hall-motion-light", Set: HallLight.LightOn.To(true),
+		When:     func(s framework.State) bool { return s.Get(HallMotion.Occupancy) },
 		OffDelay: 5 * time.Minute,
 	}},
 }
@@ -313,7 +312,7 @@ Rules, Matter controllers and the device itself make **claims**. The highest lev
 
 | Field | |
 |---|---|
-| `Default` | Required. The value when nothing claims the capability. |
+| `Default` | Required. The capability, at its value when nothing claims it: a handle's `To`. |
 | `Resolve` | Required. Which claim wins within a level: `PreferOn` or `PreferOff` for bools, `Highest` or `Lowest` for numbers. Rules have no numeric priorities. |
 | `External` | Required. What an outside change does. `ExternalOverride` makes it a claim for `OverrideHold`. `ExternalRevert` writes the winner straight back, as for a valve that must stay closed. |
 | `OverrideHold`, `OverrideUntilNext` | With `ExternalOverride`: a duration, or until the winner without it next changes. |
@@ -331,9 +330,7 @@ A `Set` on an arbitrated capability is a claim, so it must say when it ends:
 framework.Moment{
 	Name: "towel-rail-boost",
 	At:   []string{"21:30"},
-	Do: []framework.Action{framework.Set{
-		Device: TowelRail, Capability: "switch.on", Value: true, For: time.Hour, UntilNext: true,
-	}},
+	Do: []framework.Action{TowelRail.SwitchOn.To(true).For(time.Hour).UntilNext()},
 }
 ```
 
@@ -341,9 +338,9 @@ framework.Moment{
 - `UntilNext` ends it when the winner without it next changes. If the rail also had a hold from 06:00 to 08:00, that's when the hold starts the next morning.
 - `For` together with `UntilNext` ends it at whichever comes first. This boost ends after an hour, unless what the other claims want changes sooner.
 - `UntilReleased` ends it at a `framework.Release("<name>")` action in another rule.
-- `Priority` on the `Set` raises the claim's level. It's Normal otherwise.
+- `Priority(framework.Override)` on the `Set` raises the claim's level. It's Normal otherwise, or in a flow the flow's `Priority`.
 
-A `Set` with none of these on an arbitrated capability of a single device is an error when it runs. A `Set` on a capability that isn't arbitrated is a plain write, and these fields don't apply to it.
+A `Set` with none of these on an arbitrated capability of a single device is an error when it runs. A `Set` on a capability that isn't arbitrated is a plain write, and these don't apply to it.
 
 ### Latched Safety holds
 
@@ -352,18 +349,18 @@ A latched hold stays active once it has started, until another rule releases it.
 ```go
 framework.Home{
 	Control: []framework.Control{{
-		Device: GarageHeater, Capability: "switch.on", Default: true,
+		Default: GarageHeater.SwitchOn.To(true),
 		Resolve: framework.PreferOff, External: framework.ExternalRevert,
 	}},
 	Holds: []framework.Hold{{
-		Name: "garage-overheat", Device: GarageHeater, Capability: "switch.on", Value: false,
+		Name: "garage-overheat", Set: GarageHeater.SwitchOn.To(false),
 		Priority: framework.Safety, Latch: true,
-		When: func(s framework.State) bool { return s.Number(GarageTemperature, "sensor.temperature") > 40 },
+		When: func(s framework.State) bool { return s.Get(GarageTemperature.Temperature) > 40 },
 	}},
 	Moments: []framework.Moment{{
 		Name: "garage-overheat-reset",
-		On:   []framework.Change{{Device: GarageDoor, Capability: "sensor.contact-open"}},
-		If:   func(s framework.State) bool { return s.Bool(GarageDoor, "sensor.contact-open") },
+		On:   []framework.Change{GarageDoor.ContactOpen},
+		If:   func(s framework.State) bool { return s.Get(GarageDoor.ContactOpen) },
 		Do:   []framework.Action{framework.Release("garage-overheat")},
 	}},
 }
@@ -624,7 +621,7 @@ oikadectl devices remove porch-light
 oikadectl types                                 # write devices.go from the registry
 ```
 
-`oikadectl types` writes a Go file with a constant for each device, for `Device: PorchLight` in your code, and you commit it. So code naming a device that's gone stops compiling, builds need no host, and Git has a reviewable copy of your inventory. `--out` and `--package` say where it goes. The registry is the authority, and the file is its snapshot. Two names that come out the same in Go, such as `a-1` and `a1`, fail until you rename one. Running code loses track of a renamed device until you deploy, so run `oikadectl types` and deploy straight after. While a Safety rule runs, `name` and `replace` need `--allow-safety`, because a Safety rule that names the device stops protecting anything until that deploy.
+`oikadectl types` writes a Go file with a value for each device, with its name and a handle for each of its capabilities, such as `PorchLight.LightOn`, and you commit it. So code naming a device that's gone, or a capability it no longer has, stops compiling, builds need no host, and Git has a reviewable copy of your inventory. `--out` and `--package` say where it goes. The registry is the authority, and the file is its snapshot. Two names that come out the same in Go, such as `a-1` and `a1`, fail until you rename one. Running code loses track of a renamed device until you deploy, so run `oikadectl types` and deploy straight after. While a Safety rule runs, `name` and `replace` need `--allow-safety`, because a Safety rule that names the device stops protecting anything until that deploy.
 
 `reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. Pair it, and `oikadectl devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
 

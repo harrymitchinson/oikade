@@ -9,8 +9,16 @@ import (
 )
 
 const (
-	on       = "switch.on"
-	humidity = "sensor.relative-humidity"
+	on       = string(framework.SwitchOn)
+	humidity = string(framework.Humidity)
+)
+
+// The devices' handles, as oikade types would write them.
+var (
+	sensor = framework.Handle[float64]{Device: "sensor", Capability: framework.Humidity}
+	fan    = framework.Handle[bool]{Device: "fan", Capability: framework.SwitchOn}
+	pump   = framework.Handle[bool]{Device: "pump", Capability: framework.SwitchOn}
+	light  = framework.Handle[bool]{Device: "light", Capability: framework.SwitchOn}
 )
 
 func devices() []hometest.Device {
@@ -24,21 +32,21 @@ func devices() []hometest.Device {
 
 func fanHold() framework.Hold {
 	return framework.Hold{
-		Name: "fan", Device: "fan", Capability: on, Value: true, OffDelay: 10 * time.Minute,
-		When: func(s framework.State) bool { return s.Number("sensor", humidity) > 70 },
+		Name: "fan", Set: fan.To(true), OffDelay: 10 * time.Minute,
+		When: func(s framework.State) bool { return s.Get(sensor) > 70 },
 	}
 }
 
 func TestAHoldFollowsADeviceAndTheClock(t *testing.T) {
 	h := hometest.New(t, framework.Home{Holds: []framework.Hold{fanHold()}}, hometest.Options{Devices: devices()})
-	h.ExpectValue("fan", on, false)
-	h.Set("sensor", humidity, 80.0)
-	h.ExpectValue("fan", on, true)
-	h.Set("sensor", humidity, 50.0)
+	h.ExpectValue(fan, false)
+	h.Set(sensor, 80.0)
+	h.ExpectValue(fan, true)
+	h.Set(sensor, 50.0)
 	h.Advance(9 * time.Minute)
-	h.ExpectValue("fan", on, true)
+	h.ExpectValue(fan, true)
 	h.Advance(2 * time.Minute)
-	h.ExpectValue("fan", on, false)
+	h.ExpectValue(fan, false)
 	if got := len(h.Writes()); got != 2 {
 		t.Errorf("%d writes, want 2: %v", got, h.Writes())
 	}
@@ -49,7 +57,7 @@ func bedtime() framework.Home {
 		Name: "bedtime", At: []string{"22:30"},
 		Run: func(r *framework.FlowRun) error {
 			r.Sleep(30 * time.Minute)
-			return r.Set(framework.Set{Device: "light", Capability: on, Value: false})
+			return r.Set(light.To(false))
 		},
 	}}}
 }
@@ -60,24 +68,24 @@ func TestARestartMidFlowCarriesOn(t *testing.T) {
 	if h.Finished("bedtime") {
 		t.Fatal("finished before its wait ended")
 	}
-	h.ExpectValue("light", on, true)
+	h.ExpectValue(light, true)
 	h.Restart()
-	h.ExpectValue("light", on, true)
+	h.ExpectValue(light, true)
 	h.Advance(19 * time.Minute)
-	h.ExpectValue("light", on, true)
+	h.ExpectValue(light, true)
 	h.Advance(2 * time.Minute)
-	h.ExpectValue("light", on, false)
+	h.ExpectValue(light, false)
 	h.ExpectFinished("bedtime")
 }
 
 func arbitrated() framework.Home {
 	return framework.Home{
 		Control: []framework.Control{{
-			Device: "pump", Capability: on, Default: false, Resolve: framework.PreferOn,
+			Default: pump.To(false), Resolve: framework.PreferOn,
 			External: framework.ExternalOverride, OverrideHold: time.Hour,
 		}},
 		Holds: []framework.Hold{{
-			Name: "pump", Device: "pump", Capability: on, Value: true, Priority: framework.Safety,
+			Name: "pump", Set: pump.To(true), Priority: framework.Safety,
 			Window: &framework.Window{Start: "01:00", End: "02:00"},
 		}},
 	}
@@ -86,14 +94,14 @@ func arbitrated() framework.Home {
 func TestClaimsAreArbitrated(t *testing.T) {
 	h := hometest.New(t, arbitrated(), hometest.Options{Devices: devices()})
 	h.Advance(90 * time.Minute)
-	h.ExpectValue("pump", on, true)
-	h.ExpectClaim("pump", on, "Rule/pump", "Safety")
+	h.ExpectValue(pump, true)
+	h.ExpectClaim(pump, "Rule/pump", "Safety")
 	// A tap in an app loses to a Safety claim.
-	h.Set("pump", on, false)
-	h.ExpectClaim("pump", on, "Rule/pump", "Safety")
+	h.Set(pump, false)
+	h.ExpectClaim(pump, "Rule/pump", "Safety")
 	h.Advance(time.Hour)
-	h.ExpectValue("pump", on, false)
-	if got := h.Claims("pump", on); len(got) != 0 {
+	h.ExpectValue(pump, false)
+	if got := h.Claims(pump); len(got) != 0 {
 		t.Errorf("claims %+v after the window", got)
 	}
 }
@@ -101,21 +109,21 @@ func TestClaimsAreArbitrated(t *testing.T) {
 func TestABudgetRunsItsMinutes(t *testing.T) {
 	home := framework.Home{
 		Control: []framework.Control{{
-			Device: "pump", Capability: on, Default: false, Resolve: framework.PreferOn,
+			Default: pump.To(false), Resolve: framework.PreferOn,
 			External: framework.ExternalOverride, OverrideHold: time.Hour,
 		}},
 		Holds: []framework.Hold{{
-			Name: "pump", Device: "pump", Capability: on, Value: true,
+			Name: "pump", Set: pump.To(true),
 			Budget: &framework.Budget{Minutes: func(framework.State) int { return 60 }},
 		}},
 	}
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
-	h.ExpectValue("pump", on, true)
+	h.ExpectValue(pump, true)
 	h.Restart() // A deploy mustn't add to the day's run.
 	h.Advance(61 * time.Minute)
-	h.ExpectValue("pump", on, false)
+	h.ExpectValue(pump, false)
 	h.Advance(20 * time.Hour)
-	h.ExpectValue("pump", on, false)
+	h.ExpectValue(pump, false)
 	if got := len(h.Writes()); got != 2 {
 		t.Errorf("%d writes, want on and off: %v", got, h.Writes())
 	}
@@ -123,32 +131,32 @@ func TestABudgetRunsItsMinutes(t *testing.T) {
 
 func TestAMomentWaits(t *testing.T) {
 	home := framework.Home{Moments: []framework.Moment{{
-		Name: "porch", On: []framework.Change{{Device: "sensor", Capability: humidity}},
+		Name: "porch", On: []framework.Change{sensor},
 		Do: []framework.Action{
-			framework.Set{Device: "fan", Capability: on, Value: true},
+			fan.To(true),
 			framework.Wait(5 * time.Minute),
-			framework.Set{Device: "fan", Capability: on, Value: false},
+			fan.To(false),
 		},
 	}}}
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
-	h.Set("sensor", humidity, 41.0)
-	h.ExpectValue("fan", on, true)
+	h.Set(sensor, 41.0)
+	h.ExpectValue(fan, true)
 	h.Advance(6 * time.Minute)
-	h.ExpectValue("fan", on, false)
+	h.ExpectValue(fan, false)
 	h.ExpectFinished("porch")
 }
 
 func TestAWaitEndsWhenItSaysInsideALongerMove(t *testing.T) {
 	home := framework.Home{Moments: []framework.Moment{{
-		Name: "porch", On: []framework.Change{{Device: "sensor", Capability: humidity}},
+		Name: "porch", On: []framework.Change{sensor},
 		Do: []framework.Action{
 			framework.Wait(90 * time.Second),
-			framework.Set{Device: "fan", Capability: on, Value: true},
+			fan.To(true),
 		},
 	}}}
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	start := h.Now()
-	h.Set("sensor", humidity, 41.0)
+	h.Set(sensor, 41.0)
 	h.Advance(time.Hour)
 	writes := h.Writes()
 	if len(writes) != 1 || !writes[0].Time.Equal(start.Add(90*time.Second)) {
@@ -158,14 +166,14 @@ func TestAWaitEndsWhenItSaysInsideALongerMove(t *testing.T) {
 
 func TestARunInProgressIsntFinished(t *testing.T) {
 	home := framework.Home{Moments: []framework.Moment{{
-		Name: "porch", On: []framework.Change{{Device: "sensor", Capability: humidity}},
+		Name: "porch", On: []framework.Change{sensor},
 		Do: []framework.Action{framework.Wait(5 * time.Minute)},
 	}}}
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
-	h.Set("sensor", humidity, 41.0)
+	h.Set(sensor, 41.0)
 	h.Advance(6 * time.Minute)
 	h.ExpectFinished("porch")
-	h.Set("sensor", humidity, 42.0)
+	h.Set(sensor, 42.0)
 	if h.Finished("porch") {
 		t.Fatal("finished while its second run waits")
 	}

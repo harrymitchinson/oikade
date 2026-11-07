@@ -15,17 +15,29 @@ import (
 )
 
 const (
-	on       = "switch.on"
-	humidity = "sensor.relative-humidity"
-	contact  = "sensor.contact-open"
+	on       = string(framework.SwitchOn)
+	humidity = string(framework.Humidity)
+	contact  = string(framework.ContactOpen)
 )
+
+func switchOf(device string) framework.Handle[bool] {
+	return framework.Handle[bool]{Device: device, Capability: framework.SwitchOn}
+}
+
+func humidityOf(device string) framework.Handle[float64] {
+	return framework.Handle[float64]{Device: device, Capability: framework.Humidity}
+}
+
+func contactOf(device string) framework.Handle[bool] {
+	return framework.Handle[bool]{Device: device, Capability: framework.ContactOpen}
+}
 
 var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 
 func fanAbove(threshold float64) framework.Home {
 	return framework.Home{Holds: []framework.Hold{{
-		Name: "fan", Device: "fan", Capability: on, Value: true, OffDelay: 10 * time.Minute,
-		When: func(s framework.State) bool { return s.Number("sensor", humidity) > threshold },
+		Name: "fan", Set: switchOf("fan").To(true), OffDelay: 10 * time.Minute,
+		When: func(s framework.State) bool { return s.Get(humidityOf("sensor")) > threshold },
 	}}}
 }
 
@@ -176,12 +188,12 @@ func TestABaselineGivesValuesThatNeverChanged(t *testing.T) {
 func TestReplayMakesNoOutsideCalls(t *testing.T) {
 	calls := 0
 	home := framework.Home{Flows: []framework.Flow{{
-		Name: "alarm", On: []framework.Change{{Device: "door", Capability: contact}},
+		Name: "alarm", On: []framework.Change{contactOf("door")},
 		Run: func(r *framework.FlowRun) error {
 			if err := r.Do("notify", nil, func(context.Context) error { calls++; return nil }); err != nil {
 				return err
 			}
-			return r.Set(framework.Set{Device: "fan", Capability: on, Value: true})
+			return r.Set(switchOf("fan").To(true))
 		},
 	}}}
 	opts := options(t, home)
@@ -207,7 +219,7 @@ func TestReplayMakesNoOutsideCalls(t *testing.T) {
 
 func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
 	home := framework.Home{Flows: []framework.Flow{{
-		Name: "weather", On: []framework.Change{{Device: "sensor", Capability: humidity}},
+		Name: "weather", On: []framework.Change{humidityOf("sensor")},
 		Run: func(r *framework.FlowRun) error {
 			var rain bool
 			if err := r.Do("forecast", &rain, func(context.Context) error {
@@ -215,7 +227,7 @@ func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
 			}); err != nil {
 				return err
 			}
-			return r.Set(framework.Set{Device: "fan", Capability: on, Value: rain})
+			return r.Set(switchOf("fan").To(rain))
 		},
 	}}}
 	log := []api.Event{
@@ -270,8 +282,8 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 
 func TestADevicePairedLaterHasNoValueUntilItReports(t *testing.T) {
 	home := framework.Home{Holds: []framework.Hold{{
-		Name: "fan", Device: "fan", Capability: on, Value: true,
-		When: func(s framework.State) bool { return s.Number("late", humidity) > 70 },
+		Name: "fan", Set: switchOf("fan").To(true),
+		When: func(s framework.State) bool { return s.Get(humidityOf("late")) > 70 },
 	}}}
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
@@ -304,13 +316,13 @@ func TestWhatLandedAfterTheFetchBeganIsLeftOut(t *testing.T) {
 func TestTwoFlowsCanUseOneCallName(t *testing.T) {
 	flowOf := func(name, device string, out string) framework.Flow {
 		return framework.Flow{
-			Name: name, On: []framework.Change{{Device: device, Capability: contact}},
+			Name: name, On: []framework.Change{contactOf(device)},
 			Run: func(r *framework.FlowRun) error {
 				var got string
 				if err := r.Do("fetch", &got, func(context.Context) error { return nil }); err != nil {
 					return err
 				}
-				return r.Set(framework.Set{Device: out, Capability: on, Value: got == name})
+				return r.Set(switchOf(out).To(got == name))
 			},
 		}
 	}

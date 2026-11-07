@@ -4,19 +4,19 @@
 //
 //	func TestFanRunsWhenItsHumid(t *testing.T) {
 //		h := hometest.New(t, home(), hometest.Options{})
-//		h.Set(BathroomSensor, "sensor.relative-humidity", 80.0)
-//		h.ExpectValue(BathroomFan, "switch.on", true)
+//		h.Set(BathroomSensor.Humidity, 80)
+//		h.ExpectValue(BathroomFan.SwitchOn, true)
 //		h.Advance(time.Hour)
 //	}
 package hometest
 
 import (
-	"fmt"
 	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
@@ -107,9 +107,9 @@ func (h *Home) Now() time.Time { return h.sim.Now() }
 
 // Set changes a device from outside your automations, as its sensor or a tap in an app would, and
 // waits for your automations to take it in.
-func (h *Home) Set(device, capability string, value any) {
+func (h *Home) Set[T framework.Value](c framework.Handle[T], value T) {
 	h.t.Helper()
-	if err := h.sim.Set(device, capability, value); err != nil {
+	if err := h.sim.Set(c.Device, string(c.Capability), value); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -130,10 +130,24 @@ func (h *Home) Restart() {
 	}
 }
 
-// Value reads a device's value, or nil if it has none yet.
-func (h *Home) Value(device, capability string) any {
-	v, _ := h.sim.Value(device, capability)
-	return v
+// Value reads a device's value, and whether it has one yet.
+func (h *Home) Value[T framework.Value](c framework.Handle[T]) (T, bool) {
+	var zero T
+	v, ok := h.sim.Value(c.Device, string(c.Capability))
+	if !ok {
+		return zero, false
+	}
+	t, ok := as[T](string(c.Capability), v)
+	return t, ok
+}
+
+// as is a value the simulated home holds as T, which takes an int for a number.
+func as[T framework.Value](name string, v any) (T, bool) {
+	if valid, err := capability.Validate(name, v); err == nil {
+		v = valid
+	}
+	t, ok := v.(T)
+	return t, ok
 }
 
 // Writes are what your automations have written, oldest first.
@@ -147,8 +161,8 @@ func (h *Home) Writes() []Write {
 }
 
 // Claims are the claims on an arbitrated capability.
-func (h *Home) Claims(device, capability string) []Claim {
-	claims := h.sim.Claims(device, capability)
+func (h *Home) Claims[T framework.Value](c framework.Handle[T]) []Claim {
+	claims := h.sim.Claims(c.Device, string(c.Capability))
 	out := make([]Claim, 0, len(claims))
 	for _, c := range claims {
 		out = append(out, Claim(c))
@@ -160,34 +174,41 @@ func (h *Home) Claims(device, capability string) []Claim {
 func (h *Home) Finished(rule string) bool { return h.sim.Finished(rule) }
 
 // ExpectValue fails the test unless a device has this value.
-func (h *Home) ExpectValue(device, capability string, want any) {
+func (h *Home) ExpectValue[T framework.Value](c framework.Handle[T], want T) {
 	h.t.Helper()
-	if got := h.Value(device, capability); !same(got, want) {
-		h.t.Fatalf("%s %s is %v, want %v", device, capability, got, want)
+	got, ok := h.Value(c)
+	switch {
+	case !ok:
+		h.t.Fatalf("%s %s has no value, want %v", c.Device, c.Capability, want)
+	case got != want:
+		h.t.Fatalf("%s %s is %v, want %v", c.Device, c.Capability, got, want)
 	}
 }
 
 // ExpectWrite fails the test unless your automations have written this value to a device.
-func (h *Home) ExpectWrite(device, capability string, want any) {
+func (h *Home) ExpectWrite[T framework.Value](c framework.Handle[T], want T) {
 	h.t.Helper()
 	for _, w := range h.Writes() {
-		if w.Device == device && w.Capability == capability && same(w.Value, want) {
+		if w.Device != c.Device || w.Capability != string(c.Capability) {
+			continue
+		}
+		if got, ok := as[T](w.Capability, w.Value); ok && got == want {
 			return
 		}
 	}
-	h.t.Fatalf("nothing wrote %v to %s %s. Writes: %v", want, device, capability, h.Writes())
+	h.t.Fatalf("nothing wrote %v to %s %s. Writes: %v", want, c.Device, c.Capability, h.Writes())
 }
 
 // ExpectClaim fails the test unless source holds a claim at this level.
-func (h *Home) ExpectClaim(device, capability, source, level string) {
+func (h *Home) ExpectClaim[T framework.Value](c framework.Handle[T], source, level string) {
 	h.t.Helper()
-	claims := h.Claims(device, capability)
-	for _, c := range claims {
-		if c.Source == source && c.Level == level {
+	claims := h.Claims(c)
+	for _, claim := range claims {
+		if claim.Source == source && claim.Level == level {
 			return
 		}
 	}
-	h.t.Fatalf("%s holds no %s claim on %s %s. Claims: %+v", source, level, device, capability, claims)
+	h.t.Fatalf("%s holds no %s claim on %s %s. Claims: %+v", source, level, c.Device, c.Capability, claims)
 }
 
 // ExpectFinished fails the test unless a flow or moment finished.
@@ -196,9 +217,4 @@ func (h *Home) ExpectFinished(rule string) {
 	if !h.Finished(rule) {
 		h.t.Fatalf("%s hasn't finished. How it ended otherwise: %v", rule, h.sim.Failed(rule))
 	}
-}
-
-// same compares values, taking an int for the number a device reports.
-func same(got, want any) bool {
-	return fmt.Sprint(got) == fmt.Sprint(want)
 }

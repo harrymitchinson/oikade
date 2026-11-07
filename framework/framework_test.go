@@ -18,20 +18,29 @@ import (
 
 func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 	when := func(State) bool { return true }
+	d := Handle[bool]{Device: "d", Capability: SwitchOn}
 	for name, tc := range map[string]struct {
 		home Home
 		want string
 	}{
-		"no name": {Home{Holds: []Hold{{Device: "d", Capability: "switch.on", Value: true, When: when}}}, "needs a name"},
+		"no name": {Home{Holds: []Hold{{Set: d.To(true), When: when}}}, "needs a name"},
 		"twice": {Home{
-			Holds:   []Hold{{Name: "a", Device: "d", Capability: "switch.on", Value: true, When: when}},
+			Holds:   []Hold{{Name: "a", Set: d.To(true), When: when}},
 			Moments: []Moment{{Name: "a", At: []string{"07:00"}, Do: []Action{Wait(time.Second)}}},
 		}, "declared twice"},
 		"unknown capability": {
-			Home{Holds: []Hold{{Name: "a", Device: "d", Capability: "nope", Value: true, When: when}}}, "unknown capability",
+			Home{Holds: []Hold{{Name: "a", Set: Handle[bool]{Device: "d", Capability: "nope"}.To(true), When: when}}},
+			"unknown capability",
 		},
 		"no trigger": {Home{Moments: []Moment{{Name: "a", Do: []Action{Wait(time.Second)}}}}, "trigger"},
 		"nil action": {Home{Moments: []Moment{{Name: "a", At: []string{"07:00"}, Do: []Action{nil}}}}, "no action"},
+		"no set":     {Home{Holds: []Hold{{Name: "a", When: when}}}, "needs a capability"},
+		"claim": {
+			Home{Holds: []Hold{{Name: "a", Set: d.To(true).For(time.Hour), When: when}}}, "takes no For, Until or Priority",
+		},
+		"nil change": {
+			Home{Moments: []Moment{{Name: "a", On: []Change{nil}, Do: []Action{Wait(time.Second)}}}}, "device or room",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := tc.home.compile()
@@ -44,8 +53,10 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 
 func TestConditionSeesTheHome(t *testing.T) {
 	now := time.Date(2026, 11, 6, 7, 0, 0, 0, time.UTC)
+	door := Handle[bool]{Device: "door", Capability: ContactOpen}
+	room := Handle[float64]{Device: "room", Capability: Temperature}
 	cond := Condition(func(s State) bool {
-		return s.Bool("door", "sensor.contact-open") && s.Number("room", "sensor.temperature") > 20 && s.Now().Equal(now)
+		return s.Get(door) && s.Get(room) > 20 && s.Now().Equal(now)
 	}).toEngine()
 	ok, err := cond(engine.Vars{"now": now, "devices": map[string]map[string]any{
 		"door": {"sensor.contact-open": true},
@@ -58,7 +69,8 @@ func TestConditionSeesTheHome(t *testing.T) {
 
 // A hold has to keep its state until the devices it reads have reported, so that isn't false.
 func TestConditionReadingAnUnreportedValueIsAnError(t *testing.T) {
-	cond := Condition(func(s State) bool { return !s.Bool("door", "sensor.contact-open") }).toEngine()
+	door := Handle[bool]{Device: "door", Capability: ContactOpen}
+	cond := Condition(func(s State) bool { return !s.Get(door) }).toEngine()
 	devices := map[string]map[string]any{"door": {}}
 	if _, err := cond(engine.Vars{"devices": devices}); err == nil {
 		t.Fatal("got no error")
@@ -68,7 +80,7 @@ func TestConditionReadingAnUnreportedValueIsAnError(t *testing.T) {
 // A device that doesn't exist will never report, so it mustn't pass for one that hasn't yet. The
 // engine recovers this panic and logs it.
 func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
-	cond := Condition(func(s State) bool { return s.Bool("dor", "sensor.contact-open") }).toEngine()
+	cond := Condition(func(s State) bool { return s.Get(Handle[bool]{Device: "dor", Capability: ContactOpen}) }).toEngine()
 	defer func() {
 		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "no device dor") {
 			t.Fatalf("got %v", r)
@@ -99,7 +111,7 @@ func TestManifestDescribesTheHome(t *testing.T) {
 	m := Home{
 		Holds: []Hold{{Name: "leak", Priority: Safety, Latch: true, When: when}, {Name: "fan", When: when}},
 		Moments: []Moment{
-			{Name: "alarm", Do: []Action{Set{Priority: Safety}}},
+			{Name: "alarm", Do: []Action{Set{}.Priority(Safety)}},
 			{Name: "lamp", Do: []Action{Set{}, Wait(time.Second)}},
 		},
 		Flows: []Flow{{Name: "shutoff", Priority: Safety}, {Name: "bedtime"}},
@@ -134,9 +146,14 @@ func TestPluginsAreChecked(t *testing.T) {
 	}
 }
 
+var (
+	pump  = Handle[bool]{Device: "pump", Capability: SwitchOn}
+	water = Handle[float64]{Device: "water", Capability: Temperature}
+)
+
 func valveControl() Control {
 	return Control{
-		Device: "pump", Capability: "switch.on", Default: false, Resolve: PreferOn,
+		Default: pump.To(false), Resolve: PreferOn,
 		External: ExternalOverride, OverrideHold: time.Hour, MinimumOn: time.Hour, MinimumOff: 30 * time.Minute,
 	}
 }
@@ -144,7 +161,7 @@ func valveControl() Control {
 func budgetHome(c Control, b Budget) Home {
 	return Home{
 		Control: []Control{c},
-		Holds:   []Hold{{Name: "pump-daily", Device: "pump", Capability: "switch.on", Value: true, Budget: &b}},
+		Holds:   []Hold{{Name: "pump-daily", Set: pump.To(true), Budget: &b}},
 	}
 }
 
@@ -159,7 +176,7 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 	}{
 		"fine": {budgetHome(valveControl(), Budget{Minutes: minutes}), ""},
 		"bands": {budgetHome(valveControl(), Budget{Bands: &Bands{
-			Device: "water", Capability: "sensor.temperature", Ranges: []Band{{Below: 12, Minutes: 60}}, Otherwise: 90,
+			Reading: water, Ranges: []Band{{Below: 12, Minutes: 60}}, Otherwise: 90,
 		}}), ""},
 		"no minutes":   {budgetHome(valveControl(), Budget{}), "exactly one of bands or minutes"},
 		"both minutes": {budgetHome(valveControl(), Budget{Minutes: minutes, Bands: &Bands{}}), "exactly one"},
@@ -169,17 +186,21 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		},
 		"limit off the slots": {budgetHome(limited, Budget{Minutes: minutes}), "isn't a multiple"},
 		"no control": {Home{Holds: []Hold{{
-			Name: "pump-daily", Device: "pump", Capability: "switch.on", Value: true, Budget: &Budget{Minutes: minutes},
+			Name: "pump-daily", Set: pump.To(true), Budget: &Budget{Minutes: minutes},
 		}}}, "needs a Control"},
 		"twice": {Home{Control: []Control{valveControl(), valveControl()}}, "declared twice"},
-		"no device": {control(Control{
-			Capability: "switch.on", Default: false, Resolve: PreferOn, External: ExternalRevert,
-		}), "a device is required"},
+		"a room": {control(Control{
+			Default: InRoom("hall", SwitchOn).To(false), Resolve: PreferOn, External: ExternalRevert,
+		}), "names a device, not a room"},
+		"no default": {control(Control{Resolve: PreferOn, External: ExternalRevert}), "needs a capability"},
+		"a claim": {control(Control{
+			Default: pump.To(false).UntilNext(), Resolve: PreferOn, External: ExternalRevert,
+		}), "takes no For, Until or Priority"},
 		"bool resolve": {control(Control{
-			Device: "x", Capability: "switch.on", Default: false, Resolve: Highest, External: ExternalRevert,
+			Default: pump.To(false), Resolve: Highest, External: ExternalRevert,
 		}), "PreferOn or PreferOff"},
 		"read-only": {control(Control{
-			Device: "x", Capability: "sensor.temperature", Default: 1.0, Resolve: Highest, External: ExternalRevert,
+			Default: Handle[float64]{Device: "x", Capability: Temperature}.To(1), Resolve: Highest, External: ExternalRevert,
 		}), "read-only"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -196,9 +217,10 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 
 func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
 	devices := map[string]map[string]any{"water": {}}
+	nothing := Handle[float64]{Device: "nothing", Capability: Temperature}
 	for name, f := range map[string]func(State) int{
-		"hasn't reported": func(s State) int { return int(s.Number("water", "sensor.temperature")) },
-		"no such device":  func(s State) int { return int(s.Number("nothing", "sensor.temperature")) },
+		"hasn't reported": func(s State) int { return int(s.Get(water)) },
+		"no such device":  func(s State) int { return int(s.Get(nothing)) },
 		"a bug":           func(State) int { panic("oops") },
 	} {
 		t.Run(name, func(t *testing.T) {

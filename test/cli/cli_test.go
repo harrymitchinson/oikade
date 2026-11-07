@@ -145,7 +145,7 @@ func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
 func TestCheckFailsOnAMisspeltDevice(t *testing.T) {
 	bin := oikadectl(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "Device:     PorchLight", "Device:     PorchLigth")
+	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.LightOn", "PorchLigth.LightOn")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikadectl check passed:\n%s", out)
@@ -155,15 +155,29 @@ func TestCheckFailsOnAMisspeltDevice(t *testing.T) {
 	}
 }
 
-func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
+// A capability the device doesn't have, or a value of the wrong type, doesn't compile.
+func TestCheckFailsOnACapabilityTheDeviceHasnt(t *testing.T) {
 	bin := oikadectl(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), `Capability: "light.on"`, `Capability: "light.onn"`)
+	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.LightOn", "PorchLight.Occupancy")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikadectl check passed:\n%s", out)
 	}
-	if !strings.Contains(out, "light.onn") {
+	if !strings.Contains(out, "PorchLight.Occupancy undefined") {
+		t.Errorf("oikadectl check said:\n%s", out)
+	}
+}
+
+func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
+	bin := oikadectl(t)
+	dir := newHome(t, bin)
+	replaceIn(t, filepath.Join(dir, "main.go"), "When: func", "OnDelay: -time.Minute,\n\t\t\tWhen: func")
+	out, err := run(t, bin, dir, "", "check")
+	if err == nil {
+		t.Fatalf("oikadectl check passed:\n%s", out)
+	}
+	if !strings.Contains(out, "onDelay must not be negative") {
 		t.Errorf("oikadectl check said:\n%s", out)
 	}
 }
