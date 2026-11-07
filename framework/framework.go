@@ -228,7 +228,7 @@ type Control struct {
 }
 
 func (c Control) entry() (control.Entry, error) {
-	if err := c.Default.plain(controlDefault); err != nil {
+	if err := c.Default.plain("a Control's Default", true); err != nil {
 		return control.Entry{}, err
 	}
 	raw, err := json.Marshal(c.Default.value)
@@ -348,15 +348,20 @@ func (s Set) For(d time.Duration) Set {
 	return s
 }
 
-// UntilReleased ends the claim at a Release.
-func (s Set) UntilReleased() Set {
-	s.until = engine.UntilReleased
-	return s
-}
+// UntilReleased ends the claim at a Release. It can't be combined with UntilNext.
+func (s Set) UntilReleased() Set { return s.endUntil(engine.UntilReleased) }
 
 // UntilNext ends the claim when the value without it next changes.
-func (s Set) UntilNext() Set {
-	s.until = engine.UntilNext
+func (s Set) UntilNext() Set { return s.endUntil(engine.UntilNext) }
+
+// bothUntils is the engine's error for a Set given both: an until it doesn't know.
+const bothUntils engine.Until = "UntilReleased or UntilNext, not both"
+
+func (s Set) endUntil(u engine.Until) Set {
+	if s.until != "" && s.until != u {
+		u = bothUntils
+	}
+	s.until = u
 	return s
 }
 
@@ -367,20 +372,21 @@ func (s Set) Priority(p Priority) Set {
 	return s
 }
 
-// plain checks a Set that's only a capability and a value, as a hold's and a Control's are.
-func (s Set) plain(what string) error {
+// plain checks a Set that's only a capability and a value, as a hold's and a Control's are, and
+// one that names a device if it must.
+func (s Set) plain(what string, device bool) error {
 	switch {
 	case s.capability == "":
 		return fmt.Errorf("%s needs a capability: a handle's To", what)
 	case s.claimFor != 0 || s.until != "" || s.priority != Normal:
 		return fmt.Errorf("%s takes no For, Until or Priority", what)
-	case what == controlDefault && s.device == "":
+	case device && s.room != "":
 		return fmt.Errorf("%s names a device, not a room", what)
+	case device && s.device == "":
+		return fmt.Errorf("%s needs a device", what)
 	}
 	return nil
 }
-
-const controlDefault = "a Control's Default"
 
 func (s Set) toEngine() engine.Action {
 	return engine.Set{
@@ -448,7 +454,7 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	errs = append(errs, err)
 	for _, r := range h.Holds {
 		key := name(r.Name)
-		err := r.Set.plain("a hold's Set")
+		err := r.Set.plain("a hold's Set", false)
 		var c *engine.Compiled
 		if err == nil {
 			c, err = engine.NewHold(key, r.toEngine())
@@ -460,13 +466,13 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	}
 	for _, r := range h.Moments {
 		c, err := engine.NewMoment(name(r.Name), r.toEngine())
-		add(r.Name, c, err)
+		add(r.Name, c, errors.Join(err, nilChange(r.On)))
 	}
 	for _, r := range h.Flows {
 		f := r.toFlow(name(r.Name))
 		flows[r.Name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
-		add(r.Name, c, err)
+		add(r.Name, c, errors.Join(err, nilChange(r.On)))
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.Plugins {
@@ -549,17 +555,22 @@ const neverLate = 100 * 365 * 24 * time.Hour
 func trigger(on []Change, at []string, cond Condition, late time.Duration, safety bool) engine.Trigger {
 	t := engine.Trigger{Condition: cond.toEngine(), StartingDeadline: lateness(late, safety)}
 	for _, c := range on {
-		if c == nil {
-			// The engine rejects a change with no device and no capability.
-			t.Changes = append(t.Changes, engine.Change{})
-			continue
+		if c != nil { // nilChange reports it.
+			t.Changes = append(t.Changes, c.change())
 		}
-		t.Changes = append(t.Changes, c.change())
 	}
 	for _, a := range at {
 		t.Timers = append(t.Timers, engine.At{Time: a})
 	}
 	return t
+}
+
+// nilChange reports a nil in a rule's On, which trigger leaves out.
+func nilChange(on []Change) error {
+	if i := slices.Index(on, nil); i >= 0 {
+		return fmt.Errorf("a nil change, at On[%d]: give a handle, or InRoom", i)
+	}
+	return nil
 }
 
 func (r Flow) toFlow(key ident.ID) *flow.Flow {

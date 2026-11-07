@@ -39,7 +39,11 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			Home{Holds: []Hold{{Name: "a", Set: d.To(true).For(time.Hour), When: when}}}, "takes no For, Until or Priority",
 		},
 		"nil change": {
-			Home{Moments: []Moment{{Name: "a", On: []Change{nil}, Do: []Action{Wait(time.Second)}}}}, "device or room",
+			Home{Moments: []Moment{{Name: "a", On: []Change{nil}, Do: []Action{Wait(time.Second)}}}}, "a nil change, at On[0]",
+		},
+		"both untils": {
+			Home{Moments: []Moment{{Name: "a", At: []string{"07:00"}, Do: []Action{d.To(true).UntilReleased().UntilNext()}}}},
+			"not both",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -193,6 +197,9 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 			Default: InRoom("hall", SwitchOn).To(false), Resolve: PreferOn, External: ExternalRevert,
 		}), "names a device, not a room"},
 		"no default": {control(Control{Resolve: PreferOn, External: ExternalRevert}), "needs a capability"},
+		"no device": {control(Control{
+			Default: Handle[bool]{Capability: SwitchOn}.To(false), Resolve: PreferOn, External: ExternalRevert,
+		}), "needs a device"},
 		"a claim": {control(Control{
 			Default: pump.To(false).UntilNext(), Resolve: PreferOn, External: ExternalRevert,
 		}), "takes no For, Until or Priority"},

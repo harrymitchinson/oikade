@@ -176,13 +176,13 @@ func (h *Home) Finished(rule string) bool { return h.sim.Finished(rule) }
 // ExpectValue fails the test unless a device has this value.
 func (h *Home) ExpectValue[T framework.Value](c framework.Handle[T], want T) {
 	h.t.Helper()
-	got, ok := h.Value(c)
-	switch {
-	case !ok:
-		h.t.Fatalf("%s %s has no value, want %v", c.Device, c.Capability, want)
-	case got != want:
-		h.t.Fatalf("%s %s is %v, want %v", c.Device, c.Capability, got, want)
+	if got, ok := h.Value(c); ok && got == want {
+		return
 	}
+	if raw, ok := h.sim.Value(c.Device, string(c.Capability)); ok {
+		h.t.Fatalf("%s %s is %v, want %v", c.Device, c.Capability, raw, want)
+	}
+	h.t.Fatalf("%s %s has no value, want %v", c.Device, c.Capability, want)
 }
 
 // ExpectWrite fails the test unless your automations have written this value to a device.
