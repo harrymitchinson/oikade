@@ -32,10 +32,23 @@ type Server struct {
 	Node *Node
 	// Access decides what CASE sessions may do. nil grants them nothing.
 	Access AccessControl
-	Log    *slog.Logger
+	// Observer, if set, hears what controllers do, for metrics.
+	Observer Observer
+	Log      *slog.Logger
 
 	mu   sync.Mutex
 	subs map[uint32]*subscription
+}
+
+// Observer hears what controllers do. Its methods may be called with the Node's lock held, so they
+// mustn't block or reach into the Node.
+type Observer interface {
+	// Wrote is one attribute write's outcome.
+	Wrote(cluster uint32, st Status)
+	// Invoked is one command's outcome.
+	Invoked(cluster uint32, st Status)
+	// Reported is a report sent on a subscription, a keep-alive included.
+	Reported()
 }
 
 // Register starts serving on tr.
@@ -336,6 +349,11 @@ func (s *Server) write(ctx context.Context, ex *transport.Exchange, b []byte, ti
 				statuses[i] = s.apply(rq, d, granted)
 			}
 		})
+		if s.Observer != nil {
+			for i, d := range req.writes {
+				s.Observer.Wrote(d.path.Cluster, statuses[i])
+			}
+		}
 		if !req.suppressResponse {
 			var w tlv.Writer
 			w.StartStructure(tlv.Anonymous)
@@ -431,6 +449,9 @@ func (s *Server) invoke(ctx context.Context, ex *transport.Exchange, b []byte, t
 	var st error
 	rq := newRequest(ex.Session(), false)
 	s.Node.Update(func() { resp, st = s.run(rq, cmd, timed) })
+	if s.Observer != nil {
+		s.Observer.Invoked(cmd.path.Cluster, statusOf(st))
+	}
 	if req.suppressResponse {
 		return nil
 	}
@@ -492,6 +513,21 @@ func (s *Server) run(req *Request, cmd commandData, timed bool) (*Response, erro
 		}
 	}
 	return command.Invoke(req, fields)
+}
+
+// statusOf is the status a command's result answers with: nil, a Status or a ClusterStatus.
+func statusOf(err error) Status {
+	var cs ClusterStatus
+	var st Status
+	switch {
+	case err == nil:
+		return StatusSuccess
+	case errors.As(err, &cs):
+		return cs.Status
+	case errors.As(err, &st):
+		return st
+	}
+	return StatusFailure
 }
 
 // putCommandStatus writes a StatusIB for a command's result: nil, a Status or a ClusterStatus.

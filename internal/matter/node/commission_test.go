@@ -3,7 +3,9 @@ package node
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -136,4 +138,71 @@ func TestRunAgain(t *testing.T) {
 		t.Error("a commissioned node opened its window")
 	}
 	cm.CASE(addr(n))
+}
+
+// heard is an im.Observer that keeps what it hears.
+type heard struct {
+	mu       sync.Mutex
+	wrote    []string
+	invoked  []string
+	reported int
+}
+
+func (h *heard) Wrote(cluster uint32, st im.Status) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.wrote = append(h.wrote, clusters.Name(cluster)+" "+st.Name())
+}
+
+func (h *heard) Invoked(cluster uint32, st im.Status) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.invoked = append(h.invoked, clusters.Name(cluster)+" "+st.Name())
+}
+
+func (h *heard) Reported() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.reported++
+}
+
+func (h *heard) reports() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.reported
+}
+
+func TestTheObserverHearsWhatAControllerDoes(t *testing.T) {
+	h := &heard{}
+	n, fake, _ := start(t, Config{DataDir: t.TempDir(), Observer: h})
+	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	admin := nodetest.New(t).Commission(addr(n), testSetup.Passcode)
+	waitFor(t, "the PASE session to end", func() bool { return n.secureSessions(transport.AuthPASE) == 0 })
+	if n.Sessions() != 1 {
+		t.Errorf("%d CASE sessions, want 1", n.Sessions())
+	}
+	h.mu.Lock()
+	if !slices.Contains(h.invoked, "general_commissioning success") {
+		t.Errorf("commissioning's invokes: %v", h.invoked)
+	}
+	h.mu.Unlock()
+
+	label := im.AttributePath{Endpoint: 0, Cluster: clusters.IDBasicInformation, Attribute: 0x05}
+	_, _, _, _, err := admin.Subscribe(nodetest.Context(t), 0, 60, label)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Subscriptions() != 1 {
+		t.Errorf("%d subscriptions, want 1", n.Subscriptions())
+	}
+	st, err := admin.Write(nodetest.Context(t), label, func(w *tlv.Writer, tag tlv.Tag) { w.PutUTF8(tag, "hall") })
+	if err != nil || st != im.StatusSuccess {
+		t.Fatalf("writing NodeLabel: %v, %v", st, err)
+	}
+	waitFor(t, "the change to be reported", func() bool { return h.reports() > 0 })
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !slices.Equal(h.wrote, []string{"basic_information success"}) {
+		t.Errorf("writes: %v", h.wrote)
+	}
 }

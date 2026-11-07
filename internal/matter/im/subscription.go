@@ -165,7 +165,13 @@ func (s *Server) report(ctx context.Context, sub *subscription, reports [][]byte
 		return err
 	}
 	defer ex.Close()
-	return sendReports(ctx, ex, reports, &sub.id, false)
+	if err := sendReports(ctx, ex, reports, &sub.id, false); err != nil {
+		return err
+	}
+	if s.Observer != nil {
+		s.Observer.Reported()
+	}
+	return nil
 }
 
 func (s *Server) endSubscription(sub *subscription) {

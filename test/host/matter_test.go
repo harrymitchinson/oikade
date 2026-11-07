@@ -452,3 +452,53 @@ func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 		t.Errorf("the record stayed: %s", raw)
 	}
 }
+
+func TestTheBridgeReportsWhatControllersDo(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	c.reaches("fan")
+	r := c.r
+	for series, want := range map[string]string{
+		"oikade_matter_fabrics":       "1",
+		"oikade_matter_serving":       "1",
+		"oikade_matter_subscriptions": "0",
+	} {
+		if got := r.metric(series); got != want {
+			t.Errorf("%s: %q, want %s", series, got, want)
+		}
+	}
+	if got, _ := strconv.Atoi(r.metric("oikade_matter_sessions")); got < 1 {
+		t.Errorf("oikade_matter_sessions: %d, want a session at least", got)
+	}
+	// Commissioning is invokes too, so the fan's command is one of several.
+	on := `oikade_matter_interactions_total{cluster="on_off",interaction="invoke",result="success"}`
+	if got := r.metric(on); got != "1" {
+		t.Errorf("%s: %q, want 1", on, got)
+	}
+	commissioning := `oikade_matter_interactions_total{` +
+		`cluster="operational_credentials",interaction="invoke",result="success"}`
+	if got := r.metric(commissioning); got == "" {
+		t.Error("commissioning's commands aren't counted")
+	}
+	if got := r.metric("oikade_matter_write_duration_seconds_count"); got != "1" {
+		t.Errorf("writes through arbitration: %q, want 1", got)
+	}
+
+	// A command to an endpoint that isn't there is counted by what it was answered with.
+	path := im.CommandPath{Endpoint: 0xFFF0, Cluster: clusters.IDOnOff, Command: turnOn}
+	if _, err := c.admin.Invoke(nodetest.Context(t), path, func(*tlv.Writer) {}, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	refused := `oikade_matter_interactions_total{cluster="on_off",interaction="invoke",result="unsupported_endpoint"}`
+	if got := r.metric(refused); got != "1" {
+		t.Errorf("%s: %q, want 1", refused, got)
+	}
+}
+
+func TestAHostWithMatterOffExportsNoMatterSeries(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	if strings.Contains(r.metrics(), "oikade_matter_") {
+		t.Errorf("Matter is off, and /metrics has:\n%s", r.metrics())
+	}
+}

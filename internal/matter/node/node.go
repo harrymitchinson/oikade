@@ -73,7 +73,9 @@ type Config struct {
 	FabricsChanged func()
 	// Listening, if set, is called once the node's sockets are open.
 	Listening func()
-	Log       *slog.Logger
+	// Observer, if set, hears what controllers do, for metrics.
+	Observer im.Observer
+	Log      *slog.Logger
 }
 
 // advertiser is what the node needs of an mDNS responder.
@@ -191,7 +193,7 @@ func New(cfg Config) (*Node, error) {
 	info.VendorID, info.ProductID = attestation.TestVendorID, attestation.TestProductID
 	n.cfg.Info = info
 	n.bridge = clusters.NewBridge(info, n.comm.Clusters()...)
-	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Log: cfg.Log.With("part", "im")}
+	n.server = &im.Server{Node: n.bridge.Node, Access: n.comm, Observer: cfg.Observer, Log: cfg.Log.With("part", "im")}
 	return n, nil
 }
 
@@ -274,6 +276,20 @@ func (n *Node) Run(ctx context.Context) error {
 	}
 	return <-served
 }
+
+// Sessions returns how many CASE sessions controllers hold: those a commissioned controller uses.
+func (n *Node) Sessions() int {
+	count := 0
+	for _, s := range n.sessions.list() {
+		if s.AuthMode() == transport.AuthCASE {
+			count++
+		}
+	}
+	return count
+}
+
+// Subscriptions returns how many subscriptions controllers hold.
+func (n *Node) Subscriptions() int { return n.server.Subscriptions() }
 
 // WindowOpen reports whether a commissioning window is open.
 func (n *Node) WindowOpen() bool { return n.comm.WindowOpen() }

@@ -57,6 +57,28 @@ const (
 	StatusInvalidInState        Status = 0xCB
 )
 
+// statusNames are the Status codes' names, as the Core spec gives them in snake case.
+var statusNames = map[Status]string{
+	StatusSuccess: "success", StatusFailure: "failure", StatusInvalidSubscription: "invalid_subscription",
+	StatusUnsupportedAccess: "unsupported_access", StatusUnsupportedEndpoint: "unsupported_endpoint",
+	StatusInvalidAction: "invalid_action", StatusUnsupportedCommand: "unsupported_command",
+	StatusInvalidCommand: "invalid_command", StatusUnsupportedAttribute: "unsupported_attribute",
+	StatusConstraintError: "constraint_error", StatusUnsupportedWrite: "unsupported_write",
+	StatusResourceExhausted: "resource_exhausted", StatusNotFound: "not_found",
+	StatusInvalidDataType: "invalid_data_type", StatusDataVersionMismatch: "data_version_mismatch",
+	StatusTimeout: "timeout", StatusBusy: "busy", StatusUnsupportedCluster: "unsupported_cluster",
+	StatusNeedsTimedInteraction: "needs_timed_interaction", StatusTimedRequestMismatch: "timed_request_mismatch",
+	StatusFailsafeRequired: "failsafe_required", StatusInvalidInState: "invalid_in_state",
+}
+
+// Name is the status's name in snake case, such as unsupported_access, or its code for one with no name.
+func (s Status) Name() string {
+	if name, ok := statusNames[s]; ok {
+		return name
+	}
+	return fmt.Sprintf("%#02x", uint8(s))
+}
+
 func (s Status) Error() string {
 	return fmt.Sprintf("matter: interaction model status %#02x", uint8(s))
 }

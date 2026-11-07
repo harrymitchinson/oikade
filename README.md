@@ -556,7 +556,7 @@ oikade client revoke laptop      # its token stops working at once
 
 ## Metrics
 
-The host serves these on `:8080/metrics`, and health on `:8080/healthz`, over HTTP. That listener is read-only and apart from the local API. It's open to whoever can reach the port, and it shows device names and values. `--metrics-addr` moves it, such as to `127.0.0.1:8080`, and an empty value turns it off. If the port is taken the host logs that and carries on without it. Your process's rule metrics reach the host every 5 seconds, so a scrape can be that far behind, and they go when the process does. `oikade_undeclared_devices` and the plugin metrics have no series on the host yet.
+The host serves these on `:8080/metrics`, and health on `:8080/healthz`, over HTTP. That listener is read-only and apart from the local API. It's open to whoever can reach the port, and it shows device names and values. `--metrics-addr` moves it, such as to `127.0.0.1:8080`, and an empty value turns it off. If the port is taken the host logs that and carries on without it. Your process's rule metrics reach the host every 5 seconds, so a scrape can be that far behind, and they go when the process does. `oikade_undeclared_devices` and the plugin metrics have no series on the host yet. With Matter off (`--matter-port=0`) there are no `oikade_matter_*` series.
 
 Point Prometheus at it, and import [`config/grafana/oikade-home.json`](config/grafana/oikade-home.json) into Grafana for the "Oikade home" dashboard.
 
@@ -580,6 +580,13 @@ Point Prometheus at it, and import [`config/grafana/oikade-home.json`](config/gr
 | `oikade_device_control_level{namespace,device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 | `oikade_api_auth_failures_total` | Calls to the network API refused for want of a valid token |
+| `oikade_matter_serving` | 1 while the Matter bridge serves controllers, 0 while it can't. `oikade matter` says why |
+| `oikade_matter_fabrics` | Fabrics the bridge is paired on, one for each controller's home |
+| `oikade_matter_sessions` | CASE sessions that paired controllers hold |
+| `oikade_matter_subscriptions` | Subscriptions that controllers hold |
+| `oikade_matter_reports_total` | Reports sent on those subscriptions, keep-alives included |
+| `oikade_matter_interactions_total{interaction,cluster,result}` | Attribute `write`s and command `invoke`s from controllers, by cluster (`on_off`, `level_control`, …, or `other`) and the status they were answered with (`success`, `unsupported_access`, …) |
+| `oikade_matter_write_duration_seconds` | Histogram of how long a controller's change takes to get through arbitration to its device's driver |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.
 

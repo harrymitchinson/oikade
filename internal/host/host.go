@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -177,7 +179,11 @@ func (h *Host) Run(ctx context.Context) error {
 		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir}, authFailures: newAuthFailures(),
 	}
 	network := h.listenAPI(data, calls)
-	observing := h.observe(srv, eng, calls.authFailures)
+	exported := []prometheus.Collector{calls.authFailures}
+	if bridge != nil {
+		exported = append(exported, bridge.metrics)
+	}
+	observing := h.observe(srv, eng, exported...)
 	first := deploys.startup()
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
