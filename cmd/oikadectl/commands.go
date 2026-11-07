@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -25,17 +25,9 @@ type target struct {
 func addTarget(fs *flag.FlagSet) target {
 	return target{
 		fs:      fs,
-		dataDir: fs.String("data-dir", defaultDataDir, "The host's data directory, on this machine."),
-		context: fs.String("context", "", "The host to reach over its network API, from oikade login."),
+		dataDir: fs.String("data-dir", cli.DefaultDataDir, "The host's data directory, on this machine."),
+		context: fs.String("context", "", "The host to reach over its network API, from oikadectl login."),
 	}
-}
-
-// local is this machine's host unless --context says otherwise, for a command that only works there.
-func (t target) local() api.Transport {
-	if *t.context == "" {
-		return api.Local{DataDir: *t.dataDir}
-	}
-	return t.transport()
 }
 
 // transport is --context, then the socket if --data-dir is given, then the current context, then the
@@ -65,52 +57,16 @@ func (t target) transport() api.Transport {
 	}
 	c, ok := cfg.Contexts[name]
 	if !ok {
-		return failing{fmt.Errorf("there's no context called %s: oikade login makes one", name)}
+		return failing{fmt.Errorf("there's no context called %s: oikadectl login makes one", name)}
 	}
 	return remote(c)
-}
-
-// parse takes flags from anywhere among the positional arguments. A negative number is a value, not
-// a flag.
-func parse(fs *flag.FlagSet, args []string) []string {
-	var positional []string
-	for len(args) > 0 {
-		i := slices.IndexFunc(args, negative)
-		if i < 0 {
-			return append(positional, parseFlags(fs, args)...)
-		}
-		positional = append(append(positional, parseFlags(fs, args[:i])...), args[i])
-		args = args[i+1:]
-	}
-	return positional
-}
-
-func parseFlags(fs *flag.FlagSet, args []string) []string {
-	var positional []string
-	for {
-		_ = fs.Parse(args)
-		if fs.NArg() == 0 {
-			return positional
-		}
-		positional = append(positional, fs.Arg(0))
-		args = fs.Args()[1:]
-	}
-}
-
-func negative(arg string) bool {
-	_, err := strconv.ParseFloat(arg, 64)
-	return err == nil && strings.HasPrefix(arg, "-")
-}
-
-func printJSON(v any) error {
-	return json.NewEncoder(os.Stdout).Encode(v)
 }
 
 func runStatus(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	devices := parse(fs, args)
+	devices := cli.Parse(fs, args)
 	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeStatus})
 	if err != nil {
 		return err
@@ -129,7 +85,7 @@ func runStatus(ctx context.Context, args []string) error {
 		}
 	}
 	if *asJSON {
-		return printJSON(st)
+		return cli.PrintJSON(st)
 	}
 	printStatus(os.Stdout, st, len(devices) == 0)
 	return nil
@@ -200,7 +156,7 @@ func runTail(ctx context.Context, args []string) error {
 	_ = fs.Parse(args)
 	return api.Tail(ctx, target.transport(), func(e api.Event) error {
 		if *asJSON {
-			return printJSON(e)
+			return cli.PrintJSON(e)
 		}
 		_, err := fmt.Println(e.Time.Local().Format("15:04:05"), describe(e))
 		return err
@@ -227,9 +183,9 @@ func runSet(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("set", flag.ExitOnError)
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	words := parse(fs, args)
+	words := cli.Parse(fs, args)
 	if len(words) != 3 {
-		return errors.New("usage: oikade set DEVICE CAPABILITY VALUE")
+		return errors.New("usage: oikadectl set DEVICE CAPABILITY VALUE")
 	}
 	resp, err := api.Call(ctx, target.transport(), api.Request{
 		Type: api.TypeSet, Device: words[0], Capability: words[1], Value: parseValue(words[2]),
@@ -263,7 +219,7 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	allow := fs.Bool("allow-safety", false, "Pause a Safety rule. Its Safety claims stay.")
-	words := parse(fs, args)
+	words := cli.Parse(fs, args)
 	if len(words) != 1 {
 		return fmt.Errorf("usage: oikade %s RULE", name)
 	}
@@ -285,7 +241,7 @@ func done(resp api.Response, asJSON bool, message string) error {
 			Error string   `json:"error,omitempty"`
 			Moved []string `json:"moved,omitempty"`
 		}{resp.Error == "", resp.Error, resp.Moved}
-		if err := printJSON(out); err != nil {
+		if err := cli.PrintJSON(out); err != nil {
 			return err
 		}
 	} else if resp.Error == "" {

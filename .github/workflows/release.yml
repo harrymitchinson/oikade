@@ -97,7 +97,7 @@ jobs:
       - name: Attach the binaries to the Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/oikade-linux-arm64 dist/oikade-linux-amd64 --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" dist/oikadectl-linux-* dist/oikade-host-linux-* --clobber --repo "$GITHUB_REPOSITORY"
 
       # prerelease: true in release-please-config.json marks every 0.x release as a
       # pre-release. Only the alphas between milestones are, so a milestone release

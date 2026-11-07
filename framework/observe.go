@@ -20,7 +20,7 @@ import (
 const (
 	// metricsEvery is how often the host hears the process's rule metrics, which it serves itself.
 	metricsEvery = 5 * time.Second
-	// runsWaiting bounds the rule runs waiting to reach the host. oikade tail misses any beyond it.
+	// runsWaiting bounds the rule runs waiting to reach the host. oikadectl tail misses any beyond it.
 	runsWaiting = 256
 )
 

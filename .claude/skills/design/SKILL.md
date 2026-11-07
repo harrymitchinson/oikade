@@ -19,7 +19,7 @@ If anything important is unclear, ask, but no more than three sharp questions at
 
 It does if the work changes anything expensive to reverse:
 
-- **public API:** `framework`, the `oikade` commands and their `--json`, capability names and semantics, `oikade_*` metric names and labels, the plugin contract, Matter endpoint IDs
+- **public API:** `framework`, the `oikadectl` and `oikade-host` commands and their `--json`, capability names and semantics, `oikade_*` metric names and labels, the plugin contract, Matter endpoint IDs
 - **state that must survive:** the Matter bridge's setup code and fabrics, endpoint IDs, network keys
 - **component boundaries:** the host, your process and plugins
 - **a new driver or a new dependency**

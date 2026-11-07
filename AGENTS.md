@@ -3,7 +3,8 @@
 ## Project Structure
 
 ```
-cmd/oikade/*                   The oikade binary: the host and every command
+cmd/oikadectl/*                oikadectl: every command you run, from a laptop or CI
+cmd/oikade-host/*              oikade-host: the host, plus client add
 framework/*                    What a home is written with (public API)
 internal/host/*                The host
 internal/engine/*              Holds, moments, arbitration, the day planner
@@ -46,7 +47,7 @@ Run the `code-review` skill (`/code-review`) on the branch and fix or explain ea
 ```bash
 make test              # Unit and integration tests, with a real host and simulated devices
 make test-conformance  # The plugin contract
-make test-journeys     # From oikade init to a running host, and chip-tool (Docker, linux/arm64)
+make test-journeys     # From oikadectl init to a running host, and chip-tool (Docker, linux/arm64)
 ```
 
 Tests are plain Go `testing`. A simulated home on a fake clock is `internal/simhome`, and a real host with simulated devices is `test/host`.
@@ -84,7 +85,7 @@ export IMG=<registry>/oikade:<version>
 make docker-build docker-push IMG=$IMG
 ```
 
-Releases build the image and `dist/oikade-<os>-<arch>` for linux/arm64 and linux/amd64: `.github/workflows/release.yml`.
+Releases build the image, and `dist/oikadectl-<os>-<arch>` and `dist/oikade-host-<os>-<arch>` for linux/arm64 and linux/amd64: `.github/workflows/release.yml`.
 
 ## Planning
 

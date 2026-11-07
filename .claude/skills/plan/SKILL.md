@@ -77,7 +77,7 @@ Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and t
   hack/plan block <blocked> <blocker>
   ```
 
-- **Releases:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "`oikade status` shows X". Avoid criteria like "code written". To create one:
+- **Releases:** each has a goal, exit criteria that the user could observe, and a closing "Why here:" line on why it sits where it does. The exit criteria are things such as "`oikadectl status` shows X". Avoid criteria like "code written". To create one:
 
   ```sh
   hack/plan project new "<version>" <description file>

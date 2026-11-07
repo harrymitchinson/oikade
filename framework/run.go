@@ -46,11 +46,11 @@ func run(h Home, log *slog.Logger) error {
 		return runReplay(h)
 	}
 	if len(os.Args) < 2 || (os.Args[1] != wire.RoleAutomations && os.Args[1] != wire.RolePlugin) {
-		return errors.New("this is a home: run it with oikade host")
+		return errors.New("this is a home: run it with oikade-host")
 	}
 	socket := os.Getenv(wire.SocketEnv)
 	if socket == "" {
-		return fmt.Errorf("%s isn't set: run this with oikade host", wire.SocketEnv)
+		return fmt.Errorf("%s isn't set: run this with oikade-host", wire.SocketEnv)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -185,11 +185,11 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	}
 }
 
-// runDev is oikade dev: the home on a simulated one, driven from standard input. The devices are the
-// ones in the file oikade types wrote, named after the role.
+// runDev is oikadectl dev: the home on a simulated one, driven from standard input. The devices are the
+// ones in the file oikadectl types wrote, named after the role.
 func runDev(h Home) error {
 	if len(os.Args) != 3 {
-		return errors.New("run this with oikade dev")
+		return errors.New("run this with oikadectl dev")
 	}
 	devices, err := simhome.ReadTypes(os.Args[2])
 	if err != nil {
@@ -208,12 +208,12 @@ func runDev(h Home) error {
 	}, os.Stdin, os.Stdout)
 }
 
-// runReplay is oikade replay's half that needs your code: the home against an event log, with no
+// runReplay is oikadectl replay's half that needs your code: the home against an event log, with no
 // socket, no plugin and no device. The role is followed by the log, the types file and where the
 // report goes: a file, because your code is free to print.
 func runReplay(h Home) error {
 	if len(os.Args) != 5 {
-		return errors.New("run this with oikade replay")
+		return errors.New("run this with oikadectl replay")
 	}
 	devices, err := simhome.ReadTypes(os.Args[3])
 	if err != nil {
@@ -259,7 +259,7 @@ func init() {
 // runPlugin is the process for one of the home's plugins.
 func runPlugin(ctx context.Context, h Home, socket string) error {
 	if len(os.Args) != 3 {
-		return errors.New("which plugin? run this with oikade host")
+		return errors.New("which plugin? run this with oikade-host")
 	}
 	i := slices.IndexFunc(h.Plugins, func(p Plugin) bool { return p.Name == os.Args[2] })
 	if i < 0 {
@@ -383,7 +383,7 @@ func changed(mirror *hub.Store, m wire.Message) {
 	})
 }
 
-// logOutput is where the process logs. oikade dev and replay use standard output for something else,
+// logOutput is where the process logs. oikadectl dev and replay use standard output for something else,
 // so its log stays out of the way there.
 func logOutput() io.Writer {
 	if len(os.Args) > 1 && (os.Args[1] == wire.RoleDev || os.Args[1] == wire.RoleReplay) {
@@ -392,8 +392,8 @@ func logOutput() io.Writer {
 	return os.Stdout
 }
 
-// Secret reads a credential set with oikade secret set, such as an API key for r.Do. ok is false if
-// there's no such secret, as under oikade dev. Never log the result.
+// Secret reads a credential set with oikadectl secret set, such as an API key for r.Do. ok is false if
+// there's no such secret, as under oikadectl dev. Never log the result.
 func Secret(name string) (value string, ok bool, err error) {
 	return plugin.ReadSecret(plugin.Environment{SecretsDir: os.Getenv(contractv1.EnvSecretsDir)}, name)
 }

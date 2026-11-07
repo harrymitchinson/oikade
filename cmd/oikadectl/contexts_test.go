@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -46,7 +47,7 @@ func TestTargetChoosesTheHost(t *testing.T) {
 	pick := func(args ...string) api.Transport {
 		fs := flag.NewFlagSet("status", flag.ContinueOnError)
 		target := addTarget(fs)
-		parse(fs, args)
+		cli.Parse(fs, args)
 		return target.transport()
 	}
 	if _, ok := pick().(api.Local); !ok {

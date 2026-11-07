@@ -23,7 +23,7 @@ type Environment struct {
 	Root    contractv1.Root
 	// DevicesFile is the path of devices.json, or empty for a plugin that reports what it finds.
 	DevicesFile string
-	// SecretsDir is the directory of secrets: what oikade secret set wrote, under the host.
+	// SecretsDir is the directory of secrets: what oikadectl secret set wrote, under the host.
 	SecretsDir string
 }
 

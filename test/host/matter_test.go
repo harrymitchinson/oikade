@@ -312,7 +312,7 @@ func TestATakenPortLeavesTheHomeRunning(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	out := string(r.stdout(nil, "matter"))
 	if !strings.Contains(out, "down") || strings.Contains(out, "window") {
-		t.Errorf("oikade matter says: %s", out)
+		t.Errorf("oikadectl matter says: %s", out)
 	}
 }
 
@@ -387,10 +387,10 @@ func TestUnreadableMatterStateLeavesTheHomeRunning(t *testing.T) {
 			r.change("leak-sensor", "sensor.contact-open", true)
 			r.wrote("valve", false)
 			if m := r.matter(); m.Serving || m.Problem == "" || len(m.Fabrics) != 0 {
-				t.Errorf("oikade matter --json says %+v", m)
+				t.Errorf("oikadectl matter --json says %+v", m)
 			}
 			if out := string(r.stdout(nil, "matter")); !strings.Contains(out, "down: ") {
-				t.Errorf("oikade matter says: %s", out)
+				t.Errorf("oikadectl matter says: %s", out)
 			}
 			if r.count("Matter bridge stopped") != 1 {
 				t.Errorf("the log doesn't say. The log:\n%s", r.dump())

@@ -576,7 +576,7 @@ func (r Hold) toEngine() engine.Hold {
 }
 
 // checkBudget checks a hold's budget against its Control, which the engine can't see until the
-// device has reported, so that a mistake here fails oikade check rather than today's plan.
+// device has reported, so that a mistake here fails oikadectl check rather than today's plan.
 func (r Hold) checkBudget(settings []wire.DeviceControl) error {
 	if r.Budget == nil {
 		return nil

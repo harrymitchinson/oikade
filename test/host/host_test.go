@@ -1,5 +1,5 @@
 // Package host tests the host and your process as what they are: separate programs. It builds
-// the oikade binary, and a home as a module of its own, then starts, kills and freezes them.
+// oikade-host and oikadectl, and a home as a module of its own, then starts, kills and freezes them.
 //
 // Nothing here orders events with a sleep. A test waits for a line of the host's log, and sync
 // proves the process has caught up.
@@ -39,6 +39,7 @@ var (
 	buildErr  error
 	buildDir  string
 	hostBin   string
+	ctlBin    string
 	homeBin   string
 )
 
@@ -61,7 +62,8 @@ func build(t *testing.T) {
 			return
 		}
 		buildDir = dir
-		hostBin, homeBin = filepath.Join(dir, "oikade"), filepath.Join(dir, "home")
+		hostBin, ctlBin = filepath.Join(dir, "oikade-host"), filepath.Join(dir, "oikadectl")
+		homeBin = filepath.Join(dir, "home")
 		repo, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
 			buildErr = err
@@ -72,7 +74,10 @@ func build(t *testing.T) {
 		if raceBuild {
 			args = append(args, "-race")
 		}
-		if buildErr = run(repo, nil, append(args, "-o", hostBin, "./cmd/oikade")...); buildErr != nil {
+		if buildErr = run(repo, nil, append(args, "-o", hostBin, "./cmd/oikade-host")...); buildErr != nil {
+			return
+		}
+		if buildErr = run(repo, nil, append(args, "-o", ctlBin, "./cmd/oikadectl")...); buildErr != nil {
 			return
 		}
 		module := filepath.Join(dir, "module")
@@ -200,8 +205,8 @@ func (r *rig) launchWithout(args ...string) {
 	t.Helper()
 	r.exit = make(chan error, 1)
 	r.probe = false
-	base := make([]string, 0, 5+len(args))
-	base = append(base, "host", "--data-dir", r.dir, "--metrics-addr=127.0.0.1:0", "--matter-port=0")
+	base := make([]string, 0, 4+len(args))
+	base = append(base, "--data-dir", r.dir, "--metrics-addr=127.0.0.1:0", "--matter-port=0")
 	cmd := exec.Command(hostBin, append(base, args...)...)
 	cmd.Env = append(os.Environ(), r.env...)
 	r.cmd = cmd
@@ -595,7 +600,16 @@ func TestHomeRefusesToRunWithoutTheHost(t *testing.T) {
 	build(t)
 	cmd := exec.Command(homeBin)
 	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "oikade host") {
+	if err == nil || !strings.Contains(string(out), "oikade-host") {
 		t.Fatalf("got %v: %s", err, out)
 	}
+}
+
+// binFor is the binary a command belongs to: oikade-host trusts a client on the host's machine, and
+// oikadectl does everything else.
+func binFor(args []string) string {
+	if len(args) > 1 && args[0] == "client" && args[1] == "add" {
+		return hostBin
+	}
+	return ctlBin
 }

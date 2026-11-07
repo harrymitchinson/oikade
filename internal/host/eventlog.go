@@ -30,7 +30,7 @@ const (
 	eventPage = 1024
 )
 
-// eventLog keeps what happened for oikade replay. Adding only appends to a queue, so nothing that
+// eventLog keeps what happened for oikadectl replay. Adding only appends to a queue, so nothing that
 // reports an event ever waits for the disk.
 type eventLog struct {
 	store *store.Events

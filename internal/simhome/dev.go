@@ -14,7 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-// ReadTypes reads the devices from the file oikade types wrote.
+// ReadTypes reads the devices from the file oikadectl types wrote.
 func ReadTypes(path string) ([]Device, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

@@ -66,3 +66,18 @@ func TestADeployCutOffSaysNothingWasDeployed(t *testing.T) {
 		t.Errorf("a deploy cut off mid-upload: %v", err)
 	}
 }
+
+func TestAddressDefaultsThePort(t *testing.T) {
+	for in, want := range map[string]string{
+		"pi.home":      "pi.home:8443",
+		"pi.home:9000": "pi.home:9000",
+		":8443":        ":8443",
+		"::1":          "[::1]:8443",
+		"[::1]":        "[::1]:8443",
+		"192.168.1.5":  "192.168.1.5:8443",
+	} {
+		if got := Address(in); got != want {
+			t.Errorf("Address(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

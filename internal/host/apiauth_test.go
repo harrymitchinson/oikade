@@ -128,21 +128,6 @@ func TestAPIIdentityIsMadeOnceAndKept(t *testing.T) {
 	}
 }
 
-func TestAPIAddressDefaultsThePort(t *testing.T) {
-	for in, want := range map[string]string{
-		"pi.home":      "pi.home:8443",
-		"pi.home:9000": "pi.home:9000",
-		":8443":        ":8443",
-		"::1":          "[::1]:8443",
-		"[::1]":        "[::1]:8443",
-		"192.168.1.5":  "192.168.1.5:8443",
-	} {
-		if got := APIAddress(in); got != want {
-			t.Errorf("APIAddress(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestALoginCodeWorksOnceAndNotForLong(t *testing.T) {
 	c, err := loadClients(openAPIStore(t))
 	if err != nil {

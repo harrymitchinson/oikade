@@ -22,7 +22,7 @@ The host runs your binary again as `<binary> plugin <name>`, one process per plu
 
 A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a command. It gets the devices on record for it, which are empty the first time, because the host has no `devices.json`. So it reports every device it can see, with `SetDiscovered` and `SetDevices`, and everything it finds is in the [device registry](../README.md) at once. Configuration, such as a hub's address, is Go in your home.
 
-A device you remove with `oikade devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
+A device you remove with `oikadectl devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
 
 While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. A claim on one is written again as soon as it does, and a write its last process took with it is written again rather than read as somebody changing the device. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A home declares a plugin device's arbitration settings in `framework.Home.Control`, as for any device.
 
@@ -33,7 +33,7 @@ The messages are this contract's, on the host's socket rather than a broker, so 
 For a platform with no good Go library, a process of its own speaks this contract to a broker of yours. Name it to the host, and it uses the root `oikade/v1/home/<name>`:
 
 ```sh
-oikade host --broker mqtt://mosquitto:1883 --outside-plugins ewelink,overkiz
+oikade-host --broker mqtt://mosquitto:1883 --outside-plugins ewelink,overkiz
 ```
 
 The host supervises none of this: the process, its restarts and its broker are yours. A broker that isn't up yet is tried until it is, and until then these plugins' devices aren't known and their claims aren't written. Devices it reports go in the registry like any others. It reads no `devices.json` from the host, so give it one of your own, or have it report what it can see.
@@ -133,7 +133,7 @@ A plugin runs with:
 | `OIKADE_MQTT_URL` | The broker, such as `mqtt://broker:1883`. |
 | `OIKADE_TOPIC` | The topic root, `oikade/v1/<namespace>/<plugin>`. |
 | `OIKADE_DEVICES_FILE` | Optional. A devices file, if you'd rather list a plugin's devices than have it report what it finds. |
-| `OIKADE_SECRETS_DIR` | The directory of secrets, one file each. Under the host it's always set, and holds what `oikade secret set` wrote. |
+| `OIKADE_SECRETS_DIR` | The directory of secrets, one file each. Under the host it's always set, and holds what `oikadectl secret set` wrote. |
 
 The devices file is yours to write, and lists the devices this plugin serves.
 

@@ -7,13 +7,15 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
 // away runs a command as a machine with no access to the host's data directory would: its own
 // config, and no socket.
 func away(t *testing.T, config string, env []string, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command(hostBin, args...)
+	cmd := exec.Command(ctlBin, args...)
 	cmd.Env = append(os.Environ(), append([]string{"XDG_CONFIG_HOME=" + config, "OIKADE_TOKEN="}, env...)...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -76,7 +78,14 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 		t.Errorf("rolling back over TLS: %v: %s", err, out)
 	}
 	if out, err := away(t, laptop, nil, "client", "add", "more"); err == nil {
-		t.Errorf("client add over TLS: %s", out)
+		t.Errorf("oikadectl client add: %s", out)
+	}
+	// Only the socket trusts a client, so a token can't make more of them.
+	token, _ := r.addClient("thief")
+	resp, err := api.Call(t.Context(), api.Remote{Address: address, Pin: pin, Token: token},
+		api.Request{Type: api.TypeClientAdd, Client: "more"})
+	if err == nil && resp.Error == "" {
+		t.Errorf("client add over TLS: %+v", resp)
 	}
 
 	// CI has a token in a secret, and a login with no code that checks it.

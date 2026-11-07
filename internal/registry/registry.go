@@ -1,5 +1,5 @@
 // Package registry is the host's list of devices, which it owns and keeps in the store. Git holds a
-// copy, from oikade types. Each device has a Matter endpoint ID that nothing else ever gets: Next
+// copy, from oikadectl types. Each device has a Matter endpoint ID that nothing else ever gets: Next
 // only rises, and a removed device stays on record so that its endpoint comes back with it.
 package registry
 
@@ -40,7 +40,7 @@ var (
 	validName = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 )
 
-// Device is one device. Its JSON is in oikade devices --json and in the file oikade types writes, so
+// Device is one device. Its JSON is in oikadectl devices --json and in the file oikadectl types writes, so
 // add to it, and don't rename.
 type Device struct {
 	// Name is what code and the command line call it. It's copied from the device's app once, and

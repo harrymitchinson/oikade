@@ -1,6 +1,6 @@
 # The host API
 
-This is how the `oikade` command talks to a running host. It's HTTP on `api.sock` in the data directory, a Unix socket with mode `0600`, so only the host's user can reach it. With `oikade host --api-addr`, the same routes are served over TLS too, for clients with a token. It's apart from `host.sock`, which only your process uses and which [`host-protocol.md`](host-protocol.md) describes. [OIK-171](https://linear.app/oikade/issue/OIK-171) says why it's HTTP.
+This is how `oikadectl` talks to a running host. It's HTTP on `api.sock` in the data directory, a Unix socket with mode `0600`, so only the host's user can reach it. With `oikade-host --api-addr`, the same routes are served over TLS too, for clients with a token. It's apart from `host.sock`, which only your process uses and which [`host-protocol.md`](host-protocol.md) describes. [OIK-171](https://linear.app/oikade/issue/OIK-171) says why it's HTTP.
 
 ## Calls
 
@@ -34,7 +34,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 
 A call has 5 seconds to send its body, except a deploy, which may send its binary for as long as it keeps sending: up to 30 seconds with nothing, and 1 GiB in all. The host keeps the upload in `uploads` in its data directory until the deploy has copied it, and an upload that's cut off, or a host that stops during one, leaves nothing there and deploys nothing. Secret values go only in a body, and never in a path or a log.
 
-**A call outlives its connection.** Once the host has a request it finishes it, so a deploy that has begun goes on after the command that asked is killed. The answer then has nowhere to go, and `oikade status` shows how it ended.
+**A call outlives its connection.** Once the host has a request it finishes it, so a deploy that has begun goes on after the command that asked is killed. The answer then has nowhere to go, and `oikadectl status` shows how it ended.
 
 ## Over TLS
 

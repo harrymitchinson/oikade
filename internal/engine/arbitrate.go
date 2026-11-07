@@ -42,7 +42,7 @@ const (
 	// SourceMatter is a change a Matter bridge announced writing, for a Matter controller such as
 	// the Home app.
 	SourceMatter = "Matter"
-	// SourceCommand is a change the oikade command asked for.
+	// SourceCommand is a change oikadectl asked for.
 	SourceCommand = "Command"
 	// rulePrefix starts a Rule's source, Rule/<name>.
 	rulePrefix = "Rule/"
@@ -448,7 +448,7 @@ func (e *Engine) ForgetMatterWrite(dev ident.ID, name string) {
 	e.forgetBridgeWrite(dev, name)
 }
 
-// CommandWrote records that the oikade command is writing value to an arbitrated capability, which
+// CommandWrote records that oikadectl is writing value to an arbitrated capability, which
 // counts as a person's change, like one from Matter.
 func (e *Engine) CommandWrote(dev ident.ID, name string, value any) {
 	e.bridgeWrote(SourceCommand, dev, name, value)
@@ -883,7 +883,7 @@ func jsonValue(name string, v float64) json.RawMessage {
 	return raw
 }
 
-// controlStatus is a decision as oikade status shows it.
+// controlStatus is a decision as oikadectl status shows it.
 func controlStatus(name string, d control.Decision) control.Status {
 	s := control.Status{Capability: name, Value: jsonValue(name, d.Value), Level: levelName(d.Level)}
 	for _, c := range d.Claims {

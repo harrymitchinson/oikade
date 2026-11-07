@@ -17,9 +17,9 @@ const (
 	Version = pluginwire.Version
 	// RoleAutomations is the one process that runs a home's holds and moments.
 	RoleAutomations = "automations"
-	// RoleDev runs the home against a simulated one, for oikade dev.
+	// RoleDev runs the home against a simulated one, for oikadectl dev.
 	RoleDev = "dev"
-	// RoleReplay runs the home against an event log, for oikade replay. Its report goes to stdout.
+	// RoleReplay runs the home against an event log, for oikadectl replay. Its report goes to stdout.
 	RoleReplay = "replay"
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = pluginwire.RolePlugin
@@ -130,7 +130,7 @@ type Message struct {
 	Plugin string `json:"plugin,omitempty"`
 	// Rules names the process's holds, so the Welcome can return their saved state.
 	Rules []string `json:"rules,omitempty"`
-	// Info says what the process's rules are, for oikade status and pause.
+	// Info says what the process's rules are, for oikadectl status and pause.
 	Info []RuleInfo `json:"info,omitempty"`
 	// Control is every device setting the process's home declares.
 	Control []DeviceControl `json:"control,omitempty"`
