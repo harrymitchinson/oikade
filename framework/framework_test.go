@@ -301,15 +301,6 @@ func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 	}
 }
 
-func TestTheSameTimeTwiceFiresOnce(t *testing.T) {
-	m := Moment{Name: "a", At: []Time{Clock("07:00"), Clock("18:00"), Clock("07:00")}, Do: []Action{Wait(time.Second)}}
-	got := m.toEngine().Timers
-	want := []engine.Timer{engine.At{Time: "07:00"}, engine.At{Time: "18:00"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("timers %+v, want %+v", got, want)
-	}
-}
-
 func TestAWindowReachesTheEngine(t *testing.T) {
 	h := Hold{Name: "a", Set: Handle[bool]{Device: "d", Capability: On}.To(true), Window: &Window{
 		Start: Clock("22:00"), End: Clock("06:00"), Days: []time.Weekday{time.Friday},

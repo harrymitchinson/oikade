@@ -341,7 +341,7 @@ A `Set` on an arbitrated capability is a claim, so it must say when it ends:
 ```go
 framework.Moment{
 	Name: "towel-rail-boost",
-	At: []framework.Time{framework.Clock("21:30")},
+	At:   []framework.Time{framework.Clock("21:30")},
 	Do: []framework.Action{TowelRail.On.To(true).For(time.Hour).UntilNext()},
 }
 ```

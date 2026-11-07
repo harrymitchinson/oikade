@@ -250,3 +250,19 @@ func TestAWindowIsOpenOvernight(t *testing.T) {
 	h.Advance(2 * time.Minute)
 	h.ExpectValue(pump, true)
 }
+
+func TestTheSameTimeTwiceFiresOnce(t *testing.T) {
+	home := framework.Home{Moments: []framework.Moment{{
+		Name: "lights-out", At: []framework.Time{framework.Clock("23:30"), framework.Clock("23:30")},
+		Do: []framework.Action{light.To(false)},
+	}}}
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	h.Advance(23*time.Hour + 31*time.Minute)
+	h.ExpectValue(light, false)
+	h.Set(light, true)
+	h.Advance(time.Minute)
+	h.ExpectValue(light, true)
+	if got := h.Writes(); len(got) != 1 {
+		t.Errorf("writes %+v, want one", got)
+	}
+}

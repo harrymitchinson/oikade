@@ -598,11 +598,8 @@ func trigger(on []Change, at []Time, cond Condition, late time.Duration, safety 
 			t.Changes = append(t.Changes, c.change())
 		}
 	}
-	for i, a := range at {
-		// The same time twice fires once.
-		if !slices.Contains(at[:i], a) || a == (Time{}) {
-			t.Timers = append(t.Timers, a.timer())
-		}
+	for _, a := range at {
+		t.Timers = append(t.Timers, a.timer())
 	}
 	return t
 }
