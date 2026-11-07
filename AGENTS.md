@@ -36,7 +36,7 @@ make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 c
 
 The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1`, `sdk/plugin` and `framework` are public API: their exported signatures must not mention `internal/` types. `cmd/oikade-conformance`'s name and flags are public API too, because plugin repos run it in CI: removing or renaming one is a breaking change (`feat!:` with a `BREAKING CHANGE:` footer). An SDK for another language may live here only if it's generated from the contract (OIK-62).
 
-**First-party plugins live in `plugins/`, and anyone else's in its own repo** (`oikade-plugin-<name>`, started from the [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template) GitHub template), with its own `go.mod`, images and releases. `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end.
+**First-party plugins live in `plugins/`, and anyone else's in its own repo** (`oikade-plugin-<name>`), with its own `go.mod`, images and releases. `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end.
 
 ## Before Opening a PR
 

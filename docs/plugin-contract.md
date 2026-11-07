@@ -207,8 +207,4 @@ Inside this repo, `make test-conformance` runs the same suite under `go test` ag
 
 Plugins written in Go can use [the SDK](../sdk/plugin), which implements this contract, and the payload types in [`contract/v1`](../contract/v1), which Oikade's own decoder uses. Plugins in other languages implement this document directly and pass the conformance suite above. Oikade maintains no SDK for them.
 
-First-party plugins live in this repo, under [`plugins/`](../plugins). Anyone else's lives in its own repo, `oikade-plugin-<name>`, with its own releases. Start a Go plugin from the GitHub template [`oikade-plugin-template`](https://github.com/harrymitchinson/oikade-plugin-template): one `plugin.Run` with a simulated relay handler to replace, a distroless multi-arch Dockerfile, CI that runs `oikade-conformance`, and releases that push the image. [`oikade-plugin-example-switch`](https://github.com/harrymitchinson/oikade-plugin-example-switch) is a plugin started from it:
-
-```sh
-gh repo create <you>/oikade-plugin-<name> --public --template harrymitchinson/oikade-plugin-template
-```
+First-party plugins live in this repo, under [`plugins/`](../plugins). Anyone else's lives in its own repo, `oikade-plugin-<name>`, with its own `go.mod` and releases: a Go module that imports [`sdk/plugin`](../sdk/plugin), whose CI runs `oikade-conformance`. [`test/fixtures/simswitch`](../test/fixtures/simswitch) is a complete plugin to read first.
