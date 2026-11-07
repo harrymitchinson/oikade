@@ -485,3 +485,74 @@ func TestExpectWriteSeesAWriteTheDeviceMovedOnFrom(t *testing.T) {
 		t.Error("ExpectWrite passed for a device nothing wrote to")
 	}
 }
+
+// A report that sets off a Safety hold and a Normal rule on the same device at once writes only the
+// Safety value: the Normal rule never gets a moment to win (OIK-212). Either value may come first in
+// the report, and the Normal rule may be a hold or a moment.
+func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
+	occupied := framework.Handle[bool]{Device: "hall", Capability: framework.Occupied}
+	damp := framework.Handle[float64]{Device: "hall", Capability: framework.Humidity}
+	hot := framework.Handle[float64]{Device: "hall", Capability: framework.Temperature}
+	heater := framework.Handle[bool]{Device: "heater", Capability: framework.On}
+	control := []framework.Control{{
+		Default: heater.To(false), Resolve: framework.PreferOn,
+		External: framework.ExternalOverride, OverrideHold: time.Hour,
+	}}
+	warm := framework.Hold{
+		Name: "warm", Set: heater.To(true), When: func(s framework.State) bool { return s.Get(occupied) },
+	}
+	welcome := framework.Moment{Name: "welcome", On: []framework.Change{occupied}, Do: []framework.Action{heater.To(true)}}
+	for _, tc := range []struct {
+		name    string
+		safety  func(framework.State) bool
+		report  framework.Set
+		home    framework.Home
+		briefly bool
+	}{
+		// Humidity sorts before occupied, and temperature after it.
+		{name: "safety first", safety: func(s framework.State) bool { return s.Get(damp) > 65 }, report: damp.To(72),
+			home: framework.Home{Control: control, Holds: []framework.Hold{warm}}},
+		{name: "safety last", safety: func(s framework.State) bool { return s.Get(hot) > 30 }, report: hot.To(35),
+			home: framework.Home{Control: control, Holds: []framework.Hold{warm}}},
+		{name: "a moment", safety: func(s framework.State) bool { return s.Get(hot) > 30 }, report: hot.To(35),
+			home: framework.Home{Control: control, Moments: []framework.Moment{welcome}}},
+		// Without a Control nothing arbitrates, so the Normal value is written, but the Safety one stays.
+		{name: "no control", safety: func(s framework.State) bool { return s.Get(hot) > 30 }, report: hot.To(35),
+			home: framework.Home{Holds: []framework.Hold{warm}}, briefly: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := tc.home
+			home.Holds = append(slices.Clone(home.Holds), framework.Hold{
+				Name: "cutoff", Set: heater.To(false), Priority: framework.Safety, Latch: true, When: tc.safety,
+			})
+			// The bug was a race, so give it room to show.
+			for range 20 {
+				h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+					{
+						Name: "hall", Capabilities: []string{humidity, string(framework.Occupied), string(framework.Temperature)},
+						Values: map[string]any{humidity: 40.0, string(framework.Occupied): false, string(framework.Temperature): 20.0},
+					},
+					{Name: "heater", Capabilities: []string{on}, Values: map[string]any{on: false}},
+				}})
+				h.Report(occupied.To(true), tc.report)
+				h.ExpectValue(heater, false)
+				var last any
+				for _, w := range h.Writes() {
+					if w.Device != "heater" {
+						continue
+					}
+					if w.Value == true && !tc.briefly {
+						t.Fatalf("wrote the heater on: %v", h.Writes())
+					}
+					last = w.Value
+				}
+				if last != nil && last != false {
+					t.Fatalf("last wrote the heater %v: %v", last, h.Writes())
+				}
+				if !tc.briefly {
+					h.ExpectClaim(heater, "Rule/cutoff", "Safety")
+				}
+			}
+		})
+	}
+}

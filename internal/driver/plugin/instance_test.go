@@ -19,6 +19,7 @@ type recorder struct {
 	mu         sync.Mutex
 	discovered map[ident.ID]driver.Info
 	changes    []driver.Update
+	reports    int // how many times Changed was called
 	available  map[ident.ID]bool
 	seen       map[ident.ID]time.Time
 	undeclared int
@@ -40,10 +41,11 @@ func (r *recorder) Discovered(d ident.ID, i driver.Info) {
 	defer r.mu.Unlock()
 	r.discovered[d] = i
 }
-func (r *recorder) Changed(u driver.Update) {
+func (r *recorder) Changed(changes ...driver.Update) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.changes = append(r.changes, u)
+	r.changes = append(r.changes, changes...)
+	r.reports++
 }
 func (r *recorder) Availability(d ident.ID, online bool) {
 	r.mu.Lock()
@@ -153,6 +155,9 @@ func TestStateChangesAndRejects(t *testing.T) {
 	i, bus, rec := setup(t, online())
 
 	publish(t, bus, root+"/1000aa/state", `{"on":true,"temperature":21.5}`)
+	if rec.reports != 1 {
+		t.Errorf("one state reached the sink in %d calls, want 1", rec.reports)
+	}
 	got := rec.takeChanges()
 	if len(got) != 2 || got[0].Capability != capability.On || got[0].Value != true || got[0].Previous != nil ||
 		got[1].Value != 21.5 || got[1].Device != porch || !got[1].Time.Equal(now) {

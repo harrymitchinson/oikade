@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
 	"slices"
@@ -255,6 +256,18 @@ func init() {
 		}
 		return h.simulated()
 	}
+	simhome.FromSet = func(set any) (string, string, any, error) {
+		s, ok := set.(Set)
+		switch {
+		case !ok:
+			return "", "", nil, fmt.Errorf("%T isn't a framework.Set", set)
+		case s.device == "":
+			return "", "", nil, errors.New("a room's Set can't be reported: give a device's")
+		case s.claimFor != 0 || s.until != "" || s.priority != "":
+			return "", "", nil, fmt.Errorf("device %s's Set has a claim's options, which a report has none of", s.device)
+		}
+		return s.device, s.capability, s.value, nil
+	}
 }
 
 // runPlugin is the process for one of the home's plugins.
@@ -342,9 +355,11 @@ func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
 
 func seed(mirror *hub.Store, d wire.Device) {
 	key := deviceKey(d.Name)
-	for name, v := range d.Values {
-		mirror.Changed(driver.Update{Device: key, Capability: name, Value: v})
+	values := make([]driver.Update, 0, len(d.Values))
+	for _, name := range slices.Sorted(maps.Keys(d.Values)) {
+		values = append(values, driver.Update{Device: key, Capability: name, Value: d.Values[name]})
 	}
+	mirror.Changed(values...)
 	if !d.LastSeen.IsZero() {
 		mirror.Seen(key, d.LastSeen)
 	}
@@ -361,9 +376,11 @@ func discovered(mirror *hub.Store, metas map[ident.ID]hub.Meta, settings []wire.
 ) {
 	metas[deviceKey(d.Name)] = meta(d, settings)
 	mirror.SetDevices(hostInstance, metas)
-	for name, v := range d.Values {
-		changed(mirror, wire.Message{Device: d.Name, Capability: name, Value: v})
+	m := wire.Message{Device: d.Name}
+	for _, name := range slices.Sorted(maps.Keys(d.Values)) {
+		m.Changes = append(m.Changes, wire.Change{Capability: name, Value: d.Values[name]})
 	}
+	changed(mirror, m)
 	mirror.Discovered(deviceKey(d.Name), driver.Info{Found: true, Capabilities: d.Capabilities})
 	if !d.LastSeen.IsZero() {
 		mirror.Seen(deviceKey(d.Name), d.LastSeen)
@@ -374,14 +391,17 @@ func discovered(mirror *hub.Store, metas map[ident.ID]hub.Meta, settings []wire.
 // isn't one: drivers only report actual changes.
 func changed(mirror *hub.Store, m wire.Message) {
 	key := deviceKey(m.Device)
-	if snap, ok := mirror.Get(key); ok {
-		if v, known := snap.Values[m.Capability]; known && v == m.Value {
-			return
+	snap, _ := mirror.Get(key)
+	changes := make([]driver.Update, 0, len(m.Changes))
+	for _, c := range m.Changes {
+		if v, known := snap.Values[c.Capability]; known && v == c.Value {
+			continue
 		}
+		changes = append(changes, driver.Update{
+			Device: key, Capability: c.Capability, Value: c.Value, Previous: c.Previous, Time: m.Time,
+		})
 	}
-	mirror.Changed(driver.Update{
-		Device: key, Capability: m.Capability, Value: m.Value, Previous: m.Previous, Time: m.Time,
-	})
+	mirror.Changed(changes...)
 }
 
 // logOutput is where the process logs. oikade dev and replay use standard output for something else,

@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -159,7 +161,9 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)
 	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim {
 		hs.writing, hs.dirty, hs.claimed = true, false, &claim
-		e.goBusy(func() { e.write(ctx, key, hs, st, active, end, claim, reclaim) })
+		e.holdWrites = append(e.holdWrites, holdWrite{level: claim.Level, key: key, target: st.Target, run: func() {
+			e.write(ctx, key, hs, st, active, end, claim, reclaim)
+		}})
 		s.next = fire{}
 	} else {
 		s.next = fire{At: lookAgain(h, st, next, now)}
@@ -168,6 +172,110 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 		}
 	}
 	e.reportHold(key, s, st, next)
+}
+
+// holdWrite is a hold's write, waiting for every hold that looks at the same moment to have looked.
+type holdWrite struct {
+	level  control.Level
+	key    ident.ID
+	target HoldTarget
+	run    func()
+}
+
+// pendingTrigger is a moment a look set off, to start once that look's hold writes are done.
+type pendingTrigger struct {
+	key  ident.ID
+	s    *state
+	vars Vars
+}
+
+// triggerAfterWrites runs trigger once the hold writes of the current look are in, so a moment
+// can't write before a Safety hold set off by the same report has claimed. Call with e.mu held,
+// then startWrites.
+func (e *Engine) triggerAfterWrites(key ident.ID, s *state, vars Vars) {
+	e.triggers = append(e.triggers, pendingTrigger{key: key, s: s, vars: vars})
+}
+
+// startWrites runs the hold writes evaluate queued, and then the moments the same look set off.
+// Writes that can reach the same device, those in one room or to one device with no room, run one
+// after another. Claims go first, highest level first: a Safety claim is in before a Normal one, so
+// the arbiter never writes the Normal value. Plain writes, with nothing to arbitrate, go after,
+// lowest level first, so the highest level's value is the one that stays. Writes elsewhere run
+// alongside, so a slow device holds up only its own room. Call with e.mu held, after every
+// evaluate of the look.
+func (e *Engine) startWrites(ctx context.Context) {
+	writes, triggers := e.holdWrites, e.triggers
+	e.holdWrites, e.triggers = nil, nil
+	if len(writes) == 0 {
+		for _, t := range triggers {
+			e.trigger(ctx, t.key, t.s, t.vars)
+		}
+		return
+	}
+	type ordered struct {
+		holdWrite
+		claims bool
+	}
+	groups := map[string][]ordered{}
+	for _, w := range writes {
+		group, claims := e.writeGroup(w.key.Namespace, w.target)
+		groups[group] = append(groups[group], ordered{w, claims})
+	}
+	var done sync.WaitGroup
+	for _, group := range groups {
+		slices.SortStableFunc(group, func(a, b ordered) int {
+			switch {
+			case a.claims != b.claims:
+				if a.claims {
+					return -1
+				}
+				return 1
+			case a.level != b.level && a.claims:
+				return cmp.Compare(b.level, a.level)
+			case a.level != b.level:
+				return cmp.Compare(a.level, b.level)
+			}
+			return cmp.Compare(a.key.Name, b.key.Name)
+		})
+		done.Add(1)
+		e.goBusy(func() {
+			defer done.Done()
+			for _, w := range group {
+				w.run()
+			}
+		})
+	}
+	if len(triggers) == 0 {
+		return
+	}
+	e.goBusy(func() {
+		done.Wait()
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		for _, t := range triggers {
+			// The rule may have been edited or removed meanwhile.
+			if e.rules[t.key] == t.s {
+				e.trigger(ctx, t.key, t.s, t.vars)
+			}
+		}
+	})
+}
+
+// writeGroup returns which writes a hold's may reach the same device as, and whether it claims
+// rather than writes: its room, or its device when that has none.
+func (e *Engine) writeGroup(namespace string, t HoldTarget) (group string, claims bool) {
+	if t.Room != "" {
+		for _, dev := range e.Store.Room(namespace, t.Room) {
+			claims = claims || e.arbitrated(dev, t.Capability)
+		}
+		return "room/" + t.Room, claims
+	}
+	dev := ident.ID{Namespace: namespace, Name: t.Device}
+	snap, _ := e.Store.Get(dev)
+	if snap.Room != "" {
+		return "room/" + snap.Room, snap.Controls(t.Capability)
+	}
+	return "device/" + t.Device, snap.Controls(t.Capability)
 }
 
 // step moves a hold's state on to now, given its condition, and returns whether it should be

@@ -234,16 +234,18 @@ func (b *bridge) Availability(dev ident.ID, online bool) {
 }
 
 // Changed implements driver.Sink. Seen ends the message, and reports it whole.
-func (b *bridge) Changed(u driver.Update) {
+func (b *bridge) Changed(changes ...driver.Update) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.heard == nil {
 		b.heard = map[string]contractv1.State{}
 	}
-	if b.heard[u.Device.Name] == nil {
-		b.heard[u.Device.Name] = contractv1.State{}
+	for _, u := range changes {
+		if b.heard[u.Device.Name] == nil {
+			b.heard[u.Device.Name] = contractv1.State{}
+		}
+		b.heard[u.Device.Name][u.Capability] = u.Value
 	}
-	b.heard[u.Device.Name][u.Capability] = u.Value
 }
 
 // Seen implements driver.Sink. A message that changes nothing is published too: it's how Oikade
