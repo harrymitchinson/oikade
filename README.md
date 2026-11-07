@@ -476,7 +476,7 @@ A new host may speak a new protocol to your code, in which case your process is 
 
 ## Working with a running home
 
-These talk to the host through a Unix socket in its data directory, which only the user running the host can reach. This API has no network listener.
+These talk to the host through a Unix socket in its data directory, which only the user running the host can reach. The [host API](docs/host-api.md) is also served over TLS if you ask for it, with a [token](#the-network-api).
 
 ```sh
 oikade status                     # the running version, every device, and your rules
@@ -501,6 +501,18 @@ A pause is state, like tapping a light: it's in the store, needs no Git and last
 oikade --host pi status
 oikade deploy --host pi --module .
 ```
+
+### The network API
+
+`oikade host --api-addr :8443` also serves the API over TLS, for clients with a token. It's off without the flag, and an address with no port uses 8443. If the port is taken, the host logs that and carries on without it, and a restart tries again. Its first start makes a key and a self-signed certificate, kept in the store, and the log line `Serving API over TLS` gives its `pin`: the SHA-256 of its public key, which a client checks instead of a name or an expiry, so it works by IP address.
+
+```sh
+oikade client add ci --token     # on the host's machine: prints a token and the pin, for CI
+oikade client list               # who has a token, and when each last used it
+oikade client revoke ci          # its token stops working at once
+```
+
+`client add` works only on the host's machine, through the socket, so a stolen token can't make more of them. `revoke` works over the network API too, so any client can cut off a lost one, and it ends that client's open streams. It works while the listener is down, so a token can't come back when the port frees. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.
 
 ## Metrics
 
@@ -527,6 +539,7 @@ Point Prometheus at it, and import [`config/grafana/oikade-home.json`](config/gr
 | `oikade_rule_budget_desired{namespace,rule}` | 1 while a budget hold's plan wants its device on, 0 otherwise |
 | `oikade_device_control_level{namespace,device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
+| `oikade_api_auth_failures_total` | Calls to the network API refused for want of a valid token |
 
 Every capability change is also logged as `"Changed capability"` with structured fields, so Loki has the event history.
 
@@ -603,16 +616,16 @@ Every paired device enters the registry by its IEEE address, except the coordina
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
-- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, and latches, claims, flows, your deployed versions and your secrets. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets are in there in the clear, so keep the copy somewhere as private as the machine.
+- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions, your secrets, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets are in there in the clear, so keep the copy somewhere as private as the machine.
   - **Upgrade:** `oikade upgrade` takes that snapshot first, and a new `oikade` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
   - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
-  - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them.
+  - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them. A restore keeps the network API's pin and every token, including any revoked since that backup, so revoke those again.
 - **The device registry** is in the data directory, and holds each device's name, room and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory, or commit `oikade types`' file. Restoring from that file brings back everything it had: endpoints handed out after you last ran `oikade types` aren't in it, so run it after pairing.
 - **The Zigbee network key and database are yours,** because they belong to the Zigbee2MQTT you run. They aren't in Oikade's data directory, so back up Zigbee2MQTT's own data directory as well. Oikade's backup doesn't cover it. Losing it means pairing every device again.
 
 ## Security notes
 
-- The local API is a Unix socket only the host's user can reach, and it has no network listener. `--host` goes over your own SSH.
+- The API is a Unix socket only the host's user can reach. `--host` goes over your own SSH. With `--api-addr` it's on the network too, over TLS 1.3, and every call needs a token, which is as good as a login on the host. Keep it off the open internet.
 - The metrics listener is read-only, but open to whoever can reach the port, and it shows device names and values. Move it with `--metrics-addr`.
 - Importing a plugin means trusting its code, because it runs as you.
 - An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password, and keep it in a [secret](#secrets).

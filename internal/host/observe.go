@@ -57,15 +57,16 @@ func (p *pushed) Gather() ([]*dto.MetricFamily, error) {
 }
 
 // gatherer is everything the host exports.
-func gatherer(store *hub.Store, eng *engine.Engine, p *pushed) prometheus.Gatherer {
+func gatherer(store *hub.Store, eng *engine.Engine, p *pushed, more ...prometheus.Collector) prometheus.Gatherer {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(metrics.Collector{Store: store}, eng.ControlLevel)
+	registry.MustRegister(more...)
 	return prometheus.Gatherers{registry, p}
 }
 
 // observe opens the HTTP listener for metrics and health, which reads and changes nothing, and is
 // apart from the API for that reason. It returns what serves it until a context ends.
-func (h *Host) observe(srv *server, eng *engine.Engine) func(context.Context) {
+func (h *Host) observe(srv *server, eng *engine.Engine, more ...prometheus.Collector) func(context.Context) {
 	if h.MetricsAddr == "" {
 		return func(context.Context) {}
 	}
@@ -76,7 +77,7 @@ func (h *Host) observe(srv *server, eng *engine.Engine) func(context.Context) {
 		return func(context.Context) {}
 	}
 	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", promhttp.HandlerFor(gatherer(srv.devices, eng, srv.pushed),
+	mux.Handle("GET /metrics", promhttp.HandlerFor(gatherer(srv.devices, eng, srv.pushed, more...),
 		promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError}))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))

@@ -5,9 +5,11 @@ package host
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -46,6 +48,9 @@ type Host struct {
 	HeartbeatTimeout time.Duration
 	// MetricsAddr is where metrics and health are served over HTTP, read-only. Empty serves none.
 	MetricsAddr string
+	// APIAddr is where the API is served over TLS, for clients with a token. Empty serves it only on
+	// the socket. A missing port is DefaultAPIPort.
+	APIAddr string
 	// Matter serves a Matter bridge. Nil serves none.
 	Matter *Matter
 	// Broker is an MQTT broker of yours, for Outside and for imported plugins that use one.
@@ -164,7 +169,12 @@ func (h *Host) Run(ctx context.Context) error {
 		default:
 		}
 	}
-	observing := h.observe(srv, eng)
+	calls := &apiServer{
+		log: h.Log.With("logger", "api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
+		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir}, authFailures: newAuthFailures(),
+	}
+	network := h.listenAPI(data, calls)
+	observing := h.observe(srv, eng, calls.authFailures)
 	first := deploys.startup()
 	var engineDone, serving sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
@@ -178,11 +188,10 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
-	calls := &apiServer{
-		log: h.Log.With("logger", "api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
-		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir},
-	}
 	serving.Go(func() { calls.serve(apiListener) })
+	if network != nil {
+		serving.Go(func() { calls.serveNetwork(network) })
+	}
 	serving.Go(func() { observing(ctx) })
 	serving.Go(func() { srv.events.run(ctx) })
 	if bridge.working() {
@@ -191,6 +200,9 @@ func (h *Host) Run(ctx context.Context) error {
 	<-ctx.Done()
 	_ = listener.Close()
 	_ = apiListener.Close()
+	if network != nil {
+		_ = network.Close()
+	}
 	serving.Wait()
 	srv.shutdown()
 	stopEngine()
@@ -198,4 +210,35 @@ func (h *Host) Run(ctx context.Context) error {
 	srv.events.flush()
 	h.Log.Info("Stopped host")
 	return nil
+}
+
+// listenAPI opens the network API's listener, if it's asked for. If it can't, the host carries on
+// without it, as it does without metrics: your home doesn't need it.
+func (h *Host) listenAPI(data *store.Store, calls *apiServer) net.Listener {
+	if h.APIAddr == "" {
+		return nil
+	}
+	addr := APIAddress(h.APIAddr)
+	values := data.Namespace(apiNamespace)
+	// Clients come first, and whatever happens to the listener: a token must be revocable while the
+	// port is taken, or it would work again once it's free.
+	known, err := loadClients(values)
+	if err != nil {
+		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
+		return nil
+	}
+	calls.clients = known
+	cert, pin, err := loadAPIIdentity(values)
+	if err != nil {
+		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
+		return nil
+	}
+	calls.pin = pin
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		h.Log.Error("Failed to open the API listener", "err", err, "address", addr)
+		return nil
+	}
+	h.Log.Info("Serving API over TLS", "address", l.Addr().String(), "pin", pin)
+	return tls.NewListener(l, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})
 }

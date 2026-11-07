@@ -1,6 +1,6 @@
 # The host API
 
-This is how the `oikade` command talks to a running host. It's HTTP on `api.sock` in the data directory, a Unix socket with mode `0600`, so only the host's user can reach it. `oikade --host` reaches the same socket over SSH. It's apart from `host.sock`, which only your process uses and which [`host-protocol.md`](host-protocol.md) describes. [OIK-171](https://linear.app/oikade/issue/OIK-171) says why it's HTTP.
+This is how the `oikade` command talks to a running host. It's HTTP on `api.sock` in the data directory, a Unix socket with mode `0600`, so only the host's user can reach it. `oikade --host` reaches the same socket over SSH. With `oikade host --api-addr`, the same routes are served over TLS too, for clients with a token. It's apart from `host.sock`, which only your process uses and which [`host-protocol.md`](host-protocol.md) describes. [OIK-171](https://linear.app/oikade/issue/OIK-171) says why it's HTTP.
 
 ## Calls
 
@@ -26,10 +26,17 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/devices/remove` | `device`, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/replace` | `device`, `to`, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/restore` | `registry`, `force` | `moved`, `needsForce` |
+| `GET /v1/clients` | | `clients`, never their tokens |
+| `POST /v1/clients/add` | `client` | `token`, shown only once, and `pin`. Only on the socket. |
+| `POST /v1/clients/revoke` | `client` | |
 
 A call has 5 seconds to send its body. Secret values go only in a body, and never in a path or a log.
 
 **A call outlives its connection.** Once the host has a request it finishes it, so a deploy that has begun goes on after the command that asked is killed. The answer then has nowhere to go, and `oikade status` shows how it ended.
+
+## Over TLS
+
+The host's certificate is self-signed, and a client trusts it by its pin: `sha256:` and the hex SHA-256 of the certificate's `SubjectPublicKeyInfo`. TLS 1.3 only. Every call needs `Authorization: Bearer <token>`, which is checked before any body is read. A missing, wrong or revoked token gets a `401`, and counts in `oikade_api_auth_failures_total`. `POST /v1/clients/add` is refused over TLS, so a token can't make more of them.
 
 ## Answers
 
@@ -37,6 +44,7 @@ A call has 5 seconds to send its body. Secret values go only in a body, and neve
 |---|---|
 | `200` | It worked. |
 | `400` | The body isn't JSON, or is over 16 MiB. |
+| `401` | Over TLS, the call has no valid token. |
 | `404` | No such route, which includes the wrong method. `error` says which API this host speaks. |
 | `422` | It didn't do what was asked, and `error` says why: the host refused it, or it failed there. The other fields can still say what happened, such as `restored` on a deploy whose version failed and was rolled back, and `findings`, `needsAllowSafety` and `needsForce` on a refusal. |
 | `500` | The event log can't be read. |
