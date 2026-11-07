@@ -458,3 +458,88 @@ func TestRuleClaimsCountsClaimsStillOnDisk(t *testing.T) {
 		t.Fatalf("got %v", held)
 	}
 }
+
+// A wait that ends early has to take its timer with it: simhome reads anything left on the clock as
+// the engine having armed its next wake-up, and settles too soon.
+func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
+	key := goKey("motion-light")
+	never := func(Vars) (bool, error) { return false, nil }
+	waiting := func(t *testing.T, c *clock.Fake) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for !c.HasWaiters() {
+			if time.Now().After(deadline) {
+				t.Fatal("nothing waited on the clock")
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	finished := func(t *testing.T, done <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the wait didn't end")
+		}
+	}
+	bare := func(t *testing.T) (*Engine, *clock.Fake) {
+		t.Helper()
+		c := clock.NewFake(time.Now())
+		eng := &Engine{Clock: c, Log: logging.Discard()}
+		eng.Store = hub.NewStore(logging.Discard(), eng)
+		eng.Init()
+		return eng, c
+	}
+
+	t.Run("WaitFor cancelled", func(t *testing.T) {
+		eng, c := bare(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = eng.WaitFor(ctx, key, never, time.Time{})
+		}()
+		waiting(t, c)
+		cancel()
+		finished(t, done)
+		if c.HasWaiters() {
+			t.Fatal("a cancelled wait left its timer on the clock")
+		}
+	})
+
+	t.Run("WaitFor woken by a change", func(t *testing.T) {
+		eng, c := bare(t)
+		var met atomic.Bool
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = eng.WaitFor(context.Background(), key, func(Vars) (bool, error) { return met.Load(), nil }, time.Time{})
+		}()
+		waiting(t, c)
+		met.Store(true)
+		eng.mu.Lock()
+		close(eng.changes)
+		eng.changes = make(chan struct{})
+		eng.mu.Unlock()
+		finished(t, done)
+		if c.HasWaiters() {
+			t.Fatal("a wait woken by a change left its timer on the clock")
+		}
+	})
+
+	t.Run("a delay cancelled", func(t *testing.T) {
+		eng, c := bare(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			eng.runActions(ctx, key, &Compiled{actions: []action{{delay: time.Minute}}})
+		}()
+		waiting(t, c)
+		cancel()
+		finished(t, done)
+		if c.HasWaiters() {
+			t.Fatal("a cancelled delay left its timer on the clock")
+		}
+	})
+}

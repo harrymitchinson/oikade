@@ -503,6 +503,9 @@ func TestCancelledRunIsOver(t *testing.T) {
 	if len(h.saved()) != 0 {
 		t.Fatal("a cancelled run kept its journal")
 	}
+	if c.HasWaiters() {
+		t.Fatal("a cancelled run left its timer on the clock")
+	}
 }
 
 func TestRunStopsWithoutFinishingWhenTheJournalFails(t *testing.T) {

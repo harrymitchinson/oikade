@@ -11,16 +11,15 @@ import (
 // Clock tells the time and waits for it.
 type Clock interface {
 	Now() time.Time
-	After(d time.Duration) <-chan time.Time
 	NewTimer(d time.Duration) Timer
 }
 
-// Timer is a wait that can be stopped.
+// Timer is a wait that can be stopped. A wait that ends early has to stop its timer: on a Fake, a timer
+// left running still counts as something waiting on the clock.
 type Timer interface {
 	// C receives the time when the timer fires.
 	C() <-chan time.Time
-	// Stop reports whether it stopped the timer before it fired.
-	Stop() bool
+	Stop()
 }
 
 // Real is the system clock.
@@ -29,16 +28,13 @@ type Real struct{}
 // Now returns the current time.
 func (Real) Now() time.Time { return time.Now() }
 
-// After returns a channel that receives the time once d has passed.
-func (Real) After(d time.Duration) <-chan time.Time { return time.After(d) }
-
 // NewTimer returns a timer that fires once d has passed.
 func (Real) NewTimer(d time.Duration) Timer { return realTimer{time.NewTimer(d)} }
 
 type realTimer struct{ timer *time.Timer }
 
 func (t realTimer) C() <-chan time.Time { return t.timer.C }
-func (t realTimer) Stop() bool          { return t.timer.Stop() }
+func (t realTimer) Stop()               { t.timer.Stop() }
 
 // Fake is a clock that only moves when it's told to. A wait fires when the clock is moved to or past
 // its time, so a wait of zero or less fires on the next move, not at once.
@@ -58,13 +54,8 @@ func (f *Fake) Now() time.Time {
 	return f.now
 }
 
-// After returns a channel that receives the time once the clock has moved on by d.
-func (f *Fake) After(d time.Duration) <-chan time.Time { return f.wait(d).C() }
-
 // NewTimer returns a timer that fires once the clock has moved on by d.
-func (f *Fake) NewTimer(d time.Duration) Timer { return f.wait(d) }
-
-func (f *Fake) wait(d time.Duration) *fakeTimer {
+func (f *Fake) NewTimer(d time.Duration) Timer {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	t := &fakeTimer{clock: f, at: f.now.Add(d), c: make(chan time.Time, 1)}
@@ -114,13 +105,10 @@ type fakeTimer struct {
 
 func (t *fakeTimer) C() <-chan time.Time { return t.c }
 
-func (t *fakeTimer) Stop() bool {
+func (t *fakeTimer) Stop() {
 	t.clock.mu.Lock()
 	defer t.clock.mu.Unlock()
-	i := slices.Index(t.clock.waiters, t)
-	if i < 0 {
-		return false
+	if i := slices.Index(t.clock.waiters, t); i >= 0 {
+		t.clock.waiters = slices.Delete(t.clock.waiters, i, i+1)
 	}
-	t.clock.waiters = slices.Delete(t.clock.waiters, i, i+1)
-	return true
 }

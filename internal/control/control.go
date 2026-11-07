@@ -13,8 +13,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/harrymitchinson/oikade/internal/clock"
 )
 
 // Kind is the capability's value kind.
@@ -238,15 +236,18 @@ type Decision struct {
 	Reverted *Revert
 }
 
+// Clock tells an arbiter the time. An arbiter never waits: it says when it next needs to run.
+type Clock interface{ Now() time.Time }
+
 // Arbiter arbitrates one capability. It isn't safe for concurrent use.
 type Arbiter struct {
 	settings Settings
-	clock    clock.Clock
+	clock    Clock
 	st       State
 }
 
 // New returns an arbiter that continues from st, which may be the zero State.
-func New(s Settings, c clock.Clock, st State) (*Arbiter, error) {
+func New(s Settings, c Clock, st State) (*Arbiter, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}

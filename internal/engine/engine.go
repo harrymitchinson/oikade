@@ -659,13 +659,14 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 	failed := false
 	for _, a := range c.actions {
 		if a.delay > 0 {
-			timer := e.Clock.After(a.delay)
+			timer := e.Clock.NewTimer(a.delay)
 			unpark := e.OnPark.Wait(e.Clock.Now().Add(a.delay), nil)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				unpark()
 				return ResultCancelled, skipped
-			case <-timer:
+			case <-timer.C():
 			}
 			unpark()
 			continue

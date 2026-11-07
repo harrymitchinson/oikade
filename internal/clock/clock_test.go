@@ -40,53 +40,46 @@ func TestFakeNowMovesOnlyWhenTold(t *testing.T) {
 }
 
 func TestFakeFiresWhenTheClockReachesTheWait(t *testing.T) {
-	for name, wait := range map[string]func(*Fake, time.Duration) <-chan time.Time{
-		"After":    (*Fake).After,
-		"NewTimer": func(c *Fake, d time.Duration) <-chan time.Time { return c.NewTimer(d).C() },
-	} {
-		t.Run(name, func(t *testing.T) {
-			c := NewFake(start)
-			ch := wait(c, time.Minute)
-			if !c.HasWaiters() {
-				t.Fatal("HasWaiters() = false with a wait pending")
-			}
+	c := NewFake(start)
+	timer := c.NewTimer(time.Minute)
+	if !c.HasWaiters() {
+		t.Fatal("HasWaiters() = false with a wait pending")
+	}
 
-			c.Step(time.Minute - time.Nanosecond)
-			if _, ok := fired(ch); ok {
-				t.Fatal("fired before its time")
-			}
-			if !c.HasWaiters() {
-				t.Fatal("HasWaiters() = false with a wait still pending")
-			}
+	c.Step(time.Minute - time.Nanosecond)
+	if _, ok := fired(timer.C()); ok {
+		t.Fatal("fired before its time")
+	}
+	if !c.HasWaiters() {
+		t.Fatal("HasWaiters() = false with a wait still pending")
+	}
 
-			c.Step(time.Nanosecond)
-			got, ok := fired(ch)
-			if !ok {
-				t.Fatal("didn't fire at its time")
-			}
-			if want := start.Add(time.Minute); !got.Equal(want) {
-				t.Fatalf("received %v, want %v", got, want)
-			}
-			if c.HasWaiters() {
-				t.Fatal("HasWaiters() = true once the wait fired")
-			}
-		})
+	c.Step(time.Nanosecond)
+	got, ok := fired(timer.C())
+	if !ok {
+		t.Fatal("didn't fire at its time")
+	}
+	if want := start.Add(time.Minute); !got.Equal(want) {
+		t.Fatalf("received %v, want %v", got, want)
+	}
+	if c.HasWaiters() {
+		t.Fatal("HasWaiters() = true once the wait fired")
 	}
 }
 
 func TestFakeOneMoveFiresEveryWaitItPasses(t *testing.T) {
 	c := NewFake(start)
-	first, second, third := c.After(time.Second), c.After(time.Minute), c.After(time.Hour)
+	first, second, third := c.NewTimer(time.Second), c.NewTimer(time.Minute), c.NewTimer(time.Hour)
 
 	c.SetTime(start.Add(time.Minute))
 
-	if _, ok := fired(first); !ok {
+	if _, ok := fired(first.C()); !ok {
 		t.Error("the wait it moved past didn't fire")
 	}
-	if _, ok := fired(second); !ok {
+	if _, ok := fired(second.C()); !ok {
 		t.Error("the wait it moved to didn't fire")
 	}
-	if _, ok := fired(third); ok {
+	if _, ok := fired(third.C()); ok {
 		t.Error("the wait still ahead fired")
 	}
 	if !c.HasWaiters() {
@@ -97,7 +90,6 @@ func TestFakeOneMoveFiresEveryWaitItPasses(t *testing.T) {
 // Nothing waits for a receiver, so moving the clock can't hang on a wait nobody listens to.
 func TestFakeMovingDoesNotBlockOnAnUnreadWait(t *testing.T) {
 	c := NewFake(start)
-	c.After(time.Second)
 	c.NewTimer(time.Second)
 	c.Step(time.Minute)
 	c.Step(time.Minute)
@@ -106,13 +98,13 @@ func TestFakeMovingDoesNotBlockOnAnUnreadWait(t *testing.T) {
 func TestFakeWaitOfZeroOrLessFiresOnTheNextMove(t *testing.T) {
 	for _, d := range []time.Duration{0, -time.Second} {
 		c := NewFake(start)
-		ch := c.After(d)
-		if _, ok := fired(ch); ok {
-			t.Fatalf("After(%v) fired before the clock moved", d)
+		timer := c.NewTimer(d)
+		if _, ok := fired(timer.C()); ok {
+			t.Fatalf("NewTimer(%v) fired before the clock moved", d)
 		}
 		c.Step(0)
-		if _, ok := fired(ch); !ok {
-			t.Fatalf("After(%v) didn't fire on the next move", d)
+		if _, ok := fired(timer.C()); !ok {
+			t.Fatalf("NewTimer(%v) didn't fire on the next move", d)
 		}
 	}
 }
@@ -121,9 +113,7 @@ func TestFakeTimerStop(t *testing.T) {
 	c := NewFake(start)
 	timer := c.NewTimer(time.Minute)
 
-	if !timer.Stop() {
-		t.Fatal("Stop() = false for a pending timer")
-	}
+	timer.Stop()
 	if c.HasWaiters() {
 		t.Fatal("HasWaiters() = true after Stop")
 	}
@@ -131,32 +121,39 @@ func TestFakeTimerStop(t *testing.T) {
 	if _, ok := fired(timer.C()); ok {
 		t.Fatal("a stopped timer fired")
 	}
-	if timer.Stop() {
-		t.Fatal("Stop() = true for a timer already stopped")
-	}
+	timer.Stop() // Stopping it twice is harmless.
 }
 
+// A timer that fired has gone, so stopping it leaves its value and every other wait alone.
 func TestFakeTimerStopAfterFiring(t *testing.T) {
 	c := NewFake(start)
 	timer := c.NewTimer(time.Minute)
+	other := c.NewTimer(time.Hour)
 	c.Step(time.Minute)
-	if timer.Stop() {
-		t.Fatal("Stop() = true for a timer that fired")
+
+	timer.Stop()
+
+	if _, ok := fired(timer.C()); !ok {
+		t.Error("Stop lost the time it fired at")
 	}
+	if !c.HasWaiters() {
+		t.Error("Stop removed another wait")
+	}
+	other.Stop()
 }
 
 // Stopping one timer leaves the others waiting.
 func TestFakeTimerStopLeavesOtherWaits(t *testing.T) {
 	c := NewFake(start)
-	before, stopped, after := c.After(time.Minute), c.NewTimer(time.Minute), c.After(time.Minute)
+	before, stopped, after := c.NewTimer(time.Minute), c.NewTimer(time.Minute), c.NewTimer(time.Minute)
 
 	stopped.Stop()
 	c.Step(time.Minute)
 
-	if _, ok := fired(before); !ok {
+	if _, ok := fired(before.C()); !ok {
 		t.Error("the wait before it didn't fire")
 	}
-	if _, ok := fired(after); !ok {
+	if _, ok := fired(after.C()); !ok {
 		t.Error("the wait after it didn't fire")
 	}
 }
@@ -169,7 +166,6 @@ func TestFakeConcurrentUse(t *testing.T) {
 		wg.Go(func() {
 			for range 100 {
 				timer := c.NewTimer(time.Second)
-				c.After(time.Second)
 				c.Now()
 				c.HasWaiters()
 				timer.Stop()
@@ -190,11 +186,6 @@ func TestRealFires(t *testing.T) {
 		t.Fatalf("Now() is %v from the system clock", d)
 	}
 	select {
-	case <-c.After(time.Millisecond):
-	case <-time.After(10 * time.Second):
-		t.Fatal("After didn't fire")
-	}
-	select {
 	case <-c.NewTimer(time.Millisecond).C():
 	case <-time.After(10 * time.Second):
 		t.Fatal("NewTimer didn't fire")
@@ -202,11 +193,11 @@ func TestRealFires(t *testing.T) {
 }
 
 func TestRealTimerStop(t *testing.T) {
-	timer := Real{}.NewTimer(time.Hour)
-	if !timer.Stop() {
-		t.Fatal("Stop() = false for a pending timer")
-	}
-	if timer.Stop() {
-		t.Fatal("Stop() = true for a timer already stopped")
+	timer := Real{}.NewTimer(time.Millisecond)
+	timer.Stop()
+	select {
+	case <-timer.C():
+		t.Fatal("a stopped timer fired")
+	case <-time.After(20 * time.Millisecond):
 	}
 }
