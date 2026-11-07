@@ -41,6 +41,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
+	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -62,6 +63,7 @@ type State struct {
 	members  map[string]hub.Member
 	now      time.Time
 	location *time.Location
+	site     *sun.Site
 }
 
 // notReported ends a condition that read a value nobody has reported yet.
@@ -172,9 +174,10 @@ func (s State) Now() time.Time { return s.now }
 //
 // A hold looks again every minute, so one whose When uses it changes within a minute of the window's
 // edge, where a hold's own Window changes on it. A window with a mistake in it, such as a time
-// that isn't one, stops the condition, and that's logged.
+// that isn't one, stops the condition, and that's logged. A sunrise or sunset needs the home's
+// Site, and a window with one is never open without it.
 func (s State) Within(w Window) bool {
-	in, err := w.toEngine().Contains(s.now, s.location, nil)
+	in, err := w.toEngine().Contains(s.now, s.location, s.site)
 	if err != nil {
 		panic(fmt.Sprintf("window: %v", err))
 	}
@@ -197,6 +200,7 @@ func (c Condition) toEngine() engine.Condition {
 		if location == nil {
 			location = time.Local // as the engine's
 		}
+		site, _ := v["site"].(*sun.Site)
 		defer func() {
 			r := recover()
 			if r == nil {
@@ -217,7 +221,7 @@ func (c Condition) toEngine() engine.Condition {
 			}
 			panic(r)
 		}()
-		return c(State{devices: devices, members: members, now: now, location: location}), nil
+		return c(State{devices: devices, members: members, now: now, location: location, site: site}), nil
 	}
 }
 
