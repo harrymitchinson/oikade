@@ -49,10 +49,14 @@ type Coalescer struct {
 	mu      sync.Mutex
 	pending map[writeKey]any
 	waiting map[ident.ID]bool
+	// sending holds a device's lock while a burst is sent, so a later burst waits for it.
+	sending map[ident.ID]*sync.Mutex
 	sent    map[writeKey]sent
 	ctx     context.Context
 	// flushes counts the bursts gathering or being sent.
 	flushes sync.WaitGroup
+	// ended, if set, hears a burst end, before it waits for the last to be sent. Tests use it.
+	ended func(ident.ID)
 }
 
 // Start sets the context writes run in. Call it before Add.
@@ -81,6 +85,7 @@ func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 	}
 	if c.pending == nil {
 		c.pending, c.waiting, c.sent = map[writeKey]any{}, map[ident.ID]bool{}, map[writeKey]sent{}
+		c.sending = map[ident.ID]*sync.Mutex{}
 	}
 	c.pending[writeKey{dev, name}] = value
 	if c.waiting[dev] {
@@ -107,10 +112,28 @@ func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 
 // flush sends a device's latest writes: a level before turning on, and turning off before
 // anything else, so a light doesn't flash at its old level.
+//
+// A device's bursts are sent one at a time, in the order they ended, so a slow device can't take an
+// older write after a newer one. A burst waiting for the last to finish still gathers writes.
 func (c *Coalescer) flush(dev ident.ID) {
 	type write struct {
 		name  string
 		value any
+	}
+	c.mu.Lock()
+	sending := c.sending[dev]
+	if sending == nil {
+		sending = &sync.Mutex{}
+		c.sending[dev] = sending
+	}
+	c.mu.Unlock()
+	if c.ended != nil {
+		c.ended(dev)
+	}
+	sending.Lock()
+	defer sending.Unlock()
+	if c.ctx.Err() != nil {
+		return // shutting down: a write now would only fail
 	}
 	c.mu.Lock()
 	delete(c.waiting, dev)
