@@ -74,7 +74,10 @@ func TestTargetChoosesTheHost(t *testing.T) {
 		t.Error("an unknown context should fail")
 	}
 	t.Setenv(tokenEnv, "oik_ci")
-	if r, _ := pick().(api.Remote); r.Token != "oik_ci" {
-		t.Errorf("%s should replace the context's token: %#v", tokenEnv, r)
+	if r, _ := pick("--context", "lab").(api.Remote); r.Token != "oik_ci" {
+		t.Errorf("a context with no token should take %s: %#v", tokenEnv, r)
+	}
+	if r, _ := pick().(api.Remote); r.Token != "oik_pi" {
+		t.Errorf("%s went to a host with its own token: %#v", tokenEnv, r)
 	}
 }

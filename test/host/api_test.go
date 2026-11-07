@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -55,15 +54,7 @@ func (r *rig) addClient(name string) (token, pin string) {
 
 // pinned is a client that trusts only the host with this pin.
 func pinned(pin string) *http.Client {
-	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
-		InsecureSkipVerify: true, // The pin is checked instead, below.
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if api.Pin(cs.PeerCertificates[0].RawSubjectPublicKeyInfo) != pin {
-				return errors.New("wrong pin")
-			}
-			return nil
-		},
-	}}}
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: api.PinnedTLS(pin)}}
 }
 
 // call makes a call over TLS, and returns its status and answer.
@@ -180,6 +171,12 @@ func TestRevokingEndsATailAndAStrangerCantHoldAConnection(t *testing.T) {
 	if answer.StatusCode != http.StatusUnauthorized || !answer.Close {
 		t.Errorf("a stranger's call: %d, close %v", answer.StatusCode, answer.Close)
 	}
+
+	// A login needs no token, so it can't take a big body either.
+	big := `{"code":"` + strings.Repeat("x", 8<<10) + `"}`
+	if status, _ := call(t, c, address, "", "POST", "/v1/login", big); status != http.StatusBadRequest {
+		t.Errorf("a login with an 8 KiB body: %d", status)
+	}
 }
 
 func TestNetworkAPIKeepsItsIdentity(t *testing.T) {
@@ -215,6 +212,9 @@ func TestATakenAPIPortLeavesTheHostRunning(t *testing.T) {
 	r.hostRunning()
 	if st := r.status(); st.Devices == nil {
 		t.Errorf("status over the socket: %+v", st)
+	}
+	if _, err := r.oikade(nil, "client", "add", "phone"); err == nil {
+		t.Error("issued a login code with no listener for it")
 	}
 	// A token must stay revocable while the port is taken, or it would work again once it's free.
 	r.addClient("laptop")

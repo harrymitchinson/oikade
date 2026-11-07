@@ -518,7 +518,7 @@ It prints a line to run on the laptop within 10 minutes:
 oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
 ```
 
-The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. A config file others can read is refused.
+The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade client add` always means this machine, unless you give `--context` or `--host`. A config file others can read is refused.
 
 CI has no one to type a code, so give it a token instead:
 
@@ -526,7 +526,7 @@ CI has no one to type a code, so give it a token instead:
 oikade client add ci --token     # on the host's machine: prints a token and the pin
 ```
 
-Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikade login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one for every command.
+Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikade login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.
 
 ```sh
 oikade client list               # who has a token, and when each last used it

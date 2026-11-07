@@ -33,7 +33,11 @@ func runClient(ctx context.Context, args []string) error {
 	default:
 		return errors.New(clientUsage)
 	}
-	resp, err := api.Call(ctx, t.transport(), req)
+	transport := t.transport()
+	if req.Type == api.TypeClientAdd {
+		transport = t.local()
+	}
+	resp, err := api.Call(ctx, transport, req)
 	if err != nil {
 		return err
 	}
@@ -56,10 +60,6 @@ func runClient(ctx context.Context, args []string) error {
 		}
 		return w.Flush()
 	case api.TypeClientAdd:
-		if resp.Pin == "" {
-			_, _ = fmt.Fprintln(os.Stderr,
-				"The host isn't serving its network API now, so nothing can log in yet: its log says why")
-		}
 		if !*token {
 			if *asJSON {
 				return printJSON(struct {
@@ -74,6 +74,10 @@ func runClient(ctx context.Context, args []string) error {
 				words[1], resp.Expires.Local().Format(time.TimeOnly), resp.Address, resp.Pin, resp.Code)
 			fmt.Println("The code works once. If the host's name doesn't reach it from there, use its address.")
 			return nil
+		}
+		if resp.Pin == "" {
+			_, _ = fmt.Fprintln(os.Stderr,
+				"The host has no network API identity, so this token has nothing to reach yet: its log says why")
 		}
 		if *asJSON {
 			return printJSON(struct {

@@ -33,6 +33,15 @@ func addTarget(fs *flag.FlagSet) target {
 	}
 }
 
+// local is this machine's host unless --host or --context say otherwise, for a command that only
+// works there.
+func (t target) local() api.Transport {
+	if *t.host == "" && *t.context == "" {
+		return api.Local{DataDir: *t.dataDir}
+	}
+	return t.transport()
+}
+
 // transport is --host, then --context, then the socket if --data-dir is given, then the current
 // context, then the socket.
 func (t target) transport() api.Transport {
@@ -46,7 +55,13 @@ func (t target) transport() api.Transport {
 	}
 	cfg, err := loadConfig()
 	if err != nil {
-		return failing{err}
+		if *t.context != "" {
+			return failing{err}
+		}
+		// Asked for nothing, so this machine's host, as before there was a config. The problem is
+		// still worth hearing about.
+		_, _ = fmt.Fprintln(os.Stderr, "Warning: not using any context:", err)
+		return api.Local{DataDir: *t.dataDir}
 	}
 	name := *t.context
 	if name == "" {

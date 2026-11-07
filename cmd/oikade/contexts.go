@@ -110,11 +110,12 @@ func saveConfig(cfg clientConfig) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// remote is a context's transport, with OIKADE_TOKEN in place of its token if it's set.
+// remote is a context's transport. One saved with no token, as CI's is, takes OIKADE_TOKEN, so a
+// token meant for one host never goes to another.
 func remote(c hostContext) api.Remote {
 	token := c.Token
-	if env := os.Getenv(tokenEnv); env != "" {
-		token = env
+	if token == "" {
+		token = os.Getenv(tokenEnv)
 	}
 	return api.Remote{Address: c.Address, Pin: c.Pin, Token: token}
 }
@@ -140,6 +141,11 @@ func runLogin(ctx context.Context, args []string) error {
 	if *name == "" {
 		*name, _, _ = net.SplitHostPort(address)
 	}
+	// Read first: a code works once, so nothing after it may fail for want of a config.
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
 	saved := hostContext{Address: address, Pin: *pin}
 	who := ""
 	if *code != "" {
@@ -164,16 +170,17 @@ func runLogin(ctx context.Context, args []string) error {
 			return errors.New(resp.Error)
 		}
 	}
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
 	if cfg.Contexts == nil {
 		cfg.Contexts = map[string]hostContext{}
 	}
 	cfg.Contexts[*name], cfg.Current = saved, *name
 	if err := saveConfig(cfg); err != nil {
-		return err
+		if saved.Token == "" {
+			return err
+		}
+		// The code is used up, so the token is all there is: say it rather than lose it.
+		return fmt.Errorf("saving the login: %w. Your token for %s is %s: keep it in %s, "+
+			"then run oikade login %s --pin %s", err, address, saved.Token, tokenEnv, address, *pin)
 	}
 	switch who {
 	case "":

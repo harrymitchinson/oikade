@@ -44,10 +44,18 @@ const (
 )
 
 // errBadCode is a login with a code that's wrong, used or expired. It doesn't say which.
-var errBadCode = errors.New("that code doesn't work: it's wrong, used or more than 10 minutes old. Run oikade client add again")
+var errBadCode = fmt.Errorf("that code doesn't work: it's wrong, used or more than %v old. Run oikade client add again",
+	codeLifetime)
 
 // clientName is what a client can be called.
 var clientName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+
+func validClientName(name string) error {
+	if !clientName.MatchString(name) {
+		return fmt.Errorf("%q can't name a client: use lower-case letters, digits, '.', '_' and '-'", name)
+	}
+	return nil
+}
 
 // APIAddress fills in the port of an address that has none.
 func APIAddress(addr string) string {
@@ -202,8 +210,8 @@ func (c *clients) save(name string, rec clientRecord) error {
 
 // add makes a client and returns its token, which is never seen again.
 func (c *clients) add(name string) (string, error) {
-	if !clientName.MatchString(name) {
-		return "", fmt.Errorf("%q can't name a client: use lower-case letters, digits, '.', '_' and '-'", name)
+	if err := validClientName(name); err != nil {
+		return "", err
 	}
 	secret := make([]byte, 32)
 	_, _ = rand.Read(secret)
@@ -227,8 +235,8 @@ func (c *clients) add(name string) (string, error) {
 // issue makes a code that a login trades for a token for a new client, once, within codeLifetime.
 // A new code for the same name replaces the last.
 func (c *clients) issue(name string) (string, time.Time, error) {
-	if !clientName.MatchString(name) {
-		return "", time.Time{}, fmt.Errorf("%q can't name a client: use lower-case letters, digits, '.', '_' and '-'", name)
+	if err := validClientName(name); err != nil {
+		return "", time.Time{}, err
 	}
 	secret := make([]byte, 16)
 	_, _ = rand.Read(secret)

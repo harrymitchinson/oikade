@@ -33,6 +33,9 @@ const idleTimeout = 30 * time.Second
 // maxRequest bounds a request's body. The largest is a restore's registry.
 const maxRequest = 16 << 20
 
+// maxPublicRequest bounds the body of a call that needs no token, such as a login.
+const maxPublicRequest = 4 << 10
+
 // apiServer answers the oikade command. A call outlives its connection: a deploy that has begun
 // finishes even if the command that asked goes away.
 type apiServer struct {
@@ -64,19 +67,35 @@ func (s *apiServer) serve(l net.Listener) {
 	}))
 }
 
-// serveNetwork answers calls over TLS, each of which needs a client's token.
+// serveNetwork answers calls over TLS, each of which needs a client's token but a public one's.
 func (s *apiServer) serveNetwork(l net.Listener) {
-	s.serveWith(l, s.authenticated(s.routes()))
+	s.serveWith(l, s.networkRoutes())
+}
+
+// networkRoutes is the API with a token checked on every route but a public one, which a stranger
+// can call, so its body is kept small.
+func (s *apiServer) networkRoutes() http.Handler {
+	routes := s.routes()
+	authenticated := s.authenticated(routes)
+	public := map[string]bool{}
+	for _, r := range api.Routes {
+		if r.Public {
+			public[r.Method+" "+r.Path] = true
+		}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !public[r.Method+" "+r.URL.Path] {
+			authenticated.ServeHTTP(w, r)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxPublicRequest)
+		routes.ServeHTTP(w, r.WithContext(withCaller(r.Context(), caller{name: "login"})))
+	})
 }
 
 // authenticated refuses a call without a valid token before reading any of it.
 func (s *apiServer) authenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == api.LoginPath {
-			// A login has a code instead, which the call itself checks.
-			next.ServeHTTP(w, r.WithContext(withCaller(r.Context(), caller{name: "login"})))
-			return
-		}
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		var name string
 		var revoked <-chan struct{}
@@ -182,6 +201,9 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 		status := http.StatusOK
 		if resp.Error != "" {
 			status = http.StatusUnprocessableEntity
+		}
+		if resp.Close {
+			w.Header().Set("Connection", "close")
 		}
 		respond(s.log, w, status, resp)
 	}
@@ -306,6 +328,9 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 		if !c.local {
 			return api.Response{Error: errNotLocal.Error()}
 		}
+		if !req.Token && s.address == "" {
+			return api.Response{Error: "the host isn't serving its network API, so nothing could log in: its log says why"}
+		}
 		if !req.Token {
 			code, expires, err := s.clients.issue(req.Client)
 			if err != nil {
@@ -327,7 +352,7 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 				s.authFailures.Inc()
 			}
 			s.log.Info("Refused API login", "err", err)
-			return api.Response{Error: err.Error()}
+			return api.Response{Error: err.Error(), Close: true}
 		}
 		s.log.Info("Added API client", "name", name, "by", "login")
 		return api.Response{Token: token, Client: name}

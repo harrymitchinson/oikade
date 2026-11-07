@@ -72,7 +72,8 @@ const usage = `Usage:
 
 Every command that talks to a host takes --data-dir DIR, --host NAME, which runs it on that SSH host, and
 --context NAME, which reaches a host you logged in to over its network API. Without any of them, a command
-uses the context oikade login last saved, or the host on this machine. OIKADE_TOKEN replaces a context's token.`
+uses the context oikade login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context
+saved without one.`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -253,6 +254,11 @@ func runDeploy(ctx context.Context, args []string) error {
 	_ = fs.Parse(args)
 
 	transport := target.transport()
+	if _, ok := transport.(api.Remote); ok {
+		// Before a build that would go nowhere.
+		return errors.New("deploying over the network API isn't supported yet: " +
+			"use --host, or --data-dir on the host's machine")
+	}
 	path := *binary
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})

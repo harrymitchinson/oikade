@@ -70,42 +70,41 @@ type Route struct {
 	Type, Method, Path string
 	// Stream answers lines of JSON, not one Response.
 	Stream bool
+	// Public is a route the network API takes without a token.
+	Public bool
 }
 
 // Routes are the API's routes.
 var Routes = []Route{
-	{TypeInfo, http.MethodGet, Prefix + "/info", false},
-	{TypeDeploy, http.MethodPost, Prefix + "/deploy", false},
-	{TypeRollback, http.MethodPost, Prefix + "/rollback", false},
-	{TypeStatus, http.MethodGet, Prefix + "/status", false},
-	{TypeSet, http.MethodPost, Prefix + "/set", false},
-	{TypePause, http.MethodPost, Prefix + "/pause", false},
-	{TypeResume, http.MethodPost, Prefix + "/resume", false},
-	{TypeTail, http.MethodGet, Prefix + "/tail", true},
-	{TypeEvents, http.MethodGet, Prefix + "/events", true},
-	{TypeMatter, http.MethodGet, Prefix + "/matter", false},
-	{TypeBackup, http.MethodPost, Prefix + "/backup", false},
+	{TypeInfo, http.MethodGet, Prefix + "/info", false, false},
+	{TypeDeploy, http.MethodPost, Prefix + "/deploy", false, false},
+	{TypeRollback, http.MethodPost, Prefix + "/rollback", false, false},
+	{TypeStatus, http.MethodGet, Prefix + "/status", false, false},
+	{TypeSet, http.MethodPost, Prefix + "/set", false, false},
+	{TypePause, http.MethodPost, Prefix + "/pause", false, false},
+	{TypeResume, http.MethodPost, Prefix + "/resume", false, false},
+	{TypeTail, http.MethodGet, Prefix + "/tail", true, false},
+	{TypeEvents, http.MethodGet, Prefix + "/events", true, false},
+	{TypeMatter, http.MethodGet, Prefix + "/matter", false, false},
+	{TypeBackup, http.MethodPost, Prefix + "/backup", false, false},
 
-	{TypeSecrets, http.MethodGet, Prefix + "/secrets", false},
-	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set", false},
-	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false},
+	{TypeSecrets, http.MethodGet, Prefix + "/secrets", false, false},
+	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set", false, false},
+	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false, false},
 
-	{TypeDevices, http.MethodGet, Prefix + "/devices", false},
-	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name", false},
-	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room", false},
-	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false},
-	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false},
-	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false},
-	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore", false},
+	{TypeDevices, http.MethodGet, Prefix + "/devices", false, false},
+	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name", false, false},
+	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room", false, false},
+	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false, false},
+	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false, false},
+	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false, false},
+	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore", false, false},
 
-	{TypeClients, http.MethodGet, Prefix + "/clients", false},
-	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false},
-	{TypeClientRevoke, http.MethodPost, Prefix + "/clients/revoke", false},
-	{TypeLogin, http.MethodPost, Prefix + "/login", false},
+	{TypeClients, http.MethodGet, Prefix + "/clients", false, false},
+	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false, false},
+	{TypeClientRevoke, http.MethodPost, Prefix + "/clients/revoke", false, false},
+	{TypeLogin, http.MethodPost, Prefix + "/login", false, true},
 }
-
-// LoginPath is the one route the network API takes without a token.
-const LoginPath = Prefix + "/login"
 
 func routeOf(requestType string) (Route, bool) {
 	for _, r := range Routes {
@@ -195,6 +194,8 @@ type Response struct {
 	Address string `json:"address,omitempty"`
 	// Client is who a login made.
 	Client string `json:"client,omitempty"`
+	// Close ends the connection after the answer, as a failed login does.
+	Close bool `json:"-"`
 	// Pin is the network API's public key, as a client checks it. It's empty while the host has no
 	// network listener.
 	Pin string `json:"pin,omitempty"`
