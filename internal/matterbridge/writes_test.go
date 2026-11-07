@@ -144,61 +144,61 @@ func TestCoalescerOrdersWrites(t *testing.T) {
 	}
 }
 
-// slowDevice is a Setter whose first write hangs until a second write arrives, or for a while if
-// none does, and which notes any write that started while another was still going.
+// slowDevice is a Setter whose first write hangs until the test lets it go, and which notes any
+// write that started while another was still going.
 type slowDevice struct {
 	recorder
-	started  chan struct{}
-	second   chan struct{}
-	mu       sync.Mutex
-	calls    int
-	inFlight int
-	overlap  bool
+	started chan struct{}
+	release chan struct{}
+	mu      sync.Mutex
+	calls   int
+	going   int
+	overlap bool
 }
 
 func (d *slowDevice) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	d.mu.Lock()
 	d.calls++
 	first := d.calls == 1
-	d.inFlight++
-	if d.inFlight > 1 {
-		d.overlap = true
-	}
+	d.going++
+	d.overlap = d.overlap || d.going > 1
 	d.mu.Unlock()
 	if first {
 		close(d.started)
-		select {
-		case <-d.second:
-		case <-time.After(100 * time.Millisecond): // the fix: nothing comes while this one is sent
-		}
-	} else if d.calls == 2 {
-		close(d.second)
+		<-d.release
 	}
 	err := d.recorder.Set(ctx, dev, name, value)
 	d.mu.Lock()
-	d.inFlight--
+	d.going--
 	d.mu.Unlock()
 	return err
 }
 
-// A burst that ends while the last is still being sent waits for it, so the device ends on the
-// latest write however slow it is.
+// A burst that ends while the last is still being sent waits for it, and gathers writes meanwhile,
+// so the device ends on the latest of them however slow it is.
 func TestCoalescerSendsADevicesBurstsInOrder(t *testing.T) {
-	dev := &slowDevice{started: make(chan struct{}), second: make(chan struct{})}
+	dev := &slowDevice{started: make(chan struct{}), release: make(chan struct{})}
 	clk := clock.NewFake(time.Date(2026, 11, 7, 20, 0, 0, 0, time.UTC))
-	c := &Coalescer{Setter: dev, Current: reports(false), Window: window, Timeout: time.Second, Clock: clk}
+	ended := make(chan struct{}, 2)
+	c := &Coalescer{Setter: dev, Current: reports(nil), Window: window, Timeout: time.Second, Clock: clk,
+		ended: func(ident.ID) { ended <- struct{}{} }}
 	c.Start(t.Context())
-	c.Add(porchFan, capability.On, true)
+	c.Add(deskLamp, capability.On, true)
 	clk.Step(window)
 	<-dev.started
-	c.Add(porchFan, capability.On, false)
+	<-ended
+	c.Add(deskLamp, capability.On, false)
 	clk.Step(window)
-	c.Add(porchFan, capability.On, false) // joins the waiting burst
+	<-ended // the second burst is over, and the first is still being sent
+	c.Add(deskLamp, capability.Brightness, 40.0)
+	c.Add(deskLamp, capability.On, true)
+	close(dev.release)
+	clk.Step(window) // ends any burst that started anew, so a regression fails rather than hangs
 	c.flushes.Wait()
 	if dev.overlap {
 		t.Error("a burst was sent while the last was still being sent")
 	}
-	want := []string{"porch-fan on=true", "porch-fan on=false"}
+	want := []string{"desk-lamp on=true", "desk-lamp brightness=40"}
 	if got := dev.list(); !slices.Equal(got, want) {
 		t.Errorf("writes %v, want %v", got, want)
 	}

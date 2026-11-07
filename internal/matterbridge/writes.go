@@ -55,6 +55,8 @@ type Coalescer struct {
 	ctx     context.Context
 	// flushes counts the bursts gathering or being sent.
 	flushes sync.WaitGroup
+	// ended, if set, hears a burst end, before it waits for the last to be sent. Tests use it.
+	ended func(ident.ID)
 }
 
 // Start sets the context writes run in. Call it before Add.
@@ -125,8 +127,14 @@ func (c *Coalescer) flush(dev ident.ID) {
 		c.sending[dev] = sending
 	}
 	c.mu.Unlock()
+	if c.ended != nil {
+		c.ended(dev)
+	}
 	sending.Lock()
 	defer sending.Unlock()
+	if c.ctx.Err() != nil {
+		return // shutting down: a write now would only fail
+	}
 	c.mu.Lock()
 	delete(c.waiting, dev)
 	var writes []write
