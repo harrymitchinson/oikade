@@ -410,7 +410,7 @@ func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, unti
 			wait = min(wait, rest)
 		}
 		timer := e.Clock.NewTimer(wait)
-		unpark := e.Park(e.Clock.Now().Add(wait), changed)
+		unpark := e.park(ctx, e.Clock.Now().Add(wait), changed)
 		select {
 		case <-ctx.Done():
 			timer.Stop()

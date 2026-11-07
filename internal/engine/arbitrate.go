@@ -910,7 +910,9 @@ const saveTimeout = 5 * time.Second
 // then saves what's left. A failed save is tried again.
 func (e *Engine) saveControls(ctx context.Context) {
 	var retry <-chan time.Time
-	asked := false
+	// owed is a save asked for and not yet made: busy counts it until a save succeeds, so a failed
+	// one waiting to retry isn't idle.
+	owed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -919,15 +921,17 @@ func (e *Engine) saveControls(ctx context.Context) {
 			e.saveDevices(last)
 			return
 		case <-e.saveWake:
-			asked = true
+			if owed {
+				e.busy.Add(-1) // already counted
+			}
+			owed = true
 		case <-retry:
 		}
 		retry = nil
 		if failed := e.saveDevices(ctx); len(failed) > 0 {
 			retry = time.After(retryFailed)
-		}
-		if asked {
-			asked = false
+		} else if owed {
+			owed = false
 			e.busy.Add(-1)
 		}
 	}

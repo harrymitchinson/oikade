@@ -268,8 +268,12 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	edited := railEntry
 	edited.MinimumOff = control.Duration(time.Minute)
 	r.setControl(edited)
-	// The edit is handled with the write still held: it's all the engine has left.
-	r.eventually("the edit", func() bool { return r.e.busy.Load() == 1 })
+	r.eventually("the edit to reach the arbiter", func() bool {
+		r.e.mu.Lock()
+		defer r.e.mu.Unlock()
+		ar := r.e.arbs[ident.ID{Namespace: ns, Name: "towel-rail"}][capability.On]
+		return ar != nil && ar.spec.MinimumOff == edited.MinimumOff
+	})
 	close(g.open)
 	r.settle()
 	r.expect(call{"towel-rail", capability.On, true})

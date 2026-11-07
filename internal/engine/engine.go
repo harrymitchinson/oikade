@@ -687,15 +687,28 @@ func (e *Engine) Resume(ctx context.Context, key ident.ID, body Body) bool {
 
 // launch runs body as the rule's run in progress. Call with e.mu held.
 func (e *Engine) launch(ctx context.Context, key ident.ID, s *state, body Body) {
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(context.WithValue(ctx, inRun{}, true))
+	// A run cancelled while it waits is busy again until it ends: it no longer waits for anything.
+	// ended makes sure that's counted once, and only before the run ends.
+	var ended atomic.Bool
 	s.run++
-	s.cancel = cancel
+	s.cancel = func() {
+		if ended.CompareAndSwap(false, true) {
+			e.busy.Add(1)
+		}
+		cancel()
+	}
 	run := s.run
 	if e.OnStart != nil {
 		e.OnStart(key, e.Clock.Now())
 	}
 	e.goBusy(func() {
 		defer cancel()
+		defer func() {
+			if !ended.CompareAndSwap(false, true) {
+				e.busy.Add(-1) // the cancel's
+			}
+		}()
 		result := body(runCtx)
 		e.count(key, result)
 		if e.OnEnd != nil {
@@ -755,7 +768,7 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 	for _, a := range c.actions {
 		if a.delay > 0 {
 			timer := e.Clock.NewTimer(a.delay)
-			unpark := e.Park(e.Clock.Now().Add(a.delay), nil)
+			unpark := e.park(ctx, e.Clock.Now().Add(a.delay), nil)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -870,9 +883,20 @@ type parking struct {
 	woken <-chan struct{}
 }
 
+// inRun marks a run's context: the run is counted as busy, so it stops counting while it waits.
+type inRun struct{}
+
+// park is Park for a wait with ctx: one outside a run, such as a test's, only tells OnPark.
+func (e *Engine) park(ctx context.Context, wake time.Time, woken <-chan struct{}) (unpark func()) {
+	if ctx.Value(inRun{}) == nil {
+		return e.OnPark.Wait(wake, woken)
+	}
+	return e.Park(wake, woken)
+}
+
 // Park says a run of this engine's, such as a flow's, is waiting until wake, or until woken closes
 // if that's not nil, and returns what the run calls when it stops waiting. While it waits, it isn't
-// busy. OnPark hears it too.
+// busy. OnPark hears it too. Call it only from a run the engine started.
 func (e *Engine) Park(wake time.Time, woken <-chan struct{}) (unpark func()) {
 	e.parkMu.Lock()
 	id := e.parkSeq
@@ -888,6 +912,19 @@ func (e *Engine) Park(wake time.Time, woken <-chan struct{}) (unpark func()) {
 		delete(e.parked, id)
 		e.parkMu.Unlock()
 	}
+}
+
+// ParkedUntil is the earliest time a parked run wakes, or zero if none is parked.
+func (e *Engine) ParkedUntil() time.Time {
+	e.parkMu.Lock()
+	defer e.parkMu.Unlock()
+	var next time.Time
+	for _, p := range e.parked {
+		if next.IsZero() || p.wake.Before(next) {
+			next = p.wake
+		}
+	}
+	return next
 }
 
 // parkedWaiting says every parked run is still waiting: its time hasn't come and nothing woke it.
