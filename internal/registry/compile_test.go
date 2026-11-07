@@ -58,7 +58,7 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			OffDelay: 5 * time.Minute,
 		}},
 		Moments: []framework.Moment{{
-			Name: "goodnight", At: []string{"23:30"},
+			Name: "goodnight", At: []framework.Time{framework.Clock("23:30")},
 			On:   []framework.Change{PorchSensor.Occupied, framework.InRoom("porch", framework.Occupied)},
 			Do: []framework.Action{
 				framework.InRoom("living-room", framework.On).To(false),

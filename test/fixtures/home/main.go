@@ -224,7 +224,7 @@ func main() {
 	// A time of day comes from the test, which seeds when it was last accounted for.
 	if at := os.Getenv("OIKADE_TEST_AT"); at != "" {
 		extra = append(extra, framework.Moment{
-			Name: "timed", At: []string{at},
+			Name: "timed", At: []framework.Time{framework.Clock(at)},
 			Do: []framework.Action{on("timed-out").To(true)},
 		})
 	}
