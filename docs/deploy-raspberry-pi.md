@@ -7,7 +7,7 @@ Oikade runs as one process on one machine, so one Pi is all a home needs ([OIK-1
 **What you need:** a Raspberry Pi 4 or 5 with a 64-bit OS, booting from an SSD if you can, on the same subnet as your iPhone and home hub, with IPv6 on. You run [Zigbee2MQTT](https://www.zigbee2mqtt.io) and an MQTT broker yourself, on this Pi or another. Your Mac needs Go, and `oikade`:
 
 ```sh
-go install github.com/harrymitchinson/oikade/cmd/oikade@main
+go install github.com/harrymitchinson/oikade/cmd/oikade@<version>   # the release the Pi runs
 ```
 
 **Install.** On the Pi, put the release's `oikade-linux-arm64` at `/usr/local/bin/oikade`:
@@ -15,6 +15,7 @@ go install github.com/harrymitchinson/oikade/cmd/oikade@main
 ```sh
 curl -fsSLo oikade https://github.com/harrymitchinson/oikade/releases/download/<version>/oikade-linux-arm64
 sudo install -m 755 oikade /usr/local/bin/oikade
+sudo useradd --system --home-dir /var/lib/oikade --shell /usr/sbin/nologin oikade
 ```
 
 Then write `/etc/systemd/system/oikade.service`. `--api-addr` is how your Mac reaches it:
@@ -26,9 +27,13 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+User=oikade
 ExecStart=/usr/local/bin/oikade host --api-addr :8443 --broker mqtt://oikade@broker:1883 --broker-password-secret broker
 StateDirectory=oikade
+StateDirectoryMode=0700
 Restart=always
+RestartSec=2
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
@@ -77,11 +82,12 @@ The second part is Zigbee2MQTT's own data directory, wherever you keep it, which
 
 The copy holds your secrets and the bridge's keys in the clear, so keep it private.
 
-**Restore to a new Pi.** Install it as above, but don't start it. The same address and subnet keep the Home app happy, and nothing needs pairing again:
+**Restore to a new Pi.** Install the binary, the user and the unit as above, but run `sudo systemctl enable oikade` without `--now`, so the host doesn't start on an empty directory. The same address and subnet keep the Home app happy, and nothing needs pairing again:
 
 ```sh
+ssh new-pi sudo install -d -m 700 /var/lib/oikade
 rsync -a --rsync-path="sudo rsync" pi-backup/oikade/ new-pi:/var/lib/oikade/
-ssh new-pi 'cd /var/lib/oikade && sudo cp "$(sudo ls -d backups/* | tail -1)" oikade.db && sudo systemctl enable --now oikade'
+ssh new-pi "sudo sh -c 'cd /var/lib/oikade && cp \"\$(ls -d backups/* | tail -1)\" oikade.db && chown -R oikade: . && systemctl start oikade'"
 ```
 
 The `cp` puts the snapshot where the store goes, since the `oikade.db` in the copy was changing as it was copied. A controller paired since that backup isn't in it, and needs pairing again. The pin and your logins come back with it, so your Mac carries on as before.
@@ -90,11 +96,12 @@ The `cp` puts the snapshot where the store goes, since the `oikade.db` in the co
 
 ```sh
 sudo oikade backup
+sudo cp -p /usr/local/bin/oikade /usr/local/bin/oikade.previous
 sudo install -m 755 oikade /usr/local/bin/oikade     # the new release's oikade-linux-arm64
 sudo systemctl restart oikade
 ```
 
-Matter stops with the host, so the Home app shows no response until it's back. If the new version doesn't come up, put the old binary back and restart. Afterwards, update `oikade` in your home's `go.mod` and run `oikade deploy`, as your code is built against the old version.
+Matter stops with the host, so the Home app shows no response until it's back. If the new version doesn't come up, `sudo install -m 755 /usr/local/bin/oikade.previous /usr/local/bin/oikade` and restart. Afterwards, `go install` the same version on your Mac, update `oikade` in your home's `go.mod` and run `oikade deploy`, as your code is built against the old version.
 
 **Monitor.** Oikade serves Prometheus metrics, so point any Prometheus at it. This job is the whole of what it needs:
 

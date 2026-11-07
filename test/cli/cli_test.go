@@ -229,4 +229,9 @@ func TestRemovedCommandsAreUnknown(t *testing.T) {
 			t.Errorf("oikade %s: %v: %s", strings.Join(args, " "), err, out)
 		}
 	}
+	for _, help := range []string{"help", "-h", "--help"} {
+		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "Usage:") {
+			t.Errorf("oikade %s: %v: %s", help, err, out)
+		}
+	}
 }

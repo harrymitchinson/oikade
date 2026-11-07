@@ -48,7 +48,7 @@ oikade init
 oikade test
 ```
 
-`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, over the [network API](#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. `oikade types` replaces `devices.go` once you have real devices.
+`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, over the [network API](#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. GitHub's own runners can reach the host only if its API is on the internet, which it shouldn't be, so run the job on a self-hosted runner on your network, or join the runner to your network over a VPN first. `oikade types` replaces `devices.go` once you have real devices.
 
 ```go
 func home() framework.Home {
@@ -403,7 +403,7 @@ Drivers translate to and from a protocol-neutral set of capabilities. Matter, me
 
 A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. Devices it serves are ordinary devices: they show up on the Matter bridge, in Grafana and in rules like Zigbee ones.
 
-On a host, a plugin is a Go module your home imports, in `framework.Home`'s `Plugins`, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as you, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
+On a host, a plugin is a Go module your home imports, in `framework.Home`'s `Plugins`, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as the host's user, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
 
 To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
@@ -427,7 +427,11 @@ Removing a Safety rule is refused, and so is renaming one, because a rule's clai
 
 ## Running the host
 
-The host is one long-running process, `oikade host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Put the binary from a [release](https://github.com/harrymitchinson/oikade/releases) at `/usr/local/bin/oikade` and run it under systemd:
+The host is one long-running process, `oikade host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Put the binary from a [release](https://github.com/harrymitchinson/oikade/releases) at `/usr/local/bin/oikade`, make a user for it that nobody logs in as, and run it under systemd:
+
+```sh
+sudo useradd --system --home-dir /var/lib/oikade --shell /usr/sbin/nologin oikade
+```
 
 ```ini
 # /etc/systemd/system/oikade.service
@@ -437,9 +441,13 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+User=oikade
 ExecStart=/usr/local/bin/oikade host --data-dir /var/lib/oikade --api-addr :8443
 StateDirectory=oikade
+StateDirectoryMode=0700
 Restart=always
+RestartSec=2
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
@@ -449,7 +457,7 @@ WantedBy=multi-user.target
 sudo systemctl enable --now oikade
 ```
 
-Add any other flags for `oikade host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. On the host's own machine, commands use the socket in the data directory, so run them as root, or give the unit a `User=` and run them as that user.
+Add any other flags for `oikade host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. On the host's own machine, commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
 
 ### In Docker
 
@@ -461,7 +469,7 @@ docker run -d --name oikade --restart unless-stopped --network host \
 docker exec oikade oikade status
 ```
 
-Add `--api-addr :8443` to reach it from other machines over the [network API](#the-network-api), and run `docker exec oikade oikade client add laptop` to log in. To upgrade, run `oikade backup`, then replace the container on the same volume.
+Add `--api-addr :8443` to reach it from other machines over the [network API](#the-network-api), and run `docker exec oikade oikade client add laptop` to log in. To upgrade, run `docker exec oikade oikade backup`, then replace the container on the same volume.
 
 ### Secrets
 
@@ -480,12 +488,13 @@ A broker's password belongs in a secret, not a flag: use `--broker mqtt://oikade
 ### Upgrading the host
 
 ```sh
-sudo oikade backup                          # a snapshot of the store, in backups/
-sudo cp oikade /usr/local/bin/oikade        # the new version
+sudo oikade backup                                              # a snapshot of the store, in backups/
+sudo cp -p /usr/local/bin/oikade /usr/local/bin/oikade.previous # to go back to
+sudo install -m 755 oikade /usr/local/bin/oikade                # the new version, as a new file
 sudo systemctl restart oikade
 ```
 
-Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back, and the Home app shows the bridge as not responding until it reconnects. The new `oikade` opens the same data directory, so nothing needs pairing again. If it doesn't come up, put the old binary back and restart.
+Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back, and the Home app shows the bridge as not responding until it reconnects. The new `oikade` opens the same data directory, so nothing needs pairing again. If it doesn't come up, `sudo install -m 755 /usr/local/bin/oikade.previous /usr/local/bin/oikade` and restart. Update `oikade` on the machines you run commands from to the same version, as an older or newer client may not speak this host's API.
 
 A new host may speak a new protocol to your code, in which case your process is turned away until you bump `oikade` in your module and deploy. Do that straight after upgrading.
 
@@ -658,7 +667,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 
 - The API is a Unix socket only the host's user can reach. With `--api-addr` it's on the network too, over TLS 1.3, and every call needs a token, which is as good as a login on the host. Keep it off the open internet.
 - The metrics listener is read-only, but open to whoever can reach the port, and it shows device names and values. Move it with `--metrics-addr`.
-- Importing a plugin means trusting its code, because it runs as you.
+- Importing a plugin means trusting its code, because it runs as the host's user.
 - An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password, and keep it in a [secret](#secrets).
 
 ## Logging

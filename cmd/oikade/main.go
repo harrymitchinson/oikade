@@ -124,6 +124,8 @@ func main() {
 		err = runLogin(ctx, args)
 	case "version":
 		fmt.Println(currentVersion())
+	case "help", "-h", "--help":
+		fmt.Println(usage)
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown command %s\n\n%s\n", command, usage)
 		os.Exit(2)
