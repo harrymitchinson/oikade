@@ -1,6 +1,7 @@
 package hometest_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -265,4 +266,36 @@ func TestTheSameTimeTwiceFiresOnce(t *testing.T) {
 	if got := h.Writes(); len(got) != 1 {
 		t.Errorf("writes %+v, want one", got)
 	}
+}
+
+// A hold over a room runs on the sensors that have reported, and waits while none has.
+func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
+	cellar := func(name string) framework.Handle[float64] {
+		return framework.Handle[float64]{Device: name, Capability: framework.Humidity}
+	}
+	dehumidifier := framework.Handle[bool]{Device: "dehumidifier", Capability: framework.On}
+	home := framework.Home{Holds: []framework.Hold{{
+		Name: "cellar-damp", Set: dehumidifier.To(true),
+		When: func(s framework.State) bool {
+			return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
+		},
+	}}}
+	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+		{Name: "cellar-1", Room: "cellar", Capabilities: []string{humidity}},
+		{Name: "cellar-2", Room: "cellar", Capabilities: []string{humidity}},
+		{Name: "cellar-3", Room: "cellar", Capabilities: []string{humidity}},
+		{Name: "attic", Room: "attic", Capabilities: []string{humidity}, Values: map[string]any{humidity: 90.0}},
+		{Name: "dehumidifier", Capabilities: []string{on}, Values: map[string]any{on: false}},
+	}})
+	h.Advance(5 * time.Minute)
+	if got := len(h.Writes()); got != 0 {
+		t.Fatalf("wrote before any cellar sensor reported: %v", h.Writes())
+	}
+	h.Set(cellar("cellar-1"), 50.0)
+	h.Advance(time.Minute)
+	h.ExpectValue(dehumidifier, false)
+	h.Set(cellar("cellar-2"), 70.0)
+	h.ExpectValue(dehumidifier, true)
+	h.Set(cellar("cellar-2"), 60.0)
+	h.ExpectValue(dehumidifier, false)
 }

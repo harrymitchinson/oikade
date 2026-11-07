@@ -196,7 +196,7 @@ type budgetState struct {
 // budgetCondition plans the day if it hasn't been, credits the target's run, and reports
 // whether the plan wants the target on now, and when that next changes. It never returns
 // unknown: a budget that can't be planned keeps the target off. Call with e.mu held.
-func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices map[string]map[string]any) (on bool, next time.Time) {
+func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices *home) (on bool, next time.Time) {
 	h, hs := s.c.hold, s.hold
 	if hs.budget == nil {
 		hs.budget = &budgetState{}
@@ -233,10 +233,8 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 				}
 				return &schedule.Reading{Value: capability.Float(v), At: in.LastSeen}
 			}
-			if devices == nil {
-				devices = e.Store.Values(key.Namespace)
-			}
-			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, devices, read))}
+			vars := e.conditionVars(key.Namespace, now, devices)
+			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}
 			for _, err := range p.day.Errors {
 				e.Log.Info("Budget planned with an error", "rule", key, "err", err)
 			}

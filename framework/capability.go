@@ -77,7 +77,8 @@ type Room[T Value] struct {
 	capability Capability[T]
 }
 
-// InRoom is capability c of every device in room: a trigger, or with To a write to them all.
+// InRoom is capability c of every device in room: a trigger, a condition's read, as with State's
+// Any, or with To a write to them all.
 func InRoom[T Value](room string, c Capability[T]) Room[T] {
 	return Room[T]{room: room, capability: c}
 }
@@ -91,9 +92,9 @@ func (r Room[T]) change() engine.Change {
 	return engine.Change{Room: r.room, Capability: string(r.capability)}
 }
 
-// Types limits a write to the room's devices of these types, so that turning off the lights
-// leaves the fridge's plug alone. Without it, a room means every device in it with the capability.
-// It's only for writes: a trigger on a room fires for any of its devices.
+// Types limits a write or a read to the room's devices of these types, so that turning off the
+// lights leaves the fridge's plug alone. Without it, a room means every device in it with the
+// capability. A trigger can't take it: a trigger on a room fires for any of its devices.
 //
 //	framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false)
 func (r Room[T]) Types(types ...DeviceType) RoomOfTypes[T] {
@@ -109,10 +110,31 @@ type RoomOfTypes[T Value] struct {
 // To is a write of v to every device in the room of one of the types, with the capability.
 func (r RoomOfTypes[T]) To(v T) Set {
 	s := r.room.To(v)
-	for _, t := range r.types {
-		s.types = append(s.types, devicetype.Type(t))
-	}
+	s.types = engineTypes(r.types)
 	return s
+}
+
+func engineTypes(types []DeviceType) []devicetype.Type {
+	if len(types) == 0 {
+		return nil
+	}
+	out := make([]devicetype.Type, 0, len(types))
+	for _, t := range types {
+		out = append(out, devicetype.Type(t))
+	}
+	return out
+}
+
+// RoomRead is a room's capability a condition reads, with State's Any, All, Count or Readings:
+// InRoom's, or with its Types.
+type RoomRead[T Value] interface {
+	read() (room string, c Capability[T], types []DeviceType)
+}
+
+func (r Room[T]) read() (string, Capability[T], []DeviceType) { return r.room, r.capability, nil }
+
+func (r RoomOfTypes[T]) read() (string, Capability[T], []DeviceType) {
+	return r.room.room, r.room.capability, r.types
 }
 
 // Change is what triggers a moment or a flow: a capability changing on a device, as a Handle, or on

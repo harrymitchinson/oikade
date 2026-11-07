@@ -422,3 +422,15 @@ func TestRetypingADeviceOutOfASafetyRuleNeedsAllowSafety(t *testing.T) {
 	// Nor does a device in another room.
 	r.stdout(nil, "devices", "type", "siren", "OnOffLight")
 }
+
+// A hold that reads a room follows the room's devices as they move, with no deploy.
+func TestMovingASensorChangesAHoldThatReadsItsRoom(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.stdout(nil, "devices", "room", "damp-sensor", "cellar")
+	r.wrote("dehumidifier", true)
+	r.stdout(nil, "devices", "room", "dry-sensor", "cellar")
+	r.stdout(nil, "devices", "room", "damp-sensor", "garage")
+	r.wrote("dehumidifier", false)
+}

@@ -1,6 +1,9 @@
 [
   {"name": "bathroom-sensor", "capabilities": ["humidity"], "values": {"humidity": 50}},
   {"name": "fan", "capabilities": ["on"], "values": {"on": false}},
+  {"name": "damp-sensor", "capabilities": ["humidity"], "values": {"humidity": 80}},
+  {"name": "dry-sensor", "capabilities": ["humidity"], "values": {"humidity": 40}},
+  {"name": "dehumidifier", "capabilities": ["on"], "values": {"on": false}},
   {"name": "leak-sensor", "capabilities": ["open"], "values": {"open": false}},
   {"name": "valve", "capabilities": ["on"], "values": {"on": true},
    "control": [{"capability": "on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]},

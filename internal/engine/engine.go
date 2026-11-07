@@ -508,10 +508,32 @@ func (e *Engine) fireDue(ctx context.Context) {
 const triggerType = "type"
 
 func (e *Engine) vars(namespace string, trigger map[string]any) Vars {
+	v := e.conditionVars(namespace, e.Clock.Now(), nil)
+	v["trigger"] = trigger
+	return v
+}
+
+// home is a namespace's devices as conditions read them: their values, and where they are and
+// what they are. Read it once for every hold a change evaluates.
+type home struct {
+	devices map[string]map[string]any
+	members map[string]hub.Member
+}
+
+func (e *Engine) home(namespace string) *home {
+	return &home{devices: e.Store.Values(namespace), members: e.Store.Members(namespace)}
+}
+
+// conditionVars are what a condition sees at now. h is the namespace's devices, or nil to read
+// them.
+func (e *Engine) conditionVars(namespace string, now time.Time, h *home) Vars {
+	if h == nil {
+		h = e.home(namespace)
+	}
 	return Vars{
-		"devices": e.Store.Values(namespace),
-		"trigger": trigger,
-		"now":     e.Clock.Now(),
+		"devices": h.devices,
+		"members": h.members,
+		"now":     now,
 		"tz":      e.Location.String(),
 	}
 }
@@ -530,7 +552,7 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 	e.outside(ctx, u)
 	now := e.Clock.Now()
 	evaluated := false
-	var devices map[string]map[string]any
+	var devices *home
 	for key, s := range e.rules {
 		if key.Namespace != u.Device.Namespace {
 			continue
@@ -539,7 +561,7 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 		// run as it changes.
 		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.budget != nil && s.c.hold.device == u.Device.Name) {
 			if devices == nil {
-				devices = e.Store.Values(u.Device.Namespace)
+				devices = e.home(u.Device.Namespace)
 			}
 			e.evaluate(ctx, key, s, now, devices)
 			evaluated = true
@@ -553,6 +575,27 @@ func (e *Engine) handle(ctx context.Context, u driver.Update) {
 		// The evaluation may have moved a hold's next look earlier.
 		e.signal()
 	}
+	close(e.changes)
+	e.changes = make(chan struct{})
+}
+
+// membersChanged makes Run evaluate again the holds whose when may read a room in the namespace,
+// as handle does on a change.
+func (e *Engine) membersChanged(namespace string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.Clock.Now()
+	due := false
+	for key, s := range e.rules {
+		if key.Namespace == namespace && s.hold != nil && s.hold.loaded && s.c.hold.when != nil {
+			s.next = fire{At: now}
+			due = true
+		}
+	}
+	if due {
+		e.signal()
+	}
+	// A flow waiting on a room looks again too.
 	close(e.changes)
 	e.changes = make(chan struct{})
 }

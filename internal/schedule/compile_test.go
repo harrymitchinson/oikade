@@ -68,8 +68,8 @@ func TestCompileToPlanInput(t *testing.T) {
 }
 
 func TestCompileMinutes(t *testing.T) {
-	minutes := func(devices map[string]map[string]any, _ time.Time, _ *time.Location) (int, error) {
-		if devices["cellar-humidity"]["humidity"].(float64) > 60 {
+	minutes := func(vars map[string]any, _ time.Time, _ *time.Location) (int, error) {
+		if vars["devices"].(map[string]map[string]any)["cellar-humidity"]["humidity"].(float64) > 60 {
 			return 240, nil
 		}
 		return 90, nil
@@ -83,15 +83,15 @@ func TestCompileMinutes(t *testing.T) {
 	if b.PlanningMinute != 6*60+30 || b.SlotMinutes != 15 {
 		t.Errorf("planning minute %d, slots %d; want 390, 15", b.PlanningMinute, b.SlotMinutes)
 	}
-	in := b.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{
+	in := b.Input(2026, time.July, 4, saturday, paris, map[string]any{"devices": map[string]map[string]any{
 		"cellar-humidity": {"humidity": 72.0},
-	}, nil)
+	}}, nil)
 	if n, err := in.Minutes.Expression(); n != 240 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 240", n, err)
 	}
-	in = b.Input(2026, time.July, 4, saturday, paris, map[string]map[string]any{
+	in = b.Input(2026, time.July, 4, saturday, paris, map[string]any{"devices": map[string]map[string]any{
 		"cellar-humidity": {"humidity": 50.0},
-	}, nil)
+	}}, nil)
 	if n, err := in.Minutes.Expression(); n != 90 || err != nil {
 		t.Errorf("Expression() = %d, %v; want 90", n, err)
 	}
@@ -104,7 +104,7 @@ func TestCompileMinutes(t *testing.T) {
 }
 
 func TestCompileErrors(t *testing.T) {
-	minutes := func(map[string]map[string]any, time.Time, *time.Location) (int, error) {
+	minutes := func(map[string]any, time.Time, *time.Location) (int, error) {
 		return 0, errors.New("unused")
 	}
 	bands := func(capability string, ranges ...Band) Spec {

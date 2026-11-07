@@ -136,8 +136,10 @@ func (e *Engine) ControlChanged(dev ident.ID) {
 }
 
 // Discovered implements driver.Sink: an arbitrated device that has reported can be written, now
-// rather than whenever a write that failed was due to be tried again.
+// rather than whenever a write that failed was due to be tried again. A device is discovered again
+// when it moves room or changes type, which a hold's when may read, so those look again too.
 func (e *Engine) Discovered(dev ident.ID, _ driver.Info) {
+	e.membersChanged(dev.Namespace)
 	if snap, ok := e.Store.Get(dev); ok && len(snap.Control) > 0 {
 		e.mu.Lock()
 		for _, ar := range e.arbs[dev] {
