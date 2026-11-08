@@ -156,18 +156,35 @@ type oneSession struct {
 func (h *oneSession) ID() string { return "one-session" }
 
 // Provides implements mochi.Hook.
-func (h *oneSession) Provides(b byte) bool { return b == mochi.OnSessionEstablish }
+func (h *oneSession) Provides(b byte) bool {
+	return b == mochi.OnSessionEstablish || b == mochi.OnDisconnect
+}
+
+// OnDisconnect implements mochi.Hook. mochi calls it after the Will and Stop, so a kicked
+// connection needs no more waiting for.
+func (h *oneSession) OnDisconnect(cl *mochi.Client, _ error, _ bool) {
+	h.kicked.Delete(cl.Net.Conn)
+}
 
 // OnSessionEstablish implements mochi.Hook. It ends the connection holding clientID and waits for
-// its teardown, Will included. A session that outlives its connection has no teardown to race,
-// and is left to mochi's takeover, as is one still here after 5s.
+// its teardown, Will included. A connection Kick closed is already ending, so it only waits for
+// that: until the session is gone, or, for one that outlives its connection, until mochi has
+// stopped it, which comes after the Will. Any other session that outlives its connection has no
+// teardown to race, and is left to mochi's takeover, as is one still here after 5s.
 func (h *oneSession) OnSessionEstablish(cl *mochi.Client, _ packets.Packet) {
 	for range 5000 {
 		old, ok := h.s.Clients.Get(cl.ID)
-		if !ok || !expiresOnDisconnect(old) {
+		if !ok {
 			return
 		}
-		if _, dropped := h.kicked.Load(old.Net.Conn); !dropped && !old.Closed() {
+		_, kicked := h.kicked.Load(old.Net.Conn)
+		switch {
+		case kicked && !expiresOnDisconnect(old) && old.Closed():
+			return
+		case kicked:
+		case !expiresOnDisconnect(old):
+			return
+		case !old.Closed():
 			_ = h.s.DisconnectClient(old, packets.ErrSessionTakenOver)
 		}
 		time.Sleep(time.Millisecond)
@@ -209,6 +226,8 @@ func (b *Broker) Kick(t testing.TB, clientID string) {
 	if !ok {
 		t.Fatalf("client %s is not connected", clientID)
 	}
-	one.kicked.Store(cl.Net.Conn, struct{}{})
+	if _, again := one.kicked.LoadOrStore(cl.Net.Conn, struct{}{}); again || cl.Closed() {
+		t.Fatalf("client %s is already disconnecting, so no new Will is coming", clientID)
+	}
 	_ = cl.Net.Conn.Close()
 }
