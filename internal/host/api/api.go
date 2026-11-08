@@ -488,12 +488,12 @@ func (c *counting) Read(p []byte) (int, error) {
 // errUnreachable is a call that never reached the host.
 var errUnreachable = errors.New("reaching the host")
 
-// ErrHostStopped is a tail whose host ended it, as a host does when it stops.
+// ErrHostStopped is a tail whose host ended it without saying why, as a host does when it stops.
 var ErrHostStopped = errors.New("the host stopped")
 
 // Tail streams events to each until ctx ends, each returns an error, or the host goes: ErrHostStopped
-// if it ended the stream. It starts once the host is listening, which the first Event, with no type,
-// says.
+// if it stopped, or why it ended the tail if it carries on. It starts once the host is listening,
+// which the first Event, with no type, says.
 func Tail(ctx context.Context, t Transport, each func(Event) error) error {
 	body, err := open(ctx, t, Request{Type: TypeTail})
 	if err != nil {
@@ -517,6 +517,9 @@ func Tail(ctx context.Context, t Transport, each func(Event) error) error {
 		}
 		if e.Type == "" {
 			continue
+		}
+		if e.Type == eventEnd {
+			return fmt.Errorf("the host ended the tail: %s", e.Message)
 		}
 		if err := each(e); err != nil {
 			return err
@@ -556,7 +559,8 @@ func Events(ctx context.Context, t Transport, begin func(EventLog) error, each f
 	}
 }
 
-// LogEnd is the line that closes an event log. A message says it didn't get to the end.
+// LogEnd is the line that closes an event log, where a message says it didn't get to the end, or a
+// tail the host cut off while it carries on, where the message says why.
 func LogEnd(message string) Event { return Event{Type: eventEnd, Message: message} }
 
 // open makes a call, and returns its answer's body: a Response, or a stream's lines. A refused

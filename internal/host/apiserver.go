@@ -117,18 +117,21 @@ func (s *apiServer) authenticated(next http.Handler) http.Handler {
 		}
 		// A revoke ends the client's streams. A call that has begun still finishes, as it does without
 		// its connection.
-		ctx, cancel := context.WithCancel(withCaller(r.Context(), caller{name: name}))
-		defer cancel()
+		ctx, cancel := context.WithCancelCause(withCaller(r.Context(), caller{name: name}))
+		defer cancel(nil)
 		go func() {
 			select {
 			case <-revoked:
-				cancel()
+				cancel(errRevoked)
 			case <-ctx.Done():
 			}
 		}()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+// errRevoked ends a revoked client's calls.
+var errRevoked = errors.New("the client was revoked")
 
 func (s *apiServer) serveWith(l net.Listener, handler http.Handler) {
 	server := &http.Server{
@@ -276,7 +279,8 @@ func (l *lines) end() {
 	_ = l.control.SetWriteDeadline(time.Now().Add(writeTimeout))
 }
 
-// tail streams events until the caller goes, the host stops, or the caller falls behind.
+// tail streams events until the caller goes, the host stops, or the caller falls behind or is
+// revoked, which its last line says. A host that stops says nothing, as one that crashed can't.
 func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("Received API request", "type", api.TypeTail, "client", callerOf(r.Context()).name)
 	events, stop := s.srv.feed.subscribe()
@@ -290,10 +294,17 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case e, ok := <-events:
-			if !ok || !write(e) {
+			if !ok {
+				write(api.LogEnd("it fell behind"))
+				return
+			}
+			if !write(e) {
 				return
 			}
 		case <-r.Context().Done():
+			if errors.Is(context.Cause(r.Context()), errRevoked) {
+				write(api.LogEnd(errRevoked.Error()))
+			}
 			return
 		case <-s.ctx.Done():
 			return

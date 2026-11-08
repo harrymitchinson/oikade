@@ -86,6 +86,10 @@ func TestTailSaysWhetherTheHostEndedIt(t *testing.T) {
 	if len(got) != 1 || got[0].Device != "hall-lamp" {
 		t.Errorf("events: %+v", got)
 	}
+	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"end","message":"it fell behind"}`+"\n"), each)
+	if err == nil || errors.Is(err, ErrHostStopped) || err.Error() != "the host ended the tail: it fell behind" {
+		t.Errorf("a tail the host cut off: %v", err)
+	}
 	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"cha`), each)
 	if err == nil || errors.Is(err, ErrHostStopped) || !strings.HasPrefix(err.Error(), "lost the host") {
 		t.Errorf("a stream cut off mid-line: %v", err)

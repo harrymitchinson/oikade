@@ -143,14 +143,18 @@ func TestRevokingEndsATailAndAStrangerCantHoldAConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	ended := make(chan struct{})
+	ended := make(chan []byte, 1)
 	go func() {
-		defer close(ended)
-		_, _ = io.Copy(io.Discard, resp.Body)
+		streamed, _ := io.ReadAll(resp.Body)
+		ended <- streamed
 	}()
 	r.stdout(nil, "client", "revoke", "laptop")
 	select {
-	case <-ended:
+	case streamed := <-ended:
+		// It says why, so the tail isn't taken for a host that stopped.
+		if !strings.Contains(string(streamed), `{"type":"end","message":"the client was revoked"`) {
+			t.Errorf("a revoked client's tail ended with %s", streamed)
+		}
 	case <-time.After(waitLimit):
 		t.Error("a revoked client's tail kept streaming")
 	}
