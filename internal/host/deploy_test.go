@@ -474,6 +474,30 @@ func TestARefusedDeployLeavesTheHomeBinaryOffTheRecord(t *testing.T) {
 	}
 }
 
+// Deploying the binary from the flags changes nothing, but it counts as deployed only if it passes
+// its check.
+func TestDeployingTheHomeBinaryItself(t *testing.T) {
+	passes := "echo '{\"protocol\":" + strconv.Itoa(wire.Version) + "}'"
+	for _, tc := range []struct {
+		name, body string
+		kept       bool
+	}{
+		{"passes its check", passes, true},
+		{"fails its check", "echo broken >&2; exit 1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v, closeStore := openTestVersions(t, t.TempDir())
+			defer closeStore()
+			d := &deployer{log: logging.Discard(), versions: v, home: script(t, tc.body)}
+			d.running = d.home
+			resp := d.deploy(context.Background(), d.home, false)
+			if _, ok := v.current(); ok != tc.kept || resp.Unchanged != tc.kept || (resp.Error == "") != tc.kept {
+				t.Fatalf("got %+v, %+v", resp, v.state)
+			}
+		})
+	}
+}
+
 // The home binary goes on record with the deploy that gets past its check, in one write, so a crash
 // at any point after it still has the home binary to go back to.
 func TestBeginningFromTheHomeBinaryRecordsBoth(t *testing.T) {

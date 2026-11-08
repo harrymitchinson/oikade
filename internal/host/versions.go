@@ -206,28 +206,25 @@ func (v *versions) adopt(next version) error {
 // begin makes next the running version, unconfirmed. Call it before the process changes.
 func (v *versions) begin(next version, spared []string) error {
 	rest := slices.DeleteFunc(slices.Clone(v.state.Versions), func(k version) bool { return k.ID == next.ID })
-	return v.pending(append([]version{next}, rest...), spared)
+	return v.pending(append([]version{next}, rest...), slices.Clone(v.state.Versions), spared)
 }
 
 // beginFromHome is begin for a first deploy, over a binary from the host's flags that isn't on record.
 // One write records both, so the home binary is on record only if the deploy went ahead, and a crash
 // after it still has the home binary to go back to.
 func (v *versions) beginFromHome(home, next version, spared []string) error {
-	return v.save(history{
-		Versions: []version{next, home}, Before: []version{home}, Pending: true,
-		Removals: v.state.Removals, Spared: spared,
-	})
+	return v.pending([]version{next, home}, []version{home}, spared)
 }
 
 // beginRollback makes next, the version before the running one, the running one, unconfirmed. The
 // running one leaves the history, so that another rollback goes back further rather than to it.
 func (v *versions) beginRollback(next version, spared []string) error {
-	return v.pending(append([]version{next}, v.state.Versions[2:]...), spared)
+	return v.pending(append([]version{next}, v.state.Versions[2:]...), slices.Clone(v.state.Versions), spared)
 }
 
-func (v *versions) pending(next []version, spared []string) error {
+func (v *versions) pending(next, before []version, spared []string) error {
 	return v.save(history{
-		Versions: next, Before: slices.Clone(v.state.Versions), Pending: true,
+		Versions: next, Before: before, Pending: true,
 		Removals: v.state.Removals, Spared: spared,
 	})
 }

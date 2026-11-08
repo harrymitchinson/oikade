@@ -46,6 +46,8 @@ func mapIterators(r *framework.FlowRun) error {
 	}
 	for range (maps.Keys(m)) { // want `ranging over a map inside a flow`
 	}
+	for range slices.Collect(maps.Keys(m)) { // want `ranging over a map inside a flow`
+	}
 	for range slices.Sorted(maps.Keys(m)) {
 	}
 	return nil

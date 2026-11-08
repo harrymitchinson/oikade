@@ -122,17 +122,27 @@ func checkBody(pass *analysis.Pass, body *ast.BlockStmt) {
 	})
 }
 
-// rangesOverMap reports whether what a range statement ranges over gives a map's order.
+// rangesOverMap reports whether what a range statement ranges over gives a map's order, which
+// slices.Collect keeps.
 func rangesOverMap(pass *analysis.Pass, x ast.Expr) bool {
 	if _, ok := pass.TypesInfo.TypeOf(x).Underlying().(*types.Map); ok {
 		return true
 	}
+	fn, call := callee(pass, x)
+	if fn != nil && fn.Pkg() != nil && fn.Pkg().Path() == "slices" && fn.Name() == "Collect" && len(call.Args) == 1 {
+		fn, _ = callee(pass, call.Args[0])
+	}
+	return fn != nil && fn.Pkg() != nil && fn.Pkg().Path() == "maps" && mapIterators[fn.Name()]
+}
+
+// callee returns the function x calls, or nil if x isn't a call of one.
+func callee(pass *analysis.Pass, x ast.Expr) (*types.Func, *ast.CallExpr) {
 	call, ok := ast.Unparen(x).(*ast.CallExpr)
 	if !ok {
-		return false
+		return nil, nil
 	}
-	fn, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
-	return ok && fn.Pkg() != nil && fn.Pkg().Path() == "maps" && mapIterators[fn.Name()]
+	fn, _ := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+	return fn, call
 }
 
 // isDo reports whether a call is FlowRun.Do, whose last argument is the outside call.
