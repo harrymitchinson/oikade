@@ -26,8 +26,9 @@ const (
 	RolePlugin = pluginwire.RolePlugin
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
 	RoleCheck = "check"
-	// KindFlow is the Kind of a RuleInfo for a flow.
+	// KindFlow is the Kind of a RuleInfo for a flow, and KindHold for a hold.
 	KindFlow = "flow"
+	KindHold = "hold"
 	// SocketEnv names the host's socket to the process it starts.
 	SocketEnv = "OIKADE_SOCKET"
 )
@@ -37,7 +38,7 @@ type Type = pluginwire.Type
 
 // Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change and
 // Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun,
-// RoomReads and Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
+// RoomReads, Stopped and Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
 // session has only Hello, Welcome or Rejected, Ping, Pong and Publish, which flows both ways.
 const (
 	TypeHello           = pluginwire.TypeHello
@@ -64,6 +65,7 @@ const (
 	TypeResume     Type = "resume"
 	TypeRuleRun    Type = "ruleRun"
 	TypeRoomReads  Type = "roomReads"
+	TypeStopped    Type = "stopped"
 	TypeMetrics    Type = "metrics"
 	TypePublish         = pluginwire.TypePublish
 )
@@ -203,6 +205,9 @@ type Message struct {
 
 	// Reads are a RoomReads': every room its Rule's hold has read since the process started.
 	Reads []engine.RoomRead `json:"reads,omitempty"`
+	// Stopped is a Stopped's: why its Rule's hold couldn't tell whether it should be active. Empty
+	// means it can again.
+	Stopped string `json:"stopped,omitempty"`
 	// Result is a RuleRun's, with Rule and Time.
 	Result string `json:"result,omitempty"`
 	// Metrics is a Metrics message's: the process's rule metrics in Prometheus's text format.

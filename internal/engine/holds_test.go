@@ -681,3 +681,56 @@ func TestAClaimedMemberThatLeavesARoomHoldIsReleased(t *testing.T) {
 		t.Fatalf("got %s after it left the porch, want its claim gone", got)
 	}
 }
+
+// OIK-215: oikade status says why a hold keeps its state, and since when it's been active.
+func TestAHoldSaysWhyItStoppedAndWhenItStarted(t *testing.T) {
+	var mu sync.Mutex
+	var heard []string
+	r := startRigWith(t, rigOptions{now: local("2026-10-21 12:00 BST")})
+	r.e.mu.Lock()
+	r.e.OnStopped = func(key ident.ID, why string) {
+		mu.Lock()
+		defer mu.Unlock()
+		heard = append(heard, key.Name+": "+why)
+	}
+	r.e.mu.Unlock()
+	r.e.Load(holdRule(t, "workshop-overheat", overheat))
+	r.settle()
+	r.at("2026-10-21 12:05 BST")
+	r.change("workshop-temp", capability.Temperature, 50.0)
+	r.expect(call{"workshop-heater", capability.On, false})
+
+	mu.Lock()
+	want := []string{"workshop-overheat: workshop-temp temperature hasn't reported", "workshop-overheat: "}
+	if !slices.Equal(heard, want) {
+		t.Errorf("heard %q, want %q", heard, want)
+	}
+	mu.Unlock()
+	st, _ := r.e.States.Get(ident.ID{Name: "workshop-overheat"})
+	if !st.Active || !st.Since.Equal(local("2026-10-21 12:05 BST")) {
+		t.Errorf("saved %+v, want active since 12:05", st)
+	}
+}
+
+// A paused hold is unloaded, and comes back with nothing stopped, so the host mustn't keep its reason.
+func TestAnUnloadedHoldIsNoLongerStopped(t *testing.T) {
+	var mu sync.Mutex
+	var heard []string
+	r := startRigWith(t, rigOptions{now: local("2026-10-21 12:00 BST")})
+	r.e.mu.Lock()
+	r.e.OnStopped = func(_ ident.ID, why string) {
+		mu.Lock()
+		defer mu.Unlock()
+		heard = append(heard, why)
+	}
+	r.e.mu.Unlock()
+	r.e.Load(holdRule(t, "workshop-overheat", overheat))
+	r.settle()
+	r.e.Unload(ident.ID{Name: "workshop-overheat"})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{"workshop-temp temperature hasn't reported", ""}; !slices.Equal(heard, want) {
+		t.Errorf("heard %q, want %q", heard, want)
+	}
+}

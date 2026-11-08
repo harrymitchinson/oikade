@@ -107,6 +107,9 @@ type session struct {
 	rules []wire.RuleInfo
 	// reads are the rooms each hold has read, by rule, from RoomReads. The server's mu guards them.
 	reads map[string][]engine.RoomRead
+	// stopped is why each hold couldn't tell whether it should be active, by rule, from Stopped. The
+	// server's mu guards it.
+	stopped map[string]string
 }
 
 func (s *session) end() {
@@ -227,6 +230,18 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 				sess.reads = map[string][]engine.RoomRead{}
 			}
 			sess.reads[m.Rule] = m.Reads
+			s.mu.Unlock()
+			continue
+		case wire.TypeStopped:
+			s.mu.Lock()
+			if sess.stopped == nil {
+				sess.stopped = map[string]string{}
+			}
+			if m.Stopped == "" {
+				delete(sess.stopped, m.Rule)
+			} else {
+				sess.stopped[m.Rule] = m.Stopped
+			}
 			s.mu.Unlock()
 			continue
 		}

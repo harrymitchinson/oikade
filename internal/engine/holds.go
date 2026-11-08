@@ -53,6 +53,9 @@ type holdState struct {
 	// emptyRoom is the room with no members that the hold's when last stopped on, so it's
 	// warned about once each time. Empty means none.
 	emptyRoom string
+	// stopped is why the hold's last look couldn't tell whether it should be active, as OnStopped
+	// last heard it. Empty means it could.
+	stopped string
 	// held are the members an active room hold has written or claimed, so one that joins while it's
 	// active is written then, and one that leaves lets go of its claim. heldKnown is false until the
 	// hold starts or first looks in this run: after a restart, the room's members by the registry
@@ -105,6 +108,7 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 		on, next = h.window.at(now, e.Location, e.Site)
 	}
 	if !on || h.when == nil {
+		e.stopped(key, hs, "")
 		return on, true, next
 	}
 	vars := e.conditionVars(now, devices)
@@ -120,6 +124,11 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 		hs.emptyRoom = empty.Room
 		e.Log.Warn("Rule read a Room with no members", "rule", key, "room", empty.Room)
 	}
+	if err != nil {
+		e.stopped(key, hs, err.Error())
+	} else {
+		e.stopped(key, hs, "")
+	}
 	if broken, ok := errors.AsType[brokenCondition](err); ok {
 		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "err", broken)
 		return false, false, next
@@ -129,6 +138,18 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 		return false, false, next
 	}
 	return b, true, next
+}
+
+// stopped records why a hold's look couldn't tell whether it should be active, or "" when it could,
+// and tells OnStopped when that changed. Call with e.mu held.
+func (e *Engine) stopped(key ident.ID, hs *holdState, why string) {
+	if hs.stopped == why {
+		return
+	}
+	hs.stopped = why
+	if e.OnStopped != nil {
+		e.OnStopped(key, why)
+	}
 }
 
 // addReads adds the rooms a look read to the hold's, and tells OnRoomReads when that grew.
@@ -178,6 +199,11 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	if h.budget != nil {
 		on, next = e.budgetCondition(key, s, now, devices)
 		known = true
+		why := ""
+		if r := hs.budget.reported; r != nil && r.Unplanned {
+			why = r.Message
+		}
+		e.stopped(key, hs, why)
 		if saved := hs.budget.saved; saved != "" {
 			st.Budget = saved
 		}
@@ -395,6 +421,10 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 			retry = d
 		} else {
 			st.Active, started, startedOrEnded = active, written, true
+			st.Since = time.Time{}
+			if active {
+				st.Since = e.Clock.Now()
+			}
 		}
 	} else if ended {
 		if reclaim {

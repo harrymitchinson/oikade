@@ -580,7 +580,7 @@ oikade pause fan                  # stop a rule
 oikade resume fan
 ```
 
-`oikade status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`. With your automations down it says since when, and with nothing deployed it says to run `oikade deploy`. An empty `status`, `devices`, `secret list` or `client list` says what would fill it, on stderr, and `--json` prints an empty list.
+`oikade status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`. With your automations down it says since when, and with nothing deployed it says to run `oikade deploy`. An empty `status`, `devices`, `secret list` or `client list` says what would fill it, on stderr, and `--json` prints an empty list. A hold says whether it's active and why it isn't sure, such as `lounge-lamp  hold  active since 23:07:05, off at 23:10:05`, or `hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy`. A stopped hold keeps its state until its `When` can be read, or its budget planned.
 
 `oikade tail` says `Following home's events` on stderr once the host is listening, naming the context, so a quiet house doesn't look hung.
 

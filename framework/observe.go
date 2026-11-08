@@ -49,13 +49,25 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 		default:
 		}
 	}
-	// reads keeps each hold's latest room reads until they're sent, so none is dropped.
+	// reads keeps each hold's latest room reads until they're sent, so none is dropped. readsMu
+	// guards stopped too, and readsWaiting says either has some.
 	var readsMu sync.Mutex
 	reads := map[string][]engine.RoomRead{}
 	readsWaiting := make(chan struct{}, 1)
 	eng.OnRoomReads = func(key ident.ID, r []engine.RoomRead) {
 		readsMu.Lock()
 		reads[key.Name] = r
+		readsMu.Unlock()
+		select {
+		case readsWaiting <- struct{}{}:
+		default:
+		}
+	}
+	// stopped keeps each hold's latest reason until it's sent, so a clearing one isn't dropped.
+	stopped := map[string]string{}
+	eng.OnStopped = func(key ident.ID, why string) {
+		readsMu.Lock()
+		stopped[key.Name] = why
 		readsMu.Unlock()
 		select {
 		case readsWaiting <- struct{}{}:
@@ -75,11 +87,14 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 				client.RuleRun(r.rule, r.result, r.at)
 			case <-readsWaiting:
 				readsMu.Lock()
-				waiting := reads
-				reads = map[string][]engine.RoomRead{}
+				waiting, why := reads, stopped
+				reads, stopped = map[string][]engine.RoomRead{}, map[string]string{}
 				readsMu.Unlock()
 				for _, rule := range slices.Sorted(maps.Keys(waiting)) {
 					client.RoomReads(rule, waiting[rule])
+				}
+				for _, rule := range slices.Sorted(maps.Keys(why)) {
+					client.Stopped(rule, why[rule])
 				}
 			case <-tick.C:
 				text, err := metricsText(registry)

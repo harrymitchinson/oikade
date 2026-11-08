@@ -37,6 +37,19 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 **A call outlives its connection.** Once the host has a request it finishes it, so a deploy that has begun goes on after the command that asked is killed. The answer then has nowhere to go, and `oikade status` shows how it ended.
 
+## Status
+
+`GET /v1/status` answers with what `oikade status --json` prints: `version`, `process`, `devices` and `rules`. Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
+
+| Field | Means |
+|---|---|
+| `active` | Whether its start is written. Always there for a hold. |
+| `since` | When it last became active. Missing while it isn't. |
+| `onAt`, `offAt` | When its on-delay or off-delay ends. Missing when none is running. One in the past ran out while it was stopped. |
+| `latched` | A latched hold, from its start until a release. |
+| `stopped` | Why it can't tell whether it should be active, so it keeps its state, such as `no device in room hall has reported occupancy`, or why its budget couldn't be planned. Only a connected process says. |
+| `budget` | A budget hold's day: `date`, `targetMinutes`, `plannedMinutes` and `runMinutes`, which is saved at most every 5 minutes. `date` may be a day that's over, if it hasn't planned since. |
+
 ## Over TLS
 
 The host's certificate is self-signed, and a client trusts it by its pin: `sha256:` and the hex SHA-256 of the certificate's `SubjectPublicKeyInfo`. TLS 1.3 only. Every call needs `Authorization: Bearer <token>`, which is checked before any body is read. A missing, wrong or revoked token gets a `401`, and counts in `oikade_api_auth_failures_total`. `POST /v1/clients/add` is refused over TLS, so a token can't make more of them.

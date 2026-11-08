@@ -156,6 +156,13 @@ func (c *Client) RoomReads(rule string, reads []engine.RoomRead) {
 	}
 }
 
+// Stopped tells the host why a hold couldn't tell whether it should be active, or "" once it can.
+func (c *Client) Stopped(rule, why string) {
+	if err := c.conn.Write(Message{Type: TypeStopped, Rule: rule, Stopped: why}); err != nil {
+		c.fail(err)
+	}
+}
+
 // PushMetrics gives the host the process's rule metrics, to serve with its own.
 func (c *Client) PushMetrics(text []byte) {
 	if err := c.conn.Write(Message{Type: TypeMetrics, Metrics: text}); err != nil {
