@@ -2,7 +2,6 @@
 package mqtttest
 
 import (
-	"errors"
 	"log/slog"
 	"net"
 	"sync"
@@ -23,6 +22,7 @@ type Broker struct {
 	addr string
 	mu   sync.Mutex
 	s    *mochi.Server
+	one  *oneSession
 }
 
 // StartBroker starts a broker on a free localhost port and returns its mqtt:// URL.
@@ -72,7 +72,8 @@ func (b *Broker) start() error {
 	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
 		return err
 	}
-	if err := s.AddHook(&oneSession{s: s}, nil); err != nil {
+	one := &oneSession{s: s}
+	if err := s.AddHook(one, nil); err != nil {
 		return err
 	}
 	// After a Restart the old listener's port can take a moment to free up.
@@ -88,7 +89,7 @@ func (b *Broker) start() error {
 	}
 	go func() { _ = s.Serve() }()
 	b.mu.Lock()
-	b.s = s
+	b.s, b.one = s, one
 	b.mu.Unlock()
 	return nil
 }
@@ -146,6 +147,9 @@ func closeServer(s *mochi.Server) {
 type oneSession struct {
 	mochi.HookBase
 	s *mochi.Server
+	// kicked holds the connections Kick closed, whose teardown and Will are already on their way.
+	// It is keyed by connection because mochi reuses its clients.
+	kicked sync.Map
 }
 
 // ID implements mochi.Hook.
@@ -163,7 +167,7 @@ func (h *oneSession) OnSessionEstablish(cl *mochi.Client, _ packets.Packet) {
 		if !ok || !expiresOnDisconnect(old) {
 			return
 		}
-		if !old.Closed() {
+		if _, dropped := h.kicked.Load(old.Net.Conn); !dropped && !old.Closed() {
 			_ = h.s.DisconnectClient(old, packets.ErrSessionTakenOver)
 		}
 		time.Sleep(time.Millisecond)
@@ -194,13 +198,17 @@ func (b *Broker) WaitGone(t testing.TB, clientID string) {
 }
 
 // Kick drops clientID's connection as a network failure would, so the broker publishes its Will.
+// It only closes the socket: mochi's Stop also ends the read loop, which mochi takes for a clean
+// disconnect and drops the Will, and so does the takeover of a reconnect that arrives first.
 func (b *Broker) Kick(t testing.TB, clientID string) {
 	t.Helper()
 	b.mu.Lock()
 	cl, ok := b.s.Clients.Get(clientID)
+	one := b.one
 	b.mu.Unlock()
 	if !ok {
 		t.Fatalf("client %s is not connected", clientID)
 	}
-	cl.Stop(errors.New("kicked by test"))
+	one.kicked.Store(cl.Net.Conn, struct{}{})
+	_ = cl.Net.Conn.Close()
 }
