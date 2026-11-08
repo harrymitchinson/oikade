@@ -39,7 +39,7 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 
 ## 4. Review and open the PR
 
-1. Run the `code-review` skill on the step. When it's stacked, review only the step's own commits: `git diff <base>...HEAD`. Fix each finding, or explain in the PR why you didn't.
+1. Run the `code-review` skill on the step, or, when other agents run alongside you, a reviewer of your own (see [Running in parallel](#running-in-parallel)). When it's stacked, review only the step's own commits: `git diff <base>...HEAD`. Fix each finding, or explain in the PR why you didn't.
 2. Write the PR body to a file in your scratchpad: the step, what you tested and how, anything left for manual testing, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first. `hack/plan pr` adds the Linear line.
 3. Open it with `hack/plan pr OIK-N "<conventional title>" <body file>`. It pushes `work/OIK-S` and opens the PR against the step below it (or main). The branch name links it to the step in Linear. Don't open it any other way.
 4. **Merge it yourself** once it's the bottom of its stack and CI passes: wait with `gh pr checks <PR> --watch`, then run `hack/plan merge OIK-N <PR>`. The user reviews designs, not diffs, so the checks and your code review are what vouch for it. Nothing waits for the user by default, CI and `hack/plan` changes included. `hack/plan merge` holds a step only if the user labelled it or its feature `needs-review`, and merges it once their Approve covers its head: it reads their review itself. Don't add `needs-review` yourself. A step that needs the user's decision asks with `hack/plan note` instead. Changes to `.claude/settings.json` are the one thing you can't make: write the proposed file to your scratchpad and ask the user to apply it. **Never work around a refusal,** and never merge any other way.
@@ -60,3 +60,13 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 - **If you can't finish a step,** commit and push what you have to its `work/OIK-S` branch, use the `handoff` skill, then release the claim. The next claim finds the pushed branch and resumes it rather than starting over.
 - **An approved step left after its feature's claim was released** merges without claiming: run `hack/plan merge OIK-N <PR>`. It holds the claim while it runs if nobody else does, and gives it back.
 - **After a merge,** whether yours or the user's, GitHub deletes the step's branch and Linear marks the step Done. The next `hack/plan claim` restacks the steps above it onto main. `git worktree remove <path>` cleans up locally.
+
+## Running in parallel
+
+When one session runs several agents on this skill at once, each on its own feature, these keep them from getting in each other's way (learnt on 2026-11-08, OIK-236):
+
+- **About four at once.** Each runs `make test`, and more than that on one machine makes tests fail only under load (OIK-235). While iterating, test only the packages you touch, run the full `make test` once before the PR, and let CI be the bar after a rebase.
+- **Review with a reviewer of your own.** The `code-review` skill's background reviewer is always named `code-review`, so with several agents running, a message to it can reach another agent's reviewer and a review can be lost. Start one with the Agent tool under a name of your own (`review-OIK-N`) and give it the diff, or review the diff yourself and say so in the PR. A review that hasn't come back within ten minutes is lost: don't wait for it.
+- **Ask, don't decide, on what's expensive to reverse.** New saved state, a new message in a protocol or a new field in the network API is a question for the user (`hack/plan note`), even in a feature that never needed a design, unless the step's scope names it.
+- **The session that started the agents watches the PRs, not the agents.** Every ten minutes or so, check `hack/plan claims` and each open PR's merge state (`gh pr view N --json mergeStateStatus`) and last commit. A PR that conflicts with main, or one with no commit for half an hour while its agent says it's waiting, needs a nudge. An agent's "waiting" doesn't say for what.
+- **A brief says which features overlap.** Each agent should know which other features touch the same files, so it rebases onto them and keeps both sides, and a feature with several steps starts with the step that overlaps nobody.
