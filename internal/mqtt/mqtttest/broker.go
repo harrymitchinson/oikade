@@ -2,7 +2,6 @@
 package mqtttest
 
 import (
-	"errors"
 	"log/slog"
 	"net"
 	"sync"
@@ -23,6 +22,7 @@ type Broker struct {
 	addr string
 	mu   sync.Mutex
 	s    *mochi.Server
+	one  *oneSession
 }
 
 // StartBroker starts a broker on a free localhost port and returns its mqtt:// URL.
@@ -72,7 +72,8 @@ func (b *Broker) start() error {
 	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
 		return err
 	}
-	if err := s.AddHook(&oneSession{s: s}, nil); err != nil {
+	one := &oneSession{s: s}
+	if err := s.AddHook(one, nil); err != nil {
 		return err
 	}
 	// After a Restart the old listener's port can take a moment to free up.
@@ -88,7 +89,7 @@ func (b *Broker) start() error {
 	}
 	go func() { _ = s.Serve() }()
 	b.mu.Lock()
-	b.s = s
+	b.s, b.one = s, one
 	b.mu.Unlock()
 	return nil
 }
@@ -146,24 +147,44 @@ func closeServer(s *mochi.Server) {
 type oneSession struct {
 	mochi.HookBase
 	s *mochi.Server
+	// kicked holds the connections Kick closed, whose teardown and Will are already on their way.
+	// It is keyed by connection because mochi reuses its clients.
+	kicked sync.Map
 }
 
 // ID implements mochi.Hook.
 func (h *oneSession) ID() string { return "one-session" }
 
 // Provides implements mochi.Hook.
-func (h *oneSession) Provides(b byte) bool { return b == mochi.OnSessionEstablish }
+func (h *oneSession) Provides(b byte) bool {
+	return b == mochi.OnSessionEstablish || b == mochi.OnDisconnect
+}
+
+// OnDisconnect implements mochi.Hook. mochi calls it after the Will and Stop, so a kicked
+// connection needs no more waiting for.
+func (h *oneSession) OnDisconnect(cl *mochi.Client, _ error, _ bool) {
+	h.kicked.Delete(cl.Net.Conn)
+}
 
 // OnSessionEstablish implements mochi.Hook. It ends the connection holding clientID and waits for
-// its teardown, Will included. A session that outlives its connection has no teardown to race,
-// and is left to mochi's takeover, as is one still here after 5s.
+// its teardown, Will included. A connection Kick closed is already ending, so it only waits for
+// that: until the session is gone, or, for one that outlives its connection, until mochi has
+// stopped it, which comes after the Will. Any other session that outlives its connection has no
+// teardown to race, and is left to mochi's takeover, as is one still here after 5s.
 func (h *oneSession) OnSessionEstablish(cl *mochi.Client, _ packets.Packet) {
 	for range 5000 {
 		old, ok := h.s.Clients.Get(cl.ID)
-		if !ok || !expiresOnDisconnect(old) {
+		if !ok {
 			return
 		}
-		if !old.Closed() {
+		_, kicked := h.kicked.Load(old.Net.Conn)
+		switch {
+		case kicked && !expiresOnDisconnect(old) && old.Closed():
+			return
+		case kicked:
+		case !expiresOnDisconnect(old):
+			return
+		case !old.Closed():
 			_ = h.s.DisconnectClient(old, packets.ErrSessionTakenOver)
 		}
 		time.Sleep(time.Millisecond)
@@ -194,13 +215,19 @@ func (b *Broker) WaitGone(t testing.TB, clientID string) {
 }
 
 // Kick drops clientID's connection as a network failure would, so the broker publishes its Will.
+// It only closes the socket: mochi's Stop also ends the read loop, which mochi takes for a clean
+// disconnect and drops the Will, and so does the takeover of a reconnect that arrives first.
 func (b *Broker) Kick(t testing.TB, clientID string) {
 	t.Helper()
 	b.mu.Lock()
 	cl, ok := b.s.Clients.Get(clientID)
+	one := b.one
 	b.mu.Unlock()
 	if !ok {
 		t.Fatalf("client %s is not connected", clientID)
 	}
-	cl.Stop(errors.New("kicked by test"))
+	if _, again := one.kicked.LoadOrStore(cl.Net.Conn, struct{}{}); again || cl.Closed() {
+		t.Fatalf("client %s is already disconnecting, so no new Will is coming", clientID)
+	}
+	_ = cl.Net.Conn.Close()
 }
