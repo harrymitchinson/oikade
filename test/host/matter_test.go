@@ -60,7 +60,13 @@ func (r *rig) matter() api.Matter {
 
 func (r *rig) until(what string, cond func() bool) {
 	r.t.Helper()
-	for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	r.untilWithin(waitLimit, what, cond)
+}
+
+// untilWithin is until with a limit of its own, for a test that something happens quickly.
+func (r *rig) untilWithin(d time.Duration, what string, cond func() bool) {
+	r.t.Helper()
+	for deadline := time.Now().Add(d); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if cond() {
 			return
 		}

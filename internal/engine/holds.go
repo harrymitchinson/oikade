@@ -171,7 +171,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 			s.next.At = hs.retry
 		}
 	}
-	e.reportHold(key, s, st, next)
+	e.reportHold(key, s, st, next, now)
 }
 
 // holdWrite is a hold's write, waiting for every hold that looks at the same moment to have looked.
@@ -315,11 +315,13 @@ func (h *hold) step(st HoldState, on, known bool, now time.Time) (HoldState, boo
 	return st, active
 }
 
-// lookAgain returns when a hold next needs evaluating without a device change.
+// lookAgain returns when a hold next needs evaluating without a device change. It's always after
+// now: a delay that ended while when was unknown is still in st, and looking again at once would
+// keep Run firing it and never taking a change (OIK-216).
 func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 	at := now.Add(recheck)
 	for _, t := range []time.Time{next, st.OnAt, st.OffAt} {
-		if !t.IsZero() && t.Before(at) {
+		if t.After(now) && t.Before(at) {
 			at = t
 		}
 	}
@@ -485,12 +487,13 @@ func (e *Engine) claimHold(ctx context.Context, key ident.ID, t HoldTarget, clai
 
 // reportHold reports a hold's state and next change: the window's next change, or a delay's
 // end, whichever comes first. A latched hold has none. Call with e.mu held.
-func (e *Engine) reportHold(key ident.ID, s *state, st HoldState, next time.Time) {
+func (e *Engine) reportHold(key ident.ID, s *state, st HoldState, next, now time.Time) {
 	sched := Schedule{Generation: s.c.Generation, Hold: true, Active: st.Active}
 	if !st.Latched {
 		sched.Next = next
+		// A delay that ran out while when was unknown is no change to come.
 		for _, t := range []time.Time{st.OnAt, st.OffAt} {
-			if !t.IsZero() && (sched.Next.IsZero() || t.Before(sched.Next)) {
+			if t.After(now) && (sched.Next.IsZero() || t.Before(sched.Next)) {
 				sched.Next = t
 			}
 		}
