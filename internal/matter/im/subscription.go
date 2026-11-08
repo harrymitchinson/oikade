@@ -24,8 +24,11 @@ type subscription struct {
 	mu     sync.Mutex
 	dirty  map[Path]bool
 	wake   chan struct{} // cap 1
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 }
+
+// errReplaced ends a subscription whose client subscribed again without keeping its others.
+var errReplaced = errors.New("replaced by a new subscription")
 
 func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte) error {
 	req, err := decodeReadRequest(b, true)
@@ -36,8 +39,9 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 		return fail(ctx, ex, StatusInvalidAction, fmt.Errorf("min interval %d s over max %d s", req.minFloor, req.maxCeiling))
 	}
 	session := ex.Session()
+	replaced := 0
 	if !req.keepSubscriptions {
-		s.cancelSubscriptions(session)
+		replaced = s.cancelSubscriptions(session)
 	}
 
 	maxInterval := max(req.maxCeiling, req.minFloor, 1)
@@ -46,14 +50,14 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 		min: time.Duration(req.minFloor) * time.Second, max: time.Duration(maxInterval) * time.Second,
 		dirty: map[Path]bool{}, wake: make(chan struct{}, 1),
 	}
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancelCause(ctx)
 	sub.cancel = cancel
 	// Take a slot before answering, so the cap holds and the client never hears of a
 	// subscription the server doesn't have yet.
 	s.mu.Lock()
 	if len(s.subs) >= maxSubscriptions {
 		s.mu.Unlock()
-		cancel()
+		cancel(nil)
 		return fail(ctx, ex, StatusResourceExhausted, errors.New("too many subscriptions"))
 	}
 	if s.subs == nil {
@@ -82,14 +86,18 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	}
 	if err != nil {
 		stop()
-		cancel()
+		cancel(nil)
 		s.endSubscription(sub)
 		return err
 	}
+	// Info, with min, so the log shows how long a change may wait for its report (OIK-208).
+	// Durations as strings, which the host's JSON log would otherwise print in nanoseconds.
+	s.Log.Info("Started subscription", "subscription", sub.id, "peer", session.Peer(), "node", fmt.Sprintf("%016X", session.PeerNodeID()),
+		"min", sub.min.String(), "max", sub.max.String(), "replaced", replaced)
 	go func() {
 		defer stop()
 		defer s.endSubscription(sub)
-		defer cancel()
+		defer cancel(nil)
 		// A panic ends the subscription, and its session, so the controller starts again.
 		defer contain.Recover(s.Log, contain.Subscription, s.panicked, func() {
 			if s.EndSession != nil {
@@ -97,9 +105,12 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 			}
 		})
 		err := s.runSubscription(runCtx, sub)
-		s.Log.Debug("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "reason", err.Error())
+		if cause := context.Cause(runCtx); cause != nil && errors.Is(err, context.Canceled) {
+			err = cause // a report cut short says context canceled, not why
+		}
+		s.Log.Info("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "node", fmt.Sprintf("%016X", session.PeerNodeID()),
+			"reason", err.Error())
 	}()
-	s.Log.Debug("Started subscription", "subscription", sub.id, "peer", session.Peer(), "max", sub.max)
 	return nil
 }
 
@@ -147,7 +158,7 @@ func (s *Server) runSubscription(ctx context.Context, sub *subscription) error {
 		timer.Reset(time.Until(next))
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return context.Cause(ctx)
 		case <-sub.session.Done():
 			return transport.ErrClosed
 		case <-sub.wake:
@@ -201,16 +212,20 @@ func (s *Server) endSubscription(sub *subscription) {
 
 // cancelSubscriptions ends the subscriptions of the client on session, for a client that asked
 // for a fresh start: those on the session, and those on its other sessions from the same node.
-func (s *Server) cancelSubscriptions(session *transport.Session) {
+// It returns how many it ended.
+func (s *Server) cancelSubscriptions(session *transport.Session) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	node := session.PeerNodeID()
+	n := 0
 	for id, sub := range s.subs {
 		if sub.session == session || (node != 0 && sub.session.PeerNodeID() == node) {
-			sub.cancel()
+			sub.cancel(errReplaced)
 			delete(s.subs, id)
+			n++
 		}
 	}
+	return n
 }
 
 // Subscriptions returns how many subscriptions are running.

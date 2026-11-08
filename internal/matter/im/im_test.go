@@ -2,6 +2,7 @@ package im
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -279,4 +280,52 @@ func TestSubscriptionEndsWithItsSession(t *testing.T) {
 	srv.mu.Unlock()
 	dev.RemoveSession(s)
 	waitFor(t, "the subscription to end", func() bool { return srv.Subscriptions() == 0 })
+}
+
+// TestSubscriptionLogsItsIntervals: "Started subscription" says, at Info, the min and max the
+// subscriber asked for and whether it replaced one, and "Ended subscription" says why it ended.
+func TestSubscriptionLogsItsIntervals(t *testing.T) {
+	var mu sync.Mutex
+	var lines []string
+	log := logging.Lines(func(l string) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, l)
+	}, slog.LevelInfo)
+	node, _ := onOffNode()
+	client, _, srv, _ := pairWith(t, &Server{Node: node, Log: log}, transport.SecureSessionConfig{Auth: transport.AuthPASE})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	path := AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0}
+	if _, _, _, _, err := client.Subscribe(ctx, 3, 60, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := client.Subscribe(ctx, 1, 30, path); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the first subscription to end", func() bool { return srv.Subscriptions() == 1 })
+	find := func(want ...string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+	line:
+		for _, l := range lines {
+			for _, w := range want {
+				if !strings.Contains(l, w) {
+					continue line
+				}
+			}
+			return true
+		}
+		return false
+	}
+	// The server logs a start after it answers, so the client may hear first.
+	for _, want := range [][]string{
+		{"level=INFO", `msg="Started subscription"`, "min=3s", "max=1m0s", "replaced=0", "peer="},
+		{"level=INFO", `msg="Started subscription"`, "min=1s", "max=30s", "replaced=1"},
+	} {
+		waitFor(t, strings.Join(want, " "), func() bool { return find(want...) })
+	}
+	waitFor(t, "the first subscription to log its end", func() bool {
+		return find("level=INFO", `msg="Ended subscription"`, `reason="replaced by a new subscription"`)
+	})
 }
