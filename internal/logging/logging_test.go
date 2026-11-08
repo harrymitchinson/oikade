@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOrDiscardKeepsALoggerAndFillsInNil(t *testing.T) {
@@ -37,4 +38,28 @@ func TestLinesHasNoNewlineAndKeepsToItsLevel(t *testing.T) {
 		strings.Contains(lines[0], "\n") || strings.Contains(lines[0], "time=") {
 		t.Fatalf("lines = %q", lines)
 	}
+}
+
+// TestTestDropsLinesAfterTheTestEnds logs from a goroutine while its test ends and after, which
+// would race t.Log.
+func TestTestDropsLinesAfterTheTestEnds(t *testing.T) {
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	t.Run("ends", func(t *testing.T) {
+		log := Test(t)
+		go func() {
+			defer close(done)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					log.Info("Logged from a goroutine")
+				}
+			}
+		}()
+	})
+	time.Sleep(10 * time.Millisecond)
+	close(stop)
+	<-done
 }
