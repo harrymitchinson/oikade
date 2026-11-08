@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -97,17 +98,24 @@ func runStatus(ctx context.Context, args []string) error {
 	if *asJSON {
 		return cli.PrintJSON(st)
 	}
-	printStatus(os.Stdout, st, len(devices) == 0)
+	printStatus(os.Stdout, os.Stderr, st, len(devices) == 0)
 	return nil
 }
 
-func printStatus(out io.Writer, st *api.Status, summary bool) {
+func printStatus(out, stderr io.Writer, st *api.Status, summary bool) {
 	if summary {
-		process := "down"
-		if st.Process {
-			process = "connected"
+		switch {
+		case st.Version == "" && st.Deploying:
+			_, _ = fmt.Fprintf(out, "Version unknown while a deploy is under way, automations %s\n\n",
+				map[bool]string{true: "connected", false: "down"}[st.Process])
+		case st.Version == "" && !st.Process:
+			_, _ = fmt.Fprintln(stderr, "No home deployed. Run oikade deploy from your home's module.")
+		case st.Process:
+			_, _ = fmt.Fprintf(out, "Version %s, automations connected\n\n", or(st.Version, "unknown"))
+		default:
+			_, _ = fmt.Fprintf(out, "Version %s, automations down%s\n\n", st.Version, since(st.Since, time.Now()))
+			_, _ = fmt.Fprintln(stderr, "oikade tail shows when they come back, and the host's log says why they went.")
 		}
-		_, _ = fmt.Fprintf(out, "Version %s, automations %s\n\n", or(st.Version, "unknown"), process)
 	}
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, d := range st.Devices {
@@ -134,6 +142,18 @@ func printStatus(out io.Writer, st *api.Status, summary bool) {
 		}
 		_, _ = fmt.Fprintln(out, strings.Join(line, "  "))
 	}
+}
+
+// since says when something began, as a time today or a date before.
+func since(t *time.Time, now time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	at := t.Local()
+	if y, m, d := at.Date(); y == now.Local().Year() && m == now.Local().Month() && d == now.Local().Day() {
+		return " since " + at.Format("15:04")
+	}
+	return " since " + at.Format(time.DateTime)
 }
 
 func or(s, fallback string) string {

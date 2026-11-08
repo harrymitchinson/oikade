@@ -399,6 +399,15 @@ func (d *deployer) settled(ctx context.Context, path string, vet func() error) e
 }
 
 // latest returns the running version, unless a deploy is under way and has it in flux.
+// busy says a deploy or a rollback is under way, which hides the running version from latest.
+func (d *deployer) busy() bool {
+	if !d.mu.TryLock() {
+		return true
+	}
+	d.mu.Unlock()
+	return false
+}
+
 func (d *deployer) latest() (version, bool) {
 	if !d.mu.TryLock() {
 		return version{}, false

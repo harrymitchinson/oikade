@@ -116,7 +116,8 @@ func (h *Host) Run(ctx context.Context) error {
 		ControlLevel: engine.NewControlLevelGauge(),
 	}
 	srv := &server{
-		log: h.Log.With("logger", "socket"), ctx: engineCtx, engine: eng,
+		since: time.Now(),
+		log:   h.Log.With("logger", "socket"), ctx: engineCtx, engine: eng,
 		holds:   &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: h.Log},
 		fires:   &engine.Stored[time.Time]{Values: data.Namespace(engine.FireStatesNamespace), Log: h.Log},
 		journal: data.Journal(),

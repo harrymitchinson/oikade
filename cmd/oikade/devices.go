@@ -138,8 +138,11 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 		return err
 	}
 	list := *resp.Registry
+	removed := 0
 	if !all {
+		before := len(list.Devices)
 		list.Devices = slices.DeleteFunc(list.Devices, func(d registry.Device) bool { return d.Removed })
+		removed = before - len(list.Devices)
 	}
 	unimported := map[string]bool{}
 	for _, u := range resp.Unimported {
@@ -148,8 +151,21 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 	if asJSON {
 		return cli.PrintJSON(listed(list, unimported))
 	}
+	if len(list.Devices) == 0 {
+		noDevices(os.Stderr, removed)
+		return nil
+	}
 	printDevices(os.Stdout, list, unimported)
 	return nil
+}
+
+// noDevices says what would put devices on record, and that --all shows any removed ones.
+func noDevices(stderr io.Writer, removed int) {
+	_, _ = fmt.Fprintln(stderr, "No devices. A plugin your home imports reports its devices once you deploy it.")
+	if removed > 0 {
+		_, _ = fmt.Fprintf(stderr,
+			"%d removed devices keep their Matter endpoints: oikade devices --all lists them.\n", removed)
+	}
 }
 
 // notImported is the state of a device whose plugin the running version doesn't import.

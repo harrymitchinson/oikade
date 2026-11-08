@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -72,11 +73,22 @@ func runSecret(ctx context.Context, args []string) error {
 		}
 		return cli.PrintJSON(struct{}{})
 	}
-	if *asJSON {
-		return cli.PrintJSON(resp.Secrets)
+	return printSecrets(os.Stdout, os.Stderr, resp.Secrets, *asJSON)
+}
+
+// printSecrets lists the secrets' names, or says there are none and how to add one.
+func printSecrets(stdout, stderr io.Writer, secrets []api.Secret, asJSON bool) error {
+	if asJSON {
+		return json.NewEncoder(stdout).Encode(append([]api.Secret{}, secrets...))
 	}
-	for _, s := range resp.Secrets {
-		fmt.Println(s.Name)
+	if len(secrets) == 0 {
+		_, err := fmt.Fprintln(stderr, "No secrets. oikade secret set NAME adds one.")
+		return err
+	}
+	for _, s := range secrets {
+		if _, err := fmt.Fprintln(stdout, s.Name); err != nil {
+			return err
+		}
 	}
 	return nil
 }
