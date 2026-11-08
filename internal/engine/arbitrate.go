@@ -593,8 +593,8 @@ func (e *Engine) ReleaseClaim(ctx context.Context, dev ident.ID, name, source st
 	return true, e.flushControls(ctx, dev)
 }
 
-// ReleaseClaims ends a source's claims below a level on every arbitrated capability, for a rule that runs elsewhere, and returns once that's saved. ctx is the engine's, as
-// with Claim.
+// ReleaseClaims ends a source's claims below a level on every arbitrated capability, for a rule
+// that runs elsewhere, and returns once that's saved. ctx is the engine's, as with Claim.
 func (e *Engine) ReleaseClaims(ctx context.Context, source string, below control.Level) error {
 	e.mu.Lock()
 	changed := e.releaseSource(ctx, source, below)
@@ -807,7 +807,8 @@ func (e *Engine) Responsive() {
 	defer e.mu.Unlock()
 }
 
-// releaseSource ends a source's claims below a level on every arbitrated capability, and returns the devices that changed. Call with e.mu held.
+// releaseSource ends a source's claims below a level on every arbitrated capability, and returns
+// the devices that changed. Call with e.mu held.
 func (e *Engine) releaseSource(ctx context.Context, source string, below control.Level) []ident.ID {
 	var changed []ident.ID
 	for dev, arbs := range e.arbs {
