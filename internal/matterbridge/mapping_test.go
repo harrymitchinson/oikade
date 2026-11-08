@@ -22,7 +22,7 @@ type setCall struct {
 func mapDevice(t *testing.T, typ devicetype.Type, caps ...string) (*Mapped, *[]setCall) {
 	t.Helper()
 	var calls []setCall
-	m := Map(Device{Key: ident.ID{Namespace: "home", Name: "d"}, Endpoint: 7, Name: "D", Capabilities: caps, Type: typ},
+	m := Map(Device{Key: ident.ID{Name: "d"}, Endpoint: 7, Name: "D", Capabilities: caps, Type: typ},
 		func(name string, value any) { calls = append(calls, setCall{name, value}) })
 	if m == nil {
 		t.Fatalf("%v didn't map", caps)
@@ -232,8 +232,12 @@ func TestLabelAndUniqueID(t *testing.T) {
 	if l := Label("Küche Hängeleuchte über der Insel"); len(l) > 32 || !utf8.ValidString(l) || l != "Küche Hängeleuchte über der I" {
 		t.Errorf("label %q", l)
 	}
-	a, b := UniqueID(ident.ID{Namespace: "home", Name: "lamp"}), UniqueID(ident.ID{Namespace: "home", Name: "lamp2"})
-	if len(a) != 32 || a == b || a != UniqueID(ident.ID{Namespace: "home", Name: "lamp"}) {
+	// Controllers remember a device by this, so the hash of a given name must not change.
+	if got := UniqueID("bridge/7"); got != "A62B0CAF14C80ED5F203011F658071EF" {
+		t.Errorf("UniqueID = %q", got)
+	}
+	a, b := UniqueID("lamp"), UniqueID("lamp2")
+	if len(a) != 32 || a == b || a != UniqueID("lamp") {
 		t.Errorf("unique IDs %q, %q", a, b)
 	}
 }

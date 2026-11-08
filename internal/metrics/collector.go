@@ -10,12 +10,10 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
-const namespaceLabel = "namespace"
-
 var (
-	deviceLabels     = []string{namespaceLabel, "device", "room"}
+	deviceLabels     = []string{"device", "room"}
 	capabilityLabels = append(append([]string{}, deviceLabels...), "capability")
-	pluginLabels     = []string{namespaceLabel, "plugin"}
+	pluginLabels     = []string{"plugin"}
 	rejectedLabels   = append(append([]string{}, pluginLabels...), "reason")
 
 	valueDesc = prometheus.NewDesc("oikade_capability_value",
@@ -27,7 +25,7 @@ var (
 	lastSeenDesc = prometheus.NewDesc("oikade_device_last_seen_timestamp_seconds",
 		"When the driver last heard from the device.", deviceLabels, nil)
 	undeclaredDesc = prometheus.NewDesc("oikade_undeclared_devices",
-		"Devices paired with a driver instance that aren't on record.", []string{namespaceLabel, "instance"}, nil)
+		"Devices paired with a driver instance that aren't on record.", []string{"instance"}, nil)
 	pluginUpDesc = prometheus.NewDesc("oikade_plugin_up",
 		"1 while the plugin's retained status is online with a supported contract.", pluginLabels, nil)
 	pluginRejectedDesc = prometheus.NewDesc("oikade_plugin_rejected_messages_total",
@@ -61,7 +59,7 @@ func (Collector) Describe(ch chan<- *prometheus.Desc) {
 // Collect implements prometheus.Collector.
 func (c Collector) Collect(ch chan<- prometheus.Metric) {
 	for key, s := range c.Store.List() {
-		labels := []string{key.Namespace, key.Name, s.Room}
+		labels := []string{key.Name, s.Room}
 		for name, v := range s.Values {
 			ch <- prometheus.MustNewConstMetric(valueDesc, prometheus.GaugeValue, capability.Float(v), append(labels, name)...)
 		}
@@ -77,16 +75,16 @@ func (c Collector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 	for key, n := range c.Store.UndeclaredCounts() {
-		ch <- prometheus.MustNewConstMetric(undeclaredDesc, prometheus.GaugeValue, float64(n), key.Namespace, key.Label())
+		ch <- prometheus.MustNewConstMetric(undeclaredDesc, prometheus.GaugeValue, float64(n), key.Label())
 	}
 	if c.Plugins == nil {
 		return
 	}
 	for key, s := range c.Plugins.PluginStats() {
-		ch <- prometheus.MustNewConstMetric(pluginUpDesc, prometheus.GaugeValue, capability.Float(s.Up), key.Namespace, key.Name)
+		ch <- prometheus.MustNewConstMetric(pluginUpDesc, prometheus.GaugeValue, capability.Float(s.Up), key.Name)
 		for reason, n := range s.Rejected {
 			ch <- prometheus.MustNewConstMetric(pluginRejectedDesc, prometheus.CounterValue, float64(n),
-				key.Namespace, key.Name, reason)
+				key.Name, reason)
 		}
 	}
 }

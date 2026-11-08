@@ -65,7 +65,7 @@ func NewActiveGauge() *prometheus.GaugeVec {
 	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "oikade_rule_active",
 		Help: "Whether a Rule's hold is active: 1 or 0.",
-	}, []string{labelNamespace, labelRule})
+	}, []string{labelRule})
 }
 
 func (c *Compiled) target() HoldTarget {
@@ -88,7 +88,7 @@ func sameTarget(a, b HoldTarget) bool {
 
 // condition reports whether the hold's while is true at now, and when the window next changes.
 // known is false when when can't be evaluated, as before a device it reads has reported. devices
-// are the namespace's, or nil to read them.
+// are the home's, or nil to read them.
 func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, devices *home) (on, known bool, next time.Time) {
 	on = true
 	if h.window != nil {
@@ -97,7 +97,7 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 	if !on || h.when == nil {
 		return on, true, next
 	}
-	vars := e.conditionVars(key.Namespace, now, devices)
+	vars := e.conditionVars(now, devices)
 	var reads []RoomRead
 	vars[VarRoomReads] = &reads
 	b, err := h.when(vars)
@@ -135,7 +135,7 @@ func (e *Engine) addReads(key ident.ID, hs *holdState, reads []RoomRead) {
 }
 
 // evaluate works out whether a hold is active now, starts the write and save that follow, and
-// sets when to look again. devices are the namespace's, or nil to read them. Call with
+// sets when to look again. devices are the home's, or nil to read them. Call with
 // e.mu held.
 func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.Time, devices *home) {
 	hs, h := s.hold, s.c.hold
@@ -185,7 +185,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	}
 
 	if e.Active != nil {
-		e.Active.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(st.Active)))
+		e.Active.WithLabelValues(key.Name).Set(float64(btoi(st.Active)))
 	}
 	// An active hold claims again when its priority or latch changed, or it has just loaded.
 	claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
@@ -249,7 +249,7 @@ func (e *Engine) startWrites(ctx context.Context) {
 	}
 	groups := map[string][]ordered{}
 	for _, w := range writes {
-		group, claims := e.writeGroup(w.key.Namespace, w.target)
+		group, claims := e.writeGroup(w.target)
 		groups[group] = append(groups[group], ordered{w, claims})
 	}
 	var done sync.WaitGroup
@@ -294,14 +294,14 @@ func (e *Engine) startWrites(ctx context.Context) {
 
 // writeGroup returns which writes a hold's may reach the same device as, and whether it claims
 // rather than writes: its room, or its device when that has none.
-func (e *Engine) writeGroup(namespace string, t HoldTarget) (group string, claims bool) {
+func (e *Engine) writeGroup(t HoldTarget) (group string, claims bool) {
 	if t.Room != "" {
-		for _, dev := range e.Store.Room(namespace, t.Room) {
+		for _, dev := range e.Store.Room(t.Room) {
 			claims = claims || e.arbitrated(dev, t.Capability)
 		}
 		return "room/" + t.Room, claims
 	}
-	dev := ident.ID{Namespace: namespace, Name: t.Device}
+	dev := ident.ID{Name: t.Device}
 	snap, _ := e.Store.Get(dev)
 	if snap.Room != "" {
 		return "room/" + snap.Room, snap.Controls(t.Capability)
@@ -436,14 +436,14 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 	log := e.Log.With("rule", key, "capability", t.Capability)
 	var devices []ident.ID
 	if t.Device != "" {
-		devices = []ident.ID{{Namespace: key.Namespace, Name: t.Device}}
+		devices = []ident.ID{{Name: t.Device}}
 	}
 	var retry time.Duration
 	var failed error
 	if t.Room != "" {
 		waiting := false
 		var skipped []string
-		for _, dev := range e.Store.Room(key.Namespace, t.Room) {
+		for _, dev := range e.Store.Room(t.Room) {
 			snap, ok := e.Store.Get(dev)
 			waiting = waiting || !ok || !snap.Discovered
 			if !ok || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, t.Capability) {
@@ -498,9 +498,9 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 // claimHold makes an active hold's claim again on its arbitrated targets, and writes nothing.
 func (e *Engine) claimHold(ctx context.Context, key ident.ID, t HoldTarget, claim control.Claim) {
 	claim.Value = capability.Float(t.Value)
-	devices := e.Store.Room(key.Namespace, t.Room)
+	devices := e.Store.Room(t.Room)
 	if t.Device != "" {
-		devices = []ident.ID{{Namespace: key.Namespace, Name: t.Device}}
+		devices = []ident.ID{{Name: t.Device}}
 	}
 	for _, dev := range devices {
 		if snap, ok := e.Store.Get(dev); ok && !snap.OfTypes(t.DeviceTypes) {

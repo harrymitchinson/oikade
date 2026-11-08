@@ -379,7 +379,7 @@ func (e *Engine) Apply(ctx context.Context, key ident.ID, a Action) error {
 	if err != nil {
 		return err
 	}
-	if act.device != "" && !act.ends() && e.arbitrated(ident.ID{Namespace: key.Namespace, Name: act.device}, act.capability) {
+	if act.device != "" && !act.ends() && e.arbitrated(ident.ID{Name: act.device}, act.capability) {
 		return fmt.Errorf("%s %s is arbitrated, so a set needs for or until", act.device, act.capability)
 	}
 	result, skipped := e.runActions(ctx, key, &Compiled{actions: []action{act}})
@@ -411,7 +411,7 @@ func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, unti
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		changed, ok, err := e.look(key, cond)
+		changed, ok, err := e.look(cond)
 		var broken brokenCondition
 		if err != nil && !logged && errors.As(err, &broken) {
 			logged = true
@@ -445,11 +445,11 @@ func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, unti
 
 // look evaluates a wait's condition, and returns what will close on the next change. Nothing that
 // goes wrong in it can leave e.mu held, which would stop every rule and heartbeat.
-func (e *Engine) look(key ident.ID, cond Condition) (changed <-chan struct{}, ok bool, err error) {
+func (e *Engine) look(cond Condition) (changed <-chan struct{}, ok bool, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	changed = e.changes
-	ok, err = cond(e.vars(key.Namespace, map[string]any{triggerType: "wait"}))
+	ok, err = cond(e.vars(map[string]any{triggerType: "wait"}))
 	return changed, ok, err
 }
 

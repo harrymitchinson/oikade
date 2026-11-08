@@ -25,7 +25,7 @@ func entry(name, def, resolve, external, hold string) control.Entry {
 
 // status returns the device's control status for one capability.
 func (r *rig) status(dev, name string) control.Status {
-	for _, s := range r.e.ControlOf(ident.ID{Namespace: ns, Name: dev}) {
+	for _, s := range r.e.ControlOf(ident.ID{Name: dev}) {
 		if s.Capability == name {
 			return s
 		}
@@ -187,10 +187,10 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 		control: map[string][]control.Entry{"towel-rail": {rail}},
 	})
 	metas := map[ident.ID]hub.Meta{
-		{Namespace: ns, Name: "towel-rail"}:  {Instance: z2m, Control: []control.Entry{rail}},
-		{Namespace: ns, Name: "hall-motion"}: {Instance: z2m},
-		{Namespace: ns, Name: "bath-rail"}:   {Instance: z2m, Room: "bathroom", Control: []control.Entry{rail}},
-		{Namespace: ns, Name: "bath-fan"}:    {Instance: z2m, Room: "bathroom"},
+		{Name: "towel-rail"}:  {Instance: z2m, Control: []control.Entry{rail}},
+		{Name: "hall-motion"}: {Instance: z2m},
+		{Name: "bath-rail"}:   {Instance: z2m, Room: "bathroom", Control: []control.Entry{rail}},
+		{Name: "bath-fan"}:    {Instance: z2m, Room: "bathroom"},
 	}
 	r.store.SetDevices(z2m, metas)
 	for dev := range metas {
@@ -257,9 +257,9 @@ var railHold = Hold{Device: "towel-rail", Capability: capability.On, Value: true
 func (r *rig) setControl(entries ...control.Entry) {
 	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+		metas[ident.ID{Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[ident.ID{Namespace: ns, Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: entries}
+	metas[ident.ID{Name: "towel-rail"}] = hub.Meta{Instance: z2m, Control: entries}
 	r.store.SetDevices(z2m, metas)
 }
 
@@ -272,7 +272,7 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	r.eventually("the write to start", func() bool {
 		r.e.mu.Lock()
 		defer r.e.mu.Unlock()
-		ar := r.e.arbs[ident.ID{Namespace: ns, Name: "towel-rail"}][capability.On]
+		ar := r.e.arbs[ident.ID{Name: "towel-rail"}][capability.On]
 		return ar != nil && ar.writing
 	})
 	edited := railEntry
@@ -281,7 +281,7 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	r.eventually("the edit to reach the arbiter", func() bool {
 		r.e.mu.Lock()
 		defer r.e.mu.Unlock()
-		ar := r.e.arbs[ident.ID{Namespace: ns, Name: "towel-rail"}][capability.On]
+		ar := r.e.arbs[ident.ID{Name: "towel-rail"}][capability.On]
 		return ar != nil && ar.spec.MinimumOff == edited.MinimumOff
 	})
 	close(g.open)
@@ -311,7 +311,7 @@ func TestAReportDuringAWriteIsLookedAtAgain(t *testing.T) {
 func TestAWriteLostWithItsDriverIsNotAnOverride(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.On, true})
-	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
+	dev := ident.ID{Name: "towel-rail"}
 	snap, _ := r.store.Get(dev)
 	r.clock.Step(2 * time.Second)
 	r.e.DriverReturned(snap.Instance)
@@ -328,7 +328,7 @@ func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.change("towel-rail", capability.On, true)
 	r.at("2026-10-21 12:01 BST")
-	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
+	dev := ident.ID{Name: "towel-rail"}
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
 	if _, err := r.e.Claim(context.Background(), dev, capability.On, claim); err != nil {
 		t.Fatal(err)
@@ -351,7 +351,7 @@ func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
 func TestAWriteThatFailedIsTriedAgainWhenItsDeviceReports(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.On, true})
-	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
+	dev := ident.ID{Name: "towel-rail"}
 	r.failing("towel-rail")
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
 	if _, err := r.e.Claim(context.Background(), dev, capability.On, claim); err != nil {
@@ -379,11 +379,11 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 	controls := r.e.Controls
 	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{})
 	r.settle() // the saver too: it mustn't delete the state
-	if _, ok := controls.Get(ident.ID{Namespace: ns, Name: "towel-rail"}); !ok {
+	if _, ok := controls.Get(ident.ID{Name: "towel-rail"}); !ok {
 		t.Fatal("a device that left the store lost its saved state")
 	}
 	r.setControl(railEntry)
-	r.store.Discovered(ident.ID{Namespace: ns, Name: "towel-rail"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	r.store.Discovered(ident.ID{Name: "towel-rail"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
 	r.settle()
 	if w := winner(r.status("towel-rail", capability.On)); w != "Rule/rail Normal" {
 		t.Errorf("winner %q after it came back", w)
@@ -392,7 +392,7 @@ func TestADeviceThatLeavesKeepsItsClaims(t *testing.T) {
 
 func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
-	dev := ident.ID{Namespace: ns, Name: "towel-rail"}
+	dev := ident.ID{Name: "towel-rail"}
 	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{})
 	r.settle()
 	if err := r.e.ForgetDevice(context.Background(), dev); err != nil {
@@ -406,13 +406,13 @@ func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 
 // matter announces a Matter write, as the matter role does before writing the device.
 func (r *rig) matter(dev, c string, v any) {
-	r.e.MatterWrote(ident.ID{Namespace: ns, Name: dev}, c, v)
+	r.e.MatterWrote(ident.ID{Name: dev}, c, v)
 }
 
 func TestAMatterWriteThatFailedLeavesTheDevicesReportItsOwn(t *testing.T) {
 	r := railRig(t)
 	r.matter("towel-rail", capability.On, true)
-	r.e.ForgetMatterWrite(ident.ID{Namespace: ns, Name: "towel-rail"}, capability.On)
+	r.e.ForgetMatterWrite(ident.ID{Name: "towel-rail"}, capability.On)
 	r.clock.Step(2 * time.Second)
 	r.change("towel-rail", capability.On, true)
 	if w := winner(r.status("towel-rail", capability.On)); w != "Device Override" {
@@ -555,10 +555,10 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 	r := startRigWith(t, rigOptions{now: local("2026-10-21 22:00 BST")})
 	lights := []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight}
 	metas := map[ident.ID]hub.Meta{
-		{Namespace: ns, Name: "hall-motion"}:   {Instance: z2m},
-		{Namespace: ns, Name: "floor-lamp"}:    {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.DimmableLight}},
-		{Namespace: ns, Name: "ceiling-light"}: {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}},
-		{Namespace: ns, Name: "fridge-plug"}:   {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OnOffPlugInUnit}},
+		{Name: "hall-motion"}:   {Instance: z2m},
+		{Name: "floor-lamp"}:    {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.DimmableLight}},
+		{Name: "ceiling-light"}: {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}},
+		{Name: "fridge-plug"}:   {Instance: z2m, Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OnOffPlugInUnit}},
 	}
 	r.store.SetDevices(z2m, metas)
 	for dev := range metas {
@@ -582,13 +582,13 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 		t.Errorf("no log of the skipped fridge plug in %q", r.logs.lines)
 	}
 
-	if _, err := NewMoment(ident.ID{Namespace: ns, Name: "bad"}, Moment{
+	if _, err := NewMoment(ident.ID{Name: "bad"}, Moment{
 		Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}},
 		Do:      []Action{Set{Device: "fridge-plug", DeviceTypes: lights, Capability: capability.On, Value: false}},
 	}); err == nil {
 		t.Error("device types on a device, not a room, compiled")
 	}
-	if _, err := NewHold(ident.ID{Namespace: ns, Name: "bad"}, Hold{
+	if _, err := NewHold(ident.ID{Name: "bad"}, Hold{
 		Room: "living-room", DeviceTypes: []devicetype.Type{devicetype.OccupancySensor}, Capability: capability.On, Value: true,
 		Window: &Window{Start: At{Time: "20:00"}, End: At{Time: "23:00"}},
 	}); err == nil {
@@ -608,13 +608,13 @@ func TestATypedHoldLetsGoOfAMemberRetypedOutOfIt(t *testing.T) {
 	plugs := []devicetype.Type{devicetype.OnOffPlugInUnit}
 	metas := func(types ...devicetype.Type) map[ident.ID]hub.Meta {
 		return map[ident.ID]hub.Meta{
-			{Namespace: ns, Name: "porch-door"}: {Instance: z2m},
-			{Namespace: ns, Name: "porch-plug"}: {Instance: z2m, Room: "porch", Control: []control.Entry{plug}, DeviceTypes: types},
+			{Name: "porch-door"}: {Instance: z2m},
+			{Name: "porch-plug"}: {Instance: z2m, Room: "porch", Control: []control.Entry{plug}, DeviceTypes: types},
 		}
 	}
 	r.store.SetDevices(z2m, metas(plugs...))
-	r.store.Discovered(ident.ID{Namespace: ns, Name: "porch-door"}, driver.Info{Found: true, Capabilities: []string{capability.Open}})
-	r.store.Discovered(ident.ID{Namespace: ns, Name: "porch-plug"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	r.store.Discovered(ident.ID{Name: "porch-door"}, driver.Info{Found: true, Capabilities: []string{capability.Open}})
+	r.store.Discovered(ident.ID{Name: "porch-plug"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
 	r.settle()
 	r.e.Load(holdRule(t, "porch-plugs", Hold{
 		Room: "porch", DeviceTypes: plugs, Capability: capability.On, Value: true, Priority: PrioritySafety,

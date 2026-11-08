@@ -174,7 +174,7 @@ func (l *logs) has(want string) bool {
 
 func newFlow(h *fakeHome, c *clock.Fake, l *logs, body func(*Run) error) *Flow {
 	return &Flow{
-		Key:  ident.ID{Namespace: "home", Name: "bedtime"},
+		Key:  ident.ID{Name: "bedtime"},
 		Body: body, Journal: h, Actions: h, Clock: c, Log: l.logger(), Process: context.Background(),
 	}
 }
@@ -182,7 +182,7 @@ func newFlow(h *fakeHome, c *clock.Fake, l *logs, body func(*Run) error) *Flow {
 // resume restarts the flow's one saved run, as a new process does, and returns its result.
 func resume(ctx context.Context, t *testing.T, f *Flow, h *fakeHome, l *logs) <-chan string {
 	t.Helper()
-	bodies := Recover(logging.NewContext(ctx, l.logger()), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+	bodies := Recover(logging.NewContext(ctx, l.logger()), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 	body := bodies[f.Key.Name]
 	if body == nil {
 		t.Fatal("nothing to resume")
@@ -727,7 +727,7 @@ func TestReplacedRunsClaimPassesToTheRunThatReplacedIt(t *testing.T) {
 		c.Step(time.Minute)
 		crash(t, f, c)
 		c.Step(10 * time.Hour)
-		bodies := Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		bodies := Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if !h.holds("lamp") {
 			t.Fatal("dropping the replaced run released the claim")
 		}
@@ -979,7 +979,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 	t.Run("its flow has gone: everything stays, for the host to end", func(t *testing.T) {
 		h, c, l := newFakeHome(), clock.NewFake(epoch), &logs{}
 		logged(h, c, l, claimThenSleep)
-		if bodies := Recover(context.Background(), "home", nil, h.saved(), h, h); len(bodies) != 0 {
+		if bodies := Recover(context.Background(), nil, h.saved(), h, h); len(bodies) != 0 {
 			t.Fatalf("got %d bodies", len(bodies))
 		}
 		if !h.holds("lamp") || len(h.saved()) != 1 || len(h.order) != 0 {
@@ -992,7 +992,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		for id := range h.journal {
 			h.journal[id] = append(h.journal[id], []byte("not json"))
 		}
-		Recover(context.Background(), "home", nil, h.saved(), h, h)
+		Recover(context.Background(), nil, h.saved(), h, h)
 		if !h.holds("lamp") || len(h.saved()) != 1 {
 			t.Fatal("a binary without the flow ended it")
 		}
@@ -1004,7 +1004,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		for id := range h.journal {
 			h.journal[id] = append(h.journal[id], []byte("not json"))
 		}
-		Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if h.holds("lamp") {
 			t.Fatal("an unreadable journal's claim was kept for ever")
 		}
@@ -1020,7 +1020,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 			h.journal[id] = append(h.journal[id], []byte("not json"))
 		}
 		h.releaseErr = errors.New("no host")
-		Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if len(h.saved()) != 1 {
 			t.Fatal("the only record of the claim went")
 		}
@@ -1031,7 +1031,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		crash(t, f, c)
 		c.Step(time.Minute)
 		crash(t, f, c)
-		Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if !h.holds("lamp") {
 			t.Fatal("a replaced run dropped the claim of the run that replaced it")
 		}
@@ -1045,7 +1045,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		}
 		c.Step(time.Minute)
 		crash(t, f, c)
-		Recover(context.Background(), "home", map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if !h.holds("lamp") {
 			t.Fatal("a damaged run dropped the claim of a run that's carrying on")
 		}
@@ -1144,7 +1144,7 @@ func TestRecoverKeepsOnlyTheNewestRunOfAFlow(t *testing.T) {
 	if _, err := h.Journal(context.Background(), "junk", []byte("{")); err != nil {
 		t.Fatal(err)
 	}
-	bodies := Recover(context.Background(), "home", map[string]*Flow{"bedtime": f}, h.saved(), h, h)
+	bodies := Recover(context.Background(), map[string]*Flow{"bedtime": f}, h.saved(), h, h)
 	if len(bodies) != 1 || bodies["bedtime"] == nil {
 		t.Fatalf("resumed %v", bodies)
 	}

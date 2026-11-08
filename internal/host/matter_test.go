@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
+	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -258,6 +260,10 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	}
 	if want[lamp.Endpoint].Unique == want[away.Endpoint].Unique {
 		t.Error("two devices share a unique ID")
+	}
+	// The bridge's own ID is part of it, or two bridges would give the same endpoint the same ID.
+	if got, wantID := want[lamp.Endpoint].Unique, matterbridge.UniqueID("BRIDGE/"+strconv.Itoa(int(lamp.Endpoint))); got != wantID {
+		t.Errorf("lamp's unique ID = %q, want %q", got, wantID)
 	}
 }
 

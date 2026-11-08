@@ -20,26 +20,6 @@
         "label": "Data source"
       },
       {
-        "name": "namespace",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${datasource}"
-        },
-        "label": "Namespace",
-        "query": {
-          "query": "label_values(oikade_capability_value, namespace)",
-          "refId": "ns"
-        },
-        "includeAll": true,
-        "multi": true,
-        "current": {
-          "text": "All",
-          "value": "$__all"
-        },
-        "refresh": 2
-      },
-      {
         "name": "room",
         "type": "query",
         "datasource": {
@@ -48,7 +28,7 @@
         },
         "label": "Room",
         "query": {
-          "query": "label_values(oikade_capability_value{namespace=~\"$namespace\"}, room)",
+          "query": "label_values(oikade_capability_value, room)",
           "refId": "room"
         },
         "includeAll": true,
@@ -98,7 +78,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "count(oikade_device_available{namespace=~\"$namespace\", room=~\"$room\"} == 1) or vector(0)",
+          "expr": "count(oikade_device_available{room=~\"$room\"} == 1) or vector(0)",
           "instant": true
         }
       ],
@@ -135,7 +115,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "count(oikade_device_available{namespace=~\"$namespace\", room=~\"$room\"} == 0) or vector(0)",
+          "expr": "count(oikade_device_available{room=~\"$room\"} == 0) or vector(0)",
           "instant": true
         }
       ],
@@ -190,7 +170,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum(oikade_undeclared_devices{namespace=~\"$namespace\"}) or vector(0)",
+          "expr": "sum(oikade_undeclared_devices) or vector(0)",
           "instant": true
         }
       ],
@@ -245,7 +225,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum(increase(oikade_rule_runs_total{namespace=~\"$namespace\", result=\"succeeded\"}[24h])) or vector(0)",
+          "expr": "sum(increase(oikade_rule_runs_total{result=\"succeeded\"}[24h])) or vector(0)",
           "instant": true
         }
       ],
@@ -301,7 +281,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "avg by (room) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"temperature\"})",
+          "expr": "avg by (room) (oikade_capability_value{room=~\"$room\", capability=\"temperature\"})",
           "legendFormat": "{{room}}"
         }
       ],
@@ -352,7 +332,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "avg by (room) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"humidity\"})",
+          "expr": "avg by (room) (oikade_capability_value{room=~\"$room\", capability=\"humidity\"})",
           "legendFormat": "{{room}}"
         }
       ],
@@ -418,7 +398,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"on\"})",
+          "expr": "max by (device) (oikade_capability_value{room=~\"$room\", capability=\"on\"})",
           "legendFormat": "{{device}}"
         }
       ],
@@ -482,7 +462,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"open\"})",
+          "expr": "max by (device) (oikade_capability_value{room=~\"$room\", capability=\"open\"})",
           "legendFormat": "{{device}}"
         }
       ],
@@ -542,7 +522,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (device) (increase(oikade_capability_changes_total{namespace=~\"$namespace\", room=~\"$room\", capability=\"occupied\"}[1h])) / 2",
+          "expr": "sum by (device) (increase(oikade_capability_changes_total{room=~\"$room\", capability=\"occupied\"}[1h])) / 2",
           "legendFormat": "{{device}}"
         }
       ],
@@ -594,7 +574,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "min by (device) (oikade_capability_value{namespace=~\"$namespace\", room=~\"$room\", capability=\"battery\"})",
+          "expr": "min by (device) (oikade_capability_value{room=~\"$room\", capability=\"battery\"})",
           "legendFormat": "{{device}}",
           "instant": true
         }
@@ -683,7 +663,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (device) (oikade_device_available{namespace=~\"$namespace\", room=~\"$room\"})",
+          "expr": "max by (device) (oikade_device_available{room=~\"$room\"})",
           "legendFormat": "{{device}}"
         }
       ],
@@ -743,7 +723,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (device, room) (oikade_device_last_seen_timestamp_seconds{namespace=~\"$namespace\", room=~\"$room\"}) * 1000",
+          "expr": "max by (device, room) (oikade_device_last_seen_timestamp_seconds{room=~\"$room\"}) * 1000",
           "format": "table",
           "instant": true
         }
@@ -825,7 +805,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (rule) (increase(oikade_rule_runs_total{namespace=~\"$namespace\", result=\"succeeded\"}[$__rate_interval]))",
+          "expr": "sum by (rule) (increase(oikade_rule_runs_total{result=\"succeeded\"}[$__rate_interval]))",
           "legendFormat": "{{rule}}"
         }
       ],
@@ -877,7 +857,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (rule, result) (increase(oikade_rule_runs_total{namespace=~\"$namespace\"}[24h]))",
+          "expr": "sum by (rule, result) (increase(oikade_rule_runs_total[24h]))",
           "format": "table",
           "instant": true
         }
@@ -924,8 +904,8 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (namespace, rule) (oikade_rule_active{namespace=~\"$namespace\"})",
-          "legendFormat": "{{namespace}}/{{rule}}"
+          "expr": "max by (rule) (oikade_rule_active)",
+          "legendFormat": "{{rule}}"
         }
       ],
       "options": {
@@ -984,7 +964,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (namespace, rule) (oikade_rule_next_change_timestamp_seconds{namespace=~\"$namespace\"}) * 1000",
+          "expr": "max by (rule) (oikade_rule_next_change_timestamp_seconds) * 1000",
           "format": "table",
           "instant": true
         }
@@ -1053,8 +1033,8 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (namespace, device, capability) (oikade_device_control_level{namespace=~\"$namespace\"})",
-          "legendFormat": "{{namespace}}/{{device}} {{capability}}"
+          "expr": "max by (device, capability) (oikade_device_control_level)",
+          "legendFormat": "{{device}} {{capability}}"
         }
       ],
       "options": {
@@ -1121,7 +1101,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (namespace, rule) (oikade_rule_budget_target_minutes{namespace=~\"$namespace\"})",
+          "expr": "max by (rule) (oikade_rule_budget_target_minutes)",
           "legendFormat": "{{rule}} target"
         },
         {
@@ -1130,7 +1110,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "max by (namespace, rule) (oikade_rule_budget_scheduled_minutes{namespace=~\"$namespace\"})",
+          "expr": "max by (rule) (oikade_rule_budget_scheduled_minutes)",
           "legendFormat": "{{rule}} scheduled"
         },
         {
@@ -1139,7 +1119,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "max by (namespace, rule) (oikade_rule_budget_today_run_minutes{namespace=~\"$namespace\"})",
+          "expr": "max by (rule) (oikade_rule_budget_today_run_minutes)",
           "legendFormat": "{{rule}} run"
         }
       ],
@@ -1191,7 +1171,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "max by (namespace, rule) (oikade_rule_budget_desired{namespace=~\"$namespace\"})",
+          "expr": "max by (rule) (oikade_rule_budget_desired)",
           "legendFormat": "{{rule}} wanted"
         },
         {
@@ -1200,7 +1180,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "max by (namespace, rule) (rate(oikade_rule_budget_run_minutes_total{namespace=~\"$namespace\"}[5m]) > bool 0)",
+          "expr": "max by (rule) (rate(oikade_rule_budget_run_minutes_total[5m]) > bool 0)",
           "legendFormat": "{{rule}} running"
         }
       ],

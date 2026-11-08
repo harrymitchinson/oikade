@@ -15,7 +15,7 @@ import (
 
 // device is a Device on endpoint id.
 func device(name string, id uint16, caps ...string) Device {
-	return Device{Key: ident.ID{Namespace: "home", Name: name}, Endpoint: id, Name: name, Capabilities: caps}
+	return Device{Key: ident.ID{Name: name}, Endpoint: id, Name: name, Capabilities: caps}
 }
 
 func newBridgeRig() *Bridge {
@@ -58,10 +58,10 @@ func TestBridgeFollowsDevices(t *testing.T) {
 
 	// The bus reaches the clusters, and availability is Reachable.
 	b.Store.SetDevices(driver.InstanceKey{}, map[ident.ID]hub.Meta{
-		{Namespace: "home", Name: "desk-lamp"}: {},
+		{Name: "desk-lamp"}: {},
 	})
-	b.Changed(driver.Update{Device: ident.ID{Namespace: "home", Name: "desk-lamp"}, Capability: capability.On, Value: true})
-	b.Availability(ident.ID{Namespace: "home", Name: "desk-lamp"}, false)
+	b.Changed(driver.Update{Device: ident.ID{Name: "desk-lamp"}, Capability: capability.On, Value: true})
+	b.Availability(ident.ID{Name: "desk-lamp"}, false)
 	b.Matter.Node.View(func() {
 		e := b.Matter.Node.Endpoint(2)
 		var on, reachable bool
@@ -92,7 +92,7 @@ func TestBridgeRenamesInPlace(t *testing.T) {
 	sensor.Name = "Hall sensor"
 	b := newBridgeRig()
 	apply(t, b, sensor)
-	key := ident.ID{Namespace: "home", Name: "hall-sensor"}
+	key := ident.ID{Name: "hall-sensor"}
 	b.Changed(driver.Update{Device: key, Capability: capability.Occupied, Value: true})
 	var before *im.Endpoint
 	b.Matter.Node.View(func() { before = b.Matter.Node.Endpoint(3) })
@@ -149,7 +149,7 @@ func onOff(t *testing.T, b *Bridge, id uint16) bool {
 func TestApplyFollowsNamesThatSwap(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logging.Discard(), b)
-	first, second := ident.ID{Namespace: "home", Name: "first"}, ident.ID{Namespace: "home", Name: "second"}
+	first, second := ident.ID{Name: "first"}, ident.ID{Name: "second"}
 	dev := func(key ident.ID, id uint16) Device {
 		return Device{Key: key, Endpoint: id, Name: key.Name, Capabilities: []string{capability.On}, Unique: "u"}
 	}
@@ -172,7 +172,7 @@ func TestApplyFollowsNamesThatSwap(t *testing.T) {
 func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logging.Discard(), b)
-	key := ident.ID{Namespace: "home", Name: "lamp"}
+	key := ident.ID{Name: "lamp"}
 	d := Device{Key: key, Endpoint: 2, Name: "lamp", Capabilities: []string{capability.On}, Unique: "u", Absent: true}
 	reachable := func() bool {
 		var r bool

@@ -134,7 +134,7 @@ func TestSocketIsPrivate(t *testing.T) {
 func TestHoldStateIsReturnedToTheNextSession(t *testing.T) {
 	dir := tempDir(t)
 	socket, stop := startHost(t, dir)
-	key := ident.ID{Namespace: wire.Namespace, Name: "porch"}
+	key := ident.ID{Name: "porch"}
 	c, _ := dial(t, socket, "porch")
 	want := engine.HoldState{Active: true, Latched: true, Target: engine.HoldTarget{Device: "lamp", Capability: "on", Value: true}}
 	if err := c.Put(t.Context(), key, want); err != nil {

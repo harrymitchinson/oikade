@@ -233,7 +233,7 @@ func (c *Client) ReleaseClaim(ctx context.Context, dev ident.ID, name, source st
 }
 
 // ReleaseClaims implements engine.Arbitration.
-func (c *Client) ReleaseClaims(ctx context.Context, _, source string, below control.Level) error {
+func (c *Client) ReleaseClaims(ctx context.Context, source string, below control.Level) error {
 	_, err := c.request(ctx, Message{Type: TypeReleaseAll, Source: source, Below: below})
 	c.failUnsaved(err)
 	return err

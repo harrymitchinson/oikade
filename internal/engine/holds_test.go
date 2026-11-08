@@ -96,15 +96,15 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	r.e.Store = r.store
 	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Control: o.control[name]}
+		metas[ident.ID{Name: name}] = hub.Meta{Instance: z2m, Control: o.control[name]}
 	}
 	r.store.SetDevices(z2m, metas)
 	for name, caps := range holdDevices {
-		r.store.Discovered(ident.ID{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: caps})
+		r.store.Discovered(ident.ID{Name: name}, driver.Info{Found: true, Capabilities: caps})
 	}
 	for dev, vs := range values {
 		for c, v := range vs {
-			r.store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: dev}, Capability: c, Value: v})
+			r.store.Changed(driver.Update{Device: ident.ID{Name: dev}, Capability: c, Value: v})
 		}
 	}
 	for _, c := range rules {
@@ -171,7 +171,7 @@ func (r *rig) budget(name string) BudgetReport {
 
 func (r *rig) change(dev, c string, v any) {
 	r.t.Helper()
-	r.store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: dev}, Capability: c, Value: v})
+	r.store.Changed(driver.Update{Device: ident.ID{Name: dev}, Capability: c, Value: v})
 	r.settle()
 }
 
@@ -184,7 +184,7 @@ func (r *rig) expect(want ...call) {
 }
 
 func (r *rig) active(name string) float64 {
-	return testutil.ToFloat64(r.e.Active.WithLabelValues(ns, name))
+	return testutil.ToFloat64(r.e.Active.WithLabelValues(name))
 }
 
 var heaterNight = Hold{Device: "water-heater", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}}
@@ -338,7 +338,7 @@ func TestFailedHoldWriteRetries(t *testing.T) {
 	r.setter.fail = map[string]bool{"water-heater": true}
 	r.setter.mu.Unlock()
 	r.at("2026-10-21 22:00 BST")
-	if s, _ := states.Get(ident.ID{Namespace: ns, Name: "water-heater-night"}); s.Active {
+	if s, _ := states.Get(ident.ID{Name: "water-heater-night"}); s.Active {
 		t.Error("saved a failed write as active")
 	}
 	r.setter.mu.Lock()
@@ -350,7 +350,7 @@ func TestFailedHoldWriteRetries(t *testing.T) {
 
 func TestRemoveForgetsTheHold(t *testing.T) {
 	states := newMemoryStates[HoldState]()
-	key := ident.ID{Namespace: ns, Name: "water-heater-night"}
+	key := ident.ID{Name: "water-heater-night"}
 	r := startRig(t, local("2026-10-21 23:00 BST"), states, nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.e.Unload(key)
 	if _, ok := states.Get(key); !ok {
@@ -413,10 +413,10 @@ func TestSunWindowFollowsTheDay(t *testing.T) {
 func (r *rig) declareAlso(rooms map[string]string) {
 	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+		metas[ident.ID{Name: name}] = hub.Meta{Instance: z2m}
 	}
 	for name, room := range rooms {
-		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m, Room: room}
+		metas[ident.ID{Name: name}] = hub.Meta{Instance: z2m, Room: room}
 	}
 	r.store.SetDevices(z2m, metas)
 }
@@ -437,7 +437,7 @@ func TestRoomHoldWaitsForItsMembers(t *testing.T) {
 	r.e.Load(c)
 	r.settle()
 	r.expect()
-	r.store.Discovered(ident.ID{Namespace: ns, Name: "porch-lamp"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	r.store.Discovered(ident.ID{Name: "porch-lamp"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
 	r.at("2026-10-21 12:01 BST")
 	r.expect(call{"porch-lamp", capability.On, true})
 }
@@ -448,9 +448,9 @@ func TestReleaseWhileWhenIsUnknown(t *testing.T) {
 	r.expect(call{"workshop-heater", capability.On, false})
 	// The sensor drops out of the store, so when can't be evaluated.
 	r.declareAlso(nil)
-	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{{Namespace: ns, Name: "workshop-heater"}: {Instance: z2m}})
-	r.store.Discovered(ident.ID{Namespace: ns, Name: "workshop-heater"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
-	r.e.release(ident.ID{Namespace: ns, Name: "workshop-overheat"})
+	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{{Name: "workshop-heater"}: {Instance: z2m}})
+	r.store.Discovered(ident.ID{Name: "workshop-heater"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	r.e.release(ident.ID{Name: "workshop-overheat"})
 	r.settle()
 	r.expect(call{"workshop-heater", capability.On, false})
 	// It's back, and cool: the released hold ends rather than latching again.
@@ -511,7 +511,7 @@ func TestAHoldLooksAgainWhenADeviceIsAnnounced(t *testing.T) {
 	r.declareAlso(map[string]string{"bathroom-sensor": "bathroom"})
 	r.settle()
 	r.expect()
-	sensor := ident.ID{Namespace: ns, Name: "bathroom-sensor"}
+	sensor := ident.ID{Name: "bathroom-sensor"}
 	r.store.Discovered(sensor, driver.Info{Found: true, Capabilities: holdDevices["bathroom-sensor"]})
 	r.settle()
 	r.expect(call{"bathroom-fan", capability.On, true})

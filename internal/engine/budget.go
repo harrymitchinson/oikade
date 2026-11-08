@@ -84,7 +84,7 @@ type BudgetReport struct {
 	Message   string
 }
 
-// BudgetMetrics are the budget holds' gauges and counter, by namespace and rule.
+// BudgetMetrics are the budget holds' gauges and counter, by rule.
 type BudgetMetrics struct {
 	Target    *prometheus.GaugeVec
 	Scheduled *prometheus.GaugeVec
@@ -96,7 +96,7 @@ type BudgetMetrics struct {
 
 // NewBudgetMetrics returns the metrics Engine.Budget expects.
 func NewBudgetMetrics() *BudgetMetrics {
-	labels := []string{labelNamespace, labelRule}
+	labels := []string{labelRule}
 	return &BudgetMetrics{
 		Target: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "oikade_rule_budget_target_minutes",
@@ -131,10 +131,10 @@ func (m *BudgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
 	if m == nil {
 		return
 	}
-	m.Target.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.TargetMinutes))
-	m.Scheduled.WithLabelValues(key.Namespace, key.Name).Set(float64(p.day.ScheduledMinutes))
-	m.Desired.WithLabelValues(key.Namespace, key.Name).Set(float64(btoi(on)))
-	m.TodayRun.WithLabelValues(key.Namespace, key.Name).Set(math.Floor(p.run.Minutes()))
+	m.Target.WithLabelValues(key.Name).Set(float64(p.day.TargetMinutes))
+	m.Scheduled.WithLabelValues(key.Name).Set(float64(p.day.ScheduledMinutes))
+	m.Desired.WithLabelValues(key.Name).Set(float64(btoi(on)))
+	m.TodayRun.WithLabelValues(key.Name).Set(math.Floor(p.run.Minutes()))
 }
 
 // unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
@@ -143,20 +143,20 @@ func (m *BudgetMetrics) unplanned(key ident.ID) {
 	if m == nil {
 		return
 	}
-	m.Target.DeleteLabelValues(key.Namespace, key.Name)
-	m.Scheduled.DeleteLabelValues(key.Namespace, key.Name)
-	m.Desired.WithLabelValues(key.Namespace, key.Name).Set(0)
+	m.Target.DeleteLabelValues(key.Name)
+	m.Scheduled.DeleteLabelValues(key.Name)
+	m.Desired.WithLabelValues(key.Name).Set(0)
 }
 
 func (m *BudgetMetrics) delete(key ident.ID) {
 	if m == nil {
 		return
 	}
-	m.Target.DeleteLabelValues(key.Namespace, key.Name)
-	m.Scheduled.DeleteLabelValues(key.Namespace, key.Name)
-	m.Run.DeleteLabelValues(key.Namespace, key.Name)
-	m.TodayRun.DeleteLabelValues(key.Namespace, key.Name)
-	m.Desired.DeleteLabelValues(key.Namespace, key.Name)
+	m.Target.DeleteLabelValues(key.Name)
+	m.Scheduled.DeleteLabelValues(key.Name)
+	m.Run.DeleteLabelValues(key.Name)
+	m.TodayRun.DeleteLabelValues(key.Name)
+	m.Desired.DeleteLabelValues(key.Name)
 }
 
 // budgetPlan is a budget hold's plan for one planning day, and its progress. Use it with e.mu held.
@@ -202,7 +202,7 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		hs.budget = &budgetState{}
 	}
 	bs := hs.budget
-	dev := ident.ID{Namespace: key.Namespace, Name: h.device}
+	dev := ident.ID{Name: h.device}
 	snap, _ := e.Store.Get(dev)
 	// A driver that never reports availability counts as available.
 	targetOn := snap.Discovered && (snap.Online == nil || *snap.Online) && capability.Float(snap.Values[h.capability]) != 0
@@ -226,14 +226,14 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		p = e.restorePlan(key, hs.saved.Budget, date, end, now)
 		if p == nil {
 			read := func(device, name string) *schedule.Reading {
-				in, ok := e.Store.Get(ident.ID{Namespace: key.Namespace, Name: device})
+				in, ok := e.Store.Get(ident.ID{Name: device})
 				v, has := in.Values[name]
 				if !ok || !has {
 					return nil
 				}
 				return &schedule.Reading{Value: capability.Float(v), At: in.LastSeen}
 			}
-			vars := e.conditionVars(key.Namespace, now, devices)
+			vars := e.conditionVars(now, devices)
 			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}
 			for _, err := range p.day.Errors {
 				e.Log.Info("Budget planned with an error", "rule", key, "err", err)
@@ -254,7 +254,7 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		bs.plan = p
 		if e.Budget != nil {
 			// Exported at 0 before any run is credited.
-			e.Budget.Run.WithLabelValues(key.Namespace, key.Name)
+			e.Budget.Run.WithLabelValues(key.Name)
 		}
 	}
 
@@ -352,7 +352,7 @@ func (p *budgetPlan) credit(now time.Time, on bool, m *BudgetMetrics, key ident.
 		if d > 0 {
 			p.run += d
 			if m != nil {
-				m.Run.WithLabelValues(key.Namespace, key.Name).Add(d.Minutes())
+				m.Run.WithLabelValues(key.Name).Add(d.Minutes())
 			}
 		}
 	}

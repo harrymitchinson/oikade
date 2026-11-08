@@ -15,15 +15,15 @@ import (
 
 func TestUndeclaredInstanceLabel(t *testing.T) {
 	store := hub.NewStore(logging.Discard())
-	name := ident.ID{Namespace: "home", Name: "garden"}
+	name := ident.ID{Name: "garden"}
 	store.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}, 3)
 	store.Undeclared(driver.InstanceKey{Driver: driver.Plugin, ID: name}, 1)
 
 	want := `
 # HELP oikade_undeclared_devices Devices paired with a driver instance that aren't on record.
 # TYPE oikade_undeclared_devices gauge
-oikade_undeclared_devices{instance="garden",namespace="home"} 3
-oikade_undeclared_devices{instance="plugin/garden",namespace="home"} 1
+oikade_undeclared_devices{instance="garden"} 3
+oikade_undeclared_devices{instance="plugin/garden"} 1
 `
 	if err := testutil.CollectAndCompare(Collector{Store: store}, strings.NewReader(want), "oikade_undeclared_devices"); err != nil {
 		t.Error(err)
@@ -36,18 +36,18 @@ func (f fakePlugins) PluginStats() map[ident.ID]plugin.Stats { return f }
 
 func TestPluginMetrics(t *testing.T) {
 	c := Collector{Store: hub.NewStore(logging.Discard()), Plugins: fakePlugins{
-		{Namespace: "home", Name: "sonoff"}: {Up: true, Rejected: map[string]uint64{plugin.ReasonUnknownCapability: 2}},
-		{Namespace: "home", Name: "cozy"}:   {},
+		{Name: "sonoff"}: {Up: true, Rejected: map[string]uint64{plugin.ReasonUnknownCapability: 2}},
+		{Name: "cozy"}:   {},
 	}}
 
 	want := `
 # HELP oikade_plugin_rejected_messages_total Plugin messages dropped by the decoder, by reason.
 # TYPE oikade_plugin_rejected_messages_total counter
-oikade_plugin_rejected_messages_total{namespace="home",plugin="sonoff",reason="unknown_capability"} 2
+oikade_plugin_rejected_messages_total{plugin="sonoff",reason="unknown_capability"} 2
 # HELP oikade_plugin_up 1 while the plugin's retained status is online with a supported contract.
 # TYPE oikade_plugin_up gauge
-oikade_plugin_up{namespace="home",plugin="cozy"} 0
-oikade_plugin_up{namespace="home",plugin="sonoff"} 1
+oikade_plugin_up{plugin="cozy"} 0
+oikade_plugin_up{plugin="sonoff"} 1
 `
 	if err := testutil.CollectAndCompare(c, strings.NewReader(want),
 		"oikade_plugin_up", "oikade_plugin_rejected_messages_total"); err != nil {

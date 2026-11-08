@@ -114,6 +114,23 @@ func TestOpenRefusesAnotherFormat(t *testing.T) {
 	}
 }
 
+// Format 1 kept saved state and driver names under a namespace that no longer exists.
+func TestOpenRefusesTheNamespacedFormat(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(metaBucket).Put(formatKey, []byte("1"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir); !errors.Is(err, ErrFormat) {
+		t.Fatalf("Open = %v, want ErrFormat", err)
+	}
+}
+
 func TestOpenRefusesAFileThatIsntAStore(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)

@@ -267,7 +267,7 @@ func (b *bridge) Discovered(ident.ID, driver.Info) {}
 // Undeclared implements driver.Sink. Every device is reported, so none are.
 func (b *bridge) Undeclared(driver.InstanceKey, int) {}
 
-// device is how the plugin names a device to an Instance: by its ID, in no namespace.
+// device is how the plugin names a device to an Instance: by its ID.
 func device(id string) ident.ID { return ident.ID{Name: id} }
 
 // onlinePayload reads Zigbee2MQTT's states: {"state":"online"} from 2.x, and a bare string before.

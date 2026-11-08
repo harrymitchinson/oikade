@@ -416,7 +416,7 @@ func TestUnreadableMatterStateLeavesTheHomeRunning(t *testing.T) {
 // Nothing writes the device, nothing writes over the record, and an operator can clear it.
 func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 	t.Parallel()
-	const record = "home/valve"
+	const record = "valve"
 	r := prepare(t)
 	s := r.openStore()
 	if err := s.Namespace("controls").Put(record, []byte("not json")); err != nil {

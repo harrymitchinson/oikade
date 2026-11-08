@@ -615,22 +615,22 @@ Point Prometheus at it, and import [`config/grafana/oikade-home.json`](config/gr
 
 | Metric | |
 |---|---|
-| `oikade_capability_value{namespace,device,room,capability}` | Current value. Bools are 0 or 1. |
+| `oikade_capability_value{device,room,capability}` | Current value. Bools are 0 or 1. |
 | `oikade_capability_changes_total{…}` | Counts changes, including ones shorter than the scrape interval (a door opened and closed within 15s) |
-| `oikade_device_available{namespace,device,room}` | 1 online, 0 offline |
+| `oikade_device_available{device,room}` | 1 online, 0 offline |
 | `oikade_device_last_seen_timestamp_seconds{…}` | |
-| `oikade_undeclared_devices{namespace,instance}` | Paired but not on record |
-| `oikade_plugin_up{namespace,plugin}` | 1 while the plugin reports itself online with contract 1 |
-| `oikade_plugin_rejected_messages_total{namespace,plugin,reason}` | Plugin messages dropped as `malformed`, `wrong_contract`, `unknown_capability`, `invalid_value`, `undeclared_device`, `unannounced_capability` or `unknown_device_type` |
-| `oikade_rule_runs_total{namespace,rule,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error`, `missed` |
-| `oikade_rule_next_change_timestamp_seconds{namespace,rule}` | When a rule's next time of day fires, or its hold next starts or ends |
-| `oikade_rule_active{namespace,rule}` | 1 while a Rule's hold is active, 0 otherwise |
-| `oikade_rule_budget_target_minutes{namespace,rule}` | A budget hold's minutes for the current planning day |
-| `oikade_rule_budget_scheduled_minutes{namespace,rule}` | How many of them today's plan places |
-| `oikade_rule_budget_run_minutes_total{namespace,rule}` | Minutes a budget hold's device has been on and available |
-| `oikade_rule_budget_today_run_minutes{namespace,rule}` | Those minutes in the current planning day |
-| `oikade_rule_budget_desired{namespace,rule}` | 1 while a budget hold's plan wants its device on, 0 otherwise |
-| `oikade_device_control_level{namespace,device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
+| `oikade_undeclared_devices{instance}` | Paired but not on record |
+| `oikade_plugin_up{plugin}` | 1 while the plugin reports itself online with contract 1 |
+| `oikade_plugin_rejected_messages_total{plugin,reason}` | Plugin messages dropped as `malformed`, `wrong_contract`, `unknown_capability`, `invalid_value`, `undeclared_device`, `unannounced_capability` or `unknown_device_type` |
+| `oikade_rule_runs_total{rule,result}` | `succeeded`, `failed`, `cancelled`, `busy`, `condition_false`, `condition_error`, `missed` |
+| `oikade_rule_next_change_timestamp_seconds{rule}` | When a rule's next time of day fires, or its hold next starts or ends |
+| `oikade_rule_active{rule}` | 1 while a Rule's hold is active, 0 otherwise |
+| `oikade_rule_budget_target_minutes{rule}` | A budget hold's minutes for the current planning day |
+| `oikade_rule_budget_scheduled_minutes{rule}` | How many of them today's plan places |
+| `oikade_rule_budget_run_minutes_total{rule}` | Minutes a budget hold's device has been on and available |
+| `oikade_rule_budget_today_run_minutes{rule}` | Those minutes in the current planning day |
+| `oikade_rule_budget_desired{rule}` | 1 while a budget hold's plan wants its device on, 0 otherwise |
+| `oikade_device_control_level{device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 | `oikade_api_auth_failures_total` | Calls to the network API refused for want of a valid token |
 | `oikade_matter_serving` | 1 while the Matter bridge serves controllers, 0 while it can't. `oikade matter` says why |

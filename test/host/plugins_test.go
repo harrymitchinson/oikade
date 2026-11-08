@@ -105,7 +105,7 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	r.untilValue("relay", false)
 	r.stdout(nil, "set", "relay", "on", "on")
 	r.untilValue("relay", true)
-	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/home/relays" || d.Endpoint == 0 {
+	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 {
 		t.Fatalf("got %+v", d)
 	}
 

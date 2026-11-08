@@ -161,7 +161,7 @@ func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment
 }
 
 func (h *harness) result(name, result string) float64 {
-	return testutil.ToFloat64(h.e.Runs.WithLabelValues(ns, name, result))
+	return testutil.ToFloat64(h.e.Runs.WithLabelValues(name, result))
 }
 
 var lightOn = call{"hallway-light", capability.On, true}
@@ -190,7 +190,7 @@ func TestAtFiresWithTheClock(t *testing.T) {
 	if got := s.last().LastFire; !got.Equal(local("2026-10-21 07:00 BST")) {
 		t.Errorf("lastFire = %v, want 07:00", got)
 	}
-	if got := testutil.ToFloat64(h.e.NextChange.WithLabelValues(ns, "lights-on")); got != float64(local("2026-10-22 07:00 BST").Unix()) {
+	if got := testutil.ToFloat64(h.e.NextChange.WithLabelValues("lights-on")); got != float64(local("2026-10-22 07:00 BST").Unix()) {
 		t.Errorf("next-change gauge = %v", got)
 	}
 }
@@ -298,7 +298,7 @@ func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
 
 func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	h, s := timedHarness(t, local("2026-10-21 06:00 BST"), nil, nil, atTrigger("07:00"))
-	h.e.Remove(ident.ID{Namespace: ns, Name: "lights-on"})
+	h.e.Remove(ident.ID{Name: "lights-on"})
 	if !s.last().Cleared {
 		t.Errorf("got %+v, want the schedule cleared", s.last())
 	}

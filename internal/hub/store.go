@@ -228,15 +228,13 @@ func (s *Store) List() map[ident.ID]Snapshot {
 	return out
 }
 
-// Values returns device name -> capability -> value for one namespace.
-func (s *Store) Values(namespace string) map[string]map[string]any {
+// Values returns device name -> capability -> value.
+func (s *Store) Values() map[string]map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := map[string]map[string]any{}
 	for k, e := range s.devices {
-		if k.Namespace == namespace {
-			out[k.Name] = maps.Clone(e.Values)
-		}
+		out[k.Name] = maps.Clone(e.Values)
 	}
 	return out
 }
@@ -252,21 +250,19 @@ func (m Member) OfTypes(types []devicetype.Type) bool {
 	return devicetype.Any(m.DeviceTypes, types)
 }
 
-// Members returns device name -> Member for one namespace.
-func (s *Store) Members(namespace string) map[string]Member {
+// Members returns device name -> Member.
+func (s *Store) Members() map[string]Member {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := map[string]Member{}
 	for k, e := range s.devices {
-		if k.Namespace == namespace {
-			out[k.Name] = Member{Room: e.Room, DeviceTypes: slices.Clone(e.DeviceTypes)}
-		}
+		out[k.Name] = Member{Room: e.Room, DeviceTypes: slices.Clone(e.DeviceTypes)}
 	}
 	return out
 }
 
-// Room returns the declared devices whose room is room in one namespace, sorted by name.
-func (s *Store) Room(namespace, room string) []ident.ID {
+// Room returns the declared devices whose room is room, sorted by name.
+func (s *Store) Room(room string) []ident.ID {
 	if room == "" {
 		return nil
 	}
@@ -274,7 +270,7 @@ func (s *Store) Room(namespace, room string) []ident.ID {
 	defer s.mu.RUnlock()
 	var out []ident.ID
 	for k, e := range s.devices {
-		if k.Namespace == namespace && e.Room == room {
+		if e.Room == room {
 			out = append(out, k)
 		}
 	}
@@ -341,7 +337,7 @@ func (s *Store) Changed(changes ...driver.Update) {
 	for _, u := range known {
 		// Link quality changes on almost every message; logging it would drown the rest.
 		if u.Capability != capability.LinkQuality {
-			s.Log.Info("Changed capability", "namespace", u.Device.Namespace, "device", u.Device.Name,
+			s.Log.Info("Changed capability", "device", u.Device.Name,
 				"capability", u.Capability, "value", u.Value, "previous", u.Previous)
 		}
 	}

@@ -18,8 +18,8 @@ import (
 const (
 	// fileName is the store's file in the data directory.
 	fileName = "oikade.db"
-	// formatVersion is the layout of the buckets. Raise it when that layout changes.
-	formatVersion = "1"
+	// formatVersion is the layout of the buckets and the keys in them. Raise it when that changes.
+	formatVersion = "2"
 	// lockTimeout is how long Open waits for another process to let go of the data directory.
 	lockTimeout = time.Second
 )

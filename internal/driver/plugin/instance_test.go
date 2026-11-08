@@ -78,7 +78,7 @@ func (r *recorder) takeChanges() []driver.Update {
 }
 
 func dev(name string) ident.ID {
-	return ident.ID{Namespace: "home", Name: name}
+	return ident.ID{Name: name}
 }
 
 const root = "oikade/v1/home/sonoff"

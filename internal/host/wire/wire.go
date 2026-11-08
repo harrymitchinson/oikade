@@ -30,8 +30,6 @@ const (
 	KindFlow = "flow"
 	// SocketEnv names the host's socket to the process it starts.
 	SocketEnv = "OIKADE_SOCKET"
-	// Namespace is the home's namespace in the engine, whose rules and devices are keyed by one.
-	Namespace = "home"
 )
 
 // Type is a message's type.

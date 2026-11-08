@@ -33,7 +33,7 @@ func (g *gatedControls) Put(ctx context.Context, key ident.ID, s ControlState) e
 
 func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, ident.ID) {
 	t.Helper()
-	dev := ident.ID{Namespace: ns, Name: "valve"}
+	dev := ident.ID{Name: "valve"}
 	eng := &Engine{Clock: clock.NewFake(time.Now()), Log: logging.Discard(), Controls: controls}
 	store := hub.NewStore(logging.Discard(), eng)
 	eng.Store, eng.Setter = store, &fakeSetter{}
@@ -194,7 +194,7 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 		woke <- ok
 	}()
 	report := func(v bool) {
-		h.e.Store.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupied, Value: v})
+		h.e.Store.Changed(driver.Update{Device: ident.ID{Name: "hallway-motion"}, Capability: capability.Occupied, Value: v})
 		h.motion(v)
 	}
 	report(false)
@@ -313,7 +313,7 @@ func (f *failingFor) Put(ctx context.Context, key ident.ID, s ControlState) erro
 }
 
 func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
-	broken := ident.ID{Namespace: ns, Name: "broken"}
+	broken := ident.ID{Name: "broken"}
 	eng, dev := arbitratedEngine(t, &failingFor{States: newMemoryStates[ControlState](), broken: broken})
 	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{
 		dev:    {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h")}},
@@ -327,21 +327,21 @@ func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
 		t.Fatal("the broken device saved")
 	}
 
-	if err := eng.ReleaseClaims(ctx, ns, "Rule/nothing", allLevels); err != nil {
+	if err := eng.ReleaseClaims(ctx, "Rule/nothing", allLevels); err != nil {
 		t.Fatalf("a release that changed nothing failed over another device: %v", err)
 	}
-	if err := eng.ReleaseClaims(ctx, ns, "Rule/x", allLevels); err != nil {
+	if err := eng.ReleaseClaims(ctx, "Rule/x", allLevels); err != nil {
 		t.Fatalf("a release failed over another device: %v", err)
 	}
-	if err := eng.ReleaseClaims(ctx, ns, "Rule/stuck", allLevels); err == nil {
+	if err := eng.ReleaseClaims(ctx, "Rule/stuck", allLevels); err == nil {
 		t.Fatal("a release that couldn't be saved looked saved")
 	}
 }
 
 func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
-	other := ident.ID{Namespace: ns, Name: "other"}
-	third := ident.ID{Namespace: ns, Name: "third"}
+	other := ident.ID{Name: "other"}
+	third := ident.ID{Name: "third"}
 	meta := hub.Meta{Instance: z2m, Control: []control.Entry{
 		entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h"),
 	}}
@@ -374,7 +374,7 @@ func TestReleaseWithAllLevelsEndsSafetyClaims(t *testing.T) {
 	if _, err := eng.Claim(ctx, dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
-	if err := eng.ReleaseClaims(ctx, ns, "Rule/x", allLevels); err != nil {
+	if err := eng.ReleaseClaims(ctx, "Rule/x", allLevels); err != nil {
 		t.Fatal(err)
 	}
 	if got := eng.arbs[dev][capability.On].a.State().Claims; len(got) != 0 {
@@ -423,17 +423,14 @@ func TestRuleClaimsAndEndRule(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	held := eng.RuleClaims(ns)
+	held := eng.RuleClaims()
 	if len(held) != 2 || held["leak"] != control.Safety || held["leak-too"] != control.Normal {
 		t.Fatalf("got %v", held)
 	}
-	if got := eng.RuleClaims("elsewhere"); len(got) != 0 {
-		t.Fatalf("got %v", got)
-	}
-	if err := eng.EndRule(ctx, ns, "leak"); err != nil {
+	if err := eng.EndRule(ctx, "leak"); err != nil {
 		t.Fatal(err)
 	}
-	if held := eng.RuleClaims(ns); len(held) != 1 || held["leak-too"] != control.Normal {
+	if held := eng.RuleClaims(); len(held) != 1 || held["leak-too"] != control.Normal {
 		t.Fatalf("a Safety claim outlived its rule: %v", held)
 	}
 }
@@ -448,13 +445,13 @@ func TestRuleClaimsCountsClaimsStillOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarted, _ := arbitratedEngine(t, controls)
-	if held := restarted.RuleClaims(ns); held["leak"] != control.Safety {
+	if held := restarted.RuleClaims(); held["leak"] != control.Safety {
 		t.Fatalf("got %v", held)
 	}
-	if err := restarted.EndRule(ctx, ns, "leak"); err != nil {
+	if err := restarted.EndRule(ctx, "leak"); err != nil {
 		t.Fatal(err)
 	}
-	if held := restarted.RuleClaims(ns); len(held) != 0 {
+	if held := restarted.RuleClaims(); len(held) != 0 {
 		t.Fatalf("got %v", held)
 	}
 }
@@ -531,7 +528,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 		}()
 		waiting(t, c)
 		met.Store(true)
-		eng.membersChanged(ns)
+		eng.membersChanged()
 		finished(t, done)
 	})
 
