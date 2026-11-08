@@ -16,10 +16,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -140,6 +143,8 @@ type Request struct {
 	To string `json:"to,omitempty"`
 	// Room is a device's room.
 	Room string `json:"room,omitempty"`
+	// Plugin is a remove's in place of Device: every device of that plugin on record.
+	Plugin string `json:"plugin,omitempty"`
 	// DeviceType is what a device is, one of devicetype.OnOff. Empty goes back to what its driver says.
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// Registry is what a restore reads back.
@@ -191,6 +196,14 @@ type Response struct {
 	Warning string `json:"warning,omitempty"`
 	// Moved are the devices a restore had to give a new endpoint or name.
 	Moved []string `json:"moved,omitempty"`
+	// Removed are the devices a remove of a plugin's devices removed.
+	Removed []string `json:"removed,omitempty"`
+	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
+	// rollback's for the version now running, and a devices request's for the one running now.
+	Unimported []Unimported `json:"unimported,omitempty"`
+	// OutsidePlugins are a devices request's: the plugins that run as processes of their own, which no
+	// version imports.
+	OutsidePlugins []string `json:"outsidePlugins,omitempty"`
 	// Matter is a matter request's.
 	Matter *Matter `json:"matter,omitempty"`
 	// Backup is the file a backup wrote, on the host.
@@ -211,6 +224,39 @@ type Response struct {
 	// Pin is the network API's public key, as a client checks it. It's empty while the host has no
 	// network listener.
 	Pin string `json:"pin,omitempty"`
+}
+
+// Unimported is a device on record whose plugin isn't imported, so nothing reports it. It stays on
+// the Matter bridge, offline, until oikade devices remove takes it.
+type Unimported struct {
+	Device string `json:"device"`
+	Plugin string `json:"plugin"`
+	// Safety is a device a Safety claim holds, which removing it would end.
+	Safety bool `json:"safety,omitempty"`
+}
+
+// PluginOf names the plugin that reports a device on record, if one does.
+func PluginOf(d registry.Device) (string, bool) {
+	return strings.CutPrefix(d.Driver, driver.Plugin+"/")
+}
+
+// UnimportedOf lists the devices on record of plugins that are neither imported nor outside, by
+// name. safety says whether a Safety claim holds a device, and may be nil.
+func UnimportedOf(list registry.Snapshot, imported, outside []string, safety func(device string) bool) []Unimported {
+	var out []Unimported
+	for _, d := range list.Devices {
+		plugin, ok := PluginOf(d)
+		if !ok || d.Removed || slices.Contains(imported, plugin) || slices.Contains(outside, plugin) {
+			continue
+		}
+		u := Unimported{Device: d.Name, Plugin: plugin}
+		if safety != nil {
+			u.Safety = safety(d.Name)
+		}
+		out = append(out, u)
+	}
+	slices.SortFunc(out, func(a, b Unimported) int { return strings.Compare(a.Device, b.Device) })
+	return out
 }
 
 // Client is a client of the network API. Its JSON is what oikade client list --json prints, so
@@ -284,6 +330,9 @@ type Device struct {
 	Capabilities []Capability `json:"capabilities"`
 	// DeviceTypes are what it is.
 	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
+	// PluginNotImported is a device whose plugin the running version doesn't import, so it stays
+	// offline until it's imported again or you remove the device.
+	PluginNotImported bool `json:"pluginNotImported,omitempty"`
 }
 
 // Capability is a device's capability, and who has it if it's arbitrated.

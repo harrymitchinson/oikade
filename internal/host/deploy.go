@@ -74,6 +74,10 @@ func (d *deployer) startup() string {
 func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Response {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return d.withUnimported(d.deployLocked(ctx, binary, allow))
+}
+
+func (d *deployer) deployLocked(ctx context.Context, binary string, allow bool) api.Response {
 	id, err := d.versions.take(binary)
 	if err != nil {
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
@@ -107,7 +111,20 @@ func (d *deployer) rollback(ctx context.Context, allow bool) api.Response {
 	if !ok {
 		return api.Response{Error: "there's no earlier version"}
 	}
-	return d.takeOver(ctx, prev.ID, allow, d.versions.beginRollback)
+	return d.withUnimported(d.takeOver(ctx, prev.ID, allow, d.versions.beginRollback))
+}
+
+// withUnimported tells a deploy that went ahead of the devices left behind by plugins its version
+// doesn't import. They stay on record, so that a plugin briefly missing loses nothing, until you
+// remove them.
+func (d *deployer) withUnimported(resp api.Response) api.Response {
+	if resp.Error != "" || d.srv == nil || d.srv.plugins == nil {
+		return resp
+	}
+	if cur, ok := d.versions.current(); ok && cur.Manifest.Protocol != 0 {
+		resp.Unimported = d.srv.plugins.unimported(cur.Manifest.Plugins)
+	}
+	return resp
 }
 
 // keepHome stores and checks a binary from the host's flags, so a deploy can go back to it, and

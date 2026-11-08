@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/registry"
@@ -43,6 +44,7 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 // checks your binary makes of itself, which are the ones a deploy makes.
 func runCheck(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
 		return fmt.Errorf("oikade check takes no %q", extra[0])
@@ -72,7 +74,41 @@ func runCheck(ctx context.Context, args []string) error {
 			"use the same version of both", m.Protocol, wire.Version)
 	}
 	fmt.Printf("Your home is fine: %d rules, %d plugins\n", len(m.Rules), len(m.Plugins))
+	checkUnimported(ctx, target.transport(), m.Plugins)
 	return nil
+}
+
+// checkUnimported lists the devices on the host whose plugin your home doesn't import, which a deploy
+// would leave on record, offline. It's only a warning, and a home with no host to reach skips it.
+func checkUnimported(ctx context.Context, t api.Transport, imported []string) {
+	devices, err := devicesOf(ctx, t)
+	var st api.Response
+	if err == nil {
+		st, err = api.Call(ctx, t, api.Request{Type: api.TypeStatus})
+		if err == nil && st.Error != "" {
+			err = errors.New(st.Error)
+		}
+	}
+	if err != nil {
+		if local, ok := t.(api.Local); ok {
+			if _, statErr := os.Stat(filepath.Join(local.DataDir, api.SocketName)); statErr != nil {
+				return // There's no host here to ask.
+			}
+		}
+		fmt.Fprintln(os.Stderr, "Couldn't ask the host which devices your home's plugins leave behind:", err)
+		return
+	}
+	safety := map[string]bool{}
+	if st.Status != nil {
+		for _, d := range st.Status.Devices {
+			for _, c := range d.Capabilities {
+				held := slices.ContainsFunc(c.Claims, func(o api.Claim) bool { return o.Level == control.NameSafety })
+				safety[d.Name] = safety[d.Name] || held
+			}
+		}
+	}
+	printUnimported(os.Stderr, api.UnimportedOf(*devices.Registry, imported, devices.OutsidePlugins,
+		func(name string) bool { return safety[name] }))
 }
 
 // runTest runs a home's tests. Anything after the flags goes to go test.

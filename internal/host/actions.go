@@ -43,10 +43,14 @@ func (s *apiServer) status() api.Response {
 	s.srv.mu.Lock()
 	st.Process = s.srv.session != nil
 	s.srv.mu.Unlock()
+	unimported := map[string]bool{}
+	for _, u := range s.unimported() {
+		unimported[u.Device] = true
+	}
 	for dev, snap := range s.srv.devices.List() {
 		d := api.Device{
 			Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
-			DeviceTypes: slices.Clone(snap.DeviceTypes),
+			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: unimported[dev.Name],
 		}
 		held := s.srv.engine.ControlOf(dev)
 		names := slices.Clone(snap.Info.Capabilities)
@@ -86,6 +90,14 @@ func (s *apiServer) status() api.Response {
 	}
 	slices.SortFunc(st.Rules, func(a, b api.Rule) int { return strings.Compare(a.Name, b.Name) })
 	return api.Response{Status: st}
+}
+
+// unimported lists the devices of plugins the binary in use doesn't import.
+func (s *apiServer) unimported() []api.Unimported {
+	if s.srv.plugins == nil {
+		return nil
+	}
+	return s.srv.plugins.unimportedNow()
 }
 
 func withControl(c *api.Capability, held control.Status) {

@@ -358,3 +358,49 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 		t.Fatalf("got %d sets", device.sets.Load())
 	}
 }
+
+func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t, settle)
+	r.untilValue("relay", false)
+	// The fixture's module, built as it is, imports no plugins.
+	env := []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}
+	if stderr, err := r.oikade(env, "check", "--module", filepath.Join(buildDir, "module")); err != nil ||
+		!strings.Contains(stderr, "oikade devices remove --plugin relays") {
+		t.Fatalf("check: %v: %q", err, stderr)
+	}
+	stderr, err := r.deploy("nofan")
+	if err != nil {
+		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
+	}
+	r.awaitDeployed()
+	if !strings.Contains(stderr, "relays: ") || !strings.Contains(stderr, "oikade devices remove --plugin relays") {
+		t.Fatalf("got %q", stderr)
+	}
+
+	// Once nothing imports it, the list and status say so, rather than just offline.
+	type listed struct {
+		Name              string `json:"name"`
+		PluginNotImported bool   `json:"pluginNotImported"`
+	}
+	r.until("relay to be marked", func() bool {
+		var list struct{ Devices []listed }
+		if err := json.Unmarshal(r.stdout(nil, "devices", "--json"), &list); err != nil {
+			t.Fatal(err)
+		}
+		return slices.Contains(list.Devices, listed{Name: "relay", PluginNotImported: true})
+	})
+	if !slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Name == "relay" && d.PluginNotImported }) {
+		t.Fatal("status doesn't mark relay")
+	}
+	if strings.Contains(string(r.stdout(nil, "status", "--json", "leak-sensor")), "pluginNotImported") {
+		t.Error("status marks a simulated device")
+	}
+
+	r.stdout(nil, "devices", "remove", "--plugin", "relays", "--allow-safety")
+	for _, d := range r.devices().Devices {
+		if d.Driver == "plugin/relays" && !d.Removed {
+			t.Errorf("%s stayed", d.Name)
+		}
+	}
+}

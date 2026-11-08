@@ -324,24 +324,50 @@ func (i *inventory) moveLive(names map[string]string) {
 
 // remove refuses a device a Safety claim holds, unless told otherwise. Its claims end with it, so
 // they can't wait for the next device of that name.
-func (i *inventory) remove(ctx context.Context, name string, allowSafety bool) api.Response {
+func (i *inventory) remove(ctx context.Context, names []string, allowSafety bool) api.Response {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if holders, safety := i.claimed(name); safety && !allowSafety {
-		return api.Response{
-			Error:            fmt.Sprintf("%s holds %s at Safety", strings.Join(holders, ", "), name),
-			NeedsAllowSafety: true,
+	if !allowSafety {
+		var held []string
+		for _, name := range names {
+			if holders, safety := i.claimed(name); safety {
+				held = append(held, fmt.Sprintf("%s holds %s at Safety", strings.Join(holders, ", "), name))
+			}
+		}
+		if len(held) > 0 {
+			return api.Response{Error: strings.Join(held, "; "), NeedsAllowSafety: true}
 		}
 	}
-	if err := i.registry.Remove(name); err != nil {
-		return api.Response{Error: err.Error()}
+	var removed []string
+	for _, name := range names {
+		if err := i.registry.Remove(name); err != nil {
+			i.sync()
+			return api.Response{Error: err.Error(), Removed: removed}
+		}
+		removed = append(removed, name)
 	}
 	i.sync()
-	if err := i.engine.ForgetDevice(ctx, key(name)); err != nil {
-		return api.Response{Error: fmt.Sprintf("removed %s, but couldn't end its claims: %v", name, err)}
+	for _, name := range names {
+		if err := i.engine.ForgetDevice(ctx, key(name)); err != nil {
+			return api.Response{Error: fmt.Sprintf("removed %s, but couldn't end its claims: %v", name, err), Removed: removed}
+		}
+		i.log.Info("Removed device", "device", name)
 	}
-	i.log.Info("Removed device", "device", name)
-	return api.Response{}
+	return api.Response{Removed: removed}
+}
+
+// removePlugin removes every device of a plugin on record, as remove does one.
+func (i *inventory) removePlugin(ctx context.Context, plugin string, allowSafety bool) api.Response {
+	var names []string
+	for _, d := range i.registry.List().Devices {
+		if name, ok := api.PluginOf(d); ok && name == plugin && !d.Removed {
+			names = append(names, d.Name)
+		}
+	}
+	if len(names) == 0 {
+		return api.Response{Error: fmt.Sprintf("no device of plugin %s is on record", plugin)}
+	}
+	return i.remove(ctx, names, allowSafety)
 }
 
 // replace moves name onto with's hardware. name's claims and arbitration settings stay, and with's
@@ -468,7 +494,11 @@ func (s *apiServer) device(req api.Request) api.Response {
 	switch req.Type {
 	case api.TypeDevices:
 		list := s.devices.registry.List()
-		return api.Response{Registry: &list}
+		resp := api.Response{Registry: &list, Unimported: s.unimported()}
+		if s.srv.plugins != nil {
+			resp.OutsidePlugins = slices.Clone(s.srv.plugins.host.Outside)
+		}
+		return resp
 	case api.TypeDeviceName:
 		err = s.devices.rename(req.Device, req.To)
 	case api.TypeDeviceRoom:
@@ -485,7 +515,13 @@ func (s *apiServer) device(req api.Request) api.Response {
 	case api.TypeDeviceReserve:
 		err = s.devices.reserve(req.Device, req.Room)
 	case api.TypeDeviceRemove:
-		return s.devices.remove(s.ctx, req.Device, req.AllowSafety)
+		if req.Plugin != "" {
+			if req.Device != "" {
+				return api.Response{Error: "a remove takes a device or a plugin, not both"}
+			}
+			return s.devices.removePlugin(s.ctx, req.Plugin, req.AllowSafety)
+		}
+		return s.devices.remove(s.ctx, []string{req.Device}, req.AllowSafety)
 	case api.TypeDeviceReplace:
 		err = s.devices.replace(req.Device, req.To)
 	case api.TypeDeviceRestore:

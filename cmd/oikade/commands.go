@@ -102,7 +102,11 @@ func printStatus(out io.Writer, st *api.Status, summary bool) {
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, d := range st.Devices {
 		for _, c := range d.Capabilities {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%v\t%s\n", d.Name, c.Name, display(c.Value), why(c))
+			state := why(c)
+			if d.PluginNotImported {
+				state = strings.TrimSpace(notImported + "  " + state)
+			}
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%v\t%s\n", d.Name, c.Name, display(c.Value), state)
 		}
 	}
 	_ = w.Flush()

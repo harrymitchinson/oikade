@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -54,6 +55,9 @@ type plugins struct {
 
 	mu      sync.Mutex
 	running map[string]*hosted
+	// imported are the plugins the binary in use imports, once its check has said: importsKnown.
+	imported     []string
+	importsKnown bool
 }
 
 // hosted is a plugin: what the host knows of it, which outlives its processes.
@@ -86,9 +90,6 @@ func newPlugins(h *Host, socket string, devices *hub.Store, known *inventory) *p
 // topicNamespace is the namespace segment of every plugin's topic root, oikade/v1/<namespace>/<plugin>.
 const topicNamespace = "home"
 
-// recordedPrefix is how the registry records this host's plugins.
-var recordedPrefix = instanceName(pluginKey("")) // ends in the empty name
-
 func pluginKey(name string) driver.InstanceKey {
 	return driver.InstanceKey{Driver: driver.Plugin, ID: key(name)}
 }
@@ -97,7 +98,7 @@ func pluginKey(name string) driver.InstanceKey {
 // enforced, before any process has connected.
 func (p *plugins) attachRecorded() {
 	for _, d := range p.known.registry.List().Devices {
-		name, ok := strings.CutPrefix(d.Driver, recordedPrefix)
+		name, ok := api.PluginOf(d)
 		if ok && !d.Removed && !slices.Contains(p.host.Outside, name) {
 			p.get(name)
 		}
@@ -261,6 +262,8 @@ func (p *plugins) run(ctx context.Context) {
 			}
 			stop()
 			stop, current, retry, backoff = func() {}, path, nil, firstBackoff
+			// Unknown until its check says, and none with no binary.
+			p.setImports(nil, path == "")
 			if path != "" {
 				start(path)
 			}
@@ -292,6 +295,7 @@ func (p *plugins) start(ctx context.Context, path string) (func(), error) {
 	if err != nil {
 		return func() {}, err
 	}
+	p.setImports(manifest.Plugins, true)
 	generation, cancel := context.WithCancel(ctx)
 	var running sync.WaitGroup
 	for _, name := range manifest.Plugins {
@@ -306,6 +310,32 @@ func (p *plugins) start(ctx context.Context, path string) (func(), error) {
 		cancel()
 		running.Wait()
 	}, nil
+}
+
+func (p *plugins) setImports(imported []string, known bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.imported, p.importsKnown = imported, known
+}
+
+// unimportedNow lists the devices of plugins the binary in use doesn't import, or nothing if that
+// isn't known yet.
+func (p *plugins) unimportedNow() []api.Unimported {
+	p.mu.Lock()
+	imported, known := p.imported, p.importsKnown
+	p.mu.Unlock()
+	if !known {
+		return nil
+	}
+	return p.unimported(imported)
+}
+
+// unimported lists the devices on record of plugins a version importing these wouldn't run.
+func (p *plugins) unimported(imported []string) []api.Unimported {
+	return api.UnimportedOf(p.known.registry.List(), imported, p.host.Outside, func(name string) bool {
+		_, safety := p.known.claimed(name)
+		return safety
+	})
 }
 
 // startOutside follows the plugins that run as processes of their own.
