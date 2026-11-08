@@ -6,7 +6,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
@@ -94,6 +96,43 @@ func TestCommissionAndRestart(t *testing.T) {
 	waitFor(t, "the window to reopen", func() bool {
 		return len(fake.operational()) == 0 && fake.commissionable() != nil && n.WindowOpen()
 	})
+}
+
+// TestStoppingClosesSessionsBeforeTheGoodbye: a controller hears CloseSession on its session, and
+// has heard it by the time the mDNS responder says goodbye. Closing waits a moment for it, because the
+// packet is on its way to another socket: one sent after the goodbye never arrives in time.
+func TestStoppingClosesSessionsBeforeTheGoodbye(t *testing.T) {
+	n, fake, stop := start(t, Config{DataDir: t.TempDir()})
+	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	admin := nodetest.New(t).Commission(addr(n), testSetup.Passcode)
+	waitFor(t, "the CASE session alone", func() bool {
+		return n.secureSessions(transport.AuthCASE) == 1 && n.secureSessions(transport.AuthPASE) == 0
+	})
+
+	heard := make(chan struct{})
+	var once sync.Once
+	admin.Session.Transport().Handle(transport.SecureChannel, []uint8{securechannel.OpStatusReport},
+		func(_ context.Context, ex *transport.Exchange, m transport.Message) {
+			defer ex.Close()
+			if r, err := securechannel.ParseStatusReport(m.Payload); err == nil && r.Protocol == transport.SecureChannel && r.Code == securechannel.CodeCloseSession {
+				once.Do(func() { close(heard) })
+			}
+		})
+	var inTime atomic.Bool
+	fake.mu.Lock()
+	fake.closing = func() {
+		select {
+		case <-heard:
+			inTime.Store(true)
+		case <-time.After(2 * time.Second):
+		}
+	}
+	fake.mu.Unlock()
+
+	stop()
+	if !inTime.Load() {
+		t.Error("the controller hadn't heard CloseSession by the mDNS goodbye")
+	}
 }
 
 // TestRunAgain is a node that stopped serving, as when its socket went, and came back. It has a new
