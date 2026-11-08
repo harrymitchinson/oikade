@@ -237,15 +237,19 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 func done(resp api.Response, asJSON bool, message string) error {
 	if asJSON {
 		out := struct {
-			OK    bool     `json:"ok"`
-			Error string   `json:"error,omitempty"`
-			Moved []string `json:"moved,omitempty"`
-		}{resp.Error == "", resp.Error, resp.Moved}
+			OK      bool     `json:"ok"`
+			Error   string   `json:"error,omitempty"`
+			Warning string   `json:"warning,omitempty"`
+			Moved   []string `json:"moved,omitempty"`
+		}{resp.Error == "", resp.Error, resp.Warning, resp.Moved}
 		if err := cli.PrintJSON(out); err != nil {
 			return err
 		}
 	} else if resp.Error == "" {
 		fmt.Println(message)
+		if resp.Warning != "" {
+			fmt.Fprintln(os.Stderr, "Warning:", resp.Warning)
+		}
 	}
 	if resp.Error != "" {
 		return errors.New(resp.Error)

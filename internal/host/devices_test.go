@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,5 +209,69 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	}
 	if len(known.home) != 1 {
 		t.Fatalf("after settling: %v", known.home)
+	}
+}
+
+func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := &engine.Engine{Log: logging.Discard()}
+	devices := hub.NewStore(logging.Discard(), eng)
+	eng.Store, eng.Setter = devices, driver.SetterFunc(func(context.Context, ident.ID, string, any) error { return nil })
+	eng.Init()
+	// hall-lamp reads the hall, as framework's s.Any(InRoom("hall", Occupied)) does.
+	readsHall := func(v engine.Vars) (bool, error) {
+		reads, _ := v[engine.VarRoomReads].(*[]engine.RoomRead)
+		*reads = append(*reads, engine.RoomRead{Room: "hall"})
+		return false, nil
+	}
+	hold, err := engine.NewHold(key("hall-lamp"), engine.Hold{Device: "lamp", Capability: capability.On, Value: true, When: readsHall})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.Load(hold)
+	ctx, cancel := context.WithCancel(context.Background())
+	running := make(chan struct{})
+	go func() { defer close(running); eng.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-running })
+
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known.attach(simInstance)
+	for _, d := range []driver.AppDevice{
+		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
+		{ID: "l", Name: "lamp", Capabilities: []string{capability.On}},
+	} {
+		dev, err := known.paired(simInstance, d, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		devices.Discovered(dev, driver.Info{Found: true, Capabilities: d.Capabilities})
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !eng.Idle() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	s := &apiServer{devices: known}
+
+	resp := s.move("sensor", "attic")
+	if resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	if !strings.Contains(resp.Warning, "hall-lamp") || !strings.Contains(resp.Warning, "hall") {
+		t.Errorf("got warning %q, want one naming hall-lamp and the hall", resp.Warning)
+	}
+	if d, _ := reg.Get("sensor"); d.Room != "attic" {
+		t.Errorf("sensor is in %q: the move should still happen", d.Room)
+	}
+	// A move that leaves a member behind, or out of a room no rule reads, says nothing.
+	if resp := s.move("lamp", "attic"); resp.Warning != "" {
+		t.Errorf("got warning %q for a room no rule reads", resp.Warning)
 	}
 }

@@ -452,6 +452,27 @@ func (s *apiServer) safetyRule() string {
 }
 
 // device answers the commands that read and change the registry. Running code loses track of a
+// move moves a device to a room. It warns when that leaves its old room with no members that a
+// hold reads: the hold's when stops there, and it keeps its state until a device is back.
+func (s *apiServer) move(name, room string) api.Response {
+	from := ""
+	if d, ok := s.devices.registry.Get(name); ok {
+		from = d.Room
+	}
+	if err := s.devices.move(name, room); err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	if from == "" || from == room {
+		return api.Response{}
+	}
+	rules := s.devices.engine.EmptyReads(wire.Namespace, from, s.devices.store.Members(wire.Namespace))
+	if len(rules) == 0 {
+		return api.Response{}
+	}
+	return api.Response{Warning: fmt.Sprintf("%s has no devices now, and %s read it, so they keep their state "+
+		"until one is back in %s", from, strings.Join(rules, ", "), from)}
+}
+
 // device whose name changes until a deploy, which would silently stop a Safety rule naming it.
 func (s *apiServer) device(req api.Request) api.Response {
 	if req.Type == api.TypeDeviceName || req.Type == api.TypeDeviceReplace {
@@ -471,7 +492,7 @@ func (s *apiServer) device(req api.Request) api.Response {
 	case api.TypeDeviceName:
 		err = s.devices.rename(req.Device, req.To)
 	case api.TypeDeviceRoom:
-		err = s.devices.move(req.Device, req.Room)
+		return s.move(req.Device, req.Room)
 	case api.TypeDeviceType:
 		if rules := s.typedOut(req.Device, req.DeviceType); len(rules) > 0 && !req.AllowSafety {
 			return api.Response{

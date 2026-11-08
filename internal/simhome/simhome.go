@@ -364,6 +364,28 @@ func (s *Sim) Report(device string, values map[string]any) error {
 	return s.settle()
 }
 
+// Move puts a device in another room, as oikade devices room does, then waits for the home to catch
+// up. An empty room is none.
+func (s *Sim) Move(device, room string) error {
+	i := slices.IndexFunc(s.devices, func(d Device) bool { return d.Name == device })
+	if i < 0 {
+		return fmt.Errorf("no device %s", device)
+	}
+	s.devices = slices.Clone(s.devices)
+	s.devices[i].Room = room
+	metas := map[ident.ID]hub.Meta{}
+	for _, d := range s.devices {
+		metas[key(d.Name)] = hub.Meta{
+			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d.Name), DeviceTypes: d.DeviceTypes,
+		}
+	}
+	s.store.SetDevices(instance, metas)
+	if snap, ok := s.store.Get(key(device)); ok && snap.Discovered {
+		s.store.Discovered(key(device), snap.Info)
+	}
+	return s.settle()
+}
+
 // Advance moves the clock on, from one thing the home has to do to the next.
 func (s *Sim) Advance(d time.Duration) error {
 	to := s.clock.Now().Add(d)
