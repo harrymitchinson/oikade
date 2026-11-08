@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/clock"
@@ -56,6 +57,8 @@ type Coalescer struct {
 	ctx     context.Context
 	// flushes counts the bursts gathering or being sent.
 	flushes sync.WaitGroup
+	// bursts is the same count, which Busy can read while Add is running.
+	bursts atomic.Int64
 	// ended, if set, hears a burst end, before it waits for the last to be sent. Tests use it.
 	ended func(ident.ID)
 }
@@ -75,6 +78,9 @@ func (c *Coalescer) clock() clock.Clock {
 }
 
 func (c *Coalescer) now() time.Time { return c.clock().Now() }
+
+// Busy says whether any write is still gathering or being sent.
+func (c *Coalescer) Busy() bool { return c.bursts.Load() > 0 }
 
 // Add takes a write. It doesn't block.
 func (c *Coalescer) Add(dev ident.ID, name string, value any) {
@@ -98,7 +104,9 @@ func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 		w = coalesceWindow
 	}
 	timer := c.clock().NewTimer(w)
+	c.bursts.Add(1)
 	c.flushes.Go(func() {
+		defer c.bursts.Add(-1)
 		defer timer.Stop()
 		c.mu.Lock()
 		ctx := c.ctx

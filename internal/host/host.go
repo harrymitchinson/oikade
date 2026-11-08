@@ -11,8 +11,10 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -67,33 +69,37 @@ type Host struct {
 	EventLog store.Bound
 	// PluginSetTimeout is how long a plugin's Set may run. It defaults to DefaultPluginSetTimeout.
 	PluginSetTimeout time.Duration
-	Log              *slog.Logger
+	// StopTimeout is how long stopping may take before the rest is cut off. It defaults to
+	// DefaultStopTimeout.
+	StopTimeout time.Duration
+	Log         *slog.Logger
 
 	plugins *plugins
+
+	processesMu sync.Mutex
+	processes   map[*exec.Cmd]struct{}
 }
 
-// Run serves until ctx ends, then stops your process and closes the store.
+// Run serves until ctx ends, then stops everything in order: see stopping.
 func (h *Host) Run(ctx context.Context) error {
-	h.Log = logging.OrDiscard(h.Log)
-	if h.HeartbeatTimeout <= 0 {
-		h.HeartbeatTimeout = DefaultHeartbeatTimeout
-	}
-	if h.PluginSetTimeout <= 0 {
-		h.PluginSetTimeout = DefaultPluginSetTimeout
-	}
+	h.setDefaults()
 	data, err := store.Open(h.DataDir)
 	if err != nil {
 		return fmt.Errorf("opening the data directory: %w", err)
 	}
-	defer func() { _ = data.Close() }()
+	// Stopping closes the store itself. Past its deadline something may still be in a transaction,
+	// and closing would wait for it, so there it's left to the exit.
+	stopping := false
+	defer func() {
+		if !stopping {
+			_ = data.Close()
+		}
+	}()
 	if h.SecretsDir == "" {
 		h.SecretsDir = filepath.Join(h.DataDir, DefaultSecretsDir)
 		if err := os.MkdirAll(h.SecretsDir, 0o700); err != nil {
 			return fmt.Errorf("creating the secrets directory: %w", err)
 		}
-	}
-	if h.Settle <= 0 {
-		h.Settle = DefaultSettle
 	}
 	if err := clearUploads(h.DataDir); err != nil {
 		return fmt.Errorf("clearing unfinished uploads: %w", err)
@@ -143,7 +149,8 @@ func (h *Host) Run(ctx context.Context) error {
 	h.plugins = newPlugins(h, socket, devices, known)
 	h.plugins.returned = eng.DriverReturned
 	srv.plugins = h.plugins
-	setter := claimedSetter{engine: eng, setter: routedSetter{devices: devices, simulated: sim, plugins: h.plugins}}
+	var writing atomic.Int64
+	setter := claimedSetter{engine: eng, setter: routedSetter{devices: devices, simulated: sim, plugins: h.plugins, writing: &writing}}
 	recorded := recordedSetter{emit: srv.emit, setter: setter}
 	eng.Store, eng.Setter, srv.devices, srv.setter, srv.outside = devices, recorded, devices, recorded, setter
 	eng.Init()
@@ -175,8 +182,12 @@ func (h *Host) Run(ctx context.Context) error {
 		default:
 		}
 	}
+	// One stage for each phase of stopping, so that each part ends when its turn comes and not when ctx
+	// does.
+	apiCalls, automations, pluginProcesses, matterServing, background :=
+		newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx)
 	calls := &apiServer{
-		log: h.Log.With("logger", "api"), ctx: ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
+		log: h.Log.With("logger", "api"), ctx: apiCalls.ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
 		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir}, authFailures: newAuthFailures(),
 	}
 	network := h.listenAPI(data, calls)
@@ -186,7 +197,7 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	observing := h.observe(srv, eng, exported...)
 	first := deploys.startup()
-	var engineDone, serving sync.WaitGroup
+	var engineDone, accepting sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })
 	if err := deploys.removals(); err != nil {
 		h.Log.Error("Failed to end what removed rules left", "err", err)
@@ -196,35 +207,90 @@ func (h *Host) Run(ctx context.Context) error {
 	if len(h.Devices) > 0 {
 		started = append(started, "simulated", len(h.Devices))
 	}
-	serving.Go(func() { h.plugins.run(ctx) })
-	serving.Go(func() { srv.serve(listener) })
+	pluginProcesses.run(h.plugins.run)
+	accepting.Go(func() { srv.serve(listener) })
 	if h.Simulate != nil {
 		go sim.read(h.Simulate)
 	}
 	h.Log.Info("Started host", started...)
-	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
-	serving.Go(func() { calls.serve(apiListener) })
+	automations.run(func(ctx context.Context) { h.supervise(ctx, srv, socket, first, deploys) })
+	apiCalls.run(func(context.Context) { calls.serve(apiListener) })
 	if network != nil {
-		serving.Go(func() { calls.serveNetwork(network) })
+		apiCalls.run(func(context.Context) { calls.serveNetwork(network) })
 	}
-	serving.Go(func() { observing(ctx) })
-	serving.Go(func() { srv.events.run(ctx) })
+	background.run(observing)
+	background.run(srv.events.run)
 	if bridge.working() {
-		serving.Go(func() { bridge.run(ctx) })
+		matterServing.run(bridge.run)
 	}
 	<-ctx.Done()
-	_ = listener.Close()
-	_ = apiListener.Close()
-	if network != nil {
-		_ = network.Close()
+
+	// The order is what makes this a goodbye: nobody new gets in, your code goes while the devices it
+	// holds are still there, plugins go once nothing is writing through them, and the store goes last.
+	stopping = true
+	began := time.Now()
+	h.Log.Info("Stopping host")
+	phases := []stopPhase{
+		{name: "Stopping API", run: func(context.Context) {
+			_ = apiListener.Close()
+			if network != nil {
+				_ = network.Close()
+			}
+			apiCalls.stop()
+		}},
+		{name: "Stopping automations", run: func(context.Context) {
+			automations.stop()
+			srv.shutdown()
+		}},
+		{name: "Finishing device writes", run: func(ctx context.Context) {
+			finishWrites(ctx, func() bool { return writing.Load() > 0 || bridge.gathering() || !eng.Idle() })
+		}},
+		{name: "Stopping plugins", run: func(context.Context) {
+			pluginProcesses.stop()
+			_ = listener.Close()
+			accepting.Wait()
+		}},
 	}
-	serving.Wait()
-	srv.shutdown()
-	stopEngine()
-	engineDone.Wait()
-	srv.events.flush()
-	h.Log.Info("Stopped host")
+	if bridge.working() {
+		phases = append(phases, stopPhase{name: "Stopping Matter bridge", run: func(context.Context) { matterServing.stop() }})
+	}
+	phases = append(phases, stopPhase{name: "Closing store", run: func(context.Context) {
+		background.stop()
+		// The engine outlives what writes through it. Controllers' writes go through it too.
+		stopEngine()
+		engineDone.Wait()
+		srv.events.flush()
+		if err := data.Close(); err != nil {
+			h.Log.Error("Failed to close store", "err", err)
+		}
+	}})
+	finished := stopInOrder(h.Log, h.StopTimeout, phases)
+	for _, s := range []*stage{apiCalls, automations, pluginProcesses, matterServing, background} {
+		s.cancel()
+	}
+	if !finished {
+		h.killProcesses()
+		return fmt.Errorf("stopping the host took longer than %s, so the rest was cut off", h.StopTimeout)
+	}
+	h.Log.Info("Stopped host", "took", time.Since(began).Round(time.Millisecond).String())
 	return nil
+}
+
+// setDefaults fills in what wasn't set.
+func (h *Host) setDefaults() {
+	h.Log = logging.OrDiscard(h.Log)
+	if h.HeartbeatTimeout <= 0 {
+		h.HeartbeatTimeout = DefaultHeartbeatTimeout
+	}
+	if h.PluginSetTimeout <= 0 {
+		h.PluginSetTimeout = DefaultPluginSetTimeout
+	}
+	if h.StopTimeout <= 0 {
+		h.StopTimeout = DefaultStopTimeout
+	}
+	if h.Settle <= 0 {
+		h.Settle = DefaultSettle
+	}
 }
 
 // listenAPI opens the network API's listener, if it's asked for. If it can't, the host carries on

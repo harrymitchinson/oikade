@@ -33,6 +33,7 @@ StateDirectory=oikade
 StateDirectoryMode=0700
 Restart=always
 RestartSec=2
+KillMode=mixed
 NoNewPrivileges=true
 
 [Install]

@@ -31,6 +31,7 @@ const usage = `Usage:
               [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS] [--api-addr ADDRESS]
               [--broker URL] [--broker-password-secret NAME] [--outside-plugins LIST] [--secrets-dir DIR]
               [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST] [--plugin-set-timeout DURATION]
+              [--stop-timeout DURATION]
   oikade-host client add NAME [--token] [--data-dir DIR] [--json]
                               A code for oikade login, or a token for CI, from the host running here.
   oikade-host version
@@ -100,6 +101,8 @@ func runHost(ctx context.Context, args []string) error {
 		"Directory of secrets, one file each. Defaults to secrets in --data-dir. A read-only one is fine.")
 	pluginSetTimeout := fs.Duration("plugin-set-timeout", host.DefaultPluginSetTimeout,
 		"How long a plugin's Set may run before the plugin counts as hung.")
+	stopTimeout := fs.Duration("stop-timeout", host.DefaultStopTimeout,
+		"How long stopping may take before the rest is cut off. Keep it under systemd's TimeoutStopSec.")
 	_ = fs.Parse(args)
 	if fs.NArg() > 0 {
 		// A command after a flag would otherwise start a second host on the data directory.
@@ -131,7 +134,7 @@ func runHost(ctx context.Context, args []string) error {
 	h := &host.Host{
 		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, Log: log,
 		MetricsAddr: *metricsAddr, APIAddr: *apiAddr,
-		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, SecretsDir: *secretsDir,
+		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, StopTimeout: *stopTimeout, SecretsDir: *secretsDir,
 		EventLog: store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},
 	}
 	if *outside != "" {
