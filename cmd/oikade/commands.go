@@ -191,13 +191,39 @@ func runSet(ctx context.Context, args []string) error {
 	if len(words) != 3 {
 		return errors.New("usage: oikade set DEVICE CAPABILITY VALUE")
 	}
+	value := parseValue(words[2])
+	_, _ = fmt.Fprintf(os.Stderr, "Setting %s %s to %v\n", words[0], words[1], value)
 	resp, err := api.Call(ctx, target.transport(), api.Request{
-		Type: api.TypeSet, Device: words[0], Capability: words[1], Value: parseValue(words[2]),
+		Type: api.TypeSet, Device: words[0], Capability: words[1], Value: value,
 	})
 	if err != nil {
 		return err
 	}
-	return done(resp, *asJSON, fmt.Sprintf("Set %s %s to %s", words[0], words[1], words[2]))
+	return done(resp, *asJSON, outcome(words[0], words[1], value, resp.Outcome))
+}
+
+// outcome says what a set left the capability at, and why, rather than what it asked for.
+func outcome(device, name string, asked any, c *api.Capability) string {
+	if c == nil {
+		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows its %s when it does", device, device, name)
+	}
+	is := fmt.Sprintf("%s %s is %v", device, name, display(c.Value))
+	if fmt.Sprint(c.Value) != fmt.Sprint(asked) {
+		is += fmt.Sprintf(", not %v", asked)
+	}
+	if c.Level == "" {
+		return is
+	}
+	for _, claim := range c.Claims {
+		if claim.Winner {
+			is += fmt.Sprintf(": %s holds it at %s", claim.Source, claim.Level)
+			if claim.Expires != nil {
+				is += " until " + claim.Expires.Local().Format("15:04")
+			}
+			return is
+		}
+	}
+	return is + ": nothing claims it, so its Default wins"
 }
 
 // parseValue reads a value from the command line. The host checks that it suits the capability.
@@ -234,19 +260,37 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 	if resp.NeedsAllowSafety {
 		fmt.Fprintln(os.Stderr, "Pass --allow-safety to pause it anyway.")
 	}
-	return done(resp, *asJSON, did+" "+words[0])
+	return done(resp, *asJSON, paused(did, words[0], resp))
+}
+
+// paused says what a pause or a resume did to the rule's claims.
+func paused(did, rule string, resp api.Response) string {
+	if did != "Paused" {
+		return fmt.Sprintf("%s %s: it runs again, and claims as it does", did, rule)
+	}
+	message := fmt.Sprintf("%s %s. It had no claims to end", did, rule)
+	if len(resp.Ended) > 0 {
+		message = fmt.Sprintf("%s %s, and ended its claims on %s", did, rule, strings.Join(resp.Ended, ", "))
+	}
+	if len(resp.Kept) > 0 {
+		message += fmt.Sprintf(". It keeps its Safety claims on %s, which only a release ends", strings.Join(resp.Kept, ", "))
+	}
+	return message
 }
 
 // done prints the outcome of a command that changes something.
 func done(resp api.Response, asJSON bool, message string) error {
 	if asJSON {
 		out := struct {
-			OK      bool     `json:"ok"`
-			Error   string   `json:"error,omitempty"`
-			Warning string   `json:"warning,omitempty"`
-			Moved   []string `json:"moved,omitempty"`
-			Removed []string `json:"removed,omitempty"`
-		}{resp.Error == "", resp.Error, resp.Warning, resp.Moved, resp.Removed}
+			OK      bool            `json:"ok"`
+			Error   string          `json:"error,omitempty"`
+			Warning string          `json:"warning,omitempty"`
+			Moved   []string        `json:"moved,omitempty"`
+			Removed []string        `json:"removed,omitempty"`
+			Outcome *api.Capability `json:"outcome,omitempty"`
+			Ended   []string        `json:"ended,omitempty"`
+			Kept    []string        `json:"kept,omitempty"`
+		}{resp.Error == "", resp.Error, resp.Warning, resp.Moved, resp.Removed, resp.Outcome, resp.Ended, resp.Kept}
 		if err := cli.PrintJSON(out); err != nil {
 			return err
 		}

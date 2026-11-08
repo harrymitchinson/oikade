@@ -145,11 +145,70 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	if holder, _ := heldAtSafety(s.srv.engine, s.srv.devices, dev, req.Capability, value); holder != "" {
 		return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
 	}
+	// Before the write, so that the device's answer can't come first.
+	events, stop := s.srv.feed.subscribe()
+	defer stop()
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
 	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	return api.Response{}
+	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, events)}
+}
+
+// settleWait is how long a set waits for the device to answer, and settleQuiet how long it then waits
+// for nothing more to change, such as ExternalRevert writing it back.
+const (
+	settleWait  = 3 * time.Second
+	settleQuiet = 500 * time.Millisecond
+)
+
+// settled waits for a set's write to settle, and returns the capability as it is then, or nil if the
+// device hasn't answered. A device that already had the value sends no change, so it counts as having
+// answered.
+func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, value any, events <-chan api.Event) *api.Capability {
+	has := func() bool {
+		snap, ok := s.srv.devices.Get(dev)
+		v, known := snap.Values[name]
+		return ok && known && capability.Float(v) == capability.Float(value)
+	}
+	answered := has()
+	var quiet <-chan time.Time
+	if answered {
+		quiet = time.After(settleQuiet)
+	}
+	wait := time.NewTimer(settleWait)
+	defer wait.Stop()
+loop:
+	for {
+		select {
+		case e, ok := <-events:
+			if !ok {
+				events = nil // Fell behind: the timers end it.
+				continue
+			}
+			if e.Type == api.EventChange && e.Device == dev.Name && e.Capability == name {
+				answered = true
+				quiet = time.After(settleQuiet)
+			}
+		case <-quiet:
+			break loop
+		case <-wait.C:
+			break loop
+		case <-ctx.Done():
+			break loop
+		}
+	}
+	snap, ok := s.srv.devices.Get(dev)
+	if !ok || (!answered && !has()) {
+		return nil
+	}
+	c := &api.Capability{Name: name, Value: snap.Values[name]}
+	for _, held := range s.srv.engine.ControlOf(dev) {
+		if held.Capability == name {
+			withControl(c, held)
+		}
+	}
+	return c
 }
 
 // heldAtSafety finds what holds a capability at Safety against value, if anything does: a write would
@@ -240,10 +299,34 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 		// would leave that claim with no run to release it.
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s holds a Safety claim, which a pause would strand", req.Rule)}
 	}
+	ended, kept := s.claimsOf(req.Rule)
 	if err := s.srv.setPaused(ctx, req.Rule, true); err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	return api.Response{}
+	return api.Response{Ended: ended, Kept: kept}
+}
+
+// claimsOf lists what a rule claims, as "device capability": the claims a pause ends, and the Safety
+// ones it keeps.
+func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
+	source := "Rule/" + rule
+	for dev := range s.srv.devices.List() {
+		for _, held := range s.srv.engine.ControlOf(dev) {
+			for _, c := range held.Claims {
+				if c.Source != source || c.Reverted {
+					continue
+				}
+				if c.Level == control.NameSafety {
+					kept = append(kept, dev.Name+" "+held.Capability)
+				} else {
+					ended = append(ended, dev.Name+" "+held.Capability)
+				}
+			}
+		}
+	}
+	slices.Sort(ended)
+	slices.Sort(kept)
+	return ended, kept
 }
 
 func (s *apiServer) resume(ctx context.Context, req api.Request) api.Response {

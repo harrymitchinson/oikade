@@ -198,6 +198,13 @@ type Response struct {
 	Moved []string `json:"moved,omitempty"`
 	// Removed are the devices a remove of a plugin's devices removed.
 	Removed []string `json:"removed,omitempty"`
+	// Outcome is a set's: the capability once the device answered and nothing wrote it back, with its
+	// claims. It's nil if the device hadn't answered in time.
+	Outcome *Capability `json:"outcome,omitempty"`
+	// Ended are the claims a pause ended, and Kept its Safety claims, which only a release ends, each as
+	// "device capability".
+	Ended []string `json:"ended,omitempty"`
+	Kept  []string `json:"kept,omitempty"`
 	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
 	// rollback's for the version now running, and a devices request's for the one running now.
 	Unimported []Unimported `json:"unimported,omitempty"`

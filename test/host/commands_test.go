@@ -118,6 +118,29 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	}
 }
 
+func TestSetReportsWhatTheDeviceWasLeftAt(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+
+	// The towel rail's Control writes back any outside change, so the set doesn't last.
+	out := string(r.stdout(nil, "set", "towel-rail", "on", "on"))
+	if !strings.Contains(out, "towel-rail on is false, not true: nothing claims it, so its Default wins") {
+		t.Errorf("set said %q", out)
+	}
+
+	var resp struct {
+		OK      bool           `json:"ok"`
+		Outcome api.Capability `json:"outcome"`
+	}
+	if err := json.Unmarshal(r.stdout(nil, "set", "claimed", "on", "off", "--json"), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if c := resp.Outcome; !resp.OK || c.Value != false || c.Level != "Override" || winner(c) != "Command" {
+		t.Errorf("set's outcome: %+v", resp)
+	}
+}
+
 func TestStatusNamesOneDevice(t *testing.T) {
 	t.Parallel()
 	r := start(t)
@@ -199,7 +222,9 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	if c := onOf(t, r.status(), "claimed"); winner(c) != "Rule/claim-moment" {
 		t.Fatalf("no claim to end: %+v", c)
 	}
-	r.stdout(nil, "pause", "claim-moment")
+	if out := string(r.stdout(nil, "pause", "claim-moment")); !strings.Contains(out, "ended its claims on claimed on") {
+		t.Errorf("pause said %q", out)
+	}
 	r.wrote("claimed", true)
 	r.sync()
 	writes := r.count(wrote, "device", "claimed")
@@ -228,7 +253,10 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("paused a Safety rule without asking: %v: %s", err, stderr)
 	}
-	r.stdout(nil, "pause", "leak-shutoff", "--allow-safety")
+	out := string(r.stdout(nil, "pause", "leak-shutoff", "--allow-safety"))
+	if !strings.Contains(out, "It keeps its Safety claims on valve on") {
+		t.Errorf("pause said %q", out)
+	}
 	r.sync()
 	if c := onOf(t, r.status(), "valve"); winner(c) != "Rule/leak-shutoff" || c.Value != false {
 		t.Errorf("the pause ended a Safety claim: %+v", c)

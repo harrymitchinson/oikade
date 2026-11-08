@@ -62,6 +62,9 @@ func runDevices(ctx context.Context, args []string) error {
 	case verb == "reserve" && len(words) == 1:
 		req.Type, req.Device, req.Room = api.TypeDeviceReserve, words[0], *room
 		message = fmt.Sprintf("Reserved %s", words[0])
+		if *room != "" {
+			message += " in " + *room
+		}
 	case verb == "replace" && len(words) == 2:
 		req.Type, req.Device, req.To = api.TypeDeviceReplace, words[0], words[1]
 		message = fmt.Sprintf("Moved %s onto %s's hardware. %s", words[0], words[1], typesReminder)
@@ -69,7 +72,8 @@ func runDevices(ctx context.Context, args []string) error {
 		req.Type, req.Plugin = api.TypeDeviceRemove, *plugin
 		if *plugin == "" {
 			req.Device = words[0]
-			message = fmt.Sprintf("Removed %s. If it's still paired, it comes back when it next reports", words[0])
+			message = fmt.Sprintf("Removed %s, and ended its claims. "+
+				"If it's still paired, it comes back when it next reports", words[0])
 		}
 	case verb == "restore" && len(words) == 1:
 		file, err := os.ReadFile(words[0])
