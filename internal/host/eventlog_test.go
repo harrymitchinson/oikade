@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -154,5 +155,45 @@ func TestDroppedChangesLiveOnInTheBaseline(t *testing.T) {
 	}
 	if want := `{"lamp":{"on":true},"sensor":{"temperature":3}}`; string(baseline) != want {
 		t.Fatalf("baseline = %s, want %s: only a change says what a device's value is", baseline, want)
+	}
+}
+
+// recorded is a stream's lines, as a caller that never goes.
+type recorded struct{ lines []any }
+
+func (r *recorded) write(v any) bool { r.lines = append(r.lines, v); return true }
+func (r *recorded) flush() bool      { return true }
+
+func TestAStreamCutShortSaysWhyOnlyToARevokedClient(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = data.Close() }()
+	log := newEventLog(data.Events(), store.Bound{}, logging.Discard())
+	log.add(api.Event{Time: time.Now(), Type: api.EventChange, Device: "kettle", Capability: "on", Value: true})
+	fail := func(err error) { t.Fatalf("the log failed: %v", err) }
+
+	revoked, cancel := context.WithCancelCause(t.Context())
+	cancel(errRevoked)
+	var out recorded
+	log.stream(revoked, &out, fail)
+	if len(out.lines) != 2 || out.lines[1] != api.LogEnd(errRevoked.Error()) {
+		t.Errorf("a revoked client's stream: %+v", out.lines)
+	}
+
+	// A host that stops says nothing, so the caller reads it as one that stopped.
+	stopped, stop := context.WithCancel(t.Context())
+	stop()
+	out = recorded{}
+	log.stream(stopped, &out, fail)
+	if len(out.lines) != 1 {
+		t.Errorf("a stopped host's stream: %+v", out.lines)
+	}
+
+	out = recorded{}
+	log.stream(t.Context(), &out, fail)
+	if len(out.lines) != 3 || out.lines[2] != api.LogEnd("") {
+		t.Errorf("a whole stream: %+v", out.lines)
 	}
 }

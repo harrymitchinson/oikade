@@ -184,3 +184,20 @@ func (s *syncBuffer) String() string {
 	defer s.mu.Unlock()
 	return s.b.String()
 }
+
+func TestADumbTerminalGetsNoRedraws(t *testing.T) {
+	for _, c := range []struct {
+		terminal bool
+		term     string
+		want     bool
+	}{
+		{true, "xterm-256color", true},
+		{true, "", true},
+		{true, "dumb", false},
+		{false, "xterm-256color", false},
+	} {
+		if got := redraws(c.terminal, c.term); got != c.want {
+			t.Errorf("redraws(%v, %q) = %v, want %v", c.terminal, c.term, got, c.want)
+		}
+	}
+}

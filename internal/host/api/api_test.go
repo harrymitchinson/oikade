@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // dialer is a Transport whose host is a function of the connection.
@@ -120,5 +121,63 @@ func TestAddressDefaultsThePort(t *testing.T) {
 		if got := Address(in); got != want {
 			t.Errorf("Address(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestEventsSaysWhetherTheHostStopped(t *testing.T) {
+	ctx := context.Background()
+	begin := func(EventLog) error { return nil }
+	each := func(Event) error { return nil }
+	head := `{"now":"2026-11-08T10:00:00Z"}` + "\n"
+	change := `{"type":"change","device":"hall-lamp"}` + "\n"
+	if err := Events(ctx, streams(head+change+`{"type":"end"}`+"\n"), begin, each); err != nil {
+		t.Errorf("a whole log: %v", err)
+	}
+	if err := Events(ctx, streams(head+change), begin, each); !errors.Is(err, ErrHostStopped) {
+		t.Errorf("a log the host stopped partway through: %v", err)
+	}
+	if err := Events(ctx, streams(""), begin, each); !errors.Is(err, ErrHostStopped) {
+		t.Errorf("a log the host stopped before its head: %v", err)
+	}
+	err := Events(ctx, streams(head+`{"type":"end","message":"the client was revoked"}`+"\n"), begin, each)
+	if err == nil || errors.Is(err, ErrHostStopped) || err.Error() != "reading the event log: the client was revoked" {
+		t.Errorf("a log the host cut off: %v", err)
+	}
+	err = Events(ctx, streams(head+`{"type":"cha`), begin, each)
+	if err == nil || errors.Is(err, ErrHostStopped) || !strings.HasPrefix(err.Error(), "reading the event log") {
+		t.Errorf("a log cut off mid-line: %v", err)
+	}
+}
+
+// answersEarly refuses a request as soon as it has its head, then reads its body slowly, so the
+// client is still sending it after its answer.
+func answersEarly(context.Context) (net.Conn, error) {
+	client, host := net.Pipe()
+	go func() {
+		defer func() { _ = host.Close() }()
+		in := bufio.NewReader(host)
+		if _, err := http.ReadRequest(in); err != nil {
+			return
+		}
+		_, _ = io.WriteString(host, "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n")
+		buf := make([]byte, 32<<10)
+		for {
+			if _, err := in.Read(buf); err != nil {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	return client, nil
+}
+
+func TestADeployRefusedBeforeItsUploadIsRaceFree(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "home")
+	if err := os.WriteFile(path, make([]byte, 4<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Deploy(context.Background(), dialer(answersEarly), path, false, func(int64, int64) {})
+	if err == nil || err.Error() != "the host answered 503 Service Unavailable" {
+		t.Errorf("a deploy the host refused early: %v", err)
 	}
 }
