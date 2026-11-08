@@ -37,5 +37,7 @@
   {"name": "claimed-normal", "capabilities": ["on"], "values": {"on": true},
    "control": [{"capability": "on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]},
   {"name": "claimed-safety", "capabilities": ["on"], "values": {"on": true},
-   "control": [{"capability": "on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]}
+   "control": [{"capability": "on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]},
+  {"name": "towel-rail", "capabilities": ["on"], "values": {"on": false},
+   "control": [{"capability": "on", "default": false, "resolve": "PreferOff", "external": "Revert"}]}
 ]
