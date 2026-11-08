@@ -58,10 +58,10 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if resp := known.remove(ctx, []string{"valve"}, false); resp.Error == "" || !resp.NeedsAllowSafety {
+	if resp := known.remove(ctx, "valve", false); resp.Error == "" || !resp.NeedsAllowSafety {
 		t.Fatalf("removed a device under a Safety claim: %+v", resp)
 	}
-	if resp := known.remove(ctx, []string{"valve"}, true); resp.Error != "" {
+	if resp := known.remove(ctx, "valve", true); resp.Error != "" {
 		t.Fatal(resp.Error)
 	}
 	if _, ok := controls.Get(dev); ok {
@@ -100,7 +100,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if holders, safety := known.claimed("valve"); !safety || len(holders) != 1 || holders[0] != "Rule/leak" {
 		t.Errorf("got %v, %v", holders, safety)
 	}
-	if resp := known.remove(ctx, []string{"valve"}, false); !resp.NeedsAllowSafety {
+	if resp := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {
 		t.Errorf("got %+v", resp)
 	}
 	if err := known.rename("valve", "valve-two"); err == nil {
@@ -274,7 +274,7 @@ func TestTheAPINamesAPluginAsTheRegistryRecordsIt(t *testing.T) {
 	}
 }
 
-func TestRemovingAPluginsDevicesRemovesThemAllOrNone(t *testing.T) {
+func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

@@ -324,9 +324,31 @@ func (i *inventory) moveLive(names map[string]string) {
 
 // remove refuses a device a Safety claim holds, unless told otherwise. Its claims end with it, so
 // they can't wait for the next device of that name.
-func (i *inventory) remove(ctx context.Context, names []string, allowSafety bool) api.Response {
+func (i *inventory) remove(ctx context.Context, name string, allowSafety bool) api.Response {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	return i.removeLocked(ctx, []string{name}, allowSafety)
+}
+
+// removePlugin removes every device of a plugin on record, as remove does one.
+func (i *inventory) removePlugin(ctx context.Context, plugin string, allowSafety bool) api.Response {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	var names []string
+	for _, d := range i.registry.List().Devices {
+		if name, ok := api.PluginOf(d); ok && name == plugin && !d.Removed {
+			names = append(names, d.Name)
+		}
+	}
+	if len(names) == 0 {
+		return api.Response{Error: fmt.Sprintf("no device of plugin %s is on record", plugin)}
+	}
+	return i.removeLocked(ctx, names, allowSafety)
+}
+
+// removeLocked removes devices, refusing them all if a Safety claim holds one. A device that was
+// removed has its claims ended, even if a later one couldn't be removed.
+func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafety bool) api.Response {
 	if !allowSafety {
 		var held []string
 		for _, name := range names {
@@ -338,36 +360,22 @@ func (i *inventory) remove(ctx context.Context, names []string, allowSafety bool
 			return api.Response{Error: strings.Join(held, "; "), NeedsAllowSafety: true}
 		}
 	}
-	var removed []string
+	var removed, problems []string
 	for _, name := range names {
 		if err := i.registry.Remove(name); err != nil {
-			i.sync()
-			return api.Response{Error: err.Error(), Removed: removed}
+			problems = append(problems, err.Error())
+			break
 		}
 		removed = append(removed, name)
 	}
 	i.sync()
-	for _, name := range names {
+	for _, name := range removed {
 		if err := i.engine.ForgetDevice(ctx, key(name)); err != nil {
-			return api.Response{Error: fmt.Sprintf("removed %s, but couldn't end its claims: %v", name, err), Removed: removed}
+			problems = append(problems, fmt.Sprintf("removed %s, but couldn't end its claims: %v", name, err))
 		}
 		i.log.Info("Removed device", "device", name)
 	}
-	return api.Response{Removed: removed}
-}
-
-// removePlugin removes every device of a plugin on record, as remove does one.
-func (i *inventory) removePlugin(ctx context.Context, plugin string, allowSafety bool) api.Response {
-	var names []string
-	for _, d := range i.registry.List().Devices {
-		if name, ok := api.PluginOf(d); ok && name == plugin && !d.Removed {
-			names = append(names, d.Name)
-		}
-	}
-	if len(names) == 0 {
-		return api.Response{Error: fmt.Sprintf("no device of plugin %s is on record", plugin)}
-	}
-	return i.remove(ctx, names, allowSafety)
+	return api.Response{Error: strings.Join(problems, "; "), Removed: removed}
 }
 
 // replace moves name onto with's hardware. name's claims and arbitration settings stay, and with's
@@ -494,9 +502,10 @@ func (s *apiServer) device(req api.Request) api.Response {
 	switch req.Type {
 	case api.TypeDevices:
 		list := s.devices.registry.List()
-		resp := api.Response{Registry: &list, Unimported: s.unimported()}
-		if s.srv.plugins != nil {
-			resp.OutsidePlugins = slices.Clone(s.srv.plugins.host.Outside)
+		resp := api.Response{Registry: &list}
+		if p := s.srv.plugins; p != nil {
+			resp.Unimported, resp.OutsidePlugins = p.unimportedNow(true), slices.Clone(p.host.Outside)
+			resp.SafetyHeld = p.safetyHeld(list)
 		}
 		return resp
 	case api.TypeDeviceName:
@@ -521,7 +530,7 @@ func (s *apiServer) device(req api.Request) api.Response {
 			}
 			return s.devices.removePlugin(s.ctx, req.Plugin, req.AllowSafety)
 		}
-		return s.devices.remove(s.ctx, []string{req.Device}, req.AllowSafety)
+		return s.devices.remove(s.ctx, req.Device, req.AllowSafety)
 	case api.TypeDeviceReplace:
 		err = s.devices.replace(req.Device, req.To)
 	case api.TypeDeviceRestore:

@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/registry"
@@ -82,13 +81,6 @@ func runCheck(ctx context.Context, args []string) error {
 // would leave on record, offline. It's only a warning, and a home with no host to reach skips it.
 func checkUnimported(ctx context.Context, t api.Transport, imported []string) {
 	devices, err := devicesOf(ctx, t)
-	var st api.Response
-	if err == nil {
-		st, err = api.Call(ctx, t, api.Request{Type: api.TypeStatus})
-		if err == nil && st.Error != "" {
-			err = errors.New(st.Error)
-		}
-	}
 	if err != nil {
 		if local, ok := t.(api.Local); ok {
 			if _, statErr := os.Stat(filepath.Join(local.DataDir, api.SocketName)); statErr != nil {
@@ -98,17 +90,8 @@ func checkUnimported(ctx context.Context, t api.Transport, imported []string) {
 		fmt.Fprintln(os.Stderr, "Couldn't ask the host which devices your home's plugins leave behind:", err)
 		return
 	}
-	safety := map[string]bool{}
-	if st.Status != nil {
-		for _, d := range st.Status.Devices {
-			for _, c := range d.Capabilities {
-				held := slices.ContainsFunc(c.Claims, func(o api.Claim) bool { return o.Level == control.NameSafety })
-				safety[d.Name] = safety[d.Name] || held
-			}
-		}
-	}
 	printUnimported(os.Stderr, api.UnimportedOf(*devices.Registry, imported, devices.OutsidePlugins,
-		func(name string) bool { return safety[name] }))
+		func(name string) bool { return slices.Contains(devices.SafetyHeld, name) }))
 }
 
 // runTest runs a home's tests. Anything after the flags goes to go test.

@@ -24,6 +24,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 // DefaultPluginSetTimeout is how long a plugin's Set may run before the plugin counts as hung.
@@ -262,8 +263,9 @@ func (p *plugins) run(ctx context.Context) {
 			}
 			stop()
 			stop, current, retry, backoff = func() {}, path, nil, firstBackoff
-			// Unknown until its check says, and none with no binary.
-			p.setImports(nil, path == "")
+			// Unknown until its check says. With no binary there's no home yet, rather than one that
+			// dropped its plugins.
+			p.setImports(nil, false)
 			if path != "" {
 				start(path)
 			}
@@ -319,23 +321,40 @@ func (p *plugins) setImports(imported []string, known bool) {
 }
 
 // unimportedNow lists the devices of plugins the binary in use doesn't import, or nothing if that
-// isn't known yet.
-func (p *plugins) unimportedNow() []api.Unimported {
+// isn't known yet. Without safety, it doesn't look up their claims.
+func (p *plugins) unimportedNow(safety bool) []api.Unimported {
 	p.mu.Lock()
 	imported, known := p.imported, p.importsKnown
 	p.mu.Unlock()
 	if !known {
 		return nil
 	}
+	if !safety {
+		return api.UnimportedOf(p.known.registry.List(), imported, p.host.Outside, nil)
+	}
 	return p.unimported(imported)
 }
 
 // unimported lists the devices on record of plugins a version importing these wouldn't run.
 func (p *plugins) unimported(imported []string) []api.Unimported {
-	return api.UnimportedOf(p.known.registry.List(), imported, p.host.Outside, func(name string) bool {
-		_, safety := p.known.claimed(name)
-		return safety
-	})
+	return api.UnimportedOf(p.known.registry.List(), imported, p.host.Outside, p.held)
+}
+
+func (p *plugins) held(device string) bool {
+	_, safety := p.known.claimed(device)
+	return safety
+}
+
+// safetyHeld names the plugins' devices on record that a Safety claim holds, so that oikade check can
+// say which devices a version that drops their plugin leaves behind under one.
+func (p *plugins) safetyHeld(list registry.Snapshot) []string {
+	var out []string
+	for _, d := range list.Devices {
+		if _, ok := api.PluginOf(d); ok && !d.Removed && p.held(d.Name) {
+			out = append(out, d.Name)
+		}
+	}
+	return out
 }
 
 // startOutside follows the plugins that run as processes of their own.

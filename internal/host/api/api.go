@@ -204,6 +204,8 @@ type Response struct {
 	// OutsidePlugins are a devices request's: the plugins that run as processes of their own, which no
 	// version imports.
 	OutsidePlugins []string `json:"outsidePlugins,omitempty"`
+	// SafetyHeld are a devices request's: the plugins' devices on record that a Safety claim holds.
+	SafetyHeld []string `json:"safetyHeld,omitempty"`
 	// Matter is a matter request's.
 	Matter *Matter `json:"matter,omitempty"`
 	// Backup is the file a backup wrote, on the host.

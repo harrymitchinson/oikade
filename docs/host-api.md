@@ -11,7 +11,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/info` | | `goos`, `goarch` |
 | `GET /v1/status` | | `status` |
 | `GET /v1/matter` | | `matter` |
-| `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins` |
+| `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds |
 | `GET /v1/secrets` | | `secrets`, never their values |
 | `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running |
 | `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings`, `unimported` |

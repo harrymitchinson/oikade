@@ -21,6 +21,9 @@ import (
 const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM | type DEVICE TYPE | reserve NAME | " +
 	"replace DEVICE WITH | remove DEVICE | remove --plugin NAME | restore FILE]"
 
+// verbRemove is the one verb --plugin goes with.
+const verbRemove = "remove"
+
 // typesReminder is what a change to a device's name leaves for you to do.
 const typesReminder = "Run oikade types and deploy, because running code has lost track of it until then."
 
@@ -41,6 +44,9 @@ func runDevices(ctx context.Context, args []string) error {
 	}
 
 	verb, words := words[0], words[1:]
+	if *plugin != "" && verb != verbRemove {
+		return errors.New("--plugin is only for oikade devices remove")
+	}
 	req := api.Request{AllowSafety: *allow, Force: *force}
 	var message string
 	switch {
@@ -59,7 +65,7 @@ func runDevices(ctx context.Context, args []string) error {
 	case verb == "replace" && len(words) == 2:
 		req.Type, req.Device, req.To = api.TypeDeviceReplace, words[0], words[1]
 		message = fmt.Sprintf("Moved %s onto %s's hardware. %s", words[0], words[1], typesReminder)
-	case verb == "remove" && len(words) <= 1 && (len(words) == 1) == (*plugin == ""): // A device, or --plugin.
+	case verb == verbRemove && len(words) <= 1 && (len(words) == 1) == (*plugin == ""): // A device, or --plugin.
 		req.Type, req.Plugin = api.TypeDeviceRemove, *plugin
 		if *plugin == "" {
 			req.Device = words[0]

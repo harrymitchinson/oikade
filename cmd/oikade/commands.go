@@ -245,7 +245,8 @@ func done(resp api.Response, asJSON bool, message string) error {
 			Error   string   `json:"error,omitempty"`
 			Warning string   `json:"warning,omitempty"`
 			Moved   []string `json:"moved,omitempty"`
-		}{resp.Error == "", resp.Error, resp.Warning, resp.Moved}
+			Removed []string `json:"removed,omitempty"`
+		}{resp.Error == "", resp.Error, resp.Warning, resp.Moved, resp.Removed}
 		if err := cli.PrintJSON(out); err != nil {
 			return err
 		}
