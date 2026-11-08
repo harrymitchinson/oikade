@@ -773,7 +773,7 @@ cmd_pr() {
 }
 
 cmd_merge() {
-	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow s sr held=() approval r="" rem
+	local n pr="${2:?usage: plan merge ID PR}" err json info state head base draft mergeable oid labels checks failing workflow s sr held=() approval r="" rem overlap behind=""
 	n=$(id "${1:?usage: plan merge ID PR}")
 	# A step in a plugin's own repo names its PR as OWNER/NAME#N. pr_ref
 	# checks it now, and merge points at its repo after the restack here.
@@ -822,12 +822,21 @@ cmd_merge() {
 	if [[ "$labels" == *,needs-review,* ]]; then held+=("PR #$pr has the needs-review label"); fi
 	[[ "$mergeable" != CONFLICTING ]] || die "PR #$pr conflicts with main: rebase it on main"
 	[[ "$mergeable" == MERGEABLE ]] || die "PR #$pr isn't mergeable yet ($mergeable). Try again in a minute"
-	# The checks only vouch for the merge if they ran on code that has all of
+	# The checks vouch for the merge when they ran on code that has all of
 	# main in it: a squash merge then gives main exactly the tree they tested.
+	# A PR behind main merges too if main hasn't changed any of its files since
+	# it branched, so parallel PRs don't rebase and rerun CI for each other.
+	# What's left, a change in one file breaking code in another, shows in
+	# main's own CI, and is fixed forward (OIK-234).
 	git fetch -q "$rem" "refs/pull/$pr/head"
-	git merge-base --is-ancestor "$rem/main" "$oid" ||
-		die "PR #$pr is behind main, so its checks didn't test what would merge. Rebase it on main, push, and wait for its checks"
-	[[ "$(git rev-parse "$oid^{tree}")" != "$(git rev-parse "$rem/main^{tree}")" ]] || die "PR #$pr changes nothing on top of main"
+	if git merge-base --is-ancestor "$rem/main" "$oid"; then
+		[[ "$(git rev-parse "$oid^{tree}")" != "$(git rev-parse "$rem/main^{tree}")" ]] || die "PR #$pr changes nothing on top of main"
+	else
+		overlap=$(main_overlap "$rem/main" "$oid") || die "PR #$pr changes nothing since it branched from main"
+		[[ -z "$overlap" ]] ||
+			die "PR #$pr is behind main, and main has since changed files it changes too: $(paste -sd' ' - <<<"$overlap"). Rebase it on main, push, and wait for its checks"
+		behind=1
+	fi
 	checks=$(gh pr checks "$pr" --json workflow,name,bucket -q '.[] | "\(.bucket)\t\(.workflow)\t\(.name)"' || true)
 	for workflow in Tests Lint; do
 		grep -qE "^[a-z]+"$'\t'"$workflow"$'\t' <<<"$checks" ||
@@ -847,6 +856,8 @@ cmd_merge() {
 			die "$(printf '%s\n' "${held[@]}")"$'\n'"so it merges once the user approves it: ${approval:-hack/owner-approval said nothing}"
 		label="" note="Merged by an agent on your Approve: $approval. Its checks passed on top of main (docs/planning.md)."
 	fi
+	local older="hecks passed on an older main, which hasn't touched its files since"
+	if [[ -n "$behind" ]]; then note="${note/hecks passed on top of main/$older}"; fi
 	failing=$(grep -vE '^(pass|skipping)'$'\t' <<<"$checks" || true)
 	[[ -z "$failing" ]] || die "PR #$pr's checks haven't all passed:"$'\n'"$failing"
 	# Label first, so a merged PR can't be missing it. The sha merges exactly
@@ -860,7 +871,19 @@ cmd_merge() {
 	on_repo ""
 	cmd_sync "$n" >/dev/null
 	restack "$n"
-	echo "Merged PR #$pr${label:+ (labelled $label)}"
+	if [[ -n "$behind" ]]; then behind=", behind main, which hadn't touched its files"; fi
+	echo "Merged PR #$pr${label:+ (labelled $label)}$behind"
+}
+
+# main_overlap MAIN HEAD: the files both HEAD and MAIN changed since HEAD
+# branched from MAIN, one a line. It fails if HEAD changes nothing.
+main_overlap() {
+	local mb ours
+	mb=$(git merge-base "$1" "$2")
+	# --no-renames lists both sides of a move, so a file moved on either side counts.
+	ours=$(git diff --no-renames --name-only "$mb" "$2")
+	[[ -n "$ours" ]] || return 1
+	comm -12 <(sort <<<"$ours") <(git diff --no-renames --name-only "$mb" "$1" | sort)
 }
 
 # squash_merge PR SHA: squash-merge the PR at SHA. Labelling a PR reruns
