@@ -7,11 +7,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
+
+	"golang.org/x/term"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/flowcheck"
@@ -128,14 +132,33 @@ func runDeploy(ctx context.Context, args []string) error {
 	allow := fs.Bool("allow-safety-removal", false, "Go ahead even though a Safety rule would go.")
 	_ = fs.Parse(args)
 
-	transport := target.transport()
-	path := *binary
+	d := deployer{
+		stdout:   os.Stdout,
+		progress: &progress{w: os.Stderr, live: term.IsTerminal(int(os.Stderr.Fd()))},
+		check:    checkFlows,
+		build:    build,
+	}
+	return d.run(ctx, target.transport(), *module, *binary, *allow)
+}
+
+// deployer is a deploy, with what it writes to and the source checks and build it runs.
+type deployer struct {
+	stdout   io.Writer
+	progress *progress
+	check    func(module string) error
+	build    func(ctx context.Context, module, out string, info api.Response) error
+}
+
+// run deploys the module, or binary if it's given, and says how it's going on the way.
+func (d deployer) run(ctx context.Context, transport api.Transport, module, binary string, allow bool) error {
+	path := binary
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
 		if err != nil {
 			return err
 		}
-		if err := checkFlows(*module); err != nil {
+		d.progress.phase("Checking flows")
+		if err := d.check(module); err != nil {
 			return err
 		}
 		dir, err := os.MkdirTemp("", "oikade-deploy")
@@ -144,20 +167,30 @@ func runDeploy(ctx context.Context, args []string) error {
 		}
 		defer func() { _ = os.RemoveAll(dir) }()
 		path = filepath.Join(dir, "home")
-		if err := build(ctx, *module, path, info); err != nil {
+		d.progress.phase("Building for %s/%s", info.GOOS, info.GOARCH)
+		stop := heartbeat(d.progress, "building", 5*time.Second)
+		err = d.build(ctx, module, path, info)
+		stop()
+		if err != nil {
 			return err
 		}
 	}
-	resp, err := api.Deploy(ctx, transport, path, *allow)
+	file, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	d.progress.startUpload(file.Size())
+	resp, err := api.Deploy(ctx, transport, path, allow, d.progress.upload)
+	d.progress.end()
 	if err != nil {
 		return err
 	}
 	printUnimported(os.Stderr, resp.Unimported)
 	if resp.Unchanged {
-		fmt.Println("Already running version", resp.Version)
+		_, _ = fmt.Fprintln(d.stdout, "Already running version", resp.Version)
 		return nil
 	}
-	return report(resp, "Deployed version")
+	return report(d.stdout, resp, "Deployed version")
 }
 
 func runRollback(ctx context.Context, args []string) error {
@@ -170,12 +203,12 @@ func runRollback(ctx context.Context, args []string) error {
 		return err
 	}
 	printUnimported(os.Stderr, resp.Unimported)
-	return report(resp, "Rolled back to version")
+	return report(os.Stdout, resp, "Rolled back to version")
 }
 
-func report(resp api.Response, done string) error {
+func report(stdout io.Writer, resp api.Response, done string) error {
 	if resp.Error == "" {
-		fmt.Println(done, resp.Version)
+		_, _ = fmt.Fprintln(stdout, done, resp.Version)
 		return nil
 	}
 	for _, f := range resp.Findings {
@@ -209,7 +242,8 @@ func checkFlows(module string) error {
 func build(ctx context.Context, module, out string, info api.Response) error {
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, ".")
 	cmd.Dir = module
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	// stdout is for the result.
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	cmd.Env = append(os.Environ(), "GOOS="+info.GOOS, "GOARCH="+info.GOARCH, "CGO_ENABLED=0")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("building your module: %w", err)

@@ -61,7 +61,7 @@ func TestADeployCutOffSaysNothingWasDeployed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The host reads the request's head, then goes.
-	_, err := Deploy(context.Background(), dialer(hangsUp), path, false)
+	_, err := Deploy(context.Background(), dialer(hangsUp), path, false, nil)
 	if err == nil || !strings.Contains(err.Error(), "nothing was deployed") {
 		t.Errorf("a deploy cut off mid-upload: %v", err)
 	}

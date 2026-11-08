@@ -473,7 +473,18 @@ Your home is a Go module, and this replaces the running version from it:
 oikade deploy --data-dir /var/lib/oikade --module .
 ```
 
-That rejects code that would break a flow's replay, builds your module for the host, and hands it over. The host runs its check, then swaps it in with automations stopped for about a second and your device state untouched. Holds are worked out again, and waiting flows carry on from where they were. A flow whose next step changed is dropped and logged. If the new version crashes within the settle period, 5 seconds by default, the last one comes back and the command fails.
+That rejects code that would break a flow's replay, builds your module for the host, and hands it over, with a line on stderr as each part starts. stdout has only the result:
+
+```console
+$ oikade deploy --data-dir /var/lib/oikade --module .
+Checking flows
+Building for linux/arm64
+Uploading 11 MB: 11 MB sent
+Waiting for the host to check and settle
+Deployed version 3f9c2a1
+```
+
+A build that takes a while says it's still going every 5 seconds, and on a terminal the upload counts its bytes as it goes. Anywhere else, such as a pipe or CI's log, the lines come whole, with no counter. The host runs its check, then swaps it in with automations stopped for about a second and your device state untouched. Holds are worked out again, and waiting flows carry on from where they were. A flow whose next step changed is dropped and logged. If the new version crashes within the settle period, 5 seconds by default, the last one comes back and the command fails.
 
 ```sh
 oikade rollback --data-dir /var/lib/oikade

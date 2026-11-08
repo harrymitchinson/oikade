@@ -434,8 +434,10 @@ func Call(ctx context.Context, t Transport, req Request) (Response, error) {
 }
 
 // Deploy sends the binary at path to the host, which runs it as your home's new version. It waits
-// for as long as that takes, as Call does.
-func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bool) (Response, error) {
+// for as long as that takes, as Call does. progress, if it isn't nil, hears the bytes sent of the
+// total as the upload goes, from the goroutine sending them; sent reaches total once it's done.
+func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bool,
+	progress func(sent, total int64)) (Response, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return Response{}, err
@@ -450,7 +452,7 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bo
 	if allowSafetyRemoval {
 		target += "?" + url.Values{AllowSafetyRemovalParam: {"true"}}.Encode()
 	}
-	sent := &counting{r: f}
+	sent := &counting{r: f, total: info.Size(), progress: progress}
 	body, err := send(ctx, t, route, target, sent, info.Size(), BinaryContentType)
 	if err != nil {
 		if sent.n < info.Size() && !errors.Is(err, errUnreachable) {
@@ -467,15 +469,19 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bo
 	return resp, nil
 }
 
-// counting counts what's read through it.
+// counting counts what's read through it, of total, and tells progress.
 type counting struct {
-	r io.Reader
-	n int64
+	r        io.Reader
+	n, total int64
+	progress func(sent, total int64)
 }
 
 func (c *counting) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
 	c.n += int64(n)
+	if c.progress != nil && (n > 0 || c.total == 0) {
+		c.progress(c.n, c.total)
+	}
 	return n, err
 }
 
