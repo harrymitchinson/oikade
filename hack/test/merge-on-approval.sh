@@ -305,5 +305,21 @@ git push -q origin main:refs/heads/claim/OIK-9
 merge || fail "merge refused a claimed low-risk PR: $(cat "$tmp/out")"
 claimed || fail "merge gave back a claim it didn't take"
 
+# A PR behind main merges when main hasn't touched its files since it
+# branched, and says so. Once main changes one of them, it's refused.
+git switch -q --detach origin/main
+commit other >/dev/null
+git push -q origin HEAD:main
+merge || fail "merge refused a PR behind main that main hadn't touched: $(cat "$tmp/out")"
+grep -q 'behind main' "$tmp/out" || fail "merge didn't say it merged behind main: $(cat "$tmp/out")"
+grep -qx "PUT api repos/o/r/pulls/12/merge -f merge_method=squash -f sha=$s2r" "$tmp/fx/writes.log" ||
+	fail "merge didn't squash-merge the head behind main: $(cat "$tmp/fx/writes.log")"
+grep -q 'older main' "$tmp/fx/writes.log" || fail "merge's comment doesn't say it merged behind main: $(cat "$tmp/fx/writes.log")"
+echo changed >two && git add two && git commit -qm "two on main"
+git push -q origin HEAD:main
+if merge; then fail "merge succeeded behind a main that changed its files"; fi
+grep -q 'main has since changed files it changes too: two\.' "$tmp/out" || fail "merge didn't name the overlap: $(cat "$tmp/out")"
+! grep -q '^PUT' "$tmp/fx/writes.log" || fail "merge merged behind a main that changed its files"
+
 (( failed == 0 )) && echo "ok: merge on approval"
 exit "$failed"

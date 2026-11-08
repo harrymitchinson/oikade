@@ -2,10 +2,12 @@ name: Tests
 
 on:
   pull_request:
-  # Main isn't tested on every merge: hack/plan merge only merges a PR whose
-  # checks passed on top of main. Nightly catches anything that slips past,
-  # such as two PRs that pass alone but not together, and release.yml calls
-  # this before it publishes a release.
+  # Main is tested on every merge too: hack/plan merge merges a PR behind main
+  # when main hasn't touched its files, so two PRs can pass alone but not
+  # together. A failure on main is fixed forward in a new PR. Nightly runs it
+  # again, and release.yml calls this before it publishes a release.
+  push:
+    branches: [main]
   schedule:
     - cron: "0 3 * * *"
   workflow_call:
