@@ -388,8 +388,9 @@ type Rule struct {
 	OffAt  time.Time `json:"offAt,omitzero"`
 	// Latched is a latched hold's, from its start until a release.
 	Latched bool `json:"latched,omitempty"`
-	// Stopped is why it can't tell whether it should be active, so it keeps its state: its when
-	// couldn't be evaluated, or its budget couldn't be planned. Only a connected process says.
+	// Stopped is why it can't tell whether it should be active: its when couldn't be evaluated, so it
+	// keeps its state, or its budget couldn't be planned, so its device stays off. Only a connected
+	// process says.
 	Stopped string `json:"stopped,omitempty"`
 	// Budget is a budget hold's day.
 	Budget *RuleBudget `json:"budget,omitempty"`

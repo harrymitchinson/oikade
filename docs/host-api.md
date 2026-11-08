@@ -39,7 +39,7 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 ## Status
 
-`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations went down), `devices` and `rules`. Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
+`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices` and `rules`. Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
 
 | Field | Means |
 |---|---|
@@ -47,7 +47,7 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 | `since` | When it last became active. Missing while it isn't. |
 | `onAt`, `offAt` | When its on-delay or off-delay ends. Missing when none is running. One in the past ran out while it was stopped. |
 | `latched` | A latched hold, from its start until a release. |
-| `stopped` | Why it can't tell whether it should be active, so it keeps its state, such as `no device in room hall has reported occupancy`, or why its budget couldn't be planned. Only a connected process says. |
+| `stopped` | Why its `When` can't be read, so it keeps its state, such as `no device in room hall has reported occupancy`, or why its budget couldn't be planned, which keeps its device off. Only a connected process says. |
 | `budget` | A budget hold's day: `date`, `targetMinutes`, `plannedMinutes` and `runMinutes`, which is saved at most every 5 minutes. `date` may be a day that's over, if it hasn't planned since. |
 
 ## Over TLS

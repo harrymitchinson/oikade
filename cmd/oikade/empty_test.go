@@ -66,7 +66,7 @@ func TestNoDevicesSaysWhatReportsThem(t *testing.T) {
 
 func TestStatusWithNothingDeployedNamesDeploy(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	printStatus(&stdout, &stderr, &api.Status{}, true)
+	printStatus(&stdout, &stderr, &api.Status{}, true, time.Now())
 	if !strings.Contains(stderr.String(), "No home deployed. Run oikade deploy from your home's module.") {
 		t.Errorf("stderr %q", stderr.String())
 	}
@@ -75,7 +75,7 @@ func TestStatusWithNothingDeployedNamesDeploy(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	printStatus(&stdout, &stderr, &api.Status{Deploying: true}, true)
+	printStatus(&stdout, &stderr, &api.Status{Deploying: true}, true, time.Now())
 	if !strings.Contains(stdout.String(), "while a deploy is under way") || stderr.Len() != 0 {
 		t.Errorf("during a deploy: stdout %q, stderr %q", stdout.String(), stderr.String())
 	}
@@ -84,7 +84,7 @@ func TestStatusWithNothingDeployedNamesDeploy(t *testing.T) {
 func TestStatusSaysSinceWhenAutomationsAreDown(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	at := time.Now().Add(-time.Minute)
-	printStatus(&stdout, &stderr, &api.Status{Version: "v3", Since: &at}, true)
+	printStatus(&stdout, &stderr, &api.Status{Version: "v3", Since: &at}, true, time.Now())
 	want := "Version v3, automations down" + since(&at, time.Now())
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout %q, want %q", stdout.String(), want)

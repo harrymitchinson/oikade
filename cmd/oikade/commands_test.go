@@ -145,12 +145,13 @@ type writerFunc func([]byte) (int, error)
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
+	now := time.Date(2026, 11, 8, 23, 7, 30, 0, time.Local)
 	at := func(hms string) time.Time {
 		v, err := time.ParseInLocation(time.TimeOnly, hms, time.Local)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return v
+		return time.Date(now.Year(), now.Month(), now.Day(), v.Hour(), v.Minute(), v.Second(), 0, time.Local)
 	}
 	yes, no := true, false
 	st := &api.Status{Rules: []api.Rule{
@@ -163,17 +164,21 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 			Date: "2026-11-08", TargetMinutes: 120, PlannedMinutes: 90, RunMinutes: 45,
 		}},
 		{Name: "aquarium", Kind: "hold", Paused: true},
+		{Name: "study-heater", Kind: "hold", Active: &yes, Since: at("08:00:00").AddDate(0, 0, -1), OffAt: at("23:00:00")},
+		{Name: "garden-lights", Kind: "hold", Active: &no, OnAt: at("06:30:00").AddDate(0, 0, 1)},
 	}}
 	var out bytes.Buffer
-	printStatus(&out, io.Discard, st, true)
+	printStatus(&out, io.Discard, st, true, now)
 	want := []string{
-		"desk-fan  hold  inactive, on at 23:08:00",
+		"desk-fan  hold  inactive, on at 23:08",
 		"gate  moment",
 		"hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy",
-		"lounge-lamp  hold  active since 23:07:05, off at 23:10:05",
-		"porch-light  hold  active since 21:00:00, latched",
+		"lounge-lamp  hold  active since 23:07, off at 23:10",
+		"porch-light  hold  active since 21:00, latched",
 		"towel-rail  hold  inactive, 2026-11-08: planned 90 of 120 min, run 45",
 		"aquarium  hold  paused",
+		"study-heater  hold  active since 2026-11-07 08:00:00, off at 23:00 (passed)",
+		"garden-lights  hold  inactive, on at 2026-11-09 06:30:00",
 	}
 	for _, line := range want {
 		if !strings.Contains(out.String(), line+"\n") {
