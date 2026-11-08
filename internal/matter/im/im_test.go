@@ -318,15 +318,12 @@ func TestSubscriptionLogsItsIntervals(t *testing.T) {
 		}
 		return false
 	}
+	// The server logs a start after it answers, so the client may hear first.
 	for _, want := range [][]string{
 		{"level=INFO", `msg="Started subscription"`, "min=3s", "max=1m0s", "replaced=0", "peer="},
 		{"level=INFO", `msg="Started subscription"`, "min=1s", "max=30s", "replaced=1"},
 	} {
-		if !find(want...) {
-			mu.Lock()
-			t.Errorf("no line with %q in:\n%s", want, strings.Join(lines, "\n"))
-			mu.Unlock()
-		}
+		waitFor(t, strings.Join(want, " "), func() bool { return find(want...) })
 	}
 	waitFor(t, "the first subscription to log its end", func() bool {
 		return find("level=INFO", `msg="Ended subscription"`, `reason="replaced by a new subscription"`)

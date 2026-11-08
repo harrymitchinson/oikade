@@ -92,7 +92,7 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	}
 	// Info, with min, so the log shows how long a change may wait for its report (OIK-208).
 	// Durations as strings, which the host's JSON log would otherwise print in nanoseconds.
-	s.Log.Info("Started subscription", "subscription", sub.id, "peer", session.Peer(), "node", session.PeerNodeID(),
+	s.Log.Info("Started subscription", "subscription", sub.id, "peer", session.Peer(), "node", fmt.Sprintf("%016X", session.PeerNodeID()),
 		"min", sub.min.String(), "max", sub.max.String(), "replaced", replaced)
 	go func() {
 		defer stop()
@@ -105,10 +105,10 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 			}
 		})
 		err := s.runSubscription(runCtx, sub)
-		if cause := context.Cause(runCtx); cause != nil {
+		if cause := context.Cause(runCtx); cause != nil && errors.Is(err, context.Canceled) {
 			err = cause // a report cut short says context canceled, not why
 		}
-		s.Log.Info("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "node", session.PeerNodeID(),
+		s.Log.Info("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "node", fmt.Sprintf("%016X", session.PeerNodeID()),
 			"reason", err.Error())
 	}()
 	return nil
