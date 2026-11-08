@@ -39,7 +39,7 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 ## Status
 
-`GET /v1/status` answers with what `oikade status --json` prints: `version`, `process`, `devices` and `rules`. Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
+`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations went down), `devices` and `rules`. Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
 
 | Field | Means |
 |---|---|
