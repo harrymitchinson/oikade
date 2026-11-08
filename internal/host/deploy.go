@@ -69,7 +69,6 @@ func (d *deployer) startup() string {
 func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Response {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.adopt(ctx)
 	id, err := d.versions.take(binary)
 	if err != nil {
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
@@ -81,12 +80,17 @@ func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Re
 		if d.versions.state.Pending {
 			return api.Response{Error: "this version hasn't settled", Version: id}
 		}
-		if err := d.removals(); err != nil {
-			return api.Response{Error: removalsFailed(err), Version: id}
-		}
-		return api.Response{Version: id, Unchanged: true}
+		return d.unchanged(id)
 	}
 	return d.takeOver(ctx, id, allow, d.versions.begin)
+}
+
+// unchanged answers a deploy of the version already running.
+func (d *deployer) unchanged(id string) api.Response {
+	if err := d.removals(); err != nil {
+		return api.Response{Error: removalsFailed(err), Version: id}
+	}
+	return api.Response{Version: id, Unchanged: true}
 }
 
 // rollback returns to the version before the running one, on the same terms as a deploy. The running
@@ -101,24 +105,34 @@ func (d *deployer) rollback(ctx context.Context, allow bool) api.Response {
 	return d.takeOver(ctx, prev.ID, allow, d.versions.beginRollback)
 }
 
-// adopt records a binary from the host's flags, so a deploy can go back to it. One that can't be
-// read or has no check mode costs that, which takeOver makes you agree to, because the deploy may be
-// there to fix it.
-func (d *deployer) adopt(ctx context.Context) {
+// keepHome stores and checks a binary from the host's flags, so a deploy can go back to it, and
+// returns it, or nil if there's none to keep. It isn't on record until the deploy goes ahead: a
+// refused deploy changes nothing, and a host restarted after one still runs what its flags say. One
+// that can't be read or has no check mode costs that, which takeOver makes you agree to, because the
+// deploy may be there to fix it.
+func (d *deployer) keepHome(ctx context.Context) *version {
 	if _, ok := d.versions.current(); ok || d.home == "" {
-		return
+		return nil
 	}
 	id, err := d.versions.add(d.home)
 	if err != nil {
 		d.log.Info("Couldn't keep the running binary; a deploy can't go back to it", "reason", err.Error())
-		return
+		return nil
 	}
 	manifest, err := runCheck(ctx, d.versions.path(id))
 	if err != nil {
 		d.log.Info("Couldn't check the running binary", "reason", err.Error())
 	}
-	if err := d.versions.adopt(version{ID: id, Manifest: manifest, At: time.Now()}); err != nil {
-		d.log.Error("Failed to record the running binary", "err", err)
+	return &version{ID: id, Manifest: manifest, At: time.Now()}
+}
+
+// dropHome removes what keepHome stored, if the deploy it was for was refused.
+func (d *deployer) dropHome(home *version) {
+	if home == nil {
+		return
+	}
+	if err := d.versions.discard(home.ID); err != nil {
+		d.log.Error("Failed to remove the copy of the running binary", "err", err, "version", home.ID)
 	}
 }
 
@@ -159,7 +173,9 @@ func removalsFailed(err error) string {
 // takeOver checks a stored binary, stops what's running, starts it and watches it settle. If it fails
 // to, the last version comes back.
 func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin func(version, []string) error) api.Response {
+	var home *version
 	reject := func(resp api.Response) api.Response {
+		d.dropHome(home)
 		if err := d.versions.discard(id); err != nil {
 			d.log.Error("Failed to remove a rejected automations version", "err", err, "version", id)
 		}
@@ -173,6 +189,16 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	var old wire.Manifest
 	if cur, ok := d.versions.current(); ok {
 		old = cur.Manifest
+	} else if home = d.keepHome(ctx); home != nil {
+		if home.ID == id {
+			// It's the binary already running, and it has just passed its check.
+			if err := d.versions.adopt(*home); err != nil {
+				d.log.Error("Failed to record the running binary", "err", err)
+			}
+			return d.unchanged(id)
+		}
+		old = home.Manifest
+		begin = func(next version, spared []string) error { return d.versions.beginFromHome(*home, next, spared) }
 	}
 	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace), d.srv.safetyHeld)
 	if d.running != "" && old.Protocol == 0 {
@@ -242,12 +268,21 @@ func (d *deployer) confirm(id string) api.Response {
 	return api.Response{Version: id}
 }
 
-// restore brings the last version back after a new one failed.
+// restore brings the last version back after a new one failed. With nothing before it, all there is
+// to do is stop the failed one.
 func (d *deployer) restore(ctx context.Context, failed, last string, cause error) api.Response {
-	d.log.Info("Restoring the last automations version; a new one failed", "version", failed, "reason", cause.Error())
 	if err := d.versions.abort(); err != nil {
 		d.log.Error("Failed to record the failed automations version", "err", err, "version", failed)
 	}
+	if last == "" {
+		if err := d.settled(ctx, "", nil); err != nil {
+			d.log.Error("Failed to stop the failed automations version", "err", err, "version", failed)
+		} else {
+			d.log.Info("Stopped failed automations version; nothing ran before it", "version", failed, "reason", cause.Error())
+		}
+		return api.Response{Error: cause.Error()}
+	}
+	d.log.Info("Restoring the last automations version; a new one failed", "version", failed, "reason", cause.Error())
 	resp := api.Response{Error: cause.Error(), Restored: true}
 	if cur, ok := d.versions.current(); ok {
 		resp.Version = cur.ID

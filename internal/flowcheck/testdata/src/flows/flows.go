@@ -2,6 +2,8 @@ package flows
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/harrymitchinson/oikade/framework"
@@ -32,6 +34,44 @@ func named(r *framework.FlowRun) error {
 func helper(r *framework.FlowRun) error {
 	go tick() // want `a goroutine inside a flow`
 	return nil
+}
+
+func mapIterators(r *framework.FlowRun) error {
+	m := map[string]int{}
+	for range maps.Keys(m) { // want `ranging over a map inside a flow`
+	}
+	for range maps.Values(m) { // want `ranging over a map inside a flow`
+	}
+	for range maps.All(m) { // want `ranging over a map inside a flow`
+	}
+	for range (maps.Keys(m)) { // want `ranging over a map inside a flow`
+	}
+	for range slices.Collect(maps.Keys(m)) { // want `ranging over a map inside a flow`
+	}
+	for range slices.Sorted(maps.Keys(m)) {
+	}
+	return nil
+}
+
+type (
+	aliasedRun    = framework.FlowRun
+	aliasedRunPtr = *framework.FlowRun
+)
+
+func aliased(r *aliasedRun) error {
+	_ = time.Now() // want `time.Now inside a flow`
+	return r.Do("stamp", nil, func(ctx context.Context) error {
+		_ = time.Now()
+		return nil
+	})
+}
+
+func aliasedPointer(r aliasedRunPtr) error {
+	_ = time.Now() // want `time.Now inside a flow`
+	return r.Do("stamp", nil, func(ctx context.Context) error {
+		_ = time.Now()
+		return nil
+	})
 }
 
 // tick is outside any flow.

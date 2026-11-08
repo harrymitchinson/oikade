@@ -3,10 +3,12 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -447,6 +449,102 @@ func TestAFailedDeployKeepsWhatItOwes(t *testing.T) {
 	}
 	if !v.state.Removals || v.state.Spared != nil {
 		t.Fatalf("a confirmed version spares nothing: %+v", v.state)
+	}
+}
+
+// A refused deploy changes nothing, so the binary from the host's flags stays the one a restart runs,
+// and no copy of it is left behind.
+func TestARefusedDeployLeavesTheHomeBinaryOffTheRecord(t *testing.T) {
+	dir := t.TempDir()
+	v, closeStore := openTestVersions(t, dir)
+	d := &deployer{log: logging.Discard(), versions: v, home: script(t, "echo '{\"protocol\":"+strconv.Itoa(wire.Version)+"}'")}
+	d.running = d.home
+	resp := d.deploy(context.Background(), script(t, "echo broken >&2; exit 1"), false)
+	if resp.Error == "" {
+		t.Fatalf("a binary that fails its check was taken: %+v", resp)
+	}
+	closeStore()
+	v, closeStore = openTestVersions(t, dir)
+	defer closeStore()
+	if _, ok := v.current(); ok {
+		t.Fatalf("the refused deploy recorded a version: %+v", v.state)
+	}
+	if left, err := os.ReadDir(v.dir); err != nil || len(left) != 0 {
+		t.Fatalf("got %v, %v", left, err)
+	}
+}
+
+// Deploying the binary from the flags changes nothing, but it counts as deployed only if it passes
+// its check.
+func TestDeployingTheHomeBinaryItself(t *testing.T) {
+	passes := "echo '{\"protocol\":" + strconv.Itoa(wire.Version) + "}'"
+	for _, tc := range []struct {
+		name, body string
+		kept       bool
+	}{
+		{"passes its check", passes, true},
+		{"fails its check", "echo broken >&2; exit 1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v, closeStore := openTestVersions(t, t.TempDir())
+			defer closeStore()
+			d := &deployer{log: logging.Discard(), versions: v, home: script(t, tc.body)}
+			d.running = d.home
+			resp := d.deploy(context.Background(), d.home, false)
+			if _, ok := v.current(); ok != tc.kept || resp.Unchanged != tc.kept || (resp.Error == "") != tc.kept {
+				t.Fatalf("got %+v, %+v", resp, v.state)
+			}
+		})
+	}
+}
+
+// The home binary goes on record with the deploy that gets past its check, in one write, so a crash
+// at any point after it still has the home binary to go back to.
+func TestBeginningFromTheHomeBinaryRecordsBoth(t *testing.T) {
+	dir := t.TempDir()
+	v, closeStore := openTestVersions(t, dir)
+	home, next := version{ID: binary(t, v, "home")}, version{ID: binary(t, v, "next")}
+	if err := v.beginFromHome(home, next, []string{"leak-shutoff"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(v); !slices.Equal(got, []string{next.ID, home.ID}) || !v.state.Pending {
+		t.Fatalf("got %v, %+v", got, v.state)
+	}
+	closeStore()
+	v, closeStore = openTestVersions(t, dir)
+	defer closeStore()
+	if err := v.abort(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(v); !slices.Equal(got, []string{home.ID}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// With nothing before the failed version there's nothing to bring back, so it isn't reported as done.
+func TestRestoringWithNothingBeforeItRestoresNothing(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	id := binary(t, v, "first")
+	if err := v.begin(version{ID: id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	d := &deployer{log: logging.Discard(), versions: v, swaps: make(chan *swap)}
+	stopped := make(chan string, 1)
+	go func() {
+		sw := <-d.swaps
+		stopped <- sw.path
+		sw.started <- nil
+	}()
+	resp := d.restore(context.Background(), id, "", errors.New("it exited"))
+	if resp.Restored || resp.Error != "it exited" || resp.Version != "" {
+		t.Fatalf("got %+v", resp)
+	}
+	if path := <-stopped; path != "" {
+		t.Fatalf("it ran %q", path)
+	}
+	if _, ok := v.current(); ok || v.state.Pending {
+		t.Fatalf("got %+v", v.state)
 	}
 }
 
