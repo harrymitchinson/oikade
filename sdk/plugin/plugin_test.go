@@ -84,9 +84,9 @@ type watcher struct {
 	got chan mqtt.Message
 }
 
-// watch sees everything under root. To check exact messages, call it before start: the broker
-// acks a publish before it passes it on, so a watcher that subscribes straight after can get the
-// message twice, retained and live.
+// watch sees everything under root, retained or live, so a message can arrive twice. To check
+// exact messages, use watchLive. Even when it subscribes before start, the broker acks a subscribe
+// before it looks for retained messages, so a publish straight after can arrive both ways.
 func watch(ctx context.Context, t *testing.T, url string) *watcher {
 	t.Helper()
 	return watchFiltered(ctx, t, url, func(mqtt.Message) bool { return true })
@@ -163,7 +163,7 @@ func (w *watcher) quiet(url string) {
 func TestAnnounceOrder(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	w := watch(ctx, t, b.URL)
+	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{})
 	w.expect(root.Status() + "=" + online)
 
@@ -255,7 +255,7 @@ func retained(ctx context.Context, t *testing.T, url string) <-chan mqtt.Message
 func TestCloseWins(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	w := watch(ctx, t, b.URL)
+	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{})
 	w.expect(root.Status() + "=" + online)
 
@@ -290,7 +290,7 @@ func TestCloseWins(t *testing.T) {
 func TestCloseLeavesItToTheWill(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	w := watch(ctx, t, b.URL)
+	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{CloseTimeout: 50 * time.Millisecond})
 	w.expect(root.Status() + "=" + online)
 
