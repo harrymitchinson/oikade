@@ -43,10 +43,18 @@ func (s *apiServer) status() api.Response {
 	s.srv.mu.Lock()
 	st.Process = s.srv.session != nil
 	s.srv.mu.Unlock()
+	var unimported []api.Unimported
+	if s.srv.plugins != nil {
+		unimported = s.srv.plugins.unimportedNow(false)
+	}
+	notImported := map[string]bool{}
+	for _, u := range unimported {
+		notImported[u.Device] = true
+	}
 	for dev, snap := range s.srv.devices.List() {
 		d := api.Device{
 			Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
-			DeviceTypes: slices.Clone(snap.DeviceTypes),
+			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[dev.Name],
 		}
 		held := s.srv.engine.ControlOf(dev)
 		names := slices.Clone(snap.Info.Capabilities)

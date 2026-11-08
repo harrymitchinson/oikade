@@ -40,6 +40,7 @@ const usage = `Usage:
   oikade devices reserve NAME [--room ROOM] [--json]
   oikade devices replace DEVICE WITH [--allow-safety] [--json]
   oikade devices remove DEVICE [--allow-safety] [--json]
+  oikade devices remove --plugin NAME [--allow-safety] [--json]
   oikade devices restore FILE [--force] [--json]
   oikade types [--out FILE] [--package NAME]
   oikade matter [--json]
@@ -151,6 +152,7 @@ func runDeploy(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	printUnimported(os.Stderr, resp.Unimported)
 	if resp.Unchanged {
 		fmt.Println("Already running version", resp.Version)
 		return nil
@@ -167,6 +169,7 @@ func runRollback(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	printUnimported(os.Stderr, resp.Unimported)
 	return report(resp, "Rolled back to version")
 }
 

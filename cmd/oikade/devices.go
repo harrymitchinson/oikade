@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -18,7 +19,10 @@ import (
 )
 
 const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM | type DEVICE TYPE | reserve NAME | " +
-	"replace DEVICE WITH | remove DEVICE | restore FILE]"
+	"replace DEVICE WITH | remove DEVICE | remove --plugin NAME | restore FILE]"
+
+// verbRemove is the one verb --plugin goes with.
+const verbRemove = "remove"
 
 // typesReminder is what a change to a device's name leaves for you to do.
 const typesReminder = "Run oikade types and deploy, because running code has lost track of it until then."
@@ -33,12 +37,16 @@ func runDevices(ctx context.Context, args []string) error {
 		"Remove a device under a Safety claim, change a name while a Safety rule runs, or change a type "+
 			"that takes a device out of a Safety rule's room.")
 	force := fs.Bool("force", false, "Restore a file that disagrees with the registry.")
+	plugin := fs.String("plugin", "", "Remove every device of this plugin, such as one your home no longer imports.")
 	words := cli.Parse(fs, args)
 	if len(words) == 0 {
 		return listDevices(ctx, target, *asJSON, *all)
 	}
 
 	verb, words := words[0], words[1:]
+	if *plugin != "" && verb != verbRemove {
+		return errors.New("--plugin is only for oikade devices remove")
+	}
 	req := api.Request{AllowSafety: *allow, Force: *force}
 	var message string
 	switch {
@@ -57,9 +65,12 @@ func runDevices(ctx context.Context, args []string) error {
 	case verb == "replace" && len(words) == 2:
 		req.Type, req.Device, req.To = api.TypeDeviceReplace, words[0], words[1]
 		message = fmt.Sprintf("Moved %s onto %s's hardware. %s", words[0], words[1], typesReminder)
-	case verb == "remove" && len(words) == 1:
-		req.Type, req.Device = api.TypeDeviceRemove, words[0]
-		message = fmt.Sprintf("Removed %s. If it's still paired, it comes back when it next reports", words[0])
+	case verb == verbRemove && len(words) <= 1 && (len(words) == 1) == (*plugin == ""): // A device, or --plugin.
+		req.Type, req.Plugin = api.TypeDeviceRemove, *plugin
+		if *plugin == "" {
+			req.Device = words[0]
+			message = fmt.Sprintf("Removed %s. If it's still paired, it comes back when it next reports", words[0])
+		}
 	case verb == "restore" && len(words) == 1:
 		file, err := os.ReadFile(words[0])
 		if err != nil {
@@ -84,6 +95,10 @@ func runDevices(ctx context.Context, args []string) error {
 	if resp.NeedsForce {
 		fmt.Fprintln(os.Stderr, "Pass --force to make the registry match the file.")
 	}
+	if req.Plugin != "" && resp.Error == "" {
+		message = fmt.Sprintf("Removed %s, every device of %s. If %s is imported again, they come back when they next report",
+			strings.Join(resp.Removed, ", "), req.Plugin, req.Plugin)
+	}
 	for _, name := range resp.Moved {
 		fmt.Fprintln(os.Stderr, name, "isn't in the file, and the file has its name or Matter endpoint, so it has a new one")
 	}
@@ -91,35 +106,52 @@ func runDevices(ctx context.Context, args []string) error {
 }
 
 func registryOf(ctx context.Context, target target) (registry.Snapshot, error) {
-	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeDevices})
+	resp, err := devicesOf(ctx, target.transport())
 	if err != nil {
 		return registry.Snapshot{}, err
-	}
-	if resp.Error != "" {
-		return registry.Snapshot{}, errors.New(resp.Error)
-	}
-	if resp.Registry == nil {
-		return registry.Snapshot{}, errors.New("the host sent no devices")
 	}
 	return *resp.Registry, nil
 }
 
+// devicesOf answers a devices request, which has the registry.
+func devicesOf(ctx context.Context, t api.Transport) (api.Response, error) {
+	resp, err := api.Call(ctx, t, api.Request{Type: api.TypeDevices})
+	if err != nil {
+		return api.Response{}, err
+	}
+	if resp.Error != "" {
+		return api.Response{}, errors.New(resp.Error)
+	}
+	if resp.Registry == nil {
+		return api.Response{}, errors.New("the host sent no devices")
+	}
+	return resp, nil
+}
+
 func listDevices(ctx context.Context, target target, asJSON, all bool) error {
-	list, err := registryOf(ctx, target)
+	resp, err := devicesOf(ctx, target.transport())
 	if err != nil {
 		return err
 	}
+	list := *resp.Registry
 	if !all {
 		list.Devices = slices.DeleteFunc(list.Devices, func(d registry.Device) bool { return d.Removed })
 	}
-	if asJSON {
-		return cli.PrintJSON(listed(list))
+	unimported := map[string]bool{}
+	for _, u := range resp.Unimported {
+		unimported[u.Device] = true
 	}
-	printDevices(os.Stdout, list)
+	if asJSON {
+		return cli.PrintJSON(listed(list, unimported))
+	}
+	printDevices(os.Stdout, list, unimported)
 	return nil
 }
 
-func printDevices(out io.Writer, list registry.Snapshot) {
+// notImported is the state of a device whose plugin the running version doesn't import.
+const notImported = "plugin not imported"
+
+func printDevices(out io.Writer, list registry.Snapshot, unimported map[string]bool) {
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tDRIVER\tID\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
@@ -130,6 +162,8 @@ func printDevices(out io.Writer, list registry.Snapshot) {
 			state = "removed"
 		case d.Reserved():
 			state = "reserved"
+		case unimported[d.Name]:
+			state = notImported
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
 			or(d.ID, "-"), d.Endpoint, or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
@@ -141,13 +175,18 @@ func printDevices(out io.Writer, list registry.Snapshot) {
 type listedDevice struct {
 	registry.Device
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
+	// PluginNotImported is a device whose plugin the running version doesn't import.
+	PluginNotImported bool `json:"pluginNotImported,omitempty"`
 }
 
 // listed is the registry as oikade devices --json prints it.
-func listed(list registry.Snapshot) any {
+func listed(list registry.Snapshot, unimported map[string]bool) any {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
-		devices = append(devices, listedDevice{Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...)})
+		devices = append(devices, listedDevice{
+			Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...),
+			PluginNotImported: !d.Removed && unimported[d.Name],
+		})
 	}
 	// Devices here is shallower than the Snapshot's, so it's the one encoding/json writes, and any
 	// other field of a Snapshot comes along.
@@ -178,4 +217,30 @@ func runTypes(ctx context.Context, args []string) error {
 		return err
 	}
 	return os.WriteFile(*out, file, 0o644)
+}
+
+// printUnimported says which devices are left on record by plugins a version doesn't import, and how
+// to remove them. They stay, so that a plugin briefly missing loses nothing.
+func printUnimported(out io.Writer, devices []api.Unimported) {
+	if len(devices) == 0 {
+		return
+	}
+	byPlugin := map[string][]api.Unimported{}
+	for _, u := range devices {
+		byPlugin[u.Plugin] = append(byPlugin[u.Plugin], u)
+	}
+	_, _ = fmt.Fprintln(out, "These devices stay on record, offline, because your home doesn't import their plugin:")
+	for _, plugin := range slices.Sorted(maps.Keys(byPlugin)) {
+		var names []string
+		for _, u := range byPlugin[plugin] {
+			names = append(names, u.Device)
+		}
+		_, _ = fmt.Fprintf(out, "  %s: %s\n", plugin, strings.Join(names, ", "))
+		for _, u := range byPlugin[plugin] {
+			if u.Safety {
+				_, _ = fmt.Fprintf(out, "    A Safety claim holds %s, and removing it ends that claim\n", u.Device)
+			}
+		}
+		_, _ = fmt.Fprintf(out, "    Remove them with oikade devices remove --plugin %s\n", plugin)
+	}
 }

@@ -69,7 +69,7 @@ func home() framework.Home {
 
 `devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.On`, for [rooms](#rooms).
 
-`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes.
+`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](#removing-a-plugin) is no longer imported.
 
 `oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
 
@@ -461,6 +461,10 @@ On a host, a plugin is a Go module your home imports, in `framework.Home`'s `Plu
 
 To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
+### Removing a plugin
+
+Taking a plugin out of `Plugins` doesn't remove its devices ([OIK-225](https://linear.app/oikade/issue/OIK-225)). They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding, so that a plugin missing from one build, or a rollback, loses nothing. `oikade check` and `oikade deploy` list those devices, and call out any a Safety claim holds. `oikade devices` and `oikade status` mark them `plugin not imported`. Import the plugin again and they come back as they were. To be rid of them, `oikade devices remove --plugin NAME` removes all of that plugin's devices at once, as `remove` does one, and needs `--allow-safety` if a Safety claim holds any of them.
+
 ## Deploying
 
 Your home is a Go module, and this replaces the running version from it:
@@ -676,6 +680,7 @@ oikade devices type porch-light OnOffLight   # say what it is
 oikade devices reserve shed-heater           # hold a name for hardware you haven't paired yet
 oikade devices replace porch-light lamp-3    # move a name onto new hardware
 oikade devices remove porch-light
+oikade devices remove --plugin relays        # every device of a plugin you no longer import
 oikade types                                 # write devices.go from the registry
 ```
 
@@ -683,7 +688,7 @@ oikade types                                 # write devices.go from the registr
 
 `reserve` lets you write code for something that isn't paired yet, which does nothing until the hardware arrives. A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`: until you pair it, name a capability with a handle of your own, such as `framework.Handle[bool]{Device: ShedHeater.Name, Capability: framework.On}`, and run `oikade types` once it's paired. Pair it, and `oikade devices replace shed-heater <its name>` moves the reserved name onto it. `replace` is also how a failed device is swapped: the name, room, claims and Matter endpoint stay, so the Home app keeps its rooms and automations. The new hardware's own entry goes, and the old hardware counts as new if it's ever paired again.
 
-`remove` keeps the device on record with its endpoint, so hardware that comes back gets its name, room and endpoint back. Remove a device from its app first, because one that's still paired comes back when it next reports. A device stays until you remove it, reported or not. Renaming a device, moving its hardware onto another name, or restoring a file that would move its name, is refused while something claims it, because claims stay with a name. Removing a device ends its claims, and one that a Safety claim holds needs `--allow-safety`.
+`remove` keeps the device on record with its endpoint, so hardware that comes back gets its name, room and endpoint back. Remove a device from its app first, because one that's still paired comes back when it next reports. A device stays until you remove it, reported or not. Renaming a device, moving its hardware onto another name, or restoring a file that would move its name, is refused while something claims it, because claims stay with a name. Removing a device ends its claims, and one that a Safety claim holds needs `--allow-safety`. `oikade devices` shows a device as `plugin not imported` when the running version doesn't import its plugin, and `oikade status` marks it the same way (`pluginNotImported` in `--json`).
 
 If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, device types, reservations, arbitration settings and endpoint IDs, matched by hardware. The registry is the authority, so a file that disagrees with one in use is refused, which is what an old file does. After a real loss the drivers may have reported again first, under their apps' names, so pass `--force` there and the file wins. With `--force`, devices the file doesn't have stay, and get a new endpoint or name if the file gives theirs to something else. A claimed name never moves.
 

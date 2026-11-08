@@ -11,10 +11,10 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/info` | | `goos`, `goarch` |
 | `GET /v1/status` | | `status` |
 | `GET /v1/matter` | | `matter` |
-| `GET /v1/devices` | | `registry` |
+| `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds |
 | `GET /v1/secrets` | | `secrets`, never their values |
-| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings` |
-| `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings` |
+| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running |
+| `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings`, `unimported` |
 | `POST /v1/set` | `device`, `capability`, `value` | |
 | `POST /v1/pause`, `POST /v1/resume` | `rule`, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/backup` | | `backup`, the file it wrote on the host |
@@ -24,7 +24,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/devices/room` | `device`, `room` | |
 | `POST /v1/devices/type` | `device`, `deviceType`, empty to go back to its driver's, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/reserve` | `device`, `room` | |
-| `POST /v1/devices/remove` | `device`, `allowSafety` | `needsAllowSafety` |
+| `POST /v1/devices/remove` | `device`, or `plugin` for every device of that plugin, and `allowSafety` | `removed`, `needsAllowSafety` |
 | `POST /v1/devices/replace` | `device`, `to`, `allowSafety` | `needsAllowSafety` |
 | `POST /v1/devices/restore` | `registry`, `force` | `moved`, `needsForce` |
 | `GET /v1/clients` | | `clients`, never their tokens |

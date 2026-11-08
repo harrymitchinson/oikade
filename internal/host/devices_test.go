@@ -12,6 +12,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -263,5 +264,62 @@ func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	// The plug isn't one of the types landing-light reads, so its move empties nothing.
 	if resp := s.move("plug", "attic"); resp.Warning != "" {
 		t.Errorf("got warning %q for a device no hold reads", resp.Warning)
+	}
+}
+
+func TestTheAPINamesAPluginAsTheRegistryRecordsIt(t *testing.T) {
+	name, ok := api.PluginOf(registry.Device{Driver: instanceName(pluginKey("relays"))})
+	if !ok || name != "relays" {
+		t.Errorf("got %q, %v", name, ok)
+	}
+}
+
+func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
+	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
+	devices := hub.NewStore(logging.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	relays := instanceName(pluginKey("relays"))
+	for _, r := range []registry.Report{
+		{ID: "a", Driver: relays, Name: "awning"},
+		{ID: "b", Driver: relays, Name: "boiler"},
+		{ID: "c", Driver: instanceName(pluginKey("shades")), Name: "curtain"},
+	} {
+		if _, _, err := reg.Report(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
+	if err := controls.Put(ctx, key("boiler"), state); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := known.removePlugin(ctx, "relays", false)
+	if !resp.NeedsAllowSafety || !strings.Contains(resp.Error, "boiler") || len(resp.Removed) != 0 {
+		t.Fatalf("got %+v", resp)
+	}
+	resp = known.removePlugin(ctx, "relays", true)
+	if resp.Error != "" || strings.Join(resp.Removed, ",") != "awning,boiler" {
+		t.Fatalf("got %+v", resp)
+	}
+	for _, d := range reg.List().Devices {
+		if d.Removed != (d.Name != "curtain") {
+			t.Errorf("got %+v", d)
+		}
+	}
+	if resp := known.removePlugin(ctx, "relays", false); resp.Error == "" {
+		t.Errorf("removed them twice: %+v", resp)
 	}
 }
