@@ -24,6 +24,8 @@ import (
 type fakeMDNS struct {
 	mu       sync.Mutex
 	services map[string]mdns.Service
+	// closing, if set, runs as the responder closes, which is when it says goodbye.
+	closing func()
 }
 
 func (f *fakeMDNS) Add(_ context.Context, svc mdns.Service) error {
@@ -40,7 +42,15 @@ func (f *fakeMDNS) Remove(svc mdns.Service) error {
 	return nil
 }
 
-func (f *fakeMDNS) Close() error { return nil }
+func (f *fakeMDNS) Close() error {
+	f.mu.Lock()
+	closing := f.closing
+	f.mu.Unlock()
+	if closing != nil {
+		closing()
+	}
+	return nil
+}
 
 // commissionable returns the advertised commissionable service's TXT strings, or nil.
 func (f *fakeMDNS) commissionable() []string {

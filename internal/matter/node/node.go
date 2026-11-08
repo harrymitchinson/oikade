@@ -32,6 +32,9 @@ import (
 // pbkdfIterations is the PBKDF2 iteration count of the node's own passcode verifier.
 const pbkdfIterations = 1000
 
+// closeSessionsWait is how long saying goodbye to controllers may take when the node stops.
+const closeSessionsWait = time.Second
+
 // fabricSessionGrace is how long a removed fabric's sessions outlive it, so that the
 // RemoveFabric response still reaches an admin that removed its own fabric.
 const fabricSessionGrace = 2 * time.Second
@@ -263,8 +266,11 @@ func (n *Node) Run(ctx context.Context) error {
 	n.mu.Unlock()
 	n.run.Store(&running{tr: tr, mdns: responder, ctx: ctx})
 
+	// The socket outlives ctx by long enough to say goodbye on it.
+	serving, stopServing := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopServing()
 	served := make(chan error, 1)
-	go func() { served <- tr.Serve(ctx) }()
+	go func() { served <- tr.Serve(serving) }()
 	if n.cfg.Listening != nil {
 		n.cfg.Listening()
 	}
@@ -280,7 +286,26 @@ func (n *Node) Run(ctx context.Context) error {
 	case n.table.Count() == 0:
 		n.comm.OpenInitialWindow(n.cfg.WindowTimeout)
 	}
+	select {
+	case err := <-served:
+		return err
+	case <-ctx.Done():
+	}
+	// Closing the socket ends a write that's stuck, so a goodbye can't hold up stopping.
+	defer time.AfterFunc(closeSessionsWait, stopServing).Stop()
+	n.closeSessions()
+	stopServing()
 	return <-served
+}
+
+// closeSessions tells every controller with a session that it's over, so that it finds the node again
+// now rather than at its own timeout. The mDNS goodbye comes after, as Run's responder closes.
+func (n *Node) closeSessions() {
+	sessions := n.sessions.list()
+	for _, s := range sessions {
+		n.endSession(s)
+	}
+	n.log.Info("Ended Matter sessions", "sessions", len(sessions))
 }
 
 // Sessions returns how many CASE sessions controllers hold on fabrics the node is still on: those a
