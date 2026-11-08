@@ -74,7 +74,7 @@ func NewControlLevelGauge() *prometheus.GaugeVec {
 	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "oikade_device_control_level",
 		Help: "The winning level of an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety.",
-	}, []string{labelNamespace, "device", "capability"})
+	}, []string{"device", "capability"})
 }
 
 // arb is one arbitrated capability. Use it with e.mu held.
@@ -119,9 +119,9 @@ type Arbitration interface {
 	Claim(ctx context.Context, dev ident.ID, name string, c control.Claim) bool
 	// ReleaseClaim ends a source's claim, and reports false when the capability isn't arbitrated.
 	ReleaseClaim(ctx context.Context, dev ident.ID, name, source string) bool
-	// ReleaseClaims ends a source's claims below a level on every arbitrated capability in the
-	// namespace. allLevels means all of them.
-	ReleaseClaims(ctx context.Context, namespace, source string, below control.Level) error
+	// ReleaseClaims ends a source's claims below a level on every arbitrated capability.
+	// allLevels means all of them.
+	ReleaseClaims(ctx context.Context, source string, below control.Level) error
 }
 
 // ControlChanged implements hub.ControlWatcher: Run looks at the device's arbiters again.
@@ -139,7 +139,7 @@ func (e *Engine) ControlChanged(dev ident.ID) {
 // rather than whenever a write that failed was due to be tried again. A device is discovered again
 // when it moves room or changes type, which a hold's when may read, so those look again too.
 func (e *Engine) Discovered(dev ident.ID, _ driver.Info) {
-	e.membersChanged(dev.Namespace)
+	e.membersChanged()
 	if snap, ok := e.Store.Get(dev); ok && len(snap.Control) > 0 {
 		e.mu.Lock()
 		for _, ar := range e.arbs[dev] {
@@ -256,7 +256,7 @@ func (e *Engine) dropArb(dev ident.ID, name string, forget bool) {
 		delete(e.arbs, dev)
 	}
 	if e.ControlLevel != nil {
-		e.ControlLevel.DeleteLabelValues(dev.Namespace, dev.Name, name)
+		e.ControlLevel.DeleteLabelValues(dev.Name, name)
 	}
 	if forget {
 		e.markSave(dev)
@@ -593,12 +593,11 @@ func (e *Engine) ReleaseClaim(ctx context.Context, dev ident.ID, name, source st
 	return true, e.flushControls(ctx, dev)
 }
 
-// ReleaseClaims ends a source's claims below a level on every arbitrated capability in the
-// namespace, for a rule that runs elsewhere, and returns once that's saved. ctx is the engine's, as
+// ReleaseClaims ends a source's claims below a level on every arbitrated capability, for a rule that runs elsewhere, and returns once that's saved. ctx is the engine's, as
 // with Claim.
-func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string, below control.Level) error {
+func (e *Engine) ReleaseClaims(ctx context.Context, source string, below control.Level) error {
 	e.mu.Lock()
-	changed := e.releaseSource(ctx, namespace, source, below)
+	changed := e.releaseSource(ctx, source, below)
 	e.mu.Unlock()
 	if len(changed) == 0 {
 		return nil
@@ -608,26 +607,26 @@ func (e *Engine) ReleaseClaims(ctx context.Context, namespace, source string, be
 
 // endClaims ends a source's claims below a level, here or in Arbitration. A failure there has ended
 // the session, and the next process starts from what's on disk. Call without e.mu held.
-func (e *Engine) endClaims(ctx context.Context, namespace, source string, below control.Level) error {
+func (e *Engine) endClaims(ctx context.Context, source string, below control.Level) error {
 	if e.Arbitration != nil {
-		return e.Arbitration.ReleaseClaims(ctx, namespace, source, below)
+		return e.Arbitration.ReleaseClaims(ctx, source, below)
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.releaseSource(ctx, namespace, source, below)
+	e.releaseSource(ctx, source, below)
 	return nil
 }
 
 // ReleaseFlow ends a flow's claims, whichever of its runs made them, but for Safety ones. They end
 // only by an explicit release, so a failed notification can't reopen a valve.
 func (e *Engine) ReleaseFlow(ctx context.Context, key ident.ID) error {
-	return e.endClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
+	return e.endClaims(ctx, ruleSource(key.Name), control.Safety)
 }
 
 // ReleaseRule ends the claims of a rule that runs elsewhere, but for Safety ones, as ReleaseFlow does,
 // and returns once that's saved. ctx is the engine's, as with Claim.
 func (e *Engine) ReleaseRule(ctx context.Context, key ident.ID) error {
-	return e.ReleaseClaims(ctx, key.Namespace, ruleSource(key.Name), control.Safety)
+	return e.ReleaseClaims(ctx, ruleSource(key.Name), control.Safety)
 }
 
 // ForgetDevice ends what's on record for a device that has left the store for good: its arbiters,
@@ -710,17 +709,14 @@ func (e *Engine) ensureDue() {
 	}
 }
 
-// RuleClaims returns the rules holding claims in the namespace, each with the highest level it holds.
+// RuleClaims returns the rules holding claims, each with the highest level it holds.
 // It counts devices the engine has yet to look at, whose claims are still only on disk.
-func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
+func (e *Engine) RuleClaims() map[string]control.Level {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.ensureDue()
 	held := map[string]control.Level{}
-	for dev, arbs := range e.arbs {
-		if dev.Namespace != namespace {
-			continue
-		}
+	for _, arbs := range e.arbs {
 		for _, ar := range arbs {
 			for _, c := range ar.a.State().Claims {
 				if rule, ok := strings.CutPrefix(c.Source, rulePrefix); ok && c.Level >= held[rule] {
@@ -729,7 +725,7 @@ func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 			}
 		}
 	}
-	for _, dev := range e.savedDevices(namespace) {
+	for _, dev := range e.savedDevices() {
 		for _, c := range e.SavedClaims(dev) {
 			if rule, ok := strings.CutPrefix(c.Source, rulePrefix); ok && c.Level >= held[rule] {
 				held[rule] = c.Level
@@ -739,23 +735,23 @@ func (e *Engine) RuleClaims(namespace string) map[string]control.Level {
 	return held
 }
 
-// savedDevices are the namespace's devices with claims on record and no arbiters, whose driver hasn't
+// savedDevices are the devices with claims on record and no arbiters, whose driver hasn't
 // attached, so that the claims are only on disk. Call with e.mu held.
-func (e *Engine) savedDevices(namespace string) []ident.ID {
+func (e *Engine) savedDevices() []ident.ID {
 	listed, ok := e.Controls.(interface {
-		Names(namespace string) ([]string, error)
+		Names() ([]string, error)
 	})
 	if !ok {
 		return nil
 	}
-	names, err := listed.Names(namespace)
+	names, err := listed.Names()
 	if err != nil {
-		e.Log.Error("Failed to list saved claims", "err", err, "namespace", namespace)
+		e.Log.Error("Failed to list saved claims", "err", err)
 		return nil
 	}
 	var devices []ident.ID
 	for _, name := range names {
-		dev := ident.ID{Namespace: namespace, Name: name}
+		dev := ident.ID{Name: name}
 		if len(e.arbs[dev]) == 0 {
 			devices = append(devices, dev)
 		}
@@ -765,9 +761,9 @@ func (e *Engine) savedDevices(namespace string) []ident.ID {
 
 // endSaved ends a source's claims that are only on disk. A device whose record can't be read is left
 // alone: what's in it isn't known.
-func (e *Engine) endSaved(ctx context.Context, namespace, source string) error {
+func (e *Engine) endSaved(ctx context.Context, source string) error {
 	e.mu.Lock()
-	devices := e.savedDevices(namespace)
+	devices := e.savedDevices()
 	e.mu.Unlock()
 	e.saveMu.Lock()
 	defer e.saveMu.Unlock()
@@ -794,14 +790,14 @@ func (e *Engine) endSaved(ctx context.Context, namespace, source string) error {
 
 // EndRule ends every claim of a rule that no longer exists, Safety ones included, as Remove does for
 // one in this engine. It returns once that's saved. ctx is the engine's, as with Claim.
-func (e *Engine) EndRule(ctx context.Context, namespace, rule string) error {
+func (e *Engine) EndRule(ctx context.Context, rule string) error {
 	e.mu.Lock()
 	e.ensureDue()
 	e.mu.Unlock()
-	if err := e.ReleaseClaims(ctx, namespace, ruleSource(rule), allLevels); err != nil {
+	if err := e.ReleaseClaims(ctx, ruleSource(rule), allLevels); err != nil {
 		return err
 	}
-	return e.endSaved(ctx, namespace, ruleSource(rule))
+	return e.endSaved(ctx, ruleSource(rule))
 }
 
 // Responsive returns once the engine's lock is free. A condition stuck in a loop holds that lock,
@@ -811,14 +807,10 @@ func (e *Engine) Responsive() {
 	defer e.mu.Unlock()
 }
 
-// releaseSource ends a source's claims below a level on every arbitrated capability in the
-// namespace, and returns the devices that changed. Call with e.mu held.
-func (e *Engine) releaseSource(ctx context.Context, namespace, source string, below control.Level) []ident.ID {
+// releaseSource ends a source's claims below a level on every arbitrated capability, and returns the devices that changed. Call with e.mu held.
+func (e *Engine) releaseSource(ctx context.Context, source string, below control.Level) []ident.ID {
 	var changed []ident.ID
 	for dev, arbs := range e.arbs {
-		if dev.Namespace != namespace {
-			continue
-		}
 		for name, ar := range arbs {
 			if slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool {
 				return c.Source == source && (below == allLevels || c.Level < below)
@@ -846,7 +838,7 @@ func (e *Engine) reportControl(dev ident.ID) {
 		return
 	}
 	for name, ar := range e.arbs[dev] {
-		e.ControlLevel.WithLabelValues(dev.Namespace, dev.Name, name).Set(float64(ar.d.Level))
+		e.ControlLevel.WithLabelValues(dev.Name, name).Set(float64(ar.d.Level))
 	}
 }
 

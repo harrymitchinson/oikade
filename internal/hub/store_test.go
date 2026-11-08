@@ -13,38 +13,33 @@ import (
 
 func TestStoreRoom(t *testing.T) {
 	s := NewStore(logging.Discard())
-	dev := func(ns, name string) ident.ID { return ident.ID{Namespace: ns, Name: name} }
-	z2m := func(ns string) driver.InstanceKey {
-		return driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: dev(ns, "z2m")}
-	}
-	s.SetDevices(z2m("home"), map[ident.ID]Meta{
-		dev("home", "lamp-b"):  {Room: "living-room"},
-		dev("home", "lamp-a"):  {Room: "living-room"},
-		dev("home", "hall"):    {Room: "hallway"},
-		dev("home", "no-room"): {},
-	})
-	s.SetDevices(z2m("other"), map[ident.ID]Meta{
-		dev("other", "lamp-c"): {Room: "living-room"},
+	dev := func(name string) ident.ID { return ident.ID{Name: name} }
+	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: dev("z2m")}
+	s.SetDevices(z2m, map[ident.ID]Meta{
+		dev("lamp-b"):  {Room: "living-room"},
+		dev("lamp-a"):  {Room: "living-room"},
+		dev("hall"):    {Room: "hallway"},
+		dev("no-room"): {},
 	})
 
-	if got, want := s.Room("home", "living-room"), []ident.ID{dev("home", "lamp-a"), dev("home", "lamp-b")}; !slices.Equal(got, want) {
+	if got, want := s.Room("living-room"), []ident.ID{dev("lamp-a"), dev("lamp-b")}; !slices.Equal(got, want) {
 		t.Errorf("Room(living-room) = %v, want %v", got, want)
 	}
-	if got := s.Room("home", "kitchen"); len(got) != 0 {
+	if got := s.Room("kitchen"); len(got) != 0 {
 		t.Errorf("Room(kitchen) = %v, want none", got)
 	}
-	if got := s.Room("home", ""); len(got) != 0 {
+	if got := s.Room(""); len(got) != 0 {
 		t.Errorf(`Room("") = %v, want none`, got)
 	}
 }
 
 func TestInstanceKeySeparatesDrivers(t *testing.T) {
 	s := NewStore(logging.Discard())
-	name := ident.ID{Namespace: "home", Name: "garden"}
+	name := ident.ID{Name: "garden"}
 	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
-	lamp := ident.ID{Namespace: "home", Name: "lamp"}
-	relay := ident.ID{Namespace: "home", Name: "relay"}
+	lamp := ident.ID{Name: "lamp"}
+	relay := ident.ID{Name: "relay"}
 
 	s.SetDevices(z2m, map[ident.ID]Meta{lamp: {Instance: z2m}})
 	s.SetDevices(plug, map[ident.ID]Meta{relay: {Instance: plug}})
@@ -84,10 +79,10 @@ func TestInstanceKeySeparatesDrivers(t *testing.T) {
 
 func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 	s := NewStore(logging.Discard())
-	name := ident.ID{Namespace: "home", Name: "porch"}
+	name := ident.ID{Name: "porch"}
 	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
-	light := ident.ID{Namespace: "home", Name: "porch-light"}
+	light := ident.ID{Name: "porch-light"}
 
 	s.SetDevices(z2m, map[ident.ID]Meta{light: {Instance: z2m}})
 	s.Discovered(light, driver.Info{Found: true, Capabilities: []string{capability.On}})
@@ -123,10 +118,10 @@ func (r *reassignments) Reassigned(dev ident.ID) { r.got = append(r.got, dev) }
 func TestSetDevicesReportsReassignments(t *testing.T) {
 	r := &reassignments{}
 	s := NewStore(logging.Discard(), r)
-	name := ident.ID{Namespace: "home", Name: "porch"}
+	name := ident.ID{Name: "porch"}
 	z2m := driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
-	light := ident.ID{Namespace: "home", Name: "porch-light"}
+	light := ident.ID{Name: "porch-light"}
 
 	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug}})                // claimed
 	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug, Room: "porch"}}) // unchanged
@@ -148,9 +143,9 @@ func (c *controlChanges) ControlChanged(dev ident.ID) { c.got = append(c.got, de
 func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
 	c := &controlChanges{}
 	s := NewStore(logging.Discard(), c)
-	name := ident.ID{Namespace: "home", Name: "landing"}
+	name := ident.ID{Name: "landing"}
 	plug := driver.InstanceKey{Driver: driver.Plugin, ID: name}
-	lamp := ident.ID{Namespace: "home", Name: "landing-lamp"}
+	lamp := ident.ID{Name: "landing-lamp"}
 	entry := control.Entry{Capability: "on"}
 
 	s.SetDevices(plug, map[ident.ID]Meta{lamp: {Instance: plug, Control: []control.Entry{}}})      // empty

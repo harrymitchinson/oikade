@@ -20,7 +20,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 	}
 	defer func() { _ = data.Close() }()
 	controls := &Stored[ControlState]{Values: data.Namespace(ControlStatesNamespace), Log: logging.Discard()}
-	valve := ident.ID{Namespace: "home", Name: "valve"}
+	valve := ident.ID{Name: "valve"}
 	st := ControlState{"on": control.State{Claims: []control.Claim{
 		{Source: "Rule/leak", Level: control.Safety, Value: 0},
 		{Source: "Rule/other", Level: control.Override, Value: 1},
@@ -31,14 +31,14 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 	e := &Engine{Controls: controls, Log: logging.Discard()}
 	e.Init()
 
-	held := e.RuleClaims("home")
+	held := e.RuleClaims()
 	if held["leak"] != control.Safety || held["other"] != control.Override {
 		t.Fatalf("got %v", held)
 	}
-	if err := e.EndRule(context.Background(), "home", "leak"); err != nil {
+	if err := e.EndRule(context.Background(), "leak"); err != nil {
 		t.Fatal(err)
 	}
-	held = e.RuleClaims("home")
+	held = e.RuleClaims()
 	if _, ok := held["leak"]; ok || held["other"] != control.Override {
 		t.Fatalf("got %v", held)
 	}

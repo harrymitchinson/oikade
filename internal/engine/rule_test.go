@@ -11,7 +11,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
-func goKey(name string) ident.ID { return ident.ID{Namespace: ns, Name: name} }
+func goKey(name string) ident.ID { return ident.ID{Name: name} }
 
 func humidity(v Vars) (bool, error) {
 	devices, _ := v["devices"].(map[string]map[string]any)

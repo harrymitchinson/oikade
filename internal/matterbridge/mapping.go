@@ -55,7 +55,7 @@ func (d Device) uniqueID() string {
 	if d.Unique != "" {
 		return d.Unique
 	}
-	return UniqueID(d.Key)
+	return UniqueID(d.Key.String())
 }
 
 // Mapped is a Device as a bridged endpoint: its device types and clusters, and how bus state
@@ -189,9 +189,9 @@ func Label(name string) string {
 	return name
 }
 
-// UniqueID is a bridged device's stable UniqueID: 32 hex digits from its namespace and name.
-func UniqueID(key ident.ID) string {
-	sum := sha256.Sum256([]byte(key.String()))
+// UniqueID is a bridged device's stable UniqueID: 32 hex digits from what names it.
+func UniqueID(name string) string {
+	sum := sha256.Sum256([]byte(name))
 	return strings.ToUpper(hex.EncodeToString(sum[:16]))
 }
 

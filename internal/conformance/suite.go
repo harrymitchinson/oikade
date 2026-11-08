@@ -134,7 +134,7 @@ func New(t T, cfg Config) *Suite {
 		t.Fatal(err)
 	}
 	s.inst = &plugin.Instance{
-		Key:  ident.ID{Namespace: namespace, Name: name},
+		Key:  ident.ID{Name: name},
 		Root: root, Bus: bus, Sink: s.sink, Now: time.Now, Log: cfg.Log,
 	}
 	if err := s.inst.Start(ctx); err != nil {
@@ -192,7 +192,7 @@ func readDeclared(t T, file string) map[string]ident.ID {
 	}
 	devices := map[string]ident.ID{}
 	for _, d := range declared.Devices {
-		devices[d.ID] = ident.ID{Namespace: namespace, Name: "device-" + d.ID}
+		devices[d.ID] = ident.ID{Name: "device-" + d.ID}
 	}
 	return devices
 }

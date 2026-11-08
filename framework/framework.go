@@ -658,7 +658,7 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 			errs = append(errs, fmt.Errorf("rule %q is declared twice", n))
 		}
 		seen[n] = true
-		return ident.ID{Namespace: wire.Namespace, Name: n}
+		return ident.ID{Name: n}
 	}
 	add := func(rule string, c *engine.Compiled, err error) {
 		if err != nil {

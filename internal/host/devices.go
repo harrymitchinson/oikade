@@ -55,10 +55,7 @@ func newInventory(reg *registry.Registry, settings *store.Namespace, devices *hu
 
 // instanceName is how the registry records a driver instance.
 func instanceName(instance driver.InstanceKey) string {
-	if instance.Namespace == "" {
-		return instance.Driver + "/" + instance.Name
-	}
-	return instance.Driver + "/" + instance.String()
+	return instance.Driver + "/" + instance.Name
 }
 
 // attach adds a driver instance, whose devices on record are known from now on, reported or not.
@@ -519,7 +516,7 @@ func (s *apiServer) move(name, room string) api.Response {
 	if from == "" || from == room {
 		return api.Response{}
 	}
-	rules := s.emptyReads(name, from, s.devices.store.Members(wire.Namespace))
+	rules := s.emptyReads(name, from, s.devices.store.Members())
 	if len(rules) == 0 {
 		return api.Response{}
 	}

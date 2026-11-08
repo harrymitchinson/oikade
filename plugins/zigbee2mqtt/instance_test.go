@@ -71,7 +71,7 @@ func (r *recorder) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 }
 
 func dev(name string) ident.ID {
-	return ident.ID{Namespace: "home", Name: name}
+	return ident.ID{Name: name}
 }
 
 var (

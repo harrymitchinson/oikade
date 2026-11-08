@@ -253,7 +253,7 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 	if err != nil {
 		return wire.Message{}, nil, err
 	}
-	if welcome.Paused, err = s.paused.Names(wire.Namespace); err != nil {
+	if welcome.Paused, err = s.paused.Names(); err != nil {
 		return wire.Message{}, nil, err
 	}
 	runs := make([]wire.Run, 0, len(ids))
@@ -342,13 +342,11 @@ func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bo
 	}
 	s.session, s.pong = sess, time.Now()
 	// Again, under the lock: a pause after this reaches the session, and one before is in the list.
-	if paused, err := s.paused.Names(wire.Namespace); err == nil {
+	if paused, err := s.paused.Names(); err == nil {
 		welcome.Paused = paused
 	}
 	for key, snap := range s.devices.List() {
-		if key.Namespace == wire.Namespace {
-			welcome.Devices = append(welcome.Devices, deviceOf(key.Name, snap))
-		}
+		welcome.Devices = append(welcome.Devices, deviceOf(key.Name, snap))
 	}
 	go s.write(sess)
 	sess.out <- welcome
@@ -405,11 +403,11 @@ func (s *server) reconcile(rules, flows []string) error {
 		return fmt.Errorf("reading flow runs: %w", err)
 	}
 	var errs []error
-	for rule, level := range s.engine.RuleClaims(wire.Namespace) {
+	for rule, level := range s.engine.RuleClaims() {
 		if slices.Contains(rules, rule) {
 			continue
 		}
-		err := s.engine.EndRule(s.ctx, wire.Namespace, rule)
+		err := s.engine.EndRule(s.ctx, rule)
 		if fault.Drop(fault.HostEndRule) {
 			err = errors.New("dropped by a fault point")
 		}
@@ -420,10 +418,10 @@ func (s *server) reconcile(rules, flows []string) error {
 		s.log.Info("Ended the claims of a removed rule", "rule", rule, "highest", level.String())
 	}
 	for _, saved := range []interface {
-		Names(namespace string) ([]string, error)
+		Names() ([]string, error)
 		Delete(ctx context.Context, key ident.ID) error
 	}{s.holds, s.fires, s.paused} {
-		names, err := saved.Names(wire.Namespace)
+		names, err := saved.Names()
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -458,16 +456,16 @@ func (s *server) reconcile(rules, flows []string) error {
 
 // leftovers names every rule with anything on record: claims, saved state or an unfinished run.
 func (s *server) leftovers() ([]string, error) {
-	held := s.engine.RuleClaims(wire.Namespace)
+	held := s.engine.RuleClaims()
 	names := make([]string, 0, len(held))
 	for rule := range held {
 		names = append(names, rule)
 	}
-	holds, err := s.holds.Names(wire.Namespace)
+	holds, err := s.holds.Names()
 	if err != nil {
 		return nil, err
 	}
-	fires, err := s.fires.Names(wire.Namespace)
+	fires, err := s.fires.Names()
 	if err != nil {
 		return nil, err
 	}
@@ -565,9 +563,6 @@ func (s *server) Changed(changes ...driver.Update) {
 		}
 		report := changes[:n]
 		changes = changes[n:]
-		if dev.Namespace != wire.Namespace {
-			continue
-		}
 		m := wire.Message{Type: wire.TypeChange, Device: dev.Name, Time: report[0].Time}
 		for _, u := range report {
 			m.Changes = append(m.Changes, wire.Change{Capability: u.Capability, Value: u.Value, Previous: u.Previous})
@@ -585,7 +580,7 @@ func (s *server) Changed(changes ...driver.Update) {
 // Discovered implements driver.Sink.
 func (s *server) Discovered(dev ident.ID, _ driver.Info) {
 	snap, ok := s.devices.Get(dev)
-	if !ok || dev.Namespace != wire.Namespace {
+	if !ok {
 		return
 	}
 	d := deviceOf(dev.Name, snap)
@@ -594,9 +589,7 @@ func (s *server) Discovered(dev ident.ID, _ driver.Info) {
 
 // Seen tells your process a device reported, which a budget's reading needs to know how old it is.
 func (s *server) Seen(dev ident.ID, t time.Time) {
-	if dev.Namespace == wire.Namespace {
-		s.broadcast(wire.Message{Type: wire.TypeSeen, Device: dev.Name, Time: t})
-	}
+	s.broadcast(wire.Message{Type: wire.TypeSeen, Device: dev.Name, Time: t})
 }
 
 // answer carries out a request and returns its Reply.
@@ -613,7 +606,7 @@ func (s *server) answer(m wire.Message) wire.Message {
 	case wire.TypeRelease:
 		reply.Arbitrated, err = s.engine.ReleaseClaim(s.ctx, key(m.Device), m.Capability, m.Source)
 	case wire.TypeReleaseAll:
-		err = s.engine.ReleaseClaims(s.ctx, wire.Namespace, m.Source, m.Below)
+		err = s.engine.ReleaseClaims(s.ctx, m.Source, m.Below)
 	case wire.TypeSet:
 		err = s.setter.Set(s.ctx, key(m.Device), m.Capability, m.Value)
 	case wire.TypeSaveHold:
@@ -648,7 +641,7 @@ func (s *server) answer(m wire.Message) wire.Message {
 }
 
 func key(name string) ident.ID {
-	return ident.ID{Namespace: wire.Namespace, Name: name}
+	return ident.ID{Name: name}
 }
 
 func deviceOf(name string, snap hub.Snapshot) wire.Device {

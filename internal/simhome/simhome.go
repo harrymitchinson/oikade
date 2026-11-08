@@ -163,7 +163,7 @@ func New(o Options) (*Sim, error) {
 }
 
 func key(name string) ident.ID {
-	return ident.ID{Namespace: wire.Namespace, Name: name}
+	return ident.ID{Name: name}
 }
 
 func (s *Sim) entries(device string) []control.Entry {
@@ -249,7 +249,7 @@ func (s *Sim) start() error {
 
 	byName := map[string]*flow.Flow{}
 	maps.Copy(byName, flows)
-	bodies := flow.Recover(ctx, wire.Namespace, byName, s.journal.saved(), s.journal, eng)
+	bodies := flow.Recover(ctx, byName, s.journal.saved(), s.journal, eng)
 	for name, body := range bodies {
 		eng.Resume(ctx, key(name), body)
 	}

@@ -91,9 +91,9 @@ func TestRestarts(t *testing.T) {
 func TestStatesKeepHoldsAcrossARestart(t *testing.T) {
 	b := newStoreBackend(t)
 	ctx := t.Context()
-	kept := ident.ID{Namespace: ns, Name: "kept"}
-	other := ident.ID{Namespace: "other", Name: "kept"}
-	deleted := ident.ID{Namespace: ns, Name: "deleted"}
+	kept := ident.ID{Name: "kept"}
+	other := ident.ID{Name: "other"}
+	deleted := ident.ID{Name: "deleted"}
 	want := HoldState{
 		Active: true, Latched: true, OnAt: time.Date(2026, 11, 5, 22, 0, 0, 0, time.UTC),
 		Target: HoldTarget{Device: "main-valve", Capability: "on", Value: false},
@@ -122,7 +122,7 @@ func TestStatesKeepHoldsAcrossARestart(t *testing.T) {
 		t.Errorf("after the restart: %+v, %v", got, ok)
 	}
 	if got, ok := s.Get(other); !ok || !got.Active || got.Latched {
-		t.Errorf("another namespace's state: %+v, %v", got, ok)
+		t.Errorf("another rule's state: %+v, %v", got, ok)
 	}
 	if _, ok := s.Get(deleted); ok {
 		t.Error("the deleted state came back")
@@ -131,7 +131,7 @@ func TestStatesKeepHoldsAcrossARestart(t *testing.T) {
 
 func TestStatesKeepControlsAcrossARestart(t *testing.T) {
 	b := newStoreBackend(t)
-	key := ident.ID{Namespace: ns, Name: "main-valve"}
+	key := ident.ID{Name: "main-valve"}
 	want := ControlState{"on": control.State{}}
 	_ = b.holds(t)
 	if err := b.controls(t).Put(t.Context(), key, want); err != nil {
@@ -151,7 +151,7 @@ func TestStatesKeepControlsAcrossARestart(t *testing.T) {
 
 func TestStatesIgnoreAnUnreadableState(t *testing.T) {
 	b := newStoreBackend(t)
-	key := ident.ID{Namespace: ns, Name: "bad"}
+	key := ident.ID{Name: "bad"}
 	b.corrupt(t, key)
 	if got, ok := b.holds(t).Get(key); ok {
 		t.Errorf("got %+v", got)
@@ -162,7 +162,7 @@ func TestStoredSavesDuringShutdown(t *testing.T) {
 	s := newStoreBackend(t).holds(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	key := ident.ID{Namespace: ns, Name: "x"}
+	key := ident.ID{Name: "x"}
 	if err := s.Put(ctx, key, HoldState{Active: true}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}

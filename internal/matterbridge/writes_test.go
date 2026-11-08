@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	deskLamp = ident.ID{Namespace: "home", Name: "desk-lamp"}
-	porchFan = ident.ID{Namespace: "home", Name: "porch-fan"}
+	deskLamp = ident.ID{Name: "desk-lamp"}
+	porchFan = ident.ID{Name: "porch-fan"}
 )
 
 // recorder is a driver.Setter that records writes.

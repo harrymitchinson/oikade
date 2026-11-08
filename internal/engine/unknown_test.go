@@ -47,7 +47,7 @@ func TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree(t *testing.T) {
 	// The fan shows Run still takes changes. Then settle shows the light isn't due all the time.
 	r.clock.SetTime(local("2026-10-21 20:16 BST"))
 	r.store.Changed(driver.Update{
-		Device: ident.ID{Namespace: ns, Name: "bathroom-sensor"}, Capability: capability.Humidity, Value: 75.0,
+		Device: ident.ID{Name: "bathroom-sensor"}, Capability: capability.Humidity, Value: 75.0,
 	})
 	want := fmt.Sprint([]call{{"hall-light", capability.On, true}, {"bathroom-fan", capability.On, true}})
 	poll(t, "the fan to follow the humidity", func() bool { return fmt.Sprint(r.setter.got()) == want })

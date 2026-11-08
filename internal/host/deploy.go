@@ -200,7 +200,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		old = home.Manifest
 		begin = func(next version, spared []string) error { return d.versions.beginFromHome(*home, next, spared) }
 	}
-	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace), d.srv.safetyHeld)
+	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
 	if d.running != "" && old.Protocol == 0 {
 		findings = append(findings, "the running version couldn't be kept or checked, so a Safety rule it has can't be seen, and a failed deploy has nothing to go back to")
 	}
@@ -226,7 +226,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		if allow {
 			return nil
 		}
-		late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(wire.Namespace), d.srv.safetyHeld)
+		late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
 		if len(late) > 0 {
 			return errLateClaim
 		}

@@ -300,7 +300,7 @@ func (r *rig) claimsOf(device string) []control.Claim {
 		r.t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get("home/" + device)
+	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get(device)
 	if err != nil || !ok {
 		r.t.Fatalf("no saved state for %s (%v). The log:\n%s", device, err, r.dump())
 	}
@@ -386,7 +386,7 @@ func TestClaimSurvivesTheHostDyingRightAfterItsAnswer(t *testing.T) {
 	r.died()
 
 	s := r.openStore()
-	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get("home/claimed")
+	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get("claimed")
 	if err != nil || !ok {
 		t.Fatalf("no saved state for the device (%v). The log:\n%s", err, r.dump())
 	}
@@ -408,7 +408,7 @@ func seedFire(t *testing.T, r *rig, rule string, at time.Time) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Namespace(engine.FireStatesNamespace).Put("home/"+rule, raw); err != nil {
+	if err := s.Namespace(engine.FireStatesNamespace).Put(rule, raw); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -38,8 +38,7 @@ const (
 
 // Metric labels.
 const (
-	labelNamespace = "namespace"
-	labelRule      = "rule"
+	labelRule = "rule"
 )
 
 // maxWait bounds how long Run sleeps, so a wall clock that steps forward, as NTP does on a
@@ -76,13 +75,13 @@ type Engine struct {
 	Log      *slog.Logger
 	// Site is where sun triggers are computed for. Nil means they never fire.
 	Site *sun.Site
-	// Runs counts trigger outcomes by namespace, rule and result.
+	// Runs counts trigger outcomes by rule and result.
 	Runs *prometheus.CounterVec
-	// NextChange is the next fire's Unix time, by namespace and rule.
+	// NextChange is the next fire's Unix time, by rule.
 	NextChange *prometheus.GaugeVec
 	// Dropped counts changes dropped because the engine fell behind.
 	Dropped prometheus.Counter
-	// Active is 1 while a Rule's hold is active, by namespace and rule.
+	// Active is 1 while a Rule's hold is active, by rule.
 	Active *prometheus.GaugeVec
 	// States keeps holds' state across restarts. Nil keeps it in memory only.
 	States HoldStates
@@ -175,7 +174,7 @@ func NewRunsCounter() *prometheus.CounterVec {
 	return prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "oikade_rule_runs_total",
 		Help: "Rule trigger outcomes.",
-	}, []string{labelNamespace, labelRule, "result"})
+	}, []string{labelRule, "result"})
 }
 
 // NewNextChangeGauge returns the gauge Engine.NextChange expects.
@@ -183,7 +182,7 @@ func NewNextChangeGauge() *prometheus.GaugeVec {
 	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "oikade_rule_next_change_timestamp_seconds",
 		Help: "When a Rule's next at or sun trigger fires, or its hold next starts or ends, as a Unix time.",
-	}, []string{labelNamespace, labelRule})
+	}, []string{labelRule})
 }
 
 // NewDroppedCounter returns the counter Engine.Dropped expects.
@@ -260,7 +259,7 @@ func (e *Engine) Load(c *Compiled) {
 		e.report(c.Key, Schedule{Generation: c.Generation, Cleared: true})
 	}
 	if old != nil && old.c.hold != nil && c.hold == nil && e.Active != nil {
-		e.Active.DeleteLabelValues(c.Key.Namespace, c.Key.Name)
+		e.Active.DeleteLabelValues(c.Key.Name)
 	}
 	if old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
 		e.clearBudget(c.Key, c.Generation)
@@ -307,9 +306,9 @@ func (e *Engine) reschedule(s *state, now time.Time) time.Time {
 func (e *Engine) report(key ident.ID, sched Schedule) {
 	if e.NextChange != nil {
 		if sched.Next.IsZero() || sched.Cleared {
-			e.NextChange.DeleteLabelValues(key.Namespace, key.Name)
+			e.NextChange.DeleteLabelValues(key.Name)
 		} else {
-			e.NextChange.WithLabelValues(key.Namespace, key.Name).Set(float64(sched.Next.Unix()))
+			e.NextChange.WithLabelValues(key.Name).Set(float64(sched.Next.Unix()))
 		}
 	}
 	if e.OnSchedule != nil {
@@ -346,7 +345,7 @@ func (e *Engine) Remove(key ident.ID) {
 	}
 	e.mu.Unlock()
 	// A deleted Rule's claims end with it.
-	_ = e.endClaims(context.Background(), key.Namespace, ruleSource(key.Name), allLevels)
+	_ = e.endClaims(context.Background(), ruleSource(key.Name), allLevels)
 	// A Rule unloaded as invalid before it was deleted has a state too.
 	if _, ok := e.States.Get(key); ok {
 		e.goBusy(func() { e.deleteState(key) })
@@ -376,13 +375,13 @@ func (e *Engine) unload(key ident.ID) *state {
 	// A Rule loaded again, after a delete or an invalid edit, looks for missed fires again.
 	delete(e.loaded, key)
 	if e.Runs != nil {
-		e.Runs.DeletePartialMatch(prometheus.Labels{labelNamespace: key.Namespace, labelRule: key.Name})
+		e.Runs.DeletePartialMatch(prometheus.Labels{labelRule: key.Name})
 	}
 	if e.NextChange != nil {
-		e.NextChange.DeleteLabelValues(key.Namespace, key.Name)
+		e.NextChange.DeleteLabelValues(key.Name)
 	}
 	if e.Active != nil {
-		e.Active.DeleteLabelValues(key.Namespace, key.Name)
+		e.Active.DeleteLabelValues(key.Name)
 	}
 	e.signal()
 	return s
@@ -561,7 +560,7 @@ func (e *Engine) fireDue(ctx context.Context) {
 		}
 		sched := Schedule{Generation: s.c.Generation}
 		if f.Typ != "" {
-			e.triggerAfterWrites(key, s, e.vars(key.Namespace, map[string]any{triggerType: f.Typ}))
+			e.triggerAfterWrites(key, s, e.vars(map[string]any{triggerType: f.Typ}))
 			sched.LastFire = f.At
 		}
 		sched.Next = e.reschedule(s, now)
@@ -573,28 +572,28 @@ func (e *Engine) fireDue(ctx context.Context) {
 // triggerType is the key of a trigger's type in Vars.
 const triggerType = "type"
 
-func (e *Engine) vars(namespace string, trigger map[string]any) Vars {
-	v := e.conditionVars(namespace, e.Clock.Now(), nil)
+func (e *Engine) vars(trigger map[string]any) Vars {
+	v := e.conditionVars(e.Clock.Now(), nil)
 	v["trigger"] = trigger
 	return v
 }
 
-// home is a namespace's devices as conditions read them: their values, and where they are and
+// home is the devices as conditions read them: their values, and where they are and
 // what they are. Read it once for every hold a change evaluates.
 type home struct {
 	devices map[string]map[string]any
 	members map[string]hub.Member
 }
 
-func (e *Engine) home(namespace string) *home {
-	return &home{devices: e.Store.Values(namespace), members: e.Store.Members(namespace)}
+func (e *Engine) home() *home {
+	return &home{devices: e.Store.Values(), members: e.Store.Members()}
 }
 
-// conditionVars are what a condition sees at now. h is the namespace's devices, or nil to read
+// conditionVars are what a condition sees at now. h is the home's devices, or nil to read
 // them.
-func (e *Engine) conditionVars(namespace string, now time.Time, h *home) Vars {
+func (e *Engine) conditionVars(now time.Time, h *home) Vars {
 	if h == nil {
-		h = e.home(namespace)
+		h = e.home()
 	}
 	return Vars{
 		"devices":  h.devices,
@@ -626,14 +625,11 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 	// vars are each change's, read once a rule needs them.
 	vars := make([]Vars, len(changes))
 	for key, s := range e.rules {
-		if key.Namespace != dev.Namespace {
-			continue
-		}
-		// A hold with when may read any device in its namespace, and a budget credits its target's
+		// A hold with when may read any device, and a budget credits its target's
 		// run as it changes.
 		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.budget != nil && s.c.hold.device == dev.Name) {
 			if devices == nil {
-				devices = e.home(dev.Namespace)
+				devices = e.home()
 			}
 			e.evaluate(ctx, key, s, now, devices)
 			evaluated = true
@@ -644,7 +640,7 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 				continue
 			}
 			if vars[i] == nil {
-				vars[i] = e.vars(u.Device.Namespace, map[string]any{
+				vars[i] = e.vars(map[string]any{
 					triggerType: TypeChange, "device": u.Device.Name, "capability": u.Capability, "value": u.Value, "previous": u.Previous,
 				})
 			}
@@ -660,15 +656,15 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 	e.changes = make(chan struct{})
 }
 
-// membersChanged makes Run evaluate again the holds whose when may read a room in the namespace,
+// membersChanged makes Run evaluate again the holds whose when may read a room,
 // as handle does on a change.
-func (e *Engine) membersChanged(namespace string) {
+func (e *Engine) membersChanged() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.Clock.Now()
 	due := false
-	for key, s := range e.rules {
-		if key.Namespace == namespace && s.hold != nil && s.hold.loaded && s.c.hold.when != nil {
+	for _, s := range e.rules {
+		if s.hold != nil && s.hold.loaded && s.c.hold.when != nil {
 			s.next = fire{At: now}
 			due = true
 		}
@@ -824,8 +820,8 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 			return ResultCancelled, skipped
 		}
 		if a.release != "" {
-			e.release(ident.ID{Namespace: key.Namespace, Name: a.release})
-			_ = e.endClaims(ctx, key.Namespace, ruleSource(a.release), allLevels)
+			e.release(ident.ID{Name: a.release})
+			_ = e.endClaims(ctx, ruleSource(a.release), allLevels)
 			continue
 		}
 		if a.room != "" {
@@ -839,7 +835,7 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 			}
 			continue
 		}
-		dev := ident.ID{Namespace: key.Namespace, Name: a.device}
+		dev := ident.ID{Name: a.device}
 		if e.arbitrated(dev, a.capability) {
 			if !a.ends() {
 				log.Info("Skipped set on an arbitrated capability; it needs for or until", "device", a.device, "capability", a.capability)
@@ -867,7 +863,7 @@ func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (res
 func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, skipped []string) {
 	log := e.Log.With("rule", key)
 	ok, matched := true, false
-	for _, dev := range e.Store.Room(key.Namespace, a.room) {
+	for _, dev := range e.Store.Room(a.room) {
 		snap, found := e.Store.Get(dev)
 		if !found || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, a.capability) {
 			continue
@@ -1044,7 +1040,7 @@ func (e *Engine) Earliest() time.Time { return e.earliest() }
 
 func (e *Engine) count(key ident.ID, result string) {
 	if e.Runs != nil {
-		e.Runs.WithLabelValues(key.Namespace, key.Name, result).Inc()
+		e.Runs.WithLabelValues(key.Name, result).Inc()
 	}
 	if e.OnRun != nil {
 		e.OnRun(key, result)

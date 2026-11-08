@@ -25,7 +25,7 @@ func goPumpBudget() *schedule.Spec {
 
 func goPumpHold(t *testing.T) *Compiled {
 	t.Helper()
-	c, err := NewHold(ident.ID{Namespace: ns, Name: "pump-daily"}, Hold{
+	c, err := NewHold(ident.ID{Name: "pump-daily"}, Hold{
 		Device: "pump", Capability: capability.On, Value: true, Budget: goPumpBudget(),
 	})
 	if err != nil {
@@ -94,7 +94,7 @@ func TestBudgetInGoKeepsItsPlanAcrossARestart(t *testing.T) {
 }
 
 func TestNewHoldBudgetIsTheOnlyCondition(t *testing.T) {
-	_, err := NewHold(ident.ID{Namespace: ns, Name: "x"}, Hold{
+	_, err := NewHold(ident.ID{Name: "x"}, Hold{
 		Device: "pump", Capability: capability.On, Value: true, Budget: goPumpBudget(), Latch: true,
 		When: func(Vars) (bool, error) { return true, nil },
 	})

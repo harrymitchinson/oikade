@@ -23,13 +23,13 @@ import (
 func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	eng := &engine.Engine{ControlLevel: engine.NewControlLevelGauge()}
 	store := hub.NewStore(logging.Discard())
-	dev := ident.ID{Namespace: "home", Name: "fan"}
+	dev := ident.ID{Name: "fan"}
 	inst := driver.InstanceKey{Driver: "test"}
 	store.SetDevices(inst, map[ident.ID]hub.Meta{dev: {Instance: inst}})
 	store.Changed(driver.Update{Device: dev, Capability: "on", Value: true, Time: time.Now()})
 	store.Availability(dev, true)
 	store.Seen(dev, time.Now())
-	eng.ControlLevel.WithLabelValues("home", "fan", "on").Set(1)
+	eng.ControlLevel.WithLabelValues("fan", "on").Set(1)
 
 	// Your process's own registry, as its metrics reach the host.
 	process := prometheus.NewRegistry()
@@ -37,14 +37,14 @@ func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 		engine.NewDroppedCounter(), engine.NewActiveGauge(), engine.NewBudgetMetrics()
 	process.MustRegister(runs, next, dropped, active)
 	process.MustRegister(budget.Collectors()...)
-	runs.WithLabelValues("home", "fan", "succeeded").Inc()
-	next.WithLabelValues("home", "fan").Set(1)
-	active.WithLabelValues("home", "fan").Set(1)
-	budget.Target.WithLabelValues("home", "fan").Set(1)
-	budget.Scheduled.WithLabelValues("home", "fan").Set(1)
-	budget.Run.WithLabelValues("home", "fan").Inc()
-	budget.TodayRun.WithLabelValues("home", "fan").Set(1)
-	budget.Desired.WithLabelValues("home", "fan").Set(1)
+	runs.WithLabelValues("fan", "succeeded").Inc()
+	next.WithLabelValues("fan").Set(1)
+	active.WithLabelValues("fan").Set(1)
+	budget.Target.WithLabelValues("fan").Set(1)
+	budget.Scheduled.WithLabelValues("fan").Set(1)
+	budget.Run.WithLabelValues("fan").Inc()
+	budget.TodayRun.WithLabelValues("fan").Set(1)
+	budget.Desired.WithLabelValues("fan").Set(1)
 	text, err := testMetricsText(process)
 	if err != nil {
 		t.Fatal(err)

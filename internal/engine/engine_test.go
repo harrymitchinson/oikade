@@ -23,8 +23,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
-const ns = "home"
-
 func set(device, name, value string) Action {
 	return Set{Device: device, Capability: name, Value: parsed(value)}
 }
@@ -38,20 +36,20 @@ func parsed(value string) any {
 
 func delay(d time.Duration) Action { return Delay(d) }
 
-// momentRule compiles a moment in the test namespace.
+// momentRule compiles a moment.
 func momentRule(t *testing.T, name string, m Moment) *Compiled {
 	t.Helper()
-	c, err := NewMoment(ident.ID{Namespace: ns, Name: name}, m)
+	c, err := NewMoment(ident.ID{Name: name}, m)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return c
 }
 
-// holdRule compiles a hold in the test namespace.
+// holdRule compiles a hold.
 func holdRule(t *testing.T, name string, h Hold) *Compiled {
 	t.Helper()
-	c, err := NewHold(ident.ID{Namespace: ns, Name: name}, h)
+	c, err := NewHold(ident.ID{Name: name}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,8 +241,8 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 	}
 	store := hub.NewStore(logging.Discard())
 	store.SetDevices(z2m, map[ident.ID]hub.Meta{
-		{Namespace: ns, Name: "hallway-motion"}: {},
-		{Namespace: ns, Name: "hallway-light"}:  {},
+		{Name: "hallway-motion"}: {},
+		{Name: "hallway-light"}:  {},
 	})
 	h := &harness{t: t, clock: clock.NewFake(now), setter: &fakeSetter{}}
 	h.e = &Engine{
@@ -267,12 +265,12 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 
 func (h *harness) motion(v bool) {
 	h.e.Changed(driver.Update{
-		Device: ident.ID{Namespace: ns, Name: "hallway-motion"}, Capability: capability.Occupied, Value: v,
+		Device: ident.ID{Name: "hallway-motion"}, Capability: capability.Occupied, Value: v,
 	})
 }
 
 func (h *harness) runs(result string) float64 {
-	return testutil.ToFloat64(h.e.Runs.WithLabelValues(ns, "motion-light", result))
+	return testutil.ToFloat64(h.e.Runs.WithLabelValues("motion-light", result))
 }
 
 func (h *harness) eventually(what string, cond func() bool) {
@@ -404,18 +402,18 @@ type member struct {
 var lampCaps = []string{capability.On, capability.Brightness, capability.LinkQuality}
 
 // z2m is the driver instance every test device belongs to.
-var z2m = driver.InstanceKey{Driver: driver.Zigbee2MQTT, Namespace: ns, Name: "z2m"}
+var z2m = driver.InstanceKey{Driver: driver.Zigbee2MQTT, Name: "z2m"}
 
 // declare replaces the store's devices with these.
 func declare(store *hub.Store, devices map[string]member) {
 	m := map[ident.ID]hub.Meta{}
 	for name, d := range devices {
-		m[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Room: d.room}
+		m[ident.ID{Name: name}] = hub.Meta{Room: d.room}
 	}
 	store.SetDevices(z2m, m)
 	for name, d := range devices {
 		if d.caps != nil {
-			store.Discovered(ident.ID{Namespace: ns, Name: name}, driver.Info{Found: true, Capabilities: d.caps})
+			store.Discovered(ident.ID{Name: name}, driver.Info{Found: true, Capabilities: d.caps})
 		}
 	}
 }
@@ -446,7 +444,7 @@ func TestRoomTriggerMatches(t *testing.T) {
 		"loft-motion":    {},
 	})
 	change := func(device string) {
-		h.e.Changed(driver.Update{Device: ident.ID{Namespace: ns, Name: device}, Capability: capability.Occupied, Value: true})
+		h.e.Changed(driver.Update{Device: ident.ID{Name: device}, Capability: capability.Occupied, Value: true})
 	}
 	on := call{"hallway-light", capability.On, true}
 

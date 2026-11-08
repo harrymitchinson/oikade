@@ -165,7 +165,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	go saveFires(logging.NewContext(ctx, log), client, fires)
 	flowCtx := logging.NewContext(ctx, log.With("logger", "flows"))
 	// The host drops a paused flow's runs. This is for a pause that landed since.
-	bodies := flow.Recover(flowCtx, wire.Namespace, paused.without(flows), savedRuns(welcome.Unfinished), client, eng)
+	bodies := flow.Recover(flowCtx, paused.without(flows), savedRuns(welcome.Unfinished), client, eng)
 	log.Info("Loaded rules", "rules", len(rules), "devices", len(welcome.Devices), "resumedRuns", len(bodies))
 	for name, body := range bodies {
 		eng.Resume(ctx, deviceKey(name), body)
@@ -334,7 +334,7 @@ func answerPings(ctx context.Context, client *wire.Client, eng *engine.Engine, p
 }
 
 func deviceKey(name string) ident.ID {
-	return ident.ID{Namespace: wire.Namespace, Name: name}
+	return ident.ID{Name: name}
 }
 
 func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {

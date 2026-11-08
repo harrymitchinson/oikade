@@ -44,9 +44,6 @@ func (s *apiServer) status() api.Response {
 	st.Process = s.srv.session != nil
 	s.srv.mu.Unlock()
 	for dev, snap := range s.srv.devices.List() {
-		if dev.Namespace != wire.Namespace {
-			continue
-		}
 		d := api.Device{
 			Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
 			DeviceTypes: slices.Clone(snap.DeviceTypes),
@@ -74,7 +71,7 @@ func (s *apiServer) status() api.Response {
 	}
 	slices.SortFunc(st.Devices, func(a, b api.Device) int { return strings.Compare(a.Name, b.Name) })
 
-	paused, err := s.srv.paused.Names(wire.Namespace)
+	paused, err := s.srv.paused.Names()
 	if err != nil {
 		return api.Response{Error: fmt.Sprintf("reading paused rules: %v", err)}
 	}
@@ -197,9 +194,7 @@ type recordedSetter struct {
 
 // Set implements driver.Setter.
 func (s recordedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
-	if dev.Namespace == wire.Namespace {
-		s.emit(api.Event{Time: time.Now(), Type: api.EventWrite, Device: dev.Name, Capability: name, Value: value})
-	}
+	s.emit(api.Event{Time: time.Now(), Type: api.EventWrite, Device: dev.Name, Capability: name, Value: value})
 	return s.setter.Set(ctx, dev, name, value)
 }
 
@@ -232,7 +227,7 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: no process is connected", req.Rule)}
 	case rules[i].Safety:
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a Safety rule, so pausing it stops that protection", req.Rule)}
-	case s.srv.engine.RuleClaims(wire.Namespace)[req.Rule] == control.Safety:
+	case s.srv.engine.RuleClaims()[req.Rule] == control.Safety:
 		// As a deploy's check: a flow can make a Safety claim its declaration doesn't show, and a pause
 		// would leave that claim with no run to release it.
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s holds a Safety claim, which a pause would strand", req.Rule)}

@@ -35,16 +35,16 @@ var pumpFrost = Hold{Device: "pump", Capability: capability.On, Value: true, Pri
 func (r *rig) setControlOf(dev string, entries ...control.Entry) {
 	metas := map[ident.ID]hub.Meta{}
 	for name := range holdDevices {
-		metas[ident.ID{Namespace: ns, Name: name}] = hub.Meta{Instance: z2m}
+		metas[ident.ID{Name: name}] = hub.Meta{Instance: z2m}
 	}
-	metas[ident.ID{Namespace: ns, Name: dev}] = hub.Meta{Instance: z2m, Control: entries}
+	metas[ident.ID{Name: dev}] = hub.Meta{Instance: z2m, Control: entries}
 	r.store.SetDevices(z2m, metas)
 }
 
 // report reports a device value, as a driver does: seen, then changed.
 func (r *rig) report(dev, c string, v any) {
 	r.t.Helper()
-	r.store.Seen(ident.ID{Namespace: ns, Name: dev}, r.clock.Now())
+	r.store.Seen(ident.ID{Name: dev}, r.clock.Now())
 	r.change(dev, c, v)
 }
 
@@ -60,9 +60,9 @@ func blocks(today *BudgetDay) string {
 func (r *rig) expectBudgetMetrics(name string, target, scheduled, run float64) {
 	r.t.Helper()
 	for metric, tc := range map[string]struct{ got, want float64 }{
-		"oikade_rule_budget_target_minutes":    {testutil.ToFloat64(r.e.Budget.Target.WithLabelValues(ns, name)), target},
-		"oikade_rule_budget_scheduled_minutes": {testutil.ToFloat64(r.e.Budget.Scheduled.WithLabelValues(ns, name)), scheduled},
-		"oikade_rule_budget_run_minutes_total": {testutil.ToFloat64(r.e.Budget.Run.WithLabelValues(ns, name)), run},
+		"oikade_rule_budget_target_minutes":    {testutil.ToFloat64(r.e.Budget.Target.WithLabelValues(name)), target},
+		"oikade_rule_budget_scheduled_minutes": {testutil.ToFloat64(r.e.Budget.Scheduled.WithLabelValues(name)), scheduled},
+		"oikade_rule_budget_run_minutes_total": {testutil.ToFloat64(r.e.Budget.Run.WithLabelValues(name)), run},
 	} {
 		if tc.got < tc.want-0.1 || tc.got > tc.want+0.1 {
 			r.t.Errorf("%s = %v, want %v", metric, tc.got, tc.want)
@@ -108,7 +108,7 @@ func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states *storeB
 	if w := winner(r.status("pump", capability.On)); w != "Rule/pump-daily Normal" {
 		t.Errorf("00:00 winner %q", w)
 	}
-	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues(ns, "pump-daily")); got != 1 {
+	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues("pump-daily")); got != 1 {
 		t.Errorf("oikade_rule_budget_desired %v at 00:00, want 1", got)
 	}
 
@@ -187,7 +187,7 @@ func TestBudgetMetricsAreExportedBeforeAnyRun(t *testing.T) {
 		}
 	}
 	r.expectBudgetMetrics("pump-daily", 240, 240, 0)
-	if got := testutil.ToFloat64(r.e.Budget.TodayRun.WithLabelValues(ns, "pump-daily")); got != 0 {
+	if got := testutil.ToFloat64(r.e.Budget.TodayRun.WithLabelValues("pump-daily")); got != 0 {
 		t.Errorf("oikade_rule_budget_today_run_minutes %v, want 0", got)
 	}
 
@@ -197,7 +197,7 @@ func TestBudgetMetricsAreExportedBeforeAnyRun(t *testing.T) {
 	if n := testutil.CollectAndCount(r.e.Budget.Target); n != 0 {
 		t.Errorf("%d target series once it can't plan, want none", n)
 	}
-	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues(ns, "pump-daily")); got != 0 {
+	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues("pump-daily")); got != 0 {
 		t.Errorf("oikade_rule_budget_desired %v once it can't plan, want 0", got)
 	}
 }
@@ -241,7 +241,7 @@ func TestEditingOutTheBudgetClearsItsStatus(t *testing.T) {
 
 func TestCreditCountsOnlyWhileOnAndAvailable(t *testing.T) {
 	t0 := local("2026-10-21 10:00 BST")
-	key := ident.ID{Namespace: ns, Name: "pump-daily"}
+	key := ident.ID{Name: "pump-daily"}
 	for name, tc := range map[string]struct {
 		steps []bool
 		want  time.Duration
@@ -321,14 +321,14 @@ func TestANewTargetIsPlannedForAtOnce(t *testing.T) {
 		},
 	}, holdRule(t, "pump-daily", pumpBudget))
 	r.e.mu.Lock()
-	planned := r.e.rules[ident.ID{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
+	planned := r.e.rules[ident.ID{Name: "pump-daily"}].hold.budget.plan
 	r.e.mu.Unlock()
 	edited := pumpBudget
 	edited.Device, edited.Generation = "towel-rail", 2
 	r.e.Load(holdRule(t, "pump-daily", edited))
 	r.settle()
 	r.e.mu.Lock()
-	p := r.e.rules[ident.ID{Namespace: ns, Name: "pump-daily"}].hold.budget.plan
+	p := r.e.rules[ident.ID{Name: "pump-daily"}].hold.budget.plan
 	r.e.mu.Unlock()
 	if p == planned || p.device != "towel-rail" {
 		t.Errorf("plan for %s, want a new one for towel-rail", p.device)

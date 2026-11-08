@@ -312,7 +312,7 @@ func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
 	r.stop()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	_, ok, _ := s.Namespace("controls").Get("home/valve")
+	_, ok, _ := s.Namespace("controls").Get("valve")
 	if err == nil {
 		t.Fatalf("a Safety claim's device was removed without --allow-safety")
 	}

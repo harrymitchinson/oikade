@@ -83,6 +83,9 @@ func newPlugins(h *Host, socket string, devices *hub.Store, known *inventory) *p
 	return p
 }
 
+// topicNamespace is the namespace segment of every plugin's topic root, oikade/v1/<namespace>/<plugin>.
+const topicNamespace = "home"
+
 // recordedPrefix is how the registry records this host's plugins.
 var recordedPrefix = instanceName(pluginKey("")) // ends in the empty name
 
@@ -110,7 +113,7 @@ func (p *plugins) get(name string) *hosted {
 		return h
 	}
 	h = &hosted{
-		name: name, key: pluginKey(name), root: contractv1.NewRoot(wire.Namespace, name),
+		name: name, key: pluginKey(name), root: contractv1.NewRoot(topicNamespace, name),
 		socket: &socketBus{log: p.log.With("plugin", name)},
 	}
 	p.follow(context.Background(), h, h.socket)
@@ -324,7 +327,7 @@ func (p *plugins) startOutside(ctx context.Context) {
 		}
 	}
 	for _, name := range p.host.Outside {
-		h := &hosted{name: name, key: pluginKey(name), root: contractv1.NewRoot(wire.Namespace, name)}
+		h := &hosted{name: name, key: pluginKey(name), root: contractv1.NewRoot(topicNamespace, name)}
 		p.follow(ctx, h, bus)
 		p.mu.Lock()
 		p.running[name] = h

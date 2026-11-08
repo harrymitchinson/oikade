@@ -368,7 +368,7 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 	r.stop()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	names, err := (&engine.Stored[engine.HoldState]{Values: s.Namespace(engine.HoldStatesNamespace)}).Names(wire.Namespace)
+	names, err := (&engine.Stored[engine.HoldState]{Values: s.Namespace(engine.HoldStatesNamespace)}).Names()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func (r *rig) expectSafetyKept() {
 	}
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("home/leak-shutoff"); err != nil || !ok {
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("leak-shutoff"); err != nil || !ok {
 		r.t.Fatalf("the hold's state went: %v, %v", ok, err)
 	}
 }
@@ -706,7 +706,7 @@ func TestAFailedVersionSparesTheStateOfARuleTheLastOneLacks(t *testing.T) {
 	r.stop()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("home/fan"); err != nil || !ok {
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("fan"); err != nil || !ok {
 		t.Fatalf("the hold's state went: %v, %v. The log:\n%s", ok, err, r.dump())
 	}
 }
@@ -903,7 +903,7 @@ func (r *rig) ruleClaims(device string) []control.Claim {
 	r.t.Helper()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get("home/" + device)
+	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get(device)
 	if err != nil || !ok {
 		r.t.Fatalf("no saved state for %s (%v). The log:\n%s", device, err, r.dump())
 	}

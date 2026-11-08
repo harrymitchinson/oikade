@@ -257,7 +257,7 @@ type Saved struct {
 // dropped and logged. Unless a run of its flow carries on, its flow's claims go first, as when any run
 // ends badly. A run of a flow this binary doesn't have is left alone: this binary hasn't proved itself,
 // so the host ends those once a deploy has. Call it before the engine runs.
-func Recover(ctx context.Context, namespace string, flows map[string]*Flow, saved []Saved, journal Journal, actions Actions) map[string]engine.Body {
+func Recover(ctx context.Context, flows map[string]*Flow, saved []Saved, journal Journal, actions Actions) map[string]engine.Body {
 	log := logging.FromContext(ctx)
 	type candidate struct {
 		id      string
@@ -273,7 +273,7 @@ func Recover(ctx context.Context, namespace string, flows map[string]*Flow, save
 	// retire ends a run nothing will continue, and with it what its flow was left holding.
 	retire := func(id, name, reason string) {
 		if name != "" {
-			key := ident.ID{Namespace: namespace, Name: name}
+			key := ident.ID{Name: name}
 			if err := actions.ReleaseFlow(ctx, key); err != nil {
 				log.Error("Failed to release the claims of a flow run; the next process will", "err", err, "run", id)
 				return

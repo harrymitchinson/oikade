@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,8 +60,8 @@ const (
 	FireStatesNamespace = "fires"
 )
 
-// Stored keeps states in a namespace of the embedded store, one per Rule or Device, at
-// <namespace>/<name>. Put and Delete return once the change is on disk.
+// Stored keeps states in a namespace of the embedded store, one per Rule or Device, at its name.
+// Put and Delete return once the change is on disk.
 type Stored[T any] struct {
 	Values *store.Namespace
 	Log    *slog.Logger
@@ -100,20 +99,9 @@ func (s *Stored[T]) read(key ident.ID) (T, bool, error) {
 	return state, true, nil
 }
 
-// Names returns the names of the states saved in a namespace.
-func (s *Stored[T]) Names(namespace string) ([]string, error) {
-	keys, err := s.Values.Keys()
-	if err != nil {
-		return nil, err
-	}
-	prefix := ident.ID{Namespace: namespace}.String()
-	var names []string
-	for _, k := range keys {
-		if name, ok := strings.CutPrefix(k, prefix); ok {
-			names = append(names, name)
-		}
-	}
-	return names, nil
+// Names returns the names of the saved states.
+func (s *Stored[T]) Names() ([]string, error) {
+	return s.Values.Keys()
 }
 
 // Put implements States.
