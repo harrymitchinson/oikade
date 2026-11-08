@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,33 +34,42 @@ func addTarget(fs *flag.FlagSet) target {
 // transport is --context, then the socket if --data-dir is given, then the current context, then the
 // socket.
 func (t target) transport() api.Transport {
+	transport, _ := t.resolve()
+	return transport
+}
+
+// thisMachine is what a command calls the host on this machine's socket.
+const thisMachine = "this machine's host"
+
+// resolve is transport, and what to call the host it reaches: its context's name, or thisMachine.
+func (t target) resolve() (api.Transport, string) {
 	given := false
 	t.fs.Visit(func(f *flag.Flag) { given = given || f.Name == "data-dir" })
 	if given && *t.context == "" {
-		return api.Local{DataDir: *t.dataDir}
+		return api.Local{DataDir: *t.dataDir}, thisMachine
 	}
 	cfg, err := loadConfig()
 	if err != nil {
 		if *t.context != "" {
-			return failing{err}
+			return failing{err}, *t.context
 		}
 		// Asked for nothing, so this machine's host, as before there was a config. The problem is
 		// still worth hearing about.
 		_, _ = fmt.Fprintln(os.Stderr, "Warning: not using any context:", err)
-		return api.Local{DataDir: *t.dataDir}
+		return api.Local{DataDir: *t.dataDir}, thisMachine
 	}
 	name := *t.context
 	if name == "" {
 		name = cfg.Current
 	}
 	if name == "" {
-		return api.Local{DataDir: *t.dataDir}
+		return api.Local{DataDir: *t.dataDir}, thisMachine
 	}
 	c, ok := cfg.Contexts[name]
 	if !ok {
-		return failing{fmt.Errorf("there's no context called %s: oikade login makes one", name)}
+		return failing{fmt.Errorf("there's no context called %s: oikade login makes one", name)}, name
 	}
-	return remote(c)
+	return remote(c), name
 }
 
 func runStatus(ctx context.Context, args []string) error {
@@ -158,11 +168,26 @@ func runTail(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print a line of JSON for each event, whose fields stay stable for scripts.")
 	_ = fs.Parse(args)
-	return api.Tail(ctx, target.transport(), func(e api.Event) error {
-		if *asJSON {
-			return cli.PrintJSON(e)
+	transport, host := target.resolve()
+	return tail(ctx, transport, host, *asJSON, os.Stdout, os.Stderr)
+}
+
+// tail follows a host's events onto stdout, and says on stderr once it has started, so that a quiet
+// house doesn't look hung.
+func tail(ctx context.Context, t api.Transport, host string, asJSON bool, stdout, stderr io.Writer) error {
+	out := json.NewEncoder(stdout)
+	opened := func() {
+		if host == thisMachine {
+			_, _ = fmt.Fprintln(stderr, "Following the events of this machine's host")
+		} else {
+			_, _ = fmt.Fprintf(stderr, "Following %s's events\n", host)
 		}
-		_, err := fmt.Println(e.Time.Local().Format("15:04:05"), describe(e))
+	}
+	return api.Tail(ctx, t, opened, func(e api.Event) error {
+		if asJSON {
+			return out.Encode(e)
+		}
+		_, err := fmt.Fprintln(stdout, e.Time.Local().Format("15:04:05"), describe(e))
 		return err
 	})
 }

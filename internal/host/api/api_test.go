@@ -51,7 +51,7 @@ func TestTailCancelledBeforeTheHostAnswersIsNoError(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
-	if err := Tail(ctx, waits, func(Event) error { return nil }); err != nil {
+	if err := Tail(ctx, waits, nil, func(Event) error { return nil }); err != nil {
 		t.Errorf("a cancelled tail: %v", err)
 	}
 }
@@ -79,18 +79,18 @@ func TestTailSaysWhetherTheHostEndedIt(t *testing.T) {
 		got = append(got, e)
 		return nil
 	}
-	err := Tail(ctx, streams(`{}`+"\n"+`{"type":"change","device":"hall-lamp"}`+"\n"), each)
+	err := Tail(ctx, streams(`{}`+"\n"+`{"type":"change","device":"hall-lamp"}`+"\n"), nil, each)
 	if !errors.Is(err, ErrHostStopped) {
 		t.Errorf("a stream the host ended: %v", err)
 	}
 	if len(got) != 1 || got[0].Device != "hall-lamp" {
 		t.Errorf("events: %+v", got)
 	}
-	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"end","message":"it fell behind"}`+"\n"), each)
+	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"end","message":"it fell behind"}`+"\n"), nil, each)
 	if err == nil || errors.Is(err, ErrHostStopped) || err.Error() != "the host ended the tail: it fell behind" {
 		t.Errorf("a tail the host cut off: %v", err)
 	}
-	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"cha`), each)
+	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"cha`), nil, each)
 	if err == nil || errors.Is(err, ErrHostStopped) || !strings.HasPrefix(err.Error(), "lost the host") {
 		t.Errorf("a stream cut off mid-line: %v", err)
 	}

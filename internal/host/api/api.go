@@ -500,8 +500,8 @@ var ErrHostStopped = errors.New("the host stopped")
 
 // Tail streams events to each until ctx ends, each returns an error, or the host goes: ErrHostStopped
 // if it stopped, or why it ended the tail if it carries on. It starts once the host is listening,
-// which the first Event, with no type, says.
-func Tail(ctx context.Context, t Transport, each func(Event) error) error {
+// which the first Event, with no type, says: then it calls opened, if there is one.
+func Tail(ctx context.Context, t Transport, opened func(), each func(Event) error) error {
 	body, err := open(ctx, t, Request{Type: TypeTail})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -523,6 +523,10 @@ func Tail(ctx context.Context, t Transport, each func(Event) error) error {
 			return fmt.Errorf("lost the host: %w", err)
 		}
 		if e.Type == "" {
+			if opened != nil {
+				opened()
+				opened = nil
+			}
 			continue
 		}
 		if e.Type == eventEnd {
