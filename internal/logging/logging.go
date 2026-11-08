@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 )
 
 var discard = slog.New(slog.DiscardHandler)
@@ -64,7 +65,24 @@ func (w lineWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Test returns a logger for t's log, such as a *testing.T's.
-func Test(t interface{ Log(args ...any) }) *slog.Logger {
-	return Lines(func(line string) { t.Log(line) }, slog.LevelInfo)
+// Test returns a logger for t's log, such as a *testing.T's. Lines logged once t's cleanup has
+// run are dropped: a goroutine that outlives its test mustn't write to it, which races.
+func Test(t interface {
+	Log(args ...any)
+	Cleanup(f func())
+}) *slog.Logger {
+	var mu sync.Mutex
+	ended := false
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		ended = true
+	})
+	return Lines(func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !ended {
+			t.Log(line)
+		}
+	}, slog.LevelInfo)
 }
