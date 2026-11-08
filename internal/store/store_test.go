@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
@@ -331,5 +333,110 @@ func TestSnapshotOpensWithWhatTheStoreHeld(t *testing.T) {
 	}
 	if left, err := os.ReadDir(copied); err != nil || len(left) != 1 {
 		t.Errorf("the snapshot's directory holds %v, %v", left, err)
+	}
+}
+
+func byFlow(run string) string {
+	flow, _, _ := strings.Cut(run, "/")
+	return flow
+}
+
+func TestRestoreBringsBackTheJournalAsCopied(t *testing.T) {
+	j := open(t, t.TempDir()).Journal()
+	for _, run := range []string{"kept/1", "finished/1"} {
+		if _, err := j.Append(run, []byte("start")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := j.Copy(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Append("kept/1", []byte("a step of the failed version")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Append("new/1", []byte("start")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Append("kept/2", []byte("a run that took over")); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Delete("finished/1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if restored, err := j.Restore(byFlow); err != nil || !restored {
+		t.Fatalf("got %v, %v", restored, err)
+	}
+	runs, err := j.Runs()
+	if err != nil || !slices.Equal(runs, []string{"finished/1", "kept/1", "new/1"}) {
+		t.Fatalf("got %v, %v", runs, err)
+	}
+	entries, err := j.Entries("kept/1")
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("got %+v, %v", entries, err)
+	}
+	if seq, err := j.Append("kept/1", []byte("next")); err != nil || seq != 2 {
+		t.Fatalf("got entry %d, %v", seq, err)
+	}
+}
+
+// A crash just after restoring runs Restore again, by which time the run has moved on.
+func TestRestoreHappensOnce(t *testing.T) {
+	j := open(t, t.TempDir()).Journal()
+	if err := j.Copy(); err != nil {
+		t.Fatal(err)
+	}
+	if restored, err := j.Restore(byFlow); err != nil || !restored {
+		t.Fatalf("an empty journal is still a copy: got %v, %v", restored, err)
+	}
+	if _, err := j.Append("run/1", []byte("start")); err != nil {
+		t.Fatal(err)
+	}
+	if restored, err := j.Restore(byFlow); err != nil || restored {
+		t.Fatalf("got %v, %v", restored, err)
+	}
+	if runs, err := j.Runs(); err != nil || len(runs) != 1 {
+		t.Fatalf("got %v, %v", runs, err)
+	}
+}
+
+func TestADiscardedCopyRestoresNothing(t *testing.T) {
+	j := open(t, t.TempDir()).Journal()
+	if err := j.DiscardCopy(); err != nil {
+		t.Fatalf("with no copy: %v", err)
+	}
+	if err := j.Copy(); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.DiscardCopy(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Append("run/1", []byte("start")); err != nil {
+		t.Fatal(err)
+	}
+	if restored, err := j.Restore(byFlow); err != nil || restored {
+		t.Fatalf("got %v, %v", restored, err)
+	}
+}
+
+func TestACopyReplacesTheOneBefore(t *testing.T) {
+	j := open(t, t.TempDir()).Journal()
+	if _, err := j.Append("old/1", []byte("start")); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Copy(); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Delete("old/1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Copy(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.Restore(byFlow); err != nil {
+		t.Fatal(err)
+	}
+	if runs, err := j.Runs(); err != nil || len(runs) != 0 {
+		t.Fatalf("got %v, %v", runs, err)
 	}
 }

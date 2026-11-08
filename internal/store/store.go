@@ -29,7 +29,10 @@ var (
 	metaBucket    = []byte("meta")
 	kvBucket      = []byte("kv")
 	journalBucket = []byte("journal")
-	formatKey     = []byte("format")
+	// journalCopyBucket is the journal as it was before a deploy, while that deploy may yet fail.
+	// It's there only then, so it needs no change to the format.
+	journalCopyBucket = []byte("journal-copy")
+	formatKey         = []byte("format")
 )
 
 var (

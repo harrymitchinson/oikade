@@ -102,3 +102,87 @@ func (j *Journal) Delete(run string) error {
 		return err
 	})
 }
+
+// Copy keeps the journal as it is now, in place of any copy before it, for Restore to bring back.
+func (j *Journal) Copy() error {
+	return j.db.Update(func(tx *bolt.Tx) error {
+		if err := dropBucket(tx, journalCopyBucket); err != nil {
+			return err
+		}
+		dst, err := tx.CreateBucket(journalCopyBucket)
+		if err != nil {
+			return err
+		}
+		return copyRuns(tx.Bucket(journalBucket), dst)
+	})
+}
+
+// Restore puts back the runs Copy kept and removes the copy, all or nothing, so a crash either way
+// leaves something that's safe to restore again. group says which runs belong together: a run in a
+// group the copy has goes, and any other stays, because it's the only record of what it holds. It
+// reports false if there was no copy, and leaves the journal alone.
+func (j *Journal) Restore(group func(run string) string) (bool, error) {
+	var restored bool
+	err := j.db.Update(func(tx *bolt.Tx) error {
+		copied := tx.Bucket(journalCopyBucket)
+		if copied == nil {
+			return nil
+		}
+		groups := map[string]bool{}
+		if err := copied.ForEachBucket(func(name []byte) error {
+			groups[group(string(name))] = true
+			return nil
+		}); err != nil {
+			return err
+		}
+		journal := tx.Bucket(journalBucket)
+		var replaced [][]byte
+		if err := journal.ForEachBucket(func(name []byte) error {
+			if groups[group(string(name))] {
+				replaced = append(replaced, bytes.Clone(name))
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, name := range replaced {
+			if err := journal.DeleteBucket(name); err != nil {
+				return err
+			}
+		}
+		if err := copyRuns(copied, journal); err != nil {
+			return err
+		}
+		restored = true
+		return tx.DeleteBucket(journalCopyBucket)
+	})
+	return restored && err == nil, err
+}
+
+// DiscardCopy removes the copy, if there is one.
+func (j *Journal) DiscardCopy() error {
+	return j.db.Update(func(tx *bolt.Tx) error { return dropBucket(tx, journalCopyBucket) })
+}
+
+func dropBucket(tx *bolt.Tx, name []byte) error {
+	if err := tx.DeleteBucket(name); err != nil && !errors.Is(err, bolterrors.ErrBucketNotFound) {
+		return err
+	}
+	return nil
+}
+
+// copyRuns adds the runs in src to dst, sequences included: a restored run must carry on numbering
+// its entries where it left off.
+func copyRuns(src, dst *bolt.Bucket) error {
+	return src.ForEachBucket(func(name []byte) error {
+		run := src.Bucket(name)
+		b, err := dst.CreateBucket(name)
+		if err != nil {
+			return err
+		}
+		if err := b.SetSequence(run.Sequence()); err != nil {
+			return err
+		}
+		return run.ForEach(func(k, v []byte) error { return b.Put(bytes.Clone(k), bytes.Clone(v)) })
+	})
+}

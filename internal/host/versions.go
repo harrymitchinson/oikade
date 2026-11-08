@@ -46,6 +46,8 @@ type history struct {
 	// Spared is the rules with anything on record when the deploy in progress began. A failed
 	// version made none of that, and the check never looked at it, so its clean-up leaves it.
 	Spared []string `json:"spared,omitempty"`
+	// Released is claims of flows that gave them up under a version since confirmed, yet to end.
+	Released []heldRelease `json:"released,omitempty"`
 }
 
 // versions keeps your binaries. Only one deploy runs at a time, so it needs no lock of its own.
@@ -200,7 +202,7 @@ func (v *versions) discard(id string) error {
 // adopt records the version running now, which nothing deployed, so that a deploy has something to
 // go back to.
 func (v *versions) adopt(next version) error {
-	return v.save(history{Versions: []version{next}, Removals: v.state.Removals, Spared: v.state.Spared})
+	return v.save(history{Versions: []version{next}, Removals: v.state.Removals, Spared: v.state.Spared, Released: v.state.Released})
 }
 
 // begin makes next the running version, unconfirmed. Call it before the process changes.
@@ -225,21 +227,23 @@ func (v *versions) beginRollback(next version, spared []string) error {
 func (v *versions) pending(next, before []version, spared []string) error {
 	return v.save(history{
 		Versions: next, Before: before, Pending: true,
-		Removals: v.state.Removals, Spared: spared,
+		Removals: v.state.Removals, Spared: spared, Released: v.state.Released,
 	})
 }
 
-// commit confirms the running version, which leaves its removals to be dealt with.
-func (v *versions) commit() error {
+// commit confirms the running version, which leaves its removals to be dealt with, and released,
+// every claim still owed an end.
+func (v *versions) commit(released ...heldRelease) error {
 	return v.save(history{
 		Versions: slices.Clone(v.state.Versions[:min(len(v.state.Versions), keptVersions)]), Removals: true,
+		Released: released,
 	})
 }
 
 // removalsDone records that a confirmed version's removals have been dealt with.
 func (v *versions) removalsDone() error {
 	next := v.state
-	next.Removals, next.Spared = false, nil
+	next.Removals, next.Spared, next.Released = false, nil, nil
 	return v.save(next)
 }
 
@@ -248,7 +252,7 @@ func (v *versions) removalsDone() error {
 // because it's no longer what runs, and the next start will find the deploy unfinished.
 func (v *versions) abort() error {
 	failed := v.state.Versions[0].ID
-	next := history{Versions: v.state.Before, Removals: true, Spared: v.state.Spared}
+	next := history{Versions: v.state.Before, Removals: true, Spared: v.state.Spared, Released: v.state.Released}
 	err := v.save(next)
 	v.state = next
 	if err != nil {

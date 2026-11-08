@@ -18,6 +18,8 @@ const (
 	HostJournalAppend = "host.journal.append"
 	// HostClaimReplied is the host having answered a claim.
 	HostClaimReplied = "host.claim.replied"
+	// HostDeploySettled is a new version settled and not yet confirmed.
+	HostDeploySettled = "host.deploy.settled"
 	// HostDeployConfirmed is a new version confirmed, with its removed rules not yet dealt with.
 	HostDeployConfirmed = "host.deploy.confirmed"
 	// HostDeployChecked is a new version checked, with the old one still running.

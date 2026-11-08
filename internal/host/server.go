@@ -1,10 +1,12 @@
 package host
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"slices"
@@ -73,6 +75,20 @@ type server struct {
 	settings, confirmedSettings func([]wire.DeviceControl) error
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
+
+	// heldMu guards holding and held.
+	heldMu sync.Mutex
+	// holding is true while a version that hasn't settled runs, and held is every claim owed an end.
+	holding bool
+	held    map[heldRelease]struct{}
+}
+
+// heldRelease is a non-Safety claim a flow gave up under a version that hasn't settled. It ends when
+// the version is confirmed, and stays if the version fails, so nothing is written to the device.
+type heldRelease struct {
+	Device     string `json:"device"`
+	Capability string `json:"capability"`
+	Source     string `json:"source"`
 }
 
 // session is the connected automations process.
@@ -454,6 +470,106 @@ func (s *server) reconcile(rules, flows []string) error {
 	return errors.Join(errs...)
 }
 
+// startHolding holds back what flows release from here on, until the version is confirmed or fails.
+func (s *server) startHolding() {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	s.holding = true
+	if s.held == nil {
+		s.held = map[heldRelease]struct{}{}
+	}
+}
+
+// closeHolds stops holding, so a release from here on is carried out rather than lost, and returns
+// every claim owed an end, for the confirmation to record. What's owed stays, for endReleased.
+func (s *server) closeHolds() []heldRelease {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	s.holding = false
+	return slices.SortedFunc(maps.Keys(s.held), func(a, b heldRelease) int {
+		return cmp.Or(cmp.Compare(a.Device, b.Device), cmp.Compare(a.Capability, b.Capability), cmp.Compare(a.Source, b.Source))
+	})
+}
+
+// reopenHolds goes back to holding, for a confirmation that couldn't be saved.
+func (s *server) reopenHolds() {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	s.holding = true
+}
+
+// resetHolds stops holding, and leaves owed only what's on record, forgetting what a failed version
+// released, which never ended.
+func (s *server) resetHolds(recorded []heldRelease) {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	s.holding = false
+	s.held = make(map[heldRelease]struct{}, len(recorded))
+	for _, r := range recorded {
+		s.held[r] = struct{}{}
+	}
+}
+
+// hold reports whether a release was held back. Only a flow's release is, which is the only one over
+// the socket that stops short of Safety claims. Everything else ends what the running code decided to.
+func (s *server) hold(source string, below control.Level) bool {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	if !s.holding || below != control.Safety {
+		return false
+	}
+	for _, c := range s.engine.SourceClaims(source, below) {
+		s.held[heldRelease{Device: c.Device, Capability: c.Capability, Source: source}] = struct{}{}
+	}
+	return true
+}
+
+// claim makes a claim for your process. A flow claiming what it released means what it does now is
+// what counts, so that claim is no longer owed an end, unless the arbiter refused it and the old one
+// stands. heldMu is held throughout, so endReleased can't end a claim as it's made.
+func (s *server) claim(device, capability string, c control.Claim) (bool, error) {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	arbitrated, err := s.engine.Claim(s.ctx, key(device), capability, c)
+	r := heldRelease{Device: device, Capability: capability, Source: c.Source}
+	if _, owed := s.held[r]; owed {
+		if now, ok := s.engine.ClaimOf(key(device), capability, c.Source); ok && now.Value == c.Value {
+			delete(s.held, r)
+		}
+	}
+	return arbitrated, err
+}
+
+// release ends a claim for your process, which is then no longer owed an end.
+func (s *server) release(device, capability, source string) (bool, error) {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	delete(s.held, heldRelease{Device: device, Capability: capability, Source: source})
+	return s.engine.ReleaseClaim(s.ctx, key(device), capability, source)
+}
+
+// endReleased ends the claims owed an end. An error means it should be tried again, and what ended
+// stays ended. A device that has gone has no claim to end here.
+func (s *server) endReleased() error {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	var errs []error
+	for r := range s.held {
+		ended, err := s.engine.ReleaseClaim(s.ctx, key(r.Device), r.Capability, r.Source)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ending the claim of %s on %s: %w", r.Source, r.Device, err))
+			continue
+		}
+		delete(s.held, r)
+		if ended {
+			s.log.Info("Ended the claim of a flow run", "source", r.Source, "device", r.Device, "capability", r.Capability)
+		} else {
+			s.log.Info("Found no claim of a flow run to end", "source", r.Source, "device", r.Device, "capability", r.Capability)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // leftovers names every rule with anything on record: claims, saved state or an unfinished run.
 func (s *server) leftovers() ([]string, error) {
 	held := s.engine.RuleClaims()
@@ -602,11 +718,13 @@ func (s *server) answer(m wire.Message) wire.Message {
 			err = errors.New("a claim needs one")
 			break
 		}
-		reply.Arbitrated, err = s.engine.Claim(s.ctx, key(m.Device), m.Capability, *m.Claim)
+		reply.Arbitrated, err = s.claim(m.Device, m.Capability, *m.Claim)
 	case wire.TypeRelease:
-		reply.Arbitrated, err = s.engine.ReleaseClaim(s.ctx, key(m.Device), m.Capability, m.Source)
+		reply.Arbitrated, err = s.release(m.Device, m.Capability, m.Source)
 	case wire.TypeReleaseAll:
-		err = s.engine.ReleaseClaims(s.ctx, m.Source, m.Below)
+		if !s.hold(m.Source, m.Below) {
+			err = s.engine.ReleaseClaims(s.ctx, m.Source, m.Below)
+		}
 	case wire.TypeSet:
 		err = s.setter.Set(s.ctx, key(m.Device), m.Capability, m.Value)
 	case wire.TypeSaveHold:

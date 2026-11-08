@@ -701,6 +701,45 @@ func (e *Engine) SavedSafety(dev ident.ID, name string, value float64) (control.
 	return control.Claim{}, false
 }
 
+// ClaimedCapability is a capability of a device that a source holds a claim on.
+type ClaimedCapability struct {
+	Device     string
+	Capability string
+}
+
+// SourceClaims returns what a source holds claims on, below a level.
+func (e *Engine) SourceClaims(source string, below control.Level) []ClaimedCapability {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ensureDue()
+	var claimed []ClaimedCapability
+	for dev, arbs := range e.arbs {
+		for name, ar := range arbs {
+			if slices.ContainsFunc(ar.a.State().Claims, func(c control.Claim) bool {
+				return c.Source == source && c.Level < below
+			}) {
+				claimed = append(claimed, ClaimedCapability{Device: dev.Name, Capability: name})
+			}
+		}
+	}
+	return claimed
+}
+
+// ClaimOf returns a source's claim on a capability, if it has one.
+func (e *Engine) ClaimOf(dev ident.ID, name, source string) (control.Claim, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	ar := e.arbiter(dev, name)
+	if ar == nil {
+		return control.Claim{}, false
+	}
+	i := slices.IndexFunc(ar.a.State().Claims, func(c control.Claim) bool { return c.Source == source })
+	if i < 0 {
+		return control.Claim{}, false
+	}
+	return ar.a.State().Claims[i], true
+}
+
 // ensureDue loads the arbiters of devices the engine has yet to look at. They stay due, because
 // that's still to do. Call with e.mu held.
 func (e *Engine) ensureDue() {
