@@ -18,6 +18,9 @@ import (
 type HoldState struct {
 	// Active is true once the hold's start has been written, and false once its end has.
 	Active bool `json:"active"`
+	// Since is when the hold's start was last written. Zero while it isn't active, and for a state
+	// saved before it was kept.
+	Since time.Time `json:"since,omitzero"`
 	// Latched is true from when a latched hold starts until a release.
 	Latched bool `json:"latched,omitempty"`
 	// OnAt is when an onDelay ends, and OffAt when an offDelay ends. Zero means none is running.

@@ -44,6 +44,16 @@ type savedBudget struct {
 	Failure string `json:"failure,omitempty"`
 }
 
+// BudgetToday returns the plan and progress a budget hold last saved in Budget, and false if it
+// has none. Its Date may be a day that has ended.
+func (s HoldState) BudgetToday() (BudgetDay, bool) {
+	var saved savedBudget
+	if s.Budget == "" || json.Unmarshal([]byte(s.Budget), &saved) != nil {
+		return BudgetDay{}, false
+	}
+	return saved.Today, true
+}
+
 // BudgetBlock is a planned run.
 type BudgetBlock struct {
 	Start time.Time `json:"start"`

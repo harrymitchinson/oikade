@@ -101,6 +101,10 @@ type Engine struct {
 	// OnRoomReads, if set, is called with e.mu held when the rooms a hold's when has read grow, with
 	// all of them. It must not block.
 	OnRoomReads func(key ident.ID, reads []RoomRead)
+	// OnStopped, if set, is called with e.mu held when why a hold couldn't tell whether it should be
+	// active changes: a when it couldn't evaluate, or a budget it couldn't plan. "" means it can
+	// again. It must not block.
+	OnStopped func(key ident.ID, why string)
 	// OnBudget, if set, is called with e.mu held when a budget hold plans, or its status changes.
 	// It must not block.
 	OnBudget func(key ident.ID, r BudgetReport)
@@ -370,6 +374,10 @@ func (e *Engine) unload(key ident.ID) *state {
 	}
 	if s != nil && (len(s.c.timers) > 0 || s.c.hold != nil) {
 		e.report(key, Schedule{Generation: s.c.Generation, Cleared: true})
+	}
+	if s != nil && s.hold != nil {
+		// A hold loaded again starts with nothing stopped, so it isn't left to say so.
+		e.stopped(key, s.hold, "")
 	}
 	// The saved plan stays, so a rule fixed the same day carries on with it.
 	e.Budget.delete(key)

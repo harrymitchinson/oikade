@@ -140,6 +140,7 @@ func printStatus(out, stderr io.Writer, st *api.Status, summary bool) {
 		if r.Paused {
 			line = append(line, "paused")
 		}
+		line = append(line, holdState(r)...)
 		_, _ = fmt.Fprintln(out, strings.Join(line, "  "))
 	}
 }
@@ -154,6 +155,42 @@ func since(t *time.Time, now time.Time) string {
 		return " since " + at.Format("15:04")
 	}
 	return " since " + at.Format(time.DateTime)
+}
+
+// holdState says what a hold is doing, such as "active since 23:07:05, off at 23:10:05", and why
+// it stopped, if it did. A rule that isn't a running hold has none.
+func holdState(r api.Rule) []string {
+	if r.Active == nil {
+		return nil
+	}
+	clock := func(t time.Time) string { return t.Local().Format("15:04:05") }
+	var state []string
+	switch {
+	case *r.Active && !r.Since.IsZero():
+		state = append(state, "active since "+clock(r.Since))
+	case *r.Active:
+		state = append(state, "active")
+	default:
+		state = append(state, "inactive")
+	}
+	if !r.OnAt.IsZero() {
+		state = append(state, "on at "+clock(r.OnAt))
+	}
+	if !r.OffAt.IsZero() {
+		state = append(state, "off at "+clock(r.OffAt))
+	}
+	if r.Latched {
+		state = append(state, "latched")
+	}
+	if b := r.Budget; b != nil {
+		state = append(state, fmt.Sprintf("%s: planned %d of %d min, run %d",
+			b.Date, b.PlannedMinutes, b.TargetMinutes, b.RunMinutes))
+	}
+	line := []string{strings.Join(state, ", ")}
+	if r.Stopped != "" {
+		line = append(line, "stopped: "+r.Stopped)
+	}
+	return line
 }
 
 func or(s, fallback string) string {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"flag"
 	"io"
@@ -142,3 +143,41 @@ func (o *lockedOutput) lines() []string {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
+	at := func(hms string) time.Time {
+		v, err := time.ParseInLocation(time.TimeOnly, hms, time.Local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	yes, no := true, false
+	st := &api.Status{Rules: []api.Rule{
+		{Name: "desk-fan", Kind: "hold", Active: &no, OnAt: at("23:08:00")},
+		{Name: "gate", Kind: "moment"},
+		{Name: "hall-heater", Kind: "hold", Active: &no, Stopped: "no device in room hall has reported occupancy"},
+		{Name: "lounge-lamp", Kind: "hold", Active: &yes, Since: at("23:07:05"), OffAt: at("23:10:05")},
+		{Name: "porch-light", Kind: "hold", Active: &yes, Since: at("21:00:00"), Latched: true},
+		{Name: "towel-rail", Kind: "hold", Active: &no, Budget: &api.RuleBudget{
+			Date: "2026-11-08", TargetMinutes: 120, PlannedMinutes: 90, RunMinutes: 45,
+		}},
+		{Name: "aquarium", Kind: "hold", Paused: true},
+	}}
+	var out bytes.Buffer
+	printStatus(&out, io.Discard, st, true)
+	want := []string{
+		"desk-fan  hold  inactive, on at 23:08:00",
+		"gate  moment",
+		"hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy",
+		"lounge-lamp  hold  active since 23:07:05, off at 23:10:05",
+		"porch-light  hold  active since 21:00:00, latched",
+		"towel-rail  hold  inactive, 2026-11-08: planned 90 of 120 min, run 45",
+		"aquarium  hold  paused",
+	}
+	for _, line := range want {
+		if !strings.Contains(out.String(), line+"\n") {
+			t.Errorf("no line %q in:\n%s", line, out.String())
+		}
+	}
+}

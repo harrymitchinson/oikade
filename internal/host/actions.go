@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -90,8 +91,18 @@ func (s *apiServer) status() api.Response {
 		return api.Response{Error: fmt.Sprintf("reading paused rules: %v", err)}
 	}
 	rules, _ := s.rulesInfo()
+	s.srv.mu.Lock()
+	var stopped map[string]string
+	if sess := s.srv.session; sess != nil {
+		stopped = maps.Clone(sess.stopped)
+	}
+	s.srv.mu.Unlock()
 	for _, r := range rules {
-		st.Rules = append(st.Rules, api.Rule{Name: r.Name, Kind: r.Kind, Safety: r.Safety, Paused: slices.Contains(paused, r.Name)})
+		rule := api.Rule{Name: r.Name, Kind: r.Kind, Safety: r.Safety, Paused: slices.Contains(paused, r.Name)}
+		if r.Kind == wire.KindHold && !rule.Paused {
+			s.withHold(&rule, stopped[r.Name])
+		}
+		st.Rules = append(st.Rules, rule)
 	}
 	for _, name := range paused {
 		if !slices.ContainsFunc(st.Rules, func(r api.Rule) bool { return r.Name == name }) {
@@ -100,6 +111,19 @@ func (s *apiServer) status() api.Response {
 	}
 	slices.SortFunc(st.Rules, func(a, b api.Rule) int { return strings.Compare(a.Name, b.Name) })
 	return api.Response{Status: st}
+}
+
+// withHold adds a hold's state, as it last saved it, and why it stopped, if it did.
+func (s *apiServer) withHold(r *api.Rule, stopped string) {
+	saved, _ := s.srv.holds.Get(key(r.Name))
+	active := saved.Active
+	r.Active, r.Since, r.OnAt, r.OffAt = &active, saved.Since, saved.OnAt, saved.OffAt
+	r.Latched, r.Stopped = saved.Latched, stopped
+	if day, ok := saved.BudgetToday(); ok {
+		r.Budget = &api.RuleBudget{
+			Date: day.Date, TargetMinutes: day.TargetMinutes, PlannedMinutes: day.ScheduledMinutes, RunMinutes: day.RunMinutes,
+		}
+	}
 }
 
 func withControl(c *api.Capability, held control.Status) {

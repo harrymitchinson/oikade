@@ -171,6 +171,13 @@ func TestBudgetWithoutAControlEntryStaysOff(t *testing.T) {
 	if b := r.budget("pump-daily"); !b.Unplanned || b.Reason != ReasonNoControl {
 		t.Errorf("report %+v, want Planned=False NoControl", b)
 	}
+	// oikade status says why (OIK-215).
+	r.e.mu.Lock()
+	stopped := r.e.rules[ident.ID{Name: "pump-daily"}].hold.stopped
+	r.e.mu.Unlock()
+	if want := r.budget("pump-daily").Message; stopped != want {
+		t.Errorf("stopped %q, want %q", stopped, want)
+	}
 	if r.active("pump-daily") != 0 {
 		t.Error("oikade_rule_active isn't 0 for a budget that can't plan")
 	}

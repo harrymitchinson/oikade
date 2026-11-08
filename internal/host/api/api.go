@@ -377,6 +377,33 @@ type Rule struct {
 	Kind   string `json:"kind,omitempty"`
 	Safety bool   `json:"safety,omitempty"`
 	Paused bool   `json:"paused,omitempty"`
+
+	// The rest are a hold's, and only a running one's: a paused hold has none.
+
+	// Active is whether its start is written. Since is when that was, OnAt when its on-delay ends,
+	// and OffAt when its off-delay does.
+	Active *bool     `json:"active,omitempty"`
+	Since  time.Time `json:"since,omitzero"`
+	OnAt   time.Time `json:"onAt,omitzero"`
+	OffAt  time.Time `json:"offAt,omitzero"`
+	// Latched is a latched hold's, from its start until a release.
+	Latched bool `json:"latched,omitempty"`
+	// Stopped is why it can't tell whether it should be active, so it keeps its state: its when
+	// couldn't be evaluated, or its budget couldn't be planned. Only a connected process says.
+	Stopped string `json:"stopped,omitempty"`
+	// Budget is a budget hold's day.
+	Budget *RuleBudget `json:"budget,omitempty"`
+}
+
+// RuleBudget is a budget hold's plan for a day, and how it's gone, as it last saved them.
+type RuleBudget struct {
+	// Date is the planning day, YYYY-MM-DD. It may have ended, if the hold hasn't planned since.
+	Date string `json:"date"`
+	// TargetMinutes is the day's budget, and PlannedMinutes how much of it the plan places.
+	TargetMinutes  int32 `json:"targetMinutes"`
+	PlannedMinutes int32 `json:"plannedMinutes"`
+	// RunMinutes is how long the target has been on that day, saved at most every 5 minutes.
+	RunMinutes int32 `json:"runMinutes"`
 }
 
 // Event kinds.

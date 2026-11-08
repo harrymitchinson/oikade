@@ -738,7 +738,7 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 func (h Home) manifest() wire.Manifest {
 	m := wire.Manifest{Protocol: wire.Version}
 	for _, r := range h.Holds {
-		info := wire.RuleInfo{Name: r.Name, Kind: "hold", Safety: r.Priority == Safety, Latch: r.Latch}
+		info := wire.RuleInfo{Name: r.Name, Kind: wire.KindHold, Safety: r.Priority == Safety, Latch: r.Latch}
 		if info.Safety {
 			info.Rooms = r.Set.roomOfTypes(nil)
 		}
