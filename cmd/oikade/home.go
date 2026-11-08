@@ -185,11 +185,12 @@ func runInit(ctx context.Context, args []string) error {
 		return err
 	}
 	slices.Sort(written)
-	fmt.Printf("Started a home in %s: %s\n", dir, strings.Join(written, ", "))
-	if dir != "." {
-		fmt.Printf("Next: cd %s, then oikade test and oikade dev\n", dir)
-	} else {
+	if dir == "." {
+		fmt.Printf("Started a home here: %s\n", strings.Join(written, ", "))
 		fmt.Println("Next: oikade test, then oikade dev")
+	} else {
+		fmt.Printf("Started a home in %s: %s\n", dir, strings.Join(written, ", "))
+		fmt.Printf("Next: cd %s, then oikade test and oikade dev\n", dir)
 	}
 	return nil
 }
