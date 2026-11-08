@@ -14,6 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -562,5 +563,121 @@ func TestAHoldsRoomReadsGrowAcrossLooks(t *testing.T) {
 		if !slices.EqualFunc(heard[i], want[i], RoomRead.Equal) {
 			t.Fatalf("heard %v, want %v", heard, want)
 		}
+	}
+}
+
+// porchDay is a room hold that's active all day.
+func porchDay(t *testing.T, h Hold) *Compiled {
+	t.Helper()
+	h.Room, h.Capability, h.Value = "porch", capability.On, true
+	h.Window = &Window{Start: At{Time: "00:00"}, End: At{Time: "00:00"}}
+	return holdRule(t, "porch-day", h)
+}
+
+// put sets the devices' rooms and types, and announces them, as the host does after a move or a
+// retype. Devices not named have none.
+func (r *rig) put(metas map[string]hub.Meta) {
+	r.t.Helper()
+	all := map[ident.ID]hub.Meta{}
+	for name := range holdDevices {
+		all[ident.ID{Name: name}] = hub.Meta{Instance: z2m}
+	}
+	for name, m := range metas {
+		m.Instance = z2m
+		all[ident.ID{Name: name}] = m
+	}
+	r.store.SetDevices(z2m, all)
+	for name := range metas {
+		r.store.Discovered(ident.ID{Name: name}, driver.Info{Found: true, Capabilities: holdDevices[name]})
+	}
+	r.settle()
+}
+
+// An active room hold writes a device that moves into the room at once, and only that device
+// (OIK-195). One that leaves and comes back is written again.
+func TestAnActiveRoomHoldTakesUpADeviceThatMovesIn(t *testing.T) {
+	r := startRig(t, local("2026-10-21 12:00 BST"), nil, nil, nil)
+	r.put(map[string]hub.Meta{"towel-rail": {Room: "porch"}})
+	r.e.Load(porchDay(t, Hold{}))
+	r.settle()
+	r.expect(call{"towel-rail", capability.On, true})
+
+	r.put(map[string]hub.Meta{"towel-rail": {Room: "porch"}, "pump": {Room: "porch"}})
+	r.expect(call{"towel-rail", capability.On, true}, call{"pump", capability.On, true})
+
+	r.put(map[string]hub.Meta{"towel-rail": {Room: "porch"}, "pump": {Room: "garage"}})
+	r.put(map[string]hub.Meta{"towel-rail": {Room: "porch"}, "pump": {Room: "porch"}})
+	r.expect(call{"towel-rail", capability.On, true}, call{"pump", capability.On, true}, call{"pump", capability.On, true})
+}
+
+// A Safety hold on a typed room claims a member retyped into its types while it's active, at once.
+func TestAnActiveTypedSafetyHoldClaimsADeviceRetypedIn(t *testing.T) {
+	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-21 12:00 BST"),
+		values:  map[string]map[string]any{"towel-rail": {capability.On: true}, "pump": {capability.On: true}},
+		control: map[string][]control.Entry{"pump": {rail}},
+	})
+	plug := []devicetype.Type{devicetype.OnOffPlugInUnit}
+	r.put(map[string]hub.Meta{
+		"towel-rail": {Room: "porch", DeviceTypes: plug},
+		"pump":       {Room: "porch", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Control: []control.Entry{rail}},
+	})
+	r.e.Load(porchDay(t, Hold{DeviceTypes: plug, Priority: PrioritySafety}))
+	r.settle()
+	if got := winner(r.status("pump", capability.On)); got != "Default" {
+		t.Fatalf("the light is held before it's a plug: %s", got)
+	}
+
+	r.put(map[string]hub.Meta{
+		"towel-rail": {Room: "porch", DeviceTypes: plug},
+		"pump":       {Room: "porch", DeviceTypes: plug, Control: []control.Entry{rail}},
+	})
+	if got := winner(r.status("pump", capability.On)); got != "Rule/porch-day Safety" {
+		t.Fatalf("got %s, want the hold's Safety claim on the retyped pump", got)
+	}
+}
+
+// After a restart, an active room hold counts its members by the registry as held, discovered yet
+// or not: it wrote them before, and writing them again would undo what a person did since.
+func TestARestartedRoomHoldDoesntRewriteItsMembers(t *testing.T) {
+	lamp := ident.ID{Name: "porch-lamp"}
+	saved := newMemoryStates[HoldState]()
+	r := startRig(t, local("2026-10-21 12:00 BST"), saved, nil, nil)
+	r.declareAlso(map[string]string{"porch-lamp": "porch"})
+	r.store.Discovered(lamp, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	r.e.Load(porchDay(t, Hold{}))
+	r.settle()
+	r.expect(call{"porch-lamp", capability.On, true})
+	r.stop()
+
+	// The hold looks before the lamp is discovered, as on a host whose drivers are still starting.
+	again := startRig(t, local("2026-10-21 12:05 BST"), saved, nil, nil)
+	again.declareAlso(map[string]string{"porch-lamp": "porch"})
+	again.e.Load(porchDay(t, Hold{}))
+	again.settle()
+	again.store.Discovered(lamp, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	again.at("2026-10-21 12:07 BST")
+	again.expect()
+}
+
+// A member a Safety room hold claimed lets go of the claim when it leaves the room, so it isn't held
+// at Safety by a hold it's no longer in.
+func TestAClaimedMemberThatLeavesARoomHoldIsReleased(t *testing.T) {
+	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-21 12:00 BST"),
+		values:  map[string]map[string]any{"pump": {capability.On: false}},
+		control: map[string][]control.Entry{"pump": {rail}},
+	})
+	r.put(map[string]hub.Meta{"pump": {Room: "porch", Control: []control.Entry{rail}}})
+	r.e.Load(porchDay(t, Hold{Priority: PrioritySafety}))
+	r.settle()
+	if got := winner(r.status("pump", capability.On)); got != "Rule/porch-day Safety" {
+		t.Fatalf("got %s, want the hold's Safety claim", got)
+	}
+	r.put(map[string]hub.Meta{"pump": {Room: "garage", Control: []control.Entry{rail}}})
+	if got := winner(r.status("pump", capability.On)); got != "Default" {
+		t.Fatalf("got %s after it left the porch, want its claim gone", got)
 	}
 }

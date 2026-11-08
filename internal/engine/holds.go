@@ -53,6 +53,16 @@ type holdState struct {
 	// emptyRoom is the room with no members that the hold's when last stopped on, so it's
 	// warned about once each time. Empty means none.
 	emptyRoom string
+	// held are the members an active room hold has written or claimed, so one that joins while it's
+	// active is written then, and one that leaves lets go of its claim. heldKnown is false until the
+	// hold starts or first looks in this run: after a restart, the room's members by the registry
+	// count as held, discovered yet or not, as the hold wrote them before. heldGen is the engine's
+	// membersGen when held was last compared with the room, so it's compared only after a change.
+	held      []ident.ID
+	heldKnown bool
+	heldGen   uint64
+	// heldStale asks for a comparison at the next look, as after a member's write failed.
+	heldStale bool
 	// claimed is the claim an active hold last made on arbitrated targets, without its value.
 	// Nil means none since the hold loaded.
 	claimed *control.Claim
@@ -190,10 +200,11 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	// An active hold claims again when its priority or latch changed, or it has just loaded.
 	claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)
-	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim {
+	joined, left := e.joined(hs, st, active, end, now)
+	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim || len(joined) > 0 || len(left) > 0 {
 		hs.writing, hs.dirty, hs.claimed = true, false, &claim
 		e.holdWrites = append(e.holdWrites, holdWrite{level: claim.Level, key: key, target: st.Target, run: func() {
-			e.write(ctx, key, hs, st, active, end, claim, reclaim)
+			e.write(ctx, key, hs, st, active, end, claim, reclaim, joined, left)
 		}})
 		s.next = fire{}
 	} else {
@@ -365,22 +376,39 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 
 // write ends an edited hold's old target, writes the hold's start or end, and saves its state.
 // A failed write isn't saved as done, so it's tried again.
-func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st HoldState, active bool, end *HoldTarget, claim control.Claim, reclaim bool) {
+func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st HoldState, active bool, end *HoldTarget,
+	claim control.Claim, reclaim bool, joined, left []ident.ID,
+) {
 	var retry time.Duration
+	// started is what a start wrote. added are the members that joined and were written.
+	var started, added []ident.ID
+	startedOrEnded, joinFailed := false, false
 	ended := true
 	if end != nil {
-		if d, err := e.applyHold(ctx, key, *end, false, claim); err != nil {
+		if _, d, err := e.applyHold(ctx, key, *end, false, claim); err != nil {
 			retry, ended = d, false
 		}
 	}
 	if ended && active != st.Active {
-		if d, err := e.applyHold(ctx, key, st.Target, active, claim); err != nil {
+		written, d, err := e.applyHold(ctx, key, st.Target, active, claim)
+		if err != nil {
 			retry = d
 		} else {
-			st.Active = active
+			st.Active, started, startedOrEnded = active, written, true
 		}
-	} else if ended && reclaim {
-		e.claimHold(ctx, key, st.Target, claim)
+	} else if ended {
+		if reclaim {
+			e.claimHold(ctx, key, st.Target, claim)
+		}
+		for _, dev := range left {
+			// It's no longer the hold's to keep, so a claim on it mustn't outlast the hold.
+			if e.arbitrated(dev, st.Target.Capability) {
+				e.releaseClaim(ctx, dev, st.Target.Capability, claim.Source)
+			}
+		}
+		var d time.Duration
+		added, d = e.holdJoined(ctx, key, st.Target, claim, joined)
+		retry, joinFailed = max(retry, d), len(added) < len(joined)
 	}
 	// When the old target couldn't be ended, nothing is saved, and the next look loads the saved
 	// state again and retries.
@@ -403,6 +431,15 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 	} else {
 		hs.loaded = false
 	}
+	switch {
+	case startedOrEnded:
+		hs.held, hs.heldKnown, hs.heldGen = started, st.Active, e.membersGen
+	case joinFailed:
+		// Compare again once the retry is due.
+		hs.held, hs.heldStale = append(hs.held, added...), true
+	default:
+		hs.held = append(hs.held, added...)
+	}
 	if retry != 0 {
 		hs.retry = e.Clock.Now().Add(retry)
 	}
@@ -422,10 +459,72 @@ func (e *Engine) deleteState(key ident.ID) {
 	}
 }
 
+// joined are the members of an active room hold that it doesn't hold yet and can write, as a device
+// that moved into the room, or was retyped into its types, while it was active. left are those it
+// held that aren't members now. A failed write waits for its retry. Call with e.mu held.
+func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarget, now time.Time) (joined, left []ident.ID) {
+	t := st.Target
+	if t.Room == "" || !active || !st.Active || end != nil {
+		hs.held, hs.heldKnown = nil, false
+		return nil, nil
+	}
+	if hs.heldKnown && !hs.heldStale && hs.heldGen == e.membersGen || !hs.retry.IsZero() && now.Before(hs.retry) {
+		return nil, nil
+	}
+	var members []ident.ID
+	for _, dev := range e.Store.Room(t.Room) {
+		if snap, ok := e.Store.Get(dev); ok && snap.OfTypes(t.DeviceTypes) {
+			members = append(members, dev)
+		}
+	}
+	gen := e.membersGen
+	if !hs.heldKnown {
+		hs.held, hs.heldKnown, hs.heldGen = members, true, gen
+		return nil, nil
+	}
+	hs.heldGen, hs.heldStale = gen, false
+	for _, dev := range hs.held {
+		if !slices.Contains(members, dev) {
+			left = append(left, dev)
+		}
+	}
+	// One that left counts as joining again if it comes back.
+	hs.held = slices.DeleteFunc(hs.held, func(dev ident.ID) bool { return slices.Contains(left, dev) })
+	for _, dev := range members {
+		// One not discovered yet, or without the capability, joins once it's discovered with it.
+		if snap, _ := e.Store.Get(dev); !slices.Contains(hs.held, dev) && snap.Discovered &&
+			slices.Contains(snap.Info.Capabilities, t.Capability) {
+			joined = append(joined, dev)
+		}
+	}
+	slices.SortFunc(joined, func(a, b ident.ID) int { return cmp.Compare(a.Name, b.Name) })
+	return joined, left
+}
+
+// holdJoined writes an active room hold's start to the members that joined it, and returns those it
+// wrote. One that fails is left out, so it's tried again at the retry.
+func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, claim control.Claim,
+	joined []ident.ID,
+) ([]ident.ID, time.Duration) {
+	var added []ident.ID
+	var retry time.Duration
+	for _, dev := range joined {
+		one := t
+		one.Room, one.DeviceTypes, one.Device = "", nil, dev.Name
+		if _, d, err := e.applyHold(ctx, key, one, true, claim); err != nil {
+			retry = max(retry, d)
+			continue
+		}
+		e.Log.Info("Held Room member that joined", "rule", key, "device", dev.Name, "room", t.Room)
+		added = append(added, dev)
+	}
+	return added, retry
+}
+
 // applyHold writes a hold's start (its value) or end (the opposite of a bool, and nothing for a
 // number). On an arbitrated capability, the start is claim with the hold's value, and the end
-// releases it. It returns how soon to retry when it fails.
-func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, start bool, claim control.Claim) (time.Duration, error) {
+// releases it. It returns the devices it wrote or claimed, and how soon to retry when it fails.
+func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, start bool, claim control.Claim) (written []ident.ID, retry time.Duration, failed error) {
 	claim.Value = capability.Float(t.Value)
 	value := t.Value
 	// An unarbitrated number hold leaves the device as it is when it ends (OIK-64, answer 19).
@@ -438,8 +537,6 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 	if t.Device != "" {
 		devices = []ident.ID{{Name: t.Device}}
 	}
-	var retry time.Duration
-	var failed error
 	if t.Room != "" {
 		waiting := false
 		var skipped []string
@@ -467,13 +564,14 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 		// are written, one that never reports doesn't keep rewriting the rest.
 		if len(devices) == 0 && waiting {
 			log.Debug("Waiting for Room members before writing hold", "room", t.Room)
-			return retryUndiscovered, fmt.Errorf("no member of room %s is discovered", t.Room)
+			return nil, retryUndiscovered, fmt.Errorf("no member of room %s is discovered", t.Room)
 		}
 	}
 	for _, dev := range devices {
 		snap, ok := e.Store.Get(dev)
 		if ok && snap.Controls(t.Capability) {
 			if start && e.claim(ctx, key, dev, t.Capability, claim) || !start && e.releaseClaim(ctx, dev, t.Capability, claim.Source) {
+				written = append(written, dev)
 				continue
 			}
 		}
@@ -490,9 +588,11 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 				log.Error("Failed to write hold", "err", err, "device", dev.Name)
 			}
 			retry, failed = retryFailed, err
+			continue
 		}
+		written = append(written, dev)
 	}
-	return retry, failed
+	return written, retry, failed
 }
 
 // claimHold makes an active hold's claim again on its arbitrated targets, and writes nothing.
