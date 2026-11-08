@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"flag"
+	"io"
+	"net"
+	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,3 +79,66 @@ func TestPauseNamesTheClaimsItEnded(t *testing.T) {
 		t.Errorf("with no claims: %q", got)
 	}
 }
+
+// streams is a host whose tail sends body.
+type streams string
+
+func (s streams) Dial(context.Context) (net.Conn, error) {
+	client, host := net.Pipe()
+	go func() {
+		defer func() { _ = host.Close() }()
+		if _, err := http.ReadRequest(bufio.NewReader(host)); err != nil {
+			return
+		}
+		_, _ = io.WriteString(host, "HTTP/1.1 200 OK\r\nContent-Type: "+api.StreamContentType+
+			"\r\nConnection: close\r\n\r\n"+string(s))
+	}()
+	return client, nil
+}
+
+func TestTailSaysItHasStartedBeforeAnyEvent(t *testing.T) {
+	body := streams(`{}` + "\n" + `{"type":"change","device":"hall-lamp","capability":"on","value":true}` + "\n")
+	for _, asJSON := range []bool{false, true} {
+		var out lockedOutput
+		_ = tail(t.Context(), body, "home", asJSON, out.writer("stdout"), out.writer("stderr"))
+		lines := out.lines()
+		if len(lines) != 2 || lines[0] != "stderr: Following home's events" || !strings.HasPrefix(lines[1], "stdout: ") {
+			t.Errorf("json %v: %q", asJSON, lines)
+		}
+		if asJSON && !strings.HasPrefix(lines[1], `stdout: {"`) {
+			t.Errorf("--json printed more than JSON on stdout: %q", lines)
+		}
+	}
+	var out lockedOutput
+	_ = tail(t.Context(), body, thisMachine, false, out.writer("stdout"), out.writer("stderr"))
+	if lines := out.lines(); len(lines) == 0 || lines[0] != "stderr: Following the events of this machine's host" {
+		t.Errorf("on this machine: %q", lines)
+	}
+}
+
+// lockedOutput keeps stdout's and stderr's lines in the order they were written.
+type lockedOutput struct {
+	mu  sync.Mutex
+	all []string
+}
+
+func (o *lockedOutput) writer(name string) io.Writer {
+	return writerFunc(func(p []byte) (int, error) {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		for l := range strings.SplitSeq(strings.TrimSuffix(string(p), "\n"), "\n") {
+			o.all = append(o.all, name+": "+l)
+		}
+		return len(p), nil
+	})
+}
+
+func (o *lockedOutput) lines() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.Clone(o.all)
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

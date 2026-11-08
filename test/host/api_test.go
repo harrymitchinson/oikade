@@ -262,7 +262,7 @@ func TestATailEndsCleanlyWhenTheHostStops(t *testing.T) {
 	remote := api.Remote{Address: address, Pin: pin, Token: token}
 
 	ended := make(chan error, 1)
-	go func() { ended <- api.Tail(t.Context(), remote, func(api.Event) error { return nil }) }()
+	go func() { ended <- api.Tail(t.Context(), remote, nil, func(api.Event) error { return nil }) }()
 	r.waitFor(func(l line) bool { return l.is("Received API request", "type", api.TypeTail, "client", "laptop") })
 	// Longer than the host's write timeout, which its last write set.
 	time.Sleep(6 * time.Second)
