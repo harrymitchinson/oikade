@@ -209,6 +209,16 @@ func (v *versions) begin(next version, spared []string) error {
 	return v.pending(append([]version{next}, rest...), spared)
 }
 
+// beginFromHome is begin for a first deploy, over a binary from the host's flags that isn't on record.
+// One write records both, so the home binary is on record only if the deploy went ahead, and a crash
+// after it still has the home binary to go back to.
+func (v *versions) beginFromHome(home, next version, spared []string) error {
+	return v.save(history{
+		Versions: []version{next, home}, Before: []version{home}, Pending: true,
+		Removals: v.state.Removals, Spared: spared,
+	})
+}
+
 // beginRollback makes next, the version before the running one, the running one, unconfirmed. The
 // running one leaves the history, so that another rollback goes back further rather than to it.
 func (v *versions) beginRollback(next version, spared []string) error {

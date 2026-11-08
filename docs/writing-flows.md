@@ -51,7 +51,7 @@ Each step is written to the host's disk before the flow continues. After a crash
 
 So a flow has three rules:
 
-- **Take the same steps in the same order.** Decide only from what steps return, and from an error's message rather than `errors.Is`, because a replayed error is a new one with the same message. `oikade check` rejects `time.Now`, the rest of the `time` package's clock, any goroutine and any `range` over a map inside a flow. `internal/flowcheck` is that check. A function counts as a flow if it takes a `*framework.FlowRun`. What you pass to `r.Do` is exempt, because that's where outside calls belong.
+- **Take the same steps in the same order.** Decide only from what steps return, and from an error's message rather than `errors.Is`, because a replayed error is a new one with the same message. `oikade check` rejects `time.Now`, the rest of the `time` package's clock, any goroutine and any `range` over a map, `maps.Keys`, `maps.Values` or `maps.All` inside a flow. Range over `slices.Sorted(maps.Keys(m))` instead. `internal/flowcheck` is that check. A function counts as a flow if it takes a `*framework.FlowRun`. What you pass to `r.Do` is exempt, because that's where outside calls belong.
 - **Make actions safe to repeat.** Actions run at least once, not exactly once. A crash after a write and before its journal entry repeats the write. Set a value, and never toggle one. `r.Do` is the same until its result is recorded, and once it is, the call never happens again.
 - **Don't keep state outside the flow.** A variable is rebuilt by the replay. Anything else isn't.
 

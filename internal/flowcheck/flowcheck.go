@@ -13,6 +13,7 @@ import (
 	"go/types"
 
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 const (
@@ -35,6 +36,10 @@ var clockCalls = map[string]string{
 	"NewTicker": useSleep,
 	"Tick":      useSleep,
 }
+
+// mapIterators are the maps package's functions that yield in a map's order. slices.Sorted over one
+// is the way to sort the keys, and isn't a range over it.
+var mapIterators = map[string]bool{"All": true, "Keys": true, "Values": true}
 
 // Analyzer reports the clock and goroutines inside flows.
 var Analyzer = &analysis.Analyzer{
@@ -77,11 +82,11 @@ func takesRun(pass *analysis.Pass, ft *ast.FuncType) bool {
 }
 
 func isRun(t types.Type) bool {
-	ptr, ok := t.(*types.Pointer)
+	ptr, ok := types.Unalias(t).(*types.Pointer)
 	if !ok {
 		return false
 	}
-	named, ok := ptr.Elem().(*types.Named)
+	named, ok := types.Unalias(ptr.Elem()).(*types.Named)
 	if !ok {
 		return false
 	}
@@ -95,7 +100,7 @@ func checkBody(pass *analysis.Pass, body *ast.BlockStmt) {
 		case *ast.GoStmt:
 			pass.Reportf(s.Pos(), "a goroutine inside a flow breaks its replay after a crash: use steps in order")
 		case *ast.RangeStmt:
-			if _, ok := pass.TypesInfo.TypeOf(s.X).Underlying().(*types.Map); ok {
+			if rangesOverMap(pass, s.X) {
 				pass.Reportf(s.Pos(), "ranging over a map inside a flow varies between runs, so it breaks replay: sort the keys")
 			}
 		case *ast.CallExpr:
@@ -115,6 +120,19 @@ func checkBody(pass *analysis.Pass, body *ast.BlockStmt) {
 		}
 		return true
 	})
+}
+
+// rangesOverMap reports whether what a range statement ranges over gives a map's order.
+func rangesOverMap(pass *analysis.Pass, x ast.Expr) bool {
+	if _, ok := pass.TypesInfo.TypeOf(x).Underlying().(*types.Map); ok {
+		return true
+	}
+	call, ok := ast.Unparen(x).(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	fn, ok := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+	return ok && fn.Pkg() != nil && fn.Pkg().Path() == "maps" && mapIterators[fn.Name()]
 }
 
 // isDo reports whether a call is FlowRun.Do, whose last argument is the outside call.
