@@ -77,23 +77,17 @@ func start(ctx context.Context, t *testing.T, url string, o Options) (*Plugin, *
 	return p, logs
 }
 
-// watcher sees the messages under root, live or retained, in order.
+// watcher sees the messages under root that its filter keeps, in order.
 type watcher struct {
 	t   *testing.T
 	ctx context.Context
 	got chan mqtt.Message
 }
 
-// watch sees everything under root, retained or live, so a message can arrive twice. To check
-// exact messages, use watchLive. Even when it subscribes before start, the broker acks a subscribe
-// before it looks for retained messages, so a publish straight after can arrive both ways.
-func watch(ctx context.Context, t *testing.T, url string) *watcher {
-	t.Helper()
-	return watchFiltered(ctx, t, url, func(mqtt.Message) bool { return true })
-}
-
-// watchLive sees only messages published after it subscribed. Retained ones can arrive at any
-// point, even after messages published later by other clients.
+// watchLive sees only messages published after it subscribed, so it can check exact messages.
+// Retained ones can arrive at any point, even after messages published later by other clients:
+// the broker acks a subscribe before it looks for them, so even a watcher that subscribes before
+// start can get a message both live and retained.
 func watchLive(ctx context.Context, t *testing.T, url string) *watcher {
 	t.Helper()
 	return watchFiltered(ctx, t, url, func(m mqtt.Message) bool { return !m.Retained })
@@ -234,16 +228,14 @@ func TestReconnectRepublishes(t *testing.T) {
 // retained returns the retained messages under root, as a fresh subscriber gets them.
 func retained(ctx context.Context, t *testing.T, url string) <-chan mqtt.Message {
 	t.Helper()
-	w := watch(ctx, t, url)
+	w := watchFiltered(ctx, t, url, func(m mqtt.Message) bool { return m.Retained })
 	out := make(chan mqtt.Message, 100)
 	go func() {
 		defer close(out)
 		for {
 			select {
 			case m := <-w.got:
-				if m.Retained {
-					out <- m
-				}
+				out <- m
 			case <-time.After(200 * time.Millisecond):
 				return
 			}
