@@ -100,6 +100,12 @@ func TestCheckRefuses(t *testing.T) {
 
 func openTestVersions(t *testing.T, dir string) (*versions, func()) {
 	t.Helper()
+	v, _, closeStore := openTestStore(t, dir)
+	return v, closeStore
+}
+
+func openTestStore(t *testing.T, dir string) (*versions, *store.Store, func()) {
+	t.Helper()
 	data, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +114,7 @@ func openTestVersions(t *testing.T, dir string) (*versions, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return v, func() { _ = data.Close() }
+	return v, data, func() { _ = data.Close() }
 }
 
 func binary(t *testing.T, v *versions, contents string) string {
@@ -295,9 +301,9 @@ func TestAnUnfinishedDeployIsUndoneOnStartup(t *testing.T) {
 	}
 	closeStore()
 
-	v, closeStore = openTestVersions(t, dir)
+	v, data, closeStore := openTestStore(t, dir)
 	defer closeStore()
-	d := &deployer{log: logging.Discard(), versions: v}
+	d := &deployer{log: logging.Discard(), versions: v, srv: &server{journal: data.Journal()}}
 	if got := d.startup(); got != v.path(good) {
 		t.Fatalf("got %s, want %s", got, v.path(good))
 	}
@@ -369,7 +375,7 @@ func TestRedeployingAVersionThatCouldntBeConfirmedRetries(t *testing.T) {
 	if err := v.begin(version{ID: id}, nil); err != nil {
 		t.Fatal(err)
 	}
-	d := &deployer{log: logging.Discard(), versions: v, srv: &server{log: logging.Discard(), feed: newFeed(), events: &eventLog{log: logging.Discard()}}}
+	d := &deployer{log: logging.Discard(), versions: v, srv: &server{log: logging.Discard(), feed: newFeed(), events: &eventLog{log: logging.Discard()}, journal: data.Journal()}}
 	if err := data.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -523,13 +529,13 @@ func TestBeginningFromTheHomeBinaryRecordsBoth(t *testing.T) {
 
 // With nothing before the failed version there's nothing to bring back, so it isn't reported as done.
 func TestRestoringWithNothingBeforeItRestoresNothing(t *testing.T) {
-	v, closeStore := openTestVersions(t, t.TempDir())
+	v, data, closeStore := openTestStore(t, t.TempDir())
 	defer closeStore()
 	id := binary(t, v, "first")
 	if err := v.begin(version{ID: id}, nil); err != nil {
 		t.Fatal(err)
 	}
-	d := &deployer{log: logging.Discard(), versions: v, swaps: make(chan *swap)}
+	d := &deployer{log: logging.Discard(), versions: v, srv: &server{journal: data.Journal()}, swaps: make(chan *swap)}
 	stopped := make(chan string, 1)
 	go func() {
 		sw := <-d.swaps
@@ -555,6 +561,47 @@ func TestAStaleConnectionNeverAttaches(t *testing.T) {
 	s.disconnect()
 	if s.attach(stale, wire.Message{}, nil) {
 		t.Fatal("it attached")
+	}
+}
+
+// Claims released under a confirmed version stay on record until they've ended, whatever deploys follow.
+func TestReleasedClaimsAreKeptUntilTheyEnd(t *testing.T) {
+	dir := t.TempDir()
+	v, closeStore := openTestVersions(t, dir)
+	first := heldRelease{Device: "lamp", Capability: "on", Source: "Rule/evening"}
+	if err := v.begin(version{ID: binary(t, v, "one")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.commit(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.begin(version{ID: binary(t, v, "bad")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.abort(); err != nil {
+		t.Fatal(err)
+	}
+	closeStore()
+	v, closeStore = openTestVersions(t, dir)
+	defer closeStore()
+	if !slices.Equal(v.state.Released, []heldRelease{first}) {
+		t.Fatalf("got %+v", v.state.Released)
+	}
+	second := heldRelease{Device: "blind", Capability: "position", Source: "Rule/morning"}
+	if err := v.begin(version{ID: binary(t, v, "two")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.commit(first, second); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(v.state.Released, []heldRelease{first, second}) {
+		t.Fatalf("got %+v", v.state.Released)
+	}
+	if err := v.removalsDone(); err != nil {
+		t.Fatal(err)
+	}
+	if v.state.Released != nil {
+		t.Fatalf("got %+v", v.state.Released)
 	}
 }
 

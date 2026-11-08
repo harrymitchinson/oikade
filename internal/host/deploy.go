@@ -15,6 +15,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/fault"
+	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
@@ -52,12 +53,16 @@ type deployer struct {
 func (d *deployer) startup() string {
 	if d.versions.state.Pending {
 		failed := d.versions.state.Versions[0].ID
+		if err := d.restoreRuns(failed); err != nil {
+			d.log.Error("Failed to restore the flow runs of the last automations version", "err", err, "version", failed)
+		}
 		if err := d.versions.abort(); err != nil {
 			d.log.Error("Failed to restore the last automations version", "err", err, "version", failed)
 		} else {
 			d.log.Info("Restored the last automations version; a deploy didn't finish", "version", failed)
 		}
 	}
+	d.srv.resetHolds(d.versions.state.Released)
 	d.running = d.home
 	if v, ok := d.versions.current(); ok {
 		d.running = d.versions.path(v.ID)
@@ -152,6 +157,10 @@ func (d *deployer) removals() error {
 			flows = append(flows, r.Name)
 		}
 	}
+	if err := d.srv.endReleased(); err != nil {
+		d.log.Error("Failed to end the claims of flow runs; the next start will", "err", err)
+		return err
+	}
 	if err := d.srv.reconcile(rules, flows); err != nil {
 		d.log.Error("Failed to end what removed rules left; the next start will", "err", err)
 		return err
@@ -215,6 +224,9 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	if err != nil {
 		return reject(api.Response{Error: fmt.Sprintf("reading what's on record: %s", err)})
 	}
+	if err := d.srv.journal.DiscardCopy(); err != nil {
+		return reject(api.Response{Error: fmt.Sprintf("clearing the last copy of the flow runs: %s", err)})
+	}
 	d.confirmable = ""
 	if err := begin(version{ID: id, Manifest: manifest, At: time.Now()}, spared); err != nil {
 		return reject(api.Response{Error: fmt.Sprintf("recording the version: %s", err)})
@@ -223,13 +235,17 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	// The old process could claim until it stopped, so the claims need reading again by then.
 	var late []string
 	vet := func() error {
-		if allow {
-			return nil
+		if !allow {
+			late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
+			if len(late) > 0 {
+				return errLateClaim
+			}
 		}
-		late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
-		if len(late) > 0 {
-			return errLateClaim
+		// The old process has gone, so this is everything it left, for a failed version to give back.
+		if err := d.srv.journal.Copy(); err != nil {
+			return fmt.Errorf("copying the flow runs: %w", err)
 		}
+		d.srv.startHolding()
 		return nil
 	}
 	err = d.settled(ctx, d.versions.path(id), vet)
@@ -245,17 +261,22 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	if err != nil {
 		return d.restore(ctx, id, last, fmt.Errorf("the new version failed: %w", err))
 	}
+	fault.Hit(fault.HostDeploySettled)
 	return d.confirm(id)
 }
 
 // confirm makes a version that has settled the running one for good.
 func (d *deployer) confirm(id string) api.Response {
-	if err := d.versions.commit(); err != nil {
+	if err := d.versions.commit(d.srv.closeHolds()...); err != nil {
 		d.log.Error("Failed to confirm automations version", "err", err, "version", id)
+		d.srv.reopenHolds()
 		d.confirmable = id
 		return api.Response{Error: fmt.Sprintf("confirming the version, which deploying it again will retry: %s", err), Version: id}
 	}
 	d.confirmable = ""
+	if err := d.srv.journal.DiscardCopy(); err != nil {
+		d.log.Error("Failed to remove the copy of the flow runs; the next deploy will", "err", err)
+	}
 	if err := d.versions.prune(); err != nil {
 		d.log.Error("Failed to remove old automations versions", "err", err)
 	}
@@ -271,6 +292,10 @@ func (d *deployer) confirm(id string) api.Response {
 // restore brings the last version back after a new one failed. With nothing before it, all there is
 // to do is stop the failed one.
 func (d *deployer) restore(ctx context.Context, failed, last string, cause error) api.Response {
+	restoreErr := d.restoreRuns(failed)
+	if restoreErr != nil {
+		d.log.Error("Failed to restore the flow runs of the last automations version", "err", restoreErr, "version", failed)
+	}
 	if err := d.versions.abort(); err != nil {
 		d.log.Error("Failed to record the failed automations version", "err", err, "version", failed)
 	}
@@ -284,6 +309,9 @@ func (d *deployer) restore(ctx context.Context, failed, last string, cause error
 	}
 	d.log.Info("Restoring the last automations version; a new one failed", "version", failed, "reason", cause.Error())
 	resp := api.Response{Error: cause.Error(), Restored: true}
+	if restoreErr != nil {
+		resp.Error += fmt.Sprintf("; the flow runs it changed couldn't be put back: %s", restoreErr)
+	}
 	if cur, ok := d.versions.current(); ok {
 		resp.Version = cur.ID
 	}
@@ -299,6 +327,21 @@ func (d *deployer) restore(ctx context.Context, failed, last string, cause error
 		resp.Error += "; " + removalsFailed(err)
 	}
 	return resp
+}
+
+// restoreRuns gives back the flow runs a failed version changed, and forgets the claims it released,
+// which never ended. Its process has gone by now. Call it before the version is aborted, so that a
+// crash leaves the deploy unfinished and the next start does this.
+func (d *deployer) restoreRuns(failed string) error {
+	d.srv.resetHolds(d.versions.state.Released)
+	restored, err := d.srv.journal.Restore(flow.FlowOf)
+	if err != nil {
+		return err
+	}
+	if restored {
+		d.log.Info("Restored the flow runs of the last automations version", "version", failed)
+	}
+	return nil
 }
 
 // settled hands the supervisor a binary, and returns once it has connected and stayed up.

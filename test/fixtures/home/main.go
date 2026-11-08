@@ -163,7 +163,11 @@ func claiming(r *framework.FlowRun) error {
 	if err != nil {
 		return err
 	}
-	if !r.WaitFor(func(s framework.State) bool { return s.Get(open("claim-end")) }, time.Hour) {
+	limit := time.Hour
+	if strings.Contains(variant, "editclaim") {
+		limit = 2 * time.Hour
+	}
+	if !r.WaitFor(func(s framework.State) bool { return s.Get(open("claim-end")) }, limit) {
 		return errors.New("nobody ended the claim")
 	}
 	return r.Release("claiming")
@@ -195,7 +199,7 @@ func start() {
 			time.Sleep(100 * time.Millisecond)
 			os.Exit(3)
 		}()
-	case "crash-told", "crash-noflow":
+	case "crash-told", "crash-noflow", "crash-editclaim":
 		go func() {
 			for {
 				if _, err := os.Stat(os.Getenv("OIKADE_TEST_CRASH")); err == nil {

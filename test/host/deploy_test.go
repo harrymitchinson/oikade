@@ -477,6 +477,158 @@ func TestAFailedVersionLeavesAFlowItDroppedAlone(t *testing.T) {
 	r.wrote("claimed-flow", true)
 }
 
+const (
+	droppedEdited = "Dropped flow run; its code changed while it waited"
+	endedReleased = "Ended the claim of a flow run"
+)
+
+// claimWaiting starts the flow that holds a claim, and waits for it to be waiting.
+func (r *rig) claimWaiting() {
+	r.t.Helper()
+	r.contact("claim-flow-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.sync()
+}
+
+// The new binary dropped the run as it connected. The version failed, so the run comes back, and its
+// claim never ended, so nothing wrote to the device.
+func TestAFailedVersionGivesBackARunItDropped(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(longSettle)
+	r.awaitLoaded()
+	r.claimWaiting()
+	writes := r.count(wrote, "device", "claimed-flow")
+	r.crashAfterLoading("crash-editclaim")
+	if r.count(droppedEdited) != 1 {
+		t.Fatalf("the new version didn't drop the run. The log:\n%s", r.dump())
+	}
+	if got := r.awaitLoaded(); got != 1 {
+		t.Fatalf("resumed %d runs. The log:\n%s", got, r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.sync()
+	if got := r.count(wrote, "device", "claimed-flow"); got != writes {
+		t.Fatalf("the claim moved the device, %d writes from %d. The log:\n%s", got, writes, r.dump())
+	}
+	r.contact("claim-end", true)
+	r.wrote("claimed-flow", true)
+}
+
+// Nothing else records what a run the failed version started holds, so the run stays for the last
+// version to deal with, and its claim ends with it.
+func TestAFailedVersionsOwnRunLeavesNoClaimBehind(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(longSettle)
+	r.awaitLoaded()
+	bin := variant(t, "crash-editclaim")
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- err
+	}()
+	r.awaitLoaded()
+	r.sync()
+	r.claimWaiting()
+	if err := os.WriteFile(filepath.Join(r.dir, "crash"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.sync()
+	r.stop()
+	if got := r.ruleClaims("claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
+		t.Fatalf("the claim was left behind: %+v. The log:\n%s", got, r.dump())
+	}
+}
+
+// A host that dies between settling and confirming finds the deploy unfinished, and does the same.
+func TestAHostThatDiesBeforeConfirmingGivesBackTheRun(t *testing.T) {
+	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeploySettled))
+	r.launch(settle)
+	r.awaitLoaded()
+	r.claimWaiting()
+	if _, err := r.deploy("editclaim"); err == nil {
+		t.Fatalf("the host survived its fault. The log:\n%s", r.dump())
+	}
+	r.died()
+	if r.count(droppedEdited) != 1 {
+		t.Fatalf("the new version didn't drop the run. The log:\n%s", r.dump())
+	}
+	r.launch(settle)
+	r.waitFor(func(l line) bool { return l.is("Restored the last automations version; a deploy didn't finish") })
+	if got := r.awaitLoaded(); got != 1 {
+		t.Fatalf("resumed %d runs. The log:\n%s", got, r.dump())
+	}
+	r.stop()
+	if got := r.ruleClaims("claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
+		t.Fatalf("the run came back without its claim: %+v. The log:\n%s", got, r.dump())
+	}
+}
+
+func TestAConfirmedVersionEndsTheClaimOfARunItDropped(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.claimWaiting()
+	r.mustDeploy("editclaim")
+	r.wrote("claimed-flow", true)
+	r.stop()
+	if got := r.ruleClaims("claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// Confirming is on record before the claim ends, so a crash between them still ends it.
+func TestAClaimReleasedUnderAConfirmedVersionEndsAfterACrash(t *testing.T) {
+	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployConfirmed))
+	r.launch(settle)
+	r.awaitLoaded()
+	r.claimWaiting()
+	if _, err := r.deploy("editclaim"); err == nil {
+		t.Fatalf("the host survived its fault. The log:\n%s", r.dump())
+	}
+	r.died()
+	if r.count(endedReleased) != 0 {
+		t.Fatalf("the claim ended before the crash. The log:\n%s", r.dump())
+	}
+	r.launch(settle)
+	r.waitFor(func(l line) bool { return l.is(endedReleased, "device", "claimed-flow") })
+	r.awaitLoaded()
+	r.stop()
+	if got := r.ruleClaims("claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// A new run of the flow claims the same device while the version settles. That claim is the new
+// run's, and confirming mustn't end it along with the dropped run's.
+func TestAClaimMadeAgainWhileSettlingOutlivesTheDeploy(t *testing.T) {
+	r := flowRig(t, "")
+	r.launch(longSettle)
+	r.awaitLoaded()
+	r.claimWaiting()
+	bin := variant(t, "editclaim")
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- err
+	}()
+	r.awaitLoaded()
+	r.sync()
+	r.contact("claim-flow-go", false)
+	r.contact("claim-flow-go", true)
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	if err := <-done; err != nil {
+		t.Fatalf("%v. The log:\n%s", err, r.dump())
+	}
+	r.stop()
+	if got := r.ruleClaims("claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
+		t.Fatalf("the new run lost its claim: %+v. The log:\n%s", got, r.dump())
+	}
+}
+
 // Only a deploy ends a flow, so a binary changed behind the host's back leaves its run and claims,
 // and the run carries on once the flow is back.
 func TestABinaryChangedWithoutADeployLeavesAFlowAlone(t *testing.T) {
