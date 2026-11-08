@@ -74,7 +74,7 @@ An answer is `application/json`, and a failure's is a `Response` with `error` se
 These answer `application/x-ndjson`, one JSON object per line. A reader that takes more than 5 seconds over a line is cut off.
 
 - **`GET /v1/tail`** starts with an event with no `type`, which says the host is listening, then sends an `Event` as each thing happens, until the caller goes or the host stops. A tail that falls behind is cut off.
-- **`GET /v1/events`** sends an `EventLog`, then an `Event` for each thing the log holds, oldest first. The last line has the type `end`, and a `message` if it didn't get to the end, so a cut-off read isn't taken for a short one.
+- **`GET /v1/events`** sends an `EventLog`, then an `Event` for each thing the log holds, oldest first. The last line has the type `end`, and a `message` if it didn't get to the end, such as `the client was revoked`, so a cut-off read isn't taken for a short one. A host that stops partway through ends the stream with no `end` line, as one that crashed can't send it, and `oikade replay` says the host stopped.
 
 An `Event`'s `type` is one of:
 

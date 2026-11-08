@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// redraws says whether a terminal, told by whether it is one and its TERM, can redraw a line with a
+// carriage return and an erase: a dumb one, such as Emacs's shell-mode, prints them raw.
+func redraws(terminal bool, termName string) bool {
+	return terminal && termName != "dumb"
+}
+
 // progress says on stderr what a deploy is doing, a line as each phase starts, so that its silent
 // parts don't look hung. On a terminal, live, it also redraws the upload's bytes sent; anywhere
 // else it writes whole lines only, with no carriage returns.

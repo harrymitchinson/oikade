@@ -134,7 +134,7 @@ func runDeploy(ctx context.Context, args []string) error {
 
 	d := deployer{
 		stdout:   os.Stdout,
-		progress: &progress{w: os.Stderr, live: term.IsTerminal(int(os.Stderr.Fd()))},
+		progress: &progress{w: os.Stderr, live: redraws(term.IsTerminal(int(os.Stderr.Fd())), os.Getenv("TERM"))},
 		check:    checkFlows,
 		build:    build,
 	}

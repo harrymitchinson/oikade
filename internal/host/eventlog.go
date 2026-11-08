@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -142,8 +143,9 @@ type lineWriter interface {
 	flush() bool
 }
 
-// stream writes the log to out, a page at a time, until it catches up or ctx ends. Events added
-// meanwhile are included. A log that can't be read goes to fail instead, before any line.
+// stream writes the log to out, a page at a time, until it catches up or ctx ends, which its last
+// line says if the client was revoked. Events added meanwhile are included. A log that can't be read
+// goes to fail instead, before any line.
 func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error)) {
 	l.flush()
 	now := time.Now()
@@ -168,6 +170,11 @@ func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error))
 	}
 	for len(page) > 0 {
 		if ctx.Err() != nil {
+			// A host that stops says nothing, as one that crashed can't, and its caller reads that as a
+			// stop. A revoked client is told why.
+			if errors.Is(context.Cause(ctx), errRevoked) {
+				end(errRevoked.Error())
+			}
 			return
 		}
 		for _, r := range page {

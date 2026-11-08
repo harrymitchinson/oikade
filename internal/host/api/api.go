@@ -496,9 +496,11 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bo
 	sent := &counting{r: f, total: info.Size(), progress: progress}
 	body, err := send(ctx, t, route, target, sent, info.Size(), BinaryContentType)
 	if err != nil {
-		if sent.n < info.Size() && !errors.Is(err, errUnreachable) {
+		// net/http may still be reading the body after an answer that came early, so sent is atomic.
+		// Only a host lost before it answered may have been cut off mid-upload.
+		if lost, ok := errors.AsType[lostError](err); ok && sent.n.Load() < info.Size() {
 			// The host deploys nothing it didn't get all of.
-			return Response{}, fmt.Errorf("lost the host during the upload, so nothing was deployed: %w", errors.Unwrap(err))
+			return Response{}, fmt.Errorf("lost the host during the upload, so nothing was deployed: %w", lost.err)
 		}
 		return Response{}, err
 	}
@@ -513,23 +515,31 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bo
 // counting counts what's read through it, of total, and tells progress.
 type counting struct {
 	r        io.Reader
-	n, total int64
+	n        atomic.Int64
+	total    int64
 	progress func(sent, total int64)
 }
 
 func (c *counting) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
-	c.n += int64(n)
+	sent := c.n.Add(int64(n))
 	if c.progress != nil && (n > 0 || c.total == 0) {
-		c.progress(c.n, c.total)
+		c.progress(sent, c.total)
 	}
 	return n, err
 }
 
+// lostError is a call the host may have had, and may still be doing, but never answered.
+type lostError struct{ err error }
+
+func (e lostError) Error() string { return "lost the host before it answered: " + e.err.Error() }
+
+func (e lostError) Unwrap() error { return e.err }
+
 // errUnreachable is a call that never reached the host.
 var errUnreachable = errors.New("reaching the host")
 
-// ErrHostStopped is a tail whose host ended it without saying why, as a host does when it stops.
+// ErrHostStopped is a stream whose host ended it without saying why, as a host does when it stops.
 var ErrHostStopped = errors.New("the host stopped")
 
 // Tail streams events to each until ctx ends, each returns an error, or the host goes: ErrHostStopped
@@ -572,7 +582,8 @@ func Tail(ctx context.Context, t Transport, opened func(), each func(Event) erro
 	}
 }
 
-// Events reads the host's event log to its end: begin gets its opening, and each gets every event.
+// Events reads the host's event log to its end: begin gets its opening, and each gets every event. It
+// returns ErrHostStopped if the host stopped before the end, or why the host ended it.
 func Events(ctx context.Context, t Transport, begin func(EventLog) error, each func(Event) error) error {
 	body, err := open(ctx, t, Request{Type: TypeEvents})
 	if err != nil {
@@ -582,7 +593,7 @@ func Events(ctx context.Context, t Transport, begin func(EventLog) error, each f
 	events := json.NewDecoder(body)
 	var log EventLog
 	if err := events.Decode(&log); err != nil {
-		return fmt.Errorf("reading the event log: %w", err)
+		return eventLogError(err)
 	}
 	if err := begin(log); err != nil {
 		return err
@@ -590,7 +601,7 @@ func Events(ctx context.Context, t Transport, begin func(EventLog) error, each f
 	for {
 		var e Event
 		if err := events.Decode(&e); err != nil {
-			return fmt.Errorf("reading the event log: %w", err)
+			return eventLogError(err)
 		}
 		if e.Type == eventEnd {
 			if e.Message != "" {
@@ -602,6 +613,15 @@ func Events(ctx context.Context, t Transport, begin func(EventLog) error, each f
 			return err
 		}
 	}
+}
+
+// eventLogError is an event log that ended before its end line: ErrHostStopped if the host ended it
+// between lines, as it does when it stops.
+func eventLogError(err error) error {
+	if errors.Is(err, io.EOF) {
+		return ErrHostStopped
+	}
+	return fmt.Errorf("reading the event log: %w", err)
 }
 
 // LogEnd is the line that closes an event log, where a message says it didn't get to the end, or a
@@ -661,7 +681,7 @@ func send(ctx context.Context, t Transport, route Route, target string, body io.
 		}
 		if dialed.Load() {
 			// The host may have the call, and may still be doing it.
-			return nil, fmt.Errorf("lost the host before it answered: %w", err)
+			return nil, lostError{err}
 		}
 		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
 	}
