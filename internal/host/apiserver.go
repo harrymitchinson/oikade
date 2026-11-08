@@ -186,7 +186,9 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 			ctx, cancel := context.WithCancel(r.Context())
 			defer cancel()
 			defer context.AfterFunc(s.ctx, cancel)()
-			s.srv.events.stream(ctx, newLines(w), func(err error) {
+			out := newLines(w)
+			defer out.end()
+			s.srv.events.stream(ctx, out, func(err error) {
 				respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
 			})
 		}
@@ -266,12 +268,21 @@ func (l *lines) flush() bool {
 	return l.control.Flush() == nil
 }
 
+// end gives what net/http writes once the handler returns, the stream's last chunk and TLS's
+// close_notify, a deadline of its own. The last line's has passed if the stream sat idle, and a write
+// past its deadline fails after TLS has sealed its record, so the close_notify after it comes out of
+// sequence and the caller reads "bad record MAC" instead of the stream's end (OIK-210).
+func (l *lines) end() {
+	_ = l.control.SetWriteDeadline(time.Now().Add(writeTimeout))
+}
+
 // tail streams events until the caller goes, the host stops, or the caller falls behind.
 func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("Received API request", "type", api.TypeTail, "client", callerOf(r.Context()).name)
 	events, stop := s.srv.feed.subscribe()
 	defer stop()
 	out := newLines(w)
+	defer out.end()
 	write := func(e api.Event) bool { return out.write(e) && out.flush() }
 	if !write(api.Event{}) { // Says the feed has started.
 		return

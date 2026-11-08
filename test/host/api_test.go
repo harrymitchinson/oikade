@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -245,4 +246,29 @@ func (r *rig) metric(series string) string {
 		}
 	}
 	return ""
+}
+
+// A host that stops ends a tail's stream, over TLS too, after the tail has sat idle for longer than
+// the host gives a write (OIK-210).
+func TestATailEndsCleanlyWhenTheHostStops(t *testing.T) {
+	t.Parallel()
+	r := start(t, "--api-addr", "127.0.0.1:0")
+	address, pin := r.network()
+	token, _ := r.addClient("laptop")
+	remote := api.Remote{Address: address, Pin: pin, Token: token}
+
+	ended := make(chan error, 1)
+	go func() { ended <- api.Tail(t.Context(), remote, func(api.Event) error { return nil }) }()
+	r.waitFor(func(l line) bool { return l.is("Received API request", "type", api.TypeTail, "client", "laptop") })
+	// Longer than the host's write timeout, which its last write set.
+	time.Sleep(6 * time.Second)
+	r.stop()
+	select {
+	case err := <-ended:
+		if !errors.Is(err, api.ErrHostStopped) {
+			t.Errorf("the tail ended with %v, not %v", err, api.ErrHostStopped)
+		}
+	case <-time.After(waitLimit):
+		t.Fatal("the tail kept going after the host stopped")
+	}
 }

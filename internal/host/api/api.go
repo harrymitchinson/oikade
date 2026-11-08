@@ -488,8 +488,12 @@ func (c *counting) Read(p []byte) (int, error) {
 // errUnreachable is a call that never reached the host.
 var errUnreachable = errors.New("reaching the host")
 
-// Tail streams events to each until ctx ends, each returns an error, or the host goes. It starts
-// once the host is listening, which the first Event, with no type, says.
+// ErrHostStopped is a tail whose host ended it, as a host does when it stops.
+var ErrHostStopped = errors.New("the host stopped")
+
+// Tail streams events to each until ctx ends, each returns an error, or the host goes: ErrHostStopped
+// if it ended the stream. It starts once the host is listening, which the first Event, with no type,
+// says.
 func Tail(ctx context.Context, t Transport, each func(Event) error) error {
 	body, err := open(ctx, t, Request{Type: TypeTail})
 	if err != nil {
@@ -505,6 +509,9 @@ func Tail(ctx context.Context, t Transport, each func(Event) error) error {
 		if err := events.Decode(&e); err != nil {
 			if ctx.Err() != nil {
 				return nil
+			}
+			if errors.Is(err, io.EOF) {
+				return ErrHostStopped
 			}
 			return fmt.Errorf("lost the host: %w", err)
 		}
