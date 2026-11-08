@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -194,5 +196,51 @@ func TestJournalEntryIsOnDiskWhenAcknowledged(t *testing.T) {
 	}
 	if len(entries) != 2 || string(entries[1].Data) != "second" {
 		t.Fatalf("got %+v", entries)
+	}
+}
+
+// TestStartedHostCountsTheDevicesOnRecord counts a real host's devices, which aren't simulated.
+func TestStartedHostCountsTheDevicesOnRecord(t *testing.T) {
+	dir := tempDir(t)
+	data := openStore(t, dir)
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"relay", "plug", "gone"} {
+		if _, _, err := reg.Report(registry.Report{ID: id, Driver: "elsewhere/x", Name: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := reg.Remove("gone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Reserve("future", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan string, 1)
+	log := logging.Lines(func(line string) {
+		if strings.Contains(line, `msg="Started host"`) {
+			started <- line
+		}
+	}, slog.LevelInfo)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- (&Host{DataDir: dir, Log: log}).Run(ctx) }()
+	select {
+	case line := <-started:
+		if !strings.Contains(line, " devices=2") || strings.Contains(line, "simulated=") {
+			t.Errorf("got %s", line)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the host never started")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

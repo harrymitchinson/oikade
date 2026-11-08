@@ -195,7 +195,11 @@ func (h *Host) Run(ctx context.Context) error {
 	if h.Simulate != nil {
 		go sim.read(h.Simulate)
 	}
-	h.Log.Info("Started host", "dataDir", h.DataDir, "devices", len(h.Devices))
+	started := []any{"dataDir", h.DataDir, "devices", known.onRecord()}
+	if len(h.Devices) > 0 {
+		started = append(started, "simulated", len(h.Devices))
+	}
+	h.Log.Info("Started host", started...)
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })
 	serving.Go(func() { calls.serve(apiListener) })
 	if network != nil {
