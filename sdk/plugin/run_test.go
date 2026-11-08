@@ -34,7 +34,7 @@ func TestRunStopsCleanly(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
 	setEnv(t, b.URL)
-	w := watch(ctx, t, b.URL)
+	w := watchLive(ctx, t, b.URL)
 
 	runCtx, stop := context.WithCancel(ctx)
 	var declared []contractv1.DeclaredDevice

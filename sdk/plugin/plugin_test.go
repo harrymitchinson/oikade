@@ -77,23 +77,17 @@ func start(ctx context.Context, t *testing.T, url string, o Options) (*Plugin, *
 	return p, logs
 }
 
-// watcher sees the messages under root, live or retained, in order.
+// watcher sees the messages under root that its filter keeps, in order.
 type watcher struct {
 	t   *testing.T
 	ctx context.Context
 	got chan mqtt.Message
 }
 
-// watch sees everything under root. To check exact messages, call it before start: the broker
-// acks a publish before it passes it on, so a watcher that subscribes straight after can get the
-// message twice, retained and live.
-func watch(ctx context.Context, t *testing.T, url string) *watcher {
-	t.Helper()
-	return watchFiltered(ctx, t, url, func(mqtt.Message) bool { return true })
-}
-
-// watchLive sees only messages published after it subscribed. Retained ones can arrive at any
-// point, even after messages published later by other clients.
+// watchLive sees only messages published after it subscribed, so it can check exact messages.
+// Retained ones can arrive at any point, even after messages published later by other clients:
+// the broker acks a subscribe before it looks for them, so even a watcher that subscribes before
+// start can get a message both live and retained.
 func watchLive(ctx context.Context, t *testing.T, url string) *watcher {
 	t.Helper()
 	return watchFiltered(ctx, t, url, func(m mqtt.Message) bool { return !m.Retained })
@@ -163,7 +157,7 @@ func (w *watcher) quiet(url string) {
 func TestAnnounceOrder(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	w := watch(ctx, t, b.URL)
+	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{})
 	w.expect(root.Status() + "=" + online)
 
@@ -234,16 +228,14 @@ func TestReconnectRepublishes(t *testing.T) {
 // retained returns the retained messages under root, as a fresh subscriber gets them.
 func retained(ctx context.Context, t *testing.T, url string) <-chan mqtt.Message {
 	t.Helper()
-	w := watch(ctx, t, url)
+	w := watchFiltered(ctx, t, url, func(m mqtt.Message) bool { return m.Retained })
 	out := make(chan mqtt.Message, 100)
 	go func() {
 		defer close(out)
 		for {
 			select {
 			case m := <-w.got:
-				if m.Retained {
-					out <- m
-				}
+				out <- m
 			case <-time.After(200 * time.Millisecond):
 				return
 			}
@@ -255,7 +247,7 @@ func retained(ctx context.Context, t *testing.T, url string) <-chan mqtt.Message
 func TestCloseWins(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	w := watch(ctx, t, b.URL)
+	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{})
 	w.expect(root.Status() + "=" + online)
 
@@ -290,7 +282,7 @@ func TestCloseWins(t *testing.T) {
 func TestCloseLeavesItToTheWill(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	w := watch(ctx, t, b.URL)
+	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{CloseTimeout: 50 * time.Millisecond})
 	w.expect(root.Status() + "=" + online)
 
