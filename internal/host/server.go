@@ -59,6 +59,8 @@ type server struct {
 
 	mu      sync.Mutex
 	session *session
+	// since is when the session last came or went, or the host started.
+	since time.Time
 	// closed refuses new sessions, once the host is stopping.
 	closed bool
 	// pong is when the session last answered a ping.
@@ -357,6 +359,7 @@ func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bo
 		return false
 	}
 	s.session, s.pong = sess, time.Now()
+	s.since = s.pong
 	// Again, under the lock: a pause after this reaches the session, and one before is in the list.
 	if paused, err := s.paused.Names(); err == nil {
 		welcome.Paused = paused
@@ -382,7 +385,7 @@ func (s *server) detach(sess *session) {
 	s.mu.Lock()
 	left := s.session == sess
 	if left {
-		s.session = nil
+		s.session, s.since = nil, time.Now()
 	}
 	s.mu.Unlock()
 	if left {

@@ -39,9 +39,15 @@ func (s *apiServer) status() api.Response {
 	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}}
 	if v, ok := s.deploys.latest(); ok {
 		st.Version = v.ID
+	} else {
+		st.Deploying = s.deploys.busy()
 	}
 	s.srv.mu.Lock()
 	st.Process = s.srv.session != nil
+	if !s.srv.since.IsZero() {
+		since := s.srv.since
+		st.Since = &since
+	}
 	s.srv.mu.Unlock()
 	var unimported []api.Unimported
 	if s.srv.plugins != nil {

@@ -323,12 +323,15 @@ type Fabric struct {
 // Status is what the host knows now. Its JSON is what oikade status --json prints, so scripts rely on
 // it: add to it, and don't rename.
 type Status struct {
-	// Version is the running version, if known. A deploy under way hides it.
-	Version string `json:"version,omitempty"`
-	// Process is whether your automations process is connected.
-	Process bool     `json:"process"`
-	Devices []Device `json:"devices"`
-	Rules   []Rule   `json:"rules"`
+	// Version is the running version, if known. A deploy under way hides it, and says so in Deploying.
+	Version   string `json:"version,omitempty"`
+	Deploying bool   `json:"deploying,omitempty"`
+	// Process is whether your automations process is connected, and Since when it last connected or
+	// went, or the host started.
+	Process bool       `json:"process"`
+	Since   *time.Time `json:"since,omitempty"`
+	Devices []Device   `json:"devices"`
+	Rules   []Rule     `json:"rules"`
 }
 
 // Device is one device.

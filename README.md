@@ -580,7 +580,7 @@ oikade pause fan                  # stop a rule
 oikade resume fan
 ```
 
-`oikade status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`.
+`oikade status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`. With your automations down it says since when, and with nothing deployed it says to run `oikade deploy`. An empty `status`, `devices`, `secret list` or `client list` says what would fill it, on stderr, and `--json` prints an empty list.
 
 `oikade tail` says `Following home's events` on stderr once the host is listening, naming the context, so a quiet house doesn't look hung.
 
