@@ -9,6 +9,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -224,41 +225,26 @@ func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	}
 	eng := &engine.Engine{Log: logging.Discard()}
 	devices := hub.NewStore(logging.Discard(), eng)
-	eng.Store, eng.Setter = devices, driver.SetterFunc(func(context.Context, ident.ID, string, any) error { return nil })
+	eng.Store = devices
 	eng.Init()
-	// hall-lamp reads the hall, as framework's s.Any(InRoom("hall", Occupied)) does.
-	readsHall := func(v engine.Vars) (bool, error) {
-		reads, _ := v[engine.VarRoomReads].(*[]engine.RoomRead)
-		*reads = append(*reads, engine.RoomRead{Room: "hall"})
-		return false, nil
-	}
-	hold, err := engine.NewHold(key("hall-lamp"), engine.Hold{Device: "lamp", Capability: capability.On, Value: true, When: readsHall})
-	if err != nil {
-		t.Fatal(err)
-	}
-	eng.Load(hold)
-	ctx, cancel := context.WithCancel(context.Background())
-	running := make(chan struct{})
-	go func() { defer close(running); eng.Run(ctx) }()
-	t.Cleanup(func() { cancel(); <-running })
-
 	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
 		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
-		{ID: "l", Name: "lamp", Capabilities: []string{capability.On}},
+		{ID: "m", Name: "motion", Room: "landing", Capabilities: []string{capability.Occupied}},
+		{ID: "p", Name: "plug", Room: "landing", Capabilities: []string{capability.On}},
 	} {
-		dev, err := known.paired(simInstance, d, nil)
-		if err != nil {
+		if _, err := known.paired(simInstance, d, nil); err != nil {
 			t.Fatal(err)
 		}
-		devices.Discovered(dev, driver.Info{Found: true, Capabilities: d.Capabilities})
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for !eng.Idle() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	// As the process's RoomReads said: hall-lamp reads the hall, and landing-light the landing's
+	// sensors.
+	reads := map[string][]engine.RoomRead{
+		"hall-lamp":     {{Room: "hall"}},
+		"landing-light": {{Room: "landing", Types: []devicetype.Type{devicetype.OccupancySensor}}},
 	}
-	s := &apiServer{devices: known}
+	s := &apiServer{devices: known, srv: &server{session: &session{reads: reads}}}
 
 	resp := s.move("sensor", "attic")
 	if resp.Error != "" {
@@ -270,8 +256,12 @@ func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	if d, _ := reg.Get("sensor"); d.Room != "attic" {
 		t.Errorf("sensor is in %q: the move should still happen", d.Room)
 	}
-	// A move that leaves a member behind, or out of a room no rule reads, says nothing.
-	if resp := s.move("lamp", "attic"); resp.Warning != "" {
-		t.Errorf("got warning %q for a room no rule reads", resp.Warning)
+	// The plug left on the landing isn't one of the types landing-light reads.
+	if resp := s.move("motion", "attic"); !strings.Contains(resp.Warning, "landing-light") {
+		t.Errorf("got warning %q, want one naming landing-light", resp.Warning)
+	}
+	// The plug isn't one of the types landing-light reads, so its move empties nothing.
+	if resp := s.move("plug", "attic"); resp.Warning != "" {
+		t.Errorf("got warning %q for a device no hold reads", resp.Warning)
 	}
 }

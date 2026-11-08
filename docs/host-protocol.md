@@ -50,6 +50,7 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 | `finish` | `run` | Forgets a run's journal. The reply means it's on disk | |
 | `pong` | `id` | Answers a `ping`. It isn't a request, so it gets no reply | |
 | `ruleRun` | `rule`, `result`, `time` | How a rule's run ended, for `oikade tail`. No reply. Runs whose condition was false aren't sent | |
+| `roomReads` | `rule`, `reads` | Every room a hold's `When` has read since the process started, each `room` with its `types`, sent when that grows. The host keeps them for the session, so `oikade devices room` can warn when a move empties one. No reply | |
 | `metrics` | `metrics` | The process's rule metrics in Prometheus's text format, for the host to serve. No reply | |
 
 ## Plugins

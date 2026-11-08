@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -48,6 +49,19 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 		default:
 		}
 	}
+	// reads keeps each hold's latest room reads until they're sent, so none is dropped.
+	var readsMu sync.Mutex
+	reads := map[string][]engine.RoomRead{}
+	readsWaiting := make(chan struct{}, 1)
+	eng.OnRoomReads = func(key ident.ID, r []engine.RoomRead) {
+		readsMu.Lock()
+		reads[key.Name] = r
+		readsMu.Unlock()
+		select {
+		case readsWaiting <- struct{}{}:
+		default:
+		}
+	}
 	return func() {
 		tick := time.NewTicker(metricsEvery)
 		defer tick.Stop()
@@ -59,6 +73,14 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 				return
 			case r := <-runs:
 				client.RuleRun(r.rule, r.result, r.at)
+			case <-readsWaiting:
+				readsMu.Lock()
+				waiting := reads
+				reads = map[string][]engine.RoomRead{}
+				readsMu.Unlock()
+				for _, rule := range slices.Sorted(maps.Keys(waiting)) {
+					client.RoomReads(rule, waiting[rule])
+				}
 			case <-tick.C:
 				text, err := metricsText(registry)
 				if err != nil {

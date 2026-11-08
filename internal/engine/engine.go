@@ -99,6 +99,9 @@ type Engine struct {
 	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
 	// fires. It must not block.
 	OnSchedule func(key ident.ID, s Schedule)
+	// OnRoomReads, if set, is called with e.mu held when the rooms a hold's when has read grow, with
+	// all of them. It must not block.
+	OnRoomReads func(key ident.ID, reads []RoomRead)
 	// OnBudget, if set, is called with e.mu held when a budget hold plans, or its status changes.
 	// It must not block.
 	OnBudget func(key ident.ID, r BudgetReport)

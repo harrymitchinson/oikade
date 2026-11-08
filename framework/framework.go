@@ -158,11 +158,14 @@ func roomValues[T Value](s State, r RoomRead[T]) []T {
 			names = append(names, name)
 		}
 	}
-	if s.reads != nil {
-		*s.reads = append(*s.reads, engine.RoomRead{Room: room, Types: types})
-	}
-	if len(names) == 0 {
-		panic(roomEmpty{room})
+	// A device with no room is in none, so "" is a mistake, not an empty room.
+	if room != "" {
+		if s.reads != nil {
+			*s.reads = append(*s.reads, engine.RoomRead{Room: room, Types: types})
+		}
+		if len(names) == 0 {
+			panic(roomEmpty{room})
+		}
 	}
 	slices.Sort(names)
 	var out []T

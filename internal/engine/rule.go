@@ -65,9 +65,12 @@ func (e EmptyRoom) Error() string { return fmt.Sprintf("room %s has no members",
 
 // RoomRead is a room a condition read, with the device types it read there. No types means any.
 type RoomRead struct {
-	Room  string
-	Types []devicetype.Type
+	Room  string            `json:"room"`
+	Types []devicetype.Type `json:"types,omitempty"`
 }
+
+// Equal reports whether two reads are of the same room and types.
+func (r RoomRead) Equal(o RoomRead) bool { return r.Room == o.Room && slices.Equal(r.Types, o.Types) }
 
 // VarRoomReads is the Vars key of a *[]RoomRead that a condition adds each room it reads to.
 const VarRoomReads = "roomReads"

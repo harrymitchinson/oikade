@@ -270,16 +270,20 @@ func (i *inventory) rename(name, to string) error {
 	return nil
 }
 
-func (i *inventory) move(name, room string) error {
+// move puts a device in a room, and returns the room it was in.
+func (i *inventory) move(name, room string) (from string, err error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	if d, ok := i.registry.Get(name); ok {
+		from = d.Room
+	}
 	if err := i.registry.Move(name, room); err != nil {
-		return err
+		return "", err
 	}
 	i.sync()
 	i.announce(key(name))
 	i.log.Info("Moved device", "device", name, "room", room)
-	return nil
+	return from, nil
 }
 
 // setType says what a device is. The Matter bridge rebuilds its endpoint, on the same ID.
@@ -452,27 +456,6 @@ func (s *apiServer) safetyRule() string {
 }
 
 // device answers the commands that read and change the registry. Running code loses track of a
-// move moves a device to a room. It warns when that leaves its old room with no members that a
-// hold reads: the hold's when stops there, and it keeps its state until a device is back.
-func (s *apiServer) move(name, room string) api.Response {
-	from := ""
-	if d, ok := s.devices.registry.Get(name); ok {
-		from = d.Room
-	}
-	if err := s.devices.move(name, room); err != nil {
-		return api.Response{Error: err.Error()}
-	}
-	if from == "" || from == room {
-		return api.Response{}
-	}
-	rules := s.devices.engine.EmptyReads(wire.Namespace, from, s.devices.store.Members(wire.Namespace))
-	if len(rules) == 0 {
-		return api.Response{}
-	}
-	return api.Response{Warning: fmt.Sprintf("%s has no devices now, and %s read it, so they keep their state "+
-		"until one is back in %s", from, strings.Join(rules, ", "), from)}
-}
-
 // device whose name changes until a deploy, which would silently stop a Safety rule naming it.
 func (s *apiServer) device(req api.Request) api.Response {
 	if req.Type == api.TypeDeviceName || req.Type == api.TypeDeviceReplace {
@@ -524,4 +507,51 @@ func (s *apiServer) device(req api.Request) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{}
+}
+
+// move moves a device to a room. It warns when that leaves the room it was in with no devices a hold
+// reads there: the hold's when stops, and it keeps its state until one is back.
+func (s *apiServer) move(name, room string) api.Response {
+	from, err := s.devices.move(name, room)
+	if err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	if from == "" || from == room {
+		return api.Response{}
+	}
+	rules := s.emptyReads(name, from, s.devices.store.Members(wire.Namespace))
+	if len(rules) == 0 {
+		return api.Response{}
+	}
+	return api.Response{Warning: fmt.Sprintf("%s has no devices now that %s read, so they keep their state "+
+		"until one is back in %s", from, strings.Join(rules, ", "), from)}
+}
+
+// emptyReads are the holds of the running process whose read of room moved took from it the last of
+// the devices it read there, among members, sorted by name. A read that was empty already isn't
+// the move's doing.
+func (s *apiServer) emptyReads(moved, room string, members map[string]hub.Member) []string {
+	empty := func(r engine.RoomRead) bool {
+		if r.Room != room || !members[moved].OfTypes(r.Types) {
+			return false
+		}
+		for _, m := range members {
+			if m.Room == room && m.OfTypes(r.Types) {
+				return false
+			}
+		}
+		return true
+	}
+	s.srv.mu.Lock()
+	defer s.srv.mu.Unlock()
+	var out []string
+	if sess := s.srv.session; sess != nil {
+		for rule, reads := range sess.reads {
+			if slices.ContainsFunc(reads, empty) {
+				out = append(out, rule)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }

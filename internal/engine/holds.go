@@ -14,7 +14,6 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
@@ -48,7 +47,8 @@ type holdState struct {
 	reported *Schedule
 	// deleted is set when the Rule is deleted, so a write still running doesn't save its state.
 	deleted bool
-	// reads are the rooms the hold's when read when it last looked.
+	// reads are the rooms the hold's when has read since it loaded. A look that stops early, or
+	// takes another branch, adds nothing, so a room it read once stays.
 	reads []RoomRead
 	// emptyRoom is the room with no members that the hold's when last stopped on, so it's
 	// warned about once each time. Empty means none.
@@ -101,7 +101,7 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 	var reads []RoomRead
 	vars[VarRoomReads] = &reads
 	b, err := h.when(vars)
-	hs.reads = reads
+	e.addReads(key, hs, reads)
 	empty, isEmpty := errors.AsType[EmptyRoom](err)
 	switch {
 	case !isEmpty:
@@ -119,6 +119,19 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 		return false, false, next
 	}
 	return b, true, next
+}
+
+// addReads adds the rooms a look read to the hold's, and tells OnRoomReads when that grew.
+func (e *Engine) addReads(key ident.ID, hs *holdState, reads []RoomRead) {
+	grew := false
+	for _, r := range reads {
+		if !slices.ContainsFunc(hs.reads, r.Equal) {
+			hs.reads, grew = append(hs.reads, r), true
+		}
+	}
+	if grew && e.OnRoomReads != nil {
+		e.OnRoomReads(key, slices.Clone(hs.reads))
+	}
 }
 
 // evaluate works out whether a hold is active now, starts the write and save that follow, and
@@ -535,30 +548,4 @@ func (e *Engine) release(key ident.ID) {
 	s.hold.released = true
 	s.next = fire{At: e.Clock.Now()}
 	e.signal()
-}
-
-// EmptyReads are the holds in namespace whose when last read room, and that would find no member
-// of the types it read there among members, sorted by name.
-func (e *Engine) EmptyReads(namespace, room string, members map[string]hub.Member) []string {
-	empty := func(r RoomRead) bool {
-		if r.Room != room {
-			return false
-		}
-		for _, m := range members {
-			if m.Room == room && m.OfTypes(r.Types) {
-				return false
-			}
-		}
-		return true
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	var out []string
-	for key, s := range e.rules {
-		if key.Namespace == namespace && s.hold != nil && slices.ContainsFunc(s.hold.reads, empty) {
-			out = append(out, key.Name)
-		}
-	}
-	slices.Sort(out)
-	return out
 }
