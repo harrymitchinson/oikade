@@ -398,22 +398,21 @@ func (d *deployer) settled(ctx context.Context, path string, vet func() error) e
 	}
 }
 
-// latest returns the running version, unless a deploy is under way and has it in flux.
-// busy says a deploy or a rollback is under way, which hides the running version from latest.
-func (d *deployer) busy() bool {
-	if !d.mu.TryLock() {
-		return true
-	}
-	d.mu.Unlock()
-	return false
+// latest returns the running version, unless a deploy or a rollback is under way and has it in flux.
+func (d *deployer) latest() (version, bool) {
+	v, ok, _ := d.state()
+	return v, ok
 }
 
-func (d *deployer) latest() (version, bool) {
+// state returns the running version as latest does, and whether a deploy or a rollback is under way,
+// from the one look at the lock so that the two agree.
+func (d *deployer) state() (v version, ok, busy bool) {
 	if !d.mu.TryLock() {
-		return version{}, false
+		return version{}, false, true
 	}
 	defer d.mu.Unlock()
-	return d.versions.current()
+	v, ok = d.versions.current()
+	return v, ok, false
 }
 
 // safetyFindings lists what a new version would lose. A Safety rule's claims end with it, which could

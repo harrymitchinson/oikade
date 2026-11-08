@@ -624,3 +624,27 @@ func TestDroppingAControlThatHoldsASafetyClaimIsAFinding(t *testing.T) {
 		t.Fatalf("findings %v with nothing dropped", got)
 	}
 }
+
+// Status's version and deploying come from one look at the lock: a quiet host has its version and
+// isn't deploying, and one mid-deploy is deploying with its version hidden, never neither.
+func TestDeployStateAgreesWithItself(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	id := binary(t, v, "running")
+	if err := v.begin(version{ID: id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.commit(); err != nil {
+		t.Fatal(err)
+	}
+	d := &deployer{log: logging.Discard(), versions: v}
+	if got, ok, busy := d.state(); !ok || busy || got.ID != id {
+		t.Fatalf("quiet: got %q, %v, busy %v", got.ID, ok, busy)
+	}
+	d.mu.Lock()
+	got, ok, busy := d.state()
+	d.mu.Unlock()
+	if ok || !busy || got.ID != "" {
+		t.Fatalf("mid-deploy: got %q, %v, busy %v", got.ID, ok, busy)
+	}
+}

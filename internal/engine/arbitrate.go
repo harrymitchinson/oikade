@@ -48,13 +48,13 @@ const (
 	rulePrefix = "Rule/"
 )
 
-// staleReport is how long after a write a report of a different value is taken as the device
+// StaleReport is how long after a write a report of a different value is taken as the device
 // catching up, rather than an outside change.
-const staleReport = 5 * time.Second
+const StaleReport = 5 * time.Second
 
 // bridgeMatch is how long after a bridge announces a write the device's change to that
 // value is taken as the write. It allows for slow plugins and for a report held back by
-// staleReport.
+// StaleReport.
 const bridgeMatch = 30 * time.Second
 
 // bridgeTolerance is how far a reported number may be from a bridge's write and still match it.
@@ -304,7 +304,7 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	case ok && reported && !st.Known:
 		// The device reported before the arbiter knew it, as on a first start.
 		ar.a.Wrote(capability.Float(v))
-	case ar.dropped && !now.Before(ar.wrote.Add(staleReport)):
+	case ar.dropped && !now.Before(ar.wrote.Add(StaleReport)):
 		// A report ignored while the write settled may have been a real change.
 		ar.dropped = false
 		if f := capability.Float(v); reported && f != st.Value {
@@ -314,7 +314,7 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	d := ar.a.Decide()
 	ar.d, ar.next = d, d.Next
 	if ar.dropped {
-		ar.next = earliestOf(ar.next, ar.wrote.Add(staleReport))
+		ar.next = earliestOf(ar.next, ar.wrote.Add(StaleReport))
 	}
 	e.markSave(dev)
 	e.reportControl(dev)
@@ -404,11 +404,11 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	case ar.lost && !ar.writing:
 		ar.lost = false
 		ar.a.Wrote(v)
-	case ar.writing || e.Clock.Now().Sub(ar.wrote) < staleReport:
+	case ar.writing || e.Clock.Now().Sub(ar.wrote) < StaleReport:
 		e.Log.Debug("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
 		ar.dropped = true
 		if !ar.writing {
-			ar.next = earliestOf(ar.next, ar.wrote.Add(staleReport))
+			ar.next = earliestOf(ar.next, ar.wrote.Add(StaleReport))
 			e.signal()
 		}
 		return

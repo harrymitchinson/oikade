@@ -98,11 +98,11 @@ func runStatus(ctx context.Context, args []string) error {
 	if *asJSON {
 		return cli.PrintJSON(st)
 	}
-	printStatus(os.Stdout, os.Stderr, st, len(devices) == 0)
+	printStatus(os.Stdout, os.Stderr, st, len(devices) == 0, time.Now())
 	return nil
 }
 
-func printStatus(out, stderr io.Writer, st *api.Status, summary bool) {
+func printStatus(out, stderr io.Writer, st *api.Status, summary bool, now time.Time) {
 	if summary {
 		switch {
 		case st.Version == "" && st.Deploying:
@@ -113,7 +113,7 @@ func printStatus(out, stderr io.Writer, st *api.Status, summary bool) {
 		case st.Process:
 			_, _ = fmt.Fprintf(out, "Version %s, automations connected\n\n", or(st.Version, "unknown"))
 		default:
-			_, _ = fmt.Fprintf(out, "Version %s, automations down%s\n\n", st.Version, since(st.Since, time.Now()))
+			_, _ = fmt.Fprintf(out, "Version %s, automations down%s\n\n", st.Version, since(st.Since, now))
 			_, _ = fmt.Fprintln(stderr, "oikade tail shows when they come back, and the host's log says why they went.")
 		}
 	}
@@ -140,7 +140,7 @@ func printStatus(out, stderr io.Writer, st *api.Status, summary bool) {
 		if r.Paused {
 			line = append(line, "paused")
 		}
-		line = append(line, holdState(r)...)
+		line = append(line, holdState(r, now)...)
 		_, _ = fmt.Fprintln(out, strings.Join(line, "  "))
 	}
 }
@@ -150,34 +150,45 @@ func since(t *time.Time, now time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""
 	}
-	at := t.Local()
-	if y, m, d := at.Date(); y == now.Local().Year() && m == now.Local().Month() && d == now.Local().Day() {
-		return " since " + at.Format("15:04")
-	}
-	return " since " + at.Format(time.DateTime)
+	return " since " + clock(*t, now)
 }
 
-// holdState says what a hold is doing, such as "active since 23:07:05, off at 23:10:05", and why
-// it stopped, if it did. A rule that isn't a running hold has none.
-func holdState(r api.Rule) []string {
+// clock says when something is, as a time if it's today or a date and time if it isn't.
+func clock(t, now time.Time) string {
+	at, now := t.Local(), now.Local()
+	if y, m, d := at.Date(); y == now.Year() && m == now.Month() && d == now.Day() {
+		return at.Format("15:04")
+	}
+	return at.Format(time.DateTime)
+}
+
+// holdState says what a hold is doing, such as "active since 23:07, off at 23:10", and why it
+// stopped, if it did. A rule that isn't a running hold has none. A time to come that has gone by,
+// as when the host is behind, says so.
+func holdState(r api.Rule, now time.Time) []string {
 	if r.Active == nil {
 		return nil
 	}
-	clock := func(t time.Time) string { return t.Local().Format("15:04:05") }
+	next := func(t time.Time) string {
+		if t.Before(now) {
+			return clock(t, now) + " (passed)"
+		}
+		return clock(t, now)
+	}
 	var state []string
 	switch {
 	case *r.Active && !r.Since.IsZero():
-		state = append(state, "active since "+clock(r.Since))
+		state = append(state, "active since "+clock(r.Since, now))
 	case *r.Active:
 		state = append(state, "active")
 	default:
 		state = append(state, "inactive")
 	}
 	if !r.OnAt.IsZero() {
-		state = append(state, "on at "+clock(r.OnAt))
+		state = append(state, "on at "+next(r.OnAt))
 	}
 	if !r.OffAt.IsZero() {
-		state = append(state, "off at "+clock(r.OffAt))
+		state = append(state, "off at "+next(r.OffAt))
 	}
 	if r.Latched {
 		state = append(state, "latched")

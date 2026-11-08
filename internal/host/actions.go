@@ -38,11 +38,11 @@ func (s *apiServer) rulesInfo() (rules []wire.RuleInfo, known bool) {
 
 func (s *apiServer) status() api.Response {
 	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}}
-	if v, ok := s.deploys.latest(); ok {
+	v, ok, busy := s.deploys.state()
+	if ok {
 		st.Version = v.ID
-	} else {
-		st.Deploying = s.deploys.busy()
 	}
+	st.Deploying = busy
 	s.srv.mu.Lock()
 	st.Process = s.srv.session != nil
 	if !s.srv.since.IsZero() {
@@ -178,58 +178,37 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	// Before the write, so that the device's answer can't come first.
 	events, stop := s.srv.feed.subscribe()
 	defer stop()
+	written := time.Now()
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
 	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, events)}
+	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, written, events)}
 }
 
-// settleWait is how long a set waits for the device to answer, and settleQuiet how long it then waits
-// for nothing more to change, such as ExternalRevert writing it back.
-const (
-	settleWait  = 3 * time.Second
-	settleQuiet = 500 * time.Millisecond
-)
+// settleTimes are how long a set waits for the device to answer (wait), how long it then waits for
+// nothing more to change, such as ExternalRevert writing it back (quiet), and how long after the write
+// a report of another value is the device catching up rather than its answer (stale), as a lamp
+// reports its brightness on the way through a fade.
+type settleTimes struct {
+	wait, quiet, stale time.Duration
+}
+
+var setSettle = settleTimes{wait: 3 * time.Second, quiet: 500 * time.Millisecond, stale: engine.StaleReport}
 
 // settled waits for a set's write to settle, and returns the capability as it is then, or nil if the
-// device hasn't answered. A device that already had the value sends no change, so it counts as having
-// answered.
-func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, value any, events <-chan api.Event) *api.Capability {
+// device hasn't answered.
+func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, value any, written time.Time, events <-chan api.Event) *api.Capability {
 	has := func() bool {
 		snap, ok := s.srv.devices.Get(dev)
 		v, known := snap.Values[name]
 		return ok && known && capability.Float(v) == capability.Float(value)
 	}
-	answered := has()
-	var quiet <-chan time.Time
-	if answered {
-		quiet = time.After(settleQuiet)
-	}
-	wait := time.NewTimer(settleWait)
-	defer wait.Stop()
-loop:
-	for {
-		select {
-		case e, ok := <-events:
-			if !ok {
-				events = nil // Fell behind: the timers end it.
-				continue
-			}
-			if e.Type == api.EventChange && e.Device == dev.Name && e.Capability == name {
-				answered = true
-				quiet = time.After(settleQuiet)
-			}
-		case <-quiet:
-			break loop
-		case <-wait.C:
-			break loop
-		case <-ctx.Done():
-			break loop
-		}
+	if !awaitAnswer(ctx, events, dev.Name, name, value, written, has, setSettle) {
+		return nil
 	}
 	snap, ok := s.srv.devices.Get(dev)
-	if !ok || (!answered && !has()) {
+	if !ok {
 		return nil
 	}
 	c := &api.Capability{Name: name, Value: snap.Values[name]}
@@ -239,6 +218,44 @@ loop:
 		}
 	}
 	return c
+}
+
+// awaitAnswer waits for the device's answer to a write of value made at written, then for t.quiet with
+// nothing more changing, and says whether it answered. The answer is a report of value, or any report
+// once t.stale has passed. A device that already has value sends no change, so it counts as having
+// answered. After the answer, any change, such as a write-back, restarts the quiet.
+func awaitAnswer(ctx context.Context, events <-chan api.Event, dev, name string, value any, written time.Time,
+	has func() bool, t settleTimes,
+) bool {
+	answered := has()
+	var quiet <-chan time.Time
+	if answered {
+		quiet = time.After(t.quiet)
+	}
+	wait := time.NewTimer(t.wait)
+	defer wait.Stop()
+	for {
+		select {
+		case e, ok := <-events:
+			if !ok {
+				events = nil // Fell behind: the timers end it.
+				continue
+			}
+			if e.Type != api.EventChange || e.Device != dev || e.Capability != name {
+				continue
+			}
+			if answered || capability.Float(e.Value) == capability.Float(value) || time.Since(written) >= t.stale {
+				answered = true
+				quiet = time.After(t.quiet)
+			}
+		case <-quiet:
+			return true
+		case <-wait.C:
+			return answered || has()
+		case <-ctx.Done():
+			return answered || has()
+		}
+	}
 }
 
 // heldAtSafety finds what holds a capability at Safety against value, if anything does: a write would

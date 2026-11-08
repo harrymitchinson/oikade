@@ -447,7 +447,7 @@ func TestAMatterWriteDuringARuntimeWriteIsFromMatter(t *testing.T) {
 	r.clock.Step(2 * time.Second)
 	r.matter("towel-rail", capability.On, false)
 	r.change("towel-rail", capability.On, false)
-	r.clock.Step(staleReport)
+	r.clock.Step(StaleReport)
 	r.settle()
 	if w := winner(r.status("towel-rail", capability.On)); w != "Matter Override" {
 		t.Errorf("winner %q once the write settled, want Matter's override", w)
