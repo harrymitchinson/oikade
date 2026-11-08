@@ -58,6 +58,17 @@ func instanceName(instance driver.InstanceKey) string {
 	return instance.Driver + "/" + instance.Name
 }
 
+// onRecord counts the devices on record with hardware, whether or not their driver has reported.
+func (i *inventory) onRecord() int {
+	n := 0
+	for _, d := range i.registry.List().Devices {
+		if !d.Removed && d.ID != "" {
+			n++
+		}
+	}
+	return n
+}
+
 // attach adds a driver instance, whose devices on record are known from now on, reported or not.
 func (i *inventory) attach(instance driver.InstanceKey) {
 	i.mu.Lock()
