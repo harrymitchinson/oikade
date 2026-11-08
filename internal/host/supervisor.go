@@ -149,6 +149,7 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string,
 func (h *Host) watch(ctx context.Context, cmd *exec.Cmd, kind string,
 	ping func(id uint64) (time.Time, bool), swaps <-chan *swap) (*swap, error) {
 	log := logging.FromContext(ctx)
+	defer h.track(cmd)()
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 

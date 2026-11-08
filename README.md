@@ -529,19 +529,19 @@ sudo systemctl enable --now oikade
 
 Add any other flags for `oikade-host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
 
-When the host stops, it goes in order: the API, ending streams such as `oikade tail`, then your automations, then the writes already under way, then each plugin, which is sent `SIGTERM` and says it's offline before its socket closes, then the Matter bridge and the store. The log has a line for each. `--stop-timeout` (10 seconds) bounds all of it: past that the rest is cut off, the log says where, and the host exits, which loses nothing because the host only ever crashes safe. `KillMode=mixed` is what leaves the order to the host: by default systemd sends `SIGTERM` to your automations and plugins at the same moment as the host.
+When the host stops, it goes in order: the API, ending streams such as `oikade tail`, then your automations, then the writes already under way, then each plugin, which is sent `SIGTERM` and says it's offline before its socket closes, then the Matter bridge and the store. The log has a line for each. `--stop-timeout` (10 seconds) bounds all of it: past that the rest is cut off, the log says where, and the host kills what's left and exits with an error. No state that must survive is lost, because the host only ever crashes safe, though `oikade replay` can miss the last few seconds. `KillMode=mixed` is what leaves the order to the host: by default systemd sends `SIGTERM` to your automations and plugins at the same moment as the host.
 
 ### In Docker
 
 The image holds only `oikade-host`, for linux/arm64 and linux/amd64, and runs it. Matter needs the machine's network, for mDNS and IPv6:
 
 ```sh
-docker run -d --name oikade --restart unless-stopped --network host \
+docker run -d --name oikade --restart unless-stopped --stop-timeout 15 --network host \
   -v oikade:/var/lib/oikade ghcr.io/harrymitchinson/oikade:<version> --api-addr :8443 --broker mqtt://broker:1883
 docker exec oikade oikade-host client add laptop
 ```
 
-The flags after the image are `oikade-host`'s. `client add` prints the `oikade login` line to run on your laptop, and from then on you use the container from there, over the [network API](#the-network-api). To upgrade, run `oikade backup`, then replace the container on the same volume.
+`--stop-timeout 15`, before the image, is Docker's: it gives the host longer than its own 10 seconds to stop before Docker kills it. The flags after the image are `oikade-host`'s. `client add` prints the `oikade login` line to run on your laptop, and from then on you use the container from there, over the [network API](#the-network-api). To upgrade, run `oikade backup`, then replace the container on the same volume.
 
 ### Secrets
 

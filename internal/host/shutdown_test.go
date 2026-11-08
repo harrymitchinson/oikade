@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os/exec"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -64,6 +65,28 @@ func TestAShutdownStuckPastItsDeadlineStillEnds(t *testing.T) {
 	}
 	if cut.Msg != "Cut off host shutdown at its deadline" || cut.Phase != "stuck" || !slices.Equal(cut.Skipped, []string{"next", "last"}) {
 		t.Errorf("the last line was %+v", cut)
+	}
+}
+
+func TestACutOffKillsWhatIsStillRunning(t *testing.T) {
+	t.Parallel()
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	h := &Host{}
+	defer h.track(cmd)()
+	h.killProcesses()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		if err == nil {
+			t.Error("the process exited by itself")
+		}
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("the process is still running")
 	}
 }
 

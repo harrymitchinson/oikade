@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -74,6 +75,9 @@ type Host struct {
 	Log         *slog.Logger
 
 	plugins *plugins
+
+	processesMu sync.Mutex
+	processes   map[*exec.Cmd]struct{}
 }
 
 // Run serves until ctx ends, then stops everything in order: see stopping.
@@ -239,7 +243,7 @@ func (h *Host) Run(ctx context.Context) error {
 			srv.shutdown()
 		}},
 		{name: "Finishing device writes", run: func(ctx context.Context) {
-			finishWrites(ctx, func() bool { return writing.Load() > 0 || bridge.gathering() })
+			finishWrites(ctx, func() bool { return writing.Load() > 0 || bridge.gathering() || !eng.Idle() })
 		}},
 		{name: "Stopping plugins", run: func(context.Context) {
 			pluginProcesses.stop()
@@ -260,10 +264,13 @@ func (h *Host) Run(ctx context.Context) error {
 			h.Log.Error("Failed to close store", "err", err)
 		}
 	}})
-	stopInOrder(h.Log, h.StopTimeout, phases)
-	// Whatever was cut off gets what it can of a goodbye before the process goes.
+	finished := stopInOrder(h.Log, h.StopTimeout, phases)
 	for _, s := range []*stage{apiCalls, automations, pluginProcesses, matterServing, background} {
 		s.cancel()
+	}
+	if !finished {
+		h.killProcesses()
+		return fmt.Errorf("stopping the host took longer than %s, so the rest was cut off", h.StopTimeout)
 	}
 	h.Log.Info("Stopped host", "took", time.Since(began).Round(time.Millisecond).String())
 	return nil
