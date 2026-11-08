@@ -190,14 +190,15 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := deploys.removals(); err != nil {
 		h.Log.Error("Failed to end what removed rules left", "err", err)
 	}
+	// Counted before anything else can pair a device. Simulated devices are on record too.
+	started := []any{"dataDir", h.DataDir, "devices", known.onRecord()}
+	if len(h.Devices) > 0 {
+		started = append(started, "simulated", len(h.Devices))
+	}
 	serving.Go(func() { h.plugins.run(ctx) })
 	serving.Go(func() { srv.serve(listener) })
 	if h.Simulate != nil {
 		go sim.read(h.Simulate)
-	}
-	started := []any{"dataDir", h.DataDir, "devices", known.onRecord()}
-	if len(h.Devices) > 0 {
-		started = append(started, "simulated", len(h.Devices))
 	}
 	h.Log.Info("Started host", started...)
 	serving.Go(func() { h.supervise(ctx, srv, socket, first, deploys) })

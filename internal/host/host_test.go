@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -233,7 +234,7 @@ func TestStartedHostCountsTheDevicesOnRecord(t *testing.T) {
 	go func() { done <- (&Host{DataDir: dir, Log: log}).Run(ctx) }()
 	select {
 	case line := <-started:
-		if !strings.Contains(line, " devices=2") || strings.Contains(line, "simulated=") {
+		if !slices.Contains(strings.Fields(line), "devices=2") || strings.Contains(line, "simulated=") {
 			t.Errorf("got %s", line)
 		}
 	case <-time.After(10 * time.Second):

@@ -62,7 +62,7 @@ func instanceName(instance driver.InstanceKey) string {
 func (i *inventory) onRecord() int {
 	n := 0
 	for _, d := range i.registry.List().Devices {
-		if !d.Removed && !d.Reserved() {
+		if !d.Removed && d.ID != "" {
 			n++
 		}
 	}
