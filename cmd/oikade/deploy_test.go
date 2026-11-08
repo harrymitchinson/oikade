@@ -158,7 +158,9 @@ func TestDeployFailsWithoutAHost(t *testing.T) {
 }
 
 func TestSize(t *testing.T) {
-	for n, want := range map[int64]string{0: "0 B", 999: "999 B", 1500: "1.5 kB", 840_000: "840 kB", 11_400_000: "11 MB"} {
+	for n, want := range map[int64]string{
+		0: "0 B", 999: "999 B", 1500: "1.5 kB", 840_000: "840 kB", 9_960_000: "10 MB", 11_400_000: "11 MB",
+	} {
 		if got := size(n); got != want {
 			t.Errorf("size(%d) = %q, want %q", n, got, want)
 		}

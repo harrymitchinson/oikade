@@ -115,7 +115,8 @@ func size(n int64) string {
 		v /= 1000
 		i++
 	}
-	if i == 0 || v >= 10 {
+	// 9.96 rounds to 10, not 10.0.
+	if i == 0 || v >= 9.95 {
 		return fmt.Sprintf("%.0f %s", v, units[i])
 	}
 	return fmt.Sprintf("%.1f %s", v, units[i])
