@@ -574,7 +574,7 @@ These talk to the host through a Unix socket in its data directory, which only t
 ```sh
 oikade status                     # the running version, every device, and your rules
 oikade status valve               # one device
-oikade tail                       # changes, writes and rule runs as they happen
+oikade tail                       # changes, writes, refusals and rule runs as they happen
 oikade set fan on off      # turn it off
 oikade pause fan                  # stop a rule
 oikade resume fan

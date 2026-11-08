@@ -2,15 +2,21 @@ package matterbridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
+	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 var (
@@ -206,4 +212,48 @@ func TestCoalescerSendsADevicesBurstsInOrder(t *testing.T) {
 
 func contains(list []string, s string) bool {
 	return slices.Contains(list, s)
+}
+
+// A write a claim refused is the rule working, so it's logged at Info with the claim that won, and
+// a write that fails is still an error.
+func TestCoalescerLogsARefusalAsInfo(t *testing.T) {
+	var mu sync.Mutex
+	var lines []string
+	log := logging.Lines(func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, line)
+	}, slog.LevelInfo)
+	clk := clock.NewFake(time.Date(2026, 11, 7, 20, 0, 0, 0, time.UTC))
+	c := &Coalescer{
+		Setter: driver.SetterFunc(func(_ context.Context, dev ident.ID, _ string, _ any) error {
+			if dev == deskLamp {
+				return &driver.Refused{Holder: "Rule/hall-too-humid", Level: control.NameSafety}
+			}
+			return errors.New("timed out")
+		}),
+		Current: reports(false), Window: window, Timeout: time.Second, Clock: clk,
+	}
+	c.Start(logging.NewContext(t.Context(), log))
+	c.Add(deskLamp, capability.On, true)
+	c.Add(porchFan, capability.On, true)
+	burstEnds(c, clk)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lines) != 2 {
+		t.Fatalf("logged %q", lines)
+	}
+	refused, failed := lines[0], lines[1]
+	if strings.Contains(failed, "desk-lamp") {
+		refused, failed = failed, refused
+	}
+	for _, want := range []string{"level=INFO", `msg="Refused Matter write"`, "device=desk-lamp", "capability=on",
+		"value=true", "claim=Rule/hall-too-humid", "claimLevel=" + control.NameSafety} {
+		if !strings.Contains(refused, want) {
+			t.Errorf("%q doesn't say %s", refused, want)
+		}
+	}
+	if !strings.Contains(failed, "level=ERROR") || !strings.Contains(failed, "porch-fan") {
+		t.Errorf("a failed write logged %q", failed)
+	}
 }

@@ -148,7 +148,7 @@ func (h *Host) Run(ctx context.Context) error {
 	eng.Store, eng.Setter, srv.devices, srv.setter, srv.outside = devices, recorded, devices, recorded, setter
 	eng.Init()
 	if bridge.working() {
-		bridge.connect(devices, known, eng, setter)
+		bridge.connect(devices, known, eng, setter, srv.emit)
 	}
 	if err := sim.start(h.Devices); err != nil {
 		return err

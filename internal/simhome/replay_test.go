@@ -364,3 +364,23 @@ func TestAnOutageThatHasntEndedGetsANote(t *testing.T) {
 		t.Fatalf("Notes = %q", r.Notes)
 	}
 }
+
+// A controller's write that a claim refused isn't one of your automations' writes, so it never
+// counts against them.
+func TestRefusedWritesAreNoDifference(t *testing.T) {
+	log := recorded(t, fanAbove(70), damp)
+	for _, at := range []time.Duration{90 * time.Minute, 25 * time.Hour} {
+		log = append(log, api.Event{
+			Time: monday.Add(at), Type: api.EventRefused, Device: "fan", Capability: on, Value: false,
+			Message: "Rule/hall-too-humid holds it at Safety",
+		})
+	}
+	slices.SortStableFunc(log, func(a, b api.Event) int { return a.Time.Compare(b.Time) })
+	r, err := simhome.Replay(options(t, fanAbove(70)), head(monday.Add(end)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 || r.Deployed != 6 || r.Changes != len(damp) {
+		t.Fatalf("removed %v, added %v, %d deployed, %d changes", r.Removed, r.Added, r.Deployed, r.Changes)
+	}
+}

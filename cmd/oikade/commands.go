@@ -259,6 +259,8 @@ func describe(e api.Event) string {
 		return fmt.Sprintf("rule %s %s", e.Rule, e.Message)
 	case api.EventWrite:
 		return fmt.Sprintf("wrote %s %s = %v", e.Device, e.Capability, display(e.Value))
+	case api.EventRefused:
+		return fmt.Sprintf("refused Matter write %s %s = %v: %s", e.Device, e.Capability, display(e.Value), e.Message)
 	case api.EventDeploy:
 		return "deployed " + e.Message
 	}

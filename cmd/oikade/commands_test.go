@@ -181,3 +181,13 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 		}
 	}
 }
+
+func TestTailShowsARefusedWrite(t *testing.T) {
+	got := describe(api.Event{
+		Type: api.EventRefused, Device: "desk-plug", Capability: "on", Value: true,
+		Message: "Rule/hall-too-humid holds it at Safety",
+	})
+	if want := "refused Matter write desk-plug on = true: Rule/hall-too-humid holds it at Safety"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

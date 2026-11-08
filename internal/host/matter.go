@@ -15,6 +15,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -192,11 +193,11 @@ func (m *matterBridge) open(c *Matter, values *store.Namespace) error {
 func (m *matterBridge) working() bool { return m != nil && m.broken == nil }
 
 // connect gives the bridge what it needs of the host, which needs the bridge to exist first.
-func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine.Engine, setter driver.Setter) {
+func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine.Engine, setter driver.Setter, emit func(api.Event)) {
 	m.devices, m.known, m.Store = devices, known, devices
 	known.changed = append(known.changed, m.changed)
 	m.Writes = &matterbridge.Coalescer{
-		Setter: &matterWrites{engine: eng, devices: devices, setter: setter, restore: m.Restore, took: m.metrics.writes},
+		Setter: &matterWrites{engine: eng, devices: devices, setter: setter, restore: m.Restore, took: m.metrics.writes, emit: emit},
 		Current: func(dev ident.ID, name string) (any, bool) {
 			snap, ok := devices.Get(dev)
 			if !ok {
@@ -309,6 +310,8 @@ type matterWrites struct {
 	restore func(dev ident.ID, name string, otherwise any)
 	// took, if set, hears how long each write that reached its driver took.
 	took prometheus.Observer
+	// emit, if set, puts a refused write in the event log.
+	emit func(api.Event)
 }
 
 // Set implements driver.Setter.
@@ -319,7 +322,14 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	start := time.Now()
 	if holder, wants := heldAtSafety(w.engine, w.devices, dev, name, value); holder != "" {
 		w.restore(dev, name, wants)
-		return fmt.Errorf("%s holds it at Safety", holder)
+		refused := &driver.Refused{Holder: holder, Level: control.NameSafety}
+		if w.emit != nil {
+			w.emit(api.Event{
+				Time: time.Now(), Type: api.EventRefused, Device: dev.Name, Capability: name, Value: value,
+				Message: refused.Error(),
+			})
+		}
+		return refused
 	}
 	if snap, ok := w.devices.Get(dev); ok && (snap.Online == nil || *snap.Online) {
 		w.engine.MatterWrote(dev, name, value)

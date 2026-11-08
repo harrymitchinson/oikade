@@ -415,6 +415,9 @@ const (
 	// EventWrite is your automations writing to a device. A person's write isn't one: oikade set and
 	// the Home app show up as the change they make.
 	EventWrite = "write"
+	// EventRefused is a controller's write that a claim turned away, such as a Home app tap against a
+	// Safety hold. Message says which claim holds it, and at what level.
+	EventRefused = "refused"
 	// EventCall is an outside call from a flow, which a replay answers rather than makes.
 	EventCall = "call"
 	// EventDeploy is a new version taking over.
@@ -428,7 +431,8 @@ const (
 type Event struct {
 	Time time.Time `json:"time,omitzero"`
 	Type string    `json:"type"`
-	// Device, Capability and Value are a change's or a write's, and Previous a change's.
+	// Device, Capability and Value are a change's, a write's or a refused write's, and Previous a
+	// change's.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
@@ -437,8 +441,8 @@ type Event struct {
 	// also a call's result.
 	Rule   string `json:"rule,omitempty"`
 	Result string `json:"result,omitempty"`
-	// Message says what happened to the process or the pause, which version a deploy brought, or
-	// which outside call this is.
+	// Message says what happened to the process or the pause, which version a deploy brought, which
+	// outside call this is, or why a write was refused.
 	Message string `json:"message,omitempty"`
 }
 

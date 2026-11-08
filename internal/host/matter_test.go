@@ -122,12 +122,21 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 
 	setter := &writes{}
 	var restored []any
+	var events []api.Event
 	w := &matterWrites{
 		engine: eng, devices: devices, setter: setter,
 		restore: func(_ ident.ID, _ string, otherwise any) { restored = append(restored, otherwise) },
+		emit:    func(e api.Event) { events = append(events, e) },
 	}
-	if err := w.Set(context.Background(), dev, capability.On, true); err == nil {
-		t.Error("the write was let through")
+	err := w.Set(context.Background(), dev, capability.On, true)
+	if refused, ok := errors.AsType[*driver.Refused](err); !ok || refused.Holder != "Rule/leak-shutoff" || refused.Level != control.NameSafety {
+		t.Errorf("the write wasn't refused at Safety: %v", err)
+	}
+	// It's in the event log, once, saying who refused it.
+	if len(events) != 1 || events[0].Type != api.EventRefused || events[0].Device != "valve" ||
+		events[0].Capability != capability.On || events[0].Value != true ||
+		events[0].Message != "Rule/leak-shutoff holds it at Safety" {
+		t.Errorf("events %+v", events)
 	}
 	// The device hasn't reported, so the claim is all a controller can be told.
 	if setter.calls != 0 || len(restored) != 1 || restored[0] != false {
@@ -137,8 +146,8 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 	if err := w.Set(context.Background(), dev, capability.On, false); err != nil {
 		t.Error(err)
 	}
-	if setter.calls != 1 {
-		t.Errorf("writes %d", setter.calls)
+	if setter.calls != 1 || len(events) != 1 {
+		t.Errorf("writes %d, events %d", setter.calls, len(events))
 	}
 	// Nor is a capability it doesn't hold.
 	if err := w.Set(context.Background(), dev, capability.Brightness, 50.0); err != nil {
