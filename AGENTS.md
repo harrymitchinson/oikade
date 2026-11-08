@@ -80,6 +80,17 @@ log.Error("Failed to start Plugin", "err", err, "name", name)
 
 **Reference:** https://github.com/kubernetes/community/blob/master/contributors/devel/sig-instrumentation/logging.md#message-style-guidelines
 
+### CLI output
+
+Every `oikade` and `oikade-host` command is not verbose, but never leaves you wondering (OIK-218):
+
+- **Anything that can take over a second says what it's doing as it starts, on stderr:** `Fetching Oikade v0.2.0`, then the result, rather than five silent seconds.
+- **Say what happened, not what was asked:** `desk-plug on is false: Rule/hall-too-humid holds it at Safety`, not `Set desk-plug on to true`.
+- **An empty answer says it's empty, and what would fill it:** `No secrets. oikade secret set NAME adds one.`, not a bare header.
+- **A long-running command says it has started:** `Following home's events`, so a quiet house doesn't look hung.
+- **Never pass on another tool's output that asks for a step already done:** `oikade init` hides Go's `go mod tidy` hint, which it has run, and shows Go's output only when Go fails.
+- **`--json` and stdout stay clean for scripts:** progress and hints go to stderr, and `--json` keeps its shape when empty (`[]`).
+
 ## Publishing
 
 ```bash
