@@ -226,7 +226,10 @@ func TestStartedHostCountsTheDevicesOnRecord(t *testing.T) {
 	started := make(chan string, 1)
 	log := logging.Lines(func(line string) {
 		if strings.Contains(line, `msg="Started host"`) {
-			started <- line
+			select {
+			case started <- line:
+			default:
+			}
 		}
 	}, slog.LevelInfo)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -237,6 +240,8 @@ func TestStartedHostCountsTheDevicesOnRecord(t *testing.T) {
 		if !slices.Contains(strings.Fields(line), "devices=2") || strings.Contains(line, "simulated=") {
 			t.Errorf("got %s", line)
 		}
+	case err := <-done:
+		t.Fatalf("the host stopped before it started: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the host never started")
 	}
