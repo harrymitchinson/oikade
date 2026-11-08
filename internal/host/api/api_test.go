@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -52,6 +53,46 @@ func TestTailCancelledBeforeTheHostAnswersIsNoError(t *testing.T) {
 	})
 	if err := Tail(ctx, waits, func(Event) error { return nil }); err != nil {
 		t.Errorf("a cancelled tail: %v", err)
+	}
+}
+
+// streams reads a request, then answers it with body and closes the connection.
+func streams(body string) dialer {
+	return func(context.Context) (net.Conn, error) {
+		client, host := net.Pipe()
+		go func() {
+			defer func() { _ = host.Close() }()
+			if _, err := http.ReadRequest(bufio.NewReader(host)); err != nil {
+				return
+			}
+			_, _ = io.WriteString(host, "HTTP/1.1 200 OK\r\nContent-Type: "+StreamContentType+
+				"\r\nConnection: close\r\n\r\n"+body)
+		}()
+		return client, nil
+	}
+}
+
+func TestTailSaysWhetherTheHostEndedIt(t *testing.T) {
+	ctx := context.Background()
+	var got []Event
+	each := func(e Event) error {
+		got = append(got, e)
+		return nil
+	}
+	err := Tail(ctx, streams(`{}`+"\n"+`{"type":"change","device":"hall-lamp"}`+"\n"), each)
+	if !errors.Is(err, ErrHostStopped) {
+		t.Errorf("a stream the host ended: %v", err)
+	}
+	if len(got) != 1 || got[0].Device != "hall-lamp" {
+		t.Errorf("events: %+v", got)
+	}
+	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"end","message":"it fell behind"}`+"\n"), each)
+	if err == nil || errors.Is(err, ErrHostStopped) || err.Error() != "the host ended the tail: it fell behind" {
+		t.Errorf("a tail the host cut off: %v", err)
+	}
+	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"cha`), each)
+	if err == nil || errors.Is(err, ErrHostStopped) || !strings.HasPrefix(err.Error(), "lost the host") {
+		t.Errorf("a stream cut off mid-line: %v", err)
 	}
 }
 

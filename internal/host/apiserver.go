@@ -117,18 +117,21 @@ func (s *apiServer) authenticated(next http.Handler) http.Handler {
 		}
 		// A revoke ends the client's streams. A call that has begun still finishes, as it does without
 		// its connection.
-		ctx, cancel := context.WithCancel(withCaller(r.Context(), caller{name: name}))
-		defer cancel()
+		ctx, cancel := context.WithCancelCause(withCaller(r.Context(), caller{name: name}))
+		defer cancel(nil)
 		go func() {
 			select {
 			case <-revoked:
-				cancel()
+				cancel(errRevoked)
 			case <-ctx.Done():
 			}
 		}()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+// errRevoked ends a revoked client's calls.
+var errRevoked = errors.New("the client was revoked")
 
 func (s *apiServer) serveWith(l net.Listener, handler http.Handler) {
 	server := &http.Server{
@@ -186,7 +189,9 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 			ctx, cancel := context.WithCancel(r.Context())
 			defer cancel()
 			defer context.AfterFunc(s.ctx, cancel)()
-			s.srv.events.stream(ctx, newLines(w), func(err error) {
+			out := newLines(w)
+			defer out.end()
+			s.srv.events.stream(ctx, out, func(err error) {
 				respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
 			})
 		}
@@ -266,12 +271,22 @@ func (l *lines) flush() bool {
 	return l.control.Flush() == nil
 }
 
-// tail streams events until the caller goes, the host stops, or the caller falls behind.
+// end gives what net/http writes once the handler returns, the stream's last chunk and TLS's
+// close_notify, a deadline of its own. The last line's has passed if the stream sat idle, and a write
+// past its deadline fails after TLS has sealed its record, so the close_notify after it comes out of
+// sequence and the caller reads "bad record MAC" instead of the stream's end (OIK-210).
+func (l *lines) end() {
+	_ = l.control.SetWriteDeadline(time.Now().Add(writeTimeout))
+}
+
+// tail streams events until the caller goes, the host stops, or the caller falls behind or is
+// revoked, which its last line says. A host that stops says nothing, as one that crashed can't.
 func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("Received API request", "type", api.TypeTail, "client", callerOf(r.Context()).name)
 	events, stop := s.srv.feed.subscribe()
 	defer stop()
 	out := newLines(w)
+	defer out.end()
 	write := func(e api.Event) bool { return out.write(e) && out.flush() }
 	if !write(api.Event{}) { // Says the feed has started.
 		return
@@ -279,10 +294,17 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case e, ok := <-events:
-			if !ok || !write(e) {
+			if !ok {
+				write(api.LogEnd("it fell behind"))
+				return
+			}
+			if !write(e) {
 				return
 			}
 		case <-r.Context().Done():
+			if errors.Is(context.Cause(r.Context()), errRevoked) {
+				write(api.LogEnd(errRevoked.Error()))
+			}
 			return
 		case <-s.ctx.Done():
 			return
