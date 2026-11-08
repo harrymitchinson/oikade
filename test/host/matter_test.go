@@ -292,10 +292,10 @@ func TestASafetyClaimRefusesAController(t *testing.T) {
 
 	c.command(endpoint, turnOn)
 	c.r.waitFor(func(l line) bool {
-		return l.is("Failed to set capability from Matter", "capability", "on")
+		return l.is("Refused Matter write", "capability", "on", "claim", "Rule/leak-shutoff", "claimLevel", "Safety")
 	})
-	if !strings.Contains(c.r.dump(), "Rule/leak-shutoff holds it at Safety") {
-		t.Errorf("the log doesn't say who refused it:\n%s", c.r.dump())
+	if n := c.r.count("Failed to set capability from Matter"); n != 0 {
+		t.Errorf("a refusal was logged as a failure %d times", n)
 	}
 	c.r.until("the controller to see it refused", func() bool { return !c.isOn(endpoint) })
 	if n := c.r.count(wrote, "device", "valve", "value", true); n != 0 {
@@ -373,7 +373,7 @@ func TestARepeatedWriteIsRefusedOnceSafetyHasShutAValve(t *testing.T) {
 	c.r.change("leak-sensor", "open", true)
 	c.r.until("the controller to see the valve shut", func() bool { return !c.isOn(endpoint) })
 	c.command(endpoint, turnOn)
-	c.r.until("the write to be refused", func() bool { return c.r.count("Failed to set capability from Matter") > 0 })
+	c.r.until("the write to be refused", func() bool { return c.r.count("Refused Matter write") > 0 })
 	c.r.until("the controller to see it shut", func() bool { return !c.isOn(endpoint) })
 }
 

@@ -2,6 +2,7 @@ package matterbridge
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -173,7 +174,12 @@ func (c *Coalescer) flush(dev ident.ID) {
 		c.mu.Unlock()
 		ctx, cancel := context.WithTimeout(c.ctx, c.Timeout)
 		if err := c.Setter.Set(ctx, dev, w.name, w.value); err != nil {
-			log.Error("Failed to set capability from Matter", "err", err, "device", dev, "capability", w.name)
+			if refused, ok := errors.AsType[*driver.Refused](err); ok {
+				log.Info("Refused Matter write", "device", dev, "capability", w.name, "value", w.value,
+					"claim", refused.Holder, "claimLevel", refused.Level)
+			} else {
+				log.Error("Failed to set capability from Matter", "err", err, "device", dev, "capability", w.name)
+			}
 			c.mu.Lock()
 			delete(c.sent, k)
 			c.mu.Unlock()

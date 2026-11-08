@@ -75,3 +75,17 @@ These answer `application/x-ndjson`, one JSON object per line. A reader that tak
 
 - **`GET /v1/tail`** starts with an event with no `type`, which says the host is listening, then sends an `Event` as each thing happens, until the caller goes or the host stops. A tail that falls behind is cut off.
 - **`GET /v1/events`** sends an `EventLog`, then an `Event` for each thing the log holds, oldest first. The last line has the type `end`, and a `message` if it didn't get to the end, so a cut-off read isn't taken for a short one.
+
+An `Event`'s `type` is one of:
+
+| `type` | What happened | Fields |
+|---|---|---|
+| `change` | A device reported a new value | `device`, `capability`, `value`, `previous` |
+| `write` | Your automations wrote to a device. A person's write shows up as the `change` it makes | `device`, `capability`, `value` |
+| `refused` | A controller's write, such as a Home app tap, that a claim turned away. The device wasn't written, and `oikade replay` doesn't count it as a write | `device`, `capability`, `value`, `message`: which claim holds it, and at what level |
+| `rule` | A rule's run ended | `rule`, `result` |
+| `pause` | A rule was paused or resumed | `rule`, `message` |
+| `call` | A flow made an outside call, which a replay answers rather than makes. Only in the event log, not a tail | `rule`: the flow, `message`: the call, `value`: its result, `result`: its error |
+| `process` | Your process connected or disconnected | `message` |
+| `deploy` | A new version took over | `message`: the version |
+| `end` | The stream ended: the event log's last line, or the host ending a tail | `message`: why, if it stopped short |
