@@ -210,6 +210,9 @@ func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine
 	}
 }
 
+// gathering says whether a controller's write has yet to reach its device.
+func (m *matterBridge) gathering() bool { return m.working() && m.Writes != nil && m.Writes.Busy() }
+
 // changed asks run to look at the devices again. It doesn't block.
 func (m *matterBridge) changed() {
 	select {

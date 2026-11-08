@@ -30,6 +30,9 @@ const writeTimeout = 5 * time.Second
 // idleTimeout closes a kept-alive connection that's doing nothing.
 const idleTimeout = 30 * time.Second
 
+// apiStopTimeout is how long calls under way get to finish when the host stops.
+const apiStopTimeout = 3 * time.Second
+
 // maxRequest bounds a request's body. The largest is a restore's registry.
 const maxRequest = 16 << 20
 
@@ -144,8 +147,13 @@ func (s *apiServer) serveWith(l net.Listener, handler http.Handler) {
 	if err := server.Serve(l); !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		s.log.Error("Failed to accept connection", "err", err)
 	}
-	if err := server.Shutdown(context.WithoutCancel(s.ctx)); err != nil {
+	// A call that has yet to finish by then, such as a backup to a slow client, doesn't cost the plugins
+	// their turn to stop.
+	last, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), apiStopTimeout)
+	defer cancel()
+	if err := server.Shutdown(last); err != nil {
 		s.log.Error("Failed to finish API calls", "err", err)
+		_ = server.Close()
 	}
 }
 

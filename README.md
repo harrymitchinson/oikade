@@ -516,6 +516,7 @@ StateDirectory=oikade
 StateDirectoryMode=0700
 Restart=always
 RestartSec=2
+KillMode=mixed
 NoNewPrivileges=true
 
 [Install]
@@ -527,6 +528,8 @@ sudo systemctl enable --now oikade
 ```
 
 Add any other flags for `oikade-host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
+
+When the host stops, it goes in order: the API, ending streams such as `oikade tail`, then your automations, then the writes already under way, then each plugin, which is sent `SIGTERM` and says it's offline before its socket closes, then the Matter bridge and the store. The log has a line for each. `--stop-timeout` (10 seconds) bounds all of it: past that the rest is cut off, the log says where, and the host exits, which loses nothing because the host only ever crashes safe. `KillMode=mixed` is what leaves the order to the host: by default systemd sends `SIGTERM` to your automations and plugins at the same moment as the host.
 
 ### In Docker
 

@@ -404,3 +404,52 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 		}
 	}
 }
+
+// Stopping goes a phase at a time, and a plugin is asked to stop and says it's offline itself, before
+// its socket goes (OIK-219).
+func TestTheHostStopsInOrderAndPluginsSayGoodbye(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	r.until("both plugins online", func() bool { return r.count("Plugin came online") >= 2 })
+	r.stop()
+	for _, phase := range []string{
+		"Stopping host", "Stopping API", "Stopping automations", "Finishing device writes", "Stopping plugins", "Closing store", "Stopped host",
+	} {
+		r.waitFor(func(l line) bool { return l.is(phase) })
+	}
+	if r.count("Cut off host shutdown at its deadline") != 0 {
+		t.Errorf("a clean stop was cut off:\n%s", r.dump())
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	offline := map[string]bool{}
+	asked, disconnected := false, 0
+	for _, l := range r.lines {
+		name, _ := l["plugin"].(string)
+		switch {
+		case l.is("Stopping plugins"):
+			asked = true
+		case l.is("Plugin went offline"):
+			if !asked {
+				t.Errorf("a plugin went offline before it was asked to stop: %v", l)
+			}
+			offline[fmt.Sprint(l["plugin"])] = true
+		case l.is("Disconnected plugin"):
+			disconnected++
+			if reason, _ := l["reason"].(string); strings.Contains(reason, "closed network connection") {
+				t.Errorf("the host closed %s's socket on it: %v", name, l)
+			}
+			said := false
+			for who := range offline {
+				said = said || strings.Contains(who, name)
+			}
+			if !said {
+				t.Errorf("%s's socket went before it said it was offline", name)
+			}
+		}
+	}
+	if disconnected != 2 {
+		t.Errorf("%d plugins disconnected, want 2", disconnected)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -83,14 +84,14 @@ func NewConn[M any](c net.Conn) *Conn[M] {
 	return &Conn[M]{conn: c, read: r}
 }
 
-// Read returns the next message.
+// Read returns the next message, or io.EOF once the other end has closed the socket.
 func (c *Conn[M]) Read() (M, error) {
 	var m M
 	if !c.read.Scan() {
 		if err := c.read.Err(); err != nil {
 			return m, err
 		}
-		return m, net.ErrClosed
+		return m, io.EOF
 	}
 	if err := json.Unmarshal(c.read.Bytes(), &m); err != nil {
 		return m, fmt.Errorf("decoding message: %w", err)

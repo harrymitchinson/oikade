@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -32,6 +33,9 @@ const DefaultPluginSetTimeout = 30 * time.Second
 
 // outsideRetry is how soon the host tries a broker again after failing to connect.
 const outsideRetry = time.Minute
+
+// sessionEndWait is how long a plugin's session gets to end by itself once its process has gone.
+const sessionEndWait = time.Second
 
 // pluginBacklog is how many messages from a plugin can wait to be taken in.
 const pluginBacklog = 1024
@@ -464,11 +468,12 @@ func (p *plugins) serve(conn *wire.Conn, hello wire.Message) {
 			}
 		}
 	})
-	defer working.Wait()
-	defer close(work)
 	for {
 		m, err := conn.Read()
 		if err != nil {
+			// What it said before it went comes first, its going offline included.
+			close(work)
+			working.Wait()
 			p.log.Info("Disconnected plugin", "plugin", h.name, "reason", err.Error())
 			return
 		}
@@ -574,13 +579,20 @@ func (b *socketBus) detach(root contractv1.Root) {
 	b.deliver(mqtt.Message{Topic: root.Status(), Payload: offline, Retained: true})
 }
 
-// end closes the session, if there is one, and returns once it has gone, so the next process starts
-// after the last one's offline.
+// end returns once the session, if there is one, has gone, so the next process starts after the last
+// one's offline. The process has already gone, so the session reads what it said and then the end of
+// the socket. Closing it first would lose the end of that, and is only for a socket something else
+// has kept open.
 func (b *socketBus) end() {
 	b.mu.Lock()
 	sess := b.session
 	b.mu.Unlock()
-	if sess != nil {
+	if sess == nil {
+		return
+	}
+	select {
+	case <-sess.finished:
+	case <-time.After(sessionEndWait):
 		_ = sess.conn.Close()
 		<-sess.finished
 	}
@@ -614,10 +626,14 @@ type routedSetter struct {
 	devices   *hub.Store
 	simulated driver.Setter
 	plugins   *plugins
+	// writing counts the writes under way, which the host lets finish when it stops.
+	writing *atomic.Int64
 }
 
 // Set implements driver.Setter.
 func (r routedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
+	r.writing.Add(1)
+	defer r.writing.Add(-1)
 	if snap, ok := r.devices.Get(dev); ok && snap.Instance.Driver == driver.Plugin {
 		return r.plugins.Set(ctx, snap.Instance, dev, name, value)
 	}

@@ -257,3 +257,23 @@ func TestCoalescerLogsARefusalAsInfo(t *testing.T) {
 		t.Errorf("a failed write logged %q", failed)
 	}
 }
+
+func TestCoalescerIsBusyUntilABurstEnds(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	c := &Coalescer{Window: time.Hour}
+	c.Start(ctx)
+	if c.Busy() {
+		t.Error("busy before any write")
+	}
+	c.Add(ident.ID{Name: "lamp"}, "on", true)
+	if !c.Busy() {
+		t.Error("not busy with a write gathering")
+	}
+	cancel()
+	c.flushes.Wait()
+	if c.Busy() {
+		t.Error("still busy after the burst ended")
+	}
+}
