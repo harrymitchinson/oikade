@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -171,7 +172,7 @@ func runInit(ctx context.Context, args []string) error {
 	if *source != "" {
 		err = moduleFromSource(dir, *name, *source)
 	} else {
-		err = moduleFromRelease(ctx, dir, *name)
+		err = moduleFromRelease(ctx, os.Stderr, dir, *name)
 	}
 	if err != nil {
 		// So that the same command can be run again.
@@ -183,18 +184,28 @@ func runInit(ctx context.Context, args []string) error {
 		_ = os.Remove(filepath.Join(dir, ".github"))
 		return err
 	}
-	fmt.Println("Started a home. Next: oikade test, then oikade dev.")
+	slices.Sort(written)
+	fmt.Printf("Started a home in %s: %s\n", dir, strings.Join(written, ", "))
+	if dir != "." {
+		fmt.Printf("Next: cd %s, then oikade test and oikade dev\n", dir)
+	} else {
+		fmt.Println("Next: oikade test, then oikade dev")
+	}
 	return nil
 }
 
-// moduleFromRelease writes a go.mod on the Oikade this binary is, or main if it's no release.
-func moduleFromRelease(ctx context.Context, dir, name string) error {
+// moduleFromRelease writes a go.mod on the Oikade this binary is, or main if it's no release. Go's own
+// output reaches stderr only when a command fails: on success it asks for steps, such as go mod tidy, that
+// this has already run.
+func moduleFromRelease(ctx context.Context, stderr io.Writer, dir, name string) error {
 	at := publishedVersion()
+	_, _ = fmt.Fprintf(stderr, "Fetching Oikade %s\n", at)
 	for _, args := range [][]string{{"mod", "init", name}, {"get", frameworkModule + "@" + at}, {"mod", "tidy"}} {
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = dir
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			_, _ = stderr.Write(out)
 			return fmt.Errorf("go %s: %w", strings.Join(args, " "), err)
 		}
 	}
