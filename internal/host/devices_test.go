@@ -3,11 +3,13 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -208,5 +210,58 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	}
 	if len(known.home) != 1 {
 		t.Fatalf("after settling: %v", known.home)
+	}
+}
+
+func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := &engine.Engine{Log: logging.Discard()}
+	devices := hub.NewStore(logging.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known.attach(simInstance)
+	for _, d := range []driver.AppDevice{
+		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
+		{ID: "m", Name: "motion", Room: "landing", Capabilities: []string{capability.Occupied}},
+		{ID: "p", Name: "plug", Room: "landing", Capabilities: []string{capability.On}},
+	} {
+		if _, err := known.paired(simInstance, d, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// As the process's RoomReads said: hall-lamp reads the hall, and landing-light the landing's
+	// sensors.
+	reads := map[string][]engine.RoomRead{
+		"hall-lamp":     {{Room: "hall"}},
+		"landing-light": {{Room: "landing", Types: []devicetype.Type{devicetype.OccupancySensor}}},
+	}
+	s := &apiServer{devices: known, srv: &server{session: &session{reads: reads}}}
+
+	resp := s.move("sensor", "attic")
+	if resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	if !strings.Contains(resp.Warning, "hall-lamp") || !strings.Contains(resp.Warning, "hall") {
+		t.Errorf("got warning %q, want one naming hall-lamp and the hall", resp.Warning)
+	}
+	if d, _ := reg.Get("sensor"); d.Room != "attic" {
+		t.Errorf("sensor is in %q: the move should still happen", d.Room)
+	}
+	// The plug left on the landing isn't one of the types landing-light reads.
+	if resp := s.move("motion", "attic"); !strings.Contains(resp.Warning, "landing-light") {
+		t.Errorf("got warning %q, want one naming landing-light", resp.Warning)
+	}
+	// The plug isn't one of the types landing-light reads, so its move empties nothing.
+	if resp := s.move("plug", "attic"); resp.Warning != "" {
+		t.Errorf("got warning %q for a device no hold reads", resp.Warning)
 	}
 }

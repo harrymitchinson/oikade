@@ -149,6 +149,13 @@ func (c *Client) RuleRun(rule, result string, t time.Time) {
 	}
 }
 
+// RoomReads tells the host the rooms a hold has read, so a move can warn when it empties one.
+func (c *Client) RoomReads(rule string, reads []engine.RoomRead) {
+	if err := c.conn.Write(Message{Type: TypeRoomReads, Rule: rule, Reads: reads}); err != nil {
+		c.fail(err)
+	}
+}
+
 // PushMetrics gives the host the process's rule metrics, to serve with its own.
 func (c *Client) PushMetrics(text []byte) {
 	if err := c.conn.Write(Message{Type: TypeMetrics, Metrics: text}); err != nil {

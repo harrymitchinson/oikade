@@ -186,6 +186,9 @@ type Response struct {
 	Status *Status `json:"status,omitempty"`
 	// Registry is a devices request's.
 	Registry *registry.Snapshot `json:"registry,omitempty"`
+	// Warning is something a request that went ahead should tell you, such as a move that left a
+	// room a rule reads with no devices.
+	Warning string `json:"warning,omitempty"`
 	// Moved are the devices a restore had to give a new endpoint or name.
 	Moved []string `json:"moved,omitempty"`
 	// Matter is a matter request's.

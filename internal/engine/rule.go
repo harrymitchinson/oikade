@@ -56,6 +56,25 @@ type Vars = map[string]any
 // counts as an error.
 type Condition func(Vars) (bool, error)
 
+// EmptyRoom is a condition's error when it read a room that has no members, of the read's types if
+// it has them. Unlike a room whose members haven't reported yet, it won't pass by waiting, so a hold
+// warns about it.
+type EmptyRoom struct{ Room string }
+
+func (e EmptyRoom) Error() string { return fmt.Sprintf("room %s has no members", e.Room) }
+
+// RoomRead is a room a condition read, with the device types it read there. No types means any.
+type RoomRead struct {
+	Room  string            `json:"room"`
+	Types []devicetype.Type `json:"types,omitempty"`
+}
+
+// Equal reports whether two reads are of the same room and types.
+func (r RoomRead) Equal(o RoomRead) bool { return r.Room == o.Room && slices.Equal(r.Types, o.Types) }
+
+// VarRoomReads is the Vars key of a *[]RoomRead that a condition adds each room it reads to.
+const VarRoomReads = "roomReads"
+
 // brokenCondition is a condition with a bug in it, rather than one that can't be evaluated yet.
 type brokenCondition struct{ error }
 

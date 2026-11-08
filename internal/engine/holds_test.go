@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -514,4 +515,52 @@ func TestAHoldLooksAgainWhenADeviceIsAnnounced(t *testing.T) {
 	r.store.Discovered(sensor, driver.Info{Found: true, Capabilities: holdDevices["bathroom-sensor"]})
 	r.settle()
 	r.expect(call{"bathroom-fan", capability.On, true})
+}
+
+// A hold's room reads are every room its when has read since it loaded, so one a look skips, as a
+// short-circuit does, stays, and OnRoomReads hears only when they grow.
+func TestAHoldsRoomReadsGrowAcrossLooks(t *testing.T) {
+	var mu sync.Mutex
+	var heard [][]RoomRead
+	landing := false
+	readsRooms := func(v Vars) (bool, error) {
+		reads := v[VarRoomReads].(*[]RoomRead)
+		*reads = append(*reads, RoomRead{Room: "hall"})
+		mu.Lock()
+		defer mu.Unlock()
+		if landing {
+			*reads = append(*reads, RoomRead{Room: "landing"})
+		}
+		return false, nil
+	}
+	r := startRigWith(t, rigOptions{now: local("2026-10-21 12:00 BST")})
+	r.e.mu.Lock()
+	r.e.OnRoomReads = func(_ ident.ID, reads []RoomRead) {
+		mu.Lock()
+		defer mu.Unlock()
+		heard = append(heard, reads)
+	}
+	r.e.mu.Unlock()
+	r.e.Load(holdRule(t, "lamp", Hold{Device: "hall-light", Capability: capability.On, Value: true, When: readsRooms}))
+	r.settle()
+	mu.Lock()
+	landing = true
+	mu.Unlock()
+	r.at("2026-10-21 12:01 BST")
+	mu.Lock()
+	landing = false
+	mu.Unlock()
+	r.at("2026-10-21 12:02 BST")
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := [][]RoomRead{{{Room: "hall"}}, {{Room: "hall"}, {Room: "landing"}}}
+	if len(heard) != len(want) {
+		t.Fatalf("heard %v, want %v", heard, want)
+	}
+	for i := range want {
+		if !slices.EqualFunc(heard[i], want[i], RoomRead.Equal) {
+			t.Fatalf("heard %v, want %v", heard, want)
+		}
+	}
 }

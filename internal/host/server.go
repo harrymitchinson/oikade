@@ -87,6 +87,8 @@ type session struct {
 	generation uint64
 	// rules are what the process's hello said about its rules.
 	rules []wire.RuleInfo
+	// reads are the rooms each hold has read, by rule, from RoomReads. The server's mu guards them.
+	reads map[string][]engine.RoomRead
 }
 
 func (s *session) end() {
@@ -200,6 +202,14 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 			continue
 		case wire.TypeMetrics:
 			s.pushed.set(m.Metrics)
+			continue
+		case wire.TypeRoomReads:
+			s.mu.Lock()
+			if sess.reads == nil {
+				sess.reads = map[string][]engine.RoomRead{}
+			}
+			sess.reads[m.Rule] = m.Reads
+			s.mu.Unlock()
 			continue
 		}
 		// Requests wait for the disk, which pongs mustn't, so they run apart. They run in order.

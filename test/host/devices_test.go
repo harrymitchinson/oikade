@@ -433,4 +433,28 @@ func TestMovingASensorChangesAHoldThatReadsItsRoom(t *testing.T) {
 	r.stdout(nil, "devices", "room", "dry-sensor", "cellar")
 	r.stdout(nil, "devices", "room", "damp-sensor", "garage")
 	r.wrote("dehumidifier", false)
+
+	// The cellar's last sensor out leaves the hold reading an empty room (OIK-214). The move still
+	// happens, and says so.
+	var moved struct {
+		OK      bool   `json:"ok"`
+		Warning string `json:"warning"`
+	}
+	if err := json.Unmarshal(r.stdout(nil, "devices", "room", "dry-sensor", "garage", "--json"), &moved); err != nil {
+		t.Fatal(err)
+	}
+	if !moved.OK || !strings.Contains(moved.Warning, "cellar-damp") || !strings.Contains(moved.Warning, "cellar") {
+		t.Errorf("got %+v, want a warning naming cellar-damp and the cellar", moved)
+	}
+	if d := deviceOf(t, r.devices(), "dry-sensor"); d.Room != "garage" {
+		t.Errorf("dry-sensor is in %q", d.Room)
+	}
+	// Out of a room no hold reads, it says nothing.
+	moved.Warning = ""
+	if err := json.Unmarshal(r.stdout(nil, "devices", "room", "dry-sensor", "attic", "--json"), &moved); err != nil {
+		t.Fatal(err)
+	}
+	if moved.Warning != "" {
+		t.Errorf("got warning %q from the garage, which no hold reads", moved.Warning)
+	}
 }

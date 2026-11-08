@@ -246,6 +246,8 @@ When: func(s framework.State) bool {
 
 A read covers the devices in the room now that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. If none has reported, the condition stops, as at a `Get`. A hold that reads a room looks again when a device moves in or out with `oikade devices room`, with no deploy. A sensor that reported and then died keeps its last value.
 
+A room with no devices in it, or none of the read's `Types`, stops the condition too, and a hold keeps its state: one that was on, or in its off-delay, stays on until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices room` still moves the device when it leaves a room a hold reads with nothing in it, but it warns on stderr, naming the holds, and `--json` has the warning as `warning`.
+
 - **Room triggers** fire on a change from any device in the room at the time of the change.
 - **Room actions** set every device in the room that has reported the capability, and is one of the `Types` if there are any, in name order, and skip the rest. So `on` on a room leaves the motion sensor and the thermostat alone. Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
 - **If some devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.

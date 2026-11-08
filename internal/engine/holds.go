@@ -47,6 +47,12 @@ type holdState struct {
 	reported *Schedule
 	// deleted is set when the Rule is deleted, so a write still running doesn't save its state.
 	deleted bool
+	// reads are the rooms the hold's when has read since it loaded. A look that stops early, or
+	// takes another branch, adds nothing, so a room it read once stays.
+	reads []RoomRead
+	// emptyRoom is the room with no members that the hold's when last stopped on, so it's
+	// warned about once each time. Empty means none.
+	emptyRoom string
 	// claimed is the claim an active hold last made on arbitrated targets, without its value.
 	// Nil means none since the hold loaded.
 	claimed *control.Claim
@@ -83,7 +89,7 @@ func sameTarget(a, b HoldTarget) bool {
 // condition reports whether the hold's while is true at now, and when the window next changes.
 // known is false when when can't be evaluated, as before a device it reads has reported. devices
 // are the namespace's, or nil to read them.
-func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices *home) (on, known bool, next time.Time) {
+func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, devices *home) (on, known bool, next time.Time) {
 	on = true
 	if h.window != nil {
 		on, next = h.window.at(now, e.Location, e.Site)
@@ -91,7 +97,19 @@ func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices *home) 
 	if !on || h.when == nil {
 		return on, true, next
 	}
-	b, err := h.when(e.conditionVars(key.Namespace, now, devices))
+	vars := e.conditionVars(key.Namespace, now, devices)
+	var reads []RoomRead
+	vars[VarRoomReads] = &reads
+	b, err := h.when(vars)
+	e.addReads(key, hs, reads)
+	empty, isEmpty := errors.AsType[EmptyRoom](err)
+	switch {
+	case !isEmpty:
+		hs.emptyRoom = ""
+	case hs.emptyRoom != empty.Room:
+		hs.emptyRoom = empty.Room
+		e.Log.Warn("Rule read a Room with no members", "rule", key, "room", empty.Room)
+	}
 	if broken, ok := errors.AsType[brokenCondition](err); ok {
 		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "err", broken)
 		return false, false, next
@@ -101,6 +119,19 @@ func (e *Engine) condition(key ident.ID, h *hold, now time.Time, devices *home) 
 		return false, false, next
 	}
 	return b, true, next
+}
+
+// addReads adds the rooms a look read to the hold's, and tells OnRoomReads when that grew.
+func (e *Engine) addReads(key ident.ID, hs *holdState, reads []RoomRead) {
+	grew := false
+	for _, r := range reads {
+		if !slices.ContainsFunc(hs.reads, r.Equal) {
+			hs.reads, grew = append(hs.reads, r), true
+		}
+	}
+	if grew && e.OnRoomReads != nil {
+		e.OnRoomReads(key, slices.Clone(hs.reads))
+	}
 }
 
 // evaluate works out whether a hold is active now, starts the write and save that follow, and
@@ -141,7 +172,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 			st.Budget = saved
 		}
 	} else {
-		on, known, next = e.condition(key, h, now, devices)
+		on, known, next = e.condition(key, hs, h, now, devices)
 	}
 	st, active := h.step(st, on, known, now)
 	switch {

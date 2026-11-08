@@ -64,6 +64,8 @@ type State struct {
 	now      time.Time
 	location *time.Location
 	site     *sun.Site
+	// reads collects the rooms a condition reads, for the engine. Nil means nobody asked.
+	reads *[]engine.RoomRead
 }
 
 // notReported ends a condition that read a value nobody has reported yet.
@@ -71,6 +73,9 @@ type notReported struct{ device, capability string }
 
 // roomNotReported ends a condition that read a room where no device has reported the capability.
 type roomNotReported struct{ room, capability string }
+
+// roomEmpty ends a condition that read a room with no members, of the read's types if it has them.
+type roomEmpty struct{ room string }
 
 func (s State) value(device, capability string) any {
 	v, ok := s.devices[device][capability]
@@ -118,7 +123,8 @@ func as[T Value](device, capability string, v any) T {
 //
 // A room read, like Any, All, Count and Readings, covers the devices in the room now, of its Types if
 // it has them, and ignores those that haven't reported the capability. If none has, the condition
-// stops there, as at a Get.
+// stops there, as at a Get. A room with no members stops it too, and a hold keeps its state, so it's
+// logged at Warn.
 func (s State) Any(r RoomRead[bool]) bool { return s.Count(r) > 0 }
 
 // All reports whether the capability is true on all of the room's devices that have reported it.
@@ -150,6 +156,15 @@ func roomValues[T Value](s State, r RoomRead[T]) []T {
 		// A device with no room is in none, as for a room's writes and triggers.
 		if room != "" && m.Room == room && m.OfTypes(types) {
 			names = append(names, name)
+		}
+	}
+	// A device with no room is in none, so "" is a mistake, not an empty room.
+	if room != "" {
+		if s.reads != nil {
+			*s.reads = append(*s.reads, engine.RoomRead{Room: room, Types: types})
+		}
+		if len(names) == 0 {
+			panic(roomEmpty{room})
 		}
 	}
 	slices.Sort(names)
@@ -201,6 +216,7 @@ func (c Condition) toEngine() engine.Condition {
 			location = time.Local // as the engine's
 		}
 		site, _ := v["site"].(*sun.Site)
+		reads, _ := v[engine.VarRoomReads].(*[]engine.RoomRead)
 		defer func() {
 			r := recover()
 			if r == nil {
@@ -218,10 +234,13 @@ func (c Condition) toEngine() engine.Condition {
 			case roomNotReported:
 				ok, err = false, fmt.Errorf("no device in room %s has reported %s", n.room, n.capability)
 				return
+			case roomEmpty:
+				ok, err = false, engine.EmptyRoom{Room: n.room}
+				return
 			}
 			panic(r)
 		}()
-		return c(State{devices: devices, members: members, now: now, location: location, site: site}), nil
+		return c(State{devices: devices, members: members, now: now, location: location, site: site, reads: reads}), nil
 	}
 }
 

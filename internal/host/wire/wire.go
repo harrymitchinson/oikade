@@ -38,8 +38,8 @@ const (
 type Type = pluginwire.Type
 
 // Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change and
-// Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun and
-// Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
+// Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun,
+// RoomReads and Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
 // session has only Hello, Welcome or Rejected, Ping, Pong and Publish, which flows both ways.
 const (
 	TypeHello           = pluginwire.TypeHello
@@ -65,6 +65,7 @@ const (
 	TypePause      Type = "pause"
 	TypeResume     Type = "resume"
 	TypeRuleRun    Type = "ruleRun"
+	TypeRoomReads  Type = "roomReads"
 	TypeMetrics    Type = "metrics"
 	TypePublish         = pluginwire.TypePublish
 )
@@ -202,6 +203,8 @@ type Message struct {
 	// Arbitrated is a claim or release's Reply: false means the capability isn't.
 	Arbitrated bool `json:"arbitrated,omitempty"`
 
+	// Reads are a RoomReads': every room its Rule's hold has read since the process started.
+	Reads []engine.RoomRead `json:"reads,omitempty"`
 	// Result is a RuleRun's, with Rule and Time.
 	Result string `json:"result,omitempty"`
 	// Metrics is a Metrics message's: the process's rule metrics in Prometheus's text format.
