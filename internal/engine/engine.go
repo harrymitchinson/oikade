@@ -465,22 +465,26 @@ func (e *Engine) Run(ctx context.Context) {
 }
 
 // arm fires what is due, then returns a timer for the earliest fire still to come, or nil when
-// there is none. The timer waits at most maxWait.
+// there is none. The timer waits at most maxWait. When something is still due, it asks Run to wake
+// and returns nil.
 func (e *Engine) arm(ctx context.Context) clock.Timer {
-	for {
-		e.fireDue(ctx)
-		next := e.earliest()
-		if next.IsZero() {
-			e.setArmed(time.Time{})
-			return nil
-		}
-		now := e.Clock.Now()
-		if d := next.Sub(now); d > 0 {
-			timer := e.Clock.NewTimer(min(d, maxWait))
-			e.setArmed(now.Add(min(d, maxWait)))
-			return timer
-		}
+	e.fireDue(ctx)
+	next := e.earliest()
+	if next.IsZero() {
+		e.setArmed(time.Time{})
+		return nil
 	}
+	now := e.Clock.Now()
+	if d := next.Sub(now); d > 0 {
+		timer := e.Clock.NewTimer(min(d, maxWait))
+		e.setArmed(now.Add(min(d, maxWait)))
+		return timer
+	}
+	// Still due: Run fires it again after taking the changes waiting, so something that never
+	// stops being due can't shut them out, or the stop (OIK-216).
+	e.setArmed(time.Time{})
+	e.signal()
+	return nil
 }
 
 // setArmed records when Run's timer fires, or that there's none, for Idle.

@@ -44,7 +44,7 @@ func TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree(t *testing.T) {
 	unknown.Store(true)
 	r.change("hall-motion", capability.Occupied, false)
 
-	// Not r.at, which waits for the engine to settle: before the fix it never did.
+	// The fan shows Run still takes changes. Then settle shows the light isn't due all the time.
 	r.clock.SetTime(local("2026-10-21 20:16 BST"))
 	r.store.Changed(driver.Update{
 		Device: ident.ID{Namespace: ns, Name: "bathroom-sensor"}, Capability: capability.Humidity, Value: 75.0,
