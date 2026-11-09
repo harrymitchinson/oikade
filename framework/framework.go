@@ -278,7 +278,7 @@ func (t Time) timer() engine.Timer {
 // needsLocation says, for a rule with these times, why it can't run in a home without a location.
 func needsLocation(o Options, times ...Time) error {
 	if o.site() == nil && slices.ContainsFunc(times, Time.isSun) {
-		return errors.New("a sunrise or sunset needs the home's location: set Latitude and Longitude in Options")
+		return errors.New("a sunrise or sunset needs the home's location: set Location in Options with framework.NewLocation")
 	}
 	return nil
 }
@@ -593,29 +593,44 @@ func (r Release) toEngine() engine.Action { return engine.Release(r) }
 
 // Options is what a home has exactly one of. A zero Options is valid.
 type Options struct {
-	// Latitude and Longitude are where the home is, in degrees, for Sunrise and Sunset. North and
-	// east are positive. Two decimals, about a kilometre, move them by seconds, so round to that.
-	// Both zero means no location, which a home without sunrise or sunset doesn't need. One zero is
-	// a real place, on the equator or the Greenwich meridian.
-	Latitude, Longitude float64
+	// Location is where the home is, for Sunrise and Sunset. A home without them needs none.
+	Location Location
 }
 
-func (o Options) check() error {
+func (o Options) check() error { return o.Location.check() }
+
+// site is the home's location for the engine, and nil if it has none.
+func (o Options) site() *sun.Site { return o.Location.site() }
+
+// Location is where a home is. NewLocation makes one, and a zero Location is none.
+type Location struct {
+	latitude, longitude float64
+	set                 bool
+}
+
+// NewLocation is a place, in degrees. North and east are positive, and 0 is a coordinate like any
+// other. Two decimals, about a kilometre, move sun times by seconds, so round to that.
+func NewLocation(latitude, longitude float64) Location {
+	return Location{latitude: latitude, longitude: longitude, set: true}
+}
+
+func (l Location) check() error {
 	switch {
-	case !(o.Latitude >= -90 && o.Latitude <= 90):
-		return fmt.Errorf("the home's latitude %v isn't between -90 and 90", o.Latitude)
-	case !(o.Longitude >= -180 && o.Longitude <= 180):
-		return fmt.Errorf("the home's longitude %v isn't between -180 and 180", o.Longitude)
+	case !l.set:
+		return nil
+	case !(l.latitude >= -90 && l.latitude <= 90):
+		return fmt.Errorf("the home's latitude %v isn't between -90 and 90", l.latitude)
+	case !(l.longitude >= -180 && l.longitude <= 180):
+		return fmt.Errorf("the home's longitude %v isn't between -180 and 180", l.longitude)
 	}
 	return nil
 }
 
-// site is the home's location for the engine, and nil if it has none.
-func (o Options) site() *sun.Site {
-	if o.Latitude == 0 && o.Longitude == 0 {
+func (l Location) site() *sun.Site {
+	if !l.set {
 		return nil
 	}
-	return &sun.Site{Latitude: o.Latitude, Longitude: o.Longitude}
+	return &sun.Site{Latitude: l.latitude, Longitude: l.longitude}
 }
 
 // Part is a piece of a home: a Hold, Moment, Flow, Control, Plugin, or a Bundle of them. A function

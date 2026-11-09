@@ -63,13 +63,14 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			"rule a: a sunrise or sunset needs the home's location",
 		},
 		"a latitude off the earth": {
-			NewHome(Options{Latitude: 91}, Hold{Name: "a", Set: d.To(true), When: when}), "latitude 91 isn't",
+			NewHome(Options{Location: NewLocation(91, 0)}, Hold{Name: "a", Set: d.To(true), When: when}), "latitude 91 isn't",
 		},
 		"a longitude off the earth": {
-			NewHome(Options{Longitude: -181}, Hold{Name: "a", Set: d.To(true), When: when}), "longitude -181 isn't",
+			NewHome(Options{Location: NewLocation(0, -181)}, Hold{Name: "a", Set: d.To(true), When: when}),
+			"longitude -181 isn't",
 		},
 		"an offset too far": {
-			NewHome(Options{Latitude: 51.48}, Flow{
+			NewHome(Options{Location: NewLocation(51.48, 0)}, Flow{
 				Name: "a", At: []Time{Sunrise(7 * time.Hour)}, Run: func(*FlowRun) error { return nil },
 			}),
 			"offset 7h0m0s is not between -6h and 6h",
@@ -513,7 +514,7 @@ func TestABudgetTakesClockTimesOnly(t *testing.T) {
 		Minutes: func(State) int { return 60 },
 		Prefer:  []Prefer{{Window: Window{Start: Sunset(0), End: Clock("23:00")}, Score: 3}},
 	}
-	home := NewHome(Options{Latitude: 51.48, Longitude: -0.01},
+	home := NewHome(Options{Location: NewLocation(51.48, -0.01)},
 		valveControl(), Hold{Name: "pump-daily", Set: pump.To(true), Budget: &b})
 	if _, _, err := home.compile(); err == nil || !strings.Contains(err.Error(), "clock times only") {
 		t.Fatalf("got %v, want a budget's windows to take clock times only", err)
@@ -629,9 +630,20 @@ func TestARuleNameClashesAcrossBundles(t *testing.T) {
 	}
 }
 
-func TestOneZeroCoordinateIsARealPlace(t *testing.T) {
+func TestALocationComparesByValue(t *testing.T) {
+	if NewLocation(51.48, -0.01) != NewLocation(51.48, -0.01) {
+		t.Error("two locations at one place differ")
+	}
+	if NewLocation(0, 0) == (Location{}) {
+		t.Error("a place at 0, 0 is the same as no location")
+	}
+}
+
+func TestAZeroCoordinateIsARealPlace(t *testing.T) {
 	dusk := Moment{Name: "a", At: []Time{Sunset(0)}, Do: []Action{Wait(time.Second)}}
-	for _, o := range []Options{{Latitude: 51.48}, {Longitude: -0.01}} {
+	for _, o := range []Options{
+		{Location: NewLocation(51.48, 0)}, {Location: NewLocation(0, -0.01)}, {Location: NewLocation(0, 0)},
+	} {
 		if _, _, err := NewHome(o, dusk).compile(); err != nil {
 			t.Errorf("%+v: %v", o, err)
 		}

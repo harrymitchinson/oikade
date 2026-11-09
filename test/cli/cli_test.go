@@ -246,7 +246,7 @@ func TestDevFiresAtSunsetForTheHomesLocation(t *testing.T) {
 	dir := newHome(t, bin)
 	main := filepath.Join(dir, "main.go")
 	replaceIn(t, main, "OffDelay: 5 * time.Minute,\n\t})", duskMoment)
-	replaceIn(t, main, "framework.Options{}", "framework.Options{Latitude: 51.48, Longitude: -0.01}")
+	replaceIn(t, main, "framework.Options{}", "framework.Options{Location: framework.NewLocation(51.48, -0.01)}")
 	// oikade dev starts now, in this machine's zone, so the next sunset is within a day.
 	before := time.Now()
 	out, err := run(t, bin, dir, "advance 25h\nquit\n", "dev")
