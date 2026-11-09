@@ -648,3 +648,10 @@ func TestAnEmptyHomeIsValid(t *testing.T) {
 		}
 	}
 }
+
+func TestASimulatedHomeReportsAMistakeInItsParts(t *testing.T) {
+	_, err := NewHome(Options{}, nil).simulated()
+	if err == nil || !strings.Contains(err.Error(), "a nil part, at parts[0]") {
+		t.Fatalf("got %v", err)
+	}
+}

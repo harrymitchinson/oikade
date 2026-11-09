@@ -241,6 +241,9 @@ func runReplay(h Home) error {
 
 // simulated is the home for a simulated one to run.
 func (h Home) simulated() (simhome.Home, error) {
+	if _, _, err := h.compile(); err != nil {
+		return simhome.Home{}, err
+	}
 	settings, err := h.settings()
 	if err != nil {
 		return simhome.Home{}, err
