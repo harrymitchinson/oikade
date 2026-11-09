@@ -81,7 +81,7 @@ func dev(name string) ident.ID {
 	return ident.ID{Name: name}
 }
 
-const root = "oikade/v1/home/sonoff"
+const root = "oikade/v1/sonoff"
 
 var (
 	porch = dev("porch-light")

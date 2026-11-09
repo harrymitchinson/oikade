@@ -86,29 +86,24 @@ func ValidDeviceType(t string) bool {
 
 const prefix = "oikade/v1/"
 
-// Root is a plugin's topic root, oikade/v1/<namespace>/<plugin>.
+// Root is a plugin's topic root, oikade/v1/<plugin>.
 type Root string
 
-// NewRoot returns the root of the Plugin with this namespace and name.
-func NewRoot(namespace, plugin string) Root {
-	return Root(prefix + namespace + "/" + plugin)
+// NewRoot returns the root of the Plugin with this name.
+func NewRoot(plugin string) Root {
+	return Root(prefix + plugin)
 }
 
-// ParseRoot checks a root read from the environment. It rejects anything but
-// oikade/v1/<namespace>/<plugin>, with segments that are non-empty and free of MQTT wildcards.
+// ParseRoot checks a root read from the environment. It rejects anything but oikade/v1/<plugin>,
+// where <plugin> is a ValidID, so it can't be a wildcard or one of the roots starting with '_' that
+// are Oikade's own.
 func ParseRoot(s string) (Root, error) {
 	rest, ok := strings.CutPrefix(s, prefix)
 	if !ok {
 		return "", fmt.Errorf("topic root %q does not start with %s", s, prefix)
 	}
-	parts := strings.Split(rest, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("topic root %q is not %s<namespace>/<plugin>", s, prefix)
-	}
-	for _, p := range parts {
-		if p == "" || strings.ContainsAny(p, "+#\x00") {
-			return "", fmt.Errorf("topic root %q is not %s<namespace>/<plugin>", s, prefix)
-		}
+	if !ValidID(rest) {
+		return "", fmt.Errorf("topic root %q is not %s<plugin>", s, prefix)
 	}
 	return Root(s), nil
 }

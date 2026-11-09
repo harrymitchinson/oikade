@@ -300,7 +300,7 @@ func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
 	defer cancel()
 	p, err := plugin.Start(ctx, plugin.Options{
-		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("home", "kettle")},
+		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("kettle")},
 		OnSet:       (&switchedOn{}).set,
 	})
 	if err != nil {
@@ -334,7 +334,7 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 	defer cancel()
 	device := &switchedOn{}
 	p, err := plugin.Start(ctx, plugin.Options{
-		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("home", "kettle")},
+		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("kettle")},
 		OnSet:       device.set,
 	})
 	if err != nil {

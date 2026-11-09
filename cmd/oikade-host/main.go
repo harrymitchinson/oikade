@@ -94,7 +94,7 @@ func runHost(ctx context.Context, args []string) error {
 		"An MQTT broker of yours, for --outside-plugins and imported plugins that use one, such as Zigbee2MQTT.")
 	outside := fs.String("outside-plugins", "",
 		"Comma-separated plugins that run as processes of their own and speak the MQTT contract on --broker, "+
-			"under oikade/v1/home/<name>.")
+			"under oikade/v1/<name>.")
 	brokerPassword := fs.String("broker-password-secret", "",
 		"The secret with the password for --broker, whose URL names the user. A password in a flag lands in ps.")
 	secretsDir := fs.String("secrets-dir", "",

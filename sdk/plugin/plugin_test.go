@@ -18,7 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
-const root contractv1.Root = "oikade/v1/home/example"
+const root contractv1.Root = "oikade/v1/example"
 
 const relayDevices = `{"devices":[{"id":"relay-1","found":true,"manufacturer":"Oikade",` +
 	`"model":"Simulated switch","capabilities":["on"]}],"undeclared":0}`
@@ -551,7 +551,7 @@ func TestSetHandlerFailure(t *testing.T) {
 	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"on":true}`), false); err != nil {
 		t.Fatal(err)
 	}
-	want := `"msg":"Could not apply set command","topic":"oikade/v1/home/example/relay-1/set",` +
+	want := `"msg":"Could not apply set command","topic":"oikade/v1/example/relay-1/set",` +
 		`"capability":"on","err":"relay unreachable"`
 	for !strings.Contains(logs.String(), want) {
 		select {

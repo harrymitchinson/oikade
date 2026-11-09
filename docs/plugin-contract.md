@@ -30,7 +30,7 @@ The messages are this contract's, on the host's socket rather than a broker, so 
 
 ## An outside process
 
-For a platform with no good Go library, a process of its own speaks this contract to a broker of yours. Name it to the host, and it uses the root `oikade/v1/home/<name>`:
+For a platform with no good Go library, a process of its own speaks this contract to a broker of yours. Name it to the host, and it uses the root `oikade/v1/<name>`:
 
 ```sh
 oikade-host --broker mqtt://mosquitto:1883 --outside-plugins ewelink,overkiz
@@ -43,10 +43,10 @@ The host supervises none of this: the process, its restarts and its broker are y
 Every topic sits under the plugin's root, which it gets in `OIKADE_TOPIC`:
 
 ```
-oikade/v1/<namespace>/<plugin>
+oikade/v1/<plugin>
 ```
 
-`<namespace>` and `<plugin>` are the `Plugin` object's namespace and name. `<id>` is a device's plugin-local ID from `Device.spec.plugin.id`. It matches `^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`, so it never contains `/`.
+`<plugin>` is the plugin's name, and `<id>` is a device's plugin-local ID. Both match `^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`, so neither contains `/`.
 
 | Topic | Direction | Retained | Payload |
 |---|---|---|---|
@@ -133,7 +133,7 @@ A plugin runs with:
 | Variable | Value |
 |---|---|
 | `OIKADE_MQTT_URL` | The broker, such as `mqtt://broker:1883`. |
-| `OIKADE_TOPIC` | The topic root, `oikade/v1/<namespace>/<plugin>`. |
+| `OIKADE_TOPIC` | The topic root, `oikade/v1/<plugin>`. |
 | `OIKADE_DEVICES_FILE` | Optional. A devices file, if you'd rather list a plugin's devices than have it report what it finds. |
 | `OIKADE_SECRETS_DIR` | The directory of secrets, one file each. Under the host it's always set, and holds what `oikade secret set` wrote. |
 

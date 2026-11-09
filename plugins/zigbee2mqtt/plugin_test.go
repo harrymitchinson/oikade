@@ -28,7 +28,7 @@ const (
 	base       = "z2m"
 )
 
-var root = contractv1.NewRoot("home", "zigbee")
+var root = contractv1.NewRoot("zigbee")
 
 // heard follows what the plugin publishes, as the host would.
 type heard struct {

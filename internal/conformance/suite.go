@@ -32,14 +32,13 @@ import (
 )
 
 const (
-	namespace = "conformance"
-	name      = "plugin"
+	name = "plugin"
 	// DefaultTimeout bounds every step unless Config says otherwise: a plugin has this long to
 	// react.
 	DefaultTimeout = 15 * time.Second
 )
 
-var root = contractv1.NewRoot(namespace, name)
+var root = contractv1.NewRoot(name)
 
 // T is what the checks report through. *testing.T satisfies it.
 type T interface {

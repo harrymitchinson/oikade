@@ -12,7 +12,7 @@ import (
 
 var pluginEnv = map[string]string{
 	contractv1.EnvMQTTURL:     "mqtt://broker:1883",
-	contractv1.EnvTopic:       "oikade/v1/home/sonoff",
+	contractv1.EnvTopic:       "oikade/v1/sonoff",
 	contractv1.EnvDevicesFile: "/etc/oikade/config/devices.json",
 }
 
@@ -32,7 +32,7 @@ func TestReadEnvironment(t *testing.T) {
 	}
 	want := Environment{
 		MQTTURL:     "mqtt://broker:1883",
-		Root:        "oikade/v1/home/sonoff",
+		Root:        "oikade/v1/sonoff",
 		DevicesFile: "/etc/oikade/config/devices.json",
 	}
 	if got != want {
@@ -52,9 +52,9 @@ func TestReadEnvironmentRejects(t *testing.T) {
 		{"missing URL", contractv1.EnvMQTTURL, ""},
 		{"missing topic", contractv1.EnvTopic, ""},
 		{"another contract", contractv1.EnvTopic, "oikade/v2/home/x"},
-		{"no plugin", contractv1.EnvTopic, "oikade/v1/home"},
-		{"too deep", contractv1.EnvTopic, "oikade/v1/home/x/y"},
-		{"wildcard", contractv1.EnvTopic, "oikade/v1/+/x"},
+		{"no plugin", contractv1.EnvTopic, "oikade/v1/"},
+		{"too deep", contractv1.EnvTopic, "oikade/v1/x/y"},
+		{"wildcard", contractv1.EnvTopic, "oikade/v1/+"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := readEnvironment(envWith(map[string]string{tc.variable: tc.value}))
