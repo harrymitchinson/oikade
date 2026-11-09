@@ -47,8 +47,9 @@ func compiled(t *testing.T, triggers ...Timer) *Compiled {
 // follow returns the next n fires after t.
 func follow(c *Compiled, t time.Time, n int, site *sun.Site) []time.Time {
 	var out []time.Time
+	suns := newSunCache(site)
 	for range n {
-		f, ok := c.nextFire(t, london, site)
+		f, ok := c.nextFire(t, london, suns)
 		if !ok {
 			break
 		}
@@ -155,7 +156,7 @@ func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment
 	r := momentRule(t, "lights-on", m)
 	s := &schedules{}
 	h := newHarnessWith(t, now, func(e *Engine) {
-		e.Site, e.OnSchedule, e.NextChange = site, s.record, NewNextChangeGauge()
+		e.Site, e.suns, e.OnSchedule, e.NextChange = site, newSunCache(site), s.record, NewNextChangeGauge()
 	}, r)
 	return h, s
 }
@@ -331,5 +332,58 @@ func TestCompileRejectsSignedTimes(t *testing.T) {
 		if _, err := atTime(tm); err == nil {
 			t.Errorf("%q compiled", tm)
 		}
+	}
+}
+
+func TestSunCacheAnswersAsTheSiteDoes(t *testing.T) {
+	tromso := sun.Site{Latitude: 69.6492, Longitude: 18.9553}
+	for _, month := range []time.Month{time.March, time.June, time.December} { // ordinary days, then none
+		suns := newSunCache(&tromso)
+		for pass := range 2 {
+			for day := range 20 {
+				for _, event := range []sun.Event{sun.Sunrise, sun.Sunset} {
+					want, wantOK := tromso.Time(event, 2026, month, 1+day, london)
+					got, ok := suns.time(event, 2026, month, 1+day, london)
+					if ok != wantOK || !got.Equal(want) {
+						t.Fatalf("pass %d: %v on %v %d = %v, %t, want %v, %t", pass, event, month, 1+day, got, ok, want, wantOK)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestSunCacheRemembersADayWithNoSunset(t *testing.T) {
+	suns := newSunCache(londonSite)
+	suns.days = map[sunDay]sunAnswer{{event: sun.Sunset, year: 2026, month: time.October, day: 21, loc: london}: {}}
+	if at, ok := suns.time(sun.Sunset, 2026, time.October, 21, london); ok || !at.IsZero() {
+		t.Errorf("got %v, %t, want the cached day with no sunset", at, ok)
+	}
+}
+
+func TestSunCacheIsWhatAWindowReads(t *testing.T) {
+	c := holdRule(t, "porch", Hold{Device: "d", Capability: capability.On, Value: true, Window: &Window{Start: SunTime{Event: sun.Sunset}, End: At{Time: "23:00"}}})
+	suns := newSunCache(londonSite)
+	seeded := local("2026-10-21 17:00 BST")
+	suns.days = map[sunDay]sunAnswer{{event: sun.Sunset, year: 2026, month: time.October, day: 21, loc: london}: {at: seeded, ok: true}}
+	if _, next := c.hold.window.at(local("2026-10-21 12:00 BST"), london, suns); !next.Equal(seeded) {
+		t.Errorf("window starts %v, want the cached %v", next, seeded)
+	}
+}
+
+func TestSunCacheStaysBounded(t *testing.T) {
+	suns := newSunCache(londonSite)
+	for day := range 1000 {
+		d := time.Date(2026, time.January, 1+day, 12, 0, 0, 0, london)
+		suns.time(sun.Sunset, d.Year(), d.Month(), d.Day(), london)
+		if len(suns.days) > sunCacheSize {
+			t.Fatalf("cache holds %d days after %d, want at most %d", len(suns.days), day, sunCacheSize)
+		}
+	}
+}
+
+func TestSunCacheWithoutASite(t *testing.T) {
+	if _, ok := newSunCache(nil).time(sun.Sunset, 2026, time.October, 21, london); ok {
+		t.Error("no site gave a sunset")
 	}
 }

@@ -400,7 +400,7 @@ func TestSunWindowFollowsTheDay(t *testing.T) {
 		{"2026-06-21", "21:06 BST"},
 		{"2026-12-21", "15:38 GMT"},
 	} {
-		_, next := w.at(local(tc.day+" 12:00 "+tc.sunset[6:]), london, londonSite)
+		_, next := w.at(local(tc.day+" 12:00 "+tc.sunset[6:]), london, newSunCache(londonSite))
 		if got := next.In(london).Format("15:04 MST"); got != tc.sunset {
 			t.Errorf("%s: window starts %s, want %s", tc.day, got, tc.sunset)
 		}

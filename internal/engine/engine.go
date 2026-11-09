@@ -73,7 +73,7 @@ type Engine struct {
 	Clock    clock.Clock
 	Location *time.Location
 	Log      *slog.Logger
-	// Site is where sun triggers are computed for. Nil means they never fire.
+	// Site is where sun triggers are computed for. Nil means they never fire. Set it before Init.
 	Site *sun.Site
 	// Runs counts trigger outcomes by rule and result.
 	Runs *prometheus.CounterVec
@@ -131,6 +131,8 @@ type Engine struct {
 	wake chan struct{}
 
 	mu sync.Mutex
+	// suns answers for Site, and is nil without one.
+	suns *sunCache
 	// membersGen counts changes to rooms' members, so a room hold compares its own only after one.
 	membersGen uint64
 	// skipped is the Room members each rule last left out.
@@ -213,6 +215,7 @@ func (e *Engine) Init() {
 	if e.Location == nil {
 		e.Location = time.Local
 	}
+	e.suns = newSunCache(e.Site)
 	if e.States == nil {
 		e.States = newMemoryStates[HoldState]()
 	}
@@ -282,7 +285,7 @@ func (e *Engine) schedule(key ident.ID, s *state, first bool) {
 	now := e.Clock.Now()
 	sched := Schedule{Generation: s.c.Generation}
 	if first {
-		if f, ok := s.c.lastFire(s.c.Since, now, e.Location, e.Site); ok {
+		if f, ok := s.c.lastFire(s.c.Since, now, e.Location, e.suns); ok {
 			if now.Sub(f.At) <= s.c.StartingDeadline {
 				s.due = f
 			} else {
@@ -300,7 +303,7 @@ func (e *Engine) schedule(key ident.ID, s *state, first bool) {
 // reschedule sets the Rule's next fire after now and returns it, or zero when there is none
 // within a week. Call with e.mu held.
 func (e *Engine) reschedule(s *state, now time.Time) time.Time {
-	f, ok := s.c.nextFire(now, e.Location, e.Site)
+	f, ok := s.c.nextFire(now, e.Location, e.suns)
 	if !ok {
 		s.next = fire{At: now.Add(recheck)}
 		return time.Time{}

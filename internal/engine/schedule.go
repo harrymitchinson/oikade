@@ -53,18 +53,71 @@ func checkSunOffset(d time.Duration) error {
 	return nil
 }
 
+// sunCacheSize bounds a sunCache: 32 days of both events, against the 20 or so that the schedule
+// and windows look at around now. A full cache is cleared, and the days in use are worked out again.
+const sunCacheSize = 64
+
+// sunDay is one sun event on one local calendar day.
+type sunDay struct {
+	event sun.Event
+	year  int
+	month time.Month
+	day   int
+	loc   *time.Location
+}
+
+// sunAnswer is the answer for a sunDay. ok is false when the sun doesn't rise or set that day,
+// which is worth remembering as much as a time.
+type sunAnswer struct {
+	at time.Time
+	ok bool
+}
+
+// sunCache remembers a site's sun times by day, since each hold evaluation asks for the same few
+// days many times over. A nil cache is no site: nothing happens on any day. It isn't safe for
+// concurrent use.
+type sunCache struct {
+	site sun.Site
+	days map[sunDay]sunAnswer
+}
+
+// newSunCache returns a cache for site, or nil for no site.
+func newSunCache(site *sun.Site) *sunCache {
+	if site == nil {
+		return nil
+	}
+	return &sunCache{site: *site}
+}
+
+// time returns when e happens on the local calendar day y-m-d in loc, as sun.Site.Time does.
+func (c *sunCache) time(e sun.Event, y int, m time.Month, d int, loc *time.Location) (time.Time, bool) {
+	if c == nil {
+		return time.Time{}, false
+	}
+	key := sunDay{event: e, year: y, month: m, day: d, loc: loc}
+	if got, ok := c.days[key]; ok {
+		return got.at, got.ok
+	}
+	at, ok := c.site.Time(e, y, m, d, loc)
+	if c.days == nil {
+		c.days = map[sunDay]sunAnswer{}
+	}
+	if len(c.days) >= sunCacheSize {
+		clear(c.days)
+	}
+	c.days[key] = sunAnswer{at: at, ok: ok}
+	return at, ok
+}
+
 // on returns when the trigger fires on the local calendar day y-m-d, if it does. A sun trigger
 // without a site never fires.
-func (t timeTrigger) on(y int, m time.Month, d int, loc *time.Location, site *sun.Site) (time.Time, bool) {
+func (t timeTrigger) on(y int, m time.Month, d int, loc *time.Location, suns *sunCache) (time.Time, bool) {
 	var at time.Time
 	switch t.typ {
 	case TypeAt:
 		at = wallClock(y, m, d, t.minutes, loc)
 	case TypeSun:
-		if site == nil {
-			return time.Time{}, false
-		}
-		ev, ok := site.Time(t.event, y, m, d, loc)
+		ev, ok := suns.time(t.event, y, m, d, loc)
 		if !ok {
 			return time.Time{}, false
 		}
@@ -105,13 +158,13 @@ type fire struct {
 
 // fires returns the timers' fire times on the local days from the day before from to the day
 // after to, in order.
-func (c *Compiled) fires(from, to time.Time, loc *time.Location, site *sun.Site) []fire {
+func (c *Compiled) fires(from, to time.Time, loc *time.Location, suns *sunCache) []fire {
 	var out []fire
 	first := from.In(loc).AddDate(0, 0, -1)
 	last := to.In(loc).AddDate(0, 0, 1)
 	for day := time.Date(first.Year(), first.Month(), first.Day(), 12, 0, 0, 0, loc); !day.After(last); day = day.AddDate(0, 0, 1) {
 		for _, t := range c.timers {
-			if at, ok := t.on(day.Year(), day.Month(), day.Day(), loc, site); ok {
+			if at, ok := t.on(day.Year(), day.Month(), day.Day(), loc, suns); ok {
 				out = append(out, fire{At: at, Typ: t.typ})
 			}
 		}
@@ -121,8 +174,8 @@ func (c *Compiled) fires(from, to time.Time, loc *time.Location, site *sun.Site)
 }
 
 // nextFire returns the first fire after t. It reports false when none is due within a week.
-func (c *Compiled) nextFire(t time.Time, loc *time.Location, site *sun.Site) (fire, bool) {
-	for _, f := range c.fires(t, t.AddDate(0, 0, lookback), loc, site) {
+func (c *Compiled) nextFire(t time.Time, loc *time.Location, suns *sunCache) (fire, bool) {
+	for _, f := range c.fires(t, t.AddDate(0, 0, lookback), loc, suns) {
 		if f.At.After(t) {
 			return f, true
 		}
@@ -131,11 +184,11 @@ func (c *Compiled) nextFire(t time.Time, loc *time.Location, site *sun.Site) (fi
 }
 
 // lastFire returns the latest fire after since and at or before t, looking back at most a week.
-func (c *Compiled) lastFire(since, t time.Time, loc *time.Location, site *sun.Site) (fire, bool) {
+func (c *Compiled) lastFire(since, t time.Time, loc *time.Location, suns *sunCache) (fire, bool) {
 	if limit := t.AddDate(0, 0, -lookback); since.Before(limit) {
 		since = limit
 	}
-	fires := c.fires(since, t, loc, site)
+	fires := c.fires(since, t, loc, suns)
 	for _, fire := range slices.Backward(fires) {
 		if f := fire; !f.At.After(t) {
 			return f, f.At.After(since)

@@ -486,7 +486,7 @@ func (w *Window) Contains(t time.Time, loc *time.Location, site *sun.Site) (bool
 	if err != nil {
 		return false, err
 	}
-	in, _ := c.at(t, loc, site)
+	in, _ := c.at(t, loc, newSunCache(site))
 	return in, nil
 }
 
