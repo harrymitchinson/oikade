@@ -790,6 +790,10 @@ func TestWhatNeedsMoreThanOneSettingStaysInCheck(t *testing.T) {
 	}{
 		"a hold with no condition": {NewHold("h", pump.To(true)), ""},
 		"a moment with no trigger": {NewMoment("m", pump.To(true)), ""},
+		"both overrides, one of them zero": {
+			NewControl(pump.To(false), PreferOn, ExternalOverride).OverrideHold(0).OverrideUntilNext(),
+			"alternatives",
+		},
 		"both overrides": {
 			NewControl(pump.To(false), PreferOn, ExternalOverride).OverrideHold(time.Hour).OverrideUntilNext(),
 			"alternatives",

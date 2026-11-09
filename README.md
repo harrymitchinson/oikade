@@ -188,7 +188,7 @@ framework.NewHome(framework.Options{Location: framework.NewLocation(51.48, -0.01
 Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Location`. `NewLocation` takes both coordinates, so one can't be forgotten, and 0 is a coordinate like any other.
 
 - **A time that isn't one,** such as `Clock("25:00")`, a sun time with no location, or an offset over 6 hours, fails `oikade check`, naming the rule.
-- **Several times** fire at each, so `{Clock("18:00"), Sunset(0)}` fires at both, and the same time twice fires once.
+- **Several times** fire at each, so `At(Clock("18:00"), Sunset(0))` fires at both, and the same time twice fires once.
 - **A day the sun doesn't rise or set,** as near the poles, that time doesn't fire, and a window with it as an edge stays shut.
 - **A window with a sun edge and a clock edge** ends at the first end after its start, as any window does. So in midsummer `NewWindow(Sunset(3 * time.Hour), Clock("23:30"))` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
@@ -261,7 +261,7 @@ A hold needs a `Window`, a `When` or a `Budget`, and everything in it must be tr
 
 A `When` is looked at again on every device change and at least once a minute, so one that uses `s.Within` changes within a minute of the window's edge. A hold's own `Window` changes on the edge, and `oikade status` shows when it next does, so prefer it when the window is the whole story.
 
-- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its `Default` is what's left when the hold ends.
+- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its default is what's left when the hold ends.
 - **Without a `Control`, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
 - **Restarts are safe.** The host saves each hold's state, and a new process writes only if the hold started or ended meanwhile. A restart at 02:00 doesn't undo the 23:00 tap, but automations down from 21:50 to 02:00 turn the heater on when they come back. `OffDelay` deadlines are saved too, so the fan still stops on time.
 - **Two holds on one capability need a `Control`** to decide between them.

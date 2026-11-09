@@ -430,14 +430,15 @@ func NewBudget(minutes func(State) int) Budget { return Budget{minutes: minutes}
 // NewBandedBudget picks the day's minutes from a reading.
 func NewBandedBudget(bands Bands) Budget { return Budget{bands: &bands} }
 
-// PlanningTime starts each planning day, as "HH:MM". Without it, that's midnight.
+// PlanningTime starts each planning day, as "HH:MM". Without it, or if empty, that's midnight.
 func (b Budget) PlanningTime(hhmm string) Budget {
 	b.planningTime = hhmm
 	b.once = b.once.note("a budget's PlanningTime")
 	return b
 }
 
-// SlotMinutes is the length of the slots the day is planned in: 15, 30 or 60. Without it, 30.
+// SlotMinutes is the length of the slots the day is planned in: 15, 30 or 60. Without it, or at
+// zero, 30.
 func (b Budget) SlotMinutes(minutes int) Budget {
 	b.slotMinutes = minutes
 	b.once = b.once.note("a budget's SlotMinutes")
@@ -513,8 +514,8 @@ type Control struct {
 	once                             once
 }
 
-// NewControl arbitrates a capability. fallback is the capability at its value with no claims:
-// Heater.On.To(false). It names a device, not a room, and takes no For, Until or Priority.
+// NewControl arbitrates a capability. fallback is its default, the capability at its value with no
+// claims: Heater.On.To(false). It names a device, not a room, and takes no For, Until or Priority.
 func NewControl(fallback Set, resolve Resolve, external External) Control {
 	return Control{fallback: fallback, resolve: resolve, external: external}
 }
@@ -554,7 +555,7 @@ func (c Control) MinimumOff(d time.Duration) Control {
 	return c
 }
 
-// MaximumStartsPerDay limits off-to-on transitions. Without it, they're unlimited.
+// MaximumStartsPerDay limits off-to-on transitions. Without it, or at zero, they're unlimited.
 func (c Control) MaximumStartsPerDay(n int) Control {
 	c.maximumStartsPerDay = n
 	c.once = c.once.note("MaximumStartsPerDay")
@@ -562,7 +563,7 @@ func (c Control) MaximumStartsPerDay(n int) Control {
 }
 
 func (c Control) entry() (control.Entry, error) {
-	if err := c.fallback.plain("a Control's Default", true); err != nil {
+	if err := c.fallback.plain("a Control's default", true); err != nil {
 		return control.Entry{}, err
 	}
 	raw, err := json.Marshal(c.fallback.value)
@@ -627,8 +628,8 @@ func (r Moment) Restart() Moment {
 	return r
 }
 
-// Late is how late a time in At may still fire, as when no process was running. Without it, that's
-// DefaultLate. A moment with a Safety Set fires however late it is.
+// Late is how late a time in At may still fire, as when no process was running. Without it, or at
+// zero, that's DefaultLate. A moment with a Safety Set fires however late it is.
 func (r Moment) Late(d time.Duration) Moment {
 	r.late = d
 	r.once = r.once.note("Late")
@@ -691,8 +692,8 @@ func (r Flow) Priority(p Priority) Flow {
 	return r
 }
 
-// Late is how late a run may wake and still carry on. Without it, that's DefaultLate. A run later
-// than that gives up and logs it, rather than turn the lights off at 09:00.
+// Late is how late a run may wake and still carry on. Without it, or at zero, that's DefaultLate. A
+// run later than that gives up and logs it, rather than turn the lights off at 09:00.
 func (r Flow) Late(d time.Duration) Flow {
 	r.late = d
 	r.once = r.once.note("Late")
@@ -1032,7 +1033,7 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 		}) {
 			bad(errors.New("declared twice"))
 		}
-		if c.overrideUntilNext && c.overrideHold != 0 {
+		if slices.Contains(c.once.given, "OverrideHold") && slices.Contains(c.once.given, "OverrideUntilNext") {
 			bad(errors.New("OverrideHold and OverrideUntilNext are alternatives"))
 		}
 		if err := c.once.err(); err != nil {
