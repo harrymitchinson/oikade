@@ -8,7 +8,6 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
 // hold is a compiled Hold.
@@ -39,15 +38,15 @@ type window struct {
 // a start on one of its days until the first end after it, so it may cross midnight. An end at
 // the same time as the start makes it a whole day. Next is zero when nothing changes within a
 // week, as with sun times and no site.
-func (w *window) at(t time.Time, loc *time.Location, site *sun.Site) (in bool, next time.Time) {
+func (w *window) at(t time.Time, loc *time.Location, suns *sunCache) (in bool, next time.Time) {
 	local := t.In(loc)
 	first := local.AddDate(0, 0, -2)
 	for day := time.Date(first.Year(), first.Month(), first.Day(), 12, 0, 0, 0, loc); day.Before(local.AddDate(0, 0, lookback)); day = day.AddDate(0, 0, 1) {
-		start, ok := w.start.on(day.Year(), day.Month(), day.Day(), loc, site)
+		start, ok := w.start.on(day.Year(), day.Month(), day.Day(), loc, suns)
 		if !ok || len(w.days) > 0 && !slices.Contains(w.days, start.In(loc).Weekday()) {
 			continue
 		}
-		end, ok := w.endAfter(start, loc, site)
+		end, ok := w.endAfter(start, loc, suns)
 		if !ok {
 			continue
 		}
@@ -64,11 +63,11 @@ func (w *window) at(t time.Time, loc *time.Location, site *sun.Site) (in bool, n
 }
 
 // endAfter returns the window's first end after start, looking at most two days ahead.
-func (w *window) endAfter(start time.Time, loc *time.Location, site *sun.Site) (time.Time, bool) {
+func (w *window) endAfter(start time.Time, loc *time.Location, suns *sunCache) (time.Time, bool) {
 	d := start.In(loc)
 	for i := range 3 {
 		day := d.AddDate(0, 0, i)
-		if end, ok := w.end.on(day.Year(), day.Month(), day.Day(), loc, site); ok && end.After(start) {
+		if end, ok := w.end.on(day.Year(), day.Month(), day.Day(), loc, suns); ok && end.After(start) {
 			return end, true
 		}
 	}

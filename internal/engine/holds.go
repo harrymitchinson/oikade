@@ -105,7 +105,7 @@ func sameTarget(a, b HoldTarget) bool {
 func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, devices *home) (on, known bool, next time.Time) {
 	on = true
 	if h.window != nil {
-		on, next = h.window.at(now, e.Location, e.Site)
+		on, next = h.window.at(now, e.Location, e.suns)
 	}
 	if !on || h.when == nil {
 		e.stopped(key, hs, "")
