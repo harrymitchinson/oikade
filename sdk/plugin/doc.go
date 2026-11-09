@@ -11,7 +11,7 @@
 //		})
 //	}
 //
-// A plugin that a home imports through framework.Home needs no main of its own: it gives the home a
+// A plugin that a home imports as a framework.Plugin needs no main of its own: it gives the home a
 // Factory, and the host runs it in a process of its own through RunHosted. A Handler is the same code
 // either way. Importing a plugin means trusting its code: it runs as you.
 //

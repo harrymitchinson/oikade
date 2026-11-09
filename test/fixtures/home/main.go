@@ -244,7 +244,7 @@ func main() {
 	case "badcheck":
 		extra = append(extra, framework.Moment{Name: leakShutoff})
 	}
-	run(framework.Home{
+	run(rules{
 		Holds: []framework.Hold{
 			{
 				Name: "fan", Set: on("fan").To(true),
@@ -310,7 +310,7 @@ func main() {
 const parkedName = "parked"
 
 // run leaves out what the variants without a rule leave out.
-func run(h framework.Home) {
+func run(h rules) {
 	if strings.Contains(variant, "noflow") {
 		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "claiming" })
 	}
@@ -369,5 +369,27 @@ func run(h framework.Home) {
 	if variant == "zigbee" {
 		h.Plugins = []framework.Plugin{{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})}}
 	}
-	framework.Run(h)
+	framework.Run(h.home())
+}
+
+// rules is a home by kind, for the variants to edit before it's built.
+type rules struct {
+	Holds   []framework.Hold
+	Moments []framework.Moment
+	Flows   []framework.Flow
+	Control []framework.Control
+	Plugins []framework.Plugin
+}
+
+func (r rules) home() framework.Home {
+	return framework.NewHome(framework.Options{}, bundle(r.Holds), bundle(r.Moments), bundle(r.Flows), bundle(r.Control),
+		bundle(r.Plugins))
+}
+
+func bundle[T framework.Part](parts []T) framework.Bundle {
+	all := make([]framework.Part, 0, len(parts))
+	for _, p := range parts {
+		all = append(all, p)
+	}
+	return framework.NewBundle(all...)
 }

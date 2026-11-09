@@ -54,16 +54,14 @@ Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/rele
 
 ```go
 func home() framework.Home {
-	return framework.Home{
-		Holds: []framework.Hold{{
-			Name: "porch-light",
-			Set:  PorchLight.On.To(true),
-			When: func(s framework.State) bool {
-				return s.Get(PorchSensor.Occupied)
-			},
-			OffDelay: 5 * time.Minute,
-		}},
-	}
+	return framework.NewHome(framework.Options{}, framework.Hold{
+		Name: "porch-light",
+		Set:  PorchLight.On.To(true),
+		When: func(s framework.State) bool {
+			return s.Get(PorchSensor.Occupied)
+		},
+		OffDelay: 5 * time.Minute,
+	})
 }
 ```
 
@@ -119,16 +117,16 @@ A replay never reaches a device: your code runs in `simhome`, as in `oikade dev`
 
 The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade-host --event-log-age 336h --event-log-mib 64` are the defaults. Prometheus stays the place for history: this exists to be replayed, and losing it costs nothing else.
 
-Arbitration and budgets are declared in the same `Home`. `Control` is [arbitration](#arbitration), and a `Hold` with a `Budget` is [a budget](#budgets):
+Arbitration and budgets are parts of the same home, and a [`Bundle`](#composing-a-home) keeps them together. `Control` is [arbitration](#arbitration), and a `Hold` with a `Budget` is [a budget](#budgets):
 
 ```go
-framework.Home{
-	Control: []framework.Control{{
+framework.NewBundle(
+	framework.Control{
 		Default: Dehumidifier.On.To(false),
 		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: 2 * time.Hour,
 		MinimumOn: time.Hour, MinimumOff: 30 * time.Minute, MaximumStartsPerDay: 3,
-	}},
-	Holds: []framework.Hold{{
+	},
+	framework.Hold{
 		Name: "dehumidifier-daily", Set: Dehumidifier.On.To(true),
 		Budget: &framework.Budget{
 			Bands: &framework.Bands{
@@ -138,8 +136,8 @@ framework.Home{
 			Prefer: []framework.Prefer{{Window: framework.Window{Start: framework.Clock("22:00"), End: framework.Clock("06:00")}, Score: 3}},
 			Forbid: []framework.Window{{Start: framework.Clock("07:00"), End: framework.Clock("08:30")}},
 		},
-	}},
-}
+	},
+)
 ```
 
 `Budget.Minutes` is a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
@@ -193,22 +191,21 @@ framework.Moment{
 }
 ```
 
-`framework.Sunrise` and `framework.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Site`, its latitude and longitude in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
+`framework.Sunrise` and `framework.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's location, `Latitude` and `Longitude` in `framework.Options`, in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
 
 ```go
-framework.Home{
-	Site: &framework.Site{Latitude: 51.48, Longitude: -0.01}, // round to 2 decimals
-	Moments: []framework.Moment{{
+framework.NewHome(framework.Options{Latitude: 51.48, Longitude: -0.01}, // round to 2 decimals
+	framework.Moment{
 		Name: "porch-at-dusk",
 		At:   []framework.Time{framework.Sunset(-20 * time.Minute)}, // 20 minutes before sunset
 		Do:   []framework.Action{PorchLight.On.To(true)},
-	}},
-}
+	},
+)
 ```
 
-Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Site`, and a `Site` with neither set fails `oikade check`.
+Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no location, and leaves both at zero. One zero is a real place, on the equator or the Greenwich meridian.
 
-- **A time that isn't one,** such as `Clock("25:00")`, a sun time with no `Site`, or an offset over 6 hours, fails `oikade check`, naming the rule.
+- **A time that isn't one,** such as `Clock("25:00")`, a sun time with no location, or an offset over 6 hours, fails `oikade check`, naming the rule.
 - **Several times** fire at each, so `{Clock("18:00"), Sunset(0)}` fires at both, and the same time twice fires once.
 - **A day the sun doesn't rise or set,** as near the poles, that time doesn't fire, and a window with it as an edge stays shut.
 - **A window with a sun edge and a clock edge** ends at the first `End` after its `Start`, as any window does. So in midsummer `Window{Start: Sunset(3 * time.Hour), End: Clock("23:30")}` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
@@ -295,15 +292,15 @@ A `When` is looked at again on every device change and at least once a minute, s
 A budget hold runs a device for a number of minutes a day, and plans when. Here a loft fan runs one to five hours a day depending on how humid the loft was at midnight, overnight where it can, and never in the evening:
 
 ```go
-framework.Home{
-	Control: []framework.Control{{
+framework.NewBundle(
+	framework.Control{
 		Default: LoftFan.On.To(false),
 		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: time.Hour,
 		MinimumOn:           time.Hour,        // each run at least an hour
 		MinimumOff:          30 * time.Minute, // and half an hour's rest between runs
 		MaximumStartsPerDay: 3,
-	}},
-	Holds: []framework.Hold{{
+	},
+	framework.Hold{
 		Name: "loft-airing", Set: LoftFan.On.To(true),
 		Budget: &framework.Budget{
 			Bands: &framework.Bands{
@@ -315,8 +312,8 @@ framework.Home{
 			Prefer: []framework.Prefer{{Window: framework.Window{Start: framework.Clock("23:00"), End: framework.Clock("07:00")}, Score: 3}},
 			Forbid: []framework.Window{{Start: framework.Clock("18:00"), End: framework.Clock("22:00")}},
 		},
-	}},
-}
+	},
+)
 ```
 
 | Field | |
@@ -339,19 +336,19 @@ At `PlanningTime` your process plans the day and freezes the plan. The hold is a
 A capability is arbitrated when your home has a `Control` for it. The host saves that, so a device is arbitrated, and a Safety claim holds, while your automations are down.
 
 ```go
-framework.Home{
-	Control: []framework.Control{{
+framework.NewBundle(
+	framework.Control{
 		Default:           HallLight.On.To(false), // what's left when nobody claims it
 		Resolve:           framework.PreferOn,        // two claims at one level: on wins
 		External:          framework.ExternalOverride, // a wall switch or Home app tap becomes a claim...
 		OverrideUntilNext: true,                      // ...until what the rules want next changes
-	}},
-	Holds: []framework.Hold{{
+	},
+	framework.Hold{
 		Name: "hall-motion-light", Set: HallLight.On.To(true),
 		When:     func(s framework.State) bool { return s.Get(HallMotion.Occupied) },
 		OffDelay: 5 * time.Minute,
-	}},
-}
+	},
+)
 ```
 
 Rules, Matter controllers and the device itself make **claims**. The highest level with a claim wins:
@@ -400,26 +397,72 @@ A `Set` with none of these on an arbitrated capability of a single device is an 
 A latched hold stays active once it has started, until another rule releases it. It's worked out from state rather than from a change. So if the garage overheated while your process was down and is still too hot when it next sees the temperature, it latches then.
 
 ```go
-framework.Home{
-	Control: []framework.Control{{
+framework.NewBundle(
+	framework.Control{
 		Default: GarageHeater.On.To(true),
 		Resolve: framework.PreferOff, External: framework.ExternalRevert,
-	}},
-	Holds: []framework.Hold{{
+	},
+	framework.Hold{
 		Name: "garage-overheat", Set: GarageHeater.On.To(false),
 		Priority: framework.Safety, Latch: true,
 		When: func(s framework.State) bool { return s.Get(GarageTemperature.Temperature) > 40 },
-	}},
-	Moments: []framework.Moment{{
+	},
+	framework.Moment{
 		Name: "garage-overheat-reset",
 		On:   []framework.Change{GarageDoor.Open},
 		If:   func(s framework.State) bool { return s.Get(GarageDoor.Open) },
 		Do:   []framework.Action{framework.Release("garage-overheat")},
-	}},
-}
+	},
+)
 ```
 
 Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. The Home app keeps showing your tap for about 10 seconds before it shows the heater off again. Oikade has already sent the real value by then, and sending it later doesn't change the wait ([OIK-239](https://linear.app/oikade/issue/OIK-239)). Rules run only while your process is up. If the garage overheats and cools again while it's down, nothing latches. A hold's latch lives under its name, so don't rename it: a deploy refuses that without `--allow-safety-removal`.
+
+### Composing a home
+
+A home is made of parts. Each `Hold`, `Moment`, `Flow`, `Control` and `Plugin` is a `framework.Part`, and `framework.NewHome` takes any number of them after its `framework.Options`. An ordinary Go function can return one, so what belongs together stays together and can move between files. `framework.NewBundle` groups parts, and is a part itself, so bundles nest:
+
+```go
+func home() framework.Home {
+	return framework.NewHome(framework.Options{Latitude: 51.48, Longitude: -0.01},
+		lights(),
+		dehumidifier(),
+	)
+}
+
+func lights() framework.Bundle {
+	var parts []framework.Part
+	for _, z := range zones {
+		parts = append(parts, motionLight(z))
+	}
+	return framework.NewBundle(parts...)
+}
+
+func motionLight(z zone) framework.Hold {
+	return framework.Hold{
+		Name: z.name + "-motion-light", Set: z.light.To(true),
+		When:     func(s framework.State) bool { return s.Get(z.motion) },
+		OffDelay: 5 * time.Minute,
+	}
+}
+
+// A budgeted hold and the Control it needs.
+func dehumidifier() framework.Bundle {
+	return framework.NewBundle(
+		framework.Control{
+			Default: Dehumidifier.On.To(false), Resolve: framework.PreferOn,
+			External: framework.ExternalOverride, OverrideHold: time.Hour,
+		},
+		framework.Hold{Name: "dehumidifier", Set: Dehumidifier.On.To(true), Budget: &cellarBudget},
+	)
+}
+```
+
+A helper can be tested on its own: `hometest.New(t, framework.NewHome(framework.Options{}, dehumidifier()), hometest.Options{})`.
+
+- **A rule keeps the name you wrote,** whichever `Bundle` it's in, because a name is the rule's state key. A helper used twice builds a different name each time, and a clash fails `oikade check`.
+- **`Options` holds what a home has exactly one of,** so a second location, or one inside a helper, doesn't compile. A home with no sunrise or sunset writes `framework.Options{}`.
+- **A nil part, or a pointer to one,** fails `oikade check`, which says where it is.
 
 ### Reading status
 
@@ -457,13 +500,13 @@ Drivers translate to and from a protocol-neutral set of capabilities, named as a
 
 A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. Devices it serves are ordinary devices: they show up on the Matter bridge, in Grafana and in rules like Zigbee ones.
 
-On a host, a plugin is a Go module your home imports, in `framework.Home`'s `Plugins`, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as the host's user, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade-host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
+On a host, a plugin is a Go module your home imports, as a `framework.Plugin` part of your home, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as the host's user, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade-host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
 
 To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
 ### Removing a plugin
 
-Taking a plugin out of `Plugins` doesn't remove its devices ([OIK-225](https://linear.app/oikade/issue/OIK-225)). They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding, so that a plugin missing from one build, or a rollback, loses nothing. `oikade check` and `oikade deploy` list those devices, and call out any a Safety claim holds. `oikade devices` and `oikade status` mark them `plugin not imported`. Import the plugin again and they come back as they were. To be rid of them, `oikade devices remove --plugin NAME` removes all of that plugin's devices at once, as `remove` does one, and needs `--allow-safety` if a Safety claim holds any of them.
+Taking a `framework.Plugin` out of your home doesn't remove its devices ([OIK-225](https://linear.app/oikade/issue/OIK-225)). They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding, so that a plugin missing from one build, or a rollback, loses nothing. `oikade check` and `oikade deploy` list those devices, and call out any a Safety claim holds. `oikade devices` and `oikade status` mark them `plugin not imported`. Import the plugin again and they come back as they were. To be rid of them, `oikade devices remove --plugin NAME` removes all of that plugin's devices at once, as `remove` does one, and needs `--allow-safety` if a Safety claim holds any of them.
 
 ## Deploying
 
@@ -713,10 +756,10 @@ If the registry is lost, `oikade devices restore devices.go` reads the file back
 Zigbee is a plugin your home imports ([OIK-155](https://linear.app/oikade/issue/OIK-155)). You run Zigbee2MQTT and an MQTT broker such as Mosquitto yourself. Oikade connects to them, and doesn't start them or write their configuration.
 
 ```go
-framework.Run(framework.Home{
-	Plugins: []framework.Plugin{{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})}},
+framework.Run(framework.NewHome(framework.Options{},
+	framework.Plugin{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})},
 	// ...
-})
+))
 ```
 
 ```sh

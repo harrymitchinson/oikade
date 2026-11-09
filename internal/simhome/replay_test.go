@@ -35,10 +35,10 @@ func contactOf(device string) framework.Handle[bool] {
 var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 
 func fanAbove(threshold float64) framework.Home {
-	return framework.Home{Holds: []framework.Hold{{
+	return framework.NewHome(framework.Options{}, framework.Hold{
 		Name: "fan", Set: switchOf("fan").To(true), OffDelay: 10 * time.Minute,
 		When: func(s framework.State) bool { return s.Get(humidityOf("sensor")) > threshold },
-	}}}
+	})
 }
 
 func options(t *testing.T, home framework.Home) simhome.Options {
@@ -148,7 +148,7 @@ func TestAChangedThresholdShowsExactlyTheWritesThatMoved(t *testing.T) {
 
 func TestCodeThatStopsWritingLeavesTheDeviceAlone(t *testing.T) {
 	log := recorded(t, fanAbove(70), damp)
-	r, err := simhome.Replay(options(t, framework.Home{}), head(monday.Add(end)), log)
+	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(monday.Add(end)), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestABaselineGivesValuesThatNeverChanged(t *testing.T) {
 // have made through one is what the check is for.
 func TestReplayMakesNoOutsideCalls(t *testing.T) {
 	calls := 0
-	home := framework.Home{Flows: []framework.Flow{{
+	home := framework.NewHome(framework.Options{}, framework.Flow{
 		Name: "alarm", On: []framework.Change{contactOf("door")},
 		Run: func(r *framework.FlowRun) error {
 			if err := r.Do("notify", nil, func(context.Context) error { calls++; return nil }); err != nil {
@@ -195,7 +195,7 @@ func TestReplayMakesNoOutsideCalls(t *testing.T) {
 			}
 			return r.Set(switchOf("fan").To(true))
 		},
-	}}}
+	})
 	opts := options(t, home)
 	opts.Devices = append(opts.Devices, simhome.Device{Name: "door", Capabilities: []string{contact}, Values: map[string]any{contact: false}})
 	log := []api.Event{
@@ -218,7 +218,7 @@ func TestReplayMakesNoOutsideCalls(t *testing.T) {
 }
 
 func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
-	home := framework.Home{Flows: []framework.Flow{{
+	home := framework.NewHome(framework.Options{}, framework.Flow{
 		Name: "weather", On: []framework.Change{humidityOf("sensor")},
 		Run: func(r *framework.FlowRun) error {
 			var rain bool
@@ -229,7 +229,7 @@ func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
 			}
 			return r.Set(switchOf("fan").To(rain))
 		},
-	}}}
+	})
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 40.0},
 		{Time: monday.Add(time.Minute), Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 50.0},
@@ -271,7 +271,7 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 		{Time: monday.Add(time.Hour + time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: true},
 		{Time: monday.Add(time.Hour + 8*time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 	}
-	r, err := simhome.Replay(options(t, framework.Home{}), head(monday.Add(2*time.Hour)), log)
+	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(monday.Add(2*time.Hour)), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,10 +281,10 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 }
 
 func TestADevicePairedLaterHasNoValueUntilItReports(t *testing.T) {
-	home := framework.Home{Holds: []framework.Hold{{
+	home := framework.NewHome(framework.Options{}, framework.Hold{
 		Name: "fan", Set: switchOf("fan").To(true),
 		When: func(s framework.State) bool { return s.Get(humidityOf("late")) > 70 },
-	}}}
+	})
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 		{Time: monday.Add(5 * time.Hour), Type: api.EventChange, Device: "late", Capability: humidity, Value: 90.0},
@@ -304,7 +304,7 @@ func TestWhatLandedAfterTheFetchBeganIsLeftOut(t *testing.T) {
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 		{Time: now.Add(3 * time.Second), Type: api.EventWrite, Device: "fan", Capability: on, Value: true},
 	}
-	r, err := simhome.Replay(options(t, framework.Home{}), head(now), log)
+	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(now), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestTwoFlowsCanUseOneCallName(t *testing.T) {
 			},
 		}
 	}
-	opts := options(t, framework.Home{Flows: []framework.Flow{flowOf("a", "door-a", "fan"), flowOf("b", "door-b", "fan-b")}})
+	opts := options(t, framework.NewHome(framework.Options{}, flowOf("a", "door-a", "fan"), flowOf("b", "door-b", "fan-b")))
 	at := monday.Add(time.Minute)
 	event := func(device string, when time.Time, v bool) api.Event {
 		return api.Event{Time: when, Type: api.EventChange, Device: device, Capability: contact, Value: v}
@@ -356,7 +356,7 @@ func TestAnOutageThatHasntEndedGetsANote(t *testing.T) {
 		{Time: monday, Type: api.EventProcess, Message: "disconnected"},
 		{Time: monday.Add(time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 	}
-	r, err := simhome.Replay(options(t, framework.Home{}), head(monday.Add(time.Hour)), log)
+	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(monday.Add(time.Hour)), log)
 	if err != nil {
 		t.Fatal(err)
 	}

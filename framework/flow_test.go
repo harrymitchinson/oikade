@@ -25,17 +25,17 @@ func TestCompileChecksFlows(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := Home{Flows: []Flow{tc.flow}}.compile()
+			_, _, err := NewHome(Options{}, tc.flow).compile()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want %q", err, tc.want)
 			}
 		})
 	}
 
-	_, _, err := Home{
-		Flows:   []Flow{{Name: "a", On: on, Run: run}},
-		Moments: []Moment{{Name: "a", On: on, Do: []Action{Wait(time.Second)}}},
-	}.compile()
+	_, _, err := NewHome(Options{},
+		Flow{Name: "a", On: on, Run: run},
+		Moment{Name: "a", On: on, Do: []Action{Wait(time.Second)}},
+	).compile()
 	if err == nil || !strings.Contains(err.Error(), "declared twice") {
 		t.Fatalf("a flow and a moment sharing a name: %v", err)
 	}
@@ -46,20 +46,16 @@ func TestLateness(t *testing.T) {
 		t.Fatalf("the public default is %s and the runner's is %s", DefaultLate, flow.DefaultLate)
 	}
 	on := []Change{Handle[bool]{Device: "hall", Capability: Open}}
-	rules, flows, err := Home{
-		Flows: []Flow{
-			{Name: "normal", On: on, Run: func(*FlowRun) error { return nil }},
-			{Name: "safety", On: on, Priority: Safety, Run: func(*FlowRun) error { return nil }},
-			{Name: "own", On: on, Late: time.Hour, Run: func(*FlowRun) error { return nil }},
+	rules, flows, err := NewHome(Options{},
+		Flow{Name: "normal", On: on, Run: func(*FlowRun) error { return nil }},
+		Flow{Name: "safety", On: on, Priority: Safety, Run: func(*FlowRun) error { return nil }},
+		Flow{Name: "own", On: on, Late: time.Hour, Run: func(*FlowRun) error { return nil }},
+		Moment{Name: "moment", On: on, Do: []Action{Wait(time.Second)}},
+		Moment{
+			Name: "safety-moment", On: on,
+			Do: []Action{Handle[bool]{Device: "valve", Capability: On}.To(false).Priority(Safety)},
 		},
-		Moments: []Moment{
-			{Name: "moment", On: on, Do: []Action{Wait(time.Second)}},
-			{
-				Name: "safety-moment", On: on,
-				Do: []Action{Handle[bool]{Device: "valve", Capability: On}.To(false).Priority(Safety)},
-			},
-		},
-	}.compile()
+	).compile()
 	if err != nil {
 		t.Fatal(err)
 	}

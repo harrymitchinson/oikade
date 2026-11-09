@@ -271,16 +271,14 @@ import (
 // writes from your real devices, with a field for each thing each one can do: replace these two with
 // yours.
 func home() framework.Home {
-	return framework.Home{
-		Holds: []framework.Hold{{
-			Name: "porch-light",
-			Set:  PorchLight.On.To(true),
-			When: func(s framework.State) bool {
-				return s.Get(PorchSensor.Occupied)
-			},
-			OffDelay: 5 * time.Minute,
-		}},
-	}
+	return framework.NewHome(framework.Options{}, framework.Hold{
+		Name: "porch-light",
+		Set:  PorchLight.On.To(true),
+		When: func(s framework.State) bool {
+			return s.Get(PorchSensor.Occupied)
+		},
+		OffDelay: 5 * time.Minute,
+	})
 }
 
 func main() {

@@ -95,7 +95,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	}
 	eng := &engine.Engine{
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
-		Site: h.Site.toSun(), Log: log.With("logger", "automations"),
+		Site: h.options.site(), Log: log.With("logger", "automations"),
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
@@ -245,7 +245,7 @@ func (h Home) simulated() (simhome.Home, error) {
 	if err != nil {
 		return simhome.Home{}, err
 	}
-	return simhome.Home{Compile: h.compile, Control: settings, Site: h.Site.toSun()}, nil
+	return simhome.Home{Compile: h.compile, Control: settings, Site: h.options.site()}, nil
 }
 
 func init() {
@@ -275,12 +275,12 @@ func runPlugin(ctx context.Context, h Home, socket string) error {
 	if len(os.Args) != 3 {
 		return errors.New("which plugin? run this with oikade-host")
 	}
-	i := slices.IndexFunc(h.Plugins, func(p Plugin) bool { return p.Name == os.Args[2] })
+	i := slices.IndexFunc(h.plugins, func(p Plugin) bool { return p.Name == os.Args[2] })
 	if i < 0 {
 		return fmt.Errorf("this home has no plugin %s", os.Args[2])
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	return plugin.RunHosted(ctx, socket, h.Plugins[i].Name, h.Plugins[i].New, log)
+	return plugin.RunHosted(ctx, socket, h.plugins[i].Name, h.plugins[i].New, log)
 }
 
 // firesWaiting bounds the fires waiting to be saved.

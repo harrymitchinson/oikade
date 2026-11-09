@@ -194,12 +194,11 @@ func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
 func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t\t}},", `OffDelay: 5 * time.Minute,
-		}},
-		Moments: []framework.Moment{{
-			Name: "lights-out", At: []framework.Time{framework.Clock("25:00")},
-			Do: []framework.Action{PorchLight.On.To(false)},
-		}},`)
+	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t})", `OffDelay: 5 * time.Minute,
+	}, framework.Moment{
+		Name: "lights-out", At: []framework.Time{framework.Clock("25:00")},
+		Do: []framework.Action{PorchLight.On.To(false)},
+	})`)
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -211,32 +210,43 @@ func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 
 // duskMoment is a moment for oikade init's home, after its hold.
 const duskMoment = `OffDelay: 5 * time.Minute,
-		}},
-		Moments: []framework.Moment{{
-			Name: "porch-at-dusk", At: []framework.Time{framework.Sunset(-20 * time.Minute)},
-			Do: []framework.Action{PorchLight.On.To(true)},
-		}},`
+	}, framework.Moment{
+		Name: "porch-at-dusk", At: []framework.Time{framework.Sunset(-20 * time.Minute)},
+		Do: []framework.Action{PorchLight.On.To(true)},
+	})`
 
-func TestCheckFailsOnASunsetWithNoSite(t *testing.T) {
+func TestCheckFailsOnASunsetWithNoLocation(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t\t}},", duskMoment)
+	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t})", duskMoment)
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
 	}
-	if !strings.Contains(out, "rule porch-at-dusk: a sunrise or sunset needs the home's Site") {
+	if !strings.Contains(out, "rule porch-at-dusk: a sunrise or sunset needs the home's location") {
 		t.Errorf("oikade check said:\n%s", out)
 	}
 }
 
-func TestDevFiresAtSunsetForTheHomesSite(t *testing.T) {
+func TestCheckFailsOnANilPart(t *testing.T) {
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	replaceIn(t, filepath.Join(dir, "main.go"), "framework.Options{},", "framework.Options{}, nil,")
+	out, err := run(t, bin, dir, "", "check")
+	if err == nil {
+		t.Fatalf("oikade check passed:\n%s", out)
+	}
+	if !strings.Contains(out, "a nil part, at parts[0]") {
+		t.Errorf("oikade check said:\n%s", out)
+	}
+}
+
+func TestDevFiresAtSunsetForTheHomesLocation(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	main := filepath.Join(dir, "main.go")
-	replaceIn(t, main, "OffDelay: 5 * time.Minute,\n\t\t}},", duskMoment)
-	replaceIn(t, main, "return framework.Home{",
-		"return framework.Home{\n\t\tSite: &framework.Site{Latitude: 51.48, Longitude: -0.01},")
+	replaceIn(t, main, "OffDelay: 5 * time.Minute,\n\t})", duskMoment)
+	replaceIn(t, main, "framework.Options{}", "framework.Options{Latitude: 51.48, Longitude: -0.01}")
 	// oikade dev starts now, in this machine's zone, so the next sunset is within a day.
 	before := time.Now()
 	out, err := run(t, bin, dir, "advance 25h\nquit\n", "dev")

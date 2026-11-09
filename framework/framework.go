@@ -2,15 +2,13 @@
 // holds and moments and hands them to Run:
 //
 //	func main() {
-//		framework.Run(framework.Home{
-//			Holds: []framework.Hold{{
-//				Name: "bathroom-fan",
-//				Set:  BathroomFan.On.To(true),
-//				When: func(s framework.State) bool {
-//					return s.Get(BathroomSensor.Humidity) > 70
-//				},
-//			}},
-//		})
+//		framework.Run(framework.NewHome(framework.Options{}, framework.Hold{
+//			Name: "bathroom-fan",
+//			Set:  BathroomFan.On.To(true),
+//			When: func(s framework.State) bool {
+//				return s.Get(BathroomSensor.Humidity) > 70
+//			},
+//		}))
 //	}
 //
 // BathroomFan and BathroomSensor come from devices.go, which oikade types writes from the home's
@@ -190,7 +188,7 @@ func (s State) Now() time.Time { return s.now }
 // A hold looks again every minute, so one whose When uses it changes within a minute of the window's
 // edge, where a hold's own Window changes on it. A window with a mistake in it, such as a time
 // that isn't one, stops the condition, and that's logged. A sunrise or sunset needs the home's
-// Site, and a window with one is never open without it.
+// location, and a window with one is never open without it.
 func (s State) Within(w Window) bool {
 	in, err := w.toEngine().Contains(s.now, s.location, s.site)
 	if err != nil {
@@ -256,11 +254,11 @@ type Time struct {
 // isn't fails oikade check.
 func Clock(hhmm string) Time { return Time{clock: hhmm} }
 
-// Sunrise is the day's sunrise at the home's Site, moved by offset: -20*time.Minute is 20 minutes
+// Sunrise is the day's sunrise at the home's location, moved by offset: -20*time.Minute is 20 minutes
 // before. The offset is at most 6 hours either way. A day the sun doesn't rise, it doesn't happen.
 func Sunrise(offset time.Duration) Time { return Time{sun: sun.Sunrise, offset: offset} }
 
-// Sunset is the day's sunset at the home's Site, moved by offset, as Sunrise is.
+// Sunset is the day's sunset at the home's location, moved by offset, as Sunrise is.
 func Sunset(offset time.Duration) Time { return Time{sun: sun.Sunset, offset: offset} }
 
 // isSun reports whether it's a sunrise or sunset.
@@ -277,37 +275,10 @@ func (t Time) timer() engine.Timer {
 	return engine.At{Time: t.clock}
 }
 
-// Site is where the home is, in degrees, for sunrise and sunset. North and east are positive. Two
-// decimals, about a kilometre, move them by seconds, so round to that.
-type Site struct {
-	Latitude, Longitude float64
-}
-
-func (s *Site) check() error {
-	switch {
-	case s == nil:
-		return nil
-	case *s == (Site{}):
-		return errors.New("the Site has no latitude or longitude")
-	case !(s.Latitude >= -90 && s.Latitude <= 90):
-		return fmt.Errorf("the Site's latitude %v isn't between -90 and 90", s.Latitude)
-	case !(s.Longitude >= -180 && s.Longitude <= 180):
-		return fmt.Errorf("the Site's longitude %v isn't between -180 and 180", s.Longitude)
-	}
-	return nil
-}
-
-func (s *Site) toSun() *sun.Site {
-	if s == nil {
-		return nil
-	}
-	return &sun.Site{Latitude: s.Latitude, Longitude: s.Longitude}
-}
-
-// needsSite says, for a rule with these times, why it can't run without a Site.
-func needsSite(site *Site, times ...Time) error {
-	if site == nil && slices.ContainsFunc(times, Time.isSun) {
-		return errors.New("a sunrise or sunset needs the home's Site")
+// needsLocation says, for a rule with these times, why it can't run in a home without a location.
+func needsLocation(o Options, times ...Time) error {
+	if o.site() == nil && slices.ContainsFunc(times, Time.isSun) {
+		return errors.New("a sunrise or sunset needs the home's location: set Latitude and Longitude in Options")
 	}
 	return nil
 }
@@ -620,17 +591,103 @@ type Release string
 
 func (r Release) toEngine() engine.Action { return engine.Release(r) }
 
-// Home is a home's automations.
+// Options is what a home has exactly one of. A zero Options is valid.
+type Options struct {
+	// Latitude and Longitude are where the home is, in degrees, for Sunrise and Sunset. North and
+	// east are positive. Two decimals, about a kilometre, move them by seconds, so round to that.
+	// Both zero means no location, which a home without sunrise or sunset doesn't need. One zero is
+	// a real place, on the equator or the Greenwich meridian.
+	Latitude, Longitude float64
+}
+
+func (o Options) check() error {
+	switch {
+	case !(o.Latitude >= -90 && o.Latitude <= 90):
+		return fmt.Errorf("the home's latitude %v isn't between -90 and 90", o.Latitude)
+	case !(o.Longitude >= -180 && o.Longitude <= 180):
+		return fmt.Errorf("the home's longitude %v isn't between -180 and 180", o.Longitude)
+	}
+	return nil
+}
+
+// site is the home's location for the engine, and nil if it has none.
+func (o Options) site() *sun.Site {
+	if o.Latitude == 0 && o.Longitude == 0 {
+		return nil
+	}
+	return &sun.Site{Latitude: o.Latitude, Longitude: o.Longitude}
+}
+
+// Part is a piece of a home: a Hold, Moment, Flow, Control, Plugin, or a Bundle of them. A function
+// can return one, so that what belongs together stays together. Only this package adds kinds.
+//
+// A part keeps the names written in it, whichever Bundle it's in. A name is a rule's state key, so a
+// helper used twice builds a different name each time.
+type Part interface {
+	part()
+}
+
+func (Hold) part()    {}
+func (Moment) part()  {}
+func (Flow) part()    {}
+func (Control) part() {}
+func (Plugin) part()  {}
+func (Bundle) part()  {}
+
+// Bundle is parts that belong together, such as a budgeted hold and the Control it needs. NewBundle
+// makes one. It's a Part itself, so bundles nest, and an empty one is fine.
+type Bundle struct {
+	parts []Part
+}
+
+// NewBundle groups parts.
+func NewBundle(parts ...Part) Bundle {
+	return Bundle{parts: slices.Clone(parts)}
+}
+
+// Home is a home's automations. NewHome makes one.
 type Home struct {
-	// Site is where the home is, for Sunrise and Sunset. A home without them needs none.
-	Site    *Site
-	Holds   []Hold
-	Moments []Moment
-	Flows   []Flow
-	// Control says which capabilities are arbitrated, and how.
-	Control []Control
-	// Plugins are the plugins your home imports.
-	Plugins []Plugin
+	options Options
+	holds   []Hold
+	moments []Moment
+	flows   []Flow
+	control []Control
+	plugins []Plugin
+	// mistakes are the parts NewHome couldn't take, which compile reports.
+	mistakes []error
+}
+
+// NewHome makes a home from its parts. A nil part, or a pointer to one, fails oikade check.
+func NewHome(o Options, parts ...Part) Home {
+	h := Home{options: o}
+	h.add("parts", parts)
+	return h
+}
+
+// add sorts parts by kind, in the order they're written, with path saying where they came from.
+func (h *Home) add(path string, parts []Part) {
+	for i, p := range parts {
+		at := fmt.Sprintf("%s[%d]", path, i)
+		switch p := p.(type) {
+		case Hold:
+			h.holds = append(h.holds, p)
+		case Moment:
+			h.moments = append(h.moments, p)
+		case Flow:
+			h.flows = append(h.flows, p)
+		case Control:
+			h.control = append(h.control, p)
+		case Plugin:
+			h.plugins = append(h.plugins, p)
+		case Bundle:
+			h.add(at, p.parts)
+		case nil:
+			h.mistakes = append(h.mistakes, fmt.Errorf("a nil part, at %s: give a rule or a Bundle", at))
+		default:
+			h.mistakes = append(h.mistakes,
+				fmt.Errorf("a %T, at %s: a part is a Hold, Moment, Flow, Control, Plugin or Bundle, written as a value", p, at))
+		}
+	}
 }
 
 // Plugin is a plugin your home imports. It's a Go module like any other, and it runs as you, so
@@ -668,8 +725,9 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		rules = append(rules, c)
 	}
 	settings, err := h.settings()
-	errs = append(errs, err, h.Site.check())
-	for _, r := range h.Holds {
+	errs = append(errs, h.mistakes...)
+	errs = append(errs, err, h.options.check())
+	for _, r := range h.holds {
 		key := name(r.Name)
 		err := r.Set.plain("a hold's Set", false)
 		var c *engine.Compiled
@@ -679,20 +737,20 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		if err == nil {
 			err = r.checkBudget(settings)
 		}
-		add(r.Name, c, errors.Join(err, needsSite(h.Site, r.Window.times()...)))
+		add(r.Name, c, errors.Join(err, needsLocation(h.options, r.Window.times()...)))
 	}
-	for _, r := range h.Moments {
+	for _, r := range h.moments {
 		c, err := engine.NewMoment(name(r.Name), r.toEngine())
-		add(r.Name, c, errors.Join(err, nilChange(r.On), needsSite(h.Site, r.At...)))
+		add(r.Name, c, errors.Join(err, nilChange(r.On), needsLocation(h.options, r.At...)))
 	}
-	for _, r := range h.Flows {
+	for _, r := range h.flows {
 		f := r.toFlow(name(r.Name))
 		flows[r.Name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
-		add(r.Name, c, errors.Join(err, nilChange(r.On), needsSite(h.Site, r.At...)))
+		add(r.Name, c, errors.Join(err, nilChange(r.On), needsLocation(h.options, r.At...)))
 	}
 	plugins := map[string]bool{}
-	for _, p := range h.Plugins {
+	for _, p := range h.plugins {
 		switch {
 		case !contractv1.ValidID(p.Name):
 			errs = append(errs, fmt.Errorf("plugin name %q isn't valid", p.Name))
@@ -710,7 +768,7 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 func (h Home) settings() ([]wire.DeviceControl, error) {
 	var out []wire.DeviceControl
 	var errs []error
-	for _, c := range h.Control {
+	for _, c := range h.control {
 		device, capability := c.Default.device, c.Default.capability
 		bad := func(err error) { errs = append(errs, fmt.Errorf("control %s on %s: %w", capability, device, err)) }
 		if slices.ContainsFunc(out, func(o wire.DeviceControl) bool {
@@ -737,14 +795,14 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 // manifest describes the home to the host, which judges a new version by it.
 func (h Home) manifest() wire.Manifest {
 	m := wire.Manifest{Protocol: wire.Version}
-	for _, r := range h.Holds {
+	for _, r := range h.holds {
 		info := wire.RuleInfo{Name: r.Name, Kind: wire.KindHold, Safety: r.Priority == Safety, Latch: r.Latch}
 		if info.Safety {
 			info.Rooms = r.Set.roomOfTypes(nil)
 		}
 		m.Rules = append(m.Rules, info)
 	}
-	for _, r := range h.Moments {
+	for _, r := range h.moments {
 		info := wire.RuleInfo{Name: r.Name, Kind: "moment", Safety: r.safety()}
 		for _, a := range r.Do {
 			if s, ok := a.(Set); ok && s.priority == Safety {
@@ -753,10 +811,10 @@ func (h Home) manifest() wire.Manifest {
 		}
 		m.Rules = append(m.Rules, info)
 	}
-	for _, r := range h.Flows {
+	for _, r := range h.flows {
 		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: wire.KindFlow, Safety: r.Priority == Safety})
 	}
-	for _, p := range h.Plugins {
+	for _, p := range h.plugins {
 		m.Plugins = append(m.Plugins, p.Name)
 	}
 	// A home with a mistake in its settings doesn't compile, and never gets this far.

@@ -29,7 +29,7 @@ import (
 
 func main() {
 	_ = GardenLight.Name
-	framework.Run(framework.Home{` + body + `})
+	framework.Run(framework.NewHome(framework.Options{}, ` + body + `))
 }
 
 var _ = time.Minute
@@ -48,38 +48,38 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 		want string
 	}{
 		"fine": {body: `
-		Holds: []framework.Hold{{
+		framework.Hold{
 			Name: "porch-light",
 			Set:  PorchLight.On.To(true),
 			When: func(s framework.State) bool { return s.Get(PorchSensor.Occupied) },
 			OffDelay: 5 * time.Minute,
-		}},
-		Moments: []framework.Moment{{
+		},
+		framework.Moment{
 			Name: "goodnight", At: []framework.Time{framework.Clock("23:30")},
 			On:   []framework.Change{PorchSensor.Occupied, framework.InRoom("porch", framework.Occupied)},
 			Do: []framework.Action{
 				framework.InRoom("living-room", framework.On).To(false),
 				Hallway.Brightness.To(10).For(time.Hour),
 			},
-		}},`},
+		},`},
 		"a capability the device hasn't": {
-			body: `Holds: []framework.Hold{{Name: "a", Set: PorchLight.Occupied.To(true)}},`,
+			body: `framework.Hold{Name: "a", Set: PorchLight.Occupied.To(true)},`,
 			want: "PorchLight.Occupied undefined",
 		},
 		"a reserved device's capability": {
-			body: `Holds: []framework.Hold{{Name: "a", Set: GardenLight.On.To(true)}},`,
+			body: `framework.Hold{Name: "a", Set: GardenLight.On.To(true)},`,
 			want: "GardenLight.On undefined",
 		},
 		"a number set to a bool": {
-			body: `Moments: []framework.Moment{{Name: "a", Do: []framework.Action{Hallway.Brightness.To(true)}}},`,
+			body: `framework.Moment{Name: "a", Do: []framework.Action{Hallway.Brightness.To(true)}},`,
 			want: "cannot use true",
 		},
 		"a bool read as a number": {
-			body: `Holds: []framework.Hold{{Name: "a", When: func(s framework.State) bool { return s.Get(Hallway.On) > 5 }}},`,
+			body: `framework.Hold{Name: "a", When: func(s framework.State) bool { return s.Get(Hallway.On) > 5 }},`,
 			want: "mismatched types",
 		},
 		"a room's capability set to the wrong type": {
-			body: `Moments: []framework.Moment{{Name: "a", Do: []framework.Action{framework.InRoom("hall", framework.On).To(10)}}},`,
+			body: `framework.Moment{Name: "a", Do: []framework.Action{framework.InRoom("hall", framework.On).To(10)}},`,
 			want: "cannot use 10",
 		},
 	} {
