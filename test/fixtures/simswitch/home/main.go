@@ -10,10 +10,10 @@ import (
 )
 
 func main() {
-	framework.Run(framework.Home{Plugins: []framework.Plugin{{
+	framework.Run(framework.NewHome(framework.Options{}, framework.Plugin{
 		Name: "simswitch",
 		New: func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
 			return relays.New(devices), nil
 		},
-	}}})
+	}))
 }
