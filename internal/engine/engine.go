@@ -118,8 +118,6 @@ type Engine struct {
 	// busy counts the work Idle can't see in the engine's state: changes queued, a wake or save
 	// asked for and not yet done, and goroutines working rather than parked.
 	busy atomic.Int64
-	// suns answers for Site, and is nil without one.
-	suns *sunCache
 	// armed is when Run's timer fires, or zero for none. Guarded by mu.
 	armed time.Time
 	// parked are the runs waiting on the clock or a change, by Park's id for them.
@@ -133,6 +131,8 @@ type Engine struct {
 	wake chan struct{}
 
 	mu sync.Mutex
+	// suns answers for Site, and is nil without one.
+	suns *sunCache
 	// membersGen counts changes to rooms' members, so a room hold compares its own only after one.
 	membersGen uint64
 	// skipped is the Room members each rule last left out.

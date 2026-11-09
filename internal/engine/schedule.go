@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/sun"
@@ -67,19 +66,19 @@ type sunDay struct {
 	loc   *time.Location
 }
 
-// sunTime is the answer for a sunDay. ok is false when the sun doesn't rise or set that day, which
-// is worth remembering as much as a time.
-type sunTime struct {
+// sunAnswer is the answer for a sunDay. ok is false when the sun doesn't rise or set that day,
+// which is worth remembering as much as a time.
+type sunAnswer struct {
 	at time.Time
 	ok bool
 }
 
 // sunCache remembers a site's sun times by day, since each hold evaluation asks for the same few
-// days many times over. A nil cache is no site: nothing happens on any day.
+// days many times over. A nil cache is no site: nothing happens on any day. It isn't safe for
+// concurrent use.
 type sunCache struct {
 	site sun.Site
-	mu   sync.Mutex
-	days map[sunDay]sunTime
+	days map[sunDay]sunAnswer
 }
 
 // newSunCache returns a cache for site, or nil for no site.
@@ -87,7 +86,7 @@ func newSunCache(site *sun.Site) *sunCache {
 	if site == nil {
 		return nil
 	}
-	return &sunCache{site: *site, days: make(map[sunDay]sunTime, sunCacheSize)}
+	return &sunCache{site: *site}
 }
 
 // time returns when e happens on the local calendar day y-m-d in loc, as sun.Site.Time does.
@@ -96,16 +95,17 @@ func (c *sunCache) time(e sun.Event, y int, m time.Month, d int, loc *time.Locat
 		return time.Time{}, false
 	}
 	key := sunDay{event: e, year: y, month: m, day: d, loc: loc}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if got, ok := c.days[key]; ok {
 		return got.at, got.ok
 	}
 	at, ok := c.site.Time(e, y, m, d, loc)
+	if c.days == nil {
+		c.days = map[sunDay]sunAnswer{}
+	}
 	if len(c.days) >= sunCacheSize {
 		clear(c.days)
 	}
-	c.days[key] = sunTime{at: at, ok: ok}
+	c.days[key] = sunAnswer{at: at, ok: ok}
 	return at, ok
 }
 

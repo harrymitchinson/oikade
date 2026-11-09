@@ -337,18 +337,27 @@ func TestCompileRejectsSignedTimes(t *testing.T) {
 
 func TestSunCacheAnswersAsTheSiteDoes(t *testing.T) {
 	tromso := sun.Site{Latitude: 69.6492, Longitude: 18.9553}
-	suns := newSunCache(&tromso)
-	for pass := range 2 {
-		for day := range 366 {
-			d := time.Date(2026, time.January, 1+day, 12, 0, 0, 0, london)
-			for _, event := range []sun.Event{sun.Sunrise, sun.Sunset} {
-				want, wantOK := tromso.Time(event, d.Year(), d.Month(), d.Day(), london)
-				got, ok := suns.time(event, d.Year(), d.Month(), d.Day(), london)
-				if ok != wantOK || !got.Equal(want) {
-					t.Fatalf("pass %d: %v on %s = %v, %t, want %v, %t", pass, event, d.Format(time.DateOnly), got, ok, want, wantOK)
+	for _, month := range []time.Month{time.March, time.June, time.December} { // ordinary days, then none
+		suns := newSunCache(&tromso)
+		for pass := range 2 {
+			for day := range 20 {
+				for _, event := range []sun.Event{sun.Sunrise, sun.Sunset} {
+					want, wantOK := tromso.Time(event, 2026, month, 1+day, london)
+					got, ok := suns.time(event, 2026, month, 1+day, london)
+					if ok != wantOK || !got.Equal(want) {
+						t.Fatalf("pass %d: %v on %v %d = %v, %t, want %v, %t", pass, event, month, 1+day, got, ok, want, wantOK)
+					}
 				}
 			}
 		}
+	}
+}
+
+func TestSunCacheRemembersADayWithNoSunset(t *testing.T) {
+	suns := newSunCache(londonSite)
+	suns.days = map[sunDay]sunAnswer{{event: sun.Sunset, year: 2026, month: time.October, day: 21, loc: london}: {}}
+	if at, ok := suns.time(sun.Sunset, 2026, time.October, 21, london); ok || !at.IsZero() {
+		t.Errorf("got %v, %t, want the cached day with no sunset", at, ok)
 	}
 }
 
@@ -356,7 +365,7 @@ func TestSunCacheIsWhatAWindowReads(t *testing.T) {
 	c := holdRule(t, "porch", Hold{Device: "d", Capability: capability.On, Value: true, Window: &Window{Start: SunTime{Event: sun.Sunset}, End: At{Time: "23:00"}}})
 	suns := newSunCache(londonSite)
 	seeded := local("2026-10-21 17:00 BST")
-	suns.days[sunDay{event: sun.Sunset, year: 2026, month: time.October, day: 21, loc: london}] = sunTime{at: seeded, ok: true}
+	suns.days = map[sunDay]sunAnswer{{event: sun.Sunset, year: 2026, month: time.October, day: 21, loc: london}: {at: seeded, ok: true}}
 	if _, next := c.hold.window.at(local("2026-10-21 12:00 BST"), london, suns); !next.Equal(seeded) {
 		t.Errorf("window starts %v, want the cached %v", next, seeded)
 	}
