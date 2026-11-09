@@ -304,12 +304,12 @@ func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
 }
 
 // greenwich is a home's location, rounded to two decimals.
-var greenwich = framework.Options{Latitude: 51.48, Longitude: -0.01}
+var greenwich = framework.Options{Location: framework.NewLocation(51.48, -0.01)}
 
-// sunset is when the sun sets at a location on a day, which internal/sun checks against published tables.
-func sunset(t *testing.T, site framework.Options, day time.Time) time.Time {
+// sunset is when the sun sets at greenwich on a day, which internal/sun checks against published tables.
+func sunset(t *testing.T, day time.Time) time.Time {
 	t.Helper()
-	at, ok := sun.Site{Latitude: site.Latitude, Longitude: site.Longitude}.
+	at, ok := sun.Site{Latitude: 51.48, Longitude: -0.01}.
 		Time(sun.Sunset, day.Year(), day.Month(), day.Day(), day.Location())
 	if !ok {
 		t.Fatalf("the sun doesn't set on %v", day)
@@ -332,7 +332,7 @@ func TestAMomentFiresBeforeSunset(t *testing.T) {
 	} {
 		h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: day})
 		h.Advance(24 * time.Hour)
-		want := sunset(t, greenwich, day).Add(-20 * time.Minute)
+		want := sunset(t, day).Add(-20 * time.Minute)
 		if got := h.Writes(); len(got) != 1 || !got[0].Time.Equal(want) {
 			t.Errorf("on %s, writes %+v, want one at %v", day.Format(time.DateOnly), got, want)
 		}
@@ -346,7 +346,7 @@ func TestAWindowOpensAtSunset(t *testing.T) {
 	})
 	start := time.Date(2030, 3, 20, 0, 0, 0, 0, time.UTC)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
-	opens := sunset(t, greenwich, start)
+	opens := sunset(t, start)
 	h.Advance(opens.Sub(start) - time.Minute)
 	h.ExpectValue(pump, false)
 	h.Advance(2 * time.Minute)
@@ -359,7 +359,7 @@ func TestAWindowOpensAtSunset(t *testing.T) {
 
 // In Svalbard in June the sun doesn't set, so a sunset neither fires nor opens a window.
 func TestADayWithNoSunsetDoesNothing(t *testing.T) {
-	svalbard := framework.Options{Latitude: 78.22, Longitude: 15.65}
+	svalbard := framework.Options{Location: framework.NewLocation(78.22, 15.65)}
 	home := framework.NewHome(svalbard,
 		framework.Moment{
 			Name: "dusk", At: []framework.Time{framework.Sunset(0)}, Do: []framework.Action{light.To(false)},

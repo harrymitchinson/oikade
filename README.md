@@ -191,10 +191,10 @@ framework.Moment{
 }
 ```
 
-`framework.Sunrise` and `framework.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's location, `Latitude` and `Longitude` in `framework.Options`, in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
+`framework.Sunrise` and `framework.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Location`, made by `framework.NewLocation` from its latitude and longitude in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
 
 ```go
-framework.NewHome(framework.Options{Latitude: 51.48, Longitude: -0.01}, // round to 2 decimals
+framework.NewHome(framework.Options{Location: framework.NewLocation(51.48, -0.01)}, // round to 2 decimals
 	framework.Moment{
 		Name: "porch-at-dusk",
 		At:   []framework.Time{framework.Sunset(-20 * time.Minute)}, // 20 minutes before sunset
@@ -203,7 +203,7 @@ framework.NewHome(framework.Options{Latitude: 51.48, Longitude: -0.01}, // round
 )
 ```
 
-Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no location, and leaves both at zero. One zero is a real place, on the equator or the Greenwich meridian.
+Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Location`. `NewLocation` takes both coordinates, so one can't be forgotten, and 0 is a coordinate like any other.
 
 - **A time that isn't one,** such as `Clock("25:00")`, a sun time with no location, or an offset over 6 hours, fails `oikade check`, naming the rule.
 - **Several times** fire at each, so `{Clock("18:00"), Sunset(0)}` fires at both, and the same time twice fires once.
@@ -424,7 +424,7 @@ A home is made of parts. Each `Hold`, `Moment`, `Flow`, `Control` and `Plugin` i
 
 ```go
 func home() framework.Home {
-	return framework.NewHome(framework.Options{Latitude: 51.48, Longitude: -0.01},
+	return framework.NewHome(framework.Options{Location: framework.NewLocation(51.48, -0.01)},
 		lights(),
 		dehumidifier(),
 	)
