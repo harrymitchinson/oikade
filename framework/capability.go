@@ -47,7 +47,7 @@ type Handle[T Value] struct {
 	Capability Capability[T]
 }
 
-// To is a write of v to the device: an action, a hold's Set or a Control's Default.
+// To is a write of v to the device: an action, a hold's Set or a Control's default.
 func (h Handle[T]) To(v T) Set {
 	return Set{device: h.Device, capability: string(h.Capability), value: v}
 }

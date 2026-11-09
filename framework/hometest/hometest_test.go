@@ -35,10 +35,9 @@ func devices() []hometest.Device {
 }
 
 func fanHold() framework.Hold {
-	return framework.Hold{
-		Name: "fan", Set: fan.To(true), OffDelay: 10 * time.Minute,
-		When: func(s framework.State) bool { return s.Get(sensor) > 70 },
-	}
+	return framework.NewHold("fan", fan.To(true)).
+		OffDelay(10 * time.Minute).
+		When(func(s framework.State) bool { return s.Get(sensor) > 70 })
 }
 
 func TestAHoldFollowsADeviceAndTheClock(t *testing.T) {
@@ -57,13 +56,11 @@ func TestAHoldFollowsADeviceAndTheClock(t *testing.T) {
 }
 
 func bedtime() framework.Home {
-	return framework.NewHome(framework.Options{}, framework.Flow{
-		Name: "bedtime", At: []framework.Time{framework.Clock("22:30")},
-		Run: func(r *framework.FlowRun) error {
-			r.Sleep(30 * time.Minute)
-			return r.Set(light.To(false))
-		},
-	})
+	return framework.NewHome(framework.Options{}, framework.NewFlow("bedtime", func(r *framework.FlowRun) error {
+		r.Sleep(30 * time.Minute)
+		return r.Set(light.To(false))
+	}).
+		At(framework.Clock("22:30")))
 }
 
 func TestARestartMidFlowCarriesOn(t *testing.T) {
@@ -84,14 +81,11 @@ func TestARestartMidFlowCarriesOn(t *testing.T) {
 
 func arbitrated() framework.Home {
 	return framework.NewHome(framework.Options{},
-		framework.Control{
-			Default: pump.To(false), Resolve: framework.PreferOn,
-			External: framework.ExternalOverride, OverrideHold: time.Hour,
-		},
-		framework.Hold{
-			Name: "pump", Set: pump.To(true), Priority: framework.Safety,
-			Window: &framework.Window{Start: framework.Clock("01:00"), End: framework.Clock("02:00")},
-		},
+		framework.NewControl(pump.To(false), framework.PreferOn, framework.ExternalOverride).
+			OverrideHold(time.Hour),
+		framework.NewHold("pump", pump.To(true)).
+			Priority(framework.Safety).
+			Window(framework.NewWindow(framework.Clock("01:00"), framework.Clock("02:00"))),
 	)
 }
 
@@ -112,14 +106,10 @@ func TestClaimsAreArbitrated(t *testing.T) {
 
 func TestABudgetRunsItsMinutes(t *testing.T) {
 	home := framework.NewHome(framework.Options{},
-		framework.Control{
-			Default: pump.To(false), Resolve: framework.PreferOn,
-			External: framework.ExternalOverride, OverrideHold: time.Hour,
-		},
-		framework.Hold{
-			Name: "pump", Set: pump.To(true),
-			Budget: &framework.Budget{Minutes: func(framework.State) int { return 60 }},
-		},
+		framework.NewControl(pump.To(false), framework.PreferOn, framework.ExternalOverride).
+			OverrideHold(time.Hour),
+		framework.NewHold("pump", pump.To(true)).
+			Budget(framework.NewBudget(func(framework.State) int { return 60 })),
 	)
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.ExpectValue(pump, true)
@@ -134,14 +124,9 @@ func TestABudgetRunsItsMinutes(t *testing.T) {
 }
 
 func TestAMomentWaits(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Moment{
-		Name: "porch", On: []framework.Change{sensor},
-		Do: []framework.Action{
-			fan.To(true),
-			framework.Wait(5 * time.Minute),
-			fan.To(false),
-		},
-	})
+	home := framework.NewHome(framework.Options{},
+		framework.NewMoment("porch", fan.To(true), framework.Wait(5*time.Minute), fan.To(false)).
+			On(sensor))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Set(sensor, 41.0)
 	h.ExpectValue(fan, true)
@@ -151,13 +136,9 @@ func TestAMomentWaits(t *testing.T) {
 }
 
 func TestAWaitEndsWhenItSaysInsideALongerMove(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Moment{
-		Name: "porch", On: []framework.Change{sensor},
-		Do: []framework.Action{
-			framework.Wait(90 * time.Second),
-			fan.To(true),
-		},
-	})
+	home := framework.NewHome(framework.Options{},
+		framework.NewMoment("porch", framework.Wait(90*time.Second), fan.To(true)).
+			On(sensor))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	start := h.Now()
 	h.Set(sensor, 41.0)
@@ -169,10 +150,7 @@ func TestAWaitEndsWhenItSaysInsideALongerMove(t *testing.T) {
 }
 
 func TestARunInProgressIsntFinished(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Moment{
-		Name: "porch", On: []framework.Change{sensor},
-		Do: []framework.Action{framework.Wait(5 * time.Minute)},
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewMoment("porch", framework.Wait(5*time.Minute)).On(sensor))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Set(sensor, 41.0)
 	h.Advance(6 * time.Minute)
@@ -192,12 +170,9 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	lamp := framework.Handle[bool]{Device: "floor-lamp", Capability: framework.On}
 	ceiling := framework.Handle[bool]{Device: "ceiling-light", Capability: framework.On}
 	fridge := framework.Handle[bool]{Device: "fridge-plug", Capability: framework.On}
-	home := framework.NewHome(framework.Options{}, framework.Moment{
-		Name: "living-room-off", At: []framework.Time{framework.Clock("23:00")},
-		Do: []framework.Action{
-			framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false),
-		},
-	})
+	lights := framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight)
+	home := framework.NewHome(framework.Options{},
+		framework.NewMoment("living-room-off", lights.To(false)).At(framework.Clock("23:00")))
 	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 		{
 			Name: "floor-lamp", Room: "living-room", Capabilities: []string{on, brightness},
@@ -220,10 +195,8 @@ func TestAClockTimeFiresAcrossADaylightSavingChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home := framework.NewHome(framework.Options{}, framework.Moment{
-		Name: "lights-out", At: []framework.Time{framework.Clock("23:30")},
-		Do: []framework.Action{light.To(false)},
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewMoment("lights-out", light.To(false)).
+		At(framework.Clock("23:30")))
 	// The clocks go back at 02:00 on Sunday 27 October 2030, so that day is 25 hours long.
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 10, 26, 23, 0, 0, 0, london)})
 	h.Advance(31 * time.Minute)
@@ -239,10 +212,8 @@ func TestAClockTimeFiresAcrossADaylightSavingChange(t *testing.T) {
 }
 
 func TestAWindowIsOpenOvernight(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "night-pump", Set: pump.To(true),
-		Window: &framework.Window{Start: framework.Clock("22:00"), End: framework.Clock("06:00")},
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewHold("night-pump", pump.To(true)).
+		Window(framework.NewWindow(framework.Clock("22:00"), framework.Clock("06:00"))))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.ExpectValue(pump, true) // midnight is inside the window that opened at 22:00 the night before
 	h.Advance(5*time.Hour + 59*time.Minute)
@@ -256,10 +227,8 @@ func TestAWindowIsOpenOvernight(t *testing.T) {
 }
 
 func TestTheSameTimeTwiceFiresOnce(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Moment{
-		Name: "lights-out", At: []framework.Time{framework.Clock("23:30"), framework.Clock("23:30")},
-		Do: []framework.Action{light.To(false)},
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewMoment("lights-out", light.To(false)).
+		At(framework.Clock("23:30"), framework.Clock("23:30")))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Advance(23*time.Hour + 31*time.Minute)
 	h.ExpectValue(light, false)
@@ -277,12 +246,10 @@ func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
 		return framework.Handle[float64]{Device: name, Capability: framework.Humidity}
 	}
 	dehumidifier := framework.Handle[bool]{Device: "dehumidifier", Capability: framework.On}
-	home := framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "cellar-damp", Set: dehumidifier.To(true),
-		When: func(s framework.State) bool {
+	home := framework.NewHome(framework.Options{}, framework.NewHold("cellar-damp", dehumidifier.To(true)).
+		When(func(s framework.State) bool {
 			return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
-		},
-	})
+		}))
 	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 		{Name: "cellar-1", Room: "cellar", Capabilities: []string{humidity}},
 		{Name: "cellar-2", Room: "cellar", Capabilities: []string{humidity}},
@@ -324,10 +291,8 @@ func TestAMomentFiresBeforeSunset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home := framework.NewHome(greenwich, framework.Moment{
-		Name: "porch-at-dusk", At: []framework.Time{framework.Sunset(-20 * time.Minute)},
-		Do: []framework.Action{light.To(false)},
-	})
+	home := framework.NewHome(greenwich, framework.NewMoment("porch-at-dusk", light.To(false)).
+		At(framework.Sunset(-20*time.Minute)))
 	// Midwinter and midsummer, whose sunsets are more than five hours apart.
 	for _, day := range []time.Time{
 		time.Date(2030, 1, 7, 0, 0, 0, 0, london), time.Date(2030, 6, 21, 0, 0, 0, 0, london),
@@ -342,10 +307,8 @@ func TestAMomentFiresBeforeSunset(t *testing.T) {
 }
 
 func TestAWindowOpensAtSunset(t *testing.T) {
-	home := framework.NewHome(greenwich, framework.Hold{
-		Name: "garden-pump", Set: pump.To(true),
-		Window: &framework.Window{Start: framework.Sunset(0), End: framework.Clock("23:30")},
-	})
+	home := framework.NewHome(greenwich, framework.NewHold("garden-pump", pump.To(true)).
+		Window(framework.NewWindow(framework.Sunset(0), framework.Clock("23:30"))))
 	start := time.Date(2030, 3, 20, 0, 0, 0, 0, time.UTC)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
 	opens := sunset(t, start)
@@ -363,13 +326,9 @@ func TestAWindowOpensAtSunset(t *testing.T) {
 func TestADayWithNoSunsetDoesNothing(t *testing.T) {
 	svalbard := framework.Options{Location: framework.NewLocation(78.22, 15.65)}
 	home := framework.NewHome(svalbard,
-		framework.Moment{
-			Name: "dusk", At: []framework.Time{framework.Sunset(0)}, Do: []framework.Action{light.To(false)},
-		},
-		framework.Hold{
-			Name: "evening-pump", Set: pump.To(true),
-			Window: &framework.Window{Start: framework.Sunset(0), End: framework.Clock("23:30")},
-		},
+		framework.NewMoment("dusk", light.To(false)).At(framework.Sunset(0)),
+		framework.NewHold("evening-pump", pump.To(true)).
+			Window(framework.NewWindow(framework.Sunset(0), framework.Clock("23:30"))),
 	)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 6, 21, 0, 0, 0, 0, time.UTC)})
 	for range 24 {
@@ -384,12 +343,10 @@ func TestADayWithNoSunsetDoesNothing(t *testing.T) {
 
 // A hold whose When reads a window opens within a minute of it, with no device changing.
 func TestAHoldWithinAWindowOpensWithinAMinute(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "evening", Set: light.To(false),
-		When: func(s framework.State) bool {
-			return s.Within(framework.Window{Start: framework.Clock("18:00"), End: framework.Clock("07:00")})
-		},
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewHold("evening", light.To(false)).
+		When(func(s framework.State) bool {
+			return s.Within(framework.NewWindow(framework.Clock("18:00"), framework.Clock("07:00")))
+		}))
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 1, 7, 12, 0, 0, 0, time.UTC)})
 	h.Advance(6*time.Hour - time.Second)
 	h.ExpectValue(light, true)
@@ -404,14 +361,14 @@ func TestWithinAgreesWithAHoldsWindowAcrossDaylightSaving(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := framework.Window{Start: framework.Clock("01:30"), End: framework.Clock("02:15")}
+	w := framework.NewWindow(framework.Clock("01:30"), framework.Clock("02:15"))
 	// Clocks go back at 02:00 BST on Sunday 27 October 2030.
 	agree(t, w, framework.Options{}, time.Date(2030, 10, 26, 23, 0, 0, 0, london), 5*time.Hour)
 }
 
 // Within with a sunset edge agrees with a hold's Window with the same edge.
 func TestWithinAgreesWithAHoldsWindowAtSunset(t *testing.T) {
-	w := framework.Window{Start: framework.Sunset(0), End: framework.Clock("23:30")}
+	w := framework.NewWindow(framework.Sunset(0), framework.Clock("23:30"))
 	start := time.Date(2030, 3, 20, 12, 0, 0, 0, time.UTC)
 	agree(t, w, greenwich, start, 12*time.Hour)
 }
@@ -421,8 +378,9 @@ func TestWithinAgreesWithAHoldsWindowAtSunset(t *testing.T) {
 func agree(t *testing.T, w framework.Window, site framework.Options, start time.Time, d time.Duration) {
 	t.Helper()
 	home := framework.NewHome(site,
-		framework.Hold{Name: "by-window", Set: fan.To(true), Window: &w},
-		framework.Hold{Name: "by-within", Set: pump.To(true), When: func(s framework.State) bool { return s.Within(w) }},
+		framework.NewHold("by-window", fan.To(true)).Window(w),
+		framework.NewHold("by-within", pump.To(true)).
+			When(func(s framework.State) bool { return s.Within(w) }),
 	)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
 	opened := 0
@@ -495,14 +453,11 @@ func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 	damp := framework.Handle[float64]{Device: "hall", Capability: framework.Humidity}
 	hot := framework.Handle[float64]{Device: "hall", Capability: framework.Temperature}
 	heater := framework.Handle[bool]{Device: "heater", Capability: framework.On}
-	control := framework.Control{
-		Default: heater.To(false), Resolve: framework.PreferOn,
-		External: framework.ExternalOverride, OverrideHold: time.Hour,
-	}
-	warm := framework.Hold{
-		Name: "warm", Set: heater.To(true), When: func(s framework.State) bool { return s.Get(occupied) },
-	}
-	welcome := framework.Moment{Name: "welcome", On: []framework.Change{occupied}, Do: []framework.Action{heater.To(true)}}
+	control := framework.NewControl(heater.To(false), framework.PreferOn, framework.ExternalOverride).
+		OverrideHold(time.Hour)
+	warm := framework.NewHold("warm", heater.To(true)).
+		When(func(s framework.State) bool { return s.Get(occupied) })
+	welcome := framework.NewMoment("welcome", heater.To(true)).On(occupied)
 	for _, tc := range []struct {
 		name    string
 		safety  func(framework.State) bool
@@ -522,9 +477,11 @@ func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 			parts: []framework.Part{warm}, briefly: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			home := framework.NewHome(framework.Options{}, append(slices.Clone(tc.parts), framework.Hold{
-				Name: "cutoff", Set: heater.To(false), Priority: framework.Safety, Latch: true, When: tc.safety,
-			})...)
+			cutoff := framework.NewHold("cutoff", heater.To(false)).
+				Priority(framework.Safety).
+				Latch().
+				When(tc.safety)
+			home := framework.NewHome(framework.Options{}, append(slices.Clone(tc.parts), cutoff)...)
 			// The bug was a race, so give it room to show.
 			for range 20 {
 				h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{

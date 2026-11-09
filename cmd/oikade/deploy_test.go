@@ -82,7 +82,7 @@ func deployTo(t *testing.T, host fakeHost, binary string, live bool) (stdout, st
 func TestDeploySaysEachPhaseBeforeItStarts(t *testing.T) {
 	host := startFakeHost(t)
 	stdout, stderr := deployTo(t, host, "", false)
-	want := "Checking flows\nBuilding for linux/arm64\nUploading 3.0 MB\nWaiting for the host to check and settle\n"
+	want := "Checking your code\nBuilding for linux/arm64\nUploading 3.0 MB\nWaiting for the host to check and settle\n"
 	if stderr != want {
 		t.Errorf("stderr:\n%q\nwant:\n%q", stderr, want)
 	}

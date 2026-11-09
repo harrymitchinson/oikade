@@ -224,155 +224,120 @@ func reportSecret() {
 func main() {
 	start()
 	reportSecret()
-	var extra []framework.Moment
-	// A time of day comes from the test, which seeds when it was last accounted for.
-	if at := os.Getenv("OIKADE_TEST_AT"); at != "" {
-		extra = append(extra, framework.Moment{
-			Name: "timed", At: []framework.Time{framework.Clock(at)},
-			Do: []framework.Action{on("timed-out").To(true)},
-		})
+	framework.Run(home().home())
+}
+
+// when is the rule, or nothing if a variant leaves it out.
+func when[T framework.Part](keep bool, rule T) []T {
+	if keep {
+		return []T{rule}
 	}
-	leakShutoff, claimMoment := "leak-shutoff", framework.Moment{
-		Name: "claim-moment", On: []framework.Change{open("claim-go")},
-		Do: []framework.Action{on("claimed").To(false).For(time.Hour)},
-	}
+	return nil
+}
+
+// home is the home this variant builds.
+func home() rules {
+	leakShutoff, claimMoment := "leak-shutoff", "claim-moment"
 	switch variant {
 	case "renamed":
 		leakShutoff = "valve-shutoff"
 	case "removed", "crash-removed", "crash-told":
-		claimMoment.Name = "claim-moment-2"
-	case "badcheck":
-		extra = append(extra, framework.Moment{Name: leakShutoff})
+		claimMoment = "claim-moment-2"
 	}
-	run(rules{
-		Holds: []framework.Hold{
-			{
-				Name: "fan", Set: on("fan").To(true),
-				When: func(s framework.State) bool {
-					return s.Get(humidity) > 70
-				},
-			},
-			{
-				Name: leakShutoff, Set: on(valve).To(false),
-				Priority: framework.Safety, Latch: true,
-				When: func(s framework.State) bool {
+	plugins := strings.Contains(variant, "plugins")
+
+	holds := slices.Concat(
+		when(variant != "nofan", framework.NewHold("fan", on("fan").To(true)).
+			When(func(s framework.State) bool {
+				return s.Get(humidity) > 70
+			})),
+		when(variant != "noleak", framework.NewHold(leakShutoff, on(valve).To(false)).
+			Priority(framework.Safety).
+			Latch().
+			When(func(s framework.State) bool {
+				return s.Get(open("leak-sensor"))
+			})),
+		[]framework.Hold{
+			// With no arbiter to hold a claim, only the hold's saved state remembers this latch.
+			framework.NewHold("leak-alarm", on("siren").To(true)).
+				Latch().
+				When(func(s framework.State) bool {
 					return s.Get(open("leak-sensor"))
-				},
-			},
-			{
-				// With no arbiter to hold a claim, only the hold's saved state remembers this latch.
-				Name: "leak-alarm", Set: on("siren").To(true), Latch: true,
-				When: func(s framework.State) bool {
-					return s.Get(open("leak-sensor"))
-				},
-			},
-			{
-				// Reads whichever devices are in the cellar now, which oikade devices room changes.
-				Name: "cellar-damp", Set: on("dehumidifier").To(true),
-				When: func(s framework.State) bool {
+				}),
+			// Reads whichever devices are in the cellar now, which oikade devices room changes.
+			framework.NewHold("cellar-damp", on("dehumidifier").To(true)).
+				When(func(s framework.State) bool {
 					return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
-				},
-			},
-			{
-				// A bug in a home: a condition that never returns once the sensor says so.
-				Name: "stuck", Set: on("trap-light").To(true),
-				When: func(s framework.State) bool {
+				}),
+			// A bug in a home: a condition that never returns once the sensor says so.
+			framework.NewHold("stuck", on("trap-light").To(true)).
+				When(func(s framework.State) bool {
 					for s.Get(open("trap")) {
 						continue
 					}
 					return false
-				},
-			},
+				}),
 		},
-		Flows: []framework.Flow{
-			{Name: "routine", On: []framework.Change{open("flow-go")}, Run: routine},
-			{Name: "editable", On: []framework.Change{open("edit-go")}, Run: editable},
-			{Name: "claiming", On: []framework.Change{open("claim-flow-go")}, Run: claiming},
-			{Name: "failing", On: []framework.Change{open("fail-go")}, Run: failing},
-			{Name: parkedName, On: []framework.Change{open("park-go")}, Run: parked},
+		when(plugins, framework.NewHold("once", on(once).To(true)).
+			When(func(s framework.State) bool { return s.Get(open("once-sensor")) })),
+		// Names a plugin's device, which a test moves to another room.
+		when(plugins, framework.NewHold("quiet-held", on("quiet-held").To(true)).
+			When(func(s framework.State) bool { return s.Get(on("quiet")) })),
+		// A Safety rule that keeps the porch's plugs on, and only its plugs.
+		when(variant == "typed", framework.NewHold("porch-plugs",
+			framework.InRoom("porch", framework.On).Types(framework.OnOffPlugInUnit).To(true)).
+			Priority(framework.Safety).
+			When(func(s framework.State) bool { return s.Get(open("porch-go")) })),
+	)
+
+	// parkmoment turns the parked flow into a moment of the same name.
+	parkedStays := variant != "parkmoment" && variant != "nopark"
+	flows := slices.Concat(
+		[]framework.Flow{
+			framework.NewFlow("routine", routine).On(open("flow-go")),
+			framework.NewFlow("editable", editable).On(open("edit-go")),
 		},
-		Moments: append([]framework.Moment{
-			{
-				// A change here gets an answer, so a test knows when the process has caught up.
-				Name: "probe", On: []framework.Change{open("probe")}, Restart: true,
-				Do: []framework.Action{on("probe-out").To(true)},
-			},
-			{
-				Name: "reset", On: []framework.Change{open("reset")},
-				Do: []framework.Action{framework.Release(leakShutoff), framework.Release("leak-alarm")},
-			},
-			claimMoment,
-		}, extra...),
-	})
+		when(!strings.Contains(variant, "noflow"), framework.NewFlow("claiming", claiming).On(open("claim-flow-go"))),
+		when(variant != "nofail", framework.NewFlow("failing", failing).On(open("fail-go"))),
+		when(parkedStays, framework.NewFlow(parkedName, parked).On(open("park-go"))),
+	)
+
+	moments := slices.Concat(
+		[]framework.Moment{
+			// A change here gets an answer, so a test knows when the process has caught up.
+			framework.NewMoment("probe", on("probe-out").To(true)).On(open("probe")).Restart(),
+			framework.NewMoment("reset", framework.Release(leakShutoff), framework.Release("leak-alarm")).On(open("reset")),
+			framework.NewMoment(claimMoment, on("claimed").To(false).For(time.Hour)).On(open("claim-go")),
+		},
+		// A time of day comes from the test, which seeds when it was last accounted for.
+		when(os.Getenv("OIKADE_TEST_AT") != "",
+			framework.NewMoment("timed", on("timed-out").To(true)).At(framework.Clock(os.Getenv("OIKADE_TEST_AT")))),
+		when(variant == "badcheck", framework.NewMoment(leakShutoff)),
+		when(variant == "parkmoment", framework.NewMoment(parkedName, on("park-out").To(true)).On(open("park-go"))),
+		when(plugins, framework.NewMoment("quiet-heard", on("quiet-heard").To(true)).On(on("quiet"))),
+	)
+
+	var pluginParts []framework.Plugin
+	var control []framework.Control
+	switch {
+	case plugins:
+		pluginParts = []framework.Plugin{
+			framework.NewPlugin("relays", faultyRelays), framework.NewPlugin("quiet", quietRelays),
+		}
+		control = []framework.Control{
+			framework.NewControl(on(valve).To(true), framework.PreferOff, framework.ExternalOverride).OverrideHold(time.Hour),
+			framework.NewControl(on(once).To(false), framework.PreferOn, framework.ExternalOverride).OverrideHold(time.Hour),
+		}
+	case variant == "zigbee":
+		pluginParts = []framework.Plugin{framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{}))}
+	}
+	return rules{Holds: holds, Moments: moments, Flows: flows, Control: control, Plugins: pluginParts}
 }
 
 // parkedName is the flow that waits, which some variants drop.
 const parkedName = "parked"
 
-// run leaves out what the variants without a rule leave out.
-func run(h rules) {
-	if strings.Contains(variant, "noflow") {
-		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "claiming" })
-	}
-	if variant == "nofail" {
-		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == "failing" })
-	}
-	if variant == "parkmoment" {
-		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == parkedName })
-		h.Moments = append(h.Moments, framework.Moment{
-			Name: parkedName, On: []framework.Change{open("park-go")},
-			Do: []framework.Action{on("park-out").To(true)},
-		})
-	}
-	if variant == "nofan" {
-		h.Holds = h.Holds[1:] // The fan comes first.
-	}
-	if variant == "nopark" {
-		h.Flows = slices.DeleteFunc(h.Flows, func(f framework.Flow) bool { return f.Name == parkedName })
-	}
-	if variant == "noleak" {
-		h.Holds = slices.DeleteFunc(h.Holds, func(r framework.Hold) bool { return r.Name == "leak-shutoff" })
-	}
-	if strings.Contains(variant, "plugins") {
-		h.Plugins = []framework.Plugin{{Name: "relays", New: faultyRelays}, {Name: "quiet", New: quietRelays}}
-		h.Control = []framework.Control{
-			{
-				Default: on(valve).To(true), Resolve: framework.PreferOff,
-				External: framework.ExternalOverride, OverrideHold: time.Hour,
-			},
-			{
-				Default: on(once).To(false), Resolve: framework.PreferOn,
-				External: framework.ExternalOverride, OverrideHold: time.Hour,
-			},
-		}
-		h.Holds = append(h.Holds, framework.Hold{
-			Name: "once", Set: on(once).To(true),
-			When: func(s framework.State) bool { return s.Get(open("once-sensor")) },
-		}, framework.Hold{
-			// Names a plugin's device, which a test moves to another room.
-			Name: "quiet-held", Set: on("quiet-held").To(true),
-			When: func(s framework.State) bool { return s.Get(on("quiet")) },
-		})
-		h.Moments = append(h.Moments, framework.Moment{
-			Name: "quiet-heard", On: []framework.Change{on("quiet")},
-			Do: []framework.Action{on("quiet-heard").To(true)},
-		})
-	}
-	if variant == "typed" {
-		// A Safety rule that keeps the porch's plugs on, and only its plugs.
-		h.Holds = append(h.Holds, framework.Hold{
-			Name: "porch-plugs", Priority: framework.Safety,
-			Set:  framework.InRoom("porch", framework.On).Types(framework.OnOffPlugInUnit).To(true),
-			When: func(s framework.State) bool { return s.Get(open("porch-go")) },
-		})
-	}
-	if variant == "zigbee" {
-		h.Plugins = []framework.Plugin{{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})}}
-	}
-	framework.Run(h.home())
-}
-
-// rules is a home by kind, for the variants to edit before it's built.
+// rules is a home by kind.
 type rules struct {
 	Holds   []framework.Hold
 	Moments []framework.Moment

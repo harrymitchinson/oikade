@@ -32,10 +32,9 @@ func (b *syncBuffer) String() string {
 
 func TestAHoldWhoseRoomLosesItsLastMemberWarnsOnce(t *testing.T) {
 	occupied := string(framework.Occupied)
-	home := framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "hall-lamp", Set: switchOf("lamp").To(true), OffDelay: time.Minute,
-		When: func(s framework.State) bool { return s.Any(framework.InRoom("hall", framework.Occupied)) },
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewHold("hall-lamp", switchOf("lamp").To(true)).
+		OffDelay(time.Minute).
+		When(func(s framework.State) bool { return s.Any(framework.InRoom("hall", framework.Occupied)) }))
 	simulated, err := simhome.FromFramework(home)
 	if err != nil {
 		t.Fatal(err)

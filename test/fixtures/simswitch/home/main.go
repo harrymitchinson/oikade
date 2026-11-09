@@ -10,10 +10,8 @@ import (
 )
 
 func main() {
-	framework.Run(framework.NewHome(framework.Options{}, framework.Plugin{
-		Name: "simswitch",
-		New: func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
-			return relays.New(devices), nil
-		},
-	}))
+	factory := func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
+		return relays.New(devices), nil
+	}
+	framework.Run(framework.NewHome(framework.Options{}, framework.NewPlugin("simswitch", factory)))
 }

@@ -15,13 +15,13 @@ func TestCompileChecksFlows(t *testing.T) {
 		flow Flow
 		want string
 	}{
-		"no name":    {Flow{On: on, Run: run}, "needs a name"},
-		"no trigger": {Flow{Name: "a", Run: run}, "a trigger is required"},
-		"no run":     {Flow{Name: "a", On: on}, "needs a body"},
-		"negative":   {Flow{Name: "a", On: on, Run: run, Late: -time.Minute}, "must not be negative"},
-		"bad time":   {Flow{Name: "a", At: []Time{Clock("25:00")}, Run: run}, "timers[0]"},
+		"no name":    {NewFlow("", run).On(on...), "needs a name"},
+		"no trigger": {NewFlow("a", run), "a trigger is required"},
+		"no run":     {NewFlow("a", nil).On(on...), "needs a body"},
+		"negative":   {NewFlow("a", run).On(on...).Late(-time.Minute), "must not be negative"},
+		"bad time":   {NewFlow("a", run).At(Clock("25:00")), "timers[0]"},
 		"bad change": {
-			Flow{Name: "a", On: []Change{Handle[bool]{Device: "hall", Capability: "no.such"}}, Run: run}, "unknown capability",
+			NewFlow("a", run).On(Handle[bool]{Device: "hall", Capability: "no.such"}), "unknown capability",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -33,8 +33,8 @@ func TestCompileChecksFlows(t *testing.T) {
 	}
 
 	_, _, err := NewHome(Options{},
-		Flow{Name: "a", On: on, Run: run},
-		Moment{Name: "a", On: on, Do: []Action{Wait(time.Second)}},
+		NewFlow("a", run).On(on...),
+		NewMoment("a", Wait(time.Second)).On(on...),
 	).compile()
 	if err == nil || !strings.Contains(err.Error(), "declared twice") {
 		t.Fatalf("a flow and a moment sharing a name: %v", err)
@@ -47,14 +47,12 @@ func TestLateness(t *testing.T) {
 	}
 	on := []Change{Handle[bool]{Device: "hall", Capability: Open}}
 	rules, flows, err := NewHome(Options{},
-		Flow{Name: "normal", On: on, Run: func(*FlowRun) error { return nil }},
-		Flow{Name: "safety", On: on, Priority: Safety, Run: func(*FlowRun) error { return nil }},
-		Flow{Name: "own", On: on, Late: time.Hour, Run: func(*FlowRun) error { return nil }},
-		Moment{Name: "moment", On: on, Do: []Action{Wait(time.Second)}},
-		Moment{
-			Name: "safety-moment", On: on,
-			Do: []Action{Handle[bool]{Device: "valve", Capability: On}.To(false).Priority(Safety)},
-		},
+		NewFlow("normal", func(*FlowRun) error { return nil }).On(on...),
+		NewFlow("safety", func(*FlowRun) error { return nil }).On(on...).Priority(Safety),
+		NewFlow("own", func(*FlowRun) error { return nil }).On(on...).Late(time.Hour),
+		NewMoment("moment", Wait(time.Second)).On(on...),
+		NewMoment("safety-moment", Handle[bool]{Device: "valve", Capability: On}.To(false).Priority(Safety)).
+			On(on...),
 	).compile()
 	if err != nil {
 		t.Fatal(err)

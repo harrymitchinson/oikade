@@ -35,10 +35,9 @@ func contactOf(device string) framework.Handle[bool] {
 var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 
 func fanAbove(threshold float64) framework.Home {
-	return framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "fan", Set: switchOf("fan").To(true), OffDelay: 10 * time.Minute,
-		When: func(s framework.State) bool { return s.Get(humidityOf("sensor")) > threshold },
-	})
+	return framework.NewHome(framework.Options{}, framework.NewHold("fan", switchOf("fan").To(true)).
+		OffDelay(10*time.Minute).
+		When(func(s framework.State) bool { return s.Get(humidityOf("sensor")) > threshold }))
 }
 
 func options(t *testing.T, home framework.Home) simhome.Options {
@@ -187,15 +186,13 @@ func TestABaselineGivesValuesThatNeverChanged(t *testing.T) {
 // have made through one is what the check is for.
 func TestReplayMakesNoOutsideCalls(t *testing.T) {
 	calls := 0
-	home := framework.NewHome(framework.Options{}, framework.Flow{
-		Name: "alarm", On: []framework.Change{contactOf("door")},
-		Run: func(r *framework.FlowRun) error {
-			if err := r.Do("notify", nil, func(context.Context) error { calls++; return nil }); err != nil {
-				return err
-			}
-			return r.Set(switchOf("fan").To(true))
-		},
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewFlow("alarm", func(r *framework.FlowRun) error {
+		if err := r.Do("notify", nil, func(context.Context) error { calls++; return nil }); err != nil {
+			return err
+		}
+		return r.Set(switchOf("fan").To(true))
+	}).
+		On(contactOf("door")))
 	opts := options(t, home)
 	opts.Devices = append(opts.Devices, simhome.Device{Name: "door", Capabilities: []string{contact}, Values: map[string]any{contact: false}})
 	log := []api.Event{
@@ -218,18 +215,16 @@ func TestReplayMakesNoOutsideCalls(t *testing.T) {
 }
 
 func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Flow{
-		Name: "weather", On: []framework.Change{humidityOf("sensor")},
-		Run: func(r *framework.FlowRun) error {
-			var rain bool
-			if err := r.Do("forecast", &rain, func(context.Context) error {
-				return errors.New("a replay must not make this call")
-			}); err != nil {
-				return err
-			}
-			return r.Set(switchOf("fan").To(rain))
-		},
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewFlow("weather", func(r *framework.FlowRun) error {
+		var rain bool
+		if err := r.Do("forecast", &rain, func(context.Context) error {
+			return errors.New("a replay must not make this call")
+		}); err != nil {
+			return err
+		}
+		return r.Set(switchOf("fan").To(rain))
+	}).
+		On(humidityOf("sensor")))
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 40.0},
 		{Time: monday.Add(time.Minute), Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 50.0},
@@ -281,10 +276,8 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 }
 
 func TestADevicePairedLaterHasNoValueUntilItReports(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "fan", Set: switchOf("fan").To(true),
-		When: func(s framework.State) bool { return s.Get(humidityOf("late")) > 70 },
-	})
+	home := framework.NewHome(framework.Options{}, framework.NewHold("fan", switchOf("fan").To(true)).
+		When(func(s framework.State) bool { return s.Get(humidityOf("late")) > 70 }))
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 		{Time: monday.Add(5 * time.Hour), Type: api.EventChange, Device: "late", Capability: humidity, Value: 90.0},
@@ -315,16 +308,14 @@ func TestWhatLandedAfterTheFetchBeganIsLeftOut(t *testing.T) {
 
 func TestTwoFlowsCanUseOneCallName(t *testing.T) {
 	flowOf := func(name, device string, out string) framework.Flow {
-		return framework.Flow{
-			Name: name, On: []framework.Change{contactOf(device)},
-			Run: func(r *framework.FlowRun) error {
-				var got string
-				if err := r.Do("fetch", &got, func(context.Context) error { return nil }); err != nil {
-					return err
-				}
-				return r.Set(switchOf(out).To(got == name))
-			},
-		}
+		return framework.NewFlow(name, func(r *framework.FlowRun) error {
+			var got string
+			if err := r.Do("fetch", &got, func(context.Context) error { return nil }); err != nil {
+				return err
+			}
+			return r.Set(switchOf(out).To(got == name))
+		}).
+			On(contactOf(device))
 	}
 	opts := options(t, framework.NewHome(framework.Options{}, flowOf("a", "door-a", "fan"), flowOf("b", "door-b", "fan-b")))
 	at := monday.Add(time.Minute)

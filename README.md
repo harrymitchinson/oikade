@@ -54,20 +54,19 @@ Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/rele
 
 ```go
 func home() framework.Home {
-	return framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "porch-light",
-		Set:  PorchLight.On.To(true),
-		When: func(s framework.State) bool {
-			return s.Get(PorchSensor.Occupied)
-		},
-		OffDelay: 5 * time.Minute,
-	})
+	return framework.NewHome(framework.Options{},
+		framework.NewHold("porch-light", PorchLight.On.To(true)).
+			When(func(s framework.State) bool {
+				return s.Get(PorchSensor.Occupied)
+			}).
+			OffDelay(5*time.Minute),
+	)
 }
 ```
 
 `devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.On`, for [rooms](#rooms).
 
-`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md), then the checks a deploy makes. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](#removing-a-plugin) is no longer imported.
+`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a rule's chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](#removing-a-plugin) is no longer imported.
 
 `oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
 
@@ -121,26 +120,22 @@ Arbitration and budgets are parts of the same home, and a [`Bundle`](#composing-
 
 ```go
 framework.NewBundle(
-	framework.Control{
-		Default: Dehumidifier.On.To(false),
-		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: 2 * time.Hour,
-		MinimumOn: time.Hour, MinimumOff: 30 * time.Minute, MaximumStartsPerDay: 3,
-	},
-	framework.Hold{
-		Name: "dehumidifier-daily", Set: Dehumidifier.On.To(true),
-		Budget: &framework.Budget{
-			Bands: &framework.Bands{
-				Reading: Cellar.Humidity, Missing: 240,
-				Ranges: []framework.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
-			},
-			Prefer: []framework.Prefer{{Window: framework.Window{Start: framework.Clock("22:00"), End: framework.Clock("06:00")}, Score: 3}},
-			Forbid: []framework.Window{{Start: framework.Clock("07:00"), End: framework.Clock("08:30")}},
-		},
-	},
+	framework.NewControl(Dehumidifier.On.To(false), framework.PreferOn, framework.ExternalOverride).
+		OverrideHold(2*time.Hour).
+		MinimumOn(time.Hour).
+		MinimumOff(30*time.Minute).
+		MaximumStartsPerDay(3),
+	framework.NewHold("dehumidifier-daily", Dehumidifier.On.To(true)).
+		Budget(framework.NewBandedBudget(framework.Bands{
+			Reading: Cellar.Humidity, Missing: 240,
+			Ranges: []framework.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
+		}).
+			Prefer(framework.NewWindow(framework.Clock("22:00"), framework.Clock("06:00")), 3).
+			Forbid(framework.NewWindow(framework.Clock("07:00"), framework.Clock("08:30")))),
 )
 ```
 
-`Budget.Minutes` is a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
+`framework.NewBudget` takes a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
 
 ## Automations
 
@@ -154,20 +149,13 @@ Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`
 ### Moments
 
 ```go
-framework.Moment{
-	Name:    "hallway-motion-light",
-	Restart: true, // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On:      []framework.Change{framework.InRoom("hallway", framework.Occupied)},
-	If: func(s framework.State) bool {
+framework.NewMoment("hallway-motion-light", HallwayLight.On.To(true), framework.Wait(5*time.Minute), HallwayLight.On.To(false)).
+	Restart(). // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
+	On(framework.InRoom("hallway", framework.Occupied)).
+	If(func(s framework.State) bool {
 		return s.Any(framework.InRoom("hallway", framework.Occupied)) &&
-			s.Within(framework.Window{Start: framework.Clock("18:00"), End: framework.Clock("07:00")})
-	},
-	Do: []framework.Action{
-		HallwayLight.On.To(true),
-		framework.Wait(5 * time.Minute),
-		HallwayLight.On.To(false),
-	},
-}
+			s.Within(framework.NewWindow(framework.Clock("18:00"), framework.Clock("07:00")))
+	})
 ```
 
 A condition reads the home through its `State`: `Get` reads a handle, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), `Within` says whether it's inside a [window](#holds), by the rules a hold's `Window` keeps, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. If an `OnDelay` or `OffDelay` runs out meanwhile, the hold starts or ends once the value is back, if `When` still says so. `Lookup` carries on instead, and reports whether there's a value:
@@ -183,32 +171,26 @@ The 5 minutes in this example live in your process's memory, so a restart during
 `At` fires at times of day, instead of or as well as `On`. `framework.Clock("23:30")` is a local time, in the host machine's zone, from `"00:00"` to `"23:59"`:
 
 ```go
-framework.Moment{
-	Name: "downstairs-bedtime",
-	At:   []framework.Time{framework.Clock("23:30")},
-	Late: 10 * time.Minute,
-	Do:   []framework.Action{PorchLight.On.To(false)},
-}
+framework.NewMoment("downstairs-bedtime", PorchLight.On.To(false)).
+	At(framework.Clock("23:30")).
+	Late(10 * time.Minute)
 ```
 
 `framework.Sunrise` and `framework.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Location`, made by `framework.NewLocation` from its latitude and longitude in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
 
 ```go
 framework.NewHome(framework.Options{Location: framework.NewLocation(51.48, -0.01)}, // round to 2 decimals
-	framework.Moment{
-		Name: "porch-at-dusk",
-		At:   []framework.Time{framework.Sunset(-20 * time.Minute)}, // 20 minutes before sunset
-		Do:   []framework.Action{PorchLight.On.To(true)},
-	},
+	framework.NewMoment("porch-at-dusk", PorchLight.On.To(true)).
+		At(framework.Sunset(-20*time.Minute)), // 20 minutes before sunset
 )
 ```
 
 Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Location`. `NewLocation` takes both coordinates, so one can't be forgotten, and 0 is a coordinate like any other.
 
 - **A time that isn't one,** such as `Clock("25:00")`, a sun time with no location, or an offset over 6 hours, fails `oikade check`, naming the rule.
-- **Several times** fire at each, so `{Clock("18:00"), Sunset(0)}` fires at both, and the same time twice fires once.
+- **Several times** fire at each, so `At(Clock("18:00"), Sunset(0))` fires at both, and the same time twice fires once.
 - **A day the sun doesn't rise or set,** as near the poles, that time doesn't fire, and a window with it as an edge stays shut.
-- **A window with a sun edge and a clock edge** ends at the first `End` after its `Start`, as any window does. So in midsummer `Window{Start: Sunset(3 * time.Hour), End: Clock("23:30")}` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
+- **A window with a sun edge and a clock edge** ends at the first end after its start, as any window does. So in midsummer `NewWindow(Sunset(3 * time.Hour), Clock("23:30"))` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
 - **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A moment with a Safety `Set` fires however late it is. Only the latest missed time counts.
 
@@ -217,11 +199,9 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 `framework.InRoom` is a capability of every device in a room, as a `Change`, a condition's read, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
 
 ```go
-framework.Moment{
-	Name: "lights-out",
-	On:   []framework.Change{framework.InRoom("hallway", framework.Occupied)},          // any sensor in the hallway
-	Do:   []framework.Action{framework.InRoom("living-room", framework.On).To(false)}, // everything there that has on
-}
+framework.NewMoment("lights-out",
+	framework.InRoom("living-room", framework.On).To(false), // everything there that has on
+).On(framework.InRoom("hallway", framework.Occupied)) // any sensor in the hallway
 ```
 
 A room without types means every device in it with the capability, and `on` is a light's, a switch's and an outlet's alike, so that turns off the fridge's plug too. `Types` limits a room write, a moment's or a hold's, to devices of some [device types](#what-a-device-is):
@@ -254,24 +234,23 @@ A room with no devices in it, or none of the read's `Types`, stops the condition
 
 ### Holds
 
-A hold keeps a capability at the value its `Set` gives while its `Window` is open and `When` is true:
+`framework.NewHold` takes a name and the `Set` to keep. A hold keeps that value while its `Window` is open and `When` is true:
 
 ```go
-[]framework.Hold{{
-	Name: "water-heater-night", Set: WaterHeater.On.To(true),
-	Window: &framework.Window{Start: framework.Clock("22:00"), End: framework.Clock("06:00")}, // an end at or before the start is the next morning
-}, {
-	Name: "bathroom-humid", Set: BathroomFan.On.To(true),
-	When: func(s framework.State) bool {
-		return s.Get(BathroomSensor.Humidity) > 70
-	},
-	OffDelay: 10 * time.Minute, // run on for 10 minutes after it drops
-}}
+framework.NewBundle(
+	framework.NewHold("water-heater-night", WaterHeater.On.To(true)).
+		Window(framework.NewWindow(framework.Clock("22:00"), framework.Clock("06:00"))), // an end at or before the start is the next morning
+	framework.NewHold("bathroom-humid", BathroomFan.On.To(true)).
+		When(func(s framework.State) bool {
+			return s.Get(BathroomSensor.Humidity) > 70
+		}).
+		OffDelay(10*time.Minute), // run on for 10 minutes after it drops
+)
 ```
 
-| Field | |
+| Method | |
 |---|---|
-| `Window` | `Start` and `End` are times of day, such as `framework.Clock("22:00")` or `framework.Sunset(0)`, as in [`At`](#times-of-day). `Days` limits it to windows that start on those days. |
+| `Window` | `framework.NewWindow(start, end)`, from times of day such as `framework.Clock("22:00")` or `framework.Sunset(0)`, as in [`At`](#times-of-day). `.Days(…)` on it limits it to windows that start on those days. |
 | `When` | A condition, as in a moment. |
 | `OnDelay` | How long `When` must stay true before the hold starts. |
 | `OffDelay` | How long the hold stays active after `When` stops being true. |
@@ -282,7 +261,7 @@ A hold needs a `Window`, a `When` or a `Budget`, and everything in it must be tr
 
 A `When` is looked at again on every device change and at least once a minute, so one that uses `s.Within` changes within a minute of the window's edge. A hold's own `Window` changes on the edge, and `oikade status` shows when it next does, so prefer it when the window is the whole story.
 
-- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its `Default` is what's left when the hold ends.
+- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its default is what's left when the hold ends.
 - **Without a `Control`, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
 - **Restarts are safe.** The host saves each hold's state, and a new process writes only if the hold started or ended meanwhile. A restart at 02:00 doesn't undo the 23:00 tap, but automations down from 21:50 to 02:00 turn the heater on when they come back. `OffDelay` deadlines are saved too, so the fan still stops on time.
 - **Two holds on one capability need a `Control`** to decide between them.
@@ -293,36 +272,32 @@ A budget hold runs a device for a number of minutes a day, and plans when. Here 
 
 ```go
 framework.NewBundle(
-	framework.Control{
-		Default: LoftFan.On.To(false),
-		Resolve: framework.PreferOn, External: framework.ExternalOverride, OverrideHold: time.Hour,
-		MinimumOn:           time.Hour,        // each run at least an hour
-		MinimumOff:          30 * time.Minute, // and half an hour's rest between runs
-		MaximumStartsPerDay: 3,
-	},
-	framework.Hold{
-		Name: "loft-airing", Set: LoftFan.On.To(true),
-		Budget: &framework.Budget{
-			Bands: &framework.Bands{
-				Reading: LoftHumidity.Humidity,
-				MaxAge: time.Hour, Missing: 180, // if the sensor hasn't reported in the last hour
-				Ranges:    []framework.Band{{Below: 55, Minutes: 60}, {Below: 70, Minutes: 180}},
-				Otherwise: 300,
-			},
-			Prefer: []framework.Prefer{{Window: framework.Window{Start: framework.Clock("23:00"), End: framework.Clock("07:00")}, Score: 3}},
-			Forbid: []framework.Window{{Start: framework.Clock("18:00"), End: framework.Clock("22:00")}},
-		},
-	},
+	framework.NewControl(LoftFan.On.To(false), framework.PreferOn, framework.ExternalOverride).
+		OverrideHold(time.Hour).
+		MinimumOn(time.Hour).        // each run at least an hour
+		MinimumOff(30*time.Minute). // and half an hour's rest between runs
+		MaximumStartsPerDay(3),
+	framework.NewHold("loft-airing", LoftFan.On.To(true)).
+		Budget(framework.NewBandedBudget(framework.Bands{
+			Reading: LoftHumidity.Humidity,
+			MaxAge:  time.Hour, Missing: 180, // if the sensor hasn't reported in the last hour
+			Ranges:    []framework.Band{{Below: 55, Minutes: 60}, {Below: 70, Minutes: 180}},
+			Otherwise: 300,
+		}).
+			Prefer(framework.NewWindow(framework.Clock("23:00"), framework.Clock("07:00")), 3).
+			Forbid(framework.NewWindow(framework.Clock("18:00"), framework.Clock("22:00")))),
 )
 ```
 
-| Field | |
+`framework.NewBudget` takes a function of the home, and `framework.NewBandedBudget` takes `framework.Bands`. The rest are chained:
+
+| Method or input | |
 |---|---|
 | `PlanningTime` | When each planning day starts, `"HH:MM"` local time. The day is planned then, and the plan is frozen until the next one. Defaults to `"00:00"`. |
 | `SlotMinutes` | The day is planned in slots of 15, 30 or 60 minutes. Defaults to 30. |
-| `Bands` | The day's minutes from the band the reading falls in at `PlanningTime`: the first whose `Below` it's under, and `Otherwise` for the rest. `Missing` applies when it hasn't reported within `MaxAge` (default 30 minutes). |
-| `Minutes` | Or a function of the home at planning time. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. |
-| `Prefer` | Windows the minutes go in first. Each slot a window touches gains its `Score`, from -100 to 100, and overlapping windows add up. |
+| `framework.Bands` | The day's minutes from the band the reading falls in at `PlanningTime`: the first whose `Below` it's under, and `Otherwise` for the rest. `Missing` applies when it hasn't reported within `MaxAge` (default 30 minutes). |
+| `NewBudget`'s function | Or a function of the home at planning time. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. |
+| `Prefer(window, score)` | Windows the minutes go in first. Each slot a window touches gains the score, from -100 to 100, and overlapping windows add up. Give it once per window. |
 | `Forbid` | Windows the minutes never go in. |
 
 A budget's windows take clock times only, because the day is planned in slots.
@@ -337,17 +312,14 @@ A capability is arbitrated when your home has a `Control` for it. The host saves
 
 ```go
 framework.NewBundle(
-	framework.Control{
-		Default:           HallLight.On.To(false), // what's left when nobody claims it
-		Resolve:           framework.PreferOn,        // two claims at one level: on wins
-		External:          framework.ExternalOverride, // a wall switch or Home app tap becomes a claim...
-		OverrideUntilNext: true,                      // ...until what the rules want next changes
-	},
-	framework.Hold{
-		Name: "hall-motion-light", Set: HallLight.On.To(true),
-		When:     func(s framework.State) bool { return s.Get(HallMotion.Occupied) },
-		OffDelay: 5 * time.Minute,
-	},
+	framework.NewControl(
+		HallLight.On.To(false),     // what's left when nobody claims it
+		framework.PreferOn,         // two claims at one level: on wins
+		framework.ExternalOverride, // a wall switch or Home app tap becomes a claim...
+	).OverrideUntilNext(), // ...until what the rules want next changes
+	framework.NewHold("hall-motion-light", HallLight.On.To(true)).
+		When(func(s framework.State) bool { return s.Get(HallMotion.Occupied) }).
+		OffDelay(5*time.Minute),
 )
 ```
 
@@ -355,16 +327,18 @@ Rules, Matter controllers and the device itself make **claims**. The highest lev
 
 | Level | Who claims | Ends |
 |---|---|---|
-| Safety | Rules with `Priority: framework.Safety` | A rule's claim ends when its hold ends (for a latched hold, at a `Release`), or as its `Set` says |
-| Override | Outside changes (a Matter controller, `oikade set`, or the device by itself), and rules with `Priority: framework.Override` | An outside change ends after `OverrideHold`. A rule's claim ends as above. |
+| Safety | Rules with `Priority(framework.Safety)` | A rule's claim ends when its hold ends (for a latched hold, at a `Release`), or as its `Set` says |
+| Override | Outside changes (a Matter controller, `oikade set`, or the device by itself), and rules with `Priority(framework.Override)` | An outside change ends after `OverrideHold`. A rule's claim ends as above. |
 | Normal | Ordinary rules | As above |
 | Default | Nobody | Never |
 
-| Field | |
+`framework.NewControl` takes the first three, in order. The rest are chained:
+
+| Input or method | |
 |---|---|
-| `Default` | Required. The capability, at its value when nothing claims it: a handle's `To`. |
-| `Resolve` | Required. Which claim wins within a level: `PreferOn` or `PreferOff` for bools, `Highest` or `Lowest` for numbers. Rules have no numeric priorities. |
-| `External` | Required. What an outside change does. `ExternalOverride` makes it a claim for `OverrideHold`. `ExternalRevert` writes the winner straight back, as for a valve that must stay closed. |
+| Default | Required. The capability, at its value when nothing claims it: a handle's `To`. |
+| Resolve | Required. Which claim wins within a level: `PreferOn` or `PreferOff` for bools, `Highest` or `Lowest` for numbers. Rules have no numeric priorities. |
+| External | Required. What an outside change does. `ExternalOverride` makes it a claim for `OverrideHold`. `ExternalRevert` writes the winner straight back, as for a valve that must stay closed. |
 | `OverrideHold`, `OverrideUntilNext` | With `ExternalOverride`: a duration, or until the winner without it next changes. |
 | `MinimumOn`, `MaximumOn`, `MinimumOff`, `MaximumStartsPerDay` | Equipment limits. They apply after the winner is picked and beat every rule, Safety included. An outside change is accepted and counted, but not fought. |
 
@@ -377,11 +351,8 @@ An outside change is recorded by the path it came in by: `Matter` for a command 
 A `Set` on an arbitrated capability is a claim, so it must say when it ends:
 
 ```go
-framework.Moment{
-	Name: "towel-rail-boost",
-	At:   []framework.Time{framework.Clock("21:30")},
-	Do: []framework.Action{TowelRail.On.To(true).For(time.Hour).UntilNext()},
-}
+framework.NewMoment("towel-rail-boost", TowelRail.On.To(true).For(time.Hour).UntilNext()).
+	At(framework.Clock("21:30"))
 ```
 
 - `For` ends it after that long.
@@ -398,21 +369,14 @@ A latched hold stays active once it has started, until another rule releases it.
 
 ```go
 framework.NewBundle(
-	framework.Control{
-		Default: GarageHeater.On.To(true),
-		Resolve: framework.PreferOff, External: framework.ExternalRevert,
-	},
-	framework.Hold{
-		Name: "garage-overheat", Set: GarageHeater.On.To(false),
-		Priority: framework.Safety, Latch: true,
-		When: func(s framework.State) bool { return s.Get(GarageTemperature.Temperature) > 40 },
-	},
-	framework.Moment{
-		Name: "garage-overheat-reset",
-		On:   []framework.Change{GarageDoor.Open},
-		If:   func(s framework.State) bool { return s.Get(GarageDoor.Open) },
-		Do:   []framework.Action{framework.Release("garage-overheat")},
-	},
+	framework.NewControl(GarageHeater.On.To(true), framework.PreferOff, framework.ExternalRevert),
+	framework.NewHold("garage-overheat", GarageHeater.On.To(false)).
+		Priority(framework.Safety).
+		Latch().
+		When(func(s framework.State) bool { return s.Get(GarageTemperature.Temperature) > 40 }),
+	framework.NewMoment("garage-overheat-reset", framework.Release("garage-overheat")).
+		On(GarageDoor.Open).
+		If(func(s framework.State) bool { return s.Get(GarageDoor.Open) }),
 )
 ```
 
@@ -439,21 +403,17 @@ func lights() framework.Bundle {
 }
 
 func motionLight(z zone) framework.Hold {
-	return framework.Hold{
-		Name: z.name + "-motion-light", Set: z.light.To(true),
-		When:     func(s framework.State) bool { return s.Get(z.motion) },
-		OffDelay: 5 * time.Minute,
-	}
+	return framework.NewHold(z.name+"-motion-light", z.light.To(true)).
+		When(func(s framework.State) bool { return s.Get(z.motion) }).
+		OffDelay(5 * time.Minute)
 }
 
 // A budgeted hold and the Control it needs.
 func dehumidifier() framework.Bundle {
 	return framework.NewBundle(
-		framework.Control{
-			Default: Dehumidifier.On.To(false), Resolve: framework.PreferOn,
-			External: framework.ExternalOverride, OverrideHold: time.Hour,
-		},
-		framework.Hold{Name: "dehumidifier", Set: Dehumidifier.On.To(true), Budget: &cellarBudget},
+		framework.NewControl(Dehumidifier.On.To(false), framework.PreferOn, framework.ExternalOverride).
+			OverrideHold(time.Hour),
+		framework.NewHold("dehumidifier", Dehumidifier.On.To(true)).Budget(cellarBudget),
 	)
 }
 ```
@@ -520,7 +480,7 @@ That rejects code that would break a flow's replay, builds your module for the h
 
 ```console
 $ oikade deploy --data-dir /var/lib/oikade --module .
-Checking flows
+Checking your code
 Building for linux/arm64
 Uploading 11 MB: 11 MB sent
 Waiting for the host to check and settle
@@ -757,7 +717,7 @@ Zigbee is a plugin your home imports ([OIK-155](https://linear.app/oikade/issue/
 
 ```go
 framework.Run(framework.NewHome(framework.Options{},
-	framework.Plugin{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})},
+	framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{})),
 	// ...
 ))
 ```
