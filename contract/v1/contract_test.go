@@ -87,16 +87,16 @@ func TestPayloadsMatchContractDoc(t *testing.T) {
 }
 
 func TestRoot(t *testing.T) {
-	r := NewRoot("home", "sonoff")
+	r := NewRoot("sonoff")
 	for got, want := range map[string]string{
-		string(r):                "oikade/v1/home/sonoff",
-		r.Status():               "oikade/v1/home/sonoff/status",
-		r.Devices():              "oikade/v1/home/sonoff/devices",
-		r.State("1000aa"):        "oikade/v1/home/sonoff/1000aa/state",
-		r.Availability("1000aa"): "oikade/v1/home/sonoff/1000aa/availability",
-		r.Set("1000aa"):          "oikade/v1/home/sonoff/1000aa/set",
-		r.SetFilter():            "oikade/v1/home/sonoff/+/set",
-		r.Filter():               "oikade/v1/home/sonoff/#",
+		string(r):                "oikade/v1/sonoff",
+		r.Status():               "oikade/v1/sonoff/status",
+		r.Devices():              "oikade/v1/sonoff/devices",
+		r.State("1000aa"):        "oikade/v1/sonoff/1000aa/state",
+		r.Availability("1000aa"): "oikade/v1/sonoff/1000aa/availability",
+		r.Set("1000aa"):          "oikade/v1/sonoff/1000aa/set",
+		r.SetFilter():            "oikade/v1/sonoff/+/set",
+		r.Filter():               "oikade/v1/sonoff/#",
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -105,25 +105,25 @@ func TestRoot(t *testing.T) {
 }
 
 func TestParseRoot(t *testing.T) {
-	if r, err := ParseRoot("oikade/v1/home/sonoff"); err != nil || r != NewRoot("home", "sonoff") {
+	if r, err := ParseRoot("oikade/v1/sonoff"); err != nil || r != NewRoot("sonoff") {
 		t.Errorf("ParseRoot(valid) = %q, %v", r, err)
 	}
 	for _, bad := range []string{
 		"",
 		"oikade/v1",
 		"oikade/v1/",
-		"oikade/v1/home",
-		"oikade/v1/home/",
 		"oikade/v1//sonoff",
-		"oikade/v1/home/sonoff/",
-		"oikade/v1/home/sonoff/extra",
+		"oikade/v1/home/sonoff",
+		"oikade/v1/_host",
+		"oikade/v1/sonoff/",
+		"oikade/v1/sonoff/extra",
 		"oikade/v2/home/sonoff",
-		"/oikade/v1/home/sonoff",
+		"/oikade/v1/sonoff",
 		"zigbee2mqtt/home/sonoff",
-		"oikade/v1/+/sonoff",
-		"oikade/v1/home/#",
-		"oikade/v1/home/so+noff",
-		"oikade/v1/home/so\x00noff",
+		"oikade/v1/+",
+		"oikade/v1/#",
+		"oikade/v1/so+noff",
+		"oikade/v1/so\x00noff",
 	} {
 		if r, err := ParseRoot(bad); err == nil {
 			t.Errorf("ParseRoot(%q) = %q, want an error", bad, r)
@@ -132,7 +132,7 @@ func TestParseRoot(t *testing.T) {
 }
 
 func TestParseSet(t *testing.T) {
-	r := NewRoot("home", "sonoff")
+	r := NewRoot("sonoff")
 	for _, tc := range []struct {
 		name    string
 		topic   string
@@ -141,36 +141,36 @@ func TestParseSet(t *testing.T) {
 		ok      bool
 		err     bool
 	}{
-		{"bool", "oikade/v1/home/sonoff/1000aa/set", `{"on":true}`,
+		{"bool", "oikade/v1/sonoff/1000aa/set", `{"on":true}`,
 			SetCommand{ID: "1000aa", Capability: "on", Value: true}, true, false},
-		{"number", "oikade/v1/home/sonoff/1000aa/set", `{"brightness":42.5}`,
+		{"number", "oikade/v1/sonoff/1000aa/set", `{"brightness":42.5}`,
 			SetCommand{ID: "1000aa", Capability: "brightness", Value: 42.5}, true, false},
-		{"integer", "oikade/v1/home/sonoff/1000aa/set", ` {"brightness": 3} `,
+		{"integer", "oikade/v1/sonoff/1000aa/set", ` {"brightness": 3} `,
 			SetCommand{ID: "1000aa", Capability: "brightness", Value: 3.0}, true, false},
 
-		{"state topic", "oikade/v1/home/sonoff/1000aa/state", `{"on":true}`, SetCommand{}, false, false},
-		{"status topic", "oikade/v1/home/sonoff/status", `{}`, SetCommand{}, false, false},
-		{"other root", "oikade/v1/home/other/1000aa/set", `{"on":true}`, SetCommand{}, false, false},
-		{"root prefix", "oikade/v1/home/sonoff2/1000aa/set", `{"on":true}`, SetCommand{}, false, false},
-		{"no id", "oikade/v1/home/sonoff//set", `{"on":true}`, SetCommand{}, false, false},
-		{"nested id", "oikade/v1/home/sonoff/a/b/set", `{"on":true}`, SetCommand{}, false, false},
-		{"set suffix only", "oikade/v1/home/sonoff/set", `{"on":true}`, SetCommand{}, false, false},
+		{"state topic", "oikade/v1/sonoff/1000aa/state", `{"on":true}`, SetCommand{}, false, false},
+		{"status topic", "oikade/v1/sonoff/status", `{}`, SetCommand{}, false, false},
+		{"other root", "oikade/v1/other/1000aa/set", `{"on":true}`, SetCommand{}, false, false},
+		{"root prefix", "oikade/v1/sonoff2/1000aa/set", `{"on":true}`, SetCommand{}, false, false},
+		{"no id", "oikade/v1/sonoff//set", `{"on":true}`, SetCommand{}, false, false},
+		{"nested id", "oikade/v1/sonoff/a/b/set", `{"on":true}`, SetCommand{}, false, false},
+		{"set suffix only", "oikade/v1/sonoff/set", `{"on":true}`, SetCommand{}, false, false},
 
-		{"not JSON", "oikade/v1/home/sonoff/1000aa/set", `on`, SetCommand{}, true, true},
-		{"trailing data", "oikade/v1/home/sonoff/1000aa/set", `{"on":true} x`, SetCommand{}, true, true},
-		{"empty", "oikade/v1/home/sonoff/1000aa/set", ``, SetCommand{}, true, true},
-		{"null", "oikade/v1/home/sonoff/1000aa/set", `null`, SetCommand{}, true, true},
-		{"array", "oikade/v1/home/sonoff/1000aa/set", `[true]`, SetCommand{}, true, true},
-		{"no capability", "oikade/v1/home/sonoff/1000aa/set", `{}`, SetCommand{}, true, true},
-		{"repeated capability", "oikade/v1/home/sonoff/1000aa/set", `{"on":true,"on":false}`,
+		{"not JSON", "oikade/v1/sonoff/1000aa/set", `on`, SetCommand{}, true, true},
+		{"trailing data", "oikade/v1/sonoff/1000aa/set", `{"on":true} x`, SetCommand{}, true, true},
+		{"empty", "oikade/v1/sonoff/1000aa/set", ``, SetCommand{}, true, true},
+		{"null", "oikade/v1/sonoff/1000aa/set", `null`, SetCommand{}, true, true},
+		{"array", "oikade/v1/sonoff/1000aa/set", `[true]`, SetCommand{}, true, true},
+		{"no capability", "oikade/v1/sonoff/1000aa/set", `{}`, SetCommand{}, true, true},
+		{"repeated capability", "oikade/v1/sonoff/1000aa/set", `{"on":true,"on":false}`,
 			SetCommand{}, true, true},
-		{"unclosed", "oikade/v1/home/sonoff/1000aa/set", `{"on":true`, SetCommand{}, true, true},
-		{"two capabilities", "oikade/v1/home/sonoff/1000aa/set", `{"on":true,"brightness":1}`,
+		{"unclosed", "oikade/v1/sonoff/1000aa/set", `{"on":true`, SetCommand{}, true, true},
+		{"two capabilities", "oikade/v1/sonoff/1000aa/set", `{"on":true,"brightness":1}`,
 			SetCommand{}, true, true},
-		{"empty capability", "oikade/v1/home/sonoff/1000aa/set", `{"":true}`, SetCommand{}, true, true},
-		{"string value", "oikade/v1/home/sonoff/1000aa/set", `{"on":"true"}`, SetCommand{}, true, true},
-		{"null value", "oikade/v1/home/sonoff/1000aa/set", `{"on":null}`, SetCommand{}, true, true},
-		{"object value", "oikade/v1/home/sonoff/1000aa/set", `{"on":{}}`, SetCommand{}, true, true},
+		{"empty capability", "oikade/v1/sonoff/1000aa/set", `{"":true}`, SetCommand{}, true, true},
+		{"string value", "oikade/v1/sonoff/1000aa/set", `{"on":"true"}`, SetCommand{}, true, true},
+		{"null value", "oikade/v1/sonoff/1000aa/set", `{"on":null}`, SetCommand{}, true, true},
+		{"object value", "oikade/v1/sonoff/1000aa/set", `{"on":{}}`, SetCommand{}, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd, ok, err := r.ParseSet(tc.topic, []byte(tc.payload))
@@ -182,7 +182,7 @@ func TestParseSet(t *testing.T) {
 }
 
 func TestSetCommandPayloadRoundTrips(t *testing.T) {
-	r := NewRoot("home", "sonoff")
+	r := NewRoot("sonoff")
 	for _, want := range []SetCommand{
 		{ID: "1000aa", Capability: "on", Value: true},
 		{ID: "1000aa", Capability: "brightness", Value: 42.5},

@@ -63,7 +63,7 @@ type Host struct {
 	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade secret set says so.
 	SecretsDir string
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
-	// Broker, under oikade/v1/home/<name>.
+	// Broker, under oikade/v1/<name>.
 	Outside []string
 	// EventLog bounds what the host keeps for oikade replay. Zero fields take the defaults.
 	EventLog store.Bound
