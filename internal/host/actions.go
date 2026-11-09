@@ -61,7 +61,7 @@ func (s *apiServer) status() api.Response {
 	for dev, snap := range s.srv.devices.List() {
 		d := api.Device{
 			Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
-			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[dev.Name],
+			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[dev.Name], Problem: snap.Info.Error,
 		}
 		held := s.srv.engine.ControlOf(dev)
 		names := slices.Clone(snap.Info.Capabilities)

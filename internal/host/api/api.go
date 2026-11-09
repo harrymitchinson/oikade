@@ -208,6 +208,8 @@ type Response struct {
 	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
 	// rollback's for the version now running, and a devices request's for the one running now.
 	Unimported []Unimported `json:"unimported,omitempty"`
+	// Problems are a devices request's: what's wrong with a device, by name, as its driver says.
+	Problems map[string]string `json:"problems,omitempty"`
 	// OutsidePlugins are a devices request's: the plugins that run as processes of their own, which no
 	// version imports.
 	OutsidePlugins []string `json:"outsidePlugins,omitempty"`
@@ -345,6 +347,8 @@ type Device struct {
 	// PluginNotImported is a device whose plugin the running version doesn't import, so it stays
 	// offline until it's imported again or you remove the device.
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
+	// Problem is what's wrong with it, as its driver says, such as a missing key.
+	Problem string `json:"problem,omitempty"`
 }
 
 // Capability is a device's capability, and who has it if it's arbitrated.

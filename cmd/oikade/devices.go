@@ -149,13 +149,13 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 		unimported[u.Device] = true
 	}
 	if asJSON {
-		return cli.PrintJSON(listed(list, unimported))
+		return cli.PrintJSON(listed(list, unimported, resp.Problems))
 	}
 	if len(list.Devices) == 0 {
 		noDevices(os.Stderr, removed)
 		return nil
 	}
-	printDevices(os.Stdout, list, unimported)
+	printDevices(os.Stdout, list, unimported, resp.Problems)
 	return nil
 }
 
@@ -171,7 +171,7 @@ func noDevices(stderr io.Writer, removed int) {
 // notImported is the state of a device whose plugin the running version doesn't import.
 const notImported = "plugin not imported"
 
-func printDevices(out io.Writer, list registry.Snapshot, unimported map[string]bool) {
+func printDevices(out io.Writer, list registry.Snapshot, unimported map[string]bool, problems map[string]string) {
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tDRIVER\tID\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
@@ -184,6 +184,8 @@ func printDevices(out io.Writer, list registry.Snapshot, unimported map[string]b
 			state = "reserved"
 		case unimported[d.Name]:
 			state = notImported
+		case problems[d.Name] != "":
+			state = problems[d.Name]
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
 			or(d.ID, "-"), d.Endpoint, or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
@@ -197,15 +199,17 @@ type listedDevice struct {
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
 	// PluginNotImported is a device whose plugin the running version doesn't import.
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
+	// Problem is what's wrong with it, as its driver says.
+	Problem string `json:"problem,omitempty"`
 }
 
 // listed is the registry as oikade devices --json prints it.
-func listed(list registry.Snapshot, unimported map[string]bool) any {
+func listed(list registry.Snapshot, unimported map[string]bool, problems map[string]string) any {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		devices = append(devices, listedDevice{
 			Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...),
-			PluginNotImported: !d.Removed && unimported[d.Name],
+			PluginNotImported: !d.Removed && unimported[d.Name], Problem: problems[d.Name],
 		})
 	}
 	// Devices here is shallower than the Snapshot's, so it's the one encoding/json writes, and any

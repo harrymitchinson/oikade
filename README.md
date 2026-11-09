@@ -741,6 +741,32 @@ After each device list, the plugin asks Zigbee2MQTT with a `/get` for each value
 
 Every paired device enters the registry by its IEEE address, except the coordinator and devices Zigbee2MQTT doesn't support, and is usable at once. Its friendly name is copied once, as its name. When Zigbee2MQTT says it's offline, or the broker can't be reached, its devices read offline and writes are refused, which the host's log shows. Your automations and Matter carry on.
 
+## eWeLink LAN devices
+
+Relays and sensors that speak the eWeLink LAN protocol are a plugin your home imports ([OIK-10](https://linear.app/oikade/issue/OIK-10)). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade devices`, under its ID.
+
+```go
+framework.Run(framework.NewHome(framework.Options{},
+	framework.NewPlugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{
+		Humidity: []string{"1000ddeeff"}, // these also announce humidity
+	})),
+	// ...
+))
+```
+
+Each device's reports are encrypted with its own LAN key, which is one [secret](#secrets) named for its ID. Until it has one, the device is listed with what to do, and the Home app shows it as not responding:
+
+```sh
+oikade devices                                       # 1000aabbcc  no LAN key: oikade secret set 1000aabbcc
+oikade secret set 1000aabbcc                         # online within seconds, with no deploy
+oikade devices name 1000aabbcc porch-light
+oikade devices type porch-light MountedOnOffControl  # a relay can't tell what it switches
+```
+
+A device of type `plug` reports `on`. One of type `th_plug` reports `on` and `temperature`, plus `humidity` if its ID is in `Humidity`, which is a list because a device's sensors decide what the Home app shows. A reading that isn't a number, as when no probe is plugged in, isn't reported, and the last value stays. Any other type isn't reported, and the host's log says so once.
+
+A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one.
+
 ## State that must survive
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
@@ -758,6 +784,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - The metrics listener is read-only, but open to whoever can reach the port, and it shows device names and values. Move it with `--metrics-addr`.
 - Importing a plugin means trusting its code, because it runs as the host's user.
 - An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password, and keep it in a [secret](#secrets).
+- eWeLink LAN traffic is encrypted with each device's key, but Oikade can't tell a replayed report from a new one. Keep these devices on a network you trust.
 
 ## Logging
 

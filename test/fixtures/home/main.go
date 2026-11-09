@@ -88,9 +88,11 @@ func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (pl
 	return faulty{relays.New(devices)}, nil
 }
 
-// quietRelays is a second plugin, which does nothing wrong.
+// quietRelays is a second plugin, which does nothing wrong, and has a device it can't use yet.
 func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
-	return relays.New([]contractv1.DeclaredDevice{relay("quiet")}), nil
+	locked := relay("locked")
+	locked.Parameters = map[string]string{"simulate": "needs-key"}
+	return relays.New([]contractv1.DeclaredDevice{relay("quiet"), locked}), nil
 }
 
 // routine takes every kind of step in a known order, which the tests count on: start, now, set,

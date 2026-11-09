@@ -114,6 +114,20 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	r.untilValue("porch", false)
 }
 
+func TestADeviceSaysWhatItsPluginSaysIsWrong(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	const problem = "no key: give this relay one"
+	r.until("the device's problem", func() bool { return strings.Contains(string(r.stdout(nil, "devices")), problem) })
+	listed := string(r.stdout(nil, "devices", "--json"))
+	if !strings.Contains(listed, `"problem"`) || !strings.Contains(listed, problem) {
+		t.Errorf("devices --json: %s", listed)
+	}
+	if status := string(r.stdout(nil, "status", "locked")); !strings.Contains(status, problem) {
+		t.Errorf("status: %s", status)
+	}
+}
+
 func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
