@@ -550,7 +550,75 @@ func TestADeviceGoesOfflineWhenItGoesQuietAndComesBack(t *testing.T) {
 	b.waitAvailability(relayID, contractv1.Online)
 }
 
-func TestARepeatedReportIsntNews(t *testing.T) {
+func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
+	timings := fast
+	timings.confirm = 100 * time.Millisecond
+	b := start(t, Config{}, timings)
+	b.secret(relayID, fixtureKey)
+	d := b.device(relayID, "plug", relayOf("off"))
+	d.silent = true
+	iv, data, err := encrypt(relayOf("off"), lanKey(fixtureKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeat := func() { d.lan.packets <- d.packet(d.txt(iv, data), true) }
+	repeat()
+	b.waitAvailability(relayID, contractv1.Online)
+	b.waitState(relayID, "on", "false")
+
+	b.advance(fast.relayAge + time.Second)
+	b.waitAvailability(relayID, contractv1.Offline)
+	repeat()
+	b.waitAvailability(relayID, contractv1.Online)
+
+	b.mu.Lock()
+	states := b.published[root.State(relayID)]
+	b.mu.Unlock()
+	repeat() // a steady device is still seen
+	b.eventually("the repeat reported", func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return b.published[root.State(relayID)] > states
+	})
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+				repeat()
+			}
+		}
+	}()
+	err = b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	if err == nil || !strings.Contains(err.Error(), "didn't report the change") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestAKeyForADeviceLastHeardLongAgoWorksOnItsNextAnswer(t *testing.T) {
+	b := start(t, Config{}, fast)
+	d := b.device(relayID, "plug", relayOf("on"))
+	iv, data, err := encrypt(relayOf("on"), lanKey(fixtureKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.lan.packets <- d.packet(d.txt(iv, data), true)
+	b.eventually("the problem", func() bool { return b.reports()[relayID].Error != "" })
+
+	b.advance(fast.relayAge + time.Second)
+	b.secret(relayID, fixtureKey)
+	b.eventually("the problem clearing", func() bool { return b.reports()[relayID].Error == "" })
+	b.waitAvailability(relayID, contractv1.Offline)
+
+	d.lan.packets <- d.packet(d.txt(iv, data), true)
+	b.waitAvailability(relayID, contractv1.Online)
+}
+
+func TestARepeatOfAGoodReportClearsAFalseProblem(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
 	d := b.device(relayID, "plug", relayOf("on"))
@@ -562,8 +630,49 @@ func TestARepeatedReportIsntNews(t *testing.T) {
 	b.waitAvailability(relayID, contractv1.Online)
 
 	b.advance(fast.relayAge + time.Second)
+	d.announce("another-key", relayOf("off"))
+	b.eventually("the problem", func() bool { return b.reports()[relayID].Error != "" })
 	d.lan.packets <- d.packet(d.txt(iv, data), true)
-	b.waitAvailability(relayID, contractv1.Offline)
+	b.eventually("the problem clearing", func() bool { return b.reports()[relayID].Error == "" })
+	b.waitAvailability(relayID, contractv1.Online)
+}
+
+func TestANewKeyHasToDecodeEvenARepeat(t *testing.T) {
+	b := start(t, Config{}, fast)
+	b.secret(relayID, fixtureKey)
+	d := b.device(relayID, "plug", relayOf("on"))
+	iv, data, err := encrypt(relayOf("on"), lanKey(fixtureKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.lan.packets <- d.packet(d.txt(iv, data), true)
+	b.waitAvailability(relayID, contractv1.Online)
+
+	b.advance(fast.relayAge + time.Second)
+	b.secret(relayID, "not-the-key")
+	b.handler.mu.Lock()
+	b.handler.loadKey(b.handler.devices[relayID])
+	b.handler.mu.Unlock()
+	d.lan.packets <- d.packet(d.txt(iv, data), true)
+	b.eventually("the problem", func() bool { return b.reports()[relayID].Error == "wrong LAN key: oikade secret set "+relayID })
+}
+
+func TestSettingARelayToWhatItIsNeedsNoNewReport(t *testing.T) {
+	b := start(t, Config{}, fast)
+	b.secret(relayID, fixtureKey)
+	d := b.device(relayID, "plug", relayOf("on"))
+	d.silent = true
+	d.report()
+	b.waitAvailability(relayID, contractv1.Online)
+
+	if err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.bodies) != 1 {
+		t.Errorf("sent %d commands", len(d.bodies))
+	}
 }
 
 func TestTheFirstReportWaitsAndListsDevicesNotHeard(t *testing.T) {

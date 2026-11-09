@@ -203,13 +203,22 @@ type listedDevice struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// removedHasNone is a device's problem, which a removed one doesn't have.
+func removedHasNone(d registry.Device, problems map[string]string) string {
+	if d.Removed {
+		return ""
+	}
+	return problems[d.Name]
+}
+
 // listed is the registry as oikade devices --json prints it.
 func listed(list registry.Snapshot, unimported map[string]bool, problems map[string]string) any {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		devices = append(devices, listedDevice{
 			Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...),
-			PluginNotImported: !d.Removed && unimported[d.Name], Problem: problems[d.Name],
+			PluginNotImported: !d.Removed && unimported[d.Name],
+			Problem:           removedHasNone(d, problems),
 		})
 	}
 	// Devices here is shallower than the Snapshot's, so it's the one encoding/json writes, and any

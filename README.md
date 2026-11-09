@@ -765,7 +765,7 @@ oikade devices type porch-light MountedOnOffControl  # a relay can't tell what i
 
 A device of type `plug` reports `on`. One of type `th_plug` reports `on` and `temperature`, plus `humidity` if its ID is in `Humidity`, which is a list because a device's sensors decide what the Home app shows. A reading that isn't a number, as when no probe is plugged in, isn't reported, and the last value stays. Any other type isn't reported, and the host's log says so once.
 
-A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one.
+A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one. It stays hidden through a restart if it's on the network when the plugin starts, and comes back if it was off then and is heard later.
 
 ## State that must survive
 

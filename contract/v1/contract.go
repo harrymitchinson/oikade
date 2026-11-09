@@ -178,7 +178,8 @@ type DeviceReport struct {
 	Capabilities []string `json:"capabilities,omitempty"`
 	// DeviceType is what the device is, one of DeviceTypes, empty if the plugin doesn't know.
 	DeviceType string `json:"deviceType,omitempty"`
-	// Error is a problem with the device's configuration, empty otherwise.
+	// Error is a problem with the device's configuration, empty otherwise. A device can be found and
+	// still have one, if the plugin can see it and can't use it.
 	Error string `json:"error,omitempty"`
 }
 

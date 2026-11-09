@@ -35,7 +35,8 @@ type timing struct {
 	requery time.Duration
 	// sweep is how often devices are looked at, for those gone quiet and keys that have arrived.
 	sweep time.Duration
-	// query is how often devices are asked for while one isn't online.
+	// query is how often devices are asked for. It's well inside relayAge, since nothing shows that an
+	// idle device speaks unless it's asked.
 	query time.Duration
 	// relayAge is how old a relay report can be while the device still counts as online.
 	relayAge time.Duration
@@ -44,7 +45,7 @@ type timing struct {
 }
 
 var defaults = timing{
-	settle: 5 * time.Second, requery: time.Second, sweep: 5 * time.Second, query: 30 * time.Second,
+	settle: 5 * time.Second, requery: time.Second, sweep: 5 * time.Second, query: 15 * time.Second,
 	relayAge: 30 * time.Second, http: 5 * time.Second, confirm: 10 * time.Second,
 }
 
@@ -66,7 +67,7 @@ type lan interface {
 func New(c Config) plugin.Factory {
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		return newBridge(c, env, declared, func() (lan, error) { return mdns.ListenMulticast() }, defaults, time.Now,
-			slog.New(slog.NewJSONHandler(os.Stderr, nil))), nil
+			slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "ewelink-lan")), nil
 	}
 }
 
@@ -202,7 +203,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			b.mu.Unlock()
 			b.publish(nil)
 		case <-sweep.C:
-			if b.sweep() && b.now().Sub(asked) >= b.timing.query {
+			if b.sweep() || b.now().Sub(asked) >= b.timing.query {
 				asked = b.now()
 				b.query()
 			}
@@ -221,9 +222,14 @@ func (b *bridge) query() {
 }
 
 func (b *bridge) check(err error, msg, id string) {
-	if err != nil && !errors.Is(err, plugin.ErrClosed) && b.ctx.Err() == nil {
-		b.log.Error(msg, "device", id, "err", err)
+	if err == nil || errors.Is(err, plugin.ErrClosed) || b.ctx.Err() != nil {
+		return
 	}
+	if id != "" {
+		b.log.Error(msg, "device", id, "err", err)
+		return
+	}
+	b.log.Error(msg, "err", err)
 }
 
 // observed is what a report said that needs publishing.
@@ -300,7 +306,8 @@ func (b *bridge) loadKey(d *device) bool {
 	if secret == d.secret {
 		return false
 	}
-	d.secret, d.key = secret, lanKey(secret)
+	// What was decoded under the last key proves nothing about this one.
+	d.secret, d.key, d.lastCipher = secret, lanKey(secret), ""
 	return true
 }
 
@@ -315,7 +322,7 @@ func (b *bridge) setProblem(d *device, problem string) {
 func (b *bridge) decode(d *device, s *service, heard time.Time) (observed, bool) {
 	signature := s.txt["iv"] + ":" + s.txt["data1"] + s.txt["data2"] + s.txt["data3"] + s.txt["data4"]
 	if signature == d.lastCipher {
-		return observed{}, false
+		return b.repeated(d, heard)
 	}
 	if d.key == nil && !b.loadKey(d) {
 		return observed{}, false
@@ -343,6 +350,19 @@ func (b *bridge) decode(d *device, s *service, heard time.Time) (observed, bool)
 	b.setProblem(d, "")
 	d.lastCipher = signature
 	return b.apply(d, params, heard)
+}
+
+// repeated takes a report heard again. It's news of the device, which is still there and still says
+// this, and of nothing else: it confirms no command. Call with mu held.
+func (b *bridge) repeated(d *device, heard time.Time) (observed, bool) {
+	b.setProblem(d, "")
+	if d.relayAt.IsZero() {
+		return observed{}, false
+	}
+	if heard.After(d.relayAt) {
+		d.relayAt = heard
+	}
+	return observed{id: d.id, values: contractv1.State{}}, true
 }
 
 // apply takes a decoded report. Call with mu held.
@@ -389,17 +409,17 @@ func capabilities(d *device) []string {
 	return d.kind.capabilities
 }
 
-// sweep notices devices that have gone quiet and keys that have arrived, and says whether anything
-// isn't online.
+// sweep notices devices that have gone quiet and keys that have arrived, and says whether a key did,
+// so that its device can be asked at once.
 func (b *bridge) sweep() bool {
-	now := b.now()
 	b.mu.Lock()
 	var heard []observed
+	arrived := false
 	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
 		d := b.devices[id]
 		// The report that got no further is still there, so a new key needs no new report.
 		if d.problem != "" {
-			b.loadKey(d)
+			arrived = b.loadKey(d) || arrived
 			if d.key != nil && d.service != nil {
 				if r, ok := b.decode(d, d.service, d.service.heard); ok {
 					heard = append(heard, r)
@@ -409,15 +429,7 @@ func (b *bridge) sweep() bool {
 	}
 	b.mu.Unlock()
 	b.publish(heard)
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if len(b.devices) == 0 || slices.ContainsFunc(b.declared, func(id string) bool { return b.devices[id] == nil }) {
-		return true
-	}
-	return slices.ContainsFunc(slices.Collect(maps.Values(b.devices)), func(d *device) bool {
-		return d.problem != "" || !b.relayFresh(d, now)
-	})
+	return arrived
 }
 
 // publish sends what's changed: the device list if it has, then each availability that has, then
@@ -520,10 +532,15 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 	}
 	d.sequence = max(d.sequence+1, b.now().UnixMilli())
 	key, sequence, before, k := d.key, d.sequence, d.reports, d.kind
+	// A device told what it already is may have nothing new to say.
+	already := b.relayFresh(d, b.now()) && d.on == on
 	b.mu.Unlock()
 
 	if err := b.post(ctx, cmd.ID, net.JoinHostPort(host, strconv.Itoa(int(port))), k, on, key, sequence); err != nil {
 		return err
+	}
+	if already {
+		return nil
 	}
 	return b.confirm(ctx, d, before, on)
 }
