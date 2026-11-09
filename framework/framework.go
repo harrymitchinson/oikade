@@ -278,7 +278,7 @@ func (t Time) timer() engine.Timer {
 // needsLocation says, for a rule with these times, why it can't run in a home without a location.
 func needsLocation(o Options, times ...Time) error {
 	if o.site() == nil && slices.ContainsFunc(times, Time.isSun) {
-		return errors.New("a sunrise or sunset needs the home's location: set Location in Options")
+		return errors.New("a sunrise or sunset needs the home's location: set Location in Options with framework.NewLocation")
 	}
 	return nil
 }
@@ -600,29 +600,37 @@ type Options struct {
 func (o Options) check() error { return o.Location.check() }
 
 // site is the home's location for the engine, and nil if it has none.
-func (o Options) site() *sun.Site { return o.Location.site }
+func (o Options) site() *sun.Site { return o.Location.site() }
 
 // Location is where a home is. NewLocation makes one, and a zero Location is none.
 type Location struct {
-	site *sun.Site
+	latitude, longitude float64
+	set                 bool
 }
 
 // NewLocation is a place, in degrees. North and east are positive, and 0 is a coordinate like any
 // other. Two decimals, about a kilometre, move sun times by seconds, so round to that.
 func NewLocation(latitude, longitude float64) Location {
-	return Location{site: &sun.Site{Latitude: latitude, Longitude: longitude}}
+	return Location{latitude: latitude, longitude: longitude, set: true}
 }
 
 func (l Location) check() error {
 	switch {
-	case l.site == nil:
+	case !l.set:
 		return nil
-	case !(l.site.Latitude >= -90 && l.site.Latitude <= 90):
-		return fmt.Errorf("the home's latitude %v isn't between -90 and 90", l.site.Latitude)
-	case !(l.site.Longitude >= -180 && l.site.Longitude <= 180):
-		return fmt.Errorf("the home's longitude %v isn't between -180 and 180", l.site.Longitude)
+	case !(l.latitude >= -90 && l.latitude <= 90):
+		return fmt.Errorf("the home's latitude %v isn't between -90 and 90", l.latitude)
+	case !(l.longitude >= -180 && l.longitude <= 180):
+		return fmt.Errorf("the home's longitude %v isn't between -180 and 180", l.longitude)
 	}
 	return nil
+}
+
+func (l Location) site() *sun.Site {
+	if !l.set {
+		return nil
+	}
+	return &sun.Site{Latitude: l.latitude, Longitude: l.longitude}
 }
 
 // Part is a piece of a home: a Hold, Moment, Flow, Control, Plugin, or a Bundle of them. A function

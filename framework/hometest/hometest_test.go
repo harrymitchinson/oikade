@@ -304,12 +304,14 @@ func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
 }
 
 // greenwich is a home's location, rounded to two decimals.
-var greenwich = framework.Options{Location: framework.NewLocation(51.48, -0.01)}
+var greenwich = framework.Options{Location: framework.NewLocation(greenwichSite.Latitude, greenwichSite.Longitude)}
+
+var greenwichSite = sun.Site{Latitude: 51.48, Longitude: -0.01}
 
 // sunset is when the sun sets at greenwich on a day, which internal/sun checks against published tables.
 func sunset(t *testing.T, day time.Time) time.Time {
 	t.Helper()
-	at, ok := sun.Site{Latitude: 51.48, Longitude: -0.01}.
+	at, ok := greenwichSite.
 		Time(sun.Sunset, day.Year(), day.Month(), day.Day(), day.Location())
 	if !ok {
 		t.Fatalf("the sun doesn't set on %v", day)

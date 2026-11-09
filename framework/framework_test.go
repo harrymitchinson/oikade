@@ -630,6 +630,15 @@ func TestARuleNameClashesAcrossBundles(t *testing.T) {
 	}
 }
 
+func TestALocationComparesByValue(t *testing.T) {
+	if NewLocation(51.48, -0.01) != NewLocation(51.48, -0.01) {
+		t.Error("two locations at one place differ")
+	}
+	if NewLocation(0, 0) == (Location{}) {
+		t.Error("a place at 0, 0 is the same as no location")
+	}
+}
+
 func TestAZeroCoordinateIsARealPlace(t *testing.T) {
 	dusk := Moment{Name: "a", At: []Time{Sunset(0)}, Do: []Action{Wait(time.Second)}}
 	for _, o := range []Options{
