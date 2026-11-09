@@ -181,7 +181,7 @@ func TestCheckFailsOnACapabilityTheDeviceHasnt(t *testing.T) {
 func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "When: func", "OnDelay: -time.Minute,\n\t\t\tWhen: func")
+	replaceIn(t, filepath.Join(dir, "main.go"), "When(func", "OnDelay(-time.Minute).\n\t\t\tWhen(func")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -194,11 +194,9 @@ func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
 func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t})", `OffDelay: 5 * time.Minute,
-	}, framework.Moment{
-		Name: "lights-out", At: []framework.Time{framework.Clock("25:00")},
-		Do: []framework.Action{PorchLight.On.To(false)},
-	})`)
+	replaceIn(t, filepath.Join(dir, "main.go"), afterHold, `OffDelay(5*time.Minute),
+		framework.NewMoment("lights-out", PorchLight.On.To(false)).At(framework.Clock("25:00")),
+	)`)
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -209,16 +207,17 @@ func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 }
 
 // duskMoment is a moment for oikade init's home, after its hold.
-const duskMoment = `OffDelay: 5 * time.Minute,
-	}, framework.Moment{
-		Name: "porch-at-dusk", At: []framework.Time{framework.Sunset(-20 * time.Minute)},
-		Do: []framework.Action{PorchLight.On.To(true)},
-	})`
+const duskMoment = `OffDelay(5*time.Minute),
+		framework.NewMoment("porch-at-dusk", PorchLight.On.To(true)).At(framework.Sunset(-20*time.Minute)),
+	)`
+
+// afterHold is the end of oikade init's home, where a test adds to it.
+const afterHold = "OffDelay(5*time.Minute),\n\t)"
 
 func TestCheckFailsOnASunsetWithNoLocation(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "OffDelay: 5 * time.Minute,\n\t})", duskMoment)
+	replaceIn(t, filepath.Join(dir, "main.go"), afterHold, duskMoment)
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -245,7 +244,7 @@ func TestDevFiresAtSunsetForTheHomesLocation(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	main := filepath.Join(dir, "main.go")
-	replaceIn(t, main, "OffDelay: 5 * time.Minute,\n\t})", duskMoment)
+	replaceIn(t, main, afterHold, duskMoment)
 	replaceIn(t, main, "framework.Options{}", "framework.Options{Location: framework.NewLocation(51.48, -0.01)}")
 	// oikade dev starts now, in this machine's zone, so the next sunset is within a day.
 	before := time.Now()
@@ -311,6 +310,46 @@ func late(r *framework.FlowRun) error {
 		t.Fatalf("oikade check passed:\n%s", out)
 	}
 	if !strings.Contains(out, "time.Now") {
+		t.Errorf("oikade check said:\n%s", out)
+	}
+}
+
+func TestCheckFailsOnAChainedResultThatIsntUsed(t *testing.T) {
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	code := `package main
+
+import (
+	"time"
+
+	"github.com/harrymitchinson/oikade/framework"
+)
+
+func discard(h framework.Hold) {
+	h.OffDelay(time.Minute)
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "discard.go"), []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, bin, dir, "", "check")
+	if err == nil {
+		t.Fatalf("oikade check passed:\n%s", out)
+	}
+	if !strings.Contains(out, "the result of OffDelay isn't used") {
+		t.Errorf("oikade check said:\n%s", out)
+	}
+}
+
+func TestCheckFailsOnAnOptionGivenTwice(t *testing.T) {
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	replaceIn(t, filepath.Join(dir, "main.go"), afterHold, "OffDelay(5*time.Minute).OffDelay(time.Minute),\n\t)")
+	out, err := run(t, bin, dir, "", "check")
+	if err == nil {
+		t.Fatalf("oikade check passed:\n%s", out)
+	}
+	if !strings.Contains(out, "rule porch-light: OffDelay is given twice") {
 		t.Errorf("oikade check said:\n%s", out)
 	}
 }

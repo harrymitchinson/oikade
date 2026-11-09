@@ -11,14 +11,10 @@ import (
 func TestAPlanThatFailsIsAnEvent(t *testing.T) {
 	pump := framework.Handle[bool]{Device: "pump", Capability: framework.On}
 	home := framework.NewHome(framework.Options{},
-		framework.Control{
-			Default: pump.To(false), Resolve: framework.PreferOn,
-			External: framework.ExternalOverride, OverrideHold: time.Hour,
-		},
-		framework.Hold{
-			Name: "pump", Set: pump.To(true),
-			Budget: &framework.Budget{Minutes: func(framework.State) int { panic("no reading") }},
-		},
+		framework.NewControl(pump.To(false), framework.PreferOn, framework.ExternalOverride).
+			OverrideHold(time.Hour),
+		framework.NewHold("pump", pump.To(true)).
+			Budget(framework.NewBudget(func(framework.State) int { panic("no reading") })),
 	)
 	h := New(t, home, Options{Devices: []Device{{
 		Name: "pump", Capabilities: []string{"on"}, Values: map[string]any{"on": false},

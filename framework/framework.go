@@ -2,13 +2,12 @@
 // holds and moments and hands them to Run:
 //
 //	func main() {
-//		framework.Run(framework.NewHome(framework.Options{}, framework.Hold{
-//			Name: "bathroom-fan",
-//			Set:  BathroomFan.On.To(true),
-//			When: func(s framework.State) bool {
-//				return s.Get(BathroomSensor.Humidity) > 70
-//			},
-//		}))
+//		framework.Run(framework.NewHome(framework.Options{},
+//			framework.NewHold("bathroom-fan", BathroomFan.On.To(true)).
+//				When(func(s framework.State) bool {
+//					return s.Get(BathroomSensor.Humidity) > 70
+//				}),
+//		))
 //	}
 //
 // BathroomFan and BathroomSensor come from devices.go, which oikade types writes from the home's
@@ -183,7 +182,7 @@ func (s State) Now() time.Time { return s.now }
 
 // Within reports whether Now is inside the window, by the same rules as a hold's Window:
 //
-//	s.Within(framework.Window{Start: framework.Clock("18:00"), End: framework.Clock("07:00")})
+//	s.Within(framework.NewWindow(framework.Clock("18:00"), framework.Clock("07:00")))
 //
 // A hold looks again every minute, so one whose When uses it changes within a minute of the window's
 // edge, where a hold's own Window changes on it. A window with a mistake in it, such as a time
@@ -288,55 +287,173 @@ func (w *Window) times() []Time {
 	if w == nil {
 		return nil
 	}
-	return []Time{w.Start, w.End}
+	return []Time{w.start, w.end}
 }
 
-// Window is when a hold may be active, from Start until the next End, starting on Days or on any
-// day. An End at or before its Start is the next day.
+// once records which of a rule's single-valued options have been given, so that compile can report
+// one given twice. A method on a rule returns a copy, so what's here is clipped before it's added
+// to, and two chains from one rule stay separate.
+type once struct {
+	given, twice []string
+}
+
+func (o once) note(option string) once {
+	if !slices.Contains(o.given, option) {
+		o.given = append(slices.Clip(o.given), option)
+	} else if !slices.Contains(o.twice, option) {
+		o.twice = append(slices.Clip(o.twice), option)
+	}
+	return o
+}
+
+func (o once) err() error {
+	errs := make([]error, 0, len(o.twice))
+	for _, option := range o.twice {
+		errs = append(errs, fmt.Errorf("%s is given twice, and takes one", option))
+	}
+	return errors.Join(errs...)
+}
+
+// Window is when a hold may be active, from its start until the next end. An end at or before its
+// start is the next day. NewWindow makes one.
 type Window struct {
-	Start, End Time
-	Days       []time.Weekday
+	start, end Time
+	days       []time.Weekday
+}
+
+// NewWindow is open from start until the next end, starting on any day.
+func NewWindow(start, end Time) Window { return Window{start: start, end: end} }
+
+// Days limits the days the window starts on, adding to any it has.
+func (w Window) Days(days ...time.Weekday) Window {
+	w.days = append(slices.Clip(w.days), days...)
+	return w
 }
 
 // Hold keeps a capability at a value while its Window is open and When is true. It needs at least
-// one of them, or a Budget on its own. Name it once: its state is kept by name.
+// one of them, or a Budget on its own. NewHold makes one.
 type Hold struct {
-	Name string
-	// Set is what the hold keeps, such as PorchLight.On.To(true), or InRoom's. The hold's
-	// Priority is its own, so the Set takes no For, Until or Priority.
-	Set      Set
-	Priority Priority
-	Window   *Window
-	When     Condition
-	// OnDelay and OffDelay are how long When must stay true or false first.
-	OnDelay, OffDelay time.Duration
-	// Latch keeps the hold active once it starts, until a Release.
-	Latch bool
-	// Budget plans when the hold is active each day. It holds one device's Bool at true, which needs
-	// a Control, whose limits it plans around.
-	Budget *Budget
+	name              string
+	set               Set
+	priority          Priority
+	window            *Window
+	when              Condition
+	onDelay, offDelay time.Duration
+	latch             bool
+	budget            *Budget
+	once              once
 }
 
-// Budget places a number of minutes a day in the best slots.
+// NewHold keeps what set says, such as PorchLight.On.To(true), or InRoom's. Name it once: its state
+// is kept by name. The hold's Priority is its own, so the Set takes no For, Until or Priority.
+func NewHold(name string, set Set) Hold { return Hold{name: name, set: set} }
+
+// Priority is the level of the hold's claims.
+func (r Hold) Priority(p Priority) Hold {
+	r.priority = p
+	r.once = r.once.note("Priority")
+	return r
+}
+
+// Window is when the hold may be active.
+func (r Hold) Window(w Window) Hold {
+	r.window = &w
+	r.once = r.once.note("Window")
+	return r
+}
+
+// When is the condition the hold is active under.
+func (r Hold) When(c Condition) Hold {
+	r.when = c
+	r.once = r.once.note("When")
+	return r
+}
+
+// OnDelay is how long When must stay true first.
+func (r Hold) OnDelay(d time.Duration) Hold {
+	r.onDelay = d
+	r.once = r.once.note("OnDelay")
+	return r
+}
+
+// OffDelay is how long When must stay false first.
+func (r Hold) OffDelay(d time.Duration) Hold {
+	r.offDelay = d
+	r.once = r.once.note("OffDelay")
+	return r
+}
+
+// Latch keeps the hold active once it starts, until a Release.
+func (r Hold) Latch() Hold {
+	r.latch = true
+	r.once = r.once.note("Latch")
+	return r
+}
+
+// Budget plans when the hold is active each day. It holds one device's Bool at true, which needs a
+// Control, whose limits it plans around.
+func (r Hold) Budget(b Budget) Hold {
+	r.budget = &b
+	r.once = r.once.note("Budget")
+	return r
+}
+
+// repeats reports the options given twice, on the hold and its budget.
+func (r Hold) repeats() error {
+	if r.budget == nil {
+		return r.once.err()
+	}
+	return errors.Join(r.once.err(), r.budget.once.err())
+}
+
+// Budget places a number of minutes a day in the best slots. NewBudget and NewBandedBudget make one.
 type Budget struct {
-	// PlanningTime starts each planning day, as "HH:MM". Empty means midnight.
-	PlanningTime string
-	// SlotMinutes is the length of the slots the day is planned in: 15, 30 or 60. Zero means 30.
-	SlotMinutes int
-	// Minutes works out the day's minutes at PlanningTime. A device that hasn't reported, or a panic,
-	// makes it zero for the day, and that's logged. Set this or Bands.
-	Minutes func(State) int
-	// Bands picks the day's minutes from a reading. Set this or Minutes.
-	Bands *Bands
-	// Prefer weights slots. Forbid rules them out, and beats a Prefer.
-	Prefer []Prefer
-	Forbid []Window
+	planningTime string
+	slotMinutes  int
+	minutes      func(State) int
+	bands        *Bands
+	prefer       []prefer
+	forbid       []Window
+	once         once
 }
 
-// Prefer weights the slots in a window.
-type Prefer struct {
-	Window Window
-	Score  int
+// prefer weights the slots in a window.
+type prefer struct {
+	window Window
+	score  int
+}
+
+// NewBudget works out the day's minutes at the planning time. A device that hasn't reported, or a
+// panic, makes it zero for the day, and that's logged.
+func NewBudget(minutes func(State) int) Budget { return Budget{minutes: minutes} }
+
+// NewBandedBudget picks the day's minutes from a reading.
+func NewBandedBudget(bands Bands) Budget { return Budget{bands: &bands} }
+
+// PlanningTime starts each planning day, as "HH:MM". Without it, that's midnight.
+func (b Budget) PlanningTime(hhmm string) Budget {
+	b.planningTime = hhmm
+	b.once = b.once.note("a budget's PlanningTime")
+	return b
+}
+
+// SlotMinutes is the length of the slots the day is planned in: 15, 30 or 60. Without it, 30.
+func (b Budget) SlotMinutes(minutes int) Budget {
+	b.slotMinutes = minutes
+	b.once = b.once.note("a budget's SlotMinutes")
+	return b
+}
+
+// Prefer weights the slots in a window, adding to any others.
+func (b Budget) Prefer(w Window, score int) Budget {
+	b.prefer = append(slices.Clip(b.prefer), prefer{window: w, score: score})
+	return b
+}
+
+// Forbid rules out the slots in these windows, adding to any others. It beats a Prefer.
+func (b Budget) Forbid(windows ...Window) Budget {
+	b.forbid = append(slices.Clip(b.forbid), windows...)
+	return b
 }
 
 // Bands picks a day's minutes from the band a reading falls in.
@@ -384,81 +501,202 @@ const (
 )
 
 // Control arbitrates a capability of a device: rules claim it rather than write it, and the host
-// picks the winner, including when your automations aren't running.
+// picks the winner, including when your automations aren't running. NewControl makes one.
 type Control struct {
-	// Default is the capability, at its value with no claims: Heater.On.To(false). It names a
-	// device, not a room, and takes no For, Until or Priority.
-	Default  Set
-	Resolve  Resolve
-	External External
-	// OverrideHold is how long an ExternalOverride lasts, unless OverrideUntilNext.
-	OverrideHold time.Duration
-	// OverrideUntilNext ends an ExternalOverride when the value without it next changes.
-	OverrideUntilNext bool
-	// MinimumOn and MinimumOff are the shortest run and rest. MaximumOn stops a longer run, and then
-	// rests for MinimumOff, or until nothing wants it on.
-	MinimumOn, MaximumOn, MinimumOff time.Duration
-	// MaximumStartsPerDay limits off-to-on transitions. Zero means unlimited.
-	MaximumStartsPerDay int
+	fallback                         Set
+	resolve                          Resolve
+	external                         External
+	overrideHold                     time.Duration
+	overrideUntilNext                bool
+	minimumOn, maximumOn, minimumOff time.Duration
+	maximumStartsPerDay              int
+	once                             once
+}
+
+// NewControl arbitrates a capability. fallback is the capability at its value with no claims:
+// Heater.On.To(false). It names a device, not a room, and takes no For, Until or Priority.
+func NewControl(fallback Set, resolve Resolve, external External) Control {
+	return Control{fallback: fallback, resolve: resolve, external: external}
+}
+
+// OverrideHold is how long an ExternalOverride lasts. It's the alternative to OverrideUntilNext.
+func (c Control) OverrideHold(d time.Duration) Control {
+	c.overrideHold = d
+	c.once = c.once.note("OverrideHold")
+	return c
+}
+
+// OverrideUntilNext ends an ExternalOverride when the value without it next changes.
+func (c Control) OverrideUntilNext() Control {
+	c.overrideUntilNext = true
+	c.once = c.once.note("OverrideUntilNext")
+	return c
+}
+
+// MinimumOn is the shortest run.
+func (c Control) MinimumOn(d time.Duration) Control {
+	c.minimumOn = d
+	c.once = c.once.note("MinimumOn")
+	return c
+}
+
+// MaximumOn stops a longer run, and then rests for MinimumOff, or until nothing wants it on.
+func (c Control) MaximumOn(d time.Duration) Control {
+	c.maximumOn = d
+	c.once = c.once.note("MaximumOn")
+	return c
+}
+
+// MinimumOff is the shortest rest.
+func (c Control) MinimumOff(d time.Duration) Control {
+	c.minimumOff = d
+	c.once = c.once.note("MinimumOff")
+	return c
+}
+
+// MaximumStartsPerDay limits off-to-on transitions. Without it, they're unlimited.
+func (c Control) MaximumStartsPerDay(n int) Control {
+	c.maximumStartsPerDay = n
+	c.once = c.once.note("MaximumStartsPerDay")
+	return c
 }
 
 func (c Control) entry() (control.Entry, error) {
-	if err := c.Default.plain("a Control's Default", true); err != nil {
+	if err := c.fallback.plain("a Control's Default", true); err != nil {
 		return control.Entry{}, err
 	}
-	raw, err := json.Marshal(c.Default.value)
+	raw, err := json.Marshal(c.fallback.value)
 	if err != nil {
 		return control.Entry{}, fmt.Errorf("default: %w", err)
 	}
 	e := control.Entry{
-		Capability: c.Default.capability, Default: raw, Resolve: string(c.Resolve), External: string(c.External),
-		MinimumOn: control.Duration(c.MinimumOn), MaximumOn: control.Duration(c.MaximumOn),
-		MinimumOff: control.Duration(c.MinimumOff), MaximumStartsPerDay: c.MaximumStartsPerDay,
+		Capability: c.fallback.capability, Default: raw, Resolve: string(c.resolve), External: string(c.external),
+		MinimumOn: control.Duration(c.minimumOn), MaximumOn: control.Duration(c.maximumOn),
+		MinimumOff: control.Duration(c.minimumOff), MaximumStartsPerDay: c.maximumStartsPerDay,
 	}
 	switch {
-	case c.OverrideUntilNext:
+	case c.overrideUntilNext:
 		e.OverrideHold = control.NameNext
-	case c.OverrideHold != 0:
-		e.OverrideHold = c.OverrideHold.String()
+	case c.overrideHold != 0:
+		e.OverrideHold = c.overrideHold.String()
 	}
 	return e, nil
 }
 
-// Moment runs Do when a trigger fires and If, if set, is true. It needs a trigger: a Change, or a
-// time of day in At, such as Clock("23:30").
+// Moment runs its actions when a trigger fires and If, if given, is true. It needs a trigger: On, or
+// a time of day in At, such as Clock("23:30"). NewMoment makes one.
 type Moment struct {
-	Name string
-	On   []Change
-	At   []Time
-	If   Condition
-	// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
-	Restart bool
-	// Late is how late a time in At may still fire, as when no process was running. Zero means
-	// DefaultLate. A moment with a Safety Set fires however late it is.
-	Late time.Duration
-	Do   []Action
+	name    string
+	on      []Change
+	at      []Time
+	cond    Condition
+	restart bool
+	late    time.Duration
+	do      []Action
+	once    once
+}
+
+// NewMoment runs the actions in order. Name it once.
+func NewMoment(name string, do ...Action) Moment {
+	return Moment{name: name, do: slices.Clone(do)}
+}
+
+// On adds changes that trigger the moment.
+func (r Moment) On(changes ...Change) Moment {
+	r.on = append(slices.Clip(r.on), changes...)
+	return r
+}
+
+// At adds times of day that trigger the moment.
+func (r Moment) At(times ...Time) Moment {
+	r.at = append(slices.Clip(r.at), times...)
+	return r
+}
+
+// If is checked when a trigger fires, and the moment runs only if it's true.
+func (r Moment) If(c Condition) Moment {
+	r.cond = c
+	r.once = r.once.note("If")
+	return r
+}
+
+// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
+func (r Moment) Restart() Moment {
+	r.restart = true
+	r.once = r.once.note("Restart")
+	return r
+}
+
+// Late is how late a time in At may still fire, as when no process was running. Without it, that's
+// DefaultLate. A moment with a Safety Set fires however late it is.
+func (r Moment) Late(d time.Duration) Moment {
+	r.late = d
+	r.once = r.once.note("Late")
+	return r
 }
 
 // DefaultLate is how late a flow may wake, or a time of day fire, and still run.
 const DefaultLate = 10 * time.Minute
 
-// Flow runs Run when a trigger fires and If, if set, is true, like a moment. Run is ordinary Go, and
-// survives a crash at any point. It must stick to the steps on its FlowRun for anything that
-// happens outside it or varies between runs, because after a crash it runs again from the top and
-// recorded steps return what they returned the first time. docs/writing-flows.md says how.
+// Flow runs its function when a trigger fires and If, if given, is true, like a moment. The function
+// is ordinary Go, and survives a crash at any point. It must stick to the steps on its FlowRun for
+// anything that happens outside it or varies between runs, because after a crash it runs again from
+// the top and recorded steps return what they returned the first time. docs/writing-flows.md says
+// how. NewFlow makes one.
 type Flow struct {
-	Name string
-	On   []Change
-	At   []Time
-	If   Condition
-	// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
-	Restart bool
-	// Priority is the level of its Sets that don't give one. A Safety flow never expires.
-	Priority Priority
-	// Late is how late a run may wake and still carry on. Zero means DefaultLate. A run later than
-	// that gives up and logs it, rather than turn the lights off at 09:00.
-	Late time.Duration
-	Run  func(*FlowRun) error
+	name     string
+	on       []Change
+	at       []Time
+	cond     Condition
+	restart  bool
+	priority Priority
+	late     time.Duration
+	run      func(*FlowRun) error
+	once     once
+}
+
+// NewFlow runs run on each trigger. Name it once.
+func NewFlow(name string, run func(*FlowRun) error) Flow { return Flow{name: name, run: run} }
+
+// On adds changes that trigger the flow.
+func (r Flow) On(changes ...Change) Flow {
+	r.on = append(slices.Clip(r.on), changes...)
+	return r
+}
+
+// At adds times of day that trigger the flow.
+func (r Flow) At(times ...Time) Flow {
+	r.at = append(slices.Clip(r.at), times...)
+	return r
+}
+
+// If is checked when a trigger fires, and the flow runs only if it's true.
+func (r Flow) If(c Condition) Flow {
+	r.cond = c
+	r.once = r.once.note("If")
+	return r
+}
+
+// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
+func (r Flow) Restart() Flow {
+	r.restart = true
+	r.once = r.once.note("Restart")
+	return r
+}
+
+// Priority is the level of its Sets that don't give one. A Safety flow never expires.
+func (r Flow) Priority(p Priority) Flow {
+	r.priority = p
+	r.once = r.once.note("Priority")
+	return r
+}
+
+// Late is how late a run may wake and still carry on. Without it, that's DefaultLate. A run later
+// than that gives up and logs it, rather than turn the lights off at 09:00.
+func (r Flow) Late(d time.Duration) Flow {
+	r.late = d
+	r.once = r.once.note("Late")
+	return r
 }
 
 // FlowRun is one run of a flow. Its steps are written to the host's disk before the flow continues.
@@ -707,13 +945,16 @@ func (h *Home) add(path string, parts []Part) {
 
 // Plugin is a plugin your home imports. It's a Go module like any other, and it runs as you, so
 // importing one means trusting its code. The host runs each in a process of its own, so one that
-// panics or hangs is restarted while automations and Matter carry on.
+// panics or hangs is restarted while automations and Matter carry on. NewPlugin makes one.
 type Plugin struct {
-	// Name is what the plugin's devices are recorded under. Keep it: changing it makes them new
-	// hardware.
-	Name string
-	// New builds the plugin. It runs in the plugin's process, never in your automations.
-	New plugin.Factory
+	name    string
+	factory plugin.Factory
+}
+
+// NewPlugin imports a plugin. name is what its devices are recorded under: keep it, because changing
+// it makes them new hardware. factory builds the plugin, in its own process, never in your automations.
+func NewPlugin(name string, factory plugin.Factory) Plugin {
+	return Plugin{name: name, factory: factory}
 }
 
 // compile checks the home and turns it into the engine's rules, and returns its flows by name.
@@ -743,8 +984,8 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	errs = append(errs, h.mistakes...)
 	errs = append(errs, err, h.options.check())
 	for _, r := range h.holds {
-		key := name(r.Name)
-		err := r.Set.plain("a hold's Set", false)
+		key := name(r.name)
+		err := r.set.plain("a hold's Set", false)
 		var c *engine.Compiled
 		if err == nil {
 			c, err = engine.NewHold(key, r.toEngine())
@@ -752,29 +993,29 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		if err == nil {
 			err = r.checkBudget(settings)
 		}
-		add(r.Name, c, errors.Join(err, needsLocation(h.options, r.Window.times()...)))
+		add(r.name, c, errors.Join(err, r.repeats(), needsLocation(h.options, r.window.times()...)))
 	}
 	for _, r := range h.moments {
-		c, err := engine.NewMoment(name(r.Name), r.toEngine())
-		add(r.Name, c, errors.Join(err, nilChange(r.On), needsLocation(h.options, r.At...)))
+		c, err := engine.NewMoment(name(r.name), r.toEngine())
+		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...)))
 	}
 	for _, r := range h.flows {
-		f := r.toFlow(name(r.Name))
-		flows[r.Name] = f
+		f := r.toFlow(name(r.name))
+		flows[r.name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
-		add(r.Name, c, errors.Join(err, nilChange(r.On), needsLocation(h.options, r.At...)))
+		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...)))
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.plugins {
 		switch {
-		case !contractv1.ValidID(p.Name):
-			errs = append(errs, fmt.Errorf("plugin name %q isn't valid", p.Name))
-		case plugins[p.Name]:
-			errs = append(errs, fmt.Errorf("plugin %q is declared twice", p.Name))
-		case p.New == nil:
-			errs = append(errs, fmt.Errorf("plugin %s has no New", p.Name))
+		case !contractv1.ValidID(p.name):
+			errs = append(errs, fmt.Errorf("plugin name %q isn't valid", p.name))
+		case plugins[p.name]:
+			errs = append(errs, fmt.Errorf("plugin %q is declared twice", p.name))
+		case p.factory == nil:
+			errs = append(errs, fmt.Errorf("plugin %s has no factory", p.name))
 		}
-		plugins[p.Name] = true
+		plugins[p.name] = true
 	}
 	return rules, flows, errors.Join(errs...)
 }
@@ -784,15 +1025,18 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 	var out []wire.DeviceControl
 	var errs []error
 	for _, c := range h.control {
-		device, capability := c.Default.device, c.Default.capability
+		device, capability := c.fallback.device, c.fallback.capability
 		bad := func(err error) { errs = append(errs, fmt.Errorf("control %s on %s: %w", capability, device, err)) }
 		if slices.ContainsFunc(out, func(o wire.DeviceControl) bool {
 			return o.Device == device && o.Entry.Capability == capability
 		}) {
 			bad(errors.New("declared twice"))
 		}
-		if c.OverrideUntilNext && c.OverrideHold != 0 {
+		if c.overrideUntilNext && c.overrideHold != 0 {
 			bad(errors.New("OverrideHold and OverrideUntilNext are alternatives"))
+		}
+		if err := c.once.err(); err != nil {
+			bad(err)
 		}
 		e, err := c.entry()
 		if err == nil {
@@ -811,15 +1055,15 @@ func (h Home) settings() ([]wire.DeviceControl, error) {
 func (h Home) manifest() wire.Manifest {
 	m := wire.Manifest{Protocol: wire.Version}
 	for _, r := range h.holds {
-		info := wire.RuleInfo{Name: r.Name, Kind: wire.KindHold, Safety: r.Priority == Safety, Latch: r.Latch}
+		info := wire.RuleInfo{Name: r.name, Kind: wire.KindHold, Safety: r.priority == Safety, Latch: r.latch}
 		if info.Safety {
-			info.Rooms = r.Set.roomOfTypes(nil)
+			info.Rooms = r.set.roomOfTypes(nil)
 		}
 		m.Rules = append(m.Rules, info)
 	}
 	for _, r := range h.moments {
-		info := wire.RuleInfo{Name: r.Name, Kind: "moment", Safety: r.safety()}
-		for _, a := range r.Do {
+		info := wire.RuleInfo{Name: r.name, Kind: "moment", Safety: r.safety()}
+		for _, a := range r.do {
 			if s, ok := a.(Set); ok && s.priority == Safety {
 				info.Rooms = s.roomOfTypes(info.Rooms)
 			}
@@ -827,10 +1071,10 @@ func (h Home) manifest() wire.Manifest {
 		m.Rules = append(m.Rules, info)
 	}
 	for _, r := range h.flows {
-		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.Name, Kind: wire.KindFlow, Safety: r.Priority == Safety})
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: wire.KindFlow, Safety: r.priority == Safety})
 	}
 	for _, p := range h.plugins {
-		m.Plugins = append(m.Plugins, p.Name)
+		m.Plugins = append(m.Plugins, p.name)
 	}
 	// A home with a mistake in its settings doesn't compile, and never gets this far.
 	m.Control, _ = h.settings()
@@ -874,16 +1118,16 @@ func nilChange(on []Change) error {
 }
 
 func (r Flow) toFlow(key ident.ID) *flow.Flow {
-	f := &flow.Flow{Key: key, Safety: r.Priority == Safety, Late: r.Late}
-	if r.Run != nil {
-		f.Body = func(run *flow.Run) error { return r.Run(&FlowRun{run: run, priority: r.Priority}) }
+	f := &flow.Flow{Key: key, Safety: r.priority == Safety, Late: r.late}
+	if r.run != nil {
+		f.Body = func(run *flow.Run) error { return r.run(&FlowRun{run: run, priority: r.priority}) }
 	}
 	return f
 }
 
 func (r Flow) toEngine(f *flow.Flow) engine.Flow {
-	e := engine.Flow{Trigger: trigger(r.On, r.At, r.If, r.Late, f.Safety)}
-	if r.Restart {
+	e := engine.Flow{Trigger: trigger(r.on, r.at, r.cond, r.late, f.Safety)}
+	if r.restart {
 		e.Mode = engine.ModeRestart
 	}
 	if f.Body != nil {
@@ -894,37 +1138,37 @@ func (r Flow) toEngine(f *flow.Flow) engine.Flow {
 
 func (r Hold) toEngine() engine.Hold {
 	h := engine.Hold{
-		Device: r.Set.device, Room: r.Set.room, DeviceTypes: r.Set.types, Capability: r.Set.capability, Value: r.Set.value,
-		Priority: engine.Priority(r.Priority), When: r.When.toEngine(),
-		OnDelay: r.OnDelay, OffDelay: r.OffDelay, Latch: r.Latch, Budget: r.Budget.toSchedule(),
+		Device: r.set.device, Room: r.set.room, DeviceTypes: r.set.types, Capability: r.set.capability, Value: r.set.value,
+		Priority: engine.Priority(r.priority), When: r.when.toEngine(),
+		OnDelay: r.onDelay, OffDelay: r.offDelay, Latch: r.latch, Budget: r.budget.toSchedule(),
 	}
-	if r.Window != nil {
-		h.Window = r.Window.toEngine()
+	if r.window != nil {
+		h.Window = r.window.toEngine()
 	}
 	return h
 }
 
 func (w Window) toEngine() *engine.Window {
-	return &engine.Window{Start: w.Start.timer(), End: w.End.timer(), Days: w.Days}
+	return &engine.Window{Start: w.start.timer(), End: w.end.timer(), Days: w.days}
 }
 
 // checkBudget checks a hold's budget against its Control, which the engine can't see until the
 // device has reported, so that a mistake here fails oikade check rather than today's plan.
 func (r Hold) checkBudget(settings []wire.DeviceControl) error {
-	if r.Budget == nil {
+	if r.budget == nil {
 		return nil
 	}
-	if err := r.Budget.clockOnly(); err != nil {
+	if err := r.budget.clockOnly(); err != nil {
 		return err
 	}
 	i := slices.IndexFunc(settings, func(c wire.DeviceControl) bool {
-		return c.Device == r.Set.device && c.Entry.Capability == r.Set.capability
+		return c.Device == r.set.device && c.Entry.Capability == r.set.capability
 	})
 	if i < 0 {
-		return fmt.Errorf("a budget needs a Control for %s on %s", r.Set.capability, r.Set.device)
+		return fmt.Errorf("a budget needs a Control for %s on %s", r.set.capability, r.set.device)
 	}
-	spec := *r.Budget.toSchedule()
-	spec.Device, spec.Capability, spec.Value = r.Set.device, r.Set.capability, r.Set.value
+	spec := *r.budget.toSchedule()
+	spec.Device, spec.Capability, spec.Value = r.set.device, r.set.capability, r.set.value
 	_, err := schedule.CompileSpec(spec, &settings[i].Entry)
 	return err
 }
@@ -933,8 +1177,8 @@ func (b *Budget) toSchedule() *schedule.Spec {
 	if b == nil {
 		return nil
 	}
-	s := &schedule.Spec{PlanningTime: b.PlanningTime, SlotMinutes: b.SlotMinutes}
-	if m := b.Minutes; m != nil {
+	s := &schedule.Spec{PlanningTime: b.planningTime, SlotMinutes: b.slotMinutes}
+	if m := b.minutes; m != nil {
 		s.Minutes = func(vars map[string]any, _ time.Time, _ *time.Location) (minutes int, err error) {
 			// The engine plans holding its lock, so a mistake here must end as a failed day.
 			defer func() {
@@ -949,7 +1193,7 @@ func (b *Budget) toSchedule() *schedule.Spec {
 			return minutes, err
 		}
 	}
-	if in := b.Bands; in != nil {
+	if in := b.bands; in != nil {
 		bands := &schedule.BandSpec{
 			Device: in.Reading.Device, Capability: string(in.Reading.Capability), MaxAge: in.MaxAge, MissingMinutes: in.Missing,
 		}
@@ -960,10 +1204,10 @@ func (b *Budget) toSchedule() *schedule.Spec {
 		bands.Ranges = append(bands.Ranges, schedule.Band{Minutes: in.Otherwise})
 		s.Bands = bands
 	}
-	for _, p := range b.Prefer {
-		s.Prefer = append(s.Prefer, schedule.PreferSpec{Window: p.Window.toSchedule(), Score: p.Score})
+	for _, p := range b.prefer {
+		s.Prefer = append(s.Prefer, schedule.PreferSpec{Window: p.window.toSchedule(), Score: p.score})
 	}
-	for _, f := range b.Forbid {
+	for _, f := range b.forbid {
 		s.Forbid = append(s.Forbid, f.toSchedule())
 	}
 	return s
@@ -971,32 +1215,32 @@ func (b *Budget) toSchedule() *schedule.Spec {
 
 // clockOnly rejects a sunrise or sunset in a budget's windows, which are planned in slots.
 func (b *Budget) clockOnly() error {
-	sunEdged := func(w Window) bool { return w.Start.isSun() || w.End.isSun() }
-	preferred := func(p Prefer) bool { return sunEdged(p.Window) }
-	if slices.ContainsFunc(b.Forbid, sunEdged) || slices.ContainsFunc(b.Prefer, preferred) {
+	sunEdged := func(w Window) bool { return w.start.isSun() || w.end.isSun() }
+	preferred := func(p prefer) bool { return sunEdged(p.window) }
+	if slices.ContainsFunc(b.forbid, sunEdged) || slices.ContainsFunc(b.prefer, preferred) {
 		return errors.New("a budget's windows take clock times only, not a sunrise or sunset")
 	}
 	return nil
 }
 
 func (w Window) toSchedule() schedule.WindowSpec {
-	return schedule.WindowSpec{Start: w.Start.clock, End: w.End.clock, Days: w.Days}
+	return schedule.WindowSpec{Start: w.start.clock, End: w.end.clock, Days: w.days}
 }
 
 // safety reports whether the moment has a Safety set.
 func (r Moment) safety() bool {
-	return slices.ContainsFunc(r.Do, func(a Action) bool {
+	return slices.ContainsFunc(r.do, func(a Action) bool {
 		s, ok := a.(Set)
 		return ok && s.priority == Safety
 	})
 }
 
 func (r Moment) toEngine() engine.Moment {
-	m := engine.Moment{Trigger: trigger(r.On, r.At, r.If, r.Late, r.safety())}
-	if r.Restart {
+	m := engine.Moment{Trigger: trigger(r.on, r.at, r.cond, r.late, r.safety())}
+	if r.restart {
 		m.Mode = engine.ModeRestart
 	}
-	for _, a := range r.Do {
+	for _, a := range r.do {
 		if a == nil {
 			m.Do = append(m.Do, nil)
 			continue

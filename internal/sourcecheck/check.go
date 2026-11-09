@@ -1,4 +1,5 @@
-package flowcheck
+// Package sourcecheck runs the checks of a home that only its source can show.
+package sourcecheck
 
 import (
 	"errors"
@@ -7,9 +8,12 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/checker"
 	"golang.org/x/tools/go/packages"
+
+	"github.com/harrymitchinson/oikade/internal/chaincheck"
+	"github.com/harrymitchinson/oikade/internal/flowcheck"
 )
 
-// Check runs the analyzer over the module in dir, and returns what it found as "file:line: message".
+// Check runs the analyzers over the module in dir, and returns what it found as "file:line: message".
 // A package that doesn't compile is an error. env is the go command's environment; nil means this
 // process's.
 func Check(dir string, env []string) ([]string, error) {
@@ -27,7 +31,7 @@ func Check(dir string, env []string) ([]string, error) {
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("loading the module: %w", errors.Join(errs...))
 	}
-	graph, err := checker.Analyze([]*analysis.Analyzer{Analyzer}, pkgs, nil)
+	graph, err := checker.Analyze([]*analysis.Analyzer{flowcheck.Analyzer, chaincheck.Analyzer}, pkgs, nil)
 	if err != nil {
 		return nil, err
 	}

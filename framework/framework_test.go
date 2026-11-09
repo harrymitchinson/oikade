@@ -27,58 +27,53 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		home Home
 		want string
 	}{
-		"no name": {NewHome(Options{}, Hold{Set: d.To(true), When: when}), "needs a name"},
+		"no name": {NewHome(Options{}, NewHold("", d.To(true)).When(when)), "needs a name"},
 		"twice": {NewHome(Options{},
-			Hold{Name: "a", Set: d.To(true), When: when},
-			Moment{Name: "a", At: []Time{Clock("07:00")}, Do: []Action{Wait(time.Second)}},
+			NewHold("a", d.To(true)).When(when),
+			NewMoment("a", Wait(time.Second)).At(Clock("07:00")),
 		), "declared twice"},
 		"unknown capability": {
-			NewHome(Options{}, Hold{Name: "a", Set: Handle[bool]{Device: "d", Capability: "nope"}.To(true), When: when}),
+			NewHome(Options{}, NewHold("a", Handle[bool]{Device: "d", Capability: "nope"}.To(true)).When(when)),
 			"unknown capability",
 		},
-		"no trigger": {NewHome(Options{}, Moment{Name: "a", Do: []Action{Wait(time.Second)}}), "trigger"},
-		"nil action": {NewHome(Options{}, Moment{Name: "a", At: []Time{Clock("07:00")}, Do: []Action{nil}}), "no action"},
-		"no set":     {NewHome(Options{}, Hold{Name: "a", When: when}), "needs a capability"},
+		"no trigger": {NewHome(Options{}, NewMoment("a", Wait(time.Second))), "trigger"},
+		"nil action": {NewHome(Options{}, NewMoment("a", nil).At(Clock("07:00"))), "no action"},
+		"no set":     {NewHome(Options{}, NewHold("a", Set{}).When(when)), "needs a capability"},
 		"claim": {
-			NewHome(Options{}, Hold{Name: "a", Set: d.To(true).For(time.Hour), When: when}), "takes no For, Until or Priority",
+			NewHome(Options{}, NewHold("a", d.To(true).For(time.Hour)).When(when)), "takes no For, Until or Priority",
 		},
 		"nil change": {
-			NewHome(Options{}, Moment{Name: "a", On: []Change{nil}, Do: []Action{Wait(time.Second)}}), "a nil change, at On[0]",
+			NewHome(Options{}, NewMoment("a", Wait(time.Second)).On(nil)), "a nil change, at On[0]",
 		},
 		"a time that isn't one": {
-			NewHome(Options{}, Moment{Name: "bedtime", At: []Time{Clock("25:00")}, Do: []Action{Wait(time.Second)}}),
+			NewHome(Options{}, NewMoment("bedtime", Wait(time.Second)).At(Clock("25:00"))),
 			`rule bedtime: timers[0]: time "25:00" is not HH:MM`,
 		},
 		"a window with no end": {
-			NewHome(Options{}, Hold{Name: "evening", Set: d.To(true), Window: &Window{Start: Clock("18:00")}}), "end: no time",
+			NewHome(Options{}, NewHold("evening", d.To(true)).Window(NewWindow(Clock("18:00"), Time{}))), "end: no time",
 		},
 		"a sunset with no site": {
-			NewHome(Options{}, Moment{Name: "porch-at-dusk", At: []Time{Sunset(0)}, Do: []Action{Wait(time.Second)}}),
+			NewHome(Options{}, NewMoment("porch-at-dusk", Wait(time.Second)).At(Sunset(0))),
 			"rule porch-at-dusk: a sunrise or sunset needs the home's location",
 		},
 		"a sunrise window with no site": {
-			NewHome(Options{}, Hold{
-				Name: "a", Set: d.To(true), Window: &Window{Start: Sunrise(0), End: Clock("09:00")},
-			}),
+			NewHome(Options{}, NewHold("a", d.To(true)).Window(NewWindow(Sunrise(0), Clock("09:00")))),
 			"rule a: a sunrise or sunset needs the home's location",
 		},
 		"a latitude off the earth": {
-			NewHome(Options{Location: NewLocation(91, 0)}, Hold{Name: "a", Set: d.To(true), When: when}), "latitude 91 isn't",
+			NewHome(Options{Location: NewLocation(91, 0)}, NewHold("a", d.To(true)).When(when)), "latitude 91 isn't",
 		},
 		"a longitude off the earth": {
-			NewHome(Options{Location: NewLocation(0, -181)}, Hold{Name: "a", Set: d.To(true), When: when}),
+			NewHome(Options{Location: NewLocation(0, -181)}, NewHold("a", d.To(true)).When(when)),
 			"longitude -181 isn't",
 		},
 		"an offset too far": {
-			NewHome(Options{Location: NewLocation(51.48, 0)}, Flow{
-				Name: "a", At: []Time{Sunrise(7 * time.Hour)}, Run: func(*FlowRun) error { return nil },
-			}),
+			NewHome(Options{Location: NewLocation(51.48, 0)}, NewFlow("a", func(*FlowRun) error { return nil }).
+				At(Sunrise(7*time.Hour))),
 			"offset 7h0m0s is not between -6h and 6h",
 		},
 		"both untils": {
-			NewHome(Options{}, Moment{
-				Name: "a", At: []Time{Clock("07:00")}, Do: []Action{d.To(true).UntilReleased().UntilNext()},
-			}),
+			NewHome(Options{}, NewMoment("a", d.To(true).UntilReleased().UntilNext()).At(Clock("07:00"))),
 			"not both",
 		},
 	} {
@@ -251,7 +246,7 @@ func within(t *testing.T, w Window, at time.Time) bool {
 }
 
 func TestWithinIsAHoldsWindow(t *testing.T) {
-	evening := Window{Start: Clock("18:00"), End: Clock("07:00")}
+	evening := NewWindow(Clock("18:00"), Clock("07:00"))
 	// Friday 6 November 2026, in Paris.
 	paris, err := time.LoadLocation("Europe/Paris")
 	if err != nil {
@@ -269,17 +264,17 @@ func TestWithinIsAHoldsWindow(t *testing.T) {
 		{evening, at(7, 12, 0), false},
 		{evening, at(6, 18, 0), true},
 		// Starting on Fridays, it's still open early on Saturday, and not early on Friday.
-		{Window{Start: Clock("20:00"), End: Clock("04:00"), Days: []time.Weekday{time.Friday}}, at(7, 2, 0), true},
-		{Window{Start: Clock("20:00"), End: Clock("04:00"), Days: []time.Weekday{time.Friday}}, at(6, 2, 0), false},
+		{NewWindow(Clock("20:00"), Clock("04:00")).Days(time.Friday), at(7, 2, 0), true},
+		{NewWindow(Clock("20:00"), Clock("04:00")).Days(time.Friday), at(6, 2, 0), false},
 	} {
 		if got := within(t, tc.w, tc.at); got != tc.want {
-			t.Errorf("Within(%v to %v) at %s = %v, want %v", tc.w.Start, tc.w.End, tc.at, got, tc.want)
+			t.Errorf("Within(%v to %v) at %s = %v, want %v", tc.w.start, tc.w.end, tc.at, got, tc.want)
 		}
 	}
 }
 
 func TestWithinAWindowWithAMistakeIsABug(t *testing.T) {
-	bad := Window{Start: Clock("25:00"), End: Clock("07:00")}
+	bad := NewWindow(Clock("25:00"), Clock("07:00"))
 	cond := Condition(func(s State) bool { return s.Within(bad) }).toEngine()
 	defer func() {
 		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "window") {
@@ -334,12 +329,12 @@ func TestAChangeReachesTheEngineAsOneReport(t *testing.T) {
 func TestManifestDescribesTheHome(t *testing.T) {
 	when := func(State) bool { return true }
 	m := NewHome(Options{},
-		Hold{Name: "leak", Priority: Safety, Latch: true, When: when},
-		Hold{Name: "fan", When: when},
-		Moment{Name: "alarm", Do: []Action{Set{}.Priority(Safety)}},
-		Moment{Name: "lamp", Do: []Action{Set{}, Wait(time.Second)}},
-		Flow{Name: "shutoff", Priority: Safety},
-		Flow{Name: "bedtime"},
+		NewHold("leak", Set{}).Priority(Safety).Latch().When(when),
+		NewHold("fan", Set{}).When(when),
+		NewMoment("alarm", Set{}.Priority(Safety)),
+		NewMoment("lamp", Set{}, Wait(time.Second)),
+		NewFlow("shutoff", nil).Priority(Safety),
+		NewFlow("bedtime", nil),
 	).manifest()
 	if m.Protocol != wire.Version {
 		t.Fatalf("protocol %d", m.Protocol)
@@ -357,16 +352,16 @@ func TestManifestDescribesTheHome(t *testing.T) {
 func TestPluginsAreChecked(t *testing.T) {
 	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 	for name, parts := range map[string][]Part{
-		"no name":  {Plugin{New: made}},
-		"bad name": {Plugin{Name: "a/b", New: made}},
-		"twice":    {Plugin{Name: "a", New: made}, Plugin{Name: "a", New: made}},
-		"no New":   {Plugin{Name: "a"}},
+		"no name":  {NewPlugin("", made)},
+		"bad name": {NewPlugin("a/b", made)},
+		"twice":    {NewPlugin("a", made), NewPlugin("a", made)},
+		"no New":   {NewPlugin("a", nil)},
 	} {
 		if _, _, err := NewHome(Options{}, parts...).compile(); err == nil {
 			t.Errorf("%s: compiled", name)
 		}
 	}
-	if m := NewHome(Options{}, Plugin{Name: "a", New: made}).manifest(); !slices.Equal(m.Plugins, []string{"a"}) {
+	if m := NewHome(Options{}, NewPlugin("a", made)).manifest(); !slices.Equal(m.Plugins, []string{"a"}) {
 		t.Errorf("got %v", m.Plugins)
 	}
 }
@@ -377,60 +372,48 @@ var (
 )
 
 func valveControl() Control {
-	return Control{
-		Default: pump.To(false), Resolve: PreferOn,
-		External: ExternalOverride, OverrideHold: time.Hour, MinimumOn: time.Hour, MinimumOff: 30 * time.Minute,
-	}
+	return NewControl(pump.To(false), PreferOn, ExternalOverride).
+		OverrideHold(time.Hour).
+		MinimumOn(time.Hour).
+		MinimumOff(30 * time.Minute)
 }
 
 func budgetHome(c Control, b Budget) Home {
 	return NewHome(Options{},
 		c,
-		Hold{Name: "pump-daily", Set: pump.To(true), Budget: &b},
+		NewHold("pump-daily", pump.To(true)).Budget(b),
 	)
 }
 
 func TestHomeChecksControlAndBudgets(t *testing.T) {
 	minutes := func(State) int { return 120 }
-	limited := valveControl()
-	limited.MinimumOn = 45 * time.Minute
+	limited := valveControl().MinimumOn(45 * time.Minute)
 	control := func(c Control) Home { return NewHome(Options{}, c) }
+	arbitrate := func(s Set, r Resolve) Home { return control(NewControl(s, r, ExternalRevert)) }
 	for name, tc := range map[string]struct {
 		home Home
 		want string
 	}{
-		"fine": {budgetHome(valveControl(), Budget{Minutes: minutes}), ""},
-		"bands": {budgetHome(valveControl(), Budget{Bands: &Bands{
+		"fine": {budgetHome(valveControl(), NewBudget(minutes)), ""},
+		"bands": {budgetHome(valveControl(), NewBandedBudget(Bands{
 			Reading: water, Ranges: []Band{{Below: 12, Minutes: 60}}, Otherwise: 90,
-		}}), ""},
-		"no minutes":   {budgetHome(valveControl(), Budget{}), "exactly one of bands or minutes"},
-		"both minutes": {budgetHome(valveControl(), Budget{Minutes: minutes, Bands: &Bands{}}), "exactly one"},
-		"bad slot":     {budgetHome(valveControl(), Budget{Minutes: minutes, SlotMinutes: 20}), "slotMinutes"},
+		})), ""},
+		"no minutes": {budgetHome(valveControl(), Budget{}), "exactly one of bands or minutes"},
+		"bad slot":   {budgetHome(valveControl(), NewBudget(minutes).SlotMinutes(20)), "slotMinutes"},
 		"bad window": {
-			budgetHome(valveControl(), Budget{Minutes: minutes, Forbid: []Window{{Start: Clock("7"), End: Clock("8")}}}),
+			budgetHome(valveControl(), NewBudget(minutes).Forbid(NewWindow(Clock("7"), Clock("8")))),
 			"not HH:MM",
 		},
-		"limit off the slots": {budgetHome(limited, Budget{Minutes: minutes}), "isn't a multiple"},
-		"no control": {NewHome(Options{}, Hold{
-			Name: "pump-daily", Set: pump.To(true), Budget: &Budget{Minutes: minutes},
-		}), "needs a Control"},
-		"twice": {NewHome(Options{}, valveControl(), valveControl()), "declared twice"},
-		"a room": {control(Control{
-			Default: InRoom("hall", On).To(false), Resolve: PreferOn, External: ExternalRevert,
-		}), "names a device, not a room"},
-		"no default": {control(Control{Resolve: PreferOn, External: ExternalRevert}), "needs a capability"},
-		"no device": {control(Control{
-			Default: Handle[bool]{Capability: On}.To(false), Resolve: PreferOn, External: ExternalRevert,
-		}), "needs a device"},
-		"a claim": {control(Control{
-			Default: pump.To(false).UntilNext(), Resolve: PreferOn, External: ExternalRevert,
-		}), "takes no For, Until or Priority"},
-		"bool resolve": {control(Control{
-			Default: pump.To(false), Resolve: Highest, External: ExternalRevert,
-		}), "PreferOn or PreferOff"},
-		"read-only": {control(Control{
-			Default: Handle[float64]{Device: "x", Capability: Temperature}.To(1), Resolve: Highest, External: ExternalRevert,
-		}), "read-only"},
+		"limit off the slots": {budgetHome(limited, NewBudget(minutes)), "isn't a multiple"},
+		"no control": {NewHome(Options{}, NewHold("pump-daily", pump.To(true)).
+			Budget(NewBudget(minutes))), "needs a Control"},
+		"twice":        {NewHome(Options{}, valveControl(), valveControl()), "declared twice"},
+		"a room":       {arbitrate(InRoom("hall", On).To(false), PreferOn), "names a device, not a room"},
+		"no default":   {arbitrate(Set{}, PreferOn), "needs a capability"},
+		"no device":    {arbitrate(Handle[bool]{Capability: On}.To(false), PreferOn), "needs a device"},
+		"a claim":      {arbitrate(pump.To(false).UntilNext(), PreferOn), "takes no For, Until or Priority"},
+		"bool resolve": {arbitrate(pump.To(false), Highest), "PreferOn or PreferOff"},
+		"read-only":    {arbitrate(Handle[float64]{Device: "x", Capability: Temperature}.To(1), Highest), "read-only"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := tc.home.compile()
@@ -453,13 +436,15 @@ func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
 		"a bug":           func(State) int { panic("oops") },
 	} {
 		t.Run(name, func(t *testing.T) {
-			spec := (&Budget{Minutes: f}).toSchedule()
+			b := NewBudget(f)
+			spec := b.toSchedule()
 			if _, err := spec.Minutes(vars, time.Now(), time.UTC); err == nil {
 				t.Fatal("no error")
 			}
 		})
 	}
-	spec := (&Budget{Minutes: func(State) int { return 90 }}).toSchedule()
+	ninety := NewBudget(func(State) int { return 90 })
+	spec := ninety.toSchedule()
 	if got, err := spec.Minutes(vars, time.Now(), time.UTC); err != nil || got != 90 {
 		t.Fatalf("got %d, %v", got, err)
 	}
@@ -483,14 +468,14 @@ func TestMetaHasTheLimitsOfTheHomesControl(t *testing.T) {
 func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 	lights := InRoom("hall", On).Types(OnOffLight, DimmableLight)
 	m := NewHome(Options{},
-		Hold{
-			Name: "night-lights", Priority: Safety, Set: lights.To(true),
-			Window: &Window{Start: Clock("22:00"), End: Clock("06:00")},
-		},
-		Hold{Name: "evening", Set: lights.To(true), Window: &Window{Start: Clock("18:00"), End: Clock("22:00")}},
-		Moment{Name: "alarm", At: []Time{Clock("03:00")}, Do: []Action{
-			lights.To(true).For(time.Hour).Priority(Safety), InRoom("hall", On).To(true).For(time.Hour).Priority(Safety),
-		}},
+		NewHold("night-lights", lights.To(true)).
+			Priority(Safety).
+			Window(NewWindow(Clock("22:00"), Clock("06:00"))),
+		NewHold("evening", lights.To(true)).Window(NewWindow(Clock("18:00"), Clock("22:00"))),
+		NewMoment("alarm", lights.To(true).For(time.Hour).
+			Priority(Safety), InRoom("hall", On).To(true).For(time.Hour).
+			Priority(Safety)).
+			At(Clock("03:00")),
 	).manifest()
 	want := []wire.RoomOfTypes{{
 		Room: "hall", Capability: "on", DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight},
@@ -510,21 +495,16 @@ func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 }
 
 func TestABudgetTakesClockTimesOnly(t *testing.T) {
-	b := Budget{
-		Minutes: func(State) int { return 60 },
-		Prefer:  []Prefer{{Window: Window{Start: Sunset(0), End: Clock("23:00")}, Score: 3}},
-	}
+	b := NewBudget(func(State) int { return 60 }).Prefer(NewWindow(Sunset(0), Clock("23:00")), 3)
 	home := NewHome(Options{Location: NewLocation(51.48, -0.01)},
-		valveControl(), Hold{Name: "pump-daily", Set: pump.To(true), Budget: &b})
+		valveControl(), NewHold("pump-daily", pump.To(true)).Budget(b))
 	if _, _, err := home.compile(); err == nil || !strings.Contains(err.Error(), "clock times only") {
 		t.Fatalf("got %v, want a budget's windows to take clock times only", err)
 	}
 }
 
 func TestASunTimeReachesTheEngine(t *testing.T) {
-	m := Moment{
-		Name: "a", At: []Time{Sunset(-20 * time.Minute), Sunrise(0), Clock("18:00")}, Do: []Action{Wait(time.Second)},
-	}
+	m := NewMoment("a", Wait(time.Second)).At(Sunset(-20*time.Minute), Sunrise(0), Clock("18:00"))
 	want := []engine.Timer{
 		engine.SunTime{Event: sun.Sunset, Offset: -20 * time.Minute}, engine.SunTime{Event: sun.Sunrise},
 		engine.At{Time: "18:00"},
@@ -535,9 +515,8 @@ func TestASunTimeReachesTheEngine(t *testing.T) {
 }
 
 func TestAWindowReachesTheEngine(t *testing.T) {
-	h := Hold{Name: "a", Set: Handle[bool]{Device: "d", Capability: On}.To(true), Window: &Window{
-		Start: Clock("22:00"), End: Clock("06:00"), Days: []time.Weekday{time.Friday},
-	}}
+	h := NewHold("a", Handle[bool]{Device: "d", Capability: On}.To(true)).
+		Window(NewWindow(Clock("22:00"), Clock("06:00")).Days(time.Friday))
 	want := &engine.Window{
 		Start: engine.At{Time: "22:00"}, End: engine.At{Time: "06:00"}, Days: []time.Weekday{time.Friday},
 	}
@@ -550,18 +529,18 @@ func TestNewHomeTakesPartsFromNestedBundles(t *testing.T) {
 	when := func(State) bool { return true }
 	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 	dehumidifier := func() Bundle {
-		return NewBundle(valveControl(), Hold{Name: "inner", Set: pump.To(true), When: when})
+		return NewBundle(valveControl(), NewHold("inner", pump.To(true)).When(when))
 	}
 	h := NewHome(Options{},
-		Hold{Name: "first", Set: pump.To(true), When: when},
+		NewHold("first", pump.To(true)).When(when),
 		NewBundle(),
 		NewBundle(
 			dehumidifier(),
-			Moment{Name: "moment", At: []Time{Clock("07:00")}, Do: []Action{Wait(time.Second)}},
-			Flow{Name: "flow", At: []Time{Clock("08:00")}, Run: func(*FlowRun) error { return nil }},
-			Plugin{Name: "relays", New: made},
+			NewMoment("moment", Wait(time.Second)).At(Clock("07:00")),
+			NewFlow("flow", func(*FlowRun) error { return nil }).At(Clock("08:00")),
+			NewPlugin("relays", made),
 		),
-		Hold{Name: "last", Set: pump.To(true), When: when},
+		NewHold("last", pump.To(true)).When(when),
 	)
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
@@ -585,9 +564,9 @@ func TestNewHomeTakesPartsFromNestedBundles(t *testing.T) {
 
 func TestNewBundleKeepsItsOwnParts(t *testing.T) {
 	when := func(State) bool { return true }
-	parts := []Part{Hold{Name: "kept", Set: pump.To(true), When: when}}
+	parts := []Part{NewHold("kept", pump.To(true)).When(when)}
 	b := NewBundle(parts...)
-	parts[0] = Hold{Name: "changed", Set: pump.To(true), When: when}
+	parts[0] = NewHold("changed", pump.To(true)).When(when)
 	m := NewHome(Options{}, b).manifest()
 	if len(m.Rules) != 1 || m.Rules[0].Name != "kept" {
 		t.Errorf("got %+v", m.Rules)
@@ -597,7 +576,7 @@ func TestNewBundleKeepsItsOwnParts(t *testing.T) {
 func TestNewHomeRefusesWhatIsntAPart(t *testing.T) {
 	type wrapped struct{ Hold }
 	when := func(State) bool { return true }
-	hold := Hold{Name: "a", Set: pump.To(true), When: when}
+	hold := NewHold("a", pump.To(true)).When(when)
 	var noHold *Hold
 	for name, tc := range map[string]struct {
 		parts []Part
@@ -619,7 +598,7 @@ func TestNewHomeRefusesWhatIsntAPart(t *testing.T) {
 
 func TestARuleNameClashesAcrossBundles(t *testing.T) {
 	motion := func(name string) Bundle {
-		return NewBundle(Hold{Name: name, Set: pump.To(true), When: func(State) bool { return true }})
+		return NewBundle(NewHold(name, pump.To(true)).When(func(State) bool { return true }))
 	}
 	_, _, err := NewHome(Options{}, motion("landing"), motion("landing")).compile()
 	if err == nil || !strings.Contains(err.Error(), `rule "landing" is declared twice`) {
@@ -640,7 +619,7 @@ func TestALocationComparesByValue(t *testing.T) {
 }
 
 func TestAZeroCoordinateIsARealPlace(t *testing.T) {
-	dusk := Moment{Name: "a", At: []Time{Sunset(0)}, Do: []Action{Wait(time.Second)}}
+	dusk := NewMoment("a", Wait(time.Second)).At(Sunset(0))
 	for _, o := range []Options{
 		{Location: NewLocation(51.48, 0)}, {Location: NewLocation(0, -0.01)}, {Location: NewLocation(0, 0)},
 	} {
@@ -665,5 +644,162 @@ func TestASimulatedHomeReportsAMistakeInItsParts(t *testing.T) {
 	_, err := NewHome(Options{}, nil).simulated()
 	if err == nil || !strings.Contains(err.Error(), "a nil part, at parts[0]") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAnOptionGivenTwiceFailsNamingTheRuleAndTheOption(t *testing.T) {
+	always := func(State) bool { return true }
+	run := func(*FlowRun) error { return nil }
+	hold := NewHold("h", pump.To(true))
+	moment := NewMoment("m", pump.To(true)).On(pump)
+	flow := NewFlow("f", run).On(pump)
+	night := NewWindow(Clock("22:00"), Clock("06:00"))
+	budget := func() Budget { return NewBudget(func(State) int { return 60 }) }
+	for name, tc := range map[string]struct {
+		part Part
+		want []string
+	}{
+		"Hold.When":     {hold.When(always).When(always), []string{"rule h", "When is given twice"}},
+		"Hold.Window":   {hold.Window(night).Window(night), []string{"rule h", "Window is given twice"}},
+		"Hold.OnDelay":  {hold.When(always).OnDelay(0).OnDelay(time.Second), []string{"rule h", "OnDelay is given twice"}},
+		"Hold.OffDelay": {hold.When(always).OffDelay(time.Second).OffDelay(0), []string{"rule h", "OffDelay is given twice"}},
+		"Hold.Priority": {hold.When(always).Priority(Safety).Priority(Safety), []string{"rule h", "Priority is given twice"}},
+		"Hold.Latch":    {hold.When(always).Latch().Latch(), []string{"rule h", "Latch is given twice"}},
+		"Hold.Budget":   {hold.Budget(budget()).Budget(budget()), []string{"rule h", "Budget is given twice"}},
+		"Budget.PlanningTime": {
+			hold.Budget(budget().PlanningTime("01:00").PlanningTime("02:00")),
+			[]string{"rule h", "a budget's PlanningTime is given twice"},
+		},
+		"Budget.SlotMinutes": {
+			hold.Budget(budget().SlotMinutes(15).SlotMinutes(30)),
+			[]string{"rule h", "a budget's SlotMinutes is given twice"},
+		},
+		"Moment.If":      {moment.If(always).If(always), []string{"rule m", "If is given twice"}},
+		"Moment.Restart": {moment.Restart().Restart(), []string{"rule m", "Restart is given twice"}},
+		"Moment.Late":    {moment.Late(time.Minute).Late(time.Hour), []string{"rule m", "Late is given twice"}},
+		"Flow.If":        {flow.If(always).If(always), []string{"rule f", "If is given twice"}},
+		"Flow.Restart":   {flow.Restart().Restart(), []string{"rule f", "Restart is given twice"}},
+		"Flow.Priority":  {flow.Priority(Safety).Priority(Normal), []string{"rule f", "Priority is given twice"}},
+		"Flow.Late":      {flow.Late(time.Minute).Late(time.Hour), []string{"rule f", "Late is given twice"}},
+		"Control.OverrideHold": {
+			valveControl().OverrideHold(time.Minute),
+			[]string{"control on on pump", "OverrideHold is given twice"},
+		},
+		"Control.OverrideUntilNext": {
+			NewControl(pump.To(false), PreferOn, ExternalOverride).OverrideUntilNext().OverrideUntilNext(),
+			[]string{"control on on pump", "OverrideUntilNext is given twice"},
+		},
+		"Control.MinimumOn": {valveControl().MinimumOn(time.Hour), []string{"MinimumOn is given twice"}},
+		"Control.MaximumOn": {valveControl().
+			MaximumOn(time.Hour).
+			MaximumOn(time.Hour), []string{"MaximumOn is given twice"}},
+		"Control.MinimumOff": {valveControl().MinimumOff(time.Hour), []string{"MinimumOff is given twice"}},
+		"Control.MaximumStartsPerDay": {
+			valveControl().MaximumStartsPerDay(1).MaximumStartsPerDay(2),
+			[]string{"MaximumStartsPerDay is given twice"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := NewHome(Options{}, tc.part).compile()
+			if err == nil {
+				t.Fatal("compiled")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("got %v, want %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestOptionsThatAddCanBeGivenAgain(t *testing.T) {
+	run := func(*FlowRun) error { return nil }
+	late, early := Clock("23:00"), Clock("05:00")
+	moment := NewMoment("m", pump.To(true)).On(pump).On(water2).At(late).At(early)
+	if len(moment.on) != 2 || len(moment.at) != 2 {
+		t.Errorf("moment has %d changes and %d times", len(moment.on), len(moment.at))
+	}
+	flow := NewFlow("f", run).On(pump).On(water2).At(late).At(early)
+	if len(flow.on) != 2 || len(flow.at) != 2 {
+		t.Errorf("flow has %d changes and %d times", len(flow.on), len(flow.at))
+	}
+	window := NewWindow(late, early).Days(time.Monday).Days(time.Tuesday)
+	if !slices.Equal(window.days, []time.Weekday{time.Monday, time.Tuesday}) {
+		t.Errorf("window has days %v", window.days)
+	}
+	budget := NewBudget(func(State) int { return 60 }).
+		Prefer(window, 1).Prefer(window, 2).Forbid(window).Forbid(window)
+	if len(budget.prefer) != 2 || len(budget.forbid) != 2 {
+		t.Errorf("budget has %d prefers and %d forbids", len(budget.prefer), len(budget.forbid))
+	}
+	if _, _, err := NewHome(Options{}, moment, flow).compile(); err != nil {
+		t.Error(err)
+	}
+}
+
+// water2 is a second change for the rules that add them.
+var water2 = Handle[bool]{Device: "water2", Capability: On}
+
+func TestAChainedMethodLeavesItsRuleAlone(t *testing.T) {
+	always := func(State) bool { return true }
+	// Spare capacity behind the base's slices is what would join two chains from it.
+	base := NewMoment("m", pump.To(true)).On(pump).On(water2).On(pump).Restart()
+	one, two := base.On(water2).If(always), base.On(pump).Late(time.Minute)
+	if base.cond != nil || base.late != 0 || len(base.on) != 3 {
+		t.Errorf("the base changed: %+v", base)
+	}
+	if got := one.on[3]; got != Change(water2) {
+		t.Errorf("one's last change is %v", got)
+	}
+	if got := two.on[3]; got != Change(pump) {
+		t.Errorf("two's last change is %v", got)
+	}
+	if err := one.once.err(); err != nil {
+		t.Errorf("one: %v", err)
+	}
+	if err := two.once.err(); err != nil {
+		t.Errorf("two: %v", err)
+	}
+
+	// The same for what records a repeat.
+	hold := NewHold("h", pump.To(true)).When(always).OnDelay(time.Second).OffDelay(time.Second).Priority(Safety)
+	twice, once := hold.When(always), hold.Latch()
+	if twice.once.err() == nil {
+		t.Error("the repeat went unreported")
+	}
+	if err := once.once.err(); err != nil {
+		t.Errorf("the other chain has the repeat: %v", err)
+	}
+}
+
+func TestAnEmptyLiteralStillFailsCheck(t *testing.T) {
+	for name, part := range map[string]Part{
+		"hold": Hold{}, "moment": Moment{}, "flow": Flow{}, "control": Control{}, "plugin": Plugin{},
+	} {
+		if _, _, err := NewHome(Options{}, part).compile(); err == nil {
+			t.Errorf("%s: compiled", name)
+		}
+	}
+}
+
+func TestWhatNeedsMoreThanOneSettingStaysInCheck(t *testing.T) {
+	for name, tc := range map[string]struct {
+		part Part
+		want string
+	}{
+		"a hold with no condition": {NewHold("h", pump.To(true)), ""},
+		"a moment with no trigger": {NewMoment("m", pump.To(true)), ""},
+		"both overrides": {
+			NewControl(pump.To(false), PreferOn, ExternalOverride).OverrideHold(time.Hour).OverrideUntilNext(),
+			"alternatives",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := NewHome(Options{}, tc.part).compile()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want %q", err, tc.want)
+			}
+		})
 	}
 }

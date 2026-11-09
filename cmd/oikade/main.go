@@ -18,8 +18,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/flowcheck"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/sourcecheck"
 )
 
 // version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".
@@ -135,7 +135,7 @@ func runDeploy(ctx context.Context, args []string) error {
 	d := deployer{
 		stdout:   os.Stdout,
 		progress: &progress{w: os.Stderr, live: redraws(term.IsTerminal(int(os.Stderr.Fd())), os.Getenv("TERM"))},
-		check:    checkFlows,
+		check:    checkSource,
 		build:    build,
 	}
 	return d.run(ctx, target.transport(), *module, *binary, *allow)
@@ -157,7 +157,7 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		if err != nil {
 			return err
 		}
-		d.progress.phase("Checking flows")
+		d.progress.phase("Checking your code")
 		if err := d.check(module); err != nil {
 			return err
 		}
@@ -223,9 +223,10 @@ func report(stdout io.Writer, resp api.Response, done string) error {
 	return errors.New(resp.Error)
 }
 
-// checkFlows fails on code that would break a flow's replay, which only the source shows.
-func checkFlows(module string) error {
-	found, err := flowcheck.Check(module, nil)
+// checkSource fails on what only the source shows: code that would break a flow's replay, and a
+// chained method whose result is thrown away.
+func checkSource(module string) error {
+	found, err := sourcecheck.Check(module, nil)
 	if err != nil {
 		return err
 	}
@@ -233,7 +234,7 @@ func checkFlows(module string) error {
 		fmt.Fprintln(os.Stderr, f)
 	}
 	if len(found) > 0 {
-		return fmt.Errorf("%d problems in your flows", len(found))
+		return fmt.Errorf("%d problems in your code", len(found))
 	}
 	return nil
 }

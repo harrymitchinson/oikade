@@ -278,12 +278,12 @@ func runPlugin(ctx context.Context, h Home, socket string) error {
 	if len(os.Args) != 3 {
 		return errors.New("which plugin? run this with oikade-host")
 	}
-	i := slices.IndexFunc(h.plugins, func(p Plugin) bool { return p.Name == os.Args[2] })
+	i := slices.IndexFunc(h.plugins, func(p Plugin) bool { return p.name == os.Args[2] })
 	if i < 0 {
 		return fmt.Errorf("this home has no plugin %s", os.Args[2])
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	return plugin.RunHosted(ctx, socket, h.plugins[i].Name, h.plugins[i].New, log)
+	return plugin.RunHosted(ctx, socket, h.plugins[i].name, h.plugins[i].factory, log)
 }
 
 // firesWaiting bounds the fires waiting to be saved.

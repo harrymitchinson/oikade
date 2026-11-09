@@ -40,7 +40,7 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 	return path, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-// runCheck finds what's wrong with a home without touching one: the compiler, then flows, then the
+// runCheck finds what's wrong with a home without touching one: the compiler, then the source, then the
 // checks your binary makes of itself, which are the ones a deploy makes.
 func runCheck(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
@@ -54,7 +54,7 @@ func runCheck(ctx context.Context, args []string) error {
 		return err
 	}
 	defer done()
-	if err := checkFlows(*module); err != nil {
+	if err := checkSource(*module); err != nil {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, path, wire.RoleCheck)
@@ -271,14 +271,13 @@ import (
 // writes from your real devices, with a field for each thing each one can do: replace these two with
 // yours.
 func home() framework.Home {
-	return framework.NewHome(framework.Options{}, framework.Hold{
-		Name: "porch-light",
-		Set:  PorchLight.On.To(true),
-		When: func(s framework.State) bool {
-			return s.Get(PorchSensor.Occupied)
-		},
-		OffDelay: 5 * time.Minute,
-	})
+	return framework.NewHome(framework.Options{},
+		framework.NewHold("porch-light", PorchLight.On.To(true)).
+			When(func(s framework.State) bool {
+				return s.Get(PorchSensor.Occupied)
+			}).
+			OffDelay(5*time.Minute),
+	)
 }
 
 func main() {

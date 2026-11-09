@@ -2,7 +2,7 @@
 // A home imports it, and the host's --broker says where the broker is:
 //
 //	framework.NewHome(framework.Options{},
-//		framework.Plugin{Name: "zigbee", New: zigbee2mqtt.New(zigbee2mqtt.Config{})},
+//		framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{})),
 //	)
 //
 // Oikade starts no Zigbee2MQTT, writes none of its configuration and holds none of its keys. Every
