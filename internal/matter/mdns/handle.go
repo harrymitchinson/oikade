@@ -42,8 +42,8 @@ func (r *Responder) handleContained(c packetConn, ifIndex int, src *net.UDPAddr,
 	r.handle(c, ifIndex, src, b)
 }
 
-// handle answers a query, or checks a response for conflicts with names being probed. It
-// ignores what it can't parse.
+// handle answers a query, or checks a response for conflicts with names being probed and hands it
+// to the lookups waiting. It ignores what it can't parse.
 func (r *Responder) handle(c packetConn, ifIndex int, src *net.UDPAddr, b []byte) {
 	var m dnsmessage.Message
 	if err := m.Unpack(b); err != nil {
@@ -58,6 +58,7 @@ func (r *Responder) handle(c packetConn, ifIndex int, src *net.UDPAddr, b []byte
 		// Responses from a port other than 5353 aren't mDNS (6).
 		if src.Port == Port {
 			r.checkConflicts(&m)
+			r.deliver(&m, ifIndex)
 		}
 		return
 	}
