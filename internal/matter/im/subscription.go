@@ -27,6 +27,24 @@ type subscription struct {
 	cancel context.CancelCauseFunc
 }
 
+// maxIntervalTarget is the longest max interval the server chooses itself. A subscriber that
+// asks for longer is granted this, so one that misses the host's restart notices it within about
+// this long and subscribes again, instead of after the 10 minutes a home hub asks for (OIK-209).
+const maxIntervalTarget = 60 // seconds
+
+// publisherLimit is SUBSCRIPTION_MAX_INTERVAL_PUBLISHER_LIMIT, the longest max interval a
+// publisher may choose beyond the subscriber's ceiling (Core spec, 8.5).
+const publisherLimit = 60 * 60 // seconds
+
+// grantMaxInterval chooses the max interval for a subscriber's floor and ceiling, in seconds:
+// maxIntervalTarget or the ceiling, whichever is shorter, within the spec's bounds for a
+// publisher, MinIntervalFloor ≤ MaxInterval ≤ max(publisherLimit, MaxIntervalCeiling). Never 0,
+// which would report without pause.
+func grantMaxInterval(floor, ceiling uint16) uint16 {
+	m := max(min(ceiling, maxIntervalTarget), floor, 1)
+	return min(m, max(publisherLimit, ceiling))
+}
+
 // errReplaced ends a subscription whose client subscribed again without keeping its others.
 var errReplaced = errors.New("replaced by a new subscription")
 
@@ -44,7 +62,7 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 		replaced = s.cancelSubscriptions(session)
 	}
 
-	maxInterval := max(req.maxCeiling, req.minFloor, 1)
+	maxInterval := grantMaxInterval(req.minFloor, req.maxCeiling)
 	sub := &subscription{
 		id: randomSubscriptionID(), session: session, paths: req.attributes, filtered: req.fabricFiltered,
 		min: time.Duration(req.minFloor) * time.Second, max: time.Duration(maxInterval) * time.Second,
