@@ -153,7 +153,7 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 	if m.retry == 0 {
 		m.retry = matterRetry
 	}
-	if err := m.open(h.Matter, data.Namespace(matterNamespace)); err != nil {
+	if err := m.open(h.Matter, data.Namespace(matterNamespace), data.Namespace(matterSubscriptionsNamespace)); err != nil {
 		m.broken, m.node = err, nil
 		m.log.Error("Matter bridge stopped", "err", err)
 	}
@@ -161,7 +161,7 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 }
 
 // open loads the bridge's identity and fabrics.
-func (m *matterBridge) open(c *Matter, values *store.Namespace) error {
+func (m *matterBridge) open(c *Matter, values, subscriptions *store.Namespace) error {
 	var err error
 	if m.id, err = loadIdentity(values); err != nil {
 		return err
@@ -173,6 +173,7 @@ func (m *matterBridge) open(c *Matter, values *store.Namespace) error {
 	cfg := node.Config{
 		Fabrics: fabricStore{values}, Setup: node.Setup{Passcode: m.id.Passcode, Discriminator: m.id.Discriminator},
 		Attestation: creds, Port: m.port, DeviceName: c.Name, Interfaces: c.Interfaces, Observer: m.metrics, Log: m.log,
+		Subscriptions: subscriptionStore{subscriptions},
 		Listening: func() {
 			m.serving.Store(true)
 			m.down.Store(nil)

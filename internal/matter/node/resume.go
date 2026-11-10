@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/clock"
@@ -53,6 +54,7 @@ func (r *resumer) resume(ctx context.Context, saved im.SavedSubscription) {
 		if ctx.Err() != nil {
 			return
 		}
+		r.log.Debug("Could not resume subscription", "err", err, "subscription", saved.ID, "node", node, "tries", tries)
 		if errors.Is(err, im.ErrRefused) || r.clock.Now().Add(wait).Sub(start) > limit {
 			r.server.Forget(saved.FabricIndex, saved.ID)
 			r.log.Info("Gave up resuming subscription", "subscription", saved.ID, "node", node, "fabric", saved.FabricIndex,
@@ -127,10 +129,5 @@ func (n *Node) dialSubscriber(ctx context.Context, tr *transport.Transport, resp
 }
 
 func containsAddr(addrs []netip.AddrPort, a netip.AddrPort) bool {
-	for _, b := range addrs {
-		if b == a {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(addrs, a)
 }

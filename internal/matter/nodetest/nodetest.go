@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
@@ -35,6 +36,8 @@ type Commissioner struct {
 	key  *ecdsa.PrivateKey
 	rcac *cert.Certificate
 	ipk  []byte
+
+	admin *securechannel.Fabric // the admin node's operational identity, once made
 }
 
 // New returns a Commissioner with a fabric of its own.
@@ -174,6 +177,30 @@ func (cm *Commissioner) Commission(addr netip.AddrPort, passcode uint32) *im.Cli
 func (cm *Commissioner) CASE(addr netip.AddrPort) *im.Client {
 	t := cm.t
 	t.Helper()
+	s, err := securechannel.EstablishCASE(Context(t), cm.tr, addr, cm.adminFabric(), BridgeNode, securechannel.CASEConfig{})
+	if err != nil {
+		t.Fatalf("CASE: %v", err)
+	}
+	return cm.client(s)
+}
+
+// AcceptCASE answers CASE as the admin node, as a controller does for a node that resumes its
+// subscriptions.
+func (cm *Commissioner) AcceptCASE() {
+	(&securechannel.CASEResponder{Transport: cm.tr, Fabrics: adminTable{cm.adminFabric()}, Log: logging.Test(cm.t)}).Register()
+}
+
+type adminTable struct{ f *securechannel.Fabric }
+
+func (a adminTable) Fabrics() []*securechannel.Fabric { return []*securechannel.Fabric{a.f} }
+
+// adminFabric is the admin node's operational identity on the commissioner's fabric, made once.
+func (cm *Commissioner) adminFabric() *securechannel.Fabric {
+	if cm.admin != nil {
+		return cm.admin
+	}
+	t := cm.t
+	t.Helper()
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	noc, err := cert.NewNOC(cm.rcac, cm.key, &key.PublicKey, cert.NOCSubject{NodeID: commissionerNode, FabricID: testFabricID}, cm.rcac.NotBefore, time.Time{})
 	if err != nil {
@@ -181,10 +208,6 @@ func (cm *Commissioner) CASE(addr netip.AddrPort) *im.Client {
 	}
 	rcacTLV, _ := cm.rcac.Encode()
 	nocTLV, _ := noc.Encode()
-	f := &securechannel.Fabric{Index: 1, RCAC: rcacTLV, NOC: nocTLV, Key: key, IPK: cm.ipk}
-	s, err := securechannel.EstablishCASE(Context(t), cm.tr, addr, f, BridgeNode, securechannel.CASEConfig{})
-	if err != nil {
-		t.Fatalf("CASE: %v", err)
-	}
-	return cm.client(s)
+	cm.admin = &securechannel.Fabric{Index: 1, RCAC: rcacTLV, NOC: nocTLV, Key: key, IPK: cm.ipk}
+	return cm.admin
 }
