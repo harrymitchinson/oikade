@@ -45,13 +45,16 @@ func (r *resumer) resume(ctx context.Context, saved im.SavedSubscription) {
 	wait := firstResumeRetry
 	node := fmt.Sprintf("%016X", saved.PeerNode)
 	for tries := 1; ; tries++ {
+		if !r.server.Waiting(saved.ID) {
+			return // forgotten, as when its subscriber subscribed again first
+		}
 		err := r.try(ctx, saved)
 		if err == nil {
 			r.log.Info("Resumed subscription", "subscription", saved.ID, "node", node, "fabric", saved.FabricIndex,
 				"took", r.clock.Now().Sub(start).String(), "tries", tries)
 			return
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || errors.Is(err, im.ErrForgotten) {
 			return
 		}
 		r.log.Debug("Could not resume subscription", "err", err, "subscription", saved.ID, "node", node, "tries", tries)
@@ -110,7 +113,7 @@ func (n *Node) dialSubscriber(ctx context.Context, tr *transport.Transport, resp
 	} else if !errors.Is(err, mdns.ErrNotFound) {
 		return nil, err
 	}
-	if saved.Peer.IsValid() && !containsAddr(addrs, saved.Peer) {
+	if saved.Peer.IsValid() && !slices.Contains(addrs, saved.Peer) {
 		addrs = append(addrs, saved.Peer)
 	}
 	if len(addrs) == 0 {
@@ -126,8 +129,4 @@ func (n *Node) dialSubscriber(ctx context.Context, tr *transport.Transport, resp
 		errs = append(errs, fmt.Errorf("%s: %w", a, err))
 	}
 	return nil, errors.Join(errs...)
-}
-
-func containsAddr(addrs []netip.AddrPort, a netip.AddrPort) bool {
-	return slices.Contains(addrs, a)
 }

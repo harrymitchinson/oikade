@@ -290,7 +290,10 @@ func (n *Node) Run(ctx context.Context) error {
 	for _, f := range n.table.Fabrics() {
 		go n.advertiseFabric(f.Index)
 	}
-	n.resumeSubscriptions(ctx, tr, responder)
+	// Resuming ends with this run, whose transport it uses.
+	resuming, stopResuming := context.WithCancel(ctx)
+	defer stopResuming()
+	n.resumeSubscriptions(resuming, tr, responder)
 	switch {
 	case window != nil:
 		n.openWindow(*window) // still open, on the last run's transport

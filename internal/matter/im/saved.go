@@ -32,6 +32,16 @@ type SubscriptionStore interface {
 	Subscriptions() ([]SavedSubscription, error)
 }
 
+// Errors from Resume.
+var (
+	// ErrRefused means the subscriber answered the priming report with INVALID_SUBSCRIPTION: it
+	// has forgotten the subscription, and will subscribe again itself.
+	ErrRefused = errors.New("subscriber refused the resumed subscription")
+	// ErrForgotten means the saved subscription was forgotten while it waited to be resumed, as
+	// when its subscriber subscribed again first.
+	ErrForgotten = errors.New("saved subscription was forgotten")
+)
+
 // newSubscriptionID returns an ID that no subscription has, running or saved.
 func (s *Server) newSubscriptionID() uint32 {
 	s.mu.Lock()
@@ -39,14 +49,14 @@ func (s *Server) newSubscriptionID() uint32 {
 	for {
 		id := randomSubscriptionID()
 		_, running := s.subs[id]
-		if _, saved := s.reserved[id]; !running && !saved {
+		if !running && !s.stored[id] {
 			return id
 		}
 	}
 }
 
-// LoadSubscriptions returns the saved subscriptions, and keeps their IDs from new ones. Call it
-// once before serving. Each is to be resumed with Resume, or given up with Forget.
+// LoadSubscriptions returns the saved subscriptions, and keeps their IDs from new ones. Call it at
+// the start of each run, before serving. Each is to be resumed with Resume, or given up with Forget.
 func (s *Server) LoadSubscriptions() ([]SavedSubscription, error) {
 	if s.Saved == nil {
 		return nil, nil
@@ -57,20 +67,33 @@ func (s *Server) LoadSubscriptions() ([]SavedSubscription, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reserved = map[uint32]SavedSubscription{}
+	s.reserved, s.stored = map[uint32]SavedSubscription{}, map[uint32]bool{}
 	for _, sub := range saved {
 		s.reserved[sub.ID] = sub
+		s.stored[sub.ID] = true
 	}
 	return saved, nil
 }
 
+// Waiting reports whether a saved subscription is still waiting to be resumed: not resumed yet,
+// nor forgotten.
+func (s *Server) Waiting(id uint32) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.reserved[id]
+	return ok
+}
+
 // save keeps sub's record, for a CASE session on a fabric. Records of subscriptions that have
-// ended go first, so there are never more than the subscriptions the server can hold. A record
-// that can't be written costs only resuming it after a restart.
+// ended go first, so there are never more than the subscriptions the server can hold. It holds
+// saveMu, so a forget that comes after it, as when the client replaces the subscription at once,
+// deletes what it wrote. A record that can't be written costs only resuming it after a restart.
 func (s *Server) save(sub *subscription) {
 	if s.Saved == nil || sub.session.AuthMode() != transport.AuthCASE || sub.session.FabricIndex() == 0 {
 		return
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	saved, err := s.Saved.Subscriptions()
 	if err != nil {
 		s.Log.Error("Could not read saved subscriptions", "err", err)
@@ -84,9 +107,16 @@ func (s *Server) save(sub *subscription) {
 			stale = append(stale, rec)
 		}
 	}
+	live := s.subs[sub.id] == sub
+	if live {
+		s.stored[sub.id] = true
+	}
 	s.mu.Unlock()
 	for _, rec := range stale {
-		s.forget(rec.FabricIndex, rec.ID)
+		s.deleteLocked(rec.FabricIndex, rec.ID)
+	}
+	if !live {
+		return // ended, or replaced, before it was saved
 	}
 	rec := SavedSubscription{
 		FabricIndex: sub.session.FabricIndex(), ID: sub.id, PeerNode: sub.session.PeerNodeID(),
@@ -99,15 +129,21 @@ func (s *Server) save(sub *subscription) {
 }
 
 // Forget deletes a saved subscription's record: one that was replaced, whose client refused it, or
-// that resuming gave up on.
-func (s *Server) Forget(fabricIndex uint8, id uint32) { s.forget(fabricIndex, id) }
-
-func (s *Server) forget(fabricIndex uint8, id uint32) {
-	if s.Saved == nil {
+// that resuming gave up on. A session with no fabric never had one.
+func (s *Server) Forget(fabricIndex uint8, id uint32) {
+	if s.Saved == nil || fabricIndex == 0 {
 		return
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.deleteLocked(fabricIndex, id)
+}
+
+// deleteLocked deletes a record, with saveMu held.
+func (s *Server) deleteLocked(fabricIndex uint8, id uint32) {
 	s.mu.Lock()
 	delete(s.reserved, id)
+	delete(s.stored, id)
 	s.mu.Unlock()
 	if err := s.Saved.DeleteSubscription(fabricIndex, id); err != nil {
 		s.Log.Error("Could not delete saved subscription", "err", err, "subscription", id)
@@ -119,6 +155,8 @@ func (s *Server) RemoveFabric(index uint8) {
 	if s.Saved == nil {
 		return
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	saved, err := s.Saved.Subscriptions()
 	if err != nil {
 		s.Log.Error("Could not read saved subscriptions", "err", err)
@@ -126,32 +164,23 @@ func (s *Server) RemoveFabric(index uint8) {
 	}
 	for _, rec := range saved {
 		if rec.FabricIndex == index {
-			s.forget(rec.FabricIndex, rec.ID)
+			s.deleteLocked(rec.FabricIndex, rec.ID)
 		}
 	}
 }
 
-// errForgotten means a saved subscription was forgotten while it waited to be resumed, as when its
-// subscriber subscribed again first.
-var errForgotten = errors.New("saved subscription was forgotten")
-
-// ErrRefused means a subscriber answered a resumed subscription's priming report with
-// INVALID_SUBSCRIPTION: it has forgotten it, and will subscribe again itself.
-var ErrRefused = errors.New("subscriber refused the resumed subscription")
-
 // Resume resumes a saved subscription on session, a new CASE session to its subscriber: it sends a
-// priming report under the saved ID, then runs it as if the subscriber had just subscribed.
+// priming report under the saved ID, then runs it as if the subscriber had just subscribed. It
+// returns an error wrapping ErrRefused if the subscriber refuses it, and ErrForgotten if it was
+// forgotten in the meantime.
 func (s *Server) Resume(ctx context.Context, session *transport.Session, saved SavedSubscription) error {
 	sub := &subscription{
 		id: saved.ID, session: session, paths: saved.Paths, filtered: saved.FabricFiltered,
 		min: time.Duration(saved.Min) * time.Second, max: time.Duration(max(saved.Max, 1)) * time.Second,
 		dirty: map[Path]bool{}, wake: make(chan struct{}, 1),
 	}
-	s.mu.Lock()
-	_, waiting := s.reserved[saved.ID]
-	s.mu.Unlock()
-	if !waiting {
-		return errForgotten
+	if !s.Waiting(saved.ID) {
+		return ErrForgotten
 	}
 	runCtx, stop, err := s.take(ctx, sub)
 	if err != nil {
@@ -159,25 +188,31 @@ func (s *Server) Resume(ctx context.Context, session *transport.Session, saved S
 	}
 	ex, err := session.NewExchange()
 	if err == nil {
-		err = s.prime(ctx, ex, sub, nil)
+		// On the subscription's own context, so a client that replaces it meanwhile cuts it short.
+		err = s.prime(runCtx, ex, sub, nil)
 		ex.Close()
+	}
+	s.mu.Lock()
+	_, waiting := s.reserved[saved.ID]
+	delete(s.reserved, sub.id)
+	s.mu.Unlock()
+	switch {
+	case err == nil && !waiting:
+		err = ErrForgotten // while it primed
+	case errors.Is(err, StatusInvalidSubscription):
+		err = fmt.Errorf("%w: %w", ErrRefused, err)
+	case err != nil && !waiting:
+		err = ErrForgotten
 	}
 	if err != nil {
 		stop()
 		s.endSubscription(sub)
-		if errors.Is(err, StatusInvalidSubscription) {
-			return fmt.Errorf("%w: %w", ErrRefused, err)
+		if !errors.Is(err, ErrRefused) && !errors.Is(err, ErrForgotten) {
+			s.mu.Lock()
+			s.reserved[saved.ID] = saved // still to resume, on the next try
+			s.mu.Unlock()
 		}
 		return err
-	}
-	s.mu.Lock()
-	_, waiting = s.reserved[saved.ID]
-	delete(s.reserved, sub.id)
-	s.mu.Unlock()
-	if !waiting { // forgotten while it primed
-		stop()
-		s.endSubscription(sub)
-		return errForgotten
 	}
 	go s.serveSubscription(runCtx, sub, stop)
 	return nil

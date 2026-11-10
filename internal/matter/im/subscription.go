@@ -92,7 +92,7 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 	// Durations as strings, which the host's JSON log would otherwise print in nanoseconds.
 	s.Log.Info("Started subscription", "subscription", sub.id, "peer", session.Peer(), "node", fmt.Sprintf("%016X", session.PeerNodeID()),
 		"min", sub.min.String(), "max", sub.max.String(), "replaced", replaced)
-	s.save(sub)
+	go s.save(sub) // off the response path: it waits for the disk
 	go s.serveSubscription(runCtx, sub, stop)
 	return nil
 }
@@ -146,7 +146,7 @@ func (s *Server) serveSubscription(ctx context.Context, sub *subscription, stop 
 	}
 	// A client that has forgotten the subscription won't take it back after a restart either.
 	if errors.Is(err, StatusInvalidSubscription) {
-		s.forget(sub.session.FabricIndex(), sub.id)
+		s.Forget(sub.session.FabricIndex(), sub.id)
 	}
 	s.Log.Info("Ended subscription", "subscription", sub.id, "peer", session.Peer(), "node", fmt.Sprintf("%016X", session.PeerNodeID()),
 		"reason", err.Error())
@@ -256,7 +256,7 @@ func (s *Server) cancelSubscriptions(session *transport.Session) int {
 	node := session.PeerNodeID()
 	var ended []*subscription
 	for id, sub := range s.subs {
-		if sub.session == session || (node != 0 && sub.session.PeerNodeID() == node) {
+		if sub.session == session || (node != 0 && sub.session.PeerNodeID() == node && sub.session.FabricIndex() == session.FabricIndex()) {
 			sub.cancel(errReplaced)
 			delete(s.subs, id)
 			ended = append(ended, sub)
@@ -271,10 +271,10 @@ func (s *Server) cancelSubscriptions(session *transport.Session) int {
 	}
 	s.mu.Unlock()
 	for _, sub := range ended {
-		s.forget(sub.session.FabricIndex(), sub.id)
+		s.Forget(sub.session.FabricIndex(), sub.id)
 	}
 	for _, rec := range waiting {
-		s.forget(rec.FabricIndex, rec.ID)
+		s.Forget(rec.FabricIndex, rec.ID)
 	}
 	return len(ended)
 }
