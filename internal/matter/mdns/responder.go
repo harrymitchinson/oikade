@@ -73,7 +73,7 @@ type Responder struct {
 	conns    []packetConn
 	ifaces   []int
 	addrs    func(ifIndex int) []netip.Addr // the host's addresses on an interface
-	zone     func(ifIndex int) string       // an interface's name, as a link-local address's zone
+	zones    map[int]string                 // interfaces' names, the zones of link-local addresses
 	timing   timing
 
 	// sendMu orders announcements, delayed answers and goodbyes, so that a record that has
@@ -169,10 +169,11 @@ func newResponder(
 		conns:    conns,
 		ifaces:   ifaces,
 		addrs:    addrs,
-		zone:     interfaceName,
+		zones:    interfaceNames(ifaces),
 		timing:   defaultTiming,
 		services: map[string]*entry{},
 		probes:   map[*probe]struct{}{},
+		lookups:  map[*lookup]struct{}{},
 		done:     make(chan struct{}),
 	}
 	for _, c := range conns {

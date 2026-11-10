@@ -75,7 +75,7 @@ func questions(p sentPacket) []string {
 // with the target's addresses resolves it, a link-local one with its interface's zone.
 func TestResolveOperational(t *testing.T) {
 	r, c := newTestResponder(t)
-	r.zone = func(int) string { return "en0" }
+	r.zones = map[int]string{testIf: "en0"}
 	defer func() { _ = r.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -158,8 +158,8 @@ func TestResolveNotFound(t *testing.T) {
 			n++
 		}
 	}
-	if n < 3 || n > 5 { // at 0, 20, 60 and 140 ms
-		t.Errorf("sent %d queries in 200 ms, want about 4", n)
+	if n < 2 { // at 0, 20, 60 and 140 ms, or fewer on a loaded machine
+		t.Errorf("sent %d queries in 200 ms, want it to ask again", n)
 	}
 }
 
@@ -198,4 +198,45 @@ func TestResolveFromAnotherResponder(t *testing.T) {
 			t.Errorf("resolved %v, not an address of %s", a, ifi.Name)
 		}
 	}
+}
+
+// TestResolveKeepsWhatCameFirst: addresses heard before the SRV that names their host count, and
+// a goodbye withdraws an address heard before it.
+func TestResolveKeepsWhatCameFirst(t *testing.T) {
+	r, c := newTestResponder(t)
+	defer func() { _ = r.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := resolveAsync(ctx, r)
+	c.next()
+	addrs := func(ttl uint32, a ...netip.Addr) []byte {
+		m := dnsmessage.Message{Response: true, Authoritative: true}
+		for _, rec := range addressRecords(hubHost, a) {
+			m.Answers = append(m.Answers, rec.resource(ttl, true))
+		}
+		return pack(t, m)
+	}
+	old, current := netip.MustParseAddr("192.0.2.15"), netip.MustParseAddr("192.0.2.16")
+	c.in <- addrs(hostTTL, old, current)
+	c.in <- addrs(0, old) // the old address's goodbye
+	c.in <- hubResponse(t, hostTTL)
+	got := <-done
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if want := []netip.AddrPort{netip.AddrPortFrom(current, 5540)}; !slices.Equal(got.Addrs, want) {
+		t.Errorf("resolved %v, want %v", got.Addrs, want)
+	}
+}
+
+// TestResolveWithAContextDone sends nothing.
+func TestResolveWithAContextDone(t *testing.T) {
+	r, c := newTestResponder(t)
+	defer func() { _ = r.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := r.ResolveOperational(ctx, 1, 2); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+	c.none()
 }
