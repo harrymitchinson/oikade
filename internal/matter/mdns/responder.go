@@ -1,7 +1,8 @@
 // Package mdns is a Multicast DNS responder (RFC 6762) that advertises DNS-SD services (RFC 6763):
 // enough for commissioners and controllers to find a Matter node, through its commissionable
 // service while it's open for commissioning and an operational service per fabric (Matter Core
-// Specification, 4.3). It answers queries; it doesn't browse.
+// Specification, 4.3). It answers queries, and resolves a service instance whose name it's given,
+// as operational discovery finds a node (4.3.2). It doesn't browse.
 //
 // A Responder probes each service's names before it uses them, announces its records, answers
 // queries for them over multicast or unicast, and says goodbye (TTL 0) to the records it stops
@@ -72,6 +73,7 @@ type Responder struct {
 	conns    []packetConn
 	ifaces   []int
 	addrs    func(ifIndex int) []netip.Addr // the host's addresses on an interface
+	zones    map[int]string                 // interfaces' names, the zones of link-local addresses
 	timing   timing
 
 	// sendMu orders announcements, delayed answers and goodbyes, so that a record that has
@@ -81,7 +83,8 @@ type Responder struct {
 	mu        sync.Mutex
 	services  map[string]*entry // by lower-case instance name
 	probes    map[*probe]struct{}
-	hostReady bool // the host name has been probed
+	lookups   map[*lookup]struct{} // Resolves waiting for responses
+	hostReady bool                 // the host name has been probed
 	closed    bool
 
 	done chan struct{} // closed by Close, to stop timers
@@ -166,9 +169,11 @@ func newResponder(
 		conns:    conns,
 		ifaces:   ifaces,
 		addrs:    addrs,
+		zones:    interfaceNames(ifaces),
 		timing:   defaultTiming,
 		services: map[string]*entry{},
 		probes:   map[*probe]struct{}{},
+		lookups:  map[*lookup]struct{}{},
 		done:     make(chan struct{}),
 	}
 	for _, c := range conns {
