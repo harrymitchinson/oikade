@@ -27,6 +27,21 @@ type subscription struct {
 	cancel context.CancelCauseFunc
 }
 
+// maxIntervalTarget is the longest max interval, in seconds, the server chooses itself. A
+// subscriber that asks for longer is granted this, so one that misses the host's restart notices
+// it within about this long and subscribes again, instead of after the 10 minutes Apple's home hub
+// asks for (OIK-209).
+const maxIntervalTarget uint16 = 60
+
+// grantMaxInterval chooses the max interval for a subscriber's floor and ceiling, in seconds:
+// maxIntervalTarget or the ceiling, whichever is shorter, but never below the floor, and never 0,
+// which would report without pause. For a floor at most the ceiling, which subscribe checks, that
+// is within the spec's bounds for a publisher: MinIntervalFloor ≤ MaxInterval ≤ max(60 min,
+// MaxIntervalCeiling) (Core spec, 8.5).
+func grantMaxInterval(floor, ceiling uint16) uint16 {
+	return max(min(ceiling, maxIntervalTarget), floor, 1)
+}
+
 // errReplaced ends a subscription whose client subscribed again without keeping its others.
 var errReplaced = errors.New("replaced by a new subscription")
 
@@ -44,7 +59,7 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 		replaced = s.cancelSubscriptions(session)
 	}
 
-	maxInterval := max(req.maxCeiling, req.minFloor, 1)
+	maxInterval := grantMaxInterval(req.minFloor, req.maxCeiling)
 	sub := &subscription{
 		id: randomSubscriptionID(), session: session, paths: req.attributes, filtered: req.fabricFiltered,
 		min: time.Duration(req.minFloor) * time.Second, max: time.Duration(maxInterval) * time.Second,

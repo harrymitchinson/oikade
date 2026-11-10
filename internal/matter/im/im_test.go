@@ -329,3 +329,38 @@ func TestSubscriptionLogsItsIntervals(t *testing.T) {
 		return find("level=INFO", `msg="Ended subscription"`, `reason="replaced by a new subscription"`)
 	})
 }
+
+// TestGrantMaxInterval: the server grants at most 60 s, or the subscriber's ceiling if that's
+// shorter, never below its floor, and within the spec's bounds for a publisher (OIK-209).
+func TestGrantMaxInterval(t *testing.T) {
+	for _, c := range []struct{ floor, ceiling, want uint16 }{
+		{0, 600, 60}, // a home hub's 10 minutes
+		{0, 30, 30},  // a shorter ceiling is kept
+		{0, 60, 60},
+		{120, 600, 120}, // never below the floor
+		{3600, 3600, 3600},
+		{0, 0, 1}, // never 0
+		{0, 65535, 60},
+	} {
+		if got := grantMaxInterval(c.floor, c.ceiling); got != c.want {
+			t.Errorf("floor %d s, ceiling %d s: granted %d s, want %d s", c.floor, c.ceiling, got, c.want)
+		}
+	}
+}
+
+// TestSubscriptionIsGrantedAtMost60s: a subscriber asking for Apple's home hub's 10 minutes is
+// told 60 s in the Subscribe Response. That the server reports every max interval it grants is
+// TestSubscription's keep-alive check, in internal/matter/clusters.
+func TestSubscriptionIsGrantedAtMost60s(t *testing.T) {
+	node, _ := onOffNode()
+	client, _, _, _ := pairWith(t, &Server{Node: node}, transport.SecureSessionConfig{Auth: transport.AuthPASE})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _, granted, _, err := client.Subscribe(ctx, 0, 600, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if granted != 60 {
+		t.Fatalf("granted %d s for a ceiling of 600 s, want 60 s", granted)
+	}
+}
