@@ -37,10 +37,15 @@ type Server struct {
 	// EndSession, if set, ends the session of a subscription that panicked, so its controller starts
 	// again rather than wait for reports that won't come. Nil leaves the session.
 	EndSession func(*transport.Session)
-	Log        *slog.Logger
+	// Saved, if set, keeps subscriptions over CASE so they can be resumed after a restart.
+	Saved SubscriptionStore
+	Log   *slog.Logger
 
-	mu   sync.Mutex
-	subs map[uint32]*subscription
+	mu       sync.Mutex
+	subs     map[uint32]*subscription
+	reserved map[uint32]SavedSubscription // saved, not yet resumed or forgotten, by ID
+	stored   map[uint32]bool              // the IDs with a record, which new IDs avoid
+	saveMu   sync.Mutex                   // orders writes to Saved
 }
 
 // Observer hears what controllers do. It's called on the goroutine serving the interaction, after the

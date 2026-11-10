@@ -42,6 +42,11 @@ func (f *fakeMDNS) Remove(svc mdns.Service) error {
 	return nil
 }
 
+// ResolveOperational finds nothing: a node's tests reach controllers at their last address.
+func (f *fakeMDNS) ResolveOperational(ctx context.Context, _, _ uint64) (mdns.Resolved, error) {
+	return mdns.Resolved{}, mdns.ErrNotFound
+}
+
 func (f *fakeMDNS) Close() error {
 	f.mu.Lock()
 	closing := f.closing
