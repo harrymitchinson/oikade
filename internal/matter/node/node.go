@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
@@ -79,13 +80,19 @@ type Config struct {
 	Listening func()
 	// Observer, if set, hears what controllers do, for metrics.
 	Observer im.Observer
-	Log      *slog.Logger
+	// Subscriptions, if set, keeps controllers' subscriptions, so that the next Run resumes them
+	// rather than waiting for each controller to notice the node is gone.
+	Subscriptions im.SubscriptionStore
+	// Clock times resuming subscriptions; nil is the real one.
+	Clock clock.Clock
+	Log   *slog.Logger
 }
 
 // advertiser is what the node needs of an mDNS responder.
 type advertiser interface {
 	Add(ctx context.Context, svc mdns.Service) error
 	Remove(svc mdns.Service) error
+	ResolveOperational(ctx context.Context, compressedFabricID, nodeID uint64) (mdns.Resolved, error)
 	Close() error
 }
 
@@ -152,6 +159,9 @@ func New(cfg Config) (*Node, error) {
 	if cfg.WindowTimeout == 0 {
 		cfg.WindowTimeout = DefaultWindowTimeout
 	}
+	if cfg.Clock == nil {
+		cfg.Clock = clock.Real{}
+	}
 	fabrics := cfg.Fabrics
 	if fabrics == nil {
 		if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
@@ -199,7 +209,7 @@ func New(cfg Config) (*Node, error) {
 	n.bridge = clusters.NewBridge(info, n.comm.Clusters()...)
 	n.server = &im.Server{
 		Node: n.bridge.Node, Access: n.comm, Observer: cfg.Observer, EndSession: n.endSession,
-		Log: cfg.Log.With("part", "im"),
+		Saved: cfg.Subscriptions, Log: cfg.Log.With("part", "im"),
 	}
 	return n, nil
 }
@@ -280,6 +290,7 @@ func (n *Node) Run(ctx context.Context) error {
 	for _, f := range n.table.Fabrics() {
 		go n.advertiseFabric(f.Index)
 	}
+	n.resumeSubscriptions(ctx, tr, responder)
 	switch {
 	case window != nil:
 		n.openWindow(*window) // still open, on the last run's transport
@@ -296,6 +307,24 @@ func (n *Node) Run(ctx context.Context) error {
 	n.closeSessions()
 	stopServing()
 	return <-served
+}
+
+// resumeSubscriptions resumes, in the background, each subscription the last run saved.
+func (n *Node) resumeSubscriptions(ctx context.Context, tr *transport.Transport, responder advertiser) {
+	saved, err := n.server.LoadSubscriptions()
+	if err != nil {
+		n.log.Error("Could not read saved subscriptions", "err", err)
+		return
+	}
+	r := &resumer{
+		clock: n.cfg.Clock, server: n.server, end: n.endSession, log: n.log.With("part", "im"),
+		dial: func(ctx context.Context, s im.SavedSubscription) (*transport.Session, error) {
+			return n.dialSubscriber(ctx, tr, responder, s)
+		},
+	}
+	for _, s := range saved {
+		go r.resume(ctx, s)
+	}
 }
 
 // closeSessions tells every controller with a session that it's over, so that it finds the node again
@@ -508,6 +537,7 @@ func (n *Node) statusReport(_ context.Context, ex *transport.Exchange, m transpo
 // no fabric opens its initial window again.
 func (n *Node) fabricRemoved(index uint8) {
 	n.resumption.RemoveFabric(index)
+	n.server.RemoveFabric(index)
 	var ending []*transport.Session
 	for _, s := range n.sessions.list() {
 		if s.FabricIndex() == index {
