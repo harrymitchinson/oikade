@@ -348,33 +348,19 @@ func TestGrantMaxInterval(t *testing.T) {
 	}
 }
 
-// TestSubscriptionSendsEmptyReportsEveryMax: with nothing changing, a subscriber hears an empty
-// report every max interval it was granted, which is how it notices a server that has gone.
-func TestSubscriptionSendsEmptyReportsEveryMax(t *testing.T) {
+// TestSubscriptionIsGrantedAtMost60s: a subscriber asking for Apple's home hub's 10 minutes is
+// told 60 s in the Subscribe Response. That the server reports every max interval it grants is
+// TestSubscription's keep-alive check, in internal/matter/clusters.
+func TestSubscriptionIsGrantedAtMost60s(t *testing.T) {
 	node, _ := onOffNode()
 	client, _, _, _ := pairWith(t, &Server{Node: node}, transport.SecureSessionConfig{Auth: transport.AuthPASE})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _, granted, reports, err := client.Subscribe(ctx, 0, 1, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0})
+	_, _, granted, _, err := client.Subscribe(ctx, 0, 600, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if granted != 1 {
-		t.Fatalf("granted %d s, want 1 s", granted)
-	}
-	last := time.Now()
-	for i := range 2 {
-		select {
-		case r := <-reports:
-			if len(r) != 0 {
-				t.Fatalf("report %d has %d attributes, want none", i, len(r))
-			}
-			if gap := time.Since(last); gap < 900*time.Millisecond || gap > 3*time.Second {
-				t.Fatalf("report %d came after %v, want about 1 s", i, gap)
-			}
-			last = time.Now()
-		case <-ctx.Done():
-			t.Fatalf("no empty report %d", i)
-		}
+	if granted != 60 {
+		t.Fatalf("granted %d s for a ceiling of 600 s, want 60 s", granted)
 	}
 }
