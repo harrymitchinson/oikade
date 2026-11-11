@@ -616,6 +616,9 @@ func TestAClaimMadeAgainWhileSettlingOutlivesTheDeploy(t *testing.T) {
 		done <- err
 	}()
 	r.awaitLoaded()
+	// The new process resumes the old run and drops it after loading. A trigger before then finds
+	// that run still going and starts no other.
+	r.waitFor(func(l line) bool { return l.is(droppedEdited, "rule", "claiming") })
 	r.sync()
 	r.contact("claim-flow-go", false)
 	r.contact("claim-flow-go", true)

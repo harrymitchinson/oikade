@@ -224,7 +224,8 @@ func TestAWriteToADownPluginFailsOutLoud(t *testing.T) {
 	if err := os.Remove(filepath.Join(r.dir, "plugin-down")); err != nil {
 		t.Fatal(err)
 	}
-	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
+	// A process told to stay down still connects before it gives up, so counting connections
+	// can't say it's back. A write it takes can.
 	r.setting("relay", "on")
 	r.untilValue("relay", true)
 }
