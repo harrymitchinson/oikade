@@ -155,48 +155,32 @@ func TestSeqKeepsRisingPastDropsAndARestart(t *testing.T) {
 	}
 }
 
-// appendLatency is the median of timed journal appends while the log takes a commit as well.
-func appendLatency(t *testing.T, s *Store, bound Bound, data []byte) time.Duration {
+// appendCost is the median of what a journal append allocates in the file, its pages and the
+// freelist it rewrites, with a log commit before each one. It counts bytes rather than timing them,
+// so a busy machine can't move it.
+func appendCost(t *testing.T, s *Store, bound Bound, data []byte) int64 {
 	t.Helper()
-	stop, done := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(done)
-		batch := []Record{{Data: data}}
-		// Far oftener than the host's five seconds, so the log has every chance to get in the way.
-		tick := time.NewTicker(20 * time.Millisecond)
-		defer tick.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-tick.C:
-				batch[0].Time = time.Now()
-				if err := s.Events().Add(batch, time.Now(), bound, countDropped); err != nil {
-					t.Error(err)
-					return
-				}
-			}
+	batch := []Record{{Data: data}}
+	costs := make([]int64, 0, 300)
+	for i := range cap(costs) {
+		batch[0].Time = time.Now()
+		if err := s.Events().Add(batch, time.Now(), bound, countDropped); err != nil {
+			t.Fatal(err)
 		}
-	}()
-	defer func() {
-		close(stop)
-		<-done
-	}()
-	times := make([]time.Duration, 0, 300)
-	for i := range cap(times) {
-		began := time.Now()
+		before := s.db.Stats()
 		if _, err := s.Journal().Append("run", data); err != nil {
 			t.Fatal(err)
 		}
-		times = append(times, time.Since(began))
+		after := s.db.Stats()
+		costs = append(costs, after.TxStats.GetPageAlloc()-before.TxStats.GetPageAlloc())
 		if i%50 == 49 {
 			if err := s.Journal().Delete("run"); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	slices.Sort(times)
-	return times[len(times)/2]
+	slices.Sort(costs)
+	return costs[len(costs)/2]
 }
 
 func TestAFullLogDoesntSlowTheJournal(t *testing.T) {
@@ -205,7 +189,7 @@ func TestAFullLogDoesntSlowTheJournal(t *testing.T) {
 	bound := Bound{MaxBytes: full}
 
 	empty := open(t, t.TempDir())
-	before := appendLatency(t, empty, bound, data)
+	before := appendCost(t, empty, bound, data)
 
 	filled := open(t, t.TempDir())
 	batch := make([]Record, 20000)
@@ -223,10 +207,9 @@ func TestAFullLogDoesntSlowTheJournal(t *testing.T) {
 			break
 		}
 	}
-	after := appendLatency(t, filled, bound, data)
-	t.Logf("median journal append: %s with an empty log, %s with a full one", before, after)
-	// A margin for a shared machine: this is here to catch a commit that grows with the log.
-	if after > 2*before+5*time.Millisecond {
-		t.Fatalf("median journal append went from %s to %s with a full log", before, after)
+	after := appendCost(t, filled, bound, data)
+	t.Logf("median journal append writes %d bytes with an empty log, %d with a full one", before, after)
+	if after > 2*before {
+		t.Fatalf("median journal append went from %d to %d bytes with a full log", before, after)
 	}
 }
