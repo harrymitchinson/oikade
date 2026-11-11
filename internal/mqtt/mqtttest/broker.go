@@ -76,6 +76,10 @@ func (b *Broker) start() error {
 	if err := s.AddHook(one, nil); err != nil {
 		return err
 	}
+	// Added last, so no hook after it can reject a packet it has locked for.
+	if err := s.AddHook(&retainScan{s: s}, nil); err != nil {
+		return err
+	}
 	// After a Restart the old listener's port can take a moment to free up.
 	var err error
 	for range 50 {
@@ -188,6 +192,68 @@ func (h *oneSession) OnSessionEstablish(cl *mochi.Client, _ packets.Packet) {
 			_ = h.s.DisconnectClient(old, packets.ErrSessionTakenOver)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// retainScan keeps a retained message from being stored while a subscription scans for them.
+// mochi v2.7.9's TopicsIndex.RetainMessage writes a topic's retainPath under the topic's lock, but
+// scanMessages reads it for a wildcard filter without one: a data race, fixed on mochi's
+// unreleased release/2.8.0 (OIK-232). So a SUBSCRIBE, whose retained scan runs before
+// OnPacketProcessed, holds mu for reading, and a retained PUBLISH or an immediate retained Will,
+// which store it, hold it for writing.
+type retainScan struct {
+	mochi.HookBase
+	s  *mochi.Server
+	mu sync.RWMutex
+	// held maps a connection to the unlock for the packet it is processing. mochi reads and
+	// processes a connection's packets on one goroutine, so it has at most one. It is keyed by
+	// connection, as oneSession.kicked is, because mochi reuses its clients.
+	held sync.Map
+}
+
+// ID implements mochi.Hook.
+func (h *retainScan) ID() string { return "retain-scan" }
+
+// Provides implements mochi.Hook.
+func (h *retainScan) Provides(b byte) bool {
+	return b == mochi.OnPacketRead || b == mochi.OnPacketProcessed || b == mochi.OnWill || b == mochi.OnWillSent
+}
+
+// OnPacketRead implements mochi.Hook. It locks for a packet that mochi will process and hand to
+// OnPacketProcessed: one that fails validation returns before that, so it is left alone.
+func (h *retainScan) OnPacketRead(cl *mochi.Client, pk packets.Packet) (packets.Packet, error) {
+	switch {
+	case pk.FixedHeader.Type == packets.Publish && pk.FixedHeader.Retain &&
+		pk.PublishValidate(h.s.Options.Capabilities.TopicAliasMaximum) == packets.CodeSuccess:
+		h.mu.Lock()
+		h.held.Store(cl.Net.Conn, h.mu.Unlock)
+	case pk.FixedHeader.Type == packets.Subscribe && pk.SubscribeValidate() == packets.CodeSuccess:
+		h.mu.RLock()
+		h.held.Store(cl.Net.Conn, h.mu.RUnlock)
+	}
+	return pk, nil
+}
+
+// OnPacketProcessed implements mochi.Hook.
+func (h *retainScan) OnPacketProcessed(cl *mochi.Client, _ packets.Packet, _ error) {
+	if unlock, ok := h.held.LoadAndDelete(cl.Net.Conn); ok {
+		unlock.(func())()
+	}
+}
+
+// OnWill implements mochi.Hook. mochi stores a retained Will between OnWill and OnWillSent,
+// unless it delays the Will, when OnWillSent comes from another path.
+func (h *retainScan) OnWill(_ *mochi.Client, w mochi.Will) (mochi.Will, error) {
+	if w.Retain && w.WillDelayInterval == 0 {
+		h.mu.Lock()
+	}
+	return w, nil
+}
+
+// OnWillSent implements mochi.Hook.
+func (h *retainScan) OnWillSent(_ *mochi.Client, pk packets.Packet) {
+	if pk.FixedHeader.Retain && pk.Connect.WillProperties.WillDelayInterval == 0 {
+		h.mu.Unlock()
 	}
 }
 

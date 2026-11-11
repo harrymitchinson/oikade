@@ -127,3 +127,61 @@ func TestReconnectTakesOverALastingSession(t *testing.T) {
 	connected := connect()
 	t.Cleanup(func() { _ = connected.Disconnect(&paho.Disconnect{ReasonCode: 0}) })
 }
+
+// Under -race, a wildcard subscription's retained scan while a retained message is stored, by a
+// PUBLISH or by a Will, is a data race inside mochi v2.7.9 unless retainScan keeps them apart.
+func TestRetainedStoreAndScanDontRace(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	b := NewBroker(t)
+	publisher, err := mqtt.Connect(ctx, b.URL, "publisher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// At QoS 0, so that the retained messages it is sent take no packet IDs: mochi refuses a
+	// SUBSCRIBE whose ID one of them holds.
+	conn, err := net.Dial("tcp", strings.TrimPrefix(b.URL, "mqtt://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriber := paho.NewClient(paho.ClientConfig{Conn: conn})
+	if _, err := subscriber.Connect(ctx, &paho.Connect{ClientID: "subscriber", KeepAlive: 30, CleanStart: true}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = subscriber.Disconnect(&paho.Disconnect{ReasonCode: 0}) })
+	connected := make(chan struct{}, 100)
+	if _, err := mqtt.Connect(ctx, b.URL, "dropped", mqtt.WithWill("r/will", []byte("offline")),
+		mqtt.WithOnConnect(func(context.Context) { connected <- struct{}{} })); err != nil {
+		t.Fatal(err)
+	}
+	<-connected
+
+	const rounds = 30
+	stored := make(chan error, 1)
+	go func() {
+		for i := range rounds {
+			if err := publisher.Publish(ctx, "r/published", []byte{byte(i)}, true); err != nil {
+				stored <- err
+				return
+			}
+			if i%10 == 0 {
+				b.Kick(t, "dropped")
+				select {
+				case <-connected:
+				case <-ctx.Done():
+					stored <- ctx.Err()
+					return
+				}
+			}
+		}
+		stored <- nil
+	}()
+	for range rounds {
+		if _, err := subscriber.Subscribe(ctx, &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: "r/+"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := <-stored; err != nil {
+		t.Fatal(err)
+	}
+}

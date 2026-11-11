@@ -318,8 +318,6 @@ func TestStartTimeout(t *testing.T) {
 func TestSetStateValidates(t *testing.T) {
 	ctx := testContext(t)
 	b := mqtttest.NewBroker(t)
-	// Subscribing before anything is published: mochi races a subscription's retained scan with
-	// a concurrent retained publish.
 	w := watchLive(ctx, t, b.URL)
 	p, _ := start(ctx, t, b.URL, Options{})
 	lamp := contractv1.DeviceReport{ID: "lamp", Found: true, Capabilities: []string{"on", "brightness"}}
