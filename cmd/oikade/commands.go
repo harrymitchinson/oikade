@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
@@ -303,7 +304,7 @@ func outcome(device, name string, asked any, c *api.Capability) string {
 		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows its %s when it does", device, device, name)
 	}
 	is := fmt.Sprintf("%s %s is %v", device, name, display(c.Value))
-	if fmt.Sprint(c.Value) != fmt.Sprint(asked) {
+	if fmt.Sprint(c.Value) != fmt.Sprint(asked) && !rounded(c.Value, asked) {
 		is += fmt.Sprintf(", not %v", asked)
 	}
 	if c.Level == "" {
@@ -319,6 +320,14 @@ func outcome(device, name string, asked any, c *api.Capability) string {
 		}
 	}
 	return is + ": nothing claims it, so its Default wins"
+}
+
+// rounded reports whether a number the device reported is the one asked for, as a driver rounds it:
+// brightness 33 comes back as 33.1.
+func rounded(reported, asked any) bool {
+	r, ok := reported.(float64)
+	a, ok2 := asked.(float64)
+	return ok && ok2 && capability.Near(r, a)
 }
 
 // parseValue reads a value from the command line. The host checks that it suits the capability.

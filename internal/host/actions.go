@@ -178,33 +178,30 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	// Before the write, so that the device's answer can't come first.
 	events, stop := s.srv.feed.subscribe()
 	defer stop()
-	written := time.Now()
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
 	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, written, events)}
+	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, events)}
 }
 
 // settleTimes are how long a set waits for the device to answer (wait), how long it then waits for
-// nothing more to change, such as ExternalRevert writing it back (quiet), and how long after the write
-// a report of another value is the device catching up rather than its answer (stale), as a lamp
-// reports its brightness on the way through a fade.
+// nothing more to change, such as ExternalRevert writing it back (quiet).
 type settleTimes struct {
-	wait, quiet, stale time.Duration
+	wait, quiet time.Duration
 }
 
-var setSettle = settleTimes{wait: 3 * time.Second, quiet: 500 * time.Millisecond, stale: engine.StaleReport}
+var setSettle = settleTimes{wait: 3 * time.Second, quiet: 500 * time.Millisecond}
 
 // settled waits for a set's write to settle, and returns the capability as it is then, or nil if the
 // device hasn't answered.
-func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, value any, written time.Time, events <-chan api.Event) *api.Capability {
+func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, value any, events <-chan api.Event) *api.Capability {
 	has := func() bool {
 		snap, ok := s.srv.devices.Get(dev)
 		v, known := snap.Values[name]
-		return ok && known && capability.Float(v) == capability.Float(value)
+		return ok && known && capability.Near(capability.Float(v), capability.Float(value))
 	}
-	if !awaitAnswer(ctx, events, dev.Name, name, value, written, has, setSettle) {
+	if !awaitAnswer(ctx, events, dev.Name, name, value, has, setSettle) {
 		return nil
 	}
 	snap, ok := s.srv.devices.Get(dev)
@@ -220,12 +217,13 @@ func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, valu
 	return c
 }
 
-// awaitAnswer waits for the device's answer to a write of value made at written, then for t.quiet with
-// nothing more changing, and says whether it answered. The answer is a report of value, or any report
-// once t.stale has passed. A device that already has value sends no change, so it counts as having
-// answered. After the answer, any change, such as a write-back, restarts the quiet.
-func awaitAnswer(ctx context.Context, events <-chan api.Event, dev, name string, value any, written time.Time,
-	has func() bool, t settleTimes,
+// awaitAnswer waits for the device's answer to a write of value, then for t.quiet with nothing more
+// changing, and says whether it answered. The answer is a report of value, allowing for the rounding
+// drivers do: any other report, as from a lamp on its way through a fade, is the device catching up.
+// A device that already has value sends no change, so it counts as having answered. After the
+// answer, any change, such as a write-back, restarts the quiet.
+func awaitAnswer(ctx context.Context, events <-chan api.Event, dev, name string, value any, has func() bool,
+	t settleTimes,
 ) bool {
 	answered := has()
 	var quiet <-chan time.Time
@@ -244,7 +242,7 @@ func awaitAnswer(ctx context.Context, events <-chan api.Event, dev, name string,
 			if e.Type != api.EventChange || e.Device != dev || e.Capability != name {
 				continue
 			}
-			if answered || capability.Float(e.Value) == capability.Float(value) || time.Since(written) >= t.stale {
+			if answered || capability.Near(capability.Float(e.Value), capability.Float(value)) {
 				answered = true
 				quiet = time.After(t.quiet)
 			}
