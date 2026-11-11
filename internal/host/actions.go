@@ -217,10 +217,11 @@ func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, valu
 	return c
 }
 
-// awaitAnswer waits for the device's answer to a write of value, then for t.quiet with
-// nothing more changing, and says whether it answered. The answer is a report of value, allowing for
-// the rounding drivers do: any other report, as from a lamp on its way through a fade, is the device
-// catching up. A device that already has value sends no change, so it counts as having answered. After the answer, any change, such as a write-back, restarts the quiet.
+// awaitAnswer waits for the device's answer to a write of value, then for t.quiet with nothing more
+// changing, and says whether it answered. The answer is a report of value, allowing for the rounding
+// drivers do: any other report, as from a lamp on its way through a fade, is the device catching up.
+// A device that already has value sends no change, so it counts as having answered. After the
+// answer, any change, such as a write-back, restarts the quiet.
 func awaitAnswer(ctx context.Context, events <-chan api.Event, dev, name string, value any, has func() bool,
 	t settleTimes,
 ) bool {
