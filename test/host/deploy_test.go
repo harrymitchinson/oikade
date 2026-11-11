@@ -439,8 +439,10 @@ func TestAFailedVersionLeavesNoClaimsOfItsOwn(t *testing.T) {
 	}
 }
 
-// crashAfterLoading deploys a variant that crashes when told, and tells it once it has loaded.
-func (r *rig) crashAfterLoading(name string) {
+// crashAfterLoading deploys a variant that crashes when told, and tells it once it has loaded and
+// logged each of first. A resumed run ends after the process loads, so a test that counts how it
+// ended names that line.
+func (r *rig) crashAfterLoading(name string, first ...string) {
 	r.t.Helper()
 	bin := variant(r.t, name)
 	done := make(chan error, 1)
@@ -449,6 +451,9 @@ func (r *rig) crashAfterLoading(name string) {
 		done <- err
 	}()
 	r.awaitLoaded()
+	for _, msg := range first {
+		r.waitFor(func(l line) bool { return l.is(msg) })
+	}
 	r.sync()
 	if err := os.WriteFile(filepath.Join(r.dir, "crash"), nil, 0o600); err != nil {
 		r.t.Fatal(err)
@@ -498,7 +503,7 @@ func TestAFailedVersionGivesBackARunItDropped(t *testing.T) {
 	r.awaitLoaded()
 	r.claimWaiting()
 	writes := r.count(wrote, "device", "claimed-flow")
-	r.crashAfterLoading("crash-editclaim")
+	r.crashAfterLoading("crash-editclaim", droppedEdited)
 	if r.count(droppedEdited) != 1 {
 		t.Fatalf("the new version didn't drop the run. The log:\n%s", r.dump())
 	}
@@ -616,6 +621,9 @@ func TestAClaimMadeAgainWhileSettlingOutlivesTheDeploy(t *testing.T) {
 		done <- err
 	}()
 	r.awaitLoaded()
+	// The new process resumes the old run and drops it after loading. A trigger before then finds
+	// that run still going and starts no other.
+	r.waitFor(func(l line) bool { return l.is(droppedEdited, "rule", "claiming") })
 	r.sync()
 	r.contact("claim-flow-go", false)
 	r.contact("claim-flow-go", true)
@@ -996,7 +1004,7 @@ func TestRemovalsFinishAfterACrash(t *testing.T) {
 	r.awaitLoaded()
 	r.stop()
 	if got := r.ruleClaims("claimed"); len(got) != 0 {
-		t.Fatalf("got %+v", got)
+		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 }
 

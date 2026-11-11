@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -155,78 +156,79 @@ func TestSeqKeepsRisingPastDropsAndARestart(t *testing.T) {
 	}
 }
 
-// appendLatency is the median of timed journal appends while the log takes a commit as well.
-func appendLatency(t *testing.T, s *Store, bound Bound, data []byte) time.Duration {
+// commitCosts are the medians of what the log's commit and then a journal append allocate in the
+// file: the pages each one dirties and the freelist it rewrites, as bbolt counts them. Bytes rather
+// than time, so a busy machine can't move them. What they miss is work inside a commit that
+// allocates nothing, such as a scan.
+func commitCosts(t *testing.T, s *Store, bound Bound, data []byte) (logAdd, journalAppend int64) {
 	t.Helper()
-	stop, done := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(done)
-		batch := []Record{{Data: data}}
-		// Far oftener than the host's five seconds, so the log has every chance to get in the way.
-		tick := time.NewTicker(20 * time.Millisecond)
-		defer tick.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-tick.C:
-				batch[0].Time = time.Now()
-				if err := s.Events().Add(batch, time.Now(), bound, countDropped); err != nil {
-					t.Error(err)
-					return
-				}
-			}
+	allocated := func() int64 {
+		stats := s.db.Stats()
+		return stats.TxStats.GetPageAlloc()
+	}
+	batch := []Record{{Data: data}}
+	adds, appends := make([]int64, 0, 300), make([]int64, 0, 300)
+	for i := range cap(appends) {
+		batch[0].Time = time.Now()
+		began := allocated()
+		if err := s.Events().Add(batch, time.Now(), bound, countDropped); err != nil {
+			t.Fatal(err)
 		}
-	}()
-	defer func() {
-		close(stop)
-		<-done
-	}()
-	times := make([]time.Duration, 0, 300)
-	for i := range cap(times) {
-		began := time.Now()
+		added := allocated()
 		if _, err := s.Journal().Append("run", data); err != nil {
 			t.Fatal(err)
 		}
-		times = append(times, time.Since(began))
+		adds, appends = append(adds, added-began), append(appends, allocated()-added)
 		if i%50 == 49 {
 			if err := s.Journal().Delete("run"); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	slices.Sort(times)
-	return times[len(times)/2]
+	slices.Sort(adds)
+	slices.Sort(appends)
+	return adds[len(adds)/2], appends[len(appends)/2]
 }
 
-func TestAFullLogDoesntSlowTheJournal(t *testing.T) {
-	const full = 64 << 20
-	data := make([]byte, 70)
-	bound := Bound{MaxBytes: full}
-
-	empty := open(t, t.TempDir())
-	before := appendLatency(t, empty, bound, data)
-
-	filled := open(t, t.TempDir())
+// atBound opens a store whose log has reached bound, so each commit drops what's oldest.
+func atBound(t *testing.T, bound Bound, data []byte) *Store {
+	t.Helper()
+	s := open(t, t.TempDir())
 	batch := make([]Record, 20000)
 	now := time.Now()
 	for i := range batch {
 		batch[i] = Record{Time: now, Data: data}
 	}
-	for {
-		if err := filled.Events().Add(batch, now, bound, countDropped); err != nil {
+	for dropped := false; !dropped; {
+		err := s.Events().Add(batch, now, bound, func(baseline []byte, out []Record) ([]byte, error) {
+			dropped = len(out) > 0
+			return countDropped(baseline, out)
+		})
+		if err != nil {
 			t.Fatal(err)
-		}
-		if size, err := filled.Events().Size(); err != nil {
-			t.Fatal(err)
-		} else if size >= full-20000*100 {
-			break
 		}
 	}
-	after := appendLatency(t, filled, bound, data)
-	t.Logf("median journal append: %s with an empty log, %s with a full one", before, after)
-	// A margin for a shared machine: this is here to catch a commit that grows with the log.
-	if after > 2*before+5*time.Millisecond {
-		t.Fatalf("median journal append went from %s to %s with a full log", before, after)
+	return s
+}
+
+// The host commits the log every few seconds, and the journal on every step of a flow. Neither
+// should cost more as the log grows: a commit that drops the oldest record costs the same in a log
+// four times the size, give or take a page for a deeper tree, and a journal append the same as with
+// no log at all.
+func TestAFullLogDoesntSlowTheJournal(t *testing.T) {
+	const full = 64 << 20
+	data := make([]byte, 70)
+	page := int64(os.Getpagesize())
+
+	_, emptyAppend := commitCosts(t, open(t, t.TempDir()), Bound{MaxBytes: full}, data)
+	smallAdd, _ := commitCosts(t, atBound(t, Bound{MaxBytes: full / 4}, data), Bound{MaxBytes: full / 4}, data)
+	fullAdd, fullAppend := commitCosts(t, atBound(t, Bound{MaxBytes: full}, data), Bound{MaxBytes: full}, data)
+	t.Logf("median allocated by a log commit: %d bytes at %d MiB, %d at %d MiB", smallAdd, full>>22, fullAdd, full>>20)
+	t.Logf("median allocated by a journal append: %d bytes with no log, %d with a full one", emptyAppend, fullAppend)
+	if fullAdd > smallAdd+page {
+		t.Errorf("a log commit went from %d to %d bytes in a log four times the size", smallAdd, fullAdd)
+	}
+	if fullAppend > emptyAppend+page {
+		t.Errorf("a journal append went from %d to %d bytes with a full log", emptyAppend, fullAppend)
 	}
 }
