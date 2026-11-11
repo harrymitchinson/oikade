@@ -999,7 +999,7 @@ func TestRemovalsFinishAfterACrash(t *testing.T) {
 	r.awaitLoaded()
 	r.stop()
 	if got := r.ruleClaims("claimed"); len(got) != 0 {
-		t.Fatalf("got %+v", got)
+		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 }
 
