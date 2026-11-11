@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"time"
@@ -56,11 +55,6 @@ const StaleReport = 5 * time.Second
 // value is taken as the write. It allows for slow plugins and for a report held back by
 // StaleReport.
 const bridgeMatch = 30 * time.Second
-
-// bridgeTolerance is how far a reported number may be from a bridge's write and still match it.
-// Drivers round on the way to and from the device: a brightness of 40 comes back from
-// Zigbee2MQTT as 40.2. Bools are 0 and 1, so it can't confuse them.
-const bridgeTolerance = 0.5
 
 // bridgeWrite is a bridge's write, waiting for the device to report it.
 type bridgeWrite struct {
@@ -484,7 +478,7 @@ func (e *Engine) bridgeWrote(source string, dev ident.ID, name string, value any
 
 // matches reports whether a value reported at now is the write's.
 func (w bridgeWrite) matches(v float64, now time.Time) bool {
-	return math.Abs(w.value-v) <= bridgeTolerance && now.Before(w.at.Add(bridgeMatch))
+	return capability.Near(v, w.value) && now.Before(w.at.Add(bridgeMatch))
 }
 
 // forgetBridgeWrite drops a bridge's write. Call with e.mu held.
