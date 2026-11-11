@@ -201,6 +201,10 @@ func (h *oneSession) OnSessionEstablish(cl *mochi.Client, _ packets.Packet) {
 // unreleased release/2.8.0 (OIK-232). So a SUBSCRIBE, whose retained scan runs before
 // OnPacketProcessed, holds mu for reading, and a retained PUBLISH or an immediate retained Will,
 // which store it, hold it for writing.
+//
+// It leaves out what the tests don't do: a delayed Will, the inline client and $SYS, which mochi
+// stores without a client's packet (a wildcard at the root skips $SYS). A hook added after it
+// mustn't reject a packet, which would leave mu locked, and holds mu while it runs.
 type retainScan struct {
 	mochi.HookBase
 	s  *mochi.Server

@@ -134,10 +134,28 @@ func TestRetainedStoreAndScanDontRace(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	b := NewBroker(t)
-	publisher, err := mqtt.Connect(ctx, b.URL, "publisher")
-	if err != nil {
-		t.Fatal(err)
+	connect := func(id string, opts ...mqtt.Option) *mqtt.Client {
+		t.Helper()
+		c, err := mqtt.Connect(ctx, b.URL, id, opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+		return c
 	}
+	publisher := connect("publisher")
+	connected := make(chan struct{}, 100)
+	connect("dropped", mqtt.WithWill("r/will", []byte("offline")),
+		mqtt.WithOnConnect(func(context.Context) { connected <- struct{}{} }))
+	waitConnected := func() {
+		t.Helper()
+		select {
+		case <-connected:
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for dropped to connect")
+		}
+	}
+	waitConnected()
 	// At QoS 0, so that the retained messages it is sent take no packet IDs: mochi refuses a
 	// SUBSCRIBE whose ID one of them holds.
 	conn, err := net.Dial("tcp", strings.TrimPrefix(b.URL, "mqtt://"))
@@ -149,39 +167,28 @@ func TestRetainedStoreAndScanDontRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = subscriber.Disconnect(&paho.Disconnect{ReasonCode: 0}) })
-	connected := make(chan struct{}, 100)
-	if _, err := mqtt.Connect(ctx, b.URL, "dropped", mqtt.WithWill("r/will", []byte("offline")),
-		mqtt.WithOnConnect(func(context.Context) { connected <- struct{}{} })); err != nil {
-		t.Fatal(err)
-	}
-	<-connected
 
 	const rounds = 30
-	stored := make(chan error, 1)
+	subscribed := make(chan error, 1)
 	go func() {
-		for i := range rounds {
-			if err := publisher.Publish(ctx, "r/published", []byte{byte(i)}, true); err != nil {
-				stored <- err
+		for range rounds {
+			if _, err := subscriber.Subscribe(ctx, &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: "r/+"}}}); err != nil {
+				subscribed <- err
 				return
 			}
-			if i%10 == 0 {
-				b.Kick(t, "dropped")
-				select {
-				case <-connected:
-				case <-ctx.Done():
-					stored <- ctx.Err()
-					return
-				}
-			}
 		}
-		stored <- nil
+		subscribed <- nil
 	}()
-	for range rounds {
-		if _, err := subscriber.Subscribe(ctx, &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: "r/+"}}}); err != nil {
+	for i := range rounds {
+		if err := publisher.Publish(ctx, "r/published", []byte{byte(i)}, true); err != nil {
 			t.Fatal(err)
 		}
+		if i%10 == 0 {
+			b.Kick(t, "dropped")
+			waitConnected()
+		}
 	}
-	if err := <-stored; err != nil {
+	if err := <-subscribed; err != nil {
 		t.Fatal(err)
 	}
 }
