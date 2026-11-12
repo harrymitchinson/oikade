@@ -11,4 +11,6 @@
 // no key shows that as its problem, and is offline until oikade secret set adds it, with no deploy.
 //
 // What a kind of device can do is one entry in kinds. A kind the table doesn't have isn't reported.
+//
+// The README beside this file says how to set it up, and how to get each device's LAN key.
 package ewelinklan

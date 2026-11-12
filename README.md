@@ -34,7 +34,7 @@ Toggling a light from your phone is state, so Git doesn't care, and a deploy doe
 - **Linux with systemd, or Docker,** on arm64 or amd64. A Raspberry Pi is plenty: see [One Pi, with the host](docs/deploy-raspberry-pi.md).
 - **The same L2 network as your controllers, with IPv6.** Controllers find the bridge over mDNS and reach it over IPv6.
 - **A Matter controller with a hub,** such as the Home app with an Apple TV or HomePod as its home hub.
-- **For Zigbee,** a coordinator, and a Zigbee2MQTT and an MQTT broker you run. See [Zigbee](#zigbee).
+- **For Zigbee,** a coordinator, and a Zigbee2MQTT and an MQTT broker you run. See the [Zigbee2MQTT plugin](plugins/zigbee2mqtt/README.md).
 - **Go,** wherever you build your home.
 
 ## Getting started in Go
@@ -462,6 +462,11 @@ A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN p
 
 On a host, a plugin is a Go module your home imports, as a `framework.Plugin` part of your home, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as the host's user, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade-host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
 
+First-party plugins, each with its own README:
+
+- [Zigbee2MQTT](plugins/zigbee2mqtt/README.md): Zigbee devices, through a Zigbee2MQTT and an MQTT broker you run
+- [eWeLink LAN](plugins/ewelinklan/README.md): relays with sensors on the eWeLink LAN protocol, such as SONOFF's TH Elite
+
 To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
 ### Removing a plugin
@@ -711,63 +716,6 @@ oikade types                                 # write devices.go from the registr
 
 If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, device types, reservations, arbitration settings and endpoint IDs, matched by hardware. The registry is the authority, so a file that disagrees with one in use is refused, which is what an old file does. After a real loss the drivers may have reported again first, under their apps' names, so pass `--force` there and the file wins. With `--force`, devices the file doesn't have stay, and get a new endpoint or name if the file gives theirs to something else. A claimed name never moves.
 
-## Zigbee
-
-Zigbee is a plugin your home imports ([OIK-155](https://linear.app/oikade/issue/OIK-155)). You run Zigbee2MQTT and an MQTT broker such as Mosquitto yourself. Oikade connects to them, and doesn't start them or write their configuration.
-
-```go
-framework.Run(framework.NewHome(framework.Options{},
-	framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{})),
-	// ...
-))
-```
-
-```sh
-oikade-host --home ./home --broker mqtt://localhost:1883
-```
-
-A password in the `--broker` URL reaches every plugin you import. `zigbee2mqtt.Config` takes `BaseTopic` if yours isn't Zigbee2MQTT's default, `zigbee2mqtt`.
-
-Set these in Zigbee2MQTT's `configuration.yaml`:
-
-```yaml
-availability:
-  enabled: true      # so a device that's gone reads offline
-device_options:
-  retain: true       # so a sensor's values survive a host restart
-```
-
-After each device list, the plugin asks Zigbee2MQTT with a `/get` for each value nothing has reported, one every 200ms, if the device can be asked for it ([OIK-53](https://linear.app/oikade/issue/OIK-53)). A light or a plug answers, so its state is back straight after a restart even without `retain`. A battery sensor sleeps and can't be asked, so without `retain` its values stay unknown until it next reports. A value that's retained is never asked for, and a reply is taken in just as a retained value is, so the first value after a host restart fires nothing.
-
-Every paired device enters the registry by its IEEE address, except the coordinator and devices Zigbee2MQTT doesn't support, and is usable at once. Its friendly name is copied once, as its name. When Zigbee2MQTT says it's offline, or the broker can't be reached, its devices read offline and writes are refused, which the host's log shows. Your automations and Matter carry on.
-
-## eWeLink LAN devices
-
-Relays with sensors that speak the eWeLink LAN protocol, such as SONOFF's TH Elite, are a plugin your home imports ([OIK-10](https://linear.app/oikade/issue/OIK-10)). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade devices`, under its ID.
-
-```go
-framework.Run(framework.NewHome(framework.Options{},
-	framework.NewPlugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{
-		Humidity: []string{"1000ddeeff"}, // these also announce humidity
-	})),
-	// ...
-))
-```
-
-Each device's reports are encrypted with its own LAN key, which is one [secret](#secrets) named for its ID. Until it has one, the device is listed with what to do, and the Home app shows it as not responding:
-
-```sh
-oikade devices                              # 1000aabbcc  no LAN key: oikade secret set 1000aabbcc
-oikade secret set 1000aabbcc                # online within seconds, with no deploy
-oikade devices name 1000aabbcc greenhouse-heater
-```
-
-The LAN key is the device's `devicekey`, and only eWeLink's cloud API gives it out. You need an app on the eWeLink developer platform ([API docs](https://coolkit-technologies.github.io/eWeLink-API/#/en/OAuth2.0)). Sign in to your eWeLink account through it with OAuth2, then read `devicekey` for each device from `GET /v2/device/thing`. Oikade itself never talks to the cloud.
-
-A device of type `th_plug`, such as a THR316D or THR320D, reports `on` and `temperature`, plus `humidity` if its ID is in `Humidity`, which is a list because a device's sensors decide what the Home app shows. A reading that isn't a number, as with humidity from a temperature-only probe, isn't reported, and the last value stays. A device listed in `Humidity` that sends none says so once in the host's log. Any other type isn't reported yet, and the log says so once. Each new type is checked against a real device before it's added.
-
-A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one. It stays hidden through a restart if it's on the network when the plugin starts, and comes back if it was off then and is heard later.
-
 ## State that must survive
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
@@ -785,7 +733,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - The metrics listener is read-only, but open to whoever can reach the port, and it shows device names and values. Move it with `--metrics-addr`.
 - Importing a plugin means trusting its code, because it runs as the host's user.
 - An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password, and keep it in a [secret](#secrets).
-- eWeLink LAN traffic is encrypted with each device's key, but Oikade can't tell a replayed report from a new one. Keep these devices on a network you trust.
+- Each plugin's README says what else it needs, such as the [eWeLink LAN plugin](plugins/ewelinklan/README.md#security).
 
 ## Logging
 
