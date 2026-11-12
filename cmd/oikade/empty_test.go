@@ -55,7 +55,7 @@ func TestNoDevicesSaysWhatReportsThem(t *testing.T) {
 	if !strings.Contains(got, "2 removed devices") || !strings.Contains(got, "oikade devices --all") {
 		t.Errorf("with removed devices: %q", stderr.String())
 	}
-	raw, err := json.Marshal(listed(registry.Snapshot{}, nil))
+	raw, err := json.Marshal(listed(registry.Snapshot{}, nil, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

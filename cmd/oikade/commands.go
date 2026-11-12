@@ -125,7 +125,13 @@ func printStatus(out, stderr io.Writer, st *api.Status, summary bool, now time.T
 			if d.PluginNotImported {
 				state = strings.TrimSpace(notImported + "  " + state)
 			}
+			if d.Problem != "" {
+				state = strings.TrimSpace(d.Problem + "  " + state)
+			}
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%v\t%s\n", d.Name, c.Name, display(c.Value), state)
+		}
+		if d.Problem != "" && len(d.Capabilities) == 0 {
+			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%s\n", d.Name, d.Problem)
 		}
 	}
 	_ = w.Flush()

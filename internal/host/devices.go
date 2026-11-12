@@ -518,6 +518,14 @@ func (s *apiServer) device(req api.Request) api.Response {
 			resp.Unimported, resp.OutsidePlugins = p.unimportedNow(true), slices.Clone(p.host.Outside)
 			resp.SafetyHeld = p.safetyHeld(list)
 		}
+		for dev, snap := range s.srv.devices.List() {
+			if snap.Info.Error != "" {
+				if resp.Problems == nil {
+					resp.Problems = map[string]string{}
+				}
+				resp.Problems[dev.Name] = snap.Info.Error
+			}
+		}
 		return resp
 	case api.TypeDeviceName:
 		err = s.devices.rename(req.Device, req.To)
