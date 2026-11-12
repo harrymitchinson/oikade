@@ -96,7 +96,7 @@ type device struct {
 	sequence int64
 	// online is what was last published, and published whether anything has been.
 	online, published bool
-	// warned is whether a missing humidity field has been logged.
+	// warned is whether a report without humidity has been logged.
 	warned bool
 }
 
@@ -385,12 +385,11 @@ func (b *bridge) apply(d *device, params map[string]any, heard time.Time) (obser
 			values[capability] = value
 		}
 	}
-	if d.humidity && !d.warned {
-		if _, ok := params[fieldHumidity]; !ok {
-			d.warned = true
-			b.log.Info("Device listed for humidity sent none", "device", d.id,
-				"fields", strings.Join(slices.Sorted(maps.Keys(params)), ","))
-		}
+	// A probe that can't measure humidity, such as a temperature-only one, says "unavailable".
+	if _, ok := r.values[contractv1.Humidity]; d.humidity && !ok && !d.warned {
+		d.warned = true
+		b.log.Info("Device listed for humidity sent no humidity reading", "device", d.id,
+			"humidity", fmt.Sprint(params[fieldHumidity]), "sensor", fmt.Sprint(params["sensorType"]))
 	}
 	if len(values) == 0 {
 		return observed{}, false

@@ -2,9 +2,12 @@ package ewelinklan
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
+
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
 // The emulator's key in sonoff-lan, the TypeScript library this was ported from.
@@ -144,5 +147,24 @@ func TestSwitchesReadsOnlyOutletZero(t *testing.T) {
 				t.Errorf("got %+v", got)
 			}
 		})
+	}
+}
+
+// A THR320D's report with a WTS01 probe, which measures only temperature, decrypted on 2026-11-12.
+// Its network fields are left out.
+const realTHReport = `{"autoControlEnabled":0,"currentHumidity":"unavailable","currentTemperature":"11.9",` +
+	`"fwVersion":"1.3.0","humCorrection":0,"pulseConfig":{"pulse":"off","pulseWidth":500,"switch":"off"},` +
+	`"rssi":-62,"sensorType":"WTS01","sledOnline":"on","startup":"off","switch":"off","tempCorrection":0,` +
+	`"tempUnit":0,"timeZone":1}`
+
+func TestReadsARealTHReport(t *testing.T) {
+	var params map[string]any
+	if err := json.Unmarshal([]byte(realTHReport), &params); err != nil {
+		t.Fatal(err)
+	}
+	got := kinds["th_plug"].read(params)
+	want := report{relay: true, on: false, values: map[string]float64{contractv1.Temperature: 11.9}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }

@@ -17,9 +17,8 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
-// Field names in a report. Nobody has seen a real device report humidity, so currentHumidity is
-// the name its sibling suggests until one does: the plugin logs the fields of a device listed in
-// Config.Humidity that doesn't send it.
+// Field names in a report, as a THR320D sends them. Both are strings, and a reading the probe can't
+// take is "unavailable", as humidity is from a temperature-only probe.
 const (
 	fieldTemperature = "currentTemperature"
 	fieldHumidity    = "currentHumidity"
