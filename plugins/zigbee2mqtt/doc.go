@@ -8,4 +8,6 @@
 // Oikade starts no Zigbee2MQTT, writes none of its configuration and holds none of its keys. Every
 // paired device is reported by its IEEE address, so it's usable at once. Instance is the part that
 // follows Zigbee2MQTT on the bus.
+//
+// The README beside this file says how to set it up, and what to set in Zigbee2MQTT.
 package zigbee2mqtt
