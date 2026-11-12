@@ -46,16 +46,10 @@ type kind struct {
 	read func(params map[string]any) report
 }
 
-// kinds is keyed on the TXT record's type. Models that share a type are handled identically.
+// kinds is keyed on the TXT record's type. Models that share a type are handled identically. Each
+// entry is one a real device has confirmed: th_plug on a THR320D. A type such as plug, which
+// sonoff-lan has but nobody has checked, waits for a device to check it against.
 var kinds = map[string]kind{
-	"plug": {
-		path: "/zeroconf/switches",
-		command: func(on bool) any {
-			return map[string]any{"switches": []any{map[string]any{"outlet": 0, "switch": onOff(on)}}}
-		},
-		capabilities: []string{contractv1.On},
-		read:         readSwitches,
-	},
 	"th_plug": {
 		path: "/zeroconf/switch",
 		command: func(on bool) any {
@@ -72,30 +66,6 @@ func onOff(on bool) string {
 		return "on"
 	}
 	return "off"
-}
-
-// readSwitches reads a list of outlets, of which only outlet 0 is this relay. Conflicting reports of
-// it are not believed.
-func readSwitches(params map[string]any) report {
-	switches, ok := params["switches"].([]any)
-	if !ok {
-		return report{}
-	}
-	var channel map[string]any
-	for _, entry := range switches {
-		fields, ok := entry.(map[string]any)
-		if !ok || fields["outlet"] != float64(0) {
-			continue
-		}
-		if channel != nil {
-			return report{relay: true, bad: true}
-		}
-		channel = fields
-	}
-	if channel == nil {
-		return report{}
-	}
-	return relayValue(channel["switch"])
 }
 
 // readSensorSwitch reads a relay with a probe. A reading that isn't a number, as when no probe is

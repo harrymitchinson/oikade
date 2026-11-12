@@ -127,29 +127,6 @@ func TestReadingsAreNumbersWithinRange(t *testing.T) {
 	}
 }
 
-func TestSwitchesReadsOnlyOutletZero(t *testing.T) {
-	outlet := func(n float64, state any) any { return map[string]any{"outlet": n, "switch": state} }
-	for name, tt := range map[string]struct {
-		switches any
-		want     report
-	}{
-		"on":            {[]any{outlet(0, "on")}, report{relay: true, on: true}},
-		"off":           {[]any{outlet(0, "off")}, report{relay: true}},
-		"other outlets": {[]any{outlet(1, "on"), outlet(0, "off")}, report{relay: true}},
-		"only others":   {[]any{outlet(1, "on")}, report{}},
-		"conflicting":   {[]any{outlet(0, "on"), outlet(0, "off")}, report{relay: true, bad: true}},
-		"not on or off": {[]any{outlet(0, "maybe")}, report{relay: true, bad: true}},
-		"not a list":    {"on", report{}},
-		"entry isn't":   {[]any{"on"}, report{}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := readSwitches(map[string]any{"switches": tt.switches}); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("got %+v", got)
-			}
-		})
-	}
-}
-
 // A THR320D's report with a WTS01 probe, which measures only temperature, decrypted on 2026-11-12.
 // Its network fields are left out.
 const realTHReport = `{"autoControlEnabled":0,"currentHumidity":"unavailable","currentTemperature":"11.9",` +

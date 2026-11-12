@@ -134,10 +134,6 @@ func (d *fakeDevice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (d *fakeDevice) applied(command map[string]any) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.kind == "plug" {
-		d.fields = map[string]any{"switches": command["switches"]}
-		return
-	}
 	d.fields["switch"] = command["switch"]
 }
 
@@ -377,19 +373,19 @@ func (b *bench) relayState() map[string]any {
 }
 
 func relayOf(on string) map[string]any {
-	return map[string]any{"switches": []any{map[string]any{"outlet": float64(0), "switch": on}}}
+	return map[string]any{"switch": on}
 }
 
 func TestARelayIsReportedAndCanBeSwitched(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey+"\n") // as echo would leave it
-	d := b.device(relayID, "plug", relayOf("off"))
+	d := b.device(relayID, "th_plug", relayOf("off"))
 	d.report()
 
 	b.waitAvailability(relayID, contractv1.Online)
 	b.waitState(relayID, "on", "false")
 	got := b.reports()[relayID]
-	if !got.Found || got.Error != "" || strings.Join(got.Capabilities, ",") != "on" || got.DeviceType != "" {
+	if !got.Found || got.Error != "" || strings.Join(got.Capabilities, ",") != "on,temperature" || got.DeviceType != "" {
 		t.Errorf("got %+v", got)
 	}
 
@@ -399,10 +395,10 @@ func TestARelayIsReportedAndCanBeSwitched(t *testing.T) {
 	b.waitState(relayID, "on", "true")
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.paths[0] != "/zeroconf/switches" {
+	if d.paths[0] != "/zeroconf/switch" {
 		t.Errorf("posted to %s", d.paths[0])
 	}
-	want := `map[switches:[map[outlet:0 switch:on]]]`
+	want := `map[deviceType:normal mainSwitch:on switch:on]`
 	if fmt.Sprint(d.bodies[0]) != want {
 		t.Errorf("sent %v", d.bodies[0])
 	}
@@ -456,14 +452,14 @@ func TestAReadingThatIsntOneIsLeftOut(t *testing.T) {
 
 func TestADeviceWithNoKeyShowsThatAndComesUpWhenItsAdded(t *testing.T) {
 	b := start(t, Config{}, fast)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 
 	b.eventually("the problem", func() bool {
 		return b.reports()[relayID].Error == "no LAN key: oikade secret set "+relayID
 	})
 	b.waitAvailability(relayID, contractv1.Offline)
-	if !b.reports()[relayID].Found || strings.Join(b.reports()[relayID].Capabilities, ",") != "on" {
+	if !b.reports()[relayID].Found || strings.Join(b.reports()[relayID].Capabilities, ",") != "on,temperature" {
 		t.Errorf("A device with no key should be reported as what it is: %+v", b.reports()[relayID])
 	}
 	err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
@@ -481,7 +477,7 @@ func TestADeviceWithNoKeyShowsThatAndComesUpWhenItsAdded(t *testing.T) {
 func TestAWrongKeyShowsAsAProblem(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, "not-the-key")
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 
 	b.eventually("the problem", func() bool {
@@ -497,7 +493,7 @@ func TestAWrongKeyShowsAsAProblem(t *testing.T) {
 func TestOneBadReportAmongGoodOnesIsDamage(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
 
@@ -522,7 +518,7 @@ func TestOneBadReportAmongGoodOnesIsDamage(t *testing.T) {
 func TestAKeyThatStopsWorkingShowsOnceReportsAreStale(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
 
@@ -536,7 +532,7 @@ func TestAKeyThatStopsWorkingShowsOnceReportsAreStale(t *testing.T) {
 func TestADeviceGoesOfflineWhenItGoesQuietAndComesBack(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
 
@@ -555,7 +551,7 @@ func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
 	timings.confirm = 100 * time.Millisecond
 	b := start(t, Config{}, timings)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("off"))
+	d := b.device(relayID, "th_plug", relayOf("off"))
 	d.silent = true
 	iv, data, err := encrypt(relayOf("off"), lanKey(fixtureKey))
 	if err != nil {
@@ -601,7 +597,7 @@ func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
 
 func TestAKeyForADeviceLastHeardLongAgoWorksOnItsNextAnswer(t *testing.T) {
 	b := start(t, Config{}, fast)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	iv, data, err := encrypt(relayOf("on"), lanKey(fixtureKey))
 	if err != nil {
 		t.Fatal(err)
@@ -621,7 +617,7 @@ func TestAKeyForADeviceLastHeardLongAgoWorksOnItsNextAnswer(t *testing.T) {
 func TestARepeatOfAGoodReportClearsAFalseProblem(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	iv, data, err := encrypt(relayOf("on"), lanKey(fixtureKey))
 	if err != nil {
 		t.Fatal(err)
@@ -640,7 +636,7 @@ func TestARepeatOfAGoodReportClearsAFalseProblem(t *testing.T) {
 func TestANewKeyHasToDecodeEvenARepeat(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	iv, data, err := encrypt(relayOf("on"), lanKey(fixtureKey))
 	if err != nil {
 		t.Fatal(err)
@@ -660,7 +656,7 @@ func TestANewKeyHasToDecodeEvenARepeat(t *testing.T) {
 func TestSettingARelayToWhatItIsNeedsNoNewReport(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.silent = true
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
@@ -680,7 +676,7 @@ func TestTheFirstReportWaitsAndListsDevicesNotHeard(t *testing.T) {
 	timings.settle = 300 * time.Millisecond
 	b := start(t, Config{}, timings, probeID)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 
 	time.Sleep(timings.settle / 3)
@@ -695,7 +691,7 @@ func TestTheFirstReportWaitsAndListsDevicesNotHeard(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 
-	other := b.device(probeID, "plug", relayOf("off"))
+	other := b.device(probeID, "th_plug", relayOf("off"))
 	b.secret(probeID, fixtureKey)
 	other.report()
 	b.waitAvailability(probeID, contractv1.Online)
@@ -707,15 +703,15 @@ func TestWhatIsntADeviceIsNotReported(t *testing.T) {
 	b.secret(relayID, fixtureKey)
 	strange := b.device(probeID, "fireplace", relayOf("on"))
 	strange.report()
-	diy := b.device("1000111111", "plug", relayOf("on"))
-	diy.lan.packets <- diy.packet([]string{"id=" + diy.id, "type=plug", "encrypt=false", "data1=e30="}, true)
-	spoofed := b.device("1000222222", "plug", relayOf("on"))
-	spoofed.lan.packets <- spoofed.packet([]string{"id=1000333333", "type=plug", "encrypt=true", "iv=" + fixtureIV, "data1=" + vectors[1].data}, true)
+	diy := b.device("1000111111", "th_plug", relayOf("on"))
+	diy.lan.packets <- diy.packet([]string{"id=" + diy.id, "type=th_plug", "encrypt=false", "data1=e30="}, true)
+	spoofed := b.device("1000222222", "th_plug", relayOf("on"))
+	spoofed.lan.packets <- spoofed.packet([]string{"id=1000333333", "type=th_plug", "encrypt=true", "iv=" + fixtureIV, "data1=" + vectors[0].data}, true)
 	b.lan.packets <- []byte("not dns")
-	broken := b.device("1000444444", "plug", relayOf("on"))
+	broken := b.device("1000444444", "th_plug", relayOf("on"))
 	broken.lan.packets <- broken.packet([]string{"id=1000444444", "noequals"}, true)
 
-	d := b.device(relayID, "plug", relayOf("on"))
+	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
 	if got := b.reports(); len(got) != 1 {
@@ -726,7 +722,7 @@ func TestWhatIsntADeviceIsNotReported(t *testing.T) {
 func TestRecordsCanArriveSeparately(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("off"))
+	d := b.device(relayID, "th_plug", relayOf("off"))
 
 	send := func(r ...dnsmessage.Resource) {
 		d.lan.packets <- mustPack(t, dnsmessage.Message{Response: true, Answers: r})
@@ -757,7 +753,7 @@ func TestACommandMustBeConfirmed(t *testing.T) {
 	timings.confirm = 50 * time.Millisecond
 	b := start(t, Config{}, timings)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("off"))
+	d := b.device(relayID, "th_plug", relayOf("off"))
 	d.silent = true
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
@@ -771,7 +767,7 @@ func TestACommandMustBeConfirmed(t *testing.T) {
 func TestACommandCanBeRefused(t *testing.T) {
 	b := start(t, Config{}, fast)
 	b.secret(relayID, fixtureKey)
-	d := b.device(relayID, "plug", relayOf("off"))
+	d := b.device(relayID, "th_plug", relayOf("off"))
 	d.answer = `{"error":400}`
 	d.silent = true
 	d.report()

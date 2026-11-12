@@ -743,7 +743,7 @@ Every paired device enters the registry by its IEEE address, except the coordina
 
 ## eWeLink LAN devices
 
-Relays and sensors that speak the eWeLink LAN protocol are a plugin your home imports ([OIK-10](https://linear.app/oikade/issue/OIK-10)). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade devices`, under its ID.
+Relays with sensors that speak the eWeLink LAN protocol, such as SONOFF's TH Elite, are a plugin your home imports ([OIK-10](https://linear.app/oikade/issue/OIK-10)). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade devices`, under its ID.
 
 ```go
 framework.Run(framework.NewHome(framework.Options{},
@@ -757,13 +757,14 @@ framework.Run(framework.NewHome(framework.Options{},
 Each device's reports are encrypted with its own LAN key, which is one [secret](#secrets) named for its ID. Until it has one, the device is listed with what to do, and the Home app shows it as not responding:
 
 ```sh
-oikade devices                                       # 1000aabbcc  no LAN key: oikade secret set 1000aabbcc
-oikade secret set 1000aabbcc                         # online within seconds, with no deploy
-oikade devices name 1000aabbcc porch-light
-oikade devices type porch-light MountedOnOffControl  # a relay can't tell what it switches
+oikade devices                              # 1000aabbcc  no LAN key: oikade secret set 1000aabbcc
+oikade secret set 1000aabbcc                # online within seconds, with no deploy
+oikade devices name 1000aabbcc greenhouse-heater
 ```
 
-A device of type `plug` reports `on`. One of type `th_plug` reports `on` and `temperature`, plus `humidity` if its ID is in `Humidity`, which is a list because a device's sensors decide what the Home app shows. A reading that isn't a number, as when no probe is plugged in, isn't reported, and the last value stays. Any other type isn't reported, and the host's log says so once.
+The LAN key is the device's `devicekey`, and only eWeLink's cloud API gives it out. You need an app on the eWeLink developer platform ([API docs](https://coolkit-technologies.github.io/eWeLink-API/#/en/OAuth2.0)). Sign in to your eWeLink account through it with OAuth2, then read `devicekey` for each device from `GET /v2/device/thing`. Oikade itself never talks to the cloud.
+
+A device of type `th_plug`, such as a THR316D or THR320D, reports `on` and `temperature`, plus `humidity` if its ID is in `Humidity`, which is a list because a device's sensors decide what the Home app shows. A reading that isn't a number, as with humidity from a temperature-only probe, isn't reported, and the last value stays. A device listed in `Humidity` that sends none says so once in the host's log. Any other type isn't reported yet, and the log says so once. Each new type is checked against a real device before it's added.
 
 A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one. It stays hidden through a restart if it's on the network when the plugin starts, and comes back if it was off then and is heard later.
 
