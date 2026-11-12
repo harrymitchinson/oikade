@@ -145,3 +145,11 @@ func TestReadsARealTHReport(t *testing.T) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
+
+func TestATemperatureIsReadUpToWhatTheCapabilityAllows(t *testing.T) {
+	// A DS18B20 probe goes to 125 °C, as on a boiler pipe.
+	got := kinds["th_plug"].read(map[string]any{"switch": "on", "currentTemperature": "108.5"})
+	if got.values[contractv1.Temperature] != 108.5 {
+		t.Errorf("got %+v", got)
+	}
+}

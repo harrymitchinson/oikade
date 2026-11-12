@@ -280,6 +280,11 @@ func (s *Suite) announces(t T) {
 		if devicetype.Dimmable(info.DeviceType) && !slices.Contains(info.Capabilities, capability.Brightness) {
 			t.Errorf("device %s says it's %s, but has no %s to dim", id, info.DeviceType, capability.Brightness)
 		}
+		if info.Error != "" {
+			// Found and can't be used, such as one waiting for its key: it may have no state yet.
+			t.Logf("device %s is found with a problem: %s", id, info.Error)
+			continue
+		}
 		s.eventually(t, "availability for "+id, func() bool { _, ok := s.sink.online(dev); return ok })
 		s.eventually(t, "state for "+id, func() bool { return s.sink.seenAt(dev) })
 		for _, c := range info.Capabilities {
@@ -289,8 +294,8 @@ func (s *Suite) announces(t T) {
 			})
 		}
 	}
-	if len(s.sink.foundDevices()) == 0 {
-		t.Error("the plugin found none of the declared devices; the suite needs at least one")
+	if len(s.sink.usableDevices()) == 0 {
+		t.Error("the plugin found none of the declared devices it can use; the suite needs at least one")
 	}
 	s.noRejections(t)
 }
@@ -304,7 +309,7 @@ func (s *Suite) retains(t T) {
 		t.Error("devices not retained")
 	}
 	for id, dev := range s.devices {
-		if !s.sink.info(dev).Found {
+		if !usable(s.sink.info(dev)) {
 			continue
 		}
 		for _, topic := range []string{root.State(id), root.Availability(id)} {
@@ -323,6 +328,9 @@ func (s *Suite) retains(t T) {
 func (s *Suite) appliesSet(t T) {
 	var tried int
 	for id, dev := range s.devices {
+		if !usable(s.sink.info(dev)) {
+			continue
+		}
 		for _, c := range s.sink.info(dev).Capabilities {
 			spec, _ := capability.Lookup(c)
 			if !spec.Writable {
@@ -358,7 +366,7 @@ func (s *Suite) stops(t T) {
 		t.Fatalf("plugin did not exit within %s of SIGTERM", s.wait)
 	}
 	s.eventually(t, "status offline", func() bool { return !s.up() })
-	for _, dev := range s.sink.foundDevices() {
+	for _, dev := range s.sink.usableDevices() {
 		s.eventually(t, dev.Name+" unavailable", func() bool { on, _ := s.sink.online(dev); return !on })
 	}
 }
@@ -374,7 +382,7 @@ func (s *Suite) restarts(t T) {
 	// The decoder replays the availability retained before the restart, so only a fresh message
 	// shows the plugin republishes it after a Last Will.
 	for id, dev := range s.devices {
-		if !s.sink.info(dev).Found {
+		if !usable(s.sink.info(dev)) {
 			continue
 		}
 		s.eventually(t, id+" to republish availability online", func() bool {
@@ -597,12 +605,15 @@ func (r *recorder) info(dev ident.ID) driver.Info {
 	return r.infos[dev]
 }
 
-func (r *recorder) foundDevices() []ident.ID {
+// usable is whether a device is found and has no problem, so it has state and can be set.
+func usable(i driver.Info) bool { return i.Found && i.Error == "" }
+
+func (r *recorder) usableDevices() []ident.ID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []ident.ID
 	for d, i := range r.infos {
-		if i.Found {
+		if usable(i) {
 			out = append(out, d)
 		}
 	}

@@ -76,7 +76,7 @@ func readSensorSwitch(params map[string]any) report {
 		r = relayValue(value)
 	}
 	r.values = map[string]float64{}
-	if v, ok := reading(params[fieldTemperature], -270, 100); ok {
+	if v, ok := reading(params[fieldTemperature], -273.15, 1000); ok {
 		r.values[contractv1.Temperature] = v
 	}
 	if v, ok := reading(params[fieldHumidity], 0, 100); ok {

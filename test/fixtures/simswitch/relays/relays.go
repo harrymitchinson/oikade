@@ -54,10 +54,11 @@ func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitche
 // newSwitches turns the declared devices into relays and the devices report. A device with the
 // parameter simulate: misconfigured is reported not found, with the reason, as a plugin reports
 // configuration it can't use. One with simulate: needs-key is found and can't be used until it's
-// given something, as a device a plugin can see but not read. One with simulate: unstable-id is
-// discovered under a new ID each start,
-// and one with simulate: old-name reports a capability by a name Oikade no longer knows. Both break
-// the contract, so the conformance suite's own tests can see it fail.
+// given something, as a device a plugin can see but not read. Both keep to the contract.
+//
+// Two break it, so the conformance suite's own tests can see it fail: one with simulate: unstable-id
+// is discovered under a new ID each start, and one with simulate: old-name reports a capability by a
+// name Oikade no longer knows.
 func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 	s := &switches{relays: map[string]*relay{}}
 	for _, d := range declared {

@@ -173,7 +173,7 @@ The contract version appears twice: in the topic root (`oikade/v1`) and in `stat
 The conformance suite is a fake hub: an in-process broker and Oikade's own decoder for this contract. It starts the plugin with a devices file and checks that:
 
 - `status` goes online with contract 1, and `devices` lists every declared device
-- every found device has availability, state and a value for each capability it announced, and one with a `deviceType` has `on`
+- every found device with no `error` has availability, state and a value for each capability it announced, and one with a `deviceType` has `on`. One found with an `error` needs none of them, and the suite doesn't set it
 - `status`, `devices`, `<id>/state` and `<id>/availability` are retained, and nothing is retained on `<id>/set`
 - a `/set` for each writable capability is applied and reported back as state
 - on SIGTERM the plugin exits 0 and leaves `status` offline

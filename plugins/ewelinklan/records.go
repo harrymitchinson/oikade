@@ -37,7 +37,7 @@ func clean(n dnsmessage.Name) string {
 	return strings.TrimSuffix(strings.ToLower(n.String()), ".")
 }
 
-// take reads a packet, and returns the instances it told us something about and the ones that are
+// take reads a packet, and returns the instances it brought a report from and the ones that are
 // new. A packet that isn't DNS, or isn't about these devices, changes nothing.
 func (r *records) take(packet []byte, now time.Time) (touched, added []string) {
 	var msg dnsmessage.Message
@@ -65,14 +65,17 @@ func (r *records) take(packet []byte, now time.Time) (touched, added []string) {
 				added = append(added, instance)
 			}
 		case *dnsmessage.SRVResource:
-			if s := r.instance(name, seen); s != nil && body.Port > 0 {
+			// A TTL of 0 is a goodbye, which says where the device was, not where it is.
+			if s := r.instance(name); s != nil && body.Port > 0 && rec.Header.TTL > 0 {
 				s.target, s.port = clean(body.Target), body.Port
 			}
 		case *dnsmessage.TXTResource:
-			// A malformed record leaves the last good one.
-			if fields, ok := txtFields(body.TXT); ok {
-				if s := r.instance(name, seen); s != nil {
+			// A malformed record leaves the last good one, and a goodbye isn't a report. Only a
+			// report counts as hearing from the device: an address alone doesn't.
+			if fields, ok := txtFields(body.TXT); ok && rec.Header.TTL > 0 {
+				if s := r.instance(name); s != nil {
 					s.txt, s.heard = fields, now
+					seen[name] = true
 				}
 			}
 		}
@@ -97,9 +100,8 @@ func (r *records) isTarget(name string) bool {
 	return false
 }
 
-// instance finds or adds a service, noting that this packet touched it. It's nil for anything that
-// isn't one of these devices.
-func (r *records) instance(name string, seen map[string]bool) *service {
+// instance finds or adds a service. It's nil for anything that isn't one of these devices.
+func (r *records) instance(name string) *service {
 	m := serviceName.FindStringSubmatch(name)
 	if m == nil {
 		return nil
@@ -109,7 +111,6 @@ func (r *records) instance(name string, seen map[string]bool) *service {
 		s = &service{id: m[1]}
 		r.services[name] = s
 	}
-	seen[name] = true
 	return s
 }
 

@@ -793,3 +793,27 @@ func TestItAsksForDevices(t *testing.T) {
 	b := start(t, Config{}, timings)
 	b.eventually("repeated questions", func() bool { return b.lan.queries.Load() > 3 })
 }
+
+func TestAGoodbyeOrAnAddressIsntHearingFromADevice(t *testing.T) {
+	b := start(t, Config{}, fast)
+	b.secret(relayID, fixtureKey)
+	d := b.device(relayID, "th_plug", relayOf("on"))
+	iv, data, err := encrypt(relayOf("on"), lanKey(fixtureKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := d.txt(iv, data)
+	d.lan.packets <- d.packet(txt, true)
+	b.waitAvailability(relayID, contractv1.Online)
+
+	// Just before it would go offline, it says goodbye with the same report, then sends its address.
+	b.advance(fast.relayAge - time.Second)
+	goodbye := dnsmessage.Resource{
+		Header: dnsmessage.ResourceHeader{Name: name(d.instance()), Type: dnsmessage.TypeTXT, Class: dnsmessage.ClassINET},
+		Body:   &dnsmessage.TXTResource{TXT: txt},
+	}
+	d.lan.packets <- mustPack(t, dnsmessage.Message{Response: true, Answers: []dnsmessage.Resource{goodbye}})
+	d.lan.packets <- mustPack(t, dnsmessage.Message{Response: true, Answers: []dnsmessage.Resource{d.srv()}})
+	b.advance(2 * time.Second)
+	b.waitAvailability(relayID, contractv1.Offline)
+}
