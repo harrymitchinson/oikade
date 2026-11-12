@@ -30,7 +30,7 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 
 - **Only this step.** If you find work for later, mention it in the PR, or add it with `hack/plan idea` if it's new.
 - **Follow AGENTS.md:** run `make lint-fix test` after Go changes. After changing the plugin contract, the SDK or a plugin, also run `make test-conformance`.
-- **Keep the docs true.** If the step changes how something works, update the doc that says so in the same PR: the README for what users write and see, a plugin's own README (`plugins/<name>/README.md`) for that plugin, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Describe the present and link the feature for why. Don't copy the design.
+- **Keep the docs true.** The README stays lean: what Oikade is, getting started and a list of guides, and detail goes in a guide in `docs/`. If the step changes how something works, update the doc that says so in the same PR: the README and the guides in `docs/` for what users write and see, a plugin's own README (`plugins/<name>/README.md`) for that plugin, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Describe the present and link the feature for why. Don't copy the design.
 - **Never run the journeys within a step.** The bar for a PR is `make test`. CI runs them only on main after a merge and nightly. If they break on main, fix it forward in a new PR. Say in the PR that they weren't run.
 - **Test at the lowest level that shows the behaviour:** mappings, coalescing and IDs in unit tests, the host in `test/host`, Matter commissioning in an in-process node test (a Go controller talking to the node). Don't add a journey per feature: `test/journeys` keeps a few, across components.
 

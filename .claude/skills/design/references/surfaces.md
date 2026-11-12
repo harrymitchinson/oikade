@@ -46,7 +46,7 @@ Losing any of these means re-pairing. Then the Home app forgets rooms, scenes an
 - The host's data directory: the Matter bridge's identity and fabrics, the registry with its endpoint IDs, claims, latches and journals.
 - Endpoint ID allocations: never reused or reordered, and kept for removed devices.
 - The Zigbee network key and database, which belong to the user's Zigbee2MQTT, and aren't Oikade's to touch.
-- Anything new that would be painful to lose goes in the store, and is listed in README "State that must survive" and in the Pi guide's backup section.
+- Anything new that would be painful to lose goes in the store, and is listed in "State that must survive" in `docs/running-a-home.md` and in the Pi guide's backup section.
 
 ## 4. Component boundaries
 

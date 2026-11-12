@@ -1,6 +1,6 @@
 # Architecture
 
-How Oikade works inside, as it is now. It's for anyone changing the code. What a user writes and sees is in the [README](../README.md), and the plugin protocol is in [plugin-contract.md](plugin-contract.md).
+How Oikade works inside, as it is now. It's for anyone changing the code. What a user writes and sees is in the [README](../README.md) and the guides it lists, and the plugin protocol is in [plugin-contract.md](plugin-contract.md).
 
 This page says how things work, not why they were chosen. Each section links the Linear issue that holds the design and its discussion. When a change makes a section wrong, the same PR fixes it.
 
