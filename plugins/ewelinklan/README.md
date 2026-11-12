@@ -11,7 +11,7 @@ framework.Run(framework.NewHome(framework.Options{},
 ))
 ```
 
-Each device's reports are encrypted with its own LAN key, which is one [secret](../../README.md#secrets) named for its ID. Until it has one, the device is listed with what to do, and the Home app shows it as not responding:
+Each device's reports are encrypted with its own LAN key, which is one [secret](../../docs/running-a-home.md#secrets) named for its ID. Until it has one, the device is listed with what to do, and the Home app shows it as not responding:
 
 ```sh
 oikade devices                              # 1000aabbcc  no LAN key: oikade secret set 1000aabbcc
