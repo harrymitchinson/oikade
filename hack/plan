@@ -285,7 +285,8 @@ Usage: hack/plan <command> [args]        IDs are Linear issues, such as OIK-12
 Work
   ready                 Features agents may build that nobody has claimed and nothing blocks, earliest release first
   show ID               A feature: its description, steps and their PRs, why it may be built, blockers and claim
-  claim ID [DIR]        Claim feature ID and create a worktree on its next step's branch work/OIK-S
+  claim ID [DIR]        Claim feature ID and create a worktree on its next step's branch
+                        (work/OIKN-stepk for line k, work/OIK-S for a sub-issue)
                         (default DIR .claude/worktrees/work-ID)
   step ID               In ID's worktree, once the current step has a PR: start the next step on its own branch
   pr ID TITLE BODY_FILE Push the current step's branch and open its PR on the right base
@@ -338,7 +339,8 @@ EOF
 
 # steps JSON: "IDX<TAB>STEP<TAB>STATE_TYPE<TAB>REPO<TAB>TITLE" for each step, in
 # order. A feature's steps are its sub-issues if it has any, or else the
-# checklist lines under its "## Steps" heading: line k of OIK-N is the step
+# top-level checklist lines under its first "## Steps" heading, up to the next
+# "## " heading (checklist_lines reads the same ones): line k of OIK-N is the step
 # OIKN-stepk, completed once it's ticked, and always in this repo. A feature
 # with neither is its own single step. REPO is the OWNER/NAME from a "Repo:"
 # line in a sub-issue's description, or - for this repo.
@@ -348,8 +350,8 @@ steps() {
 		def checklist: (.description // "") | split("\n")
 			| (map(test("^##[ \t]+Steps[ \t]*$")) | index(true)) as $h
 			| if $h == null then [] else .[$h + 1:]
-				| (map(test("^##?[ \t]")) | index(true)) as $e | (if $e == null then . else .[:$e] end)
-				| map(capture("^[ \t]*[-*][ \t]+\\[(?<x>[ xX])\\][ \t]+(?<t>.*)$")) end;
+				| (map(test("^##[ \t]")) | index(true)) as $e | (if $e == null then . else .[:$e] end)
+				| map(capture("^[-*][ \t]+\\[(?<x>[ xX])\\][ \t]+(?<t>.*)$")) end;
 		if (.children.nodes | length) > 0 then .children.nodes | sort_by(.subIssueSortOrder, .number) | to_entries[]
 			| [.key + 1, .value.identifier, .value.state.type, (.value | repo), .value.title] | @tsv
 		elif (checklist | length) > 0 then (.identifier | sub("-"; "")) as $f | checklist | to_entries[]
@@ -365,14 +367,27 @@ line_step() { if [[ "$1" =~ ^[A-Z]+[0-9]+-step([0-9]+)$ ]]; then echo "${BASH_RE
 # follows its PR.
 sub_issue() { [[ "$1" != "$2" && -z "$(line_step "$1")" ]]; }
 
-# tick ID K: tick line K of ID's ## Steps checklist.
+# checklist_lines: "TICKED<TAB>TEXT" for each step line in the description on
+# stdin, where TICKED is x or -: the lines steps reads. A step is identified by
+# its position, so lines are only ever added at the end (cmd_edit).
+checklist_lines() {
+	awk '/^##[ \t]+Steps[ \t]*$/ && !d {s = 1; next}
+		s && /^##[ \t]/ {s = 0; d = 1}
+		s && /^[-*][ \t]+\[[ xX]\][ \t]/ {
+			t = substr($0, index($0, "[") + 1, 1); r = $0
+			sub(/^[-*][ \t]+\[[ xX]\][ \t]+/, "", r)
+			print (t == " " ? "-" : "x") "\t" r}'
+}
+
+# tick ID K: tick line K of ID's ## Steps checklist. Linear has no
+# compare-and-swap, so it reads the description just before writing it back.
 tick() {
 	local d
 	d=$(issue "$1" | jq -r '.description // ""') || exit 1
 	d=$(awk -v k="$2" '
-		/^##[ \t]+Steps[ \t]*$/ {s = 1; print; next}
-		s && /^##?[ \t]/ {s = 0}
-		s && /^[ \t]*[-*][ \t]+\[[ xX]\][ \t]/ {if (++n == k) sub(/\[ \]/, "[x]")}
+		/^##[ \t]+Steps[ \t]*$/ && !d {s = 1; print; next}
+		s && /^##[ \t]/ {s = 0; d = 1}
+		s && /^[-*][ \t]+\[[ xX]\][ \t]/ {if (++n == k) sub(/\[ \]/, "[x]")}
 		{print}' <<<"$d")
 	update_issue "$1" "$(jq -cn --arg d "$d" '{description: $d}')"
 }
@@ -514,7 +529,7 @@ stack_size() { open_stack "$1" | grep -c . || true; }
 
 fetch_branch() { git fetch -q "$REMOTE" "+refs/heads/$1:refs/remotes/$REMOTE/$1"; }
 
-# start_step ID [DIR]: put ID's next step on its branch work/OIK-S, based on
+# start_step ID [DIR]: put ID's next step on its branch work/STEP, based on
 # the last step still in review, or on main. With DIR it's a new worktree
 # there, otherwise the current worktree switches to it. A branch pushed by an
 # earlier session that has no PR yet is resumed. It sets STEP_BASE and STEP
@@ -651,8 +666,10 @@ restack() {
 count_issues() {
 	local page after="" n=0
 	while :; do
+		# Only advice, so a failure says so and lets the command go on.
 		page=$(lin 'query($a: String) { issues(first: 250, after: $a) { nodes { id } pageInfo { hasNextPage endCursor } } }' \
-			"$(jq -cn --arg a "$after" '{a: (if $a == "" then null else $a end)}')") || exit 1
+			"$(jq -cn --arg a "$after" '{a: (if $a == "" then null else $a end)}')") ||
+			{ echo "plan: couldn't count Linear's issues" >&2; return 0; }
 		n=$((n + $(jq '.issues.nodes | length' <<<"$page")))
 		[[ "$(jq -r .issues.pageInfo.hasNextPage <<<"$page")" == true ]] || break
 		after=$(jq -r .issues.pageInfo.endCursor <<<"$page")
@@ -1145,6 +1162,9 @@ cmd_issue() {
 	in=$(jq -cn --arg t "$(team_id)" --arg title "$title" --rawfile d "$file" --arg s "$(state_id "$st")" \
 		'{teamId: $t, title: $title, description: $d, stateId: $s}')
 	if [[ -n "$parent" ]]; then
+		# A feature with any sub-issue takes its steps from them alone.
+		[[ -z "$(issue "$parent" | jq -r '.description // ""' | checklist_lines)" ]] ||
+			die "$parent's steps are lines in its ## Steps checklist, which a sub-issue would hide. Add the step as a line with hack/plan edit, or make every one of its steps a sub-issue"
 		echo "plan: a step is usually a line in $parent's ## Steps checklist. A sub-issue is for a step that needs its own discussion, or is built in another repo" >&2
 		in=$(jq -c --arg p "$(issue "$parent" | jq -r .id)" '. + {parentId: $p}' <<<"$in")
 		[[ -n "$project" ]] || project=$(issue "$parent" | jq -r '.project.name // empty')
@@ -1156,18 +1176,23 @@ cmd_issue() {
 }
 
 # above_steps: a description up to its "## Steps" heading, which is the design.
-above_steps() { awk '/^## Steps[[:space:]]*$/ {exit} {print}'; }
+above_steps() { awk '/^##[ \t]+Steps[ \t]*$/ {exit} {print}'; }
 
 # edit ID FILE: once the user has approved a design, it's what they decided,
 # so only ## Steps and below may change.
 cmd_edit() {
-	local n file="${2:?usage: plan edit ID BODY_FILE}" a cur
+	local n file="${2:?usage: plan edit ID BODY_FILE}" a cur old
 	n=$(id "${1:?usage: plan edit ID BODY_FILE}")
 	need_file "$file"
 	a=$(approval "$n")
 	cur=$(issue "$n" | jq -r '.description // ""')
 	if [[ "$a" == approved* ]] && [[ "$(above_steps <<<"$cur")" != "$(above_steps <"$file")" ]]; then
 		die "$n's design is approved, so it's the user's decision: only ## Steps and below may change. Ask the user in a comment instead"
+	fi
+	# A checklist step is its position: its branch, PR and tick follow line k.
+	old=$(checklist_lines <<<"$cur" | cut -f2)
+	if [[ -n "$old" && "$(checklist_lines <"$file" | cut -f2 | head -n "$(grep -c . <<<"$old")")" != "$old" ]]; then
+		die "$n's steps are numbered by their place in ## Steps, and their branches and PRs with them: keep the lines it has, in order and as worded, and add new ones at the end. Tick one that's no longer needed rather than removing it"
 	fi
 	update_issue "$n" "$(jq -cn --rawfile d "$file" '{description: $d}')"
 	echo "Edited $n"

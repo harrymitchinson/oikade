@@ -82,6 +82,8 @@ feature() {
 	read -ra t <<<"$2"
 	for name in One Two Three; do
 		d+="- [$([[ "${t[$i]}" == x ]] && echo x || echo ' ')] $name: scope. Acceptance: it works (unit)"$'\n'
+		# A nested item belongs to the step above it.
+		[[ "$name" != One ]] || d+="  - [ ] a sub-item"$'\n'
 		i=$((i + 1))
 	done
 	d+=$'\n'"## Notes"$'\n\n'"- [ ] not a step"
@@ -152,6 +154,7 @@ desc=$(jq -r 'select(.variables.in.description != null) | .variables.in.descript
 grep -q '^- \[x\] One' <<<"$desc" || fail "line 1 isn't ticked: $desc"
 grep -q '^- \[ \] Two' <<<"$desc" || fail "line 2 was ticked too: $desc"
 grep -q '^- \[ \] not a step' <<<"$desc" || fail "a line under ## Notes changed: $desc"
+grep -q '^  - \[ \] a sub-item' <<<"$desc" || fail "a nested item was ticked: $desc"
 grep -q '^## Why' <<<"$desc" || fail "the rest of the description is gone: $desc"
 [[ -z "$(set_states)" ]] || fail "sync moved an issue with lines left: $(set_states)"
 
@@ -169,6 +172,24 @@ COUNT=221 "$plan" sync >"$tmp/out" 2>&1 || fail "sync failed: $(cat "$tmp/out")"
 grep -qx "plan: 221 of Linear's 250 issues are used" "$tmp/out" || fail "sync didn't count 221 issues: $(cat "$tmp/out")"
 COUNT=260 "$plan" ready >"$tmp/out" 2>&1 || fail "ready failed: $(cat "$tmp/out")"
 grep -q "plan: 260 of Linear's 250 issues are used. Write steps as checklist lines" "$tmp/out" || fail "ready didn't warn at 260 issues: $(cat "$tmp/out")"
+
+# edit keeps the lines in place: it adds one at the end, and refuses a
+# reorder, since a line's branch and PR follow its position.
+feature "In Progress" "x - -"
+jq -r .description "$tmp/fx/feature.json" | awk '{print} /^- \[ \] Three/ {print "- [ ] Four: more. Acceptance: it works (unit)"}' >"$tmp/added.md"
+logs
+"$plan" edit OIK-9 "$tmp/added.md" >"$tmp/out" 2>&1 || fail "edit refused a line added at the end: $(cat "$tmp/out")"
+awk '/^- \[ \] Two/ {two = $0; next} /^- \[ \] Three/ {print; print two; next} {print}' "$tmp/added.md" >"$tmp/swapped.md"
+logs
+if "$plan" edit OIK-9 "$tmp/swapped.md" >"$tmp/out" 2>&1; then fail "edit took a reordered checklist"; fi
+grep -q 'numbered by their place' "$tmp/out" || fail "edit didn't say why it refused: $(cat "$tmp/out")"
+[[ ! -s "$tmp/fx/linear.log" ]] || fail "edit wrote a reordered checklist: $(cat "$tmp/fx/linear.log")"
+
+# A sub-issue would hide a checklist feature's lines, so issue --parent refuses.
+logs
+if "$plan" issue "Five" "$tmp/body.md" --parent OIK-9 >"$tmp/out" 2>&1; then fail "issue made a sub-issue of a checklist feature"; fi
+grep -q 'which a sub-issue would hide' "$tmp/out" || fail "issue didn't say why it refused: $(cat "$tmp/out")"
+[[ ! -s "$tmp/fx/linear.log" ]] || fail "issue created a sub-issue of a checklist feature: $(cat "$tmp/fx/linear.log")"
 
 (( failed == 0 )) && echo "ok: checklist steps"
 exit "$failed"
