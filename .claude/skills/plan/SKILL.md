@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Keep Oikade's plan in Linear honest and answer what to do next. Manage ideas (issues in Triage), features (issues whose steps are sub-issues), blocked-by links between features, releases (Linear projects) with observable exit criteria, claims by parallel agents, and the README's "Not doing" list, reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "releases", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
+description: Keep Oikade's plan in Linear honest and answer what to do next. Manage ideas (issues in Triage), features (issues whose steps are checklist lines), blocked-by links between features, releases (Linear projects) with observable exit criteria, claims by parallel agents, and the README's "Not doing" list, reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "releases", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
 ---
 
 # Planning Oikade
@@ -11,13 +11,13 @@ How the workflow fits together is in `docs/planning.md`. The plan is in Linear, 
 |---|---|
 | An idea nobody has committed to | An issue in Triage |
 | A feature: why and its design | A top-level issue's description |
-| Its steps and their acceptance | Its sub-issues, in order. A feature with none is a single step. |
+| Its steps and their acceptance | The checklist under its `## Steps` heading, in order, or its sub-issues for steps that need their own discussion or another repo. A feature with neither is a single step. |
 | That a design waits for the user | The status **Design Review** |
 | That the user decided it, and agents may start | The user moving it out of Design Review to Todo. **Only the user does that.** |
 | That agents may start without the user's approval | Never having been in Design Review (nothing expensive to reverse), or a `Design: OIK-M` line naming an approved feature whose design it builds. The design skill decides which. |
 | Order between features | "Blocked by" relationships |
-| Who's working on it | The branch `claim/OIK-N` (`hack/plan claims`). Its steps are on `work/OIK-S`, stacked while they wait for review. |
-| Status | The issue's status. Claiming moves it to In Progress, and Linear's GitHub integration moves each step as its PR opens and merges. |
+| Who's working on it | The branch `claim/OIK-N` (`hack/plan claims`). Its steps are on `work/OIKN-stepk` (or `work/OIK-S` for a sub-issue), stacked while they wait for review. |
+| Status | The issue's status. Claiming moves it to In Progress, `hack/plan sync` ticks each step's line as its PR merges, and Linear's GitHub integration moves a sub-issue step as its PR opens and merges. |
 | What's in a release | The Linear project (`v0.1.0`, …). Its description holds the goal, the exit criteria and a "Why here" line. |
 | Order between releases | The version numbers, with each project's "Why here" line |
 | What the user ruled out, and why | The README's "Not doing" |
@@ -54,21 +54,14 @@ Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and t
 
   ## Design
   (only if it needs one: see the design skill)
+
+  ## Steps
+
+  - [ ] <step one>: the files, commands and risks. Acceptance: <observable outcome> (unit / integration / journey / manual)
+  - [ ] <step two>: …
   ```
 
-  Each step is a sub-issue, created in order:
-
-  ```sh
-  hack/plan issue "<step one>" <file> --parent OIK-N
-  ```
-
-  A step's description holds its scope and acceptance:
-
-  ```markdown
-  Scope: the files, commands and risks.
-  Acceptance:
-  - <observable outcome> (unit / integration / journey / manual)
-  ```
+  Each step is a checklist line, one PR each, built in order. The workspace is capped at 250 issues that aren't archived, and `hack/plan sync` says how many are used. So a step is a sub-issue (`hack/plan issue "<step>" <file> --parent OIK-N`, its description holding `Scope:` and `Acceptance:`) only if it needs its own discussion or is built in another repo. Don't file review findings, flaky-test sightings or manual-check evidence as issues of their own: add them as a comment, or a line, on the feature they belong to.
 
   Acceptance that needs real devices or the Home app, which CI can't provide, reads `(manual, in the Manual testing doc)`. Its check goes in the Linear document "Manual testing" (project `v0.2.0`), under a heading for the feature. The feature is done when its last step merges, and the check stays open in the document until the user has done it.
 - **Order between features:**

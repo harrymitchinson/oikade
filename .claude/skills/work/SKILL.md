@@ -7,7 +7,7 @@ description: Pick up Oikade work and build it. Take the next ready feature from 
 
 Several agents may run this skill at once, each in its own session. The claim keeps them apart: a feature belongs to whoever holds the branch `claim/OIK-N`, and `hack/plan` is the only safe way to take it. How the workflow fits together is in `docs/planning.md`.
 
-You work on **one feature**. Its steps are its sub-issues, in order (a feature with none is a single step). You build them one at a time, one PR each, on branches named `work/OIK-S` after each step. You don't wait for the user to merge. You merge each step yourself once its checks pass. Only a step the user labelled `needs-review` waits for their review, and the next one stacks on it, so they review the stack bottom first. You stop when the feature has no steps left, when three of its steps are waiting for review, or when a step needs the user's decision. Then you release the claim.
+You work on **one feature**. Its steps are the checklist lines under its `## Steps` heading, or its sub-issues, in order (a feature with neither is a single step). You build them one at a time, one PR each, on a branch per step: `work/OIKN-stepk` for line k, `work/OIK-S` for a sub-issue. You don't wait for the user to merge. You merge each step yourself once its checks pass. Only a step the user labelled `needs-review` waits for their review, and the next one stacks on it, so they review the stack bottom first. You stop when the feature has no steps left, when three of its steps are waiting for review, or when a step needs the user's decision. Then you release the claim.
 
 ## 1. Choose and claim
 
@@ -20,7 +20,7 @@ You work on **one feature**. Its steps are its sub-issues, in order (a feature w
 
 Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the next step and why it may be built. Then read, through the Linear MCP tools:
 
-- the feature's **Why**, and the step's sub-issue: its scope and acceptance
+- the feature's **Why**, and the step's scope and acceptance: its checklist line, or its sub-issue
 - the design (in the feature, the feature its `Design: OIK-M` line names), and the comments on both, which may hold notes from earlier steps
 - the code the step touches, plus `.claude/skills/design/references/surfaces.md` if the step touches public API or state that must survive
 
@@ -41,7 +41,7 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 
 1. Run the `code-review` skill on the step, or, when other agents run alongside you, a reviewer of your own (see [Running in parallel](#running-in-parallel)). When it's stacked, review only the step's own commits: `git diff <base>...HEAD`. Fix each finding, or explain in the PR why you didn't.
 2. Write the PR body to a file in your scratchpad: the step, what you tested and how, anything left for manual testing, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first. `hack/plan pr` adds the Linear line.
-3. Open it with `hack/plan pr OIK-N "<conventional title>" <body file>`. It pushes `work/OIK-S` and opens the PR against the step below it (or main). The branch name links it to the step in Linear. Don't open it any other way.
+3. Open it with `hack/plan pr OIK-N "<conventional title>" <body file>`. It pushes the step's branch and opens the PR against the step below it (or main), with a Linear line naming the step. Once it merges, `hack/plan merge` ticks the step's line. Don't open it any other way.
 4. **Merge it yourself** once it's the bottom of its stack and CI passes: wait with `gh pr checks <PR> --watch`, then run `hack/plan merge OIK-N <PR>`. The user reviews designs, not diffs, so the checks and your code review are what vouch for it. Nothing waits for the user by default, CI and `hack/plan` changes included. `hack/plan merge` holds a step only if the user labelled it or its feature `needs-review`, and merges it once their Approve covers its head: it reads their review itself. Don't add `needs-review` yourself. A step that needs the user's decision asks with `hack/plan note` instead. Changes to `.claude/settings.json` are the one thing you can't make: write the proposed file to your scratchpad and ask the user to apply it. **Never work around a refusal,** and never merge any other way.
    - If a check fails, fix it on the branch and push, rather than leaving it red.
 5. If a later step needs to know something that isn't in the code or the PR, leave it with `hack/plan note OIK-N "…"`.
