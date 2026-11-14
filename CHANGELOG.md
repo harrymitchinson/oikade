@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.2.0-alpha.2](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.1...v0.2.0-alpha.2) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **framework:** the exported fields of Hold, Moment, Flow, Control, Plugin, Window and Budget are gone, as is the Prefer type. Rewrite each rule with NewHold, NewMoment, NewFlow, NewControl, NewPlugin, NewWindow, NewBudget or NewBandedBudget.
+* **framework:** Options.Latitude and Options.Longitude are replaced by Options.Location. Write framework.Options{Location: framework.NewLocation(51.48, -0.01)}.
+* **framework:** Home's fields are private and the Site type is gone. Replace framework.Home{Holds: ..., Site: &framework.Site{...}} with framework.NewHome(framework.Options{Latitude: ..., Longitude: ...}, parts...).
+* **contract:** contractv1.NewRoot takes only the plugin's name, and OIKADE_TOPIC and every topic lose their namespace segment. An outside plugin given a root by hand needs oikade/v1/<name>.
+* **engine:** the namespace label is gone from every oikade_ metric, and the dashboard's $namespace variable with it. Saved state and recorded driver names lose their "home/" segment, so the store's format is now 2 and a host refuses a format 1 data directory with ErrFormat.
+
+### Features
+
+* **cli:** say what oikade set and pause did, not what they asked ([#238](https://github.com/harrymitchinson/oikade/issues/238)) ([52fcab3](https://github.com/harrymitchinson/oikade/commit/52fcab33c68378ea9f55917e3a7a7352126d6b9c))
+* **cli:** say what would fill an empty answer ([#241](https://github.com/harrymitchinson/oikade/issues/241)) ([a81edbd](https://github.com/harrymitchinson/oikade/commit/a81edbd0e0c457649218f7f686ee88e142420bef))
+* **cli:** say when oikade tail has started following ([#239](https://github.com/harrymitchinson/oikade/issues/239)) ([d5b7998](https://github.com/harrymitchinson/oikade/commit/d5b7998a965c36129922eead0e3086a5ed8851fa))
+* **cli:** show progress during oikade deploy ([#234](https://github.com/harrymitchinson/oikade/issues/234)) ([8b8c0ea](https://github.com/harrymitchinson/oikade/commit/8b8c0ea000c98a19136a7a44cd0580d4734cf890))
+* **cli:** write the CLI output rule, and keep Go's lines out of oikade init ([#235](https://github.com/harrymitchinson/oikade/issues/235)) ([d776b22](https://github.com/harrymitchinson/oikade/commit/d776b225dacfe07729e4f05b928a8cbd94cd3947))
+* **contract:** drop the namespace from plugin topic roots ([#251](https://github.com/harrymitchinson/oikade/issues/251)) ([b0fc2ba](https://github.com/harrymitchinson/oikade/commit/b0fc2ba33ee558bf9de7268bf1cca55b22f04038))
+* **framework:** build rules with constructors ([#254](https://github.com/harrymitchinson/oikade/issues/254)) ([fc63c61](https://github.com/harrymitchinson/oikade/commit/fc63c6119362ce6b27187d03200f7676a378722f))
+* **framework:** compose a home from parts ([#252](https://github.com/harrymitchinson/oikade/issues/252)) ([24af281](https://github.com/harrymitchinson/oikade/commit/24af2812c94f8cdb0f7b004538651642061937d1))
+* **framework:** require both coordinates of a home's location ([#253](https://github.com/harrymitchinson/oikade/issues/253)) ([ca0b2ab](https://github.com/harrymitchinson/oikade/commit/ca0b2ab8c73ab8963100a70a95b235f1db4fa29d))
+* **host:** keep a flow's run and claims when a deploy fails ([#226](https://github.com/harrymitchinson/oikade/issues/226)) ([3337b57](https://github.com/harrymitchinson/oikade/commit/3337b579fbb00ed6aaef8ff65f6bbb6900ef8fe3))
+* **host:** say which devices a dropped plugin leaves behind, and remove them in one go ([#231](https://github.com/harrymitchinson/oikade/issues/231)) ([5024a57](https://github.com/harrymitchinson/oikade/commit/5024a570de2be9096074f221a73929955c1afa01))
+* **host:** show a write that Safety refused ([#236](https://github.com/harrymitchinson/oikade/issues/236)) ([ef90e04](https://github.com/harrymitchinson/oikade/commit/ef90e04906848e621d315cb2559354a65d111224))
+* **host:** show whether a hold is active, and why, in oikade status ([#233](https://github.com/harrymitchinson/oikade/issues/233)) ([fe8d45f](https://github.com/harrymitchinson/oikade/commit/fe8d45fc3993a8bca33f0037700c37f808f48f8c))
+* **host:** stop in order, within a deadline ([#245](https://github.com/harrymitchinson/oikade/issues/245)) ([936b766](https://github.com/harrymitchinson/oikade/commit/936b766f32bf3bb129fe673a886ee0d658f7c2dd))
+* **matter:** end sessions before the bridge stops ([#246](https://github.com/harrymitchinson/oikade/issues/246)) ([6c7fb62](https://github.com/harrymitchinson/oikade/commit/6c7fb622bcd09d29193f9a2222d98343786c29a6))
+* **matter:** find a node by operational discovery over mDNS ([#256](https://github.com/harrymitchinson/oikade/issues/256)) ([846cedf](https://github.com/harrymitchinson/oikade/commit/846cedf932020acb19b4a2852c7785b9fd8d2e39))
+* **matter:** grant a subscription's max interval of at most 60 s ([#255](https://github.com/harrymitchinson/oikade/issues/255)) ([b1e0ede](https://github.com/harrymitchinson/oikade/commit/b1e0ede663f54dd7072c62c04cf01a48c9650f00))
+* **matter:** log subscriptions at Info with their min and max intervals ([#230](https://github.com/harrymitchinson/oikade/issues/230)) ([f412b62](https://github.com/harrymitchinson/oikade/commit/f412b6216756d2fd130320bb103116334d72d220))
+* **matter:** save subscriptions and resume them after a restart ([#257](https://github.com/harrymitchinson/oikade/issues/257)) ([885704b](https://github.com/harrymitchinson/oikade/commit/885704b9ae02e2b9f7ce9e3d6d91eadb8b0735e6))
+* **plan:** merge a PR behind main when main hasn't touched its files ([#240](https://github.com/harrymitchinson/oikade/issues/240)) ([bb2e317](https://github.com/harrymitchinson/oikade/commit/bb2e3174282b081b8fb398793326ffe7b3f7431d))
+* **plan:** steps as a checklist in the feature, not sub-issues ([#264](https://github.com/harrymitchinson/oikade/issues/264)) ([f25fb3c](https://github.com/harrymitchinson/oikade/commit/f25fb3c86af1295e1307c85c2e8ff1b476cca854))
+* **plugins:** add the eWeLink LAN plugin ([#261](https://github.com/harrymitchinson/oikade/issues/261)) ([edd37b3](https://github.com/harrymitchinson/oikade/commit/edd37b3f5c439480575ee5e119314248f2880bfd))
+
+
+### Bug Fixes
+
+* **cli:** deploy's counter on dumb terminals, its upload race, and replay ending in EOF ([#243](https://github.com/harrymitchinson/oikade/issues/243)) ([143b603](https://github.com/harrymitchinson/oikade/commit/143b60379608b2752830d8daee3b376ef2087d18))
+* **engine:** a hold's past delay no longer stops the engine taking changes ([#221](https://github.com/harrymitchinson/oikade/issues/221)) ([c7853c5](https://github.com/harrymitchinson/oikade/commit/c7853c5f08d99bb3ec65430b08ae92ac0bb16e95))
+* **engine:** an active room hold takes up members that join it ([#225](https://github.com/harrymitchinson/oikade/issues/225)) ([c338475](https://github.com/harrymitchinson/oikade/commit/c33847570d6891ac35c62c69c326f38a06a9a90c))
+* **engine:** take in a report as a whole before any hold writes ([#219](https://github.com/harrymitchinson/oikade/issues/219)) ([f1955a3](https://github.com/harrymitchinson/oikade/commit/f1955a3fa23ba4d0e064b98733a6d3672d21832d))
+* **engine:** warn when a hold reads a room with no members ([#222](https://github.com/harrymitchinson/oikade/issues/222)) ([462aba8](https://github.com/harrymitchinson/oikade/commit/462aba8b7d6bbeab704dcff63c0ca30766d0304c))
+* **host:** count the devices on record in Started host ([#229](https://github.com/harrymitchinson/oikade/issues/229)) ([d72adbf](https://github.com/harrymitchinson/oikade/commit/d72adbf9c8783e9a5b84c1d3f048501a988ba8c4))
+* **host:** end an idle tail with its stream, not a TLS error ([#237](https://github.com/harrymitchinson/oikade/issues/237)) ([20cdbd7](https://github.com/harrymitchinson/oikade/commit/20cdbd7e98a34eb11dc1538a74b7903ed693d4d4))
+* **host:** keep a refused deploy off the record and close flowcheck gaps ([#223](https://github.com/harrymitchinson/oikade/issues/223)) ([4535072](https://github.com/harrymitchinson/oikade/commit/45350722f7daf68de73bc06edc7e572670f3d896))
+* **host:** take a rounded report as oikade set's answer ([#260](https://github.com/harrymitchinson/oikade/issues/260)) ([78c0b9e](https://github.com/harrymitchinson/oikade/commit/78c0b9ed4ff17db2cb17cbe460ac30806aad481f))
+* **host:** take set's answer past a fade, and status's deploying from one lock ([#244](https://github.com/harrymitchinson/oikade/issues/244)) ([0697787](https://github.com/harrymitchinson/oikade/commit/069778779c47cebd2f6162bbc4bf7efff7889622))
+* **logging:** drop test log lines once the test has ended ([#232](https://github.com/harrymitchinson/oikade/issues/232)) ([8dbcf89](https://github.com/harrymitchinson/oikade/commit/8dbcf89af70a3297c640658a14d1fcdc45fa89e5))
+
+
+### Performance Improvements
+
+* **engine:** cache sunrise and sunset per day ([#248](https://github.com/harrymitchinson/oikade/issues/248)) ([310ec5d](https://github.com/harrymitchinson/oikade/commit/310ec5d8578bcabd736d0f5bed5f7b2fe59d6bae))
+
+
+### Code Refactoring
+
+* **engine:** drop the namespace from ident.ID ([#224](https://github.com/harrymitchinson/oikade/issues/224)) ([64c7252](https://github.com/harrymitchinson/oikade/commit/64c7252cef264cffadc71dcb2c980a683d7bcf1b))
+
 ## [0.2.0-alpha.1](https://github.com/harrymitchinson/oikade/compare/v0.1.0...v0.2.0-alpha.1) (2026-11-07)
 
 
