@@ -314,7 +314,7 @@ func late(r *framework.FlowRun) error {
 	}
 }
 
-func TestCheckFailsOnAChainedResultThatIsntUsed(t *testing.T) {
+func TestCheckFailsOnAResultThatIsntUsed(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	code := `package main
@@ -328,6 +328,10 @@ import (
 func discard(h framework.Hold) {
 	h.OffDelay(time.Minute)
 }
+
+func thrownAway(g framework.Handle[bool]) {
+	g.To(true)
+}
 `
 	if err := os.WriteFile(filepath.Join(dir, "discard.go"), []byte(code), 0o644); err != nil {
 		t.Fatal(err)
@@ -336,8 +340,10 @@ func discard(h framework.Hold) {
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
 	}
-	if !strings.Contains(out, "the result of OffDelay isn't used") {
-		t.Errorf("oikade check said:\n%s", out)
+	for _, want := range []string{"the result of OffDelay isn't used", "the result of To isn't used"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("oikade check didn't say %q:\n%s", want, out)
+		}
 	}
 }
 
