@@ -23,8 +23,11 @@ const setupIdle = 10 * time.Minute
 // setupRuns are the setups running, one a plugin at most, so that a reply finds its session and
 // answers only a step that's waiting.
 type setupRuns struct {
-	mu   sync.Mutex
-	runs map[string]*setupRun // plugin -> run
+	// starting is held from starting a session until it's recorded, so that of two setups of a
+	// plugin started together, the one recorded is the one the plugin runs.
+	starting sync.Mutex
+	mu       sync.Mutex
+	runs     map[string]*setupRun // plugin -> run
 }
 
 type setupRun struct {
@@ -126,7 +129,13 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session := rand.Text()
+	s.setups.starting.Lock()
 	steps, err := inst.StartSetup(r.Context(), session)
+	run := &setupRun{session: session, inst: inst, waiting: map[int]bool{}, replied: make(chan struct{}, 1)}
+	if err == nil {
+		s.setups.add(req.Plugin, run)
+	}
+	s.setups.starting.Unlock()
 	if err != nil {
 		problem := fmt.Sprintf("could not start the setup of %s: %v", req.Plugin, err)
 		if errors.Is(err, pluginDriver.ErrNoSetup) {
@@ -135,8 +144,6 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 		respond(s.log, w, http.StatusUnprocessableEntity, api.Response{Error: problem})
 		return
 	}
-	run := &setupRun{session: session, inst: inst, waiting: map[int]bool{}, replied: make(chan struct{}, 1)}
-	s.setups.add(req.Plugin, run)
 	log := s.log.With("plugin", req.Plugin, "session", session)
 	log.Info("Started setup", "client", client)
 	defer func() {
@@ -157,12 +164,14 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 		select {
 		case step, ok := <-steps:
 			if !ok {
-				// Ended for this one, without a done: another setup of the plugin started.
-				write(api.SetupStep{Session: session, Done: &contractv1.SetupDone{Error: "another setup of " + req.Plugin + " started"}})
+				// Ended without a done: another setup of the plugin started, or this one fell behind.
+				write(api.SetupStep{Session: session, Done: &contractv1.SetupDone{
+					Error: "the setup ended: another setup of " + req.Plugin + " started, or this one fell behind",
+				}})
 				return
 			}
 			idle.Reset(setupIdle)
-			line, ok := s.setupStep(r.Context(), log, run, step)
+			line, ok := s.setupStep(log, run, step)
 			if ok && !write(line) {
 				return
 			}
@@ -193,8 +202,7 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 
 // setupStep acts on a plugin's step and says what to pass on, if anything. A keep is the host's to
 // do, and only its name goes on.
-func (s *apiServer) setupStep(ctx context.Context, log *slog.Logger, run *setupRun,
-	step contractv1.SetupStep) (api.SetupStep, bool) {
+func (s *apiServer) setupStep(log *slog.Logger, run *setupRun, step contractv1.SetupStep) (api.SetupStep, bool) {
 	line := api.SetupStep{Session: step.Session, Seq: step.Seq, Say: step.Say, Ask: step.Ask, Open: step.Open, Done: step.Done}
 	switch {
 	case step.Keep != nil:
@@ -205,7 +213,8 @@ func (s *apiServer) setupStep(ctx context.Context, log *slog.Logger, run *setupR
 		} else {
 			log.Info("Changed secret", "name", step.Keep.Name)
 		}
-		if err := run.inst.ReplySetup(ctx, run.session, step.Seq, "", problem); err != nil {
+		// Not the caller's context: the secret is kept whether it's still there or not.
+		if err := run.inst.ReplySetup(s.ctx, run.session, step.Seq, "", problem); err != nil {
 			log.Warn("Could not reply to setup", "err", err)
 		}
 		if problem != "" {
@@ -229,6 +238,7 @@ func (s *apiServer) setupReply(ctx context.Context, req api.Request) api.Respons
 	default:
 	}
 	if err := run.inst.ReplySetup(ctx, run.session, req.Seq, req.Answer, ""); err != nil {
+		s.setups.wait(run, req.Seq) // so that it can be sent again
 		return api.Response{Error: fmt.Sprintf("could not reach %s: %v", req.Plugin, err)}
 	}
 	return api.Response{}

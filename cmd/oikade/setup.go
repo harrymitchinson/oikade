@@ -68,7 +68,7 @@ func (s setupper) run(ctx context.Context, t api.Transport, host, plugin string,
 		case step.Kept != "":
 			_, _ = fmt.Fprintf(s.stderr, "Kept secret %s on the host\n", step.Kept)
 		case step.Ask != nil:
-			answer, err := s.ask(*step.Ask)
+			answer, err := s.ask(ctx, *step.Ask)
 			if err != nil {
 				return err
 			}
@@ -108,18 +108,50 @@ func (s setupper) run(ctx context.Context, t api.Transport, host, plugin string,
 	return nil
 }
 
-// ask asks the person, on stderr, and reads a line. A secret isn't echoed on a terminal.
-func (s setupper) ask(a contractv1.SetupAsk) (string, error) {
+// ask asks the person, on stderr, and reads a line. A secret isn't echoed on a terminal. Ending ctx,
+// as Ctrl-C does, stops waiting, and puts the terminal back as it was.
+func (s setupper) ask(ctx context.Context, a contractv1.SetupAsk) (string, error) {
 	_, _ = fmt.Fprintf(s.stderr, "%s: ", a.Prompt)
-	if a.Secret && s.terminal != nil && term.IsTerminal(int(s.terminal.Fd())) {
-		value, err := term.ReadPassword(int(s.terminal.Fd()))
-		_, _ = fmt.Fprintln(s.stderr)
-		return string(value), err
+	type read struct {
+		value string
+		err   error
 	}
+	got := make(chan read, 1)
+	restore := func() {}
+	if a.Secret && s.terminal != nil && term.IsTerminal(int(s.terminal.Fd())) {
+		fd := int(s.terminal.Fd())
+		if state, err := term.GetState(fd); err == nil {
+			restore = func() { _ = term.Restore(fd, state) }
+		}
+		go func() {
+			value, err := term.ReadPassword(fd)
+			got <- read{string(value), err}
+		}()
+	} else {
+		go func() {
+			value, err := s.readLine(a.Prompt)
+			got <- read{value, err}
+		}()
+	}
+	select {
+	case r := <-got:
+		if a.Secret && s.terminal != nil && term.IsTerminal(int(s.terminal.Fd())) {
+			_, _ = fmt.Fprintln(s.stderr)
+		}
+		return r.value, r.err
+	case <-ctx.Done():
+		restore()
+		_, _ = fmt.Fprintln(s.stderr)
+		return "", ctx.Err()
+	}
+}
+
+// readLine reads one answer.
+func (s setupper) readLine(prompt string) (string, error) {
 	line, err := s.in.ReadString('\n')
 	if err != nil && (!errors.Is(err, io.EOF) || line == "") {
 		if errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("no answer to %q: stdin ended", a.Prompt)
+			return "", fmt.Errorf("no answer to %q: stdin ended", prompt)
 		}
 		return "", err
 	}
@@ -139,16 +171,22 @@ func (s setupper) open(ctx context.Context, o contractv1.SetupOpen) (string, err
 	})
 }
 
-// browse opens a page in this machine's browser, or with $BROWSER if it's set.
+// browse opens a page in this machine's browser, or with $BROWSER, a command and its arguments, if
+// it's set.
 func browse(page string) error {
-	name := "xdg-open"
+	command := []string{"xdg-open"}
 	if runtime.GOOS == "darwin" {
-		name = "open"
+		command = []string{"open"}
 	}
-	if b := os.Getenv("BROWSER"); b != "" {
-		name = b
+	if b := strings.Fields(os.Getenv("BROWSER")); len(b) > 0 {
+		command = b
 	}
-	return exec.Command(name, page).Start()
+	cmd := exec.Command(command[0], append(command[1:], page)...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // catchRedirect listens on redirect, which is on this machine, calls listening once it does, and

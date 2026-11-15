@@ -72,16 +72,26 @@ func TestAskReadsALineAndSaysWhenThereIsNone(t *testing.T) {
 	var stderr strings.Builder
 	s := setupper{stderr: &stderr, in: bufio.NewReader(strings.NewReader("app-1\r\nlast"))}
 	for _, want := range []string{"app-1", "last"} {
-		got, err := s.ask(contractv1.SetupAsk{Prompt: "App ID", Secret: true}) // not a terminal, so read
+		got, err := s.ask(context.Background(), contractv1.SetupAsk{Prompt: "App ID", Secret: true}) // not a terminal
 		if err != nil || got != want {
 			t.Fatalf("got %q, %v, want %q", got, err, want)
 		}
 	}
-	_, err := s.ask(contractv1.SetupAsk{Prompt: "App ID"})
+	_, err := s.ask(context.Background(), contractv1.SetupAsk{Prompt: "App ID"})
 	if err == nil || !strings.Contains(err.Error(), "stdin ended") {
 		t.Fatalf("got %v, want stdin ended", err)
 	}
 	if stderr.String() != "App ID: App ID: App ID: " {
 		t.Errorf("stderr %q", stderr.String())
+	}
+}
+
+func TestAskStopsWhenItsContextEnds(t *testing.T) {
+	never, _ := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s := setupper{stderr: io.Discard, in: bufio.NewReader(never)}
+	if _, err := s.ask(ctx, contractv1.SetupAsk{Prompt: "Code"}); err != context.Canceled {
+		t.Fatalf("got %v, want context.Canceled", err)
 	}
 }
