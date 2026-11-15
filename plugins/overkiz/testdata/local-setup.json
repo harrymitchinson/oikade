@@ -1,0 +1,61 @@
+[
+  {
+    "deviceURL": "internal://1234-5678-9012/pod/0",
+    "label": "TaHoma Switch",
+    "controllableName": "internal:PodMiniComponent",
+    "widget": "Pod",
+    "uiClass": "Pod",
+    "available": true,
+    "enabled": true,
+    "states": [{"name": "core:ConnectivityState", "type": 3, "value": "online"}],
+    "attributes": []
+  },
+  {
+    "deviceURL": "io://1234-5678-9012/11111111",
+    "label": "Kitchen shutter",
+    "controllableName": "io:RollerShutterGenericIOComponent",
+    "widget": "PositionableRollerShutter",
+    "uiClass": "RollerShutter",
+    "available": true,
+    "enabled": true,
+    "states": [
+      {"name": "core:StatusState", "type": 3, "value": "available"},
+      {"name": "core:ClosureState", "type": 1, "value": 0},
+      {"name": "core:OpenClosedState", "type": 3, "value": "open"}
+    ],
+    "attributes": [{"name": "core:Manufacturer", "type": 3, "value": "Somfy"}]
+  },
+  {
+    "deviceURL": "io://1234-5678-9012/22222222#2",
+    "label": "Patio screen sensor",
+    "controllableName": "io:LightIOSystemSensor",
+    "widget": "LightSensor",
+    "uiClass": "LightSensor",
+    "available": true,
+    "enabled": true,
+    "states": [{"name": "core:LuminanceState", "type": 2, "value": 1200.5}],
+    "attributes": []
+  },
+  {
+    "deviceURL": "io://1234-5678-9012/22222222",
+    "label": "Patio screen",
+    "controllableName": "io:VerticalExteriorAwningIOComponent",
+    "widget": "PositionableScreen",
+    "uiClass": "ExteriorScreen",
+    "available": true,
+    "enabled": true,
+    "states": [{"name": "core:ClosureState", "type": 1, "value": 40}],
+    "attributes": []
+  },
+  {
+    "deviceURL": "rts://1234-5678-9012/16719623",
+    "label": "Bedroom blind",
+    "controllableName": "rts:RollerShutterRTSComponent",
+    "widget": "UpDownRollerShutter",
+    "uiClass": "RollerShutter",
+    "available": true,
+    "enabled": true,
+    "states": [],
+    "attributes": []
+  }
+]
