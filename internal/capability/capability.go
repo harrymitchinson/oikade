@@ -49,6 +49,9 @@ const (
 	Battery = contractv1.Battery
 	// LinkQuality is a radio link's quality, from 0 to 255.
 	LinkQuality = contractv1.LinkQuality
+	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius. It doesn't
+	// turn the device on or off: On does.
+	Setpoint = contractv1.Setpoint
 )
 
 // Kind is a capability's value type.
@@ -104,6 +107,9 @@ var registry = map[string]Spec{
 		Cluster: "Power Source", ClusterID: 0x002F, Attribute: "BatPercentRemaining", AttributeID: 0x000C,
 	}},
 	LinkQuality: {Go: "LinkQuality", Kind: KindNumber, Min: 0, Max: 255},
+	Setpoint: {Go: "Setpoint", Kind: KindNumber, Writable: true, Min: 0, Max: 50, Unit: "°C", Matter: &Matter{
+		Cluster: "Thermostat", ClusterID: 0x0201, Attribute: "OccupiedHeatingSetpoint", AttributeID: 0x0012,
+	}},
 }
 
 // Names are every capability's name, sorted.

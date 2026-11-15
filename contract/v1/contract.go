@@ -52,6 +52,8 @@ const (
 	Battery = "battery"
 	// LinkQuality is a radio link's quality, from 0 to 255.
 	LinkQuality = "link-quality"
+	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius.
+	Setpoint = "setpoint"
 )
 
 // The device types a plugin may report for a device that's on or off, in Matter's names. A device's

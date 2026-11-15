@@ -573,3 +573,60 @@ func TestAControllerReadsTheDeviceTypeYouSetThroughARestart(t *testing.T) {
 		t.Error("the fan became a toaster")
 	}
 }
+
+// capabilityOf is one capability of a device in the host's status.
+func capabilityOf(t *testing.T, st api.Status, device, name string) api.Capability {
+	t.Helper()
+	for _, d := range st.Devices {
+		if d.Name != device {
+			continue
+		}
+		for _, c := range d.Capabilities {
+			if c.Name == name {
+				return c
+			}
+		}
+	}
+	t.Fatalf("no %s on %s in %+v", name, device, st)
+	return api.Capability{}
+}
+
+func TestARuleSetsAHeatersSetpointThatAControllerReads(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	endpoint := c.endpoint("study-heater")
+	if got := c.deviceTypes(endpoint); !slices.Contains(got, uint64(clusters.DeviceThermostat.ID)) {
+		t.Fatalf("the heater's device types are %#x, want a Thermostat", got)
+	}
+	setpoint := func() any {
+		v, _ := c.read(endpoint, clusters.IDThermostat, 0x0012)
+		return v
+	}
+	mode := func() any {
+		v, _ := c.read(endpoint, clusters.IDThermostat, 0x001C)
+		return v
+	}
+	c.r.until("the controller to read the heater's first setpoint", func() bool { return setpoint() == int64(2100) })
+
+	c.r.change("study-go", "open", true)
+	c.r.until("the controller to read the Rule's 18 °C", func() bool { return setpoint() == int64(1800) })
+	if v := capabilityOf(t, c.r.status(), "study-heater", "setpoint").Value; v != 18.0 {
+		t.Errorf("the host has the setpoint at %v", v)
+	}
+
+	write := func(attr uint32, v uint64) {
+		t.Helper()
+		path := im.AttributePath{Endpoint: endpoint, Cluster: clusters.IDThermostat, Attribute: attr}
+		status, err := c.admin.Write(nodetest.Context(t), path, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, v) })
+		if err != nil || status != im.StatusSuccess {
+			t.Fatalf("writing %#x = %d: %v, %v", attr, v, status, err)
+		}
+	}
+	write(0x001C, clusters.SystemModeOff)
+	c.r.until("the heater to turn off", func() bool { return onOf(t, c.r.status(), "study-heater").Value == false })
+	write(0x001C, clusters.SystemModeHeat)
+	c.r.until("the heater to turn on", func() bool { return onOf(t, c.r.status(), "study-heater").Value == true })
+	if mode() != uint64(clusters.SystemModeHeat) {
+		t.Errorf("SystemMode %v, want Heat", mode())
+	}
+}

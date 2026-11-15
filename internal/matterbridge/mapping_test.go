@@ -291,3 +291,126 @@ func TestAnOnOffTypeLeavesOutLevelControl(t *testing.T) {
 	}
 	m.Update(capability.Brightness, 40.0) // Nothing to update, and nothing breaks.
 }
+
+// write writes an attribute straight on its cluster, with the value put by f.
+func write(t *testing.T, c *im.Cluster, attr uint32, f func(w *tlv.Writer)) im.Status {
+	t.Helper()
+	for _, a := range c.Attributes {
+		if a.ID == attr {
+			if a.Write == nil {
+				return im.StatusUnsupportedWrite
+			}
+			var w tlv.Writer
+			f(&w)
+			r := tlv.NewReader(w.Bytes())
+			if err := r.Next(); err != nil {
+				t.Fatal(err)
+			}
+			return a.Write(nil, r, im.Replace)
+		}
+	}
+	t.Fatalf("cluster %#x has no attribute %#x", c.ID, attr)
+	return 0
+}
+
+func putUint(v uint64) func(w *tlv.Writer) {
+	return func(w *tlv.Writer) { w.PutUint(tlv.Anonymous, v) }
+}
+
+func putInt(v int64) func(w *tlv.Writer) {
+	return func(w *tlv.Writer) { w.PutInt(tlv.Anonymous, v) }
+}
+
+func TestAHeaterIsAHeatOnlyThermostat(t *testing.T) {
+	m, calls := mapDevice(t, devicetype.OnOffPlugInUnit, capability.On, capability.Setpoint, capability.Temperature)
+	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x0301}) {
+		t.Errorf("device types %#x, want only Thermostat", got)
+	}
+	for _, c := range m.Clusters {
+		if c.ID == clusters.IDOnOff || c.ID == clusters.IDTemperatureMeasurement {
+			t.Errorf("a heater has cluster %#x", c.ID)
+		}
+	}
+	th := cluster(t, m, clusters.IDThermostat)
+	if th.FeatureMap != 1 {
+		t.Errorf("features %#x, want only Heating", th.FeatureMap)
+	}
+	const local, setpoint, control, mode = 0x0000, 0x0012, 0x001B, 0x001C
+	if read(t, th, control) != uint64(2) {
+		t.Errorf("ControlSequenceOfOperation %v, want HeatingOnly", read(t, th, control))
+	}
+	if read(t, th, local) != nil {
+		t.Errorf("LocalTemperature before any report %v, want null", read(t, th, local))
+	}
+	for attr, want := range map[uint32]int64{0x0003: 500, 0x0004: 3500, 0x0015: 500, 0x0016: 3500} {
+		if got := read(t, th, attr); got != want {
+			t.Errorf("limit %#x is %v, want %d", attr, got, want)
+		}
+	}
+
+	// The bus reaches the attributes.
+	m.Update(capability.Temperature, 19.46)
+	m.Update(capability.Setpoint, 21.5)
+	m.Update(capability.On, true)
+	if read(t, th, local) != int64(1946) || read(t, th, setpoint) != int64(2150) || read(t, th, mode) != uint64(4) {
+		t.Errorf("LocalTemperature %v, setpoint %v, SystemMode %v", read(t, th, local), read(t, th, setpoint), read(t, th, mode))
+	}
+	m.Update(capability.Setpoint, 45.0)
+	if read(t, th, setpoint) != int64(3500) {
+		t.Errorf("a setpoint above the limits shows as %v", read(t, th, setpoint))
+	}
+
+	// Writes become capabilities, and a mode a heater can't do is refused.
+	if s := write(t, th, setpoint, putInt(1800)); s != im.StatusSuccess {
+		t.Errorf("setpoint write: %v", s)
+	}
+	for _, v := range []int64{499, 3501} {
+		if s := write(t, th, setpoint, putInt(v)); s != im.StatusConstraintError {
+			t.Errorf("setpoint %d: %v, want a constraint error", v, s)
+		}
+	}
+	if s := write(t, th, mode, putUint(0)); s != im.StatusSuccess {
+		t.Errorf("SystemMode Off: %v", s)
+	}
+	if s := write(t, th, mode, putUint(4)); s != im.StatusSuccess {
+		t.Errorf("SystemMode Heat: %v", s)
+	}
+	for _, v := range []uint64{1, 3, 7, 8} {
+		if s := write(t, th, mode, putUint(v)); s != im.StatusConstraintError {
+			t.Errorf("SystemMode %d: %v, want a constraint error", v, s)
+		}
+	}
+	if s := write(t, th, control, putUint(4)); s != im.StatusConstraintError {
+		t.Errorf("ControlSequenceOfOperation CoolingAndHeating: %v, want a constraint error", s)
+	}
+	invoke(t, th, 0x00, func(w *tlv.Writer) { // SetpointRaiseLower, Heat, up 1.5 °C
+		w.PutUint(tlv.Context(0), 0)
+		w.PutInt(tlv.Context(1), 15)
+	})
+	want := []setCall{{capability.Setpoint, 18.0}, {capability.On, false}, {capability.On, true}, {capability.Setpoint, 19.5}}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Errorf("writes %v, want %v", *calls, want)
+	}
+}
+
+func TestAHeaterWithoutOnAlwaysHeats(t *testing.T) {
+	m, calls := mapDevice(t, "", capability.Setpoint)
+	th := cluster(t, m, clusters.IDThermostat)
+	if read(t, th, 0x001C) != uint64(4) {
+		t.Errorf("SystemMode %v, want Heat", read(t, th, 0x001C))
+	}
+	if s := write(t, th, 0x001C, putUint(0)); s != im.StatusConstraintError {
+		t.Errorf("SystemMode Off: %v, want a constraint error", s)
+	}
+	if s := write(t, th, 0x001C, putUint(4)); s != im.StatusSuccess {
+		t.Errorf("SystemMode Heat: %v", s)
+	}
+	// LocalTemperature is an int16 of hundredths, so a faulty reading stops at its top.
+	m.Update(capability.Temperature, 400.0)
+	if read(t, th, 0x0000) != int64(32767) {
+		t.Errorf("LocalTemperature at 400 °C %v", read(t, th, 0x0000))
+	}
+	if len(*calls) != 0 {
+		t.Errorf("writes %v", *calls)
+	}
+}

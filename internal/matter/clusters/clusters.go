@@ -30,7 +30,7 @@ var names = map[uint32]string{
 	IDAdministratorCommissioning:    "administrator_commissioning", IDOperationalCredentials: "operational_credentials",
 	IDGroupKeyManagement: "group_key_management", IDBooleanState: "boolean_state",
 	IDTemperatureMeasurement: "temperature_measurement", IDRelativeHumidityMeasurement: "relative_humidity_measurement",
-	IDOccupancySensing: "occupancy_sensing",
+	IDOccupancySensing: "occupancy_sensing", IDThermostat: "thermostat",
 }
 
 // Name is the name of a cluster a node serves, in snake case, such as on_off. Any other is "other", so
@@ -65,6 +65,10 @@ func readOnly(id uint32, write func(w *tlv.Writer, tag tlv.Tag)) im.Attribute {
 
 func uintAttr(id uint32, v uint64) im.Attribute {
 	return readOnly(id, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, v) })
+}
+
+func intAttr(id uint32, v int64) im.Attribute {
+	return readOnly(id, func(w *tlv.Writer, tag tlv.Tag) { w.PutInt(tag, v) })
 }
 
 func stringAttr(id uint32, v *string) im.Attribute {

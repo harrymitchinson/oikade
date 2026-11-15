@@ -37,6 +37,9 @@ const (
 	Battery Number = contractv1.Battery
 	// LinkQuality is a radio link's quality, from 0 to 255.
 	LinkQuality Number = contractv1.LinkQuality
+	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius. It doesn't
+	// turn it on or off: On does.
+	Setpoint Number = contractv1.Setpoint
 )
 
 // Handle is one capability of one device. oikade types writes one for each capability each of your
