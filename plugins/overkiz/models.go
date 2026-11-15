@@ -3,28 +3,37 @@ package overkiz
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
-// model is what Oikade serves of one kind of Overkiz device, its widget: a binding per capability.
-type model struct {
-	bindings []binding
+// stateKey names one Overkiz state of a device: on the device itself (sub "") or one of its
+// sub-devices, such as "7" for #7.
+type stateKey struct{ sub, name string }
+
+// states are every state a device and its sub-devices have reported, as the API gave them.
+type states map[stateKey]any
+
+func (s states) number(sub, name string) (float64, bool) {
+	f, ok := s[stateKey{sub, name}].(float64)
+	return f, ok
 }
 
-// binding is one capability: the Overkiz state it's read from, on the device or one of its
-// sub-devices, and the commands that write it.
-type binding struct {
-	capability string
-	// sub is the sub-device the state is on, such as "2" for #2, or "" for the device itself.
-	sub   string
-	state string
-	// read turns the state's value into the capability's, or says it can't.
-	read func(any) (any, bool)
-	// write is the commands that set the capability to v, nil if it's read-only. It refuses a value it
-	// can't send.
-	write func(v any) ([]apiCommand, error)
+func (s states) text(sub, name string) string {
+	t, _ := s[stateKey{sub, name}].(string)
+	return t
+}
+
+// model is what Oikade serves of one kind of Overkiz device, its widget.
+type model struct {
+	capabilities []string
+	// values reads the capabilities from the device's states, leaving out any it can't.
+	values func(s states) contractv1.State
+	// write is the commands that set a capability to v, and the sub-device that takes them. No
+	// commands means there's nothing to do. It refuses a value it can't send.
+	write func(capability string, v any, s states) (sub string, commands []apiCommand, err error)
 }
 
 // models is every kind of device the plugin serves, by widget. A widget that isn't here isn't
@@ -38,46 +47,111 @@ var models = map[string]model{
 	"PositionableRollerShutter":                       closure,
 	"PositionableRollerShutterWithLowSpeedManagement": closure,
 	"PositionableScreen":                              closure,
+	// Atlantic, Thermor and Sauter towel radiators, over Cozytouch.
+	"AtlanticElectricalTowelDryer": towelDryer,
 }
 
 // closure is a cover with core:ClosureState, set with setClosure.
-var closure = model{bindings: []binding{{
-	capability: contractv1.Position, state: "core:ClosureState", read: percent,
-	write: func(v any) ([]apiCommand, error) {
-		f, ok := v.(float64)
-		if !ok || f < 0 || f > 100 {
-			return nil, fmt.Errorf("position %v is not a number from 0 to 100", v)
+var closure = model{
+	capabilities: []string{contractv1.Position},
+	values: func(s states) contractv1.State {
+		out := contractv1.State{}
+		if f, ok := s.number("", "core:ClosureState"); ok && f >= 0 && f <= 100 {
+			out[contractv1.Position] = f
 		}
-		return []apiCommand{{Name: "setClosure", Parameters: []any{int(math.Round(f))}}}, nil
+		return out
 	},
-}}}
-
-// percent reads a number from 0 to 100.
-func percent(v any) (any, bool) {
-	f, ok := v.(float64)
-	if !ok || f < 0 || f > 100 {
-		return nil, false
-	}
-	return f, true
-}
-
-// capabilities lists a model's capabilities, in order.
-func (m model) capabilities() []string {
-	out := make([]string, 0, len(m.bindings))
-	for _, b := range m.bindings {
-		out = append(out, b.capability)
-	}
-	return out
-}
-
-// binding returns the binding for a capability.
-func (m model) binding(capability string) (binding, bool) {
-	for _, b := range m.bindings {
-		if b.capability == capability {
-			return b, true
+	write: func(capability string, v any, _ states) (string, []apiCommand, error) {
+		f, err := within(capability, v, 0, 100)
+		if err != nil {
+			return "", nil, err
 		}
+		return "", []apiCommand{{Name: "setClosure", Parameters: []any{int(math.Round(f))}}}, nil
+	},
+}
+
+// A towel radiator's operating modes, in core:OperatingModeState and setTowelDryerOperatingMode.
+const (
+	modeStandby = "standby"
+	// modeExternal is manual: it holds core:TargetTemperatureState.
+	modeExternal = "external"
+	// modeInternal is its own schedule, and modeAuto its learning mode. Both aim for
+	// io:EffectiveTemperatureSetpointState, and a setpoint written in them is an override.
+	modeInternal = "internal"
+	modeAuto     = "auto"
+)
+
+// towelSensor is the sub-device with the room temperature: Home Assistant reads core:TemperatureState
+// on #7 of AtlanticElectricalTowelDryer.
+const towelSensor = "7"
+
+// towelDryer is an Atlantic towel radiator, from Home Assistant's mapping of the widget. Standby is
+// off and manual is heat. Its schedule and auto modes, and any it doesn't know, count as on, and are
+// left as they are: a setpoint written in them is the override they take, and turning it on leaves
+// them be. Boost and drying aren't served, and a radiator in one reports the setpoint it's aiming for.
+var towelDryer = model{
+	capabilities: []string{contractv1.On, contractv1.Setpoint, contractv1.Temperature},
+	values: func(s states) contractv1.State {
+		out := contractv1.State{}
+		mode := s.text("", "core:OperatingModeState")
+		if mode != "" {
+			// Only standby is off: a mode it doesn't know is still heating.
+			out[contractv1.On] = mode != modeStandby
+		}
+		// Manual holds its target. Any other mode aims for its effective setpoint. Either falls back on
+		// the other until the one it reads has been reported, rather than keeping a value from
+		// before the mode changed.
+		read := []string{"io:EffectiveTemperatureSetpointState", "core:TargetTemperatureState"}
+		if mode == modeExternal || mode == modeStandby {
+			slices.Reverse(read)
+		}
+		for _, name := range read {
+			if f, ok := s.number("", name); ok && f >= 0 && f <= 50 {
+				out[contractv1.Setpoint] = f
+				break
+			}
+		}
+		if f, ok := s.number(towelSensor, "core:TemperatureState"); ok && f > -273.15 && f < 1000 {
+			out[contractv1.Temperature] = f
+		}
+		return out
+	},
+	write: func(capability string, v any, s states) (string, []apiCommand, error) {
+		mode := s.text("", "core:OperatingModeState")
+		switch capability {
+		case contractv1.On:
+			on, ok := v.(bool)
+			switch {
+			case !ok:
+				return "", nil, fmt.Errorf("on %v is not a bool", v)
+			case !on:
+				return "", []apiCommand{{Name: "setTowelDryerOperatingMode", Parameters: []any{modeStandby}}}, nil
+			case mode != modeStandby && mode != "":
+				return "", nil, nil
+			}
+			return "", []apiCommand{{Name: "setTowelDryerOperatingMode", Parameters: []any{modeExternal}}}, nil
+		case contractv1.Setpoint:
+			f, err := within(capability, v, 0, 50)
+			if err != nil {
+				return "", nil, err
+			}
+			command := "setDerogatedTargetTemperature"
+			if mode == modeExternal || mode == modeStandby || mode == "" {
+				command = "setTargetTemperature"
+			}
+			return "", []apiCommand{{Name: command, Parameters: []any{f}}}, nil
+		}
+		return "", nil, fmt.Errorf("%s can't be set", capability)
+	},
+}
+
+// within reads v as a number from lowest to highest.
+func within(capability string, v any, lowest, highest float64) (float64, error) {
+	f, ok := v.(float64)
+	if !ok || f < lowest || f > highest {
+		return 0, fmt.Errorf("%s %v is not a number from %v to %v", capability, v, lowest, highest)
 	}
-	return binding{}, false
+	return f, nil
 }
 
 // deviceURL is a parsed Overkiz device URL, <protocol>://<gateway>/<address>[#<sub>].

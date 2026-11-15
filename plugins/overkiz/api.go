@@ -121,6 +121,9 @@ func (e *apiError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.Status)
 }
 
+// codeAuthentication is Overkiz's errorCode for a login it refused, and for too many of them.
+const codeAuthentication = "AUTHENTICATION_ERROR"
+
 // What kind of failure an error is, which decides what the plugin does next.
 type failure int
 
@@ -149,9 +152,9 @@ func classify(err error) failure {
 	switch {
 	case strings.Contains(message, "no registered event listener"):
 		return noListener
-	case e.Status == http.StatusTooManyRequests, strings.Contains(message, "too many"):
+	case e.Status == http.StatusTooManyRequests, e.Code == "QUOTA_EXCEEDED", strings.Contains(message, "too many"):
 		return limited
-	case e.Status == http.StatusUnauthorized, e.Code == "AUTHENTICATION_ERROR", e.Code == "RESOURCE_ACCESS_DENIED",
+	case e.Status == http.StatusUnauthorized, e.Code == codeAuthentication, e.Code == "RESOURCE_ACCESS_DENIED",
 		strings.Contains(message, "not authenticated"), strings.Contains(message, "bad credentials"):
 		return refused
 	case e.Status >= http.StatusInternalServerError:

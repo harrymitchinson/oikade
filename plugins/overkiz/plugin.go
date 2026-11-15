@@ -1,6 +1,7 @@
 package overkiz
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -28,6 +29,12 @@ type Account interface {
 	timing() timing
 	// describe is the account as a log or an error says it.
 	describe() string
+	// check says what's wrong with its configuration.
+	check() error
+	// manufacturer is who makes its devices, for those that don't say.
+	manufacturer() string
+	// expires is whether its sessions end by themselves, as the cloud's do. A hub's token doesn't.
+	expires() bool
 }
 
 // Local is a TaHoma hub's local API, which its Developer Mode turns on. The first-generation square
@@ -46,13 +53,21 @@ func (l Local) describe() string { return "the TaHoma hub at " + l.Address }
 
 func (l Local) timing() timing { return localTiming }
 
+func (l Local) manufacturer() string { return "" }
+
+func (l Local) expires() bool { return false }
+
+func (l Local) check() error {
+	if l.Address == "" {
+		return errors.New("overkiz.Local has no Address")
+	}
+	return nil
+}
+
 // connect needs no login: every request carries the token. The hub's certificate is signed by
 // Overkiz for its gateway-<pin>.local name, which an address doesn't match and the system doesn't
 // trust, so it isn't checked.
 func (l Local) connect(_ context.Context, token string) (*client, error) {
-	if l.Address == "" {
-		return nil, errors.New("overkiz.Local has no Address")
-	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // See above.
 	return &client{
@@ -95,6 +110,9 @@ func New(a Account) plugin.Factory {
 		if a == nil {
 			return nil, errors.New("overkiz.New has no Account")
 		}
+		if err := a.check(); err != nil {
+			return nil, err
+		}
 		if a.secret() == "" {
 			return nil, fmt.Errorf("%s has no secret named for its credential", a.describe())
 		}
@@ -113,7 +131,9 @@ type device struct {
 	info contractv1.DiscoveredDevice
 	// available and enabled are what the setup or the last event said. It's online when both are.
 	available, enabled bool
-	values             contractv1.State
+	// raw is every state it and its sub-devices reported, and values what the model reads from them.
+	raw    states
+	values contractv1.State
 }
 
 // bridge is the plugin.
@@ -160,7 +180,9 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := b.publishDevices(ctx); err != nil {
 		return err
 	}
-	wait := b.timing.retry
+	// wait is the backoff after a failure, and ended after sessions that end as they begin, which a
+	// login doesn't reset.
+	wait, ended := b.timing.retry, b.timing.retry
 	for ctx.Err() == nil {
 		credential, ok, err := plugin.ReadSecret(b.env, b.account.secret())
 		switch {
@@ -174,12 +196,31 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			continue
 		}
 		credential = strings.TrimSpace(credential)
-		err = b.session(ctx, credential, func() { wait = b.timing.retry })
+		var live time.Time
+		err = b.session(ctx, credential, func() { wait, live = b.timing.retry, time.Now() })
 		if ctx.Err() != nil {
 			break
 		}
+		// A cloud session ends by itself, and one that lasted logs in again at once, its devices
+		// online meanwhile. A credential refused then is refused for real. One that ends as soon as
+		// it starts backs off, so a cloud that keeps ending them isn't asked to log in over and over.
+		expired := b.account.expires() && !live.IsZero() && !errors.Is(err, errReport) && classify(err) == refused
+		if expired && time.Since(live) >= b.timing.retryMax {
+			b.log.Info("Overkiz ended the plugin's session, so it's logging in again", "err", err, "account", b.account.describe())
+			ended = b.timing.retry
+			// Its devices stay online meanwhile, and a write fails at once rather than on a dead session.
+			b.mu.Lock()
+			b.client = nil
+			b.mu.Unlock()
+			continue
+		}
 		b.lost(ctx)
 		switch {
+		case expired:
+			b.log.Warn("Overkiz ended the plugin's session as it began", "err", err, "account", b.account.describe(), "retry", ended.String())
+			b.setProblem(ctx, fmt.Sprintf("%s keeps ending the plugin's session: trying again in %s", b.account.describe(), ended))
+			sleep(ctx, ended)
+			ended = min(2*ended, b.timing.retryMax)
 		case errors.Is(err, errReport):
 			b.log.Error("Could not report Overkiz devices", "err", err, "account", b.account.describe(), "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("could not report the devices of %s: %v", b.account.describe(), err))
@@ -187,7 +228,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			wait = min(2*wait, b.timing.retryMax)
 		case classify(err) == refused:
 			b.log.Warn("Overkiz refused the credential", "err", err, "account", b.account.describe())
-			b.setProblem(ctx, fmt.Sprintf("%s refused the credential: check the secret %q", b.account.describe(), b.account.secret()))
+			b.setProblem(ctx, fmt.Sprintf("%s refused the login (%v): check the secret %q", b.account.describe(), err, b.account.secret()))
 			b.untilSecretChanges(ctx, credential, b.timing.refused)
 		case classify(err) == limited:
 			b.log.Warn("Overkiz limited the plugin's requests", "err", err, "account", b.account.describe(), "retry", b.timing.limited.String())
@@ -316,10 +357,10 @@ func (b *bridge) readSetup(ctx context.Context, c *client) error {
 		}
 		dev := &device{
 			id: id, url: d.DeviceURL, model: m, subs: map[string]string{"": d.DeviceURL},
-			available: d.Available, enabled: d.Enabled, values: contractv1.State{},
+			available: d.Available, enabled: d.Enabled, raw: states{}, values: contractv1.State{},
 			info: contractv1.DiscoveredDevice{
-				ID: id, Manufacturer: d.attribute("core:Manufacturer"), Model: d.ControllableName,
-				Capabilities: m.capabilities(), Name: d.Label,
+				ID: id, Manufacturer: cmp.Or(d.attribute("core:Manufacturer"), b.account.manufacturer()), Model: d.ControllableName,
+				Capabilities: slices.Clone(m.capabilities), Name: d.Label,
 			},
 		}
 		if other, ok := devices[id]; ok {
@@ -360,24 +401,20 @@ func (b *bridge) skip(widget string, d apiDevice) {
 
 func (d *device) online() bool { return d.available && d.enabled }
 
-// apply takes states of the device or one of its sub-devices into its values, and says which changed.
-func (d *device) apply(sub string, states []apiState) []string {
+// apply takes states of the device or one of its sub-devices, and says which of its values changed.
+// A value the model can no longer read keeps its last.
+func (d *device) apply(sub string, reported []apiState) []string {
+	for _, s := range reported {
+		d.raw[stateKey{sub, s.Name}] = s.Value
+	}
 	var changed []string
-	for _, s := range states {
-		for _, bind := range d.model.bindings {
-			if bind.sub != sub || bind.state != s.Name {
-				continue
-			}
-			v, ok := bind.read(s.Value)
-			if !ok {
-				continue
-			}
-			if old, had := d.values[bind.capability]; !had || old != v {
-				d.values[bind.capability] = v
-				changed = append(changed, bind.capability)
-			}
+	for c, v := range d.model.values(d.raw) {
+		if old, had := d.values[c]; !had || old != v {
+			d.values[c] = v
+			changed = append(changed, c)
 		}
 	}
+	slices.Sort(changed)
 	return changed
 }
 
@@ -578,24 +615,32 @@ func sleep(ctx context.Context, d time.Duration) bool {
 func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
 	b.mu.Lock()
 	c, dev := b.client, b.devices[cmd.ID]
+	var (
+		sub      string
+		commands []apiCommand
+		url      string
+		err      error
+	)
+	if dev != nil {
+		sub, commands, err = dev.model.write(cmd.Capability, cmd.Value, dev.raw)
+		url = dev.subs[sub]
+	}
 	b.mu.Unlock()
 	switch {
 	case dev == nil:
 		return fmt.Errorf("no Overkiz device %s", cmd.ID)
 	case c == nil:
 		return fmt.Errorf("can't reach %s", b.account.describe())
-	}
-	bind, ok := dev.model.binding(cmd.Capability)
-	if !ok || bind.write == nil {
-		return fmt.Errorf("device %s can't set %s", cmd.ID, cmd.Capability)
+	case err != nil:
+		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
+	case len(commands) == 0:
+		return nil
+	case url == "":
+		return fmt.Errorf("could not set %s on %s: it has no sub-device #%s", cmd.Capability, cmd.ID, sub)
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.timing.set)
 	defer cancel()
-	commands, err := bind.write(cmd.Value)
-	if err != nil {
-		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
-	}
-	exec, err := c.execute(ctx, dev.subs[bind.sub], commands...)
+	exec, err := c.execute(ctx, url, commands...)
 	if err != nil {
 		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
 	}
