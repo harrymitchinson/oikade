@@ -7,18 +7,15 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
 // DefaultSecretsDir is the secrets' directory inside the data directory, so a backup has them.
 const DefaultSecretsDir = "secrets"
-
-// secretName is what a secret can be called, which can't leave the directory or hide in it.
-var secretName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
 
 // secrets is a directory with one file per credential. Your process and plugins read the files, so
 // nothing here passes a value on, and nothing here logs one.
@@ -34,7 +31,7 @@ func (s secrets) list() ([]api.Secret, error) {
 	var found []api.Secret
 	for _, e := range entries {
 		// A dot-named file is a set that a crash cut short.
-		if !secretName.MatchString(e.Name()) {
+		if !contractv1.ValidSecretName(e.Name()) {
 			continue
 		}
 		info, err := os.Stat(filepath.Join(s.dir, e.Name()))
@@ -92,7 +89,7 @@ func (s *apiServer) secret(req api.Request) api.Response {
 		}
 		return api.Response{Secrets: found}
 	}
-	if !secretName.MatchString(req.Secret) {
+	if !contractv1.ValidSecretName(req.Secret) {
 		return api.Response{Error: fmt.Sprintf("%q isn't a secret's name: use letters, digits, '.', '_' and '-'", req.Secret)}
 	}
 	var err error
@@ -115,7 +112,7 @@ func WithBrokerPassword(broker, dir, name string) (string, error) {
 	if err != nil || u.User == nil || u.User.Username() == "" {
 		return "", errors.New("--broker-password-secret needs a user in --broker, such as mqtt://oikade@broker:1883")
 	}
-	if !secretName.MatchString(name) {
+	if !contractv1.ValidSecretName(name) {
 		return "", fmt.Errorf("%q isn't a secret's name", name)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, name))

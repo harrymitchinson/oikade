@@ -2,10 +2,12 @@
 // (docs/plugin-contract.md). It starts the plugin against a fake hub, an in-process MQTT broker
 // and Oikade's own decoder, and drives it through every topic of the contract.
 //
-//	oikade-conformance --devices FILE [--secrets DIR] [--plugin NAME] [--timeout D] [-v] -- COMMAND [ARG...]
+//	oikade-conformance --devices FILE [--secrets DIR] [--setup-replies FILE] [--plugin NAME]
+//	                   [--timeout D] [-v] -- COMMAND [ARG...]
 //
 // With --plugin, COMMAND is a home's binary and NAME a plugin it imports, which the suite drives
-// through the Go API instead of MQTT, as the host would.
+// through the Go API instead of MQTT, as the host would. A plugin with a setup has it run twice,
+// answered from --setup-replies, a JSON list of strings, in order, and then with empty answers.
 //
 // COMMAND starts the plugin, without a shell, in the current directory. A bare name is looked up
 // in PATH, so use ./my-plugin for one in the current directory. It must be the plugin itself, not
@@ -22,6 +24,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -42,13 +45,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("oikade-conformance", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintln(stderr, "Usage: oikade-conformance --devices FILE [--secrets DIR] [--plugin NAME] "+
-			"[--timeout D] [-v] -- COMMAND [ARG...]")
+		_, _ = fmt.Fprintln(stderr, "Usage: oikade-conformance --devices FILE [--secrets DIR] [--setup-replies FILE] "+
+			"[--plugin NAME] [--timeout D] [-v] -- COMMAND [ARG...]")
 		fs.PrintDefaults()
 	}
 	devices := fs.String("devices", "", "the devices.json to hand the plugin (required). It must declare "+
 		"at least one device the plugin can find without real hardware or credentials")
 	secrets := fs.String("secrets", "", "a directory to pass to the plugin as OIKADE_SECRETS_DIR")
+	setupReplies := fs.String("setup-replies", "",
+		"a JSON list of strings answering a setup's questions and pages, in order")
 	imported := fs.String("plugin", "", "check this plugin of a home's binary, through the Go API rather than MQTT")
 	timeout := fs.Duration("timeout", conformance.DefaultTimeout, "how long the plugin has to react at each step")
 	verbose := fs.Bool("v", false, "log what the decoder sees")
@@ -79,6 +84,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *secrets != "" {
 		if cfg.Secrets, err = filepath.Abs(*secrets); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
+			return 2
+		}
+	}
+	if *setupReplies != "" {
+		raw, err := os.ReadFile(*setupReplies)
+		if err == nil {
+			err = json.Unmarshal(raw, &cfg.SetupReplies)
+		}
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "--setup-replies: %v\n", err)
 			return 2
 		}
 	}

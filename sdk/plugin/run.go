@@ -56,6 +56,7 @@ func run(ctx context.Context, log *slog.Logger, o Options, newHandler Factory) i
 		return failed(err)
 	}
 	o.Environment, o.OnSet, o.Logger = env, h.Set, log
+	o.OnSetup = onSetup(h)
 	p, err := Start(ctx, o)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -65,6 +66,14 @@ func run(ctx context.Context, log *slog.Logger, o Options, newHandler Factory) i
 	}
 
 	return serve(ctx, log, h, p)
+}
+
+// onSetup is h's Setup, or nil if it has none.
+func onSetup(h Handler) func(context.Context, *Plugin, *Session) (string, error) {
+	if s, ok := h.(Setup); ok {
+		return s.Setup
+	}
+	return nil
 }
 
 // serve runs h until ctx ends, closes p, and returns the exit code.

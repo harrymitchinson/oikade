@@ -31,6 +31,8 @@ type Options struct {
 	// OnSet applies a command, then reports the result with SetState or UpdateState. Calls for one
 	// device never overlap, and their ctx ends when the plugin closes.
 	OnSet func(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
+	// OnSetup, if set, is the plugin's Setup, which oikade setup runs. Nil means it has none.
+	OnSetup func(ctx context.Context, p *Plugin, s *Session) (string, error)
 	// Logger defaults to JSON on stderr.
 	Logger *slog.Logger
 	// StartTimeout is how long Start waits to come online, so a wrong broker URL crashes the plugin
@@ -48,6 +50,7 @@ type Plugin struct {
 	clientID     string
 	log          *slog.Logger
 	onSet        func(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
+	onSetup      func(ctx context.Context, p *Plugin, s *Session) (string, error)
 	closeTimeout time.Duration
 
 	client link
@@ -84,6 +87,9 @@ type Plugin struct {
 	// plugin under the host counts as hung. Zero never does.
 	running    map[string]time.Time
 	setTimeout time.Duration
+	// needsSetup is published with the devices, and setup is the session in progress, if any.
+	needsSetup bool
+	setup      *running
 }
 
 // link is how a plugin reaches Oikade: a broker, or the host's socket.
@@ -119,6 +125,7 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	// Logged by internal/mqtt, which takes a *slog.Logger from the context.
 	life, stop := context.WithCancel(logging.NewContext(context.WithoutCancel(ctx), o.Logger))
 	p := newPlugin(root, o.Logger, o.OnSet, o.CloseTimeout, life, stop)
+	p.onSetup = o.OnSetup
 
 	startCtx, cancel := context.WithTimeout(ctx, o.StartTimeout)
 	defer cancel()
@@ -157,6 +164,13 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 			return timedOut()
 		}
 		return fail(fmt.Errorf("subscribing to %s: %w", root.SetFilter(), err))
+	}
+	// Subscribed with no setup too, so that a request for one is told there's none.
+	if _, err := client.Subscribe(startCtx, root.SetupIn(), p.receive); err != nil {
+		if startCtx.Err() != nil {
+			return timedOut()
+		}
+		return fail(fmt.Errorf("subscribing to %s: %w", root.SetupIn(), err))
 	}
 	close(p.ready)
 	select {
@@ -484,6 +498,10 @@ func (p *Plugin) announce(ctx context.Context) {
 
 // receive runs on the MQTT receive goroutine, so it only queues the command.
 func (p *Plugin) receive(m mqtt.Message) {
+	if m.Topic == p.root.SetupIn() {
+		p.receiveSetup(m)
+		return
+	}
 	cmd, ok, err := p.root.ParseSet(m.Topic, m.Payload)
 	if !ok {
 		return
@@ -591,7 +609,9 @@ func (p *Plugin) unlock() { <-p.pub }
 func (p *Plugin) publishStatus(ctx context.Context) error {
 	p.mu.Lock()
 	problem := p.problem
-	status := contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract, Error: problem}
+	status := contractv1.Status{
+		State: contractv1.Online, Contract: contractv1.Contract, Error: problem, Setup: p.onSetup != nil,
+	}
 	payload, err := json.Marshal(status)
 	p.mu.Unlock()
 	if err != nil {
@@ -610,7 +630,7 @@ func (p *Plugin) publishStatus(ctx context.Context) error {
 func (p *Plugin) publishDevices(ctx context.Context) error {
 	p.mu.Lock()
 	payload, err := json.Marshal(contractv1.Devices{
-		Devices: p.devices, Undeclared: p.undeclared, Discovered: p.discovered,
+		Devices: p.devices, Undeclared: p.undeclared, Discovered: p.discovered, NeedsSetup: p.needsSetup,
 	})
 	p.mu.Unlock()
 	if err != nil {

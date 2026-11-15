@@ -63,6 +63,9 @@ type Instance struct {
 	values   map[string]map[string]any // id -> capability -> value
 	rejected map[string]uint64
 	logged   map[string]bool // reason/id pairs already logged
+	// needsSetup is the devices report's, and sessions the setup sessions running, by name.
+	needsSetup bool
+	sessions   map[string]chan contractv1.SetupStep
 }
 
 type lastSeen struct {
@@ -246,8 +249,15 @@ func (i *Instance) handle(m mqtt.Message) {
 	if !ok {
 		return
 	}
-	if rest == "status" {
+	switch rest {
+	case "status":
 		i.handleStatus(m.Topic, m.Payload)
+		return
+	case "_setup/out":
+		i.handleSetup(m.Topic, m.Payload, m.Retained)
+		return
+	case "_setup/in":
+		// Our own requests.
 		return
 	}
 	id, sub, _ := strings.Cut(rest, "/")
@@ -303,15 +313,21 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		// Forget everything learned under a contract we may have misread. An empty, non-nil
 		// announcement reports every device as not found.
 		i.announced, i.values, i.last, i.discovered, i.undeclared = map[string]driver.Info{}, nil, nil, nil, 0
+		i.needsSetup = false
+		i.endSessionsLocked("the plugin speaks another contract")
 		events = append(events, i.discoveryLocked(), func() {
 			i.sendUndeclared(0)
 			i.Sink.Inventory(i.key(), nil)
 		})
 		events = append(events, i.allAvailabilityLocked(false))
 	case !up:
+		i.endSessionsLocked("the plugin went offline")
 		events = append(events, i.allAvailabilityLocked(false))
 	case !wasUp:
 		events = append(events, i.replayLocked())
+	}
+	if up && !s.Setup {
+		i.endSessionsLocked("the plugin no longer has a setup")
 	}
 	i.mu.Unlock()
 	switch {
@@ -354,6 +370,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 		i.announced[d.ID] = info
 	}
 	i.undeclared = max(msg.Undeclared, 0)
+	i.needsSetup = msg.NeedsSetup
 	i.discovered = i.validDiscoveredLocked(msg.Discovered, topic)
 	undeclared := i.undeclaredLocked()
 	inventory := i.inventoryLocked()

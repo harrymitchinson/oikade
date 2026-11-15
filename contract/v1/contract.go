@@ -143,6 +143,9 @@ type Status struct {
 	// Error is what's wrong with the plugin as a whole, such as a login its account refused, empty
 	// otherwise. It's for a problem no one device carries, as when there are no devices yet.
 	Error string `json:"error,omitempty"`
+	// Setup is true when the plugin has a setup that oikade setup can run, over SetupIn and
+	// SetupOut.
+	Setup bool `json:"setup,omitempty"`
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`)
@@ -161,6 +164,9 @@ type Devices struct {
 	// plugin doesn't discover devices; an empty list means its app has none. A device leaving the
 	// list means it was removed from its app, not that it's offline.
 	Discovered []DiscoveredDevice `json:"discovered,omitzero"`
+	// NeedsSetup is true while the plugin can't serve its devices until someone runs its setup,
+	// such as one with no credentials yet. Only a plugin whose Status has Setup sets it.
+	NeedsSetup bool `json:"needsSetup,omitempty"`
 }
 
 // DiscoveredDevice is one device the plugin sees in its app.
