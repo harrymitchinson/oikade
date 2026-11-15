@@ -7,7 +7,9 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -37,6 +39,8 @@ type Bridge struct {
 	Store  *hub.Store
 	// Writes takes writes from controllers.
 	Writes *Coalescer
+	// Clock times how long a move takes to settle; nil is the real clock.
+	Clock clock.Clock
 
 	mu        sync.Mutex
 	endpoints map[uint16]*endpoint
@@ -77,9 +81,45 @@ func (b *Bridge) Restore(dev ident.ID, name string, otherwise any) {
 			v = known
 		}
 	}
-	if v != nil {
-		b.Changed(driver.Update{Device: dev, Capability: name, Value: v})
+	b.mu.Lock()
+	e := b.byDevice[dev]
+	b.mu.Unlock()
+	if v != nil && b.Writes != nil {
+		b.Writes.Reported(dev, name)
 	}
+	if e == nil {
+		return
+	}
+	// One update, so a subscriber never sees the move cancelled without its value back.
+	b.Matter.Node.Update(func() {
+		// A blind that hasn't reported has no position to show: Current comes only from reports.
+		if e.mapped.Cancel(name) && v == otherwise {
+			return
+		}
+		if v != nil {
+			e.mapped.Update(name, v)
+		}
+	})
+}
+
+// after runs f under the node's lock once d has passed on the bridge's clock, unless stop is called
+// first.
+func (b *Bridge) after(d time.Duration, f func()) (stop func()) {
+	c := b.Clock
+	if c == nil {
+		c = clock.Real{}
+	}
+	t := c.NewTimer(d)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-t.C():
+			b.Matter.Node.Update(f)
+		case <-done:
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { t.Stop(); close(done) }) }
 }
 
 // Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose device
@@ -129,6 +169,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		d := want[id]
 		e := &endpoint{signature: d.Signature(), label: Label(d.Name), absent: d.Absent}
 		e.key.Store(&d.Key)
+		d.After = b.after
 		e.mapped = Map(d, func(name string, value any) { b.Writes.Add(e.device(), name, value) })
 		info, err := b.Matter.AddDeviceTypes(id, e.mapped.Types, e.label, d.uniqueID(), e.mapped.Clusters...)
 		if err != nil {

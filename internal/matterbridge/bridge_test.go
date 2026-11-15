@@ -3,8 +3,10 @@ package matterbridge
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -197,5 +199,44 @@ func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
 	}
 	if !reachable() {
 		t.Error("the device stayed unreachable")
+	}
+}
+
+// A blind's move stops showing as moving once it has had position's settle, on the bridge's clock,
+// even if the blind never reports getting there.
+func TestABlindsMoveSettlesOnTheBridgesClock(t *testing.T) {
+	b := newBridgeRig()
+	fake := clock.NewFake(time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC))
+	b.Clock = fake
+	apply(t, b, device("blind", 2, capability.Position))
+	b.Changed(driver.Update{Device: ident.ID{Name: "blind"}, Capability: capability.Position, Value: 10.0})
+	status := func() any {
+		var v any
+		b.Matter.Node.View(func() { v = readAttr(t, b.Matter.Node.Endpoint(2), clusters.IDWindowCovering, 0x000A) })
+		return v
+	}
+	b.Matter.Node.Update(func() {
+		c := b.Matter.Node.Endpoint(2).Cluster(clusters.IDWindowCovering)
+		for _, x := range c.Commands {
+			if x.ID == clusters.CommandDownOrClose {
+				if _, err := x.Invoke(nil, nil); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+	})
+	if status() == uint64(0) {
+		t.Fatal("the blind isn't moving after DownOrClose")
+	}
+	fake.Step(capability.SettleOf(capability.Position) - time.Second)
+	time.Sleep(20 * time.Millisecond)
+	if status() == uint64(0) {
+		t.Fatal("the move settled early")
+	}
+	fake.Step(time.Second)
+	for deadline := time.Now().Add(5 * time.Second); status() != uint64(0); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("OperationalStatus %v after the settle, want stopped", status())
+		}
 	}
 }

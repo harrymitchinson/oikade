@@ -175,7 +175,7 @@ Oikade isn't a general-purpose hub. It has no Home Assistant driver and no UI fo
 - **Homebridge as a driver.** It would make Homebridge the source of device identity ([OIK-61](https://linear.app/oikade/issue/OIK-61)).
 - **Go `plugin` or WASM plugins.** The first needs CGO, and neither can do LAN multicast usefully.
 - **Configuration from a UI.** Your automations are code, and the Zigbee2MQTT web UI is yours.
-- **Device types the Home app can't use over Matter.** On iOS 27.2, valves, garage doors and other closures, plain doorbells and TVs show as an icon with no controls, and Matter has no security system type ([OIK-101](https://linear.app/oikade/issue/OIK-101)).
+- **Device types the Home app can't use over Matter.** On iOS 27.2, valves, garage doors and closures other than window coverings and locks, plain doorbells and TVs show as an icon with no controls, and Matter has no security system type ([OIK-101](https://linear.app/oikade/issue/OIK-101)).
 
 ## License
 
