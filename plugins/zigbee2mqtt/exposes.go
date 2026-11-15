@@ -45,6 +45,8 @@ const (
 	exposeNumeric = "numeric"
 	exposeLight   = "light"
 	exposeSwitch  = "switch"
+	exposeCover   = "cover"
+	exposeLock    = "lock"
 	featureState  = "state"
 )
 
@@ -58,8 +60,28 @@ type binding struct {
 	invert bool
 	// scale is the raw maximum that maps to 100% (brightness).
 	scale float64
+	// reverse is a percentage the other way round: Oikade's is 100 minus Zigbee2MQTT's (position,
+	// which Zigbee2MQTT has at 100 when open).
+	reverse bool
+	// states read an enum property as a bool (a lock's lock_state). A /set or /get names setProperty
+	// instead, with valueOn or valueOff, since Zigbee2MQTT has no converter for lock_state.
+	states      map[string]bool
+	setProperty string
 	// get is whether the property can be read with a /get.
 	get bool
+}
+
+// lockStates are a lock's lock_state: only a bolt that's fully thrown is locked. Any other value,
+// such as a firmware's own or an empty one, isn't, so a jammed lock never reads locked.
+var lockStates = map[string]bool{"locked": true}
+
+// setter is the binding as a /set or /get names it: setProperty, if it has one, with valueOn or
+// valueOff.
+func (b binding) setter() binding {
+	if b.setProperty != "" {
+		b.property, b.states, b.setProperty = b.setProperty, nil, ""
+	}
+	return b
 }
 
 // bindings derives capability bindings from a device's exposes. Endpoint-specific features
@@ -91,6 +113,15 @@ func bindings(exposes []expose) []binding {
 					out = append(out, binding{capability: capability.On, property: f.Property, valueOn: f.ValueOn, valueOff: f.ValueOff, get: f.gettable()})
 				}
 			}
+		case exposeCover:
+			// A cover with no position only opens and closes, which position can't say.
+			for _, f := range e.Features {
+				if f.Endpoint == "" && f.Name == "position" && f.Type == exposeNumeric {
+					out = append(out, binding{capability: capability.Position, property: f.Property, reverse: true, get: f.gettable()})
+				}
+			}
+		case exposeLock:
+			out = append(out, lockBindings(e.Features)...)
 		case exposeNumeric:
 			if c, ok := numeric[e.Name]; ok {
 				out = append(out, binding{capability: c, property: e.Property, get: e.gettable()})
@@ -112,6 +143,31 @@ func bindings(exposes []expose) []binding {
 		seen[b.capability] = true
 		return dup
 	})
+}
+
+// lockBindings binds locked to a lock's state, which a /set writes LOCK or UNLOCK to. It's read from
+// lock_state where the lock has one, since state says what it was told, and lock_state where the
+// bolt is.
+func lockBindings(features []expose) []binding {
+	var state, lockState *expose
+	for i, f := range features {
+		switch {
+		case f.Endpoint != "":
+		case f.Name == featureState && f.Type == exposeBinary:
+			state = &features[i]
+		case f.Name == "lock_state":
+			lockState = &features[i]
+		}
+	}
+	if state == nil {
+		return nil
+	}
+	b := binding{capability: capability.Locked, property: state.Property, valueOn: state.ValueOn, valueOff: state.ValueOff, get: state.gettable()}
+	if lockState != nil {
+		// A /get of state reads the lock, which reports lock_state with it.
+		b.property, b.states, b.setProperty = lockState.Property, lockStates, state.Property
+	}
+	return []binding{b}
 }
 
 // deviceType is what a device is, from the expose it's switched by: the first at its root with a
@@ -153,6 +209,18 @@ var numeric = map[string]string{
 func (b binding) decode(raw any) (any, error) {
 	var v any
 	switch {
+	case b.states != nil:
+		s, ok := raw.(string)
+		if !ok {
+			return capability.Validate(b.capability, raw)
+		}
+		v = b.states[s]
+	case b.reverse:
+		f, ok := raw.(float64)
+		if !ok {
+			return capability.Validate(b.capability, raw)
+		}
+		v = 100 - f
 	case b.scale > 0:
 		f, ok := raw.(float64)
 		if !ok {
@@ -183,6 +251,8 @@ func (b binding) decode(raw any) (any, error) {
 // encode converts a canonical value to the raw property value for a /set payload.
 func (b binding) encode(v any) any {
 	switch {
+	case b.reverse:
+		return int(roundTo(100-capability.Float(v), 0))
 	case b.scale > 0:
 		return int(roundTo(capability.Float(v)*b.scale/100, 0))
 	case b.valueOn != nil:
