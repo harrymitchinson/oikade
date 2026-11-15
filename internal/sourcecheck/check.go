@@ -9,7 +9,7 @@ import (
 	"golang.org/x/tools/go/analysis/checker"
 	"golang.org/x/tools/go/packages"
 
-	"github.com/harrymitchinson/oikade/internal/chaincheck"
+	"github.com/harrymitchinson/oikade/internal/discardcheck"
 	"github.com/harrymitchinson/oikade/internal/flowcheck"
 )
 
@@ -31,7 +31,7 @@ func Check(dir string, env []string) ([]string, error) {
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("loading the module: %w", errors.Join(errs...))
 	}
-	graph, err := checker.Analyze([]*analysis.Analyzer{flowcheck.Analyzer, chaincheck.Analyzer}, pkgs, nil)
+	graph, err := checker.Analyze([]*analysis.Analyzer{flowcheck.Analyzer, discardcheck.Analyzer}, pkgs, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -66,7 +66,7 @@ func home() framework.Home {
 
 `devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.On`, for [rooms](docs/automations.md#rooms).
 
-`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a rule's chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
+`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a `Set`, rule or other framework value that's built and thrown away, such as `HallLamp.On.To(true)` without `r.Set`, or a chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
 
 `oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
 

@@ -41,7 +41,7 @@ Everything that happens outside the flow, or varies between runs, is a step on i
 | `r.Now()` | The time, instead of `time.Now` |
 | `r.Sleep(d)` | Waits. A restart doesn't move the time it ends |
 | `r.WaitFor(cond, timeout)` | Waits until `cond` is true and returns true, or returns false at the timeout. Zero means no limit |
-| `r.Set(Hallway.On.To(true))` | Writes a capability. On an arbitrated one it's a claim, which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()` |
+| `r.Set(Hallway.On.To(true))` | Writes a capability. On an arbitrated one it's a claim, which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()`. `Hallway.On.To(true)` alone writes nothing, and fails `oikade check` |
 | `r.Release(rule)` | Ends a rule's claims, and a hold's latch |
 | `r.Do(name, &result, call)` | Makes an outside call, and records its result and error |
 

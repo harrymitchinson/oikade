@@ -1,4 +1,4 @@
-package chaincheck
+package discardcheck
 
 import (
 	"reflect"
@@ -15,4 +15,11 @@ func TestItNamesTheRealFramework(t *testing.T) {
 	}
 	var _ = framework.Hold.OffDelay
 	var _ = framework.Set.For
+	// why names these, by what takes each.
+	var _ = (*framework.FlowRun).Set
+	var _ = framework.NewHome
+	var _ = framework.NewBundle
+	var _ = framework.Run
+	var _ = []framework.Part{framework.Hold{}, framework.Moment{}, framework.Flow{}, framework.Control{},
+		framework.Plugin{}, framework.Bundle{}}
 }

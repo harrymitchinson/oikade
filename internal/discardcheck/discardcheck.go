@@ -1,0 +1,95 @@
+// Package discardcheck rejects a call that builds a framework value and throws it away. Everything
+// in the framework that returns one of its own types is a constructor or a chained method: it makes
+// a value and does nothing else, and the value only acts once it's passed on, as a Set to r.Set or a
+// rule, or a rule to NewHome. Left as a statement, it's lost, and nothing else would say so.
+package discardcheck
+
+import (
+	"fmt"
+	"go/ast"
+	"go/types"
+
+	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/types/typeutil"
+)
+
+const frameworkPath = "github.com/harrymitchinson/oikade/framework"
+
+// Analyzer reports a call of a framework function or method that discards the framework value it
+// returns.
+var Analyzer = &analysis.Analyzer{
+	Name: "discardcheck",
+	Doc:  "reject a framework value, such as a Set or a rule, that's built and thrown away",
+	Run:  run,
+}
+
+func run(pass *analysis.Pass) (any, error) {
+	for _, file := range pass.Files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch s := n.(type) {
+			case *ast.ExprStmt:
+				if call, ok := ast.Unparen(s.X).(*ast.CallExpr); ok {
+					check(pass, call)
+				}
+			case *ast.DeferStmt:
+				check(pass, s.Call)
+			case *ast.GoStmt:
+				check(pass, s.Call)
+			}
+			return true
+		})
+	}
+	return nil, nil
+}
+
+// check reports call, whose result nothing uses, if it returns a framework value. It points at the
+// function's name, as a chain usually spans several lines.
+func check(pass *analysis.Pass, call *ast.CallExpr) {
+	fn, _ := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
+	if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != frameworkPath {
+		return
+	}
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Results().Len() != 1 {
+		return
+	}
+	result := frameworkType(sig.Results().At(0).Type())
+	if result == nil {
+		return
+	}
+	pos := call.Pos()
+	if sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok {
+		pos = sel.Sel.Pos()
+	}
+	pass.Reportf(pos, "the result of %s isn't used, so it does nothing: %s", fn.Name(), why(sig, result))
+}
+
+// frameworkType returns t if it's a type the framework declares, or an instance of one.
+func frameworkType(t types.Type) *types.Named {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return nil
+	}
+	obj := named.Origin().Obj()
+	if obj.Pkg() == nil || obj.Pkg().Path() != frameworkPath {
+		return nil
+	}
+	return named
+}
+
+// why says what would have used a result of type result, from a function of type sig.
+func why(sig *types.Signature, result *types.Named) string {
+	name := result.Origin().Obj().Name()
+	if sig.Recv() != nil && types.Identical(sig.Recv().Type(), result) {
+		return fmt.Sprintf("%s's methods return a new value", name)
+	}
+	switch name {
+	case "Set":
+		return "a Set does nothing until r.Set or a rule takes it"
+	case "Hold", "Moment", "Flow", "Control", "Plugin", "Bundle":
+		return fmt.Sprintf("a %s does nothing until NewHome or NewBundle takes it", name)
+	case "Home":
+		return "a Home does nothing until framework.Run takes it"
+	}
+	return fmt.Sprintf("a %s does nothing until something takes it", name)
+}
