@@ -433,12 +433,25 @@ func (e *Engine) MatterWrote(dev ident.ID, name string, value any) {
 	e.bridgeWrote(SourceMatter, dev, name, value)
 }
 
-// ForgetWrite undoes MatterWrote or CommandWrote for a write that never reached the device, so the
-// device's next report isn't taken for it.
-func (e *Engine) ForgetWrite(dev ident.ID, name string) {
+// ForgetMatterWrite undoes MatterWrote for a write that never reached the device, so the device's
+// next report isn't taken for it.
+func (e *Engine) ForgetMatterWrite(dev ident.ID, name string) {
+	e.forgetWriteOf(SourceMatter, dev, name)
+}
+
+// ForgetCommandWrite undoes CommandWrote, as ForgetMatterWrite does MatterWrote.
+func (e *Engine) ForgetCommandWrite(dev ident.ID, name string) {
+	e.forgetWriteOf(SourceCommand, dev, name)
+}
+
+// forgetWriteOf forgets the write to a capability if it's still source's: one from elsewhere since
+// is still on its way.
+func (e *Engine) forgetWriteOf(source string, dev ident.ID, name string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.forgetBridgeWrite(dev, name)
+	if w, ok := e.bridgeWrites[dev][name]; ok && w.source == source {
+		e.forgetBridgeWrite(dev, name)
+	}
 }
 
 // CommandWrote records that oikade is writing value to an arbitrated capability, which

@@ -34,6 +34,14 @@ func (s *apiServer) rulesInfo() (rules []wire.RuleInfo, known bool) {
 	return rules, known || none && !attached
 }
 
+// unknownRules says why rulesInfo can't say what the rules are.
+func (s *apiServer) unknownRules() string {
+	if _, _, busy := s.deploys.state(); busy {
+		return "a deploy is under way and no process has said"
+	}
+	return "no process is connected"
+}
+
 func (s *apiServer) status() api.Response {
 	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}}
 	v, ok, busy := s.deploys.state()
@@ -178,7 +186,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	defer stop()
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
 	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
-		s.srv.engine.ForgetWrite(dev, req.Capability)
+		s.srv.engine.ForgetCommandWrite(dev, req.Capability)
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, events)}
@@ -335,7 +343,7 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 	case req.AllowSafety:
 	case !known:
 		// In an emergency a process may be down, which is no reason to guess it isn't a Safety rule.
-		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: no process is connected", req.Rule)}
+		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: %s", req.Rule, s.unknownRules())}
 	case rules[i].Safety:
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a Safety rule, so pausing it stops that protection", req.Rule)}
 	case s.srv.engine.RuleClaims()[req.Rule] == control.Safety:

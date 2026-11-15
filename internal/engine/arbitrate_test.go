@@ -412,11 +412,25 @@ func (r *rig) matter(dev, c string, v any) {
 func TestAMatterWriteThatFailedLeavesTheDevicesReportItsOwn(t *testing.T) {
 	r := railRig(t)
 	r.matter("towel-rail", capability.On, true)
-	r.e.ForgetWrite(ident.ID{Name: "towel-rail"}, capability.On)
+	r.e.ForgetMatterWrite(ident.ID{Name: "towel-rail"}, capability.On)
 	r.clock.Step(2 * time.Second)
 	r.change("towel-rail", capability.On, true)
 	if w := winner(r.status("towel-rail", capability.On)); w != "Device Override" {
 		t.Errorf("winner %q, want the device's own", w)
+	}
+}
+
+// A failed oikade set forgets its own write, not a Matter one made since, which is still on its way.
+func TestAFailedCommandLeavesAMatterWriteMadeSince(t *testing.T) {
+	r := railRig(t)
+	dev := ident.ID{Name: "towel-rail"}
+	r.e.CommandWrote(dev, capability.On, true)
+	r.matter("towel-rail", capability.On, true)
+	r.e.ForgetCommandWrite(dev, capability.On)
+	r.clock.Step(2 * time.Second)
+	r.change("towel-rail", capability.On, true)
+	if w := winner(r.status("towel-rail", capability.On)); w != "Matter Override" {
+		t.Errorf("winner %q, want Matter's", w)
 	}
 }
 

@@ -340,7 +340,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	}
 	err := w.setter.Set(ctx, dev, name, value)
 	if err != nil {
-		w.engine.ForgetWrite(dev, name)
+		w.engine.ForgetMatterWrite(dev, name)
 		w.restore(dev, name, nil)
 		return err
 	}

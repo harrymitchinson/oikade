@@ -513,7 +513,7 @@ func (s *apiServer) device(req api.Request) api.Response {
 			// As a pause: a process that's down is no reason to guess its code has no Safety rule.
 			return api.Response{
 				Error: fmt.Sprintf("can't tell whether running code has a Safety rule, which would lose track of %s "+
-					"until you deploy", req.Device),
+					"until you deploy: %s", req.Device, s.unknownRules()),
 				NeedsAllowSafety: true,
 			}
 		}
@@ -551,7 +551,8 @@ func (s *apiServer) device(req api.Request) api.Response {
 			}
 		case !known:
 			return api.Response{
-				Error:            fmt.Sprintf("can't tell whether running code has a Safety rule that writes to %s by its type", req.Device),
+				Error: fmt.Sprintf("can't tell whether running code has a Safety rule that writes to %s by its type: %s",
+					req.Device, s.unknownRules()),
 				NeedsAllowSafety: true,
 			}
 		}
