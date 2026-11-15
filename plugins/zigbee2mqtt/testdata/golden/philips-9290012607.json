@@ -1,0 +1,90 @@
+{
+  "manufacturer": "Philips",
+  "model": "9290012607",
+  "device_type": "",
+  "capabilities": [
+    "occupied",
+    "temperature",
+    "battery",
+    "link-quality"
+  ],
+  "bindings": [
+    {
+      "capability": "occupied",
+      "property": "occupancy",
+      "get": false
+    },
+    {
+      "capability": "temperature",
+      "property": "temperature",
+      "get": false
+    },
+    {
+      "capability": "battery",
+      "property": "battery",
+      "get": false
+    },
+    {
+      "capability": "link-quality",
+      "property": "linkquality",
+      "get": false
+    }
+  ],
+  "states": [
+    {
+      "changes": {
+        "battery": 100,
+        "link-quality": 87,
+        "occupied": true,
+        "temperature": 21.4
+      }
+    },
+    {
+      "changes": {
+        "link-quality": 84,
+        "occupied": false,
+        "temperature": 21.5
+      }
+    },
+    {
+      "changes": {
+        "battery": 99
+      },
+      "invalid": {
+        "temperature": "temperature takes a number, got <nil>"
+      }
+    }
+  ],
+  "commands": [],
+  "matter": {
+    "device_types": [
+      "0x0107",
+      "0x0302",
+      "0x0011"
+    ],
+    "attributes": {
+      "0x002f": {
+        "0x0000": 1,
+        "0x0001": 0,
+        "0x0002": "Battery",
+        "0x000c": 198,
+        "0x000e": 0,
+        "0x000f": false,
+        "0x0010": 1,
+        "0x001f": [
+          3
+        ]
+      },
+      "0x0402": {
+        "0x0000": 2150,
+        "0x0001": -10000,
+        "0x0002": 10000
+      },
+      "0x0406": {
+        "0x0000": 0,
+        "0x0001": 0,
+        "0x0002": 1
+      }
+    }
+  }
+}

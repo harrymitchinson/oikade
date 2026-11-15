@@ -1,0 +1,99 @@
+{
+  "source": "hand-written",
+  "device": {
+    "ieee_address": "0x0000000000000001",
+    "friendly_name": "0x0000000000000001",
+    "type": "Router",
+    "definition": {
+      "vendor": "IKEA",
+      "model": "LED1545G12",
+      "exposes": [
+        {
+          "type": "light",
+          "features": [
+            {
+              "type": "binary",
+              "name": "state",
+              "property": "state",
+              "value_on": "ON",
+              "value_off": "OFF",
+              "value_toggle": "TOGGLE",
+              "access": 7
+            },
+            {
+              "type": "numeric",
+              "name": "brightness",
+              "property": "brightness",
+              "value_min": 0,
+              "value_max": 254,
+              "access": 7
+            },
+            {
+              "type": "numeric",
+              "name": "color_temp",
+              "property": "color_temp",
+              "value_min": 250,
+              "value_max": 454,
+              "access": 7
+            }
+          ]
+        },
+        {
+          "type": "enum",
+          "name": "effect",
+          "property": "effect",
+          "values": [
+            "blink",
+            "breathe"
+          ],
+          "access": 2
+        },
+        {
+          "type": "numeric",
+          "name": "linkquality",
+          "property": "linkquality",
+          "value_min": 0,
+          "value_max": 255,
+          "access": 1
+        }
+      ]
+    }
+  },
+  "states": [
+    {
+      "state": "ON",
+      "brightness": 254,
+      "color_temp": 370,
+      "linkquality": 120
+    },
+    {
+      "state": "OFF",
+      "brightness": 254,
+      "color_temp": 370,
+      "linkquality": 116
+    },
+    {
+      "brightness": 127,
+      "linkquality": 118
+    },
+    {
+      "state": "ON",
+      "brightness": "127"
+    }
+  ],
+  "commands": [
+    {
+      "state": "ON"
+    },
+    {
+      "brightness": 127
+    },
+    {
+      "state": "TOGGLE"
+    },
+    {
+      "brightness_step": -40,
+      "transition": 2
+    }
+  ]
+}

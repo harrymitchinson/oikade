@@ -1,0 +1,58 @@
+{
+  "manufacturer": "Aqara",
+  "model": "MCCGQ11LM",
+  "device_type": "",
+  "capabilities": [
+    "open",
+    "battery"
+  ],
+  "bindings": [
+    {
+      "capability": "open",
+      "property": "contact",
+      "get": false
+    },
+    {
+      "capability": "battery",
+      "property": "battery",
+      "get": false
+    }
+  ],
+  "states": [
+    {
+      "changes": {
+        "battery": 91,
+        "open": false
+      }
+    },
+    {
+      "changes": {
+        "open": true
+      }
+    }
+  ],
+  "commands": [],
+  "matter": {
+    "device_types": [
+      "0x0015",
+      "0x0011"
+    ],
+    "attributes": {
+      "0x002f": {
+        "0x0000": 1,
+        "0x0001": 0,
+        "0x0002": "Battery",
+        "0x000c": 182,
+        "0x000e": 0,
+        "0x000f": false,
+        "0x0010": 1,
+        "0x001f": [
+          3
+        ]
+      },
+      "0x0045": {
+        "0x0000": false
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "manufacturer": "SONOFF",
+  "model": "ZBMINI",
+  "device_type": "",
+  "capabilities": [
+    "on"
+  ],
+  "bindings": [
+    {
+      "capability": "on",
+      "property": "state",
+      "get": true
+    }
+  ],
+  "states": [
+    {
+      "changes": {
+        "on": false
+      }
+    }
+  ],
+  "commands": [
+    {
+      "values": {},
+      "invalid": {
+        "on": "on takes a bool, got string"
+      }
+    }
+  ],
+  "matter": {
+    "device_types": [
+      "0x010a"
+    ],
+    "attributes": {
+      "0x0006": {
+        "0x0000": false
+      }
+    }
+  }
+}
