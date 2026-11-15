@@ -458,3 +458,41 @@ func TestMovingASensorChangesAHoldThatReadsItsRoom(t *testing.T) {
 		t.Errorf("got warning %q from the garage, which no hold reads", moved.Warning)
 	}
 }
+
+// Removing the last device in a room a hold reads warns as a move does (OIK-229).
+func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.stdout(nil, "devices", "room", "damp-sensor", "cellar")
+	r.wrote("dehumidifier", true)
+
+	// The warning is on stderr, and the remove still happens.
+	stderr, err := r.oikade(nil, "devices", "remove", "damp-sensor")
+	if err != nil || !strings.Contains(stderr, "Warning:") || !strings.Contains(stderr, "cellar-damp") {
+		t.Errorf("got %v: %q, want a warning naming cellar-damp", err, stderr)
+	}
+	for _, d := range r.devices().Devices {
+		if d.Name == "damp-sensor" && !d.Removed {
+			t.Errorf("damp-sensor is still on record: %+v", d)
+		}
+	}
+
+	// --json has it as warning.
+	r.stdout(nil, "devices", "room", "dry-sensor", "cellar")
+	var removed struct {
+		OK      bool     `json:"ok"`
+		Warning string   `json:"warning"`
+		Removed []string `json:"removed"`
+	}
+	if err := json.Unmarshal(r.stdout(nil, "devices", "remove", "dry-sensor", "--json"), &removed); err != nil {
+		t.Fatal(err)
+	}
+	if !removed.OK || !strings.Contains(removed.Warning, "cellar-damp") || !strings.Contains(removed.Warning, "cellar") {
+		t.Errorf("got %+v, want a warning naming cellar-damp and the cellar", removed)
+	}
+	// Out of a room no hold reads, it says nothing.
+	if stderr, err := r.oikade(nil, "devices", "remove", "fan"); err != nil || strings.Contains(stderr, "Warning") {
+		t.Errorf("got %v: %q from a room no hold reads", err, stderr)
+	}
+}

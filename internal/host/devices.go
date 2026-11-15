@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -278,20 +279,17 @@ func (i *inventory) rename(name, to string) error {
 	return nil
 }
 
-// move puts a device in a room, and returns the room it was in.
-func (i *inventory) move(name, room string) (from string, err error) {
+// move puts a device in a room.
+func (i *inventory) move(name, room string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if d, ok := i.registry.Get(name); ok {
-		from = d.Room
-	}
 	if err := i.registry.Move(name, room); err != nil {
-		return "", err
+		return err
 	}
 	i.sync()
 	i.announce(key(name))
 	i.log.Info("Moved device", "device", name, "room", room)
-	return from, nil
+	return nil
 }
 
 // setType says what a device is. The Matter bridge rebuilds its endpoint, on the same ID.
@@ -556,17 +554,11 @@ func (s *apiServer) device(req api.Request) api.Response {
 				NeedsAllowSafety: true,
 			}
 		}
-		err = s.devices.setType(req.Device, req.DeviceType)
+		return s.retype(req.Device, req.DeviceType)
 	case api.TypeDeviceReserve:
 		err = s.devices.reserve(req.Device, req.Room)
 	case api.TypeDeviceRemove:
-		if req.Plugin != "" {
-			if req.Device != "" {
-				return api.Response{Error: "a remove takes a device or a plugin, not both"}
-			}
-			return s.devices.removePlugin(s.ctx, req.Plugin, req.AllowSafety)
-		}
-		return s.devices.remove(s.ctx, req.Device, req.AllowSafety)
+		return s.remove(req)
 	case api.TypeDeviceReplace:
 		err = s.devices.replace(req.Device, req.To)
 	case api.TypeDeviceRestore:
@@ -590,46 +582,85 @@ func (s *apiServer) device(req api.Request) api.Response {
 // move moves a device to a room. It warns when that leaves the room it was in with no devices a hold
 // reads there: the hold's when stops, and it keeps its state until one is back.
 func (s *apiServer) move(name, room string) api.Response {
-	from, err := s.devices.move(name, room)
-	if err != nil {
+	before := s.devices.store.Members()
+	if err := s.devices.move(name, room); err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	if from == "" || from == room {
-		return api.Response{}
-	}
-	rules := s.emptyReads(name, from, s.devices.store.Members())
-	if len(rules) == 0 {
-		return api.Response{}
-	}
-	return api.Response{Warning: fmt.Sprintf("%s has no devices now that %s read, so they keep their state "+
-		"until one is back in %s", from, strings.Join(rules, ", "), from)}
+	return api.Response{Warning: s.emptiedWarning(before)}
 }
 
-// emptyReads are the holds of the running process whose read of room moved took from it the last of
-// the devices it read there, among members, sorted by name. A read that was empty already isn't
-// the move's doing.
-func (s *apiServer) emptyReads(moved, room string, members map[string]hub.Member) []string {
-	empty := func(r engine.RoomRead) bool {
-		if r.Room != room || !members[moved].OfTypes(r.Types) {
-			return false
-		}
+// retype says what a device is, and warns as move does when that leaves its room with none of the
+// types a hold reads there.
+func (s *apiServer) retype(name string, t devicetype.Type) api.Response {
+	before := s.devices.store.Members()
+	if err := s.devices.setType(name, t); err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	return api.Response{Warning: s.emptiedWarning(before)}
+}
+
+// remove removes a device, or every device of a plugin, and warns as move does when that empties a
+// room a hold reads.
+func (s *apiServer) remove(req api.Request) api.Response {
+	if req.Plugin != "" && req.Device != "" {
+		return api.Response{Error: "a remove takes a device or a plugin, not both"}
+	}
+	before := s.devices.store.Members()
+	var resp api.Response
+	if req.Plugin != "" {
+		resp = s.devices.removePlugin(s.ctx, req.Plugin, req.AllowSafety)
+	} else {
+		resp = s.devices.remove(s.ctx, req.Device, req.AllowSafety)
+	}
+	if len(resp.Removed) > 0 {
+		resp.Warning = s.emptiedWarning(before)
+	}
+	return resp
+}
+
+// emptiedWarning says which rooms a change to the registry left with no devices a hold reads there,
+// and which holds, or is empty if it left none.
+func (s *apiServer) emptiedWarning(before map[string]hub.Member) string {
+	emptied := s.emptyReads(before, s.devices.store.Members())
+	rooms := slices.Sorted(maps.Keys(emptied))
+	warnings := make([]string, 0, len(rooms))
+	for _, room := range rooms {
+		warnings = append(warnings, fmt.Sprintf("%s has no devices now that %s read, so they keep their state "+
+			"until one is back in %s", room, strings.Join(emptied[room], ", "), room))
+	}
+	return strings.Join(warnings, "; ")
+}
+
+// emptyReads are the holds of the running process with a read of a room that had devices of the
+// read's types among before and has none among after, by room, each sorted by name. A read that was
+// empty already isn't the change's doing.
+func (s *apiServer) emptyReads(before, after map[string]hub.Member) map[string][]string {
+	covers := func(members map[string]hub.Member, r engine.RoomRead) bool {
 		for _, m := range members {
-			if m.Room == room && m.OfTypes(r.Types) {
-				return false
+			if m.Room == r.Room && m.OfTypes(r.Types) {
+				return true
 			}
 		}
-		return true
+		return false
 	}
 	s.srv.mu.Lock()
 	defer s.srv.mu.Unlock()
-	var out []string
+	out := map[string][]string{}
 	if sess := s.srv.session; sess != nil {
 		for rule, reads := range sess.reads {
-			if slices.ContainsFunc(reads, empty) {
-				out = append(out, rule)
+			rooms := map[string]bool{}
+			for _, r := range reads {
+				if r.Room != "" && covers(before, r) && !covers(after, r) {
+					rooms[r.Room] = true
+				}
+			}
+			for room := range rooms {
+				out[room] = append(out[room], rule)
 			}
 		}
 	}
-	slices.Sort(out)
+	for _, rules := range out {
+		slices.Sort(rules)
+	}
 	return out
 }
