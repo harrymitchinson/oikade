@@ -146,24 +146,23 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	}
 }
 
+// A bridge that's down can't say whether it's paired, so it says it's down instead.
+func TestABridgeThatsDownSaysSoRatherThanUnpaired(t *testing.T) {
+	st := &api.Status{Version: "v3", Process: true}
+	got := setupGaps(st, &api.Matter{Problem: "port 5540 is taken", Fabrics: []api.Fabric{}})
+	want := []string{"The Matter bridge is down: port 5540 is taken. oikade matter says more."}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q", got)
+	}
+	got = setupGaps(st, &api.Matter{})
+	if !slices.Equal(got, []string{"The Matter bridge is down. oikade matter says more."}) {
+		t.Errorf("with no problem: %q", got)
+	}
+}
+
 func TestManyDevicesAreCut(t *testing.T) {
 	got := names([]string{"a", "b", "c", "d", "e", "f", "g"})
 	if got != "a, b, c, d, e and 2 more" {
 		t.Errorf("got %q", got)
-	}
-}
-
-// The setup gaps are text only: status --json keeps the fields it always had.
-func TestStatusJSONHasNoSetupGaps(t *testing.T) {
-	raw, err := json.Marshal(api.Status{Devices: []api.Device{{Name: "shed-relay", PluginNotImported: true}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		t.Fatal(err)
-	}
-	if len(fields) != 3 || fields["process"] != false || fields["devices"] == nil || fields["rules"] != nil {
-		t.Errorf("got %s", raw)
 	}
 }

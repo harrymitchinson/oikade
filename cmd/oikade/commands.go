@@ -183,7 +183,13 @@ func setupGaps(st *api.Status, bridge *api.Matter) []string {
 	if undeployed(st) {
 		gaps = append(gaps, "No home deployed. Run oikade deploy from your home's module.")
 	}
-	if bridge != nil && len(bridge.Fabrics) == 0 {
+	// A bridge that's down may not know its controllers, so it's the one to fix first.
+	switch {
+	case bridge == nil:
+	case !bridge.Serving:
+		gaps = append(gaps, fmt.Sprintf("The Matter bridge is down%s. oikade matter says more.",
+			map[bool]string{true: "", false: ": " + bridge.Problem}[bridge.Problem == ""]))
+	case len(bridge.Fabrics) == 0:
 		gaps = append(gaps, "The Matter bridge has no controller. oikade matter says how to pair one.")
 	}
 	var problems, unimported []string
