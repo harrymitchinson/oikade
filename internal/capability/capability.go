@@ -56,7 +56,8 @@ const (
 	// Locked is true while a lock's bolt is fully thrown. A bolt partway, or jammed, isn't locked.
 	Locked = contractv1.Locked
 	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
-	// fully closed, as in Matter. Zigbee2MQTT's is the other way round, which its plugin inverts.
+	// fully closed, as in Matter. A driver whose platform is the other way round, as Zigbee2MQTT's
+	// is, inverts it.
 	Position = contractv1.Position
 )
 
@@ -134,8 +135,8 @@ const DefaultSettle = 5 * time.Second
 
 // SettleOf is how long a write to the capability settles: its Settle, or DefaultSettle.
 func SettleOf(name string) time.Duration {
-	if s := registry[name].Settle; s > 0 {
-		return s
+	if s, ok := Lookup(name); ok && s.Settle > 0 {
+		return s.Settle
 	}
 	return DefaultSettle
 }

@@ -53,11 +53,12 @@ const (
 // settles in the default 5 s.
 const bridgeSlack = 25 * time.Second
 
-// bridgeWrite is a bridge's write, waiting for the device to report it until it expires.
+// bridgeWrite is a bridge's write, waiting for the device to report it until it expires. Until it
+// has settled, the device's other reports are it catching up, as for the engine's own writes.
 type bridgeWrite struct {
-	source  string
-	value   float64
-	expires time.Time
+	source           string
+	value            float64
+	settled, expires time.Time
 }
 
 // NewControlLevelGauge returns the gauge Engine.ControlLevel expects.
@@ -295,7 +296,7 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	case ok && reported && !st.Known:
 		// The device reported before the arbiter knew it, as on a first start.
 		ar.a.Wrote(capability.Float(v))
-	case ar.dropped && !now.Before(ar.wrote.Add(capability.SettleOf(name))):
+	case ar.dropped && !now.Before(e.settles(dev, name, ar)):
 		// A report ignored while the write settled may have been a real change.
 		ar.dropped = false
 		if f := capability.Float(v); reported && f != st.Value {
@@ -305,7 +306,7 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	d := ar.a.Decide()
 	ar.d, ar.next = d, d.Next
 	if ar.dropped {
-		ar.next = earliestOf(ar.next, ar.wrote.Add(capability.SettleOf(name)))
+		ar.next = earliestOf(ar.next, e.settles(dev, name, ar))
 	}
 	e.markSave(dev)
 	e.reportControl(dev)
@@ -395,11 +396,11 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	case ar.lost && !ar.writing:
 		ar.lost = false
 		ar.a.Wrote(v)
-	case ar.writing || e.Clock.Now().Sub(ar.wrote) < capability.SettleOf(u.Capability):
+	case ar.writing || e.settling(u.Device, u.Capability, ar, v):
 		e.Log.Debug("Ignored report while a write settles", "device", u.Device, "capability", u.Capability, "value", u.Value)
 		ar.dropped = true
 		if !ar.writing {
-			ar.next = earliestOf(ar.next, ar.wrote.Add(capability.SettleOf(u.Capability)))
+			ar.next = earliestOf(ar.next, e.settles(u.Device, u.Capability, ar))
 			e.signal()
 		}
 		return
@@ -409,6 +410,28 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	e.decide(ctx, u.Device, u.Capability, ar)
 	// The decision may end later, as an Override does after overrideHold.
 	e.signal()
+}
+
+// settles is when the last write to a capability has settled: the engine's, or a bridge's on its way.
+// Call with e.mu held.
+func (e *Engine) settles(dev ident.ID, name string, ar *arb) time.Time {
+	t := ar.wrote.Add(capability.SettleOf(name))
+	if w, ok := e.bridgeWrites[dev][name]; ok && w.settled.After(t) {
+		t = w.settled
+	}
+	return t
+}
+
+// settling says a report of v is the device catching up with a write: within the settle of the
+// engine's last write, or of a bridge's write that v isn't, as a blind travels after a Home app
+// slider. The report a bridge's write is waiting for counts at once. Call with e.mu held.
+func (e *Engine) settling(dev ident.ID, name string, ar *arb, v float64) bool {
+	now := e.Clock.Now()
+	if now.Before(ar.wrote.Add(capability.SettleOf(name))) {
+		return true
+	}
+	w, ok := e.bridgeWrites[dev][name]
+	return ok && now.Before(w.settled) && !w.matches(v, now)
 }
 
 func (e *Engine) recordOutside(dev ident.ID, name string, ar *arb, v float64) {
@@ -472,7 +495,8 @@ func (e *Engine) bridgeWrote(source string, dev ident.ID, name string, value any
 			}
 		}
 	}
-	w := bridgeWrite{source: source, value: capability.Float(value), expires: now.Add(capability.SettleOf(name) + bridgeSlack)}
+	settle := capability.SettleOf(name)
+	w := bridgeWrite{source: source, value: capability.Float(value), settled: now.Add(settle), expires: now.Add(settle + bridgeSlack)}
 	if ar := e.arbs[dev][name]; ar != nil {
 		if st := ar.a.State(); st.Known && w.matches(st.Value, now) {
 			// The device already has it, so no change will come.

@@ -70,7 +70,7 @@ func TestEveryCapabilityButLinkQualityHasAMatterAttribute(t *testing.T) {
 		switch {
 		case name == LinkQuality && m != nil:
 			t.Errorf("%s has a Matter attribute", name)
-		case name == Position:
+		case name == Position && m == nil:
 		case name != LinkQuality && (m == nil || m.Cluster == "" || m.Attribute == "" || m.ClusterID == 0):
 			t.Errorf("%s has no Matter cluster and attribute: %+v", name, m)
 		}

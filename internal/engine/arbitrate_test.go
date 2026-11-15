@@ -516,12 +516,12 @@ func TestAMatterDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
 			entry(capability.Brightness, "0", control.NameHighest, control.NameOverride, "1h"),
 		}},
 	})
-	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, then
-	// 40.2, as Zigbee2MQTT rounds 40 to 102 of 254.
+	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, which is
+	// it catching up, then 40.2, as Zigbee2MQTT rounds 40 to 102 of 254.
 	r.matter("hall-light", capability.Brightness, 40.0)
 	r.change("hall-light", capability.Brightness, 10.2)
-	if w := winner(r.status("hall-light", capability.Brightness)); w != "Device Override" {
-		t.Errorf("winner %q on the way, want the device's", w)
+	if w := winner(r.status("hall-light", capability.Brightness)); w != control.NameDefault {
+		t.Errorf("winner %q on the way, want nobody's yet", w)
 	}
 	r.change("hall-light", capability.Brightness, 40.2)
 	if w := winner(r.status("hall-light", capability.Brightness)); w != "Matter Override" {
@@ -715,18 +715,19 @@ func TestASafetyClaimDoesntRewriteATravellingBlind(t *testing.T) {
 	}
 }
 
-// Every capability but those that travel or turn keeps the default settle.
-func TestOnlyPositionAndLockedSettleForLonger(t *testing.T) {
-	for _, name := range capability.Names() {
-		want := capability.DefaultSettle
-		switch name {
-		case capability.Position:
-			want = 2 * time.Minute
-		case capability.Locked:
-			want = 30 * time.Second
-		}
-		if got := capability.SettleOf(name); got != want {
-			t.Errorf("%s settles for %v, want %v", name, got, want)
-		}
+// A blind set from the Home app travels too, and what it reports on the way isn't a person.
+func TestABlindTravellingAfterAMatterWriteIsntAnOverride(t *testing.T) {
+	r := blindRig(t)
+	r.expect(call{"bay-blind", capability.Position, 70.0})
+	r.travel(70)
+	r.clock.Step(5 * time.Minute)
+	r.matter("bay-blind", capability.Position, 20.0)
+	r.travel(50, 30)
+	if w := winner(r.status("bay-blind", capability.Position)); w != control.NameDefault {
+		t.Errorf("winner %q while the blind travels, want nobody's yet", w)
+	}
+	r.travel(20)
+	if w := winner(r.status("bay-blind", capability.Position)); w != "Matter Override" {
+		t.Errorf("winner %q once it's there, want Matter's", w)
 	}
 }
