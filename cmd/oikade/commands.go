@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -191,6 +192,10 @@ func setupGaps(st *api.Status, bridge *api.Matter) []string {
 			map[bool]string{true: "", false: ": " + bridge.Problem}[bridge.Problem == ""]))
 	case len(bridge.Fabrics) == 0:
 		gaps = append(gaps, "The Matter bridge has no controller. oikade matter says how to pair one.")
+	}
+	// A plugin's own problem, such as a refused login, often explains its devices' problems.
+	for _, name := range slices.Sorted(maps.Keys(st.PluginProblems)) {
+		gaps = append(gaps, fmt.Sprintf("Plugin %s: %s", name, st.PluginProblems[name]))
 	}
 	var problems, unimported []string
 	for _, d := range st.Devices {

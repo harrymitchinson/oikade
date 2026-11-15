@@ -166,3 +166,19 @@ func TestManyDevicesAreCut(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// A plugin that says what's wrong with it, such as a refused login, says so before its devices do.
+func TestAPluginsProblemIsLeftToSetUp(t *testing.T) {
+	st := &api.Status{Version: "v3", Process: true, PluginProblems: map[string]string{
+		"thermostats": `login refused, check the secret "thermostats"`, "blinds": "hub unreachable",
+	}, Devices: []api.Device{{Name: "study-heater", Problem: "not found"}}}
+	got := setupGaps(st, nil)
+	want := []string{
+		"Plugin blinds: hub unreachable",
+		`Plugin thermostats: login refused, check the secret "thermostats"`,
+		"Devices with a problem: study-heater. oikade devices says what's wrong.",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q", got)
+	}
+}

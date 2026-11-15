@@ -66,8 +66,12 @@ func TestPayloadsMatchContractDoc(t *testing.T) {
 		doc string
 		got func() ([]byte, error)
 	}{
-		{`{"state":"online","contract":1}`, func() ([]byte, error) { return json.Marshal(Status{Online, Contract}) }},
-		{`{"state":"offline","contract":1}`, func() ([]byte, error) { return json.Marshal(Status{Offline, Contract}) }},
+		{`{"state":"online","contract":1}`, status(Status{State: Online, Contract: Contract})},
+		{`{"state":"offline","contract":1}`, status(Status{State: Offline, Contract: Contract})},
+		{
+			`{"state":"online","contract":1,"error":"login refused"}`,
+			status(Status{State: Online, Contract: Contract, Error: "login refused"}),
+		},
 		{`{"on":true}`, func() ([]byte, error) { return json.Marshal(State{"on": true}) }},
 		{`{"on":false}`, SetCommand{ID: "1", Capability: "on", Value: false}.Payload},
 	} {
@@ -244,4 +248,9 @@ func TestValidID(t *testing.T) {
 			t.Errorf("ValidID(%q) = %v, want %v", id, got, want)
 		}
 	}
+}
+
+// status marshals a status for the doc's examples.
+func status(s Status) func() ([]byte, error) {
+	return func() ([]byte, error) { return json.Marshal(s) }
 }

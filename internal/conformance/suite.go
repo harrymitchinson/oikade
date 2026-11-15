@@ -263,6 +263,10 @@ func (s *Suite) up() bool { return s.inst.Stats().Up }
 func (s *Suite) announces(t T) {
 	s.eventually(t, "status online with contract 1", s.up)
 	s.eventually(t, "a devices report listing every declared device", s.reported)
+	if problem := s.inst.Stats().Error; problem != "" {
+		// Online with a problem of its own, such as a login its account refused: it may find nothing.
+		t.Logf("the plugin is online with a problem: %s", problem)
+	}
 	for id, dev := range s.devices {
 		info := s.sink.info(dev)
 		if !info.Found {

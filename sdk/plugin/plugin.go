@@ -72,7 +72,9 @@ type Plugin struct {
 	devices    []contractv1.DeviceReport
 	undeclared int
 	// discovered is nil until SetDiscovered.
-	discovered   []contractv1.DiscoveredDevice
+	discovered []contractv1.DiscoveredDevice
+	// problem is the status's error, empty while there's none.
+	problem      string
 	states       map[string]contractv1.State
 	availability map[string]bool
 	queues       map[string][]contractv1.SetCommand
@@ -375,6 +377,24 @@ func (p *Plugin) SetAvailability(ctx context.Context, id string, online bool) er
 	return p.publishAvailability(ctx, id)
 }
 
+// SetError says what's wrong with the plugin as a whole, such as a login its account refused, in
+// its status, which oikade status shows. It's for a problem no one device carries: one with a
+// device goes in that device's Error. Pass "" once it's fixed. The plugin stays online either way.
+func (p *Plugin) SetError(ctx context.Context, problem string) error {
+	if err := p.lock(ctx); err != nil {
+		return err
+	}
+	defer p.unlock()
+	p.mu.Lock()
+	same := p.problem == problem
+	p.problem = problem
+	p.mu.Unlock()
+	if same {
+		return nil
+	}
+	return p.publishStatus(ctx)
+}
+
 // State returns a copy of the last state set for a device, or nil.
 func (p *Plugin) State(id string) contractv1.State {
 	p.mu.Lock()
@@ -421,8 +441,7 @@ func (p *Plugin) announce(ctx context.Context) {
 		return
 	}
 	defer p.unlock()
-	online, _ := json.Marshal(contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract})
-	if err := p.client.Publish(ctx, p.root.Status(), online, true); err != nil {
+	if err := p.publishStatus(ctx); err != nil {
 		p.log.Error("Could not announce plugin", "topic", string(p.root), "err", err)
 		return
 	}
@@ -565,6 +584,18 @@ func (p *Plugin) acquire(ctx context.Context) error {
 }
 
 func (p *Plugin) unlock() { <-p.pub }
+
+// publishStatus publishes the online status, with the plugin's error if it has one.
+func (p *Plugin) publishStatus(ctx context.Context) error {
+	p.mu.Lock()
+	status := contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract, Error: p.problem}
+	payload, err := json.Marshal(status)
+	p.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return p.client.Publish(ctx, p.root.Status(), payload, true)
+}
 
 func (p *Plugin) publishDevices(ctx context.Context) error {
 	p.mu.Lock()

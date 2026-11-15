@@ -336,6 +336,24 @@ func (p *plugins) unimportedNow(safety bool) []api.Unimported {
 	return p.unimported(imported)
 }
 
+// problems are what each running plugin says is wrong with it as a whole, by name, or nil if none
+// says anything.
+func (p *plugins) problems() map[string]string {
+	p.mu.Lock()
+	running := slices.Collect(maps.Values(p.running))
+	p.mu.Unlock()
+	var out map[string]string
+	for _, h := range running {
+		if e := h.driver.Stats().Error; e != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[h.name] = e
+		}
+	}
+	return out
+}
+
 // unimported lists the devices on record of plugins a version importing these wouldn't run.
 func (p *plugins) unimported(imported []string) []api.Unimported {
 	return api.UnimportedOf(p.known.registry.List(), imported, p.host.Outside, p.held)

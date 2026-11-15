@@ -18,7 +18,7 @@ framework.Run(framework.NewHome(framework.Options{}, framework.NewPlugin("ewelin
 
 The host runs your binary again as `<binary> plugin <name>`, one process per plugin, each with its own heartbeat. So a plugin that panics, or hangs, is restarted with backoff while automations, Matter and the other plugins carry on. A plugin hangs if its process stops answering, or a `Set` runs for longer than `--plugin-set-timeout` (30 seconds). Only the binary changing restarts a plugin that's working, so a deploy does, and a crash of your automations doesn't.
 
-A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a command. It gets the devices on record for it, which are empty the first time, because the host has no `devices.json`. So it reports every device it can see, with `SetDiscovered` and `SetDevices`, and everything it finds is in the [device registry](../README.md) at once. Configuration, such as a hub's address, is Go in your home.
+A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a command. It gets the devices on record for it, which are empty the first time, because the host has no `devices.json`. So it reports every device it can see, with `SetDiscovered` and `SetDevices`, and everything it finds is in the [device registry](../README.md) at once. A problem with the plugin itself, such as a login its account refuses, goes in `SetError`, which `oikade status` shows. Configuration, such as a hub's address, is Go in your home.
 
 A device you remove with `oikade devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
 
@@ -65,6 +65,8 @@ Roots under `oikade/v1/` that start with `_` are Oikade's. Don't publish to them
 ### `status`
 
 Publish `{"state":"online","contract":1}` once connected, and set the Last Will so that the broker publishes `{"state":"offline","contract":1}` if the plugin dies. While the status is offline, Oikade treats every device of the plugin as unavailable and refuses to send it commands.
+
+A plugin with a problem of its own, one no single device carries, says so in an optional `error`, such as `{"state":"online","contract":1,"error":"login refused"}` for an account that refuses the password, while it has no devices to put an `error` on. `oikade status` shows it. Republish the status without it once the problem is fixed. It doesn't change what an online status means: the plugin is still running, and its devices say for themselves whether they can be reached ([OIK-17](https://linear.app/oikade/issue/OIK-17)).
 
 ### `devices`
 

@@ -334,6 +334,9 @@ type Status struct {
 	Since   *time.Time `json:"since,omitempty"`
 	Devices []Device   `json:"devices"`
 	Rules   []Rule     `json:"rules"`
+	// PluginProblems are what plugins say is wrong with them as a whole, such as a login their
+	// account refused, by plugin name.
+	PluginProblems map[string]string `json:"pluginProblems,omitempty"`
 }
 
 // Device is one device.

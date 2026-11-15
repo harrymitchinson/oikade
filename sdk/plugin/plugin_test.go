@@ -654,3 +654,38 @@ func TestReportStatePublishesWhatsKnown(t *testing.T) {
 		t.Error("took a device that isn't found")
 	}
 }
+
+func TestSetError(t *testing.T) {
+	ctx := testContext(t)
+	b := mqtttest.NewBroker(t)
+	w := watchLive(ctx, t, b.URL)
+	p, _ := start(ctx, t, b.URL, Options{})
+	w.expect(root.Status() + "=" + online)
+
+	refused := root.Status() + `={"state":"online","contract":1,"error":"login refused"}`
+	if err := p.SetError(ctx, "login refused"); err != nil {
+		t.Fatal(err)
+	}
+	w.expect(refused)
+	// The same problem again publishes nothing.
+	if err := p.SetError(ctx, "login refused"); err != nil {
+		t.Fatal(err)
+	}
+	w.quiet(b.URL)
+
+	// A reconnect keeps the problem, and the Will doesn't carry it.
+	b.Kick(t, p.clientID)
+	w.expect(root.Status()+"="+offline, refused)
+
+	if err := p.SetError(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.expect(root.Status() + "=" + online)
+
+	if err := p.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetError(ctx, "too late"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("SetError after Close: %v, want ErrClosed", err)
+	}
+}

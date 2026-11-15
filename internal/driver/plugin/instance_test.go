@@ -287,6 +287,28 @@ func TestStatusOfflineAndContract(t *testing.T) {
 	}
 }
 
+func TestStatusError(t *testing.T) {
+	retained := online()
+	retained["1000aa/availability"] = "online"
+	i, bus, rec := setup(t, retained)
+
+	// A plugin with a problem of its own is still up, and its devices still count.
+	publish(t, bus, root+"/status", `{"state":"online","contract":1,"error":"login refused"}`)
+	if st := i.Stats(); !st.Up || st.Error != "login refused" || !rec.available[porch] {
+		t.Errorf("with an error: %+v, porch available %v", st, rec.available[porch])
+	}
+	// The Will drops it: a plugin that isn't running has no problem to say.
+	publish(t, bus, root+"/status", `{"state":"offline","contract":1}`)
+	if st := i.Stats(); st.Error != "" {
+		t.Errorf("error kept while offline: %+v", st)
+	}
+	publish(t, bus, root+"/status", `{"state":"online","contract":1,"error":"login refused"}`)
+	publish(t, bus, root+"/status", `{"state":"online","contract":1}`)
+	if st := i.Stats(); !st.Up || st.Error != "" {
+		t.Errorf("error not cleared: %+v", st)
+	}
+}
+
 func TestSetPublishes(t *testing.T) {
 	i, bus, _ := setup(t, online())
 	ctx := context.Background()
