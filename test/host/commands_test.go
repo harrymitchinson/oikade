@@ -438,3 +438,45 @@ func TestMetricsAndHealthAreServedOverHTTP(t *testing.T) {
 		t.Errorf("the listener took a POST: %d", resp.StatusCode)
 	}
 }
+
+// statusGaps is what oikade status says is left to set up, which it says on stderr.
+func (r *rig) statusGaps() string {
+	r.t.Helper()
+	stderr, err := r.oikade(nil, "status")
+	if err != nil {
+		r.t.Fatalf("status: %v: %s", err, stderr)
+	}
+	return stderr
+}
+
+func TestStatusSaysWhatsLeftToSetUp(t *testing.T) {
+	t.Parallel()
+	r := prepare(t)
+	r.launchWithout(settle, matterFlag(freeUDP(t)), "--simulate", devicesFile(t))
+	r.waitSocket()
+	gaps := r.statusGaps()
+	for _, want := range []string{"No home deployed. Run oikade deploy", "The Matter bridge has no controller. oikade matter"} {
+		if !strings.Contains(gaps, want) {
+			t.Errorf("no %q in:\n%s", want, gaps)
+		}
+	}
+	// --json keeps its shape, and says nothing of them.
+	if stderr, err := r.oikade(nil, "status", "--json"); err != nil || stderr != "" {
+		t.Errorf("status --json: %v: %q", err, stderr)
+	}
+
+	p := startPlugins(t, matterFlag(freeUDP(t)))
+	p.until("the device's problem", func() bool { return strings.Contains(p.statusGaps(), "Devices with a problem: locked.") })
+	if gaps := p.statusGaps(); strings.Contains(gaps, "No home deployed") || !strings.Contains(gaps, "oikade matter") {
+		t.Errorf("with a home deployed:\n%s", gaps)
+	}
+}
+
+func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	c.r.sync()
+	if gaps := c.r.statusGaps(); gaps != "" {
+		t.Errorf("got:\n%s", gaps)
+	}
+}

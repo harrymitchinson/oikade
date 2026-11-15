@@ -180,7 +180,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 		{Name: "garden-lights", Kind: "hold", Active: &no, OnAt: at("06:30:00").AddDate(0, 0, 1)},
 	}}
 	var out bytes.Buffer
-	printStatus(&out, io.Discard, st, true, now)
+	printStatus(&out, io.Discard, st, nil, true, now)
 	want := []string{
 		"desk-fan  hold  inactive, on at 23:08",
 		"gate  moment",
