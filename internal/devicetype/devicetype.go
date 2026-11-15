@@ -76,6 +76,12 @@ func Any(have, want []Type) bool {
 	return len(want) == 0 || slices.ContainsFunc(have, func(t Type) bool { return slices.Contains(want, t) })
 }
 
+// Rooms are the types a room rule can be limited to: the on/off types, and Thermostat.
+var Rooms = append(slices.Clone(OnOff), Thermostat)
+
+// ForRooms says a room rule can be limited to t.
+func ForRooms(t Type) bool { return slices.Contains(Rooms, t) }
+
 // Choosable says t is one you or a driver can choose for a device that's on or off.
 func Choosable(t Type) bool { return slices.Contains(OnOff, t) }
 
