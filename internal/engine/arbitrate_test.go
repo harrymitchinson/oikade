@@ -461,7 +461,7 @@ func TestAMatterWriteDuringARuntimeWriteIsFromMatter(t *testing.T) {
 	r.clock.Step(2 * time.Second)
 	r.matter("towel-rail", capability.On, false)
 	r.change("towel-rail", capability.On, false)
-	r.clock.Step(StaleReport)
+	r.clock.Step(capability.DefaultSettle)
 	r.settle()
 	if w := winner(r.status("towel-rail", capability.On)); w != "Matter Override" {
 		t.Errorf("winner %q once the write settled, want Matter's override", w)
@@ -476,7 +476,7 @@ func TestChangesThatDontMatchAMatterWriteAreTheDevices(t *testing.T) {
 	}{
 		// The rail was already on, and a wall switch turns it off.
 		"another value":  {"towel-rail", true, false, time.Second},
-		"too late":       {"towel-rail", false, true, bridgeMatch},
+		"too late":       {"towel-rail", false, true, capability.DefaultSettle + bridgeSlack},
 		"another device": {"fan", false, true, time.Second},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -516,12 +516,12 @@ func TestAMatterDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
 			entry(capability.Brightness, "0", control.NameHighest, control.NameOverride, "1h"),
 		}},
 	})
-	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, then
-	// 40.2, as Zigbee2MQTT rounds 40 to 102 of 254.
+	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, which is
+	// it catching up, then 40.2, as Zigbee2MQTT rounds 40 to 102 of 254.
 	r.matter("hall-light", capability.Brightness, 40.0)
 	r.change("hall-light", capability.Brightness, 10.2)
-	if w := winner(r.status("hall-light", capability.Brightness)); w != "Device Override" {
-		t.Errorf("winner %q on the way, want the device's", w)
+	if w := winner(r.status("hall-light", capability.Brightness)); w != control.NameDefault {
+		t.Errorf("winner %q on the way, want nobody's yet", w)
 	}
 	r.change("hall-light", capability.Brightness, 40.2)
 	if w := winner(r.status("hall-light", capability.Brightness)); w != "Matter Override" {
@@ -644,4 +644,90 @@ func TestATypedHoldLetsGoOfAMemberRetypedOutOfIt(t *testing.T) {
 			return c.Source == "Rule/porch-plugs"
 		})
 	})
+}
+
+// blindRig is a blind at 0, fully open, whose Control returns it to 70.
+func blindRig(t *testing.T, rules ...*Compiled) *rig {
+	t.Helper()
+	return startRigWith(t, rigOptions{
+		now:    local("2026-10-21 12:00 BST"),
+		values: map[string]map[string]any{"bay-blind": {capability.Position: 0.0}},
+		control: map[string][]control.Entry{"bay-blind": {
+			entry(capability.Position, "70", control.NameHighest, control.NameOverride, "1h"),
+		}},
+	}, rules...)
+}
+
+// travel reports the blind on its way, every 30 s.
+func (r *rig) travel(positions ...float64) {
+	r.t.Helper()
+	for _, p := range positions {
+		r.clock.Step(30 * time.Second)
+		r.change("bay-blind", capability.Position, p)
+	}
+}
+
+// A blind takes a while to get there, and what it reports on the way is the write, not a person.
+func TestABlindTravellingIsntAnOverride(t *testing.T) {
+	r := blindRig(t)
+	r.expect(call{"bay-blind", capability.Position, 70.0})
+	r.travel(20, 40, 60, 70)
+	r.clock.Step(2 * time.Minute)
+	r.settle()
+	if w := winner(r.status("bay-blind", capability.Position)); w != control.NameDefault {
+		t.Errorf("winner %q after the blind travelled, want its default", w)
+	}
+	r.expect(call{"bay-blind", capability.Position, 70.0})
+}
+
+// A blind that stops partway, as when somebody stops it, is an Override where it stopped once the
+// write has settled.
+func TestABlindThatStopsPartwayIsAnOverride(t *testing.T) {
+	r := blindRig(t)
+	r.expect(call{"bay-blind", capability.Position, 70.0})
+	r.travel(45)
+	if w := winner(r.status("bay-blind", capability.Position)); w != control.NameDefault {
+		t.Errorf("winner %q while the write settles, want its default", w)
+	}
+	r.clock.Step(2 * time.Minute)
+	r.settle()
+	s := r.status("bay-blind", capability.Position)
+	if w := winner(s); w != "Device Override" || string(s.Value) != "45" {
+		t.Errorf("winner %q at %v once the write settled, want the device's override at 45", w, s.Value)
+	}
+	r.expect(call{"bay-blind", capability.Position, 70.0})
+}
+
+// Under a Safety claim, a blind on its way doesn't make the engine write it again.
+func TestASafetyClaimDoesntRewriteATravellingBlind(t *testing.T) {
+	shut := Hold{Device: "bay-blind", Capability: capability.Position, Value: 100, Priority: PrioritySafety,
+		Window: &Window{Start: At{Time: "00:00"}, End: At{Time: "00:00"}}}
+	r := blindRig(t, holdRule(t, "storm", shut))
+	// The Control's default is written as the engine starts, and the hold's claim straight after.
+	wrote := []call{{"bay-blind", capability.Position, 70.0}, {"bay-blind", capability.Position, 100.0}}
+	r.expect(wrote...)
+	r.travel(30, 60, 90, 100)
+	r.clock.Step(2 * time.Minute)
+	r.settle()
+	r.expect(wrote...)
+	if w := winner(r.status("bay-blind", capability.Position)); w != "Rule/storm Safety" {
+		t.Errorf("winner %q, want the Safety hold", w)
+	}
+}
+
+// A blind set from the Home app travels too, and what it reports on the way isn't a person.
+func TestABlindTravellingAfterAMatterWriteIsntAnOverride(t *testing.T) {
+	r := blindRig(t)
+	r.expect(call{"bay-blind", capability.Position, 70.0})
+	r.travel(70)
+	r.clock.Step(5 * time.Minute)
+	r.matter("bay-blind", capability.Position, 20.0)
+	r.travel(50, 30)
+	if w := winner(r.status("bay-blind", capability.Position)); w != control.NameDefault {
+		t.Errorf("winner %q while the blind travels, want nobody's yet", w)
+	}
+	r.travel(20)
+	if w := winner(r.status("bay-blind", capability.Position)); w != "Matter Override" {
+		t.Errorf("winner %q once it's there, want Matter's", w)
+	}
 }

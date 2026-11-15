@@ -209,6 +209,8 @@ Rules, Matter controllers and the device itself make **claims**. The highest lev
 
 In this example, motion turns the light on, and it goes off 5 minutes after the motion stops. A wall switch turned off during that is an Override, so the light stays off until the motion hold ends. A wall switch turned on with nobody about lasts until the next motion starts, and the light then goes off 5 minutes after the motion stops. The hold's off-delay is saved, so a restart doesn't leave the light on.
 
+A report soon after a write is the device catching up, not an outside change: for 5 seconds, or as long as the capability takes to settle, which is 2 minutes for a blind's `position` and 30 seconds for `locked` ([OIK-23](https://linear.app/oikade/issue/OIK-23)). So a blind reporting 20, 40 and 60 on its way to 70 isn't an Override. A report of something else once that's up is, so a blind that someone stopped at 45 is an Override at 45, two minutes after the write.
+
 An outside change is recorded by the path it came in by: `Matter` for a command through the bridge, such as a Home app tap, `Command` for `oikade set`, and `Device` for anything else, such as a wall switch. A rule's claim is `Rule/<name>`. Oikade can't tell what a person did, so nothing is called "manual".
 
 ### One-off claims

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"testing"
+	"time"
 )
 
 func TestValidate(t *testing.T) {
@@ -67,5 +68,24 @@ func TestNear(t *testing.T) {
 		if got := Near(c.reported, c.wrote); got != c.want {
 			t.Errorf("Near(%v, %v) = %v, want %v", c.reported, c.wrote, got, c.want)
 		}
+	}
+}
+
+// Every capability but those that travel or turn keeps the default settle.
+func TestOnlyPositionAndLockedSettleForLonger(t *testing.T) {
+	for _, name := range Names() {
+		want := DefaultSettle
+		switch name {
+		case Position:
+			want = 2 * time.Minute
+		case Locked:
+			want = 30 * time.Second
+		}
+		if got := SettleOf(name); got != want {
+			t.Errorf("%s settles for %v, want %v", name, got, want)
+		}
+	}
+	if got := SettleOf("no-such-capability"); got != DefaultSettle {
+		t.Errorf("an unknown capability settles for %v", got)
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
@@ -54,6 +55,10 @@ const (
 	Setpoint = contractv1.Setpoint
 	// Locked is true while a lock's bolt is fully thrown. A bolt partway, or jammed, isn't locked.
 	Locked = contractv1.Locked
+	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
+	// fully closed, as in Matter. A driver whose platform is the other way round, as Zigbee2MQTT's
+	// is, inverts it.
+	Position = contractv1.Position
 )
 
 // Kind is a capability's value type.
@@ -76,6 +81,9 @@ type Spec struct {
 	Unit string
 	// Matter is the Matter attribute the bridge shows it as, if any.
 	Matter *Matter
+	// Settle is how long after a write a report of another value is the device catching up, as a
+	// blind does while it travels, rather than somebody changing it. Zero is DefaultSettle.
+	Settle time.Duration
 	// NoEndWrite is a bool a hold's end leaves as it is, rather than writing the opposite: only an
 	// explicit write unlocks a door. A Budget, which turns its target on and off, can't have it.
 	NoEndWrite bool
@@ -115,9 +123,22 @@ var registry = map[string]Spec{
 	Setpoint: {Go: "Setpoint", Kind: KindNumber, Writable: true, Min: 0, Max: 50, Unit: "°C", Matter: &Matter{
 		Cluster: "Thermostat", ClusterID: 0x0201, Attribute: "OccupiedHeatingSetpoint", AttributeID: 0x0012,
 	}},
-	Locked: {Go: "Locked", Kind: KindBool, Writable: true, NoEndWrite: true, Matter: &Matter{
+	Position: {Go: "Position", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Settle: 2 * time.Minute},
+	Locked: {Go: "Locked", Kind: KindBool, Writable: true, NoEndWrite: true, Settle: 30 * time.Second, Matter: &Matter{
 		Cluster: "Door Lock", ClusterID: 0x0101, Attribute: "LockState", AttributeID: 0x0000,
 	}},
+}
+
+// DefaultSettle is how long a write settles for a capability that doesn't say: a relay or a light
+// reports within it.
+const DefaultSettle = 5 * time.Second
+
+// SettleOf is how long a write to the capability settles: its Settle, or DefaultSettle.
+func SettleOf(name string) time.Duration {
+	if s, ok := Lookup(name); ok && s.Settle > 0 {
+		return s.Settle
+	}
+	return DefaultSettle
 }
 
 // Names are every capability's name, sorted.

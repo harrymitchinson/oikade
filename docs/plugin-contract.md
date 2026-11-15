@@ -118,7 +118,7 @@ Publish `online` when the device is reachable and `offline` when it isn't. Repub
 
 ### `<id>/set`
 
-Oikade sends one capability per message, already validated against the registry and the device's announced capabilities. Apply it, then report the result through `<id>/state`. There's no acknowledgement in v1: success is the state changing. Don't retain anything on this topic.
+Oikade sends one capability per message, already validated against the registry and the device's announced capabilities. Apply it, then report the result through `<id>/state`. A `Set` returns once the device has accepted the command, not once it's done: a blind's `position` reports as it travels, and Oikade takes what it reports for 2 minutes after the write as the device catching up, not a person changing it. A Matter controller's write fails after 5 seconds. There's no acknowledgement in v1: success is the state changing. Don't retain anything on this topic.
 
 ## Relay-like devices
 

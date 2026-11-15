@@ -343,7 +343,8 @@ func (s *Suite) appliesSet(t T) {
 				continue
 			}
 			tried++
-			s.eventually(t, fmt.Sprintf("%s on %s to report %v", c, id, next), func() bool {
+			// A capability that takes time, such as a blind's position, has as long as it settles.
+			s.eventuallyWithin(t, max(s.wait, capability.SettleOf(c)), fmt.Sprintf("%s on %s to report %v", c, id, next), func() bool {
 				v, _ := s.sink.value(dev, c)
 				return v == next
 			})
@@ -453,10 +454,16 @@ func toggled(spec capability.Spec, current any) any {
 
 func (s *Suite) eventually(t T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(s.wait)
+	s.eventuallyWithin(t, s.wait, what, cond)
+}
+
+// eventuallyWithin is eventually, waiting up to wait.
+func (s *Suite) eventuallyWithin(t T, wait time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(wait)
 	for !cond() {
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out after %s waiting for %s", s.wait, what)
+			t.Fatalf("timed out after %s waiting for %s", wait, what)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

@@ -43,6 +43,9 @@ const (
 	// Locked is true while a lock's bolt is fully thrown. A hold's end leaves a lock as it is: only
 	// To(false) unlocks it.
 	Locked Bool = contractv1.Locked
+	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
+	// fully closed. A write settles for 2 minutes while it travels.
+	Position Number = contractv1.Position
 )
 
 // Handle is one capability of one device. oikade types writes one for each capability each of your
