@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,4 +59,51 @@ func TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree(t *testing.T) {
 	r.change("hall-motion", capability.Occupied, false)
 	r.expect(call{"hall-light", capability.On, true}, call{"bathroom-fan", capability.On, true},
 		call{"hall-light", capability.On, false})
+}
+
+// TestAHoldWhoseWhenStaysUnknownLogsTheStretchOnceAtInfo is OIK-228: a hold whose when couldn't
+// be evaluated logged that only at Debug, so a stretch of it was invisible in the journal. It logs
+// the start and the end once each at Info, however many looks fall in between.
+func TestAHoldWhoseWhenStaysUnknownLogsTheStretchOnceAtInfo(t *testing.T) {
+	var unknown atomic.Bool
+	occupied := isTrue("hall-motion", capability.Occupied)
+	light := holdRule(t, "hall-light", Hold{
+		Device: "hall-light", Capability: capability.On, Value: true,
+		When: func(v Vars) (bool, error) {
+			if unknown.Load() {
+				return false, errors.New("the hall has no occupancy reading")
+			}
+			return occupied(v)
+		},
+	})
+	values := map[string]map[string]any{"hall-motion": {capability.Occupied: true}}
+	r := startRig(t, local("2026-10-21 20:00 BST"), nil, values, nil, light)
+	r.expect(call{"hall-light", capability.On, true})
+
+	unknown.Store(true)
+	for range 3 {
+		r.change("hall-motion", capability.Occupied, true)
+	}
+	r.at("2026-10-21 20:05 BST")
+	unknown.Store(false)
+	r.change("hall-motion", capability.Occupied, true)
+	r.at("2026-10-21 20:10 BST")
+
+	infos := func(msg string) (n int) {
+		r.logs.mu.Lock()
+		defer r.logs.mu.Unlock()
+		for _, l := range r.logs.lines {
+			if strings.Contains(l, "level=INFO") && strings.Contains(l, msg) && strings.Contains(l, "hall-light") {
+				n++
+			}
+		}
+		return n
+	}
+	if n := infos(`msg="Could not evaluate hold; keeping its state until it can"`); n != 1 {
+		t.Errorf("logged the start of the stretch %d times at Info, want 1: %q", n, r.logs.lines)
+	}
+	if n := infos(`msg="Evaluated hold again"`); n != 1 {
+		t.Errorf("logged the end of the stretch %d times at Info, want 1: %q", n, r.logs.lines)
+	}
+	r.expect(call{"hall-light", capability.On, true})
 }

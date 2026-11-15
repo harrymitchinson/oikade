@@ -56,6 +56,9 @@ type holdState struct {
 	// stopped is why the hold's last look couldn't tell whether it should be active, as OnStopped
 	// last heard it. Empty means it could.
 	stopped string
+	// unknown is set while the hold's when can't be evaluated, so the start and end of that stretch
+	// are each logged once at Info.
+	unknown bool
 	// held are the members an active room hold has written or claimed, so one that joins while it's
 	// active is written then, and one that leaves lets go of its claim. heldKnown is false until the
 	// hold starts or first looks in this run: after a restart, the room's members by the registry
@@ -109,6 +112,7 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 	}
 	if !on || h.when == nil {
 		e.stopped(key, hs, "")
+		e.whenKnown(key, hs)
 		return on, true, next
 	}
 	vars := e.conditionVars(now, devices)
@@ -131,13 +135,29 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 	}
 	if broken, ok := errors.AsType[brokenCondition](err); ok {
 		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "err", broken)
+		hs.unknown = true
 		return false, false, next
 	}
 	if err != nil {
-		e.Log.Debug("Could not evaluate hold; keeping its state", "rule", key, "err", err)
+		if hs.unknown {
+			e.Log.Debug("Could not evaluate hold; keeping its state", "rule", key, "err", err)
+		} else {
+			e.Log.Info("Could not evaluate hold; keeping its state until it can", "rule", key, "err", err)
+			hs.unknown = true
+		}
 		return false, false, next
 	}
+	e.whenKnown(key, hs)
 	return b, true, next
+}
+
+// whenKnown records that the hold's look could tell whether it should be active, and logs the end
+// of a stretch when it couldn't. Call with e.mu held.
+func (e *Engine) whenKnown(key ident.ID, hs *holdState) {
+	if hs.unknown {
+		hs.unknown = false
+		e.Log.Info("Evaluated hold again", "rule", key)
+	}
 }
 
 // stopped records why a hold's look couldn't tell whether it should be active, or "" when it could,

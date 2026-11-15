@@ -23,7 +23,7 @@ framework.NewMoment("hallway-motion-light", HallwayLight.On.To(true), framework.
 	})
 ```
 
-A condition reads the home through its `State`: `Get` reads a handle, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), `Within` says whether it's inside a [window](#holds), by the rules a hold's `Window` keeps, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. If an `OnDelay` or `OffDelay` runs out meanwhile, the hold starts or ends once the value is back, if `When` still says so. `Lookup` carries on instead, and reports whether there's a value:
+A condition reads the home through its `State`: `Get` reads a handle, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), `Within` says whether it's inside a [window](#holds), by the rules a hold's `Window` keeps, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. If an `OnDelay` or `OffDelay` runs out meanwhile, the hold starts or ends once the value is back, if `When` still says so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts. `Lookup` carries on instead, and reports whether there's a value:
 
 ```go
 if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
