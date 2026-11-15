@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 )
 
 // A fixture is one device model as Zigbee2MQTT publishes it: its entry in <base>/bridge/devices,
@@ -70,9 +69,15 @@ func readFixture(path string) (fixture, error) {
 	return f, nil
 }
 
+// encode is a fixture as it's written. It doesn't escape <, > and &, so the leak check sees a name
+// as written.
 func (f fixture) encode() ([]byte, error) {
-	out, err := json.MarshalIndent(f, "", "  ")
-	return append(out, '\n'), err
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	err := enc.Encode(f)
+	return b.Bytes(), err
 }
 
 // deviceKeys are the fields of a bridge/devices entry a fixture keeps: what describes the model.
@@ -128,10 +133,16 @@ func (s scrubber) device(entry map[string]any) map[string]any {
 	return out
 }
 
-// state is a state payload as a fixture keeps it. The device object, which include_device_information
-// adds, describes the one device.
+// perDevice are the fields Zigbee2MQTT may add to any state payload that describe the one device
+// and the moment, not the model: include_device_information's device, and last_seen and elapsed,
+// which would also make every payload look new.
+var perDevice = []string{"device", "last_seen", "elapsed"}
+
+// state is a state payload as a fixture keeps it.
 func (s scrubber) state(payload map[string]any) map[string]any {
-	delete(payload, "device")
+	for _, k := range perDevice {
+		delete(payload, k)
+	}
 	return s.value(payload).(map[string]any)
 }
 
@@ -219,7 +230,12 @@ func (p *payloads) add(v any) error {
 type capture struct {
 	mu      sync.Mutex
 	devices []byte
+	// names are the IEEE addresses and friendly names in every device list heard, so a device
+	// renamed meanwhile is scrubbed by both names.
+	names   map[string]bool
 	version string
+	// stop ends the subscription.
+	stop func()
 	// messages are the device topics heard (the topic after the base) and their payloads, in order.
 	messages []mqtt.Message
 }
@@ -238,6 +254,19 @@ func (c *capture) hear(base string) mqtt.Handler {
 		switch {
 		case rest == "bridge/devices":
 			c.devices = slices.Clone(m.Payload)
+			var list []bridgeDevice
+			if json.Unmarshal(m.Payload, &list) == nil {
+				if c.names == nil {
+					c.names = map[string]bool{}
+				}
+				for _, d := range list {
+					c.names[d.IEEEAddress] = true
+					// Zigbee2MQTT's own name for the coordinator names nothing of yours.
+					if d.Type != "Coordinator" {
+						c.names[d.FriendlyName] = true
+					}
+				}
+			}
 		case rest == "bridge/info":
 			// Only the version: bridge/info also carries Zigbee2MQTT's configuration, network key included.
 			var info struct {
@@ -260,45 +289,46 @@ type modelFixture struct {
 	commands payloads
 }
 
-// fixtures turns a capture into a fixture for each model, by file name. It fails if anything that
-// names a device is left in one.
-func (c *capture) fixtures(source string, existing map[string]fixture) (map[string]fixture, error) {
+// fixtures turns a capture into a fixture for each model, by file name. A model whose fixture still
+// names a device is left out, and skipped says which and why.
+func (c *capture) fixtures(source string, existing map[string]fixture) (out map[string]fixture, skipped []string, err error) {
 	s, byName, models, err := c.models()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// A recording adds to the one before it.
 	for file, m := range models {
 		if prev, ok := existing[file]; ok && prev.Source != sourceHandWritten {
 			if err := m.merge(prev); err != nil {
-				return nil, fmt.Errorf("%s: %w", file, err)
+				return nil, nil, fmt.Errorf("%s: %w", file, err)
 			}
 		}
 	}
 	for _, msg := range c.messages {
 		if err := c.take(s, byName, models, msg); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if c.version != "" {
 		source += ", Zigbee2MQTT " + c.version
 	}
-	out := map[string]fixture{}
-	for file, m := range models {
-		f, err := m.fixture(source)
+	out = map[string]fixture{}
+	for _, file := range slices.Sorted(maps.Keys(models)) {
+		f, err := models[file].fixture(source)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		b, err := f.encode()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if leaks := s.leaks(b); len(leaks) > 0 {
-			return nil, fmt.Errorf("%s still names a device (%s): take it out by hand, or drop the payload", file, strings.Join(leaks, ", "))
+			skipped = append(skipped, fmt.Sprintf("%s still names a device (%s)", file, strings.Join(leaks, ", ")))
+			continue
 		}
 		out[file] = f
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // models reads the device list: what to scrub, each device's model by its friendly name and IEEE
@@ -314,15 +344,17 @@ func (c *capture) models() (scrubber, map[string]string, map[string]*modelFixtur
 	}
 	byName := map[string]string{} // friendly name or IEEE address -> file name
 	models := map[string]*modelFixture{}
+	maps.Copy(s.ids, c.names)
+	words := map[string]bool{}
 	for _, d := range list {
 		ieee, _ := d["ieee_address"].(string)
 		name, _ := d["friendly_name"].(string)
 		s.ids[ieee] = true
-		// Zigbee2MQTT's own name for the coordinator names nothing of yours.
 		if d["type"] != "Coordinator" {
 			s.ids[name] = true
 		}
 		def, _ := d["definition"].(map[string]any)
+		exposeWords(def["exposes"], words)
 		if d["type"] == "Coordinator" || def == nil {
 			continue
 		}
@@ -335,6 +367,11 @@ func (c *capture) models() (scrubber, map[string]string, map[string]*modelFixtur
 		}
 	}
 	delete(s.ids, "")
+	// A device named like a property, such as state, names nothing, and replacing it would rewrite
+	// every payload.
+	for w := range words {
+		delete(s.ids, w)
+	}
 	// The device entries are scrubbed again, now every identifier is known.
 	for _, m := range models {
 		m.device = s.value(m.device).(map[string]any)
@@ -361,6 +398,23 @@ func (c *capture) take(s scrubber, byName map[string]string, models map[string]*
 		return nil
 	}
 	return m.states.add(s.state(state))
+}
+
+// exposeWords adds the name and property of every expose and feature in v to words.
+func exposeWords(v any, words map[string]bool) {
+	switch v := v.(type) {
+	case []any:
+		for _, x := range v {
+			exposeWords(x, words)
+		}
+	case map[string]any:
+		for _, k := range []string{"name", "property"} {
+			if w, ok := v[k].(string); ok {
+				words[w] = true
+			}
+		}
+		exposeWords(v["features"], words)
+	}
 }
 
 func (m *modelFixture) merge(prev fixture) error {
@@ -446,118 +500,121 @@ func readFixtures(dir string) (map[string]fixture, error) {
 	return out, nil
 }
 
+// recordConnectTimeout bounds reaching the broker: the MQTT client would otherwise retry forever,
+// with nothing said.
+const recordConnectTimeout = 10 * time.Second
+
 // TestRecord records fixtures from a real Zigbee2MQTT, read-only. It runs only with -record.
 func TestRecord(t *testing.T) {
 	if *recordBroker == "" {
 		t.Skip("records fixtures only with -record <broker URL>")
 	}
-	fmt.Fprintf(os.Stderr, "Recording %s/# from %s for %s: use your devices now, from their own controls or the Zigbee2MQTT web UI\n",
-		*recordBase, *recordBroker, *recordFor)
-	n, err := record(*recordBroker, *recordBase, *recordDir, time.After(*recordFor))
+	fmt.Fprintf(os.Stderr, "Connecting to %s\n", *recordBroker)
+	life, cut := context.WithCancel(context.Background())
+	defer cut()
+	dial, cancel := context.WithTimeout(life, recordConnectTimeout)
+	defer cancel()
+	connecting := context.AfterFunc(dial, cut)
+	// No will, and record can't publish: the recorder only reads.
+	bus, err := mqtt.Connect(life, *recordBroker, "oikade-record-"+clientID())
+	if !connecting() {
+		t.Fatalf("could not reach %s within %s", *recordBroker, recordConnectTimeout)
+	}
 	if err != nil {
 		t.Fatal(err)
+	}
+	defer func() { _ = bus.Disconnect(context.Background()) }()
+	c, err := listen(life, bus, *recordBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(os.Stderr, "Recording %s/# for %s: use your devices now, and send commands from an MQTT client such as oikade set\n",
+		*recordBase, *recordFor)
+	time.Sleep(*recordFor)
+	n, skipped, err := c.write(*recordDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range skipped {
+		fmt.Fprintf(os.Stderr, "Skipped %s\n", s)
 	}
 	fmt.Fprintf(os.Stderr, "Recorded %d models. Run the golden tests with -update, and read both before committing\n", n)
 }
 
-// record listens to <base>/# until until fires, and writes or adds to a fixture in dir for each
-// model. It never publishes. It says how many models it wrote.
-func record(broker, base, dir string, until <-chan time.Time) (int, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	// No will and no publishes: the recorder only reads.
-	bus, err := mqtt.Connect(ctx, broker, "oikade-record-"+clientID())
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = bus.Disconnect(context.Background()) }()
-	c := &capture{}
-	if _, err := bus.Subscribe(ctx, base+"/#", c.hear(base)); err != nil {
-		return 0, err
-	}
-	<-until
+// subscriber is all of a bus the recorder may use, so it can't publish.
+type subscriber interface {
+	Subscribe(ctx context.Context, filter string, h mqtt.Handler) (unsubscribe func(), err error)
+}
 
+// listen starts capturing <base>/#.
+func listen(ctx context.Context, bus subscriber, base string) (*capture, error) {
+	c := &capture{}
+	unsubscribe, err := bus.Subscribe(ctx, base+"/#", c.hear(base))
+	if err != nil {
+		return nil, err
+	}
+	c.stop = unsubscribe
+	return c, nil
+}
+
+// write stops capturing, and writes or adds to a fixture in dir for each model. It says how many
+// models it wrote, and which it skipped.
+func (c *capture) write(dir string) (int, []string, error) {
+	if c.stop != nil {
+		c.stop()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	existing, err := readFixtures(dir)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	fixtures, err := c.fixtures("recorded "+time.Now().Format(time.DateOnly), existing)
+	fixtures, skipped, err := c.fixtures("recorded "+time.Now().Format(time.DateOnly), existing)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	for _, file := range slices.Sorted(maps.Keys(fixtures)) {
 		f := fixtures[file]
 		b, err := f.encode()
 		if err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 		if err := os.WriteFile(filepath.Join(dir, file), b, 0o644); err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 		fmt.Fprintf(os.Stderr, "Wrote %s: %d states, %d commands\n", file, len(f.States), len(f.Commands))
 	}
-	return len(fixtures), nil
+	return len(fixtures), skipped, nil
 }
 
-func TestRecordReadsABrokerAndPublishesNothing(t *testing.T) {
-	url := mqtttest.StartBroker(t)
-	ctx := t.Context()
-	z2m, err := mqtt.Connect(ctx, url, "z2m-"+clientID())
+func TestRecordWritesWhatItHeard(t *testing.T) {
+	ctx := context.Background()
+	bus := mqtt.NewMemory()
+	_ = bus.Publish(ctx, "z2m/bridge/devices", []byte(`[{"ieee_address":"0x00124b00eeeeeeee","friendly_name":"desk","type":"Router",
+		"definition":{"vendor":"V","model":"M","exposes":[]}}]`), true)
+	_ = bus.Publish(ctx, "z2m/desk", []byte(`{"state":"ON"}`), true)
+	c, err := listen(ctx, bus, "z2m")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = z2m.Disconnect(context.Background()) }()
-	var (
-		mu    sync.Mutex
-		heard []string
-	)
-	if _, err := z2m.Subscribe(ctx, "#", func(m mqtt.Message) {
-		mu.Lock()
-		defer mu.Unlock()
-		heard = append(heard, m.Topic)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	sent := []string{"z2m/bridge/devices", "z2m/desk", "z2m/desk/set"}
-	_ = z2m.Publish(ctx, sent[0], []byte(`[{"ieee_address":"0x00124b00eeeeeeee","friendly_name":"desk","type":"Router",
-		"definition":{"vendor":"V","model":"M","exposes":[]}}]`), true)
-	_ = z2m.Publish(ctx, sent[1], []byte(`{"state":"ON"}`), true)
-
-	until := make(chan time.Time)
+	_ = bus.Publish(ctx, "z2m/desk/set", []byte(`{"state":"OFF"}`), false)
 	dir := t.TempDir()
-	done := make(chan error, 1)
-	var n int
-	go func() {
-		var err error
-		n, err = record(url, "z2m", dir, until)
-		done <- err
-	}()
-	time.Sleep(500 * time.Millisecond)
-	_ = z2m.Publish(ctx, sent[2], []byte(`{"state":"OFF"}`), false)
-	time.Sleep(500 * time.Millisecond)
-	close(until)
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	n, skipped, err := c.write(dir)
+	if err != nil || n != 1 || skipped != nil {
+		t.Fatalf("wrote %d, skipped %v: %v", n, skipped, err)
 	}
+	// Heard after it stopped: not recorded.
+	_ = bus.Publish(ctx, "z2m/desk", []byte(`{"state":"OFF","power":3}`), false)
 	f, err := readFixture(filepath.Join(dir, "v-m.json"))
-	if err != nil || n != 1 {
-		t.Fatalf("recorded %d: %v", n, err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if s, c := rawStrings(f.States), rawStrings(f.Commands); !slices.Equal(s, []string{`{"state":"ON"}`}) ||
 		!slices.Equal(c, []string{`{"state":"OFF"}`}) {
 		t.Errorf("states %s, commands %s", s, c)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	for _, topic := range heard {
-		if !slices.Contains(sent, topic) {
-			t.Errorf("the recorder published to %s", topic)
-		}
 	}
 }
 
@@ -566,6 +623,8 @@ func TestCaptureKeepsNothingThatNamesADevice(t *testing.T) {
 	hear := c.hear("z2m")
 	send := func(topic, payload string) { hear(mqtt.Message{Topic: "z2m/" + topic, Payload: []byte(payload)}) }
 	send("bridge/info", `{"version":"2.6.0","config":{"advanced":{"network_key":[1,2,3],"pan_id":6754}},"network":{"extended_pan_id":"0xdddddddddddddddd"}}`)
+	// Renamed while it was recording: both names are scrubbed.
+	send("bridge/devices", `[{"ieee_address":"0x00158dbbbbbbbbbb","friendly_name":"Hall window","type":"EndDevice"}]`)
 	send("bridge/devices", `[
 	  {"ieee_address":"0x00124b00aaaaaaaa","friendly_name":"Coordinator","type":"Coordinator","network_address":0,"definition":null},
 	  {"ieee_address":"0x00158dbbbbbbbbbb","friendly_name":"Kitchen/Window","type":"EndDevice","network_address":12345,
@@ -577,14 +636,14 @@ func TestCaptureKeepsNothingThatNamesADevice(t *testing.T) {
 	]`)
 	send("Kitchen/Window", `{"contact":true,"battery":91,"device":{"friendlyName":"Kitchen/Window","ieeeAddr":"0x00158dbbbbbbbbbb"}}`)
 	send("Kitchen/Window", `{"contact":true,"battery":90}`) // Same shape: not kept.
-	send("0x00158dcccccccccc", `{"contact":false,"battery":90,"last_seen":"Kitchen/Window","ip":"192.168.1.20"}`)
+	send("0x00158dcccccccccc", `{"contact":false,"battery":90,"last_seen":"2026-11-15T12:00:00Z","elapsed":3,"where":"Kitchen/Window","ip":"192.168.1.20","old":"Hall window"}`)
 	send("Kitchen/Window/availability", `{"state":"online"}`)
 	send("Kitchen/Window/get", `{"contact":""}`)
 	send("Kitchen/Window/set", `{"contact":true}`)
 	send("Kitchen/Window/set/contact", `false`)
 	send("Elsewhere", `{"contact":true}`) // Not a device.
 
-	got, err := c.fixtures("recorded 2026-11-15", nil)
+	got, _, err := c.fixtures("recorded 2026-11-15", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,7 +655,7 @@ func TestCaptureKeepsNothingThatNamesADevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, leak := range []string{"aaaaaaaa", "bbbbbbbb", "cccccccc", "dddddddd", "Kitchen", "Window", "192.168", "network", "12345", "20191205", "bindings"} {
+	for _, leak := range []string{"aaaaaaaa", "bbbbbbbb", "cccccccc", "dddddddd", "Kitchen", "Window", "Hall", "2026-11-15T", "elapsed", "192.168", "network", "12345", "20191205", "bindings"} {
 		if bytes.Contains(b, []byte(leak)) {
 			t.Errorf("fixture has %q:\n%s", leak, b)
 		}
@@ -611,7 +670,7 @@ func TestCaptureKeepsNothingThatNamesADevice(t *testing.T) {
 	if device["ieee_address"] != fixtureIEEE || device["friendly_name"] != fixtureIEEE || device["model_id"] != "lumi.sensor_magnet.aq2" {
 		t.Errorf("device = %v", device)
 	}
-	if want := []string{`{"battery":91,"contact":true}`, `{"battery":90,"contact":false,"ip":"192.0.2.1","last_seen":"0x0000000000000001"}`}; !slices.Equal(rawStrings(f.States), want) {
+	if want := []string{`{"battery":91,"contact":true}`, `{"battery":90,"contact":false,"ip":"192.0.2.1","old":"0x0000000000000001","where":"0x0000000000000001"}`}; !slices.Equal(rawStrings(f.States), want) {
 		t.Errorf("states = %s, want %s", rawStrings(f.States), want)
 	}
 	if want := []string{`{"contact":true}`, `{"contact":false}`}; !slices.Equal(rawStrings(f.Commands), want) {
@@ -623,7 +682,7 @@ func TestCaptureKeepsNothingThatNamesADevice(t *testing.T) {
 		{Topic: "Kitchen/Window", Payload: []byte(`{"contact":true,"battery":12}`)},
 		{Topic: "Kitchen/Window", Payload: []byte(`{"contact":true,"battery":12,"voltage":2900}`)},
 	}}
-	again, err := c.fixtures("recorded 2026-11-16", got)
+	again, _, err := c.fixtures("recorded 2026-11-16", got)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +696,7 @@ func TestCaptureReplacesAHandWrittenFixture(t *testing.T) {
 		devices:  []byte(`[{"ieee_address":"0x00158dbbbbbbbbbb","friendly_name":"desk","definition":{"vendor":"V","model":"M","exposes":[]}}]`),
 		messages: []mqtt.Message{{Topic: "desk", Payload: []byte(`{"state":"ON"}`)}},
 	}
-	got, err := c.fixtures("recorded", map[string]fixture{
+	got, _, err := c.fixtures("recorded", map[string]fixture{
 		"v-m.json": {Source: sourceHandWritten, States: []json.RawMessage{json.RawMessage(`{"made_up":1}`)}},
 	})
 	if err != nil {
@@ -649,7 +708,7 @@ func TestCaptureReplacesAHandWrittenFixture(t *testing.T) {
 }
 
 func TestCaptureNeedsTheDeviceList(t *testing.T) {
-	if _, err := (&capture{}).fixtures("recorded", nil); err == nil {
+	if _, _, err := (&capture{}).fixtures("recorded", nil); err == nil {
 		t.Error("a capture with no bridge/devices made fixtures")
 	}
 }
@@ -664,4 +723,26 @@ func rawStrings(raws []json.RawMessage) []string {
 		out = append(out, b.String())
 	}
 	return out
+}
+
+func TestCaptureSkipsAModelThatStillNamesADevice(t *testing.T) {
+	c := &capture{
+		devices: []byte(`[
+		  {"ieee_address":"0x00158dbbbbbbbbbb","friendly_name":"bulb","definition":{"vendor":"V","model":"Bulb","description":"A bulb","exposes":[]}},
+		  {"ieee_address":"0x00158dcccccccccc","friendly_name":"state","definition":{"vendor":"V","model":"Plug","exposes":[{"type":"binary","name":"state","property":"state"}]}}
+		]`),
+		messages: []mqtt.Message{{Topic: "state", Payload: []byte(`{"state":"ON"}`)}},
+	}
+	got, skipped, err := c.fixtures("recorded", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The bulb's own description has its name in it, so it's left out, and the plug written.
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "v-bulb.json") {
+		t.Errorf("skipped = %v", skipped)
+	}
+	// A device named like a property doesn't rewrite the property.
+	if s := rawStrings(got["v-plug.json"].States); !slices.Equal(s, []string{`{"state":"ON"}`}) {
+		t.Errorf("plug states = %s", s)
+	}
 }
