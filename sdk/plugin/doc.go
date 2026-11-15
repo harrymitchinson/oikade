@@ -22,13 +22,19 @@
 // applies one command and reports the result with SetState or UpdateState. Set calls for one device never overlap, but
 // they run on their own goroutines alongside Serve, so state both use needs a lock.
 //
+// A Handler that also implements Setup has a first-run setup, which oikade setup runs on the host:
+// a dialogue through a Session that asks the person for what the plugin can't find out, opens a
+// sign-in page and keeps what it learns as host secrets. SetNeedsSetup says the plugin can't serve
+// its devices until it's run.
+//
 // Everything a plugin publishes is checked first. SetState refuses a device that isn't found, a
 // capability the device hasn't announced, a value the capability doesn't accept, and a state
 // missing an announced capability. The mistake is then the plugin's error, not a message Oikade
 // rejects.
 //
 // Logs are JSON on stderr. The SDK logs "Plugin came online", "Could not announce plugin",
-// "Ignored set command", "Could not apply set command", "Could not start plugin", "Could not
+// "Ignored set command", "Could not apply set command", "Ignored setup request", "Started setup",
+// "Ended setup", "Set up plugin", "Could not set up plugin", "Could not start plugin", "Could not
 // serve plugin" and "Could not close plugin". It never logs secrets: ReadSecret's values are the plugin's to protect.
 //
 // test/fixtures/simswitch in the Oikade repository is a complete plugin.

@@ -68,6 +68,10 @@ type Config struct {
 	// is the home's binary, and Plugin the plugin's name in it. Only what carries the messages
 	// differs, so the checks are the same.
 	Plugin string
+	// SetupReplies answer a setup's questions and pages, in order, for a plugin that has a setup.
+	// Once they run out, every answer is empty. A page's answer is its redirect's query, such as
+	// "code=abc".
+	SetupReplies []string
 	// Timeout bounds every step. Zero means DefaultTimeout.
 	Timeout time.Duration
 	// Log receives the decoder's logs. The zero value discards them.
@@ -93,6 +97,7 @@ type Suite struct {
 	sink    *recorder
 	devices map[string]ident.ID // id -> Device
 	p       *process
+	replies []string
 	// t is the top-level test: plugin processes outlive the check that starts them.
 	t T
 
@@ -104,6 +109,8 @@ type Suite struct {
 	// replayed from retain, and nil if it had none.
 	liveDiscovered map[string]bool
 	liveReportAt   time.Time
+	// needsSetup is the raw devices report's.
+	needsSetup bool
 }
 
 // New starts the fake hub and the plugin for cfg, reporting setup failures and cleaning up
@@ -126,7 +133,7 @@ func New(t T, cfg Config) *Suite {
 	t.Cleanup(cancel)
 	s := &Suite{
 		ctx: ctx, url: broker.URL, dir: cfg.Dir, command: cfg.Command, wait: wait,
-		sink: newRecorder(), devices: readDeclared(t, cfg.Devices), t: t,
+		sink: newRecorder(), devices: readDeclared(t, cfg.Devices), t: t, replies: cfg.SetupReplies,
 	}
 	bus, err := mqtt.Connect(ctx, s.url, "conformance-hub")
 	if err != nil {
@@ -171,6 +178,7 @@ func (s *Suite) Checks() []Check {
 		{"announces itself and every declared device", s.announces},
 		{"retains what it publishes and nothing on set", s.retains},
 		{"applies set commands and reports the result", s.appliesSet},
+		{"runs its setup, twice", s.setsUp},
 		{"goes offline on SIGTERM", s.stops},
 		{"comes back after a restart", s.restarts},
 		{"leaves a Last Will when killed", s.crashes},
@@ -219,6 +227,7 @@ func (s *Suite) recordReport(m mqtt.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.report = r
+	s.needsSetup = msg.NeedsSetup
 	if !m.Retained {
 		s.liveDiscovered, s.liveReportAt = discovered, time.Now()
 	}
@@ -358,6 +367,92 @@ func (s *Suite) appliesSet(t T) {
 		t.Log("no found device announces a writable capability; set was not exercised")
 	}
 	s.noRejections(t)
+}
+
+// setsUp runs the plugin's setup, if it has one, as oikade setup would, and then again, as someone
+// checking it would. Each run must end by saying how it went. The suite keeps no secrets: it says
+// each one is kept.
+func (s *Suite) setsUp(t T) {
+	has, needs := s.inst.Setup()
+	if !has {
+		if s.sawNeedsSetup() {
+			t.Error("the plugin says it needs setup, but its status says it has none")
+		}
+		t.Log("the plugin has no setup; setup was not exercised")
+		return
+	}
+	if needs {
+		t.Log("the plugin says it needs setup")
+	}
+	for _, session := range []string{"conformance-1", "conformance-2"} {
+		s.runSetup(t, session)
+	}
+	if _, needs := s.inst.Setup(); needs {
+		t.Log("the plugin still says it needs setup after it")
+	}
+	s.noRejections(t)
+}
+
+func (s *Suite) runSetup(t T, session string) {
+	t.Helper()
+	steps, err := s.inst.StartSetup(s.ctx, session)
+	if err != nil {
+		t.Fatalf("starting setup: %v", err)
+	}
+	replies := slices.Clone(s.replies)
+	next := func() string {
+		if len(replies) == 0 {
+			return ""
+		}
+		r := replies[0]
+		replies = replies[1:]
+		return r
+	}
+	seq := 0
+	for {
+		var step contractv1.SetupStep
+		var ok bool
+		select {
+		case step, ok = <-steps:
+		case <-time.After(s.wait):
+			_ = s.inst.EndSetup(s.ctx, session)
+			t.Fatalf("setup %s took longer than %s to take its next step", session, s.wait)
+		}
+		switch {
+		case !ok:
+			t.Fatalf("setup %s ended without saying how it went", session)
+		case step.Seq == 0:
+			t.Fatalf("setup %s: %s", session, step.Done.Error) // the decoder's own: the plugin broke it
+		case step.Seq != seq+1:
+			t.Errorf("setup %s's step %d follows step %d; number them 1, 2, 3", session, step.Seq, seq)
+		}
+		seq = step.Seq
+		var value string
+		switch {
+		case step.Done != nil:
+			if step.Done.Error != "" {
+				t.Errorf("setup %s failed: %s", session, step.Done.Error)
+			} else {
+				t.Logf("setup %s: %s", session, step.Done.Result)
+			}
+			return
+		case step.Ask != nil, step.Open != nil:
+			value = next()
+		case step.Keep != nil:
+		default:
+			continue
+		}
+		if err := s.inst.ReplySetup(s.ctx, session, step.Seq, value, ""); err != nil {
+			t.Fatalf("replying to setup %s: %v", session, err)
+		}
+	}
+}
+
+// sawNeedsSetup is whether the last devices report said the plugin needs setup.
+func (s *Suite) sawNeedsSetup() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.needsSetup
 }
 
 func (s *Suite) stops(t T) {

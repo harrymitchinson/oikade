@@ -80,7 +80,7 @@ func RunHosted(ctx context.Context, socket, name string, newHandler Factory, log
 		return err
 	}
 	p := newPlugin(root, log, h.Set, hostedClose, life, stop)
-	p.client, p.setTimeout = link, welcome.SetTimeout
+	p.client, p.setTimeout, p.onSetup = link, welcome.SetTimeout, onSetup(h)
 	close(p.ready)
 	current.Store(p)
 	p.announce(serving)

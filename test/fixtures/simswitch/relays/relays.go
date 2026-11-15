@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -34,6 +35,9 @@ type switches struct {
 	discovered []contractv1.DiscoveredDevice
 	// problem is the plugin's own error, empty unless a device asks for one.
 	problem string
+	// needsSetup is true until a setup runs, if a device asks for it, and refuseSetup fails every
+	// setup.
+	needsSetup, refuseSetup bool
 }
 
 // manufacturer and model are what every simulated relay reports.
@@ -48,7 +52,13 @@ var spare = contractv1.DiscoveredDevice{
 	Capabilities: []string{"on"}, Name: "Spare relay",
 }
 
-var _ plugin.Handler = (*switches)(nil)
+var (
+	_ plugin.Handler = (*switches)(nil)
+	_ plugin.Setup   = (*switches)(nil)
+)
+
+// PairingSecret is the secret simswitch's setup keeps.
+const PairingSecret = "simswitch-pairing-code"
 
 // New returns a plugin of simulated relays for the devices.
 func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitches(devices) }
@@ -58,11 +68,12 @@ func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitche
 // configuration it can't use. One with simulate: needs-key is found and can't be used until it's
 // given something, as a device a plugin can see but not read. One with simulate: refused-login is
 // reported not found, and the plugin says in its status that its simulated account refused its
-// login, as a cloud plugin would. All three keep to the contract.
+// login, as a cloud plugin would. One with simulate: needs-setup makes the plugin say it needs its
+// setup run, until it is. All four keep to the contract.
 //
-// Two break it, so the conformance suite's own tests can see it fail: one with simulate: unstable-id
+// Three break it, so the conformance suite's own tests can see it fail: one with simulate: unstable-id
 // is discovered under a new ID each start, and one with simulate: old-name reports a capability by a
-// name Oikade no longer knows.
+// name Oikade no longer knows, and one with simulate: refused-setup makes every setup fail.
 func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 	s := &switches{relays: map[string]*relay{}}
 	for _, d := range declared {
@@ -80,6 +91,12 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 				ID: d.ID, Found: true, Capabilities: []string{contractv1.On}, Error: "no key: give this relay one",
 			})
 			continue
+		}
+		switch d.Parameters["simulate"] {
+		case "needs-setup":
+			s.needsSetup = true
+		case "refused-setup":
+			s.refuseSetup = true
 		}
 		c := contractv1.On
 		if d.Parameters["simulate"] == "old-name" {
@@ -114,6 +131,12 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 // relays never change by themselves, so there's nothing to follow afterwards.
 func (s *switches) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := p.SetError(ctx, s.problem); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	needs := s.needsSetup
+	s.mu.Unlock()
+	if err := p.SetNeedsSetup(ctx, needs); err != nil {
 		return err
 	}
 	if err := p.SetDiscovered(ctx, s.discovered); err != nil {
@@ -163,4 +186,44 @@ func (s *switches) apply(cmd contractv1.SetCommand) (contractv1.State, error) {
 	}
 	r.on = on
 	return r.state(), nil
+}
+
+// Setup goes through every kind of step a setup can take, as a cloud plugin's would: it says what's
+// needed, asks for a name and a pairing code, opens a simulated sign-in, and keeps the code as a
+// secret. Any answers will do.
+func (s *switches) Setup(ctx context.Context, p *plugin.Plugin, session *plugin.Session) (string, error) {
+	if err := session.Say(ctx, "Simulated relays pair with any code"); err != nil {
+		return "", err
+	}
+	hub, err := session.Ask(ctx, "Hub name")
+	if err != nil {
+		return "", err
+	}
+	code, err := session.AskSecret(ctx, "Pairing code")
+	if err != nil {
+		return "", err
+	}
+	if _, err := session.Open(ctx, "https://example.com/simswitch/sign-in", "http://127.0.0.1:8765/callback"); err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	refuse := s.refuseSetup
+	s.mu.Unlock()
+	if refuse {
+		return "", errors.New("the simulated hub refused the pairing code: run oikade setup again with another")
+	}
+	if err := session.KeepSecret(ctx, PairingSecret, code); err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	s.needsSetup = false
+	n := len(s.order)
+	s.mu.Unlock()
+	if err := p.SetNeedsSetup(ctx, false); err != nil {
+		return "", err
+	}
+	if hub == "" {
+		hub = "simswitch"
+	}
+	return fmt.Sprintf("%s is set up: %d relays", hub, n), nil
 }

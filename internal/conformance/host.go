@@ -41,16 +41,18 @@ func fakeHost(ctx context.Context, t T, cfg Config, bus mqtt.Bus) string {
 
 	var mu sync.Mutex
 	var current *pluginwire.Conn[pluginwire.Message]
-	_, err = bus.Subscribe(ctx, root.SetFilter(), func(m mqtt.Message) {
+	forward := func(m mqtt.Message) {
 		mu.Lock()
 		conn := current
 		mu.Unlock()
 		if conn != nil && !m.Retained {
 			_ = conn.Write(pluginwire.Message{Type: pluginwire.TypePublish, Topic: m.Topic, Data: m.Payload})
 		}
-	})
-	if err != nil {
-		t.Fatal(err)
+	}
+	for _, filter := range []string{root.SetFilter(), root.SetupIn()} {
+		if _, err := bus.Subscribe(ctx, filter, forward); err != nil {
+			t.Fatal(err)
+		}
 	}
 	session := func(conn *pluginwire.Conn[pluginwire.Message]) {
 		defer func() { _ = conn.Close() }()

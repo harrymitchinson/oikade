@@ -80,6 +80,54 @@ func TestFailsAPluginThatNeverComesOnline(t *testing.T) {
 	}
 }
 
+func TestAnswersASetupFromItsReplies(t *testing.T) {
+	bin := fixturePlugin(t)
+	fromTestdata(t)
+	replies := filepath.Join(t.TempDir(), "replies.json")
+	if err := os.WriteFile(replies, []byte(`["Loft hub", "1234", "code=abc"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--devices", "devices.json", "--setup-replies", replies, "--", bin}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
+	}
+	for _, want := range []string{
+		"--- PASS: runs its setup, twice",
+		"setup conformance-1: Loft hub is set up",
+		"the plugin says it needs setup",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, &stdout)
+		}
+	}
+}
+
+func TestFailsAPluginWhoseSetupFails(t *testing.T) {
+	bin := fixturePlugin(t)
+	devices := filepath.Join(t.TempDir(), "devices.json")
+	refused := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +
+		`"displayName":"Desk lamp","parameters":{"simulate":"refused-setup"}}]}`
+	if err := os.WriteFile(devices, []byte(refused), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--devices", devices, "--timeout", "2s", "--", bin}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"--- FAIL: runs its setup, twice",
+		"setup conformance-1 failed: the simulated hub refused the pairing code",
+		"--- PASS: goes offline on SIGTERM",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
 	bin := fixturePlugin(t)
 	devices := filepath.Join(t.TempDir(), "devices.json")
@@ -146,6 +194,7 @@ func TestUsageErrors(t *testing.T) {
 		"no command":   {"--devices", "devices.json"},
 		"unknown flag": {"--nope", "--devices", "devices.json", "--", "./plugin"},
 		"bad devices":  {"--devices", "missing.json", "--", "./plugin"},
+		"bad replies":  {"--devices", "devices.json", "--setup-replies", "missing.json", "--", "./plugin"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

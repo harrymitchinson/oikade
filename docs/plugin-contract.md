@@ -53,10 +53,12 @@ oikade/v1/<plugin>
 | `<id>/state` | plugin → Oikade | yes | The device's **full** current values, such as `{"on":true}`, leaving out only values a device has yet to report and can't be asked for. |
 | `<id>/availability` | plugin → Oikade | yes | `online` or `offline`, as a bare string. |
 | `<id>/set` | Oikade → plugin | no | One capability per message, such as `{"on":false}`. |
+| `_setup/in` | Oikade → plugin | no | A [setup](#setup) request. Only for a plugin with a setup. |
+| `_setup/out` | plugin → Oikade | no | A [setup](#setup) step. |
 
-Retain everything the plugin publishes. The host rebuilds its picture from retained topics when it starts or reconnects, and it may receive those topics in any order.
+Retain everything the plugin publishes, but setup steps. The host rebuilds its picture from retained topics when it starts or reconnects, and it may receive those topics in any order.
 
-Other topics under the root are reserved. Oikade ignores them.
+Other topics under the root are reserved. Oikade ignores them. A device ID can't start with `_`, so `_setup` is never a device.
 
 ### Oikade's own topics
 
@@ -67,6 +69,8 @@ Roots under `oikade/v1/` that start with `_` are Oikade's. Don't publish to them
 Publish `{"state":"online","contract":1}` once connected, and set the Last Will so that the broker publishes `{"state":"offline","contract":1}` if the plugin dies. While the status is offline, Oikade treats every device of the plugin as unavailable and refuses to send it commands.
 
 A plugin with a problem of its own, one no single device carries, says so in an optional `error`, such as `{"state":"online","contract":1,"error":"login refused"}` for an account that refuses the password, which leaves no device to put an `error` on. A problem with one device goes in that device's `error` instead. `oikade status` shows it, on one line and cut to 200 characters, so say what would fix it, such as the secret to check. Republish the status without it once the problem is fixed. It doesn't change what an online status means: the plugin is still running, and its devices say for themselves whether they can be reached ([OIK-17](https://linear.app/oikade/issue/OIK-17)).
+
+A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"online","contract":1,"setup":true}`.
 
 ### `devices`
 
@@ -86,6 +90,7 @@ A plugin with a problem of its own, one no single device carries, says so in an 
 - `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. They're added to Oikade's registry, named by the guide in `internal/capability`'s package doc.
 - `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless you've set one with `oikade devices type`, and a device's other types follow from its capabilities ([OIK-142](https://linear.app/oikade/issue/OIK-142)).
 - `error` is a problem with the device's configuration, such as bad `parameters` or a missing secret. `oikade devices` and `oikade status` show it. A device can be `found` and still have one, if the plugin can see it and can't use it. Leave it empty otherwise.
+- `needsSetup` is optional: true while the plugin can't serve its devices until someone runs its [setup](#setup), such as one with no credentials yet. Only a plugin whose status has `setup` sends it.
 - `undeclared` counts devices the plugin can see that Oikade doesn't have on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 
 Republish `devices` whenever any of this changes.
@@ -121,6 +126,30 @@ Publish `online` when the device is reachable and `offline` when it isn't. Repub
 ### `<id>/set`
 
 Oikade sends one capability per message, already validated against the registry and the device's announced capabilities. Apply it, then report the result through `<id>/state`. A `Set` returns once the device has accepted the command, not once it's done: a blind's `position` reports as it travels, and Oikade takes what it reports for 2 minutes after the write as the device catching up, not a person changing it. A Matter controller's write fails after 5 seconds. There's no acknowledgement in v1: success is the state changing. Don't retain anything on this topic.
+
+## Setup
+
+A plugin may have a setup: a short dialogue, run on the host, with the person setting it up, which asks only for what the plugin can't find out itself, keeps what it learns as host secrets and checks the result ([OIK-276](https://linear.app/oikade/issue/OIK-276)). It runs where the plugin does, so its checks see the broker and the network as the plugin will. Run again, it repeats its checks and changes only what's wrong.
+
+Oikade starts a session on `_setup/in` with `{"session":"s1","start":true}`. A plugin runs one session at a time, so a new one ends the last. The plugin then publishes its steps on `_setup/out`, numbered from 1 by `seq`, each with exactly one of these:
+
+| Step | Example | Reply |
+|---|---|---|
+| `say` | `{"session":"s1","seq":1,"say":"Make an app on eWeLink's developer platform first"}` | none |
+| `ask` | `{"session":"s1","seq":2,"ask":{"prompt":"App secret","secret":true}}` | what the person typed. `secret` hides it as they type. |
+| `open` | `{"session":"s1","seq":3,"open":{"url":"https://…/authorize?…","redirect":"http://127.0.0.1:8765/callback"}}` | the query the page redirects to `redirect` with, such as `code=abc&state=xyz` |
+| `keep` | `{"session":"s1","seq":4,"keep":{"name":"ewelink-app-secret","value":"…"}}` | empty, once the host has the secret on disk |
+| `done` | `{"session":"s1","seq":5,"done":{"result":"ewelink-lan is set up: 2 devices online"}}` | none: the session is over |
+
+Oikade replies on `_setup/in` with `{"session":"s1","reply":2,"value":"…"}`, naming the step it answers, or with an `error` instead of a `value` if the step failed, such as a secret the host couldn't keep. It ends a session early with `{"session":"s1","end":true}`, when the person goes, and the plugin publishes nothing more for it.
+
+- `done` has a `result` saying how it went, or an `error` saying what's still wrong and what to do about it. Either is shown as it is, on one line.
+- An `open`'s `redirect` is `http://127.0.0.1:PORT/PATH` or `http://localhost:PORT/PATH`: Oikade listens there on the person's machine, so it's also the redirect URL to register with the platform.
+- A `keep`'s `name` is a secret's name, as for `oikade secret set`, and the secret appears in the secrets directory once the reply comes. Never log a `keep`'s value, or what a `secret` ask was answered with.
+- A step Oikade can't read ends the session, and is counted as `malformed`.
+- A plugin without a setup that gets a `start` replies `{"session":"s1","seq":1,"done":{"error":"this plugin has no setup"}}`. Go plugins get this from the SDK.
+
+Go plugins implement `plugin.Setup` on their `Handler`, and the SDK speaks this dialogue for them.
 
 ## Relay-like devices
 
@@ -158,7 +187,7 @@ Oikade never adopts what it can't validate. It drops the message, or the offendi
 
 | Reason | Cause |
 |---|---|
-| `malformed` | A payload that isn't the JSON or string described above, or a discovered device with an invalid or repeated `id`. |
+| `malformed` | A payload that isn't the JSON or string described above, a discovered device with an invalid or repeated `id`, or a setup step that isn't one of the five. |
 | `wrong_contract` | `status` names a contract other than 1. Oikade then ignores the plugin until it publishes contract 1 again. |
 | `unknown_capability` | A capability name not in Oikade's registry. |
 | `unknown_device_type` | A `deviceType` that isn't one of the six. The device is kept, and its type follows from its capabilities. |
@@ -178,6 +207,7 @@ The conformance suite is a fake hub: an in-process broker and Oikade's own decod
 - every found device with no `error` has availability, state and a value for each capability it announced, and one with a `deviceType` has `on`. One found with an `error` needs none of them, and the suite doesn't set it
 - `status`, `devices`, `<id>/state` and `<id>/availability` are retained, and nothing is retained on `<id>/set`
 - a `/set` for each writable capability is applied and reported back as state
+- a plugin whose status has `setup` runs its setup twice, each ending in a `done` with no `error`. The suite answers each `ask` and `open` from `--setup-replies`, a JSON list of strings in order, and then with empty strings, and says every `keep` is kept without keeping it
 - on SIGTERM the plugin exits 0 and leaves `status` offline
 - after a restart, the plugin and its devices come back online, and it discovers every device it discovered before, by the same `id`
 - when the plugin is killed, its Last Will marks it offline with contract 1
@@ -204,7 +234,7 @@ oikade-conformance --devices conformance-devices.json -- ./bin/my-plugin --simul
 go build -o bin/home ./home && go tool oikade-conformance --devices conformance-devices.json --plugin my-plugin -- bin/home
 ```
 
-Everything after `--` is the plugin's start command, run without a shell in the current directory: a bare name is looked up in `PATH`, so write `./my-plugin` for one in the current directory. Build it first rather than use `go run` or a wrapper script: the suite signals and kills that process, and the plugin itself must be the one that gets it. Paths are absolute or relative to the current directory. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `--secrets DIR` passes a directory as `OIKADE_SECRETS_DIR`, `--timeout` sets how long the plugin has to react at each step (default 15s), and `-v` logs what the decoder sees. It prints a line per check and exits 0 when all pass, 1 when one fails or the plugin can't start, and 2 on a usage error, such as a missing devices file.
+Everything after `--` is the plugin's start command, run without a shell in the current directory: a bare name is looked up in `PATH`, so write `./my-plugin` for one in the current directory. Build it first rather than use `go run` or a wrapper script: the suite signals and kills that process, and the plugin itself must be the one that gets it. Paths are absolute or relative to the current directory. The devices file must declare at least one device the plugin can find without real hardware or credentials, so plugins usually provide a simulated mode for this. `--secrets DIR` passes a directory as `OIKADE_SECRETS_DIR`, `--setup-replies FILE` answers a setup, `--timeout` sets how long the plugin has to react at each step (default 15s), and `-v` logs what the decoder sees. It prints a line per check and exits 0 when all pass, 1 when one fails or the plugin can't start, and 2 on a usage error, such as a missing devices file.
 
 Inside this repo, `make test-conformance` runs the same suite under `go test` against the simulated-relay fixture in [`test/fixtures/simswitch`](../test/fixtures/simswitch), both ways, and CI runs it on every PR. `CONFORMANCE_PLUGIN` and `OIKADE_CONFORMANCE_DEVICES` point it at another plugin, relative to the repository root.
 
