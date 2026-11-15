@@ -472,8 +472,11 @@ func done(resp api.Response, asJSON bool, message string) error {
 		if err := cli.PrintJSON(out); err != nil {
 			return err
 		}
-	} else if resp.Error == "" {
-		fmt.Println(message)
+	} else {
+		if resp.Error == "" {
+			fmt.Println(message)
+		}
+		// A remove that failed part way still warns of what it did.
 		if resp.Warning != "" {
 			fmt.Fprintln(os.Stderr, "Warning:", resp.Warning)
 		}

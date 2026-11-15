@@ -58,10 +58,10 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if resp := known.remove(ctx, "valve", false); resp.Error == "" || !resp.NeedsAllowSafety {
+	if resp, _ := known.remove(ctx, "valve", false); resp.Error == "" || !resp.NeedsAllowSafety {
 		t.Fatalf("removed a device under a Safety claim: %+v", resp)
 	}
-	if resp := known.remove(ctx, "valve", true); resp.Error != "" {
+	if resp, _ := known.remove(ctx, "valve", true); resp.Error != "" {
 		t.Fatal(resp.Error)
 	}
 	if _, ok := controls.Get(dev); ok {
@@ -100,7 +100,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if holders, safety := known.claimed("valve"); !safety || len(holders) != 1 || holders[0] != "Rule/leak" {
 		t.Errorf("got %v, %v", holders, safety)
 	}
-	if resp := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {
+	if resp, _ := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {
 		t.Errorf("got %+v", resp)
 	}
 	if err := known.rename("valve", "valve-two"); err == nil {
@@ -267,6 +267,88 @@ func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	}
 }
 
+func TestRetypingOrRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
+	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
+	devices := hub.NewStore(logging.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known.attach(simInstance)
+	for _, d := range []driver.AppDevice{
+		{ID: "k", Name: "kettle", Room: "landing", Capabilities: []string{capability.On}},
+		{ID: "p", Name: "plug", Room: "landing", Capabilities: []string{capability.On}},
+		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
+	} {
+		if _, err := known.paired(simInstance, d, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	relays := pluginKey("relays")
+	known.attach(relays)
+	if _, err := known.paired(relays, driver.AppDevice{ID: "b", Name: "bulb", Room: "study", Capabilities: []string{capability.On}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	reads := map[string][]engine.RoomRead{
+		"hall-lamp":     {{Room: "hall"}},
+		"landing-plugs": {{Room: "landing", Types: []devicetype.Type{devicetype.OnOffPlugInUnit}}},
+		"study-fan":     {{Room: "study"}},
+	}
+	s := &apiServer{ctx: context.Background(), devices: known, srv: &server{session: &session{reads: reads}}}
+
+	// The kettle is still a plug on the landing, so retyping the plug as a light empties nothing.
+	if resp := s.retype("plug", devicetype.OnOffLight); resp.Error != "" || resp.Warning != "" {
+		t.Errorf("got %+v, want no warning while the kettle is left", resp)
+	}
+	resp := s.retype("kettle", devicetype.OnOffLight)
+	if resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	if !strings.Contains(resp.Warning, "landing-plugs") || !strings.Contains(resp.Warning, "landing") {
+		t.Errorf("got warning %q, want one naming landing-plugs and the landing", resp.Warning)
+	}
+	if d, _ := reg.Get("kettle"); d.DeviceType != devicetype.OnOffLight {
+		t.Errorf("kettle is %q: the type should still change", d.DeviceType)
+	}
+	// The landing's read was empty already, so going back to what the driver says only fills it.
+	if resp := s.retype("plug", ""); resp.Warning != "" {
+		t.Errorf("got warning %q for a retype into the read", resp.Warning)
+	}
+
+	resp = s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "sensor"})
+	if resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	if !strings.Contains(resp.Warning, "hall-lamp") || !strings.Contains(resp.Warning, "hall") {
+		t.Errorf("got warning %q, want one naming hall-lamp and the hall", resp.Warning)
+	}
+	if _, ok := reg.Get("sensor"); ok {
+		t.Error("sensor is still on record: the remove should still happen")
+	}
+
+	// A refused remove empties nothing.
+	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/study-fan", Level: control.Safety}}}}
+	if err := controls.Put(context.Background(), key("bulb"), state); err != nil {
+		t.Fatal(err)
+	}
+	if resp := s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "bulb"}); !resp.NeedsAllowSafety || resp.Warning != "" {
+		t.Errorf("got %+v, want a refusal with no warning", resp)
+	}
+	resp = s.remove(api.Request{Type: api.TypeDeviceRemove, Plugin: "relays", AllowSafety: true})
+	if !strings.Contains(resp.Warning, "study-fan") || strings.Contains(resp.Warning, "hall-lamp") {
+		t.Errorf("got %+v, want a warning naming study-fan, and not the hall emptied before", resp)
+	}
+}
+
 func TestTheAPINamesAPluginAsTheRegistryRecordsIt(t *testing.T) {
 	name, ok := api.PluginOf(registry.Device{Driver: instanceName(pluginKey("relays"))})
 	if !ok || name != "relays" {
@@ -306,11 +388,11 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := known.removePlugin(ctx, "relays", false)
+	resp, _ := known.removePlugin(ctx, "relays", false)
 	if !resp.NeedsAllowSafety || !strings.Contains(resp.Error, "boiler") || len(resp.Removed) != 0 {
 		t.Fatalf("got %+v", resp)
 	}
-	resp = known.removePlugin(ctx, "relays", true)
+	resp, _ = known.removePlugin(ctx, "relays", true)
 	if resp.Error != "" || strings.Join(resp.Removed, ",") != "awning,boiler" {
 		t.Fatalf("got %+v", resp)
 	}
@@ -319,7 +401,7 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 			t.Errorf("got %+v", d)
 		}
 	}
-	if resp := known.removePlugin(ctx, "relays", false); resp.Error == "" {
+	if resp, _ := known.removePlugin(ctx, "relays", false); resp.Error == "" {
 		t.Errorf("removed them twice: %+v", resp)
 	}
 }
