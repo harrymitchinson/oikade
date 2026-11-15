@@ -63,18 +63,20 @@ type binding struct {
 	// reverse is a percentage the other way round: Oikade's is 100 minus Zigbee2MQTT's (position,
 	// which Zigbee2MQTT has at 100 when open).
 	reverse bool
-	// states read an enum property as a bool (a lock's lock_state). A /set writes setProperty instead,
-	// with valueOn or valueOff.
+	// states read an enum property as a bool (a lock's lock_state). A /set or /get names setProperty
+	// instead, with valueOn or valueOff, since Zigbee2MQTT has no converter for lock_state.
 	states      map[string]bool
 	setProperty string
 	// get is whether the property can be read with a /get.
 	get bool
 }
 
-// lockStates are a lock's lock_state: only a bolt that's fully thrown is locked.
-var lockStates = map[string]bool{"locked": true, "not_fully_locked": false, "unlocked": false}
+// lockStates are a lock's lock_state: only a bolt that's fully thrown is locked. Any other value,
+// such as a firmware's own or an empty one, isn't, so a jammed lock never reads locked.
+var lockStates = map[string]bool{"locked": true}
 
-// setter is the binding as a /set writes it: to setProperty, if it has one, with valueOn or valueOff.
+// setter is the binding as a /set or /get names it: setProperty, if it has one, with valueOn or
+// valueOff.
 func (b binding) setter() binding {
 	if b.setProperty != "" {
 		b.property, b.states, b.setProperty = b.setProperty, nil, ""
@@ -162,7 +164,8 @@ func lockBindings(features []expose) []binding {
 	}
 	b := binding{capability: capability.Locked, property: state.Property, valueOn: state.ValueOn, valueOff: state.ValueOff, get: state.gettable()}
 	if lockState != nil {
-		b.property, b.states, b.setProperty, b.get = lockState.Property, lockStates, state.Property, lockState.gettable()
+		// A /get of state reads the lock, which reports lock_state with it.
+		b.property, b.states, b.setProperty = lockState.Property, lockStates, state.Property
 	}
 	return []binding{b}
 }
@@ -207,12 +210,11 @@ func (b binding) decode(raw any) (any, error) {
 	var v any
 	switch {
 	case b.states != nil:
-		s, _ := raw.(string)
-		locked, ok := b.states[s]
+		s, ok := raw.(string)
 		if !ok {
 			return capability.Validate(b.capability, raw)
 		}
-		v = locked
+		v = b.states[s]
 	case b.reverse:
 		f, ok := raw.(float64)
 		if !ok {

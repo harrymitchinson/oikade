@@ -37,8 +37,8 @@ Each device's capabilities come from the exposes in its `bridge/devices` entry, 
 | `light`'s `state` | `on` | A dimmable light with a `brightness`, an on/off light without one. |
 | `light`'s `brightness` | `brightness` | Scaled from the expose's maximum, 254 if it has none, to 0–100. |
 | `switch`'s `state` | `on` | A relay says nothing about what it switches, so it's a plug unless you say otherwise. |
-| `cover`'s `position` | `position` | Reversed both ways: Zigbee2MQTT's 100 is open, and Oikade's 100 closed, so its 30 is `position` 70. A cover with no `position` only opens and closes, and isn't served. |
-| `lock`'s `state` and `lock_state` | `locked` | Read from `lock_state`, where the bolt is: only `locked` is locked, and `not_fully_locked` isn't. A lock with no `lock_state` is read from `state`. Set with `state`'s `LOCK` or `UNLOCK`. |
+| `cover`'s `position` | `position` | Reversed both ways: Zigbee2MQTT's 100 is open, and Oikade's 100 closed, so its 30 is `position` 70. A cover with no `position` only opens and closes, and isn't served. Leave Zigbee2MQTT's `invert_cover` off, or the position is reversed twice. |
+| `lock`'s `state` and `lock_state` | `locked` | Read from `lock_state`, where the bolt is: only `locked` is locked, and any other value, such as `not_fully_locked`, isn't. A `/get` names `state`, which reads both. A lock with no `lock_state` is read from `state`. Set with `state`'s `LOCK` or `UNLOCK`. |
 | `contact` | `open` | Reversed: Zigbee2MQTT's `contact: true` is shut. |
 | `occupancy` | `occupied` | |
 | `temperature`, `humidity`, `battery` and `linkquality` | `temperature`, `humidity`, `battery` and `link-quality` | |

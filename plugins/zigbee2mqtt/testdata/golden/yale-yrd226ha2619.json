@@ -11,7 +11,8 @@
     {
       "capability": "locked",
       "property": "lock_state",
-      "get": false
+      "sets": "state",
+      "get": true
     },
     {
       "capability": "battery",

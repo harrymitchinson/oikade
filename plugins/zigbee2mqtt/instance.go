@@ -292,7 +292,7 @@ func (i *Instance) requestState() {
 		}
 		for _, b := range i.paired[ieee].bindings {
 			if b.get && !i.knownLocked(ieee, b.capability) {
-				requests = append(requests, request{ieee, b.property, b.capability})
+				requests = append(requests, request{ieee, b.setter().property, b.capability})
 			}
 		}
 	}
