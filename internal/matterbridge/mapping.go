@@ -196,9 +196,11 @@ func mapHeater(m *Mapped, switchable bool, set SetFunc) {
 	m.Clusters = append(m.Clusters, h.Cluster())
 	m.update[capability.Setpoint] = func(v any) { h.SetSetpoint(capability.Float(v)) }
 	m.update[capability.Temperature] = func(v any) { h.SetLocal(capability.Float(v)) }
-	m.update[capability.On] = func(v any) {
-		if b, ok := v.(bool); ok {
-			h.SetOn(b)
+	if switchable {
+		m.update[capability.On] = func(v any) {
+			if b, ok := v.(bool); ok {
+				h.SetOn(b)
+			}
 		}
 	}
 }

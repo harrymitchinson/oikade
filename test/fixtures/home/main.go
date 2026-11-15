@@ -313,7 +313,7 @@ func home() rules {
 			framework.NewMoment("probe", on("probe-out").To(true)).On(open("probe")).Restart(),
 			framework.NewMoment("reset", framework.Release(leakShutoff), framework.Release("leak-alarm")).On(open("reset")),
 			framework.NewMoment(claimMoment, on("claimed").To(false).For(time.Hour)).On(open("claim-go")),
-			framework.NewMoment("study-cool", studyHeater.To(18)).On(open("study-go")),
+			framework.NewMoment("study-setback", studyHeater.To(18)).On(open("study-go")),
 		},
 		// A time of day comes from the test, which seeds when it was last accounted for.
 		when(os.Getenv("OIKADE_TEST_AT") != "",

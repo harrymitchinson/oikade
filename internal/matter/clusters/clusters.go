@@ -67,6 +67,10 @@ func uintAttr(id uint32, v uint64) im.Attribute {
 	return readOnly(id, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, v) })
 }
 
+func intAttr(id uint32, v int64) im.Attribute {
+	return readOnly(id, func(w *tlv.Writer, tag tlv.Tag) { w.PutInt(tag, v) })
+}
+
 func stringAttr(id uint32, v *string) im.Attribute {
 	return readOnly(id, func(w *tlv.Writer, tag tlv.Tag) { w.PutUTF8(tag, *v) })
 }

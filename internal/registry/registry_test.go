@@ -651,6 +651,9 @@ func TestSetDeviceTypeRefusesWhatCantBe(t *testing.T) {
 	if _, _, err := r.Report(Report{ID: "2", Driver: "sim", Name: "door", Capabilities: []string{capability.Open}}); err != nil {
 		t.Fatal(err)
 	}
+	if _, _, err := r.Report(Report{ID: "3", Driver: "sim", Name: "heater", Capabilities: []string{capability.On, capability.Setpoint}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := r.Reserve("future", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -662,6 +665,7 @@ func TestSetDeviceTypeRefusesWhatCantBe(t *testing.T) {
 		"a sensor's type":      {"plug", devicetype.ContactSensor},
 		"dimmable, no dimming": {"plug", devicetype.DimmableLight},
 		"not on or off":        {"door", devicetype.OnOffLight},
+		"a thermostat":         {"heater", devicetype.OnOffPlugInUnit},
 		"no such device":       {"nothing", devicetype.OnOffLight},
 	} {
 		if err := r.SetDeviceType(tc.device, tc.typ); err == nil {

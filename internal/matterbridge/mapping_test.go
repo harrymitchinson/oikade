@@ -402,6 +402,14 @@ func TestAHeaterWithoutOnAlwaysHeats(t *testing.T) {
 	if s := write(t, th, 0x001C, putUint(0)); s != im.StatusConstraintError {
 		t.Errorf("SystemMode Off: %v, want a constraint error", s)
 	}
+	if s := write(t, th, 0x001C, putUint(4)); s != im.StatusSuccess {
+		t.Errorf("SystemMode Heat: %v", s)
+	}
+	// LocalTemperature is an int16 of hundredths, so a faulty reading stops at its top.
+	m.Update(capability.Temperature, 400.0)
+	if read(t, th, 0x0000) != int64(32767) {
+		t.Errorf("LocalTemperature at 400 °C %v", read(t, th, 0x0000))
+	}
 	if len(*calls) != 0 {
 		t.Errorf("writes %v", *calls)
 	}

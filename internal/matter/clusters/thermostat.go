@@ -55,8 +55,8 @@ type Heater struct {
 	// OnSetpoint is called, under the Node's lock, when a client sets the heating setpoint, in
 	// degrees Celsius. It must not block.
 	OnSetpoint func(celsius float64)
-	// OnMode is called, under the Node's lock, when a client sets SystemMode to Off or Heat. It
-	// must not block.
+	// OnMode is called, under the Node's lock, when a client sets SystemMode to Off or Heat on a
+	// heater that can be turned off. It must not block.
 	OnMode func(heat bool)
 }
 
@@ -65,9 +65,6 @@ type Heater struct {
 func NewHeater(switchable bool) *Heater {
 	h := &Heater{setpoint: 2000, switchable: switchable, on: !switchable}
 	const featureHeating = 1 << 0
-	putTemp := func(v int64) func(w *tlv.Writer, tag tlv.Tag) {
-		return func(w *tlv.Writer, tag tlv.Tag) { w.PutInt(tag, v) }
-	}
 	h.cluster = &im.Cluster{
 		ID: IDThermostat, Revision: 6, FeatureMap: featureHeating,
 		Attributes: []im.Attribute{
@@ -78,8 +75,8 @@ func NewHeater(switchable bool) *Heater {
 					w.PutInt(tag, *h.local)
 				}
 			}),
-			readOnly(0x0003, putTemp(MinHeatSetpoint)), // AbsMinHeatSetpointLimit
-			readOnly(0x0004, putTemp(MaxHeatSetpoint)), // AbsMaxHeatSetpoint
+			intAttr(0x0003, MinHeatSetpoint), // AbsMinHeatSetpointLimit
+			intAttr(0x0004, MaxHeatSetpoint), // AbsMaxHeatSetpointLimit
 			{
 				ID:   attrOccupiedHeatingSetpoint,
 				Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error { w.PutInt(tag, h.setpoint); return nil },
@@ -95,8 +92,8 @@ func NewHeater(switchable bool) *Heater {
 					return im.StatusSuccess
 				},
 			},
-			readOnly(0x0015, putTemp(MinHeatSetpoint)), // MinHeatSetpointLimit
-			readOnly(0x0016, putTemp(MaxHeatSetpoint)), // MaxHeatSetpoint
+			intAttr(0x0015, MinHeatSetpoint), // MinHeatSetpointLimit
+			intAttr(0x0016, MaxHeatSetpoint), // MaxHeatSetpointLimit
 			{
 				ID: attrControlSequenceOfOperation,
 				Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error {
@@ -147,10 +144,10 @@ func NewHeater(switchable bool) *Heater {
 // Cluster returns the cluster to add to an endpoint.
 func (h *Heater) Cluster() *im.Cluster { return h.cluster }
 
-// SetLocal records the temperature the heater measures, in degrees Celsius. Call it inside
-// Node.Update.
+// SetLocal records the temperature the heater measures, in degrees Celsius, within what
+// LocalTemperature can hold. Call it inside Node.Update.
 func (h *Heater) SetLocal(celsius float64) {
-	v := hundredths(celsius)
+	v := min(max(hundredths(celsius), minLocal), math.MaxInt16)
 	if h.local == nil || *h.local != v {
 		h.local = &v
 		h.cluster.Changed(attrLocalTemperature)
@@ -161,7 +158,7 @@ func (h *Heater) SetLocal(celsius float64) {
 // setpoint outside the limits shows as the nearest limit, which is all a controller may be told.
 // Call it inside Node.Update.
 func (h *Heater) SetSetpoint(celsius float64) {
-	h.set(min(max(hundredths(celsius), MinHeatSetpoint), MaxHeatSetpoint))
+	h.set(clampSetpoint(hundredths(celsius)))
 }
 
 // SetOn records whether the heater is on: SystemMode Heat or Off. Call it inside Node.Update.
@@ -195,7 +192,7 @@ func (h *Heater) command(v int64) {
 
 func (h *Heater) mode(heat bool) {
 	h.SetOn(heat)
-	if h.OnMode != nil {
+	if h.switchable && h.OnMode != nil {
 		h.OnMode(heat)
 	}
 }
@@ -225,8 +222,13 @@ func (h *Heater) raiseLower(_ *im.Request, fields *tlv.Reader) (*im.Response, er
 	if mode != 0 && mode != 2 {
 		return nil, im.StatusConstraintError
 	}
-	h.command(min(max(h.setpoint+amount*10, MinHeatSetpoint), MaxHeatSetpoint))
+	h.command(clampSetpoint(h.setpoint + amount*10))
 	return nil, nil
 }
+
+// minLocal is the lowest LocalTemperature, absolute zero: it's an int16 of hundredths.
+const minLocal = -27315
+
+func clampSetpoint(v int64) int64 { return min(max(v, MinHeatSetpoint), MaxHeatSetpoint) }
 
 func hundredths(celsius float64) int64 { return int64(math.Round(celsius * 100)) }
