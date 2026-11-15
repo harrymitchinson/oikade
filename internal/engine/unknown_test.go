@@ -99,6 +99,17 @@ func TestAHoldWhoseWhenStaysUnknownLogsTheStretchOnceAtInfo(t *testing.T) {
 		}
 		return n
 	}
+	r.logs.mu.Lock()
+	looks := 0
+	for _, l := range r.logs.lines {
+		if strings.Contains(l, `msg="Could not evaluate hold; keeping its state"`) && strings.Contains(l, "hall-light") {
+			looks++
+		}
+	}
+	r.logs.mu.Unlock()
+	if looks < 2 {
+		t.Errorf("looked %d more times while when was unknown, want at least 2, so the test shows once", looks)
+	}
 	if n := infos(`msg="Could not evaluate hold; keeping its state until it can"`); n != 1 {
 		t.Errorf("logged the start of the stretch %d times at Info, want 1: %q", n, r.logs.lines)
 	}

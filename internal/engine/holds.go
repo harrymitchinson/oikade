@@ -224,6 +224,8 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 			why = r.Message
 		}
 		e.stopped(key, hs, why)
+		// A Rule edited into a budget hold has no When, so a stretch it was in has ended.
+		e.whenKnown(key, hs)
 		if saved := hs.budget.saved; saved != "" {
 			st.Budget = saved
 		}
