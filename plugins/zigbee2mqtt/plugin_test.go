@@ -115,11 +115,12 @@ func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredD
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.(*bridge).infoWait = time.Second
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
 	p, err := plugin.Start(started, plugin.Options{
 		Environment: plugin.Environment{MQTTURL: oikade, Root: root}, OnSet: h.Set,
-		Logger: slog.New(slog.DiscardHandler),
+		OnSetup: h.(plugin.Setup).Setup, Logger: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
 		t.Fatal(err)

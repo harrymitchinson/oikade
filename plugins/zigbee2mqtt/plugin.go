@@ -56,7 +56,8 @@ func New(c Config) plugin.Factory {
 			ids = append(ids, d.ID)
 		}
 		return &bridge{
-			config: c, broker: env.MQTTURL, declared: ids, up: true, online: map[string]bool{},
+			config: c, name: env.Root.Plugin(), broker: env.MQTTURL, declared: ids, up: true, online: map[string]bool{},
+			infoHeard: make(chan struct{}), infoWait: defaultInfoWait,
 			connectTimeout: connectTimeout,
 			log:            slog.New(slog.NewJSONHandler(os.Stderr, nil)),
 		}, nil
@@ -66,6 +67,8 @@ func New(c Config) plugin.Factory {
 // bridge is the plugin: it follows an Instance and reports what it hears through the SDK.
 type bridge struct {
 	config Config
+	// name is the plugin's, as the home imports it, for setup to name.
+	name   string
 	broker string
 	// declared are the devices on record, which are reported even once they've left Zigbee2MQTT.
 	declared       []string
@@ -86,9 +89,22 @@ type bridge struct {
 	reported map[string]bool
 	// heard is the values of the message being taken in.
 	heard map[string]contractv1.State
+	// info is Zigbee2MQTT's bridge/info, once infoHeard is closed, and infoWait how long to wait
+	// for it.
+	info      *bridgeInfo
+	infoHeard chan struct{}
+	infoWait  time.Duration
+	// connected is whether the plugin has the broker now.
+	connected bool
+	// reporting is held while devices are reported, so that a report with nothing to list can't
+	// overtake one from a device list.
+	reporting sync.Mutex
 }
 
-var _ plugin.Handler = (*bridge)(nil)
+var (
+	_ plugin.Handler = (*bridge)(nil)
+	_ plugin.Setup   = (*bridge)(nil)
+)
 
 // Serve implements plugin.Handler.
 func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
@@ -100,7 +116,8 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	dial, cancel := context.WithTimeout(ctx, b.connectTimeout)
 	defer cancel()
 	connecting := context.AfterFunc(dial, cut)
-	client, err := mqtt.Connect(life, b.broker, clientID(), mqtt.WithOnDisconnect(b.connectionLost))
+	client, err := mqtt.Connect(life, b.broker, clientID(),
+		mqtt.WithOnDisconnect(b.connectionLost), mqtt.WithOnConnect(b.connectionMade))
 	if !connecting() {
 		if ctx.Err() != nil {
 			return nil
@@ -124,10 +141,12 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		Log:           b.log,
 		OnBridgeState: b.setUp,
 		OnListed:      b.publishAllAvailability,
+		OnBridgeInfo:  b.heardInfo,
 	}
 	if err := b.instance.Start(ctx); err != nil {
 		return err
 	}
+	go b.awaitInfo(ctx)
 	<-ctx.Done()
 	return nil
 }
@@ -160,7 +179,16 @@ func (b *bridge) setUp(up bool) {
 // has gone. A reconnect brings the retained state back. It doesn't wait, because the MQTT client
 // waits for this.
 func (b *bridge) connectionLost() {
+	b.mu.Lock()
+	b.connected = false
+	b.mu.Unlock()
 	go b.setUp(false)
+}
+
+func (b *bridge) connectionMade(context.Context) {
+	b.mu.Lock()
+	b.connected = true
+	b.mu.Unlock()
 }
 
 func (b *bridge) publishAllAvailability() {
@@ -189,6 +217,8 @@ func (b *bridge) check(err error, msg, id string) {
 
 // Inventory implements driver.Sink: Zigbee2MQTT's list is the plugin's.
 func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
+	b.reporting.Lock()
+	defer b.reporting.Unlock()
 	reports := make([]contractv1.DeviceReport, 0, len(devices)+len(b.declared))
 	discovered := make([]contractv1.DiscoveredDevice, 0, len(devices))
 	paired := make(map[string]ident.ID, len(devices))
