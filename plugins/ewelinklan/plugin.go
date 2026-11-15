@@ -110,6 +110,7 @@ type bridge struct {
 	now      func() time.Time
 	log      *slog.Logger
 	client   *http.Client
+	cloud    cloud
 
 	// ctx and plugin are set before anything can be heard.
 	ctx    context.Context
@@ -144,7 +145,7 @@ func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredD
 	}
 	return &bridge{
 		humidity: humidity, env: env, declared: ids, listen: listen, timing: t, now: now, log: log,
-		client:  &http.Client{Timeout: t.http},
+		client: &http.Client{Timeout: t.http}, cloud: ewelink,
 		devices: map[string]*device{}, records: newRecords(), skipped: map[string]bool{}, early: map[string]contractv1.State{},
 	}
 }
@@ -300,7 +301,7 @@ func (b *bridge) loadKey(d *device) bool {
 	secret = strings.TrimRight(secret, "\r\n")
 	if !ok || secret == "" {
 		d.secret, d.key = "", nil
-		b.setProblem(d, "no LAN key: oikade secret set "+d.id)
+		b.setProblem(d, "no LAN key: oikade setup "+b.name())
 		return false
 	}
 	if secret == d.secret {
@@ -452,9 +453,10 @@ func (b *bridge) publish(heard []observed) {
 	}
 	clear(b.early)
 	var reports []contractv1.DeviceReport
+	needs := false
 	if b.dirty {
 		b.dirty = false
-		reports = b.reportsLocked()
+		reports, needs = b.reportsLocked(), b.needsSetupLocked()
 	}
 	type change struct {
 		id     string
@@ -472,6 +474,8 @@ func (b *bridge) publish(heard []observed) {
 	b.mu.Unlock()
 
 	if reports != nil {
+		// It goes out with the devices.
+		b.check(b.plugin.SetNeedsSetup(b.ctx, needs), "Could not report whether setup is needed", "")
 		b.check(b.plugin.SetDevices(b.ctx, reports, 0), "Could not report devices", "")
 		b.offlineUnheard(reports)
 	}

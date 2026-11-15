@@ -218,6 +218,7 @@ func mustPack(t *testing.T, m dnsmessage.Message) []byte {
 // bench is a running plugin on a fake network and a fake clock.
 type bench struct {
 	t       *testing.T
+	broker  string
 	lan     *fakeLAN
 	secrets string
 	clock   atomic.Int64
@@ -240,9 +241,15 @@ var fast = timing{
 
 func start(t *testing.T, c Config, timings timing, declared ...string) *bench {
 	t.Helper()
+	return startWith(t, c, timings, nil, declared...)
+}
+
+// startWith starts the plugin, with eWeLink's cloud at cl if it isn't nil.
+func startWith(t *testing.T, c Config, timings timing, cl *cloud, declared ...string) *bench {
+	t.Helper()
 	broker := mqtttest.StartBroker(t)
 	b := &bench{
-		t: t, lan: newFakeLAN(), secrets: t.TempDir(), base: time.Now(),
+		t: t, broker: broker, lan: newFakeLAN(), secrets: t.TempDir(), base: time.Now(),
 		topics: map[string]string{}, published: map[string]int{},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -268,9 +275,12 @@ func start(t *testing.T, c Config, timings timing, declared ...string) *bench {
 		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
 	b.handler = newBridge(c, env, devices, func() (lan, error) { return b.lan, nil }, timings, b.now, slog.New(slog.DiscardHandler))
+	if cl != nil {
+		b.handler.cloud = *cl
+	}
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
-	b.plugin, err = plugin.Start(started, plugin.Options{Environment: env, OnSet: b.handler.Set, Logger: slog.New(slog.DiscardHandler)})
+	b.plugin, err = plugin.Start(started, plugin.Options{Environment: env, OnSet: b.handler.Set, OnSetup: b.handler.Setup, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,6 +342,14 @@ func (b *bench) eventually(what string, ok func() bool) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	b.t.Fatalf("Never saw %s. Topics: %v", what, b.topics)
+}
+
+func (b *bench) needsSetup() bool {
+	var msg contractv1.Devices
+	if raw := b.topic(root.Devices()); raw == "" || json.Unmarshal([]byte(raw), &msg) != nil {
+		return false
+	}
+	return msg.NeedsSetup
 }
 
 func (b *bench) reports() map[string]contractv1.DeviceReport {
@@ -456,8 +474,11 @@ func TestADeviceWithNoKeyShowsThatAndComesUpWhenItsAdded(t *testing.T) {
 	d.report()
 
 	b.eventually("the problem", func() bool {
-		return b.reports()[relayID].Error == "no LAN key: oikade secret set "+relayID
+		return b.reports()[relayID].Error == "no LAN key: oikade setup ewelink"
 	})
+	if !b.needsSetup() {
+		t.Error("A device with no key should need the setup run")
+	}
 	b.waitAvailability(relayID, contractv1.Offline)
 	if !b.reports()[relayID].Found || strings.Join(b.reports()[relayID].Capabilities, ",") != "on,temperature" {
 		t.Errorf("A device with no key should be reported as what it is: %+v", b.reports()[relayID])
@@ -472,6 +493,7 @@ func TestADeviceWithNoKeyShowsThatAndComesUpWhenItsAdded(t *testing.T) {
 	b.waitAvailability(relayID, contractv1.Online)
 	b.waitState(relayID, "on", "true")
 	b.eventually("the problem clearing", func() bool { return b.reports()[relayID].Error == "" })
+	b.eventually("setup no longer needed", func() bool { return !b.needsSetup() })
 }
 
 func TestAWrongKeyShowsAsAProblem(t *testing.T) {
