@@ -460,11 +460,12 @@ func coveringOn(t *testing.T) (*Mapped, *im.Cluster, *[]setCall, *[]func()) {
 	var settles []func()
 	m := Map(Device{
 		Key: ident.ID{Name: "blind"}, Endpoint: 7, Name: "Blind", Capabilities: []string{capability.Position},
-		After: func(d time.Duration, f func()) {
+		After: func(d time.Duration, f func()) func() {
 			if d != capability.SettleOf(capability.Position) {
 				t.Errorf("a move settles after %v", d)
 			}
 			settles = append(settles, f)
+			return func() {}
 		},
 	}, func(name string, value any) { calls = append(calls, setCall{name, value}) })
 	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x0202}) {
@@ -482,6 +483,11 @@ func goToLift(hundredths uint64) func(w *tlv.Writer) {
 	return func(w *tlv.Writer) { w.PutUint(tlv.Context(1), hundredths) }
 }
 
+// goToLift0 is GoToLiftPercentage as controllers send it, in field 0.
+func goToLift0(hundredths uint64) func(w *tlv.Writer) {
+	return func(w *tlv.Writer) { w.PutUint(tlv.Context(0), hundredths) }
+}
+
 func TestABlindMovesToWhereTheControllerSaysAndShowsOnlyWhatItReports(t *testing.T) {
 	m, c, calls, settles := coveringOn(t)
 	if c.FeatureMap != 0b101 {
@@ -491,7 +497,7 @@ func TestABlindMovesToWhereTheControllerSaysAndShowsOnlyWhatItReports(t *testing
 		t.Errorf("before any report: current %v, target %v", read(t, c, currentLift), read(t, c, targetLift))
 	}
 	m.Update(capability.Position, 0.0)
-	invoke(t, c, clusters.CommandGoToLiftPercentage, goToLift(7000)) // 70% closed
+	invoke(t, c, clusters.CommandGoToLiftPercentage, goToLift0(7000)) // 70% closed
 	if want := []setCall{{capability.Position, 70.0}}; !reflect.DeepEqual(*calls, want) {
 		t.Errorf("writes %v, want %v", *calls, want)
 	}
@@ -579,6 +585,20 @@ func TestARefusedMoveIsCancelled(t *testing.T) {
 	}
 }
 
+// GoToLiftPercentage's target is in hundredths: field 0, as controllers send it, or field 1, as
+// Matter 1.3's data model has it.
+func TestGoToLiftPercentageTakesHundredthsInEitherField(t *testing.T) {
+	_, c, calls, _ := coveringOn(t)
+	invoke(t, c, clusters.CommandGoToLiftPercentage, func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 5000) })
+	invoke(t, c, clusters.CommandGoToLiftPercentage, func(w *tlv.Writer) {
+		w.PutUint(tlv.Context(0), 25)
+		w.PutUint(tlv.Context(1), 2500)
+	})
+	if want := []setCall{{capability.Position, 50.0}, {capability.Position, 25.0}}; !reflect.DeepEqual(*calls, want) {
+		t.Errorf("writes %v, want %v", *calls, want)
+	}
+}
+
 func TestGoToLiftPercentageRefusesPastClosed(t *testing.T) {
 	_, c, calls, _ := coveringOn(t)
 	for _, x := range c.Commands {
@@ -586,8 +606,8 @@ func TestGoToLiftPercentageRefusesPastClosed(t *testing.T) {
 			continue
 		}
 		for name, f := range map[string]func(w *tlv.Writer){
-			"hundredths": goToLift(10001),
-			"percent":    func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 101) },
+			"field 0": func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 10001) },
+			"field 1": goToLift(10001),
 		} {
 			var w tlv.Writer
 			w.StartStructure(tlv.Anonymous)
@@ -604,5 +624,31 @@ func TestGoToLiftPercentageRefusesPastClosed(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Errorf("writes %v", *calls)
+	}
+}
+
+// A blind that has never reported has no target once its move settles.
+func TestAMoveThatNeverHeardFromTheBlindLeavesNoTarget(t *testing.T) {
+	_, c, _, settles := coveringOn(t)
+	invoke(t, c, clusters.CommandDownOrClose, nil)
+	(*settles)[0]()
+	if read(t, c, targetLift) != nil || read(t, c, operational) != uint64(0) {
+		t.Errorf("target %v, OperationalStatus %v", read(t, c, targetLift), read(t, c, operational))
+	}
+}
+
+// The same position again, as when the bridge refreshes an endpoint, isn't a report since the move,
+// so StopMotion still refuses to send the blind back.
+func TestAReplayedPositionIsntAReportSinceTheMove(t *testing.T) {
+	m, c, _, _ := coveringOn(t)
+	m.Update(capability.Position, 0.0)
+	invoke(t, c, clusters.CommandDownOrClose, nil)
+	m.Update(capability.Position, 0.0)
+	for _, x := range c.Commands {
+		if x.ID == clusters.CommandStopMotion {
+			if _, err := x.Invoke(nil, nil); err != im.StatusFailure {
+				t.Errorf("StopMotion: %v, want Failure", err)
+			}
+		}
 	}
 }

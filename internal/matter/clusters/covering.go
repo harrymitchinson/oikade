@@ -60,17 +60,20 @@ type Covering struct {
 	current *int64
 	target  *int64
 	moving  bool
-	// reported is set by a report since the last move.
+	// reported is set by a report since the last move of a position other than where it started.
 	reported bool
-	mode     uint64
+	// from is where the last move started.
+	from *int64
+	// stopSettle stops the last move's settle, if it's waiting.
+	stopSettle func()
 	// move counts moves, so that a settle meant for an earlier one does nothing.
 	move int
 	// OnMove is called, under the Node's lock, when a client moves it, with the target in percent
 	// closed. It must not block.
 	OnMove func(percent float64)
-	// AfterSettle runs f, under the Node's lock, once a move has had as long as it takes. Nil leaves
-	// a move until a report reaches its target.
-	AfterSettle func(f func())
+	// AfterSettle runs f, under the Node's lock, once a move has had as long as it takes, unless the
+	// function it returns is called first. Nil leaves a move until a report reaches its target.
+	AfterSettle func(f func()) (stop func())
 }
 
 // NewCovering returns a Window Covering cluster for a roller shade.
@@ -102,19 +105,16 @@ func NewCovering() *Covering {
 			readOnly(attrCurrentLift100ths, nullable(func() *int64 { return c.current }, 1)), // CurrentPositionLiftPercent100ths
 			{
 				ID:   attrMode,
-				Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error { w.PutUint(tag, c.mode); return nil },
-				// The bits are the motor's and its own: a bridge keeps them, and they change nothing.
+				Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error { w.PutUint(tag, 0); return nil },
+				// A bridge can't reverse the motor, calibrate it or put it in maintenance, so only the
+				// normal mode can be written.
 				Write: func(_ *im.Request, r *tlv.Reader, op im.WriteOp) im.Status {
 					v, err := r.Uint()
 					if err != nil || op != im.Replace {
 						return im.StatusInvalidDataType
 					}
-					if v > 0x0F {
+					if v != 0 {
 						return im.StatusConstraintError
-					}
-					if v != c.mode {
-						c.mode = v
-						c.cluster.Changed(attrMode)
 					}
 					return im.StatusSuccess
 				},
@@ -143,7 +143,9 @@ func (c *Covering) SetCurrent(percent float64) {
 		c.cluster.Changed(attrCurrentLift100ths)
 		c.cluster.Changed(attrCurrentLiftPercentage)
 	}
-	c.reported = true
+	if c.from == nil || *c.from != v {
+		c.reported = true
+	}
 	if c.moving && c.target != nil && abs(*c.target-v) <= nearLift {
 		c.setMoving(false)
 	}
@@ -156,32 +158,46 @@ func (c *Covering) SetCurrent(percent float64) {
 // Call it inside Node.Update.
 func (c *Covering) Cancel() {
 	c.move++
+	c.waitNoLonger()
 	c.settle()
+}
+
+func (c *Covering) waitNoLonger() {
+	if c.stopSettle != nil {
+		c.stopSettle()
+		c.stopSettle = nil
+	}
 }
 
 func (c *Covering) goTo(target int64) {
 	c.setTarget(target)
 	c.setMoving(c.current == nil || abs(*c.current-target) > nearLift)
-	c.reported = false
+	c.reported, c.from = false, c.current
 	c.move++
+	c.waitNoLonger()
 	if c.OnMove != nil {
 		c.OnMove(float64(target) / 100)
 	}
 	if c.AfterSettle != nil && c.moving {
 		move := c.move
-		c.AfterSettle(func() {
+		c.stopSettle = c.AfterSettle(func() {
 			if c.move == move {
+				c.stopSettle = nil
 				c.settle()
 			}
 		})
 	}
 }
 
-// settle ends a move: Target follows Current.
+// settle ends a move: Target follows Current, and is unknown with it.
 func (c *Covering) settle() {
 	c.setMoving(false)
-	if c.current != nil {
+	switch {
+	case c.current != nil:
 		c.setTarget(*c.current)
+	case c.target != nil:
+		c.target = nil
+		c.cluster.Changed(attrTargetLift100ths)
 	}
 }
 
@@ -229,34 +245,33 @@ func (c *Covering) stop(*im.Request, *tlv.Reader) (*im.Response, error) {
 	return nil, nil
 }
 
-// goToPercentage is GoToLiftPercentage. Matter sends LiftPercent100thsValue, and Zigbee
-// LiftPercentageValue.
+// goToPercentage is GoToLiftPercentage. Its target is in hundredths: field 0 since Matter 1.4 and in
+// the SDK controllers are built with, and field 1 in 1.3's data model, whose field 0 was a whole
+// percent that controllers don't send. So field 1 wins, and field 0 is hundredths.
 func (c *Covering) goToPercentage(_ *im.Request, fields *tlv.Reader) (*im.Response, error) {
 	if fields == nil {
 		return nil, im.StatusInvalidCommand
 	}
-	var percent, hundredths uint64
-	seenPercent, seen100ths := false, false
+	var field0, field1 uint64
+	seen0, seen1 := false, false
 	if err := readFields(fields, func(r *tlv.Reader, tag uint8) (err error) {
 		switch tag {
 		case 0:
-			percent, err = r.Uint()
-			seenPercent = true
+			field0, err = r.Uint()
+			seen0 = true
 		case 1:
-			hundredths, err = r.Uint()
-			seen100ths = true
+			field1, err = r.Uint()
+			seen1 = true
 		}
 		return err
 	}); err != nil {
 		return nil, im.StatusInvalidCommand
 	}
+	hundredths := field0
 	switch {
-	case seen100ths:
-	case seenPercent && percent > 100:
-		return nil, im.StatusConstraintError
-	case seenPercent:
-		hundredths = percent * 100
-	default:
+	case seen1:
+		hundredths = field1
+	case !seen0:
 		return nil, im.StatusInvalidCommand
 	}
 	if hundredths > closed {

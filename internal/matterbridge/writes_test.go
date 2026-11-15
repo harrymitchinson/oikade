@@ -20,8 +20,9 @@ import (
 )
 
 var (
-	deskLamp = ident.ID{Name: "desk-lamp"}
-	porchFan = ident.ID{Name: "porch-fan"}
+	deskLamp    = ident.ID{Name: "desk-lamp"}
+	porchFan    = ident.ID{Name: "porch-fan"}
+	officeBlind = ident.ID{Name: "office-blind"}
 )
 
 // recorder is a driver.Setter that records writes.
@@ -92,6 +93,17 @@ func TestCoalescerSkipsNoChange(t *testing.T) {
 	burstEnds(c, clk)
 	if got := rec.list(); len(got) != 0 {
 		t.Errorf("writes %v, want none", got)
+	}
+}
+
+// A capability that travels is written even where it last reported: a blind on its way reports
+// where it is, and StopMotion writes that position to stop it there.
+func TestCoalescerWritesATravellersLastReportedPosition(t *testing.T) {
+	c, rec, clk := coalescer(t, reports(40.0))
+	c.Add(officeBlind, capability.Position, 40.0)
+	burstEnds(c, clk)
+	if got := rec.list(); !slices.Equal(got, []string{"office-blind position=40"}) {
+		t.Errorf("writes %v", got)
 	}
 }
 

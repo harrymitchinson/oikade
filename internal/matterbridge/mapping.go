@@ -49,9 +49,9 @@ type Device struct {
 	Unique string
 	// Absent is a device with no driver reporting it yet: it's on the bridge, and unreachable.
 	Absent bool
-	// After runs f, under the Node's lock, once d has passed, for a move that settles. Nil settles a
-	// move only by the device's report.
-	After func(d time.Duration, f func())
+	// After runs f, under the Node's lock, once d has passed, for a move that settles, unless the
+	// function it returns is called first. Nil settles a move only by the device's report.
+	After func(d time.Duration, f func()) (stop func())
 }
 
 // uniqueID is the bridged device's UniqueID.
@@ -81,11 +81,13 @@ func (m *Mapped) Update(name string, v any) {
 }
 
 // Cancel undoes what a controller's write to a capability started, for a write that didn't happen,
-// such as a blind's move. Call it inside Node.Update.
-func (m *Mapped) Cancel(name string) {
-	if f := m.cancel[name]; f != nil {
+// such as a blind's move, and says whether there was anything to undo. Call it inside Node.Update.
+func (m *Mapped) Cancel(name string) bool {
+	f := m.cancel[name]
+	if f != nil {
 		f()
 	}
+	return f != nil
 }
 
 // mapped are the capabilities that make a device worth showing.
@@ -216,12 +218,12 @@ func Map(d Device, set SetFunc) *Mapped {
 
 // mapCovering makes the device a Window Covering, whose lift is its position. Both are 0 when open,
 // so Matter's hundredths are the position times 100. A move settles after position's Settle.
-func mapCovering(m *Mapped, after func(time.Duration, func()), set SetFunc) {
+func mapCovering(m *Mapped, after func(time.Duration, func()) func(), set SetFunc) {
 	c := clusters.NewCovering()
 	c.OnMove = func(percent float64) { set(capability.Position, percent) }
 	if after != nil {
 		settle := capability.SettleOf(capability.Position)
-		c.AfterSettle = func(f func()) { after(settle, f) }
+		c.AfterSettle = func(f func()) func() { return after(settle, f) }
 	}
 	m.Types = append(m.Types, clusters.DeviceWindowCovering)
 	m.Clusters = append(m.Clusters, c.Cluster())

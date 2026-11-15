@@ -84,25 +84,42 @@ func (b *Bridge) Restore(dev ident.ID, name string, otherwise any) {
 	b.mu.Lock()
 	e := b.byDevice[dev]
 	b.mu.Unlock()
-	if e != nil {
-		b.Matter.Node.Update(func() { e.mapped.Cancel(name) })
+	if v != nil && b.Writes != nil {
+		b.Writes.Reported(dev, name)
 	}
-	if v != nil {
-		b.Changed(driver.Update{Device: dev, Capability: name, Value: v})
+	if e == nil {
+		return
 	}
+	// One update, so a subscriber never sees the move cancelled without its value back.
+	b.Matter.Node.Update(func() {
+		// A blind that hasn't reported has no position to show: Current comes only from reports.
+		if e.mapped.Cancel(name) && v == otherwise {
+			return
+		}
+		if v != nil {
+			e.mapped.Update(name, v)
+		}
+	})
 }
 
-// after runs f under the node's lock once d has passed on the bridge's clock.
-func (b *Bridge) after(d time.Duration, f func()) {
+// after runs f under the node's lock once d has passed on the bridge's clock, unless stop is called
+// first.
+func (b *Bridge) after(d time.Duration, f func()) (stop func()) {
 	c := b.Clock
 	if c == nil {
 		c = clock.Real{}
 	}
 	t := c.NewTimer(d)
+	done := make(chan struct{})
 	go func() {
-		<-t.C()
-		b.Matter.Node.Update(f)
+		select {
+		case <-t.C():
+			b.Matter.Node.Update(f)
+		case <-done:
+		}
 	}()
+	var once sync.Once
+	return func() { once.Do(func() { t.Stop(); close(done) }) }
 }
 
 // Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose device

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -173,7 +174,9 @@ func (c *Coalescer) flush(dev ident.ID) {
 	log := logging.FromContext(c.ctx)
 	for _, w := range writes {
 		k := writeKey{dev, w.name}
-		if reflect.DeepEqual(c.baseline(k), w.value) {
+		// A device on its way, as a blind travels, isn't at what it reports, so writing that stops it.
+		travels := capability.SettleOf(w.name) > capability.DefaultSettle
+		if !travels && reflect.DeepEqual(c.baseline(k), w.value) {
 			log.Debug("Skipped Matter write that changes nothing", "device", dev, "capability", w.name)
 			continue
 		}
