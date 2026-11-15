@@ -574,6 +574,40 @@ func TestAControllerReadsTheDeviceTypeYouSetThroughARestart(t *testing.T) {
 	}
 }
 
+func TestAControllerLocksASimulatedLock(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	endpoint := c.endpoint("back-door")
+	if got := c.deviceTypes(endpoint); !slices.Contains(got, uint64(clusters.DeviceDoorLock.ID)) {
+		t.Fatalf("the lock's device types are %#x, want a Door Lock", got)
+	}
+	state := func() any {
+		v, _ := c.read(endpoint, clusters.IDDoorLock, 0x0000)
+		return v
+	}
+	c.r.until("the controller to read the lock unlocked", func() bool {
+		return state() == uint64(clusters.LockStateUnlocked)
+	})
+	for _, tc := range []struct {
+		command uint32
+		locked  bool
+		state   uint64
+	}{
+		{clusters.CommandLockDoor, true, clusters.LockStateLocked},
+		{clusters.CommandUnlockDoor, false, clusters.LockStateUnlocked},
+	} {
+		path := im.CommandPath{Endpoint: endpoint, Cluster: clusters.IDDoorLock, Command: tc.command}
+		res, err := c.admin.Invoke(nodetest.Context(t), path, func(*tlv.Writer) {}, true, 1000)
+		if err != nil || res.Status != im.StatusSuccess {
+			t.Fatalf("command %#x: %+v, %v", tc.command, res, err)
+		}
+		c.r.until("the lock to follow", func() bool {
+			return capabilityOf(t, c.r.status(), "back-door", "locked").Value == tc.locked
+		})
+		c.r.until("the controller to read it", func() bool { return state() == tc.state })
+	}
+}
+
 // capabilityOf is one capability of a device in the host's status.
 func capabilityOf(t *testing.T, st api.Status, device, name string) api.Capability {
 	t.Helper()

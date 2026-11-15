@@ -120,13 +120,13 @@ framework.NewBundle(
 | `OnDelay` | How long `When` must stay true before the hold starts. |
 | `OffDelay` | How long the hold stays active after `When` stops being true. |
 | `Latch` | Stays active once it starts, until a `Release`. See [below](#latched-safety-holds). |
-| `Budget` | Runs a device for a number of minutes a day instead, in the slots that suit it best. It's the only condition of its hold. See [Budgets](#budgets). |
+| `Budget` | Runs a device for a number of minutes a day instead, in the slots that suit it best. It's the only condition of its hold, and a lock can't have one. See [Budgets](#budgets). |
 
 A hold needs a `Window`, a `When` or a `Budget`, and everything in it must be true together.
 
 A `When` is looked at again on every device change and at least once a minute, so one that uses `s.Within` changes within a minute of the window's edge. A hold's own `Window` changes on the edge, and `oikade status` shows when it next does, so prefer it when the window is the whole story.
 
-- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. To go back to a set value, give the capability a `Control`: its default is what's left when the hold ends.
+- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. A `Locked` hold writes nothing either: only `To(false)` unlocks a door, so `BackDoor.Locked.To(true)` over a night's `Window` leaves it locked in the morning ([OIK-23](https://linear.app/oikade/issue/OIK-23)). To go back to a set value, give the capability a `Control`: its default is what's left when the hold ends.
 - **Without a `Control`, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
 - **Restarts are safe.** The host saves each hold's state, and a new process writes only if the hold started or ended meanwhile. A restart at 02:00 doesn't undo the 23:00 tap, but automations down from 21:50 to 02:00 turn the heater on when they come back. `OffDelay` deadlines are saved too, so the fan still stops on time.
 - **Two holds on one capability need a `Control`** to decide between them.

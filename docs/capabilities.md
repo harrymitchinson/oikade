@@ -10,6 +10,7 @@ Every capability Oikade knows, named for people rather than for a protocol ([OIK
 | `brightness` | `framework.Brightness` | number | 0 to 100% | yes | Level Control (0x0008) CurrentLevel (0x0000) |
 | `humidity` | `framework.Humidity` | number | 0 to 100% |  | Relative Humidity Measurement (0x0405) MeasuredValue (0x0000) |
 | `link-quality` | `framework.LinkQuality` | number | 0 to 255 |  | none |
+| `locked` | `framework.Locked` | bool |  | yes | Door Lock (0x0101) LockState (0x0000) |
 | `occupied` | `framework.Occupied` | bool |  |  | Occupancy Sensing (0x0406) Occupancy (0x0000) |
 | `on` | `framework.On` | bool |  | yes | On/Off (0x0006) OnOff (0x0000) |
 | `open` | `framework.Open` | bool |  |  | Boolean State (0x0045) StateValue (0x0000), inverted |

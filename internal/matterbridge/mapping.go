@@ -75,7 +75,7 @@ func (m *Mapped) Update(name string, v any) {
 }
 
 // mapped are the capabilities that make a device worth showing.
-var mapped = append([]string{capability.On, capability.Setpoint}, sensors...)
+var mapped = append([]string{capability.On, capability.Setpoint, capability.Locked}, sensors...)
 
 // sensors are the read-only capabilities the mapping shows.
 var sensors = []string{capability.Occupied, capability.Open, capability.Temperature, capability.Humidity}
@@ -144,6 +144,17 @@ func Map(d Device, set SetFunc) *Mapped {
 		}
 	}
 
+	if has(capability.Locked) {
+		l := clusters.NewLock()
+		l.OnCommand = func(locked bool) { set(capability.Locked, locked) }
+		m.Types = append(m.Types, clusters.DeviceDoorLock)
+		m.Clusters = append(m.Clusters, l.Cluster())
+		m.update[capability.Locked] = func(v any) {
+			if b, ok := v.(bool); ok {
+				l.Set(b)
+			}
+		}
+	}
 	if has(capability.Occupied) {
 		c := clusters.NewOccupancy()
 		m.Types = append(m.Types, clusters.DeviceOccupancySensor)

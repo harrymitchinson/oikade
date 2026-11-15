@@ -52,6 +52,8 @@ const (
 	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius. It doesn't
 	// turn the device on or off: On does.
 	Setpoint = contractv1.Setpoint
+	// Locked is true while a lock's bolt is fully thrown. A bolt partway, or jammed, isn't locked.
+	Locked = contractv1.Locked
 )
 
 // Kind is a capability's value type.
@@ -74,6 +76,9 @@ type Spec struct {
 	Unit string
 	// Matter is the Matter attribute the bridge shows it as, if any.
 	Matter *Matter
+	// NoEndWrite is a bool a hold's end leaves as it is, rather than writing the opposite: only an
+	// explicit write unlocks a door. A Budget, which turns its target on and off, can't have it.
+	NoEndWrite bool
 }
 
 // Matter is a Matter cluster's attribute.
@@ -109,6 +114,9 @@ var registry = map[string]Spec{
 	LinkQuality: {Go: "LinkQuality", Kind: KindNumber, Min: 0, Max: 255},
 	Setpoint: {Go: "Setpoint", Kind: KindNumber, Writable: true, Min: 0, Max: 50, Unit: "°C", Matter: &Matter{
 		Cluster: "Thermostat", ClusterID: 0x0201, Attribute: "OccupiedHeatingSetpoint", AttributeID: 0x0012,
+	}},
+	Locked: {Go: "Locked", Kind: KindBool, Writable: true, NoEndWrite: true, Matter: &Matter{
+		Cluster: "Door Lock", ClusterID: 0x0101, Attribute: "LockState", AttributeID: 0x0000,
 	}},
 }
 
