@@ -92,11 +92,21 @@ func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (pl
 }
 
 // quietRelays is a second plugin, whose devices do nothing wrong but one it can't use yet. It
-// says its simulated account refuses its login until the test fixes it.
+// says its simulated account refuses its login until the test fixes it, and that it needs its setup
+// run until it is.
 func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
 	locked := relay("locked")
 	locked.Parameters = map[string]string{"simulate": "needs-key"}
-	return refused{relays.New([]contractv1.DeclaredDevice{relay("quiet"), locked})}, nil
+	quiet := relay("quiet")
+	quiet.Parameters = map[string]string{"simulate": "needs-setup"}
+	h, _ := relays.New([]contractv1.DeclaredDevice{quiet, locked}).(withSetup)
+	return refused{h}, nil
+}
+
+// withSetup is a plugin with a setup.
+type withSetup interface {
+	plugin.Handler
+	plugin.Setup
 }
 
 // refusedLogin is the problem quietRelays says it has.
@@ -104,10 +114,10 @@ const refusedLogin = "its simulated account refused the login"
 
 // refused is a plugin with a problem of its own, until the file OIKADE_TEST_PLUGIN_DOWN.fixed
 // appears.
-type refused struct{ plugin.Handler }
+type refused struct{ withSetup }
 
 func (r refused) Serve(ctx context.Context, p *plugin.Plugin) error {
-	if err := r.Handler.Serve(ctx, p); err != nil {
+	if err := r.withSetup.Serve(ctx, p); err != nil {
 		return err
 	}
 	fixed := os.Getenv("OIKADE_TEST_PLUGIN_DOWN") + ".fixed"

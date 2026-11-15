@@ -60,6 +60,7 @@ func (s *apiServer) status() api.Response {
 	if s.srv.plugins != nil {
 		unimported = s.srv.plugins.unimportedNow(false)
 		st.PluginProblems = s.srv.plugins.problems()
+		st.NeedsSetup = s.srv.plugins.needingSetup()
 	}
 	notImported := map[string]bool{}
 	for _, u := range unimported {

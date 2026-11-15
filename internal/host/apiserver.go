@@ -54,6 +54,7 @@ type apiServer struct {
 	data    *store.Store
 	dataDir string
 	secrets secrets
+	setups  setupRuns
 	// clients are the network API's. They're nil if its listener isn't on, or couldn't start.
 	clients *clients
 	// pin is the network API's public key, as clients check it, and address where it thinks it's
@@ -190,6 +191,8 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 	switch route.Type {
 	case api.TypeTail:
 		return s.tail
+	case api.TypeSetup:
+		return s.setup
 	case api.TypeDeploy:
 		return s.deployUpload
 	case api.TypeEvents:
@@ -342,6 +345,8 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 		return s.matter()
 	case api.TypeBackup:
 		return s.backup()
+	case api.TypeSetupReply:
+		return s.setupReply(s.ctx, req)
 	case api.TypeSecrets, api.TypeSecretSet, api.TypeSecretRemove:
 		return s.secret(req)
 	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceType, api.TypeDeviceReserve,

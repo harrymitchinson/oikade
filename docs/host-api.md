@@ -18,6 +18,8 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/set` | `device`, `capability`, `value` | `outcome`, the capability with its claims once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered |
 | `POST /v1/pause`, `POST /v1/resume` | `rule`, `allowSafety` | `needsAllowSafety`; a pause's `ended`, the claims it ended, and `kept`, its Safety claims, each as `device capability` |
 | `POST /v1/backup` | | `backup`, the file it wrote on the host |
+| `POST /v1/setup` | `plugin` | A stream of the plugin's setup steps: see [Setup](#setup) |
+| `POST /v1/setup/reply` | `plugin`, `session`, `seq`, `answer` | |
 | `POST /v1/secrets/set` | `secret`, `secretValue` | |
 | `POST /v1/secrets/remove` | `secret` | |
 | `POST /v1/devices/name` | `device`, `to`, `allowSafety` | `needsAllowSafety` |
@@ -39,7 +41,7 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 ## Status
 
-`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices`, `rules`, and `pluginProblems`, what each plugin with a problem of its own says is wrong with it, by name ([OIK-17](https://linear.app/oikade/issue/OIK-17)). Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
+`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices`, `rules`, `pluginProblems`, what each plugin with a problem of its own says is wrong with it, by name ([OIK-17](https://linear.app/oikade/issue/OIK-17)), and `needsSetup`, the plugins that say they need their [setup](#setup) run. Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
 
 | Field | Means |
 |---|---|
@@ -49,6 +51,14 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 | `latched` | A latched hold, from its start until a release. |
 | `stopped` | Why its `When` can't be read, so it keeps its state, such as `no device in room hall has reported occupancy`, or why its budget couldn't be planned, which keeps its device off. Only a connected process says. |
 | `budget` | A budget hold's day: `date`, `targetMinutes`, `plannedMinutes` and `runMinutes`, which is saved at most every 5 minutes. `date` may be a day that's over, if it hasn't planned since. |
+
+## Setup
+
+`POST /v1/setup` runs a plugin's setup ([OIK-276](https://linear.app/oikade/issue/OIK-276)) and answers with its steps, as lines of JSON. The first line has only `session`, and says it has started. The rest are the plugin's steps, as the [plugin contract](plugin-contract.md#setup) has them: a `say`, an `ask` or an `open`, each with its `seq`, and last a `done`, with a `result` or an `error`. A `keep` is the host's to do, so the stream has only the secret's name as `kept`, once it's on disk, and never its value. A refused setup, such as one of a plugin that has none, is a `422` with an `error`, as a call is.
+
+Answer each `ask` and `open` with `POST /v1/setup/reply`, naming the `session` and the step's `seq`: `answer` is what the person typed, or an `open`'s redirect query, such as `code=abc&state=xyz`. A reply is taken once, and only for a step that's waiting. An answer may be a secret, so it's never logged.
+
+A plugin runs one setup at a time, so a second ends the first, whose stream ends with a `done` saying so. Closing the stream ends the setup, and so does 10 minutes with no step and no answer. `api.SetupStep` has the stream's lines: fields are added, never renamed.
 
 ## Over TLS
 

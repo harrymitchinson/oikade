@@ -48,6 +48,7 @@ const usage = `Usage:
   oikade devices restore FILE [--force] [--json]
   oikade types [--out FILE] [--package NAME]
   oikade matter [--json]
+  oikade setup PLUGIN [--json]         Asks what the plugin needs, and checks it, on the host.
   oikade backup
   oikade secret list [--json]
   oikade secret set NAME [--json]      The value comes from stdin, or is asked for.
@@ -104,6 +105,8 @@ func main() {
 		err = runMatter(ctx, args)
 	case "backup":
 		err = runBackup(ctx, args)
+	case "setup":
+		err = runSetup(ctx, args)
 	case "secret":
 		err = runSecret(ctx, args)
 	case "client":

@@ -42,6 +42,9 @@ const (
 	TypeEvents   = "events"
 	TypeMatter   = "matter"
 	TypeBackup   = "backup"
+	// TypeSetup runs a plugin's setup, streaming its steps, and TypeSetupReply answers one.
+	TypeSetup      = "setup"
+	TypeSetupReply = "setupReply"
 
 	TypeSecrets      = "secrets"
 	TypeSecretSet    = "secretSet"
@@ -99,6 +102,8 @@ var Routes = []Route{
 	{TypeEvents, http.MethodGet, Prefix + "/events", true, false},
 	{TypeMatter, http.MethodGet, Prefix + "/matter", false, false},
 	{TypeBackup, http.MethodPost, Prefix + "/backup", false, false},
+	{TypeSetup, http.MethodPost, Prefix + "/setup", true, false},
+	{TypeSetupReply, http.MethodPost, Prefix + "/setup/reply", false, false},
 
 	{TypeSecrets, http.MethodGet, Prefix + "/secrets", false, false},
 	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set", false, false},
@@ -166,6 +171,12 @@ type Request struct {
 	Token bool `json:"token,omitempty"`
 	// Code is what a login trades for a token.
 	Code string `json:"code,omitempty"`
+	// Session and Seq are a setup reply's: the step it answers. Plugin names the plugin.
+	Session string `json:"session,omitempty"`
+	Seq     int    `json:"seq,omitempty"`
+	// Answer is a setup reply's: what the person typed, or a page's redirect query. It may be a
+	// secret, so it's in no answer and no log.
+	Answer string `json:"answer,omitempty"`
 }
 
 // Response is its answer.
@@ -337,6 +348,8 @@ type Status struct {
 	// PluginProblems are what plugins say is wrong with them as a whole, such as a login their
 	// account refused, by plugin name.
 	PluginProblems map[string]string `json:"pluginProblems,omitempty"`
+	// NeedsSetup are the plugins that say they can't serve their devices until oikade setup runs.
+	NeedsSetup []string `json:"needsSetup,omitempty"`
 }
 
 // Device is one device.
