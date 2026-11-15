@@ -574,14 +574,14 @@ func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, cla
 }
 
 // applyHold writes a hold's start (its value) or end (the opposite of a bool, and nothing for a
-// number or a capability with NoEndWrite, such as locked). On an arbitrated capability, the start is claim with the hold's value, and the end
+// number or for a capability with NoEndWrite, such as locked). On an arbitrated capability, the start is claim with the hold's value, and the end
 // releases it. It returns the devices it wrote or claimed, and how soon to retry when it fails.
 func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, start bool, claim control.Claim) (written []ident.ID, retry time.Duration, failed error) {
 	claim.Value = capability.Float(t.Value)
 	value := t.Value
 	// An unarbitrated number hold leaves the device as it is when it ends (OIK-64, answer 19), and so
 	// does a lock's: only an explicit write unlocks a door (OIK-23).
-	plainEnd := !start
+	skipEnd := !start && !writesEnd(t)
 	if b, ok := value.(bool); ok && !start {
 		value = !b
 	}
@@ -628,7 +628,7 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 				continue
 			}
 		}
-		if plainEnd && !writesEnd(t) {
+		if skipEnd {
 			continue
 		}
 		if !ok || !snap.Discovered {

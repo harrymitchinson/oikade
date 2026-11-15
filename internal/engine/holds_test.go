@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,7 +19,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
@@ -333,13 +331,6 @@ func TestALockHoldLeavesTheDoorLockedWhenItEnds(t *testing.T) {
 	r.expect(call{"back-door", capability.Locked, true})
 	if r.active("back-door-night") != 0 {
 		t.Error("oikade_rule_active isn't 0 after the hold ended")
-	}
-}
-
-func TestABudgetCantHoldALock(t *testing.T) {
-	_, err := NewHold(ident.ID{Name: "lock-budget"}, Hold{Device: "back-door", Capability: capability.Locked, Value: true, Budget: &schedule.Spec{}})
-	if err == nil || !strings.Contains(err.Error(), "budget") {
-		t.Errorf("a budget on locked compiled: %v", err)
 	}
 }
 

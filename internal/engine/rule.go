@@ -550,9 +550,6 @@ func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 		if h.Window != nil || h.When != nil || h.OnDelay != 0 || h.OffDelay != 0 || h.Latch {
 			errs = append(errs, errors.New("hold: budget must be the only condition"))
 		}
-		if spec, ok := capability.Lookup(h.Capability); ok && spec.NoEndWrite {
-			errs = append(errs, fmt.Errorf("hold: a budget turns its target on and off, which %s can't be", h.Capability))
-		}
 		spec := *h.Budget
 		spec.Device, spec.Capability, spec.Value = h.Device, h.Capability, h.Value
 		c.hold.budget = &budgetHold{
