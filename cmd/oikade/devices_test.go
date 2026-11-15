@@ -82,7 +82,7 @@ func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 			Capabilities: []api.Capability{{Name: "on"}},
 		},
 		{Name: "shed-relay", Problem: "bad parameters"},
-	}}, false, time.Now())
+	}}, nil, false, time.Now())
 	for _, want := range []string{
 		"porch-light  on  -  no LAN key: oikade secret set 1000aabbcc",
 		"shed-relay   -   -  bad parameters",

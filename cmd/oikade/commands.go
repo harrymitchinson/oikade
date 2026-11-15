@@ -79,7 +79,8 @@ func runStatus(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	devices := cli.Parse(fs, args)
-	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeStatus})
+	transport := target.transport()
+	resp, err := api.Call(ctx, transport, api.Request{Type: api.TypeStatus})
 	if err != nil {
 		return err
 	}
@@ -99,18 +100,38 @@ func runStatus(ctx context.Context, args []string) error {
 	if *asJSON {
 		return cli.PrintJSON(st)
 	}
-	printStatus(os.Stdout, os.Stderr, st, len(devices) == 0, time.Now())
+	summary := len(devices) == 0
+	var bridge *api.Matter
+	if summary {
+		bridge = matterOf(ctx, transport)
+	}
+	printStatus(os.Stdout, os.Stderr, st, bridge, summary, time.Now())
 	return nil
 }
 
-func printStatus(out, stderr io.Writer, st *api.Status, summary bool, now time.Time) {
+// matterOf is the host's Matter bridge, or nil if there's none to pair: Matter is turned off, or the
+// host couldn't say.
+func matterOf(ctx context.Context, t api.Transport) *api.Matter {
+	resp, err := api.Call(ctx, t, api.Request{Type: api.TypeMatter})
+	if err != nil || resp.Error != "" {
+		return nil
+	}
+	return resp.Matter
+}
+
+// printStatus prints a host's status. A summary, which is the whole home rather than the devices
+// asked for, starts with what's left to set up, on stderr, and bridge is the host's Matter bridge, if
+// it has one.
+func printStatus(out, stderr io.Writer, st *api.Status, bridge *api.Matter, summary bool, now time.Time) {
 	if summary {
+		for _, gap := range setupGaps(st, bridge) {
+			_, _ = fmt.Fprintln(stderr, gap)
+		}
 		switch {
 		case st.Version == "" && st.Deploying:
 			_, _ = fmt.Fprintf(out, "Version unknown while a deploy is under way, automations %s\n\n",
 				map[bool]string{true: "connected", false: "down"}[st.Process])
-		case st.Version == "" && !st.Process:
-			_, _ = fmt.Fprintln(stderr, "No home deployed. Run oikade deploy from your home's module.")
+		case undeployed(st):
 		case st.Process:
 			_, _ = fmt.Fprintf(out, "Version %s, automations connected\n\n", or(st.Version, "unknown"))
 		default:
@@ -150,6 +171,53 @@ func printStatus(out, stderr io.Writer, st *api.Status, summary bool, now time.T
 		line = append(line, holdState(r, now)...)
 		_, _ = fmt.Fprintln(out, strings.Join(line, "  "))
 	}
+}
+
+// undeployed is a host that has never had a home deployed.
+func undeployed(st *api.Status) bool { return st.Version == "" && !st.Process && !st.Deploying }
+
+// setupGaps are what's left to set up in a home, a line each, with the command that fixes it. A
+// home that's fully set up has none.
+func setupGaps(st *api.Status, bridge *api.Matter) []string {
+	var gaps []string
+	if undeployed(st) {
+		gaps = append(gaps, "No home deployed. Run oikade deploy from your home's module.")
+	}
+	// A bridge that's down may not know its controllers, so it's the one to fix first.
+	switch {
+	case bridge == nil:
+	case !bridge.Serving:
+		gaps = append(gaps, fmt.Sprintf("The Matter bridge is down%s. oikade matter says more.",
+			map[bool]string{true: "", false: ": " + bridge.Problem}[bridge.Problem == ""]))
+	case len(bridge.Fabrics) == 0:
+		gaps = append(gaps, "The Matter bridge has no controller. oikade matter says how to pair one.")
+	}
+	var problems, unimported []string
+	for _, d := range st.Devices {
+		switch {
+		case d.PluginNotImported:
+			unimported = append(unimported, d.Name)
+		case d.Problem != "":
+			problems = append(problems, d.Name)
+		}
+	}
+	if len(problems) > 0 {
+		gaps = append(gaps, fmt.Sprintf("Devices with a problem: %s. oikade devices says what's wrong.", names(problems)))
+	}
+	if len(unimported) > 0 {
+		gaps = append(gaps, fmt.Sprintf("Devices whose plugin isn't imported: %s. "+
+			"Import it in your home and run oikade deploy, or remove the device with oikade devices remove.", names(unimported)))
+	}
+	return gaps
+}
+
+// names lists devices by name, the first few of them if there are many.
+func names(devices []string) string {
+	const most = 5
+	if len(devices) <= most {
+		return strings.Join(devices, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(devices[:most], ", "), len(devices)-most)
 }
 
 // since says when something began, as a time today or a date before.
