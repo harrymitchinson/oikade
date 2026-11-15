@@ -459,17 +459,17 @@ func restoreMoves(from registry.Snapshot, d registry.Device) bool {
 }
 
 // typedOut names the running code's Safety rules that a device would drop out of with device type t:
-// a room write limited to types it's one of now and wouldn't be.
-func (s *apiServer) typedOut(name string, t devicetype.Type) []string {
+// a room write limited to types it's one of now and wouldn't be. known is false if nothing can say,
+// as rulesInfo's.
+func (s *apiServer) typedOut(name string, t devicetype.Type) (out []string, known bool) {
 	d, ok := s.devices.registry.Get(name)
 	if !ok {
-		return nil
+		return nil, true
 	}
 	before := d.DeviceTypes()
 	d.DeviceType = t
 	after := d.DeviceTypes()
-	rules, _ := s.rulesInfo()
-	var out []string
+	rules, known := s.rulesInfo()
 	for _, r := range rules {
 		if !r.Safety {
 			continue
@@ -483,28 +483,37 @@ func (s *apiServer) typedOut(name string, t devicetype.Type) []string {
 			out = append(out, r.Name)
 		}
 	}
-	return out
+	return out, known
 }
 
-// safetyRule names a Safety rule of the running code, if there is one.
-func (s *apiServer) safetyRule() string {
-	rules, _ := s.rulesInfo()
+// safetyRule names a Safety rule of the running code, if there is one. known is false if nothing
+// can say, as rulesInfo's.
+func (s *apiServer) safetyRule() (rule string, known bool) {
+	rules, known := s.rulesInfo()
 	for _, r := range rules {
 		if r.Safety {
-			return r.Name
+			return r.Name, true
 		}
 	}
-	return ""
+	return "", known
 }
 
 // device answers the commands that read and change the registry. Running code loses track of a
 // device whose name changes until a deploy, which would silently stop a Safety rule naming it.
 func (s *apiServer) device(req api.Request) api.Response {
-	if req.Type == api.TypeDeviceName || req.Type == api.TypeDeviceReplace {
-		if rule := s.safetyRule(); rule != "" && !req.AllowSafety {
+	if (req.Type == api.TypeDeviceName || req.Type == api.TypeDeviceReplace) && !req.AllowSafety {
+		switch rule, known := s.safetyRule(); {
+		case rule != "":
 			return api.Response{
 				Error: fmt.Sprintf("%s is a Safety rule, and running code loses track of %s until you deploy, "+
 					"so it may stop protecting anything", rule, req.Device),
+				NeedsAllowSafety: true,
+			}
+		case !known:
+			// As a pause: a process that's down is no reason to guess its code has no Safety rule.
+			return api.Response{
+				Error: fmt.Sprintf("can't tell whether running code has a Safety rule, which would lose track of %s "+
+					"until you deploy: %s", req.Device, s.unknownRules()),
 				NeedsAllowSafety: true,
 			}
 		}
@@ -532,10 +541,18 @@ func (s *apiServer) device(req api.Request) api.Response {
 	case api.TypeDeviceRoom:
 		return s.move(req.Device, req.Room)
 	case api.TypeDeviceType:
-		if rules := s.typedOut(req.Device, req.DeviceType); len(rules) > 0 && !req.AllowSafety {
+		switch rules, known := s.typedOut(req.Device, req.DeviceType); {
+		case req.AllowSafety:
+		case len(rules) > 0:
 			return api.Response{
 				Error: fmt.Sprintf("%s would no longer be one of the device types %s writes at Safety, so it would stop "+
 					"protecting it", req.Device, strings.Join(rules, ", ")),
+				NeedsAllowSafety: true,
+			}
+		case !known:
+			return api.Response{
+				Error: fmt.Sprintf("can't tell whether running code has a Safety rule that writes to %s by its type: %s",
+					req.Device, s.unknownRules()),
 				NeedsAllowSafety: true,
 			}
 		}

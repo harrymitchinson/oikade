@@ -21,19 +21,25 @@ import (
 )
 
 // rulesInfo says what the running code's rules are: from the process, or if it's down, from the
-// running version. known is false if neither has said.
+// running version. known is false if neither has said, unless no code has run since the host
+// started and there's none to run, which has no rules.
 func (s *apiServer) rulesInfo() (rules []wire.RuleInfo, known bool) {
 	s.srv.mu.Lock()
-	sess := s.srv.session
+	sess, attached := s.srv.session, s.srv.attached
 	s.srv.mu.Unlock()
-	if sess != nil && len(sess.rules) > 0 {
+	if sess != nil && (len(sess.rules) > 0 || sess.ruleless) {
 		return sess.rules, true
 	}
-	v, ok := s.deploys.latest()
-	if !ok || v.Manifest.Protocol == 0 {
-		return nil, false
+	rules, known, none := s.deploys.rules()
+	return rules, known || none && !attached
+}
+
+// unknownRules says why rulesInfo can't say what the rules are.
+func (s *apiServer) unknownRules() string {
+	if _, _, busy := s.deploys.state(); busy {
+		return "a deploy is under way and no process has said"
 	}
-	return v.Manifest.Rules, true
+	return "no process is connected"
 }
 
 func (s *apiServer) status() api.Response {
@@ -180,6 +186,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	defer stop()
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
 	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
+		s.srv.engine.ForgetCommandWrite(dev, req.Capability)
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, events)}
@@ -336,7 +343,7 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 	case req.AllowSafety:
 	case !known:
 		// In an emergency a process may be down, which is no reason to guess it isn't a Safety rule.
-		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: no process is connected", req.Rule)}
+		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: %s", req.Rule, s.unknownRules())}
 	case rules[i].Safety:
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a Safety rule, so pausing it stops that protection", req.Rule)}
 	case s.srv.engine.RuleClaims()[req.Rule] == control.Safety:

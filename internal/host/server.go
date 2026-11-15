@@ -61,6 +61,8 @@ type server struct {
 	session *session
 	// since is when the session last came or went, or the host started.
 	since time.Time
+	// attached is whether a process has attached since the host started.
+	attached bool
 	// closed refuses new sessions, once the host is stopping.
 	closed bool
 	// pong is when the session last answered a ping.
@@ -103,8 +105,10 @@ type session struct {
 	once           sync.Once
 	// generation is the server's when the connection arrived.
 	generation uint64
-	// rules are what the process's hello said about its rules.
-	rules []wire.RuleInfo
+	// rules are what the process's hello said about its rules, and ruleless says it named none, so
+	// that no rules is known rather than unsaid.
+	rules    []wire.RuleInfo
+	ruleless bool
 	// reads are the rooms each hold has read, by rule, from RoomReads. The server's mu guards them.
 	reads map[string][]engine.RoomRead
 	// stopped is why each hold couldn't tell whether it should be active, by rule, from Stopped. The
@@ -174,7 +178,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 	}
 	sess := &session{
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
-		generation: generation, rules: hello.Info,
+		generation: generation, rules: hello.Info, ruleless: len(hello.Rules) == 0,
 	}
 	if refusal := s.open(sess, hello); refusal != "" {
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: refusal})
@@ -373,7 +377,7 @@ func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bo
 	if s.session != nil || s.closed || sess.generation != s.generation {
 		return false
 	}
-	s.session, s.pong = sess, time.Now()
+	s.session, s.pong, s.attached = sess, time.Now(), true
 	s.since = s.pong
 	// Again, under the lock: a pause after this reaches the session, and one before is in the list.
 	if paused, err := s.paused.Names(); err == nil {
