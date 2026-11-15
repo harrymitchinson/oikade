@@ -46,6 +46,9 @@ type fakeHub struct {
 	// clientRefused refuses the app's client ID, as Atlantic would once it changes it.
 	clientRefused bool
 	sessions      map[string]bool
+
+	// ca is the authority that signed a hub's certificate, standing in for Overkiz's.
+	ca *x509.CertPool
 }
 
 func newFakeHub(t *testing.T) *fakeHub {
@@ -73,7 +76,12 @@ func newFake(t *testing.T, setup string, cloud bool) *fakeHub {
 	if err := json.Unmarshal(raw, &h.setup); err != nil {
 		t.Fatal(err)
 	}
-	h.server = httptest.NewTLSServer(h)
+	if cloud {
+		h.server = httptest.NewTLSServer(h)
+	} else {
+		// A hub's certificate, from an authority of its own as Overkiz's, names the hub in its CN only.
+		h.ca, h.server = newHubServer(t, h, hubName, nil)
+	}
 	t.Cleanup(h.server.Close)
 	return h
 }

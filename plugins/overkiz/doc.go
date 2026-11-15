@@ -3,7 +3,7 @@
 //
 //	framework.NewHome(framework.Options{},
 //		framework.NewPlugin("tahoma", overkiz.New(overkiz.Local{
-//			Address: "192.168.1.40:8443", TokenSecret: "tahoma-token",
+//			Address: "192.168.1.40:8443", PIN: "1234-5678-9012", TokenSecret: "tahoma-token",
 //		})),
 //		framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
 //			Brand: overkiz.Thermor, Username: "someone@example.com", PasswordSecret: "cozytouch",
@@ -12,7 +12,8 @@
 //
 // Local is a TaHoma hub's local API, with the token its Developer Mode makes, and Cozytouch an
 // account in Atlantic's, Thermor's or Sauter's app, over the cloud, with its password. Each is kept
-// in a secret and read at each login. Every device the hub lists is reported by an ID from its device URL,
+// in a secret and read at each login. A hub's certificate is checked against Overkiz's root CA, and
+// its name against the hub's PIN. Every device the hub lists is reported by an ID from its device URL,
 // <protocol>.<address>, which leaves out the hub, so a replaced hub keeps its devices. A device's
 // sub-devices, such as a sensor inside it, are folded into it.
 //

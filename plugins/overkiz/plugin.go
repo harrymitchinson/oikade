@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -45,7 +46,20 @@ type Local struct {
 	Address string
 	// TokenSecret is the secret that holds the token you made in Developer Mode.
 	TokenSecret string
+	// PIN is the hub's PIN, such as 1234-5678-9012, which its certificate is checked against when
+	// Address isn't of the form gateway-<pin>.local, which gives it already. Without one, any
+	// certificate Overkiz signed for a hub passes.
+	PIN string
+	// SkipCertificateCheck trusts whatever answers at Address, for a hub whose real certificate the
+	// check refuses. Anything on the network that poses as the hub then gets its token.
+	SkipCertificateCheck bool
+
+	// roots is the tests' authority, in place of Overkiz's.
+	roots *x509.CertPool
 }
+
+// pin is the PIN the hub's certificate is checked against, or "" if it isn't known.
+func (l Local) pin() string { return cmp.Or(gatewayPIN(l.Address), l.PIN) }
 
 func (l Local) secret() string { return l.TokenSecret }
 
@@ -58,18 +72,36 @@ func (l Local) manufacturer() string { return "" }
 func (l Local) expires() bool { return false }
 
 func (l Local) check() error {
-	if l.Address == "" {
+	named := gatewayPIN(l.Address)
+	switch {
+	case l.Address == "":
 		return errors.New("overkiz.Local has no Address")
+	case l.PIN != "" && !pinPattern.MatchString(l.PIN):
+		return fmt.Errorf("overkiz.Local has PIN %q: it's the hub's PIN, such as 1234-5678-9012", l.PIN)
+	case l.PIN != "" && named != "" && !strings.EqualFold(l.PIN, named):
+		return fmt.Errorf("overkiz.Local has PIN %q, but its Address %q has the PIN %q", l.PIN, l.Address, named)
 	}
 	return nil
 }
 
+// warn logs how weak the certificate check is, if it is.
+func (l Local) warn(log *slog.Logger) {
+	switch {
+	case l.SkipCertificateCheck:
+		log.Warn("Skipping TaHoma hub's certificate check: anything posing as the hub gets its token", "account", l.describe())
+	case l.pin() == "":
+		log.Warn("Checking only that Overkiz signed TaHoma hub's certificate: set PIN to check it's this hub's", "account", l.describe())
+	}
+}
+
 // connect needs no login: every request carries the token. The hub's certificate is signed by
-// Overkiz for its gateway-<pin>.local name, which an address doesn't match and the system doesn't
-// trust, so it isn't checked.
+// Overkiz's own root CA for its gateway-<pin>.local name, which hubTLS checks.
 func (l Local) connect(_ context.Context, token string) (*client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // See above.
+	transport.TLSClientConfig = hubTLS(cmp.Or(l.roots, overkizRoots), l.pin())
+	if l.SkipCertificateCheck {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // The user chose to.
+	}
 	return &client{
 		http: &http.Client{Transport: transport, Timeout: localTiming.request},
 		base: "https://" + l.Address + "/enduser-mobile-web/1/enduserAPI",
@@ -117,6 +149,9 @@ func New(a Account) plugin.Factory {
 			return nil, fmt.Errorf("%s has no secret named for its credential", a.describe())
 		}
 		log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "overkiz")
+		if l, ok := a.(Local); ok {
+			l.warn(log)
+		}
 		return newBridge(a, env, declared, a.timing(), log), nil
 	}
 }
@@ -234,6 +269,11 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			b.log.Warn("Overkiz limited the plugin's requests", "err", err, "account", b.account.describe(), "retry", b.timing.limited.String())
 			b.setProblem(ctx, fmt.Sprintf("%s says there were too many requests: trying again in %s", b.account.describe(), b.timing.limited))
 			sleep(ctx, b.timing.limited)
+		case certFailure(err) != nil:
+			b.log.Warn("Refused Overkiz hub's certificate", "err", err, "account", b.account.describe(), "retry", wait.String())
+			b.setProblem(ctx, fmt.Sprintf("%s has a certificate that %v", b.account.describe(), certFailure(err)))
+			sleep(ctx, wait)
+			wait = min(2*wait, b.timing.retryMax)
 		default:
 			b.log.Warn("Could not reach Overkiz", "err", err, "account", b.account.describe(), "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("could not reach %s: %v", b.account.describe(), err))
