@@ -30,6 +30,9 @@ func open(device string) framework.Handle[bool] {
 // humidity is the bathroom's, which the fan follows.
 var humidity = framework.Handle[float64]{Device: "bathroom-sensor", Capability: framework.Humidity}
 
+// studyHeater is a simulated heater: a Thermostat on the Matter bridge.
+var studyHeater = framework.Handle[float64]{Device: "study-heater", Capability: framework.Setpoint}
+
 // The devices a test has plugins do something with.
 const (
 	valve  = "valve"
@@ -310,6 +313,7 @@ func home() rules {
 			framework.NewMoment("probe", on("probe-out").To(true)).On(open("probe")).Restart(),
 			framework.NewMoment("reset", framework.Release(leakShutoff), framework.Release("leak-alarm")).On(open("reset")),
 			framework.NewMoment(claimMoment, on("claimed").To(false).For(time.Hour)).On(open("claim-go")),
+			framework.NewMoment("study-cool", studyHeater.To(18)).On(open("study-go")),
 		},
 		// A time of day comes from the test, which seeds when it was last accounted for.
 		when(os.Getenv("OIKADE_TEST_AT") != "",

@@ -28,6 +28,9 @@ func TestOf(t *testing.T) {
 		"battery alone is no device type":  {"", "", []string{capability.Battery}, nil},
 		"a dimmable wall control":          {MountedDimmableLoadControl, "", dim, []Type{MountedDimmableLoadControl}},
 		"a light without brightness is on": {"", DimmableLight, on, []Type{OnOffLight}},
+		"a setpoint is a thermostat":       {"", "", []string{capability.On, capability.Setpoint, capability.Temperature}, []Type{Thermostat}},
+		"a thermostat's on is its own":     {OnOffLight, OnOffPlugInUnit, []string{capability.On, capability.Setpoint}, []Type{Thermostat}},
+		"a thermostat keeps other sensors": {"", "", []string{capability.Setpoint, capability.Humidity}, []Type{Thermostat, HumiditySensor}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := Of(tc.yours, tc.drivers, tc.caps); !slices.Equal(got, tc.want) {

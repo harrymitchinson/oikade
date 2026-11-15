@@ -28,7 +28,7 @@ If the registry is lost, `oikade devices restore devices.go` reads the file back
 
 ## What a device is
 
-A device's capabilities say what it can do, and its device types say what it is, in Matter's names ([OIK-142](https://linear.app/oikade/issue/OIK-142)). `oikade devices` shows them in its `DEVICE TYPES` column, and `--json` as `deviceTypes`. Only a device that's `on` or off can be more than one thing, so that's the one you choose: `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` (a switch in the wall) or `MountedDimmableLoadControl` (a dimmer in the wall). A sensor's types follow from its capabilities, so a motion sensor with a thermometer is an `OccupancySensor` and a `TemperatureSensor`.
+A device's capabilities say what it can do, and its device types say what it is, in Matter's names ([OIK-142](https://linear.app/oikade/issue/OIK-142)). `oikade devices` shows them in its `DEVICE TYPES` column, and `--json` as `deviceTypes`. Only a device that's `on` or off can be more than one thing, so that's the one you choose: `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` (a switch in the wall) or `MountedDimmableLoadControl` (a dimmer in the wall). A sensor's types follow from its capabilities, so a motion sensor with a thermometer is an `OccupancySensor` and a `TemperatureSensor`. A device with a `setpoint` is a `Thermostat`, whatever its type: its `on` and `temperature` are the heater's own, so it isn't also a plug or a `TemperatureSensor` ([OIK-20](https://linear.app/oikade/issue/OIK-20)).
 
 Yours wins, then its driver's, if the driver knows: a Zigbee2MQTT light is an `OnOffLight`, or a `DimmableLight` with a brightness, and a plugin may report one. A Zigbee2MQTT switch doesn't say, because a relay can't tell what it switches. Otherwise a device with `brightness` is a `DimmableLight`, and one without an `OnOffPlugInUnit`, because a bare relay could be driving anything. `oikade devices type DEVICE ""` goes back to what its driver says. A dimmable type needs `brightness`, and an on/off type on a device that has it leaves dimming out of Matter. Changing a device's type so that a Safety rule's room write limited to types would leave it out, such as a plug a Safety hold keeps on that you now call a light, needs `--allow-safety`, and the error names the rule. So does any type change while nothing can say what the running code's rules are, as for `name`. That's Safety holds and moments: what a flow writes isn't known until it runs. The type you set stays with the name, as a room does, through `replace`, a restart, `oikade types` and a restore. A reserved name takes any of the six, and once it's paired, a type its hardware can't be falls back as above.
 
@@ -46,6 +46,7 @@ Drivers translate to and from a protocol-neutral set of capabilities, named as a
 | `occupied` | bool | | Occupancy Sensor (passive infrared) |
 | `battery` | % | | Power Source, with a warning below 20% |
 | `link-quality` | 0–255 | | (metrics only) |
+| `setpoint` | °C, 0–50 | ✓ | Thermostat, heating only: the setpoint is OccupiedHeatingSetpoint, from 5 to 35 °C, `on` is SystemMode Off or Heat, and `temperature` is LocalTemperature |
 
 ## Matter bridge
 

@@ -75,7 +75,7 @@ func (m *Mapped) Update(name string, v any) {
 }
 
 // mapped are the capabilities that make a device worth showing.
-var mapped = append([]string{capability.On}, sensors...)
+var mapped = append([]string{capability.On, capability.Setpoint}, sensors...)
 
 // sensors are the read-only capabilities the mapping shows.
 var sensors = []string{capability.Occupied, capability.Open, capability.Temperature, capability.Humidity}
@@ -100,7 +100,13 @@ func Map(d Device, set SetFunc) *Mapped {
 	has := func(c string) bool { return slices.Contains(d.Capabilities, c) }
 	m := &Mapped{update: map[string]func(any){}}
 
-	if has(capability.On) {
+	// A thermostat's on and temperature are its Thermostat cluster's, not an On/Off or a sensor.
+	thermostat := has(capability.Setpoint)
+	if thermostat {
+		mapHeater(m, has(capability.On), set)
+	}
+
+	if has(capability.On) && !thermostat {
 		typ := devicetype.OnOffOf(d.Type, "", d.Capabilities)
 		dimmable := devicetype.Dimmable(typ)
 		m.Types = append(m.Types, onOffTypes[typ])
@@ -159,7 +165,7 @@ func Map(d Device, set SetFunc) *Mapped {
 			}
 		}
 	}
-	if has(capability.Temperature) {
+	if has(capability.Temperature) && !thermostat {
 		c := clusters.NewTemperature()
 		m.Types = append(m.Types, clusters.DeviceTemperatureSensor)
 		m.Clusters = append(m.Clusters, c.Cluster())
@@ -178,6 +184,23 @@ func Map(d Device, set SetFunc) *Mapped {
 		m.update[capability.Battery] = func(v any) { c.Set(capability.Float(v)) }
 	}
 	return m
+}
+
+// mapHeater makes the device a Thermostat with only the Heating feature. SystemMode Off and Heat are
+// its on, if it has one. The Thermostat cluster's LocalTemperature is its temperature.
+func mapHeater(m *Mapped, switchable bool, set SetFunc) {
+	h := clusters.NewHeater(switchable)
+	h.OnSetpoint = func(celsius float64) { set(capability.Setpoint, celsius) }
+	h.OnMode = func(heat bool) { set(capability.On, heat) }
+	m.Types = append(m.Types, clusters.DeviceThermostat)
+	m.Clusters = append(m.Clusters, h.Cluster())
+	m.update[capability.Setpoint] = func(v any) { h.SetSetpoint(capability.Float(v)) }
+	m.update[capability.Temperature] = func(v any) { h.SetLocal(capability.Float(v)) }
+	m.update[capability.On] = func(v any) {
+		if b, ok := v.(bool); ok {
+			h.SetOn(b)
+		}
+	}
 }
 
 // Label returns a Device's name cut to the 32 bytes a NodeLabel holds.

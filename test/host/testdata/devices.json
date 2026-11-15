@@ -39,5 +39,7 @@
   {"name": "claimed-safety", "capabilities": ["on"], "values": {"on": true},
    "control": [{"capability": "on", "default": true, "resolve": "PreferOff", "external": "Override", "overrideHold": "1h"}]},
   {"name": "towel-rail", "capabilities": ["on"], "values": {"on": false},
-   "control": [{"capability": "on", "default": false, "resolve": "PreferOff", "external": "Revert"}]}
+   "control": [{"capability": "on", "default": false, "resolve": "PreferOff", "external": "Revert"}]},
+  {"name": "study-go", "capabilities": ["open"], "values": {"open": false}},
+  {"name": "study-heater", "capabilities": ["on", "setpoint", "temperature"], "values": {"on": true, "setpoint": 21, "temperature": 19.5}}
 ]

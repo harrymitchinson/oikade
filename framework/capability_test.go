@@ -23,6 +23,7 @@ func TestTheConstantsAreTheRegistrys(t *testing.T) {
 	all := []constant{
 		b("On", On), n("Brightness", Brightness), n("Temperature", Temperature), n("Humidity", Humidity),
 		b("Open", Open), b("Occupied", Occupied), n("Battery", Battery), n("LinkQuality", LinkQuality),
+		n("Setpoint", Setpoint),
 	}
 	values := make([]string, 0, len(all))
 	for _, c := range all {

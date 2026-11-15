@@ -35,6 +35,10 @@ const (
 	HumiditySensor    Type = "HumiditySensor"
 )
 
+// Thermostat is a heater or thermostat: a device with a setpoint. Its on is the heater's, so it isn't
+// also a light or a plug, and its temperature is what it heats to, so it isn't a Temperature Sensor.
+const Thermostat Type = "Thermostat"
+
 // OnOff are the types a device that's on or off can be, in the order oikade devices type lists them.
 var OnOff = []Type{OnOffLight, DimmableLight, OnOffPlugInUnit, DimmablePlugInUnit, MountedOnOffControl, MountedDimmableLoadControl}
 
@@ -85,9 +89,9 @@ func Light(t Type) bool { return t == OnOffLight || t == DimmableLight }
 // OnOffOf is the type of a device that's on or off: yours, else its driver's, else a dimmable light
 // with a brightness and a plug without, since a bare relay could be driving anything. A dimmable type
 // on a device with no brightness is its on/off sibling, as there's nothing to dim. It's empty for a
-// device that isn't on or off.
+// device that isn't on or off, and for a thermostat, whose on is its own.
 func OnOffOf(yours, drivers Type, capabilities []string) Type {
-	if !slices.Contains(capabilities, capability.On) {
+	if !slices.Contains(capabilities, capability.On) || slices.Contains(capabilities, capability.Setpoint) {
 		return ""
 	}
 	brightness := slices.Contains(capabilities, capability.Brightness)
@@ -107,15 +111,21 @@ func OnOffOf(yours, drivers Type, capabilities []string) Type {
 	return t
 }
 
-// Of is a device's device types: its on/off type, then any that follow from its other capabilities.
-// A battery is a power source, which Matter shows on the device rather than as what it is, so it
-// isn't one.
+// Of is a device's device types: its on/off type or Thermostat, then any that follow from its other
+// capabilities. A battery is a power source, which Matter shows on the device rather than as what it
+// is, so it isn't one.
 func Of(yours, drivers Type, capabilities []string) []Type {
 	var out []Type
-	if t := OnOffOf(yours, drivers, capabilities); t != "" {
+	thermostat := slices.Contains(capabilities, capability.Setpoint)
+	if thermostat {
+		out = append(out, Thermostat)
+	} else if t := OnOffOf(yours, drivers, capabilities); t != "" {
 		out = append(out, t)
 	}
 	for _, s := range sensors {
+		if thermostat && s.capability == capability.Temperature {
+			continue
+		}
 		if slices.Contains(capabilities, s.capability) {
 			out = append(out, s.typ)
 		}

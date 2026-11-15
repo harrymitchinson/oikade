@@ -13,4 +13,5 @@ Every capability Oikade knows, named for people rather than for a protocol ([OIK
 | `occupied` | `framework.Occupied` | bool |  |  | Occupancy Sensing (0x0406) Occupancy (0x0000) |
 | `on` | `framework.On` | bool |  | yes | On/Off (0x0006) OnOff (0x0000) |
 | `open` | `framework.Open` | bool |  |  | Boolean State (0x0045) StateValue (0x0000), inverted |
+| `setpoint` | `framework.Setpoint` | number | 0 to 50°C | yes | Thermostat (0x0201) OccupiedHeatingSetpoint (0x0012) |
 | `temperature` | `framework.Temperature` | number | -273.15 to 1000°C |  | Temperature Measurement (0x0402) MeasuredValue (0x0000) |
