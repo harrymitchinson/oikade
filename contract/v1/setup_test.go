@@ -75,3 +75,12 @@ func TestNeedsReply(t *testing.T) {
 		}
 	}
 }
+
+func TestRootPlugin(t *testing.T) {
+	if got := NewRoot("zigbee").Plugin(); got != "zigbee" {
+		t.Errorf("got %q", got)
+	}
+	if got := Root("elsewhere/zigbee").Plugin(); got != "" {
+		t.Errorf("got %q for a root that isn't one", got)
+	}
+}

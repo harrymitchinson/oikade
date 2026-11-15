@@ -115,6 +115,7 @@ func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredD
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.(*bridge).infoWait = time.Second
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
 	p, err := plugin.Start(started, plugin.Options{

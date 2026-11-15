@@ -33,7 +33,7 @@ device_options:
   retain: true       # so a sensor's values survive a host restart
 ```
 
-It changes nothing in Zigbee2MQTT: its configuration is yours. It reads them from Zigbee2MQTT's `bridge/info`, and reads nothing else there, which holds the network key. Until both are set, `oikade status` says the plugin needs its setup.
+It changes nothing in Zigbee2MQTT: its configuration is yours. It reads them from Zigbee2MQTT's `bridge/info`, and reads nothing else there, which holds the network key. Until both are set, or while Zigbee2MQTT isn't heard on the broker within 5 seconds of the plugin starting, `oikade status` says the plugin needs its setup. Setup also says when Zigbee2MQTT's `bridge/state` says it's offline. Availability is on in a 1.x configuration with `advanced.availability_timeout` too.
 
 After each device list, the plugin asks Zigbee2MQTT with a `/get` for each value nothing has reported, one every 200ms, if the device can be asked for it ([OIK-53](https://linear.app/oikade/issue/OIK-53)). A light or a plug answers, so its state is back straight after a restart even without `retain`. A battery sensor sleeps and can't be asked, so without `retain` its values stay unknown until it next reports. A value that's retained is never asked for, and a reply is taken in just as a retained value is, so the first value after a host restart fires nothing.
 

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
@@ -23,6 +22,8 @@ const (
 	infoOldTrue     = `{"version":"1.42.0","config":{"availability":true,"device_options":{"retain":true}}}`
 	infoOldTimeouts = `{"version":"1.42.0","config":{"availability":{"active":{"timeout":10}},"device_options":{"retain":true}}}`
 	infoOldOff      = `{"version":"1.42.0","config":{"device_options":{"retain":false}}}`
+	// Older still, availability was turned on by a timeout.
+	infoOldTimeout = `{"version":"1.20.0","config":{"advanced":{"availability_timeout":60},"device_options":{"retain":true}}}`
 )
 
 func TestBridgeInfoNamesTheSettingsThatAreWrong(t *testing.T) {
@@ -30,14 +31,11 @@ func TestBridgeInfoNamesTheSettingsThatAreWrong(t *testing.T) {
 		infoSetUp:       nil,
 		infoOldTrue:     nil,
 		infoOldTimeouts: nil,
+		infoOldTimeout:  nil,
 		infoDefaults:    {"availability.enabled: true", "device_options.retain: true"},
 		infoOldOff:      {"availability.enabled: true", "device_options.retain: true"},
 	} {
-		var info bridgeInfo
-		if err := json.Unmarshal([]byte(payload), &info); err != nil {
-			t.Fatal(err)
-		}
-		got := info.problems()
+		got := readInfo([]byte(payload)).problems()
 		if len(got) != len(want) {
 			t.Errorf("%s: got %q, want %q", payload, got, want)
 			continue
@@ -136,16 +134,38 @@ func TestSetupChecksZigbee2MQTTsSettings(t *testing.T) {
 	}
 }
 
+func TestAnUnreadableBridgeInfoIsAProblemNotAbsence(t *testing.T) {
+	got := readInfo([]byte(`{"config":{"availability":"yes please"}}`)).problems()
+	if len(got) != 2 {
+		t.Errorf("a string availability: %q", got)
+	}
+	got = readInfo([]byte(`not json`)).problems()
+	if len(got) != 1 || !strings.Contains(got[0], "can't be checked") {
+		t.Errorf("not JSON: %q", got)
+	}
+}
+
 func TestSetupSaysWhenZigbee2MQTTIsntOnTheBroker(t *testing.T) {
 	b := mqtttest.NewBroker(t)
+	h := hear(t, b.URL)
 	run(t, b.URL)
-	start := time.Now()
+	// Never heard, so the plugin says it needs its setup.
+	h.wait(t, "needsSetup", func(topics map[string]string) bool { return reported(t, topics[root.Devices()]).NeedsSetup })
 	steps := runSetup(t, b.URL)
 	done := steps[len(steps)-1].Done
 	if !strings.HasPrefix(done.Error, "found no Zigbee2MQTT on mqtt://") || !strings.Contains(done.Error, "z2m/bridge") {
 		t.Errorf("done %+v", done)
 	}
-	if took := time.Since(start); took < infoWait {
-		t.Errorf("gave up after %s", took)
+}
+
+func TestSetupSaysWhenZigbee2MQTTIsOffline(t *testing.T) {
+	b := mqtttest.NewBroker(t)
+	h := hear(t, b.URL)
+	h.publish(t, base+"/bridge/info", infoSetUp, true)
+	h.publish(t, base+"/bridge/state", `{"state":"offline"}`, true)
+	run(t, b.URL)
+	steps := runSetup(t, b.URL)
+	if done := steps[len(steps)-1].Done; !strings.Contains(done.Error, "says it's offline: start it") {
+		t.Errorf("done %+v", done)
 	}
 }
