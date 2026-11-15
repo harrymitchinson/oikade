@@ -193,6 +193,10 @@ func setupGaps(st *api.Status, bridge *api.Matter) []string {
 	case len(bridge.Fabrics) == 0:
 		gaps = append(gaps, "The Matter bridge has no controller. oikade matter says how to pair one.")
 	}
+	// A plugin that needs its setup can't serve its devices until it's run.
+	for _, name := range st.NeedsSetup {
+		gaps = append(gaps, fmt.Sprintf("Plugin %s needs setup: run oikade setup %s", name, name))
+	}
 	// A plugin's own problem, such as a refused login, often explains its devices' problems.
 	for _, name := range slices.Sorted(maps.Keys(st.PluginProblems)) {
 		gaps = append(gaps, fmt.Sprintf("Plugin %s: %s", name, st.PluginProblems[name]))

@@ -145,7 +145,7 @@ func TestAPluginSaysWhatsWrongWithItUntilItsFixed(t *testing.T) {
 	}
 	r.until("the problem to clear", func() bool {
 		stderr, err := r.oikade(nil, "status")
-		return err == nil && !strings.Contains(stderr, "Plugin quiet")
+		return err == nil && !strings.Contains(stderr, problem)
 	})
 	if got := r.status().PluginProblems; got != nil {
 		t.Errorf("status --json once fixed: plugin problems %v", got)

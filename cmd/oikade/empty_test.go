@@ -182,3 +182,12 @@ func TestAPluginsProblemIsLeftToSetUp(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestAPluginThatNeedsItsSetupSaysHowToRunIt(t *testing.T) {
+	st := &api.Status{Version: "v3", Process: true, NeedsSetup: []string{"ewelink-lan"}}
+	got := setupGaps(st, nil)
+	want := []string{"Plugin ewelink-lan needs setup: run oikade setup ewelink-lan"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q", got)
+	}
+}

@@ -120,7 +120,7 @@ oikade pause fan                  # stop a rule
 oikade resume fan
 ```
 
-`oikade status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`. With your automations down it says since when. It starts with what's left to set up, a line each on stderr with the command that fixes it, and says nothing when there's nothing left ([OIK-287](https://linear.app/oikade/issue/OIK-287)): no home deployed (`oikade deploy`), a Matter bridge that is down or has no controller (`oikade matter`), devices with a problem (`oikade devices`), and devices whose plugin isn't imported. `oikade status DEVICE` and `--json` leave them out. An empty `status`, `devices`, `secret list` or `client list` says what would fill it, on stderr, and `--json` prints an empty list. A hold says whether it's active and why it isn't sure, such as `lounge-lamp  hold  active since 23:07, off at 23:10`, or `hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy`. A time that isn't today has its date, and an on or off time that has gone by says `(passed)`. A hold whose `When` can't be read keeps its state until it can. A budget that can't be planned keeps its device off.
+`oikade status` says why as well as what: an arbitrated capability shows its winning claim, such as `Rule/leak-shutoff wants false at Safety`. With your automations down it says since when. It starts with what's left to set up, a line each on stderr with the command that fixes it, and says nothing when there's nothing left ([OIK-287](https://linear.app/oikade/issue/OIK-287)): no home deployed (`oikade deploy`), a Matter bridge that is down or has no controller (`oikade matter`), plugins that need their setup run (`oikade setup`), devices with a problem (`oikade devices`), and devices whose plugin isn't imported. `oikade status DEVICE` and `--json` leave them out. An empty `status`, `devices`, `secret list` or `client list` says what would fill it, on stderr, and `--json` prints an empty list. A hold says whether it's active and why it isn't sure, such as `lounge-lamp  hold  active since 23:07, off at 23:10`, or `hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy`. A time that isn't today has its date, and an on or off time that has gone by says `(passed)`. A hold whose `When` can't be read keeps its state until it can. A budget that can't be planned keeps its device off.
 
 `oikade tail` says `Following home's events` on stderr once the host is listening, naming the context, so a quiet house doesn't look hung.
 
@@ -128,7 +128,7 @@ oikade resume fan
 
 A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: moments and flows don't start, a flow's run in progress ends, and a hold stops working out its target and leaves its device as it is. Its claims end, except Safety ones, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a Safety rule stops that protection, so it needs `--allow-safety`. So does pausing a rule holding a Safety claim, and anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause. `oikade pause` names the claims it ended, and the Safety ones it kept.
 
-`--json` on `status`, `tail`, `replay`, `set`, `pause`, `resume`, `devices` and `matter` prints JSON whose fields stay stable for scripts.
+`--json` on `status`, `tail`, `replay`, `set`, `pause`, `resume`, `devices`, `matter` and `setup` prints JSON whose fields stay stable for scripts.
 
 From another machine, these and `deploy` and `rollback` go over the [network API](#the-network-api), once you've logged in.
 
@@ -164,6 +164,18 @@ oikade client revoke laptop      # its token stops working at once
 ```
 
 `client add` works only on the host's machine, through the socket, so a stolen token can't make more of them. `revoke` works over the network API too, so any client can cut off a lost one, and it ends that client's open streams. It works while the listener is down, so a token can't come back when the port frees. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.
+
+## Setting up a plugin
+
+A plugin that needs something only you can give it, such as an account's sign-in, has a setup ([OIK-276](https://linear.app/oikade/issue/OIK-276)). `oikade status` names a plugin that needs one, as `Plugin NAME needs setup: run oikade setup NAME`. Run that, from any machine that reaches the host:
+
+```sh
+oikade setup ewelink-lan
+```
+
+It runs on the host, inside the plugin, so what it checks, such as the broker or a device on the LAN, it checks as the plugin sees it. It asks only for what the plugin can't find out, on your terminal, without echoing a secret. If it needs a sign-in, it opens the page in your browser (or `$BROWSER`, or prints it for you to open) and waits up to 5 minutes for the page to send you back to `127.0.0.1` on your machine. What it learns it keeps as the host's [secrets](#secrets), which it names as it goes, and their values never reach your machine. It ends with how it went, on stdout, such as `ewelink-lan is set up: 2 devices online`, or, failing, what's still wrong. Run it again whenever you like: it repeats its checks and changes only what's wrong. `--json` prints `ok`, `plugin`, and `result` or `error`.
+
+A setup that waits 10 minutes for you, or for the plugin, is ended by the host. So is one you stop with Ctrl-C, and starting another setup of the same plugin ends the first. A plugin without one says so, and its README says how to set it up. Each plugin's README says what its setup asks for.
 
 ## Removing a plugin
 
