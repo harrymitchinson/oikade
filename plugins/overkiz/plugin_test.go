@@ -82,7 +82,7 @@ type bench struct {
 
 func start(t *testing.T, hub *fakeHub, secret string, declared ...string) *bench {
 	t.Helper()
-	return startWith(t, hub, Local{Address: hub.address(), TokenSecret: "tahoma-token"}, fast, secret, declared...)
+	return startWith(t, hub, Local{Address: hub.address(), TokenSecret: "tahoma-token", PIN: hubPIN, roots: hub.ca}, fast, secret, declared...)
 }
 
 // cloudFast is fast, with the cloud's limit waits.

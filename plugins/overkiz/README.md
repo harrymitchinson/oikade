@@ -6,6 +6,7 @@ This plugin connects devices on Overkiz, the platform behind Somfy TaHoma and At
 framework.Run(framework.NewHome(framework.Options{},
 	framework.NewPlugin("tahoma", overkiz.New(overkiz.Local{
 		Address:     "192.168.1.40:8443", // the hub, or gateway-1234-5678-9012.local:8443
+		PIN:         "1234-5678-9012",    // the hub's PIN, which an IP address doesn't give
 		TokenSecret: "tahoma-token",
 	})),
 	framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
@@ -25,7 +26,7 @@ The local API needs a TaHoma Switch, or another TaHoma with Developer Mode. The 
 
 Until the token is set, or while the hub refuses it, `oikade status` says so, and the plugin waits for the secret to change rather than trying the same token again. It tries a refused token once an hour.
 
-The hub's certificate is signed by Overkiz's own authority for its `gateway-<pin>.local` name, which the system doesn't trust and an IP address doesn't match, so the plugin doesn't check it. Keep the hub on a network you trust.
+**The hub's certificate is checked** ([OIK-292](https://linear.app/oikade/issue/OIK-292)), so nothing else on the network can pose as the hub and take its token. Overkiz signs each hub's certificate with its own root authority, which the plugin carries, for the hub's name, `gateway-<pin>.local`. The plugin checks that name against the PIN in `Address`, or in `PIN` when `Address` is an IP address. With an IP address and no `PIN`, it can only check that Overkiz signed the certificate, so any TaHoma hub's would pass. A certificate it refuses shows in `oikade status` with the names it gives, and the plugin tries again with backoff.
 
 ## Setting up a Cozytouch account
 
