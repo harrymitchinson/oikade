@@ -3,6 +3,7 @@ package overkiz
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -85,26 +86,30 @@ const (
 const towelSensor = "7"
 
 // towelDryer is an Atlantic towel radiator, from Home Assistant's mapping of the widget. Standby is
-// off and manual is heat. Its schedule and auto modes count as on, and are left as they are: a
-// setpoint written in them is the override they take, and turning it on leaves them be. Boost and
-// drying aren't served, and a radiator in one reports the setpoint it's really aiming for.
+// off and manual is heat. Its schedule and auto modes, and any it doesn't know, count as on, and are
+// left as they are: a setpoint written in them is the override they take, and turning it on leaves
+// them be. Boost and drying aren't served, and a radiator in one reports the setpoint it's aiming for.
 var towelDryer = model{
 	capabilities: []string{contractv1.On, contractv1.Setpoint, contractv1.Temperature},
 	values: func(s states) contractv1.State {
 		out := contractv1.State{}
 		mode := s.text("", "core:OperatingModeState")
-		switch mode {
-		case modeStandby:
-			out[contractv1.On] = false
-		case modeExternal, modeInternal, modeAuto:
-			out[contractv1.On] = true
+		if mode != "" {
+			// Only standby is off: a mode it doesn't know is still heating.
+			out[contractv1.On] = mode != modeStandby
 		}
-		setpoint := "core:TargetTemperatureState"
-		if mode == modeInternal || mode == modeAuto {
-			setpoint = "io:EffectiveTemperatureSetpointState"
+		// Manual holds its target. Any other mode aims for its effective setpoint. Either falls back on
+		// the other until the one it reads has been reported, rather than keeping a value from
+		// before the mode changed.
+		read := []string{"io:EffectiveTemperatureSetpointState", "core:TargetTemperatureState"}
+		if mode == modeExternal || mode == modeStandby {
+			slices.Reverse(read)
 		}
-		if f, ok := s.number("", setpoint); ok && f >= 0 && f <= 50 {
-			out[contractv1.Setpoint] = f
+		for _, name := range read {
+			if f, ok := s.number("", name); ok && f >= 0 && f <= 50 {
+				out[contractv1.Setpoint] = f
+				break
+			}
 		}
 		if f, ok := s.number(towelSensor, "core:TemperatureState"); ok && f > -273.15 && f < 1000 {
 			out[contractv1.Temperature] = f
@@ -121,7 +126,7 @@ var towelDryer = model{
 				return "", nil, fmt.Errorf("on %v is not a bool", v)
 			case !on:
 				return "", []apiCommand{{Name: "setTowelDryerOperatingMode", Parameters: []any{modeStandby}}}, nil
-			case mode == modeExternal, mode == modeInternal, mode == modeAuto:
+			case mode != modeStandby && mode != "":
 				return "", nil, nil
 			}
 			return "", []apiCommand{{Name: "setTowelDryerOperatingMode", Parameters: []any{modeExternal}}}, nil
@@ -130,9 +135,9 @@ var towelDryer = model{
 			if err != nil {
 				return "", nil, err
 			}
-			command := "setTargetTemperature"
-			if mode == modeInternal || mode == modeAuto {
-				command = "setDerogatedTargetTemperature"
+			command := "setDerogatedTargetTemperature"
+			if mode == modeExternal || mode == modeStandby || mode == "" {
+				command = "setTargetTemperature"
 			}
 			return "", []apiCommand{{Name: command, Parameters: []any{f}}}, nil
 		}

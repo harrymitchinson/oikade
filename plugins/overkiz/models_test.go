@@ -82,8 +82,8 @@ func TestATowelRadiatorsSetpointFollowsItsMode(t *testing.T) {
 		{modeExternal, contractv1.State{"on": true, "setpoint": 21.0, "temperature": 19.25}, "", "setTargetTemperature 22"},
 		{modeInternal, contractv1.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
 		{modeAuto, contractv1.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
-		// A mode it doesn't know says nothing about on.
-		{"boost", contractv1.State{"setpoint": 21.0, "temperature": 19.25}, "setTowelDryerOperatingMode external", "setTargetTemperature 22"},
+		// A mode it doesn't know is on, aiming for its effective setpoint, and left as it is.
+		{"boost", contractv1.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
 	} {
 		s := radiator(tc.mode)
 		if got := towelDryer.values(s); !reflect.DeepEqual(got, tc.want) {
@@ -99,6 +99,12 @@ func TestATowelRadiatorsSetpointFollowsItsMode(t *testing.T) {
 			t.Errorf("%s: on false sends %q", tc.mode, got)
 		}
 	}
+	// A setpoint not yet reported for the mode falls back on the other.
+	s := states{{"", "core:OperatingModeState"}: modeInternal, {"", "core:TargetTemperatureState"}: 22.0}
+	if got := towelDryer.values(s)[contractv1.Setpoint]; got != 22.0 {
+		t.Errorf("internal with only a target: setpoint %v", got)
+	}
+
 	for _, bad := range []struct {
 		capability string
 		v          any

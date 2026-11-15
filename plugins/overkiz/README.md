@@ -49,7 +49,7 @@ Each device's ID comes from its Overkiz device URL, `<protocol>://<hub>/<address
 
 `position` is how far closed it is, 0 open to 100 closed. A write returns once the hub has taken the command, and the shutter's own reports show it moving.
 
-A towel radiator is a thermostat in the Home app. `on` false is its standby, and `on` true from standby is its manual mode, which holds `setpoint`. In its own schedule or its auto mode it's on, and stays in that mode: `setpoint` is then the temperature it's aiming for, and a write is the override those modes take. Its boost and drying modes aren't served, and in them it reports the setpoint it's really aiming for. `temperature` is its room sensor, at `#7`. The mapping is Home Assistant's, and is yet to be checked against a real radiator.
+A towel radiator is a thermostat in the Home app. `on` false is its standby, and `on` true from standby is its manual mode, which holds `setpoint`. In its own schedule, its auto mode or any mode the plugin doesn't know, it's on, and stays in that mode: `setpoint` is then the temperature it's aiming for, and a write is the override those modes take. Its boost and drying modes aren't served, and in them it reports the setpoint it's really aiming for. `temperature` is its room sensor, at `#7`. The mapping is Home Assistant's, and is yet to be checked against a real radiator.
 
 Any other kind of device isn't reported yet, and the host's log names its widget once. **RTS blinds aren't reported:** they don't say where they are, and Oikade can't show a guess.
 

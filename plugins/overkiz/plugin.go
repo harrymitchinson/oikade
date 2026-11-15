@@ -1,6 +1,7 @@
 package overkiz
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -32,6 +33,8 @@ type Account interface {
 	check() error
 	// manufacturer is who makes its devices, for those that don't say.
 	manufacturer() string
+	// expires is whether its sessions end by themselves, as the cloud's do. A hub's token doesn't.
+	expires() bool
 }
 
 // Local is a TaHoma hub's local API, which its Developer Mode turns on. The first-generation square
@@ -52,6 +55,8 @@ func (l Local) timing() timing { return localTiming }
 
 func (l Local) manufacturer() string { return "" }
 
+func (l Local) expires() bool { return false }
+
 func (l Local) check() error {
 	if l.Address == "" {
 		return errors.New("overkiz.Local has no Address")
@@ -63,9 +68,6 @@ func (l Local) check() error {
 // Overkiz for its gateway-<pin>.local name, which an address doesn't match and the system doesn't
 // trust, so it isn't checked.
 func (l Local) connect(_ context.Context, token string) (*client, error) {
-	if err := l.check(); err != nil {
-		return nil, err
-	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // See above.
 	return &client{
@@ -178,7 +180,9 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := b.publishDevices(ctx); err != nil {
 		return err
 	}
-	wait := b.timing.retry
+	// wait is the backoff after a failure, and ended after sessions that end as they begin, which a
+	// login doesn't reset.
+	wait, ended := b.timing.retry, b.timing.retry
 	for ctx.Err() == nil {
 		credential, ok, err := plugin.ReadSecret(b.env, b.account.secret())
 		switch {
@@ -200,18 +204,23 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		// A cloud session ends by itself, and one that lasted logs in again at once, its devices
 		// online meanwhile. A credential refused then is refused for real. One that ends as soon as
 		// it starts backs off, so a cloud that keeps ending them isn't asked to log in over and over.
-		expired := !live.IsZero() && !errors.Is(err, errReport) && classify(err) == refused
+		expired := b.account.expires() && !live.IsZero() && !errors.Is(err, errReport) && classify(err) == refused
 		if expired && time.Since(live) >= b.timing.retryMax {
-			b.log.Info("Logging in to Overkiz again; its session ended", "err", err, "account", b.account.describe())
+			b.log.Info("Overkiz ended the plugin's session, so it's logging in again", "err", err, "account", b.account.describe())
+			ended = b.timing.retry
+			// Its devices stay online meanwhile, and a write fails at once rather than on a dead session.
+			b.mu.Lock()
+			b.client = nil
+			b.mu.Unlock()
 			continue
 		}
 		b.lost(ctx)
 		switch {
 		case expired:
-			b.log.Warn("Overkiz ended the plugin's session as it began", "err", err, "account", b.account.describe(), "retry", wait.String())
-			b.setProblem(ctx, fmt.Sprintf("%s keeps ending the plugin's session: trying again in %s", b.account.describe(), wait))
-			sleep(ctx, wait)
-			wait = min(2*wait, b.timing.retryMax)
+			b.log.Warn("Overkiz ended the plugin's session as it began", "err", err, "account", b.account.describe(), "retry", ended.String())
+			b.setProblem(ctx, fmt.Sprintf("%s keeps ending the plugin's session: trying again in %s", b.account.describe(), ended))
+			sleep(ctx, ended)
+			ended = min(2*ended, b.timing.retryMax)
 		case errors.Is(err, errReport):
 			b.log.Error("Could not report Overkiz devices", "err", err, "account", b.account.describe(), "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("could not report the devices of %s: %v", b.account.describe(), err))
@@ -219,7 +228,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			wait = min(2*wait, b.timing.retryMax)
 		case classify(err) == refused:
 			b.log.Warn("Overkiz refused the credential", "err", err, "account", b.account.describe())
-			b.setProblem(ctx, fmt.Sprintf("%s refused the credential: check the secret %q", b.account.describe(), b.account.secret()))
+			b.setProblem(ctx, fmt.Sprintf("%s refused the login (%v): check the secret %q", b.account.describe(), err, b.account.secret()))
 			b.untilSecretChanges(ctx, credential, b.timing.refused)
 		case classify(err) == limited:
 			b.log.Warn("Overkiz limited the plugin's requests", "err", err, "account", b.account.describe(), "retry", b.timing.limited.String())
@@ -350,8 +359,8 @@ func (b *bridge) readSetup(ctx context.Context, c *client) error {
 			id: id, url: d.DeviceURL, model: m, subs: map[string]string{"": d.DeviceURL},
 			available: d.Available, enabled: d.Enabled, raw: states{}, values: contractv1.State{},
 			info: contractv1.DiscoveredDevice{
-				ID: id, Manufacturer: or(d.attribute("core:Manufacturer"), b.account.manufacturer()), Model: d.ControllableName,
-				Capabilities: m.capabilities, Name: d.Label,
+				ID: id, Manufacturer: cmp.Or(d.attribute("core:Manufacturer"), b.account.manufacturer()), Model: d.ControllableName,
+				Capabilities: slices.Clone(m.capabilities), Name: d.Label,
 			},
 		}
 		if other, ok := devices[id]; ok {

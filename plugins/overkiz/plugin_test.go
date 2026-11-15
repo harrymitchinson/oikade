@@ -515,7 +515,9 @@ func TestARefusedPasswordIsTheAccountsProblemUntilItChanges(t *testing.T) {
 	cloud := newFakeCloud(t)
 	b := startCloud(t, cloud, "wrong", cloudFast, radiator)
 	b.eventually("the refusal", func() bool {
-		return b.status().Error == `Thermor's Cozytouch cloud refused the credential: check the secret "cozytouch"`
+		e := b.status().Error
+		return strings.HasPrefix(e, "Thermor's Cozytouch cloud refused the login (") && strings.Contains(e, "Bad credentials") &&
+			strings.HasSuffix(e, `: check the secret "cozytouch"`)
 	})
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices with a refused password: %+v", d)
@@ -609,5 +611,17 @@ func TestCozytouchNeedsABrandAndAUsername(t *testing.T) {
 	}
 	if _, err := New(Local{TokenSecret: "tahoma-token"})(plugin.Environment{}, nil); err == nil {
 		t.Error("a Local with no Address was taken")
+	}
+}
+
+func TestAnotherRefusalFromAtlanticIsntTriedAgainSoon(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(func(h *fakeHub) { h.clientRefused = true })
+	b := startCloud(t, cloud, password, cloudFast)
+	b.eventually("the refusal", func() bool { return strings.Contains(b.status().Error, "Atlantic refused the login: invalid_client") })
+	tries := cloud.count("/token")
+	time.Sleep(10 * cloudFast.secret)
+	if n := cloud.count("/token"); n != tries {
+		t.Errorf("tried %d more times", n-tries)
 	}
 }

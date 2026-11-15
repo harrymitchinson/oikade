@@ -43,7 +43,9 @@ type fakeHub struct {
 	// cookie, rather than a hub that takes a token.
 	cloud    bool
 	password string
-	sessions map[string]bool
+	// clientRefused refuses the app's client ID, as Atlantic would once it changes it.
+	clientRefused bool
+	sessions      map[string]bool
 }
 
 func newFakeHub(t *testing.T) *fakeHub {
@@ -209,6 +211,8 @@ func (h *fakeHub) login(w http.ResponseWriter, r *http.Request) bool {
 		switch {
 		case h.down:
 			answer(http.StatusServiceUnavailable, `{"error":"unavailable"}`)
+		case h.clientRefused:
+			answer(http.StatusUnauthorized, `{"error":"invalid_client","error_description":"Client authentication failed"}`)
 		case r.Method != http.MethodPost || r.Header.Get("Authorization") != "Basic "+cozytouchClientID ||
 			r.FormValue("grant_type") != "password" || r.FormValue("username") != "GA-PRIVATEPERSON/someone@example.com":
 			h.t.Errorf("token request: %s %v %v", r.Method, r.Header, r.Form)

@@ -1,6 +1,7 @@
 package overkiz
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,6 +64,8 @@ func (c Cozytouch) timing() timing { return cloudTiming }
 
 func (c Cozytouch) manufacturer() string { return string(c.Brand) }
 
+func (c Cozytouch) expires() bool { return true }
+
 func (c Cozytouch) check() error {
 	switch {
 	case c.Brand != Atlantic && c.Brand != Thermor && c.Brand != Sauter:
@@ -76,10 +79,7 @@ func (c Cozytouch) check() error {
 // connect logs in, in three calls: a password grant from Atlantic, its exchange for a JWT, and an
 // Overkiz session for that, which a cookie keeps.
 func (c Cozytouch) connect(ctx context.Context, password string) (*client, error) {
-	if err := c.check(); err != nil {
-		return nil, err
-	}
-	api, endpoint := or(c.atlanticAPI, atlanticAPI), or(c.endpoint, cozytouchEndpoint)
+	api, endpoint := cmp.Or(c.atlanticAPI, atlanticAPI), cmp.Or(c.endpoint, cozytouchEndpoint)
 	jar, _ := cookiejar.New(nil)
 	httpc := &http.Client{Jar: jar, Timeout: cloudTiming.request, Transport: c.transport}
 
@@ -99,6 +99,10 @@ func (c Cozytouch) connect(ctx context.Context, password string) (*client, error
 	case grant.Error == "invalid_grant":
 		// Atlantic says a password is wrong this way. The message is its own.
 		return nil, &apiError{Status: status, Code: codeAuthentication, Message: "Bad credentials: " + grant.Description}
+	case grant.Error != "" && status >= 400 && status <= 499:
+		// Any other refusal, such as invalid_client once Atlantic changes its app's client ID, won't
+		// pass by trying again soon either.
+		return nil, &apiError{Status: status, Code: codeAuthentication, Message: "Atlantic refused the login: " + grant.Error}
 	case status < 200 || status > 299:
 		return nil, overkizError(status, body)
 	case grant.AccessToken == "":
@@ -166,11 +170,4 @@ func overkizError(status int, body []byte) error {
 		e.Code = codeAuthentication
 	}
 	return e
-}
-
-func or(s, otherwise string) string {
-	if s != "" {
-		return s
-	}
-	return otherwise
 }
