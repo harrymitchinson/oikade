@@ -49,7 +49,8 @@ func TestAFailedSetLeavesTheDevicesNextChangeItsOwn(t *testing.T) {
 	}
 
 	devices.Changed(driver.Update{Device: dev, Capability: capability.On, Value: true, Previous: false, Time: time.Now()})
-	deadline := time.Now().Add(5 * time.Second)
+	// The arbiter wrote its Default when it started, so the change may wait for that write to settle.
+	deadline := time.Now().Add(capability.DefaultSettle + 5*time.Second)
 	for {
 		for _, c := range eng.ControlOf(dev) {
 			for _, claim := range c.Claims {
