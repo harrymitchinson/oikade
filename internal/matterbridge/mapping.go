@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -48,6 +49,9 @@ type Device struct {
 	Unique string
 	// Absent is a device with no driver reporting it yet: it's on the bridge, and unreachable.
 	Absent bool
+	// After runs f, under the Node's lock, once d has passed, for a move that settles. Nil settles a
+	// move only by the device's report.
+	After func(d time.Duration, f func())
 }
 
 // uniqueID is the bridged device's UniqueID.
@@ -64,6 +68,8 @@ type Mapped struct {
 	Types    []im.DeviceType
 	Clusters []*im.Cluster
 	update   map[string]func(any)
+	// cancel ends what a controller's write started, for one that didn't happen.
+	cancel map[string]func()
 }
 
 // Update pushes a capability value into the clusters. Call it inside Node.Update. Capabilities
@@ -74,8 +80,16 @@ func (m *Mapped) Update(name string, v any) {
 	}
 }
 
+// Cancel undoes what a controller's write to a capability started, for a write that didn't happen,
+// such as a blind's move. Call it inside Node.Update.
+func (m *Mapped) Cancel(name string) {
+	if f := m.cancel[name]; f != nil {
+		f()
+	}
+}
+
 // mapped are the capabilities that make a device worth showing.
-var mapped = append([]string{capability.On, capability.Setpoint, capability.Locked}, sensors...)
+var mapped = append([]string{capability.On, capability.Setpoint, capability.Locked, capability.Position}, sensors...)
 
 // sensors are the read-only capabilities the mapping shows.
 var sensors = []string{capability.Occupied, capability.Open, capability.Temperature, capability.Humidity}
@@ -98,7 +112,7 @@ func Map(d Device, set SetFunc) *Mapped {
 		return nil
 	}
 	has := func(c string) bool { return slices.Contains(d.Capabilities, c) }
-	m := &Mapped{update: map[string]func(any){}}
+	m := &Mapped{update: map[string]func(any){}, cancel: map[string]func(){}}
 
 	// A thermostat's on and temperature are its Thermostat cluster's, not an On/Off or a sensor.
 	thermostat := has(capability.Setpoint)
@@ -155,6 +169,9 @@ func Map(d Device, set SetFunc) *Mapped {
 			}
 		}
 	}
+	if has(capability.Position) {
+		mapCovering(m, d.After, set)
+	}
 	if has(capability.Occupied) {
 		c := clusters.NewOccupancy()
 		m.Types = append(m.Types, clusters.DeviceOccupancySensor)
@@ -195,6 +212,21 @@ func Map(d Device, set SetFunc) *Mapped {
 		m.update[capability.Battery] = func(v any) { c.Set(capability.Float(v)) }
 	}
 	return m
+}
+
+// mapCovering makes the device a Window Covering, whose lift is its position. Both are 0 when open,
+// so Matter's hundredths are the position times 100. A move settles after position's Settle.
+func mapCovering(m *Mapped, after func(time.Duration, func()), set SetFunc) {
+	c := clusters.NewCovering()
+	c.OnMove = func(percent float64) { set(capability.Position, percent) }
+	if after != nil {
+		settle := capability.SettleOf(capability.Position)
+		c.AfterSettle = func(f func()) { after(settle, f) }
+	}
+	m.Types = append(m.Types, clusters.DeviceWindowCovering)
+	m.Clusters = append(m.Clusters, c.Cluster())
+	m.update[capability.Position] = func(v any) { c.SetCurrent(capability.Float(v)) }
+	m.cancel[capability.Position] = c.Cancel
 }
 
 // mapHeater makes the device a Thermostat with only the Heating feature. SystemMode Off and Heat are

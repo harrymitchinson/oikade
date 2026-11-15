@@ -7,7 +7,9 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -37,6 +39,8 @@ type Bridge struct {
 	Store  *hub.Store
 	// Writes takes writes from controllers.
 	Writes *Coalescer
+	// Clock times how long a move takes to settle; nil is the real clock.
+	Clock clock.Clock
 
 	mu        sync.Mutex
 	endpoints map[uint16]*endpoint
@@ -77,9 +81,28 @@ func (b *Bridge) Restore(dev ident.ID, name string, otherwise any) {
 			v = known
 		}
 	}
+	b.mu.Lock()
+	e := b.byDevice[dev]
+	b.mu.Unlock()
+	if e != nil {
+		b.Matter.Node.Update(func() { e.mapped.Cancel(name) })
+	}
 	if v != nil {
 		b.Changed(driver.Update{Device: dev, Capability: name, Value: v})
 	}
+}
+
+// after runs f under the node's lock once d has passed on the bridge's clock.
+func (b *Bridge) after(d time.Duration, f func()) {
+	c := b.Clock
+	if c == nil {
+		c = clock.Real{}
+	}
+	t := c.NewTimer(d)
+	go func() {
+		<-t.C()
+		b.Matter.Node.Update(f)
+	}()
 }
 
 // Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose device
@@ -129,6 +152,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		d := want[id]
 		e := &endpoint{signature: d.Signature(), label: Label(d.Name), absent: d.Absent}
 		e.key.Store(&d.Key)
+		d.After = b.after
 		e.mapped = Map(d, func(name string, value any) { b.Writes.Add(e.device(), name, value) })
 		info, err := b.Matter.AddDeviceTypes(id, e.mapped.Types, e.label, d.uniqueID(), e.mapped.Clusters...)
 		if err != nil {

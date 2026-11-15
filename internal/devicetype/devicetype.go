@@ -34,6 +34,7 @@ const (
 	TemperatureSensor Type = "TemperatureSensor"
 	HumiditySensor    Type = "HumiditySensor"
 	DoorLock          Type = "DoorLock"
+	WindowCovering    Type = "WindowCovering"
 )
 
 // Thermostat is a heater or thermostat: a device with a setpoint. Its on is the heater's, so it isn't
@@ -56,6 +57,7 @@ var followed = []struct {
 	typ        Type
 }{
 	{capability.Locked, DoorLock},
+	{capability.Position, WindowCovering},
 	{capability.Occupied, OccupancySensor},
 	{capability.Open, ContactSensor},
 	{capability.Temperature, TemperatureSensor},

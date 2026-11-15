@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -448,5 +449,160 @@ func TestALockSaysLockedOnlyOnceTheBoltReports(t *testing.T) {
 	}
 	if want := []setCall{{capability.Locked, true}, {capability.Locked, false}}; !reflect.DeepEqual(*calls, want) {
 		t.Errorf("writes %v, want %v", *calls, want)
+	}
+}
+
+// coveringOn maps a blind whose moves settle when the test says, and returns its cluster and the
+// settles waiting.
+func coveringOn(t *testing.T) (*Mapped, *im.Cluster, *[]setCall, *[]func()) {
+	t.Helper()
+	var calls []setCall
+	var settles []func()
+	m := Map(Device{
+		Key: ident.ID{Name: "blind"}, Endpoint: 7, Name: "Blind", Capabilities: []string{capability.Position},
+		After: func(d time.Duration, f func()) {
+			if d != capability.SettleOf(capability.Position) {
+				t.Errorf("a move settles after %v", d)
+			}
+			settles = append(settles, f)
+		},
+	}, func(name string, value any) { calls = append(calls, setCall{name, value}) })
+	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x0202}) {
+		t.Fatalf("device types %#x, want a Window Covering", got)
+	}
+	return m, cluster(t, m, clusters.IDWindowCovering), &calls, &settles
+}
+
+const (
+	currentLift, targetLift, operational = 0x000E, 0x000B, 0x000A
+	closingStatus                        = clusters.MovementClosing | clusters.MovementClosing<<2
+)
+
+func goToLift(hundredths uint64) func(w *tlv.Writer) {
+	return func(w *tlv.Writer) { w.PutUint(tlv.Context(1), hundredths) }
+}
+
+func TestABlindMovesToWhereTheControllerSaysAndShowsOnlyWhatItReports(t *testing.T) {
+	m, c, calls, settles := coveringOn(t)
+	if c.FeatureMap != 0b101 {
+		t.Errorf("features %#b, want Lift and PositionAwareLift", c.FeatureMap)
+	}
+	if read(t, c, currentLift) != nil || read(t, c, targetLift) != nil {
+		t.Errorf("before any report: current %v, target %v", read(t, c, currentLift), read(t, c, targetLift))
+	}
+	m.Update(capability.Position, 0.0)
+	invoke(t, c, clusters.CommandGoToLiftPercentage, goToLift(7000)) // 70% closed
+	if want := []setCall{{capability.Position, 70.0}}; !reflect.DeepEqual(*calls, want) {
+		t.Errorf("writes %v, want %v", *calls, want)
+	}
+	if read(t, c, targetLift) != uint64(7000) || read(t, c, currentLift) != uint64(0) {
+		t.Errorf("after the command: target %v, current %v", read(t, c, targetLift), read(t, c, currentLift))
+	}
+	if read(t, c, operational) != uint64(closingStatus) {
+		t.Errorf("OperationalStatus %v while it moves, want closing", read(t, c, operational))
+	}
+	m.Update(capability.Position, 40.0)
+	if read(t, c, currentLift) != uint64(4000) || read(t, c, operational) != uint64(closingStatus) {
+		t.Errorf("on its way: current %v, OperationalStatus %v", read(t, c, currentLift), read(t, c, operational))
+	}
+	m.Update(capability.Position, 70.0)
+	if read(t, c, currentLift) != uint64(7000) || read(t, c, operational) != uint64(0) {
+		t.Errorf("once there: current %v, OperationalStatus %v", read(t, c, currentLift), read(t, c, operational))
+	}
+	if read(t, c, 0x0008) != uint64(70) {
+		t.Errorf("CurrentPositionLiftPercentage %v", read(t, c, 0x0008))
+	}
+	// The settle for a move that has finished changes nothing.
+	for _, f := range *settles {
+		f()
+	}
+	if read(t, c, targetLift) != uint64(7000) {
+		t.Errorf("target %v after the settle", read(t, c, targetLift))
+	}
+}
+
+func TestABlindThatNeverGetsThereStopsMovingOnceTheMoveSettles(t *testing.T) {
+	m, c, _, settles := coveringOn(t)
+	m.Update(capability.Position, 0.0)
+	invoke(t, c, clusters.CommandDownOrClose, nil)
+	m.Update(capability.Position, 45.0)
+	if read(t, c, operational) != uint64(closingStatus) {
+		t.Errorf("OperationalStatus %v before the move settles", read(t, c, operational))
+	}
+	if len(*settles) != 1 {
+		t.Fatalf("%d settles waiting, want one", len(*settles))
+	}
+	(*settles)[0]()
+	if read(t, c, operational) != uint64(0) || read(t, c, targetLift) != uint64(4500) {
+		t.Errorf("once settled: OperationalStatus %v, target %v, want stopped where it is",
+			read(t, c, operational), read(t, c, targetLift))
+	}
+}
+
+func TestStopMotionNeedsAReportSinceTheMove(t *testing.T) {
+	m, c, calls, _ := coveringOn(t)
+	m.Update(capability.Position, 100.0)
+	invoke(t, c, clusters.CommandUpOrOpen, nil)
+	stop := func() error {
+		for _, x := range c.Commands {
+			if x.ID == clusters.CommandStopMotion {
+				_, err := x.Invoke(nil, nil)
+				return err
+			}
+		}
+		t.Fatal("no StopMotion")
+		return nil
+	}
+	if err := stop(); err != im.StatusFailure {
+		t.Errorf("StopMotion with no report since the move: %v, want Failure", err)
+	}
+	m.Update(capability.Position, 60.0)
+	if err := stop(); err != nil {
+		t.Errorf("StopMotion: %v", err)
+	}
+	want := []setCall{{capability.Position, 0.0}, {capability.Position, 60.0}}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Errorf("writes %v, want %v", *calls, want)
+	}
+	if read(t, c, operational) != uint64(0) || read(t, c, targetLift) != uint64(6000) {
+		t.Errorf("after stopping: OperationalStatus %v, target %v", read(t, c, operational), read(t, c, targetLift))
+	}
+}
+
+func TestARefusedMoveIsCancelled(t *testing.T) {
+	m, c, _, _ := coveringOn(t)
+	m.Update(capability.Position, 20.0)
+	invoke(t, c, clusters.CommandGoToLiftPercentage, goToLift(9000))
+	m.Cancel(capability.Position)
+	if read(t, c, operational) != uint64(0) || read(t, c, targetLift) != uint64(2000) {
+		t.Errorf("after a refusal: OperationalStatus %v, target %v", read(t, c, operational), read(t, c, targetLift))
+	}
+}
+
+func TestGoToLiftPercentageRefusesPastClosed(t *testing.T) {
+	_, c, calls, _ := coveringOn(t)
+	for _, x := range c.Commands {
+		if x.ID != clusters.CommandGoToLiftPercentage {
+			continue
+		}
+		for name, f := range map[string]func(w *tlv.Writer){
+			"hundredths": goToLift(10001),
+			"percent":    func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 101) },
+		} {
+			var w tlv.Writer
+			w.StartStructure(tlv.Anonymous)
+			f(&w)
+			w.End()
+			r := tlv.NewReader(w.Bytes())
+			if err := r.Next(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := x.Invoke(nil, r); err != im.StatusConstraintError {
+				t.Errorf("%s past closed: %v, want a constraint error", name, err)
+			}
+		}
+	}
+	if len(*calls) != 0 {
+		t.Errorf("writes %v", *calls)
 	}
 }

@@ -31,6 +31,7 @@ var names = map[uint32]string{
 	IDGroupKeyManagement: "group_key_management", IDBooleanState: "boolean_state",
 	IDTemperatureMeasurement: "temperature_measurement", IDRelativeHumidityMeasurement: "relative_humidity_measurement",
 	IDOccupancySensing: "occupancy_sensing", IDThermostat: "thermostat", IDDoorLock: "door_lock",
+	IDWindowCovering: "window_covering",
 }
 
 // Name is the name of a cluster a node serves, in snake case, such as on_off. Any other is "other", so
