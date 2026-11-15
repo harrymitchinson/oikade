@@ -1,0 +1,43 @@
+{
+  "source": "hand-written",
+  "device": {
+    "ieee_address": "0x0000000000000001",
+    "friendly_name": "0x0000000000000001",
+    "type": "EndDevice",
+    "definition": {
+      "vendor": "Aqara",
+      "model": "MCCGQ11LM",
+      "exposes": [
+        {
+          "type": "binary",
+          "name": "contact",
+          "property": "contact",
+          "value_on": false,
+          "value_off": true,
+          "access": 1
+        },
+        {
+          "type": "numeric",
+          "name": "battery",
+          "property": "battery",
+          "access": 1
+        }
+      ]
+    }
+  },
+  "states": [
+    {
+      "contact": true,
+      "battery": 91,
+      "voltage": 3005,
+      "linkquality": 102
+    },
+    {
+      "contact": false,
+      "battery": 91,
+      "voltage": 3005,
+      "linkquality": 99
+    }
+  ],
+  "commands": []
+}

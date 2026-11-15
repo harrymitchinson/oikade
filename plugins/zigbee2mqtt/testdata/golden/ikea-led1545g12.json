@@ -1,0 +1,110 @@
+{
+  "manufacturer": "IKEA",
+  "model": "LED1545G12",
+  "device_type": "DimmableLight",
+  "capabilities": [
+    "on",
+    "brightness",
+    "link-quality"
+  ],
+  "bindings": [
+    {
+      "capability": "on",
+      "property": "state",
+      "get": true
+    },
+    {
+      "capability": "brightness",
+      "property": "brightness",
+      "get": true
+    },
+    {
+      "capability": "link-quality",
+      "property": "linkquality",
+      "get": false
+    }
+  ],
+  "states": [
+    {
+      "changes": {
+        "brightness": 100,
+        "link-quality": 120,
+        "on": true
+      }
+    },
+    {
+      "changes": {
+        "link-quality": 116,
+        "on": false
+      }
+    },
+    {
+      "changes": {
+        "brightness": 50,
+        "link-quality": 118
+      }
+    },
+    {
+      "changes": {
+        "on": true
+      },
+      "invalid": {
+        "brightness": "brightness takes a number, got string"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "values": {
+        "on": {
+          "value": true,
+          "sends": "ON"
+        }
+      }
+    },
+    {
+      "values": {
+        "brightness": {
+          "value": 50,
+          "sends": 127
+        }
+      }
+    },
+    {
+      "values": {},
+      "invalid": {
+        "on": "on takes a bool, got string"
+      }
+    },
+    {
+      "values": {},
+      "unmapped": [
+        "brightness_step",
+        "transition"
+      ]
+    }
+  ],
+  "matter": {
+    "device_types": [
+      "0x0101"
+    ],
+    "attributes": {
+      "0x0006": {
+        "0x0000": true,
+        "0x4000": true,
+        "0x4001": 0,
+        "0x4002": 0,
+        "0x4003": null
+      },
+      "0x0008": {
+        "0x0000": 128,
+        "0x0001": 0,
+        "0x0002": 1,
+        "0x0003": 254,
+        "0x000f": 0,
+        "0x0011": null,
+        "0x4000": null
+      }
+    }
+  }
+}

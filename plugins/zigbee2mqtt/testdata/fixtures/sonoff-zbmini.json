@@ -1,0 +1,37 @@
+{
+  "source": "hand-written",
+  "device": {
+    "ieee_address": "0x0000000000000001",
+    "friendly_name": "0x0000000000000001",
+    "type": "Router",
+    "definition": {
+      "vendor": "SONOFF",
+      "model": "ZBMINI",
+      "exposes": [
+        {
+          "type": "switch",
+          "features": [
+            {
+              "type": "binary",
+              "name": "state",
+              "property": "state",
+              "value_on": "ON",
+              "value_off": "OFF",
+              "access": 7
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "states": [
+    {
+      "state": "OFF"
+    }
+  ],
+  "commands": [
+    {
+      "state": "TOGGLE"
+    }
+  ]
+}

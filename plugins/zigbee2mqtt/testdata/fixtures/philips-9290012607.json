@@ -1,0 +1,71 @@
+{
+  "source": "hand-written",
+  "device": {
+    "ieee_address": "0x0000000000000001",
+    "friendly_name": "0x0000000000000001",
+    "type": "EndDevice",
+    "definition": {
+      "vendor": "Philips",
+      "model": "9290012607",
+      "exposes": [
+        {
+          "type": "binary",
+          "name": "occupancy",
+          "property": "occupancy",
+          "value_on": true,
+          "value_off": false,
+          "access": 1
+        },
+        {
+          "type": "numeric",
+          "name": "temperature",
+          "property": "temperature",
+          "unit": "°C",
+          "access": 1
+        },
+        {
+          "type": "numeric",
+          "name": "illuminance",
+          "property": "illuminance",
+          "access": 1
+        },
+        {
+          "type": "numeric",
+          "name": "battery",
+          "property": "battery",
+          "unit": "%",
+          "value_min": 0,
+          "value_max": 100,
+          "access": 1
+        },
+        {
+          "type": "numeric",
+          "name": "linkquality",
+          "property": "linkquality",
+          "access": 1
+        }
+      ]
+    }
+  },
+  "states": [
+    {
+      "occupancy": true,
+      "temperature": 21.4,
+      "illuminance": 12,
+      "battery": 100,
+      "linkquality": 87
+    },
+    {
+      "occupancy": false,
+      "temperature": 21.5,
+      "illuminance": 10,
+      "battery": 100,
+      "linkquality": 84
+    },
+    {
+      "temperature": null,
+      "battery": 99
+    }
+  ],
+  "commands": []
+}

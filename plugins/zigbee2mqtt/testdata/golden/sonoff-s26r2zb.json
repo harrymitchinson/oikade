@@ -1,0 +1,55 @@
+{
+  "manufacturer": "SONOFF",
+  "model": "S26R2ZB",
+  "device_type": "",
+  "capabilities": [
+    "on"
+  ],
+  "bindings": [
+    {
+      "capability": "on",
+      "property": "state",
+      "get": true
+    }
+  ],
+  "states": [
+    {
+      "changes": {
+        "on": true
+      }
+    },
+    {
+      "changes": {
+        "on": false
+      }
+    }
+  ],
+  "commands": [
+    {
+      "values": {
+        "on": {
+          "value": true,
+          "sends": "ON"
+        }
+      }
+    },
+    {
+      "values": {
+        "on": {
+          "value": false,
+          "sends": "OFF"
+        }
+      }
+    }
+  ],
+  "matter": {
+    "device_types": [
+      "0x010a"
+    ],
+    "attributes": {
+      "0x0006": {
+        "0x0000": false
+      }
+    }
+  }
+}
