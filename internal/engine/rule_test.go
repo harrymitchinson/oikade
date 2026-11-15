@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
@@ -256,5 +257,21 @@ func TestGoRulesAreChecked(t *testing.T) {
 		if tc.err == nil || !strings.Contains(tc.err.Error(), tc.want) {
 			t.Errorf("error = %v, want it to contain %q", tc.err, tc.want)
 		}
+	}
+}
+
+// A room rule can be limited to the heaters, so oikade check accepts Thermostat, and still refuses
+// what isn't a type.
+func TestARoomRuleTakesThermostat(t *testing.T) {
+	heaters := Hold{Room: "study", DeviceTypes: []devicetype.Type{devicetype.Thermostat}, Capability: capability.On, Value: false,
+		Window: &Window{Start: At{Time: "23:00"}, End: At{Time: "06:00"}}}
+	if _, err := NewHold(ident.ID{Name: "study-off"}, heaters); err != nil {
+		t.Errorf("a hold on the study's heaters: %v", err)
+	}
+	if _, err := (Set{Room: "study", DeviceTypes: []devicetype.Type{devicetype.Thermostat}, Capability: capability.On, Value: false}).action(); err != nil {
+		t.Errorf("a set on the study's heaters: %v", err)
+	}
+	if _, err := (Set{Room: "study", DeviceTypes: []devicetype.Type{"Toaster"}, Capability: capability.On, Value: false}).action(); err == nil {
+		t.Error("a set limited to Toaster was accepted")
 	}
 }

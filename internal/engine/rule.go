@@ -167,7 +167,7 @@ type Action interface {
 type Set struct {
 	Device string
 	Room   string
-	// DeviceTypes limits a room's set to devices of these types, from devicetype.OnOff. None means
+	// DeviceTypes limits a room's set to devices of these types, from devicetype.Rooms. None means
 	// every device in the room with the capability.
 	DeviceTypes []devicetype.Type
 	Capability  string
@@ -211,14 +211,14 @@ func (s Set) action() (action, error) {
 }
 
 // checkTypes checks a room rule's device types: only a room takes them, and each is one a device
-// that's on or off can be.
+// that's on or off can be, or Thermostat.
 func checkTypes(room string, types []devicetype.Type) error {
 	if len(types) > 0 && room == "" {
 		return errors.New("device types limit a room, and there's no room")
 	}
 	for _, t := range types {
-		if !devicetype.Choosable(t) {
-			return fmt.Errorf("unknown device type %q: use one of %s", t, devicetype.Join(devicetype.OnOff))
+		if !devicetype.ForRooms(t) {
+			return fmt.Errorf("unknown device type %q: use one of %s", t, devicetype.Join(devicetype.Rooms))
 		}
 	}
 	return nil

@@ -190,6 +190,54 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	h.ExpectValue(fridge, true)
 }
 
+// studyHome turns the study's on off at 23:00, limited to types if there are any: a heater and a
+// lamp, each on.
+func studyHome(t *testing.T, types ...framework.DeviceType) *hometest.Home {
+	t.Helper()
+	off := framework.InRoom("study", framework.On).To(false)
+	if len(types) > 0 {
+		off = framework.InRoom("study", framework.On).Types(types...).To(false)
+	}
+	home := framework.NewHome(framework.Options{}, framework.NewMoment("study-off", off).At(framework.Clock("23:00")))
+	setpoint := string(framework.Setpoint)
+	return hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+		{
+			Name: "study-heater", Room: "study", Capabilities: []string{on, setpoint},
+			Values: map[string]any{on: true, setpoint: 20.0},
+		},
+		{
+			Name: "desk-lamp", Room: "study", Capabilities: []string{on}, DeviceType: framework.OnOffLight,
+			Values: map[string]any{on: true},
+		},
+	}})
+}
+
+var (
+	studyHeater = framework.Handle[bool]{Device: "study-heater", Capability: framework.On}
+	deskLamp    = framework.Handle[bool]{Device: "desk-lamp", Capability: framework.On}
+)
+
+func TestARoomsOnTurnsOffItsHeaterToo(t *testing.T) {
+	h := studyHome(t)
+	h.Advance(23*time.Hour + time.Minute)
+	h.ExpectValue(studyHeater, false)
+	h.ExpectValue(deskLamp, false)
+}
+
+func TestARoomWriteLimitedToThermostatsTurnsOffOnlyTheHeater(t *testing.T) {
+	h := studyHome(t, framework.Thermostat)
+	h.Advance(23*time.Hour + time.Minute)
+	h.ExpectValue(studyHeater, false)
+	h.ExpectValue(deskLamp, true)
+}
+
+func TestARoomWriteLimitedToLightsLeavesTheHeaterOn(t *testing.T) {
+	h := studyHome(t, framework.OnOffLight)
+	h.Advance(23*time.Hour + time.Minute)
+	h.ExpectValue(studyHeater, true)
+	h.ExpectValue(deskLamp, false)
+}
+
 func TestAClockTimeFiresAcrossADaylightSavingChange(t *testing.T) {
 	london, err := time.LoadLocation("Europe/London")
 	if err != nil {

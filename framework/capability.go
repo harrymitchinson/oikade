@@ -66,6 +66,10 @@ func (h Handle[T]) change() engine.Change {
 // room write can be limited to some, with Types.
 type DeviceType string
 
+// Thermostat is a heater or thermostat: any device with a Setpoint. A room write limited to Types
+// that leave it out, such as the lights, leaves the heaters alone.
+const Thermostat DeviceType = "Thermostat"
+
 // The device types a device that's on or off can be.
 const (
 	OnOffLight                 DeviceType = contractv1.OnOffLight
