@@ -344,7 +344,7 @@ func (b *bridge) decode(d *device, s *service, heard time.Time) (observed, bool)
 		// While good reports are arriving, one bad one is damage. A key that stopped working shows
 		// once they've stopped.
 		if !b.relayFresh(d, heard) {
-			b.setProblem(d, "wrong LAN key: oikade secret set "+d.id)
+			b.setProblem(d, "wrong LAN key: oikade setup "+b.name())
 		}
 		return observed{}, false
 	}
@@ -474,7 +474,7 @@ func (b *bridge) publish(heard []observed) {
 	b.mu.Unlock()
 
 	if reports != nil {
-		// It goes out with the devices.
+		// Before the first list, it goes out with it. A change after goes out at once, with the last.
 		b.check(b.plugin.SetNeedsSetup(b.ctx, needs), "Could not report whether setup is needed", "")
 		b.check(b.plugin.SetDevices(b.ctx, reports, 0), "Could not report devices", "")
 		b.offlineUnheard(reports)

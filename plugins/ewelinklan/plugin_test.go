@@ -503,7 +503,7 @@ func TestAWrongKeyShowsAsAProblem(t *testing.T) {
 	d.report()
 
 	b.eventually("the problem", func() bool {
-		return b.reports()[relayID].Error == "wrong LAN key: oikade secret set "+relayID
+		return b.reports()[relayID].Error == "wrong LAN key: oikade setup ewelink"
 	})
 	b.waitAvailability(relayID, contractv1.Offline)
 
@@ -547,7 +547,7 @@ func TestAKeyThatStopsWorkingShowsOnceReportsAreStale(t *testing.T) {
 	b.advance(fast.relayAge + time.Second)
 	d.announce("another-key", relayOf("off"))
 	b.eventually("the problem", func() bool {
-		return b.reports()[relayID].Error == "wrong LAN key: oikade secret set "+relayID
+		return b.reports()[relayID].Error == "wrong LAN key: oikade setup ewelink"
 	})
 }
 
@@ -672,7 +672,7 @@ func TestANewKeyHasToDecodeEvenARepeat(t *testing.T) {
 	b.handler.loadKey(b.handler.devices[relayID])
 	b.handler.mu.Unlock()
 	d.lan.packets <- d.packet(d.txt(iv, data), true)
-	b.eventually("the problem", func() bool { return b.reports()[relayID].Error == "wrong LAN key: oikade secret set "+relayID })
+	b.eventually("the problem", func() bool { return b.reports()[relayID].Error == "wrong LAN key: oikade setup ewelink" })
 }
 
 func TestSettingARelayToWhatItIsNeedsNoNewReport(t *testing.T) {

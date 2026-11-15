@@ -22,6 +22,7 @@ const (
 	testAppSecret = "app-secret-91c2"
 	testToken     = "token-55e0"
 	testCode      = "code-12ab"
+	neighbourID   = "1000cafe01"
 )
 
 // fakeEWeLink is eWeLink's API, as the docs describe it. Not recorded from the real one.
@@ -192,6 +193,8 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 	b := startWith(t, Config{}, fast, cloud.cloud())
 	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
+	// A neighbour's, which isn't in the account.
+	b.device(neighbourID, "th_plug", relayOf("off")).report()
 	b.eventually("setup to be needed", b.needsSetup)
 
 	a := app{id: testAppID, secret: testAppSecret}
@@ -217,12 +220,21 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 			t.Error("The app secret should be asked for as a secret")
 		}
 	}
-	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: oikade devices name 1000aabbcc greenhouse-heater names it so`; !strings.Contains(said(steps), want) {
+	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: if it's still named by its ID, ` +
+		`oikade devices name 1000aabbcc greenhouse-heater names it so`; !strings.Contains(said(steps), want) {
+		t.Errorf("said:\n%s", said(steps))
+	}
+	// The probe isn't on this network, so there's nothing to name.
+	if strings.Contains(said(steps), probeID) {
 		t.Errorf("said:\n%s", said(steps))
 	}
 	// The key is read on the next sweep, with no new report.
 	b.waitAvailability(relayID, contractv1.Online)
+	// The neighbour's still has no key, which is its own problem, not the plugin's.
 	b.eventually("setup no longer needed", func() bool { return !b.needsSetup() })
+	if got := b.reports()[neighbourID].Error; got != "no LAN key: oikade setup ewelink" {
+		t.Errorf("neighbour's: %q", got)
+	}
 }
 
 func TestSetupAgainAsksNothingAndChangesNothing(t *testing.T) {
@@ -257,7 +269,8 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 		"wrong app secret": {
 			things: things, secret: "not-the-secret",
 			browse: func(t *testing.T) func(string) string { return signIn(t, "eu") },
-			want:   "eWeLink refused to sign in: wrong sign (error 401)",
+			want: "eWeLink refused to sign in: wrong sign (error 401): check the app's ID, secret and redirect URL, " +
+				"and change them with oikade secret set ewelink-app-id and ewelink-app-secret",
 		},
 		"refused sign-in": {
 			things: things, secret: testAppSecret,
@@ -284,7 +297,12 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 		"no devices": {
 			things: `[]`, secret: testAppSecret,
 			browse: func(t *testing.T) func(string) string { return signIn(t, "eu") },
-			want:   "your eWeLink account has no devices",
+			want:   "your eWeLink account has no devices with a LAN key",
+		},
+		"only shared devices": {
+			things: `[{"itemType":2,"itemData":{"deviceid":"1000aabbcc","name":"Shared"}}]`, secret: testAppSecret,
+			browse: func(t *testing.T) func(string) string { return signIn(t, "eu") },
+			want:   "a device shared with you comes without its key",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

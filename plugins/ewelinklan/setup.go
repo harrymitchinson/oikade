@@ -73,6 +73,12 @@ type cloudDevice struct{ id, key, name string }
 // device's LAN key into its secret, and changes only the keys that differ. The token it signs in
 // with is never kept: the host reaches eWeLink only while setup runs.
 func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session) (string, error) {
+	// Whether setup is needed is worked out again on the next sweep, whatever happened.
+	defer func() {
+		b.mu.Lock()
+		b.dirty = true
+		b.mu.Unlock()
+	}()
 	a, err := b.app(ctx, s)
 	if err != nil {
 		return "", err
@@ -86,7 +92,8 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 		return "", err
 	}
 	if len(devices) == 0 {
-		return "", errors.New("your eWeLink account has no devices: add them in the eWeLink app, then run setup again")
+		return "", errors.New("your eWeLink account has no devices with a LAN key: add them in the eWeLink app, " +
+			"or sign in with the account that owns them, since a device shared with you comes without its key")
 	}
 	kept, unchanged := 0, 0
 	for _, d := range devices {
@@ -103,12 +110,19 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 		}
 		kept++
 	}
+	b.mu.Lock()
+	heard := make(map[string]bool, len(b.devices))
+	for id := range b.devices {
+		heard[id] = true
+	}
+	b.mu.Unlock()
+	// Only a device the plugin reports can be named.
 	for _, d := range devices {
-		if d.name == "" {
+		if d.name == "" || !heard[d.id] {
 			continue
 		}
-		line := fmt.Sprintf("%s is %q in the eWeLink app: oikade devices name %s %s names it so", d.id, d.name, d.id,
-			registry.Slug(d.name, d.id))
+		line := fmt.Sprintf("%s is %q in the eWeLink app: if it's still named by its ID, oikade devices name %s %s "+
+			"names it so", d.id, d.name, d.id, registry.Slug(d.name, d.id))
 		if err := s.Say(ctx, line); err != nil {
 			return "", err
 		}
@@ -192,17 +206,23 @@ func (b *bridge) signIn(ctx context.Context, s *plugin.Session, a app) (token, r
 		return "", "", err
 	}
 	switch region = q.Get("region"); {
+	case q.Get("code") == "":
+		return "", "", fmt.Errorf("the sign-in sent back no code%s: %s", detail(q), fixApp)
 	case q.Get("state") != state:
 		return "", "", errors.New("the sign-in sent back another sign-in's answer: run setup again")
-	case q.Get("code") == "":
-		return "", "", fmt.Errorf("the sign-in sent back no code%s: check the app's ID, secret and redirect URL, "+
-			"and change them with oikade secret set %s and %s", detail(q), appIDSecret, appSecretSecret)
 	case !slices.Contains(regions, region):
 		return "", "", fmt.Errorf("the sign-in sent back the region %q, which isn't one of %s", region, strings.Join(regions, ", "))
 	}
 	token, err = b.cloud.token(ctx, a, region, q.Get("code"), nonce)
-	return token, region, err
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %s", err, fixApp)
+	}
+	return token, region, nil
 }
+
+// fixApp says how to change the app's details that setup kept, which it doesn't ask for again.
+const fixApp = "check the app's ID, secret and redirect URL, and change them with oikade secret set " +
+	appIDSecret + " and " + appSecretSecret
 
 // detail is what a redirect says went wrong, if anything.
 func detail(q url.Values) string {
@@ -301,20 +321,29 @@ func (c cloud) call(req *http.Request, doing string, into any) error {
 	if a.Error != 0 {
 		return fmt.Errorf("eWeLink refused to %s: %s (error %d)", doing, a.Msg, a.Error)
 	}
+	if len(a.Data) == 0 {
+		return nil // nothing to read, as with a list that's empty
+	}
 	if err := json.Unmarshal(a.Data, into); err != nil {
 		return fmt.Errorf("could not read eWeLink's answer when trying to %s: %w", doing, err)
 	}
 	return nil
 }
 
-// needsSetupLocked is whether a device heard has no LAN key. Call with mu held.
+// needsSetupLocked is whether setup has never run and a device heard has no LAN key. Once it has, a
+// device it couldn't key, such as a neighbour's or one in another account, says so as its own
+// problem, rather than keep the whole plugin needing setup. Call with mu held.
 func (b *bridge) needsSetupLocked() bool {
+	missing := false
 	for _, d := range b.devices {
-		if d.key == nil {
-			return true
-		}
+		missing = missing || d.key == nil
 	}
-	return false
+	if !missing {
+		return false
+	}
+	_, haveID, errID := b.readSecret(appIDSecret)
+	_, haveSecret, errSecret := b.readSecret(appSecretSecret)
+	return errID != nil || errSecret != nil || !haveID || !haveSecret
 }
 
 // name is the plugin's name, as oikade setup names it.
