@@ -144,9 +144,10 @@ Oikade starts a session on `_setup/in` with `{"session":"s1","start":true}`. A p
 Oikade replies on `_setup/in` with `{"session":"s1","reply":2,"value":"…"}`, naming the step it answers, or with an `error` instead of a `value` if the step failed, such as a secret the host couldn't keep. It ends a session early with `{"session":"s1","end":true}`, when the person goes, and the plugin publishes nothing more for it.
 
 - `done` has a `result` saying how it went, or an `error` saying what's still wrong and what to do about it. Either is shown as it is, on one line.
-- An `open`'s `redirect` is `http://127.0.0.1:PORT/PATH` or `http://localhost:PORT/PATH`: Oikade listens there on the person's machine, so it's also the redirect URL to register with the platform.
+- An `open`'s `url` is https. Its `redirect` is `http://127.0.0.1:PORT/PATH` or `http://localhost:PORT/PATH`: Oikade listens there on the person's machine, so it's also the redirect URL to register with the platform.
 - A `keep`'s `name` is a secret's name, as for `oikade secret set`, and the secret appears in the secrets directory once the reply comes. Never log a `keep`'s value, or what a `secret` ask was answered with.
-- A step Oikade can't read ends the session, and is counted as `malformed`.
+- A step Oikade can't read ends the session, with an `end` the plugin gets, and is counted as `malformed`.
+- Setup steps carry secrets, a `keep`'s and a `secret` ask's answer. A plugin your home imports speaks them on the host's socket, which nothing else reads. An outside process speaks them on your broker, so anyone who can read or write its root can read them, or start a setup of their own, as they could already send it a `/set`. Give the plugin's root an ACL on a broker you share.
 - A plugin without a setup that gets a `start` replies `{"session":"s1","seq":1,"done":{"error":"this plugin has no setup"}}`. Go plugins get this from the SDK.
 
 Go plugins implement `plugin.Setup` on their `Handler`, and the SDK speaks this dialogue for them.

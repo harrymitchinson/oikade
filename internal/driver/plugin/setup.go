@@ -26,7 +26,8 @@ func (i *Instance) Setup() (has, needs bool) {
 
 // StartSetup starts a setup session and returns its steps, which end with a Done. Answer the steps
 // that need a reply with ReplySetup, and call EndSetup to stop early. A plugin runs one session at a
-// time, so starting one ends any other.
+// time, so starting one ends any other. A Done the decoder makes itself, because the plugin can't
+// send one, has Seq 0: the plugin went offline, or sent a step Oikade can't use.
 func (i *Instance) StartSetup(ctx context.Context, session string) (<-chan contractv1.SetupStep, error) {
 	if session == "" {
 		return nil, errors.New("a setup session needs a name")
@@ -47,10 +48,6 @@ func (i *Instance) StartSetup(ctx context.Context, session string) (<-chan contr
 		i.mu.Unlock()
 		return nil, fmt.Errorf("setup session %s is already running", session)
 	}
-	// The plugin ends any other session itself; these won't hear from it again.
-	for name := range i.sessions {
-		i.endSessionLocked(name, "another setup started")
-	}
 	steps := make(chan contractv1.SetupStep, setupBacklog)
 	i.sessions[session] = steps
 	i.mu.Unlock()
@@ -60,6 +57,14 @@ func (i *Instance) StartSetup(ctx context.Context, session string) (<-chan contr
 		i.mu.Unlock()
 		return nil, err
 	}
+	// The plugin ends any other session itself, now that it has this one's start.
+	i.mu.Lock()
+	for name := range i.sessions {
+		if name != session {
+			i.endSessionLocked(name, "another setup started")
+		}
+	}
+	i.mu.Unlock()
 	return steps, nil
 }
 
@@ -90,33 +95,45 @@ func (i *Instance) publishSetup(ctx context.Context, r contractv1.SetupRequest) 
 
 func (i *Instance) handleSetup(topic string, payload []byte, retained bool) {
 	var step contractv1.SetupStep
-	err := json.Unmarshal(payload, &step)
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if err != nil {
+	if err := json.Unmarshal(payload, &step); err != nil {
+		i.mu.Lock()
 		i.rejectLocked(ReasonMalformed, "", topic)
+		i.mu.Unlock()
 		return
 	}
+	// A session the decoder gives up on is ended for the plugin too, which would otherwise wait
+	// for a reply nobody will send. Published after unlocking: a bus may deliver it straight back.
+	if i.handleSetupStep(topic, step, retained) {
+		_ = i.publishSetup(context.Background(), contractv1.SetupRequest{Session: step.Session, End: true})
+	}
+}
+
+// handleSetupStep hands a step to its session, and reports whether it ended the session for a step
+// it couldn't hand on.
+func (i *Instance) handleSetupStep(topic string, step contractv1.SetupStep, retained bool) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	steps, ok := i.sessions[step.Session]
 	if retained || !ok {
 		// Another session's, or one that's over: nobody is waiting for it. A retained one is the
 		// plugin's mistake, but it can't be anyone's step now.
-		return
+		return false
 	}
 	if err := step.Validate(); err != nil {
 		i.rejectLocked(ReasonMalformed, "", topic)
 		i.endSessionLocked(step.Session, "the plugin sent a setup step Oikade can't use: "+err.Error())
-		return
+		return true
 	}
 	select {
 	case steps <- step:
 	default:
 		i.endSessionLocked(step.Session, "nobody read the plugin's setup steps")
-		return
+		return true
 	}
 	if step.Done != nil {
 		i.dropSessionLocked(step.Session)
 	}
+	return false
 }
 
 // endSessionLocked ends a session with a Done of its own, for a plugin that can't send one.

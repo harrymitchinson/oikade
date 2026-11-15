@@ -83,6 +83,12 @@ func TestSetupDialogue(t *testing.T) {
 		if err := s.Say(ctx, "Make an app first"); err != nil {
 			return "", err
 		}
+		if err := s.Say(ctx, ""); err != nil { // says nothing, and takes no number
+			return "", err
+		}
+		if _, err := s.Ask(ctx, ""); err == nil { // invalid, and takes no number
+			return "", errors.New("asked with no prompt")
+		}
 		id, err := s.Ask(ctx, "App ID")
 		if err != nil {
 			return "", err

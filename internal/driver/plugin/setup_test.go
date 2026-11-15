@@ -110,10 +110,12 @@ func TestSetupSession(t *testing.T) {
 
 func TestSetupEndsWhenThePluginBreaksIt(t *testing.T) {
 	i, bus, _ := setup(t, withSetup())
+	sent := requests(t, bus)
 	steps, err := i.StartSetup(context.Background(), "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	<-sent
 	say(t, bus, `{"session":"s1","seq":1,"say":"a","done":{}}`)
 	s, _ := step(t, steps)
 	if s.Seq != 0 || s.Done == nil || s.Done.Error == "" {
@@ -124,6 +126,22 @@ func TestSetupEndsWhenThePluginBreaksIt(t *testing.T) {
 	}
 	if n := i.Stats().Rejected[ReasonMalformed]; n != 1 {
 		t.Fatalf("rejected %d malformed, want 1", n)
+	}
+	// The plugin is told, so it doesn't wait for a reply.
+	if r := <-sent; r.Session != "s1" || !r.End {
+		t.Fatalf("sent %+v, want an end", r)
+	}
+}
+
+func TestSetupEndsWhenThePluginNoLongerHasOne(t *testing.T) {
+	i, bus, _ := setup(t, withSetup())
+	steps, err := i.StartSetup(context.Background(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish(t, bus, root+"/status", `{"state":"online","contract":1}`)
+	if s, _ := step(t, steps); s.Done == nil || s.Done.Error != "the plugin no longer has a setup" {
+		t.Fatalf("got %+v, want done because the setup went", s)
 	}
 }
 

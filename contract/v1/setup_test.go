@@ -27,7 +27,8 @@ func TestSetupStepValidate(t *testing.T) {
 		"0 of say":            ok(SetupStep{}),
 		"2 of say":            ok(SetupStep{Say: "hi", Done: &SetupDone{}}),
 		"no prompt":           ok(SetupStep{Ask: &SetupAsk{}}),
-		"isn't an http":       ok(SetupStep{Open: &SetupOpen{URL: "file:///etc/passwd", Redirect: "http://127.0.0.1:1/"}}),
+		"isn't an https":      ok(SetupStep{Open: &SetupOpen{URL: "file:///etc/passwd", Redirect: "http://127.0.0.1:1/"}}),
+		"isn't an https URL":  ok(SetupStep{Open: &SetupOpen{URL: "http://a.b/", Redirect: "http://127.0.0.1:1/"}}),
 		"isn't on 127.0.0.1":  ok(SetupStep{Open: &SetupOpen{URL: "https://a.b/", Redirect: "http://example.com:80/cb"}}),
 		"isn't http://":       ok(SetupStep{Open: &SetupOpen{URL: "https://a.b/", Redirect: "https://127.0.0.1:1/cb"}}),
 		"no valid port":       ok(SetupStep{Open: &SetupOpen{URL: "https://a.b/", Redirect: "http://127.0.0.1:99999/cb"}}),
@@ -45,6 +46,7 @@ func TestRedirectAddress(t *testing.T) {
 	for redirect, want := range map[string]string{
 		"http://127.0.0.1:8765/callback": "127.0.0.1:8765",
 		"http://localhost:9000/":         "127.0.0.1:9000",
+		"http://LocalHost:9000/cb":       "127.0.0.1:9000",
 	} {
 		if got, err := RedirectAddress(redirect); err != nil || got != want {
 			t.Errorf("%s: got %q, %v, want %s", redirect, got, err, want)

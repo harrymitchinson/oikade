@@ -326,6 +326,9 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 	case !wasUp:
 		events = append(events, i.replayLocked())
 	}
+	if up && !s.Setup {
+		i.endSessionsLocked("the plugin no longer has a setup")
+	}
 	i.mu.Unlock()
 	switch {
 	case wasUp && !up:

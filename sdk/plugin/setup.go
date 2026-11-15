@@ -91,12 +91,12 @@ func (s *Session) step(ctx context.Context, step contractv1.SetupStep) (string, 
 		s.mu.Unlock()
 		return "", ErrSetupEnded
 	}
-	s.seq++
-	step.Session, step.Seq = s.name, s.seq
+	step.Session, step.Seq = s.name, s.seq+1
 	if err := step.Validate(); err != nil {
 		s.mu.Unlock()
 		return "", err
 	}
+	s.seq = step.Seq
 	var reply chan contractv1.SetupRequest
 	if step.NeedsReply() {
 		reply = make(chan contractv1.SetupRequest, 1)
@@ -224,9 +224,9 @@ func (p *Plugin) publishSetup(ctx context.Context, step contractv1.SetupStep) er
 }
 
 // SetNeedsSetup says whether the plugin can't serve its devices until someone runs its setup, such
-// as one with no credentials yet. oikade status names a plugin that needs one, with the command to
-// run. It's published with the devices from SetDevices, and waits for the first SetDevices if that
-// hasn't been called yet. Only a Handler that implements Setup may say it needs one.
+// as one with no credentials yet. It's published with the devices from SetDevices: called before the
+// first SetDevices, it returns at once and goes out with it. Only a Handler that implements Setup
+// may say it needs one.
 func (p *Plugin) SetNeedsSetup(ctx context.Context, needs bool) error {
 	if needs && p.onSetup == nil {
 		return errors.New("the plugin has no setup to need: its Handler doesn't implement Setup")

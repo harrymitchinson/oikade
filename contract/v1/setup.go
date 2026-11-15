@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // SetupIn is the topic Oikade sends a plugin's setup on: SetupRequest.
@@ -58,7 +59,7 @@ type SetupAsk struct {
 	Secret bool `json:"secret,omitempty"`
 }
 
-// SetupOpen is a page to open, such as a sign-in. Oikade listens on Redirect, which is
+// SetupOpen is an https page to open, such as a sign-in. Oikade listens on Redirect, which is
 // http://127.0.0.1:PORT/PATH or http://localhost:PORT/PATH, and replies with the query the page
 // redirects there with.
 type SetupOpen struct {
@@ -119,8 +120,8 @@ func (s SetupStep) Validate() error {
 
 func validOpen(o SetupOpen) error {
 	u, err := url.Parse(o.URL)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return fmt.Errorf("setup open's url %q isn't an http or https URL", o.URL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("setup open's url %q isn't an https URL", o.URL)
 	}
 	if _, err := RedirectAddress(o.Redirect); err != nil {
 		return err
@@ -138,12 +139,10 @@ func RedirectAddress(redirect string) (string, error) {
 	if port, err := strconv.Atoi(u.Port()); err != nil || port < 1 || port > 65535 {
 		return "", fmt.Errorf("setup open's redirect %q has no valid port", redirect)
 	}
-	switch u.Hostname() {
-	case "127.0.0.1":
-	case "localhost":
+	switch host := u.Hostname(); {
+	case host == "127.0.0.1", strings.EqualFold(host, "localhost"):
 		return net.JoinHostPort("127.0.0.1", u.Port()), nil
 	default:
 		return "", fmt.Errorf("setup open's redirect %q isn't on 127.0.0.1 or localhost", redirect)
 	}
-	return u.Host, nil
 }
