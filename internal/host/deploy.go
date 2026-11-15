@@ -398,14 +398,25 @@ func (d *deployer) settled(ctx context.Context, path string, vet func() error) e
 	}
 }
 
-// latest returns the running version, unless a deploy or a rollback is under way and has it in flux.
-func (d *deployer) latest() (version, bool) {
-	v, ok, _ := d.state()
-	return v, ok
+// rules returns the running version's rules, unless a deploy or a rollback has it in flux or its
+// rules aren't known. none says there's no binary to run at all.
+func (d *deployer) rules() (rules []wire.RuleInfo, known, none bool) {
+	if !d.mu.TryLock() {
+		return nil, false, false
+	}
+	defer d.mu.Unlock()
+	v, ok := d.versions.current()
+	switch {
+	case !ok:
+		return nil, false, d.running == ""
+	case v.Manifest.Protocol == 0:
+		return nil, false, false
+	}
+	return v.Manifest.Rules, true, false
 }
 
-// state returns the running version as latest does, and whether a deploy or a rollback is under way,
-// from the one look at the lock so that the two agree.
+// state returns the running version, unless a deploy or a rollback has it in flux, and whether one
+// is under way, from the one look at the lock so that the two agree.
 func (d *deployer) state() (v version, ok, busy bool) {
 	if !d.mu.TryLock() {
 		return version{}, false, true

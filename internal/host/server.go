@@ -61,6 +61,8 @@ type server struct {
 	session *session
 	// since is when the session last came or went, or the host started.
 	since time.Time
+	// attached is whether a process has attached since the host started.
+	attached bool
 	// closed refuses new sessions, once the host is stopping.
 	closed bool
 	// pong is when the session last answered a ping.
@@ -373,7 +375,7 @@ func (s *server) attach(sess *session, welcome wire.Message, runs []wire.Run) bo
 	if s.session != nil || s.closed || sess.generation != s.generation {
 		return false
 	}
-	s.session, s.pong = sess, time.Now()
+	s.session, s.pong, s.attached = sess, time.Now(), true
 	s.since = s.pong
 	// Again, under the lock: a pause after this reaches the session, and one before is in the list.
 	if paused, err := s.paused.Names(); err == nil {

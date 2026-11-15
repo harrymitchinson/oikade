@@ -21,19 +21,17 @@ import (
 )
 
 // rulesInfo says what the running code's rules are: from the process, or if it's down, from the
-// running version. known is false if neither has said.
+// running version. known is false if neither has said, unless no code has run since the host
+// started and there's none to run, which has no rules.
 func (s *apiServer) rulesInfo() (rules []wire.RuleInfo, known bool) {
 	s.srv.mu.Lock()
-	sess := s.srv.session
+	sess, attached := s.srv.session, s.srv.attached
 	s.srv.mu.Unlock()
 	if sess != nil && len(sess.rules) > 0 {
 		return sess.rules, true
 	}
-	v, ok := s.deploys.latest()
-	if !ok || v.Manifest.Protocol == 0 {
-		return nil, false
-	}
-	return v.Manifest.Rules, true
+	rules, known, none := s.deploys.rules()
+	return rules, known || none && !attached
 }
 
 func (s *apiServer) status() api.Response {
