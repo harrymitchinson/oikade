@@ -49,6 +49,7 @@ func notFlagged(s framework.Set, g framework.Handle[bool], r *framework.FlowRun,
 	framework.Run(framework.NewHome())
 	framework.Secret("token")
 	other{}.Chain()
+	// A method value isn't followed: a gap, not a wrong report.
 	f := g.To
 	f(true)
 }
