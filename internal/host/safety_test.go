@@ -44,12 +44,37 @@ func TestARenameWithNoProcessNeedsAllowSafetyOnceCodeHasRun(t *testing.T) {
 		return call(api.Request{Type: api.TypeDeviceType, Device: name, DeviceType: to, AllowSafety: allow})
 	}
 
+	untilGone := func() {
+		t.Helper()
+		for {
+			if resp := call(api.Request{Type: api.TypeStatus}); !resp.Status.Process {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
 	if resp := rename("lamp", "lamp-two", false); resp.Error != "" {
 		t.Fatalf("a host that has run nothing refused a rename: %+v", resp)
 	}
 	if resp := retype("lamp-two", "OnOffLight", false); resp.Error != "" {
 		t.Fatalf("a host that has run nothing refused a device type: %+v", resp)
 	}
+
+	// A process with no rules says so, and protects nothing.
+	empty, _, err := wire.Dial(ctx, socket, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go empty.Listen(wire.Events{Changed: func(wire.Message) {}, Discovered: func(wire.Device) {}, Ping: func(uint64) {}})
+	if resp := rename("lamp-two", "lamp-four", false); resp.Error != "" {
+		t.Fatalf("a process with no rules refused a rename: %+v", resp)
+	}
+	if resp := rename("lamp-four", "lamp-two", false); resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	empty.Close()
+	untilGone()
 
 	c, _, err := wire.Dial(ctx, socket, []string{"leak"}, nil, wire.RuleInfo{Name: "leak", Kind: wire.KindHold, Safety: true})
 	if err != nil {
@@ -60,16 +85,7 @@ func TestARenameWithNoProcessNeedsAllowSafetyOnceCodeHasRun(t *testing.T) {
 		t.Fatalf("renamed with a Safety rule running: %+v", resp)
 	}
 	c.Close()
-	for {
-		resp, err := api.Call(ctx, local, api.Request{Type: api.TypeStatus})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !resp.Status.Process {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	untilGone()
 
 	if resp := rename("lamp-two", "lamp-three", false); !resp.NeedsAllowSafety {
 		t.Fatalf("renamed with no way to tell whether a Safety rule runs: %+v", resp)

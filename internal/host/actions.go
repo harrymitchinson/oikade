@@ -27,7 +27,7 @@ func (s *apiServer) rulesInfo() (rules []wire.RuleInfo, known bool) {
 	s.srv.mu.Lock()
 	sess, attached := s.srv.session, s.srv.attached
 	s.srv.mu.Unlock()
-	if sess != nil && len(sess.rules) > 0 {
+	if sess != nil && (len(sess.rules) > 0 || sess.ruleless) {
 		return sess.rules, true
 	}
 	rules, known, none := s.deploys.rules()
