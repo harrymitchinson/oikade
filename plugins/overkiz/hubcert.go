@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // overkizRootCA is Overkiz's own root authority, which signs every TaHoma hub's certificate. Somfy
@@ -51,40 +52,46 @@ func gatewayPIN(address string) string {
 // certError is a hub whose certificate the plugin doesn't trust.
 type certError struct{ reason string }
 
-func (e *certError) Error() string { return "the hub's certificate " + e.reason }
+func (e *certError) Error() string { return e.reason }
 
 // hubTLS checks a hub's certificate against roots, and its name against gateway-<pin>.local if the
 // PIN is known. It checks the names itself, as Go's own check ignores a certificate's CN, which is
 // where a hub's certificate may name it. With no PIN, any hub's certificate Overkiz signed passes.
 func hubTLS(roots *x509.CertPool, pin string) *tls.Config {
-	return &tls.Config{
+	config := &tls.Config{
 		// VerifyConnection checks the certificate in place of Go's own check.
 		InsecureSkipVerify: true, //nolint:gosec // VerifyConnection checks it.
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 {
-				return &certError{"is missing"}
-			}
-			leaf := cs.PeerCertificates[0]
-			intermediates := x509.NewCertPool()
-			for _, c := range cs.PeerCertificates[1:] {
-				intermediates.AddCert(c)
-			}
-			names := certNames(leaf)
-			if _, err := leaf.Verify(x509.VerifyOptions{
-				Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-			}); err != nil {
-				return &certError{fmt.Sprintf("for %s isn't signed by Overkiz's root CA: %v", strings.Join(names, ", "), err)}
-			}
-			if pin == "" {
-				return nil
-			}
-			want := "gateway-" + strings.ToLower(pin) + ".local"
-			if !slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, want) }) {
-				return &certError{fmt.Sprintf("is for %s, not %s", strings.Join(names, ", "), want)}
-			}
-			return nil
-		},
 	}
+	config.VerifyConnection = func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return &certError{"is missing: check the Address"}
+		}
+		leaf := cs.PeerCertificates[0]
+		intermediates := x509.NewCertPool()
+		for _, c := range cs.PeerCertificates[1:] {
+			intermediates.AddCert(c)
+		}
+		names := certNames(leaf)
+		if _, err := leaf.Verify(x509.VerifyOptions{
+			Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+			CurrentTime: now(config),
+		}); err != nil {
+			var invalid x509.CertificateInvalidError
+			if errors.As(err, &invalid) && invalid.Reason == x509.Expired {
+				return &certError{fmt.Sprintf("for %s is out of date: check this host's clock (%v)", strings.Join(names, ", "), err)}
+			}
+			return &certError{fmt.Sprintf("for %s isn't signed by Overkiz's root CA: check the Address (%v)", strings.Join(names, ", "), err)}
+		}
+		if pin == "" {
+			return nil
+		}
+		want := "gateway-" + strings.ToLower(pin) + ".local"
+		if !slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, want) }) {
+			return &certError{fmt.Sprintf("is for %s, not %s: check the PIN", strings.Join(names, ", "), want)}
+		}
+		return nil
+	}
+	return config
 }
 
 // certNames is every name a certificate gives: its CN and its DNS and IP SANs.
@@ -109,4 +116,12 @@ func certFailure(err error) *certError {
 		return e
 	}
 	return nil
+}
+
+// now is the config's time, as the TLS handshake uses it.
+func now(config *tls.Config) time.Time {
+	if config.Time != nil {
+		return config.Time()
+	}
+	return time.Now()
 }

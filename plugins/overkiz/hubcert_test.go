@@ -196,7 +196,7 @@ func TestAnotherHubsCertificateIsRefusedBeforeTheTokenIsSent(t *testing.T) {
 	account := Local{Address: hub.address(), TokenSecret: "tahoma-token", PIN: "9999-9999-9999", roots: hub.ca}
 	b := startWith(t, hub, account, fast, token, kitchen)
 	b.eventually("the refusal", func() bool {
-		return strings.Contains(b.status().Error, "the hub's certificate is for "+hubName+", not gateway-9999-9999-9999.local")
+		return strings.Contains(b.status().Error, "has a certificate that is for "+hubName+", not gateway-9999-9999-9999.local: check the PIN")
 	})
 	// It has never seen the hub's list, so the device on record isn't found.
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
@@ -235,4 +235,25 @@ func TestTheHubsPINComesFromItsNameOrPIN(t *testing.T) {
 			t.Errorf("the PIN of %+v is %q, want %q", c.l, got, c.want)
 		}
 	}
+}
+
+func TestAnOutOfDateCertificateSaysToCheckTheClock(t *testing.T) {
+	ca := newAuthority(t)
+	cert, err := x509.ParseCertificate(ca.issue(t, hubName, nil).Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := hubTLS(ca.pool(), hubPIN)
+	config.Time = func() time.Time { return time.Now().Add(48 * time.Hour) }
+	err = config.VerifyConnection(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}})
+	if err == nil || !strings.Contains(err.Error(), "check this host's clock") {
+		t.Errorf("an out-of-date certificate: %v", err)
+	}
+}
+
+func TestSkippingTheCheckTrustsAnyHub(t *testing.T) {
+	hub := newFakeHub(t)
+	account := Local{Address: hub.address(), TokenSecret: "tahoma-token", SkipCertificateCheck: true}
+	b := startWith(t, hub, account, fast, token)
+	b.waitAvailability(kitchen, "online")
 }
