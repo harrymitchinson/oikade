@@ -58,10 +58,10 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if resp := known.remove(ctx, "valve", false); resp.Error == "" || !resp.NeedsAllowSafety {
+	if resp, _ := known.remove(ctx, "valve", false); resp.Error == "" || !resp.NeedsAllowSafety {
 		t.Fatalf("removed a device under a Safety claim: %+v", resp)
 	}
-	if resp := known.remove(ctx, "valve", true); resp.Error != "" {
+	if resp, _ := known.remove(ctx, "valve", true); resp.Error != "" {
 		t.Fatal(resp.Error)
 	}
 	if _, ok := controls.Get(dev); ok {
@@ -100,7 +100,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if holders, safety := known.claimed("valve"); !safety || len(holders) != 1 || holders[0] != "Rule/leak" {
 		t.Errorf("got %v, %v", holders, safety)
 	}
-	if resp := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {
+	if resp, _ := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {
 		t.Errorf("got %+v", resp)
 	}
 	if err := known.rename("valve", "valve-two"); err == nil {
@@ -388,11 +388,11 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := known.removePlugin(ctx, "relays", false)
+	resp, _ := known.removePlugin(ctx, "relays", false)
 	if !resp.NeedsAllowSafety || !strings.Contains(resp.Error, "boiler") || len(resp.Removed) != 0 {
 		t.Fatalf("got %+v", resp)
 	}
-	resp = known.removePlugin(ctx, "relays", true)
+	resp, _ = known.removePlugin(ctx, "relays", true)
 	if resp.Error != "" || strings.Join(resp.Removed, ",") != "awning,boiler" {
 		t.Fatalf("got %+v", resp)
 	}
@@ -401,7 +401,7 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 			t.Errorf("got %+v", d)
 		}
 	}
-	if resp := known.removePlugin(ctx, "relays", false); resp.Error == "" {
+	if resp, _ := known.removePlugin(ctx, "relays", false); resp.Error == "" {
 		t.Errorf("removed them twice: %+v", resp)
 	}
 }
