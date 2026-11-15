@@ -414,3 +414,39 @@ func TestAHeaterWithoutOnAlwaysHeats(t *testing.T) {
 		t.Errorf("writes %v", *calls)
 	}
 }
+
+// LockDoor answers at once, and the controller sees Locked only once the bolt reports it.
+func TestALockSaysLockedOnlyOnceTheBoltReports(t *testing.T) {
+	m, calls := mapDevice(t, "", capability.Locked, capability.Battery)
+	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x000A, 0x0011}) {
+		t.Errorf("device types %#x, want a Door Lock with a battery", got)
+	}
+	lock := cluster(t, m, clusters.IDDoorLock)
+	for _, c := range lock.Commands {
+		if (c.ID == clusters.CommandLockDoor || c.ID == clusters.CommandUnlockDoor) && !c.Timed {
+			t.Errorf("command %#x isn't timed", c.ID)
+		}
+	}
+	if read(t, lock, 0) != nil {
+		t.Errorf("LockState before any report %v, want null", read(t, lock, 0))
+	}
+	invoke(t, lock, clusters.CommandLockDoor, nil)
+	if read(t, lock, 0) != nil {
+		t.Errorf("LockState after LockDoor, before a report, %v", read(t, lock, 0))
+	}
+	m.Update(capability.Locked, true)
+	if read(t, lock, 0) != uint64(clusters.LockStateLocked) {
+		t.Errorf("LockState once locked %v", read(t, lock, 0))
+	}
+	invoke(t, lock, clusters.CommandUnlockDoor, nil)
+	if read(t, lock, 0) != uint64(clusters.LockStateLocked) {
+		t.Errorf("LockState after UnlockDoor, before a report, %v", read(t, lock, 0))
+	}
+	m.Update(capability.Locked, false)
+	if read(t, lock, 0) != uint64(clusters.LockStateUnlocked) {
+		t.Errorf("LockState once unlocked %v", read(t, lock, 0))
+	}
+	if want := []setCall{{capability.Locked, true}, {capability.Locked, false}}; !reflect.DeepEqual(*calls, want) {
+		t.Errorf("writes %v, want %v", *calls, want)
+	}
+}

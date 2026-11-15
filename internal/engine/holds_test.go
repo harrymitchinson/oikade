@@ -37,6 +37,7 @@ var holdDevices = map[string][]string{
 	"towel-rail":      {capability.On},
 	"water-temp":      {capability.Temperature},
 	"outdoor-temp":    {capability.Temperature},
+	"back-door":       {capability.Locked},
 }
 
 // rig is an engine running holds against a fake clock, as one run of the host.
@@ -316,6 +317,19 @@ func TestNumberHoldWritesNothingWhenItEnds(t *testing.T) {
 	r.at("2026-10-21 23:00 BST")
 	r.expect(call{"hall-light", capability.Brightness, int64(30)})
 	if r.active("hall-dim") != 0 {
+		t.Error("oikade_rule_active isn't 0 after the hold ended")
+	}
+}
+
+// Only an explicit write unlocks a door: a lock's hold leaves it locked when it ends (OIK-23).
+func TestALockHoldLeavesTheDoorLockedWhenItEnds(t *testing.T) {
+	night := Hold{Device: "back-door", Capability: capability.Locked, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}}
+	r := startRig(t, local("2026-10-21 21:59 BST"), nil, nil, nil, holdRule(t, "back-door-night", night))
+	r.at("2026-10-21 22:00 BST")
+	r.expect(call{"back-door", capability.Locked, true})
+	r.at("2026-10-22 06:00 BST")
+	r.expect(call{"back-door", capability.Locked, true})
+	if r.active("back-door-night") != 0 {
 		t.Error("oikade_rule_active isn't 0 after the hold ended")
 	}
 }

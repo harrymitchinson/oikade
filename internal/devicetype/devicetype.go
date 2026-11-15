@@ -27,12 +27,13 @@ const (
 	MountedDimmableLoadControl Type = contractv1.MountedDimmableLoadControl
 )
 
-// The device types that follow from a sensor's capabilities.
+// The device types that follow from a sensor's or a lock's capabilities.
 const (
 	OccupancySensor   Type = "OccupancySensor"
 	ContactSensor     Type = "ContactSensor"
 	TemperatureSensor Type = "TemperatureSensor"
 	HumiditySensor    Type = "HumiditySensor"
+	DoorLock          Type = "DoorLock"
 )
 
 // Thermostat is a heater or thermostat: a device with a setpoint. Its on is the heater's, so it isn't
@@ -49,11 +50,12 @@ var dimmed = map[Type]Type{
 	MountedDimmableLoadControl: MountedOnOffControl,
 }
 
-// sensors are the types that follow from a capability, in the order the Matter bridge adds them.
-var sensors = []struct {
+// followed are the types that follow from a capability, in the order the Matter bridge adds them.
+var followed = []struct {
 	capability string
 	typ        Type
 }{
+	{capability.Locked, DoorLock},
 	{capability.Occupied, OccupancySensor},
 	{capability.Open, ContactSensor},
 	{capability.Temperature, TemperatureSensor},
@@ -122,7 +124,7 @@ func Of(yours, drivers Type, capabilities []string) []Type {
 	} else if t := OnOffOf(yours, drivers, capabilities); t != "" {
 		out = append(out, t)
 	}
-	for _, s := range sensors {
+	for _, s := range followed {
 		if thermostat && s.capability == capability.Temperature {
 			continue
 		}

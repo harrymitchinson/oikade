@@ -134,6 +134,7 @@ func TestCompileErrors(t *testing.T) {
 		"a bool input":                 {bands("open", Band{Minutes: 2}), nil, `"open" isn't a number capability`},
 		"a number target":              {onMinutes("brightness", 40), nil, "a budget needs a writable bool capability"},
 		"held off":                     {onMinutes("on", false), nil, "a budget holds its capability at true"},
+		"a lock":                       {onMinutes("locked", true), nil, "which locked can't be"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := CompileSpec(tc.spec, tc.control)

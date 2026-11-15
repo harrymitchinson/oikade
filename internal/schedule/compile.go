@@ -87,6 +87,8 @@ func CompileSpec(s Spec, entry *control.Entry) (*Budget, error) {
 	}
 	if spec, ok := capability.Lookup(s.Capability); !ok || spec.Kind != capability.KindBool || !spec.Writable {
 		errs = append(errs, fmt.Errorf("hold: a budget needs a writable bool capability, not %q", s.Capability))
+	} else if spec.NoEndWrite {
+		errs = append(errs, fmt.Errorf("hold: a budget turns its target on and off, which %s can't be", s.Capability))
 	} else if s.Value != true {
 		errs = append(errs, errors.New("hold: a budget holds its capability at true"))
 	}

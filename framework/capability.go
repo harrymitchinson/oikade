@@ -40,6 +40,9 @@ const (
 	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius. It doesn't
 	// turn it on or off: On does.
 	Setpoint Number = contractv1.Setpoint
+	// Locked is true while a lock's bolt is fully thrown. A hold's end leaves a lock as it is: only
+	// To(false) unlocks it.
+	Locked Bool = contractv1.Locked
 )
 
 // Handle is one capability of one device. oikade types writes one for each capability each of your
