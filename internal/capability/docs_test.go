@@ -62,13 +62,15 @@ func TestTheDocsTableIsTheRegistrys(t *testing.T) {
 }
 
 // The Matter bridge shows each capability as the attribute the registry names, so every one has one
-// but link-quality, which Matter has no attribute for.
+// but link-quality, which Matter has no attribute for, and position, until the bridge has Window
+// Covering (OIK-261).
 func TestEveryCapabilityButLinkQualityHasAMatterAttribute(t *testing.T) {
 	for _, name := range Names() {
 		m := registry[name].Matter
 		switch {
 		case name == LinkQuality && m != nil:
 			t.Errorf("%s has a Matter attribute", name)
+		case name == Position:
 		case name != LinkQuality && (m == nil || m.Cluster == "" || m.Attribute == "" || m.ClusterID == 0):
 			t.Errorf("%s has no Matter cluster and attribute: %+v", name, m)
 		}

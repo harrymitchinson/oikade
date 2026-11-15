@@ -56,6 +56,9 @@ const (
 	Setpoint = "setpoint"
 	// Locked is true while a lock's bolt is fully thrown: a bool.
 	Locked = "locked"
+	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
+	// fully closed, as in Matter.
+	Position = "position"
 )
 
 // The device types a plugin may report for a device that's on or off, in Matter's names. A device's
