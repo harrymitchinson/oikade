@@ -28,6 +28,21 @@ After each device list, the plugin asks Zigbee2MQTT with a `/get` for each value
 
 Every paired device enters the registry by its IEEE address, except the coordinator and devices Zigbee2MQTT doesn't support, and is usable at once. Its friendly name is copied once, as its name. When Zigbee2MQTT says it's offline, or the broker can't be reached, its devices read offline and writes are refused, which the host's log shows. Your automations and Matter carry on.
 
+## What devices become
+
+Each device's capabilities come from the exposes in its `bridge/devices` entry, at its root. An endpoint's features, such as a second gang's `state_l2`, aren't served yet.
+
+| Zigbee2MQTT expose | Capability | Notes |
+| --- | --- | --- |
+| `light`'s `state` | `on` | A dimmable light with a `brightness`, an on/off light without one. |
+| `light`'s `brightness` | `brightness` | Scaled from the expose's maximum, 254 if it has none, to 0–100. |
+| `switch`'s `state` | `on` | A relay says nothing about what it switches, so it's a plug unless you say otherwise. |
+| `cover`'s `position` | `position` | Reversed both ways: Zigbee2MQTT's 100 is open, and Oikade's 100 closed, so its 30 is `position` 70. A cover with no `position` only opens and closes, and isn't served. |
+| `lock`'s `state` and `lock_state` | `locked` | Read from `lock_state`, where the bolt is: only `locked` is locked, and `not_fully_locked` isn't. A lock with no `lock_state` is read from `state`. Set with `state`'s `LOCK` or `UNLOCK`. |
+| `contact` | `open` | Reversed: Zigbee2MQTT's `contact: true` is shut. |
+| `occupancy` | `occupied` | |
+| `temperature`, `humidity`, `battery` and `linkquality` | `temperature`, `humidity`, `battery` and `link-quality` | |
+
 ## Fixtures from your devices
 
 `testdata/fixtures` holds one file per device model: its entry in `bridge/devices`, and the state and command payloads heard for it. `TestGolden` replays each through the plugin and the Matter mapping in `make test`, and compares the result with `testdata/golden` ([OIK-42](https://linear.app/oikade/issue/OIK-42)). To add your own models, record them from your broker:

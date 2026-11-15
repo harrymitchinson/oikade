@@ -120,7 +120,7 @@ func (i *Instance) Set(ctx context.Context, dev ident.ID, capability string, val
 	if idx < 0 {
 		return fmt.Errorf("device %s has no capability %s", dev, capability)
 	}
-	b := p.bindings[idx]
+	b := p.bindings[idx].setter()
 	payload, err := json.Marshal(map[string]any{b.property: b.encode(value)})
 	if err != nil {
 		return err

@@ -1,0 +1,88 @@
+{
+  "manufacturer": "Yale",
+  "model": "YRD226HA2619",
+  "device_type": "",
+  "capabilities": [
+    "locked",
+    "battery",
+    "link-quality"
+  ],
+  "bindings": [
+    {
+      "capability": "locked",
+      "property": "lock_state",
+      "get": false
+    },
+    {
+      "capability": "battery",
+      "property": "battery",
+      "get": true
+    },
+    {
+      "capability": "link-quality",
+      "property": "linkquality",
+      "get": false
+    }
+  ],
+  "states": [
+    {
+      "changes": {
+        "battery": 64,
+        "locked": true
+      }
+    },
+    {
+      "changes": {
+        "locked": false
+      }
+    },
+    {
+      "changes": {}
+    }
+  ],
+  "commands": [
+    {
+      "values": {
+        "locked": {
+          "value": true,
+          "sends": "LOCK"
+        }
+      }
+    },
+    {
+      "values": {
+        "locked": {
+          "value": false,
+          "sends": "UNLOCK"
+        }
+      }
+    }
+  ],
+  "matter": {
+    "device_types": [
+      "0x000a",
+      "0x0011"
+    ],
+    "attributes": {
+      "0x002f": {
+        "0x0000": 1,
+        "0x0001": 0,
+        "0x0002": "Battery",
+        "0x000c": 128,
+        "0x000e": 0,
+        "0x000f": false,
+        "0x0010": 1,
+        "0x001f": [
+          3
+        ]
+      },
+      "0x0101": {
+        "0x0000": 2,
+        "0x0001": 0,
+        "0x0002": true,
+        "0x0025": 0,
+        "0x0026": 65526
+      }
+    }
+  }
+}

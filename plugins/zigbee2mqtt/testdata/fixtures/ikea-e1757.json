@@ -1,0 +1,72 @@
+{
+  "source": "hand-written",
+  "device": {
+    "ieee_address": "0x0000000000000001",
+    "friendly_name": "0x0000000000000001",
+    "type": "EndDevice",
+    "definition": {
+      "vendor": "IKEA",
+      "model": "E1757",
+      "exposes": [
+        {
+          "type": "cover",
+          "features": [
+            {
+              "type": "enum",
+              "name": "state",
+              "property": "state",
+              "values": ["OPEN", "CLOSE", "STOP"],
+              "access": 3
+            },
+            {
+              "type": "numeric",
+              "name": "position",
+              "property": "position",
+              "value_min": 0,
+              "value_max": 100,
+              "unit": "%",
+              "access": 7
+            }
+          ]
+        },
+        {
+          "type": "numeric",
+          "name": "battery",
+          "property": "battery",
+          "value_min": 0,
+          "value_max": 100,
+          "unit": "%",
+          "access": 5
+        },
+        {
+          "type": "numeric",
+          "name": "linkquality",
+          "property": "linkquality",
+          "value_min": 0,
+          "value_max": 255,
+          "access": 1
+        }
+      ]
+    }
+  },
+  "states": [
+    {
+      "position": 100,
+      "state": "OPEN",
+      "battery": 87,
+      "linkquality": 120
+    },
+    {
+      "position": 30,
+      "state": "CLOSE"
+    }
+  ],
+  "commands": [
+    {
+      "position": 30
+    },
+    {
+      "state": "STOP"
+    }
+  ]
+}

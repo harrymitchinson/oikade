@@ -209,12 +209,12 @@ func replay(t *testing.T, f fixture) golden {
 		values := decodeObject(t, payload)
 		c := goldenCommand{Values: map[string]goldenValue{}}
 		for prop, raw := range values {
-			idx := slices.IndexFunc(bs, func(b binding) bool { return b.property == prop })
+			idx := slices.IndexFunc(bs, func(b binding) bool { return b.setter().property == prop })
 			if idx < 0 {
 				c.Unmapped = append(c.Unmapped, prop)
 				continue
 			}
-			b := bs[idx]
+			b := bs[idx].setter()
 			v, err := b.decode(raw)
 			if err != nil {
 				c.Invalid = setDefault(c.Invalid)
