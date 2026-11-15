@@ -147,6 +147,7 @@ First-party plugins, each with its own README:
 
 - [Zigbee2MQTT](plugins/zigbee2mqtt/README.md): Zigbee devices, through a Zigbee2MQTT and an MQTT broker you run
 - [eWeLink LAN](plugins/ewelinklan/README.md): relays with sensors on the eWeLink LAN protocol, such as SONOFF's TH Elite
+- [Overkiz](plugins/overkiz/README.md): Somfy io shutters and screens, through a TaHoma hub's local API
 
 To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
 
@@ -158,7 +159,7 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 - [Running a home](docs/running-a-home.md): deploying, the host, secrets, upgrades, the network API, backups and security
 - [Metrics and logs](docs/metrics.md): Prometheus, the Grafana dashboard and logging
 - [Raspberry Pi](docs/deploy-raspberry-pi.md): a host on a Pi, from scratch
-- Plugins: [Zigbee2MQTT](plugins/zigbee2mqtt/README.md) and [eWeLink LAN](plugins/ewelinklan/README.md)
+- Plugins: [Zigbee2MQTT](plugins/zigbee2mqtt/README.md), [eWeLink LAN](plugins/ewelinklan/README.md) and [Overkiz](plugins/overkiz/README.md)
 - For contributors: [architecture](docs/architecture.md), the [plugin contract](docs/plugin-contract.md), the [host API](docs/host-api.md), [planning](docs/planning.md) and [contributing](CONTRIBUTING.md)
 
 ## Not yet
