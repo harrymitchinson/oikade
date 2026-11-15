@@ -116,7 +116,7 @@ func written(t *testing.T, s states, capability string, v any) string {
 	if err != nil || sub != "" {
 		t.Fatalf("%s %v: sub %q, %v", capability, v, sub, err)
 	}
-	var out []string
+	out := make([]string, 0, len(commands))
 	for _, c := range commands {
 		out = append(out, strings.TrimSpace(c.Name+" "+strings.Trim(fmt.Sprint(c.Parameters), "[]")))
 	}

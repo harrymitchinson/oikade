@@ -3,9 +3,11 @@ package overkiz
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,6 +25,7 @@ import (
 const (
 	waitLimit = 20 * time.Second
 	token     = "developer-mode-token"
+	password  = "correct horse"
 	kitchen   = "io.11111111"
 	patio     = "io.22222222"
 	kitchenAt = "io://1234-5678-9012/11111111"
@@ -68,6 +71,8 @@ type bench struct {
 	secrets string
 	logs    *logs
 	broker  string
+	// secretName is the account's secret.
+	secretName string
 
 	mu     sync.Mutex
 	topics map[string]string
@@ -77,8 +82,31 @@ type bench struct {
 
 func start(t *testing.T, hub *fakeHub, secret string, declared ...string) *bench {
 	t.Helper()
+	return startWith(t, hub, Local{Address: hub.address(), TokenSecret: "tahoma-token"}, fast, secret, declared...)
+}
+
+// cloudFast is fast, with the cloud's limit waits.
+var cloudFast = func() timing { t := fast; t.retryMax = 50 * time.Millisecond; return t }()
+
+// startCloud starts the plugin on the fake Cozytouch cloud, as Thermor's.
+func startCloud(t *testing.T, cloud *fakeHub, secret string, timings timing, declared ...string) *bench {
+	t.Helper()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: cloud.roots()}
+	account := Cozytouch{
+		Brand: Thermor, Username: "someone@example.com", PasswordSecret: "cozytouch",
+		atlanticAPI: cloud.server.URL, endpoint: cloud.server.URL + cloudAPI, transport: transport,
+	}
+	return startWith(t, cloud, account, timings, secret, declared...)
+}
+
+func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secret string, declared ...string) *bench {
+	t.Helper()
 	broker := mqtttest.StartBroker(t)
-	b := &bench{t: t, hub: hub, secrets: t.TempDir(), logs: &logs{}, broker: broker, topics: map[string]string{}}
+	b := &bench{
+		t: t, hub: hub, secrets: t.TempDir(), logs: &logs{}, broker: broker, topics: map[string]string{},
+		secretName: account.secret(),
+	}
 	if secret != "" {
 		b.secret(secret)
 	}
@@ -101,8 +129,7 @@ func start(t *testing.T, hub *fakeHub, secret string, declared ...string) *bench
 	for _, id := range declared {
 		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
-	account := Local{Address: hub.address(), TokenSecret: "tahoma-token"}
-	handler := newBridge(account, env, devices, fast, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	handler := newBridge(account, env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
@@ -127,7 +154,7 @@ func start(t *testing.T, hub *fakeHub, secret string, declared ...string) *bench
 
 func (b *bench) secret(value string) {
 	b.t.Helper()
-	if err := os.WriteFile(filepath.Join(b.secrets, "tahoma-token"), []byte(value+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(b.secrets, b.secretName), []byte(value+"\n"), 0o600); err != nil {
 		b.t.Fatal(err)
 	}
 }
@@ -430,5 +457,157 @@ func TestAFailedExecutionReadsTheDeviceAgain(t *testing.T) {
 	time.Sleep(20 * fast.poll)
 	if n := len(hub.executions()); n != 1 {
 		t.Errorf("%d executions after a write of true, want 1", n)
+	}
+}
+
+const (
+	radiator   = "io.9876543"
+	radiatorAt = "io://0812-1234-5678/9876543#1"
+)
+
+func TestAThermorAccountLogsInAndServesItsRadiator(t *testing.T) {
+	cloud := newFakeCloud(t)
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitState(radiator, `{"on":true,"setpoint":21,"temperature":18.5}`)
+	b.waitAvailability(radiator, "online")
+	want := []contractv1.DeviceReport{{
+		ID: radiator, Found: true, Manufacturer: "Thermor", Model: "io:AtlanticElectricalTowelDryerIOComponent",
+		Capabilities: []string{"on", "setpoint", "temperature"},
+	}}
+	if got := b.devices().Devices; !reflect.DeepEqual(got, want) {
+		t.Errorf("devices:\n got %+v\nwant %+v", got, want)
+	}
+	// The consumption sensor at #2 folds in, and isn't a kind of its own.
+	if strings.Contains(b.logs.String(), "CumulativeElectricPowerConsumptionSensor") {
+		t.Errorf("a sub-device was logged as a kind of its own:\n%s", b.logs.String())
+	}
+
+	b.listening()
+	b.set(radiator, `{"setpoint":19.5}`)
+	b.eventually("an execution", func() bool { return len(cloud.executions()) == 1 })
+	if got := fmt.Sprint(cloud.executions()[0]["actions"]); !strings.Contains(got, "setTargetTemperature") ||
+		!strings.Contains(got, radiatorAt) || !strings.Contains(got, "19.5") {
+		t.Errorf("executed %s", got)
+	}
+	// In its own schedule, the setpoint is the one it aims for, and a write is an override.
+	cloud.event(map[string]any{"name": eventStateChanged, "deviceURL": radiatorAt, "deviceStates": []map[string]any{
+		{"name": "core:OperatingModeState", "type": 3, "value": "internal"},
+	}})
+	b.waitState(radiator, `{"on":true,"setpoint":19,"temperature":18.5}`)
+	b.set(radiator, `{"setpoint":22}`)
+	b.eventually("an override", func() bool {
+		e := cloud.executions()
+		return len(e) == 2 && strings.Contains(fmt.Sprint(e[1]["actions"]), "setDerogatedTargetTemperature")
+	})
+	b.set(radiator, `{"on":false}`)
+	b.eventually("standby", func() bool {
+		e := cloud.executions()
+		return len(e) == 3 && strings.Contains(fmt.Sprint(e[2]["actions"]), "setTowelDryerOperatingMode parameters:[standby]")
+	})
+	// The temperature is the sensor's, at #7.
+	cloud.event(map[string]any{"name": eventStateChanged, "deviceURL": "io://0812-1234-5678/9876543#7", "deviceStates": []map[string]any{
+		{"name": "core:TemperatureState", "type": 2, "value": 20.25},
+	}})
+	b.waitState(radiator, `{"on":true,"setpoint":19,"temperature":20.25}`)
+}
+
+func TestARefusedPasswordIsTheAccountsProblemUntilItChanges(t *testing.T) {
+	cloud := newFakeCloud(t)
+	b := startCloud(t, cloud, "wrong", cloudFast, radiator)
+	b.eventually("the refusal", func() bool {
+		return b.status().Error == `Thermor's Cozytouch cloud refused the credential: check the secret "cozytouch"`
+	})
+	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
+		t.Errorf("devices with a refused password: %+v", d)
+	}
+	tries := cloud.count("/token")
+	time.Sleep(10 * cloudFast.secret)
+	if n := cloud.count("/token"); n != tries {
+		t.Errorf("tried a refused password %d more times, which could lock the account", n-tries)
+	}
+	b.secret(password)
+	b.waitAvailability(radiator, "online")
+	b.eventually("the problem to clear", func() bool { return b.status().Error == "" })
+}
+
+func TestTheCloudDownLeavesTheRadiatorOfflineAndSaysWhy(t *testing.T) {
+	cloud := newFakeCloud(t)
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitAvailability(radiator, "online")
+	cloud.set(func(h *fakeHub) { h.down = true })
+	b.waitAvailability(radiator, "offline")
+	b.eventually("the problem", func() bool { return strings.Contains(b.status().Error, "could not reach Thermor's Cozytouch cloud") })
+	// A write while it's down fails at once, without asking the cloud.
+	b.set(radiator, `{"on":false}`)
+	time.Sleep(10 * cloudFast.poll)
+	if n := len(cloud.executions()); n != 0 {
+		t.Errorf("%d executions while the cloud was down", n)
+	}
+	cloud.set(func(h *fakeHub) { h.down = false })
+	b.waitAvailability(radiator, "online")
+	b.eventually("the problem to clear", func() bool { return b.status().Error == "" })
+}
+
+func TestAnEndedSessionLogsInAgainWithTheRadiatorOnline(t *testing.T) {
+	cloud := newFakeCloud(t)
+	// Sessions last longer than retryMax here, so an ended one logs in again at once.
+	timings := cloudFast
+	timings.retryMax = 0
+	b := startCloud(t, cloud, password, timings)
+	b.waitAvailability(radiator, "online")
+	b.listening()
+	logins := cloud.count("/login")
+	cloud.expire()
+	b.eventually("a new login", func() bool { return cloud.count("/login") > logins })
+	b.listening()
+	if got := b.topic(root.Availability(radiator)); got != "online" {
+		t.Errorf("availability across a new login: %s", got)
+	}
+	if s := b.status(); s.Error != "" {
+		t.Errorf("status across a new login: %+v", s)
+	}
+}
+
+func TestASessionEndedAsItBeginsBacksOff(t *testing.T) {
+	cloud := newFakeCloud(t)
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitAvailability(radiator, "online")
+	b.listening()
+	// Every session ends at once from now on.
+	cloud.set(func(h *fakeHub) { h.sessions = map[string]bool{}; h.password = password })
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+				cloud.expire()
+			}
+		}
+	}()
+	b.eventually("the problem", func() bool { return strings.Contains(b.status().Error, "keeps ending the plugin's session") })
+	close(stop)
+	logins := cloud.count("/login")
+	time.Sleep(cloudFast.retryMax)
+	if n := cloud.count("/login") - logins; n > 2 {
+		t.Errorf("logged in %d times in %s", n, cloudFast.retryMax)
+	}
+	b.waitAvailability(radiator, "online")
+}
+
+func TestCozytouchNeedsABrandAndAUsername(t *testing.T) {
+	for _, c := range []Cozytouch{
+		{Username: "someone@example.com", PasswordSecret: "cozytouch"},
+		{Brand: "Atlantique", Username: "someone@example.com", PasswordSecret: "cozytouch"},
+		{Brand: Thermor, PasswordSecret: "cozytouch"},
+		{Brand: Thermor, Username: "someone@example.com"},
+	} {
+		if _, err := New(c)(plugin.Environment{}, nil); err == nil {
+			t.Errorf("%+v was taken", c)
+		}
+	}
+	if _, err := New(Local{TokenSecret: "tahoma-token"})(plugin.Environment{}, nil); err == nil {
+		t.Error("a Local with no Address was taken")
 	}
 }

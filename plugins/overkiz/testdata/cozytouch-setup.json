@@ -1,0 +1,40 @@
+[
+  {
+    "deviceURL": "io://0812-1234-5678/9876543#1",
+    "label": "Bathroom towel radiator",
+    "controllableName": "io:AtlanticElectricalTowelDryerIOComponent",
+    "uiClass": "HeatingSystem",
+    "available": true,
+    "enabled": true,
+    "definition": {"widgetName": "AtlanticElectricalTowelDryer", "uiClass": "HeatingSystem"},
+    "states": [
+      {"name": "core:OperatingModeState", "type": 3, "value": "external"},
+      {"name": "core:TargetTemperatureState", "type": 2, "value": 21.0},
+      {"name": "io:EffectiveTemperatureSetpointState", "type": 2, "value": 19.0},
+      {"name": "io:TowelDryerTemporaryStateState", "type": 3, "value": "permanentHeating"}
+    ],
+    "attributes": []
+  },
+  {
+    "deviceURL": "io://0812-1234-5678/9876543#2",
+    "label": "Bathroom towel radiator consumption",
+    "controllableName": "io:TotalElectricalEnergyConsumptionSensor",
+    "uiClass": "ElectricitySensor",
+    "available": true,
+    "enabled": true,
+    "definition": {"widgetName": "CumulativeElectricPowerConsumptionSensor", "uiClass": "ElectricitySensor"},
+    "states": [{"name": "core:ElectricEnergyConsumptionState", "type": 1, "value": 123456}],
+    "attributes": []
+  },
+  {
+    "deviceURL": "io://0812-1234-5678/9876543#7",
+    "label": "Bathroom towel radiator temperature",
+    "controllableName": "io:TemperatureInCelciusIOSystemDeviceSensor",
+    "uiClass": "TemperatureSensor",
+    "available": true,
+    "enabled": true,
+    "definition": {"widgetName": "TemperatureSensor", "uiClass": "TemperatureSensor"},
+    "states": [{"name": "core:TemperatureState", "type": 2, "value": 18.5}],
+    "attributes": []
+  }
+]

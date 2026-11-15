@@ -28,6 +28,10 @@ type Account interface {
 	timing() timing
 	// describe is the account as a log or an error says it.
 	describe() string
+	// check says what's wrong with its configuration.
+	check() error
+	// manufacturer is who makes its devices, for those that don't say.
+	manufacturer() string
 }
 
 // Local is a TaHoma hub's local API, which its Developer Mode turns on. The first-generation square
@@ -46,12 +50,21 @@ func (l Local) describe() string { return "the TaHoma hub at " + l.Address }
 
 func (l Local) timing() timing { return localTiming }
 
+func (l Local) manufacturer() string { return "" }
+
+func (l Local) check() error {
+	if l.Address == "" {
+		return errors.New("overkiz.Local has no Address")
+	}
+	return nil
+}
+
 // connect needs no login: every request carries the token. The hub's certificate is signed by
 // Overkiz for its gateway-<pin>.local name, which an address doesn't match and the system doesn't
 // trust, so it isn't checked.
 func (l Local) connect(_ context.Context, token string) (*client, error) {
-	if l.Address == "" {
-		return nil, errors.New("overkiz.Local has no Address")
+	if err := l.check(); err != nil {
+		return nil, err
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // See above.
@@ -94,6 +107,9 @@ func New(a Account) plugin.Factory {
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		if a == nil {
 			return nil, errors.New("overkiz.New has no Account")
+		}
+		if err := a.check(); err != nil {
+			return nil, err
 		}
 		if a.secret() == "" {
 			return nil, fmt.Errorf("%s has no secret named for its credential", a.describe())
@@ -176,12 +192,26 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			continue
 		}
 		credential = strings.TrimSpace(credential)
-		err = b.session(ctx, credential, func() { wait = b.timing.retry })
+		var live time.Time
+		err = b.session(ctx, credential, func() { wait, live = b.timing.retry, time.Now() })
 		if ctx.Err() != nil {
 			break
 		}
+		// A cloud session ends by itself, and one that lasted logs in again at once, its devices
+		// online meanwhile. A credential refused then is refused for real. One that ends as soon as
+		// it starts backs off, so a cloud that keeps ending them isn't asked to log in over and over.
+		expired := !live.IsZero() && !errors.Is(err, errReport) && classify(err) == refused
+		if expired && time.Since(live) >= b.timing.retryMax {
+			b.log.Info("Logging in to Overkiz again; its session ended", "err", err, "account", b.account.describe())
+			continue
+		}
 		b.lost(ctx)
 		switch {
+		case expired:
+			b.log.Warn("Overkiz ended the plugin's session as it began", "err", err, "account", b.account.describe(), "retry", wait.String())
+			b.setProblem(ctx, fmt.Sprintf("%s keeps ending the plugin's session: trying again in %s", b.account.describe(), wait))
+			sleep(ctx, wait)
+			wait = min(2*wait, b.timing.retryMax)
 		case errors.Is(err, errReport):
 			b.log.Error("Could not report Overkiz devices", "err", err, "account", b.account.describe(), "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("could not report the devices of %s: %v", b.account.describe(), err))
@@ -320,7 +350,7 @@ func (b *bridge) readSetup(ctx context.Context, c *client) error {
 			id: id, url: d.DeviceURL, model: m, subs: map[string]string{"": d.DeviceURL},
 			available: d.Available, enabled: d.Enabled, raw: states{}, values: contractv1.State{},
 			info: contractv1.DiscoveredDevice{
-				ID: id, Manufacturer: d.attribute("core:Manufacturer"), Model: d.ControllableName,
+				ID: id, Manufacturer: or(d.attribute("core:Manufacturer"), b.account.manufacturer()), Model: d.ControllableName,
 				Capabilities: m.capabilities, Name: d.Label,
 			},
 		}
