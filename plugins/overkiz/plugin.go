@@ -113,7 +113,9 @@ type device struct {
 	info contractv1.DiscoveredDevice
 	// available and enabled are what the setup or the last event said. It's online when both are.
 	available, enabled bool
-	values             contractv1.State
+	// raw is every state it and its sub-devices reported, and values what the model reads from them.
+	raw    states
+	values contractv1.State
 }
 
 // bridge is the plugin.
@@ -316,10 +318,10 @@ func (b *bridge) readSetup(ctx context.Context, c *client) error {
 		}
 		dev := &device{
 			id: id, url: d.DeviceURL, model: m, subs: map[string]string{"": d.DeviceURL},
-			available: d.Available, enabled: d.Enabled, values: contractv1.State{},
+			available: d.Available, enabled: d.Enabled, raw: states{}, values: contractv1.State{},
 			info: contractv1.DiscoveredDevice{
 				ID: id, Manufacturer: d.attribute("core:Manufacturer"), Model: d.ControllableName,
-				Capabilities: m.capabilities(), Name: d.Label,
+				Capabilities: m.capabilities, Name: d.Label,
 			},
 		}
 		if other, ok := devices[id]; ok {
@@ -360,24 +362,20 @@ func (b *bridge) skip(widget string, d apiDevice) {
 
 func (d *device) online() bool { return d.available && d.enabled }
 
-// apply takes states of the device or one of its sub-devices into its values, and says which changed.
-func (d *device) apply(sub string, states []apiState) []string {
+// apply takes states of the device or one of its sub-devices, and says which of its values changed.
+// A value the model can no longer read keeps its last.
+func (d *device) apply(sub string, reported []apiState) []string {
+	for _, s := range reported {
+		d.raw[stateKey{sub, s.Name}] = s.Value
+	}
 	var changed []string
-	for _, s := range states {
-		for _, bind := range d.model.bindings {
-			if bind.sub != sub || bind.state != s.Name {
-				continue
-			}
-			v, ok := bind.read(s.Value)
-			if !ok {
-				continue
-			}
-			if old, had := d.values[bind.capability]; !had || old != v {
-				d.values[bind.capability] = v
-				changed = append(changed, bind.capability)
-			}
+	for c, v := range d.model.values(d.raw) {
+		if old, had := d.values[c]; !had || old != v {
+			d.values[c] = v
+			changed = append(changed, c)
 		}
 	}
+	slices.Sort(changed)
 	return changed
 }
 
@@ -578,24 +576,32 @@ func sleep(ctx context.Context, d time.Duration) bool {
 func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
 	b.mu.Lock()
 	c, dev := b.client, b.devices[cmd.ID]
+	var (
+		sub      string
+		commands []apiCommand
+		url      string
+		err      error
+	)
+	if dev != nil {
+		sub, commands, err = dev.model.write(cmd.Capability, cmd.Value, dev.raw)
+		url = dev.subs[sub]
+	}
 	b.mu.Unlock()
 	switch {
 	case dev == nil:
 		return fmt.Errorf("no Overkiz device %s", cmd.ID)
 	case c == nil:
 		return fmt.Errorf("can't reach %s", b.account.describe())
-	}
-	bind, ok := dev.model.binding(cmd.Capability)
-	if !ok || bind.write == nil {
-		return fmt.Errorf("device %s can't set %s", cmd.ID, cmd.Capability)
+	case err != nil:
+		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
+	case len(commands) == 0:
+		return nil
+	case url == "":
+		return fmt.Errorf("could not set %s on %s: it has no sub-device #%s", cmd.Capability, cmd.ID, sub)
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.timing.set)
 	defer cancel()
-	commands, err := bind.write(cmd.Value)
-	if err != nil {
-		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
-	}
-	exec, err := c.execute(ctx, dev.subs[bind.sub], commands...)
+	exec, err := c.execute(ctx, url, commands...)
 	if err != nil {
 		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
 	}
