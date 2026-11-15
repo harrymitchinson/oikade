@@ -178,6 +178,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	defer stop()
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
 	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
+		s.srv.engine.ForgetWrite(dev, req.Capability)
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, events)}

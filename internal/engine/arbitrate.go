@@ -433,9 +433,9 @@ func (e *Engine) MatterWrote(dev ident.ID, name string, value any) {
 	e.bridgeWrote(SourceMatter, dev, name, value)
 }
 
-// ForgetMatterWrite undoes MatterWrote for a write that never reached the device, so the device's
-// next report isn't taken for it.
-func (e *Engine) ForgetMatterWrite(dev ident.ID, name string) {
+// ForgetWrite undoes MatterWrote or CommandWrote for a write that never reached the device, so the
+// device's next report isn't taken for it.
+func (e *Engine) ForgetWrite(dev ident.ID, name string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.forgetBridgeWrite(dev, name)

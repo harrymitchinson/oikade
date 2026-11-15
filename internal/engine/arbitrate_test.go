@@ -412,7 +412,7 @@ func (r *rig) matter(dev, c string, v any) {
 func TestAMatterWriteThatFailedLeavesTheDevicesReportItsOwn(t *testing.T) {
 	r := railRig(t)
 	r.matter("towel-rail", capability.On, true)
-	r.e.ForgetMatterWrite(ident.ID{Name: "towel-rail"}, capability.On)
+	r.e.ForgetWrite(ident.ID{Name: "towel-rail"}, capability.On)
 	r.clock.Step(2 * time.Second)
 	r.change("towel-rail", capability.On, true)
 	if w := winner(r.status("towel-rail", capability.On)); w != "Device Override" {
