@@ -455,7 +455,9 @@ func TestStatusSaysWhatsLeftToSetUp(t *testing.T) {
 	r.launchWithout(settle, matterFlag(freeUDP(t)), "--simulate", devicesFile(t))
 	r.waitSocket()
 	gaps := r.statusGaps()
-	for _, want := range []string{"No home deployed. Run oikade deploy", "The Matter bridge has no controller. oikade matter"} {
+	for _, want := range []string{
+		"No home deployed. Run oikade deploy", "The Matter bridge has no controller. oikade matter",
+	} {
 		if !strings.Contains(gaps, want) {
 			t.Errorf("no %q in:\n%s", want, gaps)
 		}
@@ -466,7 +468,9 @@ func TestStatusSaysWhatsLeftToSetUp(t *testing.T) {
 	}
 
 	p := startPlugins(t, matterFlag(freeUDP(t)))
-	p.until("the device's problem", func() bool { return strings.Contains(p.statusGaps(), "Devices with a problem: locked.") })
+	p.until("the device's problem", func() bool {
+		return strings.Contains(p.statusGaps(), "Devices with a problem: locked.")
+	})
 	if gaps := p.statusGaps(); strings.Contains(gaps, "No home deployed") || !strings.Contains(gaps, "oikade matter") {
 		t.Errorf("with a home deployed:\n%s", gaps)
 	}
