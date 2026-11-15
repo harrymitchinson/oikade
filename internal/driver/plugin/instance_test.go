@@ -2,11 +2,15 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -284,6 +288,37 @@ func TestStatusOfflineAndContract(t *testing.T) {
 	}
 	if got := i.Stats().Rejected[ReasonWrongContract]; got != 3 {
 		t.Errorf("wrong_contract = %d, want 3", got)
+	}
+}
+
+func TestStatusError(t *testing.T) {
+	retained := online()
+	retained["1000aa/availability"] = "online"
+	i, bus, rec := setup(t, retained)
+
+	// A plugin with a problem of its own is still up, and its devices still count.
+	publish(t, bus, root+"/status", `{"state":"online","contract":1,"error":"login refused"}`)
+	if st := i.Stats(); !st.Up || i.Problem() != "login refused" || !rec.available[porch] {
+		t.Errorf("with an error: %+v %q, porch available %v", st, i.Problem(), rec.available[porch])
+	}
+	// The Will drops it: a plugin that isn't running has no problem to say.
+	publish(t, bus, root+"/status", `{"state":"offline","contract":1}`)
+	if got := i.Problem(); got != "" {
+		t.Errorf("error kept while offline: %q", got)
+	}
+	publish(t, bus, root+"/status", `{"state":"online","contract":1,"error":"login refused"}`)
+	publish(t, bus, root+"/status", `{"state":"online","contract":1}`)
+	if st := i.Stats(); !st.Up || i.Problem() != "" {
+		t.Errorf("error not cleared: %+v %q", st, i.Problem())
+	}
+
+	// An error page passed on whole is one line, and cut.
+	page := "<html>\n<body>\x1b[31mBad gateway</body>" + strings.Repeat("x", 300)
+	raw, _ := json.Marshal(contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract, Error: page})
+	publish(t, bus, root+"/status", string(raw))
+	if got := i.Problem(); strings.ContainsAny(got, "\n\x1b") || utf8.RuneCountInString(got) != maxProblem ||
+		!strings.HasPrefix(got, "<html> <body> [31mBad gateway") {
+		t.Errorf("long error kept as %q", got)
 	}
 }
 

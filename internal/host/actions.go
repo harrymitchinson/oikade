@@ -59,6 +59,7 @@ func (s *apiServer) status() api.Response {
 	var unimported []api.Unimported
 	if s.srv.plugins != nil {
 		unimported = s.srv.plugins.unimportedNow(false)
+		st.PluginProblems = s.srv.plugins.problems()
 	}
 	notImported := map[string]bool{}
 	for _, u := range unimported {

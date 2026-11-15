@@ -32,6 +32,8 @@ type switches struct {
 	reports []contractv1.DeviceReport
 	// discovered is what the simulated app holds: every relay, and one spare nobody declared.
 	discovered []contractv1.DiscoveredDevice
+	// problem is the plugin's own error, empty unless a device asks for one.
+	problem string
 }
 
 // manufacturer and model are what every simulated relay reports.
@@ -54,7 +56,9 @@ func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitche
 // newSwitches turns the declared devices into relays and the devices report. A device with the
 // parameter simulate: misconfigured is reported not found, with the reason, as a plugin reports
 // configuration it can't use. One with simulate: needs-key is found and can't be used until it's
-// given something, as a device a plugin can see but not read. Both keep to the contract.
+// given something, as a device a plugin can see but not read. One with simulate: refused-login is
+// reported not found, and the plugin says in its status that its simulated account refused its
+// login, as a cloud plugin would. All three keep to the contract.
 //
 // Two break it, so the conformance suite's own tests can see it fail: one with simulate: unstable-id
 // is discovered under a new ID each start, and one with simulate: old-name reports a capability by a
@@ -64,6 +68,11 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 	for _, d := range declared {
 		if d.Parameters["simulate"] == "misconfigured" {
 			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: "this relay was told it's misconfigured"})
+			continue
+		}
+		if d.Parameters["simulate"] == "refused-login" {
+			s.problem = "the simulated account refused the login"
+			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: "not seen: the plugin can't log in"})
 			continue
 		}
 		if d.Parameters["simulate"] == "needs-key" {
@@ -104,6 +113,9 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 // Serve reports what the simulated app holds, then every relay as available and off. Simulated
 // relays never change by themselves, so there's nothing to follow afterwards.
 func (s *switches) Serve(ctx context.Context, p *plugin.Plugin) error {
+	if err := p.SetError(ctx, s.problem); err != nil {
+		return err
+	}
 	if err := p.SetDiscovered(ctx, s.discovered); err != nil {
 		return err
 	}

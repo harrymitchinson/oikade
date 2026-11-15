@@ -140,6 +140,9 @@ func (r Root) Filter() string { return string(r) + "/#" }
 type Status struct {
 	State    string `json:"state"`
 	Contract int    `json:"contract"`
+	// Error is what's wrong with the plugin as a whole, such as a login its account refused, empty
+	// otherwise. It's for a problem no one device carries, as when there are no devices yet.
+	Error string `json:"error,omitempty"`
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`)

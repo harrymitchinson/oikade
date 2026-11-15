@@ -128,6 +128,30 @@ func TestADeviceSaysWhatItsPluginSaysIsWrong(t *testing.T) {
 	}
 }
 
+func TestAPluginSaysWhatsWrongWithItUntilItsFixed(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	const problem = "Plugin quiet: its simulated account refused the login"
+	r.until("the plugin's problem", func() bool {
+		stderr, err := r.oikade(nil, "status")
+		return err == nil && strings.Contains(stderr, problem)
+	})
+	if got := r.status().PluginProblems; len(got) != 1 || got["quiet"] == "" {
+		t.Errorf("status --json: plugin problems %v", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(r.dir, "plugin-down.fixed"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.until("the problem to clear", func() bool {
+		stderr, err := r.oikade(nil, "status")
+		return err == nil && !strings.Contains(stderr, "Plugin quiet")
+	})
+	if got := r.status().PluginProblems; got != nil {
+		t.Errorf("status --json once fixed: plugin problems %v", got)
+	}
+}
+
 func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)

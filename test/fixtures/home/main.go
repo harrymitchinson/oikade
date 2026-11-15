@@ -91,11 +91,40 @@ func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (pl
 	return faulty{relays.New(devices)}, nil
 }
 
-// quietRelays is a second plugin, which does nothing wrong, and has a device it can't use yet.
+// quietRelays is a second plugin, whose devices do nothing wrong but one it can't use yet. It
+// says its simulated account refuses its login until the test fixes it.
 func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
 	locked := relay("locked")
 	locked.Parameters = map[string]string{"simulate": "needs-key"}
-	return relays.New([]contractv1.DeclaredDevice{relay("quiet"), locked}), nil
+	return refused{relays.New([]contractv1.DeclaredDevice{relay("quiet"), locked})}, nil
+}
+
+// refusedLogin is the problem quietRelays says it has.
+const refusedLogin = "its simulated account refused the login"
+
+// refused is a plugin with a problem of its own, until the file OIKADE_TEST_PLUGIN_DOWN.fixed
+// appears.
+type refused struct{ plugin.Handler }
+
+func (r refused) Serve(ctx context.Context, p *plugin.Plugin) error {
+	if err := r.Handler.Serve(ctx, p); err != nil {
+		return err
+	}
+	fixed := os.Getenv("OIKADE_TEST_PLUGIN_DOWN") + ".fixed"
+	for {
+		problem := refusedLogin
+		if _, err := os.Stat(fixed); err == nil {
+			problem = ""
+		}
+		if err := p.SetError(ctx, problem); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 // routine takes every kind of step in a known order, which the tests count on: start, now, set,
