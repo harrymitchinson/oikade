@@ -75,3 +75,18 @@ func TestNewSwitchesDiscoversEveryRelayAndASpare(t *testing.T) {
 		t.Error("discovered IDs change between starts")
 	}
 }
+
+func TestARefusedLoginIsThePluginsProblem(t *testing.T) {
+	s := newSwitches([]contractv1.DeclaredDevice{
+		{ID: "a", Name: "hall"}, {ID: "d", Name: "cloud", Parameters: map[string]string{"simulate": "refused-login"}},
+	})
+	if s.problem == "" || len(s.relays) != 1 {
+		t.Fatalf("got problem %q and relays %v, want a problem and relay a", s.problem, s.relays)
+	}
+	if d := s.reports[1]; d.ID != "d" || d.Found || d.Error == "" {
+		t.Fatalf("got %+v, want d not found with the reason", d)
+	}
+	if newSwitches(declared).problem != "" {
+		t.Fatal("a plugin with no refused login has a problem")
+	}
+}

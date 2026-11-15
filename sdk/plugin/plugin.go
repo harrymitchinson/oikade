@@ -73,8 +73,10 @@ type Plugin struct {
 	undeclared int
 	// discovered is nil until SetDiscovered.
 	discovered []contractv1.DiscoveredDevice
-	// problem is the status's error, empty while there's none.
+	// problem is the status's error, empty while there's none, and published whether it's been
+	// published since it last changed.
 	problem      string
+	published    bool
 	states       map[string]contractv1.State
 	availability map[string]bool
 	queues       map[string][]contractv1.SetCommand
@@ -386,10 +388,10 @@ func (p *Plugin) SetError(ctx context.Context, problem string) error {
 	}
 	defer p.unlock()
 	p.mu.Lock()
-	same := p.problem == problem
-	p.problem = problem
+	done := p.problem == problem && p.published
+	p.problem, p.published = problem, done
 	p.mu.Unlock()
-	if same {
+	if done {
 		return nil
 	}
 	return p.publishStatus(ctx)
@@ -588,13 +590,21 @@ func (p *Plugin) unlock() { <-p.pub }
 // publishStatus publishes the online status, with the plugin's error if it has one.
 func (p *Plugin) publishStatus(ctx context.Context) error {
 	p.mu.Lock()
-	status := contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract, Error: p.problem}
+	problem := p.problem
+	status := contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract, Error: problem}
 	payload, err := json.Marshal(status)
 	p.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	return p.client.Publish(ctx, p.root.Status(), payload, true)
+	if err := p.client.Publish(ctx, p.root.Status(), payload, true); err != nil {
+		return err
+	}
+	// Publishing holds pub, so nothing changed the problem meanwhile.
+	p.mu.Lock()
+	p.published = p.problem == problem
+	p.mu.Unlock()
+	return nil
 }
 
 func (p *Plugin) publishDevices(ctx context.Context) error {

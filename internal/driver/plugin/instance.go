@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -78,8 +79,6 @@ type Stats struct {
 	Up bool
 	// Rejected counts dropped messages by reason.
 	Rejected map[string]uint64
-	// Error is what the plugin says is wrong with it as a whole, while its status is online.
-	Error string
 }
 
 var _ driver.Setter = (*Instance)(nil)
@@ -171,11 +170,35 @@ func (i *Instance) Announced() map[string]driver.Info {
 func (i *Instance) Stats() Stats {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	st := Stats{Up: i.upLocked(), Rejected: maps.Clone(i.rejected)}
-	if st.Up {
-		st.Error = i.status.Error
+	return Stats{Up: i.upLocked(), Rejected: maps.Clone(i.rejected)}
+}
+
+// maxProblem is the most of a plugin's error Oikade keeps, so an error page passed on whole can't
+// flood oikade status.
+const maxProblem = 200
+
+// Problem is what the plugin says is wrong with it as a whole, while its status is online: one line,
+// cut to maxProblem runes.
+func (i *Instance) Problem() string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.problemLocked()
+}
+
+func (i *Instance) problemLocked() string {
+	if !i.upLocked() {
+		return ""
 	}
-	return st
+	return oneLine(i.status.Error)
+}
+
+// oneLine is s with control characters, newlines among them, as spaces, and cut to maxProblem runes.
+func oneLine(s string) string {
+	s = strings.Join(strings.FieldsFunc(s, unicode.IsControl), " ")
+	if r := []rune(s); len(r) > maxProblem {
+		return string(r[:maxProblem-1]) + "…"
+	}
+	return s
 }
 
 // Forget drops what the plugin's last process announced. That process's devices are what it knew,
@@ -263,9 +286,16 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 	i.counting.Lock()
 	defer i.counting.Unlock()
 	i.mu.Lock()
-	wasUp := i.upLocked()
+	wasUp, was := i.upLocked(), i.problemLocked()
 	i.status = &s
-	up := i.upLocked()
+	up, problem := i.upLocked(), i.problemLocked()
+	switch problem {
+	case was:
+	case "":
+		i.Log.Info("Plugin no longer reports a problem", "plugin", i.Key)
+	default:
+		i.Log.Warn("Plugin reported a problem", "plugin", i.Key, "problem", problem)
+	}
 	var events []func()
 	switch {
 	case s.Contract != contractv1.Contract:

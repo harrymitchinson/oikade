@@ -66,7 +66,7 @@ Roots under `oikade/v1/` that start with `_` are Oikade's. Don't publish to them
 
 Publish `{"state":"online","contract":1}` once connected, and set the Last Will so that the broker publishes `{"state":"offline","contract":1}` if the plugin dies. While the status is offline, Oikade treats every device of the plugin as unavailable and refuses to send it commands.
 
-A plugin with a problem of its own, one no single device carries, says so in an optional `error`, such as `{"state":"online","contract":1,"error":"login refused"}` for an account that refuses the password, while it has no devices to put an `error` on. `oikade status` shows it. Republish the status without it once the problem is fixed. It doesn't change what an online status means: the plugin is still running, and its devices say for themselves whether they can be reached ([OIK-17](https://linear.app/oikade/issue/OIK-17)).
+A plugin with a problem of its own, one no single device carries, says so in an optional `error`, such as `{"state":"online","contract":1,"error":"login refused"}` for an account that refuses the password, which leaves no device to put an `error` on. A problem with one device goes in that device's `error` instead. `oikade status` shows it, on one line and cut to 200 characters, so say what would fix it, such as the secret to check. Republish the status without it once the problem is fixed. It doesn't change what an online status means: the plugin is still running, and its devices say for themselves whether they can be reached ([OIK-17](https://linear.app/oikade/issue/OIK-17)).
 
 ### `devices`
 

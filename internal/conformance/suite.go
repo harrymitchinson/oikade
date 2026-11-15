@@ -263,8 +263,8 @@ func (s *Suite) up() bool { return s.inst.Stats().Up }
 func (s *Suite) announces(t T) {
 	s.eventually(t, "status online with contract 1", s.up)
 	s.eventually(t, "a devices report listing every declared device", s.reported)
-	if problem := s.inst.Stats().Error; problem != "" {
-		// Online with a problem of its own, such as a login its account refused: it may find nothing.
+	if problem := s.inst.Problem(); problem != "" {
+		// The suite still needs a device it can use, so this only says why one might be missing.
 		t.Logf("the plugin is online with a problem: %s", problem)
 	}
 	for id, dev := range s.devices {
@@ -437,10 +437,11 @@ func (s *Suite) crashes(t T) {
 	s.noRejections(t)
 }
 
-// isStatus reports whether payload is a status with this state and the contract version.
+// isStatus reports whether payload is a status with this state and the contract version, with or
+// without an error.
 func isStatus(payload []byte, state string) bool {
 	var s contractv1.Status
-	return json.Unmarshal(payload, &s) == nil && s == contractv1.Status{State: state, Contract: contractv1.Contract}
+	return json.Unmarshal(payload, &s) == nil && s.State == state && s.Contract == contractv1.Contract
 }
 
 // toggled returns a different valid value for a writable capability.

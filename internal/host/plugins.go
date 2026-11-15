@@ -344,7 +344,7 @@ func (p *plugins) problems() map[string]string {
 	p.mu.Unlock()
 	var out map[string]string
 	for _, h := range running {
-		if e := h.driver.Stats().Error; e != "" {
+		if e := h.driver.Problem(); e != "" {
 			if out == nil {
 				out = map[string]string{}
 			}
