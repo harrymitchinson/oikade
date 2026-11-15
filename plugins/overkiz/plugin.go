@@ -111,9 +111,9 @@ type device struct {
 	// subs are the sub-devices' URLs, by sub, "" being the device itself.
 	subs map[string]string
 	info contractv1.DiscoveredDevice
-	// available is what the setup or the last event said.
-	available bool
-	values    contractv1.State
+	// available and enabled are what the setup or the last event said. It's online when both are.
+	available, enabled bool
+	values             contractv1.State
 }
 
 // bridge is the plugin.
@@ -179,12 +179,17 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			break
 		}
 		b.lost(ctx)
-		switch classify(err) {
-		case refused:
+		switch {
+		case errors.Is(err, errReport):
+			b.log.Error("Could not report Overkiz devices", "err", err, "account", b.account.describe(), "retry", wait.String())
+			b.setProblem(ctx, fmt.Sprintf("could not report the devices of %s: %v", b.account.describe(), err))
+			sleep(ctx, wait)
+			wait = min(2*wait, b.timing.retryMax)
+		case classify(err) == refused:
 			b.log.Warn("Overkiz refused the credential", "err", err, "account", b.account.describe())
 			b.setProblem(ctx, fmt.Sprintf("%s refused the credential: check the secret %q", b.account.describe(), b.account.secret()))
 			b.untilSecretChanges(ctx, credential, b.timing.refused)
-		case limited:
+		case classify(err) == limited:
 			b.log.Warn("Overkiz limited the plugin's requests", "err", err, "account", b.account.describe(), "retry", b.timing.limited.String())
 			b.setProblem(ctx, fmt.Sprintf("%s says there were too many requests: trying again in %s", b.account.describe(), b.timing.limited))
 			sleep(ctx, b.timing.limited)
@@ -205,6 +210,7 @@ func (b *bridge) session(ctx context.Context, credential string, connected func(
 	if err != nil {
 		return err
 	}
+	defer c.http.CloseIdleConnections()
 	if err := b.readSetup(ctx, c); err != nil {
 		return err
 	}
@@ -212,7 +218,7 @@ func (b *bridge) session(ctx context.Context, credential string, connected func(
 	b.client = c
 	b.mu.Unlock()
 	if err := b.publishAll(ctx); err != nil {
-		return err
+		return reporting(err)
 	}
 	b.setProblem(ctx, "")
 	b.log.Info("Connected to Overkiz", "account", b.account.describe())
@@ -236,7 +242,7 @@ func (b *bridge) session(ctx context.Context, credential string, connected func(
 		case <-b.kick:
 		}
 		events, err := c.fetch(ctx, listener)
-		if classify(err) == noListener && err != nil {
+		if err != nil && classify(err) == noListener {
 			// The server forgot it, and may have dropped events with it, so read everything again.
 			if listener, err = c.register(ctx); err != nil {
 				return err
@@ -245,7 +251,7 @@ func (b *bridge) session(ctx context.Context, credential string, connected func(
 				return err
 			}
 			if err := b.publishAll(ctx); err != nil {
-				return err
+				return reporting(err)
 			}
 			continue
 		}
@@ -254,14 +260,14 @@ func (b *bridge) session(ctx context.Context, credential string, connected func(
 		}
 		reread, err := b.take(ctx, events)
 		if err != nil {
-			return err
+			return reporting(err)
 		}
 		if reread {
 			if err := b.readSetup(ctx, c); err != nil {
 				return err
 			}
 			if err := b.publishAll(ctx); err != nil {
-				return err
+				return reporting(err)
 			}
 		}
 	}
@@ -310,7 +316,7 @@ func (b *bridge) readSetup(ctx context.Context, c *client) error {
 		}
 		dev := &device{
 			id: id, url: d.DeviceURL, model: m, subs: map[string]string{"": d.DeviceURL},
-			available: d.Available && d.Enabled, values: contractv1.State{},
+			available: d.Available, enabled: d.Enabled, values: contractv1.State{},
 			info: contractv1.DiscoveredDevice{
 				ID: id, Manufacturer: d.attribute("core:Manufacturer"), Model: d.ControllableName,
 				Capabilities: m.capabilities(), Name: d.Label,
@@ -320,7 +326,8 @@ func (b *bridge) readSetup(ctx context.Context, c *client) error {
 			b.log.Warn("Skipped Overkiz device with the same ID as another", "url", d.DeviceURL, "other", other.url, "device", id)
 			continue
 		}
-		devices[id], byURL[d.DeviceURL] = dev, dev
+		// By the URL as listed and without a #1, which is how its sub-devices name it.
+		devices[id], byURL[d.DeviceURL], byURL[u.base()] = dev, dev, dev
 		dev.apply("", d.States)
 	}
 	for _, d := range subs {
@@ -350,6 +357,8 @@ func (b *bridge) skip(widget string, d apiDevice) {
 			"controllable", d.ControllableName, "label", d.Label)
 	}
 }
+
+func (d *device) online() bool { return d.available && d.enabled }
 
 // apply takes states of the device or one of its sub-devices into its values, and says which changed.
 func (d *device) apply(sub string, states []apiState) []string {
@@ -402,8 +411,15 @@ func (b *bridge) take(ctx context.Context, events []apiEvent) (bool, error) {
 			if !ok || dev.url != e.DeviceURL {
 				continue
 			}
-			dev.available = e.Name == eventAvailable
-			availability[dev.id] = dev.available
+			switch e.Name {
+			case eventDisabled:
+				// Enabling it again has no event that pyoverkiz knows of, so the setup is read again on
+				// the next added, removed or updated device, or reconnect.
+				dev.enabled = false
+			default:
+				dev.available = e.Name == eventAvailable
+			}
+			availability[dev.id] = dev.online()
 		case eventCreated, eventRemoved, eventUpdated:
 			reread = true
 		case eventExecutionChanged:
@@ -413,12 +429,14 @@ func (b *bridge) take(ctx context.Context, events []apiEvent) (bool, error) {
 			case execFailed:
 				delete(b.running, e.ExecID)
 				b.log.Warn("Overkiz execution failed", "exec", e.ExecID, "failure", e.FailureType)
+				// What the device did instead may not have been reported, so read it again.
+				reread = true
 			}
 		}
 	}
 	b.mu.Unlock()
 	for _, u := range updates {
-		if err := b.plugin.UpdateState(ctx, u.id, u.state); err != nil {
+		if err := b.plugin.ReportState(ctx, u.id, u.state); err != nil {
 			return false, err
 		}
 	}
@@ -450,37 +468,38 @@ func (b *bridge) check(err error, msg, id string) {
 	}
 }
 
-// publishAll reports the setup: what the app holds, every device, and their availability and state.
+// publishAll reports the setup: what the app holds, every device, and their availability and what
+// they've reported, all from one snapshot.
 func (b *bridge) publishAll(ctx context.Context) error {
-	b.mu.Lock()
-	discovered := make([]contractv1.DiscoveredDevice, 0, len(b.devices))
-	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
-		discovered = append(discovered, b.devices[id].info)
+	type report struct {
+		id     string
+		online bool
+		values contractv1.State
 	}
+	b.mu.Lock()
+	ids := slices.Sorted(maps.Keys(b.devices))
+	discovered := make([]contractv1.DiscoveredDevice, 0, len(ids))
+	reports := make([]report, 0, len(ids))
+	for _, id := range ids {
+		d := b.devices[id]
+		discovered = append(discovered, d.info)
+		reports = append(reports, report{id, d.online(), maps.Clone(d.values)})
+	}
+	devices := b.reportsLocked()
 	b.mu.Unlock()
 	if err := b.plugin.SetDiscovered(ctx, discovered); err != nil {
 		return err
 	}
-	if err := b.publishDevices(ctx); err != nil {
+	if err := b.plugin.SetDevices(ctx, devices, 0); err != nil {
 		return err
 	}
-	b.mu.Lock()
-	type report struct {
-		id        string
-		available bool
-		values    contractv1.State
-	}
-	reports := make([]report, 0, len(b.devices))
-	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
-		d := b.devices[id]
-		reports = append(reports, report{id, d.available, maps.Clone(d.values)})
-	}
-	b.mu.Unlock()
 	for _, r := range reports {
-		if err := b.plugin.SetAvailability(ctx, r.id, r.available); err != nil {
+		if err := b.plugin.SetAvailability(ctx, r.id, r.online); err != nil {
 			return err
 		}
-		if err := b.plugin.SetState(ctx, r.id, r.values); err != nil {
+		// What's known: a shutter yet to report where it is, or one the hub can't place, has no
+		// position, and that's no reason to drop the rest.
+		if err := b.plugin.ReportState(ctx, r.id, r.values); err != nil {
 			return err
 		}
 	}
@@ -490,6 +509,12 @@ func (b *bridge) publishAll(ctx context.Context) error {
 // publishDevices reports every device served, and every device on record that isn't, as not found.
 func (b *bridge) publishDevices(ctx context.Context) error {
 	b.mu.Lock()
+	reports := b.reportsLocked()
+	b.mu.Unlock()
+	return b.plugin.SetDevices(ctx, reports, 0)
+}
+
+func (b *bridge) reportsLocked() []contractv1.DeviceReport {
 	reports := make([]contractv1.DeviceReport, 0, len(b.devices)+len(b.declared))
 	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
 		d := b.devices[id]
@@ -502,8 +527,7 @@ func (b *bridge) publishDevices(ctx context.Context) error {
 			reports = append(reports, contractv1.DeviceReport{ID: id})
 		}
 	}
-	b.mu.Unlock()
-	return b.plugin.SetDevices(ctx, reports, 0)
+	return reports
 }
 
 // setProblem sets the plugin's error, which oikade status shows.
@@ -523,6 +547,18 @@ func (b *bridge) untilSecretChanges(ctx context.Context, was string, most time.D
 			return
 		}
 	}
+}
+
+// errReport is a report the SDK refused or couldn't publish: the plugin's fault, or the host's
+// connection, not the hub's.
+var errReport = errors.New("could not report to Oikade")
+
+// reporting marks err as errReport.
+func reporting(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", errReport, err)
 }
 
 // sleep waits for d, and says false if ctx ended first.
@@ -555,7 +591,11 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.timing.set)
 	defer cancel()
-	exec, err := c.execute(ctx, dev.subs[bind.sub], bind.write(cmd.Value)...)
+	commands, err := bind.write(cmd.Value)
+	if err != nil {
+		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
+	}
+	exec, err := c.execute(ctx, dev.subs[bind.sub], commands...)
 	if err != nil {
 		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
 	}

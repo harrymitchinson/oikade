@@ -60,8 +60,14 @@ func TestEveryModelServesOnlyKnownCapabilities(t *testing.T) {
 	if _, ok := closure.bindings[0].read(101.0); ok {
 		t.Error("a closure of 101 was read")
 	}
-	if got := closure.bindings[0].write(42.6); len(got) != 1 || got[0].Name != "setClosure" || got[0].Parameters[0] != 43 {
-		t.Errorf("writing 42.6: %+v", got)
+	if got, err := closure.bindings[0].write(42.6); err != nil || len(got) != 1 || got[0].Name != "setClosure" || got[0].Parameters[0] != 43 {
+		t.Errorf("writing 42.6: %+v, %v", got, err)
+	}
+	// Anything else is refused rather than sent, so it can't open a shutter as 0 would.
+	for _, v := range []any{true, 150.0, -1.0, "50"} {
+		if got, err := closure.bindings[0].write(v); err == nil {
+			t.Errorf("writing %v: %+v", v, got)
+		}
 	}
 }
 

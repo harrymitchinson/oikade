@@ -39,4 +39,4 @@ Each device's ID comes from its Overkiz device URL, `<protocol>://<hub>/<address
 
 Any other kind of device isn't reported yet, and the host's log names its widget once. **RTS blinds aren't reported:** they don't say where they are, and Oikade can't show a guess.
 
-The plugin fetches the hub's events every 5 seconds, and every 2 while a command runs, and reads the whole setup only when it starts and when a device is added or removed. While the hub doesn't answer, every device is offline, `oikade status` says why, and the plugin tries again, from 5 seconds up to a minute apart.
+The plugin fetches the hub's events every 5 seconds, and every 2 while a command runs, and reads the whole setup again only when it starts, when a device is added, removed or changed in the app, when a command fails, and when the hub has forgotten its listener. A device you disable in the app is offline until the setup is next read. While the hub doesn't answer, every device is offline, `oikade status` says why, and the plugin tries again, from 5 seconds up to a minute apart.

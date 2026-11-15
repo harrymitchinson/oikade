@@ -1,6 +1,7 @@
 package overkiz
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
@@ -21,8 +22,9 @@ type binding struct {
 	state string
 	// read turns the state's value into the capability's, or says it can't.
 	read func(any) (any, bool)
-	// write is the commands that set the capability to v, nil if it's read-only.
-	write func(v any) []apiCommand
+	// write is the commands that set the capability to v, nil if it's read-only. It refuses a value it
+	// can't send.
+	write func(v any) ([]apiCommand, error)
 }
 
 // models is every kind of device the plugin serves, by widget. A widget that isn't here isn't
@@ -41,9 +43,12 @@ var models = map[string]model{
 // closure is a cover with core:ClosureState, set with setClosure.
 var closure = model{bindings: []binding{{
 	capability: contractv1.Position, state: "core:ClosureState", read: percent,
-	write: func(v any) []apiCommand {
-		f, _ := v.(float64)
-		return []apiCommand{{Name: "setClosure", Parameters: []any{int(math.Round(f))}}}
+	write: func(v any) ([]apiCommand, error) {
+		f, ok := v.(float64)
+		if !ok || f < 0 || f > 100 {
+			return nil, fmt.Errorf("position %v is not a number from 0 to 100", v)
+		}
+		return []apiCommand{{Name: "setClosure", Parameters: []any{int(math.Round(f))}}}, nil
 	},
 }}}
 

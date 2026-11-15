@@ -281,7 +281,7 @@ func TestTheHubGoingAwayLeavesEveryDeviceOfflineUntilItsBack(t *testing.T) {
 	if d := b.devices(); len(d.Devices) != 2 || !d.Devices[0].Found || d.Discovered != nil {
 		t.Errorf("devices while the hub is down: %+v", d)
 	}
-	b.set(kitchen, `{"position":10}`)
+	b.set(patio, `{"position":10}`)
 
 	hub.set(func(h *fakeHub) { h.down = false })
 	b.waitAvailability(kitchen, "online")
@@ -374,4 +374,61 @@ func TestAnAddedDeviceIsReadWithTheSetup(t *testing.T) {
 	b.waitAvailability(kitchen, "offline")
 	hub.event(map[string]any{"name": eventAvailable, "deviceURL": kitchenAt})
 	b.waitAvailability(kitchen, "online")
+}
+
+func TestAShutterThatCantSayWhereItIsLeavesTheRestWorking(t *testing.T) {
+	hub := newFakeHub(t)
+	// Uncalibrated: no closure the plugin can read.
+	hub.set(func(h *fakeHub) {
+		h.setup[1]["states"] = []any{map[string]any{"name": "core:ClosureState", "type": 1, "value": -1}}
+	})
+	b := start(t, hub, token)
+	b.waitState(patio, `{"position":40}`)
+	b.waitAvailability(kitchen, "online")
+	if got := b.topic(root.State(kitchen)); got != `{}` {
+		t.Errorf("state of a shutter with no position: %s", got)
+	}
+	if s := b.status(); s.Error != "" {
+		t.Errorf("status: %+v", s)
+	}
+	b.listening()
+	hub.closure(kitchenAt, 20)
+	b.waitState(kitchen, `{"position":20}`)
+}
+
+func TestADeviceListedAsNumberOneKeepsItsSubDevices(t *testing.T) {
+	hub := newFakeHub(t)
+	hub.set(func(h *fakeHub) { h.setup[3]["deviceURL"] = "io://1234-5678-9012/22222222#1" })
+	b := start(t, hub, token)
+	b.waitState(patio, `{"position":40}`)
+	b.listening()
+	// Its events name it with the #1.
+	hub.closure("io://1234-5678-9012/22222222#1", 70)
+	b.waitState(patio, `{"position":70}`)
+	if strings.Contains(b.logs.String(), "LightSensor") {
+		t.Errorf("its sub-device was logged as a kind of its own:\n%s", b.logs.String())
+	}
+}
+
+func TestAFailedExecutionReadsTheDeviceAgain(t *testing.T) {
+	hub := newFakeHub(t)
+	b := start(t, hub, token)
+	b.waitState(kitchen, `{"position":0}`)
+	b.listening()
+	reads := hub.count("/setup/devices")
+	b.set(kitchen, `{"position":100}`)
+	b.eventually("an execution", func() bool { return len(hub.executions()) == 1 })
+	// It stopped part way, and the hub never said so in an event.
+	hub.set(func(h *fakeHub) { h.setup[1]["states"].([]any)[1].(map[string]any)["value"] = 35 })
+	hub.event(map[string]any{"name": eventExecutionChanged, "execId": "exec-1", "newState": execFailed, "failureType": "WHILEEXEC_BLOCKED_BY_HAZARD"})
+	b.waitState(kitchen, `{"position":35}`)
+	if hub.count("/setup/devices") <= reads {
+		t.Error("the setup wasn't read again")
+	}
+	// A value it can't send is refused, and nothing is sent.
+	b.set(kitchen, `{"position":true}`)
+	time.Sleep(20 * fast.poll)
+	if n := len(hub.executions()); n != 1 {
+		t.Errorf("%d executions after a write of true, want 1", n)
+	}
 }
