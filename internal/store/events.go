@@ -30,8 +30,13 @@ const (
 	keyBytes = 8
 )
 
-// errNoEvents means nothing has been added yet.
-var errNoEvents = errors.New("no event log")
+var (
+	// errNoEvents means nothing has been added yet.
+	errNoEvents = errors.New("no event log")
+	// errNothingToDo rolls back an Add with nothing to add or drop, which would otherwise sync the
+	// disk to write what's there already.
+	errNothingToDo = errors.New("nothing to add or drop")
+)
 
 // Record is one event in the log. The store doesn't read Data.
 type Record struct {
@@ -64,10 +69,10 @@ type Events struct {
 }
 
 // Add appends records in one commit, and drops the oldest to stay within bound, folding them into the
-// baseline in that same commit. Call it with no records to apply the bound alone. A record's Seq is
-// set here.
+// baseline in that same commit. Call it with no records to apply the bound alone, which commits
+// nothing if nothing is over it. A record's Seq is set here.
 func (e *Events) Add(records []Record, now time.Time, bound Bound, fold Fold) error {
-	return e.db.Update(func(tx *bolt.Tx) error {
+	err := e.db.Update(func(tx *bolt.Tx) error {
 		root, err := tx.CreateBucketIfNotExists(eventsBucket)
 		if err != nil {
 			return err
@@ -92,6 +97,9 @@ func (e *Events) Add(records []Record, now time.Time, bound Bound, fold Fold) er
 		}
 		dropped, size := oldest(log, size, now, bound, max(minDrop, dropPerAdd*len(records)))
 		if len(dropped) == 0 {
+			if len(records) == 0 {
+				return errNothingToDo
+			}
 			return root.Put(sizeKey, binary.BigEndian.AppendUint64(nil, size))
 		}
 		baseline, err := fold(bytes.Clone(root.Get(baselineKey)), dropped)
@@ -108,6 +116,10 @@ func (e *Events) Add(records []Record, now time.Time, bound Bound, fold Fold) er
 		}
 		return root.Put(sizeKey, binary.BigEndian.AppendUint64(nil, size))
 	})
+	if errors.Is(err, errNothingToDo) {
+		return nil
+	}
+	return err
 }
 
 // oldest finds what's over the bound, up to limit records, and the size without them.

@@ -133,6 +133,32 @@ func TestABoundAloneDropsOnAQuietLog(t *testing.T) {
 	}
 }
 
+// An idle host flushes every few seconds with nothing to add. A commit then would sync the disk for
+// nothing, thousands of times a day on an SD card.
+func TestAQuietLogWithinItsBoundCommitsNothing(t *testing.T) {
+	s := open(t, t.TempDir())
+	at := time.Date(2030, 1, 7, 8, 0, 0, 0, time.UTC)
+	if err := s.Events().Add([]Record{{Time: at, Data: []byte("kept")}}, at, Bound{}, countDropped); err != nil {
+		t.Fatal(err)
+	}
+	writes := func() int64 {
+		stats := s.db.Stats().TxStats
+		return stats.GetWrite()
+	}
+	before := writes()
+	for i := range 10 {
+		if err := s.Events().Add(nil, at.Add(time.Duration(i)*time.Second), Bound{MaxAge: time.Hour}, countDropped); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := writes() - before; n != 0 {
+		t.Errorf("wrote %d pages with nothing to add or drop", n)
+	}
+	if left, err := s.Events().Read(0, 10); err != nil || len(left) != 1 {
+		t.Fatalf("Read = %v, %v", left, err)
+	}
+}
+
 func TestSeqKeepsRisingPastDropsAndARestart(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)
