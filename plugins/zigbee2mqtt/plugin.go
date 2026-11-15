@@ -56,7 +56,8 @@ func New(c Config) plugin.Factory {
 			ids = append(ids, d.ID)
 		}
 		return &bridge{
-			config: c, broker: env.MQTTURL, declared: ids, up: true, online: map[string]bool{},
+			config: c, name: env.Root.Plugin(), broker: env.MQTTURL, declared: ids, up: true, online: map[string]bool{},
+			infoHeard:      make(chan struct{}),
 			connectTimeout: connectTimeout,
 			log:            slog.New(slog.NewJSONHandler(os.Stderr, nil)),
 		}, nil
@@ -66,6 +67,8 @@ func New(c Config) plugin.Factory {
 // bridge is the plugin: it follows an Instance and reports what it hears through the SDK.
 type bridge struct {
 	config Config
+	// name is the plugin's, as the home imports it, for setup to name.
+	name   string
 	broker string
 	// declared are the devices on record, which are reported even once they've left Zigbee2MQTT.
 	declared       []string
@@ -86,9 +89,17 @@ type bridge struct {
 	reported map[string]bool
 	// heard is the values of the message being taken in.
 	heard map[string]contractv1.State
+	// info is Zigbee2MQTT's bridge/info, once infoHeard is closed, and connected whether the plugin
+	// has reached the broker.
+	info      *bridgeInfo
+	infoHeard chan struct{}
+	connected bool
 }
 
-var _ plugin.Handler = (*bridge)(nil)
+var (
+	_ plugin.Handler = (*bridge)(nil)
+	_ plugin.Setup   = (*bridge)(nil)
+)
 
 // Serve implements plugin.Handler.
 func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
@@ -124,7 +135,11 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		Log:           b.log,
 		OnBridgeState: b.setUp,
 		OnListed:      b.publishAllAvailability,
+		OnBridgeInfo:  b.heardInfo,
 	}
+	b.mu.Lock()
+	b.connected = true
+	b.mu.Unlock()
 	if err := b.instance.Start(ctx); err != nil {
 		return err
 	}

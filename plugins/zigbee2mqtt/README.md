@@ -15,7 +15,16 @@ oikade-host --home ./home --broker mqtt://localhost:1883
 
 A password in the `--broker` URL reaches every plugin you import. `zigbee2mqtt.Config` takes `BaseTopic` if yours isn't Zigbee2MQTT's default, `zigbee2mqtt`.
 
-Set these in Zigbee2MQTT's `configuration.yaml`:
+Then check it with `oikade setup zigbee`, naming the plugin as your home does ([OIK-276](https://linear.app/oikade/issue/OIK-276)). On the host, the plugin checks that it reaches the broker, that Zigbee2MQTT is there under the base topic, and two of Zigbee2MQTT's settings, which it names with what to set if they're wrong:
+
+```console
+$ oikade setup zigbee
+Starting the setup of zigbee on this machine's host
+Broker mqtt://localhost:1883: connected
+Zigbee2MQTT 2.6.0 found
+availability is off in Zigbee2MQTT: a device that's gone won't read offline. Set availability.enabled: true
+Error: zigbee isn't set up: zigbee needs 1 change in Zigbee2MQTT's configuration.yaml. Run oikade setup zigbee again after it
+```
 
 ```yaml
 availability:
@@ -23,6 +32,8 @@ availability:
 device_options:
   retain: true       # so a sensor's values survive a host restart
 ```
+
+It changes nothing in Zigbee2MQTT: its configuration is yours. It reads them from Zigbee2MQTT's `bridge/info`, and reads nothing else there, which holds the network key. Until both are set, `oikade status` says the plugin needs its setup.
 
 After each device list, the plugin asks Zigbee2MQTT with a `/get` for each value nothing has reported, one every 200ms, if the device can be asked for it ([OIK-53](https://linear.app/oikade/issue/OIK-53)). A light or a plug answers, so its state is back straight after a restart even without `retain`. A battery sensor sleeps and can't be asked, so without `retain` its values stay unknown until it next reports. A value that's retained is never asked for, and a reply is taken in just as a retained value is, so the first value after a host restart fires nothing.
 

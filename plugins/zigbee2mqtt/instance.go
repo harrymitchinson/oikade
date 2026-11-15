@@ -37,6 +37,9 @@ type Instance struct {
 	// and whatever it resolved.
 	OnBridgeState func(online bool)
 	OnListed      func()
+	// OnBridgeInfo, if set, hears <base>/bridge/info, which holds Zigbee2MQTT's whole configuration,
+	// its network key included: read only what's needed from it, and never log it.
+	OnBridgeInfo func(payload []byte)
 	// getInterval is the time between /get requests. Zero is defaultGetInterval.
 	getInterval time.Duration
 	// requested, if set, runs when a round of /get requests ends. Tests wait for it.
@@ -140,6 +143,10 @@ func (i *Instance) handle(m mqtt.Message) {
 	case rest == "bridge/state":
 		if i.OnBridgeState != nil {
 			i.OnBridgeState(onlinePayload(m.Payload))
+		}
+	case rest == "bridge/info":
+		if i.OnBridgeInfo != nil {
+			i.OnBridgeInfo(m.Payload)
 		}
 	case strings.HasPrefix(rest, "bridge/"):
 	case i.ownCommand(rest):

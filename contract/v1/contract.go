@@ -115,6 +115,9 @@ func ParseRoot(s string) (Root, error) {
 	return Root(s), nil
 }
 
+// Plugin is the plugin's name: the root's last segment.
+func (r Root) Plugin() string { return strings.TrimPrefix(string(r), prefix) }
+
 // Status is the status topic.
 func (r Root) Status() string { return string(r) + "/status" }
 
