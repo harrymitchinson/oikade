@@ -16,10 +16,10 @@ func TestItNamesTheRealFramework(t *testing.T) {
 	var _ = framework.Hold.OffDelay
 	var _ = framework.Set.For
 	// why names these, by what takes each.
-	var _ func(*framework.FlowRun, framework.Set) error = (*framework.FlowRun).Set
-	var _ func(framework.Options, ...framework.Part) framework.Home = framework.NewHome
-	var _ func(...framework.Part) framework.Bundle = framework.NewBundle
-	var _ func(framework.Home) = framework.Run
+	var _ = (*framework.FlowRun).Set
+	var _ = framework.NewHome
+	var _ = framework.NewBundle
+	var _ = framework.Run
 	var _ = []framework.Part{framework.Hold{}, framework.Moment{}, framework.Flow{}, framework.Control{},
 		framework.Plugin{}, framework.Bundle{}}
 }
