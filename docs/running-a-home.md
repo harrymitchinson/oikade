@@ -88,7 +88,27 @@ oikade secret list                # names only, with --json too
 oikade secret remove api-key
 ```
 
-Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them. Your code reads one with `framework.Secret`, and a plugin with `plugin.ReadSecret`, when it next asks. `oikade secret set` restarts nothing, so code that reads a secret once at start sees the new value after your next deploy.
+Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them.
+
+Your code names a secret with `framework.Secret`, and passes it where it's used, such as a plugin's config ([OIK-297](https://linear.app/oikade/issue/OIK-297)):
+
+```go
+var weatherKey = framework.Secret("weather-api-key") // a step reads weatherKey.Read() when it runs
+
+framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
+	Brand: overkiz.Thermor, Username: "someone@example.com", Password: framework.Secret("cozytouch"),
+}))
+```
+
+Making one declares it, so `oikade deploy` and the top of `oikade status` name each one a deployed version uses that isn't set, with the command that sets it:
+
+```
+$ oikade deploy
+Deployed version 14
+Secret cozytouch isn't set: oikade secret set cozytouch
+```
+
+A missing secret doesn't stop a deploy: the plugin says what it's waiting for, and reads the secret once it's set. `Read` reads the value each time, so `oikade secret set` needs no deploy and restarts nothing. Make secrets where the home is built, in a package-level `var` or a plugin's config: one made in a rule as it runs is too late for the host to know of it. A plugin reads the secrets it names itself, such as a device's key, with `plugin.ReadSecret`.
 
 `--secrets-dir DIR` on `oikade-host` points at another directory, which can be read-only, such as a systemd credentials directory. `oikade secret list` shows what's in it, and `set` says to change it where it's mounted from.
 

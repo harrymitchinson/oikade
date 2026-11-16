@@ -23,6 +23,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/secretuse"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -35,6 +36,9 @@ var hostInstance = driver.InstanceKey{Driver: "host"}
 func run(h Home, log *slog.Logger) error {
 	rules, flows, err := h.compile()
 	if err != nil {
+		return err
+	}
+	if err := checkSecrets(); err != nil {
 		return err
 	}
 	if len(os.Args) > 1 && os.Args[1] == wire.RoleCheck {
@@ -416,8 +420,21 @@ func logOutput() io.Writer {
 	return os.Stdout
 }
 
-// Secret reads a credential set with oikade secret set, such as an API key for r.Do. ok is false if
-// there's no such secret, as under oikade dev. Never log the result.
-func Secret(name string) (value string, ok bool, err error) {
-	return plugin.ReadSecret(plugin.Environment{SecretsDir: os.Getenv(contractv1.EnvSecretsDir)}, name)
+// Secret is the credential oikade secret set keeps as name, such as a plugin's password or an API
+// key for r.Do. Pass it where it's used: its Read reads the value each time, so a changed secret
+// needs no deploy. Making one declares it, so oikade deploy and oikade status name it while it isn't
+// set. Make it where the home is built, such as in a package-level var or a plugin's config: one
+// made in a rule as it runs is too late for that.
+func Secret(name string) plugin.Secret { return plugin.NewSecret(name) }
+
+// checkSecrets says which of the secrets the home uses have names oikade secret set refuses.
+func checkSecrets() error {
+	var errs []error
+	for _, name := range secretuse.Names() {
+		if !contractv1.ValidSecretName(name) {
+			errs = append(errs, fmt.Errorf("secret %q isn't a valid name: "+
+				"use 1 to 253 letters, digits, '.', '_' and '-', starting with a letter or digit", name))
+		}
+	}
+	return errors.Join(errs...)
 }

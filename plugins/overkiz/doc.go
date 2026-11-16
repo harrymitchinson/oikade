@@ -3,10 +3,10 @@
 //
 //	framework.NewHome(framework.Options{},
 //		framework.NewPlugin("tahoma", overkiz.New(overkiz.Local{
-//			Address: "192.168.1.40:8443", PIN: "1234-5678-9012", TokenSecret: "tahoma-token",
+//			Address: "192.168.1.40:8443", PIN: "1234-5678-9012", Token: framework.Secret("tahoma-token"),
 //		})),
 //		framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
-//			Brand: overkiz.Thermor, Username: "someone@example.com", PasswordSecret: "cozytouch",
+//			Brand: overkiz.Thermor, Username: "someone@example.com", Password: framework.Secret("cozytouch"),
 //		})),
 //	)
 //

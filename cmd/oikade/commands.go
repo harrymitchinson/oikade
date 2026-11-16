@@ -197,6 +197,10 @@ func setupGaps(st *api.Status, bridge *api.Matter) []string {
 	for _, name := range st.NeedsSetup {
 		gaps = append(gaps, fmt.Sprintf("Plugin %s needs setup: run oikade setup %s", name, name))
 	}
+	// A missing secret is often why a plugin can't log in, so it comes before the plugins' problems.
+	for _, name := range st.UnsetSecrets {
+		gaps = append(gaps, unsetSecret(name))
+	}
 	// A plugin's own problem, such as a refused login, often explains its devices' problems.
 	for _, name := range slices.Sorted(maps.Keys(st.PluginProblems)) {
 		gaps = append(gaps, fmt.Sprintf("Plugin %s: %s", name, st.PluginProblems[name]))
@@ -494,4 +498,17 @@ func done(resp api.Response, asJSON bool, message string) error {
 		return errors.New(resp.Error)
 	}
 	return nil
+}
+
+// unsetSecret says a secret the home uses isn't set, and how to set it.
+func unsetSecret(name string) string {
+	return fmt.Sprintf("Secret %s isn't set: oikade secret set %s", name, name)
+}
+
+// printUnsetSecrets says which secrets the version now running uses that aren't set. It comes after
+// the deploy's result, which it doesn't change: the plugin that needs one waits for it.
+func printUnsetSecrets(out io.Writer, names []string) {
+	for _, name := range names {
+		_, _ = fmt.Fprintln(out, unsetSecret(name))
+	}
 }

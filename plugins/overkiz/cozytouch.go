@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // Brand is whose Cozytouch app the account is in. They share one cloud.
@@ -31,8 +33,8 @@ type Cozytouch struct {
 	Brand Brand
 	// Username is the account's email address.
 	Username string
-	// PasswordSecret is the secret that holds the account's password.
-	PasswordSecret string
+	// Password is the account's password, such as framework.Secret("cozytouch").
+	Password plugin.Secret
 
 	// The tests' servers, in place of the real ones.
 	atlanticAPI, endpoint string
@@ -56,7 +58,9 @@ var cloudTiming = timing{
 	request: 15 * time.Second, set: 4 * time.Second, execution: 2 * time.Minute,
 }
 
-func (c Cozytouch) secret() string { return c.PasswordSecret }
+func (c Cozytouch) secret() string { return c.Password.Name() }
+
+func (Cozytouch) secretField() string { return "overkiz.Cozytouch's Password" }
 
 func (c Cozytouch) describe() string { return string(c.Brand) + "'s Cozytouch cloud" }
 

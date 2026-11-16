@@ -255,12 +255,15 @@ func start() {
 	}
 }
 
+// fixtureSecret is the secret the tests set, declared as the home is built.
+var fixtureSecret = framework.Secret("fixture-secret")
+
 // reportSecret tells the tests a secret arrived, and only how long it is: the value mustn't be logged.
 func reportSecret() {
 	if len(os.Args) < 2 || os.Args[1] != "automations" {
 		return
 	}
-	if value, ok, err := framework.Secret("fixture-secret"); ok && err == nil {
+	if value, err := fixtureSecret.Read(); err == nil {
 		fmt.Printf("{\"msg\":\"Read secret\",\"length\":%d}\n", len(value))
 	}
 }
@@ -287,6 +290,9 @@ func home() rules {
 		leakShutoff = "valve-shutoff"
 	case "removed", "crash-removed", "crash-told":
 		claimMoment = "claim-moment-2"
+	case "badsecret":
+		// A name oikade secret set refuses fails the check.
+		_ = framework.Secret("not/a-name")
 	}
 	plugins := strings.Contains(variant, "plugins")
 

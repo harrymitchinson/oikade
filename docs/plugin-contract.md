@@ -180,7 +180,7 @@ The devices file is yours to write, and lists the devices this plugin serves.
 
 `parameters` is passed through without validation. Validating it is the plugin's job, and problems go in `devices[].error`.
 
-The secrets directory holds one file per secret, by convention one per device ID. Never log its contents.
+The secrets directory holds one file per secret, by convention one per device ID. Never log its contents. In the Go SDK, a plugin your home imports takes a credential the person chooses as a `plugin.Secret` in its config, which the home makes with `framework.Secret`, so `oikade deploy` names it while it isn't set. It reads the ones it names itself with `plugin.ReadSecret`.
 
 ## How Oikade treats bad messages
 

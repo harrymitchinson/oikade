@@ -39,7 +39,8 @@ func NewHome(parts ...Part) Home { return Home{} }
 
 func Run(h Home) {}
 
-func Secret(name string) (string, bool, error) { return "", false, nil }
+// Secret declares a secret as it's made, so a discarded one still does something.
+func Secret(name string) string { return name }
 
 type FlowRun struct{}
 

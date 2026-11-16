@@ -13,8 +13,8 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/matter` | | `matter` |
 | `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds |
 | `GET /v1/secrets` | | `secrets`, never their values |
-| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running |
-| `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings`, `unimported` |
+| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running; `unsetSecrets`, the secrets the version uses that aren't set |
+| `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings`, `unimported`, `unsetSecrets` |
 | `POST /v1/set` | `device`, `capability`, `value` | `outcome`, the capability with its claims once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered |
 | `POST /v1/pause`, `POST /v1/resume` | `rule`, `allowSafety` | `needsAllowSafety`; a pause's `ended`, the claims it ended, and `kept`, its Safety claims, each as `device capability` |
 | `POST /v1/backup` | | `backup`, the file it wrote on the host |
@@ -41,7 +41,7 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 ## Status
 
-`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices`, `rules`, `pluginProblems`, what each plugin with a problem of its own says is wrong with it, by name ([OIK-17](https://linear.app/oikade/issue/OIK-17)), and `needsSetup`, the plugins that say they need their [setup](#setup) run. Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
+`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices`, `rules`, `pluginProblems`, what each plugin with a problem of its own says is wrong with it, by name ([OIK-17](https://linear.app/oikade/issue/OIK-17)), `needsSetup`, the plugins that say they need their [setup](#setup) run, and `unsetSecrets`, the secrets the running version uses that aren't set ([OIK-297](https://linear.app/oikade/issue/OIK-297)). Fields are added, never renamed. Each rule has its `name`, `kind` (`hold`, `moment` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
 
 | Field | Means |
 |---|---|

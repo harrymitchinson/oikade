@@ -38,6 +38,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/schedule"
+	"github.com/harrymitchinson/oikade/internal/secretuse"
 	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -1079,6 +1080,7 @@ func (h Home) manifest() wire.Manifest {
 	}
 	// A home with a mistake in its settings doesn't compile, and never gets this far.
 	m.Control, _ = h.settings()
+	m.Secrets = secretuse.Names()
 	return m
 }
 

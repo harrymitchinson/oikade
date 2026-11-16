@@ -216,6 +216,9 @@ type Response struct {
 	// "device capability".
 	Ended []string `json:"ended,omitempty"`
 	Kept  []string `json:"kept,omitempty"`
+	// UnsetSecrets are a deploy's or a rollback's: the secrets the version now running uses that
+	// aren't set.
+	UnsetSecrets []string `json:"unsetSecrets,omitempty"`
 	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
 	// rollback's for the version now running, and a devices request's for the one running now.
 	Unimported []Unimported `json:"unimported,omitempty"`
@@ -350,6 +353,8 @@ type Status struct {
 	PluginProblems map[string]string `json:"pluginProblems,omitempty"`
 	// NeedsSetup are the plugins that say they can't serve their devices until oikade setup runs.
 	NeedsSetup []string `json:"needsSetup,omitempty"`
+	// UnsetSecrets are the secrets the running version uses that aren't set.
+	UnsetSecrets []string `json:"unsetSecrets,omitempty"`
 }
 
 // Device is one device.
