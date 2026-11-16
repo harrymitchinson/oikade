@@ -144,19 +144,31 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 		list.Devices = slices.DeleteFunc(list.Devices, func(d registry.Device) bool { return d.Removed })
 		removed = before - len(list.Devices)
 	}
-	unimported := map[string]bool{}
+	marks := deviceMarks{unimported: map[string]bool{}, hidden: map[string]bool{}, problems: resp.Problems}
 	for _, u := range resp.Unimported {
-		unimported[u.Device] = true
+		marks.unimported[u.Device] = true
+	}
+	for _, name := range resp.HiddenFromMatter {
+		marks.hidden[name] = true
 	}
 	if asJSON {
-		return cli.PrintJSON(listed(list, unimported, resp.Problems))
+		return cli.PrintJSON(listed(list, marks))
 	}
 	if len(list.Devices) == 0 {
 		noDevices(os.Stderr, removed)
 		return nil
 	}
-	printDevices(os.Stdout, list, unimported, resp.Problems)
+	printDevices(os.Stdout, list, marks)
 	return nil
+}
+
+// deviceMarks are what the host says of devices beyond the registry, by name.
+type deviceMarks struct {
+	// unimported are those whose plugin the running version doesn't import, and hidden those your
+	// home keeps off Matter.
+	unimported, hidden map[string]bool
+	// problems are what's wrong with them, as their drivers say.
+	problems map[string]string
 }
 
 // noDevices says what would put devices on record, and that --all shows any removed ones.
@@ -168,10 +180,14 @@ func noDevices(stderr io.Writer, removed int) {
 	}
 }
 
-// notImported is the state of a device whose plugin the running version doesn't import.
-const notImported = "plugin not imported"
+const (
+	// notImported is the state of a device whose plugin the running version doesn't import.
+	notImported = "plugin not imported"
+	// hiddenFromMatter is the state of a device your home keeps off Matter.
+	hiddenFromMatter = "hidden from Matter"
+)
 
-func printDevices(out io.Writer, list registry.Snapshot, unimported map[string]bool, problems map[string]string) {
+func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) {
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tDRIVER\tID\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
@@ -182,10 +198,17 @@ func printDevices(out io.Writer, list registry.Snapshot, unimported map[string]b
 			state = "removed"
 		case d.Reserved():
 			state = "reserved"
-		case unimported[d.Name]:
+		case marks.unimported[d.Name]:
 			state = notImported
-		case problems[d.Name] != "":
-			state = problems[d.Name]
+		case marks.problems[d.Name] != "":
+			state = marks.problems[d.Name]
+		}
+		if !d.Removed && marks.hidden[d.Name] {
+			if state == "paired" {
+				state = hiddenFromMatter
+			} else {
+				state += ", " + hiddenFromMatter
+			}
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
 			or(d.ID, "-"), d.Endpoint, or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
@@ -201,6 +224,8 @@ type listedDevice struct {
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
 	// Problem is what's wrong with it, as its driver says.
 	Problem string `json:"problem,omitempty"`
+	// Matter is false for a device your home keeps off Matter, and left out otherwise.
+	Matter *bool `json:"matter,omitempty"`
 }
 
 // removedHasNone is a device's problem, which a removed one doesn't have.
@@ -212,14 +237,18 @@ func removedHasNone(d registry.Device, problems map[string]string) string {
 }
 
 // listed is the registry as oikade devices --json prints it.
-func listed(list registry.Snapshot, unimported map[string]bool, problems map[string]string) any {
+func listed(list registry.Snapshot, marks deviceMarks) any {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
-		devices = append(devices, listedDevice{
+		l := listedDevice{
 			Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...),
-			PluginNotImported: !d.Removed && unimported[d.Name],
-			Problem:           removedHasNone(d, problems),
-		})
+			PluginNotImported: !d.Removed && marks.unimported[d.Name],
+			Problem:           removedHasNone(d, marks.problems),
+		}
+		if !d.Removed && marks.hidden[d.Name] {
+			l.Matter = new(bool)
+		}
+		devices = append(devices, l)
 	}
 	// Devices here is shallower than the Snapshot's, so it's the one encoding/json writes, and any
 	// other field of a Snapshot comes along.
@@ -250,6 +279,16 @@ func runTypes(ctx context.Context, args []string) error {
 		return err
 	}
 	return os.WriteFile(*out, file, 0o644)
+}
+
+// printTakenOffMatter says which devices a deploy took off Matter, which controllers have lost with
+// their rooms and scenes.
+func printTakenOffMatter(out io.Writer, devices []string) {
+	if len(devices) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "Took %s off Matter, as your home hides them: controllers lost their rooms and scenes\n",
+		strings.Join(devices, ", "))
 }
 
 // printUnimported says which devices are left on record by plugins a version doesn't import, and how

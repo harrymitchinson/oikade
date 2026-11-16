@@ -121,6 +121,8 @@ type matterBridge struct {
 	id      identity
 	devices *hub.Store
 	known   *inventory
+	// options says which plugins' devices the home keeps off the bridge.
+	options *homeOptions
 	changes chan struct{}
 	retry   time.Duration
 	serving atomic.Bool
@@ -198,9 +200,12 @@ func (m *matterBridge) rename(name string) {
 func (m *matterBridge) working() bool { return m != nil && m.broken == nil }
 
 // connect gives the bridge what it needs of the host, which needs the bridge to exist first.
-func (m *matterBridge) connect(devices *hub.Store, known *inventory, eng *engine.Engine, setter driver.Setter, emit func(api.Event)) {
-	m.devices, m.known, m.Store = devices, known, devices
+func (m *matterBridge) connect(devices *hub.Store, known *inventory, options *homeOptions, eng *engine.Engine,
+	setter driver.Setter, emit func(api.Event),
+) {
+	m.devices, m.known, m.options, m.Store = devices, known, options, devices
 	known.changed = append(known.changed, m.changed)
+	options.rehidden = m.changed
 	m.Writes = &matterbridge.Coalescer{
 		Setter: &matterWrites{engine: eng, devices: devices, setter: setter, restore: m.Restore, took: m.metrics.writes, emit: emit},
 		Current: func(dev ident.ID, name string) (any, bool) {
@@ -233,11 +238,14 @@ func (m *matterBridge) Discovered(ident.ID, driver.Info) { m.changed() }
 func (m *matterBridge) Reassigned(ident.ID) { m.changed() }
 
 // want is what should be on the bridge. A device on record stays there while its driver is away, so
-// controllers don't see it vanish, and only reserved and removed ones are left out.
+// controllers don't see it vanish, and only reserved and removed ones, and those the home hides from
+// Matter, are left out. A hidden one keeps its endpoint on record, so it comes back as the same
+// device if it's shown again.
 func (m *matterBridge) want() map[uint16]matterbridge.Device {
 	out := map[uint16]matterbridge.Device{}
+	hidden := m.options.hiddenFromMatter()
 	for _, d := range m.known.registry.List().Devices {
-		if d.Removed || d.ID == "" || !matterbridge.Supported(d.Capabilities) {
+		if d.Removed || d.ID == "" || !matterbridge.Supported(d.Capabilities) || api.HiddenFromMatter(hidden, d) {
 			continue
 		}
 		dev := key(d.Name)

@@ -140,7 +140,7 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	bridge := h.openMatter(data, options.bridgeName())
 	options.renamed = bridge.rename
-	srv.matterName = options.takeMatterName
+	srv.options = options
 	if bridge.working() {
 		sinks = append(sinks, bridge)
 	}
@@ -161,7 +161,7 @@ func (h *Host) Run(ctx context.Context) error {
 	eng.Store, eng.Setter, srv.devices, srv.setter, srv.outside = devices, recorded, devices, recorded, setter
 	eng.Init()
 	if bridge.working() {
-		bridge.connect(devices, known, eng, setter, srv.emit)
+		bridge.connect(devices, known, options, eng, setter, srv.emit)
 	}
 	if err := sim.start(h.Devices); err != nil {
 		return err

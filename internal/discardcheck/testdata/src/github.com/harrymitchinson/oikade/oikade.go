@@ -50,6 +50,11 @@ type Flow struct{}
 func (h *Home) Flow(name string, run func(*FlowRun)) *Flow { return &Flow{} }
 func (f *Flow) When(c ...Change) *Flow                     { return f }
 
+type Plugin struct{}
+
+func (h *Home) Plugin(name string, factory any) *Plugin { return &Plugin{} }
+func (p *Plugin) HideFromMatter() *Plugin               { return p }
+
 // Secret declares a secret as it's made, so a discarded one still does something.
 func Secret(name string) string { return name }
 

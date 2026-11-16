@@ -554,6 +554,7 @@ func (s *apiServer) device(req api.Request) api.Response {
 			resp.Unimported, resp.OutsidePlugins = p.unimportedNow(true), slices.Clone(p.host.Outside)
 			resp.SafetyHeld = p.safetyHeld(list)
 		}
+		resp.HiddenFromMatter = api.HiddenDevices(list, s.srv.options.hiddenFromMatter())
 		for dev, snap := range s.srv.devices.List() {
 			if snap.Info.Error != "" {
 				if resp.Problems == nil {

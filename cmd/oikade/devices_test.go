@@ -41,7 +41,7 @@ func TestDevicesMarkThoseWhosePluginIsntImported(t *testing.T) {
 	printDevices(&out, registry.Snapshot{Devices: []registry.Device{
 		{Name: "boiler", ID: "b", Driver: "plugin/relays", Endpoint: 2},
 		{Name: "lamp", ID: "l", Driver: "plugin/shades", Endpoint: 3},
-	}}, map[string]bool{"boiler": true}, nil)
+	}}, deviceMarks{unimported: map[string]bool{"boiler": true}})
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[1], "plugin not imported") || strings.Contains(lines[2], "plugin not imported") {
 		t.Errorf("got\n%s", out.String())
@@ -56,13 +56,13 @@ func TestDevicesSayWhatsWrongWithThem(t *testing.T) {
 	problems := map[string]string{"porch-light": "no LAN key: oikade secret set 1000aabbcc"}
 
 	var out bytes.Buffer
-	printDevices(&out, list, nil, problems)
+	printDevices(&out, list, deviceMarks{problems: problems})
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[2], problems["porch-light"]) || strings.Contains(lines[1], "no LAN key") {
 		t.Errorf("got\n%s", out.String())
 	}
 
-	raw, err := json.Marshal(listed(list, nil, problems))
+	raw, err := json.Marshal(listed(list, deviceMarks{problems: problems}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +71,35 @@ func TestDevicesSayWhatsWrongWithThem(t *testing.T) {
 	}
 	if strings.Count(string(raw), `"problem"`) != 1 {
 		t.Errorf("a device with no problem should leave it out: %s", raw)
+	}
+}
+
+func TestDevicesMarkThoseHiddenFromMatter(t *testing.T) {
+	list := registry.Snapshot{Devices: []registry.Device{
+		{Name: "bedroom-shutter", ID: "s1", Driver: "plugin/tahoma", Endpoint: 2},
+		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3},
+		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4},
+	}}
+	marks := deviceMarks{
+		hidden:   map[string]bool{"bedroom-shutter": true, "attic-shutter": true},
+		problems: map[string]string{"attic-shutter": "offline at the box"},
+	}
+
+	var out bytes.Buffer
+	printDevices(&out, list, marks)
+	lines := strings.Split(out.String(), "\n")
+	// Sorted: attic-shutter, bedroom-shutter, garage-door.
+	if !strings.Contains(lines[1], "offline at the box, hidden from Matter") ||
+		!strings.Contains(lines[2], "  hidden from Matter") || strings.Contains(lines[3], "hidden") {
+		t.Errorf("got\n%s", out.String())
+	}
+
+	raw, err := json.Marshal(listed(list, marks))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(raw), `"matter":false`) != 2 || strings.Contains(string(raw), `"matter":true`) {
+		t.Errorf("only a hidden device says matter, as false: %s", raw)
 	}
 }
 

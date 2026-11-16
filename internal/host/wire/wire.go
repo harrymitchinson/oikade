@@ -88,6 +88,25 @@ type Manifest struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// Secrets names the secrets the home's code uses, made with oikade.Secret as it was built.
 	Secrets []string `json:"secrets,omitempty"`
+	// HiddenFromMatter are the plugins whose devices the home keeps off Matter.
+	HiddenFromMatter []HiddenPlugin `json:"hiddenFromMatter,omitempty"`
+}
+
+// HiddenPlugin is a plugin whose devices a home keeps off Matter, because the Home app has them
+// already, except the ones it shows.
+type HiddenPlugin struct {
+	Plugin string   `json:"plugin"`
+	Shown  []string `json:"shown,omitempty"`
+}
+
+// Hidden says whether hidden keeps a plugin's device off Matter.
+func Hidden(hidden []HiddenPlugin, plugin, device string) bool {
+	for _, h := range hidden {
+		if h.Plugin == plugin {
+			return !slices.Contains(h.Shown, device)
+		}
+	}
+	return false
 }
 
 // DeviceControl is how a home arbitrates one capability of a device.
@@ -179,6 +198,8 @@ type Message struct {
 	// MatterName is the Matter bridge's name the process's home declares, empty for the host's
 	// default.
 	MatterName string `json:"matterName,omitempty"`
+	// HiddenFromMatter are the plugins whose devices the process's home keeps off Matter.
+	HiddenFromMatter []HiddenPlugin `json:"hiddenFromMatter,omitempty"`
 
 	// Paused is a Welcome's: rules not to run until a Resume says so.
 	Paused []string `json:"paused,omitempty"`

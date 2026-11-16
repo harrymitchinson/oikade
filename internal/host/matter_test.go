@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -273,6 +275,58 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	// The bridge's own ID is part of it, or two bridges would give the same endpoint the same ID.
 	if got, wantID := want[lamp.Endpoint].Unique, matterbridge.UniqueID("BRIDGE/"+strconv.Itoa(int(lamp.Endpoint))); got != wantID {
 		t.Errorf("lamp's unique ID = %q, want %q", got, wantID)
+	}
+}
+
+func TestAHiddenPluginsDevicesAreOffTheBridge(t *testing.T) {
+	data := openStore(t, t.TempDir())
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []registry.Report{
+		{ID: "s1", Driver: "plugin/tahoma", Name: "bedroom-shutter", Capabilities: []string{capability.On}},
+		{ID: "s2", Driver: "plugin/tahoma", Name: "garage-door", Capabilities: []string{capability.On}},
+		{ID: "p1", Driver: "plugin/lan", Name: "desk-plug", Capabilities: []string{capability.On}},
+	} {
+		if _, _, err := reg.Report(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	options, err := loadOptions(data.Namespace(optionsNamespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices := hub.NewStore(logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, &engine.Engine{}, logging.Discard())
+	m := &matterBridge{log: logging.Discard(), devices: devices, known: known, options: options, id: identity{UniqueID: "B"}}
+	names := func() []string {
+		want := m.want()
+		out := make([]string, 0, len(want))
+		for _, d := range want {
+			out = append(out, d.Name)
+		}
+		slices.Sort(out)
+		return out
+	}
+	if got := names(); len(got) != 3 {
+		t.Fatalf("before any home hides them: %v", got)
+	}
+	if err := options.takeHidden([]wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := names(), []string{"desk-plug", "garage-door"}; !slices.Equal(got, want) {
+		t.Errorf("on the bridge: %v, want %v", got, want)
+	}
+	// It keeps its endpoint, so shown again it's the same device.
+	before, _ := reg.Get("bedroom-shutter")
+	if err := options.takeHidden(nil); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := reg.Get("bedroom-shutter")
+	if d := m.want()[before.Endpoint]; d.Name != "bedroom-shutter" || after.Endpoint != before.Endpoint {
+		t.Errorf("shown again on endpoint %d: %+v", before.Endpoint, d)
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -229,6 +230,11 @@ type Response struct {
 	OutsidePlugins []string `json:"outsidePlugins,omitempty"`
 	// SafetyHeld are a devices request's: the plugins' devices on record that a Safety claim holds.
 	SafetyHeld []string `json:"safetyHeld,omitempty"`
+	// HiddenFromMatter are a devices request's: the devices on record your home keeps off Matter.
+	HiddenFromMatter []string `json:"hiddenFromMatter,omitempty"`
+	// TakenOffMatter are a deploy's or a rollback's: the devices the version now running took off
+	// Matter, which controllers have lost.
+	TakenOffMatter []string `json:"takenOffMatter,omitempty"`
 	// Matter is a matter request's.
 	Matter *Matter `json:"matter,omitempty"`
 	// Backup is the file a backup wrote, on the host.
@@ -263,6 +269,25 @@ type Unimported struct {
 // PluginOf names the plugin that reports a device on record, if one does.
 func PluginOf(d registry.Device) (string, bool) {
 	return strings.CutPrefix(d.Driver, driver.Plugin+"/")
+}
+
+// HiddenFromMatter says whether hidden, a home's plugins hidden from Matter, keeps a device on record
+// off it.
+func HiddenFromMatter(hidden []wire.HiddenPlugin, d registry.Device) bool {
+	plugin, ok := PluginOf(d)
+	return ok && !d.Removed && wire.Hidden(hidden, plugin, d.Name)
+}
+
+// HiddenDevices names the devices on record that hidden keeps off Matter, by name.
+func HiddenDevices(list registry.Snapshot, hidden []wire.HiddenPlugin) []string {
+	var out []string
+	for _, d := range list.Devices {
+		if HiddenFromMatter(hidden, d) {
+			out = append(out, d.Name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // UnimportedOf lists the devices on record of plugins that are neither imported nor outside, by

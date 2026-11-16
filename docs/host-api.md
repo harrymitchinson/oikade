@@ -11,10 +11,10 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/info` | | `goos`, `goarch` |
 | `GET /v1/status` | | `status` |
 | `GET /v1/matter` | | `matter` |
-| `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds |
+| `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds; `hiddenFromMatter`, the devices your home keeps off Matter |
 | `GET /v1/secrets` | | `secrets`, never their values |
-| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running; `unsetSecrets`, the secrets the version uses that aren't set |
-| `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings`, `unimported`, `unsetSecrets` |
+| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running; `unsetSecrets`, the secrets the version uses that aren't set; `takenOffMatter`, the devices on the bridge it hides from Matter |
+| `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings`, `unimported`, `unsetSecrets`, `takenOffMatter` |
 | `POST /v1/set` | `device`, `capability`, `value` | `outcome`, the capability with its claims once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered |
 | `POST /v1/pause`, `POST /v1/resume` | `rule`, `allowSafety` | `needsAllowSafety`; a pause's `ended`, the claims it ended, and `kept`, its Safety claims, each as `device capability` |
 | `POST /v1/backup` | | `backup`, the file it wrote on the host |

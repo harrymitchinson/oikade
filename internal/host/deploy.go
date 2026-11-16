@@ -243,6 +243,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	}
 
 	d.log.Info("Checked automations version", "version", id)
+	takenOff := d.srv.takenOffMatter(manifest)
 	last := d.running
 	spared, err := d.srv.leftovers()
 	if err != nil {
@@ -286,7 +287,9 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		return d.restore(ctx, id, last, fmt.Errorf("the new version failed: %w", err))
 	}
 	fault.Hit(fault.HostDeploySettled)
-	return d.confirm(id)
+	resp := d.confirm(id)
+	resp.TakenOffMatter = takenOff
+	return resp
 }
 
 // confirm makes a version that has settled the running one for good.
