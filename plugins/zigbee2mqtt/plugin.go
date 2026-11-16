@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,25 +40,67 @@ var errBridgeOffline = errors.New("zigbee2mqtt is offline")
 
 // Config configures the plugin.
 type Config struct {
+	// Broker is the MQTT broker Zigbee2MQTT uses, as the host reaches it, such as
+	// mqtt://broker:1883. With a Password, it names the user: mqtt://oikade@broker:1883.
+	Broker string
+	// Password is the broker's password, such as framework.Secret("broker"). The zero Secret is
+	// none.
+	Password plugin.Secret
 	// BaseTopic is Zigbee2MQTT's mqtt.base_topic. It defaults to DefaultBaseTopic.
 	BaseTopic string
 }
 
-// New returns the plugin's Factory, for framework.Plugin. It fails if the host has no --broker.
+// check says what's wrong with c, before anything connects.
+func (c Config) check() error {
+	if c.Broker == "" {
+		return errors.New("zigbee2mqtt.Config has no Broker: set it to the broker Zigbee2MQTT uses, such as mqtt://broker:1883")
+	}
+	u, err := url.Parse(c.Broker)
+	if err != nil {
+		return errors.New("zigbee2mqtt.Config's Broker isn't a URL, such as mqtt://broker:1883")
+	}
+	if _, ok := u.User.Password(); ok {
+		return errors.New("zigbee2mqtt.Config's Broker has a password in it: pass it as Password, a framework.Secret, so it isn't in your code")
+	}
+	if c.Password.Name() != "" && u.User.Username() == "" {
+		return fmt.Errorf("zigbee2mqtt.Config's Broker names no user for its Password, such as mqtt://oikade@%s", u.Host)
+	}
+	return nil
+}
+
+// brokerURL is the broker to dial, with its password, read now so that a changed secret needs no
+// deploy. Never log it.
+func (c Config) brokerURL() (string, error) {
+	if c.Password.Name() == "" {
+		return c.Broker, nil
+	}
+	password, err := c.Password.Read()
+	if err != nil {
+		return "", fmt.Errorf("reading the broker's password: %w", err)
+	}
+	u, err := url.Parse(c.Broker)
+	if err != nil {
+		return "", err
+	}
+	u.User = url.UserPassword(u.User.Username(), strings.TrimRight(password, "\r\n"))
+	return u.String(), nil
+}
+
+// New returns the plugin's Factory, for framework.NewPlugin. Its Config needs a Broker.
 func New(c Config) plugin.Factory {
 	if c.BaseTopic == "" {
 		c.BaseTopic = DefaultBaseTopic
 	}
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
-		if env.MQTTURL == "" {
-			return nil, errors.New("the zigbee2mqtt plugin needs the broker Zigbee2MQTT uses: run the host with --broker")
+		if err := c.check(); err != nil {
+			return nil, err
 		}
 		ids := make([]string, 0, len(declared))
 		for _, d := range declared {
 			ids = append(ids, d.ID)
 		}
 		return &bridge{
-			config: c, name: env.Root.Plugin(), broker: env.MQTTURL, declared: ids, up: true, online: map[string]bool{},
+			config: c, name: env.Root.Plugin(), declared: ids, up: true, online: map[string]bool{},
 			infoHeard: make(chan struct{}), infoWait: defaultInfoWait,
 			connectTimeout: connectTimeout,
 			log:            slog.New(slog.NewJSONHandler(os.Stderr, nil)),
@@ -68,8 +112,7 @@ func New(c Config) plugin.Factory {
 type bridge struct {
 	config Config
 	// name is the plugin's, as the home imports it, for setup to name.
-	name   string
-	broker string
+	name string
 	// declared are the devices on record, which are reported even once they've left Zigbee2MQTT.
 	declared       []string
 	connectTimeout time.Duration
@@ -115,8 +158,12 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	defer cut()
 	dial, cancel := context.WithTimeout(ctx, b.connectTimeout)
 	defer cancel()
+	broker, err := b.config.brokerURL()
+	if err != nil {
+		return err
+	}
 	connecting := context.AfterFunc(dial, cut)
-	client, err := mqtt.Connect(life, b.broker, clientID(),
+	client, err := mqtt.Connect(life, broker, clientID(),
 		mqtt.WithOnDisconnect(b.connectionLost), mqtt.WithOnConnect(b.connectionMade))
 	if !connecting() {
 		if ctx.Err() != nil {

@@ -224,7 +224,8 @@ func TestASecretsNameCantLeaveTheDirectory(t *testing.T) {
 // oikade secret set needs a running host, so a host can't refuse to start for want of a secret.
 func TestAHostStartsBeforeItsBrokerPasswordIsSet(t *testing.T) {
 	t.Parallel()
-	r := start(t, "--broker", "mqtt://oikade@127.0.0.1:1", "--broker-password-secret", "broker")
+	r := start(t, "--outside-plugins", "kettle",
+		"--broker", "mqtt://oikade@127.0.0.1:1", "--broker-password-secret", "broker")
 	if err := r.setSecret("broker"); err != nil {
 		t.Fatal(err)
 	}

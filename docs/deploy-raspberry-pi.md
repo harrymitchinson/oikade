@@ -28,7 +28,7 @@ Wants=network-online.target
 
 [Service]
 User=oikade
-ExecStart=/usr/local/bin/oikade-host --api-addr :8443 --broker mqtt://oikade@broker:1883 --broker-password-secret broker
+ExecStart=/usr/local/bin/oikade-host --api-addr :8443
 StateDirectory=oikade
 StateDirectoryMode=0700
 Restart=always
@@ -44,11 +44,10 @@ WantedBy=multi-user.target
 sudo systemctl enable --now oikade
 ```
 
-If your broker needs no password, leave out the user and `--broker-password-secret`. If it does, the host can't connect until you've logged in from your Mac, below, and set the secret from there:
+That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code, which `oikade deploy` brings. If the broker needs a password, it's a secret, `framework.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
 
 ```sh
 oikade secret set broker     # on your Mac
-ssh pi sudo systemctl restart oikade
 ```
 
 `journalctl -u oikade -f` on the Pi is its log, and `http://pi:8080/metrics` its metrics.

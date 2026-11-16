@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -131,15 +130,12 @@ func (b *bridge) awaitInfo(ctx context.Context) {
 // that Zigbee2MQTT uses it and is up, and Zigbee2MQTT's settings. It changes nothing in Zigbee2MQTT,
 // whose configuration is yours.
 func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session) (string, error) {
-	broker := b.broker
-	if u, err := url.Parse(b.broker); err == nil {
-		broker = u.Redacted()
-	}
+	broker := b.config.Broker
 	// The plugin may be connecting still, or again.
 	deadline := time.Now().Add(b.infoWait)
 	for !b.isConnected() {
 		if time.Now().After(deadline) {
-			return "", fmt.Errorf("could not reach the broker %s from the host: check the host's --broker", broker)
+			return "", fmt.Errorf("could not reach the broker %s from the host: check zigbee2mqtt.Config's Broker and Password", broker)
 		}
 		select {
 		case <-ctx.Done():

@@ -56,12 +56,19 @@ var (
 // Dial opens a session as the automations process, and returns the Welcome. settings are every device
 // setting the home declares, and info says what the rules are, if the caller knows.
 func Dial(ctx context.Context, socket string, rules []string, settings []DeviceControl, info ...RuleInfo) (*Client, Message, error) {
+	return DialHello(ctx, socket, Message{Rules: rules, Info: info, Control: settings})
+}
+
+// DialHello is Dial with the rest of a Hello, such as the bridge's name. Its Type, Version and Role
+// are filled in.
+func DialHello(ctx context.Context, socket string, hello Message) (*Client, Message, error) {
+	hello.Type, hello.Version, hello.Role = TypeHello, Version, RoleAutomations
 	raw, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return nil, Message{}, fmt.Errorf("connecting to the host: %w", err)
 	}
 	conn := NewConn(raw)
-	if err := conn.Write(Message{Type: TypeHello, Version: Version, Role: RoleAutomations, Rules: rules, Info: info, Control: settings}); err != nil {
+	if err := conn.Write(hello); err != nil {
 		_ = conn.Close()
 		return nil, Message{}, fmt.Errorf("greeting the host: %w", err)
 	}

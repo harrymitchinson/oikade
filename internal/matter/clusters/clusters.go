@@ -156,7 +156,10 @@ type Info struct {
 
 // BasicInformation is the root endpoint's Basic Information cluster. NodeLabel and Location
 // are writable.
-func BasicInformation(info Info) *im.Cluster {
+func BasicInformation(info Info) *im.Cluster { return basicInformation(&info) }
+
+// basicInformation is BasicInformation, serving info, which its writes change.
+func basicInformation(info *Info) *im.Cluster {
 	var c *im.Cluster
 	location := "XX"
 	c = &im.Cluster{
@@ -291,14 +294,18 @@ type Bridge struct {
 	Node       *im.Node
 	Root       *im.Endpoint
 	Aggregator *im.Endpoint
+	// info is what the root's Basic Information serves, and basic that cluster.
+	info  *Info
+	basic *im.Cluster
 }
 
 // NewBridge returns a bridge with no devices. rootClusters join the Descriptor, Basic Information
 // and General Diagnostics on the root endpoint, such as the commissioning clusters.
 func NewBridge(info Info, rootClusters ...*im.Cluster) *Bridge {
-	b := &Bridge{Node: &im.Node{}}
+	b := &Bridge{Node: &im.Node{}, info: &info}
+	b.basic = basicInformation(b.info)
 	b.Root = &im.Endpoint{ID: 0, DeviceTypes: []im.DeviceType{DeviceRootNode}}
-	b.Root.Clusters = append([]*im.Cluster{Descriptor(b.Node, b.Root), BasicInformation(info), GeneralDiagnostics(time.Now())}, rootClusters...)
+	b.Root.Clusters = append([]*im.Cluster{Descriptor(b.Node, b.Root), b.basic, GeneralDiagnostics(time.Now())}, rootClusters...)
 	b.Aggregator = &im.Endpoint{ID: 1, DeviceTypes: []im.DeviceType{DeviceAggregator}}
 	b.Aggregator.Clusters = []*im.Cluster{Descriptor(b.Node, b.Aggregator)}
 	_ = b.Node.AddEndpoint(b.Root) // a new Node: the IDs are free
@@ -323,6 +330,15 @@ func (b *Bridge) AddDeviceTypes(id uint16, deviceTypes []im.DeviceType, label, u
 		return nil, err
 	}
 	return info, nil
+}
+
+// SetNodeLabel renames the bridge in place: its NodeLabel changes, and subscribers are told. Call it
+// inside Node.Update.
+func (b *Bridge) SetNodeLabel(label string) {
+	if label != b.info.NodeLabel {
+		b.info.NodeLabel = label
+		b.basic.Changed(0x05)
+	}
 }
 
 // RemoveDevice removes the bridged device on endpoint id, and reports whether there was one.

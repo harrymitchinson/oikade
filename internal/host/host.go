@@ -57,7 +57,7 @@ type Host struct {
 	APIAddr string
 	// Matter serves a Matter bridge. Nil serves none.
 	Matter *Matter
-	// Broker is an MQTT broker of yours, for Outside and for imported plugins that use one.
+	// Broker is an MQTT broker of yours, for Outside. A plugin your home imports takes its own.
 	Broker string
 	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
 	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade secret set says so.
@@ -131,10 +131,13 @@ func (h *Host) Run(ctx context.Context) error {
 		feed:    newFeed(), events: newEventLog(data.Events(), h.EventLog, h.Log.With("logger", "events")), pushed: &pushed{},
 	}
 	sinks := []driver.Sink{eng, srv}
-	bridge, err := h.openMatter(data)
+	options, err := loadOptions(data.Namespace(optionsNamespace))
 	if err != nil {
-		return err
+		return fmt.Errorf("reading the home's options: %w", err)
 	}
+	bridge := h.openMatter(data, options.bridgeName())
+	options.renamed = bridge.rename
+	srv.matterName = options.takeMatterName
 	if bridge.working() {
 		sinks = append(sinks, bridge)
 	}

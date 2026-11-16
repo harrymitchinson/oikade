@@ -28,6 +28,7 @@ import (
 	"os"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -835,9 +836,26 @@ func (r Release) toEngine() engine.Action { return engine.Release(r) }
 type Options struct {
 	// Location is where the home is, for Sunrise and Sunset. A home without them needs none.
 	Location Location
+	// MatterName is the Matter bridge's name, as a controller such as the Home app first shows it:
+	// at most 32 bytes. Empty is "Oikade". A deploy renames the bridge in place, with no pairing
+	// again.
+	MatterName string
 }
 
-func (o Options) check() error { return o.Location.check() }
+func (o Options) check() error {
+	var name error
+	switch {
+	case len(o.MatterName) > maxMatterName:
+		name = fmt.Errorf("the MatterName %q is %d bytes, and a Matter bridge's name is at most %d",
+			o.MatterName, len(o.MatterName), maxMatterName)
+	case !utf8.ValidString(o.MatterName):
+		name = errors.New("the MatterName isn't valid UTF-8")
+	}
+	return errors.Join(o.Location.check(), name)
+}
+
+// maxMatterName is the most a Matter NodeLabel holds, in bytes.
+const maxMatterName = 32
 
 // site is the home's location for the engine, and nil if it has none.
 func (o Options) site() *sun.Site { return o.Location.site() }

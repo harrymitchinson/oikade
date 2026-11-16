@@ -162,7 +162,7 @@ A plugin runs with:
 
 | Variable | Value |
 |---|---|
-| `OIKADE_MQTT_URL` | The broker, such as `mqtt://broker:1883`. |
+| `OIKADE_MQTT_URL` | The broker, such as `mqtt://broker:1883`: the host's `--broker`, for an outside plugin. A plugin your home imports isn't given one, and takes a broker it uses in its own config. |
 | `OIKADE_TOPIC` | The topic root, `oikade/v1/<plugin>`. |
 | `OIKADE_DEVICES_FILE` | Optional. A devices file, if you'd rather list a plugin's devices than have it report what it finds. |
 | `OIKADE_SECRETS_DIR` | The directory of secrets, one file each. Under the host it's always set, and holds what `oikade secret set` wrote. |

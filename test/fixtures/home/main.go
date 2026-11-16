@@ -380,7 +380,10 @@ func home() rules {
 			framework.NewControl(on(once).To(false), framework.PreferOn, framework.ExternalOverride).OverrideHold(time.Hour),
 		}
 	case variant == "zigbee":
-		pluginParts = []framework.Plugin{framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{}))}
+		pluginParts = []framework.Plugin{framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
+			// A test's broker has a port of its own. A home writes its broker here.
+			Broker: os.Getenv("OIKADE_TEST_ZIGBEE_BROKER"),
+		}))}
 	}
 	return rules{Holds: holds, Moments: moments, Flows: flows, Control: control, Plugins: pluginParts}
 }
@@ -398,7 +401,11 @@ type rules struct {
 }
 
 func (r rules) home() framework.Home {
-	return framework.NewHome(framework.Options{}, bundle(r.Holds), bundle(r.Moments), bundle(r.Flows), bundle(r.Control),
+	var options framework.Options
+	if variant == "cottage" {
+		options.MatterName = "Cottage"
+	}
+	return framework.NewHome(options, bundle(r.Holds), bundle(r.Moments), bundle(r.Flows), bundle(r.Control),
 		bundle(r.Plugins))
 }
 

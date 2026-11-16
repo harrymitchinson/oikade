@@ -49,8 +49,6 @@ const (
 type Matter struct {
 	// Port is its UDP port. Zero is Matter's own, 5540.
 	Port uint16
-	// Name is its NodeLabel, at most 32 bytes.
-	Name string
 	// Interfaces are where it advertises over mDNS. Empty means every multicast interface.
 	Interfaces []string
 	// Version is the software version it reports.
@@ -138,12 +136,10 @@ type matterBridge struct {
 // openMatter makes the bridge, serving nothing until run. State it can't read leaves it broken rather
 // than making new state, which would quietly lose every controller: that's the home's Matter gone,
 // and not worth its automations too.
-func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
+// name is its NodeLabel, which the home gives.
+func (h *Host) openMatter(data *store.Store, name string) *matterBridge {
 	if h.Matter == nil {
-		return nil, nil
-	}
-	if len(h.Matter.Name) > 32 {
-		return nil, errors.New("a Matter bridge's name is at most 32 bytes")
+		return nil
 	}
 	m := &matterBridge{log: h.Log.With("logger", "matter"), port: h.Matter.Port, retry: h.Matter.Retry, changes: make(chan struct{}, 1)}
 	m.metrics = newMatterMetrics(m)
@@ -153,15 +149,15 @@ func (h *Host) openMatter(data *store.Store) (*matterBridge, error) {
 	if m.retry == 0 {
 		m.retry = matterRetry
 	}
-	if err := m.open(h.Matter, data.Namespace(matterNamespace), data.Namespace(matterSubscriptionsNamespace)); err != nil {
+	if err := m.open(h.Matter, name, data.Namespace(matterNamespace), data.Namespace(matterSubscriptionsNamespace)); err != nil {
 		m.broken, m.node = err, nil
 		m.log.Error("Matter bridge stopped", "err", err)
 	}
-	return m, nil
+	return m
 }
 
 // open loads the bridge's identity and fabrics.
-func (m *matterBridge) open(c *Matter, values, subscriptions *store.Namespace) error {
+func (m *matterBridge) open(c *Matter, name string, values, subscriptions *store.Namespace) error {
 	var err error
 	if m.id, err = loadIdentity(values); err != nil {
 		return err
@@ -172,7 +168,7 @@ func (m *matterBridge) open(c *Matter, values, subscriptions *store.Namespace) e
 	}
 	cfg := node.Config{
 		Fabrics: fabricStore{values}, Setup: node.Setup{Passcode: m.id.Passcode, Discriminator: m.id.Discriminator},
-		Attestation: creds, Port: m.port, DeviceName: c.Name, Interfaces: c.Interfaces, Observer: m.metrics, Log: m.log,
+		Attestation: creds, Port: m.port, DeviceName: name, Interfaces: c.Interfaces, Observer: m.metrics, Log: m.log,
 		Subscriptions: subscriptionStore{subscriptions},
 		Listening: func() {
 			m.serving.Store(true)
@@ -181,13 +177,23 @@ func (m *matterBridge) open(c *Matter, values, subscriptions *store.Namespace) e
 		},
 	}
 	cfg.Info.UniqueID = m.id.UniqueID
-	cfg.Info.VendorName, cfg.Info.ProductName, cfg.Info.NodeLabel = "Oikade", "Oikade bridge", c.Name
+	cfg.Info.VendorName, cfg.Info.ProductName, cfg.Info.NodeLabel = "Oikade", "Oikade bridge", name
 	cfg.Info.SoftwareVersion, cfg.Info.SoftwareVersionString = 1, c.Version
 	if m.node, err = node.New(cfg); err != nil {
 		return fmt.Errorf("opening the Matter bridge: %w", err)
 	}
 	m.Bridge = &matterbridge.Bridge{Matter: m.node.Bridge()}
 	return nil
+}
+
+// rename renames the bridge in place, as the home now names it. A controller reads its new name from
+// Basic Information, and a new commissioning window advertises it.
+func (m *matterBridge) rename(name string) {
+	if !m.working() {
+		return
+	}
+	m.node.Rename(name)
+	m.log.Info("Renamed Matter bridge", "name", name)
 }
 
 // working is whether the bridge has a node to serve, so that there's anything to connect or run.

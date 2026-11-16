@@ -64,7 +64,7 @@ WantedBy=multi-user.target
 sudo systemctl enable --now oikade
 ```
 
-Add any other flags for `oikade-host`, such as `--broker`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
+The unit says only where the data lives and what to listen on. What's about the home, such as the Matter bridge's name or where Zigbee2MQTT's broker is, is in its code, so rebuilding the machine is this file and `oikade deploy` ([OIK-296](https://linear.app/oikade/issue/OIK-296)). Add any other flags for `oikade-host`, such as `--metrics-addr`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
 
 When the host stops, it goes in order: the API, ending streams such as `oikade tail`, then your automations, then the writes already under way, then each plugin, which is sent `SIGTERM` and says it's offline before its socket closes, then the Matter bridge and the store. The log has a line for each. `--stop-timeout` (10 seconds) bounds all of it: past that the rest is cut off, the log says where, and the host kills what's left and exits with an error. No state that must survive is lost, because the host only ever crashes safe, though `oikade replay` can miss the last few seconds. `KillMode=mixed` is what leaves the order to the host: by default systemd sends `SIGTERM` to your automations and plugins at the same moment as the host.
 
@@ -74,7 +74,7 @@ The image holds only `oikade-host`, for linux/arm64 and linux/amd64, and runs it
 
 ```sh
 docker run -d --name oikade --restart unless-stopped --stop-timeout 15 --network host \
-  -v oikade:/var/lib/oikade ghcr.io/harrymitchinson/oikade:<version> --api-addr :8443 --broker mqtt://broker:1883
+  -v oikade:/var/lib/oikade ghcr.io/harrymitchinson/oikade:<version> --api-addr :8443
 docker exec oikade oikade-host client add laptop
 ```
 
@@ -112,7 +112,7 @@ A missing secret doesn't stop a deploy: the plugin says what it's waiting for, a
 
 `--secrets-dir DIR` on `oikade-host` points at another directory, which can be read-only, such as a systemd credentials directory. `oikade secret list` shows what's in it, and `set` says to change it where it's mounted from.
 
-A broker's password belongs in a secret, not a flag: use `--broker mqtt://oikade@broker:1883 --broker-password-secret broker`. The host never logs one.
+A broker's password is a secret too, passed to the plugin that uses the broker, such as `zigbee2mqtt.Config{Broker: "mqtt://oikade@broker:1883", Password: framework.Secret("broker")}`. Outside plugins share the host's `--broker`, whose password is `--broker-password-secret broker`. Neither is ever logged.
 
 ### Upgrading the host
 

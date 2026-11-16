@@ -127,6 +127,8 @@ type Node struct {
 	listenMDNS func(mdns.Options) (advertiser, error)
 
 	sessions sessionSet
+	// name is the DN key of the next commissionable service, which Rename changes.
+	name atomic.Pointer[string]
 
 	// mu guards the advertisements. It's never held while the responder probes, which takes
 	// about a second.
@@ -173,6 +175,7 @@ func New(cfg Config) (*Node, error) {
 		cfg: cfg, log: cfg.Log, resumption: securechannel.NewResumptionStore(0),
 		operational: map[uint8]*mdns.Service{}, listenMDNS: listenMDNS,
 	}
+	n.name.Store(&cfg.DeviceName)
 	var err error
 	n.salt = make([]byte, 32)
 	_, _ = rand.Read(n.salt)
@@ -216,6 +219,13 @@ func New(cfg Config) (*Node, error) {
 
 // Bridge returns the node's bridge, to add devices to.
 func (n *Node) Bridge() *clusters.Bridge { return n.bridge }
+
+// Rename renames the node in place: its NodeLabel, which subscribers are told of, and the DN key of
+// the commissionable service it next advertises. name is at most 32 bytes.
+func (n *Node) Rename(name string) {
+	n.name.Store(&name)
+	n.bridge.Node.Update(func() { n.bridge.SetNodeLabel(name) })
+}
 
 // Fabrics returns the node's fabric table.
 func (n *Node) Fabrics() *fabric.Table { return n.table }
@@ -385,7 +395,7 @@ func (n *Node) openWindow(w clusters.Window) {
 	c := mdns.Commissionable{
 		Instance: mdns.NewInstanceName(), Discriminator: w.Discriminator,
 		VendorID: attestation.TestVendorID, ProductID: attestation.TestProductID,
-		Mode: mode, DeviceType: clusters.DeviceAggregator.ID, DeviceName: n.cfg.DeviceName,
+		Mode: mode, DeviceType: clusters.DeviceAggregator.ID, DeviceName: *n.name.Load(),
 		Port: n.cfg.Port,
 	}
 	svc, err := c.Service()
