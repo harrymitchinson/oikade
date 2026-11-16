@@ -67,6 +67,13 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			NewHome(Options{Location: NewLocation(0, -181)}, NewHold("a", d.To(true)).When(when)),
 			"longitude -181 isn't",
 		},
+		"a bridge name too long": {
+			NewHome(Options{MatterName: "The cottage at the end of the lane"}, NewHold("a", d.To(true)).When(when)),
+			"is 34 bytes, and it's at most 32",
+		},
+		"a bridge name that isn't UTF-8": {
+			NewHome(Options{MatterName: "Caf\xe9"}, NewHold("a", d.To(true)).When(when)), "isn't valid UTF-8",
+		},
 		"an offset too far": {
 			NewHome(Options{Location: NewLocation(51.48, 0)}, NewFlow("a", func(*FlowRun) error { return nil }).
 				At(Sunrise(7*time.Hour))),

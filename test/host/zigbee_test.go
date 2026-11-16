@@ -16,7 +16,10 @@ import (
 
 const (
 	zigbeeBase = zigbee2mqtt.DefaultBaseTopic
-	deskPlug   = "0x00124b0000000004"
+	// zigbeeBrokerEnv is the broker the fixture home's zigbee2mqtt.Config names, which a test's
+	// broker decides.
+	zigbeeBrokerEnv = "OIKADE_TEST_ZIGBEE_BROKER"
+	deskPlug        = "0x00124b0000000004"
 )
 
 // fakeZigbee2MQTT does what a real one does on the broker: it retains its device list and, with
@@ -94,7 +97,8 @@ func TestZigbeeDevicesPairAndCanBeSetThroughAZigbee2MQTTYouRun(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	z := startFakeZigbee2MQTT(t, url)
 	r := prepare(t)
-	r.launchWithout("--home", variant(t, "zigbee"), "--simulate", devicesFile(t), "--broker", url)
+	r.env = append(r.env, zigbeeBrokerEnv+"="+url)
+	r.launchWithout("--home", variant(t, "zigbee"), "--simulate", devicesFile(t))
 	r.waitFor(func(l line) bool { return l.is(attached) })
 
 	// Paired in Zigbee2MQTT, and usable with nothing else done.
@@ -138,7 +142,8 @@ func TestAZigbeeDeviceThatRetainsNothingIsAskedForItsState(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	z := startFakeZigbee2MQTTRetaining(t, url, false)
 	r := prepare(t)
-	r.launchWithout("--home", variant(t, "zigbee"), "--simulate", devicesFile(t), "--broker", url)
+	r.env = append(r.env, zigbeeBrokerEnv+"="+url)
+	r.launchWithout("--home", variant(t, "zigbee"), "--simulate", devicesFile(t))
 	r.waitFor(func(l line) bool { return l.is(attached) })
 	r.untilValue("desk-plug", false)
 	z.mu.Lock()
@@ -164,7 +169,8 @@ func TestZigbeeDevicesComeBackAfterThePluginDies(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	startFakeZigbee2MQTT(t, url)
 	r := prepare(t)
-	r.launchWithout("--home", variant(t, "zigbee"), "--simulate", devicesFile(t), "--broker", url)
+	r.env = append(r.env, zigbeeBrokerEnv+"="+url)
+	r.launchWithout("--home", variant(t, "zigbee"), "--simulate", devicesFile(t))
 	r.waitFor(func(l line) bool { return l.is(attached) })
 	r.untilValue("desk-plug", false)
 	r.until("the plug to be online", func() bool {

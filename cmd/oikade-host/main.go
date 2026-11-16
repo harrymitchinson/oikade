@@ -30,7 +30,7 @@ const usage = `Usage:
   oikade-host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
               [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS] [--api-addr ADDRESS]
               [--broker URL] [--broker-password-secret NAME] [--outside-plugins LIST] [--secrets-dir DIR]
-              [--matter-port PORT] [--matter-name NAME] [--matter-interfaces LIST] [--plugin-set-timeout DURATION]
+              [--matter-port PORT] [--matter-interfaces LIST] [--plugin-set-timeout DURATION]
               [--stop-timeout DURATION]
   oikade-host client add NAME [--token] [--data-dir DIR] [--json]
                               A code for oikade login, or a token for CI, from the host running here.
@@ -87,11 +87,11 @@ func runHost(ctx context.Context, args []string) error {
 	apiAddr := fs.String("api-addr", "",
 		"Where to serve the API over TLS, for clients with a token, such as :8443. Empty serves it only on the socket.")
 	matterPort := fs.Uint("matter-port", host.DefaultMatterPort, "The Matter bridge's UDP port. 0 turns Matter off.")
-	matterName := fs.String("matter-name", "Oikade", "The Matter bridge's name, at most 32 bytes.")
 	matterInterfaces := fs.String("matter-interfaces", "",
 		"Comma-separated interfaces to advertise Matter on. Empty means every multicast interface.")
 	broker := fs.String("broker", "",
-		"An MQTT broker of yours, for --outside-plugins and imported plugins that use one, such as Zigbee2MQTT.")
+		"The MQTT broker --outside-plugins speak the contract on. "+
+			"A plugin your home imports, such as Zigbee2MQTT, takes its broker in its Config.")
 	outside := fs.String("outside-plugins", "",
 		"Comma-separated plugins that run as processes of their own and speak the MQTT contract on --broker, "+
 			"under oikade/v1/<name>.")
@@ -103,6 +103,9 @@ func runHost(ctx context.Context, args []string) error {
 		"How long a plugin's Set may run before the plugin counts as hung.")
 	stopTimeout := fs.Duration("stop-timeout", host.DefaultStopTimeout,
 		"How long stopping may take before the rest is cut off. Keep it under systemd's TimeoutStopSec.")
+	for name, why := range removed {
+		fs.Func(name, "Gone: "+why+".", func(string) error { return fmt.Errorf("--%s is gone: %s", name, why) })
+	}
 	_ = fs.Parse(args)
 	if fs.NArg() > 0 {
 		// A command after a flag would otherwise start a second host on the data directory.
@@ -112,6 +115,10 @@ func runHost(ctx context.Context, args []string) error {
 		return fmt.Errorf("--matter-port %d isn't a UDP port", *matterPort)
 	}
 
+	if *outside == "" && (*broker != "" || *brokerPassword != "") {
+		return errors.New("--broker and --broker-password-secret are only for --outside-plugins: " +
+			"a plugin your home imports takes its broker in its Config, such as zigbee2mqtt.Config's Broker and Password")
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if *brokerPassword != "" {
 		dir := *secretsDir
@@ -150,7 +157,7 @@ func runHost(ctx context.Context, args []string) error {
 		}
 	}
 	if *matterPort != 0 {
-		h.Matter = &host.Matter{Port: uint16(*matterPort), Name: *matterName, Version: cli.Version(version)}
+		h.Matter = &host.Matter{Port: uint16(*matterPort), Version: cli.Version(version)}
 		if *matterInterfaces != "" {
 			for name := range strings.SplitSeq(*matterInterfaces, ",") {
 				h.Matter.Interfaces = append(h.Matter.Interfaces, strings.TrimSpace(name))
@@ -165,6 +172,12 @@ func runHost(ctx context.Context, args []string) error {
 		h.Devices, h.Simulate = devices, os.Stdin
 	}
 	return h.Run(ctx)
+}
+
+// removed are flags that described the home rather than the machine, and the field that replaced
+// each. A unit file that still passes one fails loudly rather than being quietly ignored.
+var removed = map[string]string{
+	"matter-name": "the bridge's name is MatterName in your home's framework.Options now: set it there and deploy",
 }
 
 const clientUsage = "usage: oikade-host client add NAME [--token] [--data-dir DIR] [--json]"

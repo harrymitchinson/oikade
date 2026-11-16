@@ -277,6 +277,28 @@ func TestSubscriptionSeesRename(t *testing.T) {
 	})
 }
 
+// The bridge renamed in place is reported to subscribers as its new NodeLabel.
+func TestSubscriptionSeesTheBridgeRenamed(t *testing.T) {
+	f := newFixture(t)
+	path := im.Path{Endpoint: 0, Cluster: IDBasicInformation, Attribute: 0x05}
+	priming, _, _, reports, err := f.client.Subscribe(timeout(t), 0, 5, im.Concrete(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := find(priming, path); r == nil || value(t, *r) != "Oikade" {
+		t.Fatalf("priming %+v, want NodeLabel Oikade", priming)
+	}
+	f.bridge.Node.Update(func() { f.bridge.SetNodeLabel("Cottage") })
+	select {
+	case got := <-reports:
+		if r := find(got, path); r == nil || value(t, *r) != "Cottage" {
+			t.Errorf("report %+v, want NodeLabel Cottage", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no report of the new NodeLabel")
+	}
+}
+
 func TestSubscriptionEndsWithSession(t *testing.T) {
 	f := newFixture(t)
 	if _, _, _, _, err := f.client.Subscribe(timeout(t), 0, 1, im.Concrete(im.Path{Endpoint: 2, Cluster: IDOnOff})); err != nil {

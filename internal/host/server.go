@@ -77,6 +77,8 @@ type server struct {
 	// settings, if set, takes up what a connecting process declares, and confirmedSettings replaces
 	// them with what a version that has settled declares.
 	settings, confirmedSettings func([]wire.DeviceControl) error
+	// matterName, if set, takes up the Matter bridge's name a connecting process declares.
+	matterName func(string) error
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
 
@@ -323,9 +325,15 @@ func (s *server) open(sess *session, hello wire.Message) string {
 	s.attaching.Lock()
 	defer s.attaching.Unlock()
 	// Before the Welcome, so that it says what's arbitrated.
-	if err := s.takeSettings(sess.generation, hello.Control); err != nil {
-		s.log.Error("Failed to save the home's device settings", "err", err)
-		return "the host couldn't save the home's device settings"
+	if !s.turningAway(sess.generation) {
+		if err := s.takeSettings(hello.Control); err != nil {
+			s.log.Error("Failed to save the home's device settings", "err", err)
+			return "the host couldn't save the home's device settings"
+		}
+		if err := s.takeMatterName(hello.MatterName); err != nil {
+			s.log.Error("Failed to save the Matter bridge's name", "err", err)
+			return "the host couldn't save the Matter bridge's name"
+		}
 	}
 	welcome, runs, err := s.welcome(hello)
 	if err != nil {
@@ -339,16 +347,28 @@ func (s *server) open(sess *session, hello wire.Message) string {
 	return ""
 }
 
-// takeSettings takes up a process's device settings, unless attach is going to turn it away. Call
-// with attaching held.
-func (s *server) takeSettings(generation uint64, settings []wire.DeviceControl) error {
+// turningAway says attach is going to turn a process away, so that it has no say. Call with
+// attaching held.
+func (s *server) turningAway(generation uint64) bool {
 	s.mu.Lock()
-	refused := s.session != nil || s.closed || generation != s.generation
-	s.mu.Unlock()
-	if refused || s.settings == nil {
+	defer s.mu.Unlock()
+	return s.session != nil || s.closed || generation != s.generation
+}
+
+// takeSettings takes up a process's device settings.
+func (s *server) takeSettings(settings []wire.DeviceControl) error {
+	if s.settings == nil {
 		return nil
 	}
 	return s.settings(settings)
+}
+
+// takeMatterName takes up the Matter bridge's name a process declares.
+func (s *server) takeMatterName(name string) error {
+	if s.matterName == nil {
+		return nil
+	}
+	return s.matterName(name)
 }
 
 // confirmSettings makes the device settings exactly what a settled version declares.

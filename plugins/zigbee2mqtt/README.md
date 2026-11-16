@@ -4,16 +4,15 @@ This plugin connects Zigbee devices through Zigbee2MQTT. It's a plugin your home
 
 ```go
 framework.Run(framework.NewHome(framework.Options{},
-	framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{})),
+	framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
+		Broker:   "mqtt://oikade@broker.home:1883", // as the host reaches it
+		Password: framework.Secret("broker"),       // leave out the user and this for none
+	})),
 	// ...
 ))
 ```
 
-```sh
-oikade-host --home ./home --broker mqtt://localhost:1883
-```
-
-A password in the `--broker` URL reaches every plugin you import. `zigbee2mqtt.Config` takes `BaseTopic` if yours isn't Zigbee2MQTT's default, `zigbee2mqtt`.
+`Broker` is the broker Zigbee2MQTT uses, as the host's machine reaches it ([OIK-296](https://linear.app/oikade/issue/OIK-296)). A broker with a password names the user in the URL, and the password is a [secret](../../docs/running-a-home.md#secrets), never in the URL: `oikade secret set broker` sets it, and the plugin reads it each time it connects, so a new one needs no deploy. Until it's set, the plugin waits for it and says so in `oikade status`. `BaseTopic` is for a Zigbee2MQTT whose `mqtt.base_topic` isn't the default, `zigbee2mqtt`.
 
 Then check it with `oikade setup zigbee`, naming the plugin as your home does ([OIK-276](https://linear.app/oikade/issue/OIK-276)). On the host, the plugin checks that it reaches the broker, that Zigbee2MQTT is there under the base topic, and two of Zigbee2MQTT's settings, which it names with what to set if they're wrong:
 

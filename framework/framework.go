@@ -37,6 +37,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/internal/secretuse"
 	"github.com/harrymitchinson/oikade/internal/sun"
@@ -835,9 +836,19 @@ func (r Release) toEngine() engine.Action { return engine.Release(r) }
 type Options struct {
 	// Location is where the home is, for Sunrise and Sunset. A home without them needs none.
 	Location Location
+	// MatterName is the Matter bridge's name, as a controller such as the Home app first shows it:
+	// at most 32 bytes. Empty is "Oikade". A deploy renames the bridge in place, with no pairing
+	// again.
+	MatterName string
 }
 
-func (o Options) check() error { return o.Location.check() }
+func (o Options) check() error {
+	var name error
+	if err := matterbridge.CheckBridgeName(o.MatterName); err != nil {
+		name = fmt.Errorf("MatterName: %w", err)
+	}
+	return errors.Join(o.Location.check(), name)
+}
 
 // site is the home's location for the engine, and nil if it has none.
 func (o Options) site() *sun.Site { return o.Location.site() }

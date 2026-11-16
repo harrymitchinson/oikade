@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,28 +40,65 @@ var errBridgeOffline = errors.New("zigbee2mqtt is offline")
 
 // Config configures the plugin.
 type Config struct {
+	// Broker is the MQTT broker Zigbee2MQTT uses, as the host reaches it, such as
+	// mqtt://broker:1883. With a Password, it names the user: mqtt://oikade@broker:1883.
+	Broker string
+	// Password is the broker's password, such as framework.Secret("broker"). The zero Secret is
+	// none.
+	Password plugin.Secret
 	// BaseTopic is Zigbee2MQTT's mqtt.base_topic. It defaults to DefaultBaseTopic.
 	BaseTopic string
 }
 
-// New returns the plugin's Factory, for framework.Plugin. It fails if the host has no --broker.
+// check says what's wrong with c, before anything connects.
+func (c Config) check() error {
+	if c.Broker == "" {
+		return errors.New("zigbee2mqtt.Config has no Broker: set it to the broker Zigbee2MQTT uses, such as mqtt://broker:1883")
+	}
+	u, err := url.Parse(c.Broker)
+	if err != nil || u.Host == "" || !slices.Contains([]string{"mqtt", "tcp", "mqtts", "ssl", "tls", "ws", "wss"}, u.Scheme) {
+		return errors.New("zigbee2mqtt.Config's Broker isn't a broker's URL, such as mqtt://broker:1883")
+	}
+	if _, ok := u.User.Password(); ok {
+		return errors.New("zigbee2mqtt.Config's Broker has a password in it: pass it as Password, a framework.Secret, so it isn't in your code")
+	}
+	if c.Password.Name() != "" && u.User.Username() == "" {
+		return fmt.Errorf("zigbee2mqtt.Config's Broker names no user for its Password, such as mqtt://oikade@%s", u.Host)
+	}
+	return nil
+}
+
+// password reads the broker's password, as each connection is made, so that a changed secret needs
+// no deploy. Never log it.
+func (c Config) password() (string, error) {
+	password, err := c.Password.Read()
+	if err != nil {
+		return "", fmt.Errorf("reading the broker's password: %w", err)
+	}
+	return strings.TrimRight(password, "\r\n"), nil
+}
+
+// secretWait is how often the plugin looks for a broker password that isn't set.
+const secretWait = 2 * time.Second
+
+// New returns the plugin's Factory, for framework.NewPlugin. Its Config needs a Broker.
 func New(c Config) plugin.Factory {
 	if c.BaseTopic == "" {
 		c.BaseTopic = DefaultBaseTopic
 	}
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
-		if env.MQTTURL == "" {
-			return nil, errors.New("the zigbee2mqtt plugin needs the broker Zigbee2MQTT uses: run the host with --broker")
+		if err := c.check(); err != nil {
+			return nil, err
 		}
 		ids := make([]string, 0, len(declared))
 		for _, d := range declared {
 			ids = append(ids, d.ID)
 		}
 		return &bridge{
-			config: c, name: env.Root.Plugin(), broker: env.MQTTURL, declared: ids, up: true, online: map[string]bool{},
+			config: c, name: env.Root.Plugin(), declared: ids, up: true, online: map[string]bool{},
 			infoHeard: make(chan struct{}), infoWait: defaultInfoWait,
-			connectTimeout: connectTimeout,
-			log:            slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+			connectTimeout: connectTimeout, secretWait: secretWait,
+			log: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
 		}, nil
 	}
 }
@@ -68,13 +107,14 @@ func New(c Config) plugin.Factory {
 type bridge struct {
 	config Config
 	// name is the plugin's, as the home imports it, for setup to name.
-	name   string
-	broker string
+	name string
 	// declared are the devices on record, which are reported even once they've left Zigbee2MQTT.
 	declared       []string
 	connectTimeout time.Duration
-	log            *slog.Logger
-	instance       *Instance
+	// secretWait is how often to look for a broker password that isn't set.
+	secretWait time.Duration
+	log        *slog.Logger
+	instance   *Instance
 
 	// ctx and plugin are set before anything can be heard.
 	ctx    context.Context
@@ -109,6 +149,13 @@ var (
 // Serve implements plugin.Handler.
 func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	b.ctx, b.plugin = ctx, p
+	opts := []mqtt.Option{mqtt.WithOnDisconnect(b.connectionLost), mqtt.WithOnConnect(b.connectionMade)}
+	if b.config.Password.Name() != "" {
+		if !b.awaitPassword(ctx) {
+			return nil
+		}
+		opts = append(opts, mqtt.WithPassword(b.config.password))
+	}
 	// The connection outlives ctx, so that it can be left cleanly: a connection cut when ctx ends
 	// makes everything after it wait for a reply that isn't coming, and a deploy wait with it.
 	life, cut := context.WithCancel(logging.NewContext(context.WithoutCancel(ctx), b.log))
@@ -116,8 +163,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	dial, cancel := context.WithTimeout(ctx, b.connectTimeout)
 	defer cancel()
 	connecting := context.AfterFunc(dial, cut)
-	client, err := mqtt.Connect(life, b.broker, clientID(),
-		mqtt.WithOnDisconnect(b.connectionLost), mqtt.WithOnConnect(b.connectionMade))
+	client, err := mqtt.Connect(life, b.config.Broker, clientID(), opts...)
 	if !connecting() {
 		if ctx.Err() != nil {
 			return nil
@@ -149,6 +195,39 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	go b.awaitInfo(ctx)
 	<-ctx.Done()
 	return nil
+}
+
+// awaitPassword waits until the broker's password can be read, saying in the plugin's status what
+// it's waiting for meanwhile, rather than failing and being restarted over and over. It says false
+// if ctx ended first.
+func (b *bridge) awaitPassword(ctx context.Context) bool {
+	waiting := false
+	for {
+		_, err := b.config.password()
+		if err == nil {
+			if waiting {
+				b.setError(ctx, "")
+			}
+			return true
+		}
+		if !waiting {
+			b.log.Warn("Waiting for the broker's password", "err", err, "secret", b.config.Password.Name())
+			b.setError(ctx, err.Error())
+			waiting = true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(b.secretWait):
+		}
+	}
+}
+
+// setError says what's wrong with the plugin in its status, or "" for nothing.
+func (b *bridge) setError(ctx context.Context, problem string) {
+	if err := b.plugin.SetError(ctx, problem); err != nil && ctx.Err() == nil {
+		b.log.Error("Could not report the plugin's problem", "err", err)
+	}
 }
 
 // Set implements plugin.Handler. The result is reported when Zigbee2MQTT publishes it.

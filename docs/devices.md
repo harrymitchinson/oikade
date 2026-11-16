@@ -58,7 +58,15 @@ Oikade reaches the Home app and other controllers through Matter ([OIK-76](https
 oikade matter    # the pairing codes, whether it's ready to pair, and what it's paired with
 ```
 
-The host needs host networking on its machine: the same L2 network as your controllers, with mDNS and IPv6. `--matter-port` moves the bridge from UDP 5540, and 0 turns Matter off. `--matter-name` names it, and `--matter-interfaces` limits where it advertises. If its port is taken, or an interface isn't there, the host logs that and carries on without it, tries again every minute, and `oikade matter` says it's down and why: automations don't need it. While it's on no fabric, the commissioning window stays open for 15 minutes after the host starts. Restart the host to open it again.
+The host needs host networking on its machine: the same L2 network as your controllers, with mDNS and IPv6. `--matter-port` moves the bridge from UDP 5540, and 0 turns Matter off. `--matter-interfaces` limits where it advertises. If its port is taken, or an interface isn't there, the host logs that and carries on without it, tries again every minute, and `oikade matter` says it's down and why: automations don't need it. While it's on no fabric, the commissioning window stays open for 15 minutes after the host starts. Restart the host to open it again.
+
+Your home names the bridge, as a controller first shows it ([OIK-296](https://linear.app/oikade/issue/OIK-296)). It's `Oikade` until a deploy says otherwise:
+
+```go
+framework.NewHome(framework.Options{MatterName: "Cottage"}, /* … */) // at most 32 bytes
+```
+
+A deploy renames it in place, and the host keeps the name through a restart, so you don't pair again. The bridge's Basic Information says the new name at once, and the next commissioning window advertises it. Whether a controller that's already paired, such as the Home app, shows the new name isn't verified: it may keep the one it was given.
 
 Every device on record with something Matter can show is on the bridge, at its [registry](#devices) endpoint, as soon as it's paired, as its [device types](#what-a-device-is). Its label is its name, and a rename changes that in place: the endpoint and unique ID stay, so a controller keeps its room and scenes. A new device type rebuilds the device on the same endpoint, with the same unique ID. Removing a device takes it off. A device whose driver hasn't reported yet stays on, unreachable, so controllers don't see it vanish.
 

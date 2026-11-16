@@ -25,6 +25,8 @@ const (
 	labelAttribute     = 0x05
 	reachableAttribute = 0x11
 	uniqueIDAttribute  = 0x12
+	// nodeLabelAttribute is in Basic Information.
+	nodeLabelAttribute = 0x05
 )
 
 // controller is a Matter controller paired with a rig's host.
@@ -269,6 +271,35 @@ func TestARenameKeepsTheBridgedDevice(t *testing.T) {
 	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
 		t.Errorf("after a restart, unique ID %v became %v", unique, got)
 	}
+}
+
+// The home names the bridge, and a deploy renames it in place: the controller stays paired, and a
+// restart keeps the name before your process connects.
+func TestADeployRenamesTheBridge(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	if got := c.nodeLabel(); got != "Oikade" {
+		t.Fatalf("a new bridge is named %v", got)
+	}
+	c.r.mustDeploy("cottage")
+	c.r.until("the new name", func() bool { return c.nodeLabel() == "Cottage" })
+	c.reaches("fan")
+
+	c.r.stop()
+	c.r.launch(matterFlag(c.port))
+	c.r.waitFor(func(l line) bool { return l.is(attached) })
+	c.r.until("the bridge", func() bool { return c.r.matter().Serving })
+	c.admin = c.cm.CASE(nodetest.Addr(c.port))
+	if got := c.nodeLabel(); got != "Cottage" {
+		t.Errorf("after a restart, the bridge is named %v", got)
+	}
+}
+
+// nodeLabel is the bridge's own name, in the root's Basic Information.
+func (c *controller) nodeLabel() any {
+	c.t.Helper()
+	v, _ := c.read(0, clusters.IDBasicInformation, nodeLabelAttribute)
+	return v
 }
 
 func TestAControllerGoesThroughArbitration(t *testing.T) {

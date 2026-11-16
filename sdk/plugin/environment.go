@@ -14,9 +14,9 @@ import (
 
 // Environment is where a plugin is told to connect and what to serve.
 type Environment struct {
-	// MQTTURL is the broker, such as mqtt://broker:1883. For a plugin
-	// your home imports, it's the host's --broker, empty if there's none: the SDK doesn't use it,
-	// but a plugin whose platform speaks MQTT can.
+	// MQTTURL is the broker an outside plugin speaks the contract on, such as mqtt://broker:1883:
+	// the host's --broker. It's empty for a plugin your home imports, which takes a broker it uses,
+	// such as Zigbee2MQTT's, in its own config.
 	MQTTURL string
 	Root    contractv1.Root
 	// DevicesFile is the path of devices.json, or empty for a plugin that reports what it finds.

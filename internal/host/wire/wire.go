@@ -157,6 +157,9 @@ type Message struct {
 	Info []RuleInfo `json:"info,omitempty"`
 	// Control is every device setting the process's home declares.
 	Control []DeviceControl `json:"control,omitempty"`
+	// MatterName is the Matter bridge's name the process's home declares, empty for the host's
+	// default.
+	MatterName string `json:"matterName,omitempty"`
 
 	// Paused is a Welcome's: rules not to run until a Resume says so.
 	Paused []string `json:"paused,omitempty"`

@@ -453,6 +453,19 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Errorf("it started a host, which left %v", entries)
 	}
+	// A flag about the home rather than the machine has moved into the home's code, and says where.
+	for args, want := range map[string]string{
+		"--matter-name=Cottage":       "framework.Options",
+		"--broker mqtt://broker:1883": "zigbee2mqtt.Config",
+	} {
+		out, err := run(t, bin, dir, "", append([]string{"--data-dir", dir}, strings.Fields(args)...)...)
+		if err == nil || !strings.Contains(out, want) {
+			t.Errorf("oikade-host %s: %v: %s", args, err, out)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("a removed flag started a host, which left %v", entries)
+	}
 	for _, args := range [][]string{{"deploy"}, {"status"}, {"init"}} {
 		out, err := run(t, bin, dir, "", args...)
 		if err == nil || !strings.Contains(out, "unknown command") {

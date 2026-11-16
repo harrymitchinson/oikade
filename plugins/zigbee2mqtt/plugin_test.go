@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	neturl "net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -110,8 +113,7 @@ func run(t *testing.T, url string, declared ...contractv1.DeclaredDevice) (stop 
 func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredDevice) (stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	env := plugin.Environment{MQTTURL: zigbee, Root: root}
-	h, err := New(Config{BaseTopic: base})(env, declared)
+	h, err := New(Config{Broker: zigbee, BaseTopic: base})(plugin.Environment{Root: root}, declared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,8 +168,103 @@ func reported(t *testing.T, payload string) contractv1.Devices {
 
 func TestItNeedsABroker(t *testing.T) {
 	_, err := New(Config{})(plugin.Environment{Root: root}, nil)
-	if err == nil || !strings.Contains(err.Error(), "--broker") {
+	if err == nil || !strings.Contains(err.Error(), "no Broker") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestABrokersPasswordIsASecretForAUserItNames(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		config Config
+		want   string
+	}{
+		{"not a URL", Config{Broker: "mqtt://broker:port"}, "isn't a broker's URL"},
+		{"no scheme", Config{Broker: "localhost:1883"}, "isn't a broker's URL"},
+		{"a password in the URL", Config{Broker: "mqtt://oikade:hunter2@broker:1883"}, "has a password in it"},
+		{"no user for the password", Config{Broker: "mqtt://broker:1883", Password: plugin.NewSecret("broker")}, "mqtt://oikade@broker:1883"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := New(c.config)(plugin.Environment{Root: root}, nil)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("got %v, want one saying %q", err, c.want)
+			}
+			if strings.Contains(fmt.Sprint(err), "hunter2") {
+				t.Errorf("the error shows the password: %v", err)
+			}
+		})
+	}
+}
+
+func TestTheBrokersPasswordIsReadEachTimeItConnects(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(contractv1.EnvSecretsDir, dir)
+	c := Config{Broker: "mqtt://oikade@broker:1883", Password: plugin.NewSecret("broker")}
+	if err := c.check(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.password(); !errors.Is(err, plugin.ErrSecretNotSet) {
+		t.Fatalf("with no secret, got %v", err)
+	}
+	for _, password := range []string{"first\n", "sec ret:@/"} {
+		if err := os.WriteFile(filepath.Join(dir, "broker"), []byte(password), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := c.password(); err != nil || got != strings.TrimRight(password, "\n") {
+			t.Errorf("%q read as %q, %v", password, got, err)
+		}
+	}
+}
+
+// A password that isn't set yet is waited for, said in the plugin's status, rather than a plugin
+// that fails and is restarted until it is.
+func TestAPluginWaitsForItsBrokersPassword(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(contractv1.EnvSecretsDir, dir)
+	url := mqtttest.StartBroker(t)
+	u, err := neturl.Parse(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = neturl.User("oikade")
+	h := hear(t, url)
+	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
+	handler, err := New(Config{Broker: u.String(), Password: plugin.NewSecret("broker"), BaseTopic: base})(plugin.Environment{Root: root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := handler.(*bridge)
+	b.secretWait = 20 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	p, err := plugin.Start(ctx, plugin.Options{
+		Environment: plugin.Environment{MQTTURL: url, Root: root}, OnSet: handler.Set, Logger: slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- handler.Serve(ctx, p) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-served; err != nil {
+			t.Error(err)
+		}
+		_ = p.Close(context.Background())
+	})
+
+	h.wait(t, "the plugin saying it's waiting", func(topics map[string]string) bool {
+		return strings.Contains(topics[root.Status()], "oikade secret set broker")
+	})
+	if err := os.WriteFile(filepath.Join(dir, "broker"), []byte("anything"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, "its devices, once the password is set", func(topics map[string]string) bool {
+		return len(reported(t, topics[root.Devices()]).Discovered) > 0
+	})
+	select {
+	case err := <-served:
+		t.Fatalf("the plugin stopped: %v", err)
+	default:
 	}
 }
 
@@ -343,7 +440,7 @@ func TestItGivesUpOnABrokerItCantReach(t *testing.T) {
 		t.Fatal(err)
 	}
 	broker.Close()
-	h, err := New(Config{})(plugin.Environment{MQTTURL: broker.URL, Root: root}, nil)
+	h, err := New(Config{Broker: broker.URL})(plugin.Environment{Root: root}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +507,7 @@ func TestItFollowsADefaultBaseTopic(t *testing.T) {
 	h.publish(t, DefaultBaseTopic+"/bridge/devices", bridgeDevices(t), true)
 	ctx, cancel := context.WithCancel(context.Background())
 	env := plugin.Environment{MQTTURL: url, Root: root}
-	handler, err := New(Config{})(env, nil)
+	handler, err := New(Config{Broker: url})(plugin.Environment{Root: root}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -80,7 +80,9 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 	if err != nil {
 		return err
 	}
-	client, welcome, err := wire.Dial(dial, socket, names, settings, h.manifest().Rules...)
+	client, welcome, err := wire.DialHello(dial, socket, wire.Message{
+		Rules: names, Info: h.manifest().Rules, Control: settings, MatterName: h.options.MatterName,
+	})
 	if err != nil {
 		return err
 	}
