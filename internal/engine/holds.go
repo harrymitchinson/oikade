@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -79,14 +77,6 @@ type holdState struct {
 	claimed *control.Claim
 	// budget is a budget hold's plan and progress. Nil until a budget hold is first evaluated.
 	budget *budgetState
-}
-
-// NewActiveGauge returns the gauge Engine.Active expects.
-func NewActiveGauge() *prometheus.GaugeVec {
-	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "oikade_rule_active",
-		Help: "Whether a Rule's hold is active: 1 or 0.",
-	}, []string{labelRule})
 }
 
 func (c *Compiled) target() HoldTarget {
@@ -335,9 +325,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 		hs.retry = time.Time{}
 	}
 
-	if e.Active != nil {
-		e.Active.WithLabelValues(key.Name).Set(float64(btoi(st.Active)))
-	}
+	e.metrics.active.Set(float64(btoi(st.Active)), key.Name)
 	// An active hold claims again when its priority or latch changed, or it has just loaded.
 	claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)

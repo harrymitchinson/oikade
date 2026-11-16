@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -59,14 +57,6 @@ type bridgeWrite struct {
 	source           string
 	value            float64
 	settled, expires time.Time
-}
-
-// NewControlLevelGauge returns the gauge Engine.ControlLevel expects.
-func NewControlLevelGauge() *prometheus.GaugeVec {
-	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "oikade_device_control_level",
-		Help: "The winning level of an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety.",
-	}, []string{"device", "capability"})
 }
 
 // arb is one arbitrated capability. Use it with e.mu held.
@@ -247,9 +237,7 @@ func (e *Engine) dropArb(dev ident.ID, name string, forget bool) {
 	if len(e.arbs[dev]) == 0 {
 		delete(e.arbs, dev)
 	}
-	if e.ControlLevel != nil {
-		e.ControlLevel.DeleteLabelValues(dev.Name, name)
-	}
+	e.metrics.controlLevel.Delete(dev.Name, name)
 	if forget {
 		e.markSave(dev)
 	}
@@ -902,11 +890,8 @@ func (e *Engine) arbitrated(dev ident.ID, name string) bool {
 
 // reportControl sets the gauge of the device's arbitrated capabilities. Call with e.mu held.
 func (e *Engine) reportControl(dev ident.ID) {
-	if e.ControlLevel == nil {
-		return
-	}
 	for name, ar := range e.arbs[dev] {
-		e.ControlLevel.WithLabelValues(dev.Name, name).Set(float64(ar.d.Level))
+		e.metrics.controlLevel.Set(float64(ar.d.Level), dev.Name, name)
 	}
 }
 

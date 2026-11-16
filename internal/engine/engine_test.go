@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
@@ -247,7 +247,7 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 	h := &harness{t: t, clock: clock.NewFake(now), setter: &fakeSetter{}}
 	h.e = &Engine{
 		Store: store, Setter: h.setter, Clock: h.clock, Location: london, Log: logging.Discard(),
-		Runs: NewRunsCounter(),
+		RuleMetrics: metrics.NewSet(),
 	}
 	h.e.Init()
 	if configure != nil {
@@ -270,7 +270,7 @@ func (h *harness) motion(v bool) {
 }
 
 func (h *harness) runs(result string) float64 {
-	return testutil.ToFloat64(h.e.Runs.WithLabelValues("motion-light", result))
+	return float64(h.e.metrics.runs.Counter("motion-light", result).Get())
 }
 
 func (h *harness) eventually(what string, cond func() bool) {

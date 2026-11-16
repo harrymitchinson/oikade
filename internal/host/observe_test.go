@@ -5,15 +5,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/expfmt"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -21,7 +19,7 @@ import (
 )
 
 func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
-	eng := &engine.Engine{ControlLevel: engine.NewControlLevelGauge()}
+	exported := metrics.NewSet()
 	store := hub.NewStore(logging.Discard())
 	dev := ident.ID{Name: "fan"}
 	inst := driver.InstanceKey{Driver: "test"}
@@ -29,58 +27,88 @@ func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	store.Changed(driver.Update{Device: dev, Capability: "on", Value: true, Time: time.Now()})
 	store.Availability(dev, true)
 	store.Seen(dev, time.Now())
-	eng.ControlLevel.WithLabelValues("fan", "on").Set(1)
+	exported.GetOrCreateGauge(`oikade_device_control_level{capability="on",device="fan"}`, nil).Set(1)
 
-	// Your process's own registry, as its metrics reach the host.
-	process := prometheus.NewRegistry()
-	runs, next, dropped, active, budget := engine.NewRunsCounter(), engine.NewNextChangeGauge(),
-		engine.NewDroppedCounter(), engine.NewActiveGauge(), engine.NewBudgetMetrics()
-	process.MustRegister(runs, next, dropped, active)
-	process.MustRegister(budget.Collectors()...)
-	runs.WithLabelValues("fan", "succeeded").Inc()
-	next.WithLabelValues("fan").Set(1)
-	active.WithLabelValues("fan").Set(1)
-	budget.Target.WithLabelValues("fan").Set(1)
-	budget.Scheduled.WithLabelValues("fan").Set(1)
-	budget.Run.WithLabelValues("fan").Inc()
-	budget.TodayRun.WithLabelValues("fan").Set(1)
-	budget.Desired.WithLabelValues("fan").Set(1)
-	text, err := testMetricsText(process)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := &pushed{}
-	p.set(text)
-
-	families, err := gatherer(store, eng, p).Gather()
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := make([]string, 0, len(families))
-	for _, f := range families {
-		names = append(names, f.GetName())
-	}
-	for _, want := range []string{
-		"oikade_capability_value", "oikade_capability_changes_total", "oikade_device_available",
-		"oikade_device_last_seen_timestamp_seconds", "oikade_device_control_level",
-		"oikade_rule_runs_total", "oikade_rule_next_change_timestamp_seconds", "oikade_rule_active",
-		"oikade_rule_events_dropped_total", "oikade_rule_budget_target_minutes",
-		"oikade_rule_budget_scheduled_minutes", "oikade_rule_budget_run_minutes_total",
-		"oikade_rule_budget_today_run_minutes", "oikade_rule_budget_desired",
+	// Your process's own metrics, as they reach the host.
+	process := metrics.NewSet()
+	for _, name := range []string{
+		`oikade_rule_runs_total{result="succeeded",rule="fan"}`, `oikade_rule_events_dropped_total`,
+		`oikade_rule_budget_run_minutes_total{rule="fan"}`,
 	} {
-		if !slices.Contains(names, want) {
-			t.Errorf("no %s in %v", want, names)
-		}
+		process.GetOrCreateCounter(name).Inc()
 	}
-
-	p.set(nil)
-	if families, err = gatherer(store, eng, p).Gather(); err != nil {
+	for _, name := range []string{
+		`oikade_rule_next_change_timestamp_seconds{rule="fan"}`, `oikade_rule_active{rule="fan"}`,
+		`oikade_rule_budget_target_minutes{rule="fan"}`, `oikade_rule_budget_scheduled_minutes{rule="fan"}`,
+		`oikade_rule_budget_today_run_minutes{rule="fan"}`, `oikade_rule_budget_desired{rule="fan"}`,
+	} {
+		process.GetOrCreateGauge(name, nil).Set(1)
+	}
+	var text bytes.Buffer
+	process.WritePrometheus(&text)
+	p := &pushed{}
+	if err := p.set(bytes.TrimSuffix(text.Bytes(), []byte("\n"))); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range families {
-		if f.GetName() == "oikade_rule_runs_total" {
-			t.Error("a process that's gone still has metrics")
+	export(exported, store, p)
+
+	var out bytes.Buffer
+	exported.WritePrometheus(&out)
+	page := out.String()
+	for _, want := range []string{
+		`oikade_capability_value{capability="on",device="fan",room=""} 1`,
+		"oikade_capability_changes_total{", "oikade_device_available{",
+		"oikade_device_last_seen_timestamp_seconds{", `oikade_device_control_level{capability="on",device="fan"} 1`,
+		"oikade_rule_runs_total{", "oikade_rule_next_change_timestamp_seconds{", "oikade_rule_active{",
+		"oikade_rule_events_dropped_total 1", "oikade_rule_budget_target_minutes{",
+		"oikade_rule_budget_scheduled_minutes{", "oikade_rule_budget_run_minutes_total{",
+		"oikade_rule_budget_today_run_minutes{", `oikade_rule_budget_desired{rule="fan"} 1`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("no %s in\n%s", want, page)
 		}
+	}
+	if !strings.HasSuffix(page, "\n") {
+		t.Error("the last line isn't ended")
+	}
+
+	_ = p.set(nil)
+	out.Reset()
+	exported.WritePrometheus(&out)
+	if strings.Contains(out.String(), "oikade_rule_runs_total") {
+		t.Error("a process that's gone still has metrics")
+	}
+}
+
+func TestTheHostRefusesMetricsThatArentRules(t *testing.T) {
+	p := &pushed{}
+	good := "# HELP oikade_rule_active\n# TYPE oikade_rule_active gauge\noikade_rule_active{rule=\"a b\"} 1\n"
+	if err := p.set([]byte(good)); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		"oikade_capability_value{device=\"fan\"} 1\n",
+		"oikade_rule_active{rule=\"fan} 1\n",
+		"oikade_rule_active one\n",
+		"# TYPE oikade_rule_active gaueg\n",
+		"# TYPE oikade_device_control_level gauge\n",
+		"oikade_rule_active\n",
+	} {
+		if err := p.set([]byte(good + bad)); err == nil {
+			t.Errorf("kept %q", bad)
+		}
+		var out bytes.Buffer
+		p.write(&out)
+		if out.Len() != 0 {
+			t.Errorf("served %q", out.String())
+		}
+		_ = p.set([]byte(good))
+	}
+	if err := p.set([]byte("nonsense 1\n")); err == nil {
+		t.Error("kept nonsense")
+	}
+	if err := p.set([]byte("more nonsense 1\n")); err != nil {
+		t.Errorf("said again why it refused a push: %v", err)
 	}
 }
 
@@ -118,18 +146,4 @@ func TestFeedCutsOffATailThatFellBehind(t *testing.T) {
 	if _, ok := <-events; ok {
 		t.Error("a tail that fell behind stayed subscribed")
 	}
-}
-
-func testMetricsText(g prometheus.Gatherer) ([]byte, error) {
-	families, err := g.Gather()
-	if err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	for _, f := range families {
-		if _, err := expfmt.MetricFamilyToText(&out, f); err != nil {
-			return nil, err
-		}
-	}
-	return out.Bytes(), nil
 }

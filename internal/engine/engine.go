@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
@@ -75,14 +75,9 @@ type Engine struct {
 	Log      *slog.Logger
 	// Site is where sun triggers are computed for. Nil means they never fire. Set it before Init.
 	Site *sun.Site
-	// Runs counts trigger outcomes by rule and result.
-	Runs *prometheus.CounterVec
-	// NextChange is the next fire's Unix time, by rule.
-	NextChange *prometheus.GaugeVec
-	// Dropped counts changes dropped because the engine fell behind.
-	Dropped prometheus.Counter
-	// Active is 1 while a Rule's hold is active, by rule.
-	Active *prometheus.GaugeVec
+	// RuleMetrics, if set, gets the rules' metrics: their runs, next changes, holds and budgets, and
+	// the changes the engine dropped. Set it before Init.
+	RuleMetrics *metrics.Set
 	// States keeps holds' state across restarts. Nil keeps it in memory only.
 	States HoldStates
 	// Controls keeps arbitrated capabilities' state across restarts. Nil keeps it in memory only.
@@ -93,8 +88,8 @@ type Engine struct {
 	AverageStates AverageStates
 	// Arbitration, if set, takes this engine's claims, and it runs no arbiters itself.
 	Arbitration Arbitration
-	// ControlLevel is the winning level of each arbitrated capability.
-	ControlLevel *prometheus.GaugeVec
+	// ControlMetrics, if set, gets the winning level of each arbitrated capability.
+	ControlMetrics *metrics.Set
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key ident.ID, t time.Time)
 	// OnRun, if set, is called with each outcome Runs counts, perhaps with e.mu held. It must not block.
@@ -115,13 +110,12 @@ type Engine struct {
 	// OnBudget, if set, is called with e.mu held when a budget hold plans, or its status changes.
 	// It must not block.
 	OnBudget func(key ident.ID, r BudgetReport)
-	// Budget are the budget holds' metrics. Nil exports none.
-	Budget *BudgetMetrics
 	// OnEnd, if set, hears a run that OnStart heard end, with its result. OnPark, if set, hears a run
 	// begin waiting.
 	OnEnd  func(key ident.ID, result string)
 	OnPark Park
 
+	metrics engineMetrics
 	// busy counts the work Idle can't see in the engine's state: changes queued, a wake or save
 	// asked for and not yet done, and goroutines working rather than parked.
 	busy atomic.Int64
@@ -185,33 +179,10 @@ type state struct {
 	hold *holdState
 }
 
-// NewRunsCounter returns the counter Engine.Runs expects.
-func NewRunsCounter() *prometheus.CounterVec {
-	return prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "oikade_rule_runs_total",
-		Help: "Rule trigger outcomes.",
-	}, []string{labelRule, "result"})
-}
-
-// NewNextChangeGauge returns the gauge Engine.NextChange expects.
-func NewNextChangeGauge() *prometheus.GaugeVec {
-	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "oikade_rule_next_change_timestamp_seconds",
-		Help: "When a Rule's next at or sun trigger fires, or its hold next starts or ends, as a Unix time.",
-	}, []string{labelRule})
-}
-
-// NewDroppedCounter returns the counter Engine.Dropped expects.
-func NewDroppedCounter() prometheus.Counter {
-	return prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "oikade_rule_events_dropped_total",
-		Help: "Capability changes the rule engine dropped because it fell behind.",
-	})
-}
-
 // Init prepares the engine. Call it before Load, Changed or Run.
 func (e *Engine) Init() {
 	e.Log = logging.OrDiscard(e.Log)
+	e.metrics = newMetrics(e.RuleMetrics, e.ControlMetrics)
 	e.events = make(chan []driver.Update, 1024)
 	e.wake = make(chan struct{}, 1)
 	e.parked = map[int]parking{}
@@ -278,8 +249,8 @@ func (e *Engine) Load(c *Compiled) {
 	case reported:
 		e.report(c.Key, Schedule{Generation: c.Generation, Cleared: true})
 	}
-	if old != nil && old.c.hold != nil && c.hold == nil && e.Active != nil {
-		e.Active.DeleteLabelValues(c.Key.Name)
+	if old != nil && old.c.hold != nil && c.hold == nil {
+		e.metrics.active.Delete(c.Key.Name)
 	}
 	if old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
 		e.clearBudget(c.Key, c.Generation)
@@ -324,12 +295,10 @@ func (e *Engine) reschedule(s *state, now time.Time) time.Time {
 }
 
 func (e *Engine) report(key ident.ID, sched Schedule) {
-	if e.NextChange != nil {
-		if sched.Next.IsZero() || sched.Cleared {
-			e.NextChange.DeleteLabelValues(key.Name)
-		} else {
-			e.NextChange.WithLabelValues(key.Name).Set(float64(sched.Next.Unix()))
-		}
+	if sched.Next.IsZero() || sched.Cleared {
+		e.metrics.nextChange.Delete(key.Name)
+	} else {
+		e.metrics.nextChange.Set(float64(sched.Next.Unix()), key.Name)
 	}
 	if e.OnSchedule != nil {
 		e.OnSchedule(key, sched)
@@ -394,19 +363,13 @@ func (e *Engine) unload(key ident.ID) *state {
 		e.stopped(key, s.hold, "")
 	}
 	// The saved plan stays, so a rule fixed the same day carries on with it.
-	e.Budget.delete(key)
+	e.metrics.budget.delete(key)
 	delete(e.rules, key)
 	// A Rule loaded again, after a delete or an invalid edit, looks for missed fires again.
 	delete(e.loaded, key)
-	if e.Runs != nil {
-		e.Runs.DeletePartialMatch(prometheus.Labels{labelRule: key.Name})
-	}
-	if e.NextChange != nil {
-		e.NextChange.DeleteLabelValues(key.Name)
-	}
-	if e.Active != nil {
-		e.Active.DeleteLabelValues(key.Name)
-	}
+	e.metrics.runs.DeleteMatching(labelRule, key.Name)
+	e.metrics.nextChange.Delete(key.Name)
+	e.metrics.active.Delete(key.Name)
 	e.signal()
 	return s
 }
@@ -431,8 +394,8 @@ func (e *Engine) queue(changes []driver.Update) {
 	case e.events <- changes:
 	default:
 		e.busy.Add(-1)
-		if e.Dropped != nil {
-			e.Dropped.Add(float64(len(changes)))
+		if e.metrics.dropped != nil {
+			e.metrics.dropped.Add(len(changes))
 		}
 		for _, u := range changes {
 			e.Log.Info("Dropped capability change; the rule engine is behind", "device", u.Device, "capability", u.Capability)
@@ -1074,9 +1037,7 @@ func (e *Engine) stateIdle() bool {
 func (e *Engine) Earliest() time.Time { return e.earliest() }
 
 func (e *Engine) count(key ident.ID, result string) {
-	if e.Runs != nil {
-		e.Runs.WithLabelValues(key.Name, result).Inc()
-	}
+	e.metrics.runs.Inc(key.Name, result)
 	if e.OnRun != nil {
 		e.OnRun(key, result)
 	}

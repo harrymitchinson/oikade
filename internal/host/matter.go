@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
@@ -139,12 +139,12 @@ type matterBridge struct {
 // than making new state, which would quietly lose every controller: that's the home's Matter gone,
 // and not worth its automations too.
 // name is its NodeLabel, which the home gives.
-func (h *Host) openMatter(data *store.Store, name string) *matterBridge {
+func (h *Host) openMatter(data *store.Store, name string, exported *metrics.Set) *matterBridge {
 	if h.Matter == nil {
 		return nil
 	}
 	m := &matterBridge{log: h.Log.With("logger", "matter"), port: h.Matter.Port, retry: h.Matter.Retry, changes: make(chan struct{}, 1)}
-	m.metrics = newMatterMetrics(m)
+	m.metrics = newMatterMetrics(exported, m)
 	if m.port == 0 {
 		m.port = DefaultMatterPort
 	}
@@ -325,7 +325,7 @@ type matterWrites struct {
 	// restore takes the clusters back after a write that didn't happen.
 	restore func(dev ident.ID, name string, otherwise any)
 	// took, if set, hears how long each write that reached its driver took.
-	took prometheus.Observer
+	took *metrics.PrometheusHistogram
 	// emit, if set, puts a refused write in the event log.
 	emit func(api.Event)
 }
@@ -359,7 +359,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	// Only writes that worked: one refused at Safety takes no time, and one that timed out says how
 	// long the timeout is.
 	if w.took != nil {
-		w.took.Observe(time.Since(start).Seconds())
+		w.took.UpdateDuration(start)
 	}
 	return nil
 }

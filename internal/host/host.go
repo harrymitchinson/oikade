@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -116,10 +116,12 @@ func (h *Host) Run(ctx context.Context) error {
 	// The engine outlives ctx: your process may claim until it has stopped, so that comes first.
 	engineCtx, stopEngine := context.WithCancel(context.WithoutCancel(ctx))
 	defer stopEngine()
+	// exported is everything /metrics serves.
+	exported := metrics.NewSet()
 	eng := &engine.Engine{
-		Log:          h.Log.With("logger", "arbitration"),
-		Controls:     &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: h.Log},
-		ControlLevel: engine.NewControlLevelGauge(),
+		Log:            h.Log.With("logger", "arbitration"),
+		Controls:       &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: h.Log},
+		ControlMetrics: exported,
 	}
 	srv := &server{
 		since: time.Now(),
@@ -138,7 +140,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reading the home's options: %w", err)
 	}
-	bridge := h.openMatter(data, options.bridgeName())
+	bridge := h.openMatter(data, options.bridgeName(), exported)
 	options.renamed = bridge.rename
 	srv.options = options
 	srv.deploying = kept.deploying
@@ -196,14 +198,10 @@ func (h *Host) Run(ctx context.Context) error {
 		newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx)
 	calls := &apiServer{
 		log: h.Log.With("logger", "api"), ctx: apiCalls.ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
-		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir}, authFailures: newAuthFailures(),
+		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir}, authFailures: newAuthFailures(exported),
 	}
 	network := h.listenAPI(data, calls)
-	exported := []prometheus.Collector{calls.authFailures}
-	if bridge != nil {
-		exported = append(exported, bridge.metrics)
-	}
-	observing := h.observe(srv, eng, exported...)
+	observing := h.observe(exported, srv)
 	first := deploys.startup()
 	var engineDone, accepting sync.WaitGroup
 	engineDone.Go(func() { eng.Run(engineCtx) })

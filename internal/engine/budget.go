@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -94,79 +92,26 @@ type BudgetReport struct {
 	Message   string
 }
 
-// BudgetMetrics are the budget holds' gauges and counter, by rule.
-type BudgetMetrics struct {
-	Target    *prometheus.GaugeVec
-	Scheduled *prometheus.GaugeVec
-	Run       *prometheus.CounterVec
-	// TodayRun is today's run minutes, to compare with Target.
-	TodayRun *prometheus.GaugeVec
-	Desired  *prometheus.GaugeVec
-}
-
-// NewBudgetMetrics returns the metrics Engine.Budget expects.
-func NewBudgetMetrics() *BudgetMetrics {
-	labels := []string{labelRule}
-	return &BudgetMetrics{
-		Target: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "oikade_rule_budget_target_minutes",
-			Help: "A budget hold's minutes for the current planning day.",
-		}, labels),
-		Scheduled: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "oikade_rule_budget_scheduled_minutes",
-			Help: "How many of a budget hold's minutes the current day's plan places.",
-		}, labels),
-		Run: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "oikade_rule_budget_run_minutes_total",
-			Help: "Minutes a budget hold's target has been on and available.",
-		}, labels),
-		TodayRun: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "oikade_rule_budget_today_run_minutes",
-			Help: "Minutes a budget hold's target has been on and available in the current planning day.",
-		}, labels),
-		Desired: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "oikade_rule_budget_desired",
-			Help: "Whether a budget hold's plan wants its target on now: 1 or 0.",
-		}, labels),
-	}
-}
-
-// Collectors returns the metrics to register.
-func (m *BudgetMetrics) Collectors() []prometheus.Collector {
-	return []prometheus.Collector{m.Target, m.Scheduled, m.Run, m.TodayRun, m.Desired}
-}
-
 // planned sets a budget's metrics from its plan, and whether the plan wants the target on now.
-func (m *BudgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
-	if m == nil {
-		return
-	}
-	m.Target.WithLabelValues(key.Name).Set(float64(p.day.TargetMinutes))
-	m.Scheduled.WithLabelValues(key.Name).Set(float64(p.day.ScheduledMinutes))
-	m.Desired.WithLabelValues(key.Name).Set(float64(btoi(on)))
-	m.TodayRun.WithLabelValues(key.Name).Set(math.Floor(p.run.Minutes()))
+func (m budgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
+	m.target.Set(float64(p.day.TargetMinutes), key.Name)
+	m.scheduled.Set(float64(p.day.ScheduledMinutes), key.Name)
+	m.desired.Set(float64(btoi(on)), key.Name)
+	m.todayRun.Set(math.Floor(p.run.Minutes()), key.Name)
 }
 
 // unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
 // run is kept for when it can plan again.
-func (m *BudgetMetrics) unplanned(key ident.ID) {
-	if m == nil {
-		return
-	}
-	m.Target.DeleteLabelValues(key.Name)
-	m.Scheduled.DeleteLabelValues(key.Name)
-	m.Desired.WithLabelValues(key.Name).Set(0)
+func (m budgetMetrics) unplanned(key ident.ID) {
+	m.target.Delete(key.Name)
+	m.scheduled.Delete(key.Name)
+	m.desired.Set(0, key.Name)
 }
 
-func (m *BudgetMetrics) delete(key ident.ID) {
-	if m == nil {
-		return
+func (m budgetMetrics) delete(key ident.ID) {
+	for _, v := range m.all() {
+		v.Delete(key.Name)
 	}
-	m.Target.DeleteLabelValues(key.Name)
-	m.Scheduled.DeleteLabelValues(key.Name)
-	m.Run.DeleteLabelValues(key.Name)
-	m.TodayRun.DeleteLabelValues(key.Name)
-	m.Desired.DeleteLabelValues(key.Name)
 }
 
 // budgetPlan is a budget hold's plan for one planning day, and its progress. Use it with e.mu held.
@@ -219,11 +164,11 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 	p := bs.plan
 	if p != nil {
 		// Credited even when the budget can't plan, so the run isn't lost meanwhile.
-		p.credit(now, targetOn, e.Budget, key)
+		p.credit(now, targetOn, e.metrics.budget, key)
 	}
 	b, report := e.compileBudget(s, snap)
 	if b == nil {
-		e.Budget.unplanned(key)
+		e.metrics.budget.unplanned(key)
 		e.reportBudget(key, s, now, report)
 		return false, time.Time{}
 	}
@@ -263,13 +208,10 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		if prev != nil && prev.device == h.device && prev.capability == h.capability && !now.Before(prev.end) {
 			// The run since the last day ended belongs to this one.
 			p.credited, p.on = prev.end, prev.on
-			p.credit(now, targetOn, e.Budget, key)
+			p.credit(now, targetOn, e.metrics.budget, key)
 		}
 		bs.plan = p
-		if e.Budget != nil {
-			// Exported at 0 before any run is credited.
-			e.Budget.Run.WithLabelValues(key.Name)
-		}
+		e.metrics.budget.run.Add(0, key.Name) // exported at 0 before any run is credited
 	}
 
 	next = p.end
@@ -285,7 +227,7 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		}
 	}
 
-	e.Budget.planned(key, p, on)
+	e.metrics.budget.planned(key, p, on)
 	report = BudgetReport{Today: p.status(), Reason: ReasonPlanned,
 		Message: planMessage(p.day)}
 	if p.failure != "" {
@@ -356,7 +298,7 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 // credit adds the time since the last credit to run, if the target was on and available then,
 // and records whether it is now. The engine credits when the target changes, so its state between
 // credits is the one recorded at the last.
-func (p *budgetPlan) credit(now time.Time, on bool, m *BudgetMetrics, key ident.ID) {
+func (p *budgetPlan) credit(now time.Time, on bool, m budgetMetrics, key ident.ID) {
 	if p.on && now.After(p.credited) {
 		until := now
 		if p.end.Before(until) {
@@ -365,9 +307,7 @@ func (p *budgetPlan) credit(now time.Time, on bool, m *BudgetMetrics, key ident.
 		d := until.Sub(p.credited)
 		if d > 0 {
 			p.run += d
-			if m != nil {
-				m.Run.WithLabelValues(key.Name).Add(d.Minutes())
-			}
+			m.run.Add(d.Minutes(), key.Name)
 		}
 	}
 	p.credited, p.on = now, on
@@ -457,7 +397,7 @@ func planningDay(now time.Time, loc *time.Location, planningMinute int) (int, ti
 // clearBudget reports that a Rule no longer has a budget, and drops its metrics. Call with e.mu
 // held.
 func (e *Engine) clearBudget(key ident.ID, generation int64) {
-	e.Budget.delete(key)
+	e.metrics.budget.delete(key)
 	if e.OnBudget != nil {
 		e.OnBudget(key, BudgetReport{Generation: generation, Cleared: true})
 	}
