@@ -89,7 +89,22 @@ func runCheck(ctx context.Context, args []string) error {
 	printUnimported(os.Stderr, api.UnimportedOf(*devices.Registry, m.Plugins, devices.OutsidePlugins,
 		func(name string) bool { return slices.Contains(devices.SafetyHeld, name) }))
 	printHiding(os.Stderr, *devices.Registry, m.HiddenFromMatter, devices.HiddenFromMatter)
+	printUnseen(os.Stderr, *devices.Registry, m.Inventory)
 	return nil
+}
+
+// printUnseen warns of the hardware your home declares that the host has never seen, whose name
+// waits for it to report.
+func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceDeclaration) {
+	for _, d := range wire.Declarations(inventory) {
+		if d.ID == "" || slices.ContainsFunc(list.Devices, func(r registry.Device) bool {
+			return r.Driver == d.Driver && r.ID == d.ID && len(r.Capabilities) > 0
+		}) {
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so %s waits for it to report\n",
+			registry.DescribeHardware(d.Driver, d.ID), d.Name)
+	}
 }
 
 // hostDevices asks the host what's on record, for what a deploy would change there. A home with no

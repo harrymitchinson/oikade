@@ -10,8 +10,10 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
+	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 const (
@@ -84,6 +86,8 @@ type Manifest struct {
 	Plugins []string `json:"plugins,omitempty"`
 	// Control is every device setting the home declares.
 	Control []DeviceControl `json:"control,omitempty"`
+	// Inventory is every device the home declares.
+	Inventory []DeviceDeclaration `json:"inventory,omitempty"`
 	// Warnings are what oikade check warns of, which don't stop a deploy.
 	Warnings []string `json:"warnings,omitempty"`
 	// Secrets names the secrets the home's code uses, made with oikade.Secret as it was built.
@@ -107,6 +111,30 @@ func Hidden(hidden []HiddenPlugin, plugin, device string) bool {
 		}
 	}
 	return false
+}
+
+// DeviceDeclaration is a device a home declares: its name, and the hardware, room and type it gives
+// it. One with no ID reserves the name.
+type DeviceDeclaration struct {
+	Name string `json:"name"`
+	// Plugin is the name the home imports the hardware's plugin by.
+	Plugin     string          `json:"plugin,omitempty"`
+	ID         string          `json:"id,omitempty"`
+	Room       string          `json:"room,omitempty"`
+	DeviceType devicetype.Type `json:"deviceType,omitempty"`
+}
+
+// Declarations are a home's declarations as the registry takes them.
+func Declarations(decls []DeviceDeclaration) []registry.Declaration {
+	out := make([]registry.Declaration, 0, len(decls))
+	for _, d := range decls {
+		r := registry.Declaration{Name: d.Name, ID: d.ID, Room: d.Room, DeviceType: d.DeviceType}
+		if d.Plugin != "" {
+			r.Driver = driver.Plugin + "/" + d.Plugin
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // DeviceControl is how a home arbitrates one capability of a device.
@@ -200,6 +228,9 @@ type Message struct {
 	MatterName string `json:"matterName,omitempty"`
 	// HiddenFromMatter are the plugins whose devices the process's home keeps off Matter.
 	HiddenFromMatter []HiddenPlugin `json:"hiddenFromMatter,omitempty"`
+	// Inventory is every device the process's home declares. None leaves every device under its
+	// app's name.
+	Inventory []DeviceDeclaration `json:"inventory,omitempty"`
 
 	// Paused is a Welcome's: rules not to run until a Resume says so.
 	Paused []string `json:"paused,omitempty"`

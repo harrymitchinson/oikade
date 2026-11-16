@@ -47,6 +47,12 @@ func (d *Decision) Default(v bool) *Decision                        { return d }
 
 type Flow struct{}
 
+type Declaration struct{}
+
+func (h *Home) Device(name string) *Declaration                { return &Declaration{} }
+func (d *Declaration) Hardware(plugin, id string) *Declaration { return d }
+func (d *Declaration) Room(room string) *Declaration           { return d }
+
 func (h *Home) Flow(name string, run func(*FlowRun)) *Flow { return &Flow{} }
 func (f *Flow) When(c ...Change) *Flow                     { return f }
 

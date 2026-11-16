@@ -40,6 +40,8 @@ type inventory struct {
 	instances map[string]driver.InstanceKey
 	// home is the device settings your home declares, which win over any on record.
 	home []wire.DeviceControl
+	// declarations keeps the devices your home declares, from declaredNamespace.
+	declarations *store.Namespace
 }
 
 // homeSettingsNamespace keeps the device settings of the home last attached.
@@ -48,9 +50,12 @@ const (
 	homeSettingsKey       = "control"
 )
 
-func newInventory(reg *registry.Registry, settings *store.Namespace, devices *hub.Store, eng *engine.Engine, log *slog.Logger) *inventory {
+func newInventory(reg *registry.Registry, settings, declarations *store.Namespace, devices *hub.Store, eng *engine.Engine,
+	log *slog.Logger,
+) *inventory {
 	return &inventory{
-		registry: reg, settings: settings, store: devices, engine: eng, log: log, instances: map[string]driver.InstanceKey{},
+		registry: reg, settings: settings, declarations: declarations, store: devices, engine: eng, log: log,
+		instances: map[string]driver.InstanceKey{},
 	}
 }
 
@@ -204,12 +209,18 @@ func (i *inventory) key(instance driver.InstanceKey, id string) (ident.ID, bool)
 }
 
 // sync gives each driver instance its devices. Call with mu held.
-func (i *inventory) sync() {
+func (i *inventory) sync() { i.syncExcept(nil) }
+
+// syncExcept is sync, without the devices named in skip. Call with mu held.
+func (i *inventory) syncExcept(skip []string) {
 	metas := map[string]map[ident.ID]hub.Meta{}
 	for name := range i.instances {
 		metas[name] = map[ident.ID]hub.Meta{}
 	}
 	for _, d := range i.registry.List().Devices {
+		if slices.Contains(skip, d.Name) {
+			continue
+		}
 		if meta, ok := i.meta(d); ok {
 			metas[d.Driver][key(d.Name)] = meta
 		}
@@ -386,6 +397,13 @@ func (i *inventory) removePlugin(ctx context.Context, plugin string, allowSafety
 // removeLocked removes devices, refusing them all if a Safety claim holds one. A device that was
 // removed has its claims ended, even if a later one couldn't be removed.
 func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafety bool) (api.Response, members) {
+	for _, name := range names {
+		if d, ok := i.registry.Get(name); ok && d.Declared {
+			// The next deploy, or start, would bring it back.
+			return api.Response{Error: fmt.Sprintf("%s is declared in your home's code: delete its declaration and deploy, "+
+				"then remove it under its app's name", name)}, members{}
+		}
+	}
 	if !allowSafety {
 		var held []string
 		for _, name := range names {
@@ -528,6 +546,18 @@ func (s *apiServer) safetyRule() (rule string, known bool) {
 // device answers the commands that read and change the registry. Running code loses track of a
 // device whose name changes until a deploy, which would silently stop a Safety rule naming it.
 func (s *apiServer) device(req api.Request) api.Response {
+	switch req.Type {
+	case api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceType, api.TypeDeviceReplace:
+		// The next deploy, or start, would undo it.
+		if err := s.devices.declared(req.Device); err != nil {
+			return api.Response{Error: err.Error()}
+		}
+		if req.Type == api.TypeDeviceReplace {
+			if err := s.devices.declared(req.To); err != nil {
+				return api.Response{Error: err.Error()}
+			}
+		}
+	}
 	if (req.Type == api.TypeDeviceName || req.Type == api.TypeDeviceReplace) && !req.AllowSafety {
 		switch rule, known := s.safetyRule(); {
 		case rule != "":

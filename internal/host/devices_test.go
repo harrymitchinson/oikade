@@ -47,7 +47,7 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
 		t.Fatal(err)
 	}
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.On}}, entries)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
 	// Its driver hasn't started, so nothing has loaded its arbiters.
 	if _, _, err := reg.Report(registry.Report{ID: "v", Driver: "later/x", Name: "valve"}); err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 	}
 	open := func() (*inventory, *hub.Store) {
 		devices := hub.NewStore(logging.Discard())
-		known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, nil, logging.Discard())
+		known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, nil, logging.Discard())
 		if err := known.loadHome(); err != nil {
 			t.Fatal(err)
 		}
@@ -193,7 +193,7 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 		t.Fatal(err)
 	}
 	devices := hub.NewStore(logging.Discard())
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, nil, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, nil, logging.Discard())
 	known.attach(simInstance)
 	ids := map[string]ident.ID{}
 	for _, d := range []driver.AppDevice{
@@ -272,7 +272,7 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
 	setting := func(device, line string) wire.DeviceControl {
 		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.On, Lines: []string{line}}}
 	}
@@ -311,7 +311,7 @@ func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
 		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
@@ -365,7 +365,7 @@ func TestRetypingOrRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.
 	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
 		{ID: "k", Name: "kettle", Room: "landing", Capabilities: []string{capability.On}},
@@ -454,7 +454,7 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
 	relays := instanceName(pluginKey("relays"))
 	for _, r := range []registry.Report{
 		{ID: "a", Driver: relays, Name: "awning"},
@@ -501,7 +501,7 @@ func TestRetypingOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
 		{ID: "c", Name: "ceiling", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight},

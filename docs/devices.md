@@ -26,6 +26,21 @@ oikade types                                 # write devices.go from the registr
 
 If the registry is lost, `oikade devices restore devices.go` reads the file back: names, rooms, device types, reservations, arbitration settings and endpoint IDs, matched by hardware. The registry is the authority, so a file that disagrees with one in use is refused, which is what an old file does. After a real loss the drivers may have reported again first, under their apps' names, so pass `--force` there and the file wins. With `--force`, devices the file doesn't have stay, and get a new endpoint or name if the file gives theirs to something else. A claimed name never moves.
 
+## Declaring devices in code
+
+Your home's code can say what a device is called, which room it's in and what it is, so a rename, a move or a swap of hardware is a change you review and deploy with the code that uses it ([OIK-295](https://linear.app/oikade/issue/OIK-295)):
+
+```go
+home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("Porch").Is(oikade.OnOffLight)
+home.Device("greenhouse-fan").Room("Greenhouse") // no hardware yet: the name is reserved
+```
+
+`Hardware` takes the name you import the device's plugin by, with `home.Plugin`, and the ID `oikade devices --json` shows. Declaring is optional: a device you don't declare works under its app's name, as above.
+
+A deploy applies the declarations, matched by hardware, and lists what it changed: `Renamed lamp to porch-light`, `Moved porch-light to Porch`. A declared name keeps its Matter endpoint, so the Home app keeps its room and scenes. Change a declaration's ID to swap the hardware, as `replace` does. A declaration whose hardware hasn't reported reserves its name until it does, and `oikade check` and the deploy say so. Stop declaring a device, and the next deploy gives it back its app's name, or removes a reserved name. `oikade devices name`, `room`, `type` and `replace` refuse a declared device, since the next deploy would undo them.
+
+`oikade check` refuses a name or a piece of hardware declared twice, a name a device can't have, a type that isn't one of the six on/off types, and a plugin your home doesn't import. A deploy refuses a type the device can't be, a name an undeclared device has, and, for now, a rename of a device something claims, since claims stay with a name. The old version keeps running. The host saves the declarations before applying them, so a host that stops in between applies them when it starts.
+
 ## What a device is
 
 A device's capabilities say what it can do, and its device types say what it is, in Matter's names ([OIK-142](https://linear.app/oikade/issue/OIK-142)). `oikade devices` shows them in its `DEVICE TYPES` column, and `--json` as `deviceTypes`. Only a device that's `on` or off can be more than one thing, so that's the one you choose: `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` (a switch in the wall) or `MountedDimmableLoadControl` (a dimmer in the wall). A sensor's types follow from its capabilities, so a motion sensor with a thermometer is an `OccupancySensor` and a `TemperatureSensor`, a device with `locked` is a `DoorLock`, and one with `position` a `WindowCovering`. A device with a `setpoint` is a `Thermostat`, whatever its type: its `on` and `temperature` are the heater's own, so it isn't also a plug or a `TemperatureSensor` ([OIK-20](https://linear.app/oikade/issue/OIK-20)).

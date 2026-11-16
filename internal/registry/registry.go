@@ -45,9 +45,15 @@ var (
 // Device is one device. Its JSON is in oikade devices --json and in the file oikade types writes, so
 // add to it, and don't rename.
 type Device struct {
-	// Name is what code and the command line call it. It's copied from the device's app once, and
-	// never follows it.
+	// Name is what code and the command line call it: what the home declares, or else copied from
+	// the device's app once, and never following it.
 	Name string `json:"name"`
+	// Declared says the home's code declares the device, so its name, room and type are the code's.
+	Declared bool `json:"declared,omitempty"`
+	// AppName and AppRoom are what its app called it and where, read once as Name and Room are,
+	// which a device the home stops declaring goes back to.
+	AppName string `json:"appName,omitempty"`
+	AppRoom string `json:"appRoom,omitempty"`
 	// ID is the driver's stable ID for the hardware. A name reserved for a device that isn't paired
 	// yet has none.
 	ID string `json:"id,omitempty"`
@@ -186,7 +192,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 	r.mu.RLock()
 	i := hardware(r.state, report.Driver, report.ID)
 	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
-		r.state.Devices[i].DriverDeviceType == report.DeviceType &&
+		r.state.Devices[i].DriverDeviceType == report.DeviceType && !newAppName(r.state.Devices[i], report) &&
 		(report.Control == nil || bytes.Equal(r.state.Devices[i].Control, report.Control))
 	var known Device
 	if same {
@@ -206,7 +212,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 			}
 			s.Devices = append(s.Devices, Device{
 				Name: uniqueName(*s, Slug(report.Name, report.ID)), ID: report.ID, Driver: report.Driver,
-				Room: clean(report.Room), Endpoint: endpoint,
+				Room: clean(report.Room), Endpoint: endpoint, AppName: clean(report.Name), AppRoom: clean(report.Room),
 			})
 			i = len(s.Devices) - 1
 		}
@@ -215,6 +221,9 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
 		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
+		if newAppName(*d, report) {
+			d.AppName, d.AppRoom = clean(report.Name), clean(report.Room)
+		}
 		if report.Control != nil {
 			d.Control = bytes.Clone(report.Control)
 		}
@@ -222,6 +231,11 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		return nil
 	})
 	return out, err == nil, err
+}
+
+// newAppName says a report is the first to name the device in its app.
+func newAppName(d Device, report Report) bool {
+	return d.AppName == "" && clean(report.Name) != ""
 }
 
 // Reserve holds a name for a device that isn't paired yet, so code can name it. Replace gives it its
@@ -285,20 +299,28 @@ func (r *Registry) SetDeviceType(name string, t devicetype.Type) error {
 			return fmt.Errorf("%w: %s", ErrNoDevice, name)
 		}
 		d := &s.Devices[i]
-		if t != "" && !d.Reserved() {
-			if !slices.Contains(d.Capabilities, capability.On) {
-				return fmt.Errorf("%s isn't on or off, so what it is follows from its capabilities", name)
-			}
-			if slices.Contains(d.Capabilities, capability.Setpoint) {
-				return fmt.Errorf("%s has a setpoint, so it's a %s", name, devicetype.Thermostat)
-			}
-			if devicetype.Dimmable(t) && !slices.Contains(d.Capabilities, capability.Brightness) {
-				return fmt.Errorf("%s has no brightness, so it can't be %s", name, t)
-			}
+		if err := fits(*d, t); err != nil {
+			return err
 		}
 		d.DeviceType = t
 		return nil
 	})
+}
+
+// fits refuses a device type a device can't be. One that hasn't reported can be any.
+func fits(d Device, t devicetype.Type) error {
+	if t == "" || len(d.Capabilities) == 0 {
+		return nil
+	}
+	switch {
+	case !slices.Contains(d.Capabilities, capability.On):
+		return fmt.Errorf("%s isn't on or off, so what it is follows from its capabilities", d.Name)
+	case slices.Contains(d.Capabilities, capability.Setpoint):
+		return fmt.Errorf("%s has a setpoint, so it's a %s", d.Name, devicetype.Thermostat)
+	case devicetype.Dimmable(t) && !slices.Contains(d.Capabilities, capability.Brightness):
+		return fmt.Errorf("%s has no brightness, so it can't be %s", d.Name, t)
+	}
+	return nil
 }
 
 // Remove takes a device out of use. It stays on record, keeping its endpoint.
@@ -334,7 +356,7 @@ func (r *Registry) Replace(name, with string) error {
 		}
 		d := &s.Devices[i]
 		d.ID, d.Driver, d.Capabilities = source.ID, source.Driver, slices.Clone(source.Capabilities)
-		d.DriverDeviceType = source.DriverDeviceType
+		d.DriverDeviceType, d.AppName, d.AppRoom = source.DriverDeviceType, source.AppName, source.AppRoom
 		if len(d.Control) == 0 {
 			d.Control = bytes.Clone(source.Control)
 		}

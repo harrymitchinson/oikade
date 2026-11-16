@@ -22,6 +22,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/registry"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -84,6 +85,10 @@ type server struct {
 	options *homeOptions
 	// deploying, if set, says a version is running that hasn't settled.
 	deploying func() bool
+	// declare, if set, takes up the devices a connecting process declares, and planDeclared says
+	// what a version's would do.
+	declare      func([]wire.DeviceDeclaration) error
+	planDeclared func([]wire.DeviceDeclaration) (registry.Declared, error)
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
 
@@ -353,6 +358,13 @@ func (s *server) open(sess *session, hello wire.Message) string {
 	defer s.attaching.Unlock()
 	// Before the Welcome, so that it says what's arbitrated.
 	if !s.turningAway(sess.generation) {
+		// Names first, since the settings name devices by them.
+		if s.declare != nil {
+			if err := s.declare(hello.Inventory); err != nil {
+				s.log.Error("Failed to apply the home's device declarations", "err", err)
+				return "the host couldn't apply the home's device declarations: " + err.Error()
+			}
+		}
 		if err := s.takeSettings(hello.Control); err != nil {
 			s.log.Error("Failed to save the home's device settings", "err", err)
 			return "the host couldn't save the home's device settings"

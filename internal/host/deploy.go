@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 const (
@@ -266,6 +267,13 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	if len(findings) > 0 && !allow {
 		return reject(api.Response{Error: "this would remove Safety rules", Findings: findings})
 	}
+	// Before anything stops, so that declarations the host can't apply leave the old version running.
+	var declared registry.Declared
+	if d.srv.planDeclared != nil {
+		if declared, err = d.srv.planDeclared(manifest.Inventory); err != nil {
+			return reject(api.Response{Error: "the home's device declarations: " + err.Error()})
+		}
+	}
 
 	d.log.Info("Checked automations version", "version", id)
 	last := d.running
@@ -311,7 +319,9 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		return d.restore(ctx, id, last, fmt.Errorf("the new version failed: %w", err))
 	}
 	fault.Hit(fault.HostDeploySettled)
-	return d.confirm(id)
+	resp := d.confirm(id)
+	resp.DeviceChanges, resp.Unseen = declared.Changes, declared.Unseen
+	return resp
 }
 
 // confirm makes a version that has settled the running one for good.

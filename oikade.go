@@ -685,7 +685,7 @@ func (l Location) site() *sun.Site {
 	return &sun.Site{Latitude: l.latitude, Longitude: l.longitude}
 }
 
-// Home is a home's automations. NewHome makes one, and Decide, Flow and Plugin add to it.
+// Home is a home's automations. NewHome makes one, and Decide, Flow, Plugin and Device add to it.
 type Home struct {
 	options   Options
 	decisions []decider
@@ -694,6 +694,8 @@ type Home struct {
 	mistakes []error
 	flows    []*Flow
 	plugins  []*Plugin
+	// declared are the devices the home declares, from Device.
+	declared []*Declaration
 }
 
 // NewHome makes a home.
@@ -789,7 +791,7 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		rules = append(rules, c)
 	}
 	decided, err := h.compileDecisions()
-	errs = append(errs, err, h.options.check(), h.checkGroups(decided))
+	errs = append(errs, err, h.options.check(), h.checkGroups(decided), h.checkInventory())
 	errs = append(errs, h.mistakes...)
 	for _, d := range decided {
 		for _, f := range d.own {
@@ -864,6 +866,7 @@ func (h *Home) manifest() wire.Manifest {
 		m.Plugins = append(m.Plugins, p.name)
 	}
 	m.Control = settingsOf(decided)
+	m.Inventory = h.inventory()
 	m.Secrets = secretuse.Names()
 	m.HiddenFromMatter = h.hiddenFromMatter()
 	return m

@@ -232,7 +232,7 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store = devices
 	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, eng, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
 		{ID: "lamp", Name: "lamp", Capabilities: []string{capability.On}},
@@ -299,7 +299,7 @@ func TestAHiddenPluginsDevicesAreOffTheBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	devices := hub.NewStore(logging.Discard())
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, &engine.Engine{}, logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, &engine.Engine{}, logging.Discard())
 	m := &matterBridge{log: logging.Discard(), devices: devices, known: known, options: options, id: identity{UniqueID: "B"}}
 	names := func() []string {
 		want := m.want()

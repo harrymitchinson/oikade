@@ -385,6 +385,10 @@ func home() *oikade.Home {
 		h.Decide(on("quiet-held")).Case("quiet-held", true, on("quiet")).Default(false)
 	}
 
+	if variant == "plugins-declared" {
+		h.Device("porch-relay").Hardware("relays", "relay").Room("Porch").Is(oikade.OnOffLight)
+		h.Device("shed-fan").Room("Shed")
+	}
 	switch {
 	case plugins:
 		imported := h.Plugin("relays", faultyRelays)
