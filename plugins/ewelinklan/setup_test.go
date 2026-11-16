@@ -220,8 +220,8 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 			t.Error("The app secret should be asked for as a secret")
 		}
 	}
-	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: if it's still named by its ID, ` +
-		`oikade devices name 1000aabbcc greenhouse-heater names it so`; !strings.Contains(said(steps), want) {
+	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: ` +
+		`home.Device("greenhouse-heater").Hardware("ewelink", "1000aabbcc") in your home's code names it so`; !strings.Contains(said(steps), want) {
 		t.Errorf("said:\n%s", said(steps))
 	}
 	// The probe isn't on this network, so there's nothing to name.
@@ -256,6 +256,23 @@ func TestSetupAgainAsksNothingAndChangesNothing(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(b.secrets, probeID))
 	if string(raw) != "key-of-the-probe" {
 		t.Errorf("probe's key: %q", raw)
+	}
+}
+
+func TestSetupGivesNoDeclarationForADeviceWithAName(t *testing.T) {
+	cloud := newFakeEWeLink(t, things)
+	b := startWith(t, Config{}, fast, cloud.cloud(), relayID+"=greenhouse-heater-2")
+	b.secret(appIDSecret, testAppID+"\n")
+	b.secret(appSecretSecret, testAppSecret)
+	b.device(relayID, "th_plug", relayOf("on")).report()
+	b.eventually("the relay", func() bool { _, ok := b.reports()[relayID]; return ok })
+
+	steps := b.setup(person{browse: signIn(t, "us")})
+	if done := steps[len(steps)-1].Done; done.Error != "" {
+		t.Fatalf("done: %+v", done)
+	}
+	if strings.Contains(said(steps), "home.Device(") {
+		t.Errorf("said, of a device the home names already:\n%s", said(steps))
 	}
 }
 

@@ -20,24 +20,18 @@ import (
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM | type DEVICE TYPE | reserve NAME | " +
-	"replace DEVICE WITH | remove DEVICE | remove --plugin NAME]"
+const devicesUsage = "usage: oikade devices [remove DEVICE | remove --plugin NAME]. " +
+	"A device's name, room and type are your home's code's: home.Device declares them"
 
 // verbRemove is the one verb --plugin goes with.
 const verbRemove = "remove"
-
-// typesReminder is what a change to a device's name leaves for you to do.
-const typesReminder = "Run oikade types and deploy, because running code has lost track of it until then."
 
 func runDevices(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("devices", flag.ExitOnError)
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	all := fs.Bool("all", false, "List removed devices too, which keep their Matter endpoints.")
-	room := fs.String("room", "", "The room of a reserved name.")
-	allow := fs.Bool("allow-safety", false,
-		"Remove a device under a Safety claim, change a name while a Safety rule runs, or change a type "+
-			"that takes a device out of a Safety rule's room.")
+	allow := fs.Bool("allow-safety", false, "Remove a device under a Safety claim.")
 	plugin := fs.String("plugin", "", "Remove every device of this plugin, such as one your home no longer imports.")
 	words := cli.Parse(fs, args)
 	if len(words) == 0 {
@@ -51,24 +45,6 @@ func runDevices(ctx context.Context, args []string) error {
 	req := api.Request{AllowSafety: *allow}
 	var message string
 	switch {
-	case verb == "name" && len(words) == 2:
-		req.Type, req.Device, req.To = api.TypeDeviceName, words[0], words[1]
-		message = fmt.Sprintf("Renamed %s to %s. %s", words[0], words[1], typesReminder)
-	case verb == "room" && len(words) == 2:
-		req.Type, req.Device, req.Room = api.TypeDeviceRoom, words[0], words[1]
-		message = fmt.Sprintf("Moved %s to %s", words[0], or(words[1], "no room"))
-	case verb == "type" && len(words) == 2:
-		req.Type, req.Device, req.DeviceType = api.TypeDeviceType, words[0], devicetype.Type(words[1])
-		message = fmt.Sprintf("%s is %s", words[0], or(words[1], "what its driver or its capabilities say"))
-	case verb == "reserve" && len(words) == 1:
-		req.Type, req.Device, req.Room = api.TypeDeviceReserve, words[0], *room
-		message = fmt.Sprintf("Reserved %s", words[0])
-		if *room != "" {
-			message += " in " + *room
-		}
-	case verb == "replace" && len(words) == 2:
-		req.Type, req.Device, req.To = api.TypeDeviceReplace, words[0], words[1]
-		message = fmt.Sprintf("Moved %s onto %s's hardware. %s", words[0], words[1], typesReminder)
 	case verb == verbRemove && len(words) <= 1 && (len(words) == 1) == (*plugin == ""): // A device, or --plugin.
 		req.Type, req.Plugin = api.TypeDeviceRemove, *plugin
 		if *plugin == "" {

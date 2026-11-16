@@ -296,11 +296,19 @@ func home() *oikade.Home {
 		options.MatterName = "Cottage"
 	}
 	h := oikade.NewHome(options)
-	// The valve under the name the home declares for it, which a test renames with a Safety claim on it.
+	// The valve under the name the home declares for it, which tests rename, or move onto the spare
+	// relay, with a Safety claim on it.
 	valve := valve
-	if variant == "plugins-mains" {
+	switch variant {
+	case "plugins-mains":
 		valve = "mains-valve"
 		h.Device(valve).Hardware("relays", "valve")
+	case "plugins-valve":
+		h.Device(valve).Hardware("relays", "valve")
+	case "plugins-swapped":
+		h.Device(valve).Hardware("relays", "spare-relay")
+	case "plugins-landing":
+		h.Device("quiet").Hardware("quiet", "quiet.needs-setup").Room("landing")
 	}
 
 	h.Flow("routine", routine).When(open("flow-go"))
@@ -351,7 +359,7 @@ func home() *oikade.Home {
 		OverrideUntilNext().
 		Case("leak-alarm", true, open("leak-sensor")).LatchUntil(open("reset")).
 		Default(false)
-	// Reads whichever devices are in the cellar now, which oikade devices room changes.
+	// Reads whichever devices are in the cellar now.
 	cellar := h.Room("cellar")
 	h.Decide(on("dehumidifier")).
 		Case("cellar-damp", true, oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
@@ -391,6 +399,17 @@ func home() *oikade.Home {
 		h.Decide(on("quiet-held")).Case("quiet-held", true, on("quiet")).Default(false)
 	}
 
+	// The porch's plugs are switched off at Safety on a leak, and a test declares the relay there
+	// as a plug, then as a light, which the hold would no longer reach.
+	if porch, ok := map[string]oikade.DeviceType{
+		"plugins-porch-plug": oikade.OnOffPlugInUnit, "plugins-porch-light": oikade.OnOffLight,
+	}[variant]; ok {
+		h.Device("relay").Hardware("relays", "relay").Room("porch").Is(porch)
+		h.Decide(h.Room("porch", oikade.Plugs).On).
+			Case("porch-leak", false, open("leak-sensor")).
+			OverrideFor(time.Hour).
+			Default(true)
+	}
 	if variant == "plugins-declared" {
 		h.Device("porch-relay").Hardware("relays", "relay").Room("Porch").Is(oikade.OnOffLight)
 		h.Device("shed-fan").Room("Shed")

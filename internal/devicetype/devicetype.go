@@ -41,7 +41,7 @@ const (
 // also a light or a plug, and its temperature is what it heats to, so it isn't a Temperature Sensor.
 const Thermostat Type = "Thermostat"
 
-// OnOff are the types a device that's on or off can be, in the order oikade devices type lists them.
+// OnOff are the types a device that's on or off can be, in the order an error lists them.
 var OnOff = []Type{OnOffLight, DimmableLight, OnOffPlugInUnit, DimmablePlugInUnit, MountedOnOffControl, MountedDimmableLoadControl}
 
 // dimmed is each dimmable type's on/off sibling, for a device that has no brightness to dim.

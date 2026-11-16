@@ -251,7 +251,7 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	if err := reg.Remove("gone"); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.Reserve("future", ""); err != nil {
+	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}}); err != nil {
 		t.Fatal(err)
 	}
 	devices.Discovered(key("lamp"), driver.Info{Found: true})

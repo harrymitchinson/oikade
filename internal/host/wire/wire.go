@@ -183,7 +183,7 @@ type RuleInfo struct {
 	Rooms []RoomOfTypes `json:"rooms,omitempty"`
 }
 
-// RoomOfTypes is a room write limited to device types.
+// RoomOfTypes is a room write, limited to device types if it has any.
 type RoomOfTypes struct {
 	Room        string            `json:"room"`
 	Capability  string            `json:"capability"`

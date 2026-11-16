@@ -22,12 +22,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/setup/reply` | `plugin`, `session`, `seq`, `answer` | |
 | `POST /v1/secrets/set` | `secret`, `secretValue` | |
 | `POST /v1/secrets/remove` | `secret` | |
-| `POST /v1/devices/name` | `device`, `to`, `allowSafety` | `needsAllowSafety` |
-| `POST /v1/devices/room` | `device`, `room` | |
-| `POST /v1/devices/type` | `device`, `deviceType`, empty to go back to its driver's, `allowSafety` | `needsAllowSafety` |
-| `POST /v1/devices/reserve` | `device`, `room` | |
 | `POST /v1/devices/remove` | `device`, or `plugin` for every device of that plugin, and `allowSafety` | `removed`, `needsAllowSafety` |
-| `POST /v1/devices/replace` | `device`, `to`, `allowSafety` | `needsAllowSafety` |
 | `GET /v1/clients` | | `clients`, never their tokens |
 | `POST /v1/clients/add` | `client` | `code`, `expires`, `pin` and `address`. Only on the socket. |
 | `POST /v1/clients/add` with `token: true` | `client` | `token`, shown only once, and `pin` |

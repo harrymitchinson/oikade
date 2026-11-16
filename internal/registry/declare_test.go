@@ -154,18 +154,6 @@ func TestPlanChangesNothing(t *testing.T) {
 	}
 }
 
-func TestADeclarationTakesUpANameReservedByHand(t *testing.T) {
-	r, _ := open(t)
-	if err := r.Reserve("greenhouse-fan", ""); err != nil {
-		t.Fatal(err)
-	}
-	reserved := get(t, r, "greenhouse-fan")
-	declareOK(t, r, Declaration{Name: "greenhouse-fan", Room: "Greenhouse"})
-	if d := get(t, r, "greenhouse-fan"); !d.Declared || d.Endpoint != reserved.Endpoint || d.Room != "Greenhouse" {
-		t.Errorf("got %+v", d)
-	}
-}
-
 func TestDeclaringARemovedDeviceSaysItsBack(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "Lamp")

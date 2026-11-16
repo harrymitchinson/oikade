@@ -26,7 +26,7 @@ import (
 type Device struct {
 	Name, Room   string
 	Capabilities []string
-	// DeviceType is what a device that's on or off is, as oikade devices type would say. Empty is
+	// DeviceType is what a device that's on or off is, as Declaration.Is would say. Empty is
 	// what its capabilities say: a dimmable light with oikade.Brightness, and a plug without.
 	DeviceType oikade.DeviceType
 	// Values are its first values, by capability.

@@ -39,10 +39,6 @@ func TestADeployAppliesTheHomesDeviceDeclarations(t *testing.T) {
 	if !deviceOf(t, r.devices(), "shed-fan").Reserved() {
 		t.Error("shed-fan isn't reserved")
 	}
-	if stderr, err := r.oikade(nil, "devices", "name", "porch-relay", "garden-relay"); err == nil ||
-		!strings.Contains(stderr, "declared in your home's code") {
-		t.Errorf("renamed a declared device: %v: %s", err, stderr)
-	}
 
 	// A version that declares nothing gives it back its app's name.
 	stderr, err = r.deploy("plugins")
@@ -109,5 +105,53 @@ func TestADeviceNotInYourCodeSaysHowToDeclareIt(t *testing.T) {
 	}
 	if stderr, _ := r.oikade(nil, "devices"); strings.Contains(stderr, `home.Device("mains-valve")`) {
 		t.Errorf("a declared device has a line to declare it:\n%s", stderr)
+	}
+}
+
+func TestADeclaredSwapOfHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	r.until("the spare relay", func() bool {
+		return slices.ContainsFunc(r.devices().Devices, func(d registry.Device) bool { return d.ID == "spare-relay" })
+	})
+	r.mustDeploy("plugins-valve")
+	before := deviceOf(t, r.devices(), "valve")
+	r.change("leak-sensor", opened, true)
+	r.untilValue("valve", false)
+
+	// The valve failed: its declaration's ID moves onto the spare.
+	stderr, err := r.deploy("plugins-swapped")
+	if err != nil {
+		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
+	}
+	r.awaitDeployed()
+	after := deviceOf(t, r.devices(), "valve")
+	if after.ID != "spare-relay" || after.Endpoint != before.Endpoint {
+		t.Errorf("got %+v, was %+v", after, before)
+	}
+	r.untilValue("valve", false)
+	r.stop()
+	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/valve on leak-shutoff", control.Safety) {
+		t.Errorf("saved claims %+v, want the Safety claim still on the name", got)
+	}
+}
+
+func TestADeclaredTypeThatTakesADeviceOutOfASafetyRoomWaitsForAllowSafetyRemoval(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	r.until("the relay", func() bool {
+		return slices.ContainsFunc(r.devices().Devices, func(d registry.Device) bool { return d.ID == "relay" })
+	})
+	r.mustDeploy("plugins-porch-plug")
+	stderr, err := r.deploy("plugins-porch-light")
+	if err == nil || !strings.Contains(stderr, "relay would leave the devices porch on porch-leak writes at Safety") {
+		t.Fatalf("declared the porch's plug a light: %v: %s", err, stderr)
+	}
+	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffPlugInUnit {
+		t.Errorf("the refused deploy left the relay a %q", d.DeviceType)
+	}
+	r.mustDeploy("plugins-porch-light", "--allow-safety-removal")
+	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffLight {
+		t.Errorf("with --allow-safety-removal, the relay is a %q", d.DeviceType)
 	}
 }

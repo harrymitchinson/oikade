@@ -54,11 +54,8 @@ func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	if _, ok := known.store.Get(key("reading-lamp")); !ok {
 		t.Error("the hub doesn't have the new name")
 	}
-	if err := known.rename("reading-lamp", "desk-lamp"); err != nil {
-		t.Fatal(err) // The inventory itself doesn't refuse: the API does.
-	}
-	if err := known.declared("desk-lamp"); err == nil || !strings.Contains(err.Error(), "change it there") {
-		t.Errorf("a declared device isn't refused: %v", err)
+	if _, err := known.registry.Declare([]registry.Declaration{{Name: "desk-lamp", Driver: "plugin/x", ID: "l1"}}); err != nil {
+		t.Fatal(err)
 	}
 	// The registry was changed behind the declaration's back, as a crash before applying would leave it.
 	if err := known.loadDeclared(); err != nil {

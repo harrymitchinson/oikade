@@ -29,7 +29,7 @@ type Declared struct {
 	// claims go with them.
 	Renamed map[string]string
 	// Absorbed are hardware whose own entry a declared name takes over, from the hardware's name to
-	// the declared one, as Replace does: its live values come across, and the name keeps its claims.
+	// the declared one: its live values come across, and the name keeps its claims.
 	Absorbed map[string]string
 	// Changes say what changed, a line each, in the order of the declarations, then of the devices
 	// no longer declared.
@@ -47,7 +47,7 @@ type Declared struct {
 
 // Declare makes the registry what the home's code declares, in one change. A declared device takes
 // its name, room and type, matched by its hardware, and keeps its endpoint. A name that moves onto
-// other hardware keeps its endpoint, as Replace does, and a name with no hardware is reserved. A
+// other hardware keeps its endpoint, and a name with no hardware is reserved. A
 // device that was declared and no longer is goes back to what its app calls it, and a reserved name
 // that no longer is declared is removed.
 func (r *Registry) Declare(decls []Declaration) (Declared, error) {
@@ -206,9 +206,6 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 	case i >= 0 && !s.Devices[i].Declared && s.Devices[i].ID != "":
 		return 0, fmt.Errorf("%s is already the name of %s, which isn't declared: declare that too, "+
 			"under another name, or call this something else", d.Name, describeDriver(s.Devices[i]))
-	case i >= 0 && !s.Devices[i].Declared && j < 0:
-		// A name reserved from the command line, which the code now declares.
-		return i, nil
 	case i >= 0 && j >= 0:
 		// The name moves onto hardware that's on record: the name's entry takes it, keeping its
 		// endpoint, and the hardware's own is retired.
@@ -224,7 +221,7 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 		from.ID, from.Removed, from.Declared = "", true, false
 		return i, nil
 	case i >= 0:
-		// Onto hardware not on record, or none: the old hardware is forgotten, as Replace forgets it.
+		// Onto hardware not on record, or none: the old hardware is forgotten.
 		e := &s.Devices[i]
 		if e.ID != d.ID || e.Driver != d.Driver {
 			e.ID, e.Driver, e.Capabilities, e.DriverDeviceType, e.AppName, e.AppRoom = d.ID, d.Driver, nil, "", "", ""

@@ -120,8 +120,8 @@ func (h *Home) Group(name string, members ...member) Group {
 //	home.Room("living-room", oikade.Lights).On.To(false) // the lights, not the plugs
 //	home.Room("hallway").Occupied.Any()                  // any sensor in the hallway
 //
-// A room's devices can change without a deploy, with oikade devices room, so what it covers is
-// worked out when it's read or written. A device in the room with a decision of its own on a
+// A room's devices change as a device is paired, removed or declared in another room, so what it
+// covers is worked out when it's read or written. A device in the room with a decision of its own on a
 // capability keeps it, rather than taking the room's.
 func (h *Home) Room(name string, kinds ...Kind) Group {
 	g := &group{name: name, room: name}

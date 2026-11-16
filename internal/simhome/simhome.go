@@ -368,7 +368,7 @@ func (s *Sim) Report(device string, values map[string]any) error {
 	return s.settle()
 }
 
-// Move puts a device in another room, as oikade devices room does, then waits for the home to catch
+// Move puts a device in another room, as a declaration does, then waits for the home to catch
 // up. An empty room is none.
 func (s *Sim) Move(device, room string) error {
 	i := slices.IndexFunc(s.devices, func(d Device) bool { return d.Name == device })
