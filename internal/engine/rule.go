@@ -542,8 +542,13 @@ type Hold struct {
 	// When, if set, must be true. It's looked at on every device change and every minute.
 	When              Condition
 	OnDelay, OffDelay time.Duration
-	// Latch keeps the hold active once it starts, until a Release. It needs When.
+	// Latch keeps the hold active once it starts, until a Release, or Until. It needs When.
 	Latch bool
+	// Until, if set, ends a latch when it's true. It's looked at as When is.
+	Until Condition
+	// WhyNot, if set, says why the hold is inactive, for OnWhyNot. It's called when When or Window
+	// is known to be false.
+	WhyNot func(Vars) string
 	// Budget, if set, plans when the hold is active each day. Its target and value are the hold's.
 	Budget *schedule.Spec
 	// Generation is the rule's version, as on a Trigger. Zero means 1.
@@ -556,7 +561,7 @@ func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 	c.hold = &hold{
 		device: h.Device, room: h.Room, types: slices.Clone(h.DeviceTypes), capability: h.Capability, priority: h.Priority,
 		when:    guarded(h.When),
-		onDelay: h.OnDelay, offDelay: h.OffDelay, latch: h.Latch,
+		onDelay: h.OnDelay, offDelay: h.OffDelay, latch: h.Latch, until: guarded(h.Until), whyNot: h.WhyNot,
 	}
 	var errs []error
 	if (h.Device == "") == (h.Room == "") {
@@ -588,6 +593,9 @@ func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 	}
 	if h.Latch && h.When == nil {
 		errs = append(errs, errors.New("hold: latch needs when"))
+	}
+	if h.Until != nil && !h.Latch {
+		errs = append(errs, errors.New("hold: until needs a latch"))
 	}
 	if h.Window != nil {
 		win, err := h.Window.compile()

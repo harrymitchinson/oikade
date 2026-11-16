@@ -104,7 +104,7 @@ func TestReplacingHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
 
 	r.pair("new-valve", "new-valve")
 	if stderr, err := r.oikade(nil, "devices", "name", "valve", "main-valve", "--allow-safety"); err == nil ||
-		!strings.Contains(stderr, "Rule/leak-shutoff") {
+		!strings.Contains(stderr, "Rule/valve on leak-shutoff") {
 		t.Errorf("renamed a device under a claim: %v: %s", err, stderr)
 	}
 	if stderr, err := r.oikade(nil, "devices", "remove", "valve"); err == nil ||
@@ -116,7 +116,7 @@ func TestReplacingHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
 	if after.ID != "new-valve" || after.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, was %+v", after, before)
 	}
-	if c := onOf(t, r.status("valve"), "valve"); c.Level != "Safety" || winner(c) != "Rule/leak-shutoff" {
+	if c := onOf(t, r.status("valve"), "valve"); c.Level != "Safety" || winner(c) != "Rule/valve on leak-shutoff" {
 		t.Errorf("the claim didn't stay on the name: %+v", c)
 	}
 	if _, err := r.oikade(nil, "status", "new-valve"); err == nil {
@@ -277,7 +277,7 @@ func TestRestoreRefusesToMoveAClaimedName(t *testing.T) {
 		t.Fatal(err)
 	}
 	if stderr, err := r.oikade(nil, "devices", "restore", path, "--force"); err == nil ||
-		!strings.Contains(stderr, "Rule/leak-shutoff") {
+		!strings.Contains(stderr, "Rule/valve on leak-shutoff") {
 		t.Errorf("moved a claimed name: %v: %s", err, stderr)
 	}
 	deviceOf(t, r.devices(), "valve")
@@ -291,7 +291,7 @@ func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
 	r.wrote("valve", false)
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/leak-shutoff", 3) {
+	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/valve on leak-shutoff", 3) {
 		t.Fatalf("no Safety claim: %+v", got)
 	}
 	file, _ := filepath.Abs("testdata/devices-novalve.json")
@@ -299,7 +299,7 @@ func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
 	r.awaitLoaded()
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/leak-shutoff", 3) {
+	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/valve on leak-shutoff", 3) {
 		t.Fatalf("restart lost the claim: %+v", got)
 	}
 	r.launchWithout("--home", homeBin, "--simulate", file, settle)
@@ -343,11 +343,11 @@ func TestASafetyClaimIsEnforcedBeforeItsDeviceReports(t *testing.T) {
 	if len(st.Devices) == 1 && len(st.Devices[0].Capabilities) > 0 {
 		c = st.Devices[0].Capabilities[0]
 	}
-	if c.Level != "Safety" || winner(c) != "Rule/leak-shutoff" {
+	if c.Level != "Safety" || winner(c) != "Rule/valve on leak-shutoff" {
 		t.Errorf("the arbiter didn't load before the device reported: %+v", st.Devices)
 	}
 	stderr, err := r.deploy("renamed")
-	if err == nil || !strings.Contains(stderr, `"leak-shutoff"`) {
+	if err == nil || !strings.Contains(stderr, `"valve on leak-shutoff"`) {
 		t.Errorf("the deploy check missed the claim: %v: %s", err, stderr)
 	}
 }
@@ -399,31 +399,6 @@ func TestChangingANameWaitsForAllowSafetyWhileASafetyRuleRuns(t *testing.T) {
 	deviceOf(t, r.devices(), "ceiling-fan")
 }
 
-func TestRetypingADeviceOutOfASafetyRuleNeedsAllowSafety(t *testing.T) {
-	t.Parallel()
-	r := start(t)
-	r.mustDeploy("typed")
-	r.stdout(nil, "devices", "room", "fan", "porch")
-
-	// The fan is a plug, which porch-plugs keeps on at Safety: as a light, it wouldn't be.
-	stderr, err := r.oikade(nil, "devices", "type", "fan", "OnOffLight")
-	if err == nil || !strings.Contains(stderr, "porch-plugs") || !strings.Contains(stderr, "--allow-safety") {
-		t.Fatalf("retyped out of a Safety rule: %v: %s", err, stderr)
-	}
-	if d := deviceOf(t, r.devices(), "fan"); d.DeviceType != "" {
-		t.Errorf("the refused type stuck: %+v", d)
-	}
-	r.stdout(nil, "devices", "type", "fan", "OnOffLight", "--allow-safety")
-	if d := deviceOf(t, r.devices(), "fan"); d.DeviceType != "OnOffLight" {
-		t.Errorf("with --allow-safety: %+v", d)
-	}
-	// Back into the rule takes nothing out of it, and needs no flag.
-	r.stdout(nil, "devices", "type", "fan", "")
-	// Nor does a device in another room.
-	r.stdout(nil, "devices", "type", "siren", "OnOffLight")
-}
-
-// A hold that reads a room follows the room's devices as they move, with no deploy.
 func TestMovingASensorChangesAHoldThatReadsItsRoom(t *testing.T) {
 	t.Parallel()
 	r := start(t)

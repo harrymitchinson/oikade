@@ -945,6 +945,9 @@ func jsonValue(name string, v float64) json.RawMessage {
 // controlStatus is a decision as oikade status shows it.
 func controlStatus(name string, d control.Decision) control.Status {
 	s := control.Status{Capability: name, Value: jsonValue(name, d.Value), Level: levelName(d.Level)}
+	if d.Limit != control.NoLimit {
+		s.Limit, s.LimitUntil = d.Limit.String(), d.Next.Truncate(time.Second)
+	}
 	for _, c := range d.Claims {
 		cc := control.ClaimStatus{
 			Source: c.Source, Level: levelName(c.Level), Value: jsonValue(name, c.Value),

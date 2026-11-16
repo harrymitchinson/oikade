@@ -77,6 +77,7 @@ var restartTests = map[string]func(*testing.T, *storeBackend){
 	"OffDelaySurvivesARestart":                   testOffDelaySurvivesARestart,
 	"MotionOffDelaySurvivesARestart":             testMotionOffDelaySurvivesARestart,
 	"LatchedHoldActsOnStartupUntilReleased":      testLatchedHoldActsOnStartupUntilReleased,
+	"LatchedHoldEndsAtItsUntilAfterARestart":     testLatchedHoldEndsAtItsUntilAfterARestart,
 	"Scenario7BoostEndsAtTheFirstOfForAndNext":   testScenario7BoostEndsAtTheFirstOfForAndNext,
 	"Scenario8LeakClosesTheValveUntilReleased":   testScenario8LeakClosesTheValveUntilReleased,
 	"Scenario5PumpBudgetWithFrostAndAHomeAppTap": testScenario5PumpBudgetWithFrostAndAHomeAppTap,

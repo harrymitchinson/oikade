@@ -323,7 +323,7 @@ func TestASafetyClaimRefusesAController(t *testing.T) {
 
 	c.command(endpoint, turnOn)
 	c.r.waitFor(func(l line) bool {
-		return l.is("Refused Matter write", "capability", "on", "claim", "Rule/leak-shutoff", "claimLevel", "Safety")
+		return l.is("Refused Matter write", "capability", "on", "claim", "Rule/valve on leak-shutoff", "claimLevel", "Safety")
 	})
 	if n := c.r.count("Failed to set capability from Matter"); n != 0 {
 		t.Errorf("a refusal was logged as a failure %d times", n)

@@ -26,9 +26,9 @@ const (
 	RolePlugin = pluginwire.RolePlugin
 	// RoleCheck is your binary's check mode: it loads the home, prints its Manifest and exits.
 	RoleCheck = "check"
-	// KindFlow is the Kind of a RuleInfo for a flow, and KindHold for a hold.
+	// KindFlow is the Kind of a RuleInfo for a flow, and KindCase for a decision's case.
 	KindFlow = "flow"
-	KindHold = "hold"
+	KindCase = "case"
 	// SocketEnv names the host's socket to the process it starts.
 	SocketEnv = "OIKADE_SOCKET"
 )
@@ -38,7 +38,7 @@ type Type = pluginwire.Type
 
 // Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change and
 // Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun,
-// RoomReads, Stopped and Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
+// RoomReads, Stopped, WhyNot and Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
 // session has only Hello, Welcome or Rejected, Ping, Pong and Publish, which flows both ways.
 const (
 	TypeHello           = pluginwire.TypeHello
@@ -66,6 +66,7 @@ const (
 	TypeRuleRun    Type = "ruleRun"
 	TypeRoomReads  Type = "roomReads"
 	TypeStopped    Type = "stopped"
+	TypeWhyNot     Type = "whyNot"
 	TypeMetrics    Type = "metrics"
 	TypePublish         = pluginwire.TypePublish
 )
@@ -80,6 +81,8 @@ type Manifest struct {
 	Plugins []string `json:"plugins,omitempty"`
 	// Control is every device setting the home declares.
 	Control []DeviceControl `json:"control,omitempty"`
+	// Warnings are what oikade check warns of, which don't stop a deploy.
+	Warnings []string `json:"warnings,omitempty"`
 	// Secrets names the secrets the home's code uses, made with oikade.Secret as it was built.
 	Secrets []string `json:"secrets,omitempty"`
 }
@@ -99,6 +102,10 @@ type RuleInfo struct {
 	Safety bool `json:"safety,omitempty"`
 	// Latch is a hold that stays active until a release.
 	Latch bool `json:"latch,omitempty"`
+	// Device, Capability and Case name a case's line in its decision.
+	Device     string `json:"device,omitempty"`
+	Capability string `json:"capability,omitempty"`
+	Case       string `json:"case,omitempty"`
 	// Rooms are a Safety rule's room writes limited to device types, so that a device's new type
 	// can't take it out of one unnoticed.
 	Rooms []RoomOfTypes `json:"rooms,omitempty"`
@@ -213,6 +220,9 @@ type Message struct {
 	// Stopped is a Stopped's: why its Rule's hold couldn't tell whether it should be active. Empty
 	// means it can again.
 	Stopped string `json:"stopped,omitempty"`
+	// WhyNot is a WhyNot's: why its Rule's case is inactive, as its conditions say. Empty means it
+	// isn't, or can't tell.
+	WhyNot string `json:"whyNot,omitempty"`
 	// Result is a RuleRun's, with Rule and Time.
 	Result string `json:"result,omitempty"`
 	// Metrics is a Metrics message's: the process's rule metrics in Prometheus's text format.

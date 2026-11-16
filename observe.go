@@ -74,6 +74,17 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 		default:
 		}
 	}
+	// whyNot keeps why each case is inactive until it's sent, as stopped does.
+	whyNot := map[string]string{}
+	eng.OnWhyNot = func(key ident.ID, why string) {
+		readsMu.Lock()
+		whyNot[key.Name] = why
+		readsMu.Unlock()
+		select {
+		case readsWaiting <- struct{}{}:
+		default:
+		}
+	}
 	return func() {
 		tick := time.NewTicker(metricsEvery)
 		defer tick.Stop()
@@ -87,14 +98,17 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 				client.RuleRun(r.rule, r.result, r.at)
 			case <-readsWaiting:
 				readsMu.Lock()
-				waiting, why := reads, stopped
-				reads, stopped = map[string][]engine.RoomRead{}, map[string]string{}
+				waiting, why, not := reads, stopped, whyNot
+				reads, stopped, whyNot = map[string][]engine.RoomRead{}, map[string]string{}, map[string]string{}
 				readsMu.Unlock()
 				for _, rule := range slices.Sorted(maps.Keys(waiting)) {
 					client.RoomReads(rule, waiting[rule])
 				}
 				for _, rule := range slices.Sorted(maps.Keys(why)) {
 					client.Stopped(rule, why[rule])
+				}
+				for _, rule := range slices.Sorted(maps.Keys(not)) {
+					client.WhyNot(rule, not[rule])
 				}
 			case <-tick.C:
 				text, err := metricsText(registry)

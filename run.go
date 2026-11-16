@@ -33,7 +33,7 @@ const dialTimeout = 10 * time.Second
 
 var hostInstance = driver.InstanceKey{Driver: "host"}
 
-func run(h Home, log *slog.Logger) error {
+func run(h *Home, log *slog.Logger) error {
 	rules, flows, err := h.compile()
 	if err != nil {
 		return err
@@ -66,7 +66,7 @@ func run(h Home, log *slog.Logger) error {
 }
 
 // runAutomations is the one process that runs a home's rules.
-func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows map[string]*flow.Flow,
+func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flows map[string]*flow.Flow,
 	socket string,
 ) error {
 	log := logging.FromContext(ctx)
@@ -195,7 +195,7 @@ func runAutomations(ctx context.Context, h Home, rules []*engine.Compiled, flows
 
 // runDev is oikade dev: the home on a simulated one, driven from standard input. The devices are the
 // ones in the file oikade types wrote, named after the role.
-func runDev(h Home) error {
+func runDev(h *Home) error {
 	if len(os.Args) != 3 {
 		return errors.New("run this with oikade dev")
 	}
@@ -219,7 +219,7 @@ func runDev(h Home) error {
 // runReplay is oikade replay's half that needs your code: the home against an event log, with no
 // socket, no plugin and no device. The role is followed by the log, the types file and where the
 // report goes: a file, because your code is free to print.
-func runReplay(h Home) error {
+func runReplay(h *Home) error {
 	if len(os.Args) != 5 {
 		return errors.New("run this with oikade replay")
 	}
@@ -246,7 +246,7 @@ func runReplay(h Home) error {
 }
 
 // simulated is the home for a simulated one to run.
-func (h Home) simulated() (simhome.Home, error) {
+func (h *Home) simulated() (simhome.Home, error) {
 	if _, _, err := h.compile(); err != nil {
 		return simhome.Home{}, err
 	}
@@ -259,9 +259,9 @@ func (h Home) simulated() (simhome.Home, error) {
 
 func init() {
 	simhome.FromHome = func(home any) (simhome.Home, error) {
-		h, ok := home.(Home)
+		h, ok := home.(*Home)
 		if !ok {
-			return simhome.Home{}, fmt.Errorf("%T isn't an oikade.Home", home)
+			return simhome.Home{}, fmt.Errorf("%T isn't an *oikade.Home", home)
 		}
 		return h.simulated()
 	}
@@ -272,7 +272,7 @@ func init() {
 			return "", "", nil, fmt.Errorf("%T isn't an oikade.Set", set)
 		case s.device == "":
 			return "", "", nil, errors.New("a room's Set can't be reported: give a device's")
-		case s.claimFor != 0 || s.until != "" || s.priority != "":
+		case s.claimFor != 0 || s.until != "":
 			return "", "", nil, fmt.Errorf("device %s's Set has a claim's options, which a report has none of", s.device)
 		}
 		return s.device, s.capability, s.value, nil
@@ -280,7 +280,7 @@ func init() {
 }
 
 // runPlugin is the process for one of the home's plugins.
-func runPlugin(ctx context.Context, h Home, socket string) error {
+func runPlugin(ctx context.Context, h *Home, socket string) error {
 	if len(os.Args) != 3 {
 		return errors.New("which plugin? run this with oikade-host")
 	}

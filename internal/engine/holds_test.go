@@ -29,6 +29,7 @@ var holdDevices = map[string][]string{
 	"bathroom-sensor": {capability.Humidity},
 	"workshop-heater": {capability.On},
 	"workshop-temp":   {capability.Temperature},
+	"workshop-door":   {capability.Open},
 	"main-valve":      {capability.On},
 	"leak-sensor":     {capability.Open},
 	"pump":            {capability.On},
@@ -302,6 +303,26 @@ func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states *storeBacken
 	// The release is saved.
 	r = startRig(t, local("2026-10-21 09:05 BST"), states.holds(t), cool, nil, holdRule(t, "workshop-overheat", overheat))
 	r.expect()
+}
+
+func testLatchedHoldEndsAtItsUntilAfterARestart(t *testing.T, states *storeBackend) {
+	hold := overheat
+	hold.Until = isTrue("workshop-door", capability.Open)
+	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}, "workshop-door": {capability.Open: false}}
+	r := startRig(t, local("2026-10-21 08:00 BST"), states.holds(t), hot, nil, holdRule(t, "workshop-overheat", hold))
+	r.expect(call{"workshop-heater", capability.On, false})
+	r.change("workshop-temp", capability.Temperature, 20.0)
+	r.at("2026-10-21 08:10 BST")
+	r.expect(call{"workshop-heater", capability.On, false})
+	r.stop()
+
+	// Restarted cool, it stays latched until the door opens.
+	cool := map[string]map[string]any{"workshop-temp": {capability.Temperature: 20.0}, "workshop-door": {capability.Open: false}}
+	r = startRig(t, local("2026-10-21 08:30 BST"), states.holds(t), cool, nil, holdRule(t, "workshop-overheat", hold))
+	r.expect()
+	r.change("workshop-door", capability.Open, true)
+	r.expect(call{"workshop-heater", capability.On, true})
+	r.stop()
 }
 
 func TestWhenUnknownKeepsTheState(t *testing.T) {
@@ -627,7 +648,7 @@ func TestAnActiveRoomHoldTakesUpADeviceThatMovesIn(t *testing.T) {
 
 // A Safety hold on a typed room claims a member retyped into its types while it's active, at once.
 func TestAnActiveTypedSafetyHoldClaimsADeviceRetypedIn(t *testing.T) {
-	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	rail := entry(capability.On, "false", control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"towel-rail": {capability.On: true}, "pump": {capability.On: true}},
@@ -679,7 +700,7 @@ func TestARestartedRoomHoldDoesntRewriteItsMembers(t *testing.T) {
 // A member a Safety room hold claimed lets go of the claim when it leaves the room, so it isn't held
 // at Safety by a hold it's no longer in.
 func TestAClaimedMemberThatLeavesARoomHoldIsReleased(t *testing.T) {
-	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	rail := entry(capability.On, "false", control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"pump": {capability.On: false}},

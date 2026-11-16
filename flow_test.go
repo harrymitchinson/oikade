@@ -46,26 +46,41 @@ func TestLateness(t *testing.T) {
 		t.Fatalf("the public default is %s and the runner's is %s", DefaultLate, flow.DefaultLate)
 	}
 	on := []Change{Bool{Device: "hall", Capability: Open}}
-	rules, flows, err := NewHome(Options{},
-		NewFlow("normal", func(*FlowRun) error { return nil }).On(on...),
-		NewFlow("safety", func(*FlowRun) error { return nil }).On(on...).Priority(Safety),
-		NewFlow("own", func(*FlowRun) error { return nil }).On(on...).Late(time.Hour),
-		NewMoment("moment", Wait(time.Second)).On(on...),
-		NewMoment("safety-moment", Bool{Device: "valve", Capability: On}.To(false).Priority(Safety)).
-			On(on...),
-	).compile()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !flows["safety"].Safety || flows["normal"].Safety {
-		t.Fatal("only a Safety flow never expires")
-	}
-	want := map[string]time.Duration{
-		"normal": DefaultLate, "safety": neverLate, "own": time.Hour, "moment": DefaultLate, "safety-moment": neverLate,
-	}
-	for _, r := range rules {
-		if r.StartingDeadline != want[r.Key.Name] {
-			t.Errorf("%s: deadline %s", r.Key.Name, r.StartingDeadline)
+	valve := Bool{Device: "valve", Capability: On}
+	for name, tc := range map[string]struct {
+		decide func(*Home)
+		want   map[string]time.Duration
+	}{
+		// Flows below the override line make Normal claims, so a late one gives up.
+		"normal": {
+			func(h *Home) { h.Decide(valve).OverrideFor(time.Hour).Flows().Default(true) },
+			map[string]time.Duration{
+				"normal": DefaultLate, "own": time.Hour, "moment": DefaultLate, "valve-moment": DefaultLate,
+			},
+		},
+		// Above it, the valve's moment and every flow act however late they are.
+		"safety": {
+			func(h *Home) { h.Decide(valve).NoOverride().Flows().Default(true) },
+			map[string]time.Duration{
+				"normal": neverLate, "own": neverLate, "moment": DefaultLate, "valve-moment": neverLate,
+			},
+		},
+	} {
+		home := NewHome(Options{},
+			NewFlow("normal", func(*FlowRun) error { return nil }).On(on...),
+			NewFlow("own", func(*FlowRun) error { return nil }).On(on...).Late(time.Hour),
+			NewMoment("moment", Wait(time.Second)).On(on...),
+			NewMoment("valve-moment", valve.To(false).For(time.Hour)).On(on...),
+		)
+		tc.decide(home)
+		rules, _, err := home.compile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rules {
+			if want, ok := tc.want[r.Key.Name]; ok && r.StartingDeadline != want {
+				t.Errorf("%s: %s: deadline %s, want %s", name, r.Key.Name, r.StartingDeadline, want)
+			}
 		}
 	}
 }

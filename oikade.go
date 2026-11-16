@@ -1,11 +1,12 @@
-// Package oikade is how a home is written in Go. A home is a main package that declares its
-// holds and moments and hands them to Run:
+// Package oikade is how a home is written in Go. A home is a main package that decides what sets
+// each capability, and hands the home to Run:
 //
 //	func main() {
-//		oikade.Run(oikade.NewHome(oikade.Options{},
-//			oikade.NewHold("bathroom-fan", BathroomFan.On.To(true)).
-//				When(BathroomSensor.Humidity.Above(70)),
-//		))
+//		home := oikade.NewHome(oikade.Options{})
+//		home.Decide(BathroomFan.On).
+//			Case("humid", true, BathroomSensor.Humidity.Above(70)).Linger(5 * time.Minute).
+//			Default(false)
+//		oikade.Run(home)
 //	}
 //
 // BathroomFan and BathroomSensor come from devices.go, which oikade types writes from the home's
@@ -19,7 +20,6 @@ package oikade
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,18 +40,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/secretuse"
 	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
-)
-
-// Priority is the level of a rule's claims on an arbitrated capability.
-type Priority string
-
-const (
-	// Normal is the default.
-	Normal Priority = ""
-	// Override beats Normal.
-	Override Priority = "Override"
-	// Safety beats everything.
-	Safety Priority = "Safety"
 )
 
 // Snapshot is the home at one moment, which a ConditionFunc and NewBudget's function read.
@@ -294,75 +282,6 @@ func (o once) err() error {
 	return errors.Join(errs...)
 }
 
-// Hold keeps a capability at a value while When is true, or as a Budget plans. NewHold makes one.
-type Hold struct {
-	name              string
-	set               Set
-	priority          Priority
-	when              Condition
-	onDelay, offDelay time.Duration
-	latch             bool
-	budget            *Budget
-	once              once
-}
-
-// NewHold keeps what set says, such as PorchLight.On.To(true), or InRoom's. Name it once: its state
-// is kept by name. The hold's Priority is its own, so the Set takes no For, Until or Priority.
-func NewHold(name string, set Set) Hold { return Hold{name: name, set: set} }
-
-// Priority is the level of the hold's claims.
-func (r Hold) Priority(p Priority) Hold {
-	r.priority = p
-	r.once = r.once.note("Priority")
-	return r
-}
-
-// When is the condition the hold is active under. A Daily in it, on its own or in an All, starts and
-// ends the hold on the minute of its edge. Any other condition is looked at again on every change
-// and at least once a minute.
-func (r Hold) When(c Condition) Hold {
-	r.when = c
-	r.once = r.once.note("When")
-	return r
-}
-
-// OnDelay is how long When must stay true first.
-func (r Hold) OnDelay(d time.Duration) Hold {
-	r.onDelay = d
-	r.once = r.once.note("OnDelay")
-	return r
-}
-
-// OffDelay is how long When must stay false first.
-func (r Hold) OffDelay(d time.Duration) Hold {
-	r.offDelay = d
-	r.once = r.once.note("OffDelay")
-	return r
-}
-
-// Latch keeps the hold active once it starts, until a Release.
-func (r Hold) Latch() Hold {
-	r.latch = true
-	r.once = r.once.note("Latch")
-	return r
-}
-
-// Budget plans when the hold is active each day. It holds one device's Bool at true, which needs a
-// Control, whose limits it plans around.
-func (r Hold) Budget(b Budget) Hold {
-	r.budget = &b
-	r.once = r.once.note("Budget")
-	return r
-}
-
-// repeats reports the options given twice, on the hold and its budget.
-func (r Hold) repeats() error {
-	if r.budget == nil {
-		return r.once.err()
-	}
-	return errors.Join(r.once.err(), r.budget.once.err())
-}
-
 // Budget places a number of minutes a day in the best slots. NewBudget and NewBandedBudget make one.
 type Budget struct {
 	planningTime string
@@ -434,113 +353,6 @@ type Band struct {
 	Minutes int
 }
 
-// Resolve picks between claims at the same level.
-type Resolve string
-
-const (
-	// PreferOn makes on win, for a bool capability.
-	PreferOn Resolve = "PreferOn"
-	// PreferOff makes off win, for a bool capability.
-	PreferOff Resolve = "PreferOff"
-	// Highest makes the highest win, for a number capability.
-	Highest Resolve = "Highest"
-	// Lowest makes the lowest win, for a number capability.
-	Lowest Resolve = "Lowest"
-)
-
-// External says what a change from outside your automations does, such as a tap in the Home app.
-type External string
-
-const (
-	// ExternalOverride holds the change as an Override claim, for OverrideHold.
-	ExternalOverride External = "Override"
-	// ExternalRevert puts the capability back.
-	ExternalRevert External = "Revert"
-)
-
-// Control arbitrates a capability of a device: rules claim it rather than write it, and the host
-// picks the winner, including when your automations aren't running. NewControl makes one.
-type Control struct {
-	fallback                         Set
-	resolve                          Resolve
-	external                         External
-	overrideHold                     time.Duration
-	overrideUntilNext                bool
-	minimumOn, maximumOn, minimumOff time.Duration
-	maximumStartsPerDay              int
-	once                             once
-}
-
-// NewControl arbitrates a capability. fallback is its default, the capability at its value with no
-// claims: Heater.On.To(false). It names a device, not a room, and takes no For, Until or Priority.
-func NewControl(fallback Set, resolve Resolve, external External) Control {
-	return Control{fallback: fallback, resolve: resolve, external: external}
-}
-
-// OverrideHold is how long an ExternalOverride lasts. It's the alternative to OverrideUntilNext.
-func (c Control) OverrideHold(d time.Duration) Control {
-	c.overrideHold = d
-	c.once = c.once.note("OverrideHold")
-	return c
-}
-
-// OverrideUntilNext ends an ExternalOverride when the value without it next changes.
-func (c Control) OverrideUntilNext() Control {
-	c.overrideUntilNext = true
-	c.once = c.once.note("OverrideUntilNext")
-	return c
-}
-
-// MinimumOn is the shortest run.
-func (c Control) MinimumOn(d time.Duration) Control {
-	c.minimumOn = d
-	c.once = c.once.note("MinimumOn")
-	return c
-}
-
-// MaximumOn stops a longer run, and then rests for MinimumOff, or until nothing wants it on.
-func (c Control) MaximumOn(d time.Duration) Control {
-	c.maximumOn = d
-	c.once = c.once.note("MaximumOn")
-	return c
-}
-
-// MinimumOff is the shortest rest.
-func (c Control) MinimumOff(d time.Duration) Control {
-	c.minimumOff = d
-	c.once = c.once.note("MinimumOff")
-	return c
-}
-
-// MaximumStartsPerDay limits off-to-on transitions. Without it, or at zero, they're unlimited.
-func (c Control) MaximumStartsPerDay(n int) Control {
-	c.maximumStartsPerDay = n
-	c.once = c.once.note("MaximumStartsPerDay")
-	return c
-}
-
-func (c Control) entry() (control.Entry, error) {
-	if err := c.fallback.plain("a Control's default", true); err != nil {
-		return control.Entry{}, err
-	}
-	raw, err := json.Marshal(c.fallback.value)
-	if err != nil {
-		return control.Entry{}, fmt.Errorf("default: %w", err)
-	}
-	e := control.Entry{
-		Capability: c.fallback.capability, Default: raw, Resolve: string(c.resolve), External: string(c.external),
-		MinimumOn: control.Duration(c.minimumOn), MaximumOn: control.Duration(c.maximumOn),
-		MinimumOff: control.Duration(c.minimumOff), MaximumStartsPerDay: c.maximumStartsPerDay,
-	}
-	switch {
-	case c.overrideUntilNext:
-		e.OverrideHold = control.NameNext
-	case c.overrideHold != 0:
-		e.OverrideHold = c.overrideHold.String()
-	}
-	return e, nil
-}
-
 // Moment runs its actions when a trigger fires and If, if given, is true. It needs a trigger: On, or
 // a time of day in At, such as Clock("23:30"). NewMoment makes one.
 type Moment struct {
@@ -602,15 +414,14 @@ const DefaultLate = 10 * time.Minute
 // the top and recorded steps return what they returned the first time. docs/writing-flows.md says
 // how. NewFlow makes one.
 type Flow struct {
-	name     string
-	on       []Change
-	at       []Time
-	cond     Condition
-	restart  bool
-	priority Priority
-	late     time.Duration
-	run      func(*FlowRun) error
-	once     once
+	name    string
+	on      []Change
+	at      []Time
+	cond    Condition
+	restart bool
+	late    time.Duration
+	run     func(*FlowRun) error
+	once    once
 }
 
 // NewFlow runs run on each trigger. Name it once.
@@ -642,13 +453,6 @@ func (r Flow) Restart() Flow {
 	return r
 }
 
-// Priority is the level of its Sets that don't give one. A Safety flow never expires.
-func (r Flow) Priority(p Priority) Flow {
-	r.priority = p
-	r.once = r.once.note("Priority")
-	return r
-}
-
 // Late is how late a run may wake and still carry on. Without it, or at zero, that's DefaultLate. A
 // run later than that gives up and logs it, rather than turn the lights off at 09:00.
 func (r Flow) Late(d time.Duration) Flow {
@@ -659,8 +463,9 @@ func (r Flow) Late(d time.Duration) Flow {
 
 // FlowRun is one run of a flow. Its steps are written to the host's disk before the flow continues.
 type FlowRun struct {
-	run      *flow.Run
-	priority Priority
+	run *flow.Run
+	// decided are the home's decisions, which say where a Set ranks.
+	decided []compiledDecision
 	// options are the home's, which a condition is checked against when the flow uses it.
 	options Options
 }
@@ -725,10 +530,10 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 // needs For, UntilReleased or UntilNext, and is an error without one. It may run more than once,
 // after a crash, so set a value and never toggle one.
 func (r *FlowRun) Set(s Set) error {
-	if s.priority == Normal {
-		s.priority = r.priority
+	if err := needsFlowsLine(r.decided, s.device, s.capability); err != nil {
+		return err
 	}
-	return r.run.Apply(s.toEngine())
+	return r.run.Apply(s.toEngine(r.decided))
 }
 
 // Release ends the named rule's claims, and its latch if it's a hold.
@@ -744,7 +549,7 @@ func (r *FlowRun) Do(name string, result any, call func(context.Context) error) 
 
 // Action is a step of a moment: Set, Wait or Release.
 type Action interface {
-	toEngine() engine.Action
+	toEngine(decided []compiledDecision) engine.Action
 }
 
 // Set writes a capability, from a Bool's, a Number's or InRoom's To. For, UntilReleased and UntilNext make it a
@@ -758,7 +563,6 @@ type Set struct {
 	value    any
 	claimFor time.Duration
 	until    engine.Until
-	priority Priority
 }
 
 // For ends the claim after d.
@@ -784,54 +588,23 @@ func (s Set) endUntil(u engine.Until) Set {
 	return s
 }
 
-// Priority is the level of the claim. Without it, a moment's Set is Normal and a flow's is the
-// flow's Priority.
-func (s Set) Priority(p Priority) Set {
-	s.priority = p
-	return s
-}
-
-// plain checks a Set that's only a capability and a value, as a hold's and a Control's are, and
-// one that names a device if it must.
-func (s Set) plain(what string, device bool) error {
-	switch {
-	case s.capability == "":
-		return fmt.Errorf("%s needs a capability: a handle's To", what)
-	case s.claimFor != 0 || s.until != "" || s.priority != Normal:
-		return fmt.Errorf("%s takes no For, Until or Priority", what)
-	case device && s.room != "":
-		return fmt.Errorf("%s names a device, not a room", what)
-	case device && s.device == "":
-		return fmt.Errorf("%s needs a device", what)
-	}
-	return nil
-}
-
-// roomOfTypes adds the set to rooms if it's a room's limited to device types, which the host
-// checks a change of device type against.
-func (s Set) roomOfTypes(rooms []wire.RoomOfTypes) []wire.RoomOfTypes {
-	if s.room == "" || len(s.types) == 0 {
-		return rooms
-	}
-	return append(rooms, wire.RoomOfTypes{Room: s.room, Capability: s.capability, DeviceTypes: slices.Clone(s.types)})
-}
-
-func (s Set) toEngine() engine.Action {
+// toEngine is the engine's Set, ranked where the capability's decision puts flows.
+func (s Set) toEngine(decided []compiledDecision) engine.Action {
 	return engine.Set{
 		Device: s.device, Room: s.room, DeviceTypes: s.types, Capability: s.capability, Value: s.value, For: s.claimFor,
-		Until: s.until, Priority: engine.Priority(s.priority),
+		Until: s.until, Priority: claimPriority(decided, s.device, s.capability),
 	}
 }
 
 // Wait waits before the next action.
 type Wait time.Duration
 
-func (w Wait) toEngine() engine.Action { return engine.Delay(w) }
+func (w Wait) toEngine([]compiledDecision) engine.Action { return engine.Delay(w) }
 
 // Release ends the named rule's claims, and its latch if it's a hold.
 type Release string
 
-func (r Release) toEngine() engine.Action { return engine.Release(r) }
+func (r Release) toEngine([]compiledDecision) engine.Action { return engine.Release(r) }
 
 // Options is what a home has exactly one of. A zero Options is valid.
 type Options struct {
@@ -885,7 +658,7 @@ func (l Location) site() *sun.Site {
 	return &sun.Site{Latitude: l.latitude, Longitude: l.longitude}
 }
 
-// Part is a piece of a home: a Hold, Moment, Flow, Control, Plugin, or a Bundle of them. A function
+// Part is a piece of a home: a Moment, Flow, Plugin, or a Bundle of them. A function
 // can return one, so that what belongs together stays together. Only this package adds kinds.
 //
 // A part keeps the names written in it, whichever Bundle it's in. A name is a rule's state key, so a
@@ -894,14 +667,12 @@ type Part interface {
 	part()
 }
 
-func (Hold) part()    {}
-func (Moment) part()  {}
-func (Flow) part()    {}
-func (Control) part() {}
-func (Plugin) part()  {}
-func (Bundle) part()  {}
+func (Moment) part() {}
+func (Flow) part()   {}
+func (Plugin) part() {}
+func (Bundle) part() {}
 
-// Bundle is parts that belong together, such as a budgeted hold and the Control it needs. NewBundle
+// Bundle is parts that belong together, such as a flow and the moment that starts it. NewBundle
 // makes one. It's a Part itself, so bundles nest, and an empty one is fine.
 type Bundle struct {
 	parts []Part
@@ -914,19 +685,19 @@ func NewBundle(parts ...Part) Bundle {
 
 // Home is a home's automations. NewHome makes one.
 type Home struct {
-	options Options
-	holds   []Hold
-	moments []Moment
-	flows   []Flow
-	control []Control
-	plugins []Plugin
+	options   Options
+	decisions []decider
+	moments   []Moment
+	flows     []Flow
+	plugins   []Plugin
 	// mistakes are the parts NewHome couldn't take, which compile reports.
 	mistakes []error
 }
 
-// NewHome makes a home from its parts. A nil part, or a pointer to one, fails oikade check.
-func NewHome(o Options, parts ...Part) Home {
-	h := Home{options: o}
+// NewHome makes a home from its parts, which Decide adds to. A nil part, or a pointer to one, fails
+// oikade check.
+func NewHome(o Options, parts ...Part) *Home {
+	h := &Home{options: o}
 	h.add("parts", parts)
 	return h
 }
@@ -936,14 +707,10 @@ func (h *Home) add(path string, parts []Part) {
 	for i, p := range parts {
 		at := fmt.Sprintf("%s[%d]", path, i)
 		switch p := p.(type) {
-		case Hold:
-			h.holds = append(h.holds, p)
 		case Moment:
 			h.moments = append(h.moments, p)
 		case Flow:
 			h.flows = append(h.flows, p)
-		case Control:
-			h.control = append(h.control, p)
 		case Plugin:
 			h.plugins = append(h.plugins, p)
 		case Bundle:
@@ -952,7 +719,7 @@ func (h *Home) add(path string, parts []Part) {
 			h.mistakes = append(h.mistakes, fmt.Errorf("a nil part, at %s: give a rule or a Bundle", at))
 		default:
 			h.mistakes = append(h.mistakes,
-				fmt.Errorf("a %T, at %s: a part is a Hold, Moment, Flow, Control, Plugin or Bundle, written as a value", p, at))
+				fmt.Errorf("a %T, at %s: a part is a Moment, Flow, Plugin or Bundle, written as a value", p, at))
 		}
 	}
 }
@@ -972,7 +739,7 @@ func NewPlugin(name string, factory plugin.Factory) Plugin {
 }
 
 // compile checks the home and turns it into the engine's rules, and returns its flows by name.
-func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
+func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	var rules []*engine.Compiled
 	flows := map[string]*flow.Flow{}
 	var errs []error
@@ -994,31 +761,26 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		}
 		rules = append(rules, c)
 	}
-	settings, err := h.settings()
+	decided, err := h.compileDecisions()
 	errs = append(errs, h.mistakes...)
 	errs = append(errs, err, h.options.check())
-	for _, r := range h.holds {
-		key := name(r.name)
-		err := r.set.plain("a hold's Set", false)
-		if err == nil && r.when == nil && r.budget == nil {
-			err = errors.New("a hold needs a When or a Budget")
+	for _, d := range decided {
+		for _, c := range d.cases {
+			key := name(c.key)
+			r, err := c.rule()
+			if err == nil {
+				r.Key = key
+			}
+			add(c.key, r, err)
 		}
-		var c *engine.Compiled
-		if err == nil {
-			c, err = engine.NewHold(key, r.toEngine())
-		}
-		if err == nil {
-			err = r.checkBudget(settings)
-		}
-		add(r.name, c, errors.Join(err, r.repeats(), checkCondition(r.when, h.options)))
 	}
 	for _, r := range h.moments {
-		c, err := engine.NewMoment(name(r.name), r.toEngine())
+		c, err := engine.NewMoment(name(r.name), r.toEngine(decided))
 		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
-			checkCondition(r.cond, h.options)))
+			checkCondition(r.cond, h.options), r.checkSets(decided)))
 	}
 	for _, r := range h.flows {
-		f := r.toFlow(name(r.name), h.options)
+		f := r.toFlow(name(r.name), h.options, decided)
 		flows[r.name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
 		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
@@ -1039,64 +801,36 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	return rules, flows, errors.Join(errs...)
 }
 
-// settings checks the home's Control and turns it into what the host takes.
-func (h Home) settings() ([]wire.DeviceControl, error) {
-	var out []wire.DeviceControl
-	var errs []error
-	for _, c := range h.control {
-		device, capability := c.fallback.device, c.fallback.capability
-		bad := func(err error) { errs = append(errs, fmt.Errorf("control %s on %s: %w", capability, device, err)) }
-		if slices.ContainsFunc(out, func(o wire.DeviceControl) bool {
-			return o.Device == device && o.Entry.Capability == capability
-		}) {
-			bad(errors.New("declared twice"))
-		}
-		if slices.Contains(c.once.given, "OverrideHold") && slices.Contains(c.once.given, "OverrideUntilNext") {
-			bad(errors.New("OverrideHold and OverrideUntilNext are alternatives"))
-		}
-		if err := c.once.err(); err != nil {
-			bad(err)
-		}
-		e, err := c.entry()
-		if err == nil {
-			_, err = engine.ControlSettings(e, nil)
-		}
-		if err != nil {
-			bad(err)
-			continue
-		}
-		out = append(out, wire.DeviceControl{Device: device, Entry: e})
-	}
-	return out, errors.Join(errs...)
+// settings checks the home's decisions and turns them into what the host takes.
+func (h *Home) settings() ([]wire.DeviceControl, error) {
+	decided, err := h.compileDecisions()
+	return settingsOf(decided), err
 }
 
 // manifest describes the home to the host, which judges a new version by it.
-func (h Home) manifest() wire.Manifest {
+func (h *Home) manifest() wire.Manifest {
 	m := wire.Manifest{Protocol: wire.Version}
-	for _, r := range h.holds {
-		info := wire.RuleInfo{Name: r.name, Kind: wire.KindHold, Safety: r.priority == Safety, Latch: r.latch}
-		if info.Safety {
-			info.Rooms = r.set.roomOfTypes(nil)
+	// A home with a mistake in its decisions doesn't compile, and never gets this far.
+	decided, _ := h.compileDecisions()
+	for _, d := range decided {
+		for _, c := range d.cases {
+			m.Rules = append(m.Rules, wire.RuleInfo{
+				Name: c.key, Kind: wire.KindCase, Safety: c.safety, Latch: c.latch,
+				Device: d.device, Capability: d.capability, Case: c.name,
+			})
 		}
-		m.Rules = append(m.Rules, info)
+		m.Warnings = append(m.Warnings, d.warnings...)
 	}
 	for _, r := range h.moments {
-		info := wire.RuleInfo{Name: r.name, Kind: "moment", Safety: r.safety()}
-		for _, a := range r.do {
-			if s, ok := a.(Set); ok && s.priority == Safety {
-				info.Rooms = s.roomOfTypes(info.Rooms)
-			}
-		}
-		m.Rules = append(m.Rules, info)
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: "moment", Safety: r.safety(decided)})
 	}
 	for _, r := range h.flows {
-		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: wire.KindFlow, Safety: r.priority == Safety})
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: wire.KindFlow})
 	}
 	for _, p := range h.plugins {
 		m.Plugins = append(m.Plugins, p.name)
 	}
-	// A home with a mistake in its settings doesn't compile, and never gets this far.
-	m.Control, _ = h.settings()
+	m.Control = settingsOf(decided)
 	m.Secrets = secretuse.Names()
 	return m
 }
@@ -1137,10 +871,14 @@ func nilChange(on []Change) error {
 	return nil
 }
 
-func (r Flow) toFlow(key ident.ID, o Options) *flow.Flow {
-	f := &flow.Flow{Key: key, Safety: r.priority == Safety, Late: r.late}
+func (r Flow) toFlow(key ident.ID, o Options, decided []compiledDecision) *flow.Flow {
+	// Until a decision can name the flows it ranks, any flow may make a Safety claim where a Flows
+	// line is above the override line, so every flow is Safety then: it acts however late it is.
+	f := &flow.Flow{Key: key, Late: r.late, Safety: slices.ContainsFunc(decided, func(d compiledDecision) bool {
+		return d.flows && d.flowsSafety
+	})}
 	if r.run != nil {
-		f.Body = func(run *flow.Run) error { return r.run(&FlowRun{run: run, priority: r.priority, options: o}) }
+		f.Body = func(run *flow.Run) error { return r.run(&FlowRun{run: run, decided: decided, options: o}) }
 	}
 	return f
 }
@@ -1156,42 +894,15 @@ func (r Flow) toEngine(f *flow.Flow) engine.Flow {
 	return e
 }
 
-func (r Hold) toEngine() engine.Hold {
-	h := engine.Hold{
-		Device: r.set.device, Room: r.set.room, DeviceTypes: r.set.types, Capability: r.set.capability, Value: r.set.value,
-		Priority: engine.Priority(r.priority),
-		OnDelay:  r.onDelay, OffDelay: r.offDelay, Latch: r.latch, Budget: r.budget.toSchedule(),
-	}
-	// A latch is the engine's on a When, so a latched hold keeps its Daily there.
-	hours, when := splitHours(r.when)
-	if r.latch {
-		hours, when = nil, r.when
-	}
-	h.When = toEngine(when)
-	if hours != nil {
-		h.Window = hours.toEngine()
-	}
-	return h
-}
-
-// checkBudget checks a hold's budget against its Control, which the engine can't see until the
+// checkBudget checks a budget line against its decision, which the engine can't see until the
 // device has reported, so that a mistake here fails oikade check rather than today's plan.
-func (r Hold) checkBudget(settings []wire.DeviceControl) error {
-	if r.budget == nil {
-		return nil
-	}
-	if err := r.budget.clockOnly(); err != nil {
+func checkBudget(b *Budget, h handle, value any, entry control.Entry) error {
+	if err := b.clockOnly(); err != nil {
 		return err
 	}
-	i := slices.IndexFunc(settings, func(c wire.DeviceControl) bool {
-		return c.Device == r.set.device && c.Entry.Capability == r.set.capability
-	})
-	if i < 0 {
-		return fmt.Errorf("a budget needs a Control for %s on %s", r.set.capability, r.set.device)
-	}
-	spec := *r.budget.toSchedule()
-	spec.Device, spec.Capability, spec.Value = r.set.device, r.set.capability, r.set.value
-	_, err := schedule.CompileSpec(spec, &settings[i].Entry)
+	spec := *b.toSchedule()
+	spec.Device, spec.Capability, spec.Value = h.device, h.capability, value
+	_, err := schedule.CompileSpec(spec, &entry)
 	return err
 }
 
@@ -1246,16 +957,27 @@ func (h Hours) toSchedule() schedule.WindowSpec {
 	return schedule.WindowSpec{Start: h.start.clock, End: h.end.clock, Days: h.days}
 }
 
-// safety reports whether the moment has a Safety set.
-func (r Moment) safety() bool {
+// checkSets refuses a Set on a decided capability whose decision has no Flows line.
+func (r Moment) checkSets(decided []compiledDecision) error {
+	var errs []error
+	for _, a := range r.do {
+		if s, ok := a.(Set); ok && s.device != "" {
+			errs = append(errs, needsFlowsLine(decided, s.device, s.capability))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// safety reports whether the moment sets a capability whose Flows line is a safety line.
+func (r Moment) safety(decided []compiledDecision) bool {
 	return slices.ContainsFunc(r.do, func(a Action) bool {
 		s, ok := a.(Set)
-		return ok && s.priority == Safety
+		return ok && s.device != "" && claimPriority(decided, s.device, s.capability) == engine.PrioritySafety
 	})
 }
 
-func (r Moment) toEngine() engine.Moment {
-	m := engine.Moment{Trigger: trigger(r.on, r.at, r.cond, r.late, r.safety())}
+func (r Moment) toEngine(decided []compiledDecision) engine.Moment {
+	m := engine.Moment{Trigger: trigger(r.on, r.at, r.cond, r.late, r.safety(decided))}
 	if r.restart {
 		m.Mode = engine.ModeRestart
 	}
@@ -1264,7 +986,7 @@ func (r Moment) toEngine() engine.Moment {
 			m.Do = append(m.Do, nil)
 			continue
 		}
-		m.Do = append(m.Do, a.toEngine())
+		m.Do = append(m.Do, a.toEngine(decided))
 	}
 	return m
 }
@@ -1273,7 +995,7 @@ func (r Moment) toEngine() engine.Moment {
 // as "<binary> check" to judge a new version: that loads the home and prints what it finds, with no
 // writes and no session. Anything else is an error, because the home has nothing to do without the
 // host.
-func Run(h Home) {
+func Run(h *Home) {
 	log := slog.New(slog.NewJSONHandler(logOutput(), nil))
 	if err := run(h, log); err != nil {
 		log.Error("Stopped process", "err", err)

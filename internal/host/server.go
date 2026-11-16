@@ -116,6 +116,8 @@ type session struct {
 	// stopped is why each hold couldn't tell whether it should be active, by rule, from Stopped. The
 	// server's mu guards it.
 	stopped map[string]string
+	// whyNot is why each case is inactive, by rule, from WhyNot.
+	whyNot map[string]string
 }
 
 func (s *session) end() {
@@ -247,6 +249,18 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 				delete(sess.stopped, m.Rule)
 			} else {
 				sess.stopped[m.Rule] = m.Stopped
+			}
+			s.mu.Unlock()
+			continue
+		case wire.TypeWhyNot:
+			s.mu.Lock()
+			if sess.whyNot == nil {
+				sess.whyNot = map[string]string{}
+			}
+			if m.WhyNot == "" {
+				delete(sess.whyNot, m.Rule)
+			} else {
+				sess.whyNot[m.Rule] = m.WhyNot
 			}
 			s.mu.Unlock()
 			continue

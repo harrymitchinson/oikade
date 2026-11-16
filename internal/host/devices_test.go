@@ -42,7 +42,7 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	t.Cleanup(func() { cancel(); <-running })
 
 	var entries []control.Entry
-	raw := `[{"capability":"on","default":true,"resolve":"PreferOff","external":"Override","overrideHold":"1h"}]`
+	raw := `[{"capability":"on","default":true,"external":"Override","overrideHold":"1h"}]`
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 		return known, devices
 	}
 	known, devices := open()
-	recorded := control.Entry{Capability: capability.On, Default: json.RawMessage("true"), Resolve: control.NamePreferOff, External: control.NameRevert}
+	recorded := control.Entry{Capability: capability.On, Default: json.RawMessage("true"), External: control.NameRevert}
 	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.On}}, []control.Entry{recorded})
 	if err != nil {
 		t.Fatal(err)
@@ -149,33 +149,33 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 		if !ok || len(snap.Control) != 1 {
 			t.Fatalf("control %+v", snap.Control)
 		}
-		return snap.Control[0].Resolve
+		return strings.Join(snap.Control[0].Lines, " ")
 	}
-	if got := resolve(devices); got != control.NamePreferOff {
-		t.Fatalf("resolve %s before the home says", got)
+	if got := resolve(devices); got != "" {
+		t.Fatalf("lines %q before the home says", got)
 	}
 
 	declared := recorded
-	declared.Resolve = control.NamePreferOn
+	declared.Lines = []string{"Rule/valve on leak"}
 	if err := known.setHome([]wire.DeviceControl{{Device: "valve", Entry: declared}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := resolve(devices); got != control.NamePreferOn {
-		t.Fatalf("resolve %s, want the home's", got)
+	if got := resolve(devices); got != "Rule/valve on leak" {
+		t.Fatalf("lines %q, want the home's", got)
 	}
 
 	// A host that restarts arbitrates this before any process has attached.
 	_, again := open()
-	if got := resolve(again); got != control.NamePreferOn {
-		t.Fatalf("resolve %s after a restart, want the home's", got)
+	if got := resolve(again); got != "Rule/valve on leak" {
+		t.Fatalf("lines %q after a restart, want the home's", got)
 	}
 
 	// A home that stops saying so leaves what's on record.
 	if err := known.setHome(nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := resolve(devices); got != control.NamePreferOff {
-		t.Fatalf("resolve %s, want what's on record", got)
+	if got := resolve(devices); got != "" {
+		t.Fatalf("lines %q, want what's on record", got)
 	}
 }
 
@@ -190,23 +190,23 @@ func TestAProcessCantDropASetting(t *testing.T) {
 		t.Fatal(err)
 	}
 	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
-	setting := func(device, resolve string) wire.DeviceControl {
-		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.On, Resolve: resolve}}
+	setting := func(device, line string) wire.DeviceControl {
+		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.On, Lines: []string{line}}}
 	}
-	if err := known.takeHome([]wire.DeviceControl{setting("a", control.NamePreferOn), setting("b", control.NamePreferOn)}); err != nil {
+	if err := known.takeHome([]wire.DeviceControl{setting("a", "Rule/first"), setting("b", "Rule/first")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := known.takeHome([]wire.DeviceControl{setting("a", control.NamePreferOff)}); err != nil {
+	if err := known.takeHome([]wire.DeviceControl{setting("a", "Rule/second")}); err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]string{}
 	for _, c := range known.home {
-		got[c.Device] = c.Entry.Resolve
+		got[c.Device] = c.Entry.Lines[0]
 	}
-	if got["a"] != control.NamePreferOff || got["b"] != control.NamePreferOn {
+	if got["a"] != "Rule/second" || got["b"] != "Rule/first" {
 		t.Fatalf("after taking: %v", got)
 	}
-	if err := known.setHome([]wire.DeviceControl{setting("a", control.NamePreferOff)}); err != nil {
+	if err := known.setHome([]wire.DeviceControl{setting("a", "Rule/second")}); err != nil {
 		t.Fatal(err)
 	}
 	if len(known.home) != 1 {

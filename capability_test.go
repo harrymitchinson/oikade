@@ -3,6 +3,7 @@ package oikade
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,11 +60,8 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 	}{
 		"a write": {heater.To(true), engine.Set{Device: "heater", Capability: "on", Value: true}},
 		"a claim": {
-			heater.To(true).For(time.Hour).UntilNext().Priority(Override),
-			engine.Set{
-				Device: "heater", Capability: "on", Value: true, For: time.Hour, Until: engine.UntilNext,
-				Priority: engine.Priority(Override),
-			},
+			heater.To(true).For(time.Hour).UntilNext(),
+			engine.Set{Device: "heater", Capability: "on", Value: true, For: time.Hour, Until: engine.UntilNext},
 		},
 		"until released": {
 			heater.To(false).UntilReleased(),
@@ -81,7 +79,7 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 			},
 		},
 	} {
-		if got := tc.set.toEngine(); !reflect.DeepEqual(got, tc.want) {
+		if got := tc.set.toEngine(nil); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", name, got, tc.want)
 		}
 	}
@@ -112,4 +110,68 @@ func TestGettingAValueOfTheWrongTypePanics(t *testing.T) {
 		}
 	}()
 	Snapshot{devices: map[string]map[string]any{"door": {"open": true}}}.Get(wrong)
+}
+
+// A flow's or a moment's Set ranks where its decision's Flows line is: Safety above the override line.
+func TestASetRanksAtItsDecisionsFlowsLine(t *testing.T) {
+	heater, lamp := Bool{Device: "heater", Capability: On}, Bool{Device: "lamp", Capability: On}
+	decided, err := decide(func(h *Home) {
+		h.Decide(heater).Flows().OverrideFor(time.Hour).Default(false)
+		h.Decide(lamp).OverrideFor(time.Hour).Flows().Default(false)
+	}).compileDecisions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		set  Set
+		want engine.Priority
+	}{
+		{heater.To(true).For(time.Hour), engine.PrioritySafety},
+		{lamp.To(true).For(time.Hour), ""},
+		{Bool{Device: "fan", Capability: On}.To(true), ""},
+	} {
+		if got := tc.set.toEngine(decided).(engine.Set).Priority; got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.set.device, got, tc.want)
+		}
+	}
+}
+
+// A Set on a decided capability with no Flows line has nowhere to rank: a moment's fails oikade check,
+// and a flow's returns an error.
+func TestASetOnADecisionWithNoFlowsLineIsRefused(t *testing.T) {
+	heater := Bool{Device: "heater", Capability: On}
+	noFlows := func(h *Home) { h.Decide(heater).OverrideFor(time.Hour).Default(false) }
+	moment := NewMoment("warm", heater.To(true).For(time.Hour)).At(Clock("07:00"))
+	_, _, err := decide(noFlows, moment).compile()
+	if err == nil || !strings.Contains(err.Error(), "heater on is decided, and its decision has no Flows line") {
+		t.Errorf("got %v", err)
+	}
+	decided, err := decide(noFlows).compileDecisions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&FlowRun{decided: decided}).Set(heater.To(true).For(time.Hour)); err == nil {
+		t.Error("a flow's Set was taken")
+	}
+}
+
+// A flow may set any decision's Flows line, so one above an override line makes every flow Safety.
+func TestAFlowIsSafetyWhileAFlowsLineIsAboveTheOverrideLine(t *testing.T) {
+	heater := Bool{Device: "heater", Capability: On}
+	f := NewFlow("f", func(*FlowRun) error { return nil }).At(Clock("07:00"))
+	for name, tc := range map[string]struct {
+		decide func(*Home)
+		want   bool
+	}{
+		"above": {func(h *Home) { h.Decide(heater).Flows().OverrideFor(time.Hour).Default(false) }, true},
+		"below": {func(h *Home) { h.Decide(heater).OverrideFor(time.Hour).Flows().Default(false) }, false},
+	} {
+		_, flows, err := decide(tc.decide, f).compile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := flows["f"].Safety; got != tc.want {
+			t.Errorf("%s: Safety is %v", name, got)
+		}
+	}
 }

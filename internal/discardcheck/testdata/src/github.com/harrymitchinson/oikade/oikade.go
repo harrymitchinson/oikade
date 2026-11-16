@@ -3,12 +3,12 @@ package oikade
 
 type Part interface{ part() }
 
-type Hold struct{}
+type Moment struct{}
 
-func NewHold(name string, set Set) Hold { return Hold{} }
+func NewMoment(name string, set Set) Moment { return Moment{} }
 
-func (r Hold) Latch() Hold { return r }
-func (Hold) part()         {}
+func (r Moment) Restart() Moment { return r }
+func (Moment) part()             {}
 
 type Set struct{}
 
@@ -48,9 +48,16 @@ func (Bundle) part()                 {}
 
 type Home struct{}
 
-func NewHome(parts ...Part) Home { return Home{} }
+func NewHome(parts ...Part) *Home { return &Home{} }
 
-func Run(h Home) {}
+func Run(h *Home) {}
+
+// Decision is added to its home as it's built.
+type Decision struct{}
+
+func (h *Home) Decide(b Bool) *Decision                             { return &Decision{} }
+func (d *Decision) Case(name string, v bool, c Condition) *Decision { return d }
+func (d *Decision) Default(v bool) *Decision                        { return d }
 
 // Secret declares a secret as it's made, so a discarded one still does something.
 func Secret(name string) string { return name }

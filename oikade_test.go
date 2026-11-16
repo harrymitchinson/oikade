@@ -20,27 +20,48 @@ import (
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
+// deciding is a home with one decision, on d's on, of one case.
+func deciding(o Options, name string, when ...Condition) *Home {
+	h := NewHome(o)
+	h.Decide(Bool{Device: "d", Capability: On}).Case(name, true, when...).Default(false)
+	return h
+}
+
+// decide is a home that f decides.
+func decide(f func(h *Home), parts ...Part) *Home {
+	h := NewHome(Options{}, parts...)
+	f(h)
+	return h
+}
+
 func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	d := Bool{Device: "d", Capability: On}
 	for name, tc := range map[string]struct {
-		home Home
+		home *Home
 		want string
 	}{
-		"no name": {NewHome(Options{}, NewHold("", d.To(true)).When(when)), "needs a name"},
-		"twice": {NewHome(Options{},
-			NewHold("a", d.To(true)).When(when),
-			NewMoment("a", Wait(time.Second)).At(Clock("07:00")),
+		"no name":           {deciding(Options{}, "", when), "Case \"\": it needs a name"},
+		"a space in a name": {deciding(Options{}, "a b", when), "its name has a space in it"},
+		"twice": {decide(func(h *Home) {
+			h.Decide(d).Case("a", true, when).Case("a", false, when).Default(false)
+		}), `Case "a" is given twice`},
+		"a rule's name twice": {decide(func(h *Home) { h.Decide(d).Case("a", true, when).Default(false) },
+			NewMoment("d on a", Wait(time.Second)).At(Clock("07:00")),
 		), "declared twice"},
 		"unknown capability": {
-			NewHome(Options{}, NewHold("a", Bool{Device: "d", Capability: "nope"}.To(true)).When(when)),
+			decide(func(h *Home) {
+				h.Decide(Bool{Device: "d", Capability: "nope"}).Case("a", true, when).Default(false)
+			}),
 			"unknown capability",
 		},
 		"no trigger": {NewHome(Options{}, NewMoment("a", Wait(time.Second))), "trigger"},
 		"nil action": {NewHome(Options{}, NewMoment("a", nil).At(Clock("07:00"))), "no action"},
-		"no set":     {NewHome(Options{}, NewHold("a", Set{}).When(when)), "needs a capability"},
-		"claim": {
-			NewHome(Options{}, NewHold("a", d.To(true).For(time.Hour)).When(when)), "takes no For, Until or Priority",
+		"no capability": {
+			decide(func(h *Home) { h.Decide(Ref[bool](nil)).Default(false) }), "Decide needs a capability",
+		},
+		"no device": {
+			decide(func(h *Home) { h.Decide(Bool{Capability: On}).Default(false) }), "needs a device's capability",
 		},
 		"nil change": {
 			NewHome(Options{}, NewMoment("a", Wait(time.Second)).On(nil)), "a nil change, at On[0]",
@@ -49,25 +70,16 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			NewHome(Options{}, NewMoment("bedtime", Wait(time.Second)).At(Clock("25:00"))),
 			`rule bedtime: timers[0]: time "25:00" is not HH:MM`,
 		},
-		"a window with no end": {
-			NewHome(Options{}, NewHold("evening", d.To(true)).When(Daily(Clock("18:00"), Time{}))), "end: no time",
-		},
-		"a window that isn't one": {
-			NewHome(Options{}, NewHold("evening", d.To(true)).When(All(d, Daily("18:00", "7")))), `time "7" is not HH:MM`,
-		},
-		"a date that isn't one": {
-			NewHome(Options{}, NewHold("summer", d.To(true)).When(Yearly("1 Jun", "31 Jun"))), `"31 Jun" isn't a date`,
-		},
+		"a window with no end":    {deciding(Options{}, "evening", Daily(Clock("18:00"), Time{})), "end: no time"},
+		"a window that isn't one": {deciding(Options{}, "evening", d, Daily("18:00", "7")), `time "7" is not HH:MM`},
+		"a date that isn't one":   {deciding(Options{}, "summer", Yearly("1 Jun", "31 Jun")), `"31 Jun" isn't a date`},
 		"a Within the wrong way round": {
-			NewHome(Options{}, NewHold("comfy", d.To(true)).When(Number{"t", Temperature}.Within(25, 18))),
-			"give the lower first",
+			deciding(Options{}, "comfy", Number{"t", Temperature}.Within(25, 18)), "give the lower first",
 		},
-		"a nil condition in All": {
-			NewHome(Options{}, NewHold("a", d.To(true)).When(All(d, nil))), "All has a nil condition, at 1",
-		},
-		"a hold with no When": {NewHome(Options{}, NewHold("a", d.To(true))), "a hold needs a When or a Budget"},
+		"a nil condition in All":   {deciding(Options{}, "a", All(d, nil)), "All has a nil condition, at 1"},
+		"a case with no condition": {deciding(Options{}, "a"), "it needs a condition: Default is for always"},
 		"a ConditionFunc with no label": {
-			NewHome(Options{}, NewHold("a", d.To(true)).When(ConditionFunc("", func(Snapshot) bool { return true }))),
+			deciding(Options{}, "a", ConditionFunc("", func(Snapshot) bool { return true })),
 			"a ConditionFunc needs a label",
 		},
 		"a moment's condition": {
@@ -78,22 +90,17 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			"rule porch-at-dusk: a sunrise or sunset needs the home's location",
 		},
 		"a sunrise window with no site": {
-			NewHome(Options{}, NewHold("a", d.To(true)).When(Daily(Sunrise(0), Clock("09:00")))),
-			"rule a: a sunrise or sunset needs the home's location",
+			deciding(Options{}, "a", Daily(Sunrise(0), Clock("09:00"))),
+			"decision d on: Case \"a\": a sunrise or sunset needs the home's location",
 		},
-		"a latitude off the earth": {
-			NewHome(Options{Location: NewLocation(91, 0)}, NewHold("a", d.To(true)).When(when)), "latitude 91 isn't",
-		},
-		"a longitude off the earth": {
-			NewHome(Options{Location: NewLocation(0, -181)}, NewHold("a", d.To(true)).When(when)),
-			"longitude -181 isn't",
-		},
+		"a latitude off the earth":  {deciding(Options{Location: NewLocation(91, 0)}, "a", when), "latitude 91 isn't"},
+		"a longitude off the earth": {deciding(Options{Location: NewLocation(0, -181)}, "a", when), "longitude -181 isn't"},
 		"a bridge name too long": {
-			NewHome(Options{MatterName: "The cottage at the end of the lane"}, NewHold("a", d.To(true)).When(when)),
+			deciding(Options{MatterName: "The cottage at the end of the lane"}, "a", when),
 			"is 34 bytes, and it's at most 32",
 		},
 		"a bridge name that isn't UTF-8": {
-			NewHome(Options{MatterName: "Caf\xe9"}, NewHold("a", d.To(true)).When(when)), "isn't valid UTF-8",
+			deciding(Options{MatterName: "Caf\xe9"}, "a", when), "isn't valid UTF-8",
 		},
 		"an offset too far": {
 			NewHome(Options{Location: NewLocation(51.48, 0)}, NewFlow("a", func(*FlowRun) error { return nil }).
@@ -534,24 +541,92 @@ func TestAChangeReachesTheEngineAsOneReport(t *testing.T) {
 
 func TestManifestDescribesTheHome(t *testing.T) {
 	when := ConditionFunc("always", func(Snapshot) bool { return true })
-	m := NewHome(Options{},
-		NewHold("leak", Set{}).Priority(Safety).Latch().When(when),
-		NewHold("fan", Set{}).When(when),
-		NewMoment("alarm", Set{}.Priority(Safety)),
-		NewMoment("lamp", Set{}, Wait(time.Second)),
-		NewFlow("shutoff", nil).Priority(Safety),
+	valve, fan, siren := Bool{"valve", On}, Bool{"fan", On}, Bool{"siren", On}
+	m := decide(func(h *Home) {
+		h.Decide(valve).NoOverride().Case("leak", false, when).LatchUntil(when).Default(true)
+		h.Decide(fan).OverrideFor(time.Hour).Case("humid", true, when).Flows().Default(false)
+		h.Decide(siren).Flows().OverrideUntilNext().Default(false)
+	},
+		NewMoment("alarm", siren.To(true).For(time.Hour)).At(Clock("03:00")),
+		NewMoment("lamp", fan.To(true).For(time.Hour), Wait(time.Second)).At(Clock("03:00")),
 		NewFlow("bedtime", nil),
 	).manifest()
 	if m.Protocol != wire.Version {
 		t.Fatalf("protocol %d", m.Protocol)
 	}
 	want := []wire.RuleInfo{
-		{Name: "leak", Kind: "hold", Safety: true, Latch: true}, {Name: "fan", Kind: "hold"},
+		{Name: "valve on leak", Kind: "case", Safety: true, Latch: true, Device: "valve", Capability: "on", Case: "leak"},
+		{Name: "fan on humid", Kind: "case", Device: "fan", Capability: "on", Case: "humid"},
 		{Name: "alarm", Kind: "moment", Safety: true}, {Name: "lamp", Kind: "moment"},
-		{Name: "shutoff", Kind: "flow", Safety: true}, {Name: "bedtime", Kind: "flow"},
+		{Name: "bedtime", Kind: "flow"},
 	}
 	if !reflect.DeepEqual(m.Rules, want) {
 		t.Fatalf("got %+v", m.Rules)
+	}
+	lines := map[string][]string{}
+	for _, c := range m.Control {
+		lines[c.Device] = c.Entry.Lines
+	}
+	wantLines := map[string][]string{
+		"valve": {"Rule/valve on leak"},
+		"fan":   {"override", "Rule/fan on humid", "flows"},
+		"siren": {"flows", "override"},
+	}
+	if !reflect.DeepEqual(lines, wantLines) {
+		t.Errorf("got lines %v, want %v", lines, wantLines)
+	}
+	if len(m.Warnings) != 0 {
+		t.Errorf("got warnings %v", m.Warnings)
+	}
+}
+
+// A decision ranks an outside change where its override line is, and above every line without one.
+func TestADecisionsOverrideLineSaysWhatAnOutsideChangeDoes(t *testing.T) {
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
+	for name, tc := range map[string]struct {
+		decide          func(*Decision[bool]) *Decision[bool]
+		external, holds string
+		lines           []string
+		safety, warns   bool
+	}{
+		"none": {
+			func(d *Decision[bool]) *Decision[bool] { return d.Case("a", true, when) },
+			"Override", "Next", []string{"override", "Rule/d on a"}, false, false,
+		},
+		"for an hour": {
+			func(d *Decision[bool]) *Decision[bool] { return d.Case("a", true, when).OverrideFor(time.Hour) },
+			"Override", "1h0m0s", []string{"Rule/d on a", "override"}, true, false,
+		},
+		"until next": {
+			func(d *Decision[bool]) *Decision[bool] { return d.OverrideUntilNext().Case("a", true, when) },
+			"Override", "Next", []string{"override", "Rule/d on a"}, false, false,
+		},
+		"no override": {
+			func(d *Decision[bool]) *Decision[bool] { return d.NoOverride().Case("a", true, when) },
+			"Revert", "", []string{"Rule/d on a"}, true, false,
+		},
+		"a latch with no override line": {
+			func(d *Decision[bool]) *Decision[bool] { return d.Case("a", true, when).LatchUntil(when) },
+			"Override", "Next", []string{"override", "Rule/d on a"}, false, true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := decide(func(h *Home) { tc.decide(h.Decide(Bool{"d", On})).Default(false) })
+			m := h.manifest()
+			e := m.Control[0].Entry
+			if e.External != tc.external || e.OverrideHold != tc.holds || !slices.Equal(e.Lines, tc.lines) {
+				t.Errorf("got %+v", e)
+			}
+			if m.Rules[0].Safety != tc.safety {
+				t.Errorf("safety is %v", m.Rules[0].Safety)
+			}
+			if (len(m.Warnings) > 0) != tc.warns {
+				t.Errorf("got warnings %v", m.Warnings)
+			}
+			if _, _, err := h.compile(); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 }
 
@@ -577,49 +652,90 @@ var (
 	water = Number{Device: "water", Capability: Temperature}
 )
 
-func valveControl() Control {
-	return NewControl(pump.To(false), PreferOn, ExternalOverride).
-		OverrideHold(time.Hour).
-		MinimumOn(time.Hour).
-		MinimumOff(30 * time.Minute)
+var pumpLimits = Limits{MinimumOn: time.Hour, MinimumOff: 30 * time.Minute}
+
+func budgetHome(l Limits, b Budget) *Home {
+	return decide(func(h *Home) {
+		h.Decide(pump).OverrideFor(time.Hour).Limits(l).Budget("daily", true, b).Default(false)
+	})
 }
 
-func budgetHome(c Control, b Budget) Home {
-	return NewHome(Options{},
-		c,
-		NewHold("pump-daily", pump.To(true)).Budget(b),
-	)
-}
-
-func TestHomeChecksControlAndBudgets(t *testing.T) {
+func TestHomeChecksDecisionsAndBudgets(t *testing.T) {
 	minutes := func(Snapshot) int { return 120 }
-	limited := valveControl().MinimumOn(45 * time.Minute)
-	control := func(c Control) Home { return NewHome(Options{}, c) }
-	arbitrate := func(s Set, r Resolve) Home { return control(NewControl(s, r, ExternalRevert)) }
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
+	limited := pumpLimits
+	limited.MinimumOn = 45 * time.Minute
+	pumped := func(f func(d *Decision[bool])) *Home { return decide(func(h *Home) { f(h.Decide(pump)) }) }
 	for name, tc := range map[string]struct {
-		home Home
+		home *Home
 		want string
 	}{
-		"fine": {budgetHome(valveControl(), NewBudget(minutes)), ""},
-		"bands": {budgetHome(valveControl(), NewBandedBudget(Bands{
+		"fine": {budgetHome(pumpLimits, NewBudget(minutes)), ""},
+		"bands": {budgetHome(pumpLimits, NewBandedBudget(Bands{
 			Reading: water, Ranges: []Band{{Below: 12, Minutes: 60}}, Otherwise: 90,
 		})), ""},
-		"no minutes": {budgetHome(valveControl(), Budget{}), "exactly one of bands or minutes"},
-		"bad slot":   {budgetHome(valveControl(), NewBudget(minutes).SlotMinutes(20)), "slotMinutes"},
+		"no minutes": {budgetHome(pumpLimits, Budget{}), "exactly one of bands or minutes"},
+		"bad slot":   {budgetHome(pumpLimits, NewBudget(minutes).SlotMinutes(20)), "slotMinutes"},
 		"bad window": {
-			budgetHome(valveControl(), NewBudget(minutes).Forbid(Daily("7", "8"))),
+			budgetHome(pumpLimits, NewBudget(minutes).Forbid(Daily("7", "8"))),
 			"not HH:MM",
 		},
 		"limit off the slots": {budgetHome(limited, NewBudget(minutes)), "isn't a multiple"},
-		"no control": {NewHome(Options{}, NewHold("pump-daily", pump.To(true)).
-			Budget(NewBudget(minutes))), "needs a Control"},
-		"twice":        {NewHome(Options{}, valveControl(), valveControl()), "declared twice"},
-		"a room":       {arbitrate(InRoom("hall", Everything, On).To(false), PreferOn), "names a device, not a room"},
-		"no default":   {arbitrate(Set{}, PreferOn), "needs a capability"},
-		"no device":    {arbitrate(Bool{Capability: On}.To(false), PreferOn), "needs a device"},
-		"a claim":      {arbitrate(pump.To(false).UntilNext(), PreferOn), "takes no For, Until or Priority"},
-		"bool resolve": {arbitrate(pump.To(false), Highest), "PreferOn or PreferOff"},
-		"read-only":    {arbitrate(Number{Device: "x", Capability: Temperature}.To(1), Highest), "read-only"},
+		"a budget of false": {
+			pumped(func(d *Decision[bool]) { d.Budget("daily", false, NewBudget(minutes)).Default(false) }),
+			"a budget sets a Bool to true",
+		},
+		"twice": {decide(func(h *Home) {
+			h.Decide(pump).Default(false)
+			h.Decide(pump).Default(true)
+		}), "decision pump on is decided twice"},
+		"no Default":    {pumped(func(d *Decision[bool]) { d.Case("a", true, when) }), "it needs a Default"},
+		"Default twice": {pumped(func(d *Decision[bool]) { d.Default(false).Default(true) }), "Default is given twice"},
+		"a line after Default": {
+			pumped(func(d *Decision[bool]) { d.Default(false).Case("late", true, when) }),
+			`Case "late" comes after Default`,
+		},
+		"two override lines": {
+			pumped(func(d *Decision[bool]) { d.OverrideFor(time.Hour).OverrideUntilNext().Default(false) }),
+			"it has one override line",
+		},
+		"NoOverride after a line": {
+			pumped(func(d *Decision[bool]) { d.Case("a", true, when).NoOverride().Default(false) }),
+			"NoOverride goes before the first line",
+		},
+		"an override of zero": {
+			pumped(func(d *Decision[bool]) { d.OverrideFor(0).Default(false) }), "OverrideFor 0s must be positive",
+		},
+		"Linger with no case": {
+			pumped(func(d *Decision[bool]) { d.Flows().Linger(time.Minute).Default(false) }),
+			"Linger needs a Case before it",
+		},
+		"Linger twice": {
+			pumped(func(d *Decision[bool]) { d.Case("a", true, when).Linger(0).Linger(time.Minute).Default(false) }),
+			`Case "a": Linger is given twice`,
+		},
+		"a negative Delay": {
+			pumped(func(d *Decision[bool]) { d.Case("a", true, when).Delay(-time.Minute).Default(false) }),
+			"Delay -1m0s must not be negative",
+		},
+		"LatchUntil nil": {
+			pumped(func(d *Decision[bool]) { d.Case("a", true, when).LatchUntil(nil).Default(false) }),
+			"LatchUntil needs a condition",
+		},
+		"Flows twice": {pumped(func(d *Decision[bool]) { d.Flows().Flows().Default(false) }), "Flows is given twice"},
+		"Limits twice": {
+			pumped(func(d *Decision[bool]) { d.Limits(pumpLimits).Limits(pumpLimits).Default(false) }),
+			"Limits is given twice",
+		},
+		"limits the wrong way round": {
+			pumped(func(d *Decision[bool]) {
+				d.Limits(Limits{MinimumOn: time.Hour, MaximumOn: time.Minute}).Default(false)
+			}),
+			"maximumOn must not be shorter than minimumOn",
+		},
+		"read-only": {
+			decide(func(h *Home) { h.Decide(Number{Device: "x", Capability: Temperature}).Default(1) }), "read-only",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := tc.home.compile()
@@ -656,8 +772,8 @@ func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
 	}
 }
 
-func TestMetaHasTheLimitsOfTheHomesControl(t *testing.T) {
-	h := NewHome(Options{}, valveControl())
+func TestMetaHasTheLimitsOfTheHomesDecision(t *testing.T) {
+	h := budgetHome(pumpLimits, NewBudget(func(Snapshot) int { return 60 }))
 	settings, err := h.settings()
 	if err != nil {
 		t.Fatal(err)
@@ -669,41 +785,10 @@ func TestMetaHasTheLimitsOfTheHomesControl(t *testing.T) {
 	}
 }
 
-// A Safety rule's room writes limited to device types are in the manifest, which the host checks a
-// device's new type against. Other rules' aren't.
-func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
-	lights := InRoom("hall", Lights, On)
-	m := NewHome(Options{},
-		NewHold("night-lights", lights.To(true)).
-			Priority(Safety).
-			When(Daily("22:00", "06:00")),
-		NewHold("evening", lights.To(true)).When(Daily("18:00", "22:00")),
-		NewMoment("alarm", lights.To(true).For(time.Hour).
-			Priority(Safety), InRoom("hall", Everything, On).To(true).For(time.Hour).
-			Priority(Safety)).
-			At(Clock("03:00")),
-	).manifest()
-	want := []wire.RoomOfTypes{{
-		Room: "hall", Capability: "on", DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight},
-	}}
-	for _, r := range m.Rules {
-		got := r.Rooms
-		if r.Name == "evening" {
-			if got != nil {
-				t.Errorf("evening isn't Safety, and has rooms %+v", got)
-			}
-			continue
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("%s has rooms %+v, want %+v", r.Name, got, want)
-		}
-	}
-}
-
 func TestABudgetTakesClockTimesOnly(t *testing.T) {
 	b := NewBudget(func(Snapshot) int { return 60 }).Prefer(Daily(Sunset(0), Clock("23:00")), 3)
-	home := NewHome(Options{Location: NewLocation(51.48, -0.01)},
-		valveControl(), NewHold("pump-daily", pump.To(true)).Budget(b))
+	home := budgetHome(pumpLimits, b)
+	home.options = Options{Location: NewLocation(51.48, -0.01)}
 	if _, _, err := home.compile(); err == nil || !strings.Contains(err.Error(), "clock times only") {
 		t.Fatalf("got %v, want a budget's windows to take clock times only", err)
 	}
@@ -715,38 +800,41 @@ func TestASunTimeReachesTheEngine(t *testing.T) {
 		engine.SunTime{Event: sun.Sunset, Offset: -20 * time.Minute}, engine.SunTime{Event: sun.Sunrise},
 		engine.At{Time: "18:00"},
 	}
-	if got := m.toEngine().Timers; !reflect.DeepEqual(got, want) {
+	if got := m.toEngine(nil).Timers; !reflect.DeepEqual(got, want) {
 		t.Errorf("timers %+v, want %+v", got, want)
 	}
 }
 
 func TestAWindowReachesTheEngine(t *testing.T) {
-	h := NewHold("a", Bool{Device: "d", Capability: On}.To(true)).
-		When(Daily("22:00", "06:00").Days(time.Friday))
+	d := decide(func(h *Home) {
+		h.Decide(pump).Case("night", true, Daily("22:00", "06:00").Days(time.Friday)).Default(false)
+	}).decisions[0].compile(Options{})
 	want := &engine.Window{
 		Start: engine.At{Time: "22:00"}, End: engine.At{Time: "06:00"}, Days: []time.Weekday{time.Friday},
 	}
-	if got := h.toEngine().Window; !reflect.DeepEqual(got, want) {
+	if got := d.cases[0].hold.Window; !reflect.DeepEqual(got, want) {
 		t.Errorf("window %+v, want %+v", got, want)
+	}
+	if d.cases[0].hold.When != nil {
+		t.Error("a Daily on its own left a When")
 	}
 }
 
 func TestNewHomeTakesPartsFromNestedBundles(t *testing.T) {
-	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
-	dehumidifier := func() Bundle {
-		return NewBundle(valveControl(), NewHold("inner", pump.To(true)).When(when))
+	lamp := func() Bundle {
+		return NewBundle(NewMoment("inner", Wait(time.Second)).At(Clock("06:00")))
 	}
 	h := NewHome(Options{},
-		NewHold("first", pump.To(true)).When(when),
+		NewMoment("first", Wait(time.Second)).At(Clock("05:00")),
 		NewBundle(),
 		NewBundle(
-			dehumidifier(),
+			lamp(),
 			NewMoment("moment", Wait(time.Second)).At(Clock("07:00")),
 			NewFlow("flow", func(*FlowRun) error { return nil }).At(Clock("08:00")),
 			NewPlugin("relays", made),
 		),
-		NewHold("last", pump.To(true)).When(when),
+		NewMoment("last", Wait(time.Second)).At(Clock("09:00")),
 	)
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
@@ -757,22 +845,18 @@ func TestNewHomeTakesPartsFromNestedBundles(t *testing.T) {
 		names = append(names, r.Name)
 	}
 	// A rule's name is its state key, so a Bundle leaves it exactly as written.
-	if want := []string{"first", "inner", "last", "moment", "flow"}; !slices.Equal(names, want) {
+	if want := []string{"first", "inner", "moment", "last", "flow"}; !slices.Equal(names, want) {
 		t.Errorf("got rules %v, want %v", names, want)
 	}
 	if !slices.Equal(m.Plugins, []string{"relays"}) {
 		t.Errorf("got plugins %v", m.Plugins)
 	}
-	if len(m.Control) != 1 {
-		t.Errorf("got control %+v, want the Control from the Bundle", m.Control)
-	}
 }
 
 func TestNewBundleKeepsItsOwnParts(t *testing.T) {
-	when := ConditionFunc("always", func(Snapshot) bool { return true })
-	parts := []Part{NewHold("kept", pump.To(true)).When(when)}
+	parts := []Part{NewMoment("kept", Wait(time.Second)).At(Clock("05:00"))}
 	b := NewBundle(parts...)
-	parts[0] = NewHold("changed", pump.To(true)).When(when)
+	parts[0] = NewMoment("changed", Wait(time.Second)).At(Clock("05:00"))
 	m := NewHome(Options{}, b).manifest()
 	if len(m.Rules) != 1 || m.Rules[0].Name != "kept" {
 		t.Errorf("got %+v", m.Rules)
@@ -780,20 +864,19 @@ func TestNewBundleKeepsItsOwnParts(t *testing.T) {
 }
 
 func TestNewHomeRefusesWhatIsntAPart(t *testing.T) {
-	type wrapped struct{ Hold }
-	when := ConditionFunc("always", func(Snapshot) bool { return true })
-	hold := NewHold("a", pump.To(true)).When(when)
-	var noHold *Hold
+	type wrapped struct{ Moment }
+	moment := NewMoment("a", Wait(time.Second)).At(Clock("05:00"))
+	var noMoment *Moment
 	for name, tc := range map[string]struct {
 		parts []Part
 		want  string
 	}{
-		"nil":                  {[]Part{hold, nil}, "a nil part, at parts[1]"},
-		"nil in a bundle":      {[]Part{hold, NewBundle(hold, NewBundle(nil))}, "a nil part, at parts[1][1][0]"},
-		"a pointer":            {[]Part{&hold}, "a *oikade.Hold, at parts[0]"},
-		"a nil pointer":        {[]Part{noHold}, "a *oikade.Hold, at parts[0]"},
+		"nil":                  {[]Part{moment, nil}, "a nil part, at parts[1]"},
+		"nil in a bundle":      {[]Part{moment, NewBundle(moment, NewBundle(nil))}, "a nil part, at parts[1][1][0]"},
+		"a pointer":            {[]Part{&moment}, "a *oikade.Moment, at parts[0]"},
+		"a nil pointer":        {[]Part{noMoment}, "a *oikade.Moment, at parts[0]"},
 		"a pointer to bundle":  {[]Part{&Bundle{}}, "a *oikade.Bundle, at parts[0]"},
-		"a type embedding one": {[]Part{wrapped{hold}}, "a oikade.wrapped, at parts[0]"},
+		"a type embedding one": {[]Part{wrapped{moment}}, "a oikade.wrapped, at parts[0]"},
 	} {
 		_, _, err := NewHome(Options{}, tc.parts...).compile()
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -804,7 +887,7 @@ func TestNewHomeRefusesWhatIsntAPart(t *testing.T) {
 
 func TestARuleNameClashesAcrossBundles(t *testing.T) {
 	motion := func(name string) Bundle {
-		return NewBundle(NewHold(name, pump.To(true)).When(ConditionFunc("always", func(Snapshot) bool { return true })))
+		return NewBundle(NewMoment(name, Wait(time.Second)).At(Clock("05:00")))
 	}
 	_, _, err := NewHome(Options{}, motion("landing"), motion("landing")).compile()
 	if err == nil || !strings.Contains(err.Error(), `rule "landing" is declared twice`) {
@@ -839,7 +922,7 @@ func TestAZeroCoordinateIsARealPlace(t *testing.T) {
 }
 
 func TestAnEmptyHomeIsValid(t *testing.T) {
-	for name, h := range map[string]Home{"zero": {}, "made": NewHome(Options{})} {
+	for name, h := range map[string]*Home{"zero": {}, "made": NewHome(Options{})} {
 		if _, _, err := h.compile(); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -856,55 +939,43 @@ func TestASimulatedHomeReportsAMistakeInItsParts(t *testing.T) {
 func TestAnOptionGivenTwiceFailsNamingTheRuleAndTheOption(t *testing.T) {
 	always := ConditionFunc("always", func(Snapshot) bool { return true })
 	run := func(*FlowRun) error { return nil }
-	hold := NewHold("h", pump.To(true))
 	moment := NewMoment("m", pump.To(true)).On(pump)
 	flow := NewFlow("f", run).On(pump)
 	budget := func() Budget { return NewBudget(func(Snapshot) int { return 60 }) }
+	budgeted := func(b Budget) *Home {
+		return decide(func(h *Home) { h.Decide(pump).Budget("b", true, b).Default(false) })
+	}
 	for name, tc := range map[string]struct {
-		part Part
+		home *Home
 		want []string
 	}{
-		"Hold.When":     {hold.When(always).When(always), []string{"rule h", "When is given twice"}},
-		"Hold.OnDelay":  {hold.When(always).OnDelay(0).OnDelay(time.Second), []string{"rule h", "OnDelay is given twice"}},
-		"Hold.OffDelay": {hold.When(always).OffDelay(time.Second).OffDelay(0), []string{"rule h", "OffDelay is given twice"}},
-		"Hold.Priority": {hold.When(always).Priority(Safety).Priority(Safety), []string{"rule h", "Priority is given twice"}},
-		"Hold.Latch":    {hold.When(always).Latch().Latch(), []string{"rule h", "Latch is given twice"}},
-		"Hold.Budget":   {hold.Budget(budget()).Budget(budget()), []string{"rule h", "Budget is given twice"}},
+		"Case.Delay": {decide(func(h *Home) {
+			h.Decide(pump).Case("c", true, always).Delay(0).Delay(time.Second).Default(false)
+		}), []string{"decision pump on", `Case "c"`, "Delay is given twice"}},
+		"Case.LatchUntil": {decide(func(h *Home) {
+			h.Decide(pump).Case("c", true, always).LatchUntil(always).LatchUntil(always).Default(false)
+		}), []string{"LatchUntil is given twice"}},
 		"Budget.PlanningTime": {
-			hold.Budget(budget().PlanningTime("01:00").PlanningTime("02:00")),
-			[]string{"rule h", "a budget's PlanningTime is given twice"},
+			budgeted(budget().PlanningTime("01:00").PlanningTime("02:00")),
+			[]string{`Budget "b"`, "a budget's PlanningTime is given twice"},
 		},
 		"Budget.SlotMinutes": {
-			hold.Budget(budget().SlotMinutes(15).SlotMinutes(30)),
-			[]string{"rule h", "a budget's SlotMinutes is given twice"},
+			budgeted(budget().SlotMinutes(15).SlotMinutes(30)),
+			[]string{`Budget "b"`, "a budget's SlotMinutes is given twice"},
 		},
-		"Moment.If":      {moment.If(always).If(always), []string{"rule m", "If is given twice"}},
-		"Moment.Restart": {moment.Restart().Restart(), []string{"rule m", "Restart is given twice"}},
-		"Moment.Late":    {moment.Late(time.Minute).Late(time.Hour), []string{"rule m", "Late is given twice"}},
-		"Flow.If":        {flow.If(always).If(always), []string{"rule f", "If is given twice"}},
-		"Flow.Restart":   {flow.Restart().Restart(), []string{"rule f", "Restart is given twice"}},
-		"Flow.Priority":  {flow.Priority(Safety).Priority(Normal), []string{"rule f", "Priority is given twice"}},
-		"Flow.Late":      {flow.Late(time.Minute).Late(time.Hour), []string{"rule f", "Late is given twice"}},
-		"Control.OverrideHold": {
-			valveControl().OverrideHold(time.Minute),
-			[]string{"control on on pump", "OverrideHold is given twice"},
+		"Moment.If":      {NewHome(Options{}, moment.If(always).If(always)), []string{"rule m", "If is given twice"}},
+		"Moment.Restart": {NewHome(Options{}, moment.Restart().Restart()), []string{"rule m", "Restart is given twice"}},
+		"Moment.Late": {
+			NewHome(Options{}, moment.Late(time.Minute).Late(time.Hour)), []string{"rule m", "Late is given twice"},
 		},
-		"Control.OverrideUntilNext": {
-			NewControl(pump.To(false), PreferOn, ExternalOverride).OverrideUntilNext().OverrideUntilNext(),
-			[]string{"control on on pump", "OverrideUntilNext is given twice"},
-		},
-		"Control.MinimumOn": {valveControl().MinimumOn(time.Hour), []string{"MinimumOn is given twice"}},
-		"Control.MaximumOn": {valveControl().
-			MaximumOn(time.Hour).
-			MaximumOn(time.Hour), []string{"MaximumOn is given twice"}},
-		"Control.MinimumOff": {valveControl().MinimumOff(time.Hour), []string{"MinimumOff is given twice"}},
-		"Control.MaximumStartsPerDay": {
-			valveControl().MaximumStartsPerDay(1).MaximumStartsPerDay(2),
-			[]string{"MaximumStartsPerDay is given twice"},
+		"Flow.If":      {NewHome(Options{}, flow.If(always).If(always)), []string{"rule f", "If is given twice"}},
+		"Flow.Restart": {NewHome(Options{}, flow.Restart().Restart()), []string{"rule f", "Restart is given twice"}},
+		"Flow.Late": {
+			NewHome(Options{}, flow.Late(time.Minute).Late(time.Hour)), []string{"rule f", "Late is given twice"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := NewHome(Options{}, tc.part).compile()
+			_, _, err := tc.home.compile()
 			if err == nil {
 				t.Fatal("compiled")
 			}
@@ -966,48 +1037,14 @@ func TestAChainedMethodLeavesItsRuleAlone(t *testing.T) {
 		t.Errorf("two: %v", err)
 	}
 
-	// The same for what records a repeat.
-	hold := NewHold("h", pump.To(true)).When(always).OnDelay(time.Second).OffDelay(time.Second).Priority(Safety)
-	twice, once := hold.When(always), hold.Latch()
-	if twice.once.err() == nil {
-		t.Error("the repeat went unreported")
-	}
-	if err := once.once.err(); err != nil {
-		t.Errorf("the other chain has the repeat: %v", err)
-	}
 }
 
 func TestAnEmptyLiteralStillFailsCheck(t *testing.T) {
 	for name, part := range map[string]Part{
-		"hold": Hold{}, "moment": Moment{}, "flow": Flow{}, "control": Control{}, "plugin": Plugin{},
+		"moment": Moment{}, "flow": Flow{}, "plugin": Plugin{},
 	} {
 		if _, _, err := NewHome(Options{}, part).compile(); err == nil {
 			t.Errorf("%s: compiled", name)
 		}
-	}
-}
-
-func TestWhatNeedsMoreThanOneSettingStaysInCheck(t *testing.T) {
-	for name, tc := range map[string]struct {
-		part Part
-		want string
-	}{
-		"a hold with no condition": {NewHold("h", pump.To(true)), ""},
-		"a moment with no trigger": {NewMoment("m", pump.To(true)), ""},
-		"both overrides, one of them zero": {
-			NewControl(pump.To(false), PreferOn, ExternalOverride).OverrideHold(0).OverrideUntilNext(),
-			"alternatives",
-		},
-		"both overrides": {
-			NewControl(pump.To(false), PreferOn, ExternalOverride).OverrideHold(time.Hour).OverrideUntilNext(),
-			"alternatives",
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, _, err := NewHome(Options{}, tc.part).compile()
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("got %v, want %q", err, tc.want)
-			}
-		})
 	}
 }

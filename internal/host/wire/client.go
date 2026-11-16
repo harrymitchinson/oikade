@@ -170,6 +170,13 @@ func (c *Client) Stopped(rule, why string) {
 	}
 }
 
+// WhyNot tells the host why a case is inactive, or "" once it isn't, or can't tell.
+func (c *Client) WhyNot(rule, why string) {
+	if err := c.conn.Write(Message{Type: TypeWhyNot, Rule: rule, WhyNot: why}); err != nil {
+		c.fail(err)
+	}
+}
+
 // PushMetrics gives the host the process's rule metrics, to serve with its own.
 func (c *Client) PushMetrics(text []byte) {
 	if err := c.conn.Write(Message{Type: TypeMetrics, Metrics: text}); err != nil {

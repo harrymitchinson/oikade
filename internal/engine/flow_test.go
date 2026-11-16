@@ -40,7 +40,7 @@ func arbitratedEngine(t *testing.T, controls ControlStates) (*Engine, ident.ID) 
 	eng.Init()
 	store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: {
 		Instance: z2m,
-		Control:  []control.Entry{entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h")},
+		Control:  []control.Entry{entry(capability.On, "true", control.NameOverride, "1h")},
 	}})
 	return eng, dev
 }
@@ -316,8 +316,8 @@ func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
 	broken := ident.ID{Name: "broken"}
 	eng, dev := arbitratedEngine(t, &failingFor{States: newMemoryStates[ControlState](), broken: broken})
 	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{
-		dev:    {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h")}},
-		broken: {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h")}},
+		dev:    {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NameOverride, "1h")}},
+		broken: {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NameOverride, "1h")}},
 	})
 	ctx := context.Background()
 	if _, err := eng.Claim(ctx, dev, capability.On, testClaim()); err != nil {
@@ -343,7 +343,7 @@ func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 	other := ident.ID{Name: "other"}
 	third := ident.ID{Name: "third"}
 	meta := hub.Meta{Instance: z2m, Control: []control.Entry{
-		entry(capability.On, "true", control.NamePreferOff, control.NameOverride, "1h"),
+		entry(capability.On, "true", control.NameOverride, "1h"),
 	}}
 	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: meta, other: meta, third: meta})
 	ctx := context.Background()

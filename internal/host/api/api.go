@@ -380,14 +380,21 @@ type Capability struct {
 	Level string `json:"level,omitempty"`
 	// Wanted is the value that level wants.
 	Wanted any `json:"wanted,omitempty"`
+	// Case is the decision's case that wins, if one does.
+	Case string `json:"case,omitempty"`
 	// Claims are its claims, highest first.
 	Claims []Claim `json:"claims,omitempty"`
+	// Limit is the limit holding the winner back, such as MinimumOff, until LimitUntil.
+	Limit      string     `json:"limit,omitempty"`
+	LimitUntil *time.Time `json:"limitUntil,omitempty"`
 }
 
 // Claim is one claim on a capability.
 type Claim struct {
 	// Source is who made it, such as Rule/fan, Matter or Command.
-	Source  string     `json:"source"`
+	Source string `json:"source"`
+	// Case is the decision's case that made it, if one did.
+	Case    string     `json:"case,omitempty"`
 	Level   string     `json:"level"`
 	Value   any        `json:"value,omitempty"`
 	Winner  bool       `json:"winner,omitempty"`
@@ -398,12 +405,17 @@ type Claim struct {
 // Rule is one rule of your home.
 type Rule struct {
 	Name string `json:"name"`
-	// Kind is hold, moment or flow. Empty is a paused rule no running code names.
-	Kind   string `json:"kind,omitempty"`
-	Safety bool   `json:"safety,omitempty"`
-	Paused bool   `json:"paused,omitempty"`
+	// Kind is case, moment or flow. Empty is a paused rule no running code names.
+	Kind string `json:"kind,omitempty"`
+	// Device, Capability and Case name a case: its Name is the three, with a space between.
+	Device     string `json:"device,omitempty"`
+	Capability string `json:"capability,omitempty"`
+	Case       string `json:"case,omitempty"`
+	// Safety is a rule above its decision's override line, or a moment whose Set is.
+	Safety bool `json:"safety,omitempty"`
+	Paused bool `json:"paused,omitempty"`
 
-	// The rest are a hold's, and only a running one's: a paused hold has none.
+	// The rest are a case's, and only a running one's: a paused case has none.
 
 	// Active is whether its start is written. Since is when that was, OnAt when its on-delay ends,
 	// and OffAt when its off-delay does.
@@ -417,6 +429,9 @@ type Rule struct {
 	// keeps its state, or its budget couldn't be planned, so its device stays off. Only a connected
 	// process says.
 	Stopped string `json:"stopped,omitempty"`
+	// WhyNot is why an inactive case's conditions are false, such as "pool-water temperature is 5,
+	// not below 3", or a ConditionFunc's label.
+	WhyNot string `json:"whyNot,omitempty"`
 	// Budget is a budget hold's day.
 	Budget *RuleBudget `json:"budget,omitempty"`
 }

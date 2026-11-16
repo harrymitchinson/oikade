@@ -73,6 +73,9 @@ func runCheck(ctx context.Context, args []string) error {
 		return fmt.Errorf("your home was built for protocol %d, and this oikade speaks %d: "+
 			"use the same version of both", m.Protocol, wire.Version)
 	}
+	for _, w := range m.Warnings {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
 	fmt.Printf("Your home is fine: %d rules, %d plugins\n", len(m.Rules), len(m.Plugins))
 	checkUnimported(ctx, target.transport(), m.Plugins)
 	return nil
@@ -270,12 +273,12 @@ import (
 // home is your automations. PorchLight and PorchSensor come from devices.go, which oikade types
 // writes from your real devices, with a field for each thing each one can do: replace these two with
 // yours.
-func home() oikade.Home {
-	return oikade.NewHome(oikade.Options{},
-		oikade.NewHold("porch-light", PorchLight.On.To(true)).
-			When(PorchSensor.Occupied).
-			OffDelay(5*time.Minute),
-	)
+func home() *oikade.Home {
+	home := oikade.NewHome(oikade.Options{})
+	home.Decide(PorchLight.On).
+		Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
+		Default(false)
+	return home
 }
 
 func main() {

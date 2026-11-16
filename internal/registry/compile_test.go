@@ -29,7 +29,12 @@ import (
 
 func main() {
 	_ = GardenLight.Name
-	oikade.Run(oikade.NewHome(oikade.Options{}, ` + body + `))
+	var parts []oikade.Part
+	decide := func(*oikade.Home) {}
+	` + body + `
+	home := oikade.NewHome(oikade.Options{}, parts...)
+	decide(home)
+	oikade.Run(home)
 }
 
 var _ = time.Minute
@@ -48,35 +53,41 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 		want string
 	}{
 		"fine": {body: `
-		oikade.NewHold("porch-light", PorchLight.On.To(true)).
-When(PorchSensor.Occupied).
-OffDelay(5 * time.Minute),
-		oikade.NewMoment("goodnight", oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
+		decide = func(home *oikade.Home) {
+			home.Decide(PorchLight.On).
+				Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
+				Default(false)
+			home.Decide(Hallway.Brightness).Case("evening", 40, oikade.Daily("18:00", "23:00")).Flows().Default(0)
+		}
+		parts = append(parts, oikade.NewMoment("goodnight", oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
 At(oikade.Clock("23:30")).
-On(PorchSensor.Occupied, oikade.InRoom("porch", oikade.Everything, oikade.Occupied)),`},
+On(PorchSensor.Occupied, oikade.InRoom("porch", oikade.Everything, oikade.Occupied)))`},
 		"a capability the device hasn't": {
-			body: `oikade.NewHold("a", PorchLight.Occupied.To(true)),`,
+			body: `decide = func(home *oikade.Home) { home.Decide(PorchLight.Occupied).Default(false) }`,
 			want: "PorchLight.Occupied undefined",
 		},
 		"a reserved device's capability": {
-			body: `oikade.NewHold("a", GardenLight.On.To(true)),`,
+			body: `decide = func(home *oikade.Home) { home.Decide(GardenLight.On).Default(false) }`,
 			want: "GardenLight.On undefined",
 		},
 		"a number set to a bool": {
-			body: `oikade.NewMoment("a", Hallway.Brightness.To(true)),`,
+			body: `parts = append(parts, oikade.NewMoment("a", Hallway.Brightness.To(true)))`,
+			want: "cannot use true",
+		},
+		"a case of the wrong type": {
+			body: `decide = func(home *oikade.Home) { home.Decide(Hallway.Brightness).Case("a", true, Hallway.On).Default(0) }`,
 			want: "cannot use true",
 		},
 		"a bool read as a number": {
-			body: `oikade.NewHold("a", oikade.Set{}).
-When(Hallway.On.Above(5)),`,
+			body: `decide = func(home *oikade.Home) { home.Decide(Hallway.On).Case("a", true, Hallway.On.Above(5)).Default(false) }`,
 			want: "Hallway.On.Above undefined",
 		},
 		"a room's capability set to the wrong type": {
-			body: `oikade.NewMoment("a", oikade.InRoom("hall", oikade.Lights, oikade.On).To(10)),`,
+			body: `parts = append(parts, oikade.NewMoment("a", oikade.InRoom("hall", oikade.Lights, oikade.On).To(10)))`,
 			want: "cannot use 10",
 		},
 		"a room write that doesn't say what it's for": {
-			body: `oikade.NewMoment("a", oikade.InRoom("hall", oikade.On).To(true)),`,
+			body: `parts = append(parts, oikade.NewMoment("a", oikade.InRoom("hall", oikade.On).To(true)))`,
 			want: "not enough arguments in call to oikade.InRoom",
 		},
 	} {

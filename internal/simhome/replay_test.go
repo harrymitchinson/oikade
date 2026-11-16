@@ -34,13 +34,15 @@ func contactOf(device string) oikade.Bool {
 
 var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 
-func fanAbove(threshold float64) oikade.Home {
-	return oikade.NewHome(oikade.Options{}, oikade.NewHold("fan", switchOf("fan").To(true)).
-		OffDelay(10*time.Minute).
-		When(humidityOf("sensor").Above(threshold)))
+func fanAbove(threshold float64) *oikade.Home {
+	home := oikade.NewHome(oikade.Options{})
+	home.Decide(switchOf("fan")).
+		Case("humid", true, humidityOf("sensor").Above(threshold)).Linger(10 * time.Minute).
+		Default(false)
+	return home
 }
 
-func options(t *testing.T, home oikade.Home) simhome.Options {
+func options(t *testing.T, home *oikade.Home) simhome.Options {
 	t.Helper()
 	simulated, err := simhome.FromHome(home)
 	if err != nil {
@@ -60,7 +62,7 @@ type reading struct {
 
 // recorded plays a home for real, as far as a simulation goes, and writes the log a host would have:
 // each outside change, each write a moment after what caused it, and the device's answer after that.
-func recorded(t *testing.T, home oikade.Home, readings []reading) []api.Event {
+func recorded(t *testing.T, home *oikade.Home, readings []reading) []api.Event {
 	t.Helper()
 	sim, err := simhome.New(options(t, home))
 	if err != nil {
@@ -276,8 +278,8 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 }
 
 func TestADevicePairedLaterHasNoValueUntilItReports(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("fan", switchOf("fan").To(true)).
-		When(humidityOf("late").Above(70)))
+	home := oikade.NewHome(oikade.Options{})
+	home.Decide(switchOf("fan")).Case("humid", true, humidityOf("late").Above(70)).Default(false)
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 		{Time: monday.Add(5 * time.Hour), Type: api.EventChange, Device: "late", Capability: humidity, Value: 90.0},

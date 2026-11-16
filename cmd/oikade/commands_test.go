@@ -44,14 +44,21 @@ func TestSetSaysWhatTheDeviceWasLeftAt(t *testing.T) {
 		want string
 	}{
 		{"unarbitrated", &api.Capability{Name: "on", Value: true}, "desk-plug on is true"},
-		{"held", &api.Capability{Name: "on", Value: false, Level: "Safety", Claims: []api.Claim{
-			{Source: "Rule/hall-too-humid", Level: "Safety", Value: false, Winner: true},
-		}}, "desk-plug on is false, not true: Rule/hall-too-humid holds it at Safety"},
+		{"held", &api.Capability{Name: "on", Value: false, Level: "Safety", Case: "hall-too-humid", Claims: []api.Claim{
+			{Source: "Rule/desk-plug on hall-too-humid", Case: "hall-too-humid", Level: "Safety", Value: false, Winner: true},
+		}}, "desk-plug on is false, not true: hall-too-humid holds it"},
 		{"for a while", &api.Capability{Name: "on", Value: true, Level: "Override", Claims: []api.Claim{
 			{Source: "Command", Level: "Override", Value: true, Winner: true, Expires: &expires},
-		}}, "desk-plug on is true: Command holds it at Override until 17:30"},
+		}}, "desk-plug on is true: oikade set holds it until 17:30"},
+		{"a flow", &api.Capability{Name: "on", Value: true, Level: "Normal", Claims: []api.Claim{
+			{Source: "Rule/bedtime", Level: "Normal", Value: true, Winner: true},
+		}}, "desk-plug on is true: bedtime holds it"},
+		{"held back", &api.Capability{
+			Name: "on", Value: false, Level: "Safety", Limit: "MinimumOff", LimitUntil: &expires,
+			Claims: []api.Claim{{Source: "Rule/desk-plug on frost", Case: "frost", Level: "Safety", Value: true, Winner: true}},
+		}, "desk-plug on is false, not true: frost holds it, resting until 17:30"},
 		{"written back", &api.Capability{Name: "on", Value: false, Level: "Default"},
-			"desk-plug on is false, not true: nothing claims it, so its Default wins"},
+			"desk-plug on is false, not true: no line applies, so its Default wins"},
 	} {
 		if got := outcome("desk-plug", "on", true, tc.c); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
@@ -168,6 +175,10 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 	yes, no := true, false
 	st := &api.Status{Rules: []api.Rule{
 		{Name: "desk-fan", Kind: "hold", Active: &no, OnAt: at("23:08:00")},
+		{
+			Name: "pool-pump on frost", Kind: "case", Device: "pool-pump", Capability: "on", Case: "frost", Safety: true,
+			Active: &no, WhyNot: "pool-water temperature is 5, not below 3",
+		},
 		{Name: "gate", Kind: "moment"},
 		{Name: "hall-heater", Kind: "hold", Active: &no, Stopped: "no device in room hall has reported occupancy"},
 		{Name: "lounge-lamp", Kind: "hold", Active: &yes, Since: at("23:07:05"), OffAt: at("23:10:05")},
@@ -183,6 +194,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 	printStatus(&out, io.Discard, st, nil, true, now)
 	want := []string{
 		"desk-fan  hold  inactive, on at 23:08",
+		"pool-pump on: frost  case  Safety  inactive: pool-water temperature is 5, not below 3",
 		"gate  moment",
 		"hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy",
 		"lounge-lamp  hold  active since 23:07, off at 23:10",

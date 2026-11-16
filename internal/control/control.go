@@ -1,6 +1,10 @@
-// Package control arbitrates one capability of a device (OIK-64). Rules, Matter and the device
-// itself make claims on it; the arbiter picks the winner by level, breaks ties with the device's
-// resolve setting, then holds the winner back by the device's equipment limits.
+// Package control arbitrates one capability of a device (OIK-64, OIK-298). Rules, Matter and the
+// device itself make claims on it. The arbiter picks the winner by level, then by the decision's
+// order of lines, then the latest claim, and holds the winner back by the device's equipment limits.
+//
+// A decision's lines map onto levels: a line above the override line is Safety, an outside change
+// is Override, and a line below it is Normal. So the level is what a safety line is, and Lines
+// order the claims within one.
 //
 // Values are float64. A bool capability uses 0 for false and 1 for true. For the limits, any
 // non-zero value is on.
@@ -11,7 +15,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -47,20 +50,6 @@ func (l Level) String() string {
 	}
 	return fmt.Sprintf("Level(%d)", int(l))
 }
-
-// Resolve picks between claims at the same level.
-type Resolve int
-
-const (
-	// On prefers true, for bool capabilities.
-	On Resolve = iota + 1
-	// Off prefers false, for bool capabilities.
-	Off
-	// Highest prefers the highest value, for number capabilities.
-	Highest
-	// Lowest prefers the lowest value, for number capabilities.
-	Lowest
-)
 
 // External says what an outside change does.
 type External int
@@ -101,9 +90,12 @@ func (l Limit) String() string {
 
 // Settings are a capability's control settings.
 type Settings struct {
-	Kind     Kind
-	Default  float64
-	Resolve  Resolve
+	Kind    Kind
+	Default float64
+	// Lines are the claims' sources in the decision's order, highest first, with LineOverride for
+	// the override line and LineFlows for the flows'. A claim from a rule that isn't a line ranks
+	// at LineFlows, or after every line without one.
+	Lines    []string
 	External External
 	// OverrideHold is how long an outside change holds as a claim, unless OverrideUntilNext.
 	OverrideHold time.Duration
@@ -123,16 +115,10 @@ func (s Settings) Validate() error {
 	var errs []error
 	switch s.Kind {
 	case Bool:
-		if s.Resolve != On && s.Resolve != Off {
-			errs = append(errs, errors.New("resolve must be On or Off for a bool capability"))
-		}
 		if s.Default != 0 && s.Default != 1 {
 			errs = append(errs, errors.New("default must be 0 or 1 for a bool capability"))
 		}
 	case Number:
-		if s.Resolve != Highest && s.Resolve != Lowest {
-			errs = append(errs, errors.New("resolve must be Highest or Lowest for a number capability"))
-		}
 	default:
 		errs = append(errs, fmt.Errorf("unknown kind %d", s.Kind))
 	}
@@ -281,6 +267,9 @@ func (a *Arbiter) Claim(c Claim) error {
 	if err := a.checkValue(c.Value); err != nil {
 		return err
 	}
+	if l := a.settings.Lines; len(l) > 0 && !slices.Contains(l, c.Source) && !slices.Contains(l, LineFlows) {
+		return fmt.Errorf("%s isn't a line of the decision, which has no Flows line for it", c.Source)
+	}
 	c.External, c.Baseline = false, 0
 	a.add(c)
 	return nil
@@ -412,25 +401,28 @@ func (a *Arbiter) Decide() Decision {
 		}
 	}
 	d.Write = !a.st.Known || a.st.Value != d.Value
+	// Highest first, and within a tie the later claim first, as it wins.
 	d.Claims = slices.Clone(a.st.Claims)
+	slices.Reverse(d.Claims)
 	slices.SortStableFunc(d.Claims, func(x, y Claim) int {
 		if x.Level != y.Level {
 			return int(y.Level - x.Level)
 		}
-		return strings.Compare(x.Source, y.Source)
+		return a.Rank(x) - a.Rank(y)
 	})
 	d.Reverted = cloneRevert(a.st.Reverted)
 	return d
 }
 
-// winner picks among the claims, leaving out the claim at index skip.
+// winner picks among the claims, leaving out the claim at index skip. Claims are kept in the order
+// they came, so of two on the same line the later wins.
 func (a *Arbiter) winner(skip int) (float64, Level, string) {
 	best := -1
 	for i, c := range a.st.Claims {
 		if i == skip {
 			continue
 		}
-		if best < 0 || a.beats(c, a.st.Claims[best]) {
+		if best < 0 || !a.beats(a.st.Claims[best], c) {
 			best = i
 		}
 	}
@@ -441,17 +433,32 @@ func (a *Arbiter) winner(skip int) (float64, Level, string) {
 	return c.Value, c.Level, c.Source
 }
 
+// beats reports whether c outranks o: a higher level, or the same level and an earlier line.
 func (a *Arbiter) beats(c, o Claim) bool {
 	if c.Level != o.Level {
 		return c.Level > o.Level
 	}
-	if c.Value != o.Value {
-		if a.settings.Resolve == On || a.settings.Resolve == Highest {
-			return c.Value > o.Value
+	return a.Rank(c) < a.Rank(o)
+}
+
+// Rank is the claim's line in the decision, from 0 at the top. An outside change ranks at the
+// override line, a rule with no line of its own at the flows' line, and anything else after every
+// line.
+func (a *Arbiter) Rank(c Claim) int {
+	lines := a.settings.Lines
+	at := func(line string) int {
+		if i := slices.Index(lines, line); i >= 0 {
+			return i
 		}
-		return c.Value < o.Value
+		return len(lines)
 	}
-	return c.Source < o.Source
+	if c.External {
+		return at(LineOverride)
+	}
+	if i := slices.Index(lines, c.Source); i >= 0 {
+		return i
+	}
+	return at(LineFlows)
 }
 
 // settle ends expired claims and until-next claims whose result without them has changed,
