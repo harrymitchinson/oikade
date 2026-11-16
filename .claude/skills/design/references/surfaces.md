@@ -1,6 +1,6 @@
 # Oikade surfaces and invariants
 
-This is the checklist the `design` and `plan` skills use. Oikade is small, but every feature touches some of the things below. The expensive mistakes come from changing one of them without noticing. Read the code to confirm details, because this file summarises it and can go stale. Check `README.md` and `framework` before relying on a specific field name.
+This is the checklist the `design` and `plan` skills use. Oikade is small, but every feature touches some of the things below. The expensive mistakes come from changing one of them without noticing. Read the code to confirm details, because this file summarises it and can go stale. Check `README.md` and the package `oikade` (the `*.go` files at the module root) before relying on a specific field name.
 
 ## Contents
 
@@ -30,7 +30,7 @@ Ask these questions of every feature:
 
 These appear in users' Git repos, dashboards, alert rules and Home app setups. Changing them breaks someone, so a design has to call out any change to them explicitly. Nothing here needs a migration while Oikade is greenfield, but a design still says what changes.
 
-- **`framework`,** the Go API a home is written in. `framework/hometest` too.
+- **The package `oikade`,** at the module root: the Go API a home is written in. `hometest` too.
 - **The `oikade` and `oikade-host` commands, their flags and their `--json`.** Scripts and a home's CI use them.
 - **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `open: true` means open. They appear in a home's code and in PromQL. `internal/capability`'s package doc says how to name one, and `docs/capabilities.md` is generated from the registry.
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.
@@ -56,7 +56,7 @@ The host, your process, plugins and the data path are in `docs/architecture.md`.
 - **Your process** can die at any moment. Whatever must survive that lives in the host, and everything that changes the host's state is a request that waits for its answer.
 - **Matter runs in the host,** so controllers keep working through a deploy or a crash of your process.
 - **A plugin** is a process of its own. A new driver is a plugin unless there's a reason it can't be.
-- **`framework`, `contract/v1` and `sdk/plugin`** are public, and can't mention `internal/`.
+- **`oikade`, `contract/v1` and `sdk/plugin`** are public, and can't mention `internal/`.
 
 ## 5. Hardware and environment
 

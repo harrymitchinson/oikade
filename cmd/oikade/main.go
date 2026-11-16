@@ -229,7 +229,7 @@ func report(stdout io.Writer, resp api.Response, done string) error {
 }
 
 // checkSource fails on what only the source shows: code that would break a flow's replay, and a
-// framework value that is built and thrown away.
+// value of package oikade that is built and thrown away.
 func checkSource(module string) error {
 	found, err := sourcecheck.Check(module, nil)
 	if err != nil {

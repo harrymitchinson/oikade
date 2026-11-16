@@ -1,5 +1,5 @@
-// Package framework stands in for the real one, which analysistest can't load from the module.
-package framework
+// Package oikade stands in for the real one, which analysistest can't load from the module.
+package oikade
 
 import (
 	"context"

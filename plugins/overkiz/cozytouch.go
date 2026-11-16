@@ -33,7 +33,7 @@ type Cozytouch struct {
 	Brand Brand
 	// Username is the account's email address.
 	Username string
-	// Password is the account's password, such as framework.Secret("cozytouch").
+	// Password is the account's password, such as oikade.Secret("cozytouch").
 	Password plugin.Secret
 
 	// The tests' servers, in place of the real ones.

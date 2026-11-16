@@ -1,5 +1,5 @@
 // Package secretuse keeps the names of the secrets a home's code uses, so the manifest can list
-// them. plugin.NewSecret adds to it, and framework reads it.
+// them. plugin.NewSecret adds to it, and package oikade reads it.
 package secretuse
 
 import (

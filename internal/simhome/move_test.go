@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
 
@@ -31,13 +31,13 @@ func (b *syncBuffer) String() string {
 }
 
 func TestAHoldWhoseRoomLosesItsLastMemberWarnsOnce(t *testing.T) {
-	occupied := string(framework.Occupied)
-	home := framework.NewHome(framework.Options{}, framework.NewHold("hall-lamp", switchOf("lamp").To(true)).
+	occupied := string(oikade.Occupied)
+	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("hall-lamp", switchOf("lamp").To(true)).
 		OffDelay(time.Minute).
-		When(func(s framework.State) bool {
-			return s.Any(framework.InRoom("hall", framework.Everything, framework.Occupied))
+		When(func(s oikade.State) bool {
+			return s.Any(oikade.InRoom("hall", oikade.Everything, oikade.Occupied))
 		}))
-	simulated, err := simhome.FromFramework(home)
+	simulated, err := simhome.FromHome(home)
 	if err != nil {
 		t.Fatal(err)
 	}

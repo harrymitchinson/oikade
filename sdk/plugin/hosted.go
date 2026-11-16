@@ -42,7 +42,7 @@ func (l *hostLink) Disconnect(context.Context) error {
 func (l *hostLink) Drop(ctx context.Context) error { return l.Disconnect(ctx) }
 
 // RunHosted serves a plugin your home imports, as the process the host started for it, until ctx
-// ends. framework.Run calls it: you don't need to. socket is the host's, and name the plugin's.
+// ends. oikade.Run calls it: you don't need to. socket is the host's, and name the plugin's.
 //
 // A plugin that goes wrong takes only itself down: the host restarts this process. One that panics
 // is gone at once. One that stops answering, or whose Set runs for too long, is killed.

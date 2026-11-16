@@ -53,10 +53,10 @@ Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/rele
 `init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, over the [network API](docs/running-a-home.md#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade-host client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. GitHub's own runners can reach the host only if its API is on the internet, which it shouldn't be, so run the job on a self-hosted runner on your network, or join the runner to your network over a VPN first. `oikade types` replaces `devices.go` once you have real devices.
 
 ```go
-func home() framework.Home {
-	return framework.NewHome(framework.Options{},
-		framework.NewHold("porch-light", PorchLight.On.To(true)).
-			When(func(s framework.State) bool {
+func home() oikade.Home {
+	return oikade.NewHome(oikade.Options{},
+		oikade.NewHold("porch-light", PorchLight.On.To(true)).
+			When(func(s oikade.State) bool {
 				return s.Get(PorchSensor.Occupied)
 			}).
 			OffDelay(5*time.Minute),
@@ -64,9 +64,9 @@ func home() framework.Home {
 }
 ```
 
-`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `framework`, such as `framework.On`, for [rooms](docs/automations.md#rooms).
+`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `oikade`, such as `oikade.On`, for [rooms](docs/automations.md#rooms).
 
-`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a `Set`, rule or other framework value that's built and thrown away, such as `HallLamp.On.To(true)` without `r.Set`, or a chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
+`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a `Set`, rule or other `oikade` value that's built and thrown away, such as `HallLamp.On.To(true)` without `r.Set`, or a chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
 
 `oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
 
@@ -119,29 +119,29 @@ The log keeps each change, write and rule run, and is bounded by age and size, o
 Arbitration and budgets are parts of the same home, and a [`Bundle`](docs/automations.md#composing-a-home) keeps them together. `Control` is [arbitration](docs/automations.md#arbitration), and a `Hold` with a `Budget` is [a budget](docs/automations.md#budgets):
 
 ```go
-framework.NewBundle(
-	framework.NewControl(Dehumidifier.On.To(false), framework.PreferOn, framework.ExternalOverride).
+oikade.NewBundle(
+	oikade.NewControl(Dehumidifier.On.To(false), oikade.PreferOn, oikade.ExternalOverride).
 		OverrideHold(2*time.Hour).
 		MinimumOn(time.Hour).
 		MinimumOff(30*time.Minute).
 		MaximumStartsPerDay(3),
-	framework.NewHold("dehumidifier-daily", Dehumidifier.On.To(true)).
-		Budget(framework.NewBandedBudget(framework.Bands{
+	oikade.NewHold("dehumidifier-daily", Dehumidifier.On.To(true)).
+		Budget(oikade.NewBandedBudget(oikade.Bands{
 			Reading: Cellar.Humidity, Missing: 240,
-			Ranges: []framework.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
+			Ranges: []oikade.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
 		}).
-			Prefer(framework.NewWindow(framework.Clock("22:00"), framework.Clock("06:00")), 3).
-			Forbid(framework.NewWindow(framework.Clock("07:00"), framework.Clock("08:30")))),
+			Prefer(oikade.NewWindow(oikade.Clock("22:00"), oikade.Clock("06:00")), 3).
+			Forbid(oikade.NewWindow(oikade.Clock("07:00"), oikade.Clock("08:30")))),
 )
 ```
 
-`framework.NewBudget` takes a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
+`oikade.NewBudget` takes a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
 
 ## Plugins
 
 A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. Devices it serves are ordinary devices: they show up on the Matter bridge, in Grafana and in rules like Zigbee ones.
 
-On a host, a plugin is a Go module your home imports, as a `framework.Plugin` part of your home, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as the host's user, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade-host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
+On a host, a plugin is a Go module your home imports, as an `oikade.Plugin` part of your home, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as the host's user, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade-host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
 
 First-party plugins, each with its own README:
 

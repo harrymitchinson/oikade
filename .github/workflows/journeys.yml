@@ -8,7 +8,8 @@ on:
     paths:
       - "contract/**"
       - "cmd/**"
-      - "framework/**"
+      - "*.go"
+      - "hometest/**"
       - "internal/**"
       - "plugins/**"
       - "test/**"
@@ -24,7 +25,8 @@ on:
     paths:
       - "contract/**"
       - "cmd/**"
-      - "framework/**"
+      - "*.go"
+      - "hometest/**"
       - "internal/**"
       - "plugins/**"
       - "test/**"

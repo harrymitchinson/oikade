@@ -1,5 +1,5 @@
-// Package discardcheck rejects a call that builds a framework value and throws it away. Everything
-// in the framework that returns one of its own types is a constructor or a chained method: it makes
+// Package discardcheck rejects a call that builds an oikade value and throws it away. Everything
+// in package oikade that returns one of its own types is a constructor or a chained method: it makes
 // a value and does nothing else, and the value only acts once it's passed on, as a Set to r.Set or a
 // rule, or a rule to NewHome. Left as a statement, it's lost, and nothing else would say so.
 package discardcheck
@@ -13,13 +13,13 @@ import (
 	"golang.org/x/tools/go/types/typeutil"
 )
 
-const frameworkPath = "github.com/harrymitchinson/oikade/framework"
+const oikadePath = "github.com/harrymitchinson/oikade"
 
-// Analyzer reports a call of a framework function or method that discards the framework value it
+// Analyzer reports a call of an oikade function or method that discards the oikade value it
 // returns.
 var Analyzer = &analysis.Analyzer{
 	Name: "discardcheck",
-	Doc:  "reject a framework value, such as a Set or a rule, that's built and thrown away",
+	Doc:  "reject an oikade value, such as a Set or a rule, that's built and thrown away",
 	Run:  run,
 }
 
@@ -42,18 +42,18 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// check reports call, whose result nothing uses, if it returns a framework value. It points at the
+// check reports call, whose result nothing uses, if it returns an oikade value. It points at the
 // function's name, as a chain usually spans several lines.
 func check(pass *analysis.Pass, call *ast.CallExpr) {
 	fn, _ := typeutil.Callee(pass.TypesInfo, call).(*types.Func)
-	if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != frameworkPath {
+	if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != oikadePath {
 		return
 	}
 	sig, ok := fn.Type().(*types.Signature)
 	if !ok || sig.Results().Len() != 1 {
 		return
 	}
-	result := frameworkType(sig.Results().At(0).Type())
+	result := oikadeType(sig.Results().At(0).Type())
 	if result == nil {
 		return
 	}
@@ -64,14 +64,14 @@ func check(pass *analysis.Pass, call *ast.CallExpr) {
 	pass.Reportf(pos, "the result of %s isn't used, so it does nothing: %s", fn.Name(), why(sig, result))
 }
 
-// frameworkType returns t if it's a type the framework declares, or an instance of one.
-func frameworkType(t types.Type) *types.Named {
+// oikadeType returns t if it's a type package oikade declares, or an instance of one.
+func oikadeType(t types.Type) *types.Named {
 	named, ok := types.Unalias(t).(*types.Named)
 	if !ok {
 		return nil
 	}
 	obj := named.Origin().Obj()
-	if obj.Pkg() == nil || obj.Pkg().Path() != frameworkPath {
+	if obj.Pkg() == nil || obj.Pkg().Path() != oikadePath {
 		return nil
 	}
 	return named
@@ -89,7 +89,7 @@ func why(sig *types.Signature, result *types.Named) string {
 	case "Hold", "Moment", "Flow", "Control", "Plugin", "Bundle":
 		return fmt.Sprintf("a %s does nothing until NewHome or NewBundle takes it", name)
 	case "Home":
-		return "a Home does nothing until framework.Run takes it"
+		return "a Home does nothing until oikade.Run takes it"
 	}
 	return fmt.Sprintf("a %s does nothing until something takes it", name)
 }

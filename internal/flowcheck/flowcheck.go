@@ -3,7 +3,7 @@
 // steps in the same order. The clock, goroutines and map order don't: each run sees a different
 // time, schedule and order.
 //
-// A flow here is any function taking a *framework.FlowRun. A function it calls without passing that
+// A flow here is any function taking a *oikade.FlowRun. A function it calls without passing that
 // along isn't checked, which also means a helper can read the clock. What call passes to Do is
 // exempt, as that's where outside calls belong and its result is recorded.
 package flowcheck
@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	frameworkPath = "github.com/harrymitchinson/oikade/framework"
-	runType       = "FlowRun"
+	oikadePath = "github.com/harrymitchinson/oikade"
+	runType    = "FlowRun"
 
 	useNow   = "r.Now()"
 	useSleep = "r.Sleep"
@@ -91,7 +91,7 @@ func isRun(t types.Type) bool {
 		return false
 	}
 	obj := named.Obj()
-	return obj.Name() == runType && obj.Pkg() != nil && obj.Pkg().Path() == frameworkPath
+	return obj.Name() == runType && obj.Pkg() != nil && obj.Pkg().Path() == oikadePath
 }
 
 func checkBody(pass *analysis.Pass, body *ast.BlockStmt) {

@@ -6,18 +6,18 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 )
 
-var _ = framework.Flow{
-	Run: func(r *framework.FlowRun) error {
+var _ = oikade.Flow{
+	Run: func(r *oikade.FlowRun) error {
 		_ = time.Now() // want `time.Now inside a flow varies between runs`
 		go func() {}() // want `a goroutine inside a flow breaks its replay`
 		return nil
 	},
 }
 
-func named(r *framework.FlowRun) error {
+func named(r *oikade.FlowRun) error {
 	time.Sleep(time.Second)     // want `time.Sleep inside a flow`
 	_ = time.Since(r.Now())     // want `time.Since inside a flow`
 	<-time.After(time.Second)   // want `time.After inside a flow`
@@ -31,12 +31,12 @@ func named(r *framework.FlowRun) error {
 	return helper(r)
 }
 
-func helper(r *framework.FlowRun) error {
+func helper(r *oikade.FlowRun) error {
 	go tick() // want `a goroutine inside a flow`
 	return nil
 }
 
-func mapIterators(r *framework.FlowRun) error {
+func mapIterators(r *oikade.FlowRun) error {
 	m := map[string]int{}
 	for range maps.Keys(m) { // want `ranging over a map inside a flow`
 	}
@@ -44,7 +44,7 @@ func mapIterators(r *framework.FlowRun) error {
 	}
 	for range maps.All(m) { // want `ranging over a map inside a flow`
 	}
-	for range (maps.Keys(m)) { // want `ranging over a map inside a flow`
+	for range maps.Keys(m) { // want `ranging over a map inside a flow`
 	}
 	for range slices.Collect(maps.Keys(m)) { // want `ranging over a map inside a flow`
 	}
@@ -54,8 +54,8 @@ func mapIterators(r *framework.FlowRun) error {
 }
 
 type (
-	aliasedRun    = framework.FlowRun
-	aliasedRunPtr = *framework.FlowRun
+	aliasedRun    = oikade.FlowRun
+	aliasedRunPtr = *oikade.FlowRun
 )
 
 func aliased(r *aliasedRun) error {
@@ -83,7 +83,7 @@ func outside(ctx context.Context) time.Time {
 	return time.Now()
 }
 
-func allowed(r *framework.FlowRun) error {
+func allowed(r *oikade.FlowRun) error {
 	var stamp time.Time
 	_ = tick()
 	_ = time.Hour.String()

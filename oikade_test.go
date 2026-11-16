@@ -1,4 +1,4 @@
-package framework
+package oikade
 
 import (
 	"fmt"
@@ -591,10 +591,10 @@ func TestNewHomeRefusesWhatIsntAPart(t *testing.T) {
 	}{
 		"nil":                  {[]Part{hold, nil}, "a nil part, at parts[1]"},
 		"nil in a bundle":      {[]Part{hold, NewBundle(hold, NewBundle(nil))}, "a nil part, at parts[1][1][0]"},
-		"a pointer":            {[]Part{&hold}, "a *framework.Hold, at parts[0]"},
-		"a nil pointer":        {[]Part{noHold}, "a *framework.Hold, at parts[0]"},
-		"a pointer to bundle":  {[]Part{&Bundle{}}, "a *framework.Bundle, at parts[0]"},
-		"a type embedding one": {[]Part{wrapped{hold}}, "a framework.wrapped, at parts[0]"},
+		"a pointer":            {[]Part{&hold}, "a *oikade.Hold, at parts[0]"},
+		"a nil pointer":        {[]Part{noHold}, "a *oikade.Hold, at parts[0]"},
+		"a pointer to bundle":  {[]Part{&Bundle{}}, "a *oikade.Bundle, at parts[0]"},
+		"a type embedding one": {[]Part{wrapped{hold}}, "a oikade.wrapped, at parts[0]"},
 	} {
 		_, _, err := NewHome(Options{}, tc.parts...).compile()
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

@@ -195,7 +195,7 @@ func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	replaceIn(t, filepath.Join(dir, "main.go"), afterHold, `OffDelay(5*time.Minute),
-		framework.NewMoment("lights-out", PorchLight.On.To(false)).At(framework.Clock("25:00")),
+		oikade.NewMoment("lights-out", PorchLight.On.To(false)).At(oikade.Clock("25:00")),
 	)`)
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
@@ -208,7 +208,7 @@ func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 
 // duskMoment is a moment for oikade init's home, after its hold.
 const duskMoment = `OffDelay(5*time.Minute),
-		framework.NewMoment("porch-at-dusk", PorchLight.On.To(true)).At(framework.Sunset(-20*time.Minute)),
+		oikade.NewMoment("porch-at-dusk", PorchLight.On.To(true)).At(oikade.Sunset(-20*time.Minute)),
 	)`
 
 // afterHold is the end of oikade init's home, where a test adds to it.
@@ -230,7 +230,7 @@ func TestCheckFailsOnASunsetWithNoLocation(t *testing.T) {
 func TestCheckFailsOnANilPart(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "framework.Options{},", "framework.Options{}, nil,")
+	replaceIn(t, filepath.Join(dir, "main.go"), "oikade.Options{},", "oikade.Options{}, nil,")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -245,7 +245,7 @@ func TestDevFiresAtSunsetForTheHomesLocation(t *testing.T) {
 	dir := newHome(t, bin)
 	main := filepath.Join(dir, "main.go")
 	replaceIn(t, main, afterHold, duskMoment)
-	replaceIn(t, main, "framework.Options{}", "framework.Options{Location: framework.NewLocation(51.48, -0.01)}")
+	replaceIn(t, main, "oikade.Options{}", "oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}")
 	// oikade dev starts now, in this machine's zone, so the next sunset is within a day.
 	before := time.Now()
 	out, err := run(t, bin, dir, "advance 25h\nquit\n", "dev")
@@ -294,10 +294,10 @@ func TestCheckFailsOnAFlowThatWouldntReplay(t *testing.T) {
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 )
 
-func late(r *framework.FlowRun) error {
+func late(r *oikade.FlowRun) error {
 	_ = time.Now()
 	return nil
 }
@@ -322,14 +322,14 @@ func TestCheckFailsOnAResultThatIsntUsed(t *testing.T) {
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 )
 
-func discard(h framework.Hold) {
+func discard(h oikade.Hold) {
 	h.OffDelay(time.Minute)
 }
 
-func thrownAway(g framework.Handle[bool]) {
+func thrownAway(g oikade.Handle[bool]) {
 	g.To(true)
 }
 `
@@ -455,7 +455,7 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 	}
 	// A flag about the home rather than the machine has moved into the home's code, and says where.
 	for args, want := range map[string]string{
-		"--matter-name=Cottage":       "framework.Options",
+		"--matter-name=Cottage":       "oikade.Options",
 		"--broker mqtt://broker:1883": "zigbee2mqtt.Config",
 	} {
 		out, err := run(t, bin, dir, "", append([]string{"--data-dir", dir}, strings.Fields(args)...)...)

@@ -43,7 +43,7 @@ type Config struct {
 	// Broker is the MQTT broker Zigbee2MQTT uses, as the host reaches it, such as
 	// mqtt://broker:1883. With a Password, it names the user: mqtt://oikade@broker:1883.
 	Broker string
-	// Password is the broker's password, such as framework.Secret("broker"). The zero Secret is
+	// Password is the broker's password, such as oikade.Secret("broker"). The zero Secret is
 	// none.
 	Password plugin.Secret
 	// BaseTopic is Zigbee2MQTT's mqtt.base_topic. It defaults to DefaultBaseTopic.
@@ -60,7 +60,7 @@ func (c Config) check() error {
 		return errors.New("zigbee2mqtt.Config's Broker isn't a broker's URL, such as mqtt://broker:1883")
 	}
 	if _, ok := u.User.Password(); ok {
-		return errors.New("zigbee2mqtt.Config's Broker has a password in it: pass it as Password, a framework.Secret, so it isn't in your code")
+		return errors.New("zigbee2mqtt.Config's Broker has a password in it: pass it as Password, an oikade.Secret, so it isn't in your code")
 	}
 	if c.Password.Name() != "" && u.User.Username() == "" {
 		return fmt.Errorf("zigbee2mqtt.Config's Broker names no user for its Password, such as mqtt://oikade@%s", u.Host)
@@ -81,7 +81,7 @@ func (c Config) password() (string, error) {
 // secretWait is how often the plugin looks for a broker password that isn't set.
 const secretWait = 2 * time.Second
 
-// New returns the plugin's Factory, for framework.NewPlugin. Its Config needs a Broker.
+// New returns the plugin's Factory, for oikade.NewPlugin. Its Config needs a Broker.
 func New(c Config) plugin.Factory {
 	if c.BaseTopic == "" {
 		c.BaseTopic = DefaultBaseTopic

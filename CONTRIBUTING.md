@@ -4,7 +4,7 @@ How Oikade is versioned and built. How work is planned is in [docs/planning.md](
 
 ## Versioning
 
-Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is `framework`, the `oikade` and `oikade-host` commands and their `--json`, the plugin contract and SDK, capability names, metric names and labels, and Matter endpoint IDs.
+Releases follow [semantic versioning](https://semver.org), and Git tags and image tags use the same version, for example `v0.1.0`. Oikade's public API is the package `oikade` at the module root, the `oikade` and `oikade-host` commands and their `--json`, the plugin contract and SDK, capability names, metric names and labels, and Matter endpoint IDs.
 
 While the major version is 0, the API is still settling, and versions follow the milestones, which are the releases in the plan (`docs/planning.md`):
 

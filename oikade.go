@@ -1,10 +1,10 @@
-// Package framework is how a home is written in Go. A home is a main package that declares its
+// Package oikade is how a home is written in Go. A home is a main package that declares its
 // holds and moments and hands them to Run:
 //
 //	func main() {
-//		framework.Run(framework.NewHome(framework.Options{},
-//			framework.NewHold("bathroom-fan", BathroomFan.On.To(true)).
-//				When(func(s framework.State) bool {
+//		oikade.Run(oikade.NewHome(oikade.Options{},
+//			oikade.NewHold("bathroom-fan", BathroomFan.On.To(true)).
+//				When(func(s oikade.State) bool {
 //					return s.Get(BathroomSensor.Humidity) > 70
 //				}),
 //		))
@@ -17,7 +17,7 @@
 //
 // The host runs that binary and restarts it if it dies. State that must survive lives in the host,
 // so a crash here loses nothing. docs/architecture.md says how.
-package framework
+package oikade
 
 import (
 	"context"
@@ -118,7 +118,7 @@ func as[T Value](device, capability string, v any) T {
 
 // Any reports whether the capability is true on any of the room's devices that have reported it.
 //
-//	s.Any(framework.InRoom("hallway", framework.Everything, framework.Occupied))
+//	s.Any(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied))
 //
 // A room read, like Any, All, Count and Readings, covers the devices in the room now, in its group,
 // and ignores those that haven't reported the capability. If none has, the condition
@@ -143,7 +143,7 @@ func (s State) Count(r Room[bool]) int {
 // Readings are the capability's values on the room's devices that have reported it, in device name
 // order, for slices.Max or an average.
 //
-//	slices.Max(s.Readings(framework.InRoom("cellar", framework.Everything, framework.Humidity)))
+//	slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity)))
 func (s State) Readings(r Room[float64]) []float64 { return roomValues(s, r) }
 
 // roomValues are the reported values of a room's capability, in device name order.
@@ -183,7 +183,7 @@ func (s State) Now() time.Time { return s.now }
 
 // Within reports whether Now is inside the window, by the same rules as a hold's Window:
 //
-//	s.Within(framework.NewWindow(framework.Clock("18:00"), framework.Clock("07:00")))
+//	s.Within(oikade.NewWindow(oikade.Clock("18:00"), oikade.Clock("07:00")))
 //
 // A hold looks again every minute, so one whose When uses it changes within a minute of the window's
 // edge, where a hold's own Window changes on it. A window with a mistake in it, such as a time
@@ -278,7 +278,7 @@ func (t Time) timer() engine.Timer {
 // needsLocation says, for a rule with these times, why it can't run in a home without a location.
 func needsLocation(o Options, times ...Time) error {
 	if o.site() == nil && slices.ContainsFunc(times, Time.isSun) {
-		return errors.New("a sunrise or sunset needs the home's location: set Location in Options with framework.NewLocation")
+		return errors.New("a sunrise or sunset needs the home's location: set Location in Options with oikade.NewLocation")
 	}
 	return nil
 }

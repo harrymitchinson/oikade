@@ -3,14 +3,14 @@
 This plugin connects devices on Overkiz, the platform behind Somfy TaHoma and Atlantic's, Thermor's and Sauter's Cozytouch. It's a plugin your home imports ([OIK-17](https://linear.app/oikade/issue/OIK-17)), once for each hub or account. It talks to a TaHoma hub's local API, so your blinds keep working while the internet is down, and to Cozytouch's cloud, which is all those heaters have. Every device it serves appears in `oikade devices`, under its ID.
 
 ```go
-framework.Run(framework.NewHome(framework.Options{},
-	framework.NewPlugin("tahoma", overkiz.New(overkiz.Local{
+oikade.Run(oikade.NewHome(oikade.Options{},
+	oikade.NewPlugin("tahoma", overkiz.New(overkiz.Local{
 		Address: "192.168.1.40:8443", // the hub, or gateway-1234-5678-9012.local:8443
 		PIN:     "1234-5678-9012",    // the hub's PIN, which an IP address doesn't give
-		Token:   framework.Secret("tahoma-token"),
+		Token:   oikade.Secret("tahoma-token"),
 	})),
-	framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
-		Brand: overkiz.Thermor, Username: "someone@example.com", Password: framework.Secret("cozytouch"),
+	oikade.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
+		Brand: overkiz.Thermor, Username: "someone@example.com", Password: oikade.Secret("cozytouch"),
 	})),
 	// ...
 ))

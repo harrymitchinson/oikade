@@ -7,7 +7,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
-// DefaultMatterName is the Matter bridge's name until a home names it, with framework.Options'
+// DefaultMatterName is the Matter bridge's name until a home names it, with oikade.Options'
 // MatterName.
 const DefaultMatterName = "Oikade"
 
@@ -18,7 +18,7 @@ const (
 	matterNameKey    = "matterName"
 )
 
-// homeOptions are the settings a home declares in framework.Options that the host applies, rather
+// homeOptions are the settings a home declares in oikade.Options that the host applies, rather
 // than its process.
 type homeOptions struct {
 	values *store.Namespace

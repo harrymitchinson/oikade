@@ -22,8 +22,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-// frameworkModule is what a home imports.
-const frameworkModule = "github.com/harrymitchinson/oikade"
+// oikadeModule is what a home imports.
+const oikadeModule = "github.com/harrymitchinson/oikade"
 
 // buildHome builds a module for this machine, in a directory that ends with done.
 func buildHome(ctx context.Context, module string) (path string, done func(), err error) {
@@ -201,7 +201,7 @@ func runInit(ctx context.Context, args []string) error {
 func moduleFromRelease(ctx context.Context, stderr io.Writer, dir, name string) error {
 	at := publishedVersion()
 	_, _ = fmt.Fprintf(stderr, "Fetching Oikade %s\n", at)
-	for _, args := range [][]string{{"mod", "init", name}, {"get", frameworkModule + "@" + at}, {"mod", "tidy"}} {
+	for _, args := range [][]string{{"mod", "init", name}, {"get", oikadeModule + "@" + at}, {"mod", "tidy"}} {
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = dir
 		out, err := cmd.CombinedOutput()
@@ -224,11 +224,11 @@ func moduleFromSource(dir, name, source string) error {
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(string(raw), "module "+frameworkModule+"\n") {
+	if !strings.Contains(string(raw), "module "+oikadeModule+"\n") {
 		return fmt.Errorf("%s isn't a checkout of Oikade", source)
 	}
 	mod := regexp.MustCompile(`(?m)^module .*$`).ReplaceAllLiteralString(string(raw), "module "+name)
-	mod += "\nrequire " + frameworkModule + " v0.0.0\n\nreplace " + frameworkModule + " => " + source + "\n"
+	mod += "\nrequire " + oikadeModule + " v0.0.0\n\nreplace " + oikadeModule + " => " + source + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o644); err != nil {
 		return err
 	}
@@ -264,16 +264,16 @@ package main
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 )
 
 // home is your automations. PorchLight and PorchSensor come from devices.go, which oikade types
 // writes from your real devices, with a field for each thing each one can do: replace these two with
 // yours.
-func home() framework.Home {
-	return framework.NewHome(framework.Options{},
-		framework.NewHold("porch-light", PorchLight.On.To(true)).
-			When(func(s framework.State) bool {
+func home() oikade.Home {
+	return oikade.NewHome(oikade.Options{},
+		oikade.NewHold("porch-light", PorchLight.On.To(true)).
+			When(func(s oikade.State) bool {
 				return s.Get(PorchSensor.Occupied)
 			}).
 			OffDelay(5*time.Minute),
@@ -281,7 +281,7 @@ func home() framework.Home {
 }
 
 func main() {
-	framework.Run(home())
+	oikade.Run(home())
 }
 `
 
@@ -291,7 +291,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework/hometest"
+	"github.com/harrymitchinson/oikade/hometest"
 )
 
 func TestPorchLightFollowsThePorchSensor(t *testing.T) {

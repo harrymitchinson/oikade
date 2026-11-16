@@ -44,7 +44,7 @@ WantedBy=multi-user.target
 sudo systemctl enable --now oikade
 ```
 
-That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code, which `oikade deploy` brings. If the broker needs a password, it's a secret, `framework.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
+That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code, which `oikade deploy` brings. If the broker needs a password, it's a secret, `oikade.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
 
 ```sh
 oikade secret set broker     # on your Mac
