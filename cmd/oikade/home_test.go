@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 // fakeGo puts a go on PATH that prints Go's own lines and fails on the subcommand failOn, if any.
@@ -56,5 +59,43 @@ func TestModuleFromReleaseShowsGoWhenItFails(t *testing.T) {
 	}
 	if strings.Count(stderr.String(), "go: running") != 1 {
 		t.Errorf("showed the output of commands that passed:\n%s", stderr.String())
+	}
+}
+
+func TestCheckFindsAShownDeviceThatIsntThePlugins(t *testing.T) {
+	list := registry.Snapshot{Devices: []registry.Device{
+		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 2},
+		{Name: "desk-plug", ID: "p1", Driver: "plugin/lan", Endpoint: 3},
+		{Name: "old-shutter", ID: "s9", Driver: "plugin/tahoma", Endpoint: 4, Removed: true},
+	}}
+	if err := checkShown(list, []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}); err != nil {
+		t.Errorf("a plugin's own device: %v", err)
+	}
+	err := checkShown(list, []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"desk-plug", "old-shutter", "gate"}}})
+	for _, name := range []string{"desk-plug", "old-shutter", "gate"} {
+		if err == nil || !strings.Contains(err.Error(), "ShowOnMatter names "+name+",") {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+}
+
+func TestCheckSaysWhichDevicesADeployHides(t *testing.T) {
+	list := registry.Snapshot{Devices: []registry.Device{
+		{Name: "bedroom-shutter", ID: "s1", Driver: "plugin/tahoma", Endpoint: 2, Capabilities: []string{"position"}},
+		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3, Capabilities: []string{"position"}},
+		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4, Capabilities: []string{"position"}},
+		// Matter has nothing to show of it, so it was never on the bridge.
+		{Name: "box-signal", ID: "s4", Driver: "plugin/tahoma", Endpoint: 5, Capabilities: []string{"link-quality"}},
+	}}
+	hidden := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}
+	var out bytes.Buffer
+	printHiding(&out, list, hidden, []string{"attic-shutter"})
+	if want := "A deploy hides bedroom-shutter from Matter,"; !strings.HasPrefix(out.String(), want) {
+		t.Errorf("got %q, want %q", out.String(), want)
+	}
+	out.Reset()
+	printHiding(&out, list, hidden, []string{"attic-shutter", "bedroom-shutter"})
+	if out.Len() != 0 {
+		t.Errorf("with nothing new to hide: %q", out.String())
 	}
 }

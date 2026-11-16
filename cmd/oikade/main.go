@@ -189,6 +189,7 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		return err
 	}
 	printUnimported(os.Stderr, resp.Unimported)
+	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	if resp.Unchanged {
 		_, _ = fmt.Fprintln(d.stdout, "Already running version", resp.Version)
@@ -207,6 +208,7 @@ func runRollback(ctx context.Context, args []string) error {
 		return err
 	}
 	printUnimported(os.Stderr, resp.Unimported)
+	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	return report(os.Stdout, resp, "Rolled back to version")
 }

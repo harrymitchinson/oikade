@@ -76,26 +76,72 @@ func runCheck(ctx context.Context, args []string) error {
 	for _, w := range m.Warnings {
 		fmt.Fprintln(os.Stderr, "Warning:", w)
 	}
+	devices, reached := hostDevices(ctx, target.transport())
+	if reached {
+		if err := checkShown(*devices.Registry, m.HiddenFromMatter); err != nil {
+			return err
+		}
+	}
 	fmt.Printf("Your home is fine: %d rules, %d plugins\n", len(m.Rules), len(m.Plugins))
-	checkUnimported(ctx, target.transport(), m.Plugins)
+	if !reached {
+		return nil
+	}
+	printUnimported(os.Stderr, api.UnimportedOf(*devices.Registry, m.Plugins, devices.OutsidePlugins,
+		func(name string) bool { return slices.Contains(devices.SafetyHeld, name) }))
+	printHiding(os.Stderr, *devices.Registry, m.HiddenFromMatter, devices.HiddenFromMatter)
 	return nil
 }
 
-// checkUnimported lists the devices on the host whose plugin your home doesn't import, which a deploy
-// would leave on record, offline. It's only a warning, and a home with no host to reach skips it.
-func checkUnimported(ctx context.Context, t api.Transport, imported []string) {
+// hostDevices asks the host what's on record, for what a deploy would change there. A home with no
+// host to reach skips that, and one that can't be asked says so.
+func hostDevices(ctx context.Context, t api.Transport) (api.Response, bool) {
 	devices, err := devicesOf(ctx, t)
 	if err != nil {
 		if local, ok := t.(api.Local); ok {
 			if _, statErr := os.Stat(filepath.Join(local.DataDir, api.SocketName)); statErr != nil {
-				return // There's no host here to ask.
+				return api.Response{}, false // There's no host here to ask.
 			}
 		}
 		fmt.Fprintln(os.Stderr, "Couldn't ask the host which devices your home's plugins leave behind:", err)
-		return
+		return api.Response{}, false
 	}
-	printUnimported(os.Stderr, api.UnimportedOf(*devices.Registry, imported, devices.OutsidePlugins,
-		func(name string) bool { return slices.Contains(devices.SafetyHeld, name) }))
+	return devices, true
+}
+
+// checkShown finds the devices ShowOnMatter names that aren't that plugin's on record, which would
+// otherwise stay hidden without a word.
+func checkShown(list registry.Snapshot, hidden []wire.HiddenPlugin) error {
+	var errs []error
+	for _, h := range hidden {
+		for _, name := range h.Shown {
+			i := slices.IndexFunc(list.Devices, func(d registry.Device) bool { return d.Name == name })
+			if i < 0 || list.Devices[i].Removed || !isPlugins(list.Devices[i], h.Plugin) {
+				errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter names %s, which isn't one of its devices on record "+
+					"(oikade devices lists them)", h.Plugin, name))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// isPlugins says whether plugin reports a device on record.
+func isPlugins(d registry.Device, plugin string) bool {
+	of, ok := api.PluginOf(d)
+	return ok && of == plugin
+}
+
+// printHiding says which devices a deploy of the home would take off Matter, before it does.
+func printHiding(out io.Writer, list registry.Snapshot, hidden []wire.HiddenPlugin, hiddenNow []string) {
+	var hiding []string
+	for _, name := range api.HiddenDevices(list, hidden) {
+		if !slices.Contains(hiddenNow, name) {
+			hiding = append(hiding, name)
+		}
+	}
+	if len(hiding) > 0 {
+		_, _ = fmt.Fprintf(out, "A deploy hides %s from Matter, and controllers lose their rooms and scenes for them\n",
+			strings.Join(hiding, ", "))
+	}
 }
 
 // runTest runs a home's tests. Anything after the flags goes to go test.

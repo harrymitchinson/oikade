@@ -247,7 +247,7 @@ func start() {
 			time.Sleep(100 * time.Millisecond)
 			os.Exit(3)
 		}()
-	case "crash-told", "crash-noflow", "crash-editclaim":
+	case "crash-told", "crash-noflow", "crash-editclaim", "plugins-hidden-crash":
 		go func() {
 			for {
 				if _, err := os.Stat(os.Getenv("OIKADE_TEST_CRASH")); err == nil {
@@ -387,7 +387,11 @@ func home() *oikade.Home {
 
 	switch {
 	case plugins:
-		h.Plugin("relays", faultyRelays)
+		imported := h.Plugin("relays", faultyRelays)
+		if strings.Contains(variant, "hidden") {
+			// As a platform that puts its devices in the Home app itself, but one.
+			imported.HideFromMatter().ShowOnMatter(valve)
+		}
 		h.Plugin("quiet", quietRelays)
 	case variant == "zigbee":
 		h.Plugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{

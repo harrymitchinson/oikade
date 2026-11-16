@@ -68,7 +68,7 @@ oikade.NewHome(oikade.Options{MatterName: "Cottage"}, /* … */) // at most 32 b
 
 A deploy renames it in place, and the host keeps the name through a restart, so you don't pair again. The bridge's Basic Information says the new name at once, and the next commissioning window advertises it. Whether a controller that's already paired, such as the Home app, shows the new name isn't verified: it may keep the one it was given.
 
-Every device on record with something Matter can show is on the bridge, at its [registry](#devices) endpoint, as soon as it's paired, as its [device types](#what-a-device-is). Its label is its name, and a rename changes that in place: the endpoint and unique ID stay, so a controller keeps its room and scenes. A new device type rebuilds the device on the same endpoint, with the same unique ID. Removing a device takes it off. A device whose driver hasn't reported yet stays on, unreachable, so controllers don't see it vanish.
+Every device on record with something Matter can show is on the bridge, unless your home [hides its plugin](#hiding-a-plugins-devices-from-matter), at its [registry](#devices) endpoint, as soon as it's paired, as its [device types](#what-a-device-is). Its label is its name, and a rename changes that in place: the endpoint and unique ID stay, so a controller keeps its room and scenes. A new device type rebuilds the device on the same endpoint, with the same unique ID. Removing a device takes it off. A device whose driver hasn't reported yet stays on, unreachable, so controllers don't see it vanish.
 
 A controller's write goes through [arbitration](automations.md#arbitration) in the host, shown as `Matter`, and doesn't need your process. A capability a Safety claim holds refuses it, including a claim still on disk from before a restart: the write never reaches the device, the controller sees the value go back, and the log says who holds it. A device whose claim record can't be read counts as held at Safety: nothing writes it, nothing writes over the record, and the log says so. `oikade devices remove --allow-safety` clears it.
 
@@ -76,3 +76,17 @@ Add the bridge to a controller, such as the Home app, with the 11-digit manual c
 
 - **Writes:** a burst of commands from a controller, such as a swipe in the Home app, is gathered for 50 ms per device and capability, and only the last is written, unless the device is already in that state.
 - **Unsupported devices:** a device none of whose capabilities map to Matter, such as one with only `link-quality`, keeps its endpoint ID but isn't on the bridge.
+
+### Hiding a plugin's devices from Matter
+
+Some platforms put their devices in the Home app themselves, such as a TaHoma hub its Somfy shutters. Oikade still drives them through its plugin, but on its bridge too they'd show in the Home app twice, in Siri and in every scene. Your home keeps them off Matter where it imports the plugin ([OIK-294](https://linear.app/oikade/issue/OIK-294)):
+
+```go
+home.Plugin("tahoma", overkiz.New(overkiz.Local{ /* … */ })).
+	HideFromMatter().            // the TaHoma app puts these in the Home app itself
+	ShowOnMatter("garage-door")  // except this one, which it doesn't
+```
+
+Your code still reads and sets them, and a tap on the platform's own tile reaches Oikade as the device changing by itself, as its own remote's would. A device the plugin reports later is hidden too. A deploy hides them once the version has settled, so one that fails leaves the bridge as it was. The host saves the setting before it applies it, so a restart keeps them off before your process connects.
+
+`oikade check` says which devices a deploy would take off, and fails on a `ShowOnMatter` name that isn't one of that plugin's devices on record. `oikade deploy` says which it took off. A controller loses a device it took off, with its room and scenes there. A hidden device keeps its endpoint, so showing it again brings it back as the same device to Matter, though whether the Home app puts it back in its room isn't verified. `oikade devices` shows it as `hidden from Matter` (`"matter": false` in `--json`).

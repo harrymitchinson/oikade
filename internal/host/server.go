@@ -79,8 +79,11 @@ type server struct {
 	// settings, if set, takes up what a connecting process declares, and confirmedSettings replaces
 	// them with what a version that has settled declares.
 	settings, confirmedSettings func([]wire.DeviceControl) error
-	// matterName, if set, takes up the Matter bridge's name a connecting process declares.
-	matterName func(string) error
+	// options, if set, takes up the Matter bridge's name a connecting process declares, and the
+	// plugins it hides from Matter.
+	options *homeOptions
+	// deploying, if set, says a version is running that hasn't settled.
+	deploying func() bool
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
 
@@ -356,6 +359,14 @@ func (s *server) open(sess *session, hello wire.Message) string {
 			s.log.Error("Failed to save the Matter bridge's name", "err", err)
 			return "the host couldn't save the Matter bridge's name"
 		}
+		// A version that hasn't settled may fail, and its hiding would cost controllers the devices'
+		// rooms and scenes for nothing, so a deploy hides them once it's confirmed.
+		if s.deploying == nil || !s.deploying() {
+			if err := s.takeHidden(hello.HiddenFromMatter); err != nil {
+				s.log.Error("Failed to save the plugins hidden from Matter", "err", err)
+				return "the host couldn't save the plugins hidden from Matter"
+			}
+		}
 	}
 	welcome, runs, err := s.welcome(hello)
 	if err != nil {
@@ -387,10 +398,35 @@ func (s *server) takeSettings(settings []wire.DeviceControl) error {
 
 // takeMatterName takes up the Matter bridge's name a process declares.
 func (s *server) takeMatterName(name string) error {
-	if s.matterName == nil {
+	if s.options == nil {
 		return nil
 	}
-	return s.matterName(name)
+	return s.options.takeMatterName(name)
+}
+
+// takeHidden takes up the plugins a process's home hides from Matter.
+func (s *server) takeHidden(hidden []wire.HiddenPlugin) error {
+	if s.options == nil {
+		return nil
+	}
+	return s.options.takeHidden(hidden)
+}
+
+// takenOffMatter names the devices on the bridge that a version's home hides from Matter and the
+// running one doesn't, which a deploy of it takes off.
+func (s *server) takenOffMatter(m wire.Manifest) []string {
+	if s.options == nil || s.plugins == nil {
+		return nil
+	}
+	now := s.options.hiddenFromMatter()
+	var out []string
+	for _, d := range s.plugins.known.registry.List().Devices {
+		if api.HiddenFromMatter(m.HiddenFromMatter, d) && !api.HiddenFromMatter(now, d) {
+			out = append(out, d.Name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // confirmSettings makes the device settings exactly what a settled version declares.

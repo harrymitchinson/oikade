@@ -2,6 +2,8 @@
 
 This plugin connects devices on Overkiz, the platform behind Somfy TaHoma and Atlantic's, Thermor's and Sauter's Cozytouch. It's a plugin your home imports ([OIK-17](https://linear.app/oikade/issue/OIK-17)), once for each hub or account. It talks to a TaHoma hub's local API, so your blinds keep working while the internet is down, and to Cozytouch's cloud, which is all those heaters have. Every device it serves appears in `oikade devices`, under its ID.
 
+A TaHoma hub puts its devices in the Home app itself, so on Oikade's Matter bridge too they'd show twice. `HideFromMatter()` on the import keeps them off it, and `ShowOnMatter(names...)` names any TaHoma doesn't share ([Hiding a plugin's devices from Matter](../../docs/devices.md#hiding-a-plugins-devices-from-matter)).
+
 ```go
 home.Plugin("tahoma", overkiz.New(overkiz.Local{
 	Address: "192.168.1.40:8443", // the hub, or gateway-1234-5678-9012.local:8443

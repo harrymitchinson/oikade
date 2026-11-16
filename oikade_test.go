@@ -725,6 +725,42 @@ func TestPluginsAreChecked(t *testing.T) {
 	}
 }
 
+func TestAPluginsDevicesCanBeHiddenFromMatter(t *testing.T) {
+	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
+	for name, tc := range map[string]struct {
+		add  func(*Home)
+		want string
+	}{
+		"shown, not hidden": {func(h *Home) { h.Plugin("a", made).ShowOnMatter("x") }, "needs HideFromMatter"},
+		"shown twice": {
+			func(h *Home) { h.Plugin("a", made).HideFromMatter().ShowOnMatter("x", "x") }, "names x twice",
+		},
+		"shown, no name": {func(h *Home) { h.Plugin("a", made).HideFromMatter().ShowOnMatter("") }, "needs a device's name"},
+	} {
+		if _, _, err := decide(tc.add).compile(); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want %q", name, err, tc.want)
+		}
+	}
+
+	h := decide(func(h *Home) {
+		h.Plugin("tahoma", made).HideFromMatter().ShowOnMatter("garage-door")
+		h.Plugin("lan", made)
+	})
+	if _, _, err := h.compile(); err != nil {
+		t.Fatal(err)
+	}
+	want := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}
+	if got := h.manifest().HiddenFromMatter; !reflect.DeepEqual(got, want) {
+		t.Errorf("the manifest hides %+v, want %+v", got, want)
+	}
+	if got := h.hiddenFromMatter(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the Hello hides %+v, want %+v", got, want)
+	}
+	if got := decide(func(h *Home) { h.Plugin("lan", made) }).manifest().HiddenFromMatter; got != nil {
+		t.Errorf("a home that hides nothing hides %+v", got)
+	}
+}
+
 var (
 	pump  = Bool{Device: "pump", Capability: On}
 	water = Number{Device: "water", Capability: Temperature}

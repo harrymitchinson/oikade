@@ -87,6 +87,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	}
 	client, welcome, err := wire.DialHello(dial, socket, wire.Message{
 		Rules: names, Averages: averageNames, Info: h.manifest().Rules, Control: settings, MatterName: h.options.MatterName,
+		HiddenFromMatter: h.hiddenFromMatter(),
 	})
 	if err != nil {
 		return err
@@ -290,7 +291,7 @@ func runPlugin(ctx context.Context, h *Home, socket string) error {
 	if len(os.Args) != 3 {
 		return errors.New("which plugin? run this with oikade-host")
 	}
-	i := slices.IndexFunc(h.plugins, func(p imported) bool { return p.name == os.Args[2] })
+	i := slices.IndexFunc(h.plugins, func(p *Plugin) bool { return p.name == os.Args[2] })
 	if i < 0 {
 		return fmt.Errorf("this home has no plugin %s", os.Args[2])
 	}

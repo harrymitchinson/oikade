@@ -305,6 +305,112 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	r.until("the controller to hear relay", func() bool { return !c.isOn(endpoint) })
 }
 
+func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
+	t.Parallel()
+	port := freeUDP(t)
+	r := startPlugins(t, matterFlag(port))
+	r.untilValue("relay", false)
+	r.until("the commissioning window", func() bool { return r.matter().Window })
+	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
+	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
+	relay, valve := c.endpoint("relay"), c.endpoint("valve")
+	r.until("the relay on the bridge", func() bool { return len(c.deviceTypes(relay)) > 0 })
+
+	stderr, err := r.deploy("plugins-hidden")
+	if err != nil {
+		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
+	}
+	r.awaitDeployed()
+	// The plugin may have reported spare-relay by now, which would be in the list too.
+	if !strings.Contains(stderr, "Took hangs, once, panics, relay") || !strings.Contains(stderr, "off Matter") {
+		t.Errorf("the deploy said:\n%s", stderr)
+	}
+	r.until("the relay off the bridge", func() bool { return len(c.deviceTypes(relay)) == 0 })
+	if len(c.deviceTypes(valve)) == 0 {
+		t.Error("ShowOnMatter's valve went too")
+	}
+	// The host still drives it.
+	r.setting("relay", "on")
+	r.untilValue("relay", true)
+	var listed struct {
+		Devices []struct {
+			Name   string `json:"name"`
+			Driver string `json:"driver"`
+			Matter *bool  `json:"matter"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(r.stdout(nil, "devices", "--json"), &listed); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range listed.Devices {
+		// Each plugin reports a spare relay, so which is whose is by driver.
+		hidden := d.Driver == "plugin/relays" && d.Name != "valve"
+		if hidden != (d.Matter != nil && !*d.Matter) {
+			t.Errorf("%s: matter is %v", d.Name, d.Matter)
+		}
+	}
+
+	// A host that restarts keeps it off.
+	r.stop()
+	r.launchPlugins(matterFlag(port))
+	r.waitFor(func(l line) bool { return l.is(attached) })
+	r.until("the bridge", func() bool { return r.matter().Serving })
+	c.admin = c.cm.CASE(nodetest.Addr(port))
+	if len(c.deviceTypes(relay)) != 0 {
+		t.Error("after a restart, the relay is on the bridge")
+	}
+
+	// Shown again, it's the same device to a controller.
+	stderr, err = r.deploy("plugins")
+	if err != nil {
+		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
+	}
+	r.awaitDeployed()
+	r.until("the relay back on the bridge", func() bool { return len(c.deviceTypes(relay)) > 0 })
+	if got := c.endpoint("relay"); got != relay {
+		t.Errorf("the relay came back on endpoint %d, not %d", got, relay)
+	}
+	if strings.Contains(stderr, "off Matter") {
+		t.Errorf("the deploy said:\n%s", stderr)
+	}
+}
+
+func TestAFailedDeployLeavesThePluginsDevicesOnMatter(t *testing.T) {
+	t.Parallel()
+	port := freeUDP(t)
+	r := prepare(t)
+	r.env = append(r.env, "OIKADE_TEST_PLUGIN_DOWN="+filepath.Join(r.dir, "plugin-down"),
+		"OIKADE_TEST_CRASH="+filepath.Join(r.dir, "crash"))
+	r.launchPlugins(matterFlag(port), longSettle)
+	r.waitFor(func(l line) bool { return l.is(attached) })
+	r.until("the relay", func() bool { return r.count(pluginConnected, "plugin", "relays") >= 1 })
+	r.untilValue("relay", false)
+
+	bin := variant(t, "plugins-hidden-crash")
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- err
+	}()
+	r.until("the new version to connect", func() bool { return r.count(attached) >= 2 })
+	r.sync()
+	if err := os.WriteFile(filepath.Join(r.dir, "crash"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.sync()
+	// Off and back on, a controller would have lost the devices' rooms and scenes.
+	if n := r.count("Removed bridged device"); n != 0 {
+		t.Errorf("a version that never settled took %d devices off the bridge. The log:\n%s", n, r.dump())
+	}
+	if got := deviceOf(t, r.devices(), "relay"); got.ID == "" {
+		t.Errorf("relay: %+v", got)
+	}
+}
+
 // switchedOn is an outside process's device, as simswitch would do it.
 type switchedOn struct{ sets atomic.Int32 }
 

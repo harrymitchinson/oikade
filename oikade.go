@@ -693,16 +693,18 @@ type Home struct {
 	// mistakes are those made adding a group or room, which oikade check reports.
 	mistakes []error
 	flows    []*Flow
-	plugins  []imported
+	plugins  []*Plugin
 }
 
 // NewHome makes a home.
 func NewHome(o Options) *Home { return &Home{options: o} }
 
-// imported is a plugin the home imports.
-type imported struct {
+// Plugin is a plugin the home imports, which Home.Plugin makes.
+type Plugin struct {
 	name    string
 	factory plugin.Factory
+	hidden  bool
+	shown   []string
 }
 
 // Plugin imports a plugin. It's a Go module like any other, and it runs as you, so importing one
@@ -710,8 +712,57 @@ type imported struct {
 // is restarted while automations and Matter carry on. name is what its devices are recorded under:
 // keep it, because changing it makes them new hardware. factory builds the plugin, in its own
 // process, never in your automations.
-func (h *Home) Plugin(name string, factory plugin.Factory) {
-	h.plugins = append(h.plugins, imported{name: name, factory: factory})
+func (h *Home) Plugin(name string, factory plugin.Factory) *Plugin {
+	p := &Plugin{name: name, factory: factory}
+	h.plugins = append(h.plugins, p)
+	return p
+}
+
+// HideFromMatter keeps the plugin's devices off Matter, for a platform that puts them in the Home app
+// itself, so that they don't show there twice. Your code still reads and sets them, and one the
+// plugin reports later is hidden too. Each deploy says which devices it takes off, and a controller
+// loses its room and scenes for them. One shown again comes back as the same device to Matter.
+func (p *Plugin) HideFromMatter() *Plugin {
+	p.hidden = true
+	return p
+}
+
+// ShowOnMatter names the devices of a plugin hidden from Matter that stay on it, such as one its
+// platform doesn't put in the Home app. oikade check fails on a name that isn't one of its devices.
+func (p *Plugin) ShowOnMatter(names ...string) *Plugin {
+	p.shown = append(p.shown, names...)
+	return p
+}
+
+// check finds the mistakes in what a plugin's import says of Matter.
+func (p *Plugin) check() error {
+	var errs []error
+	if len(p.shown) > 0 && !p.hidden {
+		errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter needs HideFromMatter, or its devices are on Matter already",
+			p.name))
+	}
+	seen := map[string]bool{}
+	for _, n := range p.shown {
+		switch {
+		case n == "":
+			errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter needs a device's name", p.name))
+		case seen[n]:
+			errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter names %s twice", p.name, n))
+		}
+		seen[n] = true
+	}
+	return errors.Join(errs...)
+}
+
+// hiddenFromMatter is what the host takes of the plugins hidden from Matter.
+func (h *Home) hiddenFromMatter() []wire.HiddenPlugin {
+	var out []wire.HiddenPlugin
+	for _, p := range h.plugins {
+		if p.hidden {
+			out = append(out, wire.HiddenPlugin{Plugin: p.name, Shown: slices.Clone(p.shown)})
+		}
+	}
+	return out
 }
 
 // compile checks the home and turns it into the engine's rules, and returns its flows by name.
@@ -773,6 +824,7 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		case p.factory == nil:
 			errs = append(errs, fmt.Errorf("plugin %s has no factory", p.name))
 		}
+		errs = append(errs, p.check())
 		plugins[p.name] = true
 	}
 	return rules, flows, errors.Join(errs...)
@@ -813,6 +865,7 @@ func (h *Home) manifest() wire.Manifest {
 	}
 	m.Control = settingsOf(decided)
 	m.Secrets = secretuse.Names()
+	m.HiddenFromMatter = h.hiddenFromMatter()
 	return m
 }
 
