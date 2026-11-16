@@ -79,7 +79,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	if !st.Process {
 		t.Errorf("status says no process: %+v", st)
 	}
-	if c := onOf(t, st, "fan"); c.Value != false || c.Level != "" {
+	if c := onOf(t, st, "fan"); c.Value != false || c.Level != "Default" {
 		t.Errorf("fan: %+v", c)
 	}
 
@@ -94,11 +94,11 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
 	c = onOf(t, r.status(), "valve")
-	if c.Level != "Safety" || winner(c) != "Rule/leak-shutoff" {
+	if c.Level != "Safety" || winner(c) != "Rule/valve on leak-shutoff" {
 		t.Errorf("a Safety hold: %+v", c)
 	}
 	stderr, err := r.oikade(nil, "set", "valve", "on", "on")
-	if err == nil || !strings.Contains(stderr, "Rule/leak-shutoff holds valve on at Safety") {
+	if err == nil || !strings.Contains(stderr, "valve on: leak-shutoff holds it, a safety line") {
 		t.Errorf("set against Safety: %v: %s", err, stderr)
 	}
 	if v := onOf(t, r.status(), "valve").Value; v != false {
@@ -125,7 +125,7 @@ func TestSetReportsWhatTheDeviceWasLeftAt(t *testing.T) {
 
 	// The towel rail's Control writes back any outside change, so the set doesn't last.
 	out := string(r.stdout(nil, "set", "towel-rail", "on", "on"))
-	if !strings.Contains(out, "towel-rail on is false, not true: nothing claims it, so its Default wins") {
+	if !strings.Contains(out, "towel-rail on is false, not true: no line applies, so its Default wins") {
 		t.Errorf("set said %q", out)
 	}
 
@@ -170,8 +170,8 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	t.Parallel()
 	r := start(t, settle)
 	r.sync()
-	r.stdout(nil, "pause", "fan")
-	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "fan") })
+	r.stdout(nil, "pause", "fan", "on", "fan")
+	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "fan on fan") })
 	r.sync()
 
 	r.change("bathroom-sensor", "humidity", 80)
@@ -185,7 +185,7 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	if n := r.count(wrote, "device", "fan"); n != 0 {
 		t.Fatalf("a paused hold wrote after a deploy")
 	}
-	if !paused(t, r.status(), "fan") {
+	if !paused(t, r.status(), "fan on fan") {
 		t.Error("a deploy ended the pause")
 	}
 
@@ -193,7 +193,7 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	r.launch(settle)
 	r.waitFor(func(l line) bool { return l.is(attached) })
 	r.sync()
-	if !paused(t, r.status(), "fan") {
+	if !paused(t, r.status(), "fan on fan") {
 		t.Error("a restart ended the pause")
 	}
 	r.change("bathroom-sensor", "humidity", 90)
@@ -202,12 +202,12 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 		t.Fatalf("a paused hold wrote after a restart")
 	}
 
-	r.stdout(nil, "resume", "fan")
+	r.stdout(nil, "resume", "fan", "on", "fan")
 	r.wrote("fan", true)
-	if paused(t, r.status(), "fan") {
+	if paused(t, r.status(), "fan on fan") {
 		t.Error("still paused")
 	}
-	if _, err := r.oikade(nil, "resume", "fan"); err == nil {
+	if _, err := r.oikade(nil, "resume", "fan", "on", "fan"); err == nil {
 		t.Error("resumed a rule that isn't paused")
 	}
 }
@@ -241,6 +241,44 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	r.wrote("claimed", false)
 }
 
+// Status names the case that decides a capability, and says why a case doesn't apply, across a
+// kill of your process.
+func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	rule := func() api.Rule {
+		t.Helper()
+		for _, rule := range r.status().Rules {
+			if rule.Name == "valve on leak-shutoff" {
+				return rule
+			}
+		}
+		t.Fatal("no rule valve on leak-shutoff")
+		return api.Rule{}
+	}
+	// Your process sends why after it evaluates, which sync waits for.
+	r.until("a why-not", func() bool { return rule().WhyNot != "" })
+	if got := rule(); got.Kind != "case" || got.Device != "valve" || got.Case != "leak-shutoff" ||
+		!got.Safety || !strings.Contains(got.WhyNot, "leak-sensor open") {
+		t.Errorf("inactive: %+v", got)
+	}
+	if out := string(r.stdout(nil, "status")); !strings.Contains(out, "valve on: leak-shutoff  case") {
+		t.Errorf("status didn't name the case:\n%s", out)
+	}
+
+	r.change("leak-sensor", "open", true)
+	r.wrote("valve", false)
+	r.kill()
+	r.sync()
+	if c := onOf(t, r.status(), "valve"); c.Case != "leak-shutoff" || c.Level != "Safety" {
+		t.Errorf("after a kill: %+v", c)
+	}
+	if got := rule(); got.WhyNot != "" || got.Active == nil || !*got.Active {
+		t.Errorf("active: %+v", got)
+	}
+}
+
 func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	t.Parallel()
 	r := start(t)
@@ -249,16 +287,16 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	r.wrote("valve", false)
 	r.sync()
 
-	stderr, err := r.oikade(nil, "pause", "leak-shutoff")
+	stderr, err := r.oikade(nil, "pause", "valve", "on", "leak-shutoff")
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("paused a Safety rule without asking: %v: %s", err, stderr)
 	}
-	out := string(r.stdout(nil, "pause", "leak-shutoff", "--allow-safety"))
+	out := string(r.stdout(nil, "pause", "valve", "on", "leak-shutoff", "--allow-safety"))
 	if !strings.Contains(out, "It keeps its Safety claims on valve on") {
 		t.Errorf("pause said %q", out)
 	}
 	r.sync()
-	if c := onOf(t, r.status(), "valve"); winner(c) != "Rule/leak-shutoff" || c.Value != false {
+	if c := onOf(t, r.status(), "valve"); winner(c) != "Rule/valve on leak-shutoff" || c.Value != false {
 		t.Errorf("the pause ended a Safety claim: %+v", c)
 	}
 	if _, err := r.oikade(nil, "pause", "no-such-rule"); err == nil {

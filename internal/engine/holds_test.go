@@ -29,6 +29,7 @@ var holdDevices = map[string][]string{
 	"bathroom-sensor": {capability.Humidity},
 	"workshop-heater": {capability.On},
 	"workshop-temp":   {capability.Temperature},
+	"workshop-door":   {capability.Open},
 	"main-valve":      {capability.On},
 	"leak-sensor":     {capability.Open},
 	"pump":            {capability.On},
@@ -302,6 +303,26 @@ func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states *storeBacken
 	// The release is saved.
 	r = startRig(t, local("2026-10-21 09:05 BST"), states.holds(t), cool, nil, holdRule(t, "workshop-overheat", overheat))
 	r.expect()
+}
+
+func testLatchedHoldEndsAtItsUntilAfterARestart(t *testing.T, states *storeBackend) {
+	hold := overheat
+	hold.Until = isTrue("workshop-door", capability.Open)
+	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}, "workshop-door": {capability.Open: false}}
+	r := startRig(t, local("2026-10-21 08:00 BST"), states.holds(t), hot, nil, holdRule(t, "workshop-overheat", hold))
+	r.expect(call{"workshop-heater", capability.On, false})
+	r.change("workshop-temp", capability.Temperature, 20.0)
+	r.at("2026-10-21 08:10 BST")
+	r.expect(call{"workshop-heater", capability.On, false})
+	r.stop()
+
+	// Restarted cool, it stays latched until the door opens.
+	cool := map[string]map[string]any{"workshop-temp": {capability.Temperature: 20.0}, "workshop-door": {capability.Open: false}}
+	r = startRig(t, local("2026-10-21 08:30 BST"), states.holds(t), cool, nil, holdRule(t, "workshop-overheat", hold))
+	r.expect()
+	r.change("workshop-door", capability.Open, true)
+	r.expect(call{"workshop-heater", capability.On, true})
+	r.stop()
 }
 
 func TestWhenUnknownKeepsTheState(t *testing.T) {

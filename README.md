@@ -53,14 +53,16 @@ Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/rele
 `init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow. The workflow runs `oikade check` and `oikade test` on every change, and `oikade deploy` once one reaches `main`, over the [network API](docs/running-a-home.md#the-network-api). It needs the secret `OIKADE_TOKEN`, from `oikade-host client add ci --token`, and the variables `OIKADE_ADDRESS`, such as `pi.home:8443`, and `OIKADE_PIN`, which that command prints. GitHub's own runners can reach the host only if its API is on the internet, which it shouldn't be, so run the job on a self-hosted runner on your network, or join the runner to your network over a VPN first. `oikade types` replaces `devices.go` once you have real devices.
 
 ```go
-func home() oikade.Home {
-	return oikade.NewHome(oikade.Options{},
-		oikade.NewHold("porch-light", PorchLight.On.To(true)).
-			When(PorchSensor.Occupied).
-			OffDelay(5*time.Minute),
-	)
+func home() *oikade.Home {
+	home := oikade.NewHome(oikade.Options{})
+	home.Decide(PorchLight.On).
+		Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
+		Default(false)
+	return home
 }
 ```
+
+A [decision](docs/automations.md#decisions) is everything that sets one capability, as a list read top to bottom: the first case that applies wins, and `Default` is what's left.
 
 `devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is one of its capabilities, an `oikade.Bool` or an `oikade.Number`. Your editor lists what each device can do. A `Bool` is a [condition](docs/automations.md#conditions) and a `Number` makes one, as `Bathroom.Humidity.Above(70)` does, `To` writes one, and either is a change that triggers a rule. The capabilities are constants in `oikade`, such as `oikade.On`, for [rooms](docs/automations.md#rooms).
 
@@ -73,11 +75,11 @@ $ oikade dev
 Simulating 2 devices from Fri 18:41. Type help for the commands.
 set porch-sensor occupied true
 Fri 18:41 Wrote porch-light on = true
-Fri 18:41 Hold porch-light started
+Fri 18:41 porch-light on: motion applies
 set porch-sensor occupied false
 advance 6m
 Fri 18:46 Wrote porch-light on = false
-Fri 18:46 Hold porch-light ended
+Fri 18:46 porch-light on: motion no longer applies
 ```
 
 `status` shows every device and what holds it, and `restart` crashes your automations and starts them again. Your automations' log goes to standard error.
@@ -97,7 +99,7 @@ func TestBedtimeSurvivesACrash(t *testing.T) {
 
 The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A mistake in a condition goes to the test's log, which `go test` shows when it fails.
 
-`h.Set` changes one value. A sensor often reports several at once, and your rules see all of them before any acts, so a Safety hold on one is never late for a Normal hold on another. `h.Report(Hall.Humidity.To(72), Hall.Occupied.To(true))` sends one device's values as one report, as the host does.
+`h.Set` changes one value. A sensor often reports several at once, and your rules see all of them before any acts, so a safety line on one is never late for a lower line on another. `h.Report(Hall.Humidity.To(72), Hall.Occupied.To(true))` sends one device's values as one report, as the host does.
 
 `oikade replay` shows what your code would have done last week. It fetches the host's event log, runs the code in your working copy against it on a fake clock, and compares that with what the deployed version did:
 
@@ -114,26 +116,27 @@ A replay never reaches a device: your code runs in `simhome`, as in `oikade dev`
 
 The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade-host --event-log-age 336h --event-log-mib 64` are the defaults. Prometheus stays the place for history: this exists to be replayed, and losing it costs nothing else.
 
-Arbitration and budgets are parts of the same home, and a [`Bundle`](docs/automations.md#composing-a-home) keeps them together. `Control` is [arbitration](docs/automations.md#arbitration), and a `Hold` with a `Budget` is [a budget](docs/automations.md#budgets):
+A decision also says what a tap in the Home app does, and holds limits and budgets. The pool pump below runs near freezing, whatever its switch says, then in swimming hours, then for a budget of minutes the water's temperature sets, and in spring's cheap hours:
 
 ```go
-oikade.NewBundle(
-	oikade.NewControl(Dehumidifier.On.To(false), oikade.PreferOn, oikade.ExternalOverride).
-		OverrideHold(2*time.Hour).
-		MinimumOn(time.Hour).
-		MinimumOff(30*time.Minute).
-		MaximumStartsPerDay(3),
-	oikade.NewHold("dehumidifier-daily", Dehumidifier.On.To(true)).
-		Budget(oikade.NewBandedBudget(oikade.Bands{
-			Reading: Cellar.Humidity, Missing: 240,
-			Ranges: []oikade.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
-		}).
-			Prefer(oikade.Daily("22:00", "06:00"), 3).
-			Forbid(oikade.Daily("07:00", "08:30"))),
-)
+summer := oikade.Yearly("1 Jun", "15 Sep")
+swimHours := oikade.Daily("10:00", "18:00")
+cheapHours := oikade.Daily("00:30", "05:30")
+
+home.Decide(PoolPump.On).
+	Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 30 * time.Minute}).
+	Case("frost", true, PoolWater.Temperature.Below(3)).Linger(30 * time.Minute).
+	OverrideFor(2 * time.Hour). // a tap wins over the lines below for two hours
+	Case("swimming-hours", true, summer, swimHours).
+	Budget("extra", true, oikade.NewBandedBudget(oikade.Bands{
+		Reading: PoolWater.Temperature,
+		Ranges:  []oikade.Band{{Below: 22, Minutes: 0}, {Below: 26, Minutes: 60}}, Otherwise: 120,
+	}).Prefer(cheapHours, 3).Forbid(swimHours)).
+	Case("spring", true, oikade.Yearly("1 Apr", "31 May"), cheapHours).
+	Default(false)
 ```
 
-`oikade.NewBudget` takes a function of the home at planning time, instead of `Bands`. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. A budget needs a `Control`, because it plans around the limits there, and `oikade check` says so if there isn't one. The host saves your `Control`, so a device is arbitrated, and a Safety claim holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a Safety claim that way needs `--allow-safety-removal`. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again.
+A line above `OverrideFor` is a safety line: a tap can't beat it, and pausing it or deploying without it needs `--allow-safety`. `oikade status` names the line that won, `frost wants true`, and why each case doesn't apply. The host saves each decision, so a device is arbitrated, and a safety line holds, while your automations are down. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again. [Writing automations](docs/automations.md) has the rest.
 
 ## Plugins
 

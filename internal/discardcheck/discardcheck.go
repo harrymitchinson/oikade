@@ -64,14 +64,20 @@ func check(pass *analysis.Pass, call *ast.CallExpr) {
 	pass.Reportf(pos, "the result of %s isn't used, so it does nothing: %s", fn.Name(), why(sig, result))
 }
 
-// oikadeType returns t if it's a type package oikade declares, or an instance of one.
+// oikadeType returns t if it's a type package oikade declares, an instance of one, or a pointer to
+// one. A Decision is the exception: it's added to its home as it's built, so a chain of one is a
+// statement.
 func oikadeType(t types.Type) *types.Named {
-	named, ok := types.Unalias(t).(*types.Named)
+	t = types.Unalias(t)
+	if p, ok := t.(*types.Pointer); ok {
+		t = types.Unalias(p.Elem())
+	}
+	named, ok := t.(*types.Named)
 	if !ok {
 		return nil
 	}
 	obj := named.Origin().Obj()
-	if obj.Pkg() == nil || obj.Pkg().Path() != oikadePath {
+	if obj.Pkg() == nil || obj.Pkg().Path() != oikadePath || obj.Name() == "Decision" {
 		return nil
 	}
 	return named
@@ -86,7 +92,7 @@ func why(sig *types.Signature, result *types.Named) string {
 	switch name {
 	case "Set":
 		return "a Set does nothing until r.Set or a rule takes it"
-	case "Hold", "Moment", "Flow", "Control", "Plugin", "Bundle":
+	case "Moment", "Flow", "Plugin", "Bundle":
 		return fmt.Sprintf("a %s does nothing until NewHome or NewBundle takes it", name)
 	case "Home":
 		return "a Home does nothing until oikade.Run takes it"

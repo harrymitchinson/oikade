@@ -355,14 +355,14 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
 	}
-	if !strings.Contains(stderr, `"leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety-removal") {
+	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety-removal") {
 		t.Fatalf("got %q", stderr)
 	}
 	if r.pid() != pid || r.count(stopping) != 0 {
 		t.Fatalf("the process changed. The log:\n%s", r.dump())
 	}
 	r.mustDeploy("renamed", "--allow-safety-removal")
-	if r.count(ended, "rule", "leak-shutoff", "highest", "Safety") != 1 {
+	if r.count(ended, "rule", "valve on leak-shutoff", "highest", "Safety") != 1 {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
 	r.stop()
@@ -372,7 +372,7 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(names, "leak-alarm") || slices.Contains(names, "leak-shutoff") {
+	if !slices.Contains(names, "siren on leak-alarm") || slices.Contains(names, "valve on leak-shutoff") {
 		t.Fatalf("saved holds: %v", names)
 	}
 }
@@ -701,12 +701,12 @@ func (r *rig) orphanedSafety() {
 func (r *rig) expectSafetyKept() {
 	r.t.Helper()
 	got := r.ruleClaims("valve")
-	if !holdsClaim(got, "Rule/leak-shutoff", control.Safety) {
+	if !holdsClaim(got, "Rule/valve on leak-shutoff", control.Safety) {
 		r.t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("leak-shutoff"); err != nil || !ok {
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("valve on leak-shutoff"); err != nil || !ok {
 		r.t.Fatalf("the hold's state went: %v, %v", ok, err)
 	}
 }
@@ -866,7 +866,7 @@ func TestAFailedVersionSparesTheStateOfARuleTheLastOneLacks(t *testing.T) {
 	r.stop()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("fan"); err != nil || !ok {
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("fan on fan"); err != nil || !ok {
 		t.Fatalf("the hold's state went: %v, %v. The log:\n%s", ok, err, r.dump())
 	}
 }
@@ -980,7 +980,7 @@ func TestABinaryChangedWithoutADeployEndsNothing(t *testing.T) {
 	}
 	r.stop()
 	got := r.ruleClaims("valve")
-	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/leak-shutoff" }) {
+	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/valve on leak-shutoff" }) {
 		t.Fatalf("got %+v", got)
 	}
 }

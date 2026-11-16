@@ -339,6 +339,12 @@ func lineName(c api.Claim) string {
 	if rule, ok := strings.CutPrefix(c.Source, "Rule/"); ok {
 		return rule
 	}
+	switch c.Source {
+	case "Command":
+		return "oikade set"
+	case "Device":
+		return "a change on the device"
+	}
 	return "a change from " + c.Source
 }
 
@@ -486,7 +492,8 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	allow := fs.Bool("allow-safety", false, "Pause a safety line, a case above its decision's override line. Its claims stay.")
+	allow := fs.Bool("allow-safety", false,
+		"Pause a safety line, a case above its decision's override line. Its claims stay.")
 	words := cli.Parse(fs, args)
 	if len(words) != 1 && len(words) != 3 {
 		return fmt.Errorf("usage: oikade %s DEVICE CAPABILITY CASE, or oikade %s FLOW", name, name)

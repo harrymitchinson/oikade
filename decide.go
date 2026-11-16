@@ -124,7 +124,7 @@ func (d *Decision[T]) Linger(dur time.Duration) *Decision[T] {
 }
 
 // LatchUntil keeps the last case applying once it starts, until c is true, such as
-// GarageDoor.Open. A pause and resume of the case ends the latch too.
+// GarageDoor.Open. A Release of the case's rule, "<device> <capability> <case>", ends it too.
 func (d *Decision[T]) LatchUntil(c Condition) *Decision[T] {
 	return d.onCase("LatchUntil", func(l *line) {
 		l.latch, l.until = true, c
@@ -233,6 +233,34 @@ func (d compiledDecision) name() string {
 	return fmt.Sprintf("decision %s %s", d.device, d.capability)
 }
 
+// override finds the override line, at -1 for none, and sets what an outside change does.
+func (d *Decision[T]) override(entry *control.Entry) (int, error) {
+	over := -1
+	var err error
+	for i, l := range d.lines {
+		if l.kind != overrideLine {
+			continue
+		}
+		if over >= 0 {
+			err = errors.New("it has one override line: OverrideFor, OverrideUntilNext or NoOverride")
+		}
+		over = i
+	}
+	switch {
+	case over >= 0 && d.lines[over].none:
+		entry.External = control.NameRevert
+	case over < 0:
+		// An outside change ranks above every line, until their answer next changes.
+		entry.External, entry.OverrideHold = control.NameOverride, control.NameNext
+		entry.Lines = append(entry.Lines, control.LineOverride)
+	case d.lines[over].untilNext:
+		entry.External, entry.OverrideHold = control.NameOverride, control.NameNext
+	default:
+		entry.External, entry.OverrideHold = control.NameOverride, d.lines[over].overrideFor.String()
+	}
+	return over, err
+}
+
 func (d *Decision[T]) compile(o Options) compiledDecision {
 	out := compiledDecision{errs: slices.Clone(d.mistakes)}
 	if d.ref == nil {
@@ -254,29 +282,11 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 		entry.Default = raw
 	}
 
-	over := -1
-	for i, l := range d.lines {
-		if l.kind != overrideLine {
-			continue
-		}
-		if over >= 0 {
-			bad(errors.New("it has one override line: OverrideFor, OverrideUntilNext or NoOverride"))
-		}
-		over = i
+	over, err := d.override(&entry)
+	if err != nil {
+		bad(err)
 	}
 	none := over >= 0 && d.lines[over].none
-	switch {
-	case none:
-		entry.External = control.NameRevert
-	case over < 0:
-		// An outside change ranks above every line, until their answer next changes.
-		entry.External, entry.OverrideHold = control.NameOverride, control.NameNext
-		entry.Lines = append(entry.Lines, control.LineOverride)
-	case d.lines[over].untilNext:
-		entry.External, entry.OverrideHold = control.NameOverride, control.NameNext
-	default:
-		entry.External, entry.OverrideHold = control.NameOverride, d.lines[over].overrideFor.String()
-	}
 
 	names := map[string]bool{}
 	latched := false
@@ -373,7 +383,13 @@ func (l line) compile(h handle, safety bool, o Options) (decidedCase, error) {
 		cond = l.when[0]
 	}
 	errs = append(errs, checkCondition(cond, o), checkCondition(l.until, o))
-	c.hold.OnDelay, c.hold.OffDelay = l.delay, l.linger
+	if l.delay < 0 {
+		errs = append(errs, fmt.Errorf("Delay %v must not be negative", l.delay))
+	}
+	if l.linger < 0 {
+		errs = append(errs, fmt.Errorf("Linger %v must not be negative", l.linger))
+	}
+	c.hold.OnDelay, c.hold.OffDelay = max(l.delay, 0), max(l.linger, 0)
 	c.hold.WhyNot = whyNot(cond)
 	if l.latch {
 		// A latch is the engine's on a When, so a latched case keeps its Daily there.
@@ -403,7 +419,7 @@ func whyNot(c Condition) func(engine.Vars) string {
 // compileDecisions compiles the home's decisions: the engine's holds, the host's settings and the
 // manifest's rules.
 func (h *Home) compileDecisions() ([]compiledDecision, error) {
-	var out []compiledDecision
+	out := make([]compiledDecision, 0, len(h.decisions))
 	var errs []error
 	for _, d := range h.decisions {
 		c := d.compile(h.options)
@@ -437,11 +453,13 @@ func settingsOf(decided []compiledDecision) []wire.DeviceControl {
 // decision's Flows line is a safety line, and Normal otherwise. The host refuses a claim on a
 // decision with no Flows line.
 func claimPriority(decided []compiledDecision, device, capability string) engine.Priority {
-	i := slices.IndexFunc(decided, func(d compiledDecision) bool { return d.device == device && d.capability == capability })
+	i := slices.IndexFunc(decided, func(d compiledDecision) bool {
+		return d.device == device && d.capability == capability
+	})
 	if i >= 0 && decided[i].flowsSafety {
 		return engine.PrioritySafety
 	}
-	return engine.PriorityNormal
+	return ""
 }
 
 // caseRule is a case's engine rule.

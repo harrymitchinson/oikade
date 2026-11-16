@@ -513,6 +513,47 @@ func TestLatchedSafetyHoldSurvivesAKillMidWay(t *testing.T) {
 	}
 }
 
+// The design's decisions in OIK-298 keep their lingers and latches across a kill: the porch light's
+// motion, the pool pump's frost run and the garage heater's overheat.
+func TestDecisionsKeepTheirLingersAndLatchesAcrossAKill(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.wrote("garage-heater", true)
+	r.change("entry-sensor", "occupied", true)
+	r.wrote("entry-light", true)
+	r.change("pool-water", "temperature", 2)
+	r.wrote("pool-pump", true)
+	r.change("garage-sensor", "temperature", 45)
+	r.wrote("garage-heater", false)
+	r.change("entry-sensor", "occupied", false)
+	r.change("pool-water", "temperature", 10)
+	r.change("garage-sensor", "temperature", 20)
+	// A kill between a case's claim and the save of its state would leave the claim behind (OIK-299).
+	r.sync()
+	r.kill()
+	r.sync()
+
+	// The light lingers, the pump lingers and the heater stays latched off.
+	for _, w := range []struct {
+		device string
+		value  bool
+	}{{"entry-light", false}, {"pool-pump", false}, {"garage-heater", true}} {
+		if n := r.count(wrote, "device", w.device, "value", w.value); n != map[bool]int{false: 0, true: 1}[w.value] {
+			t.Errorf("%s was written %v %d times\n%s", w.device, w.value, n, r.dump())
+		}
+	}
+	// The heater's decision has no override line, so a tap on it is written back.
+	r.change("garage-heater", "on", true)
+	r.awaitCount(2, wrote, "device", "garage-heater", "value", false)
+	r.sync()
+	r.change("garage-door", "open", true)
+	r.sync()
+	if c := onOf(t, r.status("garage-heater"), "garage-heater"); c.Value != true {
+		t.Fatalf("the door didn't end the latch: %+v\n%s", c, r.dump())
+	}
+}
+
 func TestFrozenProcessIsKilledAfterTenSeconds(t *testing.T) {
 	t.Parallel()
 	r := start(t)

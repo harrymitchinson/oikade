@@ -153,6 +153,31 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 	return b, true, next
 }
 
+// untilHolds says whether a latched hold's until is true, which ends the latch. One that can't be
+// told yet keeps it. Call with e.mu held.
+func (e *Engine) untilHolds(h *hold, now time.Time, devices *home) bool {
+	if h.until == nil {
+		return false
+	}
+	ok, err := h.until(e.conditionVars(now, devices))
+	return err == nil && ok
+}
+
+// whyNot works out why an inactive hold isn't active, and tells OnWhyNot when that changed. Call
+// with e.mu held.
+func (e *Engine) whyNot(key ident.ID, hs *holdState, h *hold, inactive bool, now time.Time, devices *home) {
+	why := ""
+	if inactive && h.whyNot != nil {
+		why = h.whyNot(e.conditionVars(now, devices))
+	}
+	if hs.whyNot != why {
+		hs.whyNot = why
+		if e.OnWhyNot != nil {
+			e.OnWhyNot(key, why)
+		}
+	}
+}
+
 // whenKnown records that the hold's look could tell whether it should be active, and logs the end
 // of a stretch when it couldn't. Call with e.mu held.
 func (e *Engine) whenKnown(key ident.ID, hs *holdState) {
@@ -216,12 +241,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	if hs.released {
 		st.Latched, hs.released = false, false
 	}
-	if st.Latched && h.until != nil {
-		// A condition that can't be told yet keeps the latch.
-		if ok, err := h.until(e.conditionVars(now, devices)); err == nil && ok {
-			st.Latched = false
-		}
-	}
+	st.Latched = st.Latched && !e.untilHolds(h, now, devices)
 	var on, known bool
 	var next time.Time
 	if h.budget != nil {
@@ -241,16 +261,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 		on, known, next = e.condition(key, hs, h, now, devices)
 	}
 	st, active := h.step(st, on, known, now)
-	why := ""
-	if known && !on && !active && h.whyNot != nil {
-		why = h.whyNot(e.conditionVars(now, devices))
-	}
-	if hs.whyNot != why {
-		hs.whyNot = why
-		if e.OnWhyNot != nil {
-			e.OnWhyNot(key, why)
-		}
-	}
+	e.whyNot(key, hs, h, known && !on && !active, now, devices)
 	switch {
 	case hs.retry.IsZero():
 	case now.Before(hs.retry):

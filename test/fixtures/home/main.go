@@ -30,6 +30,12 @@ func open(device string) oikade.Bool {
 // humidity is the bathroom's, which the fan follows.
 var humidity = oikade.Number{Device: "bathroom-sensor", Capability: oikade.Humidity}
 
+// The design's examples in OIK-298, with the parts of them that run on the real clock left out.
+var (
+	poolWater  = oikade.Number{Device: "pool-water", Capability: oikade.Temperature}
+	garageTemp = oikade.Number{Device: "garage-sensor", Capability: oikade.Temperature}
+)
+
 // studyHeater is a simulated heater: a Thermostat on the Matter bridge.
 var studyHeater = oikade.Number{Device: "study-heater", Capability: oikade.Setpoint}
 
@@ -217,13 +223,14 @@ func claiming(r *oikade.FlowRun) error {
 	return r.Release("claiming")
 }
 
-// failing holds a normal claim and a Safety one, and fails when a sensor says so.
+// failing holds a normal claim and a Safety one, whose decision has its flows above the override
+// line, and fails when a sensor says so.
 func failing(r *oikade.FlowRun) error {
 	err := r.Set(on("claimed-normal").To(false).UntilReleased())
 	if err != nil {
 		return err
 	}
-	if err = r.Set(on("claimed-safety").To(false).UntilReleased().Priority(oikade.Safety)); err != nil {
+	if err = r.Set(on("claimed-safety").To(false).UntilReleased()); err != nil {
 		return err
 	}
 	r.WaitFor(open("fail-now"), time.Hour)
@@ -296,43 +303,57 @@ func home() rules {
 	}
 	plugins := strings.Contains(variant, "plugins")
 
-	holds := slices.Concat(
-		when(variant != "nofan", oikade.NewHold("fan", on("fan").To(true)).
-			When(humidity.Above(70))),
-		when(variant != "noleak", oikade.NewHold(leakShutoff, on(valve).To(false)).
-			Priority(oikade.Safety).
-			Latch().
-			When(open("leak-sensor"))),
-		[]oikade.Hold{
-			// With no arbiter to hold a claim, only the hold's saved state remembers this latch.
-			oikade.NewHold("leak-alarm", on("siren").To(true)).
-				Latch().
-				When(open("leak-sensor")),
-			// Reads whichever devices are in the cellar now, which oikade devices room changes.
-			oikade.NewHold("cellar-damp", on("dehumidifier").To(true)).
-				When(oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
-					return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
-				})),
-			// A bug in a home: a condition that never returns once the sensor says so.
-			oikade.NewHold("stuck", on("trap-light").To(true)).
-				When(oikade.ConditionFunc("trap", func(s oikade.Snapshot) bool {
-					for s.Get(open("trap")) {
-						continue
-					}
-					return false
-				})),
-		},
-		when(plugins, oikade.NewHold("once", on(once).To(true)).
-			When(open("once-sensor"))),
-		// Names a plugin's device, which a test moves to another room.
-		when(plugins, oikade.NewHold("quiet-held", on("quiet-held").To(true)).
-			When(on("quiet"))),
-		// A Safety rule that keeps the porch's plugs on, and only its plugs.
-		when(variant == "typed", oikade.NewHold("porch-plugs",
-			oikade.InRoom("porch", oikade.Kinds(oikade.OnOffPlugInUnit), oikade.On).To(true)).
-			Priority(oikade.Safety).
-			When(open("porch-go"))),
-	)
+	decide := func(h *oikade.Home) {
+		if variant != "nofan" {
+			h.Decide(on("fan")).Case("fan", true, humidity.Above(70)).Default(false)
+		}
+		if variant != "noleak" {
+			h.Decide(on(valve)).
+				Case(leakShutoff, false, open("leak-sensor")).LatchUntil(open("reset")).
+				OverrideFor(time.Hour).
+				Flows().
+				Default(true)
+		}
+		// With no override line, only the case's saved state remembers this latch.
+		h.Decide(on("siren")).
+			OverrideUntilNext().
+			Case("leak-alarm", true, open("leak-sensor")).LatchUntil(open("reset")).
+			Default(false)
+		// Reads whichever devices are in the cellar now, which oikade devices room changes.
+		h.Decide(on("dehumidifier")).
+			Case("cellar-damp", true, oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
+				return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
+			})).
+			Default(false)
+		// A bug in a home: a condition that never returns once the sensor says so.
+		h.Decide(on("trap-light")).
+			Case("stuck", true, oikade.ConditionFunc("trap", func(s oikade.Snapshot) bool {
+				for s.Get(open("trap")) {
+					continue
+				}
+				return false
+			})).
+			Default(false)
+		h.Decide(on("entry-light")).
+			Case("motion", true, oikade.Bool{Device: "entry-sensor", Capability: oikade.Occupied}).Linger(5 * time.Minute).
+			Default(false)
+		h.Decide(on("pool-pump")).
+			Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 15 * time.Minute}).
+			Case("frost", true, poolWater.Below(3)).Linger(30 * time.Minute).
+			OverrideFor(2 * time.Hour).
+			Default(false)
+		h.Decide(on("garage-heater")).
+			NoOverride().
+			Case("overheat", false, garageTemp.Above(40)).LatchUntil(open("garage-door")).
+			Default(true)
+		// A flow's Safety claim, from flows above the override line.
+		h.Decide(on("claimed-safety")).Flows().OverrideFor(time.Hour).Default(true)
+		if plugins {
+			h.Decide(on(once)).OverrideFor(time.Hour).Case("once", true, open("once-sensor")).Default(false)
+			// Names a plugin's device, which a test moves to another room.
+			h.Decide(on("quiet-held")).Case("quiet-held", true, on("quiet")).Default(false)
+		}
+	}
 
 	// parkmoment turns the parked flow into a moment of the same name.
 	parkedStays := variant != "parkmoment" && variant != "nopark"
@@ -350,28 +371,24 @@ func home() rules {
 		[]oikade.Moment{
 			// A change here gets an answer, so a test knows when the process has caught up.
 			oikade.NewMoment("probe", on("probe-out").To(true)).On(open("probe")).Restart(),
-			oikade.NewMoment("reset", oikade.Release(leakShutoff), oikade.Release("leak-alarm")).On(open("reset")),
+			oikade.NewMoment("reset", oikade.Release("valve on "+leakShutoff), oikade.Release("siren on leak-alarm")).
+				On(open("reset")),
 			oikade.NewMoment(claimMoment, on("claimed").To(false).For(time.Hour)).On(open("claim-go")),
 			oikade.NewMoment("study-setback", studyHeater.To(18)).On(open("study-go")),
 		},
 		// A time of day comes from the test, which seeds when it was last accounted for.
 		when(os.Getenv("OIKADE_TEST_AT") != "",
 			oikade.NewMoment("timed", on("timed-out").To(true)).At(oikade.Clock(os.Getenv("OIKADE_TEST_AT")))),
-		when(variant == "badcheck", oikade.NewMoment(leakShutoff)),
+		when(variant == "badcheck", oikade.NewMoment("valve on "+leakShutoff)),
 		when(variant == "parkmoment", oikade.NewMoment(parkedName, on("park-out").To(true)).On(open("park-go"))),
 		when(plugins, oikade.NewMoment("quiet-heard", on("quiet-heard").To(true)).On(on("quiet"))),
 	)
 
 	var pluginParts []oikade.Plugin
-	var control []oikade.Control
 	switch {
 	case plugins:
 		pluginParts = []oikade.Plugin{
 			oikade.NewPlugin("relays", faultyRelays), oikade.NewPlugin("quiet", quietRelays),
-		}
-		control = []oikade.Control{
-			oikade.NewControl(on(valve).To(true), oikade.PreferOff, oikade.ExternalOverride).OverrideHold(time.Hour),
-			oikade.NewControl(on(once).To(false), oikade.PreferOn, oikade.ExternalOverride).OverrideHold(time.Hour),
 		}
 	case variant == "zigbee":
 		pluginParts = []oikade.Plugin{oikade.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
@@ -379,7 +396,7 @@ func home() rules {
 			Broker: os.Getenv("OIKADE_TEST_ZIGBEE_BROKER"),
 		}))}
 	}
-	return rules{Holds: holds, Moments: moments, Flows: flows, Control: control, Plugins: pluginParts}
+	return rules{Decide: decide, Moments: moments, Flows: flows, Plugins: pluginParts}
 }
 
 // parkedName is the flow that waits, which some variants drop.
@@ -387,20 +404,20 @@ const parkedName = "parked"
 
 // rules is a home by kind.
 type rules struct {
-	Holds   []oikade.Hold
+	Decide  func(*oikade.Home)
 	Moments []oikade.Moment
 	Flows   []oikade.Flow
-	Control []oikade.Control
 	Plugins []oikade.Plugin
 }
 
-func (r rules) home() oikade.Home {
+func (r rules) home() *oikade.Home {
 	var options oikade.Options
 	if variant == "cottage" {
 		options.MatterName = "Cottage"
 	}
-	return oikade.NewHome(options, bundle(r.Holds), bundle(r.Moments), bundle(r.Flows), bundle(r.Control),
-		bundle(r.Plugins))
+	h := oikade.NewHome(options, bundle(r.Moments), bundle(r.Flows), bundle(r.Plugins))
+	r.Decide(h)
+	return h
 }
 
 func bundle[T oikade.Part](parts []T) oikade.Bundle {

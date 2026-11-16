@@ -285,7 +285,7 @@ func TestTheDeployCheckSeesAClaimOnADeviceWhosePluginIsDown(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
 	}
-	if !strings.Contains(stderr, `"leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety-removal") {
+	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety-removal") {
 		t.Fatalf("got %q", stderr)
 	}
 }

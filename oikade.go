@@ -414,14 +414,14 @@ const DefaultLate = 10 * time.Minute
 // the top and recorded steps return what they returned the first time. docs/writing-flows.md says
 // how. NewFlow makes one.
 type Flow struct {
-	name     string
-	on       []Change
-	at       []Time
-	cond     Condition
-	restart  bool
-	late     time.Duration
-	run      func(*FlowRun) error
-	once     once
+	name    string
+	on      []Change
+	at      []Time
+	cond    Condition
+	restart bool
+	late    time.Duration
+	run     func(*FlowRun) error
+	once    once
 }
 
 // NewFlow runs run on each trigger. Name it once.
@@ -583,31 +583,6 @@ func (s Set) endUntil(u engine.Until) Set {
 	}
 	s.until = u
 	return s
-}
-
-// plain checks a Set that's only a capability and a value, as a hold's and a Control's are, and
-// one that names a device if it must.
-func (s Set) plain(what string, device bool) error {
-	switch {
-	case s.capability == "":
-		return fmt.Errorf("%s needs a capability: a handle's To", what)
-	case s.claimFor != 0 || s.until != "":
-		return fmt.Errorf("%s takes no For or Until", what)
-	case device && s.room != "":
-		return fmt.Errorf("%s names a device, not a room", what)
-	case device && s.device == "":
-		return fmt.Errorf("%s needs a device", what)
-	}
-	return nil
-}
-
-// roomOfTypes adds the set to rooms if it's a room's limited to device types, which the host
-// checks a change of device type against.
-func (s Set) roomOfTypes(rooms []wire.RoomOfTypes) []wire.RoomOfTypes {
-	if s.room == "" || len(s.types) == 0 {
-		return rooms
-	}
-	return append(rooms, wire.RoomOfTypes{Room: s.room, Capability: s.capability, DeviceTypes: slices.Clone(s.types)})
 }
 
 // toEngine is the engine's Set, ranked where the capability's decision puts flows.

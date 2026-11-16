@@ -181,12 +181,12 @@ func TestCheckFailsOnACapabilityTheDeviceHasnt(t *testing.T) {
 func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "When(PorchSensor", "OnDelay(-time.Minute).\n\t\t\tWhen(PorchSensor")
+	replaceIn(t, filepath.Join(dir, "main.go"), lingers, lingers+".Delay(-time.Minute)")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
 	}
-	if !strings.Contains(out, "onDelay must not be negative") {
+	if !strings.Contains(out, "Delay -1m0s must not be negative") {
 		t.Errorf("oikade check said:\n%s", out)
 	}
 }
@@ -194,9 +194,8 @@ func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
 func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), afterHold, `OffDelay(5*time.Minute),
-		oikade.NewMoment("lights-out", PorchLight.On.To(false)).At(oikade.Clock("25:00")),
-	)`)
+	replaceIn(t, filepath.Join(dir, "main.go"), madeHome,
+		withPart(`oikade.NewMoment("lights-out", PorchLight.On.To(false)).At(oikade.Clock("25:00"))`))
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -206,18 +205,26 @@ func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
 	}
 }
 
-// duskMoment is a moment for oikade init's home, after its hold.
-const duskMoment = `OffDelay(5*time.Minute),
-		oikade.NewMoment("porch-at-dusk", PorchLight.On.To(true)).At(oikade.Sunset(-20*time.Minute)),
-	)`
+// duskMoment is a moment for oikade init's home.
+var duskMoment = withPart(`oikade.NewMoment("porch-at-dusk", PorchLight.On.To(true).For(time.Hour)).` +
+	`At(oikade.Sunset(-20*time.Minute))`)
 
-// afterHold is the end of oikade init's home, where a test adds to it.
-const afterHold = "OffDelay(5*time.Minute),\n\t)"
+// madeHome is where oikade init's home is made, where a test adds a part, and lingers its case's
+// Linger, where a test adds an option.
+const (
+	madeHome = "oikade.NewHome(oikade.Options{})"
+	lingers  = "Linger(5 * time.Minute)"
+)
+
+// withPart is oikade init's home made with part.
+func withPart(part string) string {
+	return "oikade.NewHome(oikade.Options{},\n\t\t" + part + ",\n\t)"
+}
 
 func TestCheckFailsOnASunsetWithNoLocation(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), afterHold, duskMoment)
+	replaceIn(t, filepath.Join(dir, "main.go"), madeHome, duskMoment)
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -230,7 +237,7 @@ func TestCheckFailsOnASunsetWithNoLocation(t *testing.T) {
 func TestCheckFailsOnANilPart(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "oikade.Options{},", "oikade.Options{}, nil,")
+	replaceIn(t, filepath.Join(dir, "main.go"), madeHome, "oikade.NewHome(oikade.Options{}, nil)")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -244,7 +251,9 @@ func TestDevFiresAtSunsetForTheHomesLocation(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	main := filepath.Join(dir, "main.go")
-	replaceIn(t, main, afterHold, duskMoment)
+	replaceIn(t, main, madeHome, duskMoment)
+	// The moment's Set ranks at the decision's Flows line.
+	replaceIn(t, main, lingers, lingers+".Flows()")
 	replaceIn(t, main, "oikade.Options{}", "oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}")
 	// oikade dev starts now, in this machine's zone, so the next sunset is within a day.
 	before := time.Now()
@@ -325,8 +334,8 @@ import (
 	"github.com/harrymitchinson/oikade"
 )
 
-func discard(h oikade.Hold) {
-	h.OffDelay(time.Minute)
+func discard(m oikade.Moment) {
+	m.Late(time.Minute)
 }
 
 func thrownAway(g oikade.Bool) {
@@ -340,7 +349,7 @@ func thrownAway(g oikade.Bool) {
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
 	}
-	for _, want := range []string{"the result of OffDelay isn't used", "the result of To isn't used"} {
+	for _, want := range []string{"the result of Late isn't used", "the result of To isn't used"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("oikade check didn't say %q:\n%s", want, out)
 		}
@@ -350,12 +359,12 @@ func thrownAway(g oikade.Bool) {
 func TestCheckFailsOnAnOptionGivenTwice(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), afterHold, "OffDelay(5*time.Minute).OffDelay(time.Minute),\n\t)")
+	replaceIn(t, filepath.Join(dir, "main.go"), lingers, lingers+".Linger(time.Minute)")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
 	}
-	if !strings.Contains(out, "rule porch-light: OffDelay is given twice") {
+	if !strings.Contains(out, `decision porch-light on: Case "motion": Linger is given twice`) {
 		t.Errorf("oikade check said:\n%s", out)
 	}
 }
@@ -375,8 +384,8 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("oikade dev: %v\n%s", err, out)
 	}
-	started := strings.Index(out, "Hold porch-light started")
-	ended := strings.Index(out, "Hold porch-light ended")
+	started := strings.Index(out, "porch-light on: motion applies")
+	ended := strings.Index(out, "porch-light on: motion no longer applies")
 	if started < 0 || ended < started {
 		t.Errorf("no hold starting then ending in:\n%s", out)
 	}

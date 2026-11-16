@@ -202,6 +202,9 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	if holder, _ := heldAtSafety(s.srv.engine, s.srv.devices, dev, req.Capability, value); holder != "" {
+		if name, ok := strings.CutPrefix(holder, "Rule/"+req.Device+" "+req.Capability+" "); ok {
+			return api.Response{Error: fmt.Sprintf("%s %s: %s holds it, a safety line", req.Device, req.Capability, name)}
+		}
 		return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
 	}
 	// Before the write, so that the device's answer can't come first.

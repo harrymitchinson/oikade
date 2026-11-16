@@ -59,11 +59,8 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 	}{
 		"a write": {heater.To(true), engine.Set{Device: "heater", Capability: "on", Value: true}},
 		"a claim": {
-			heater.To(true).For(time.Hour).UntilNext().Priority(Override),
-			engine.Set{
-				Device: "heater", Capability: "on", Value: true, For: time.Hour, Until: engine.UntilNext,
-				Priority: engine.Priority(Override),
-			},
+			heater.To(true).For(time.Hour).UntilNext(),
+			engine.Set{Device: "heater", Capability: "on", Value: true, For: time.Hour, Until: engine.UntilNext},
 		},
 		"until released": {
 			heater.To(false).UntilReleased(),
@@ -81,7 +78,7 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 			},
 		},
 	} {
-		if got := tc.set.toEngine(); !reflect.DeepEqual(got, tc.want) {
+		if got := tc.set.toEngine(nil); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", name, got, tc.want)
 		}
 	}
@@ -112,4 +109,28 @@ func TestGettingAValueOfTheWrongTypePanics(t *testing.T) {
 		}
 	}()
 	Snapshot{devices: map[string]map[string]any{"door": {"open": true}}}.Get(wrong)
+}
+
+// A flow's or a moment's Set ranks where its decision's Flows line is: Safety above the override line.
+func TestASetRanksAtItsDecisionsFlowsLine(t *testing.T) {
+	heater, lamp := Bool{Device: "heater", Capability: On}, Bool{Device: "lamp", Capability: On}
+	decided, err := decide(func(h *Home) {
+		h.Decide(heater).Flows().OverrideFor(time.Hour).Default(false)
+		h.Decide(lamp).OverrideFor(time.Hour).Flows().Default(false)
+	}).compileDecisions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		set  Set
+		want engine.Priority
+	}{
+		{heater.To(true).For(time.Hour), engine.PrioritySafety},
+		{lamp.To(true).For(time.Hour), ""},
+		{Bool{Device: "fan", Capability: On}.To(true), ""},
+	} {
+		if got := tc.set.toEngine(decided).(engine.Set).Priority; got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.set.device, got, tc.want)
+		}
+	}
 }

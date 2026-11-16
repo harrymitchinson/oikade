@@ -19,9 +19,9 @@ func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	c, _, err := wire.Dial(ctx, socket, []string{"lamp-on", "heater", "rail"}, nil,
-		wire.RuleInfo{Name: "lamp-on", Kind: wire.KindHold},
-		wire.RuleInfo{Name: "heater", Kind: wire.KindHold},
-		wire.RuleInfo{Name: "rail", Kind: wire.KindHold},
+		wire.RuleInfo{Name: "lamp-on", Kind: wire.KindCase},
+		wire.RuleInfo{Name: "heater", Kind: wire.KindCase},
+		wire.RuleInfo{Name: "rail", Kind: wire.KindCase},
 		wire.RuleInfo{Name: "gate", Kind: "moment"},
 	)
 	if err != nil {

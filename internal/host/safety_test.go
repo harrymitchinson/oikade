@@ -76,7 +76,7 @@ func TestARenameWithNoProcessNeedsAllowSafetyOnceCodeHasRun(t *testing.T) {
 	empty.Close()
 	untilGone()
 
-	c, _, err := wire.Dial(ctx, socket, []string{"leak"}, nil, wire.RuleInfo{Name: "leak", Kind: wire.KindHold, Safety: true})
+	c, _, err := wire.Dial(ctx, socket, []string{"leak"}, nil, wire.RuleInfo{Name: "leak", Kind: wire.KindCase, Safety: true})
 	if err != nil {
 		t.Fatal(err)
 	}
