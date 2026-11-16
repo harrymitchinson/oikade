@@ -90,6 +90,8 @@ func why(sig *types.Signature, result *types.Named) string {
 		return fmt.Sprintf("a %s does nothing until NewHome or NewBundle takes it", name)
 	case "Home":
 		return "a Home does nothing until oikade.Run takes it"
+	case "Condition", "Hours", "Dates":
+		return "a condition does nothing until a rule takes it"
 	}
 	return fmt.Sprintf("a %s does nothing until something takes it", name)
 }

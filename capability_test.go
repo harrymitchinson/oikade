@@ -18,8 +18,10 @@ func TestTheConstantsAreTheRegistrys(t *testing.T) {
 		name, value string
 		kind        capability.Kind
 	}
-	b := func(name string, c Bool) constant { return constant{name, string(c), capability.KindBool} }
-	n := func(name string, c Number) constant { return constant{name, string(c), capability.KindNumber} }
+	b := func(name string, c Capability[bool]) constant { return constant{name, string(c), capability.KindBool} }
+	n := func(name string, c Capability[float64]) constant {
+		return constant{name, string(c), capability.KindNumber}
+	}
 	all := []constant{
 		b("On", On), n("Brightness", Brightness), n("Temperature", Temperature), n("Humidity", Humidity),
 		b("Open", Open), b("Occupied", Occupied), n("Battery", Battery), n("LinkQuality", LinkQuality),
@@ -50,7 +52,7 @@ func TestThermostatIsTheDeviceTypes(t *testing.T) {
 }
 
 func TestASetReachesTheEngineWhole(t *testing.T) {
-	heater := Handle[bool]{Device: "heater", Capability: On}
+	heater := Bool{Device: "heater", Capability: On}
 	for name, tc := range map[string]struct {
 		set  Set
 		want engine.Set
@@ -94,16 +96,20 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 	if got := heater.change(); !reflect.DeepEqual(got, engine.Change{Device: "heater", Capability: "on"}) {
 		t.Errorf("a handle's change is %+v", got)
 	}
+	becomes := engine.Change{Device: "heater", Capability: "on", To: true}
+	if got := heater.Becomes(true).change(); !reflect.DeepEqual(got, becomes) {
+		t.Errorf("a Becomes is %+v", got)
+	}
 }
 
 // Only a home that builds its own handles can get a type wrong, and a condition that does stops,
 // which the engine logs.
 func TestGettingAValueOfTheWrongTypePanics(t *testing.T) {
-	wrong := Handle[float64]{Device: "door", Capability: "open"}
+	wrong := Number{Device: "door", Capability: "open"}
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("no panic")
 		}
 	}()
-	State{devices: map[string]map[string]any{"door": {"open": true}}}.Get(wrong)
+	Snapshot{devices: map[string]map[string]any{"door": {"open": true}}}.Get(wrong)
 }

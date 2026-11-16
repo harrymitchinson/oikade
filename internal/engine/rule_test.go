@@ -197,7 +197,7 @@ func TestGoRuleKeepsNoCallerSlices(t *testing.T) {
 		t.Fatal(err)
 	}
 	changes[0].Device, days[0] = "b", time.Tuesday
-	if !c.matches("a", "", nil, capability.Occupied) || c.timers[0].days[0] != time.Monday {
+	if !c.matches("a", "", nil, capability.Occupied, nil) || c.timers[0].days[0] != time.Monday {
 		t.Errorf("the compiled rule changed with its input: %+v", c)
 	}
 }
@@ -210,7 +210,7 @@ func TestNewTriggerMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.matches("any", "hall", nil, capability.Occupied) || c.matches("any", "attic", nil, capability.Occupied) {
+	if !c.matches("any", "hall", nil, capability.Occupied, nil) || c.matches("any", "attic", nil, capability.Occupied, nil) {
 		t.Error("the change trigger doesn't match as written")
 	}
 	if len(c.timers) != 2 || c.timers[0].minutes != 7*60+30 || c.timers[1].event != sun.Sunset {
@@ -237,7 +237,7 @@ func TestARoomChangeOfTypesMatchesOnlyThoseTypes(t *testing.T) {
 		"a device with no type":   {"hall", nil, false},
 		"a light in another room": {"attic", []devicetype.Type{devicetype.OnOffLight}, false},
 	} {
-		if got := c.matches("d", tc.room, tc.types, capability.On); got != tc.want {
+		if got := c.matches("d", tc.room, tc.types, capability.On, nil); got != tc.want {
 			t.Errorf("%s: matches = %v, want %v", name, got, tc.want)
 		}
 	}

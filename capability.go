@@ -13,56 +13,99 @@ type Value interface{ bool | float64 }
 // capability there is.
 type Capability[T Value] string
 
-// Bool is a capability that's true or false.
-type Bool = Capability[bool]
-
-// Number is a capability that's a number.
-type Number = Capability[float64]
-
 // The capabilities, as oikade devices shows them and plugins name them in contract/v1.
 const (
 	// On is whether a light, switch or outlet is on.
-	On Bool = contractv1.On
+	On Capability[bool] = contractv1.On
 	// Brightness is a light's brightness in percent, which doesn't turn it on or off.
-	Brightness Number = contractv1.Brightness
+	Brightness Capability[float64] = contractv1.Brightness
 	// Temperature is in degrees Celsius.
-	Temperature Number = contractv1.Temperature
+	Temperature Capability[float64] = contractv1.Temperature
 	// Humidity is relative humidity in percent.
-	Humidity Number = contractv1.Humidity
+	Humidity Capability[float64] = contractv1.Humidity
 	// Open is true while a door or window is open.
-	Open Bool = contractv1.Open
+	Open Capability[bool] = contractv1.Open
 	// Occupied is true while motion or presence is detected.
-	Occupied Bool = contractv1.Occupied
+	Occupied Capability[bool] = contractv1.Occupied
 	// Battery is a battery's charge in percent.
-	Battery Number = contractv1.Battery
+	Battery Capability[float64] = contractv1.Battery
 	// LinkQuality is a radio link's quality, from 0 to 255.
-	LinkQuality Number = contractv1.LinkQuality
+	LinkQuality Capability[float64] = contractv1.LinkQuality
 	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius. It doesn't
 	// turn it on or off: On does.
-	Setpoint Number = contractv1.Setpoint
+	Setpoint Capability[float64] = contractv1.Setpoint
 	// Locked is true while a lock's bolt is fully thrown. A hold's end leaves a lock as it is: only
 	// To(false) unlocks it.
-	Locked Bool = contractv1.Locked
+	Locked Capability[bool] = contractv1.Locked
 	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
 	// fully closed. A write settles for 2 minutes while it travels.
-	Position Number = contractv1.Position
+	Position Capability[float64] = contractv1.Position
 )
 
-// Handle is one capability of one device. oikade types writes one for each capability each of your
-// devices has, as PorchLight.On, so that a condition, a trigger or a write naming a capability
-// the device doesn't have, or a value of the wrong type, doesn't compile.
-type Handle[T Value] struct {
+// Bool is one capability of one device that's true or false, such as PorchLight.On. oikade types
+// writes one for each such capability each of your devices has, so that naming a capability the
+// device doesn't have, or a value of the wrong type, doesn't compile. A Bool is a condition, true
+// while the capability is, and a change, which fires whenever it changes.
+type Bool struct {
 	Device     string
-	Capability Capability[T]
+	Capability Capability[bool]
+}
+
+// Number is one capability of one device that's a number, such as Study.Setpoint. oikade types writes
+// one for each such capability each of your devices has. Above, Below and Within make conditions of
+// it, and it's a change, which fires whenever it changes.
+type Number struct {
+	Device     string
+	Capability Capability[float64]
+}
+
+// Ref is a Bool or a Number: a capability of one device whose values are T, which hometest's helpers
+// take.
+type Ref[T Value] interface {
+	// To is a write of v to the device.
+	To(v T) Set
+	handle() handle
+}
+
+// handle is a device's capability, as Bool and Number name it.
+type handle struct{ device, capability string }
+
+func (h handle) change() engine.Change {
+	return engine.Change{Device: h.device, Capability: h.capability}
 }
 
 // To is a write of v to the device: an action, a hold's Set or a Control's default.
-func (h Handle[T]) To(v T) Set {
-	return Set{device: h.Device, capability: string(h.Capability), value: v}
+func (b Bool) To(v bool) Set {
+	return Set{device: b.Device, capability: string(b.Capability), value: v}
 }
 
-func (h Handle[T]) change() engine.Change {
-	return engine.Change{Device: h.Device, Capability: string(h.Capability)}
+// To is a write of v to the device: an action, a hold's Set or a Control's default.
+func (n Number) To(v float64) Set {
+	return Set{device: n.Device, capability: string(n.Capability), value: v}
+}
+
+func (b Bool) handle() handle   { return handle{b.Device, string(b.Capability)} }
+func (n Number) handle() handle { return handle{n.Device, string(n.Capability)} }
+
+func (b Bool) change() engine.Change   { return b.handle().change() }
+func (n Number) change() engine.Change { return n.handle().change() }
+
+// Becomes is a change to v: a trigger that fires when the capability changes to v, and not when it
+// changes away from it.
+//
+//	oikade.NewFlow("front-door-arrival", arrival).On(FrontDoor.Open.Becomes(true))
+func (b Bool) Becomes(v bool) Change { return becomes{b.handle(), v} }
+
+// becomes is a change to one value.
+type becomes struct {
+	h  handle
+	to bool
+}
+
+func (c becomes) change() engine.Change {
+	e := c.h.change()
+	e.To = c.to
+	return e
 }
 
 // DeviceType is what a device that's on or off is, in Matter's names, as oikade devices shows it. A
@@ -147,8 +190,8 @@ func (r Room[T]) engineTypes() []devicetype.Type {
 	return out
 }
 
-// Change is what triggers a moment or a flow: a capability changing on a device, as a Handle, or on
-// any device in a room, from InRoom.
+// Change is what triggers a moment or a flow: a capability changing on a device, as a Bool or a
+// Number, a Bool's Becomes, or a change on any device in a room, from InRoom.
 type Change interface {
 	change() engine.Change
 }

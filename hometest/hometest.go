@@ -117,11 +117,23 @@ func (h *Home) Now() time.Time { return h.sim.Now() }
 
 // Set changes a device from outside your automations, as its sensor or a tap in an app would, and
 // waits for your automations to take it in.
-func (h *Home) Set[T oikade.Value](c oikade.Handle[T], value T) {
+func (h *Home) Set[T oikade.Value](c oikade.Ref[T], value T) {
 	h.t.Helper()
-	if err := h.sim.Set(c.Device, string(c.Capability), value); err != nil {
+	device, name := h.names(c)
+	if err := h.sim.Set(device, name, value); err != nil {
 		h.t.Fatal(err)
 	}
+}
+
+// names are the device and capability c names.
+func (h *Home) names[T oikade.Value](c oikade.Ref[T]) (device, name string) {
+	h.t.Helper()
+	var zero T
+	device, name, _, err := simhome.FromSet(c.To(zero))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return device, name
 }
 
 // Report changes several values of one device at once, as one message from it would, and waits for
@@ -171,13 +183,15 @@ func (h *Home) Restart() {
 }
 
 // Value reads a device's value, and whether it has one yet.
-func (h *Home) Value[T oikade.Value](c oikade.Handle[T]) (T, bool) {
+func (h *Home) Value[T oikade.Value](c oikade.Ref[T]) (T, bool) {
+	h.t.Helper()
 	var zero T
-	v, ok := h.sim.Value(c.Device, string(c.Capability))
+	device, name := h.names(c)
+	v, ok := h.sim.Value(device, name)
 	if !ok {
 		return zero, false
 	}
-	t, ok := as[T](string(c.Capability), v)
+	t, ok := as[T](name, v)
 	return t, ok
 }
 
@@ -201,8 +215,9 @@ func (h *Home) Writes() []Write {
 }
 
 // Claims are the claims on an arbitrated capability.
-func (h *Home) Claims[T oikade.Value](c oikade.Handle[T]) []Claim {
-	claims := h.sim.Claims(c.Device, string(c.Capability))
+func (h *Home) Claims[T oikade.Value](c oikade.Ref[T]) []Claim {
+	h.t.Helper()
+	claims := h.sim.Claims(h.names(c))
 	out := make([]Claim, 0, len(claims))
 	for _, c := range claims {
 		out = append(out, Claim(c))
@@ -214,33 +229,35 @@ func (h *Home) Claims[T oikade.Value](c oikade.Handle[T]) []Claim {
 func (h *Home) Finished(rule string) bool { return h.sim.Finished(rule) }
 
 // ExpectValue fails the test unless a device has this value.
-func (h *Home) ExpectValue[T oikade.Value](c oikade.Handle[T], want T) {
+func (h *Home) ExpectValue[T oikade.Value](c oikade.Ref[T], want T) {
 	h.t.Helper()
 	if got, ok := h.Value(c); ok && got == want {
 		return
 	}
-	if raw, ok := h.sim.Value(c.Device, string(c.Capability)); ok {
-		h.t.Fatalf("%s %s is %v, want %v", c.Device, c.Capability, raw, want)
+	device, name := h.names(c)
+	if raw, ok := h.sim.Value(device, name); ok {
+		h.t.Fatalf("%s %s is %v, want %v", device, name, raw, want)
 	}
-	h.t.Fatalf("%s %s has no value, want %v", c.Device, c.Capability, want)
+	h.t.Fatalf("%s %s has no value, want %v", device, name, want)
 }
 
 // ExpectWrite fails the test unless your automations have written this value to a device.
-func (h *Home) ExpectWrite[T oikade.Value](c oikade.Handle[T], want T) {
+func (h *Home) ExpectWrite[T oikade.Value](c oikade.Ref[T], want T) {
 	h.t.Helper()
+	device, name := h.names(c)
 	for _, w := range h.Writes() {
-		if w.Device != c.Device || w.Capability != string(c.Capability) {
+		if w.Device != device || w.Capability != name {
 			continue
 		}
 		if got, ok := as[T](w.Capability, w.Value); ok && got == want {
 			return
 		}
 	}
-	h.t.Fatalf("nothing wrote %v to %s %s. Writes: %v", want, c.Device, c.Capability, h.Writes())
+	h.t.Fatalf("nothing wrote %v to %s %s. Writes: %v", want, device, name, h.Writes())
 }
 
 // ExpectClaim fails the test unless source holds a claim at this level.
-func (h *Home) ExpectClaim[T oikade.Value](c oikade.Handle[T], source, level string) {
+func (h *Home) ExpectClaim[T oikade.Value](c oikade.Ref[T], source, level string) {
 	h.t.Helper()
 	claims := h.Claims(c)
 	for _, claim := range claims {
@@ -248,7 +265,8 @@ func (h *Home) ExpectClaim[T oikade.Value](c oikade.Handle[T], source, level str
 			return
 		}
 	}
-	h.t.Fatalf("%s holds no %s claim on %s %s. Claims: %+v", source, level, c.Device, c.Capability, claims)
+	device, name := h.names(c)
+	h.t.Fatalf("%s holds no %s claim on %s %s. Claims: %+v", source, level, device, name, claims)
 }
 
 // ExpectFinished fails the test unless a flow or moment finished.

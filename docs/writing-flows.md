@@ -40,7 +40,9 @@ Everything that happens outside the flow, or varies between runs, is a step on i
 |---|---|
 | `r.Now()` | The time, instead of `time.Now` |
 | `r.Sleep(d)` | Waits. A restart doesn't move the time it ends |
-| `r.WaitFor(cond, timeout)` | Waits until `cond` is true and returns true, or returns false at the timeout. Zero means no limit |
+| `r.Get(Hallway.Occupied)` | Reads a `Bool` or a `Number` now. A value nobody has reported yet ends the run as failed |
+| `r.Is(cond)` | Whether a [condition](automations.md#conditions) is true now, such as `oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0))` for whether it's dark. One that reads a value nobody has reported yet is false |
+| `r.WaitFor(cond, timeout)` | Waits until a condition is true and returns true, or returns false at the timeout. Zero means no limit |
 | `r.Set(Hallway.On.To(true))` | Writes a capability. On an arbitrated one it's a claim, which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()`. `Hallway.On.To(true)` alone writes nothing, and fails `oikade check` |
 | `r.Release(rule)` | Ends a rule's claims, and a hold's latch |
 | `r.Do(name, &result, call)` | Makes an outside call, and records its result and error |

@@ -273,9 +273,7 @@ import (
 func home() oikade.Home {
 	return oikade.NewHome(oikade.Options{},
 		oikade.NewHold("porch-light", PorchLight.On.To(true)).
-			When(func(s oikade.State) bool {
-				return s.Get(PorchSensor.Occupied)
-			}).
+			When(PorchSensor.Occupied).
 			OffDelay(5*time.Minute),
 	)
 }

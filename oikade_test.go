@@ -21,8 +21,8 @@ import (
 )
 
 func TestCompileRejectsAnUnsoundHome(t *testing.T) {
-	when := func(State) bool { return true }
-	d := Handle[bool]{Device: "d", Capability: On}
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
+	d := Bool{Device: "d", Capability: On}
 	for name, tc := range map[string]struct {
 		home Home
 		want string
@@ -33,7 +33,7 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			NewMoment("a", Wait(time.Second)).At(Clock("07:00")),
 		), "declared twice"},
 		"unknown capability": {
-			NewHome(Options{}, NewHold("a", Handle[bool]{Device: "d", Capability: "nope"}.To(true)).When(when)),
+			NewHome(Options{}, NewHold("a", Bool{Device: "d", Capability: "nope"}.To(true)).When(when)),
 			"unknown capability",
 		},
 		"no trigger": {NewHome(Options{}, NewMoment("a", Wait(time.Second))), "trigger"},
@@ -50,14 +50,35 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			`rule bedtime: timers[0]: time "25:00" is not HH:MM`,
 		},
 		"a window with no end": {
-			NewHome(Options{}, NewHold("evening", d.To(true)).Window(NewWindow(Clock("18:00"), Time{}))), "end: no time",
+			NewHome(Options{}, NewHold("evening", d.To(true)).When(Daily(Clock("18:00"), Time{}))), "end: no time",
+		},
+		"a window that isn't one": {
+			NewHome(Options{}, NewHold("evening", d.To(true)).When(All(d, Daily("18:00", "7")))), `time "7" is not HH:MM`,
+		},
+		"a date that isn't one": {
+			NewHome(Options{}, NewHold("summer", d.To(true)).When(Yearly("1 Jun", "31 Jun"))), `"31 Jun" isn't a date`,
+		},
+		"a Within the wrong way round": {
+			NewHome(Options{}, NewHold("comfy", d.To(true)).When(Number{"t", Temperature}.Within(25, 18))),
+			"give the lower first",
+		},
+		"a nil condition in All": {
+			NewHome(Options{}, NewHold("a", d.To(true)).When(All(d, nil))), "All has a nil condition, at 1",
+		},
+		"a hold with no When": {NewHome(Options{}, NewHold("a", d.To(true))), "a hold needs a When or a Budget"},
+		"a ConditionFunc with no label": {
+			NewHome(Options{}, NewHold("a", d.To(true)).When(ConditionFunc("", func(Snapshot) bool { return true }))),
+			"a ConditionFunc needs a label",
+		},
+		"a moment's condition": {
+			NewHome(Options{}, NewMoment("a", d.To(true)).On(d).If(Yearly("1 Jun", "June 30"))), `"June 30" isn't a date`,
 		},
 		"a sunset with no site": {
 			NewHome(Options{}, NewMoment("porch-at-dusk", Wait(time.Second)).At(Sunset(0))),
 			"rule porch-at-dusk: a sunrise or sunset needs the home's location",
 		},
 		"a sunrise window with no site": {
-			NewHome(Options{}, NewHold("a", d.To(true)).Window(NewWindow(Sunrise(0), Clock("09:00")))),
+			NewHome(Options{}, NewHold("a", d.To(true)).When(Daily(Sunrise(0), Clock("09:00")))),
 			"rule a: a sunrise or sunset needs the home's location",
 		},
 		"a latitude off the earth": {
@@ -95,11 +116,11 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 
 func TestConditionSeesTheHome(t *testing.T) {
 	now := time.Date(2026, 11, 6, 7, 0, 0, 0, time.UTC)
-	door := Handle[bool]{Device: "door", Capability: Open}
-	room := Handle[float64]{Device: "room", Capability: Temperature}
-	cond := Condition(func(s State) bool {
+	door := Bool{Device: "door", Capability: Open}
+	room := Number{Device: "room", Capability: Temperature}
+	cond := toEngine(ConditionFunc("door and room", func(s Snapshot) bool {
 		return s.Get(door) && s.Get(room) > 20 && s.Now().Equal(now)
-	}).toEngine()
+	}))
 	ok, err := cond(engine.Vars{"now": now, "devices": map[string]map[string]any{
 		"door": {"open": true},
 		"room": {"temperature": 21.5},
@@ -111,8 +132,8 @@ func TestConditionSeesTheHome(t *testing.T) {
 
 // A hold has to keep its state until the devices it reads have reported, so that isn't false.
 func TestConditionReadingAnUnreportedValueIsAnError(t *testing.T) {
-	door := Handle[bool]{Device: "door", Capability: Open}
-	cond := Condition(func(s State) bool { return !s.Get(door) }).toEngine()
+	door := Bool{Device: "door", Capability: Open}
+	cond := toEngine(Not(door))
 	devices := map[string]map[string]any{"door": {}}
 	if _, err := cond(engine.Vars{"devices": devices}); err == nil {
 		t.Fatal("got no error")
@@ -122,7 +143,7 @@ func TestConditionReadingAnUnreportedValueIsAnError(t *testing.T) {
 // A device that doesn't exist will never report, so it mustn't pass for one that hasn't yet. The
 // engine recovers this panic and logs it.
 func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
-	cond := Condition(func(s State) bool { return s.Get(Handle[bool]{Device: "dor", Capability: Open}) }).toEngine()
+	cond := toEngine(Bool{Device: "dor", Capability: Open})
 	defer func() {
 		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "no device dor") {
 			t.Fatalf("got %v", r)
@@ -132,15 +153,15 @@ func TestConditionReadingAnUndeclaredDevicePanics(t *testing.T) {
 }
 
 func TestLookupCarriesOnWithoutAValue(t *testing.T) {
-	cellar := Handle[float64]{Device: "cellar", Capability: Humidity}
-	attic := Handle[float64]{Device: "attic", Capability: Humidity}
-	cond := Condition(func(s State) bool {
+	cellar := Number{Device: "cellar", Capability: Humidity}
+	attic := Number{Device: "attic", Capability: Humidity}
+	cond := toEngine(ConditionFunc("attic damp", func(s Snapshot) bool {
 		if _, ok := s.Lookup(cellar); ok {
 			t.Error("Lookup found a value nobody reported")
 		}
 		v, ok := s.Lookup(attic)
 		return ok && v > 60
-	}).toEngine()
+	}))
 	ok, err := cond(engine.Vars{"devices": map[string]map[string]any{"cellar": {}, "attic": {"humidity": 70.0}}})
 	if err != nil || !ok {
 		t.Fatalf("got %v, %v", ok, err)
@@ -148,10 +169,10 @@ func TestLookupCarriesOnWithoutAValue(t *testing.T) {
 }
 
 func TestLookupOfAnUndeclaredDevicePanics(t *testing.T) {
-	cond := Condition(func(s State) bool {
-		_, ok := s.Lookup(Handle[bool]{Device: "dor", Capability: Open})
+	cond := toEngine(ConditionFunc("dor", func(s Snapshot) bool {
+		_, ok := s.Lookup(Bool{Device: "dor", Capability: Open})
 		return ok
-	}).toEngine()
+	}))
 	defer func() {
 		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "no device dor") {
 			t.Fatalf("got %v", r)
@@ -189,18 +210,18 @@ func hallway() engine.Vars {
 
 func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
 	for name, tc := range map[string]struct {
-		cond Condition
+		cond func(Snapshot) bool
 		want bool
 	}{
-		"any":         {func(s State) bool { return s.Any(InRoom("hallway", Everything, Occupied)) }, true},
-		"all":         {func(s State) bool { return s.All(InRoom("hallway", Everything, Occupied)) }, false},
-		"count":       {func(s State) bool { return s.Count(InRoom("hallway", Everything, Occupied)) == 1 }, true},
-		"all on":      {func(s State) bool { return s.All(InRoom("hallway", Everything, On)) }, false},
-		"lights only": {func(s State) bool { return s.All(InRoom("hallway", Lights, On)) }, true},
-		"plugs only":  {func(s State) bool { return s.Any(InRoom("hallway", Kinds(OnOffPlugInUnit), On)) }, false},
+		"any":         {func(s Snapshot) bool { return s.Any(InRoom("hallway", Everything, Occupied)) }, true},
+		"all":         {func(s Snapshot) bool { return s.All(InRoom("hallway", Everything, Occupied)) }, false},
+		"count":       {func(s Snapshot) bool { return s.Count(InRoom("hallway", Everything, Occupied)) == 1 }, true},
+		"all on":      {func(s Snapshot) bool { return s.All(InRoom("hallway", Everything, On)) }, false},
+		"lights only": {func(s Snapshot) bool { return s.All(InRoom("hallway", Lights, On)) }, true},
+		"plugs only":  {func(s Snapshot) bool { return s.Any(InRoom("hallway", Kinds(OnOffPlugInUnit), On)) }, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			ok, err := tc.cond.toEngine()(hallway())
+			ok, err := toEngine(ConditionFunc(name, tc.cond))(hallway())
 			if err != nil || ok != tc.want {
 				t.Fatalf("got %v, %v; want %v", ok, err, tc.want)
 			}
@@ -210,10 +231,10 @@ func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
 
 func TestReadingsAreInDeviceNameOrder(t *testing.T) {
 	var got []float64
-	cond := Condition(func(s State) bool {
+	cond := toEngine(ConditionFunc("cellar damp", func(s Snapshot) bool {
 		got = s.Readings(InRoom("cellar", Everything, Humidity))
 		return slices.Max(got) > 65
-	}).toEngine()
+	}))
 	ok, err := cond(engine.Vars{
 		"devices": map[string]map[string]any{"b": {"humidity": 70.0}, "a": {"humidity": 50.0}, "c": {}},
 		"members": map[string]hub.Member{"a": {Room: "cellar"}, "b": {Room: "cellar"}, "c": {Room: "cellar"}},
@@ -225,35 +246,31 @@ func TestReadingsAreInDeviceNameOrder(t *testing.T) {
 
 // A hold keeps its state while it can't tell, as with a single device that hasn't reported.
 func TestARoomWhereNothingHasReportedIsAnError(t *testing.T) {
-	for name, cond := range map[string]Condition{
-		"nothing reported": func(s State) bool { return s.Any(InRoom("cellar", Everything, Occupied)) },
-		"no such room":     func(s State) bool { return s.Any(InRoom("loft", Everything, Occupied)) },
-		"no room":          func(s State) bool { return s.Any(InRoom("", Everything, Occupied)) },
-		"no such type":     func(s State) bool { return s.Any(InRoom("hallway", Kinds(DimmableLight), On)) },
+	for name, cond := range map[string]func(Snapshot) bool{
+		"nothing reported": func(s Snapshot) bool { return s.Any(InRoom("cellar", Everything, Occupied)) },
+		"no such room":     func(s Snapshot) bool { return s.Any(InRoom("loft", Everything, Occupied)) },
+		"no room":          func(s Snapshot) bool { return s.Any(InRoom("", Everything, Occupied)) },
+		"no such type":     func(s Snapshot) bool { return s.Any(InRoom("hallway", Kinds(DimmableLight), On)) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := cond.toEngine()(hallway()); err == nil {
+			if _, err := toEngine(ConditionFunc(name, cond))(hallway()); err == nil {
 				t.Fatal("got no error")
 			}
 		})
 	}
 }
 
-func within(t *testing.T, w Window, at time.Time) bool {
+func is(t *testing.T, c Condition, at time.Time) bool {
 	t.Helper()
-	var in bool
-	ok, err := Condition(func(s State) bool {
-		in = s.Within(w)
-		return true
-	}).toEngine()(engine.Vars{"now": at, "location": at.Location()})
-	if err != nil || !ok {
+	ok, err := toEngine(c)(engine.Vars{"now": at, "location": at.Location()})
+	if err != nil {
 		t.Fatalf("got %v, %v", ok, err)
 	}
-	return in
+	return ok
 }
 
-func TestWithinIsAHoldsWindow(t *testing.T) {
-	evening := NewWindow(Clock("18:00"), Clock("07:00"))
+func TestDailyIsOpenFromItsStartUntilTheNextEnd(t *testing.T) {
+	evening := Daily("18:00", "07:00")
 	// Friday 6 November 2026, in Paris.
 	paris, err := time.LoadLocation("Europe/Paris")
 	if err != nil {
@@ -261,7 +278,7 @@ func TestWithinIsAHoldsWindow(t *testing.T) {
 	}
 	at := func(day, hour, minute int) time.Time { return time.Date(2026, 11, day, hour, minute, 0, 0, paris) }
 	for _, tc := range []struct {
-		w    Window
+		c    Hours
 		at   time.Time
 		want bool
 	}{
@@ -271,24 +288,206 @@ func TestWithinIsAHoldsWindow(t *testing.T) {
 		{evening, at(7, 12, 0), false},
 		{evening, at(6, 18, 0), true},
 		// Starting on Fridays, it's still open early on Saturday, and not early on Friday.
-		{NewWindow(Clock("20:00"), Clock("04:00")).Days(time.Friday), at(7, 2, 0), true},
-		{NewWindow(Clock("20:00"), Clock("04:00")).Days(time.Friday), at(6, 2, 0), false},
+		{Daily("20:00", "04:00").Days(time.Friday), at(7, 2, 0), true},
+		{Daily("20:00", "04:00").Days(time.Friday), at(6, 2, 0), false},
 	} {
-		if got := within(t, tc.w, tc.at); got != tc.want {
-			t.Errorf("Within(%v to %v) at %s = %v, want %v", tc.w.start, tc.w.end, tc.at, got, tc.want)
+		if got := is(t, tc.c, tc.at); got != tc.want {
+			t.Errorf("Daily(%v) at %s = %v, want %v", tc.c, tc.at, got, tc.want)
 		}
 	}
 }
 
-func TestWithinAWindowWithAMistakeIsABug(t *testing.T) {
-	bad := NewWindow(Clock("25:00"), Clock("07:00"))
-	cond := Condition(func(s State) bool { return s.Within(bad) }).toEngine()
-	defer func() {
-		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "window") {
-			t.Fatalf("got %v", r)
+// The clocks go forward at 02:00 on Sunday 29 March 2026 in London, and back at 02:00 on Sunday 25
+// October. A Daily is in wall-clock time either side.
+func TestDailyKeepsToTheWallClockAcrossAClockChange(t *testing.T) {
+	london, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		t.Fatal(err)
+	}
+	night := Daily("01:00", "03:00")
+	for _, tc := range []struct {
+		at   time.Time
+		want bool
+	}{
+		{time.Date(2026, 3, 29, 0, 59, 0, 0, london), false},
+		{time.Date(2026, 3, 29, 1, 30, 0, 0, london), true},
+		// 02:00 GMT is 03:00 BST, so the window has just closed: it was an hour long.
+		{time.Date(2026, 3, 29, 2, 0, 0, 0, time.UTC), false},
+		{time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), true}, // 01:30 BST
+		{time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC), true}, // 01:30 GMT, the second time round
+		{time.Date(2026, 10, 25, 3, 0, 0, 0, time.UTC), false}, // 03:00 GMT
+	} {
+		if got := is(t, night, tc.at.In(london)); got != tc.want {
+			t.Errorf("Daily(%v) at %s = %v, want %v", night, tc.at.In(london), got, tc.want)
 		}
-	}()
-	_, _ = cond(engine.Vars{"now": time.Now()})
+	}
+}
+
+func TestYearlyIsWholeDaysAndCrossesTheYearsEnd(t *testing.T) {
+	summer := Yearly("1 Jun", "15 September")
+	winter := Yearly("1 Dec", "28 Feb")
+	day := func(month time.Month, d, hour int) time.Time {
+		return time.Date(2026, month, d, hour, 0, 0, 0, time.UTC)
+	}
+	for _, tc := range []struct {
+		c    Dates
+		at   time.Time
+		want bool
+	}{
+		{summer, day(5, 31, 23), false},
+		{summer, day(6, 1, 0), true},
+		{summer, day(9, 15, 23), true},
+		{summer, day(9, 16, 0), false},
+		{winter, day(12, 31, 23), true},
+		{winter, day(1, 1, 0), true},
+		{winter, day(2, 28, 12), true},
+		{winter, day(3, 1, 0), false},
+		{winter, day(11, 30, 23), false},
+		{Yearly("29 Feb", "29 Feb"), time.Date(2028, 2, 29, 12, 0, 0, 0, time.UTC), true},
+	} {
+		if got := is(t, tc.c, tc.at); got != tc.want {
+			t.Errorf("Yearly(%s, %s) on %s = %v, want %v", tc.c.start, tc.c.end, tc.at, got, tc.want)
+		}
+	}
+}
+
+// Yearly's day is the host's, so New Year's Eve in Sydney is already 1 January there.
+func TestYearlyIsInTheHostsTimeZone(t *testing.T) {
+	sydney, err := time.LoadLocation("Australia/Sydney")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newYear := Yearly("1 Jan", "1 Jan")
+	if !is(t, newYear, time.Date(2026, 12, 31, 14, 0, 0, 0, time.UTC).In(sydney)) {
+		t.Error("it's 1 January in Sydney at 14:00 UTC on 31 December")
+	}
+}
+
+func TestConditionsCombine(t *testing.T) {
+	water := Number{Device: "pool", Capability: Temperature}
+	pump := Bool{Device: "pump", Capability: On}
+	vars := engine.Vars{
+		"now": time.Date(2026, 7, 1, 11, 0, 0, 0, time.UTC), "location": time.UTC,
+		"devices": map[string]map[string]any{"pool": {"temperature": 24.5}, "pump": {"on": true}, "unheard": {}},
+	}
+	unheard := Bool{Device: "unheard", Capability: Open}
+	summer, swim := Yearly("1 Jun", "15 Sep"), Daily("10:00", "18:00")
+	for name, tc := range map[string]struct {
+		c    Condition
+		want bool
+	}{
+		"a bool":           {pump, true},
+		"not":              {Not(pump), false},
+		"above":            {water.Above(24), true},
+		"above at":         {water.Above(24.5), false},
+		"below":            {water.Below(3), false},
+		"within":           {water.Within(24.5, 26), true},
+		"within, outside":  {water.Within(10, 20), false},
+		"all":              {All(summer, swim, pump), true},
+		"all but one":      {All(summer, swim, Not(pump)), false},
+		"any":              {Any(water.Below(3), swim), true},
+		"any, none":        {Any(water.Below(3), Not(pump)), false},
+		"not of any":       {Not(Any(water.Below(3), Not(pump))), true},
+		"a func":           {ConditionFunc("warm", func(s Snapshot) bool { return s.Get(water) > 20 }), true},
+		"a func that's Is": {ConditionFunc("is", func(s Snapshot) bool { return s.Is(All(summer, pump)) }), true},
+		"any past unheard": {Any(unheard, pump), true},
+		"all past unheard": {All(unheard, Not(pump)), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ok, err := toEngine(tc.c)(vars)
+			if err != nil || ok != tc.want {
+				t.Fatalf("got %v, %v; want %v", ok, err, tc.want)
+			}
+		})
+	}
+}
+
+// Any and All stop at a value nobody has reported only when the others can't decide without it.
+func TestAnyAndAllWaitForAnUnreportedValueOnlyIfItDecides(t *testing.T) {
+	vars := engine.Vars{"devices": map[string]map[string]any{"pump": {"on": false}, "unheard": {}}}
+	pump, unheard := Bool{Device: "pump", Capability: On}, Bool{Device: "unheard", Capability: Open}
+	for name, c := range map[string]Condition{"any": Any(pump, unheard), "all": All(Not(pump), unheard)} {
+		if _, err := toEngine(c)(vars); err == nil || !strings.Contains(err.Error(), "unheard open hasn't reported") {
+			t.Errorf("%s: got %v, want it to wait for unheard", name, err)
+		}
+	}
+}
+
+func TestAConditionHasALabelForTheJournal(t *testing.T) {
+	water := Number{Device: "pool", Capability: Temperature}
+	c := All(Not(Bool{Device: "door", Capability: Open}), water.Within(1, 2.5), Any(Daily("22:00", "06:00"),
+		Yearly("1 Jun", "15 Sep")), ConditionFunc("damp", func(Snapshot) bool { return true }))
+	want := "all(not(door open), pool temperature within 1 to 2.5, " +
+		"any(daily 22:00 to 06:00, yearly 1 Jun to 15 Sep), damp)"
+	if got := label(c); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestAConditionSaysWhyItsFalse(t *testing.T) {
+	water := Number{Device: "pool-water", Capability: Temperature}
+	door := Bool{Device: "garage-door", Capability: Open}
+	vars := engine.Vars{
+		"now": time.Date(2026, 11, 16, 9, 12, 0, 0, time.UTC), "location": time.UTC,
+		"devices": map[string]map[string]any{
+			"pool-water": {"temperature": 5.0}, "garage-door": {"open": false}, "unheard": {},
+		},
+	}
+	for name, tc := range map[string]struct {
+		c    Condition
+		want string
+	}{
+		"true":      {water.Above(3), ""},
+		"a bool":    {door, "garage-door open is false"},
+		"not":       {Not(Not(door)), "garage-door open is false"},
+		"below":     {water.Below(3), "pool-water temperature is 5, not below 3"},
+		"not above": {Not(water.Above(3)), "pool-water temperature is 5, above 3"},
+		"within":    {water.Within(18, 25.5), "pool-water temperature is 5, not within 18 to 25.5"},
+		"daily":     {Daily("10:00", "18:00"), "it's 09:12, outside 10:00 to 18:00"},
+		"days":      {Daily("10:00", "18:00").Days(time.Saturday), "it's Mon 09:12, outside 10:00 to 18:00 starting Sat"},
+		"not daily": {Not(Daily("09:00", "10:00")), "it's 09:12, inside 09:00 to 10:00"},
+		"sunset": {
+			Daily(Sunset(-20*time.Minute), Sunrise(time.Hour)), "it's 09:12, outside sunset-20m0s to sunrise+1h0m0s",
+		},
+		"yearly": {Yearly("1 Jun", "15 Sep"), "it's 16 Nov, outside 1 Jun to 15 Sep"},
+		"all":    {All(water.Above(3), door, water.Below(3)), "garage-door open is false"},
+		"any":    {Any(door, water.Below(3)), "garage-door open is false, and pool-water temperature is 5, not below 3"},
+		"not all": {
+			Not(All(water.Above(3), Not(door))), "pool-water temperature is 5, above 3, and garage-door open is false",
+		},
+		"a func":     {ConditionFunc("cellar damp", func(Snapshot) bool { return false }), "cellar damp is false"},
+		"unreported": {Bool{Device: "unheard", Capability: Open}, "unheard open hasn't reported"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := explain(tc.c, vars); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A hold's Daily, on its own or in an All, is the engine's window, which changes on its edge.
+func TestAHoldsDailyIsItsWindow(t *testing.T) {
+	d := Bool{Device: "d", Capability: On}
+	night := Daily("22:00", "06:00")
+	for name, tc := range map[string]struct {
+		c      Condition
+		window bool
+		when   Condition
+	}{
+		"alone":       {night, true, nil},
+		"in all":      {All(d, night), true, d},
+		"in all of 3": {All(d, night, Not(d)), true, allOf{d, Not(d)}},
+		"in any":      {Any(d, night), false, Any(d, night)},
+		"none":        {d, false, d},
+	} {
+		t.Run(name, func(t *testing.T) {
+			hours, when := splitHours(tc.c)
+			if (hours != nil) != tc.window || !reflect.DeepEqual(when, tc.when) {
+				t.Fatalf("got %v, %#v", hours, when)
+			}
+		})
+	}
 }
 
 func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
@@ -334,7 +533,7 @@ func TestAChangeReachesTheEngineAsOneReport(t *testing.T) {
 }
 
 func TestManifestDescribesTheHome(t *testing.T) {
-	when := func(State) bool { return true }
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	m := NewHome(Options{},
 		NewHold("leak", Set{}).Priority(Safety).Latch().When(when),
 		NewHold("fan", Set{}).When(when),
@@ -374,8 +573,8 @@ func TestPluginsAreChecked(t *testing.T) {
 }
 
 var (
-	pump  = Handle[bool]{Device: "pump", Capability: On}
-	water = Handle[float64]{Device: "water", Capability: Temperature}
+	pump  = Bool{Device: "pump", Capability: On}
+	water = Number{Device: "water", Capability: Temperature}
 )
 
 func valveControl() Control {
@@ -393,7 +592,7 @@ func budgetHome(c Control, b Budget) Home {
 }
 
 func TestHomeChecksControlAndBudgets(t *testing.T) {
-	minutes := func(State) int { return 120 }
+	minutes := func(Snapshot) int { return 120 }
 	limited := valveControl().MinimumOn(45 * time.Minute)
 	control := func(c Control) Home { return NewHome(Options{}, c) }
 	arbitrate := func(s Set, r Resolve) Home { return control(NewControl(s, r, ExternalRevert)) }
@@ -408,7 +607,7 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		"no minutes": {budgetHome(valveControl(), Budget{}), "exactly one of bands or minutes"},
 		"bad slot":   {budgetHome(valveControl(), NewBudget(minutes).SlotMinutes(20)), "slotMinutes"},
 		"bad window": {
-			budgetHome(valveControl(), NewBudget(minutes).Forbid(NewWindow(Clock("7"), Clock("8")))),
+			budgetHome(valveControl(), NewBudget(minutes).Forbid(Daily("7", "8"))),
 			"not HH:MM",
 		},
 		"limit off the slots": {budgetHome(limited, NewBudget(minutes)), "isn't a multiple"},
@@ -417,10 +616,10 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		"twice":        {NewHome(Options{}, valveControl(), valveControl()), "declared twice"},
 		"a room":       {arbitrate(InRoom("hall", Everything, On).To(false), PreferOn), "names a device, not a room"},
 		"no default":   {arbitrate(Set{}, PreferOn), "needs a capability"},
-		"no device":    {arbitrate(Handle[bool]{Capability: On}.To(false), PreferOn), "needs a device"},
+		"no device":    {arbitrate(Bool{Capability: On}.To(false), PreferOn), "needs a device"},
 		"a claim":      {arbitrate(pump.To(false).UntilNext(), PreferOn), "takes no For, Until or Priority"},
 		"bool resolve": {arbitrate(pump.To(false), Highest), "PreferOn or PreferOff"},
-		"read-only":    {arbitrate(Handle[float64]{Device: "x", Capability: Temperature}.To(1), Highest), "read-only"},
+		"read-only":    {arbitrate(Number{Device: "x", Capability: Temperature}.To(1), Highest), "read-only"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := tc.home.compile()
@@ -436,11 +635,11 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 
 func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
 	vars := map[string]any{"devices": map[string]map[string]any{"water": {}}}
-	nothing := Handle[float64]{Device: "nothing", Capability: Temperature}
-	for name, f := range map[string]func(State) int{
-		"hasn't reported": func(s State) int { return int(s.Get(water)) },
-		"no such device":  func(s State) int { return int(s.Get(nothing)) },
-		"a bug":           func(State) int { panic("oops") },
+	nothing := Number{Device: "nothing", Capability: Temperature}
+	for name, f := range map[string]func(Snapshot) int{
+		"hasn't reported": func(s Snapshot) int { return int(s.Get(water)) },
+		"no such device":  func(s Snapshot) int { return int(s.Get(nothing)) },
+		"a bug":           func(Snapshot) int { panic("oops") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := NewBudget(f)
@@ -450,7 +649,7 @@ func TestBudgetMinutesThatFailEndAsAnError(t *testing.T) {
 			}
 		})
 	}
-	ninety := NewBudget(func(State) int { return 90 })
+	ninety := NewBudget(func(Snapshot) int { return 90 })
 	spec := ninety.toSchedule()
 	if got, err := spec.Minutes(vars, time.Now(), time.UTC); err != nil || got != 90 {
 		t.Fatalf("got %d, %v", got, err)
@@ -477,8 +676,8 @@ func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 	m := NewHome(Options{},
 		NewHold("night-lights", lights.To(true)).
 			Priority(Safety).
-			Window(NewWindow(Clock("22:00"), Clock("06:00"))),
-		NewHold("evening", lights.To(true)).Window(NewWindow(Clock("18:00"), Clock("22:00"))),
+			When(Daily("22:00", "06:00")),
+		NewHold("evening", lights.To(true)).When(Daily("18:00", "22:00")),
 		NewMoment("alarm", lights.To(true).For(time.Hour).
 			Priority(Safety), InRoom("hall", Everything, On).To(true).For(time.Hour).
 			Priority(Safety)).
@@ -502,7 +701,7 @@ func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
 }
 
 func TestABudgetTakesClockTimesOnly(t *testing.T) {
-	b := NewBudget(func(State) int { return 60 }).Prefer(NewWindow(Sunset(0), Clock("23:00")), 3)
+	b := NewBudget(func(Snapshot) int { return 60 }).Prefer(Daily(Sunset(0), Clock("23:00")), 3)
 	home := NewHome(Options{Location: NewLocation(51.48, -0.01)},
 		valveControl(), NewHold("pump-daily", pump.To(true)).Budget(b))
 	if _, _, err := home.compile(); err == nil || !strings.Contains(err.Error(), "clock times only") {
@@ -522,8 +721,8 @@ func TestASunTimeReachesTheEngine(t *testing.T) {
 }
 
 func TestAWindowReachesTheEngine(t *testing.T) {
-	h := NewHold("a", Handle[bool]{Device: "d", Capability: On}.To(true)).
-		Window(NewWindow(Clock("22:00"), Clock("06:00")).Days(time.Friday))
+	h := NewHold("a", Bool{Device: "d", Capability: On}.To(true)).
+		When(Daily("22:00", "06:00").Days(time.Friday))
 	want := &engine.Window{
 		Start: engine.At{Time: "22:00"}, End: engine.At{Time: "06:00"}, Days: []time.Weekday{time.Friday},
 	}
@@ -533,7 +732,7 @@ func TestAWindowReachesTheEngine(t *testing.T) {
 }
 
 func TestNewHomeTakesPartsFromNestedBundles(t *testing.T) {
-	when := func(State) bool { return true }
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 	dehumidifier := func() Bundle {
 		return NewBundle(valveControl(), NewHold("inner", pump.To(true)).When(when))
@@ -570,7 +769,7 @@ func TestNewHomeTakesPartsFromNestedBundles(t *testing.T) {
 }
 
 func TestNewBundleKeepsItsOwnParts(t *testing.T) {
-	when := func(State) bool { return true }
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	parts := []Part{NewHold("kept", pump.To(true)).When(when)}
 	b := NewBundle(parts...)
 	parts[0] = NewHold("changed", pump.To(true)).When(when)
@@ -582,7 +781,7 @@ func TestNewBundleKeepsItsOwnParts(t *testing.T) {
 
 func TestNewHomeRefusesWhatIsntAPart(t *testing.T) {
 	type wrapped struct{ Hold }
-	when := func(State) bool { return true }
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	hold := NewHold("a", pump.To(true)).When(when)
 	var noHold *Hold
 	for name, tc := range map[string]struct {
@@ -605,7 +804,7 @@ func TestNewHomeRefusesWhatIsntAPart(t *testing.T) {
 
 func TestARuleNameClashesAcrossBundles(t *testing.T) {
 	motion := func(name string) Bundle {
-		return NewBundle(NewHold(name, pump.To(true)).When(func(State) bool { return true }))
+		return NewBundle(NewHold(name, pump.To(true)).When(ConditionFunc("always", func(Snapshot) bool { return true })))
 	}
 	_, _, err := NewHome(Options{}, motion("landing"), motion("landing")).compile()
 	if err == nil || !strings.Contains(err.Error(), `rule "landing" is declared twice`) {
@@ -655,19 +854,17 @@ func TestASimulatedHomeReportsAMistakeInItsParts(t *testing.T) {
 }
 
 func TestAnOptionGivenTwiceFailsNamingTheRuleAndTheOption(t *testing.T) {
-	always := func(State) bool { return true }
+	always := ConditionFunc("always", func(Snapshot) bool { return true })
 	run := func(*FlowRun) error { return nil }
 	hold := NewHold("h", pump.To(true))
 	moment := NewMoment("m", pump.To(true)).On(pump)
 	flow := NewFlow("f", run).On(pump)
-	night := NewWindow(Clock("22:00"), Clock("06:00"))
-	budget := func() Budget { return NewBudget(func(State) int { return 60 }) }
+	budget := func() Budget { return NewBudget(func(Snapshot) int { return 60 }) }
 	for name, tc := range map[string]struct {
 		part Part
 		want []string
 	}{
 		"Hold.When":     {hold.When(always).When(always), []string{"rule h", "When is given twice"}},
-		"Hold.Window":   {hold.Window(night).Window(night), []string{"rule h", "Window is given twice"}},
 		"Hold.OnDelay":  {hold.When(always).OnDelay(0).OnDelay(time.Second), []string{"rule h", "OnDelay is given twice"}},
 		"Hold.OffDelay": {hold.When(always).OffDelay(time.Second).OffDelay(0), []string{"rule h", "OffDelay is given twice"}},
 		"Hold.Priority": {hold.When(always).Priority(Safety).Priority(Safety), []string{"rule h", "Priority is given twice"}},
@@ -731,11 +928,11 @@ func TestOptionsThatAddCanBeGivenAgain(t *testing.T) {
 	if len(flow.on) != 2 || len(flow.at) != 2 {
 		t.Errorf("flow has %d changes and %d times", len(flow.on), len(flow.at))
 	}
-	window := NewWindow(late, early).Days(time.Monday).Days(time.Tuesday)
+	window := Daily(late, early).Days(time.Monday).Days(time.Tuesday)
 	if !slices.Equal(window.days, []time.Weekday{time.Monday, time.Tuesday}) {
 		t.Errorf("window has days %v", window.days)
 	}
-	budget := NewBudget(func(State) int { return 60 }).
+	budget := NewBudget(func(Snapshot) int { return 60 }).
 		Prefer(window, 1).Prefer(window, 2).Forbid(window).Forbid(window)
 	if len(budget.prefer) != 2 || len(budget.forbid) != 2 {
 		t.Errorf("budget has %d prefers and %d forbids", len(budget.prefer), len(budget.forbid))
@@ -746,10 +943,10 @@ func TestOptionsThatAddCanBeGivenAgain(t *testing.T) {
 }
 
 // water2 is a second change for the rules that add them.
-var water2 = Handle[bool]{Device: "water2", Capability: On}
+var water2 = Bool{Device: "water2", Capability: On}
 
 func TestAChainedMethodLeavesItsRuleAlone(t *testing.T) {
-	always := func(State) bool { return true }
+	always := ConditionFunc("always", func(Snapshot) bool { return true })
 	// Spare capacity behind the base's slices is what would join two chains from it.
 	base := NewMoment("m", pump.To(true)).On(pump).On(water2).On(pump).Restart()
 	one, two := base.On(water2).If(always), base.On(pump).Late(time.Minute)

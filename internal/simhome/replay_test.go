@@ -20,16 +20,16 @@ const (
 	contact  = string(oikade.Open)
 )
 
-func switchOf(device string) oikade.Handle[bool] {
-	return oikade.Handle[bool]{Device: device, Capability: oikade.On}
+func switchOf(device string) oikade.Bool {
+	return oikade.Bool{Device: device, Capability: oikade.On}
 }
 
-func humidityOf(device string) oikade.Handle[float64] {
-	return oikade.Handle[float64]{Device: device, Capability: oikade.Humidity}
+func humidityOf(device string) oikade.Number {
+	return oikade.Number{Device: device, Capability: oikade.Humidity}
 }
 
-func contactOf(device string) oikade.Handle[bool] {
-	return oikade.Handle[bool]{Device: device, Capability: oikade.Open}
+func contactOf(device string) oikade.Bool {
+	return oikade.Bool{Device: device, Capability: oikade.Open}
 }
 
 var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
@@ -37,7 +37,7 @@ var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 func fanAbove(threshold float64) oikade.Home {
 	return oikade.NewHome(oikade.Options{}, oikade.NewHold("fan", switchOf("fan").To(true)).
 		OffDelay(10*time.Minute).
-		When(func(s oikade.State) bool { return s.Get(humidityOf("sensor")) > threshold }))
+		When(humidityOf("sensor").Above(threshold)))
 }
 
 func options(t *testing.T, home oikade.Home) simhome.Options {
@@ -277,7 +277,7 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 
 func TestADevicePairedLaterHasNoValueUntilItReports(t *testing.T) {
 	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("fan", switchOf("fan").To(true)).
-		When(func(s oikade.State) bool { return s.Get(humidityOf("late")) > 70 }))
+		When(humidityOf("late").Above(70)))
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 		{Time: monday.Add(5 * time.Hour), Type: api.EventChange, Device: "late", Capability: humidity, Value: 90.0},

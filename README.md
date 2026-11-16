@@ -56,15 +56,13 @@ Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/rele
 func home() oikade.Home {
 	return oikade.NewHome(oikade.Options{},
 		oikade.NewHold("porch-light", PorchLight.On.To(true)).
-			When(func(s oikade.State) bool {
-				return s.Get(PorchSensor.Occupied)
-			}).
+			When(PorchSensor.Occupied).
 			OffDelay(5*time.Minute),
 	)
 }
 ```
 
-`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is a handle on one of its capabilities, typed `bool` or `float64`. Your editor lists what each device can do, and `s.Get` reads a handle, `To` writes one, and a `Change` is one changing. The capabilities are constants in `oikade`, such as `oikade.On`, for [rooms](docs/automations.md#rooms).
+`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is one of its capabilities, an `oikade.Bool` or an `oikade.Number`. Your editor lists what each device can do. A `Bool` is a [condition](docs/automations.md#conditions) and a `Number` makes one, as `Bathroom.Humidity.Above(70)` does, `To` writes one, and either is a change that triggers a rule. The capabilities are constants in `oikade`, such as `oikade.On`, for [rooms](docs/automations.md#rooms).
 
 `oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a `Set`, rule or other `oikade` value that's built and thrown away, such as `HallLamp.On.To(true)` without `r.Set`, or a chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
 
@@ -130,8 +128,8 @@ oikade.NewBundle(
 			Reading: Cellar.Humidity, Missing: 240,
 			Ranges: []oikade.Band{{Below: 55, Minutes: 60}, {Below: 65, Minutes: 180}}, Otherwise: 300,
 		}).
-			Prefer(oikade.NewWindow(oikade.Clock("22:00"), oikade.Clock("06:00")), 3).
-			Forbid(oikade.NewWindow(oikade.Clock("07:00"), oikade.Clock("08:30")))),
+			Prefer(oikade.Daily("22:00", "06:00"), 3).
+			Forbid(oikade.Daily("07:00", "08:30"))),
 )
 ```
 

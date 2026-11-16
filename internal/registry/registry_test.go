@@ -417,7 +417,7 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	}
 	for _, want := range []string{
 		"var AppleLamp = struct", `Name: "apple-lamp"`, "var ZebraLamp = struct",
-		`On:   oikade.Handle[bool]{Device: "zebra-lamp", Capability: oikade.On}`,
+		`On:   oikade.Bool{Device: "zebra-lamp", Capability: oikade.On}`,
 		"var Porch = struct {\n\tName string\n}{\n\tName: \"porch\",\n}", "reserved",
 	} {
 		if !strings.Contains(string(first), want) {

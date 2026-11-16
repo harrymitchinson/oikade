@@ -49,7 +49,7 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 	}{
 		"fine": {body: `
 		oikade.NewHold("porch-light", PorchLight.On.To(true)).
-When(func(s oikade.State) bool { return s.Get(PorchSensor.Occupied) }).
+When(PorchSensor.Occupied).
 OffDelay(5 * time.Minute),
 		oikade.NewMoment("goodnight", oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
 At(oikade.Clock("23:30")).
@@ -68,8 +68,8 @@ On(PorchSensor.Occupied, oikade.InRoom("porch", oikade.Everything, oikade.Occupi
 		},
 		"a bool read as a number": {
 			body: `oikade.NewHold("a", oikade.Set{}).
-When(func(s oikade.State) bool { return s.Get(Hallway.On) > 5 }),`,
-			want: "mismatched types",
+When(Hallway.On.Above(5)),`,
+			want: "Hallway.On.Above undefined",
 		},
 		"a room's capability set to the wrong type": {
 			body: `oikade.NewMoment("a", oikade.InRoom("hall", oikade.Lights, oikade.On).To(10)),`,

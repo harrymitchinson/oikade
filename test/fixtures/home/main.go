@@ -19,19 +19,19 @@ import (
 )
 
 // The tests bring their own devices, so this home has no devices.go: these are its handles.
-func on(device string) oikade.Handle[bool] {
-	return oikade.Handle[bool]{Device: device, Capability: oikade.On}
+func on(device string) oikade.Bool {
+	return oikade.Bool{Device: device, Capability: oikade.On}
 }
 
-func open(device string) oikade.Handle[bool] {
-	return oikade.Handle[bool]{Device: device, Capability: oikade.Open}
+func open(device string) oikade.Bool {
+	return oikade.Bool{Device: device, Capability: oikade.Open}
 }
 
 // humidity is the bathroom's, which the fan follows.
-var humidity = oikade.Handle[float64]{Device: "bathroom-sensor", Capability: oikade.Humidity}
+var humidity = oikade.Number{Device: "bathroom-sensor", Capability: oikade.Humidity}
 
 // studyHeater is a simulated heater: a Thermostat on the Matter bridge.
-var studyHeater = oikade.Handle[float64]{Device: "study-heater", Capability: oikade.Setpoint}
+var studyHeater = oikade.Number{Device: "study-heater", Capability: oikade.Setpoint}
 
 // The devices a test has plugins do something with.
 const (
@@ -193,7 +193,7 @@ func parked(r *oikade.FlowRun) error {
 	if variant == "edited" {
 		limit = 2 * time.Hour
 	}
-	r.WaitFor(func(s oikade.State) bool { return s.Get(open("park-end")) }, limit)
+	r.WaitFor(open("park-end"), limit)
 	out := "park-out"
 	if variant == "tail" {
 		out = "park-tail"
@@ -211,7 +211,7 @@ func claiming(r *oikade.FlowRun) error {
 	if strings.Contains(variant, "editclaim") {
 		limit = 2 * time.Hour
 	}
-	if !r.WaitFor(func(s oikade.State) bool { return s.Get(open("claim-end")) }, limit) {
+	if !r.WaitFor(open("claim-end"), limit) {
 		return errors.New("nobody ended the claim")
 	}
 	return r.Release("claiming")
@@ -226,7 +226,7 @@ func failing(r *oikade.FlowRun) error {
 	if err = r.Set(on("claimed-safety").To(false).UntilReleased().Priority(oikade.Safety)); err != nil {
 		return err
 	}
-	r.WaitFor(func(s oikade.State) bool { return s.Get(open("fail-now")) }, time.Hour)
+	r.WaitFor(open("fail-now"), time.Hour)
 	return errors.New("this flow fails on purpose")
 }
 
@@ -298,46 +298,40 @@ func home() rules {
 
 	holds := slices.Concat(
 		when(variant != "nofan", oikade.NewHold("fan", on("fan").To(true)).
-			When(func(s oikade.State) bool {
-				return s.Get(humidity) > 70
-			})),
+			When(humidity.Above(70))),
 		when(variant != "noleak", oikade.NewHold(leakShutoff, on(valve).To(false)).
 			Priority(oikade.Safety).
 			Latch().
-			When(func(s oikade.State) bool {
-				return s.Get(open("leak-sensor"))
-			})),
+			When(open("leak-sensor"))),
 		[]oikade.Hold{
 			// With no arbiter to hold a claim, only the hold's saved state remembers this latch.
 			oikade.NewHold("leak-alarm", on("siren").To(true)).
 				Latch().
-				When(func(s oikade.State) bool {
-					return s.Get(open("leak-sensor"))
-				}),
+				When(open("leak-sensor")),
 			// Reads whichever devices are in the cellar now, which oikade devices room changes.
 			oikade.NewHold("cellar-damp", on("dehumidifier").To(true)).
-				When(func(s oikade.State) bool {
+				When(oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 					return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
-				}),
+				})),
 			// A bug in a home: a condition that never returns once the sensor says so.
 			oikade.NewHold("stuck", on("trap-light").To(true)).
-				When(func(s oikade.State) bool {
+				When(oikade.ConditionFunc("trap", func(s oikade.Snapshot) bool {
 					for s.Get(open("trap")) {
 						continue
 					}
 					return false
-				}),
+				})),
 		},
 		when(plugins, oikade.NewHold("once", on(once).To(true)).
-			When(func(s oikade.State) bool { return s.Get(open("once-sensor")) })),
+			When(open("once-sensor"))),
 		// Names a plugin's device, which a test moves to another room.
 		when(plugins, oikade.NewHold("quiet-held", on("quiet-held").To(true)).
-			When(func(s oikade.State) bool { return s.Get(on("quiet")) })),
+			When(on("quiet"))),
 		// A Safety rule that keeps the porch's plugs on, and only its plugs.
 		when(variant == "typed", oikade.NewHold("porch-plugs",
 			oikade.InRoom("porch", oikade.Kinds(oikade.OnOffPlugInUnit), oikade.On).To(true)).
 			Priority(oikade.Safety).
-			When(func(s oikade.State) bool { return s.Get(open("porch-go")) })),
+			When(open("porch-go"))),
 	)
 
 	// parkmoment turns the parked flow into a moment of the same name.

@@ -19,10 +19,10 @@ const (
 
 // The devices' handles, as oikade types would write them.
 var (
-	sensor = oikade.Handle[float64]{Device: "sensor", Capability: oikade.Humidity}
-	fan    = oikade.Handle[bool]{Device: "fan", Capability: oikade.On}
-	pump   = oikade.Handle[bool]{Device: "pump", Capability: oikade.On}
-	light  = oikade.Handle[bool]{Device: "light", Capability: oikade.On}
+	sensor = oikade.Number{Device: "sensor", Capability: oikade.Humidity}
+	fan    = oikade.Bool{Device: "fan", Capability: oikade.On}
+	pump   = oikade.Bool{Device: "pump", Capability: oikade.On}
+	light  = oikade.Bool{Device: "light", Capability: oikade.On}
 )
 
 func devices() []hometest.Device {
@@ -37,7 +37,7 @@ func devices() []hometest.Device {
 func fanHold() oikade.Hold {
 	return oikade.NewHold("fan", fan.To(true)).
 		OffDelay(10 * time.Minute).
-		When(func(s oikade.State) bool { return s.Get(sensor) > 70 })
+		When(sensor.Above(70))
 }
 
 func TestAHoldFollowsADeviceAndTheClock(t *testing.T) {
@@ -79,13 +79,67 @@ func TestARestartMidFlowCarriesOn(t *testing.T) {
 	h.ExpectFinished("bedtime")
 }
 
+// A flow's Get and Is read the home, and after a restart they return what they read the first time,
+// so the run takes the same path.
+func TestAFlowsReadsReplayAfterARestart(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("airing", func(r *oikade.FlowRun) error {
+		damp := r.Get(sensor) > 60
+		dark := r.Is(oikade.All(oikade.Not(light), sensor.Above(60)))
+		r.Sleep(time.Hour)
+		if !damp || !dark {
+			return r.Set(pump.To(true)) // The wrong path: the run began damp and dark.
+		}
+		return r.Set(fan.To(true))
+	}).On(light.Becomes(false)))
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	h.Set(sensor, 70)
+	h.Set(light, false)
+	h.Advance(time.Minute)
+	h.Set(sensor, 40)
+	h.Set(light, true)
+	h.Restart()
+	h.Advance(time.Hour)
+	h.ExpectFinished("airing")
+	h.ExpectValue(fan, true)
+	h.ExpectValue(pump, false)
+}
+
+// A Becomes fires on a change to its value, and not on one away from it.
+func TestABecomesFiresOnlyOnItsValue(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{},
+		oikade.NewMoment("lights-out", fan.To(true)).On(light.Becomes(false)))
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	h.Set(light, false)
+	h.ExpectValue(fan, true)
+	h.Set(fan, false)
+	h.Set(light, true)
+	h.ExpectValue(fan, false)
+}
+
+// A flow's Get of a value nobody has reported yet ends the run as failed.
+func TestAFlowsGetOfAnUnreportedValueFails(t *testing.T) {
+	unheard := oikade.Number{Device: "unheard", Capability: oikade.Humidity}
+	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("reads", func(r *oikade.FlowRun) error {
+		if r.Get(unheard) > 60 {
+			return r.Set(fan.To(true))
+		}
+		return nil
+	}).On(light))
+	h := hometest.New(t, home, hometest.Options{Devices: append(devices(),
+		hometest.Device{Name: "unheard", Capabilities: []string{humidity}})})
+	h.Set(light, false)
+	if h.Finished("reads") {
+		t.Fatal("a run that read nothing finished")
+	}
+}
+
 func arbitrated() oikade.Home {
 	return oikade.NewHome(oikade.Options{},
 		oikade.NewControl(pump.To(false), oikade.PreferOn, oikade.ExternalOverride).
 			OverrideHold(time.Hour),
 		oikade.NewHold("pump", pump.To(true)).
 			Priority(oikade.Safety).
-			Window(oikade.NewWindow(oikade.Clock("01:00"), oikade.Clock("02:00"))),
+			When(oikade.Daily("01:00", "02:00")),
 	)
 }
 
@@ -109,7 +163,7 @@ func TestABudgetRunsItsMinutes(t *testing.T) {
 		oikade.NewControl(pump.To(false), oikade.PreferOn, oikade.ExternalOverride).
 			OverrideHold(time.Hour),
 		oikade.NewHold("pump", pump.To(true)).
-			Budget(oikade.NewBudget(func(oikade.State) int { return 60 })),
+			Budget(oikade.NewBudget(func(oikade.Snapshot) int { return 60 })),
 	)
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.ExpectValue(pump, true)
@@ -167,9 +221,9 @@ func TestARunInProgressIsntFinished(t *testing.T) {
 // room, on.
 func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	brightness := string(oikade.Brightness)
-	lamp := oikade.Handle[bool]{Device: "floor-lamp", Capability: oikade.On}
-	ceiling := oikade.Handle[bool]{Device: "ceiling-light", Capability: oikade.On}
-	fridge := oikade.Handle[bool]{Device: "fridge-plug", Capability: oikade.On}
+	lamp := oikade.Bool{Device: "floor-lamp", Capability: oikade.On}
+	ceiling := oikade.Bool{Device: "ceiling-light", Capability: oikade.On}
+	fridge := oikade.Bool{Device: "fridge-plug", Capability: oikade.On}
 	lights := oikade.InRoom("living-room", oikade.Lights, oikade.On)
 	home := oikade.NewHome(oikade.Options{},
 		oikade.NewMoment("living-room-off", lights.To(false)).At(oikade.Clock("23:00")))
@@ -209,8 +263,8 @@ func studyHome(t *testing.T, g oikade.Group) *hometest.Home {
 }
 
 var (
-	studyHeater = oikade.Handle[bool]{Device: "study-heater", Capability: oikade.On}
-	deskLamp    = oikade.Handle[bool]{Device: "desk-lamp", Capability: oikade.On}
+	studyHeater = oikade.Bool{Device: "study-heater", Capability: oikade.On}
+	deskLamp    = oikade.Bool{Device: "desk-lamp", Capability: oikade.On}
 )
 
 func TestARoomsEverythingTurnsOffItsHeaterToo(t *testing.T) {
@@ -236,7 +290,7 @@ func TestARoomsLightsLeavesTheHeaterOn(t *testing.T) {
 
 // A trigger on a room's heaters fires when the heater turns on, and not when the lamp beside it does.
 func TestATriggerOnARoomsHeatersIgnoresItsLights(t *testing.T) {
-	fan := oikade.Handle[bool]{Device: "study-fan", Capability: oikade.On}
+	fan := oikade.Bool{Device: "study-fan", Capability: oikade.On}
 	home := oikade.NewHome(oikade.Options{},
 		oikade.NewMoment("fan-with-heat", fan.To(true)).On(oikade.InRoom("study", oikade.Heaters, oikade.On)))
 	setpoint := string(oikade.Setpoint)
@@ -278,9 +332,9 @@ func TestAClockTimeFiresAcrossADaylightSavingChange(t *testing.T) {
 	}
 }
 
-func TestAWindowIsOpenOvernight(t *testing.T) {
+func TestADailyIsOpenOvernight(t *testing.T) {
 	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("night-pump", pump.To(true)).
-		Window(oikade.NewWindow(oikade.Clock("22:00"), oikade.Clock("06:00"))))
+		When(oikade.Daily("22:00", "06:00")))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.ExpectValue(pump, true) // midnight is inside the window that opened at 22:00 the night before
 	h.Advance(5*time.Hour + 59*time.Minute)
@@ -309,14 +363,14 @@ func TestTheSameTimeTwiceFiresOnce(t *testing.T) {
 
 // A hold over a room runs on the sensors that have reported, and waits while none has.
 func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
-	cellar := func(name string) oikade.Handle[float64] {
-		return oikade.Handle[float64]{Device: name, Capability: oikade.Humidity}
+	cellar := func(name string) oikade.Number {
+		return oikade.Number{Device: name, Capability: oikade.Humidity}
 	}
-	dehumidifier := oikade.Handle[bool]{Device: "dehumidifier", Capability: oikade.On}
+	dehumidifier := oikade.Bool{Device: "dehumidifier", Capability: oikade.On}
 	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("cellar-damp", dehumidifier.To(true)).
-		When(func(s oikade.State) bool {
+		When(oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 			return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
-		}))
+		})))
 	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 		{Name: "cellar-1", Room: "cellar", Capabilities: []string{humidity}},
 		{Name: "cellar-2", Room: "cellar", Capabilities: []string{humidity}},
@@ -373,9 +427,9 @@ func TestAMomentFiresBeforeSunset(t *testing.T) {
 	}
 }
 
-func TestAWindowOpensAtSunset(t *testing.T) {
+func TestADailyOpensAtSunset(t *testing.T) {
 	home := oikade.NewHome(greenwich, oikade.NewHold("garden-pump", pump.To(true)).
-		Window(oikade.NewWindow(oikade.Sunset(0), oikade.Clock("23:30"))))
+		When(oikade.Daily(oikade.Sunset(0), oikade.Clock("23:30"))))
 	start := time.Date(2030, 3, 20, 0, 0, 0, 0, time.UTC)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
 	opens := sunset(t, start)
@@ -395,7 +449,7 @@ func TestADayWithNoSunsetDoesNothing(t *testing.T) {
 	home := oikade.NewHome(svalbard,
 		oikade.NewMoment("dusk", light.To(false)).At(oikade.Sunset(0)),
 		oikade.NewHold("evening-pump", pump.To(true)).
-			Window(oikade.NewWindow(oikade.Sunset(0), oikade.Clock("23:30"))),
+			When(oikade.Daily(oikade.Sunset(0), oikade.Clock("23:30"))),
 	)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 6, 21, 0, 0, 0, 0, time.UTC)})
 	for range 24 {
@@ -408,12 +462,11 @@ func TestADayWithNoSunsetDoesNothing(t *testing.T) {
 	}
 }
 
-// A hold whose When reads a window opens within a minute of it, with no device changing.
-func TestAHoldWithinAWindowOpensWithinAMinute(t *testing.T) {
+// A hold whose Daily is inside another condition opens within a minute of it, with no device
+// changing.
+func TestAHoldWithADailyInsideAnyOpensWithinAMinute(t *testing.T) {
 	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("evening", light.To(false)).
-		When(func(s oikade.State) bool {
-			return s.Within(oikade.NewWindow(oikade.Clock("18:00"), oikade.Clock("07:00")))
-		}))
+		When(oikade.Any(oikade.Daily("18:00", "07:00"))))
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 1, 7, 12, 0, 0, 0, time.UTC)})
 	h.Advance(6*time.Hour - time.Second)
 	h.ExpectValue(light, true)
@@ -421,42 +474,41 @@ func TestAHoldWithinAWindowOpensWithinAMinute(t *testing.T) {
 	h.ExpectValue(light, false)
 }
 
-// Within in a When and a hold's own Window agree, minute by minute, across the night the clocks go
+// A Daily inside Any and a hold's own Daily agree, minute by minute, across the night the clocks go
 // back, when 01:00 to 02:00 happens twice.
-func TestWithinAgreesWithAHoldsWindowAcrossDaylightSaving(t *testing.T) {
+func TestADailyInsideAnyAgreesWithAHoldsDailyAcrossDaylightSaving(t *testing.T) {
 	london, err := time.LoadLocation("Europe/London")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := oikade.NewWindow(oikade.Clock("01:30"), oikade.Clock("02:15"))
+	w := oikade.Daily("01:30", "02:15")
 	// Clocks go back at 02:00 BST on Sunday 27 October 2030.
 	agree(t, w, oikade.Options{}, time.Date(2030, 10, 26, 23, 0, 0, 0, london), 5*time.Hour)
 }
 
-// Within with a sunset edge agrees with a hold's Window with the same edge.
-func TestWithinAgreesWithAHoldsWindowAtSunset(t *testing.T) {
-	w := oikade.NewWindow(oikade.Sunset(0), oikade.Clock("23:30"))
+// A Daily with a sunset edge inside Any agrees with a hold's own Daily with the same edge.
+func TestADailyInsideAnyAgreesWithAHoldsDailyAtSunset(t *testing.T) {
+	w := oikade.Daily(oikade.Sunset(0), oikade.Clock("23:30"))
 	start := time.Date(2030, 3, 20, 12, 0, 0, 0, time.UTC)
 	agree(t, w, greenwich, start, 12*time.Hour)
 }
 
-// agree runs a hold with w as its Window beside one whose When is s.Within(w), and checks they
-// agree after every minute.
-func agree(t *testing.T, w oikade.Window, site oikade.Options, start time.Time, d time.Duration) {
+// agree runs a hold whose When is w, which the engine times by its edges, beside one whose When is
+// Any(w), which it looks at each minute, and checks they agree after every minute.
+func agree(t *testing.T, w oikade.Hours, site oikade.Options, start time.Time, d time.Duration) {
 	t.Helper()
 	home := oikade.NewHome(site,
-		oikade.NewHold("by-window", fan.To(true)).Window(w),
-		oikade.NewHold("by-within", pump.To(true)).
-			When(func(s oikade.State) bool { return s.Within(w) }),
+		oikade.NewHold("by-window", fan.To(true)).When(w),
+		oikade.NewHold("by-within", pump.To(true)).When(oikade.Any(w)),
 	)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
 	opened := 0
 	for range int(d / time.Minute) {
 		h.Advance(time.Minute)
 		byWindow, _ := h.Value(fan)
-		byWithin, _ := h.Value(pump)
-		if byWindow != byWithin {
-			t.Fatalf("at %s the window says %v and Within says %v", h.Now(), byWindow, byWithin)
+		byAny, _ := h.Value(pump)
+		if byWindow != byAny {
+			t.Fatalf("at %s the hold's Daily says %v and Any says %v", h.Now(), byWindow, byAny)
 		}
 		if byWindow {
 			opened++
@@ -516,31 +568,31 @@ func TestExpectWriteSeesAWriteTheDeviceMovedOnFrom(t *testing.T) {
 // Safety value: the Normal rule never gets a moment to win (OIK-212). Either value may come first in
 // the report, and the Normal rule may be a hold or a moment.
 func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
-	occupied := oikade.Handle[bool]{Device: "hall", Capability: oikade.Occupied}
-	damp := oikade.Handle[float64]{Device: "hall", Capability: oikade.Humidity}
-	hot := oikade.Handle[float64]{Device: "hall", Capability: oikade.Temperature}
-	heater := oikade.Handle[bool]{Device: "heater", Capability: oikade.On}
+	occupied := oikade.Bool{Device: "hall", Capability: oikade.Occupied}
+	damp := oikade.Number{Device: "hall", Capability: oikade.Humidity}
+	hot := oikade.Number{Device: "hall", Capability: oikade.Temperature}
+	heater := oikade.Bool{Device: "heater", Capability: oikade.On}
 	control := oikade.NewControl(heater.To(false), oikade.PreferOn, oikade.ExternalOverride).
 		OverrideHold(time.Hour)
 	warm := oikade.NewHold("warm", heater.To(true)).
-		When(func(s oikade.State) bool { return s.Get(occupied) })
+		When(occupied)
 	welcome := oikade.NewMoment("welcome", heater.To(true)).On(occupied)
 	for _, tc := range []struct {
 		name    string
-		safety  func(oikade.State) bool
+		safety  oikade.Condition
 		report  oikade.Set
 		parts   []oikade.Part
 		briefly bool
 	}{
 		// Humidity sorts before occupied, and temperature after it.
-		{name: "safety first", safety: func(s oikade.State) bool { return s.Get(damp) > 65 }, report: damp.To(72),
+		{name: "safety first", safety: damp.Above(65), report: damp.To(72),
 			parts: []oikade.Part{control, warm}},
-		{name: "safety last", safety: func(s oikade.State) bool { return s.Get(hot) > 30 }, report: hot.To(35),
+		{name: "safety last", safety: hot.Above(30), report: hot.To(35),
 			parts: []oikade.Part{control, warm}},
-		{name: "a moment", safety: func(s oikade.State) bool { return s.Get(hot) > 30 }, report: hot.To(35),
+		{name: "a moment", safety: hot.Above(30), report: hot.To(35),
 			parts: []oikade.Part{control, welcome}},
 		// Without a Control nothing arbitrates, so the Normal value is written, but the Safety one stays.
-		{name: "no control", safety: func(s oikade.State) bool { return s.Get(hot) > 30 }, report: hot.To(35),
+		{name: "no control", safety: hot.Above(30), report: hot.To(35),
 			parts: []oikade.Part{warm}, briefly: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -576,6 +628,39 @@ func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 				if !tc.briefly {
 					h.ExpectClaim(heater, "Rule/cutoff", "Safety")
 				}
+			}
+		})
+	}
+}
+
+// A latched hold whose When is a Daily latches at its start.
+func TestALatchedDailyHoldLatches(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("night", fan.To(true)).
+		Latch().
+		When(oikade.Daily("01:00", "02:00")))
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	h.Advance(90 * time.Minute)
+	h.ExpectValue(fan, true)
+	h.Advance(2 * time.Hour)
+	h.ExpectValue(fan, true)
+}
+
+// A flow's condition with a mistake in it, which oikade check can't see, fails the run.
+func TestAFlowsConditionWithAMistakeFailsTheRun(t *testing.T) {
+	for name, step := range map[string]func(*oikade.FlowRun){
+		"Is":      func(r *oikade.FlowRun) { r.Is(oikade.Yearly("1 Nov", "31 Feb")) },
+		"WaitFor": func(r *oikade.FlowRun) { r.WaitFor(sensor.Within(25, 18), time.Hour) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("broken", func(r *oikade.FlowRun) error {
+				step(r)
+				return r.Set(fan.To(true))
+			}).On(light))
+			h := hometest.New(t, home, hometest.Options{Devices: devices()})
+			h.Set(light, false)
+			h.ExpectValue(fan, false)
+			if h.Finished("broken") {
+				t.Fatal("the run finished")
 			}
 		})
 	}

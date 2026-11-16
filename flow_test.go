@@ -10,7 +10,7 @@ import (
 
 func TestCompileChecksFlows(t *testing.T) {
 	run := func(*FlowRun) error { return nil }
-	on := []Change{Handle[bool]{Device: "hall", Capability: Open}}
+	on := []Change{Bool{Device: "hall", Capability: Open}}
 	for name, tc := range map[string]struct {
 		flow Flow
 		want string
@@ -21,7 +21,7 @@ func TestCompileChecksFlows(t *testing.T) {
 		"negative":   {NewFlow("a", run).On(on...).Late(-time.Minute), "must not be negative"},
 		"bad time":   {NewFlow("a", run).At(Clock("25:00")), "timers[0]"},
 		"bad change": {
-			NewFlow("a", run).On(Handle[bool]{Device: "hall", Capability: "no.such"}), "unknown capability",
+			NewFlow("a", run).On(Bool{Device: "hall", Capability: "no.such"}), "unknown capability",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -45,13 +45,13 @@ func TestLateness(t *testing.T) {
 	if DefaultLate != flow.DefaultLate {
 		t.Fatalf("the public default is %s and the runner's is %s", DefaultLate, flow.DefaultLate)
 	}
-	on := []Change{Handle[bool]{Device: "hall", Capability: Open}}
+	on := []Change{Bool{Device: "hall", Capability: Open}}
 	rules, flows, err := NewHome(Options{},
 		NewFlow("normal", func(*FlowRun) error { return nil }).On(on...),
 		NewFlow("safety", func(*FlowRun) error { return nil }).On(on...).Priority(Safety),
 		NewFlow("own", func(*FlowRun) error { return nil }).On(on...).Late(time.Hour),
 		NewMoment("moment", Wait(time.Second)).On(on...),
-		NewMoment("safety-moment", Handle[bool]{Device: "valve", Capability: On}.To(false).Priority(Safety)).
+		NewMoment("safety-moment", Bool{Device: "valve", Capability: On}.To(false).Priority(Safety)).
 			On(on...),
 	).compile()
 	if err != nil {
