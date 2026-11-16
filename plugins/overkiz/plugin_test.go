@@ -341,7 +341,7 @@ func TestNoTokenSaysHowToAddOne(t *testing.T) {
 	hub := newFakeHub(t)
 	b := start(t, hub, "")
 	b.eventually("the missing secret", func() bool {
-		return b.status().Error == "no credential: oikade secret set tahoma-token adds it"
+		return b.status().Error == "waiting for the secret tahoma-token"
 	})
 	if n := hub.count("/setup/devices"); n != 0 {
 		t.Errorf("asked the hub %d times with no token", n)

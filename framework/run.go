@@ -432,7 +432,8 @@ func checkSecrets() error {
 	var errs []error
 	for _, name := range secretuse.Names() {
 		if !contractv1.ValidSecretName(name) {
-			errs = append(errs, fmt.Errorf("secret %q isn't a valid name: use letters, digits, '.', '_' and '-'", name))
+			errs = append(errs, fmt.Errorf("secret %q isn't a valid name: "+
+				"use 1 to 253 letters, digits, '.', '_' and '-', starting with a letter or digit", name))
 		}
 	}
 	return errors.Join(errs...)

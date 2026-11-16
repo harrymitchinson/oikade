@@ -62,7 +62,7 @@ func (s *apiServer) deployUpload(w http.ResponseWriter, r *http.Request) {
 	// Gone once the deploy has it, which moves it, or not.
 	defer func() { _ = os.Remove(path) }()
 	s.log.Info("Received deploy upload", "client", callerOf(r.Context()).name)
-	resp := s.withUnsetSecrets(s.deploys.deploy(s.ctx, path, allow))
+	resp := s.deploys.deploy(s.ctx, path, allow)
 	respond(s.log, w, statusOf(resp), resp)
 }
 

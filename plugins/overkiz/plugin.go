@@ -230,7 +230,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			b.untilSecretChanges(ctx, "", b.timing.refused)
 			continue
 		case !ok || strings.TrimSpace(credential) == "":
-			b.setProblem(ctx, fmt.Sprintf("no credential: oikade secret set %s adds it", b.account.secret()))
+			b.setProblem(ctx, fmt.Sprintf("waiting for the secret %s", b.account.secret()))
 			b.untilSecretChanges(ctx, "", b.timing.refused)
 			continue
 		}

@@ -100,7 +100,7 @@ framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
 }))
 ```
 
-Making one declares it, so `oikade deploy` and the top of `oikade status` name each one that isn't set, with the command that sets it:
+Making one declares it, so `oikade deploy` and the top of `oikade status` name each one a deployed version uses that isn't set, with the command that sets it:
 
 ```
 $ oikade deploy

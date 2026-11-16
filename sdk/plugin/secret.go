@@ -48,7 +48,7 @@ func (s Secret) Read() (string, error) {
 		return "", err
 	}
 	if !ok {
-		return "", notSetError{s.name}
+		return "", notSetError(s)
 	}
 	return value, nil
 }

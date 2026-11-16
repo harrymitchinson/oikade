@@ -149,9 +149,11 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 // A secret that isn't set comes before the plugins' problems, which it often explains.
 func TestASecretNotSetSaysHowToSetIt(t *testing.T) {
 	st := &api.Status{Version: "v3", Process: true, UnsetSecrets: []string{"cozytouch"},
-		PluginProblems: map[string]string{"cozytouch": "no credential"}}
+		PluginProblems: map[string]string{"cozytouch": "waiting for the secret cozytouch"}}
 	got := setupGaps(st, nil)
-	want := []string{"Secret cozytouch isn't set: oikade secret set cozytouch", "Plugin cozytouch: no credential"}
+	want := []string{
+		"Secret cozytouch isn't set: oikade secret set cozytouch", "Plugin cozytouch: waiting for the secret cozytouch",
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)
 	}
