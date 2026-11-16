@@ -16,9 +16,9 @@ Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`
 ```go
 framework.NewMoment("hallway-motion-light", HallwayLight.On.To(true), framework.Wait(5*time.Minute), HallwayLight.On.To(false)).
 	Restart(). // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On(framework.InRoom("hallway", framework.Occupied)).
+	On(framework.InRoom("hallway", framework.Everything, framework.Occupied)).
 	If(func(s framework.State) bool {
-		return s.Any(framework.InRoom("hallway", framework.Occupied)) &&
+		return s.Any(framework.InRoom("hallway", framework.Everything, framework.Occupied)) &&
 			s.Within(framework.NewWindow(framework.Clock("18:00"), framework.Clock("07:00")))
 	})
 ```
@@ -61,38 +61,42 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 
 ### Rooms
 
-`framework.InRoom` is a capability of every device in a room, as a `Change`, a condition's read, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](devices.md#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
+`framework.InRoom` is a capability of a room's devices in a group, as a `Change`, a condition's read, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](devices.md#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
 
 ```go
 framework.NewMoment("lights-out",
-	framework.InRoom("living-room", framework.On).To(false), // everything there that has on
-).On(framework.InRoom("hallway", framework.Occupied)) // any sensor in the hallway
+	framework.InRoom("living-room", framework.Lights, framework.On).To(false), // the lights, not the plugs
+).On(framework.InRoom("hallway", framework.Everything, framework.Occupied)) // any sensor in the hallway
 ```
 
-A room without types means every device in it with the capability, and `on` is a light's, a switch's and an outlet's alike, so that turns off the fridge's plug too. `Types` limits a room write, a moment's or a hold's, to devices of some [device types](devices.md#what-a-device-is):
+The group says which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
 
-```go
-framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false) // the lights, not the plugs
-```
+| Group | Device types |
+|---|---|
+| `framework.Lights` | `OnOffLight`, `DimmableLight` |
+| `framework.Plugs` | `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl`, `MountedDimmableLoadControl` |
+| `framework.Heaters` | `Thermostat`: any device with a setpoint |
+| `framework.Kinds(...)` | the types you list, such as `framework.Kinds(framework.DimmableLight)` |
+| `framework.Everything` | every device in the room with the capability, whatever it is |
 
-A device whose type isn't listed is left alone, and the log names it, so a new kind of light is left alone until you add its type. A room read takes `Types` too, but a room trigger doesn't: it fires for any device in the room.
+A device whose type isn't in the group is left alone, and the log names it, so a wall switch typed `MountedOnOffControl` is a plug until `oikade devices type` makes it a light. A room's sensors have no group of their own: read and trigger on them with `Everything`.
 
 A condition reads a room with `State`'s `Any`, `All` and `Count` for a `bool` capability, and `Readings` for a number, whose values go to `slices.Max`, `slices.Min` or an average:
 
 ```go
 // A dehumidifier that runs on whichever cellar sensors have reported.
 When: func(s framework.State) bool {
-	return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
+	return slices.Max(s.Readings(framework.InRoom("cellar", framework.Everything, framework.Humidity))) > 65
 },
 ```
 
 A read covers the devices in the room now that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. If none has reported, the condition stops, as at a `Get`. A hold that reads a room looks again when a device moves in or out with `oikade devices room`, with no deploy. A sensor that reported and then died keeps its last value.
 
-A room with no devices in it, or none of the read's `Types`, stops the condition too, and a hold keeps its state: one that was on, or in its off-delay, stays on until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices room`, `oikade devices type` and `oikade devices remove` still make the change when it leaves a room a hold reads with nothing of the read's types in it, but they warn on stderr, naming the room and the holds, and `--json` has the warning as `warning`.
+A room with no devices in it, or none in the read's group, stops the condition too, and a hold keeps its state: one that was on, or in its off-delay, stays on until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices room`, `oikade devices type` and `oikade devices remove` still make the change when it leaves a room a hold reads with nothing of the read's group in it, but they warn on stderr, naming the room and the holds, and `--json` has the warning as `warning`.
 
-- **Room triggers** fire on a change from any device in the room at the time of the change.
-- **Room actions** set every device in the room that has reported the capability, and is one of the `Types` if there are any, in name order, and skip the rest. So `on` on a room leaves the motion sensor alone, and turns off a heater along with the lamps: a heater is a `Thermostat`, and `Types(framework.Thermostat)` picks only the heaters, while `Types` that leave it out, such as the lights, leave the heaters alone ([OIK-20](https://linear.app/oikade/issue/OIK-20)). Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
-- **A room hold takes up new members while it's active.** A device that moves into the room with `oikade devices room`, or is retyped into the hold's `Types`, is written, or claimed at the hold's level, at once, and the log says `Held Room member that joined`. A member that's discovered after the hold started is written then. One that leaves the room lets go of the hold's claim, and is written again if it comes back. After a restart, the hold counts the room's members as held, discovered yet or not, and doesn't write them again.
+- **Room triggers** fire on a change from any device in the room and the group at the time of the change.
+- **Room actions** set every device in the room and the group that has reported the capability, in name order, and skip the rest. So `on` on a room's `Everything` leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone ([OIK-20](https://linear.app/oikade/issue/OIK-20)). Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
+- **A room hold takes up new members while it's active.** A device that moves into the room with `oikade devices room`, or is retyped into the hold's group, is written, or claimed at the hold's level, at once, and the log says `Held Room member that joined`. A member that's discovered after the hold started is written then. One that leaves the room lets go of the hold's claim, and is written again if it comes back. After a restart, the hold counts the room's members as held, discovered yet or not, and doesn't write them again.
 - **If some devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
 - **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Wait` longer than the time your sensor holds occupancy after the last movement.
 - **A room `Set` with no end skips arbitrated members,** because a claim must end (see [one-off claims](#one-off-claims)). The log names them, with members of other types, as `Skipped Room members`.

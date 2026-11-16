@@ -51,9 +51,9 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 		framework.NewHold("porch-light", PorchLight.On.To(true)).
 When(func(s framework.State) bool { return s.Get(PorchSensor.Occupied) }).
 OffDelay(5 * time.Minute),
-		framework.NewMoment("goodnight", framework.InRoom("living-room", framework.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
+		framework.NewMoment("goodnight", framework.InRoom("living-room", framework.Lights, framework.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
 At(framework.Clock("23:30")).
-On(PorchSensor.Occupied, framework.InRoom("porch", framework.Occupied)),`},
+On(PorchSensor.Occupied, framework.InRoom("porch", framework.Everything, framework.Occupied)),`},
 		"a capability the device hasn't": {
 			body: `framework.NewHold("a", PorchLight.Occupied.To(true)),`,
 			want: "PorchLight.Occupied undefined",
@@ -72,8 +72,12 @@ When(func(s framework.State) bool { return s.Get(Hallway.On) > 5 }),`,
 			want: "mismatched types",
 		},
 		"a room's capability set to the wrong type": {
-			body: `framework.NewMoment("a", framework.InRoom("hall", framework.On).To(10)),`,
+			body: `framework.NewMoment("a", framework.InRoom("hall", framework.Lights, framework.On).To(10)),`,
 			want: "cannot use 10",
+		},
+		"a room write that doesn't say what it's for": {
+			body: `framework.NewMoment("a", framework.InRoom("hall", framework.On).To(true)),`,
+			want: "not enough arguments in call to framework.InRoom",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

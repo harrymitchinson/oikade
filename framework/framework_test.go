@@ -192,12 +192,12 @@ func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
 		cond Condition
 		want bool
 	}{
-		"any":         {func(s State) bool { return s.Any(InRoom("hallway", Occupied)) }, true},
-		"all":         {func(s State) bool { return s.All(InRoom("hallway", Occupied)) }, false},
-		"count":       {func(s State) bool { return s.Count(InRoom("hallway", Occupied)) == 1 }, true},
-		"all on":      {func(s State) bool { return s.All(InRoom("hallway", On)) }, false},
-		"lights only": {func(s State) bool { return s.All(InRoom("hallway", On).Types(OnOffLight, DimmableLight)) }, true},
-		"plugs only":  {func(s State) bool { return s.Any(InRoom("hallway", On).Types(OnOffPlugInUnit)) }, false},
+		"any":         {func(s State) bool { return s.Any(InRoom("hallway", Everything, Occupied)) }, true},
+		"all":         {func(s State) bool { return s.All(InRoom("hallway", Everything, Occupied)) }, false},
+		"count":       {func(s State) bool { return s.Count(InRoom("hallway", Everything, Occupied)) == 1 }, true},
+		"all on":      {func(s State) bool { return s.All(InRoom("hallway", Everything, On)) }, false},
+		"lights only": {func(s State) bool { return s.All(InRoom("hallway", Lights, On)) }, true},
+		"plugs only":  {func(s State) bool { return s.Any(InRoom("hallway", Kinds(OnOffPlugInUnit), On)) }, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ok, err := tc.cond.toEngine()(hallway())
@@ -211,7 +211,7 @@ func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
 func TestReadingsAreInDeviceNameOrder(t *testing.T) {
 	var got []float64
 	cond := Condition(func(s State) bool {
-		got = s.Readings(InRoom("cellar", Humidity))
+		got = s.Readings(InRoom("cellar", Everything, Humidity))
 		return slices.Max(got) > 65
 	}).toEngine()
 	ok, err := cond(engine.Vars{
@@ -226,10 +226,10 @@ func TestReadingsAreInDeviceNameOrder(t *testing.T) {
 // A hold keeps its state while it can't tell, as with a single device that hasn't reported.
 func TestARoomWhereNothingHasReportedIsAnError(t *testing.T) {
 	for name, cond := range map[string]Condition{
-		"nothing reported": func(s State) bool { return s.Any(InRoom("cellar", Occupied)) },
-		"no such room":     func(s State) bool { return s.Any(InRoom("loft", Occupied)) },
-		"no room":          func(s State) bool { return s.Any(InRoom("", Occupied)) },
-		"no such type":     func(s State) bool { return s.Any(InRoom("hallway", On).Types(DimmableLight)) },
+		"nothing reported": func(s State) bool { return s.Any(InRoom("cellar", Everything, Occupied)) },
+		"no such room":     func(s State) bool { return s.Any(InRoom("loft", Everything, Occupied)) },
+		"no room":          func(s State) bool { return s.Any(InRoom("", Everything, Occupied)) },
+		"no such type":     func(s State) bool { return s.Any(InRoom("hallway", Kinds(DimmableLight), On)) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := cond.toEngine()(hallway()); err == nil {
@@ -415,7 +415,7 @@ func TestHomeChecksControlAndBudgets(t *testing.T) {
 		"no control": {NewHome(Options{}, NewHold("pump-daily", pump.To(true)).
 			Budget(NewBudget(minutes))), "needs a Control"},
 		"twice":        {NewHome(Options{}, valveControl(), valveControl()), "declared twice"},
-		"a room":       {arbitrate(InRoom("hall", On).To(false), PreferOn), "names a device, not a room"},
+		"a room":       {arbitrate(InRoom("hall", Everything, On).To(false), PreferOn), "names a device, not a room"},
 		"no default":   {arbitrate(Set{}, PreferOn), "needs a capability"},
 		"no device":    {arbitrate(Handle[bool]{Capability: On}.To(false), PreferOn), "needs a device"},
 		"a claim":      {arbitrate(pump.To(false).UntilNext(), PreferOn), "takes no For, Until or Priority"},
@@ -473,14 +473,14 @@ func TestMetaHasTheLimitsOfTheHomesControl(t *testing.T) {
 // A Safety rule's room writes limited to device types are in the manifest, which the host checks a
 // device's new type against. Other rules' aren't.
 func TestASafetyRulesTypedRoomsAreInTheManifest(t *testing.T) {
-	lights := InRoom("hall", On).Types(OnOffLight, DimmableLight)
+	lights := InRoom("hall", Lights, On)
 	m := NewHome(Options{},
 		NewHold("night-lights", lights.To(true)).
 			Priority(Safety).
 			Window(NewWindow(Clock("22:00"), Clock("06:00"))),
 		NewHold("evening", lights.To(true)).Window(NewWindow(Clock("18:00"), Clock("22:00"))),
 		NewMoment("alarm", lights.To(true).For(time.Hour).
-			Priority(Safety), InRoom("hall", On).To(true).For(time.Hour).
+			Priority(Safety), InRoom("hall", Everything, On).To(true).For(time.Hour).
 			Priority(Safety)).
 			At(Clock("03:00")),
 	).manifest()

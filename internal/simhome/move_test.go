@@ -34,7 +34,9 @@ func TestAHoldWhoseRoomLosesItsLastMemberWarnsOnce(t *testing.T) {
 	occupied := string(framework.Occupied)
 	home := framework.NewHome(framework.Options{}, framework.NewHold("hall-lamp", switchOf("lamp").To(true)).
 		OffDelay(time.Minute).
-		When(func(s framework.State) bool { return s.Any(framework.InRoom("hall", framework.Occupied)) }))
+		When(func(s framework.State) bool {
+			return s.Any(framework.InRoom("hall", framework.Everything, framework.Occupied))
+		}))
 	simulated, err := simhome.FromFramework(home)
 	if err != nil {
 		t.Fatal(err)

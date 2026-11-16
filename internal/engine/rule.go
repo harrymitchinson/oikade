@@ -106,15 +106,21 @@ func checkDays(days []time.Weekday) error {
 
 // Change fires when a capability changes on a device, or on any device in a room.
 type Change struct {
-	Device     string
-	Room       string
-	Capability string
+	Device string
+	Room   string
+	// DeviceTypes limits a room's change to devices of these types, as on a Set. None means any
+	// device in the room.
+	DeviceTypes []devicetype.Type
+	Capability  string
 }
 
 func (c Change) check() []error {
 	var errs []error
 	if (c.Device == "") == (c.Room == "") {
 		errs = append(errs, errors.New("exactly one of device or room is required"))
+	}
+	if err := checkTypes(c.Room, c.DeviceTypes); err != nil {
+		errs = append(errs, err)
 	}
 	if _, ok := capability.Lookup(c.Capability); !ok {
 		errs = append(errs, fmt.Errorf("unknown capability %q", c.Capability))

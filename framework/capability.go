@@ -66,11 +66,10 @@ func (h Handle[T]) change() engine.Change {
 }
 
 // DeviceType is what a device that's on or off is, in Matter's names, as oikade devices shows it. A
-// room write can be limited to some, with Types.
+// Group from Kinds is some of them.
 type DeviceType string
 
-// Thermostat is a heater or thermostat: any device with a Setpoint. A room write limited to Types
-// that leave it out, such as the lights, leaves the heaters alone.
+// Thermostat is a heater or thermostat: any device with a Setpoint.
 const Thermostat DeviceType = "Thermostat"
 
 // The device types a device that's on or off can be.
@@ -83,71 +82,69 @@ const (
 	MountedDimmableLoadControl DeviceType = contractv1.MountedDimmableLoadControl
 )
 
-// Room is a capability of every device in a room that has it, from InRoom. A room's devices can
-// change without a deploy, so it takes the capability rather than handles.
-type Room[T Value] struct {
-	room       string
-	capability Capability[T]
-}
-
-// InRoom is capability c of every device in room: a trigger, a condition's read, as with State's
-// Any, or with To a write to them all.
-func InRoom[T Value](room string, c Capability[T]) Room[T] {
-	return Room[T]{room: room, capability: c}
-}
-
-// To is a write of v to every device in the room with the capability.
-func (r Room[T]) To(v T) Set {
-	return Set{room: r.room, capability: string(r.capability), value: v}
-}
-
-func (r Room[T]) change() engine.Change {
-	return engine.Change{Room: r.room, Capability: string(r.capability)}
-}
-
-// Types limits a write or a read to the room's devices of these types, so that turning off the
-// lights leaves the fridge's plug alone. Without it, a room means every device in it with the
-// capability. A trigger can't take it: a trigger on a room fires for any of its devices.
-//
-//	framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight).To(false)
-func (r Room[T]) Types(types ...DeviceType) RoomOfTypes[T] {
-	return RoomOfTypes[T]{room: r, types: types}
-}
-
-// RoomOfTypes is a capability of a room's devices of some types, from Room's Types.
-type RoomOfTypes[T Value] struct {
-	room  Room[T]
+// Group is which of a room's devices InRoom means: Lights, Plugs, Heaters, Everything, or some
+// device types from Kinds. A room write says what it's for, so turning on the lights at dusk doesn't
+// also turn on the heater.
+type Group struct {
 	types []DeviceType
 }
 
-// To is a write of v to every device in the room of one of the types, with the capability.
-func (r RoomOfTypes[T]) To(v T) Set {
-	s := r.room.To(v)
-	s.types = engineTypes(r.types)
-	return s
+// The groups a room's devices fall into, by device type.
+var (
+	// Lights are the on/off and dimmable lights.
+	Lights = Kinds(OnOffLight, DimmableLight)
+	// Plugs are the plug-in units and the mounted controls: whatever is wired to a relay or an outlet.
+	Plugs = Kinds(OnOffPlugInUnit, DimmablePlugInUnit, MountedOnOffControl, MountedDimmableLoadControl)
+	// Heaters are the heaters and thermostats.
+	Heaters = Kinds(Thermostat)
+	// Everything is every device in the room with the capability, whatever it is: any of its sensors,
+	// or every device there that has on, lights, plugs and heaters alike.
+	Everything = Group{}
+)
+
+// Kinds is a group of the devices of these types, such as only the dimmable lights.
+//
+//	framework.InRoom("study", framework.Kinds(framework.DimmableLight), framework.Brightness).To(40)
+func Kinds(t DeviceType, more ...DeviceType) Group {
+	return Group{types: append([]DeviceType{t}, more...)}
 }
 
-func engineTypes(types []DeviceType) []devicetype.Type {
-	if len(types) == 0 {
+// Room is a capability of a room's devices in a group, from InRoom. A room's devices can change
+// without a deploy, so it takes the capability rather than handles.
+type Room[T Value] struct {
+	room       string
+	group      Group
+	capability Capability[T]
+}
+
+// InRoom is capability c of room's devices in group g: a trigger, which fires for a change on any of
+// them, a condition's read, as with State's Any, or with To a write to them all.
+//
+//	framework.InRoom("living-room", framework.Lights, framework.On).To(false) // the lights, not the plugs
+//	framework.InRoom("hallway", framework.Everything, framework.Occupied)    // any sensor in the hallway
+func InRoom[T Value](room string, g Group, c Capability[T]) Room[T] {
+	return Room[T]{room: room, group: g, capability: c}
+}
+
+// To is a write of v to the room's devices in the group that have the capability.
+func (r Room[T]) To(v T) Set {
+	return Set{room: r.room, types: r.engineTypes(), capability: string(r.capability), value: v}
+}
+
+func (r Room[T]) change() engine.Change {
+	return engine.Change{Room: r.room, DeviceTypes: r.engineTypes(), Capability: string(r.capability)}
+}
+
+// engineTypes are the group's device types. None means every device.
+func (r Room[T]) engineTypes() []devicetype.Type {
+	if len(r.group.types) == 0 {
 		return nil
 	}
-	out := make([]devicetype.Type, 0, len(types))
-	for _, t := range types {
+	out := make([]devicetype.Type, 0, len(r.group.types))
+	for _, t := range r.group.types {
 		out = append(out, devicetype.Type(t))
 	}
 	return out
-}
-
-// RoomRead is a room's capability a condition reads, with State's Any, All, Count or Readings:
-// InRoom's, or with its Types.
-type RoomRead[T Value] interface {
-	read() (room string, c Capability[T], types []DeviceType)
-}
-
-func (r Room[T]) read() (string, Capability[T], []DeviceType) { return r.room, r.capability, nil }
-
-func (r RoomOfTypes[T]) read() (string, Capability[T], []DeviceType) {
-	return r.room.room, r.room.capability, r.types
 }
 
 // Change is what triggers a moment or a flow: a capability changing on a device, as a Handle, or on

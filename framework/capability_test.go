@@ -68,11 +68,11 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 			engine.Set{Device: "heater", Capability: "on", Value: false, Until: engine.UntilReleased},
 		},
 		"a room": {
-			InRoom("hall", Brightness).To(20),
+			InRoom("hall", Everything, Brightness).To(20),
 			engine.Set{Room: "hall", Capability: "brightness", Value: 20.0},
 		},
 		"a room's lights": {
-			InRoom("hall", On).Types(OnOffLight, DimmableLight).To(false),
+			InRoom("hall", Lights, On).To(false),
 			engine.Set{
 				Room: "hall", DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight},
 				Capability: "on", Value: false,
@@ -84,10 +84,14 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 		}
 	}
 	want := engine.Change{Room: "hall", Capability: "occupied"}
-	if got := InRoom("hall", Occupied).change(); got != want {
+	if got := InRoom("hall", Everything, Occupied).change(); !reflect.DeepEqual(got, want) {
 		t.Errorf("a room's change is %+v", got)
 	}
-	if got := heater.change(); got != (engine.Change{Device: "heater", Capability: "on"}) {
+	heaters := engine.Change{Room: "hall", DeviceTypes: []devicetype.Type{devicetype.Thermostat}, Capability: "on"}
+	if got := InRoom("hall", Heaters, On).change(); !reflect.DeepEqual(got, heaters) {
+		t.Errorf("a room's heaters' change is %+v", got)
+	}
+	if got := heater.change(); !reflect.DeepEqual(got, engine.Change{Device: "heater", Capability: "on"}) {
 		t.Errorf("a handle's change is %+v", got)
 	}
 }

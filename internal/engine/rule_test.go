@@ -197,7 +197,7 @@ func TestGoRuleKeepsNoCallerSlices(t *testing.T) {
 		t.Fatal(err)
 	}
 	changes[0].Device, days[0] = "b", time.Tuesday
-	if !c.matches("a", "", capability.Occupied) || c.timers[0].days[0] != time.Monday {
+	if !c.matches("a", "", nil, capability.Occupied) || c.timers[0].days[0] != time.Monday {
 		t.Errorf("the compiled rule changed with its input: %+v", c)
 	}
 }
@@ -210,11 +210,36 @@ func TestNewTriggerMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.matches("any", "hall", capability.Occupied) || c.matches("any", "attic", capability.Occupied) {
+	if !c.matches("any", "hall", nil, capability.Occupied) || c.matches("any", "attic", nil, capability.Occupied) {
 		t.Error("the change trigger doesn't match as written")
 	}
 	if len(c.timers) != 2 || c.timers[0].minutes != 7*60+30 || c.timers[1].event != sun.Sunset {
 		t.Errorf("timers = %+v", c.timers)
+	}
+}
+
+// A room's change limited to device types fires only for a device of one of them, and one without
+// types for any device in the room.
+func TestARoomChangeOfTypesMatchesOnlyThoseTypes(t *testing.T) {
+	lights := []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight}
+	c, err := NewTrigger(goKey("flow"), Trigger{Changes: []Change{{Room: "hall", DeviceTypes: lights, Capability: capability.On}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		room  string
+		types []devicetype.Type
+		want  bool
+	}{
+		"a light":                 {"hall", []devicetype.Type{devicetype.DimmableLight}, true},
+		"a plug":                  {"hall", []devicetype.Type{devicetype.OnOffPlugInUnit}, false},
+		"a heater":                {"hall", []devicetype.Type{devicetype.Thermostat}, false},
+		"a device with no type":   {"hall", nil, false},
+		"a light in another room": {"attic", []devicetype.Type{devicetype.OnOffLight}, false},
+	} {
+		if got := c.matches("d", tc.room, tc.types, capability.On); got != tc.want {
+			t.Errorf("%s: matches = %v, want %v", name, got, tc.want)
+		}
 	}
 }
 
@@ -232,6 +257,8 @@ func TestGoRulesAreChecked(t *testing.T) {
 		{moment(Moment{Changes: on}), "do is required"},
 		{moment(Moment{Changes: []Change{{Capability: capability.Occupied}}, Do: []Action{set}}), "changes[0]: exactly one of device or room"},
 		{moment(Moment{Changes: []Change{{Device: "d", Capability: "nope"}}, Do: []Action{set}}), `unknown capability "nope"`},
+		{moment(Moment{Changes: []Change{{Room: "hall", DeviceTypes: []devicetype.Type{"Toaster"}, Capability: capability.On}}, Do: []Action{set}}), `unknown device type "Toaster"`},
+		{moment(Moment{Changes: []Change{{Device: "d", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Capability: capability.On}}, Do: []Action{set}}), "device types limit a room"},
 		{moment(Moment{Timers: []Timer{At{Time: "25:00"}}, Do: []Action{set}}), `timers[0]: time "25:00" is not HH:MM`},
 		{moment(Moment{Timers: []Timer{SunTime{Event: sun.Sunrise, Offset: 7 * time.Hour}}, Do: []Action{set}}), "not between -6h and 6h"},
 		{moment(Moment{Changes: on, StartingDeadline: -1, Do: []Action{set}}), "startingDeadline must not be negative"},
