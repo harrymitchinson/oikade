@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,12 +31,63 @@ const (
 type pushed struct {
 	mu   sync.Mutex
 	text []byte
+	// refused is set while the last push was refused.
+	refused bool
 }
 
-func (p *pushed) set(text []byte) {
+// pushedPrefix starts every family your process may push: its rules' metrics, and none the host
+// exports itself.
+const pushedPrefix = "oikade_rule_"
+
+// set keeps text as your process's latest metrics if it's only its rules' metrics, and otherwise
+// keeps none, so a bad push can't spoil the host's scrape. It says why only for the first push it
+// refuses after one it kept, so a process that keeps sending them is heard once.
+func (p *pushed) set(text []byte) error {
+	err := checkPushed(text)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.text = text
+	first := !p.refused
+	p.text, p.refused = text, err != nil
+	if err == nil {
+		return nil
+	}
+	p.text = nil
+	if !first {
+		return nil
+	}
+	return err
+}
+
+// checkPushed returns why text isn't your process's rule metrics, line by line, or nil.
+func checkPushed(text []byte) error {
+	for line := range strings.Lines(string(text)) {
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			continue
+		}
+		if comment, ok := strings.CutPrefix(line, "# "); ok {
+			fields := strings.Fields(comment)
+			switch {
+			case len(fields) >= 2 && fields[0] == "HELP" && strings.HasPrefix(fields[1], pushedPrefix):
+			case len(fields) == 3 && fields[0] == "TYPE" && strings.HasPrefix(fields[1], pushedPrefix) &&
+				slices.Contains([]string{"counter", "gauge", "histogram", "summary", "untyped"}, fields[2]):
+			default:
+				return fmt.Errorf("%q isn't a rule metric's HELP or TYPE", line)
+			}
+			continue
+		}
+		space := strings.LastIndexByte(line, ' ')
+		if space < 0 || !strings.HasPrefix(line, pushedPrefix) {
+			return fmt.Errorf("%q isn't a rule metric's sample", line)
+		}
+		if err := metrics.ValidateMetric(line[:space]); err != nil {
+			return fmt.Errorf("series %q: %w", line[:space], err)
+		}
+		if _, err := strconv.ParseFloat(line[space+1:], 64); err != nil {
+			return fmt.Errorf("series %q has value %q", line[:space], line[space+1:])
+		}
+	}
+	return nil
 }
 
 // write writes the latest metrics as they came, ending their last line so nothing after joins it.

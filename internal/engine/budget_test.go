@@ -58,9 +58,9 @@ func blocks(today *BudgetDay) string {
 func (r *rig) expectBudgetMetrics(name string, target, scheduled, run float64) {
 	r.t.Helper()
 	for metric, tc := range map[string]struct{ got, want float64 }{
-		"oikade_rule_budget_target_minutes":    {r.e.budget().target.Gauge(name).Get(), target},
-		"oikade_rule_budget_scheduled_minutes": {r.e.budget().scheduled.Gauge(name).Get(), scheduled},
-		"oikade_rule_budget_run_minutes_total": {r.e.budget().run.FloatCounter(name).Get(), run},
+		"oikade_rule_budget_target_minutes":    {r.e.metrics.budget.target.Gauge(name).Get(), target},
+		"oikade_rule_budget_scheduled_minutes": {r.e.metrics.budget.scheduled.Gauge(name).Get(), scheduled},
+		"oikade_rule_budget_run_minutes_total": {r.e.metrics.budget.run.FloatCounter(name).Get(), run},
 	} {
 		if tc.got < tc.want-0.1 || tc.got > tc.want+0.1 {
 			r.t.Errorf("%s = %v, want %v", metric, tc.got, tc.want)
@@ -106,7 +106,7 @@ func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states *storeB
 	if w := winner(r.status("pump", capability.On)); w != "Rule/pump-daily Normal" {
 		t.Errorf("00:00 winner %q", w)
 	}
-	if got := r.e.budget().desired.Gauge("pump-daily").Get(); got != 1 {
+	if got := r.e.metrics.budget.desired.Gauge("pump-daily").Get(); got != 1 {
 		t.Errorf("oikade_rule_budget_desired %v at 00:00, want 1", got)
 	}
 
@@ -186,23 +186,23 @@ func TestBudgetMetricsAreExportedBeforeAnyRun(t *testing.T) {
 		now:     local("2026-10-21 14:00 BST"),
 		control: map[string][]control.Entry{"pump": {pumpEntry()}},
 	}, holdRule(t, "pump-daily", pumpBudget))
-	for _, v := range r.e.budget().all() {
+	for _, v := range r.e.metrics.budget.all() {
 		if n := len(v.Names()); n != 1 {
 			t.Errorf("%d series for a metric, want 1 before any run is credited", n)
 		}
 	}
 	r.expectBudgetMetrics("pump-daily", 240, 240, 0)
-	if got := r.e.budget().todayRun.Gauge("pump-daily").Get(); got != 0 {
+	if got := r.e.metrics.budget.todayRun.Gauge("pump-daily").Get(); got != 0 {
 		t.Errorf("oikade_rule_budget_today_run_minutes %v, want 0", got)
 	}
 
 	// The control entry goes: nothing is planned or wanted any more.
 	r.setControlOf("pump")
 	r.at("2026-10-21 14:01 BST")
-	if n := len(r.e.budget().target.Names()); n != 0 {
+	if n := len(r.e.metrics.budget.target.Names()); n != 0 {
 		t.Errorf("%d target series once it can't plan, want none", n)
 	}
-	if got := r.e.budget().desired.Gauge("pump-daily").Get(); got != 0 {
+	if got := r.e.metrics.budget.desired.Gauge("pump-daily").Get(); got != 0 {
 		t.Errorf("oikade_rule_budget_desired %v once it can't plan, want 0", got)
 	}
 }
@@ -239,7 +239,7 @@ func TestEditingOutTheBudgetClearsItsStatus(t *testing.T) {
 	if b := r.budget("pump-nightly"); !b.Cleared {
 		t.Errorf("report %+v, want cleared", b)
 	}
-	if n := len(r.e.budget().target.Names()); n != 0 {
+	if n := len(r.e.metrics.budget.target.Names()); n != 0 {
 		t.Errorf("%d target gauges left, want none", n)
 	}
 }

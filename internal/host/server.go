@@ -235,7 +235,9 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 			s.emit(api.Event{Time: m.Time, Type: api.EventRule, Rule: m.Rule, Result: m.Result})
 			continue
 		case wire.TypeMetrics:
-			s.pushed.set(m.Metrics)
+			if err := s.pushed.set(m.Metrics); err != nil {
+				s.log.Error("Refused rule metrics from your process", "err", err)
+			}
 			continue
 		case wire.TypeRoomReads:
 			s.mu.Lock()
@@ -486,7 +488,7 @@ func (s *server) detach(sess *session) {
 	}
 	s.mu.Unlock()
 	if left {
-		s.pushed.set(nil)
+		_ = s.pushed.set(nil)
 		s.emit(api.Event{Time: time.Now(), Type: api.EventProcess, Message: "disconnected"})
 	}
 	close(sess.finished)

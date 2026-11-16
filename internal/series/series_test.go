@@ -2,7 +2,9 @@ package series
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/VictoriaMetrics/metrics"
@@ -31,7 +33,7 @@ func TestASetTakesEscapedNames(t *testing.T) {
 	v.Set(2, `ends in \`)
 	var out bytes.Buffer
 	set.WritePrometheus(&out)
-	want := "oikade_x{room=\"a \\\"quoted\\\", room\"} 1\noikade_x{room=\"ends in \\\\\"} 2\n"
+	want := "# HELP oikade_x\n# TYPE oikade_x gauge\noikade_x{room=\"a \\\"quoted\\\", room\"} 1\noikade_x{room=\"ends in \\\\\"} 2\n"
 	if out.String() != want {
 		t.Errorf("wrote\n%s\nwant\n%s", out.String(), want)
 	}
@@ -72,11 +74,32 @@ func TestAVecWithoutASetDoesNothing(t *testing.T) {
 	}
 }
 
-func TestWriteKeepsWholeNumbersWhole(t *testing.T) {
+func TestAFamilyWritesItsTypeOnceAndKeepsWholeNumbersWhole(t *testing.T) {
 	var out bytes.Buffer
-	Write(&out, 1763300000, "oikade_seen", "device", "fan")
-	Write(&out, 2.5, "oikade_level")
-	if want := "oikade_seen{device=\"fan\"} 1763300000\noikade_level 2.5\n"; out.String() != want {
+	seen := Family{Name: "oikade_seen", Type: TypeGauge}
+	seen.Add(2.5, "device", "lamp")
+	seen.Add(1763300000, "device", "fan")
+	seen.Write(&out)
+	(&Family{Name: "oikade_none", Type: TypeGauge}).Write(&out)
+	Write(&out, "oikade_up", TypeCounter, 1)
+	want := `# HELP oikade_seen
+# TYPE oikade_seen gauge
+oikade_seen{device="fan"} 1763300000
+oikade_seen{device="lamp"} 2.5
+# HELP oikade_up
+# TYPE oikade_up counter
+oikade_up 1
+`
+	if out.String() != want {
 		t.Errorf("wrote\n%s\nwant\n%s", out.String(), want)
 	}
+}
+
+func TestAWrongNumberOfValuesSaysSo(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), `"device" "capability"`) {
+			t.Errorf("panicked with %v", r)
+		}
+	}()
+	NewVec(nil, "oikade_level", "device", "capability").Name("fan")
 }

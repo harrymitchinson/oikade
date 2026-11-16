@@ -74,12 +74,12 @@ func (m *matterMetrics) writeState(w io.Writer) {
 	if m.bridge.working() && m.bridge.serving.Load() {
 		serving = 1
 	}
-	series.Write(w, serving, "oikade_matter_serving")
+	series.Write(w, "oikade_matter_serving", series.TypeGauge, serving)
 	if !m.bridge.working() {
 		return
 	}
 	n := m.bridge.node
-	series.Write(w, float64(n.Fabrics().Count()), "oikade_matter_fabrics")
-	series.Write(w, float64(n.Sessions()), "oikade_matter_sessions")
-	series.Write(w, float64(n.Subscriptions()), "oikade_matter_subscriptions")
+	series.Write(w, "oikade_matter_fabrics", series.TypeGauge, float64(n.Fabrics().Count()))
+	series.Write(w, "oikade_matter_sessions", series.TypeGauge, float64(n.Sessions()))
+	series.Write(w, "oikade_matter_subscriptions", series.TypeGauge, float64(n.Subscriptions()))
 }

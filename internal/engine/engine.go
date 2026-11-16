@@ -115,6 +115,7 @@ type Engine struct {
 	OnEnd  func(key ident.ID, result string)
 	OnPark Park
 
+	metrics engineMetrics
 	// busy counts the work Idle can't see in the engine's state: changes queued, a wake or save
 	// asked for and not yet done, and goroutines working rather than parked.
 	busy atomic.Int64
@@ -181,9 +182,7 @@ type state struct {
 // Init prepares the engine. Call it before Load, Changed or Run.
 func (e *Engine) Init() {
 	e.Log = logging.OrDiscard(e.Log)
-	if e.RuleMetrics != nil {
-		e.RuleMetrics.GetOrCreateCounter(droppedFamily) // at 0 from the start, for a rate to go up from
-	}
+	e.metrics = newMetrics(e.RuleMetrics, e.ControlMetrics)
 	e.events = make(chan []driver.Update, 1024)
 	e.wake = make(chan struct{}, 1)
 	e.parked = map[int]parking{}
@@ -251,7 +250,7 @@ func (e *Engine) Load(c *Compiled) {
 		e.report(c.Key, Schedule{Generation: c.Generation, Cleared: true})
 	}
 	if old != nil && old.c.hold != nil && c.hold == nil {
-		e.active().Delete(c.Key.Name)
+		e.metrics.active.Delete(c.Key.Name)
 	}
 	if old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
 		e.clearBudget(c.Key, c.Generation)
@@ -297,9 +296,9 @@ func (e *Engine) reschedule(s *state, now time.Time) time.Time {
 
 func (e *Engine) report(key ident.ID, sched Schedule) {
 	if sched.Next.IsZero() || sched.Cleared {
-		e.nextChange().Delete(key.Name)
+		e.metrics.nextChange.Delete(key.Name)
 	} else {
-		e.nextChange().Set(float64(sched.Next.Unix()), key.Name)
+		e.metrics.nextChange.Set(float64(sched.Next.Unix()), key.Name)
 	}
 	if e.OnSchedule != nil {
 		e.OnSchedule(key, sched)
@@ -364,13 +363,13 @@ func (e *Engine) unload(key ident.ID) *state {
 		e.stopped(key, s.hold, "")
 	}
 	// The saved plan stays, so a rule fixed the same day carries on with it.
-	e.budget().delete(key)
+	e.metrics.budget.delete(key)
 	delete(e.rules, key)
 	// A Rule loaded again, after a delete or an invalid edit, looks for missed fires again.
 	delete(e.loaded, key)
-	e.runCounts().DeleteMatching(labelRule, key.Name)
-	e.nextChange().Delete(key.Name)
-	e.active().Delete(key.Name)
+	e.metrics.runs.DeleteMatching(labelRule, key.Name)
+	e.metrics.nextChange.Delete(key.Name)
+	e.metrics.active.Delete(key.Name)
 	e.signal()
 	return s
 }
@@ -395,8 +394,8 @@ func (e *Engine) queue(changes []driver.Update) {
 	case e.events <- changes:
 	default:
 		e.busy.Add(-1)
-		if e.RuleMetrics != nil {
-			e.RuleMetrics.GetOrCreateCounter(droppedFamily).Add(len(changes))
+		if e.metrics.dropped != nil {
+			e.metrics.dropped.Add(len(changes))
 		}
 		for _, u := range changes {
 			e.Log.Info("Dropped capability change; the rule engine is behind", "device", u.Device, "capability", u.Capability)
@@ -1038,7 +1037,7 @@ func (e *Engine) stateIdle() bool {
 func (e *Engine) Earliest() time.Time { return e.earliest() }
 
 func (e *Engine) count(key ident.ID, result string) {
-	e.runCounts().Inc(key.Name, result)
+	e.metrics.runs.Inc(key.Name, result)
 	if e.OnRun != nil {
 		e.OnRun(key, result)
 	}

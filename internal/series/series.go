@@ -1,5 +1,7 @@
 // Package series names labelled series for VictoriaMetrics/metrics, which takes each series by its
 // full name, labels and all.
+//
+// Importing it has every Set write # TYPE lines, which Prometheus and Grafana read the type from.
 package series
 
 import (
@@ -12,31 +14,25 @@ import (
 	"github.com/VictoriaMetrics/metrics"
 )
 
+func init() { metrics.ExposeMetadata(true) }
+
+// The types a family's # TYPE line names.
+const (
+	TypeCounter = "counter"
+	TypeGauge   = "gauge"
+)
+
 // Name returns a series' full name: family, then labels as name and value pairs, sorted by name as
 // Prometheus writes them, with values escaped.
 func Name(family string, labels ...string) string {
-	if len(labels) == 0 {
-		return family
+	if len(labels)%2 != 0 {
+		panic(fmt.Sprintf("series %s has a label without a value: %q", family, labels))
 	}
-	pairs := make([][2]string, 0, len(labels)/2)
-	for i := 0; i+1 < len(labels); i += 2 {
-		pairs = append(pairs, [2]string{labels[i], labels[i+1]})
+	names, values := make([]string, 0, len(labels)/2), make([]string, 0, len(labels)/2)
+	for i := 0; i < len(labels); i += 2 {
+		names, values = append(names, labels[i]), append(values, labels[i+1])
 	}
-	slices.SortStableFunc(pairs, func(a, b [2]string) int { return strings.Compare(a[0], b[0]) })
-	var b strings.Builder
-	b.WriteString(family)
-	b.WriteByte('{')
-	for i, p := range pairs {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(p[0])
-		b.WriteString(`="`)
-		b.WriteString(escape(p[1]))
-		b.WriteByte('"')
-	}
-	b.WriteByte('}')
-	return b.String()
+	return NewVec(nil, family, names...).Name(values...)
 }
 
 var escaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
@@ -49,20 +45,43 @@ type Vec struct {
 	set    *metrics.Set
 	family string
 	labels []string
+	// order is the indexes of labels sorted by name, the order a name has them in.
+	order []int
 }
 
 // NewVec returns the family's series in set, labelled with labels in this order.
 func NewVec(set *metrics.Set, family string, labels ...string) Vec {
-	return Vec{set: set, family: family, labels: labels}
+	order := make([]int, len(labels))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return strings.Compare(labels[a], labels[b]) })
+	return Vec{set: set, family: family, labels: labels, order: order}
 }
 
 // Name returns the series for values, one for each of the Vec's labels.
 func (v Vec) Name(values ...string) string {
-	pairs := make([]string, 0, 2*len(v.labels))
-	for i, l := range v.labels {
-		pairs = append(pairs, l, values[i])
+	if len(values) != len(v.labels) {
+		panic(fmt.Sprintf("series %s has labels %q, and was given values %q", v.family, v.labels, values))
 	}
-	return Name(v.family, pairs...)
+	if len(values) == 0 {
+		return v.family
+	}
+	var b strings.Builder
+	b.WriteString(v.family)
+	for n, i := range v.order {
+		if n == 0 {
+			b.WriteByte('{')
+		} else {
+			b.WriteByte(',')
+		}
+		b.WriteString(v.labels[i])
+		b.WriteString(`="`)
+		b.WriteString(escape(values[i]))
+		b.WriteByte('"')
+	}
+	b.WriteByte('}')
+	return b.String()
 }
 
 // Counter returns the counter for values, making it at 0 if it's new. The Set mustn't be nil.
@@ -87,7 +106,7 @@ func (v Vec) Inc(values ...string) {
 	}
 }
 
-// Add adds n to the float counter for values.
+// Add adds n to the float counter for values. Adding 0 makes it, so it's exported before it counts.
 func (v Vec) Add(n float64, values ...string) {
 	if v.set != nil {
 		v.FloatCounter(values...).Add(n)
@@ -108,13 +127,27 @@ func (v Vec) Delete(values ...string) {
 	}
 }
 
-// DeleteMatching removes every series in the family whose label is value.
+// DeleteMatching removes every series in the family whose label is value. Values are escaped, so a
+// quote in a name is never one that ends a value, and a pair found in it is a label's.
 func (v Vec) DeleteMatching(label, value string) {
+	pair := label + `="` + escape(value) + `"`
 	for _, name := range v.Names() {
-		if hasLabel(name, label, value) {
+		if hasPair(name[len(v.family):], pair) {
 			v.set.UnregisterMetric(name)
 		}
 	}
+}
+
+// hasPair reports whether labels, as {a="b",c="d"}, has pair as one of them.
+func hasPair(labels, pair string) bool {
+	for _, before := range []string{"{", ","} {
+		for _, after := range []string{",", "}"} {
+			if strings.Contains(labels, before+pair+after) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Names returns the family's series, sorted.
@@ -131,24 +164,43 @@ func (v Vec) Names() []string {
 	return out
 }
 
-func hasLabel(name, label, value string) bool {
-	pair := label + `="` + escape(value) + `"`
-	labels := name[strings.IndexByte(name, '{'):]
-	return strings.Contains(labels, "{"+pair+",") || strings.Contains(labels, "{"+pair+"}") ||
-		strings.Contains(labels, ","+pair+",") || strings.Contains(labels, ","+pair+"}")
+// Family is one family's samples for a writer that reads its values when it's scraped, and writes
+// them once they're sorted, after its # HELP and # TYPE lines.
+type Family struct {
+	Name, Type string
+	samples    []sample
 }
 
-// Write writes one sample, for a writer that reads its values when it's scraped. Whole numbers
-// are written without an exponent, as the Set writes them.
-func Write(w io.Writer, value float64, family string, labels ...string) {
-	WriteNamed(w, Name(family, labels...), value)
+type sample struct {
+	name  string
+	value float64
 }
 
-// WriteNamed writes one sample of the series name.
-func WriteNamed(w io.Writer, name string, value float64) {
-	if value == math.Trunc(value) && math.Abs(value) < 1<<63 {
-		_, _ = fmt.Fprintf(w, "%s %d\n", name, int64(value))
+// Add adds the sample for labels, given as name and value pairs.
+func (f *Family) Add(value float64, labels ...string) {
+	f.samples = append(f.samples, sample{Name(f.Name, labels...), value})
+}
+
+// Write writes the family, or nothing when it has no samples.
+func (f *Family) Write(w io.Writer) {
+	if len(f.samples) == 0 {
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%s %g\n", name, value)
+	slices.SortFunc(f.samples, func(a, b sample) int { return strings.Compare(a.name, b.name) })
+	metrics.WriteMetadataIfNeeded(w, f.Name, f.Type)
+	for _, s := range f.samples {
+		// As the Set writes a gauge: whole numbers without an exponent, so a timestamp reads as one.
+		if s.value == math.Trunc(s.value) && math.Abs(s.value) < 1<<63 {
+			_, _ = fmt.Fprintf(w, "%s %d\n", s.name, int64(s.value))
+		} else {
+			_, _ = fmt.Fprintf(w, "%s %g\n", s.name, s.value)
+		}
+	}
+}
+
+// Write writes a family of one sample without labels.
+func Write(w io.Writer, family, typ string, value float64) {
+	f := Family{Name: family, Type: typ}
+	f.Add(value)
+	f.Write(w)
 }

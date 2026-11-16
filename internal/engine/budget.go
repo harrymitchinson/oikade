@@ -164,11 +164,11 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 	p := bs.plan
 	if p != nil {
 		// Credited even when the budget can't plan, so the run isn't lost meanwhile.
-		p.credit(now, targetOn, e.budget(), key)
+		p.credit(now, targetOn, e.metrics.budget, key)
 	}
 	b, report := e.compileBudget(s, snap)
 	if b == nil {
-		e.budget().unplanned(key)
+		e.metrics.budget.unplanned(key)
 		e.reportBudget(key, s, now, report)
 		return false, time.Time{}
 	}
@@ -208,13 +208,10 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		if prev != nil && prev.device == h.device && prev.capability == h.capability && !now.Before(prev.end) {
 			// The run since the last day ended belongs to this one.
 			p.credited, p.on = prev.end, prev.on
-			p.credit(now, targetOn, e.budget(), key)
+			p.credit(now, targetOn, e.metrics.budget, key)
 		}
 		bs.plan = p
-		if e.RuleMetrics != nil {
-			// Exported at 0 before any run is credited.
-			e.budget().run.FloatCounter(key.Name)
-		}
+		e.metrics.budget.run.Add(0, key.Name) // exported at 0 before any run is credited
 	}
 
 	next = p.end
@@ -230,7 +227,7 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		}
 	}
 
-	e.budget().planned(key, p, on)
+	e.metrics.budget.planned(key, p, on)
 	report = BudgetReport{Today: p.status(), Reason: ReasonPlanned,
 		Message: planMessage(p.day)}
 	if p.failure != "" {
@@ -400,7 +397,7 @@ func planningDay(now time.Time, loc *time.Location, planningMinute int) (int, ti
 // clearBudget reports that a Rule no longer has a budget, and drops its metrics. Call with e.mu
 // held.
 func (e *Engine) clearBudget(key ident.ID, generation int64) {
-	e.budget().delete(key)
+	e.metrics.budget.delete(key)
 	if e.OnBudget != nil {
 		e.OnBudget(key, BudgetReport{Generation: generation, Cleared: true})
 	}

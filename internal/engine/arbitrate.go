@@ -237,7 +237,7 @@ func (e *Engine) dropArb(dev ident.ID, name string, forget bool) {
 	if len(e.arbs[dev]) == 0 {
 		delete(e.arbs, dev)
 	}
-	e.controlLevel().Delete(dev.Name, name)
+	e.metrics.controlLevel.Delete(dev.Name, name)
 	if forget {
 		e.markSave(dev)
 	}
@@ -890,12 +890,8 @@ func (e *Engine) arbitrated(dev ident.ID, name string) bool {
 
 // reportControl sets the gauge of the device's arbitrated capabilities. Call with e.mu held.
 func (e *Engine) reportControl(dev ident.ID) {
-	if e.ControlMetrics == nil {
-		return
-	}
-	level := e.controlLevel()
 	for name, ar := range e.arbs[dev] {
-		level.Set(float64(ar.d.Level), dev.Name, name)
+		e.metrics.controlLevel.Set(float64(ar.d.Level), dev.Name, name)
 	}
 }
 

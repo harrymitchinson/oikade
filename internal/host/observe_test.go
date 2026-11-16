@@ -47,7 +47,9 @@ func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	var text bytes.Buffer
 	process.WritePrometheus(&text)
 	p := &pushed{}
-	p.set(bytes.TrimSuffix(text.Bytes(), []byte("\n")))
+	if err := p.set(bytes.TrimSuffix(text.Bytes(), []byte("\n"))); err != nil {
+		t.Fatal(err)
+	}
 	export(exported, store, p)
 
 	var out bytes.Buffer
@@ -70,11 +72,43 @@ func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 		t.Error("the last line isn't ended")
 	}
 
-	p.set(nil)
+	_ = p.set(nil)
 	out.Reset()
 	exported.WritePrometheus(&out)
 	if strings.Contains(out.String(), "oikade_rule_runs_total") {
 		t.Error("a process that's gone still has metrics")
+	}
+}
+
+func TestTheHostRefusesMetricsThatArentRules(t *testing.T) {
+	p := &pushed{}
+	good := "# HELP oikade_rule_active\n# TYPE oikade_rule_active gauge\noikade_rule_active{rule=\"a b\"} 1\n"
+	if err := p.set([]byte(good)); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		"oikade_capability_value{device=\"fan\"} 1\n",
+		"oikade_rule_active{rule=\"fan} 1\n",
+		"oikade_rule_active one\n",
+		"# TYPE oikade_rule_active gaueg\n",
+		"# TYPE oikade_device_control_level gauge\n",
+		"oikade_rule_active\n",
+	} {
+		if err := p.set([]byte(good + bad)); err == nil {
+			t.Errorf("kept %q", bad)
+		}
+		var out bytes.Buffer
+		p.write(&out)
+		if out.Len() != 0 {
+			t.Errorf("served %q", out.String())
+		}
+		_ = p.set([]byte(good))
+	}
+	if err := p.set([]byte("nonsense 1\n")); err == nil {
+		t.Error("kept nonsense")
+	}
+	if err := p.set([]byte("more nonsense 1\n")); err != nil {
+		t.Errorf("said again why it refused a push: %v", err)
 	}
 }
 

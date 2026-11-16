@@ -1,6 +1,10 @@
 package engine
 
-import "github.com/harrymitchinson/oikade/internal/series"
+import (
+	vm "github.com/VictoriaMetrics/metrics"
+
+	"github.com/harrymitchinson/oikade/internal/series"
+)
 
 // The engine's metric families. docs/metrics.md says what each one is.
 const (
@@ -18,18 +22,33 @@ const (
 	controlLevelFamily = "oikade_device_control_level"
 )
 
-func (e *Engine) runCounts() series.Vec {
-	return series.NewVec(e.RuleMetrics, runsFamily, labelRule, "result")
+// engineMetrics are the engine's series, made by Init.
+type engineMetrics struct {
+	runs, nextChange, active series.Vec
+	// dropped is nil without RuleMetrics.
+	dropped      *vm.Counter
+	budget       budgetMetrics
+	controlLevel series.Vec
 }
 
-func (e *Engine) nextChange() series.Vec {
-	return series.NewVec(e.RuleMetrics, nextChangeFamily, labelRule)
-}
-
-func (e *Engine) active() series.Vec { return series.NewVec(e.RuleMetrics, activeFamily, labelRule) }
-
-func (e *Engine) controlLevel() series.Vec {
-	return series.NewVec(e.ControlMetrics, controlLevelFamily, "device", "capability")
+func newMetrics(rules, controls *vm.Set) engineMetrics {
+	m := engineMetrics{
+		runs:       series.NewVec(rules, runsFamily, labelRule, "result"),
+		nextChange: series.NewVec(rules, nextChangeFamily, labelRule),
+		active:     series.NewVec(rules, activeFamily, labelRule),
+		budget: budgetMetrics{
+			target:    series.NewVec(rules, "oikade_rule_budget_target_minutes", labelRule),
+			scheduled: series.NewVec(rules, "oikade_rule_budget_scheduled_minutes", labelRule),
+			run:       series.NewVec(rules, "oikade_rule_budget_run_minutes_total", labelRule),
+			todayRun:  series.NewVec(rules, "oikade_rule_budget_today_run_minutes", labelRule),
+			desired:   series.NewVec(rules, "oikade_rule_budget_desired", labelRule),
+		},
+		controlLevel: series.NewVec(controls, controlLevelFamily, "device", "capability"),
+	}
+	if rules != nil {
+		m.dropped = rules.GetOrCreateCounter(droppedFamily) // at 0 from the start, for a rate to go up from
+	}
+	return m
 }
 
 // budgetMetrics are the budget holds' gauges and counter, by rule.
@@ -42,17 +61,6 @@ type budgetMetrics struct {
 	run, todayRun series.Vec
 	// desired is 1 while a budget hold's plan wants its target on, and 0 otherwise.
 	desired series.Vec
-}
-
-func (e *Engine) budget() budgetMetrics {
-	set := e.RuleMetrics
-	return budgetMetrics{
-		target:    series.NewVec(set, "oikade_rule_budget_target_minutes", labelRule),
-		scheduled: series.NewVec(set, "oikade_rule_budget_scheduled_minutes", labelRule),
-		run:       series.NewVec(set, "oikade_rule_budget_run_minutes_total", labelRule),
-		todayRun:  series.NewVec(set, "oikade_rule_budget_today_run_minutes", labelRule),
-		desired:   series.NewVec(set, "oikade_rule_budget_desired", labelRule),
-	}
 }
 
 func (m budgetMetrics) all() []series.Vec {

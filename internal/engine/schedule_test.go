@@ -160,7 +160,7 @@ func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment
 }
 
 func (h *harness) result(name, result string) float64 {
-	return float64(h.e.runCounts().Counter(name, result).Get())
+	return float64(h.e.metrics.runs.Counter(name, result).Get())
 }
 
 var lightOn = call{"hallway-light", capability.On, true}
@@ -189,7 +189,7 @@ func TestAtFiresWithTheClock(t *testing.T) {
 	if got := s.last().LastFire; !got.Equal(local("2026-10-21 07:00 BST")) {
 		t.Errorf("lastFire = %v, want 07:00", got)
 	}
-	if got := h.e.nextChange().Gauge("lights-on").Get(); got != float64(local("2026-10-22 07:00 BST").Unix()) {
+	if got := h.e.metrics.nextChange.Gauge("lights-on").Get(); got != float64(local("2026-10-22 07:00 BST").Unix()) {
 		t.Errorf("next-change gauge = %v", got)
 	}
 }
@@ -290,7 +290,7 @@ func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
 	if got := s.last(); !got.Cleared || got.Generation != 2 {
 		t.Errorf("got %+v, want the schedule cleared for generation 2", got)
 	}
-	if n := len(h.e.nextChange().Names()); n != 0 {
+	if n := len(h.e.metrics.nextChange.Names()); n != 0 {
 		t.Errorf("next-change gauge has %d series, want none", n)
 	}
 }

@@ -325,7 +325,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 		hs.retry = time.Time{}
 	}
 
-	e.active().Set(float64(btoi(st.Active)), key.Name)
+	e.metrics.active.Set(float64(btoi(st.Active)), key.Name)
 	// An active hold claims again when its priority or latch changed, or it has just loaded.
 	claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)

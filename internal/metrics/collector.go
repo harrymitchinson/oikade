@@ -3,8 +3,6 @@ package metrics
 
 import (
 	"io"
-	"slices"
-	"strings"
 
 	"github.com/VictoriaMetrics/metrics"
 
@@ -52,53 +50,40 @@ func (c Collector) Register(set *metrics.Set) { set.RegisterMetricsWriter(c.Writ
 
 // Write writes c's series, a family at a time and each family sorted, as Prometheus expects.
 func (c Collector) Write(w io.Writer) {
-	var values, changes, available, lastSeen, undeclared, up, rejected samples
+	values := series.Family{Name: valueFamily, Type: series.TypeGauge}
+	changes := series.Family{Name: changesFamily, Type: series.TypeCounter}
+	available := series.Family{Name: availableFamily, Type: series.TypeGauge}
+	lastSeen := series.Family{Name: lastSeenFamily, Type: series.TypeGauge}
+	undeclared := series.Family{Name: undeclaredFamily, Type: series.TypeGauge}
+	up := series.Family{Name: pluginUpFamily, Type: series.TypeGauge}
+	rejected := series.Family{Name: pluginRejectedFamily, Type: series.TypeCounter}
 	for key, s := range c.Store.List() {
 		device := []string{"device", key.Name, "room", s.Room}
 		for name, v := range s.Values {
-			values.add(capability.Float(v), valueFamily, append(device, "capability", name)...)
+			values.Add(capability.Float(v), append(device, "capability", name)...)
 		}
 		for name, n := range s.Changes {
-			changes.add(float64(n), changesFamily, append(device, "capability", name)...)
+			changes.Add(float64(n), append(device, "capability", name)...)
 		}
 		if s.Online != nil {
-			available.add(capability.Float(*s.Online), availableFamily, device...)
+			available.Add(capability.Float(*s.Online), device...)
 		}
 		if !s.LastSeen.IsZero() {
-			lastSeen.add(float64(s.LastSeen.UnixMilli())/1000, lastSeenFamily, device...)
+			lastSeen.Add(float64(s.LastSeen.UnixMilli())/1000, device...)
 		}
 	}
 	for key, n := range c.Store.UndeclaredCounts() {
-		undeclared.add(float64(n), undeclaredFamily, "instance", key.Label())
+		undeclared.Add(float64(n), "instance", key.Label())
 	}
 	if c.Plugins != nil {
 		for key, s := range c.Plugins.PluginStats() {
-			up.add(capability.Float(s.Up), pluginUpFamily, "plugin", key.Name)
+			up.Add(capability.Float(s.Up), "plugin", key.Name)
 			for reason, n := range s.Rejected {
-				rejected.add(float64(n), pluginRejectedFamily, "plugin", key.Name, "reason", reason)
+				rejected.Add(float64(n), "plugin", key.Name, "reason", reason)
 			}
 		}
 	}
-	for _, f := range []samples{values, changes, available, lastSeen, undeclared, up, rejected} {
-		f.write(w)
-	}
-}
-
-// samples are one family's samples, written once they're sorted.
-type samples []sample
-
-type sample struct {
-	name  string
-	value float64
-}
-
-func (s *samples) add(v float64, family string, labels ...string) {
-	*s = append(*s, sample{name: series.Name(family, labels...), value: v})
-}
-
-func (s samples) write(w io.Writer) {
-	slices.SortFunc(s, func(a, b sample) int { return strings.Compare(a.name, b.name) })
-	for _, x := range s {
-		series.WriteNamed(w, x.name, x.value)
+	for _, f := range []*series.Family{&values, &changes, &available, &lastSeen, &undeclared, &up, &rejected} {
+		f.Write(w)
 	}
 }
