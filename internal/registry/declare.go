@@ -25,9 +25,12 @@ type Declaration struct {
 
 // Declared is what declaring did, or would do.
 type Declared struct {
-	// Renamed are the live devices whose names change, from their old names to their new ones,
-	// including hardware whose entry a declared name takes over.
+	// Renamed are the live devices whose names change, from their old names to their new ones. Their
+	// claims go with them.
 	Renamed map[string]string
+	// Absorbed are hardware whose own entry a declared name takes over, from the hardware's name to
+	// the declared one, as Replace does: its live values come across, and the name keeps its claims.
+	Absorbed map[string]string
 	// Changes say what changed, a line each, in the order of the declarations, then of the devices
 	// no longer declared.
 	Changes []string
@@ -101,7 +104,7 @@ func declare(s *Snapshot, decls []Declaration) (Declared, error) {
 		return Declared{}, err
 	}
 	before := clone(*s)
-	out := Declared{Renamed: map[string]string{}}
+	out := Declared{Renamed: map[string]string{}, Absorbed: map[string]string{}}
 	// Each declaration's entry, found before any names change.
 	targets := make([]int, len(decls))
 	taken := map[int]string{}
@@ -164,7 +167,7 @@ func compare(before, after Snapshot, out *Declared) {
 			out.Renamed[b.Name] = a.Name
 		}
 		sameHardware := b.ID == a.ID && b.Driver == a.Driver
-		if !b.Removed && b.ID != "" && !sameHardware && !slices.Contains(slices.Collect(maps.Values(out.Renamed)), a.Name) {
+		if !b.Removed && b.ID != "" && !sameHardware && !slices.Contains(slices.Collect(maps.Values(out.Absorbed)), a.Name) {
 			out.Fresh = append(out.Fresh, a.Name)
 		}
 		if b.Removed || b.Name != a.Name || b.Room != a.Room || b.DeviceType != a.DeviceType || !sameHardware {
@@ -208,7 +211,7 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 			e.Control = bytes.Clone(from.Control)
 		}
 		if !from.Removed {
-			out.Renamed[from.Name] = d.Name
+			out.Absorbed[from.Name] = d.Name
 		}
 		from.ID, from.Removed, from.Declared = "", true, false
 		return i, nil

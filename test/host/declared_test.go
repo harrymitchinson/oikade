@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
@@ -54,5 +55,34 @@ func TestADeployAppliesTheHomesDeviceDeclarations(t *testing.T) {
 	}
 	if d := deviceOf(t, r.devices(), "relay"); d.Declared || d.Room != before.Room || d.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, want it as before", d)
+	}
+}
+
+func TestARenameInADeployKeepsASafetyClaimHolding(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	r.change("leak-sensor", opened, true)
+	r.untilValue("valve", false)
+	r.until("the leak shutoff", func() bool {
+		return strings.Contains(string(r.stdout(nil, "status", "valve")), "leak-shutoff wants false")
+	})
+
+	stderr, err := r.deploy("plugins-mains")
+	if err != nil {
+		t.Fatalf("a rename was refused: %v: %s\nThe log:\n%s", err, stderr, r.dump())
+	}
+	r.awaitDeployed()
+	if !strings.Contains(stderr, "Renamed valve to mains-valve") {
+		t.Errorf("got:\n%s", stderr)
+	}
+	if status := string(r.stdout(nil, "status", "mains-valve")); !strings.Contains(status, "leak-shutoff wants false") {
+		t.Errorf("the claim didn't come with it:\n%s", status)
+	}
+	// The fixture's plugin opens its valve whenever it starts, as a deploy restarts it, and the
+	// Safety claim, under the new name, closes it again.
+	r.untilValue("mains-valve", false)
+	r.stop()
+	if got := r.ruleClaims("mains-valve"); !holdsClaim(got, "Rule/mains-valve on leak-shutoff", control.Safety) {
+		t.Errorf("saved claims %+v, want the case's at Safety under the new name", got)
 	}
 }

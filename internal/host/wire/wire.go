@@ -5,6 +5,7 @@ package wire
 import (
 	"net"
 	"slices"
+	"strings"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -122,6 +123,23 @@ type DeviceDeclaration struct {
 	ID         string          `json:"id,omitempty"`
 	Room       string          `json:"room,omitempty"`
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
+}
+
+// OwnCases are the keys of the cases in devices' own decisions, without a group's or a room's,
+// which a device's settings can name too.
+func OwnCases(settings []DeviceControl) []string {
+	var keys []string
+	for _, c := range settings {
+		if c.Device == "" {
+			continue
+		}
+		for _, l := range c.Entry.Lines {
+			if k, ok := strings.CutPrefix(l, "Rule/"+c.Device+" "); ok {
+				keys = append(keys, c.Device+" "+k)
+			}
+		}
+	}
+	return keys
 }
 
 // Declarations are a home's declarations as the registry takes them.

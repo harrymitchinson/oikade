@@ -112,6 +112,19 @@ func CaseOf(source, device, capability string) (string, bool) {
 	return strings.CutPrefix(source, "Rule/"+CaseKey(device, capability, ""))
 }
 
+// RenamedKey is a case's key, or an average's, "<device> <capability> <rest>", once its device has
+// been renamed, by renamed's old names to new. Any other key is as it is.
+func RenamedKey(key string, renamed map[string]string) string {
+	if strings.Count(key, " ") != 2 {
+		return key
+	}
+	device, rest, _ := strings.Cut(key, " ")
+	if to, ok := renamed[device]; ok {
+		return to + " " + rest
+	}
+	return key
+}
+
 // CaseShown is how a case's rule reads, "porch-light on: motion", from its key. Any other key is
 // as it is.
 func CaseShown(key string) string {

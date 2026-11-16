@@ -159,6 +159,9 @@ func (e *Engine) DriverReturned(instance driver.InstanceKey) {
 // ensure creates or updates the device's arbiters from its control entries, and drops those
 // whose entry has gone. Call with e.mu held.
 func (e *Engine) ensure(dev ident.ID) {
+	if e.moving[dev] {
+		return
+	}
 	snap, ok := e.Store.Get(dev)
 	if !ok {
 		// The device left the store, as when it moves between driver instances. Its arbiters go,

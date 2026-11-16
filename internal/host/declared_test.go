@@ -2,6 +2,8 @@ package host
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,7 +48,7 @@ var readingLamp = []wire.DeviceDeclaration{{Name: "reading-lamp", Plugin: "x", I
 func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	dir := t.TempDir()
 	known, _ := declaredHome(t, dir)
-	if err := known.takeDeclared(readingLamp); err != nil {
+	if err := known.takeDeclared(readingLamp, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := known.store.Get(key("reading-lamp")); !ok {
@@ -67,45 +69,106 @@ func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	}
 }
 
-func TestARenameOfAClaimedDeviceIsRefused(t *testing.T) {
+func TestARenamedDeviceTakesItsClaims(t *testing.T) {
 	known, controls := declaredHome(t, t.TempDir())
-	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/night", Level: control.Normal}}}}
+	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{
+		{Source: "Rule/lamp on night", Level: control.Safety}, {Source: "Flow/evening", Level: control.Normal},
+		// A room's case keyed by the same name, which isn't the device's own.
+		{Source: "Rule/lamp on dusk", Level: control.Normal},
+	}}}
 	if err := controls.Put(context.Background(), key("lamp"), state); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := known.planDeclared(readingLamp); err == nil || !strings.Contains(err.Error(), "Rule/night holds lamp") {
-		t.Errorf("got %v", err)
-	}
-	if err := known.takeDeclared(readingLamp); err == nil {
-		t.Error("took it")
-	}
-	if _, ok := known.registry.Get("lamp"); !ok {
-		t.Error("the claimed device was renamed")
-	}
-	raw, ok, _ := known.declarations.Get(declaredKey)
-	if ok {
-		t.Errorf("saved refused declarations %s", raw)
-	}
-	// A room changes no name, so a claim doesn't stop it.
-	if err := known.takeDeclared([]wire.DeviceDeclaration{{Name: "lamp", Plugin: "x", ID: "l1", Room: "Hall"}}); err != nil {
+	var renamed func(string) string
+	known.renamed = func(r func(string) string) error { renamed = r; return nil }
+	if err := known.takeDeclared(readingLamp, []string{"reading-lamp on night"}); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := known.registry.Get("lamp"); d.Room != "Hall" || !d.Declared {
-		t.Errorf("got %+v", d)
+	if _, ok := controls.Get(key("lamp")); ok {
+		t.Error("the claims stayed under the old name")
+	}
+	got, _ := controls.Get(key("reading-lamp"))
+	sources := make([]string, 0, len(got[capability.On].Claims))
+	for _, c := range got[capability.On].Claims {
+		sources = append(sources, c.Source)
+	}
+	if want := []string{"Rule/reading-lamp on night", "Flow/evening", "Rule/lamp on dusk"}; !slices.Equal(sources, want) {
+		t.Errorf("got claims from %v, want %v", sources, want)
+	}
+	if got := renamed("lamp on night"); got != "reading-lamp on night" {
+		t.Errorf("the rules' state was told lamp on night is now %q", got)
+	}
+}
+
+func TestARenameWhoseRuleStateCantMoveKeepsItsClaims(t *testing.T) {
+	known, controls := declaredHome(t, t.TempDir())
+	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/lamp on night", Level: control.Safety}}}}
+	if err := controls.Put(context.Background(), key("lamp"), state); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	known.renamed = func(func(string) string) error {
+		calls++
+		if calls == 1 {
+			return errors.New("disk full")
+		}
+		return nil
+	}
+	if err := known.takeDeclared(readingLamp, nil); err == nil {
+		t.Fatal("took it")
+	}
+	if _, ok := known.registry.Get("lamp"); !ok {
+		t.Error("the registry renamed it")
+	}
+	got, _ := controls.Get(key("lamp"))
+	if len(got[capability.On].Claims) != 1 || got[capability.On].Claims[0].Source != "Rule/lamp on night" {
+		t.Errorf("lamp's claims are %+v, want them back as they were", got)
+	}
+	if _, ok := controls.Get(key("reading-lamp")); ok {
+		t.Error("claims were left under the new name")
+	}
+}
+
+func TestRuleStateFollowsARename(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	holds := &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: logging.Discard()}
+	ctx := context.Background()
+	for _, name := range []string{"a on night", "b on night", "hall on motion"} {
+		if err := holds.Put(ctx, key(name), engine.HoldState{Active: name == "a on night"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a and b swap names.
+	swap := map[string]string{"a": "b", "b": "a"}
+	if err := renameKeys(holds, func(k string) string { return control.RenamedKey(k, swap) }); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := holds.Get(key("b on night")); !st.Active {
+		t.Error("a's hold didn't move to b")
+	}
+	if st, ok := holds.Get(key("a on night")); !ok || st.Active {
+		t.Errorf("b's hold didn't move to a: %+v, %v", st, ok)
+	}
+	if _, ok := holds.Get(key("hall on motion")); !ok {
+		t.Error("another device's hold went")
 	}
 }
 
 func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testing.T) {
 	known, controls := declaredHome(t, t.TempDir())
 	fan := []wire.DeviceDeclaration{{Name: "shed-fan"}, {Name: "lamp", Plugin: "x", ID: "l1"}}
-	if err := known.takeDeclared(fan); err != nil {
+	if err := known.takeDeclared(fan, nil); err != nil {
 		t.Fatal(err)
 	}
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
 	if err := controls.Put(context.Background(), key("shed-fan"), state); err != nil {
 		t.Fatal(err)
 	}
-	if err := known.takeDeclared(fan[1:]); err == nil || !strings.Contains(err.Error(), "Rule/frost holds shed-fan") {
+	if err := known.takeDeclared(fan[1:], nil); err == nil || !strings.Contains(err.Error(), "Rule/frost holds shed-fan") {
 		t.Errorf("dropped a claimed reservation: %v", err)
 	}
 	if resp, _ := known.remove(context.Background(), "lamp", true); !strings.Contains(resp.Error, "declared in your home's code") {

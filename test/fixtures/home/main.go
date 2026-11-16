@@ -296,6 +296,12 @@ func home() *oikade.Home {
 		options.MatterName = "Cottage"
 	}
 	h := oikade.NewHome(options)
+	// The valve under the name the home declares for it, which a test renames with a Safety claim on it.
+	valve := valve
+	if variant == "plugins-mains" {
+		valve = "mains-valve"
+		h.Device(valve).Hardware("relays", "valve")
+	}
 
 	h.Flow("routine", routine).When(open("flow-go"))
 	h.Flow("editable", editable).When(open("edit-go"))
