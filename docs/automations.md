@@ -107,7 +107,7 @@ home.Flow("lights-out", func(r *oikade.FlowRun) {
 
 A group's members are devices from `devices.go`, which `oikade types` writes, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `radiators setpoint: windows-open`, so it can't be a device's name too.
 
-A room's devices can change without a deploy, with `oikade devices room`, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there. Its kinds say which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
+A room's devices change as a device is paired, removed or [declared](devices.md#declaring-devices-in-code) in another room, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there. Its kinds say which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
 
 | Kind | Device types |
 |---|---|
@@ -117,7 +117,7 @@ A room's devices can change without a deploy, with `oikade devices room`, so wha
 | `oikade.Kinds(...)` | the types you list, such as `oikade.Kinds(oikade.DimmableLight)` |
 | `oikade.Everything`, or none | every device in the room with the capability, whatever it is |
 
-A device whose type isn't one of the room's kinds is left alone, and the log names it, so a wall switch typed `MountedOnOffControl` is a plug until `oikade devices type` makes it a light. A room's sensors have no kind of their own: read and trigger on them with none.
+A device whose type isn't one of the room's kinds is left alone, and the log names it, so a wall switch typed `MountedOnOffControl` is a plug until your home declares it a light with `Is`. A room's sensors have no kind of their own: read and trigger on them with none.
 
 #### A decision on a group or a room
 
@@ -133,7 +133,7 @@ home.Decide(StudyRadiator.Setpoint).
 
 The study's radiator is at 21 while someone works there, and otherwise as the group's decision says. Its own lines rank above all of the group's, so with no override line of their own, they're safety lines, and an open window doesn't turn the radiator down while someone works there. Give it an override line to rank them below a tap, and it takes the group's place for this radiator. The group's `Default` and `Limits` are the member's. Without `Then`, `oikade check` refuses a decision on a member of a decided group, and a device in two decided groups.
 
-A room's decision is the host's for each device in the room of its kinds that has the capability, and the host keeps it with the room. So a device moved in is arbitrated by it, and one moved out isn't, with no deploy. A device in the room with a decision of its own keeps it, unless that decision hands over to the room's with `Then`, and `oikade devices room` warns on stderr when a move puts one in a room that decides the same capability.
+A room's decision is the host's for each device in the room of its kinds that has the capability, and the host keeps it with the room. So a device moved in is arbitrated by it, and one moved out isn't. A device in the room with a decision of its own keeps it, unless that decision hands over to the room's with `Then`.
 
 #### Reading a room or a group
 
@@ -147,9 +147,9 @@ oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 })
 ```
 
-A read covers the members that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. A group's capability isn't a condition on its own: `oikade check` asks for `Any` or `All`. If none has reported, the condition stops, as at a `Get`. A case that reads a room looks again when a device moves in or out with `oikade devices room`, with no deploy. A sensor that reported and then died keeps its last value.
+A read covers the members that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. A group's capability isn't a condition on its own: `oikade check` asks for `Any` or `All`. If none has reported, the condition stops, as at a `Get`. A case that reads a room looks again when a device moves in or out. A sensor that reported and then died keeps its last value.
 
-A room with no devices in it, or none of the read's kinds, stops the condition too, and a case keeps its state: one that applied, or was lingering, stays until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices room`, `oikade devices type` and `oikade devices remove` still make the change when it leaves a room a case reads with nothing of the read's group in it, but they warn on stderr, naming the room and the cases, and `--json` has the warning as `warning`.
+A room with no devices in it, or none of the read's kinds, stops the condition too, and a case keeps its state: one that applied, or was lingering, stays until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices remove` still removes a device when that leaves a room a case reads with nothing of the read's group in it, but it warns on stderr, naming the room and the cases, and `--json` has the warning as `warning`.
 
 #### Triggers and writes
 

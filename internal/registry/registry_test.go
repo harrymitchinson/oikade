@@ -2,7 +2,6 @@ package registry
 
 import (
 	"bytes"
-	"errors"
 	"go/parser"
 	"go/token"
 	"slices"
@@ -59,12 +58,7 @@ func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	if d.Name != "hall-lamp" || d.Room != "Hall" || d.Endpoint != FirstEndpoint {
 		t.Errorf("got %+v", d)
 	}
-	if err := r.Rename("hall-lamp", "lamp"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Move("lamp", "Attic"); err != nil {
-		t.Fatal(err)
-	}
+	declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1", Room: "Attic"})
 	again, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"on", "brightness"}})
 	if err != nil {
 		t.Fatal(err)
@@ -98,9 +92,7 @@ func TestEndpointsAreNeverReused(t *testing.T) {
 	if err := r.Remove("fan"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Reserve("lamp", ""); err != nil {
-		t.Fatal(err)
-	}
+	declareOK(t, r, Declaration{Name: "lamp"})
 	if got := get(t, r, "lamp").Endpoint; got == lamp.Endpoint || got == fan.Endpoint {
 		t.Errorf("a new device took endpoint %d", got)
 	}
@@ -171,7 +163,7 @@ func TestAFailedSaveChangesNothing(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Reserve("fan", ""); err == nil {
+	if _, err := r.Declare([]Declaration{{Name: "fan"}}); err == nil {
 		t.Fatal("saved to a closed store")
 	}
 	if list := r.List(); list.Next != FirstEndpoint+1 || len(list.Devices) != 1 {
@@ -179,70 +171,11 @@ func TestAFailedSaveChangesNothing(t *testing.T) {
 	}
 }
 
-func TestReplacingKeepsTheNameAndEndpoint(t *testing.T) {
-	r, _ := open(t)
-	old := report(t, r, "old", "lamp")
-	fresh := report(t, r, "new", "new-lamp")
-	if err := r.Replace("lamp", "new-lamp"); err != nil {
-		t.Fatal(err)
-	}
-	d := get(t, r, "lamp")
-	if d.ID != "new" || d.Endpoint != old.Endpoint {
-		t.Errorf("got %+v", d)
-	}
-	if _, ok := r.Get("new-lamp"); ok {
-		t.Error("the replacement's name stayed")
-	}
-	if byID, ok := r.ByID("sim", "new"); !ok || byID.Name != "lamp" {
-		t.Errorf("its hardware is %+v, %v", byID, ok)
-	}
-	retired := slices.IndexFunc(r.List().Devices, func(d Device) bool { return d.Endpoint == fresh.Endpoint })
-	if retired < 0 || !r.List().Devices[retired].Removed {
-		t.Errorf("the replacement's endpoint wasn't kept: %+v", r.List())
-	}
-	if again := report(t, r, "new", "ignored"); again.Name != "lamp" || again.Endpoint != old.Endpoint {
-		t.Errorf("the next report moved it: %+v", again)
-	}
-	back := report(t, r, "old", "old-lamp")
-	if back.Endpoint == old.Endpoint || back.Endpoint == fresh.Endpoint {
-		t.Errorf("the old hardware took endpoint %d", back.Endpoint)
-	}
-
-	if err := r.Reserve("porch", "Porch"); err != nil {
-		t.Fatal(err)
-	}
-	reserved := get(t, r, "porch")
-	if !reserved.Reserved() {
-		t.Errorf("not reserved: %+v", reserved)
-	}
-	report(t, r, "paired", "paired")
-	if err := r.Replace("porch", "paired"); err != nil {
-		t.Fatal(err)
-	}
-	if d := get(t, r, "porch"); d.ID != "paired" || d.Endpoint != reserved.Endpoint || d.Room != "Porch" || d.Reserved() {
-		t.Errorf("a reserved name's hardware: %+v", d)
-	}
-	if err := r.Replace("porch", "porch"); err == nil {
-		t.Error("replaced a device with itself")
-	}
-	if err := r.Reserve("empty", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Replace("lamp", "empty"); err == nil {
-		t.Error("moved onto no hardware")
-	}
-	if err := r.Replace("nothing", "lamp"); !errors.Is(err, ErrNoDevice) {
-		t.Errorf("got %v", err)
-	}
-}
-
 func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "z", "zebra-lamp")
 	report(t, r, "a", "apple-lamp")
-	if err := r.Reserve("porch", "Front\nconst Evil = 1\n"); err != nil {
-		t.Fatal(err)
-	}
+	declareOK(t, r, Declaration{Name: "porch", Room: "Front\nconst Evil = 1\n"})
 	first, err := Render(r.List(), "home")
 	if err != nil {
 		t.Fatal(err)
@@ -307,9 +240,7 @@ func TestRenderLeavesOutRemovedDevices(t *testing.T) {
 func TestHandlesReadsBackWhatRenderWrote(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "lamp")
-	if err := r.Reserve("shed-fan", ""); err != nil {
-		t.Fatal(err)
-	}
+	declareOK(t, r, Declaration{Name: "shed-fan"})
 	file, err := Render(r.List(), "home")
 	if err != nil {
 		t.Fatal(err)
@@ -331,11 +262,7 @@ func TestHandlesReadsBackWhatRenderWrote(t *testing.T) {
 
 func TestRenderRefusesNamesThatMeetInGo(t *testing.T) {
 	r, _ := open(t)
-	for _, name := range []string{"a-1", "a1"} {
-		if err := r.Reserve(name, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
+	declareOK(t, r, Declaration{Name: "a-1"}, Declaration{Name: "a1"})
 	if _, err := Render(r.List(), "main"); err == nil || !strings.Contains(err.Error(), "A1") {
 		t.Errorf("got %v", err)
 	}
@@ -345,21 +272,12 @@ func TestChecksOnNames(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "a", "lamp")
 	for _, name := range []string{"", "Lamp", "9lamp", "la mp", "lamp-", "la--mp", strings.Repeat("a", 64)} {
-		if err := r.Reserve(name, ""); err == nil {
+		if _, err := r.Declare([]Declaration{{Name: name}}); err == nil {
 			t.Errorf("reserved %q", name)
 		}
 	}
-	if err := r.Reserve("lamp", ""); err == nil {
+	if _, err := r.Declare([]Declaration{{Name: "lamp"}}); err == nil {
 		t.Error("reserved a name in use")
-	}
-	if err := r.Reserve("fan", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Rename("lamp", "fan"); err == nil {
-		t.Error("renamed onto a name in use")
-	}
-	if err := r.Rename("nothing", "x"); !errors.Is(err, ErrNoDevice) {
-		t.Errorf("got %v", err)
 	}
 }
 
@@ -373,7 +291,7 @@ func TestEndpointsRunOut(t *testing.T) {
 	}
 }
 
-func TestArbitrationStaysOnRecordAndWithTheName(t *testing.T) {
+func TestArbitrationStaysOnRecord(t *testing.T) {
 	r, values := open(t)
 	settings := []byte(`[{"capability":"on"}]`)
 	if _, _, err := r.Report(Report{ID: "a", Driver: "sim", Name: "valve", Control: settings}); err != nil {
@@ -382,15 +300,11 @@ func TestArbitrationStaysOnRecordAndWithTheName(t *testing.T) {
 	if _, changed, _ := r.Report(Report{ID: "a", Driver: "sim", Name: "valve"}); changed {
 		t.Error("a report without settings changed something")
 	}
-	report(t, r, "b", "spare")
-	if err := r.Replace("valve", "spare"); err != nil {
-		t.Fatal(err)
-	}
 	reopened, err := Open(values)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := reopened.Get("valve"); d.ID != "b" || !bytes.Equal(d.Control, settings) {
+	if d, _ := reopened.Get("valve"); d.ID != "a" || !bytes.Equal(d.Control, settings) {
 		t.Errorf("got %+v", d)
 	}
 }
@@ -417,9 +331,7 @@ func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
 	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffLight}) {
 		t.Errorf("with the driver's type it's %v", got)
 	}
-	if err := r.SetDeviceType("bulb", devicetype.MountedOnOffControl); err != nil {
-		t.Fatal(err)
-	}
+	declareOK(t, r, Declaration{Name: "bulb", Driver: "sim", ID: "0x1", DeviceType: devicetype.MountedOnOffControl})
 	report(devicetype.OnOffLight, capability.On)
 	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.MountedOnOffControl}) {
 		t.Errorf("yours didn't win: %v", got)
@@ -433,63 +345,8 @@ func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
 		t.Errorf("after reopening: %+v", d)
 	}
 
-	if err := r.SetDeviceType("bulb", ""); err != nil {
-		t.Fatal(err)
-	}
+	declareOK(t, r) // No longer declared.
 	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffLight}) {
 		t.Errorf("going back gave %v, want the driver's", got)
-	}
-}
-
-func TestSetDeviceTypeRefusesWhatCantBe(t *testing.T) {
-	r, _ := open(t)
-	if _, _, err := r.Report(Report{ID: "1", Driver: "sim", Name: "plug", Capabilities: []string{capability.On}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := r.Report(Report{ID: "2", Driver: "sim", Name: "door", Capabilities: []string{capability.Open}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := r.Report(Report{ID: "3", Driver: "sim", Name: "heater", Capabilities: []string{capability.On, capability.Setpoint}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Reserve("future", ""); err != nil {
-		t.Fatal(err)
-	}
-	for name, tc := range map[string]struct {
-		device string
-		typ    devicetype.Type
-	}{
-		"not a type":           {"plug", "Toaster"},
-		"a sensor's type":      {"plug", devicetype.ContactSensor},
-		"dimmable, no dimming": {"plug", devicetype.DimmableLight},
-		"not on or off":        {"door", devicetype.OnOffLight},
-		"a thermostat":         {"heater", devicetype.OnOffPlugInUnit},
-		"no such device":       {"nothing", devicetype.OnOffLight},
-	} {
-		if err := r.SetDeviceType(tc.device, tc.typ); err == nil {
-			t.Errorf("%s: set %s on %s", name, tc.typ, tc.device)
-		}
-	}
-	if err := r.SetDeviceType("future", devicetype.DimmableLight); err != nil {
-		t.Errorf("a reserved name, whose capabilities aren't known yet: %v", err)
-	}
-}
-
-func TestADeviceTypeStaysWithItsNameThroughAReplace(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "old", "porch-light")
-	if _, _, err := r.Report(Report{ID: "new", Driver: "sim", Name: "lamp-3", Capabilities: []string{capability.On},
-		DeviceType: devicetype.OnOffLight}); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.SetDeviceType("lamp-3", devicetype.MountedOnOffControl); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Replace("porch-light", "lamp-3"); err != nil {
-		t.Fatal(err)
-	}
-	d := get(t, r, "porch-light")
-	if d.DeviceType != "" || d.DriverDeviceType != devicetype.OnOffLight {
-		t.Errorf("after the replace: %+v, want no type of yours and the new hardware's driver's", d)
 	}
 }

@@ -13,7 +13,6 @@ import (
 	"sync"
 
 	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -266,94 +265,10 @@ func (i *inventory) claimed(name string) (holders []string, safety bool) {
 	return slices.Compact(holders), safety
 }
 
-func (i *inventory) refuseClaimed(name, doing string) error {
-	if holders, _ := i.claimed(name); len(holders) > 0 {
-		return fmt.Errorf("%s holds %s, so it can't be %s: claims stay with a name", strings.Join(holders, ", "), name, doing)
-	}
-	return nil
-}
-
-func (i *inventory) rename(name, to string) error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if err := i.refuseClaimed(name, "renamed"); err != nil {
-		return err
-	}
-	if err := i.registry.Rename(name, to); err != nil {
-		return err
-	}
-	i.moveLive(map[string]string{name: to})
-	i.announce(key(to))
-	i.log.Info("Renamed device", "device", name, "to", to)
-	return nil
-}
-
 // members are the hub's devices, by name, before and after a change to the registry. Both are read
-// with mu held, so no other change is taken for it. kept are the capabilities a device moved into a
-// decided room keeps its own decision on.
+// with mu held, so no other change is taken for it.
 type members struct {
 	before, after map[string]hub.Member
-	kept          []string
-}
-
-// move puts a device in a room.
-func (i *inventory) move(name, room string) (members, error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	before := i.store.Members()
-	if err := i.registry.Move(name, room); err != nil {
-		return members{}, err
-	}
-	i.sync()
-	i.announce(key(name))
-	i.log.Info("Moved device", "device", name, "room", room)
-	d, _ := i.registry.Get(name)
-	return members{before, i.store.Members(), keptDecisions(i.home, d)}, nil
-}
-
-// keptDecisions are the capabilities a device has its own decision on that its room also decides,
-// sorted, which it keeps rather than taking the room's. One whose decision hands over to the room's
-// with Then has the room's lines in its own, and isn't one.
-func keptDecisions(settings []wire.DeviceControl, d registry.Device) []string {
-	var kept []string
-	for _, c := range settings {
-		if c.Room == "" || c.Room != d.Room || !slices.Contains(d.Capabilities, c.Entry.Capability) ||
-			len(c.DeviceTypes) > 0 && !devicetype.Any(d.DeviceTypes(), c.DeviceTypes) {
-			continue
-		}
-		if slices.ContainsFunc(settings, func(o wire.DeviceControl) bool {
-			return o.Device == d.Name && o.Entry.Capability == c.Entry.Capability && !slices.ContainsFunc(c.Entry.Lines, func(l string) bool {
-				return strings.HasPrefix(l, "Rule/") && slices.Contains(o.Entry.Lines, l)
-			})
-		}) {
-			kept = append(kept, c.Entry.Capability)
-		}
-	}
-	slices.Sort(kept)
-	return slices.Compact(kept)
-}
-
-// setType says what a device is. The Matter bridge rebuilds its endpoint, on the same ID.
-func (i *inventory) setType(name string, t devicetype.Type) (members, error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	before := i.store.Members()
-	if err := i.registry.SetDeviceType(name, t); err != nil {
-		return members{}, err
-	}
-	i.sync()
-	i.announce(key(name))
-	d, _ := i.registry.Get(name)
-	i.log.Info("Set device type", "device", name, "deviceType", t, "deviceTypes", d.DeviceTypes())
-	return members{before: before, after: i.store.Members()}, nil
-}
-
-func (i *inventory) reserve(name, room string) error {
-	if err := i.registry.Reserve(name, room); err != nil {
-		return err
-	}
-	i.log.Info("Reserved device name", "device", name)
-	return nil
 }
 
 // moveLive takes the registry's new names up in the hub, as one change. Call with mu held, after the
@@ -437,95 +352,9 @@ func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafet
 	return api.Response{Error: strings.Join(problems, "; "), Removed: removed}, members{before: before, after: i.store.Members()}
 }
 
-// replace moves name onto with's hardware. name's claims and arbitration settings stay, and with's
-// live values come across.
-func (i *inventory) replace(name, with string) error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if err := i.refuseClaimed(with, "moved"); err != nil {
-		return err
-	}
-	if err := i.registry.Replace(name, with); err != nil {
-		return err
-	}
-	i.moveLive(map[string]string{with: name})
-	i.announce(key(name))
-	i.log.Info("Moved device name onto new hardware", "device", name, "from", with)
-	return nil
-}
-
-// typedOut names the running code's Safety rules that a device would drop out of with device type t:
-// a room write limited to types it's one of now and wouldn't be. known is false if nothing can say,
-// as rulesInfo's.
-func (s *apiServer) typedOut(name string, t devicetype.Type) (out []string, known bool) {
-	d, ok := s.devices.registry.Get(name)
-	if !ok {
-		return nil, true
-	}
-	before := d.DeviceTypes()
-	d.DeviceType = t
-	after := d.DeviceTypes()
-	rules, known := s.rulesInfo()
-	for _, r := range rules {
-		if !r.Safety {
-			continue
-		}
-		if slices.ContainsFunc(r.Rooms, func(room wire.RoomOfTypes) bool {
-			if room.Room != d.Room || !slices.Contains(d.Capabilities, room.Capability) || slices.Contains(room.Except, d.Name) {
-				return false
-			}
-			return devicetype.Any(before, room.DeviceTypes) && !devicetype.Any(after, room.DeviceTypes)
-		}) {
-			out = append(out, r.Name)
-		}
-	}
-	return out, known
-}
-
-// safetyRule names a Safety rule of the running code, if there is one. known is false if nothing
-// can say, as rulesInfo's.
-func (s *apiServer) safetyRule() (rule string, known bool) {
-	rules, known := s.rulesInfo()
-	for _, r := range rules {
-		if r.Safety {
-			return r.Name, true
-		}
-	}
-	return "", known
-}
-
 // device answers the commands that read and change the registry. Running code loses track of a
 // device whose name changes until a deploy, which would silently stop a Safety rule naming it.
 func (s *apiServer) device(req api.Request) api.Response {
-	switch req.Type {
-	case api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceType, api.TypeDeviceReplace:
-		// The next deploy, or start, would undo it.
-		if err := s.devices.declared(req.Device); err != nil {
-			return api.Response{Error: err.Error()}
-		}
-		if req.Type == api.TypeDeviceReplace {
-			if err := s.devices.declared(req.To); err != nil {
-				return api.Response{Error: err.Error()}
-			}
-		}
-	}
-	if (req.Type == api.TypeDeviceName || req.Type == api.TypeDeviceReplace) && !req.AllowSafety {
-		switch rule, known := s.safetyRule(); {
-		case rule != "":
-			return api.Response{
-				Error: fmt.Sprintf("%s is a Safety rule, and running code loses track of %s until you deploy, "+
-					"so it may stop protecting anything", rule, req.Device),
-				NeedsAllowSafety: true,
-			}
-		case !known:
-			// As a pause: a process that's down is no reason to guess its code has no Safety rule.
-			return api.Response{
-				Error: fmt.Sprintf("can't tell whether running code has a Safety rule, which would lose track of %s "+
-					"until you deploy: %s", req.Device, s.unknownRules()),
-				NeedsAllowSafety: true,
-			}
-		}
-	}
 	var err error
 	switch req.Type {
 	case api.TypeDevices:
@@ -545,33 +374,8 @@ func (s *apiServer) device(req api.Request) api.Response {
 			}
 		}
 		return resp
-	case api.TypeDeviceName:
-		err = s.devices.rename(req.Device, req.To)
-	case api.TypeDeviceRoom:
-		return s.move(req.Device, req.Room)
-	case api.TypeDeviceType:
-		switch rules, known := s.typedOut(req.Device, req.DeviceType); {
-		case req.AllowSafety:
-		case len(rules) > 0:
-			return api.Response{
-				Error: fmt.Sprintf("%s would no longer be one of the device types %s writes at Safety, so it would stop "+
-					"protecting it", req.Device, strings.Join(rules, ", ")),
-				NeedsAllowSafety: true,
-			}
-		case !known:
-			return api.Response{
-				Error: fmt.Sprintf("can't tell whether running code has a Safety rule that writes to %s by its type: %s",
-					req.Device, s.unknownRules()),
-				NeedsAllowSafety: true,
-			}
-		}
-		return s.retype(req.Device, req.DeviceType)
-	case api.TypeDeviceReserve:
-		err = s.devices.reserve(req.Device, req.Room)
 	case api.TypeDeviceRemove:
 		return s.remove(req)
-	case api.TypeDeviceReplace:
-		err = s.devices.replace(req.Device, req.To)
 	default:
 		err = errors.New("unknown device request")
 	}
@@ -579,34 +383,6 @@ func (s *apiServer) device(req api.Request) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{}
-}
-
-// move moves a device to a room. It warns when that leaves the room it was in with no devices a hold
-// reads there: the hold's when stops, and it keeps its state until one is back.
-func (s *apiServer) move(name, room string) api.Response {
-	change, err := s.devices.move(name, room)
-	if err != nil {
-		return api.Response{Error: err.Error()}
-	}
-	warnings := []string{}
-	if w := s.emptiedWarning(change); w != "" {
-		warnings = append(warnings, w)
-	}
-	if len(change.kept) > 0 {
-		warnings = append(warnings, fmt.Sprintf("%s keeps its own decision on %s rather than %s's, "+
-			"unless the home hands it over with Then", name, strings.Join(change.kept, " and "), room))
-	}
-	return api.Response{Warning: strings.Join(warnings, "; ")}
-}
-
-// retype says what a device is, and warns as move does when that leaves its room with none of the
-// types a hold reads there.
-func (s *apiServer) retype(name string, t devicetype.Type) api.Response {
-	change, err := s.devices.setType(name, t)
-	if err != nil {
-		return api.Response{Error: err.Error()}
-	}
-	return api.Response{Warning: s.emptiedWarning(change)}
 }
 
 // remove removes a device, or every device of a plugin, and warns as move does when that empties a

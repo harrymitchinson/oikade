@@ -349,8 +349,7 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 		return s.setupReply(s.ctx, req)
 	case api.TypeSecrets, api.TypeSecretSet, api.TypeSecretRemove:
 		return s.secret(req)
-	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceType, api.TypeDeviceReserve,
-		api.TypeDeviceRemove, api.TypeDeviceReplace:
+	case api.TypeDevices, api.TypeDeviceRemove:
 		return s.device(req)
 	}
 	return api.Response{Error: fmt.Sprintf("unknown request %q", req.Type)}

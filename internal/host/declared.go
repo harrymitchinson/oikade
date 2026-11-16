@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -209,14 +210,6 @@ func invert[K comparable](m map[K]K) map[K]K {
 	return out
 }
 
-// declared says the home's code declares a device, so commands can't change it.
-func (i *inventory) declared(name string) error {
-	if d, ok := i.registry.Get(name); ok && d.Declared {
-		return fmt.Errorf("%s is declared in your home's code: change it there, and deploy", name)
-	}
-	return nil
-}
-
 // renameRules moves what's on record for cases and averages to the keys rename gives them: holds,
 // fires, pauses and averages. Every new key is written before any old one goes, so keys can swap.
 func (s *server) renameRules(rename func(string) string) error {
@@ -258,4 +251,38 @@ func renameKeys[T any](values *engine.Stored[T], rename func(string) string) err
 		}
 	}
 	return nil
+}
+
+// leavingSafety names the Safety rules a device would drop out of under decls: a room write it's in now,
+// as one of the device types it's limited to, and wouldn't be once its declared room or type is.
+func (i *inventory) leavingSafety(decls []wire.DeviceDeclaration, rules []wire.RuleInfo) []string {
+	before := i.registry.List()
+	after, err := registry.Declaring(before, wire.Declarations(decls))
+	if err != nil {
+		return nil // The plan refuses it.
+	}
+	var out []string
+	for _, a := range after.Devices {
+		i := slices.IndexFunc(before.Devices, func(b registry.Device) bool {
+			return b.Endpoint == a.Endpoint && !b.Removed
+		})
+		if a.Removed || i < 0 {
+			continue
+		}
+		b := before.Devices[i]
+		for _, r := range rules {
+			if r.Safety && slices.ContainsFunc(r.Rooms, func(room wire.RoomOfTypes) bool {
+				in := func(d registry.Device) bool {
+					return d.Room == room.Room && slices.Contains(d.Capabilities, room.Capability) &&
+						!slices.Contains(room.Except, d.Name) && devicetype.Any(d.DeviceTypes(), room.DeviceTypes)
+				}
+				return in(b) && !in(a)
+			}) {
+				out = append(out, fmt.Sprintf("%s would leave the devices %s writes at Safety, by its declared room or "+
+					"type, so it would stop protecting it", a.Name, r.Name))
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }

@@ -850,7 +850,7 @@ func (h *Home) manifest() wire.Manifest {
 				Device: d.device, Capability: d.capability, Case: c.name,
 			}
 			if c.safety && len(c.hold.DeviceTypes) > 0 {
-				// oikade devices type checks a retype doesn't take a device out of it.
+				// A deploy checks a declared room or type doesn't take a device out of it.
 				info.Rooms = []wire.RoomOfTypes{{
 					Room: c.hold.Room, Capability: d.capability, DeviceTypes: c.hold.DeviceTypes, Except: c.hold.Except,
 				}}

@@ -220,8 +220,8 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 			t.Error("The app secret should be asked for as a secret")
 		}
 	}
-	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: if it's still named by its ID, ` +
-		`oikade devices name 1000aabbcc greenhouse-heater names it so`; !strings.Contains(said(steps), want) {
+	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: ` +
+		`home.Device("greenhouse-heater").Hardware("ewelink", "1000aabbcc") in your home's code names it so`; !strings.Contains(said(steps), want) {
 		t.Errorf("said:\n%s", said(steps))
 	}
 	// The probe isn't on this network, so there's nothing to name.

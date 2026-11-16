@@ -15,6 +15,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 const (
@@ -241,36 +242,6 @@ func TestANewDeviceAppearsOnTheBridgeAndGoes(t *testing.T) {
 		_, ok := c.read(endpoint, clusters.IDOnOff, 0)
 		return !ok
 	})
-	c.r.stdout(nil, "devices", "reserve", "future-lamp")
-	if d := deviceOf(t, c.r.devices(), "future-lamp"); d.Endpoint != 0 {
-		if _, ok := c.read(d.Endpoint, clusters.IDOnOff, 0); ok {
-			t.Error("a reserved name is on the bridge")
-		}
-	}
-}
-
-func TestARenameKeepsTheBridgedDevice(t *testing.T) {
-	t.Parallel()
-	c := commissioned(t)
-	endpoint := c.endpoint("siren")
-	unique := c.info(endpoint, uniqueIDAttribute)
-
-	c.r.stdout(nil, "devices", "name", "siren", "alarm", "--allow-safety")
-	c.r.until("the new label", func() bool { return c.info(endpoint, labelAttribute) == "alarm" })
-	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
-		t.Errorf("unique ID %v became %v", unique, got)
-	}
-	c.reachesHardware("alarm", "siren")
-
-	// A restart builds the endpoint again, which is when a unique ID from the name would change.
-	c.r.stop()
-	c.r.launch(matterFlag(c.port))
-	c.r.waitFor(func(l line) bool { return l.is(attached) })
-	c.r.until("the fabric", func() bool { return c.r.matter().Serving })
-	c.admin = c.cm.CASE(nodetest.Addr(c.port))
-	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
-		t.Errorf("after a restart, unique ID %v became %v", unique, got)
-	}
 }
 
 // The home names the bridge, and a deploy renames it in place: the controller stays paired, and a
@@ -360,25 +331,6 @@ func TestAnInterfaceThatIsntThereLeavesTheHomeRunning(t *testing.T) {
 	r.until("the bridge to give up", func() bool { return r.count("Matter bridge stopped") > 0 })
 	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
-}
-
-// TestReplacedHardwareReachesTheController is a name taking other hardware, which no driver event says.
-func TestReplacedHardwareReachesTheController(t *testing.T) {
-	t.Parallel()
-	c := commissioned(t)
-	c.r.pair("old-lamp", "old-lamp")
-	c.r.pair("new-lamp", "new-lamp")
-	c.r.change("new-lamp", "on", true)
-	endpoint := c.endpoint("old-lamp")
-	c.r.until("old-lamp on the bridge", func() bool {
-		_, ok := c.read(endpoint, clusters.IDOnOff, 0)
-		return ok
-	})
-	if c.isOn(endpoint) {
-		t.Fatal("old-lamp is on already")
-	}
-	c.r.stdout(nil, "devices", "replace", "old-lamp", "new-lamp", "--allow-safety")
-	c.r.until("the new hardware's value", func() bool { return c.isOn(endpoint) })
 }
 
 func TestMatterOffIsSaid(t *testing.T) {
@@ -555,56 +507,6 @@ func (c *controller) deviceTypes(endpoint uint16) []uint64 {
 	return out
 }
 
-func TestAControllerReadsTheDeviceTypeYouSetThroughARestart(t *testing.T) {
-	t.Parallel()
-	c := commissioned(t)
-	endpoint := c.endpoint("fan")
-	plug, light := uint64(clusters.DeviceOnOffPlug.ID), uint64(clusters.DeviceOnOffLight.ID)
-	if got := c.deviceTypes(endpoint); !slices.Contains(got, plug) {
-		t.Fatalf("an undescribed fan's device types are %#x, want an on/off plug", got)
-	}
-
-	c.r.stdout(nil, "devices", "type", "fan", "OnOffLight")
-	c.r.until("the fan to be a light", func() bool { return slices.Contains(c.deviceTypes(endpoint), light) })
-	if got := c.endpoint("fan"); got != endpoint {
-		t.Errorf("the fan moved from endpoint %d to %d", endpoint, got)
-	}
-	var listed struct {
-		Devices []struct {
-			Name        string   `json:"name"`
-			DeviceTypes []string `json:"deviceTypes"`
-		} `json:"devices"`
-	}
-	if err := json.Unmarshal(c.r.stdout(nil, "devices", "--json"), &listed); err != nil {
-		t.Fatal(err)
-	}
-	for _, d := range listed.Devices {
-		if d.Name == "fan" && !slices.Equal(d.DeviceTypes, []string{"OnOffLight"}) {
-			t.Errorf("oikade devices --json says the fan is %v", d.DeviceTypes)
-		}
-	}
-	table := string(c.r.stdout(nil, "devices"))
-	if !strings.Contains(table, "DEVICE TYPES") || !strings.Contains(table, "OnOffLight") {
-		t.Errorf("the table leaves out what it is:\n%s", table)
-	}
-	c.reaches("fan")
-
-	c.r.stop()
-	c.r.launch(matterFlag(c.port))
-	c.r.waitFor(func(l line) bool { return l.is(attached) })
-	c.admin = c.cm.CASE(nodetest.Addr(c.port))
-	c.r.until("the fan on the bridge again", func() bool { return slices.Contains(c.deviceTypes(endpoint), light) })
-	if got := c.endpoint("fan"); got != endpoint {
-		t.Errorf("after a restart the fan moved from endpoint %d to %d", endpoint, got)
-	}
-
-	c.r.stdout(nil, "devices", "type", "fan", "")
-	c.r.until("the fan to be a plug again", func() bool { return slices.Contains(c.deviceTypes(endpoint), plug) })
-	if _, err := c.r.oikade(nil, "devices", "type", "fan", "Toaster"); err == nil {
-		t.Error("the fan became a toaster")
-	}
-}
-
 func TestAControllerLocksASimulatedLock(t *testing.T) {
 	t.Parallel()
 	c := commissioned(t)
@@ -694,4 +596,124 @@ func TestARuleSetsAHeatersSetpointThatAControllerReads(t *testing.T) {
 	if mode() != uint64(clusters.SystemModeHeat) {
 		t.Errorf("SystemMode %v, want Heat", mode())
 	}
+}
+
+// commissionedPlugins is commissioned, on a host running the plugins, whose devices a home declares.
+func commissionedPlugins(t *testing.T) *controller {
+	t.Helper()
+	port := freeUDP(t)
+	r := startPlugins(t, matterFlag(port))
+	r.until("the relays", func() bool {
+		devices := r.devices().Devices
+		return slices.ContainsFunc(devices, func(d registry.Device) bool { return d.ID == "relay" }) &&
+			slices.ContainsFunc(devices, func(d registry.Device) bool { return d.ID == "valve" })
+	})
+	r.until("the commissioning window", func() bool { return r.matter().Window })
+	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
+	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
+	return c
+}
+
+// restartPlugins restarts a commissionedPlugins host, on the version last deployed to it.
+func (c *controller) restartPlugins() {
+	c.t.Helper()
+	c.r.stop()
+	c.r.launchPlugins(matterFlag(c.port))
+	c.r.waitFor(func(l line) bool { return l.is(attached) })
+	c.r.until("the bridge", func() bool { return c.r.matter().Serving })
+	c.admin = c.cm.CASE(nodetest.Addr(c.port))
+}
+
+// drives turns a device on or off from the controller, and waits for the host to say it is.
+func (c *controller) drives(name string, endpoint uint16, on bool) {
+	c.t.Helper()
+	command := uint32(turnOff)
+	if on {
+		command = turnOn
+	}
+	c.command(endpoint, command)
+	c.r.until(name+" to change", func() bool { return onOf(c.t, c.r.status(), name).Value == on })
+}
+
+func TestADeclaredRenameKeepsTheBridgedDevice(t *testing.T) {
+	t.Parallel()
+	c := commissionedPlugins(t)
+	endpoint := c.endpoint("valve")
+	c.r.until("valve on the bridge", func() bool { return c.info(endpoint, labelAttribute) == "valve" })
+	unique := c.info(endpoint, uniqueIDAttribute)
+
+	c.r.mustDeploy("plugins-mains")
+	c.r.until("the new label", func() bool { return c.info(endpoint, labelAttribute) == "mains-valve" })
+	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
+		t.Errorf("unique ID %v became %v", unique, got)
+	}
+	c.drives("mains-valve", endpoint, false)
+
+	// A restart builds the endpoint again, which is when a unique ID from the name would change.
+	c.restartPlugins()
+	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
+		t.Errorf("after a restart, unique ID %v became %v", unique, got)
+	}
+	if got := c.info(endpoint, labelAttribute); got != "mains-valve" {
+		t.Errorf("after a restart, the label is %v", got)
+	}
+}
+
+func TestADeclaredSwapOfHardwareReachesTheController(t *testing.T) {
+	t.Parallel()
+	c := commissionedPlugins(t)
+	c.r.until("the spare relay", func() bool {
+		return slices.ContainsFunc(c.r.devices().Devices, func(d registry.Device) bool { return d.ID == "spare-relay" })
+	})
+	c.r.mustDeploy("plugins-valve")
+	endpoint := c.endpoint("valve")
+	c.r.mustDeploy("plugins-swapped")
+	if d := deviceOf(t, c.r.devices(), "valve"); d.ID != "spare-relay" || d.Endpoint != endpoint {
+		t.Fatalf("got %+v, want the spare on endpoint %d", d, endpoint)
+	}
+	// The same endpoint drives the new hardware, and hears it.
+	c.drives("valve", endpoint, true)
+	c.r.until("the controller to hear it", func() bool { return c.isOn(endpoint) })
+	c.drives("valve", endpoint, false)
+	c.r.until("the controller to hear it", func() bool { return !c.isOn(endpoint) })
+}
+
+func TestAControllerReadsTheDeviceTypeYouDeclareThroughARestart(t *testing.T) {
+	t.Parallel()
+	c := commissionedPlugins(t)
+	endpoint := c.endpoint("relay")
+	plug, light := uint64(clusters.DeviceOnOffPlug.ID), uint64(clusters.DeviceOnOffLight.ID)
+	c.r.until("the relay on the bridge", func() bool { return slices.Contains(c.deviceTypes(endpoint), plug) })
+
+	// plugins-declared calls the relay porch-relay, an OnOffLight.
+	c.r.mustDeploy("plugins-declared")
+	c.r.until("the relay to be a light", func() bool { return slices.Contains(c.deviceTypes(endpoint), light) })
+	if got := c.endpoint("porch-relay"); got != endpoint {
+		t.Errorf("the relay moved from endpoint %d to %d", endpoint, got)
+	}
+	var listed struct {
+		Devices []struct {
+			Name        string   `json:"name"`
+			DeviceTypes []string `json:"deviceTypes"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(c.r.stdout(nil, "devices", "--json"), &listed); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range listed.Devices {
+		if d.Name == "porch-relay" && !slices.Equal(d.DeviceTypes, []string{"OnOffLight"}) {
+			t.Errorf("oikade devices --json says porch-relay is %v", d.DeviceTypes)
+		}
+	}
+	table := string(c.r.stdout(nil, "devices"))
+	if !strings.Contains(table, "DEVICE TYPES") || !strings.Contains(table, "OnOffLight") {
+		t.Errorf("the table leaves out what it is:\n%s", table)
+	}
+
+	c.restartPlugins()
+	c.r.until("the light on the bridge again", func() bool { return slices.Contains(c.deviceTypes(endpoint), light) })
+
+	// No longer declared, it's what its driver or its capabilities say.
+	c.r.mustDeploy("plugins")
+	c.r.until("the relay to be a plug again", func() bool { return slices.Contains(c.deviceTypes(endpoint), plug) })
 }

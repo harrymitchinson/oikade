@@ -269,6 +269,10 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		}
 	}
 	findings := safetyFindings(old, manifest, declared.Renamed, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
+	if d.srv.leavingSafety != nil {
+		// The rules running now, and the ones that will.
+		findings = append(findings, d.srv.leavingSafety(manifest.Inventory, slices.Concat(old.Rules, manifest.Rules))...)
+	}
 	if d.running != "" && old.Protocol == 0 {
 		findings = append(findings, "the running version couldn't be kept or checked, so a Safety rule it has can't be seen, and a failed deploy has nothing to go back to")
 	}

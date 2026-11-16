@@ -59,8 +59,7 @@ type Device struct {
 	Driver       string   `json:"driver,omitempty"`
 	Room         string   `json:"room,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
-	// DeviceType is what you say it is, from oikade devices type, which wins over its driver. It
-	// stays with the name, as a room does.
+	// DeviceType is what your home declares it is, which wins over its driver.
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// DriverDeviceType is what its driver says it is, if the driver knows.
 	DriverDeviceType devicetype.Type `json:"driverDeviceType,omitempty"`
@@ -236,75 +235,6 @@ func newAppName(d Device, report Report) bool {
 	return d.AppName == "" && clean(report.Name) != ""
 }
 
-// Reserve holds a name for a device that isn't paired yet, so code can name it. Replace gives it its
-// hardware.
-func (r *Registry) Reserve(name, room string) error {
-	if err := checkName(name); err != nil {
-		return err
-	}
-	return r.change(func(s *Snapshot) error {
-		if live(*s, name) >= 0 {
-			return fmt.Errorf("%s already exists", name)
-		}
-		endpoint, err := allocate(s)
-		if err != nil {
-			return err
-		}
-		s.Devices = append(s.Devices, Device{Name: name, Room: clean(room), Endpoint: endpoint})
-		return nil
-	})
-}
-
-// Rename gives a device a new name. Its endpoint stays.
-func (r *Registry) Rename(name, to string) error {
-	if err := checkName(to); err != nil {
-		return err
-	}
-	return r.change(func(s *Snapshot) error {
-		i := live(*s, name)
-		if i < 0 {
-			return fmt.Errorf("%w: %s", ErrNoDevice, name)
-		}
-		if live(*s, to) >= 0 {
-			return fmt.Errorf("%s already exists", to)
-		}
-		s.Devices[i].Name = to
-		return nil
-	})
-}
-
-// Move puts a device in a room. An empty room takes it out.
-func (r *Registry) Move(name, room string) error {
-	return r.change(func(s *Snapshot) error {
-		i := live(*s, name)
-		if i < 0 {
-			return fmt.Errorf("%w: %s", ErrNoDevice, name)
-		}
-		s.Devices[i].Room = clean(room)
-		return nil
-	})
-}
-
-// SetDeviceType says what a device is, one of devicetype.OnOff. An empty type goes back to what its
-// driver says. A dimmable type needs a brightness, unless the device isn't paired yet.
-func (r *Registry) SetDeviceType(name string, t devicetype.Type) error {
-	if t != "" && !devicetype.Choosable(t) {
-		return fmt.Errorf("%q isn't a device type: use one of %s", t, devicetype.Join(devicetype.OnOff))
-	}
-	return r.change(func(s *Snapshot) error {
-		i := live(*s, name)
-		if i < 0 {
-			return fmt.Errorf("%w: %s", ErrNoDevice, name)
-		}
-		d := &s.Devices[i]
-		if err := fits(*d, t); err != nil {
-			return err
-		}
-		d.DeviceType = t
-		return nil
-	})
-}
-
 // fits refuses a device type a device can't be. One that hasn't reported can be any.
 func fits(d Device, t devicetype.Type) error {
 	if t == "" || len(d.Capabilities) == 0 {
@@ -329,36 +259,6 @@ func (r *Registry) Remove(name string) error {
 			return fmt.Errorf("%w: %s", ErrNoDevice, name)
 		}
 		s.Devices[i].Removed = true
-		return nil
-	})
-}
-
-// Replace moves name onto the hardware that with reports, so code and the Matter endpoint keep
-// working, and how it's arbitrated stays with the name. with goes, and its endpoint stays retired. name's old hardware is forgotten, so if it's
-// ever paired again it's a new device.
-func (r *Registry) Replace(name, with string) error {
-	if name == with {
-		return errors.New("a device can't replace itself")
-	}
-	return r.change(func(s *Snapshot) error {
-		i, j := live(*s, name), live(*s, with)
-		if i < 0 {
-			return fmt.Errorf("%w: %s", ErrNoDevice, name)
-		}
-		if j < 0 {
-			return fmt.Errorf("%w: %s", ErrNoDevice, with)
-		}
-		source := &s.Devices[j]
-		if source.ID == "" {
-			return fmt.Errorf("%s has no hardware to move", with)
-		}
-		d := &s.Devices[i]
-		d.ID, d.Driver, d.Capabilities = source.ID, source.Driver, slices.Clone(source.Capabilities)
-		d.DriverDeviceType, d.AppName, d.AppRoom = source.DriverDeviceType, source.AppName, source.AppRoom
-		if len(d.Control) == 0 {
-			d.Control = bytes.Clone(source.Control)
-		}
-		source.ID, source.Removed = "", true
 		return nil
 	})
 }

@@ -63,88 +63,6 @@ func TestAPairedDeviceIsUsableAtOnce(t *testing.T) {
 	}
 }
 
-func TestRenamingKeepsADeviceWorkingAndSurvivesARestart(t *testing.T) {
-	t.Parallel()
-	r := prepare(t)
-	r.launch()
-	r.waitFor(func(l line) bool { return l.is(attached) })
-	endpoint := deviceOf(t, r.devices(), "fan").Endpoint
-
-	r.stdout(nil, "devices", "name", "fan", "ceiling-fan", "--allow-safety")
-	r.stdout(nil, "devices", "room", "ceiling-fan", "Bathroom")
-	r.stdout(nil, "set", "ceiling-fan", "on", "on")
-	r.wrote("ceiling-fan", true)
-	if c := onOf(t, r.status("ceiling-fan"), "ceiling-fan"); c.Value != true {
-		t.Errorf("got %+v", c)
-	}
-	if _, err := r.oikade(nil, "status", "fan"); err == nil {
-		t.Error("the old name stayed")
-	}
-
-	r.stop()
-	r.launch()
-	r.waitFor(func(l line) bool { return l.is(attached) })
-	d := deviceOf(t, r.devices(), "ceiling-fan")
-	if d.Endpoint != endpoint || d.Room != "Bathroom" {
-		t.Errorf("after a restart: %+v, want endpoint %d", d, endpoint)
-	}
-	if st := r.status("ceiling-fan"); st.Devices[0].Room != "Bathroom" {
-		t.Errorf("status: %+v", st.Devices[0])
-	}
-}
-
-func TestReplacingHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
-	t.Parallel()
-	r := start(t)
-	r.sync()
-	r.change("leak-sensor", "open", true)
-	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
-	r.sync()
-	before := deviceOf(t, r.devices(), "valve")
-
-	r.pair("new-valve", "new-valve")
-	if stderr, err := r.oikade(nil, "devices", "name", "valve", "main-valve", "--allow-safety"); err == nil ||
-		!strings.Contains(stderr, "Rule/valve on leak-shutoff") {
-		t.Errorf("renamed a device under a claim: %v: %s", err, stderr)
-	}
-	if stderr, err := r.oikade(nil, "devices", "remove", "valve"); err == nil ||
-		!strings.Contains(stderr, "--allow-safety") {
-		t.Errorf("removed a device under a Safety claim: %v: %s", err, stderr)
-	}
-	r.stdout(nil, "devices", "replace", "valve", "new-valve", "--allow-safety")
-	after := deviceOf(t, r.devices(), "valve")
-	if after.ID != "new-valve" || after.Endpoint != before.Endpoint {
-		t.Errorf("got %+v, was %+v", after, before)
-	}
-	if c := onOf(t, r.status("valve"), "valve"); c.Level != "Safety" || winner(c) != "Rule/valve on leak-shutoff" {
-		t.Errorf("the claim didn't stay on the name: %+v", c)
-	}
-	if _, err := r.oikade(nil, "status", "new-valve"); err == nil {
-		t.Error("the replacement's name stayed")
-	}
-}
-
-func TestAReservedNameTakesItsHardwareLater(t *testing.T) {
-	t.Parallel()
-	r := start(t)
-	r.stdout(nil, "devices", "reserve", "porch-light", "--room", "Porch")
-	if d := deviceOf(t, r.devices(), "porch-light"); !d.Reserved() || d.Room != "Porch" {
-		t.Errorf("got %+v", d)
-	}
-	if _, err := r.oikade(nil, "set", "porch-light", "on", "on"); err == nil {
-		t.Error("set a device with no hardware")
-	}
-	endpoint := deviceOf(t, r.devices(), "porch-light").Endpoint
-	r.pair("0xabc", "device-0xabc")
-	r.stdout(nil, "devices", "replace", "porch-light", "device-0xabc", "--allow-safety")
-	d := deviceOf(t, r.devices(), "porch-light")
-	if d.Reserved() || d.ID != "0xabc" || d.Endpoint != endpoint || d.Room != "Porch" {
-		t.Errorf("got %+v, want endpoint %d", d, endpoint)
-	}
-	r.stdout(nil, "set", "porch-light", "on", "on")
-	r.wrote("porch-light", true)
-}
-
 func TestARemovedDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 	t.Parallel()
 	r := start(t)
@@ -187,7 +105,6 @@ func goBuild(t *testing.T, dir, code string) error {
 func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 	t.Parallel()
 	r := start(t)
-	r.stdout(nil, "devices", "reserve", "porch-light")
 	dir := t.TempDir()
 	out := filepath.Join(dir, "devices.go")
 	r.stdout(nil, "types", "--out", out)
@@ -198,7 +115,7 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 	if again := r.stdout(nil, "types", "--out", "-"); string(again) != string(first) {
 		t.Errorf("two runs differ:\n%s\n%s", first, again)
 	}
-	const code = "package main\n\nfunc main() { println(Fan.On.Device, PorchLight.Name) }\n"
+	const code = "package main\n\nfunc main() { println(Fan.On.Device, Valve.Name) }\n"
 	if err := goBuild(t, dir, code); err != nil {
 		t.Fatalf("code naming its devices didn't compile: %v\n%s", err, first)
 	}
@@ -292,75 +209,43 @@ func TestASafetyClaimIsEnforcedBeforeItsDeviceReports(t *testing.T) {
 	}
 }
 
-func TestChangingANameWaitsForAllowSafetyWhileASafetyRuleRuns(t *testing.T) {
-	t.Parallel()
-	r := flowRig(t, "")
-	r.launch(settle)
-	r.awaitLoaded()
-	r.sync()
-	r.pair("spare-valve", "spare-valve")
-	for _, args := range [][]string{
-		{"devices", "name", "valve", "valve-two"},
-		{"devices", "name", "leak-sensor", "leak-two"},
-		{"devices", "replace", "valve", "spare-valve"},
-	} {
-		stderr, err := r.oikade(nil, args...)
-		if err == nil || !strings.Contains(stderr, "--allow-safety") || !strings.Contains(stderr, "deploy") {
-			t.Errorf("%v: %v: %s", args, err, stderr)
+// inRooms is the simulated devices, with some of them in rooms.
+func inRooms(t *testing.T, rooms map[string]string) string {
+	t.Helper()
+	raw, err := os.ReadFile(devicesFile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var devices []map[string]any
+	if err := json.Unmarshal(raw, &devices); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range devices {
+		if room, ok := rooms[d["name"].(string)]; ok {
+			d["room"] = room
 		}
 	}
-	deviceOf(t, r.devices(), "valve")
-	r.stdout(nil, "devices", "name", "fan", "ceiling-fan", "--allow-safety")
-	deviceOf(t, r.devices(), "ceiling-fan")
-}
-
-func TestMovingASensorChangesAHoldThatReadsItsRoom(t *testing.T) {
-	t.Parallel()
-	r := start(t)
-	r.sync()
-	r.stdout(nil, "devices", "room", "damp-sensor", "cellar")
-	r.wrote("dehumidifier", true)
-	r.stdout(nil, "devices", "room", "dry-sensor", "cellar")
-	r.stdout(nil, "devices", "room", "damp-sensor", "garage")
-	r.wrote("dehumidifier", false)
-
-	// The cellar's last sensor out leaves the hold reading an empty room (OIK-214). The move still
-	// happens, and says so.
-	var moved struct {
-		OK      bool   `json:"ok"`
-		Warning string `json:"warning"`
-	}
-	if err := json.Unmarshal(r.stdout(nil, "devices", "room", "dry-sensor", "garage", "--json"), &moved); err != nil {
+	path := filepath.Join(t.TempDir(), "devices.json")
+	raw, err = json.Marshal(devices)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !moved.OK || !strings.Contains(moved.Warning, "cellar-damp") || !strings.Contains(moved.Warning, "cellar") {
-		t.Errorf("got %+v, want a warning naming cellar-damp and the cellar", moved)
-	}
-	if d := deviceOf(t, r.devices(), "dry-sensor"); d.Room != "garage" {
-		t.Errorf("dry-sensor is in %q", d.Room)
-	}
-	// Out of a room no hold reads, it says nothing.
-	moved.Warning = ""
-	if err := json.Unmarshal(r.stdout(nil, "devices", "room", "dry-sensor", "attic", "--json"), &moved); err != nil {
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if moved.Warning != "" {
-		t.Errorf("got warning %q from the garage, which no hold reads", moved.Warning)
-	}
+	return path
 }
 
-// Removing the last device in a room a hold reads warns as a move does (OIK-229).
 func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	t.Parallel()
-	r := start(t)
+	r := start(t, "--simulate", inRooms(t, map[string]string{"damp-sensor": "cellar", "dry-sensor": "cellar"}))
 	r.sync()
-	r.stdout(nil, "devices", "room", "damp-sensor", "cellar")
 	r.wrote("dehumidifier", true)
 
-	// The warning is on stderr, and the remove still happens.
+	// The dry sensor is left in the cellar, so nothing warns, and the remove happens.
 	stderr, err := r.oikade(nil, "devices", "remove", "damp-sensor")
-	if err != nil || !strings.Contains(stderr, "Warning:") || !strings.Contains(stderr, "cellar-damp") {
-		t.Errorf("got %v: %q, want a warning naming cellar-damp", err, stderr)
+	if err != nil || strings.Contains(stderr, "Warning") {
+		t.Errorf("got %v: %q, want no warning while the cellar has a sensor", err, stderr)
 	}
 	for _, d := range r.devices().Devices {
 		if d.Name == "damp-sensor" && !d.Removed {
@@ -368,8 +253,7 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 		}
 	}
 
-	// --json has it as warning.
-	r.stdout(nil, "devices", "room", "dry-sensor", "cellar")
+	// The last one out warns, in --json as warning (OIK-214).
 	var removed struct {
 		OK      bool     `json:"ok"`
 		Warning string   `json:"warning"`

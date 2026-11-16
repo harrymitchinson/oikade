@@ -355,6 +355,10 @@ import (
 // yours.
 func home() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
+	// A device keeps the name its app gives it until you declare it here, with its hardware, its
+	// room and what it is to the Home app. oikade devices prints the line for each one:
+	//
+	//	home.Device("hall-lamp").Hardware("zigbee2mqtt", "0x00158d0001a2b3c4").Room("hall").Is(oikade.OnOffLight)
 	home.Decide(PorchLight.On).
 		Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
 		Default(false)

@@ -88,7 +88,7 @@ A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"on
 - List every device from the devices file (see [Environment](#environment)).
 - `found` is true once the plugin can reach the device. `manufacturer`, `model`, `capabilities` and `deviceType` matter only when it's true.
 - `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. They're added to Oikade's registry, named by the guide in `internal/capability`'s package doc.
-- `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless you've set one with `oikade devices type`, and a device's other types follow from its capabilities ([OIK-142](https://linear.app/oikade/issue/OIK-142)).
+- `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless your home declares one with `Is`, and a device's other types follow from its capabilities ([OIK-142](https://linear.app/oikade/issue/OIK-142)).
 - `error` is a problem with the device's configuration, such as a missing secret or settings the plugin can't use. `oikade devices` and `oikade status` show it. A device can be `found` and still have one, if the plugin can see it and can't use it. Leave it empty otherwise.
 - `needsSetup` is optional: true while the plugin can't serve its devices until someone runs its [setup](#setup), such as one with no credentials yet. Only a plugin whose status has `setup` sends it.
 - `undeclared` counts devices the plugin can see that Oikade doesn't have on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
@@ -154,7 +154,7 @@ Go plugins implement `plugin.Setup` on their `Handler`, and the SDK speaks this 
 
 ## Relay-like devices
 
-Relays don't know what they switch, and they don't have to: a relay reports `on`, whether it switches a light, an outlet or a fan, and leaves `deviceType` out. Oikade shows it as a plug until you say what it is with `oikade devices type`.
+Relays don't know what they switch, and they don't have to: a relay reports `on`, whether it switches a light, an outlet or a fan, and leaves `deviceType` out. Oikade shows it as a plug until your home says what it is with `Is`.
 
 ## Environment
 

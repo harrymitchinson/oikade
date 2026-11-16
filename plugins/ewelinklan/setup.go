@@ -116,13 +116,13 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 		heard[id] = true
 	}
 	b.mu.Unlock()
-	// Only a device the plugin reports can be named.
+	// Only a device the plugin reports can be declared.
 	for _, d := range devices {
 		if d.name == "" || !heard[d.id] {
 			continue
 		}
-		line := fmt.Sprintf("%s is %q in the eWeLink app: if it's still named by its ID, oikade devices name %s %s "+
-			"names it so", d.id, d.name, d.id, registry.Slug(d.name, d.id))
+		line := fmt.Sprintf("%s is %q in the eWeLink app: home.Device(%q).Hardware(%q, %q) in your home's code "+
+			"names it so", d.id, d.name, registry.Slug(d.name, d.id), b.name(), d.id)
 		if err := s.Say(ctx, line); err != nil {
 			return "", err
 		}

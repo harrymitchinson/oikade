@@ -51,13 +51,8 @@ const (
 	TypeSecretSet    = "secretSet"
 	TypeSecretRemove = "secretRemove"
 
-	TypeDevices       = "devices"
-	TypeDeviceName    = "deviceName"
-	TypeDeviceRoom    = "deviceRoom"
-	TypeDeviceType    = "deviceType"
-	TypeDeviceReserve = "deviceReserve"
-	TypeDeviceRemove  = "deviceRemove"
-	TypeDeviceReplace = "deviceReplace"
+	TypeDevices      = "devices"
+	TypeDeviceRemove = "deviceRemove"
 
 	TypeClients      = "clients"
 	TypeClientAdd    = "clientAdd"
@@ -110,12 +105,7 @@ var Routes = []Route{
 	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false, false},
 
 	{TypeDevices, http.MethodGet, Prefix + "/devices", false, false},
-	{TypeDeviceName, http.MethodPost, Prefix + "/devices/name", false, false},
-	{TypeDeviceRoom, http.MethodPost, Prefix + "/devices/room", false, false},
-	{TypeDeviceType, http.MethodPost, Prefix + "/devices/type", false, false},
-	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false, false},
 	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false, false},
-	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false, false},
 
 	{TypeClients, http.MethodGet, Prefix + "/clients", false, false},
 	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false, false},
@@ -143,18 +133,11 @@ type Request struct {
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
-	// To is a device's new name, or the device whose hardware a replace takes.
-	To string `json:"to,omitempty"`
-	// Room is a device's room.
-	Room string `json:"room,omitempty"`
 	// Plugin is a remove's in place of Device: every device of that plugin on record.
 	Plugin string `json:"plugin,omitempty"`
-	// DeviceType is what a device is, one of devicetype.OnOff. Empty goes back to what its driver says.
-	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// Rule is a pause's or a resume's.
 	Rule string `json:"rule,omitempty"`
-	// AllowSafety pauses a Safety rule, removes a device a Safety claim holds, or changes a device's
-	// name while a Safety rule runs.
+	// AllowSafety pauses a Safety rule, or removes a device a Safety claim holds.
 	AllowSafety bool `json:"allowSafety,omitempty"`
 	// Secret names a secret to set or remove.
 	Secret string `json:"secret,omitempty"`

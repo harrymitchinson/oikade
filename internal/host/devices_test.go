@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,12 +103,6 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if resp, _ := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {
 		t.Errorf("got %+v", resp)
 	}
-	if err := known.rename("valve", "valve-two"); err == nil {
-		t.Error("renamed a device with a claim on record")
-	}
-	if err := known.replace("valve", "valve"); err == nil {
-		t.Error("moved a device with a claim on record")
-	}
 }
 
 func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
@@ -173,7 +166,7 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 }
 
 // A room's setting is each device's there with the capability and no setting of its own, and one
-// that moves in with a setting of its own keeps it, which the move warns of.
+// that moves in with a setting of its own keeps it.
 func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
@@ -186,14 +179,14 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 	}
 	devices := hub.NewStore(logging.Discard())
 	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, nil, logging.Discard())
-	known.attach(simInstance)
+	known.attach(pluginKey("x"))
 	ids := map[string]ident.ID{}
 	for _, d := range []driver.AppDevice{
 		{ID: "c", Name: "ceiling", Room: "hall", Capabilities: []string{capability.On}},
 		{ID: "l", Name: "lamp", Room: "attic", Capabilities: []string{capability.On}},
 		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
 	} {
-		id, err := known.paired(simInstance, d, nil)
+		id, err := known.paired(pluginKey("x"), d, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,34 +216,24 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 		t.Errorf("sensor, which has no on, has lines %q", got)
 	}
 
-	s := &apiServer{devices: known, srv: &server{}}
-	resp := s.move("lamp", "hall")
-	if resp.Error != "" {
-		t.Fatal(resp.Error)
+	// Declared rooms move devices, as a deploy does.
+	declare := func(rooms map[string]string) {
+		t.Helper()
+		decls := make([]wire.DeviceDeclaration, 0, len(rooms))
+		for name, room := range rooms {
+			decls = append(decls, wire.DeviceDeclaration{Name: name, Plugin: "x", ID: name[:1], Room: room})
+		}
+		if err := known.takeDeclared(decls, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
+	declare(map[string]string{"lamp": "hall"})
 	if got := lines("lamp"); got != "Rule/lamp on reading" {
 		t.Errorf("lamp's lines are %q, want its own", got)
 	}
-	if want := "lamp keeps its own decision on on rather than hall's"; !strings.Contains(resp.Warning, want) {
-		t.Errorf("got warning %q, want %q", resp.Warning, want)
-	}
-	if resp := s.move("ceiling", "attic"); resp.Warning != "" || lines("ceiling") != "" {
-		t.Errorf("ceiling, out of the hall, warns %q and has lines %q", resp.Warning, lines("ceiling"))
-	}
-
-	// A lamp that hands over to the hall's decision with Then has the hall's lines below its own.
-	handed := entry("Rule/lamp on reading")
-	handed.Lines = append(handed.Lines, "Rule/hall on evening")
-	if err := known.setHome([]wire.DeviceControl{
-		{Room: "hall", Entry: entry("Rule/hall on evening")}, {Device: "lamp", Entry: handed},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if resp := s.move("lamp", "attic"); resp.Error != "" {
-		t.Fatal(resp.Error)
-	}
-	if resp := s.move("lamp", "hall"); resp.Warning != "" {
-		t.Errorf("a lamp that hands over warns %q", resp.Warning)
+	declare(map[string]string{"lamp": "hall", "ceiling": "attic"})
+	if got := lines("ceiling"); got != "" {
+		t.Errorf("ceiling, out of the hall, has lines %q", got)
 	}
 }
 
@@ -289,60 +272,7 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	}
 }
 
-func TestMovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
-	data, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = data.Close() })
-	reg, err := registry.Open(data.Namespace(registry.Namespace))
-	if err != nil {
-		t.Fatal(err)
-	}
-	eng := &engine.Engine{Log: logging.Discard()}
-	devices := hub.NewStore(logging.Discard(), eng)
-	eng.Store = devices
-	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
-	known.attach(simInstance)
-	for _, d := range []driver.AppDevice{
-		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
-		{ID: "m", Name: "motion", Room: "landing", Capabilities: []string{capability.Occupied}},
-		{ID: "p", Name: "plug", Room: "landing", Capabilities: []string{capability.On}},
-	} {
-		if _, err := known.paired(simInstance, d, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// As the process's RoomReads said: hall-lamp reads the hall, and landing-light the landing's
-	// sensors.
-	reads := map[string][]engine.RoomRead{
-		"hall-lamp":     {{Room: "hall"}},
-		"landing-light": {{Room: "landing", Types: []devicetype.Type{devicetype.OccupancySensor}}},
-	}
-	s := &apiServer{devices: known, srv: &server{session: &session{reads: reads}}}
-
-	resp := s.move("sensor", "attic")
-	if resp.Error != "" {
-		t.Fatal(resp.Error)
-	}
-	if !strings.Contains(resp.Warning, "hall-lamp") || !strings.Contains(resp.Warning, "hall") {
-		t.Errorf("got warning %q, want one naming hall-lamp and the hall", resp.Warning)
-	}
-	if d, _ := reg.Get("sensor"); d.Room != "attic" {
-		t.Errorf("sensor is in %q: the move should still happen", d.Room)
-	}
-	// The plug left on the landing isn't one of the types landing-light reads.
-	if resp := s.move("motion", "attic"); !strings.Contains(resp.Warning, "landing-light") {
-		t.Errorf("got warning %q, want one naming landing-light", resp.Warning)
-	}
-	// The plug isn't one of the types landing-light reads, so its move empties nothing.
-	if resp := s.move("plug", "attic"); resp.Warning != "" {
-		t.Errorf("got warning %q for a device no hold reads", resp.Warning)
-	}
-}
-
-func TestRetypingOrRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
+func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -380,26 +310,7 @@ func TestRetypingOrRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.
 	}
 	s := &apiServer{ctx: context.Background(), devices: known, srv: &server{session: &session{reads: reads}}}
 
-	// The kettle is still a plug on the landing, so retyping the plug as a light empties nothing.
-	if resp := s.retype("plug", devicetype.OnOffLight); resp.Error != "" || resp.Warning != "" {
-		t.Errorf("got %+v, want no warning while the kettle is left", resp)
-	}
-	resp := s.retype("kettle", devicetype.OnOffLight)
-	if resp.Error != "" {
-		t.Fatal(resp.Error)
-	}
-	if !strings.Contains(resp.Warning, "landing-plugs") || !strings.Contains(resp.Warning, "landing") {
-		t.Errorf("got warning %q, want one naming landing-plugs and the landing", resp.Warning)
-	}
-	if d, _ := reg.Get("kettle"); d.DeviceType != devicetype.OnOffLight {
-		t.Errorf("kettle is %q: the type should still change", d.DeviceType)
-	}
-	// The landing's read was empty already, so going back to what the driver says only fills it.
-	if resp := s.retype("plug", ""); resp.Warning != "" {
-		t.Errorf("got warning %q for a retype into the read", resp.Warning)
-	}
-
-	resp = s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "sensor"})
+	resp := s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "sensor"})
 	if resp.Error != "" {
 		t.Fatal(resp.Error)
 	}
@@ -483,7 +394,7 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 
 // A retype that takes a device out of a room's Safety case is named, and one the case leaves out,
 // as it has a decision of its own, isn't.
-func TestRetypingOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
+func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -494,23 +405,32 @@ func TestRetypingOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
-	known.attach(simInstance)
+	known.attach(pluginKey("x"))
 	for _, d := range []driver.AppDevice{
 		{ID: "c", Name: "ceiling", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight},
 		{ID: "l", Name: "lamp", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight},
 	} {
-		if _, err := known.paired(simInstance, d, nil); err != nil {
+		if _, err := known.paired(pluginKey("x"), d, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	rules := []wire.RuleInfo{{Name: "hall on smoke", Kind: wire.KindCase, Safety: true, Rooms: []wire.RoomOfTypes{{
 		Room: "hall", Capability: capability.On, DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Except: []string{"lamp"},
 	}}}}
-	s := &apiServer{devices: known, srv: &server{session: &session{rules: rules}}}
-	if out, _ := s.typedOut("ceiling", devicetype.OnOffPlugInUnit); !slices.Equal(out, []string{"hall on smoke"}) {
-		t.Errorf("retyping ceiling names %v", out)
+	as := func(name, room string, t devicetype.Type) []wire.DeviceDeclaration {
+		return []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: name[:1], Room: room, DeviceType: t}}
 	}
-	if out, _ := s.typedOut("lamp", devicetype.OnOffPlugInUnit); len(out) != 0 {
-		t.Errorf("retyping lamp, which the case leaves out, names %v", out)
+	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffPlugInUnit), rules); len(out) != 1 ||
+		!strings.Contains(out[0], "ceiling would leave the devices hall on smoke writes at Safety") {
+		t.Errorf("declaring ceiling a plug names %q", out)
+	}
+	if out := known.leavingSafety(as("ceiling", "attic", ""), rules); len(out) != 1 {
+		t.Errorf("declaring ceiling in the attic names %q", out)
+	}
+	if out := known.leavingSafety(as("lamp", "hall", devicetype.OnOffPlugInUnit), rules); len(out) != 0 {
+		t.Errorf("declaring lamp a plug, which the case leaves out, names %v", out)
+	}
+	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffLight), rules); len(out) != 0 {
+		t.Errorf("declaring ceiling what it is names %v", out)
 	}
 }

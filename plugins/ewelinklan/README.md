@@ -13,10 +13,15 @@ Each device's reports are encrypted with its own LAN key, which is one [secret](
 ```sh
 oikade devices                              # 1000aabbcc  no LAN key: oikade setup ewelink-lan
 oikade setup ewelink-lan                    # online within seconds, with no deploy
-oikade devices name 1000aabbcc greenhouse-heater
 ```
 
-The first time, setup asks for an eWeLink developer app's ID and secret, and keeps them as the secrets `ewelink-app-id` and `ewelink-app-secret`. Make the app on the eWeLink developer platform, under Platform → App Management, with the redirect URL `http://127.0.0.1:8765/callback`, where `oikade setup` listens. Setup then opens eWeLink's sign-in page in your browser, signs in through eWeLink's [OAuth2 API](https://coolkit-technologies.github.io/eWeLink-API/#/en/OAuth2.0), and lists your devices once. It keeps each device's key (its `devicekey`), and changes only the keys that differ. It doesn't keep the token, so the host talks to eWeLink only while setup runs. It also says what each device is called in the eWeLink app, with the `oikade devices name` command that gives it that name. Run it again for a device you pair later.
+Then name each one in your home's code, as setup says:
+
+```go
+home.Device("greenhouse-heater").Hardware("ewelink-lan", "1000aabbcc")
+```
+
+The first time, setup asks for an eWeLink developer app's ID and secret, and keeps them as the secrets `ewelink-app-id` and `ewelink-app-secret`. Make the app on the eWeLink developer platform, under Platform → App Management, with the redirect URL `http://127.0.0.1:8765/callback`, where `oikade setup` listens. Setup then opens eWeLink's sign-in page in your browser, signs in through eWeLink's [OAuth2 API](https://coolkit-technologies.github.io/eWeLink-API/#/en/OAuth2.0), and lists your devices once. It keeps each device's key (its `devicekey`), and changes only the keys that differ. It doesn't keep the token, so the host talks to eWeLink only while setup runs. It also says what each device is called in the eWeLink app, with the [declaration](../../docs/devices.md) that gives it that name. Run it again for a device you pair later.
 
 A wrong app ID or secret shows when you sign in: change it with `oikade secret set ewelink-app-secret`, then run setup again. You can also set a device's key by hand, with `oikade secret set 1000aabbcc`.
 
