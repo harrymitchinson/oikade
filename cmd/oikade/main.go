@@ -190,6 +190,7 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 	}
 	printUnimported(os.Stderr, resp.Unimported)
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
+	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	if resp.Unchanged {
 		_, _ = fmt.Fprintln(d.stdout, "Already running version", resp.Version)
@@ -209,8 +210,20 @@ func runRollback(ctx context.Context, args []string) error {
 	}
 	printUnimported(os.Stderr, resp.Unimported)
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
+	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	return report(os.Stdout, resp, "Rolled back to version")
+}
+
+// printDeviceChanges says what a version's device declarations changed, and which declared names
+// wait for their hardware.
+func printDeviceChanges(out io.Writer, resp api.Response) {
+	for _, c := range resp.DeviceChanges {
+		_, _ = fmt.Fprintln(out, c)
+	}
+	for _, name := range resp.Unseen {
+		_, _ = fmt.Fprintf(out, "%s's hardware hasn't reported yet, so the name waits for it\n", name)
+	}
 }
 
 func report(stdout io.Writer, resp api.Response, done string) error {

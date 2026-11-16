@@ -148,11 +148,17 @@ func (h *Host) Run(ctx context.Context) error {
 		sinks = append(sinks, bridge)
 	}
 	devices := hub.NewStore(h.Log.With("logger", "devices"), sinks...)
-	known := newInventory(devicesOnRecord, data.Namespace(homeSettingsNamespace), devices, eng, h.Log.With("logger", "registry"))
+	known := newInventory(devicesOnRecord, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng,
+		h.Log.With("logger", "registry"))
 	if err := known.loadHome(); err != nil {
 		return fmt.Errorf("reading the home's device settings: %w", err)
 	}
+	if err := known.loadDeclared(); err != nil {
+		// The registry is as it was, and the next process to attach declares again.
+		h.Log.Error("Failed to apply the home's device declarations", "err", err)
+	}
 	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
+	srv.declare, srv.planDeclared = known.takeDeclared, known.planDeclared
 	sim := &simulator{store: devices, known: known, log: h.Log.With("logger", "simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)

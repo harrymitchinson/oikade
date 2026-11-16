@@ -220,6 +220,10 @@ type Response struct {
 	// UnsetSecrets are a deploy's or a rollback's: the secrets the version now running uses that
 	// aren't set.
 	UnsetSecrets []string `json:"unsetSecrets,omitempty"`
+	// DeviceChanges are a deploy's or a rollback's: what the version's device declarations changed,
+	// a line each, and Unseen the names it declares whose hardware hasn't reported.
+	DeviceChanges []string `json:"deviceChanges,omitempty"`
+	Unseen        []string `json:"unseen,omitempty"`
 	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
 	// rollback's for the version now running, and a devices request's for the one running now.
 	Unimported []Unimported `json:"unimported,omitempty"`
