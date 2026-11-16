@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/testutil"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/hub"
@@ -60,9 +58,9 @@ func blocks(today *BudgetDay) string {
 func (r *rig) expectBudgetMetrics(name string, target, scheduled, run float64) {
 	r.t.Helper()
 	for metric, tc := range map[string]struct{ got, want float64 }{
-		"oikade_rule_budget_target_minutes":    {testutil.ToFloat64(r.e.Budget.Target.WithLabelValues(name)), target},
-		"oikade_rule_budget_scheduled_minutes": {testutil.ToFloat64(r.e.Budget.Scheduled.WithLabelValues(name)), scheduled},
-		"oikade_rule_budget_run_minutes_total": {testutil.ToFloat64(r.e.Budget.Run.WithLabelValues(name)), run},
+		"oikade_rule_budget_target_minutes":    {r.e.budget().target.Gauge(name).Get(), target},
+		"oikade_rule_budget_scheduled_minutes": {r.e.budget().scheduled.Gauge(name).Get(), scheduled},
+		"oikade_rule_budget_run_minutes_total": {r.e.budget().run.FloatCounter(name).Get(), run},
 	} {
 		if tc.got < tc.want-0.1 || tc.got > tc.want+0.1 {
 			r.t.Errorf("%s = %v, want %v", metric, tc.got, tc.want)
@@ -108,7 +106,7 @@ func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states *storeB
 	if w := winner(r.status("pump", capability.On)); w != "Rule/pump-daily Normal" {
 		t.Errorf("00:00 winner %q", w)
 	}
-	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues("pump-daily")); got != 1 {
+	if got := r.e.budget().desired.Gauge("pump-daily").Get(); got != 1 {
 		t.Errorf("oikade_rule_budget_desired %v at 00:00, want 1", got)
 	}
 
@@ -188,23 +186,23 @@ func TestBudgetMetricsAreExportedBeforeAnyRun(t *testing.T) {
 		now:     local("2026-10-21 14:00 BST"),
 		control: map[string][]control.Entry{"pump": {pumpEntry()}},
 	}, holdRule(t, "pump-daily", pumpBudget))
-	for _, c := range r.e.Budget.Collectors() {
-		if n := testutil.CollectAndCount(c); n != 1 {
+	for _, v := range r.e.budget().all() {
+		if n := len(v.Names()); n != 1 {
 			t.Errorf("%d series for a metric, want 1 before any run is credited", n)
 		}
 	}
 	r.expectBudgetMetrics("pump-daily", 240, 240, 0)
-	if got := testutil.ToFloat64(r.e.Budget.TodayRun.WithLabelValues("pump-daily")); got != 0 {
+	if got := r.e.budget().todayRun.Gauge("pump-daily").Get(); got != 0 {
 		t.Errorf("oikade_rule_budget_today_run_minutes %v, want 0", got)
 	}
 
 	// The control entry goes: nothing is planned or wanted any more.
 	r.setControlOf("pump")
 	r.at("2026-10-21 14:01 BST")
-	if n := testutil.CollectAndCount(r.e.Budget.Target); n != 0 {
+	if n := len(r.e.budget().target.Names()); n != 0 {
 		t.Errorf("%d target series once it can't plan, want none", n)
 	}
-	if got := testutil.ToFloat64(r.e.Budget.Desired.WithLabelValues("pump-daily")); got != 0 {
+	if got := r.e.budget().desired.Gauge("pump-daily").Get(); got != 0 {
 		t.Errorf("oikade_rule_budget_desired %v once it can't plan, want 0", got)
 	}
 }
@@ -241,7 +239,7 @@ func TestEditingOutTheBudgetClearsItsStatus(t *testing.T) {
 	if b := r.budget("pump-nightly"); !b.Cleared {
 		t.Errorf("report %+v, want cleared", b)
 	}
-	if n := testutil.CollectAndCount(r.e.Budget.Target); n != 0 {
+	if n := len(r.e.budget().target.Names()); n != 0 {
 		t.Errorf("%d target gauges left, want none", n)
 	}
 }
@@ -263,7 +261,7 @@ func TestCreditCountsOnlyWhileOnAndAvailable(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := &budgetPlan{end: t0.Add(2*time.Minute + 30*time.Second), credited: t0, on: tc.steps[0]}
 			for i, on := range tc.steps[1:] {
-				p.credit(t0.Add(time.Duration(i+1)*time.Minute), on, nil, key)
+				p.credit(t0.Add(time.Duration(i+1)*time.Minute), on, budgetMetrics{}, key)
 			}
 			if p.run != tc.want {
 				t.Errorf("run %s, want %s", p.run, tc.want)

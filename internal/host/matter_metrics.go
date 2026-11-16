@@ -1,107 +1,85 @@
 package host
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
+	"io"
+
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
+	"github.com/harrymitchinson/oikade/internal/series"
 )
+
+// writeBuckets are the write duration histogram's upper bounds, in seconds: Prometheus's default
+// buckets, which the dashboard's quantiles were made with.
+var writeBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 
 // matterMetrics is what the Matter bridge exports. A host has one bridge, so nothing is labelled
 // with it, and nothing is labelled with a node ID either, which a controller chooses.
 type matterMetrics struct {
-	bridge       *matterBridge
-	interactions *prometheus.CounterVec
-	reports      prometheus.Counter
-	writes       prometheus.Histogram
-
-	panics *prometheus.CounterVec
-
-	fabrics, sessions, subscriptions, serving *prometheus.Desc
+	bridge *matterBridge
+	// interactions counts attribute writes and commands from controllers, by cluster and the status
+	// they were answered with.
+	interactions series.Vec
+	// reports counts the reports sent to controllers on their subscriptions, the first and
+	// keep-alives included.
+	reports *metrics.Counter
+	// writes is how long a controller's change took to get through arbitration to its device's
+	// driver, once gathered, for changes that worked.
+	writes *metrics.PrometheusHistogram
+	// panics counts panics in handling a Matter message that cost only that message and its
+	// session, by where. Each is a bug.
+	panics series.Vec
 }
 
-func newMatterMetrics(bridge *matterBridge) *matterMetrics {
-	panics := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "oikade_matter_panics_total",
-		Help: "Panics in handling a Matter message that cost only that message and its session, by where. Each is a bug.",
-	}, []string{"site"})
+// newMatterMetrics adds the bridge's metrics to set.
+func newMatterMetrics(set *metrics.Set, bridge *matterBridge) *matterMetrics {
+	m := &matterMetrics{
+		bridge:       bridge,
+		interactions: series.NewVec(set, "oikade_matter_interactions_total", "interaction", "cluster", "result"),
+		reports:      set.NewCounter("oikade_matter_reports_total"),
+		writes:       set.NewPrometheusHistogramExt("oikade_matter_write_duration_seconds", writeBuckets),
+		panics:       series.NewVec(set, "oikade_matter_panics_total", "site"),
+	}
 	for _, site := range contain.Parts {
-		panics.WithLabelValues(site) // a series from the start, so a rate has something to go up from
+		m.panics.Counter(site) // a series from the start, so a rate has something to go up from
 	}
-	return &matterMetrics{
-		panics: panics,
-		bridge: bridge,
-		interactions: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "oikade_matter_interactions_total",
-			Help: "Attribute writes and commands from controllers, by cluster and the status they were answered with.",
-		}, []string{"interaction", "cluster", "result"}),
-		reports: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "oikade_matter_reports_total",
-			Help: "Reports sent to controllers on their subscriptions, the first and keep-alives included.",
-		}),
-		writes: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name: "oikade_matter_write_duration_seconds",
-			Help: "How long a controller's change took to get through arbitration to its device's driver, " +
-				"once gathered, for changes that worked.",
-			Buckets: prometheus.DefBuckets,
-		}),
-		fabrics: prometheus.NewDesc("oikade_matter_fabrics",
-			"Fabrics the bridge is commissioned on: one for each controller's home.", nil, nil),
-		sessions: prometheus.NewDesc("oikade_matter_sessions",
-			"CASE sessions that commissioned controllers hold.", nil, nil),
-		subscriptions: prometheus.NewDesc("oikade_matter_subscriptions",
-			"Subscriptions that controllers hold.", nil, nil),
-		serving: prometheus.NewDesc("oikade_matter_serving",
-			"1 while the bridge serves controllers, 0 while it can't.", nil, nil),
-	}
+	set.RegisterMetricsWriter(m.writeState)
+	return m
 }
 
 // Wrote implements im.Observer.
 func (m *matterMetrics) Wrote(cluster uint32, st im.Status) {
-	m.interactions.WithLabelValues("write", clusters.Name(cluster), st.Name()).Inc()
+	m.interactions.Inc("write", clusters.Name(cluster), st.Name())
 }
 
 // Invoked implements im.Observer.
 func (m *matterMetrics) Invoked(cluster uint32, st im.Status) {
-	m.interactions.WithLabelValues("invoke", clusters.Name(cluster), st.Name()).Inc()
+	m.interactions.Inc("invoke", clusters.Name(cluster), st.Name())
 }
 
 // Reported implements im.Observer.
 func (m *matterMetrics) Reported() { m.reports.Inc() }
 
 // Panicked implements im.Observer.
-func (m *matterMetrics) Panicked(site string) { m.panics.WithLabelValues(site).Inc() }
+func (m *matterMetrics) Panicked(site string) { m.panics.Inc(site) }
 
-// Describe implements prometheus.Collector.
-func (m *matterMetrics) Describe(ch chan<- *prometheus.Desc) {
-	m.interactions.Describe(ch)
-	m.reports.Describe(ch)
-	m.writes.Describe(ch)
-	ch <- m.fabrics
-	ch <- m.sessions
-	ch <- m.subscriptions
-	ch <- m.serving
-	m.panics.Describe(ch)
-}
-
-// Collect implements prometheus.Collector. A bridge whose state couldn't be read has no node, and
+// writeState writes the bridge's state when it's scraped: whether it serves controllers, and the
+// fabrics it's commissioned on (one for each controller's home), the CASE sessions commissioned
+// controllers hold and their subscriptions. A bridge whose state couldn't be read has no node, and
 // says only that it isn't serving.
-func (m *matterMetrics) Collect(ch chan<- prometheus.Metric) {
-	m.interactions.Collect(ch)
-	m.reports.Collect(ch)
-	m.writes.Collect(ch)
+func (m *matterMetrics) writeState(w io.Writer) {
 	serving := 0.0
 	if m.bridge.working() && m.bridge.serving.Load() {
 		serving = 1
 	}
-	ch <- prometheus.MustNewConstMetric(m.serving, prometheus.GaugeValue, serving)
-	m.panics.Collect(ch)
+	series.Write(w, serving, "oikade_matter_serving")
 	if !m.bridge.working() {
 		return
 	}
 	n := m.bridge.node
-	ch <- prometheus.MustNewConstMetric(m.fabrics, prometheus.GaugeValue, float64(n.Fabrics().Count()))
-	ch <- prometheus.MustNewConstMetric(m.sessions, prometheus.GaugeValue, float64(n.Sessions()))
-	ch <- prometheus.MustNewConstMetric(m.subscriptions, prometheus.GaugeValue, float64(n.Subscriptions()))
+	series.Write(w, float64(n.Fabrics().Count()), "oikade_matter_fabrics")
+	series.Write(w, float64(n.Sessions()), "oikade_matter_sessions")
+	series.Write(w, float64(n.Subscriptions()), "oikade_matter_subscriptions")
 }

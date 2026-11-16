@@ -4,20 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
-	"github.com/prometheus/common/model"
+	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/metrics"
+	devicemetrics "github.com/harrymitchinson/oikade/internal/metrics"
 )
 
 const (
@@ -39,34 +35,30 @@ func (p *pushed) set(text []byte) {
 	p.text = text
 }
 
-// Gather implements prometheus.Gatherer.
-func (p *pushed) Gather() ([]*dto.MetricFamily, error) {
+// write writes the latest metrics as they came, ending their last line so nothing after joins it.
+func (p *pushed) write(w io.Writer) {
 	p.mu.Lock()
 	text := p.text
 	p.mu.Unlock()
-	parser := expfmt.NewTextParser(model.UTF8Validation)
-	families, err := parser.TextToMetricFamilies(bytes.NewReader(text))
-	if err != nil {
-		return nil, err
+	if len(text) == 0 {
+		return
 	}
-	out := make([]*dto.MetricFamily, 0, len(families))
-	for _, f := range families {
-		out = append(out, f)
+	_, _ = w.Write(text)
+	if !bytes.HasSuffix(text, []byte("\n")) {
+		_, _ = w.Write([]byte("\n"))
 	}
-	return out, nil
 }
 
-// gatherer is everything the host exports.
-func gatherer(store *hub.Store, eng *engine.Engine, p *pushed, more ...prometheus.Collector) prometheus.Gatherer {
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(metrics.Collector{Store: store}, eng.ControlLevel)
-	registry.MustRegister(more...)
-	return prometheus.Gatherers{registry, p}
+// export adds the devices' metrics and your process's to set, which has the rest of what the host
+// exports.
+func export(set *metrics.Set, store *hub.Store, p *pushed) {
+	devicemetrics.Collector{Store: store}.Register(set)
+	set.RegisterMetricsWriter(p.write)
 }
 
 // observe opens the HTTP listener for metrics and health, which reads and changes nothing, and is
 // apart from the API for that reason. It returns what serves it until a context ends.
-func (h *Host) observe(srv *server, eng *engine.Engine, more ...prometheus.Collector) func(context.Context) {
+func (h *Host) observe(exported *metrics.Set, srv *server) func(context.Context) {
 	if h.MetricsAddr == "" {
 		return func(context.Context) {}
 	}
@@ -77,8 +69,11 @@ func (h *Host) observe(srv *server, eng *engine.Engine, more ...prometheus.Colle
 		return func(context.Context) {}
 	}
 	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", promhttp.HandlerFor(gatherer(srv.devices, eng, srv.pushed, more...),
-		promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError}))
+	export(exported, srv.devices, srv.pushed)
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		exported.WritePrometheus(w)
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})

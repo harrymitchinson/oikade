@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -357,9 +357,7 @@ var localCaller = caller{name: "local", local: true}
 // errNotLocal is a call only the host's machine may make.
 var errNotLocal = errors.New("only the host's machine can do this, over the socket: run it there")
 
-func newAuthFailures() prometheus.Counter {
-	return prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "oikade_api_auth_failures_total",
-		Help: "Calls to the network API refused for want of a valid token.",
-	})
+// newAuthFailures counts calls to the network API refused for want of a valid token.
+func newAuthFailures(set *metrics.Set) *metrics.Counter {
+	return set.NewCounter("oikade_api_auth_failures_total")
 }

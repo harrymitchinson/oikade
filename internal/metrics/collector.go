@@ -2,34 +2,36 @@
 package metrics
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
+	"io"
+	"slices"
+	"strings"
+
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/series"
 )
 
-var (
-	deviceLabels     = []string{"device", "room"}
-	capabilityLabels = append(append([]string{}, deviceLabels...), "capability")
-	pluginLabels     = []string{"plugin"}
-	rejectedLabels   = append(append([]string{}, pluginLabels...), "reason")
-
-	valueDesc = prometheus.NewDesc("oikade_capability_value",
-		"Current value of a device capability. Bools are 0 or 1.", capabilityLabels, nil)
-	changesDesc = prometheus.NewDesc("oikade_capability_changes_total",
-		"Number of times a capability changed value, including changes between scrapes.", capabilityLabels, nil)
-	availableDesc = prometheus.NewDesc("oikade_device_available",
-		"1 if the driver reports the device online, 0 if offline. Absent until reported.", deviceLabels, nil)
-	lastSeenDesc = prometheus.NewDesc("oikade_device_last_seen_timestamp_seconds",
-		"When the driver last heard from the device.", deviceLabels, nil)
-	undeclaredDesc = prometheus.NewDesc("oikade_undeclared_devices",
-		"Devices paired with a driver instance that aren't on record.", []string{"instance"}, nil)
-	pluginUpDesc = prometheus.NewDesc("oikade_plugin_up",
-		"1 while the plugin's retained status is online with a supported contract.", pluginLabels, nil)
-	pluginRejectedDesc = prometheus.NewDesc("oikade_plugin_rejected_messages_total",
-		"Plugin messages dropped by the decoder, by reason.", rejectedLabels, nil)
+// The families a Collector writes. docs/metrics.md says what each one is.
+const (
+	// valueFamily is a capability's current value. Bools are 0 or 1.
+	valueFamily = "oikade_capability_value"
+	// changesFamily counts the times a capability changed value, including changes between scrapes.
+	changesFamily = "oikade_capability_changes_total"
+	// availableFamily is 1 if the driver reports the device online, and 0 if offline. It's absent
+	// until reported.
+	availableFamily = "oikade_device_available"
+	// lastSeenFamily is when the driver last heard from the device.
+	lastSeenFamily = "oikade_device_last_seen_timestamp_seconds"
+	// undeclaredFamily is the devices paired with a driver instance that aren't on record.
+	undeclaredFamily = "oikade_undeclared_devices"
+	// pluginUpFamily is 1 while the plugin's retained status is online with a supported contract.
+	pluginUpFamily = "oikade_plugin_up"
+	// pluginRejectedFamily counts plugin messages dropped by the decoder, by reason.
+	pluginRejectedFamily = "oikade_plugin_rejected_messages_total"
 )
 
 // PluginStatser reports the decoder's view of every running Plugin.
@@ -45,46 +47,58 @@ type Collector struct {
 	Plugins PluginStatser
 }
 
-var _ prometheus.Collector = Collector{}
+// Register makes set write c's series whenever it's written.
+func (c Collector) Register(set *metrics.Set) { set.RegisterMetricsWriter(c.Write) }
 
-// Describe implements prometheus.Collector.
-func (Collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{
-		valueDesc, changesDesc, availableDesc, lastSeenDesc, undeclaredDesc, pluginUpDesc, pluginRejectedDesc,
-	} {
-		ch <- d
-	}
-}
-
-// Collect implements prometheus.Collector.
-func (c Collector) Collect(ch chan<- prometheus.Metric) {
+// Write writes c's series, a family at a time and each family sorted, as Prometheus expects.
+func (c Collector) Write(w io.Writer) {
+	var values, changes, available, lastSeen, undeclared, up, rejected samples
 	for key, s := range c.Store.List() {
-		labels := []string{key.Name, s.Room}
+		device := []string{"device", key.Name, "room", s.Room}
 		for name, v := range s.Values {
-			ch <- prometheus.MustNewConstMetric(valueDesc, prometheus.GaugeValue, capability.Float(v), append(labels, name)...)
+			values.add(capability.Float(v), valueFamily, append(device, "capability", name)...)
 		}
 		for name, n := range s.Changes {
-			ch <- prometheus.MustNewConstMetric(changesDesc, prometheus.CounterValue, float64(n), append(labels, name)...)
+			changes.add(float64(n), changesFamily, append(device, "capability", name)...)
 		}
 		if s.Online != nil {
-			ch <- prometheus.MustNewConstMetric(availableDesc, prometheus.GaugeValue, capability.Float(*s.Online), labels...)
+			available.add(capability.Float(*s.Online), availableFamily, device...)
 		}
 		if !s.LastSeen.IsZero() {
-			ch <- prometheus.MustNewConstMetric(lastSeenDesc, prometheus.GaugeValue,
-				float64(s.LastSeen.UnixMilli())/1000, labels...)
+			lastSeen.add(float64(s.LastSeen.UnixMilli())/1000, lastSeenFamily, device...)
 		}
 	}
 	for key, n := range c.Store.UndeclaredCounts() {
-		ch <- prometheus.MustNewConstMetric(undeclaredDesc, prometheus.GaugeValue, float64(n), key.Label())
+		undeclared.add(float64(n), undeclaredFamily, "instance", key.Label())
 	}
-	if c.Plugins == nil {
-		return
-	}
-	for key, s := range c.Plugins.PluginStats() {
-		ch <- prometheus.MustNewConstMetric(pluginUpDesc, prometheus.GaugeValue, capability.Float(s.Up), key.Name)
-		for reason, n := range s.Rejected {
-			ch <- prometheus.MustNewConstMetric(pluginRejectedDesc, prometheus.CounterValue, float64(n),
-				key.Name, reason)
+	if c.Plugins != nil {
+		for key, s := range c.Plugins.PluginStats() {
+			up.add(capability.Float(s.Up), pluginUpFamily, "plugin", key.Name)
+			for reason, n := range s.Rejected {
+				rejected.add(float64(n), pluginRejectedFamily, "plugin", key.Name, "reason", reason)
+			}
 		}
+	}
+	for _, f := range []samples{values, changes, available, lastSeen, undeclared, up, rejected} {
+		f.write(w)
+	}
+}
+
+// samples are one family's samples, written once they're sorted.
+type samples []sample
+
+type sample struct {
+	name  string
+	value float64
+}
+
+func (s *samples) add(v float64, family string, labels ...string) {
+	*s = append(*s, sample{name: series.Name(family, labels...), value: v})
+}
+
+func (s samples) write(w io.Writer) {
+	slices.SortFunc(s, func(a, b sample) int { return strings.Compare(a.name, b.name) })
+	for _, x := range s {
+		series.WriteNamed(w, x.name, x.value)
 	}
 }

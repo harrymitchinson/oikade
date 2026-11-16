@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -60,7 +60,7 @@ type apiServer struct {
 	// pin is the network API's public key, as clients check it, and address where it thinks it's
 	// reached.
 	pin, address string
-	authFailures prometheus.Counter
+	authFailures *metrics.Counter
 }
 
 // serve answers calls on the socket until the listener closes, and returns once every call has

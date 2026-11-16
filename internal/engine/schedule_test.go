@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/testutil"
-
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/sun"
@@ -156,13 +154,13 @@ func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment
 	r := momentRule(t, "lights-on", m)
 	s := &schedules{}
 	h := newHarnessWith(t, now, func(e *Engine) {
-		e.Site, e.suns, e.OnSchedule, e.NextChange = site, newSunCache(site), s.record, NewNextChangeGauge()
+		e.Site, e.suns, e.OnSchedule = site, newSunCache(site), s.record
 	}, r)
 	return h, s
 }
 
 func (h *harness) result(name, result string) float64 {
-	return testutil.ToFloat64(h.e.Runs.WithLabelValues(name, result))
+	return float64(h.e.runCounts().Counter(name, result).Get())
 }
 
 var lightOn = call{"hallway-light", capability.On, true}
@@ -191,7 +189,7 @@ func TestAtFiresWithTheClock(t *testing.T) {
 	if got := s.last().LastFire; !got.Equal(local("2026-10-21 07:00 BST")) {
 		t.Errorf("lastFire = %v, want 07:00", got)
 	}
-	if got := testutil.ToFloat64(h.e.NextChange.WithLabelValues("lights-on")); got != float64(local("2026-10-22 07:00 BST").Unix()) {
+	if got := h.e.nextChange().Gauge("lights-on").Get(); got != float64(local("2026-10-22 07:00 BST").Unix()) {
 		t.Errorf("next-change gauge = %v", got)
 	}
 }
@@ -292,7 +290,7 @@ func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
 	if got := s.last(); !got.Cleared || got.Generation != 2 {
 		t.Errorf("got %+v, want the schedule cleared for generation 2", got)
 	}
-	if n := testutil.CollectAndCount(h.e.NextChange); n != 0 {
+	if n := len(h.e.nextChange().Names()); n != 0 {
 		t.Errorf("next-change gauge has %d series, want none", n)
 	}
 }

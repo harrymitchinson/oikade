@@ -1,10 +1,9 @@
 package metrics
 
 import (
+	"bytes"
 	"strings"
 	"testing"
-
-	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/driver/plugin"
@@ -19,14 +18,11 @@ func TestUndeclaredInstanceLabel(t *testing.T) {
 	store.Undeclared(driver.InstanceKey{Driver: driver.Zigbee2MQTT, ID: name}, 3)
 	store.Undeclared(driver.InstanceKey{Driver: driver.Plugin, ID: name}, 1)
 
-	want := `
-# HELP oikade_undeclared_devices Devices paired with a driver instance that aren't on record.
-# TYPE oikade_undeclared_devices gauge
-oikade_undeclared_devices{instance="garden"} 3
+	want := `oikade_undeclared_devices{instance="garden"} 3
 oikade_undeclared_devices{instance="plugin/garden"} 1
 `
-	if err := testutil.CollectAndCompare(Collector{Store: store}, strings.NewReader(want), "oikade_undeclared_devices"); err != nil {
-		t.Error(err)
+	if got := written(Collector{Store: store}, "oikade_undeclared_devices"); got != want {
+		t.Errorf("wrote\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -40,17 +36,46 @@ func TestPluginMetrics(t *testing.T) {
 		{Name: "cozy"}:   {},
 	}}
 
-	want := `
-# HELP oikade_plugin_rejected_messages_total Plugin messages dropped by the decoder, by reason.
-# TYPE oikade_plugin_rejected_messages_total counter
-oikade_plugin_rejected_messages_total{plugin="sonoff",reason="unknown_capability"} 2
-# HELP oikade_plugin_up 1 while the plugin's retained status is online with a supported contract.
-# TYPE oikade_plugin_up gauge
-oikade_plugin_up{plugin="cozy"} 0
+	want := `oikade_plugin_up{plugin="cozy"} 0
 oikade_plugin_up{plugin="sonoff"} 1
+oikade_plugin_rejected_messages_total{plugin="sonoff",reason="unknown_capability"} 2
 `
-	if err := testutil.CollectAndCompare(c, strings.NewReader(want),
-		"oikade_plugin_up", "oikade_plugin_rejected_messages_total"); err != nil {
-		t.Error(err)
+	if got := written(c, "oikade_plugin_"); got != want {
+		t.Errorf("wrote\n%s\nwant\n%s", got, want)
 	}
+}
+
+func TestDeviceMetricsAreSortedAndEscaped(t *testing.T) {
+	store := hub.NewStore(logging.Discard())
+	inst := driver.InstanceKey{Driver: "test"}
+	fan, lamp := ident.ID{Name: "fan"}, ident.ID{Name: "lamp"}
+	store.SetDevices(inst, map[ident.ID]hub.Meta{fan: {Instance: inst, Room: `Kid's "den"`}, lamp: {Instance: inst}})
+	for _, u := range []driver.Update{
+		{Device: lamp, Capability: "on", Value: true},
+		{Device: fan, Capability: "speed", Value: 2.5},
+		{Device: fan, Capability: "on", Value: false},
+	} {
+		store.Changed(u)
+	}
+
+	want := `oikade_capability_value{capability="on",device="fan",room="Kid's \"den\""} 0
+oikade_capability_value{capability="on",device="lamp",room=""} 1
+oikade_capability_value{capability="speed",device="fan",room="Kid's \"den\""} 2.5
+`
+	if got := written(Collector{Store: store}, "oikade_capability_value"); got != want {
+		t.Errorf("wrote\n%s\nwant\n%s", got, want)
+	}
+}
+
+// written is the lines c writes for the series whose names start with prefix.
+func written(c Collector, prefix string) string {
+	var out bytes.Buffer
+	c.Write(&out)
+	var lines strings.Builder
+	for line := range strings.Lines(out.String()) {
+		if strings.HasPrefix(line, prefix) {
+			lines.WriteString(line)
+		}
+	}
+	return lines.String()
 }

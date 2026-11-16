@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/clock"
@@ -93,10 +93,10 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	r := &rig{t: t, clock: clock.NewFake(now), setter: &fakeSetter{}, sched: &schedules{}, logs: logs}
 	r.e = &Engine{
 		Setter: r.setter, Clock: r.clock, Location: london, Site: londonSite,
-		Log:  logging.Lines(logs.add, slog.LevelDebug),
-		Runs: NewRunsCounter(), NextChange: NewNextChangeGauge(), Active: NewActiveGauge(),
-		OnSchedule: r.sched.record, States: states, Controls: o.controls, ControlLevel: NewControlLevelGauge(),
-		OnBudget: r.recordBudget, Budget: NewBudgetMetrics(),
+		Log:         logging.Lines(logs.add, slog.LevelDebug),
+		RuleMetrics: metrics.NewSet(), ControlMetrics: metrics.NewSet(),
+		OnSchedule: r.sched.record, States: states, Controls: o.controls,
+		OnBudget: r.recordBudget,
 		Averages: o.averages, AverageStates: o.averageStates,
 	}
 	r.e.Init()
@@ -192,7 +192,7 @@ func (r *rig) expect(want ...call) {
 }
 
 func (r *rig) active(name string) float64 {
-	return testutil.ToFloat64(r.e.Active.WithLabelValues(name))
+	return r.e.active().Gauge(name).Get()
 }
 
 var heaterNight = Hold{Device: "water-heater", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}}

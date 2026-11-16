@@ -8,14 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/expfmt"
+	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
 const (
@@ -32,12 +30,8 @@ type ruleRun struct {
 
 // observe gives eng its metrics, and returns what reports them and its runs to the host.
 func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func() {
-	log := logging.FromContext(ctx)
-	eng.Runs, eng.NextChange = engine.NewRunsCounter(), engine.NewNextChangeGauge()
-	eng.Dropped, eng.Active, eng.Budget = engine.NewDroppedCounter(), engine.NewActiveGauge(), engine.NewBudgetMetrics()
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(eng.Runs, eng.NextChange, eng.Dropped, eng.Active)
-	registry.MustRegister(eng.Budget.Collectors()...)
+	set := metrics.NewSet()
+	eng.RuleMetrics = set
 
 	runs := make(chan ruleRun, runsWaiting)
 	eng.OnRun = func(key ident.ID, result string) {
@@ -111,29 +105,12 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 					client.WhyNot(rule, not[rule])
 				}
 			case <-tick.C:
-				text, err := metricsText(registry)
-				if err != nil {
-					log.Error("Failed to gather metrics", "err", err)
-					continue
-				}
-				client.PushMetrics(text)
+				var text bytes.Buffer
+				set.WritePrometheus(&text)
+				client.PushMetrics(text.Bytes())
 			}
 		}
 	}
-}
-
-func metricsText(g prometheus.Gatherer) ([]byte, error) {
-	families, err := g.Gather()
-	if err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	for _, f := range families {
-		if _, err := expfmt.MetricFamilyToText(&out, f); err != nil {
-			return nil, err
-		}
-	}
-	return out.Bytes(), nil
 }
 
 // pauses keeps paused rules out of the engine. The host says when that changes, and the engine works
