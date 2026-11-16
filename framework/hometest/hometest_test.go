@@ -170,7 +170,7 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	lamp := framework.Handle[bool]{Device: "floor-lamp", Capability: framework.On}
 	ceiling := framework.Handle[bool]{Device: "ceiling-light", Capability: framework.On}
 	fridge := framework.Handle[bool]{Device: "fridge-plug", Capability: framework.On}
-	lights := framework.InRoom("living-room", framework.On).Types(framework.OnOffLight, framework.DimmableLight)
+	lights := framework.InRoom("living-room", framework.Lights, framework.On)
 	home := framework.NewHome(framework.Options{},
 		framework.NewMoment("living-room-off", lights.To(false)).At(framework.Clock("23:00")))
 	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
@@ -190,14 +190,10 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	h.ExpectValue(fridge, true)
 }
 
-// studyHome turns the study's on off at 23:00, limited to types if there are any: a heater and a
-// lamp, each on.
-func studyHome(t *testing.T, types ...framework.DeviceType) *hometest.Home {
+// studyHome turns the study's on off at 23:00, in group g: a heater and a lamp, each on.
+func studyHome(t *testing.T, g framework.Group) *hometest.Home {
 	t.Helper()
-	off := framework.InRoom("study", framework.On).To(false)
-	if len(types) > 0 {
-		off = framework.InRoom("study", framework.On).Types(types...).To(false)
-	}
+	off := framework.InRoom("study", g, framework.On).To(false)
 	home := framework.NewHome(framework.Options{}, framework.NewMoment("study-off", off).At(framework.Clock("23:00")))
 	setpoint := string(framework.Setpoint)
 	return hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
@@ -217,25 +213,48 @@ var (
 	deskLamp    = framework.Handle[bool]{Device: "desk-lamp", Capability: framework.On}
 )
 
-func TestARoomsOnTurnsOffItsHeaterToo(t *testing.T) {
-	h := studyHome(t)
+func TestARoomsEverythingTurnsOffItsHeaterToo(t *testing.T) {
+	h := studyHome(t, framework.Everything)
 	h.Advance(23*time.Hour + time.Minute)
 	h.ExpectValue(studyHeater, false)
 	h.ExpectValue(deskLamp, false)
 }
 
-func TestARoomWriteLimitedToThermostatsTurnsOffOnlyTheHeater(t *testing.T) {
-	h := studyHome(t, framework.Thermostat)
+func TestARoomsHeatersTurnsOffOnlyTheHeater(t *testing.T) {
+	h := studyHome(t, framework.Heaters)
 	h.Advance(23*time.Hour + time.Minute)
 	h.ExpectValue(studyHeater, false)
 	h.ExpectValue(deskLamp, true)
 }
 
-func TestARoomWriteLimitedToLightsLeavesTheHeaterOn(t *testing.T) {
-	h := studyHome(t, framework.OnOffLight)
+func TestARoomsLightsLeavesTheHeaterOn(t *testing.T) {
+	h := studyHome(t, framework.Lights)
 	h.Advance(23*time.Hour + time.Minute)
 	h.ExpectValue(studyHeater, true)
 	h.ExpectValue(deskLamp, false)
+}
+
+// A trigger on a room's heaters fires when the heater turns on, and not when the lamp beside it does.
+func TestATriggerOnARoomsHeatersIgnoresItsLights(t *testing.T) {
+	fan := framework.Handle[bool]{Device: "study-fan", Capability: framework.On}
+	home := framework.NewHome(framework.Options{},
+		framework.NewMoment("fan-with-heat", fan.To(true)).On(framework.InRoom("study", framework.Heaters, framework.On)))
+	setpoint := string(framework.Setpoint)
+	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+		{
+			Name: "study-heater", Room: "study", Capabilities: []string{on, setpoint},
+			Values: map[string]any{on: false, setpoint: 20.0},
+		},
+		{
+			Name: "desk-lamp", Room: "study", Capabilities: []string{on}, DeviceType: framework.OnOffLight,
+			Values: map[string]any{on: false},
+		},
+		{Name: "study-fan", Room: "hall", Capabilities: []string{on}, Values: map[string]any{on: false}},
+	}})
+	h.Set(deskLamp, true)
+	h.ExpectValue(fan, false)
+	h.Set(studyHeater, true)
+	h.ExpectValue(fan, true)
 }
 
 func TestAClockTimeFiresAcrossADaylightSavingChange(t *testing.T) {
@@ -296,7 +315,7 @@ func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
 	dehumidifier := framework.Handle[bool]{Device: "dehumidifier", Capability: framework.On}
 	home := framework.NewHome(framework.Options{}, framework.NewHold("cellar-damp", dehumidifier.To(true)).
 		When(func(s framework.State) bool {
-			return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
+			return slices.Max(s.Readings(framework.InRoom("cellar", framework.Everything, framework.Humidity))) > 65
 		}))
 	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 		{Name: "cellar-1", Room: "cellar", Capabilities: []string{humidity}},

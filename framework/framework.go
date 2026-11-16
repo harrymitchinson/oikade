@@ -73,7 +73,7 @@ type notReported struct{ device, capability string }
 // roomNotReported ends a condition that read a room where no device has reported the capability.
 type roomNotReported struct{ room, capability string }
 
-// roomEmpty ends a condition that read a room with no members, of the read's types if it has them.
+// roomEmpty ends a condition that read a room with no members in the read's group.
 type roomEmpty struct{ room string }
 
 func (s State) value(device, capability string) any {
@@ -118,19 +118,19 @@ func as[T Value](device, capability string, v any) T {
 
 // Any reports whether the capability is true on any of the room's devices that have reported it.
 //
-//	s.Any(framework.InRoom("hallway", framework.Occupied))
+//	s.Any(framework.InRoom("hallway", framework.Everything, framework.Occupied))
 //
-// A room read, like Any, All, Count and Readings, covers the devices in the room now, of its Types if
-// it has them, and ignores those that haven't reported the capability. If none has, the condition
+// A room read, like Any, All, Count and Readings, covers the devices in the room now, in its group,
+// and ignores those that haven't reported the capability. If none has, the condition
 // stops there, as at a Get. A room with no members stops it too, and a hold keeps its state, so it's
 // logged at Warn.
-func (s State) Any(r RoomRead[bool]) bool { return s.Count(r) > 0 }
+func (s State) Any(r Room[bool]) bool { return s.Count(r) > 0 }
 
 // All reports whether the capability is true on all of the room's devices that have reported it.
-func (s State) All(r RoomRead[bool]) bool { return !slices.Contains(roomValues(s, r), false) }
+func (s State) All(r Room[bool]) bool { return !slices.Contains(roomValues(s, r), false) }
 
 // Count is how many of the room's devices that have reported the capability have it true.
-func (s State) Count(r RoomRead[bool]) int {
+func (s State) Count(r Room[bool]) int {
 	n := 0
 	for _, v := range roomValues(s, r) {
 		if v {
@@ -143,13 +143,12 @@ func (s State) Count(r RoomRead[bool]) int {
 // Readings are the capability's values on the room's devices that have reported it, in device name
 // order, for slices.Max or an average.
 //
-//	slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity)))
-func (s State) Readings(r RoomRead[float64]) []float64 { return roomValues(s, r) }
+//	slices.Max(s.Readings(framework.InRoom("cellar", framework.Everything, framework.Humidity)))
+func (s State) Readings(r Room[float64]) []float64 { return roomValues(s, r) }
 
 // roomValues are the reported values of a room's capability, in device name order.
-func roomValues[T Value](s State, r RoomRead[T]) []T {
-	room, c, wanted := r.read()
-	types := engineTypes(wanted)
+func roomValues[T Value](s State, r Room[T]) []T {
+	room, c, types := r.room, r.capability, r.engineTypes()
 	var names []string
 	for name, m := range s.members {
 		// A device with no room is in none, as for a room's writes and triggers.

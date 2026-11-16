@@ -6,7 +6,7 @@ This belongs to [the host](architecture.md#the-host). `hometest` tests a flow on
 
 ```go
 func bedtime(r *framework.FlowRun) error {
-	if err := r.Set(framework.InRoom("downstairs", framework.Brightness).To(20)); err != nil {
+	if err := r.Set(framework.InRoom("downstairs", framework.Lights, framework.Brightness).To(20)); err != nil {
 		return err
 	}
 	r.Sleep(30 * time.Minute)

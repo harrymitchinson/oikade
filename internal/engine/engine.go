@@ -623,8 +623,9 @@ func (e *Engine) conditionVars(now time.Time, h *home) Vars {
 func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 	dev := changes[0].Device
 	var room string
+	var types []devicetype.Type
 	if snap, ok := e.Store.Get(dev); ok {
-		room = snap.Room
+		room, types = snap.Room, snap.DeviceTypes
 	}
 
 	e.mu.Lock()
@@ -649,7 +650,7 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 			continue
 		}
 		for i, u := range changes {
-			if !s.c.matches(u.Device.Name, room, u.Capability) {
+			if !s.c.matches(u.Device.Name, room, types, u.Capability) {
 				continue
 			}
 			if vars[i] == nil {

@@ -317,7 +317,7 @@ func home() rules {
 			// Reads whichever devices are in the cellar now, which oikade devices room changes.
 			framework.NewHold("cellar-damp", on("dehumidifier").To(true)).
 				When(func(s framework.State) bool {
-					return slices.Max(s.Readings(framework.InRoom("cellar", framework.Humidity))) > 65
+					return slices.Max(s.Readings(framework.InRoom("cellar", framework.Everything, framework.Humidity))) > 65
 				}),
 			// A bug in a home: a condition that never returns once the sensor says so.
 			framework.NewHold("stuck", on("trap-light").To(true)).
@@ -335,7 +335,7 @@ func home() rules {
 			When(func(s framework.State) bool { return s.Get(on("quiet")) })),
 		// A Safety rule that keeps the porch's plugs on, and only its plugs.
 		when(variant == "typed", framework.NewHold("porch-plugs",
-			framework.InRoom("porch", framework.On).Types(framework.OnOffPlugInUnit).To(true)).
+			framework.InRoom("porch", framework.Kinds(framework.OnOffPlugInUnit), framework.On).To(true)).
 			Priority(framework.Safety).
 			When(func(s framework.State) bool { return s.Get(open("porch-go")) })),
 	)
