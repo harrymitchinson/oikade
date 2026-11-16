@@ -54,6 +54,9 @@ type line struct {
 	latch         bool
 	until         Condition
 	budget        *Budget
+	// one is a Flows line for flow alone, rather than every flow without a line of its own.
+	one  bool
+	flow *Flow
 	// overrideFor, untilNext and none say what an override line does.
 	overrideFor time.Duration
 	untilNext   bool
@@ -175,10 +178,21 @@ func (d *Decision[T]) NoOverride() *Decision[T] {
 	return d.add(line{kind: overrideLine, none: true})
 }
 
-// Flows is where a flow's or a moment's Set ranks. A Set on a decided capability with no Flows line
-// fails when it runs, and that's logged.
-func (d *Decision[T]) Flows() *Decision[T] {
-	return d.add(line{kind: flowsLine})
+// Flows is where a flow's Set ranks. With no flows, it's every flow without a line of its own. With
+// some, it's a line for each, in the order given, so a leak flow can rank above a tap and the others
+// below it:
+//
+//	home.Decide(MainsValve.Open).Flows(leak).OverrideFor(time.Hour).Flows().Default(true)
+//
+// A Set on a decided capability with no Flows line for its flow fails the run, and that's logged.
+func (d *Decision[T]) Flows(flows ...*Flow) *Decision[T] {
+	if len(flows) == 0 {
+		return d.add(line{kind: flowsLine})
+	}
+	for _, f := range flows {
+		d.add(line{kind: flowsLine, one: true, flow: f})
+	}
+	return d
 }
 
 // Limits hold the capability back, whichever line wins.
@@ -209,10 +223,13 @@ type compiledDecision struct {
 	device, capability string
 	entry              control.Entry
 	cases              []decidedCase
-	// flows is whether the decision has a Flows line, and flowsSafety whether it's a safety line.
+	// flows is whether the decision has a Flows line for every flow, and flowsSafety whether it's a
+	// safety line.
 	flows, flowsSafety bool
-	errs               []error
-	warnings           []string
+	// ranked are the flows with a line of their own, and whether it's a safety line.
+	ranked   map[string]bool
+	errs     []error
+	warnings []string
 }
 
 type decidedCase struct {
@@ -299,11 +316,9 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 			}
 			continue
 		case flowsLine:
-			if out.flows {
-				bad(errors.New("Flows is given twice"))
+			if err := out.addFlowsLine(l, safety, &entry); err != nil {
+				bad(err)
 			}
-			out.flows, out.flowsSafety = true, safety
-			entry.Lines = append(entry.Lines, control.LineFlows)
 			continue
 		}
 		if err := caseName(l.name); err != nil {
@@ -449,29 +464,80 @@ func settingsOf(decided []compiledDecision) []wire.DeviceControl {
 	return out
 }
 
-// claimPriority is the level of a flow's or a moment's Set on a device's capability: Safety if the
-// decision's Flows line is a safety line, and Normal otherwise. The host refuses a claim on a
-// decision with no Flows line.
-func claimPriority(decided []compiledDecision, device, capability string) engine.Priority {
+// addFlowsLine adds a Flows line to the decision and its entry: one for every flow, or for l's.
+func (d *compiledDecision) addFlowsLine(l line, safety bool, entry *control.Entry) error {
+	switch {
+	case !l.one && d.flows:
+		return errors.New("Flows is given twice")
+	case !l.one:
+		d.flows, d.flowsSafety = true, safety
+		entry.Lines = append(entry.Lines, control.LineFlows)
+		return nil
+	case l.flow == nil:
+		return errors.New("Flows is given a nil flow")
+	case l.flow.name == "":
+		return errors.New("Flows is given a flow with no name")
+	}
+	if _, twice := d.ranked[l.flow.name]; twice {
+		return fmt.Errorf("Flows(%s) is given twice", l.flow.name)
+	}
+	if d.ranked == nil {
+		d.ranked = map[string]bool{}
+	}
+	d.ranked[l.flow.name] = safety
+	entry.Lines = append(entry.Lines, "Rule/"+l.flow.name)
+	return nil
+}
+
+// flowLine says where a decision ranks a flow's Set: whether it has a line for it, and whether that's
+// a safety line. A flow's own line comes before the line for every flow.
+func (d compiledDecision) flowLine(flowName string) (ranked, safety bool) {
+	if safety, ok := d.ranked[flowName]; ok {
+		return true, safety
+	}
+	return d.flows, d.flows && d.flowsSafety
+}
+
+// decisionOf is the decision on a device's capability, if there is one.
+func decisionOf(decided []compiledDecision, device, capability string) (compiledDecision, bool) {
 	i := slices.IndexFunc(decided, func(d compiledDecision) bool {
 		return d.device == device && d.capability == capability
 	})
-	if i >= 0 && decided[i].flowsSafety {
-		return engine.PrioritySafety
+	if i < 0 {
+		return compiledDecision{}, false
+	}
+	return decided[i], true
+}
+
+// claimPriority is the level of a flow's Set on a device's capability: Safety if the decision ranks
+// the flow on a safety line, and Normal otherwise.
+func claimPriority(decided []compiledDecision, flowName, device, capability string) engine.Priority {
+	if d, ok := decisionOf(decided, device, capability); ok {
+		if _, safety := d.flowLine(flowName); safety {
+			return engine.PrioritySafety
+		}
 	}
 	return ""
 }
 
-// needsFlowsLine refuses a moment's or a flow's Set on a decided capability whose decision has no Flows
-// line to rank it at.
-func needsFlowsLine(decided []compiledDecision, device, capability string) error {
-	i := slices.IndexFunc(decided, func(d compiledDecision) bool {
-		return d.device == device && d.capability == capability
-	})
-	if i >= 0 && !decided[i].flows {
-		return fmt.Errorf("%s %s is decided, and its decision has no Flows line for a Set", device, capability)
+// needsFlowsLine refuses a flow's Set on a decided capability whose decision has no Flows line for
+// it to rank at.
+func needsFlowsLine(decided []compiledDecision, flowName, device, capability string) error {
+	if d, ok := decisionOf(decided, device, capability); ok {
+		if ranked, _ := d.flowLine(flowName); !ranked {
+			return fmt.Errorf("%s %s is decided, and its decision has no Flows line for %s", device, capability, flowName)
+		}
 	}
 	return nil
+}
+
+// flowSafety says whether any decision ranks the flow on a safety line, so that it makes Safety
+// claims, and acts however late it is.
+func flowSafety(decided []compiledDecision, flowName string) bool {
+	return slices.ContainsFunc(decided, func(d compiledDecision) bool {
+		_, safety := d.flowLine(flowName)
+		return safety
+	})
 }
 
 // caseRule is a case's engine rule.

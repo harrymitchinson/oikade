@@ -13,5 +13,7 @@ func main() {
 	factory := func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		return relays.New(devices), nil
 	}
-	oikade.Run(oikade.NewHome(oikade.Options{}, oikade.NewPlugin("simswitch", factory)))
+	home := oikade.NewHome(oikade.Options{})
+	home.Plugin("simswitch", factory)
+	home.Run()
 }

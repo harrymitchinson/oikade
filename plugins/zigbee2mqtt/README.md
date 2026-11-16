@@ -3,13 +3,10 @@
 This plugin connects Zigbee devices through Zigbee2MQTT. It's a plugin your home imports ([OIK-155](https://linear.app/oikade/issue/OIK-155)). You run Zigbee2MQTT and an MQTT broker such as Mosquitto yourself. Oikade connects to them, and doesn't start them or write their configuration.
 
 ```go
-oikade.Run(oikade.NewHome(oikade.Options{},
-	oikade.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
-		Broker:   "mqtt://oikade@broker.home:1883", // as the host reaches it
-		Password: oikade.Secret("broker"),       // leave out the user and this for none
-	})),
-	// ...
-))
+home.Plugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
+	Broker:   "mqtt://oikade@broker.home:1883", // as the host reaches it
+	Password: oikade.Secret("broker"),       // leave out the user and this for none
+}))
 ```
 
 `Broker` is the broker Zigbee2MQTT uses, as the host's machine reaches it ([OIK-296](https://linear.app/oikade/issue/OIK-296)). A broker with a password names the user in the URL, and the password is a [secret](../../docs/running-a-home.md#secrets), never in the URL: `oikade secret set broker` sets it, and the plugin reads it each time it connects, so a new one needs no deploy. Until it's set, the plugin waits for it and says so in `oikade status`. `BaseTopic` is for a Zigbee2MQTT whose `mqtt.base_topic` isn't the default, `zigbee2mqtt`.

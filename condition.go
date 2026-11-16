@@ -14,8 +14,8 @@ import (
 
 // Condition is something true or false about the home now. A Bool is one, as are a Number's Above,
 // Below and Within, Daily, Yearly, Any, All and Not of others, and a ConditionFunc. A condition that
-// reads a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't
-// run.
+// reads a value nobody has reported yet stops there: a case keeps its state, and a flow's If doesn't
+// let it run.
 //
 //	oikade.All(PoolWater.Temperature.Below(3), oikade.Daily("22:00", "06:00"))
 type Condition interface {

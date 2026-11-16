@@ -145,30 +145,26 @@ func (r refused) Serve(ctx context.Context, p *plugin.Plugin) error {
 
 // routine takes every kind of step in a known order, which the tests count on: start, now, set,
 // set, do, sleep, now, set, finish.
-func routine(r *oikade.FlowRun) error {
+func routine(r *oikade.FlowRun) {
 	began := r.Now()
 	for _, lamp := range []string{"lamp-0", "lamp-1"} {
-		if err := r.Set(on(lamp).To(true)); err != nil {
-			return err
-		}
+		r.Set(on(lamp).To(true))
 	}
-	var plan string
-	if err := r.Do("plan", &plan, func(context.Context) error {
-		plan = "long"
-		return call()
-	}); err != nil {
-		return err
+	plan, err := r.Do("plan", func(context.Context) (string, error) { return "long", call() })
+	if err != nil {
+		r.Fail(err)
 	}
 	switch plan {
 	case "long":
 		r.Sleep(50 * time.Millisecond)
 	default:
-		return r.Set(on("routine-wrong").To(true))
+		r.Set(on("routine-wrong").To(true))
+		return
 	}
 	if r.Now().Before(began) {
-		return errors.New("the recorded time went backwards")
+		r.Fail(errors.New("the recorded time went backwards"))
 	}
-	return r.Set(on("routine-done").To(true))
+	r.Set(on("routine-done").To(true))
 }
 
 // call is an outside call the tests can count, as a line in a file.
@@ -183,18 +179,18 @@ func call() error {
 }
 
 // editable waits for an hour, unless the test has "edited" it.
-func editable(r *oikade.FlowRun) error {
+func editable(r *oikade.FlowRun) {
 	wait := time.Hour
 	if _, err := os.Stat(os.Getenv("OIKADE_TEST_EDITED")); err == nil {
 		wait = time.Millisecond
 	}
 	r.Sleep(wait)
-	return r.Set(on("edit-out").To(true))
+	r.Set(on("edit-out").To(true))
 }
 
 // parked waits for a sensor, with a limit that says which step it's waiting at. A deploy can land
 // while it does.
-func parked(r *oikade.FlowRun) error {
+func parked(r *oikade.FlowRun) {
 	limit := time.Hour
 	if variant == "edited" {
 		limit = 2 * time.Hour
@@ -204,37 +200,38 @@ func parked(r *oikade.FlowRun) error {
 	if variant == "tail" {
 		out = "park-tail"
 	}
-	return r.Set(on(out).To(true))
+	r.Set(on(out).To(true))
 }
 
 // claiming holds a claim until a sensor says so, and releases it.
-func claiming(r *oikade.FlowRun) error {
-	err := r.Set(on("claimed-flow").To(false).UntilReleased())
-	if err != nil {
-		return err
-	}
+func claiming(r *oikade.FlowRun) {
+	r.Set(on("claimed-flow").To(false).UntilReleased())
 	limit := time.Hour
 	if strings.Contains(variant, "editclaim") {
 		limit = 2 * time.Hour
 	}
 	if !r.WaitFor(open("claim-end"), limit) {
-		return errors.New("nobody ended the claim")
+		r.Fail(errors.New("nobody ended the claim"))
 	}
-	return r.Release("claiming")
+	r.Release("claiming")
 }
 
-// failing holds a normal claim and a Safety one, whose decision has its flows above the override
-// line, and fails when a sensor says so.
-func failing(r *oikade.FlowRun) error {
-	err := r.Set(on("claimed-normal").To(false).UntilReleased())
-	if err != nil {
-		return err
-	}
-	if err = r.Set(on("claimed-safety").To(false).UntilReleased()); err != nil {
-		return err
-	}
+// failing holds a normal claim and a Safety one, whose decision ranks it above the override line,
+// and fails when a sensor says so.
+func failing(r *oikade.FlowRun) {
+	r.Set(on("claimed-normal").To(false).UntilReleased())
+	r.Set(on("claimed-safety").To(false).UntilReleased())
 	r.WaitFor(open("fail-now"), time.Hour)
-	return errors.New("this flow fails on purpose")
+	r.Fail(errors.New("this flow fails on purpose"))
+}
+
+// setting is a flow that sets each of sets.
+func setting(sets ...oikade.Set) func(*oikade.FlowRun) {
+	return func(r *oikade.FlowRun) {
+		for _, s := range sets {
+			r.Set(s)
+		}
+	}
 }
 
 // start acts out the variants that fail at run time. Check mode doesn't reach this far.
@@ -278,19 +275,11 @@ func reportSecret() {
 func main() {
 	start()
 	reportSecret()
-	oikade.Run(home().home())
-}
-
-// when is the rule, or nothing if a variant leaves it out.
-func when[T oikade.Part](keep bool, rule T) []T {
-	if keep {
-		return []T{rule}
-	}
-	return nil
+	home().Run()
 }
 
 // home is the home this variant builds.
-func home() rules {
+func home() *oikade.Home {
 	leakShutoff, claimMoment := "leak-shutoff", "claim-moment"
 	switch variant {
 	case "renamed":
@@ -302,128 +291,111 @@ func home() rules {
 		_ = oikade.Secret("not/a-name")
 	}
 	plugins := strings.Contains(variant, "plugins")
-
-	decide := func(h *oikade.Home) {
-		if variant != "nofan" {
-			h.Decide(on("fan")).Case("fan", true, humidity.Above(70)).Default(false)
-		}
-		if variant != "noleak" {
-			h.Decide(on(valve)).
-				Case(leakShutoff, false, open("leak-sensor")).LatchUntil(open("reset")).
-				OverrideFor(time.Hour).
-				Flows().
-				Default(true)
-		}
-		// With no override line, only the case's saved state remembers this latch.
-		h.Decide(on("siren")).
-			OverrideUntilNext().
-			Case("leak-alarm", true, open("leak-sensor")).LatchUntil(open("reset")).
-			Default(false)
-		// Reads whichever devices are in the cellar now, which oikade devices room changes.
-		h.Decide(on("dehumidifier")).
-			Case("cellar-damp", true, oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
-				return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
-			})).
-			Default(false)
-		// A bug in a home: a condition that never returns once the sensor says so.
-		h.Decide(on("trap-light")).
-			Case("stuck", true, oikade.ConditionFunc("trap", func(s oikade.Snapshot) bool {
-				for s.Get(open("trap")) {
-					continue
-				}
-				return false
-			})).
-			Default(false)
-		h.Decide(on("entry-light")).
-			Case("motion", true, oikade.Bool{Device: "entry-sensor", Capability: oikade.Occupied}).Linger(5 * time.Minute).
-			Default(false)
-		h.Decide(on("pool-pump")).
-			Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 15 * time.Minute}).
-			Case("frost", true, poolWater.Below(3)).Linger(30 * time.Minute).
-			OverrideFor(2 * time.Hour).
-			Default(false)
-		h.Decide(on("garage-heater")).
-			NoOverride().
-			Case("overheat", false, garageTemp.Above(40)).LatchUntil(open("garage-door")).
-			Default(true)
-		// A flow's Safety claim, from flows above the override line.
-		h.Decide(on("claimed-safety")).Flows().OverrideFor(time.Hour).Default(true)
-		if plugins {
-			h.Decide(on(once)).OverrideFor(time.Hour).Case("once", true, open("once-sensor")).Default(false)
-			// Names a plugin's device, which a test moves to another room.
-			h.Decide(on("quiet-held")).Case("quiet-held", true, on("quiet")).Default(false)
-		}
-	}
-
-	// parkmoment turns the parked flow into a moment of the same name.
-	parkedStays := variant != "parkmoment" && variant != "nopark"
-	flows := slices.Concat(
-		[]oikade.Flow{
-			oikade.NewFlow("routine", routine).On(open("flow-go")),
-			oikade.NewFlow("editable", editable).On(open("edit-go")),
-		},
-		when(!strings.Contains(variant, "noflow"), oikade.NewFlow("claiming", claiming).On(open("claim-flow-go"))),
-		when(variant != "nofail", oikade.NewFlow("failing", failing).On(open("fail-go"))),
-		when(parkedStays, oikade.NewFlow(parkedName, parked).On(open("park-go"))),
-	)
-
-	moments := slices.Concat(
-		[]oikade.Moment{
-			// A change here gets an answer, so a test knows when the process has caught up.
-			oikade.NewMoment("probe", on("probe-out").To(true)).On(open("probe")).Restart(),
-			oikade.NewMoment("reset", oikade.Release("valve on "+leakShutoff), oikade.Release("siren on leak-alarm")).
-				On(open("reset")),
-			oikade.NewMoment(claimMoment, on("claimed").To(false).For(time.Hour)).On(open("claim-go")),
-			oikade.NewMoment("study-setback", studyHeater.To(18)).On(open("study-go")),
-		},
-		// A time of day comes from the test, which seeds when it was last accounted for.
-		when(os.Getenv("OIKADE_TEST_AT") != "",
-			oikade.NewMoment("timed", on("timed-out").To(true)).At(oikade.Clock(os.Getenv("OIKADE_TEST_AT")))),
-		when(variant == "badcheck", oikade.NewMoment("valve on "+leakShutoff)),
-		when(variant == "parkmoment", oikade.NewMoment(parkedName, on("park-out").To(true)).On(open("park-go"))),
-		when(plugins, oikade.NewMoment("quiet-heard", on("quiet-heard").To(true)).On(on("quiet"))),
-	)
-
-	var pluginParts []oikade.Plugin
-	switch {
-	case plugins:
-		pluginParts = []oikade.Plugin{
-			oikade.NewPlugin("relays", faultyRelays), oikade.NewPlugin("quiet", quietRelays),
-		}
-	case variant == "zigbee":
-		pluginParts = []oikade.Plugin{oikade.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
-			// A test's broker has a port of its own. A home writes its broker here.
-			Broker: os.Getenv("OIKADE_TEST_ZIGBEE_BROKER"),
-		}))}
-	}
-	return rules{Decide: decide, Moments: moments, Flows: flows, Plugins: pluginParts}
-}
-
-// parkedName is the flow that waits, which some variants drop.
-const parkedName = "parked"
-
-// rules is a home by kind.
-type rules struct {
-	Decide  func(*oikade.Home)
-	Moments []oikade.Moment
-	Flows   []oikade.Flow
-	Plugins []oikade.Plugin
-}
-
-func (r rules) home() *oikade.Home {
 	var options oikade.Options
 	if variant == "cottage" {
 		options.MatterName = "Cottage"
 	}
-	h := oikade.NewHome(options, bundle(r.Moments), bundle(r.Flows), bundle(r.Plugins))
-	r.Decide(h)
+	h := oikade.NewHome(options)
+
+	h.Flow("routine", routine).When(open("flow-go"))
+	h.Flow("editable", editable).When(open("edit-go"))
+	if !strings.Contains(variant, "noflow") {
+		h.Flow("claiming", claiming).When(open("claim-flow-go"))
+	}
+	var failer *oikade.Flow
+	if variant != "nofail" {
+		failer = h.Flow("failing", failing).When(open("fail-go"))
+	}
+	if variant != "nopark" {
+		h.Flow(parkedName, parked).When(open("park-go"))
+	}
+	h.Flow("reset", func(r *oikade.FlowRun) {
+		r.Release(valve + " on " + leakShutoff)
+		r.Release("siren on leak-alarm")
+	}).When(open("reset"))
+	h.Flow(claimMoment, setting(on("claimed").To(false).For(time.Hour))).When(open("claim-go"))
+	h.Flow("study-setback", setting(studyHeater.To(18))).When(open("study-go"))
+	// A time of day comes from the test, which seeds when it was last accounted for.
+	if at := os.Getenv("OIKADE_TEST_AT"); at != "" {
+		h.Flow("timed", setting(on("timed-out").To(true))).At(oikade.Clock(at))
+	}
+	if variant == "badcheck" {
+		// A flow named as a case is.
+		h.Flow(valve+" on "+leakShutoff, setting()).When(open("reset"))
+	}
+	if plugins {
+		h.Flow("quiet-heard", setting(on("quiet-heard").To(true))).When(on("quiet"))
+	}
+
+	// A change here gets an answer, so a test knows when the process has caught up. It's a case,
+	// which the engine works out in order, and leaves no flow run behind.
+	h.Decide(on("probe-out")).Case("probe", true, open("probe")).Default(false)
+	if variant != "nofan" {
+		h.Decide(on("fan")).Case("fan", true, humidity.Above(70)).Default(false)
+	}
+	if variant != "noleak" {
+		h.Decide(on(valve)).
+			Case(leakShutoff, false, open("leak-sensor")).LatchUntil(open("reset")).
+			OverrideFor(time.Hour).
+			Flows().
+			Default(true)
+	}
+	// With no override line, only the case's saved state remembers this latch.
+	h.Decide(on("siren")).
+		OverrideUntilNext().
+		Case("leak-alarm", true, open("leak-sensor")).LatchUntil(open("reset")).
+		Default(false)
+	// Reads whichever devices are in the cellar now, which oikade devices room changes.
+	h.Decide(on("dehumidifier")).
+		Case("cellar-damp", true, oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
+			return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
+		})).
+		Default(false)
+	// A bug in a home: a condition that never returns once the sensor says so.
+	h.Decide(on("trap-light")).
+		Case("stuck", true, oikade.ConditionFunc("trap", func(s oikade.Snapshot) bool {
+			for s.Get(open("trap")) {
+				continue
+			}
+			return false
+		})).
+		Default(false)
+	h.Decide(on("entry-light")).
+		Case("motion", true, oikade.Bool{Device: "entry-sensor", Capability: oikade.Occupied}).Linger(5 * time.Minute).
+		Default(false)
+	h.Decide(on("pool-pump")).
+		Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 15 * time.Minute}).
+		Case("frost", true, poolWater.Below(3)).Linger(30 * time.Minute).
+		OverrideFor(2 * time.Hour).
+		Default(false)
+	h.Decide(on("garage-heater")).
+		NoOverride().
+		Case("overheat", false, garageTemp.Above(40)).LatchUntil(open("garage-door")).
+		Default(true)
+	// The failing flow's Safety claim: its decision ranks it above the override line.
+	if failer != nil {
+		h.Decide(on("claimed-safety")).Flows(failer).OverrideFor(time.Hour).Flows().Default(true)
+	} else {
+		h.Decide(on("claimed-safety")).OverrideFor(time.Hour).Flows().Default(true)
+	}
+	if plugins {
+		h.Decide(on(once)).OverrideFor(time.Hour).Case("once", true, open("once-sensor")).Default(false)
+		// Names a plugin's device, which a test moves to another room.
+		h.Decide(on("quiet-held")).Case("quiet-held", true, on("quiet")).Default(false)
+	}
+
+	switch {
+	case plugins:
+		h.Plugin("relays", faultyRelays)
+		h.Plugin("quiet", quietRelays)
+	case variant == "zigbee":
+		h.Plugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
+			// A test's broker has a port of its own. A home writes its broker here.
+			Broker: os.Getenv("OIKADE_TEST_ZIGBEE_BROKER"),
+		}))
+	}
 	return h
 }
 
-func bundle[T oikade.Part](parts []T) oikade.Bundle {
-	all := make([]oikade.Part, 0, len(parts))
-	for _, p := range parts {
-		all = append(all, p)
-	}
-	return oikade.NewBundle(all...)
-}
+// parkedName is the flow that waits, which some variants drop.
+const parkedName = "parked"

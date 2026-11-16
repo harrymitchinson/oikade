@@ -1,7 +1,7 @@
 // Package discardcheck rejects a call that builds an oikade value and throws it away. Everything
 // in package oikade that returns one of its own types is a constructor or a chained method: it makes
 // a value and does nothing else, and the value only acts once it's passed on, as a Set to r.Set or a
-// rule, or a rule to NewHome. Left as a statement, it's lost, and nothing else would say so.
+// condition to a case. Left as a statement, it's lost, and nothing else would say so.
 package discardcheck
 
 import (
@@ -65,8 +65,8 @@ func check(pass *analysis.Pass, call *ast.CallExpr) {
 }
 
 // oikadeType returns t if it's a type package oikade declares, an instance of one, or a pointer to
-// one. A Decision is the exception: it's added to its home as it's built, so a chain of one is a
-// statement.
+// one. A Decision and a Flow are the exceptions: each is added to its home as it's built, so a chain
+// of one is a statement.
 func oikadeType(t types.Type) *types.Named {
 	t = types.Unalias(t)
 	if p, ok := t.(*types.Pointer); ok {
@@ -77,7 +77,7 @@ func oikadeType(t types.Type) *types.Named {
 		return nil
 	}
 	obj := named.Origin().Obj()
-	if obj.Pkg() == nil || obj.Pkg().Path() != oikadePath || obj.Name() == "Decision" {
+	if obj.Pkg() == nil || obj.Pkg().Path() != oikadePath || obj.Name() == "Decision" || obj.Name() == "Flow" {
 		return nil
 	}
 	return named
@@ -91,13 +91,11 @@ func why(sig *types.Signature, result *types.Named) string {
 	}
 	switch name {
 	case "Set":
-		return "a Set does nothing until r.Set or a rule takes it"
-	case "Moment", "Flow", "Plugin", "Bundle":
-		return fmt.Sprintf("a %s does nothing until NewHome or NewBundle takes it", name)
+		return "a Set does nothing until r.Set takes it"
 	case "Home":
-		return "a Home does nothing until oikade.Run takes it"
+		return "a Home does nothing until its Run runs it"
 	case "Condition", "Hours", "Dates":
-		return "a condition does nothing until a rule takes it"
+		return "a condition does nothing until something takes it"
 	}
 	return fmt.Sprintf("a %s does nothing until something takes it", name)
 }

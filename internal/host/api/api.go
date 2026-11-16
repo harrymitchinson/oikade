@@ -405,13 +405,13 @@ type Claim struct {
 // Rule is one rule of your home.
 type Rule struct {
 	Name string `json:"name"`
-	// Kind is case, moment or flow. Empty is a paused rule no running code names.
+	// Kind is case or flow. Empty is a paused rule no running code names.
 	Kind string `json:"kind,omitempty"`
 	// Device, Capability and Case name a case: its Name is the three, with a space between.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Case       string `json:"case,omitempty"`
-	// Safety is a rule above its decision's override line, or a moment whose Set is.
+	// Safety is a case above its decision's override line, or a flow a decision ranks there.
 	Safety bool `json:"safety,omitempty"`
 	Paused bool `json:"paused,omitempty"`
 

@@ -16,7 +16,7 @@ import (
 const (
 	// Version is the protocol's version.
 	Version = pluginwire.Version
-	// RoleAutomations is the one process that runs a home's holds and moments.
+	// RoleAutomations is the one process that runs a home's cases and flows.
 	RoleAutomations = "automations"
 	// RoleDev runs the home against a simulated one, for oikade dev.
 	RoleDev = "dev"
@@ -96,9 +96,9 @@ type DeviceControl struct {
 // RuleInfo is one rule of a home.
 type RuleInfo struct {
 	Name string `json:"name"`
-	// Kind is hold, moment or KindFlow.
+	// Kind is KindCase or KindFlow.
 	Kind string `json:"kind"`
-	// Safety is a rule with Safety priority, or a moment with a Safety set.
+	// Safety is a case above its decision's override line, or a flow a decision ranks there.
 	Safety bool `json:"safety,omitempty"`
 	// Latch is a hold that stays active until a release.
 	Latch bool `json:"latch,omitempty"`

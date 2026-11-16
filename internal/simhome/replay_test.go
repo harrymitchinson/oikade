@@ -188,13 +188,13 @@ func TestABaselineGivesValuesThatNeverChanged(t *testing.T) {
 // have made through one is what the check is for.
 func TestReplayMakesNoOutsideCalls(t *testing.T) {
 	calls := 0
-	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("alarm", func(r *oikade.FlowRun) error {
-		if err := r.Do("notify", nil, func(context.Context) error { calls++; return nil }); err != nil {
-			return err
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("alarm", func(r *oikade.FlowRun) {
+		if _, err := r.Do("notify", func(context.Context) (bool, error) { calls++; return true, nil }); err != nil {
+			r.Fail(err)
 		}
-		return r.Set(switchOf("fan").To(true))
-	}).
-		On(contactOf("door")))
+		r.Set(switchOf("fan").To(true))
+	}).When(contactOf("door"))
 	opts := options(t, home)
 	opts.Devices = append(opts.Devices, simhome.Device{Name: "door", Capabilities: []string{contact}, Values: map[string]any{contact: false}})
 	log := []api.Event{
@@ -217,16 +217,16 @@ func TestReplayMakesNoOutsideCalls(t *testing.T) {
 }
 
 func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("weather", func(r *oikade.FlowRun) error {
-		var rain bool
-		if err := r.Do("forecast", &rain, func(context.Context) error {
-			return errors.New("a replay must not make this call")
-		}); err != nil {
-			return err
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("weather", func(r *oikade.FlowRun) {
+		rain, err := r.Do("forecast", func(context.Context) (bool, error) {
+			return false, errors.New("a replay must not make this call")
+		})
+		if err != nil {
+			r.Fail(err)
 		}
-		return r.Set(switchOf("fan").To(rain))
-	}).
-		On(humidityOf("sensor")))
+		r.Set(switchOf("fan").To(rain))
+	}).When(humidityOf("sensor"))
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 40.0},
 		{Time: monday.Add(time.Minute), Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 50.0},
@@ -309,17 +309,19 @@ func TestWhatLandedAfterTheFetchBeganIsLeftOut(t *testing.T) {
 }
 
 func TestTwoFlowsCanUseOneCallName(t *testing.T) {
-	flowOf := func(name, device string, out string) oikade.Flow {
-		return oikade.NewFlow(name, func(r *oikade.FlowRun) error {
-			var got string
-			if err := r.Do("fetch", &got, func(context.Context) error { return nil }); err != nil {
-				return err
+	home := oikade.NewHome(oikade.Options{})
+	flowOf := func(name, device string, out string) {
+		home.Flow(name, func(r *oikade.FlowRun) {
+			got, err := r.Do("fetch", func(context.Context) (string, error) { return "", nil })
+			if err != nil {
+				r.Fail(err)
 			}
-			return r.Set(switchOf(out).To(got == name))
-		}).
-			On(contactOf(device))
+			r.Set(switchOf(out).To(got == name))
+		}).When(contactOf(device))
 	}
-	opts := options(t, oikade.NewHome(oikade.Options{}, flowOf("a", "door-a", "fan"), flowOf("b", "door-b", "fan-b")))
+	flowOf("a", "door-a", "fan")
+	flowOf("b", "door-b", "fan-b")
+	opts := options(t, home)
 	at := monday.Add(time.Minute)
 	event := func(device string, when time.Time, v bool) api.Event {
 		return api.Event{Time: when, Type: api.EventChange, Device: device, Capability: contact, Value: v}

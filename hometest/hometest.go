@@ -225,7 +225,7 @@ func (h *Home) Claims[T oikade.Value](c oikade.Ref[T]) []Claim {
 	return out
 }
 
-// Finished says a flow or moment has run to the end, successfully, with no run left.
+// Finished says a flow has run to the end, successfully, with no run left.
 func (h *Home) Finished(rule string) bool { return h.sim.Finished(rule) }
 
 // ExpectValue fails the test unless a device has this value.
@@ -269,7 +269,7 @@ func (h *Home) ExpectClaim[T oikade.Value](c oikade.Ref[T], source, level string
 	h.t.Fatalf("%s holds no %s claim on %s %s. Claims: %+v", source, level, device, name, claims)
 }
 
-// ExpectFinished fails the test unless a flow or moment finished.
+// ExpectFinished fails the test unless a flow finished.
 func (h *Home) ExpectFinished(rule string) {
 	h.t.Helper()
 	if !h.Finished(rule) {

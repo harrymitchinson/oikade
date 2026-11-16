@@ -81,7 +81,7 @@ func (c Config) password() (string, error) {
 // secretWait is how often the plugin looks for a broker password that isn't set.
 const secretWait = 2 * time.Second
 
-// New returns the plugin's Factory, for oikade.NewPlugin. Its Config needs a Broker.
+// New returns the plugin's Factory, for home.Plugin. Its Config needs a Broker.
 func New(c Config) plugin.Factory {
 	if c.BaseTopic == "" {
 		c.BaseTopic = DefaultBaseTopic

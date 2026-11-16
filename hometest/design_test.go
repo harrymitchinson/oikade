@@ -189,3 +189,108 @@ func TestTheGarageHeaterLatchesOffUntilTheDoorOpens(t *testing.T) {
 	h.Set(garageDoor, false)
 	h.ExpectValue(garageHeater, true)
 }
+
+// The flows OIK-298's design is written around. A radiator stands in for the design's room of them,
+// and the mains valve's On is whether it's open.
+var (
+	hallLight    = oikade.Bool{Device: "hall-light", Capability: oikade.On}
+	frontDoor    = oikade.Bool{Device: "front-door", Capability: oikade.Open}
+	hallRadiator = oikade.Number{Device: "hall-radiator", Capability: oikade.Setpoint}
+
+	mainsValve   = oikade.Bool{Device: "mains-valve", Capability: oikade.On}
+	sinkHumidity = oikade.Number{Device: "sink-sensor", Capability: oikade.Humidity}
+)
+
+func flowsHome() *oikade.Home {
+	home := oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, 0)})
+
+	home.Flow("front-door-arrival", func(r *oikade.FlowRun) {
+		if r.Is(oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0))) {
+			r.Set(hallLight.To(true).For(3 * time.Minute))
+		}
+		if !r.WaitFor(oikade.Not(frontDoor), 10*time.Minute) {
+			r.Set(hallRadiator.To(7).For(time.Hour))
+		}
+	}).When(frontDoor.Becomes(true))
+	home.Decide(hallLight).Flows().Default(false)
+	home.Decide(hallRadiator).Flows().Default(20)
+
+	leak := home.Flow("leak", func(r *oikade.FlowRun) {
+		r.Set(mainsValve.To(false).UntilReleased())
+	}).When(sinkHumidity).If(sinkHumidity.Above(90))
+	home.Flow("night-off", setting(mainsValve.To(false).For(8*time.Hour))).At(oikade.Clock("23:00"))
+	home.Decide(mainsValve).
+		Flows(leak). // this flow beats a switch
+		OverrideFor(time.Hour).
+		Flows(). // every other flow
+		Default(true)
+	return home
+}
+
+func flowsTest(t *testing.T, start time.Time) *hometest.Home {
+	t.Helper()
+	open, setpoint, humidity := string(oikade.Open), string(oikade.Setpoint), string(oikade.Humidity)
+	return hometest.New(t, flowsHome(), hometest.Options{Start: start, Devices: []hometest.Device{
+		{Name: "hall-light", Capabilities: []string{on}, Values: map[string]any{on: false}},
+		{Name: "front-door", Capabilities: []string{open}, Values: map[string]any{open: false}},
+		{Name: "hall-radiator", Capabilities: []string{setpoint}, Values: map[string]any{setpoint: 20.0}},
+		{Name: "mains-valve", Capabilities: []string{on}, Values: map[string]any{on: true}},
+		{Name: "sink-sensor", Capabilities: []string{humidity}, Values: map[string]any{humidity: 50.0}},
+	}})
+}
+
+// After dark, the front door lights the hall for three minutes, and left open, it turns the
+// radiator down for an hour, across a restart.
+func TestTheFrontDoorLightsTheHallAndTurnsTheRadiatorDown(t *testing.T) {
+	h := flowsTest(t, time.Date(2030, time.January, 7, 18, 0, 0, 0, time.UTC))
+	h.Set(frontDoor, true)
+	h.ExpectValue(hallLight, true)
+	h.ExpectClaim(hallLight, "Rule/front-door-arrival", "Normal")
+	h.Advance(4 * time.Minute)
+	h.ExpectValue(hallLight, false)
+	h.Restart()
+	h.Advance(5 * time.Minute)
+	h.ExpectValue(hallRadiator, 20)
+	h.Advance(2 * time.Minute)
+	h.ExpectValue(hallRadiator, 7)
+	h.Advance(time.Hour)
+	h.ExpectValue(hallRadiator, 20)
+	h.ExpectFinished("front-door-arrival")
+}
+
+// In daylight the hall stays dark, and a door closed in time leaves the radiator alone.
+func TestTheFrontDoorClosedInDaylightDoesNothing(t *testing.T) {
+	h := flowsTest(t, time.Date(2030, time.January, 7, 12, 0, 0, 0, time.UTC))
+	h.Set(frontDoor, true)
+	h.Advance(time.Minute)
+	h.Set(frontDoor, false)
+	h.Advance(time.Hour)
+	h.ExpectValue(hallLight, false)
+	h.ExpectValue(hallRadiator, 20)
+	h.ExpectFinished("front-door-arrival")
+}
+
+// The leak flow ranks above the valve's override line, so a tap on its switch is written back, and
+// every other flow ranks below it, so a tap beats it for an hour.
+func TestTheLeakFlowBeatsASwitchAndTheOthersDont(t *testing.T) {
+	h := flowsTest(t, time.Date(2030, time.January, 7, 22, 0, 0, 0, time.UTC))
+	h.Advance(61 * time.Minute)
+	h.ExpectValue(mainsValve, false)
+	h.ExpectClaim(mainsValve, "Rule/night-off", "Normal")
+	h.Set(mainsValve, true)
+	h.Advance(59 * time.Minute)
+	h.ExpectValue(mainsValve, true)
+	h.Advance(2 * time.Minute)
+	h.ExpectValue(mainsValve, false)
+
+	h.Set(sinkHumidity, 95.0)
+	h.ExpectClaim(mainsValve, "Rule/leak", "Safety")
+	h.Advance(time.Minute)
+	h.Set(mainsValve, true)
+	h.ExpectValue(mainsValve, false)
+	h.Restart()
+	// Night-off's claim ends at 07:00, and the leak's lasts until it's released.
+	h.Advance(12 * time.Hour)
+	h.ExpectValue(mainsValve, false)
+	h.ExpectClaim(mainsValve, "Rule/leak", "Safety")
+}

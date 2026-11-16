@@ -1,18 +1,19 @@
 // Package oikade is how a home is written in Go. A home is a main package that decides what sets
-// each capability, and hands the home to Run:
+// each capability, adds flows that do something when a trigger fires, and runs:
 //
 //	func main() {
 //		home := oikade.NewHome(oikade.Options{})
 //		home.Decide(BathroomFan.On).
 //			Case("humid", true, BathroomSensor.Humidity.Above(70)).Linger(5 * time.Minute).
 //			Default(false)
-//		oikade.Run(home)
+//		home.Run()
 //	}
 //
 // BathroomFan and BathroomSensor come from devices.go, which oikade types writes from the home's
 // devices, with a Bool or a Number for each capability each one has.
 //
-// A flow is ordinary Go that can wait for hours and survive a crash: docs/writing-flows.md.
+// A flow, from home.Flow, is ordinary Go that can wait for hours and survive a crash:
+// docs/writing-flows.md.
 //
 // The host runs that binary and restarts it if it dies. State that must survive lives in the host,
 // so a crash here loses nothing. docs/architecture.md says how.
@@ -71,7 +72,7 @@ func (s Snapshot) value(device, capability string) any {
 }
 
 // Get reads a device's capability. A condition reading a value nobody has reported yet stops there:
-// a hold keeps its state, and a moment doesn't run. So does one with a mistake in it, such as a
+// a case keeps its state, and a flow's If doesn't let it run. So does one with a mistake in it, such as a
 // device that doesn't exist, which is logged. Lookup carries on instead.
 func (s Snapshot) Get[T Value](r Ref[T]) T {
 	h := r.handle()
@@ -96,7 +97,7 @@ func (s Snapshot) Lookup[T Value](r Ref[T]) (T, bool) {
 	return as[T](h.device, h.capability, v), true
 }
 
-// Is reports whether c is true now, as a condition of a hold or a moment would be. A condition that
+// Is reports whether c is true now, as a case's condition or a flow's If would be. A condition that
 // reads a value nobody has reported yet stops the ConditionFunc there too.
 func (s Snapshot) Is(c Condition) bool {
 	if c == nil {
@@ -353,66 +354,14 @@ type Band struct {
 	Minutes int
 }
 
-// Moment runs its actions when a trigger fires and If, if given, is true. It needs a trigger: On, or
-// a time of day in At, such as Clock("23:30"). NewMoment makes one.
-type Moment struct {
-	name    string
-	on      []Change
-	at      []Time
-	cond    Condition
-	restart bool
-	late    time.Duration
-	do      []Action
-	once    once
-}
-
-// NewMoment runs the actions in order. Name it once.
-func NewMoment(name string, do ...Action) Moment {
-	return Moment{name: name, do: slices.Clone(do)}
-}
-
-// On adds changes that trigger the moment.
-func (r Moment) On(changes ...Change) Moment {
-	r.on = append(slices.Clip(r.on), changes...)
-	return r
-}
-
-// At adds times of day that trigger the moment.
-func (r Moment) At(times ...Time) Moment {
-	r.at = append(slices.Clip(r.at), times...)
-	return r
-}
-
-// If is checked when a trigger fires, and the moment runs only if it's true.
-func (r Moment) If(c Condition) Moment {
-	r.cond = c
-	r.once = r.once.note("If")
-	return r
-}
-
-// Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
-func (r Moment) Restart() Moment {
-	r.restart = true
-	r.once = r.once.note("Restart")
-	return r
-}
-
-// Late is how late a time in At may still fire, as when no process was running. Without it, or at
-// zero, that's DefaultLate. A moment with a Safety Set fires however late it is.
-func (r Moment) Late(d time.Duration) Moment {
-	r.late = d
-	r.once = r.once.note("Late")
-	return r
-}
-
 // DefaultLate is how late a flow may wake, or a time of day fire, and still run.
 const DefaultLate = 10 * time.Minute
 
-// Flow runs its function when a trigger fires and If, if given, is true, like a moment. The function
-// is ordinary Go, and survives a crash at any point. It must stick to the steps on its FlowRun for
-// anything that happens outside it or varies between runs, because after a crash it runs again from
-// the top and recorded steps return what they returned the first time. docs/writing-flows.md says
-// how. NewFlow makes one.
+// Flow runs its function when a trigger fires and If, if given, is true. The function is ordinary
+// Go, and survives a crash at any point. It must stick to the steps on its FlowRun for anything that
+// happens outside it or varies between runs, because after a crash it runs again from the top and
+// recorded steps return what they returned the first time. docs/writing-flows.md says how. It needs
+// a trigger: When, or a time of day in At, such as Clock("23:30"). home.Flow adds one.
 type Flow struct {
 	name    string
 	on      []Change
@@ -420,52 +369,61 @@ type Flow struct {
 	cond    Condition
 	restart bool
 	late    time.Duration
-	run     func(*FlowRun) error
+	run     func(*FlowRun)
 	once    once
 }
 
-// NewFlow runs run on each trigger. Name it once.
-func NewFlow(name string, run func(*FlowRun) error) Flow { return Flow{name: name, run: run} }
+// Flow adds a flow to the home, which runs run on each trigger. Name it once.
+func (h *Home) Flow(name string, run func(*FlowRun)) *Flow {
+	f := &Flow{name: name, run: run}
+	h.flows = append(h.flows, f)
+	return f
+}
 
-// On adds changes that trigger the flow.
-func (r Flow) On(changes ...Change) Flow {
-	r.on = append(slices.Clip(r.on), changes...)
-	return r
+// When adds changes that trigger the flow, such as FrontDoor.Open.Becomes(true).
+func (f *Flow) When(changes ...Change) *Flow {
+	f.on = append(f.on, changes...)
+	return f
 }
 
 // At adds times of day that trigger the flow.
-func (r Flow) At(times ...Time) Flow {
-	r.at = append(slices.Clip(r.at), times...)
-	return r
+func (f *Flow) At(times ...Time) *Flow {
+	f.at = append(f.at, times...)
+	return f
 }
 
 // If is checked when a trigger fires, and the flow runs only if it's true.
-func (r Flow) If(c Condition) Flow {
-	r.cond = c
-	r.once = r.once.note("If")
-	return r
+func (f *Flow) If(c Condition) *Flow {
+	f.cond = c
+	f.once = f.once.note("If")
+	return f
 }
 
 // Restart cancels a run in progress on a new trigger. Without it, the trigger is ignored.
-func (r Flow) Restart() Flow {
-	r.restart = true
-	r.once = r.once.note("Restart")
-	return r
+func (f *Flow) Restart() *Flow {
+	f.restart = true
+	f.once = f.once.note("Restart")
+	return f
 }
 
-// Late is how late a run may wake and still carry on. Without it, or at zero, that's DefaultLate. A
-// run later than that gives up and logs it, rather than turn the lights off at 09:00.
-func (r Flow) Late(d time.Duration) Flow {
-	r.late = d
-	r.once = r.once.note("Late")
-	return r
+// Late is how late a run may start or wake and still carry on. Without it, or at zero, that's
+// DefaultLate. A run later than that gives up and logs it, rather than turn the lights off at 09:00.
+// A flow a decision ranks above its override line acts however late it is.
+func (f *Flow) Late(d time.Duration) *Flow {
+	f.late = d
+	f.once = f.once.note("Late")
+	return f
 }
 
 // FlowRun is one run of a flow. Its steps are written to the host's disk before the flow continues.
 type FlowRun struct {
 	run *flow.Run
+	// name is the flow's, which a decision may rank on its own.
+	name string
 	// decided are the home's decisions, which say where a Set ranks.
 	decided []compiledDecision
+	// failed are the steps that failed, which make the run fail when it ends.
+	failed []error
 	// options are the home's, which a condition is checked against when the flow uses it.
 	options Options
 }
@@ -526,30 +484,54 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 	return r.run.WaitFor(toEngine(c), timeout)
 }
 
-// Set writes a capability, such as Hallway.On.To(true), or claims it if it's arbitrated, which
-// needs For, UntilReleased or UntilNext, and is an error without one. It may run more than once,
-// after a crash, so set a value and never toggle one.
-func (r *FlowRun) Set(s Set) error {
-	if err := needsFlowsLine(r.decided, s.device, s.capability); err != nil {
-		return err
+// Set writes a capability, such as Hallway.On.To(true), or claims it if a decision decides it,
+// which needs For, UntilReleased or UntilNext. It may run more than once, after a crash, so set a
+// value and never toggle one. A Set that fails, as on a device that doesn't answer or a decision with
+// no Flows line for this flow, is logged, and the run carries on and ends as failed.
+func (r *FlowRun) Set(s Set) {
+	err := needsFlowsLine(r.decided, r.name, s.device, s.capability)
+	if err == nil {
+		err = r.run.Apply(s.toEngine(r.decided, r.name))
 	}
-	return r.run.Apply(s.toEngine(r.decided))
+	r.failedStep("set", err)
 }
 
-// Release ends the named rule's claims, and its latch if it's a hold.
-func (r *FlowRun) Release(rule string) error { return r.run.Apply(engine.Release(rule)) }
+// Release ends the named rule's claims, and its latch if it's a case: "<device> <capability> <case>"
+// for a case, or a flow's name. One that fails is logged, and the run ends as failed.
+func (r *FlowRun) Release(rule string) { r.failedStep("release", r.run.Apply(engine.Release(rule))) }
 
-// Do makes an outside call, which sets result, a pointer, or nil for none. Once it's recorded the
-// call never happens again: a replay fills result from the journal and returns an error with the
-// same message, which errors.Is won't match. A crash before that repeats it, so make the call safe
-// to repeat. Names tell a flow's calls apart.
-func (r *FlowRun) Do(name string, result any, call func(context.Context) error) error {
-	return r.run.Do(name, result, call)
+// failedStep records a step that failed, which the run carries on past.
+func (r *FlowRun) failedStep(step string, err error) {
+	if err == nil {
+		return
+	}
+	r.run.Log().Error("Failed step of flow run", "err", err, "step", step)
+	r.failed = append(r.failed, fmt.Errorf("%s: %w", step, err))
 }
 
-// Action is a step of a moment: Set, Wait or Release.
-type Action interface {
-	toEngine(decided []compiledDecision) engine.Action
+// Fail ends the run as failed, with err as the reason. It doesn't return.
+func (r *FlowRun) Fail(err error) {
+	if err == nil {
+		err = errors.New("the flow failed")
+	}
+	panic(failure{err})
+}
+
+// failure is the panic Fail ends a run with.
+type failure struct{ err error }
+
+// Do makes an outside call and returns its result. Once it's recorded the call never happens again:
+// a replay returns the recorded result, and an error with the same message, which errors.Is won't
+// match. A crash before that repeats it, so make the call safe to repeat. Names tell a flow's calls
+// apart, and the result must survive JSON.
+func (r *FlowRun) Do[T any](name string, call func(context.Context) (T, error)) (T, error) {
+	var result T
+	err := r.run.Do(name, &result, func(ctx context.Context) error {
+		v, err := call(ctx)
+		result = v
+		return err
+	})
+	return result, err
 }
 
 // Set writes a capability, from a Bool's, a Number's or InRoom's To. For, UntilReleased and UntilNext make it a
@@ -588,23 +570,13 @@ func (s Set) endUntil(u engine.Until) Set {
 	return s
 }
 
-// toEngine is the engine's Set, ranked where the capability's decision puts flows.
-func (s Set) toEngine(decided []compiledDecision) engine.Action {
+// toEngine is the engine's Set, ranked where the capability's decision puts the flow.
+func (s Set) toEngine(decided []compiledDecision, flowName string) engine.Action {
 	return engine.Set{
 		Device: s.device, Room: s.room, DeviceTypes: s.types, Capability: s.capability, Value: s.value, For: s.claimFor,
-		Until: s.until, Priority: claimPriority(decided, s.device, s.capability),
+		Until: s.until, Priority: claimPriority(decided, flowName, s.device, s.capability),
 	}
 }
-
-// Wait waits before the next action.
-type Wait time.Duration
-
-func (w Wait) toEngine([]compiledDecision) engine.Action { return engine.Delay(w) }
-
-// Release ends the named rule's claims, and its latch if it's a hold.
-type Release string
-
-func (r Release) toEngine([]compiledDecision) engine.Action { return engine.Release(r) }
 
 // Options is what a home has exactly one of. A zero Options is valid.
 type Options struct {
@@ -658,84 +630,30 @@ func (l Location) site() *sun.Site {
 	return &sun.Site{Latitude: l.latitude, Longitude: l.longitude}
 }
 
-// Part is a piece of a home: a Moment, Flow, Plugin, or a Bundle of them. A function
-// can return one, so that what belongs together stays together. Only this package adds kinds.
-//
-// A part keeps the names written in it, whichever Bundle it's in. A name is a rule's state key, so a
-// helper used twice builds a different name each time.
-type Part interface {
-	part()
-}
-
-func (Moment) part() {}
-func (Flow) part()   {}
-func (Plugin) part() {}
-func (Bundle) part() {}
-
-// Bundle is parts that belong together, such as a flow and the moment that starts it. NewBundle
-// makes one. It's a Part itself, so bundles nest, and an empty one is fine.
-type Bundle struct {
-	parts []Part
-}
-
-// NewBundle groups parts.
-func NewBundle(parts ...Part) Bundle {
-	return Bundle{parts: slices.Clone(parts)}
-}
-
-// Home is a home's automations. NewHome makes one.
+// Home is a home's automations. NewHome makes one, and Decide, Flow and Plugin add to it.
 type Home struct {
 	options   Options
 	decisions []decider
-	moments   []Moment
-	flows     []Flow
-	plugins   []Plugin
-	// mistakes are the parts NewHome couldn't take, which compile reports.
-	mistakes []error
+	flows     []*Flow
+	plugins   []imported
 }
 
-// NewHome makes a home from its parts, which Decide adds to. A nil part, or a pointer to one, fails
-// oikade check.
-func NewHome(o Options, parts ...Part) *Home {
-	h := &Home{options: o}
-	h.add("parts", parts)
-	return h
-}
+// NewHome makes a home.
+func NewHome(o Options) *Home { return &Home{options: o} }
 
-// add sorts parts by kind, in the order they're written, with path saying where they came from.
-func (h *Home) add(path string, parts []Part) {
-	for i, p := range parts {
-		at := fmt.Sprintf("%s[%d]", path, i)
-		switch p := p.(type) {
-		case Moment:
-			h.moments = append(h.moments, p)
-		case Flow:
-			h.flows = append(h.flows, p)
-		case Plugin:
-			h.plugins = append(h.plugins, p)
-		case Bundle:
-			h.add(at, p.parts)
-		case nil:
-			h.mistakes = append(h.mistakes, fmt.Errorf("a nil part, at %s: give a rule or a Bundle", at))
-		default:
-			h.mistakes = append(h.mistakes,
-				fmt.Errorf("a %T, at %s: a part is a Moment, Flow, Plugin or Bundle, written as a value", p, at))
-		}
-	}
-}
-
-// Plugin is a plugin your home imports. It's a Go module like any other, and it runs as you, so
-// importing one means trusting its code. The host runs each in a process of its own, so one that
-// panics or hangs is restarted while automations and Matter carry on. NewPlugin makes one.
-type Plugin struct {
+// imported is a plugin the home imports.
+type imported struct {
 	name    string
 	factory plugin.Factory
 }
 
-// NewPlugin imports a plugin. name is what its devices are recorded under: keep it, because changing
-// it makes them new hardware. factory builds the plugin, in its own process, never in your automations.
-func NewPlugin(name string, factory plugin.Factory) Plugin {
-	return Plugin{name: name, factory: factory}
+// Plugin imports a plugin. It's a Go module like any other, and it runs as you, so importing one
+// means trusting its code. The host runs each in a process of its own, so one that panics or hangs
+// is restarted while automations and Matter carry on. name is what its devices are recorded under:
+// keep it, because changing it makes them new hardware. factory builds the plugin, in its own
+// process, never in your automations.
+func (h *Home) Plugin(name string, factory plugin.Factory) {
+	h.plugins = append(h.plugins, imported{name: name, factory: factory})
 }
 
 // compile checks the home and turns it into the engine's rules, and returns its flows by name.
@@ -762,7 +680,6 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		rules = append(rules, c)
 	}
 	decided, err := h.compileDecisions()
-	errs = append(errs, h.mistakes...)
 	errs = append(errs, err, h.options.check())
 	for _, d := range decided {
 		for _, c := range d.cases {
@@ -773,11 +690,6 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 			}
 			add(c.key, r, err)
 		}
-	}
-	for _, r := range h.moments {
-		c, err := engine.NewMoment(name(r.name), r.toEngine(decided))
-		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
-			checkCondition(r.cond, h.options), r.checkSets(decided)))
 	}
 	for _, r := range h.flows {
 		f := r.toFlow(name(r.name), h.options, decided)
@@ -821,11 +733,8 @@ func (h *Home) manifest() wire.Manifest {
 		}
 		m.Warnings = append(m.Warnings, d.warnings...)
 	}
-	for _, r := range h.moments {
-		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: "moment", Safety: r.safety(decided)})
-	}
 	for _, r := range h.flows {
-		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: wire.KindFlow})
+		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: wire.KindFlow, Safety: flowSafety(decided, r.name)})
 	}
 	for _, p := range h.plugins {
 		m.Plugins = append(m.Plugins, p.name)
@@ -863,27 +772,38 @@ func trigger(on []Change, at []Time, cond Condition, late time.Duration, safety 
 	return t
 }
 
-// nilChange reports a nil in a rule's On, which trigger leaves out.
+// nilChange reports a nil in a flow's When, which trigger leaves out.
 func nilChange(on []Change) error {
 	if i := slices.Index(on, nil); i >= 0 {
-		return fmt.Errorf("a nil change, at On[%d]: give a handle, or InRoom", i)
+		return fmt.Errorf("a nil change, at When[%d]: give a handle, or InRoom", i)
 	}
 	return nil
 }
 
-func (r Flow) toFlow(key ident.ID, o Options, decided []compiledDecision) *flow.Flow {
-	// Until a decision can name the flows it ranks, any flow may make a Safety claim where a Flows
-	// line is above the override line, so every flow is Safety then: it acts however late it is.
-	f := &flow.Flow{Key: key, Late: r.late, Safety: slices.ContainsFunc(decided, func(d compiledDecision) bool {
-		return d.flows && d.flowsSafety
-	})}
+// toFlow is the flow as the runner takes it. A flow that a decision ranks above its override line
+// makes Safety claims, so it acts however late it is.
+func (r *Flow) toFlow(key ident.ID, o Options, decided []compiledDecision) *flow.Flow {
+	f := &flow.Flow{Key: key, Late: r.late, Safety: flowSafety(decided, r.name)}
 	if r.run != nil {
-		f.Body = func(run *flow.Run) error { return r.run(&FlowRun{run: run, decided: decided, options: o}) }
+		f.Body = func(run *flow.Run) (err error) {
+			fr := &FlowRun{run: run, name: r.name, decided: decided, options: o}
+			defer func() {
+				if p := recover(); p != nil {
+					failed, ok := p.(failure)
+					if !ok {
+						panic(p)
+					}
+					err = failed.err
+				}
+			}()
+			r.run(fr)
+			return errors.Join(fr.failed...)
+		}
 	}
 	return f
 }
 
-func (r Flow) toEngine(f *flow.Flow) engine.Flow {
+func (r *Flow) toEngine(f *flow.Flow) engine.Flow {
 	e := engine.Flow{Trigger: trigger(r.on, r.at, r.cond, r.late, f.Safety)}
 	if r.restart {
 		e.Mode = engine.ModeRestart
@@ -957,45 +877,11 @@ func (h Hours) toSchedule() schedule.WindowSpec {
 	return schedule.WindowSpec{Start: h.start.clock, End: h.end.clock, Days: h.days}
 }
 
-// checkSets refuses a Set on a decided capability whose decision has no Flows line.
-func (r Moment) checkSets(decided []compiledDecision) error {
-	var errs []error
-	for _, a := range r.do {
-		if s, ok := a.(Set); ok && s.device != "" {
-			errs = append(errs, needsFlowsLine(decided, s.device, s.capability))
-		}
-	}
-	return errors.Join(errs...)
-}
-
-// safety reports whether the moment sets a capability whose Flows line is a safety line.
-func (r Moment) safety(decided []compiledDecision) bool {
-	return slices.ContainsFunc(r.do, func(a Action) bool {
-		s, ok := a.(Set)
-		return ok && s.device != "" && claimPriority(decided, s.device, s.capability) == engine.PrioritySafety
-	})
-}
-
-func (r Moment) toEngine(decided []compiledDecision) engine.Moment {
-	m := engine.Moment{Trigger: trigger(r.on, r.at, r.cond, r.late, r.safety(decided))}
-	if r.restart {
-		m.Mode = engine.ModeRestart
-	}
-	for _, a := range r.do {
-		if a == nil {
-			m.Do = append(m.Do, nil)
-			continue
-		}
-		m.Do = append(m.Do, a.toEngine(decided))
-	}
-	return m
-}
-
 // Run runs the home and doesn't return. The host starts this binary as "<binary> automations", and
 // as "<binary> check" to judge a new version: that loads the home and prints what it finds, with no
 // writes and no session. Anything else is an error, because the home has nothing to do without the
 // host.
-func Run(h *Home) {
+func (h *Home) Run() {
 	log := slog.New(slog.NewJSONHandler(logOutput(), nil))
 	if err := run(h, log); err != nil {
 		log.Error("Stopped process", "err", err)

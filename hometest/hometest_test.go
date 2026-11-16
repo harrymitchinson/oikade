@@ -65,12 +65,22 @@ func TestACaseFollowsADeviceAndTheClock(t *testing.T) {
 	}
 }
 
+// setting is a flow's body that sets each of sets.
+func setting(sets ...oikade.Set) func(*oikade.FlowRun) {
+	return func(r *oikade.FlowRun) {
+		for _, s := range sets {
+			r.Set(s)
+		}
+	}
+}
+
 func bedtime() *oikade.Home {
-	return oikade.NewHome(oikade.Options{}, oikade.NewFlow("bedtime", func(r *oikade.FlowRun) error {
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("bedtime", func(r *oikade.FlowRun) {
 		r.Sleep(30 * time.Minute)
-		return r.Set(light.To(false))
-	}).
-		At(oikade.Clock("22:30")))
+		r.Set(light.To(false))
+	}).At(oikade.Clock("22:30"))
+	return home
 }
 
 func TestARestartMidFlowCarriesOn(t *testing.T) {
@@ -92,15 +102,17 @@ func TestARestartMidFlowCarriesOn(t *testing.T) {
 // A flow's Get and Is read the home, and after a restart they return what they read the first time,
 // so the run takes the same path.
 func TestAFlowsReadsReplayAfterARestart(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("airing", func(r *oikade.FlowRun) error {
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("airing", func(r *oikade.FlowRun) {
 		damp := r.Get(sensor) > 60
 		dark := r.Is(oikade.All(oikade.Not(light), sensor.Above(60)))
 		r.Sleep(time.Hour)
 		if !damp || !dark {
-			return r.Set(pump.To(true)) // The wrong path: the run began damp and dark.
+			r.Set(pump.To(true)) // The wrong path: the run began damp and dark.
+			return
 		}
-		return r.Set(fan.To(true))
-	}).On(light.Becomes(false)))
+		r.Set(fan.To(true))
+	}).When(light.Becomes(false))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Set(sensor, 70)
 	h.Set(light, false)
@@ -116,8 +128,8 @@ func TestAFlowsReadsReplayAfterARestart(t *testing.T) {
 
 // A Becomes fires on a change to its value, and not on one away from it.
 func TestABecomesFiresOnlyOnItsValue(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{},
-		oikade.NewMoment("lights-out", fan.To(true)).On(light.Becomes(false)))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("lights-out", setting(fan.To(true))).When(light.Becomes(false))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Set(light, false)
 	h.ExpectValue(fan, true)
@@ -129,12 +141,12 @@ func TestABecomesFiresOnlyOnItsValue(t *testing.T) {
 // A flow's Get of a value nobody has reported yet ends the run as failed.
 func TestAFlowsGetOfAnUnreportedValueFails(t *testing.T) {
 	unheard := oikade.Number{Device: "unheard", Capability: oikade.Humidity}
-	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("reads", func(r *oikade.FlowRun) error {
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("reads", func(r *oikade.FlowRun) {
 		if r.Get(unheard) > 60 {
-			return r.Set(fan.To(true))
+			r.Set(fan.To(true))
 		}
-		return nil
-	}).On(light))
+	}).When(light)
 	h := hometest.New(t, home, hometest.Options{Devices: append(devices(),
 		hometest.Device{Name: "unheard", Capabilities: []string{humidity}})})
 	h.Set(light, false)
@@ -185,10 +197,13 @@ func TestABudgetRunsItsMinutes(t *testing.T) {
 	}
 }
 
-func TestAMomentWaits(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{},
-		oikade.NewMoment("porch", fan.To(true), oikade.Wait(5*time.Minute), fan.To(false)).
-			On(sensor))
+func TestAFlowSleeps(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("porch", func(r *oikade.FlowRun) {
+		r.Set(fan.To(true))
+		r.Sleep(5 * time.Minute)
+		r.Set(fan.To(false))
+	}).When(sensor)
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Set(sensor, 41.0)
 	h.ExpectValue(fan, true)
@@ -197,10 +212,12 @@ func TestAMomentWaits(t *testing.T) {
 	h.ExpectFinished("porch")
 }
 
-func TestAWaitEndsWhenItSaysInsideALongerMove(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{},
-		oikade.NewMoment("porch", oikade.Wait(90*time.Second), fan.To(true)).
-			On(sensor))
+func TestASleepEndsWhenItSaysInsideALongerMove(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("porch", func(r *oikade.FlowRun) {
+		r.Sleep(90 * time.Second)
+		r.Set(fan.To(true))
+	}).When(sensor)
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	start := h.Now()
 	h.Set(sensor, 41.0)
@@ -212,7 +229,8 @@ func TestAWaitEndsWhenItSaysInsideALongerMove(t *testing.T) {
 }
 
 func TestARunInProgressIsntFinished(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{}, oikade.NewMoment("porch", oikade.Wait(5*time.Minute)).On(sensor))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("porch", func(r *oikade.FlowRun) { r.Sleep(5 * time.Minute) }).When(sensor)
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Set(sensor, 41.0)
 	h.Advance(6 * time.Minute)
@@ -233,8 +251,8 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	ceiling := oikade.Bool{Device: "ceiling-light", Capability: oikade.On}
 	fridge := oikade.Bool{Device: "fridge-plug", Capability: oikade.On}
 	lights := oikade.InRoom("living-room", oikade.Lights, oikade.On)
-	home := oikade.NewHome(oikade.Options{},
-		oikade.NewMoment("living-room-off", lights.To(false)).At(oikade.Clock("23:00")))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("living-room-off", setting(lights.To(false))).At(oikade.Clock("23:00"))
 	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 		{
 			Name: "floor-lamp", Room: "living-room", Capabilities: []string{on, brightness},
@@ -256,7 +274,8 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 func studyHome(t *testing.T, g oikade.Group) *hometest.Home {
 	t.Helper()
 	off := oikade.InRoom("study", g, oikade.On).To(false)
-	home := oikade.NewHome(oikade.Options{}, oikade.NewMoment("study-off", off).At(oikade.Clock("23:00")))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("study-off", setting(off)).At(oikade.Clock("23:00"))
 	setpoint := string(oikade.Setpoint)
 	return hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 		{
@@ -299,8 +318,8 @@ func TestARoomsLightsLeavesTheHeaterOn(t *testing.T) {
 // A trigger on a room's heaters fires when the heater turns on, and not when the lamp beside it does.
 func TestATriggerOnARoomsHeatersIgnoresItsLights(t *testing.T) {
 	fan := oikade.Bool{Device: "study-fan", Capability: oikade.On}
-	home := oikade.NewHome(oikade.Options{},
-		oikade.NewMoment("fan-with-heat", fan.To(true)).On(oikade.InRoom("study", oikade.Heaters, oikade.On)))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("fan-with-heat", setting(fan.To(true))).When(oikade.InRoom("study", oikade.Heaters, oikade.On))
 	setpoint := string(oikade.Setpoint)
 	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 		{
@@ -324,8 +343,8 @@ func TestAClockTimeFiresAcrossADaylightSavingChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home := oikade.NewHome(oikade.Options{}, oikade.NewMoment("lights-out", light.To(false)).
-		At(oikade.Clock("23:30")))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("lights-out", setting(light.To(false))).At(oikade.Clock("23:30"))
 	// The clocks go back at 02:00 on Sunday 27 October 2030, so that day is 25 hours long.
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 10, 26, 23, 0, 0, 0, london)})
 	h.Advance(31 * time.Minute)
@@ -355,8 +374,8 @@ func TestADailyIsOpenOvernight(t *testing.T) {
 }
 
 func TestTheSameTimeTwiceFiresOnce(t *testing.T) {
-	home := oikade.NewHome(oikade.Options{}, oikade.NewMoment("lights-out", light.To(false)).
-		At(oikade.Clock("23:30"), oikade.Clock("23:30")))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("lights-out", setting(light.To(false))).At(oikade.Clock("23:30"), oikade.Clock("23:30"))
 	h := hometest.New(t, home, hometest.Options{Devices: devices()})
 	h.Advance(23*time.Hour + 31*time.Minute)
 	h.ExpectValue(light, false)
@@ -414,13 +433,13 @@ func sunset(t *testing.T, day time.Time) time.Time {
 	return at
 }
 
-func TestAMomentFiresBeforeSunset(t *testing.T) {
+func TestAFlowFiresBeforeSunset(t *testing.T) {
 	london, err := time.LoadLocation("Europe/London")
 	if err != nil {
 		t.Fatal(err)
 	}
-	home := oikade.NewHome(greenwich, oikade.NewMoment("porch-at-dusk", light.To(false)).
-		At(oikade.Sunset(-20*time.Minute)))
+	home := oikade.NewHome(greenwich)
+	home.Flow("porch-at-dusk", setting(light.To(false))).At(oikade.Sunset(-20 * time.Minute))
 	// Midwinter and midsummer, whose sunsets are more than five hours apart.
 	for _, day := range []time.Time{
 		time.Date(2030, 1, 7, 0, 0, 0, 0, london), time.Date(2030, 6, 21, 0, 0, 0, 0, london),
@@ -452,7 +471,8 @@ func TestADailyOpensAtSunset(t *testing.T) {
 // In Svalbard in June the sun doesn't set, so a sunset neither fires nor opens a window.
 func TestADayWithNoSunsetDoesNothing(t *testing.T) {
 	svalbard := oikade.Options{Location: oikade.NewLocation(78.22, 15.65)}
-	home := oikade.NewHome(svalbard, oikade.NewMoment("dusk", light.To(false)).At(oikade.Sunset(0)))
+	home := oikade.NewHome(svalbard)
+	home.Flow("dusk", setting(light.To(false))).At(oikade.Sunset(0))
 	home.Decide(pump).Case("evening", true, oikade.Daily(oikade.Sunset(0), oikade.Clock("23:30"))).Default(false)
 	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: time.Date(2030, 6, 21, 0, 0, 0, 0, time.UTC)})
 	for range 24 {
@@ -567,34 +587,32 @@ func TestExpectWriteSeesAWriteTheDeviceMovedOnFrom(t *testing.T) {
 
 // A report that sets off a safety line and a lower one on the same device at once writes only the
 // safety line's value: the lower one never gets a moment to win (OIK-212). Either value may come
-// first in the report, and the lower one may be a case or a moment.
+// first in the report, and the lower one may be a case or a flow.
 func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 	occupied := oikade.Bool{Device: "hall", Capability: oikade.Occupied}
 	damp := oikade.Number{Device: "hall", Capability: oikade.Humidity}
 	hot := oikade.Number{Device: "hall", Capability: oikade.Temperature}
 	heater := oikade.Bool{Device: "heater", Capability: oikade.On}
-	welcome := oikade.NewMoment("welcome", heater.To(true).For(time.Hour)).On(occupied)
 	for _, tc := range []struct {
 		name   string
 		safety oikade.Condition
 		report oikade.Set
-		moment bool
+		flow   bool
 	}{
 		// Humidity sorts before occupied, and temperature after it.
 		{name: "safety first", safety: damp.Above(65), report: damp.To(72)},
 		{name: "safety last", safety: hot.Above(30), report: hot.To(35)},
-		{name: "a moment", safety: hot.Above(30), report: hot.To(35), moment: true},
+		{name: "a flow", safety: hot.Above(30), report: hot.To(35), flow: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var parts []oikade.Part
-			if tc.moment {
-				parts = append(parts, welcome)
+			home := oikade.NewHome(oikade.Options{})
+			if tc.flow {
+				home.Flow("welcome", setting(heater.To(true).For(time.Hour))).When(occupied)
 			}
-			home := oikade.NewHome(oikade.Options{}, parts...)
 			d := home.Decide(heater).
 				Case("cutoff", false, tc.safety).
 				OverrideFor(time.Hour)
-			if tc.moment {
+			if tc.flow {
 				d = d.Flows()
 			} else {
 				d = d.Case("warm", true, occupied)
@@ -648,10 +666,11 @@ func TestAFlowsConditionWithAMistakeFailsTheRun(t *testing.T) {
 		"WaitFor": func(r *oikade.FlowRun) { r.WaitFor(sensor.Within(25, 18), time.Hour) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("broken", func(r *oikade.FlowRun) error {
+			home := oikade.NewHome(oikade.Options{})
+			home.Flow("broken", func(r *oikade.FlowRun) {
 				step(r)
-				return r.Set(fan.To(true))
-			}).On(light))
+				r.Set(fan.To(true))
+			}).When(light)
 			h := hometest.New(t, home, hometest.Options{Devices: devices()})
 			h.Set(light, false)
 			h.ExpectValue(fan, false)

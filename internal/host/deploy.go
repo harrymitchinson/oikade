@@ -243,7 +243,6 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	}
 
 	d.log.Info("Checked automations version", "version", id)
-	fault.Hit(fault.HostDeployChecked)
 	last := d.running
 	spared, err := d.srv.leftovers()
 	if err != nil {

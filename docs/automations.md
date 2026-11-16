@@ -1,28 +1,30 @@
 # Automations
 
-How a home's rules are written: decisions, moments, conditions, rooms, budgets and arbitration. The [README](../README.md#getting-started-in-go) gets you to a first deploy, and [writing-flows.md](writing-flows.md) covers flows.
+How a home's rules are written: decisions, flows' triggers, conditions, rooms, budgets and arbitration. The [README](../README.md#getting-started-in-go) gets you to a first deploy, and [writing-flows.md](writing-flows.md) covers what a flow does.
 
 ## Automations
 
-A home has two kinds of rule, plus [flows](writing-flows.md) for anything with a choice or a long wait in it ([OIK-64](https://linear.app/oikade/issue/OIK-64)):
+A home has two kinds of rule ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
 
 - **[Decisions](#decisions)** say what a capability should be, as a list of cases read top to bottom. The engine works out from the clock and the devices' state which case applies, so it stays right across a restart.
-- **Moments** do something when a trigger fires: a capability changes, or a time of day comes.
+- **[Flows](writing-flows.md)** do something when a trigger fires: a capability changes, or a time of day comes. A flow is ordinary Go, with real `if` and `for`, and it can wait for hours and survive a crash.
 
-A capability with a decision is **arbitrated**: its cases, moments, flows, Matter controllers and the device itself make claims, the device takes the winner, and `oikade status` says why. Any other capability is last-write-wins.
+A capability with a decision is **arbitrated**: its cases, flows, Matter controllers and the device itself make claims, the device takes the winner, and `oikade status` says why. Any other capability is last-write-wins.
 
-### Moments
+### Flows' triggers
 
 ```go
-oikade.NewMoment("hallway-motion-light", HallwayLight.On.To(true), oikade.Wait(5*time.Minute), HallwayLight.On.To(false)).
+home.Flow("hallway-motion-light", func(r *oikade.FlowRun) {
+	r.Set(HallwayLight.On.To(true))
+	r.Sleep(5 * time.Minute)
+	r.Set(HallwayLight.On.To(false))
+}).
 	Restart(). // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On(HallwaySensor.Occupied.Becomes(true)).
+	When(HallwaySensor.Occupied.Becomes(true)).
 	If(oikade.Daily("18:00", "07:00"))
 ```
 
-`On` takes the changes that trigger it: a `Bool` or a `Number` fires whenever it changes, a `Bool`'s `Becomes(true)` only when it changes to true, and [`InRoom`](#rooms) on a change from any device in a room. `If` is a [condition](#conditions), looked at when a trigger fires.
-
-The 5 minutes in this example live in your process's memory, so a restart during them leaves the light on. A [decision](#decisions)'s `Linger` doesn't have that problem, and a flow's `Sleep` survives it too.
+`When` takes the changes that trigger it: a `Bool` or a `Number` fires whenever it changes, a `Bool`'s `Becomes(true)` only when it changes to true, and [`InRoom`](#rooms) on a change from any device in a room. `At` takes [times of day](#times-of-day). `If` is a [condition](#conditions), looked at when a trigger fires. For a light that should stay on while there's motion, a [decision](#decisions)'s `Linger` says it more simply.
 
 ### Conditions
 
@@ -41,7 +43,7 @@ A condition is something true or false about the home now. It's a value, so the 
 oikade.All(PoolWater.Temperature.Below(3), oikade.Not(oikade.Yearly("1 Jun", "15 Sep")))
 ```
 
-A condition reading a value nobody has reported yet stops there: a case keeps its state, and a moment doesn't run. If a `Delay` or `Linger` runs out meanwhile, the case starts or ends once the value is back, if its conditions still say so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts.
+A condition reading a value nobody has reported yet stops there: a case keeps its state, and a flow's `If` doesn't let it run. If a `Delay` or `Linger` runs out meanwhile, the case starts or ends once the value is back, if its conditions still say so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts.
 
 A `ConditionFunc` reads the home through its `Snapshot`: `Get` reads a `Bool` or a `Number`, `Is` says whether another condition is true, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. Its label is how the host names it, since it can't see inside a function to say why it's false. `Lookup` carries on without a value, and reports whether there is one:
 
@@ -56,10 +58,10 @@ A date or time that isn't one, such as `Yearly("1 Jun", "31 Jun")`, `Within(25, 
 
 ### Times of day
 
-`At` fires at times of day, instead of or as well as `On`. `oikade.Clock("23:30")` is a local time, in the host machine's zone, from `"00:00"` to `"23:59"`:
+A flow's `At` fires at times of day, instead of or as well as `When`. `oikade.Clock("23:30")` is a local time, in the host machine's zone, from `"00:00"` to `"23:59"`:
 
 ```go
-oikade.NewMoment("downstairs-bedtime", PorchLight.On.To(false)).
+home.Flow("downstairs-bedtime", func(r *oikade.FlowRun) { r.Set(PorchLight.On.To(false)) }).
 	At(oikade.Clock("23:30")).
 	Late(10 * time.Minute)
 ```
@@ -67,10 +69,9 @@ oikade.NewMoment("downstairs-bedtime", PorchLight.On.To(false)).
 `oikade.Sunrise` and `oikade.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Location`, made by `oikade.NewLocation` from its latitude and longitude in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
 
 ```go
-oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}, // round to 2 decimals
-	oikade.NewMoment("porch-at-dusk", PorchLight.On.To(true)).
-		At(oikade.Sunset(-20*time.Minute)), // 20 minutes before sunset
-)
+home := oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}) // round to 2 decimals
+home.Flow("porch-at-dusk", func(r *oikade.FlowRun) { r.Set(PorchLight.On.To(true)) }).
+	At(oikade.Sunset(-20 * time.Minute)) // 20 minutes before sunset
 ```
 
 Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Location`. `NewLocation` takes both coordinates, so one can't be forgotten, and 0 is a coordinate like any other.
@@ -81,16 +82,16 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 - **A day the sun doesn't rise or set,** as near the poles, that time doesn't fire, and a window with it as an edge stays shut.
 - **A `Daily` with a sun edge and a clock edge** ends at the first end after its start, as any `Daily` does. So in midsummer `Daily(Sunset(3*time.Hour), Clock("23:30"))` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
-- **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A moment whose `Set` lands on a safety line fires however late it is. Only the latest missed time counts.
+- **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A flow a decision ranks above its override line fires however late it is. Only the latest missed time counts.
 
 ### Rooms
 
-`oikade.InRoom` is a capability of a room's devices in a group, as a `Change`, a condition's read, or with `To` as a moment's `Set`. A decision is on one device's capability, so a room can't have one yet. A device is in a room when the [registry](devices.md#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
+`oikade.InRoom` is a capability of a room's devices in a group, as a `Change`, a condition's read, or with `To` as a flow's `Set`. A decision is on one device's capability, so a room can't have one yet. A device is in a room when the [registry](devices.md#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
 
 ```go
-oikade.NewMoment("lights-out",
-	oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false), // the lights, not the plugs
-).On(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)) // any sensor in the hallway
+home.Flow("lights-out", func(r *oikade.FlowRun) {
+	r.Set(oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false)) // the lights, not the plugs
+}).When(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)) // any sensor in the hallway
 ```
 
 The group says which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
@@ -119,10 +120,10 @@ A read covers the devices in the room now that have reported the capability, and
 A room with no devices in it, or none in the read's group, stops the condition too, and a case keeps its state: one that applied, or was lingering, stays until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices room`, `oikade devices type` and `oikade devices remove` still make the change when it leaves a room a case reads with nothing of the read's group in it, but they warn on stderr, naming the room and the cases, and `--json` has the warning as `warning`.
 
 - **Room triggers** fire on a change from any device in the room and the group at the time of the change.
-- **Room actions** set every device in the room and the group that has reported the capability, in name order, and skip the rest. So `on` on a room's `Everything` leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone ([OIK-20](https://linear.app/oikade/issue/OIK-20)). Membership is read when the action runs, so a lamp added to the room during a `Wait` is included in the actions after it.
-- **If some devices fail**, the others are still set and the remaining actions still run, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
-- **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Wait` longer than the time your sensor holds occupancy after the last movement.
-- **A room `Set` with no end skips arbitrated members,** because a claim must end (see [claims from moments and flows](#claims-from-moments-and-flows)). The log names them, with members of other types, as `Skipped Room members`.
+- **A room's `Set`** sets every device in the room and the group that has reported the capability, in name order, and skips the rest. So `on` on a room's `Everything` leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone ([OIK-20](https://linear.app/oikade/issue/OIK-20)). Membership is read when the `Set` runs, so a lamp added to the room during a `Sleep` is included in the `Set`s after it.
+- **If some devices fail**, the others are still set and the flow carries on, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
+- **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Sleep` longer than the time your sensor holds occupancy after the last movement.
+- **A room `Set` with no end skips arbitrated members,** because a claim must end (see [claims from flows](#claims-from-flows)). The log names them, with members of other types, as `Skipped Room members`.
 
 ### Decisions
 
@@ -149,7 +150,7 @@ The rest are lines of their own:
 |---|---|
 | `Budget(name, true, b)` | Runs a `Bool` for a number of minutes a day, in the slots that suit it best. See [Budgets](#budgets). |
 | `OverrideFor(d)`, `OverrideUntilNext()`, `NoOverride()` | Where a tap in the Home app, a wall switch or `oikade set` ranks. See [Arbitration](#arbitration). |
-| `Flows()` | Where a moment's or a flow's `Set` ranks. See [Claims from moments and flows](#claims-from-moments-and-flows). |
+| `Flows()`, `Flows(f)` | Where every flow's `Set` ranks, or one flow's. See [Claims from flows](#claims-from-flows). |
 | `Limits(oikade.Limits{…})` | Equipment limits, which beat every line. |
 | `Default(v)` | Required, and last: the value when no line applies. |
 
@@ -187,9 +188,9 @@ A report soon after a write is the device catching up, not an outside change: fo
 
 An outside change is recorded by the path it came in by: `Matter` for a command through the bridge, such as a Home app tap, `Command` for `oikade set`, and `Device` for anything else, such as a wall switch. A case's claim is `Rule/<device> <capability> <case>`. Oikade can't tell what a person did, so nothing is called "manual".
 
-### Claims from moments and flows
+### Claims from flows
 
-A moment's or a flow's `Set` on a decided capability is a claim at the decision's `Flows()` line. On a decision without one, a moment fails `oikade check`, and a flow's `r.Set` returns an error. Above the override line, it's a safety line:
+A flow's `Set` on a decided capability is a claim at the decision's `Flows()` line:
 
 ```go
 home.Decide(TowelRail.On).
@@ -198,16 +199,33 @@ home.Decide(TowelRail.On).
 	Flows().
 	Default(false)
 
-oikade.NewMoment("towel-rail-boost", TowelRail.On.To(true).For(time.Hour).UntilNext()).
-	At(oikade.Clock("21:30"))
+home.Flow("towel-rail-boost", func(r *oikade.FlowRun) {
+	r.Set(TowelRail.On.To(true).For(time.Hour).UntilNext())
+}).At(oikade.Clock("21:30"))
 ```
+
+`Flows(f)` is a line for one flow, the one `home.Flow` returned, so it can rank above a tap while the rest rank below it. A flow's own line counts before the line for every flow. Above the override line, it's a safety line, its claims are Safety, and the flow acts however late it is:
+
+```go
+leak := home.Flow("leak", func(r *oikade.FlowRun) {
+	r.Set(MainsValve.On.To(false).UntilReleased())
+}).When(SinkSensor.Humidity).If(SinkSensor.Humidity.Above(90))
+
+home.Decide(MainsValve.On).
+	Flows(leak).            // this flow beats a switch
+	OverrideFor(time.Hour).
+	Flows().                // every other flow
+	Default(true)
+```
+
+A `Set` on a decision with no `Flows` line for its flow fails the run, and that's logged. `oikade check` can't see that, because a flow's `Set`s are only known as it runs.
 
 A claim must say when it ends:
 
 - `For` ends it after that long.
 - `UntilNext` ends it when the winner without it next changes. Here, that's when the morning case starts.
 - `For` together with `UntilNext` ends it at whichever comes first. This boost ends after an hour, unless what the other lines want changes sooner.
-- `UntilReleased` ends it at an `oikade.Release("<name>")` action in another rule.
+- `UntilReleased` ends it at an `r.Release("<name>")` in a flow, its own or another's.
 
 Two claims on one line, the later wins. A `Set` with none of these on a decided capability of a single device is an error when it runs. A `Set` on a capability with no decision is a plain write, and these don't apply to it.
 
@@ -222,7 +240,7 @@ home.Decide(GarageHeater.On).
 	Default(true)
 ```
 
-Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. No other rule is needed to reset it. The Home app keeps showing your tap for about 10 seconds before it shows the heater off again. Oikade has already sent the real value by then, and sending it later doesn't change the wait ([OIK-239](https://linear.app/oikade/issue/OIK-239)). Rules run only while your process is up. If the garage overheats and cools again while it's down, nothing latches. An `oikade.Release("garage-heater on overheat")` in a moment ends the latch too.
+Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. No other rule is needed to reset it. The Home app keeps showing your tap for about 10 seconds before it shows the heater off again. Oikade has already sent the real value by then, and sending it later doesn't change the wait ([OIK-239](https://linear.app/oikade/issue/OIK-239)). Rules run only while your process is up. If the garage overheats and cools again while it's down, nothing latches. An `r.Release("garage-heater on overheat")` in a flow ends the latch too.
 
 ### Budgets
 
@@ -264,11 +282,12 @@ At `PlanningTime` your process plans the day and freezes the plan. The line appl
 
 ### Composing a home
 
-`oikade.NewHome` makes a home from its `oikade.Options` and any number of parts: each `Moment`, `Flow` and `Plugin` is an `oikade.Part`, and `oikade.NewBundle` groups parts, and is a part itself. Decisions are added to the home as they're made. An ordinary Go function can take the home or return a part, so what belongs together stays together and can move between files:
+`oikade.NewHome` makes a home from its `oikade.Options`, and everything else is added to it: `home.Decide` adds a decision, `home.Flow` a flow and `home.Plugin` a [plugin](plugin-contract.md). `home.Run()` runs it. An ordinary Go function can take the home and add to it, so what belongs together stays together and can move between files:
 
 ```go
 func home() *oikade.Home {
-	home := oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}, bedtime())
+	home := oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)})
+	bedtime(home)
 	for _, z := range zones {
 		motionLight(home, z)
 	}
@@ -280,13 +299,17 @@ func motionLight(home *oikade.Home, z zone) {
 		Case("motion", true, z.motion).Linger(5 * time.Minute).
 		Default(false)
 }
+
+func main() {
+	home().Run()
+}
 ```
 
 A helper can be tested on its own, in a home of its own.
 
-- **A rule keeps the name you wrote,** whichever `Bundle` it's in, because a name is the rule's state key. A helper used twice builds a different name each time, and a clash fails `oikade check`.
+- **A rule keeps the name you wrote,** because a name is the rule's state key. A helper used twice builds a different name each time, and a clash fails `oikade check`.
+- **A helper that adds a flow can return it,** for a decision elsewhere to rank with `Flows(f)`.
 - **`Options` holds what a home has exactly one of,** so a second location, or one inside a helper, doesn't compile. A home with no sunrise or sunset writes `oikade.Options{}`.
-- **A nil part, or a pointer to one,** fails `oikade check`, which says where it is.
 
 ### Reading status
 

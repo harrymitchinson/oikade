@@ -1,9 +1,7 @@
 // Package ewelinklan is the plugin for devices that speak the eWeLink LAN protocol. A home imports
 // it, and it finds them on the network by itself:
 //
-//	oikade.NewHome(oikade.Options{},
-//		oikade.NewPlugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{})),
-//	)
+//	home.Plugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{}))
 //
 // A device announces itself over mDNS as _ewelink._tcp, with its ID and what kind of device it is in
 // the clear, and its state encrypted with its LAN key. So a device is reported as soon as it's heard,

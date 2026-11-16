@@ -9,35 +9,29 @@ import (
 )
 
 func TestCompileChecksFlows(t *testing.T) {
-	run := func(*FlowRun) error { return nil }
 	on := []Change{Bool{Device: "hall", Capability: Open}}
 	for name, tc := range map[string]struct {
-		flow Flow
+		flow func(*Home)
 		want string
 	}{
-		"no name":    {NewFlow("", run).On(on...), "needs a name"},
-		"no trigger": {NewFlow("a", run), "a trigger is required"},
-		"no run":     {NewFlow("a", nil).On(on...), "needs a body"},
-		"negative":   {NewFlow("a", run).On(on...).Late(-time.Minute), "must not be negative"},
-		"bad time":   {NewFlow("a", run).At(Clock("25:00")), "timers[0]"},
+		"no name":    {func(h *Home) { h.Flow("", nothing).When(on...) }, "needs a name"},
+		"no trigger": {func(h *Home) { h.Flow("a", nothing) }, "a trigger is required"},
+		"no run":     {func(h *Home) { h.Flow("a", nil).When(on...) }, "needs a body"},
+		"negative":   {func(h *Home) { h.Flow("a", nothing).When(on...).Late(-time.Minute) }, "must not be negative"},
+		"bad time":   {func(h *Home) { h.Flow("a", nothing).At(Clock("25:00")) }, "timers[0]"},
 		"bad change": {
-			NewFlow("a", run).On(Bool{Device: "hall", Capability: "no.such"}), "unknown capability",
+			func(h *Home) { h.Flow("a", nothing).When(Bool{Device: "hall", Capability: "no.such"}) }, "unknown capability",
+		},
+		"a name twice": {
+			func(h *Home) { h.Flow("a", nothing).When(on...); h.Flow("a", nothing).When(on...) }, "declared twice",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := NewHome(Options{}, tc.flow).compile()
+			_, _, err := decide(tc.flow).compile()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want %q", err, tc.want)
 			}
 		})
-	}
-
-	_, _, err := NewHome(Options{},
-		NewFlow("a", run).On(on...),
-		NewMoment("a", Wait(time.Second)).On(on...),
-	).compile()
-	if err == nil || !strings.Contains(err.Error(), "declared twice") {
-		t.Fatalf("a flow and a moment sharing a name: %v", err)
 	}
 }
 
@@ -48,31 +42,29 @@ func TestLateness(t *testing.T) {
 	on := []Change{Bool{Device: "hall", Capability: Open}}
 	valve := Bool{Device: "valve", Capability: On}
 	for name, tc := range map[string]struct {
-		decide func(*Home)
+		decide func(*Home, *Flow)
 		want   map[string]time.Duration
 	}{
 		// Flows below the override line make Normal claims, so a late one gives up.
 		"normal": {
-			func(h *Home) { h.Decide(valve).OverrideFor(time.Hour).Flows().Default(true) },
-			map[string]time.Duration{
-				"normal": DefaultLate, "own": time.Hour, "moment": DefaultLate, "valve-moment": DefaultLate,
-			},
+			func(h *Home, _ *Flow) { h.Decide(valve).OverrideFor(time.Hour).Flows().Default(true) },
+			map[string]time.Duration{"normal": DefaultLate, "own": time.Hour, "leak": DefaultLate},
 		},
-		// Above it, the valve's moment and every flow act however late they are.
+		// Above it, a flow acts however late it is.
 		"safety": {
-			func(h *Home) { h.Decide(valve).NoOverride().Flows().Default(true) },
-			map[string]time.Duration{
-				"normal": neverLate, "own": neverLate, "moment": DefaultLate, "valve-moment": neverLate,
-			},
+			func(h *Home, _ *Flow) { h.Decide(valve).NoOverride().Flows().Default(true) },
+			map[string]time.Duration{"normal": neverLate, "own": neverLate, "leak": neverLate},
+		},
+		// A flow of its own above the override line is the only one that does.
+		"one flow": {
+			func(h *Home, leak *Flow) { h.Decide(valve).Flows(leak).OverrideFor(time.Hour).Flows().Default(true) },
+			map[string]time.Duration{"normal": DefaultLate, "own": time.Hour, "leak": neverLate},
 		},
 	} {
-		home := NewHome(Options{},
-			NewFlow("normal", func(*FlowRun) error { return nil }).On(on...),
-			NewFlow("own", func(*FlowRun) error { return nil }).On(on...).Late(time.Hour),
-			NewMoment("moment", Wait(time.Second)).On(on...),
-			NewMoment("valve-moment", valve.To(false).For(time.Hour)).On(on...),
-		)
-		tc.decide(home)
+		home := NewHome(Options{})
+		home.Flow("normal", nothing).When(on...)
+		home.Flow("own", nothing).When(on...).Late(time.Hour)
+		tc.decide(home, home.Flow("leak", nothing).When(on...))
 		rules, _, err := home.compile()
 		if err != nil {
 			t.Fatal(err)

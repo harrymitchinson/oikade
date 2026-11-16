@@ -1,18 +1,11 @@
 // Package oikade stands in for the real one, which analysistest can't load from the module.
 package oikade
 
-type Part interface{ part() }
-
-type Moment struct{}
-
-func NewMoment(name string, set Set) Moment { return Moment{} }
-
-func (r Moment) Restart() Moment { return r }
-func (Moment) part()             {}
-
 type Set struct{}
 
-func (s Set) UntilNext() Set { return s }
+func (s Set) UntilNext() Set                   { return s }
+func (s Set) For(d int) Set                    { return s }
+func (r *FlowRun) Do(name string) (int, error) { return 0, nil }
 
 type Condition interface{ holds() bool }
 
@@ -41,32 +34,32 @@ func (h Hours) holds() bool         { return false }
 
 func Not(c Condition) Condition { return c }
 
-type Bundle struct{}
-
-func NewBundle(parts ...Part) Bundle { return Bundle{} }
-func (Bundle) part()                 {}
-
 type Home struct{}
 
-func NewHome(parts ...Part) *Home { return &Home{} }
+func NewHome() *Home { return &Home{} }
 
-func Run(h *Home) {}
+func (h *Home) Run() {}
 
-// Decision is added to its home as it's built.
+// Decision and Flow are added to their home as they're built.
 type Decision struct{}
 
 func (h *Home) Decide(b Bool) *Decision                             { return &Decision{} }
 func (d *Decision) Case(name string, v bool, c Condition) *Decision { return d }
 func (d *Decision) Default(v bool) *Decision                        { return d }
 
+type Flow struct{}
+
+func (h *Home) Flow(name string, run func(*FlowRun)) *Flow { return &Flow{} }
+func (f *Flow) When(c ...Change) *Flow                     { return f }
+
 // Secret declares a secret as it's made, so a discarded one still does something.
 func Secret(name string) string { return name }
 
 type FlowRun struct{}
 
-func (r *FlowRun) Set(s Set) error { return nil }
-func (r *FlowRun) WaitFor() bool   { return false }
-func (r *FlowRun) Release() error  { return nil }
+func (r *FlowRun) Set(s Set)           {}
+func (r *FlowRun) WaitFor() bool       { return false }
+func (r *FlowRun) Release(rule string) {}
 
 type Snapshot struct{}
 

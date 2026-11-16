@@ -1,36 +1,32 @@
 # Writing flows
 
-A flow is an automation written as ordinary Go, with real `if`, `for` and `switch`. It can wait for hours, and it survives a crash at any point. Use a hold when something should stay true, a moment when a fixed list of actions will do, and a flow for anything with a decision or a long wait in it.
+A flow is an automation written as ordinary Go, with real `if`, `for` and `switch`. It can wait for hours, and it survives a crash at any point. Use a [decision](automations.md#decisions) when something should stay true, and a flow when something should happen.
 
 This belongs to [the host](architecture.md#the-host). `hometest` tests a flow on a fake clock, crashes included: [Getting started in Go](../README.md#getting-started-in-go).
 
 ```go
-func bedtime(r *oikade.FlowRun) error {
-	if err := r.Set(oikade.InRoom("downstairs", oikade.Lights, oikade.Brightness).To(20)); err != nil {
-		return err
-	}
+func bedtime(r *oikade.FlowRun) {
+	r.Set(oikade.InRoom("downstairs", oikade.Lights, oikade.Brightness).To(20))
 	r.Sleep(30 * time.Minute)
 
-	var late bool
-	if err := r.Do("calendar", &late, func(ctx context.Context) error {
-		var err error
-		late, err = calendar.HasGuests(ctx)
-		return err
-	}); err != nil {
-		return err
+	guests, err := r.Do("calendar", calendar.HasGuests) // func(context.Context) (bool, error)
+	if err != nil {
+		r.Fail(err)
 	}
-	if late {
+	if guests {
 		r.Sleep(time.Hour)
 	}
-	return r.Set(LoungeLamp.On.To(false))
+	r.Set(LoungeLamp.On.To(false))
 }
 
 func main() {
-	oikade.Run(oikade.NewHome(oikade.Options{},
-		oikade.NewFlow("bedtime", bedtime).At(oikade.Clock("22:30")),
-	))
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("bedtime", bedtime).At(oikade.Clock("22:30"))
+	home.Run()
 }
 ```
+
+`home.Flow` adds a flow, named once. `When` and `At` say what starts it, `If` when it may, and `Restart` what a trigger does while it runs: [Flows' triggers](automations.md#flows-triggers).
 
 ## Steps
 
@@ -44,8 +40,11 @@ Everything that happens outside the flow, or varies between runs, is a step on i
 | `r.Is(cond)` | Whether a [condition](automations.md#conditions) is true now, such as `oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0))` for whether it's dark. One that reads a value nobody has reported yet is false |
 | `r.WaitFor(cond, timeout)` | Waits until a condition is true and returns true, or returns false at the timeout. Zero means no limit |
 | `r.Set(Hallway.On.To(true))` | Writes a capability. On an arbitrated one it's a claim, which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()`. `Hallway.On.To(true)` alone writes nothing, and fails `oikade check` |
-| `r.Release(rule)` | Ends a rule's claims, and a hold's latch |
-| `r.Do(name, &result, call)` | Makes an outside call, and records its result and error |
+| `r.Release(rule)` | Ends a rule's claims, and a case's latch |
+| `r.Do(name, call)` | Makes an outside call, a `func(context.Context) (T, error)`, and records and returns its result and error |
+| `r.Fail(err)` | Ends the run as failed, there and then |
+
+A `Set` or a `Release` that fails, such as on a device that doesn't answer, is logged, and the run carries on and ends as failed. So a flow doesn't stop at a dead bulb, and `r.Fail` is for when it should stop.
 
 ## What a crash does
 
@@ -57,13 +56,13 @@ So a flow has three rules:
 - **Make actions safe to repeat.** Actions run at least once, not exactly once. A crash after a write and before its journal entry repeats the write. Set a value, and never toggle one. `r.Do` is the same until its result is recorded, and once it is, the call never happens again.
 - **Don't keep state outside the flow.** A variable is rebuilt by the replay. Anything else isn't.
 
-A trigger isn't a step. If your process dies after a trigger and before the run's first entry reaches disk, that run never existed, as with a moment.
+A trigger isn't a step. If your process dies after a trigger and before the run's first entry reaches disk, that run never existed.
 
 ## Running late
 
-A flow that's more than 10 minutes late gives up and logs it, rather than turn the lights off at 09:00 after an outage. `Late` sets a flow's own limit. A run is late if it wakes past the end of a wait, or comes back from a crash that long after its last step. A flow's `Set` on a decided capability ranks at the decision's [`Flows()` line](automations.md#claims-from-moments-and-flows), and above the override line it's a Safety claim. While any decision has its `Flows()` line there, every flow is Safety: it never gives up late, so a leak response still acts, and pausing it needs `--allow-safety`. A `Set` on a decision with no `Flows()` line returns an error.
+A flow that's more than 10 minutes late gives up and logs it, rather than turn the lights off at 09:00 after an outage. `Late` sets a flow's own limit. A run is late if it wakes past the end of a wait, or comes back from a crash that long after its last step. A flow's `Set` on a decided capability ranks at the decision's [`Flows` line](automations.md#claims-from-flows) for it, and above the override line it's a Safety claim. A flow any decision ranks there never gives up late, so a leak response still acts, and pausing it needs `--allow-safety`. A `Set` with no `Flows` line to rank at fails the run.
 
-Times of day follow the same rule. A moment or flow's time in `At` that passed while no process was running still fires when one starts, within `Late`, and is skipped and logged after that. Only the last missed time counts. A moment with a Safety `Set` always fires.
+Times of day follow the same rule. A flow's time in `At` that passed while no process was running still fires when one starts, within `Late`, and is skipped and logged after that. Only the last missed time counts. A flow a decision ranks above its override line always fires.
 
 ## Changing a flow
 
@@ -83,8 +82,8 @@ A flow's claims belong to the flow, not to the run that made them, so a flow hol
 
 If a saved release is failing on a device, a later release that finds nothing left to change reports success, though the claim's end isn't on disk. It takes a save that keeps failing and then a host crash to bring that claim back.
 
-Starting a run while one is in progress is ignored. With `Restart: true`, the new trigger cancels the run in progress instead, and its journal goes with it.
+Starting a run while one is in progress is ignored. With `Restart()`, the new trigger cancels the run in progress instead, and its journal goes with it.
 
 ## Limits
 
-This isn't a workflow engine. There's no running old code to finish old runs, and no exactly-once. A run has at most 10,000 steps, because a replay reads them all, and a result from `r.Do` is at most 1 MiB. A flow that loops forever is a hold or a moment.
+This isn't a workflow engine. There's no running old code to finish old runs, and no exactly-once. A run has at most 10,000 steps, because a replay reads them all, and a result from `r.Do` is at most 1 MiB. Something that should stay true is a decision, not a flow that loops forever.
