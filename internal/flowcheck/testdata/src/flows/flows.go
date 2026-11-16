@@ -44,7 +44,7 @@ func mapIterators(r *oikade.FlowRun) error {
 	}
 	for range maps.All(m) { // want `ranging over a map inside a flow`
 	}
-	for range (maps.Keys(m)) { // want `ranging over a map inside a flow`
+	for range maps.Keys(m) { // want `ranging over a map inside a flow`
 	}
 	for range slices.Collect(maps.Keys(m)) { // want `ranging over a map inside a flow`
 	}
