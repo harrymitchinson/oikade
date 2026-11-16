@@ -3,7 +3,6 @@ package oikade
 import (
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -79,7 +78,7 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 			},
 		},
 	} {
-		if got := tc.set.toEngine(nil); !reflect.DeepEqual(got, tc.want) {
+		if got := tc.set.toEngine(nil, "f"); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", name, got, tc.want)
 		}
 	}
@@ -130,48 +129,55 @@ func TestASetRanksAtItsDecisionsFlowsLine(t *testing.T) {
 		{lamp.To(true).For(time.Hour), ""},
 		{Bool{Device: "fan", Capability: On}.To(true), ""},
 	} {
-		if got := tc.set.toEngine(decided).(engine.Set).Priority; got != tc.want {
+		if got := tc.set.toEngine(decided, "f").(engine.Set).Priority; got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.set.device, got, tc.want)
 		}
 	}
 }
 
-// A Set on a decided capability with no Flows line has nowhere to rank: a moment's fails oikade check,
-// and a flow's returns an error.
-func TestASetOnADecisionWithNoFlowsLineIsRefused(t *testing.T) {
-	heater := Bool{Device: "heater", Capability: On}
-	noFlows := func(h *Home) { h.Decide(heater).OverrideFor(time.Hour).Default(false) }
-	moment := NewMoment("warm", heater.To(true).For(time.Hour)).At(Clock("07:00"))
-	_, _, err := decide(noFlows, moment).compile()
-	if err == nil || !strings.Contains(err.Error(), "heater on is decided, and its decision has no Flows line") {
-		t.Errorf("got %v", err)
-	}
-	decided, err := decide(noFlows).compileDecisions()
+// A flow's own Flows line ranks it before the line for every flow, so a leak flow can sit above a
+// tap and the rest below it. A Set with no line to rank at is refused.
+func TestAFlowRanksAtItsOwnLineOrTheLineForEveryFlow(t *testing.T) {
+	valve, heater := Bool{Device: "valve", Capability: On}, Bool{Device: "heater", Capability: On}
+	var leak *Flow
+	h := decide(func(h *Home) {
+		leak = h.Flow("leak", nothing).When(valve)
+		h.Flow("bedtime", nothing).At(Clock("22:00"))
+		h.Decide(valve).Flows(leak).OverrideFor(time.Hour).Flows().Default(true)
+		h.Decide(heater).Flows(leak).Default(false)
+	})
+	decided, err := h.compileDecisions()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (&FlowRun{decided: decided}).Set(heater.To(true).For(time.Hour)); err == nil {
-		t.Error("a flow's Set was taken")
-	}
-}
-
-// A flow may set any decision's Flows line, so one above an override line makes every flow Safety.
-func TestAFlowIsSafetyWhileAFlowsLineIsAboveTheOverrideLine(t *testing.T) {
-	heater := Bool{Device: "heater", Capability: On}
-	f := NewFlow("f", func(*FlowRun) error { return nil }).At(Clock("07:00"))
-	for name, tc := range map[string]struct {
-		decide func(*Home)
-		want   bool
+	for _, tc := range []struct {
+		flow, device string
+		want         engine.Priority
+		refused      bool
 	}{
-		"above": {func(h *Home) { h.Decide(heater).Flows().OverrideFor(time.Hour).Default(false) }, true},
-		"below": {func(h *Home) { h.Decide(heater).OverrideFor(time.Hour).Flows().Default(false) }, false},
+		{flow: "leak", device: "valve", want: engine.PrioritySafety},
+		{flow: "bedtime", device: "valve"},
+		{flow: "leak", device: "heater"},
+		{flow: "bedtime", device: "heater", refused: true},
 	} {
-		_, flows, err := decide(tc.decide, f).compile()
-		if err != nil {
-			t.Fatal(err)
+		if got := claimPriority(decided, tc.flow, tc.device, "on"); got != tc.want {
+			t.Errorf("%s on %s: got %q, want %q", tc.flow, tc.device, got, tc.want)
 		}
-		if got := flows["f"].Safety; got != tc.want {
-			t.Errorf("%s: Safety is %v", name, got)
+		err := needsFlowsLine(decided, tc.flow, tc.device, "on")
+		if (err != nil) != tc.refused {
+			t.Errorf("%s on %s: got %v", tc.flow, tc.device, err)
 		}
+	}
+	m := h.manifest()
+	if !reflect.DeepEqual(m.Control[0].Entry.Lines, []string{"Rule/leak", "override", "flows"}) {
+		t.Errorf("got lines %v", m.Control[0].Entry.Lines)
+	}
+	_, flows, err := h.compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A flow a decision ranks above its override line acts however late it is.
+	if !flows["leak"].Safety || flows["bedtime"].Safety {
+		t.Errorf("leak is Safety %v, bedtime %v", flows["leak"].Safety, flows["bedtime"].Safety)
 	}
 }

@@ -11,7 +11,7 @@ On a host there are two ways to run one ([OIK-143](https://linear.app/oikade/iss
 A plugin is a Go module with a `plugin.Factory`. Your home imports it and registers it, and there's no image or binary to run:
 
 ```go
-oikade.Run(oikade.NewHome(oikade.Options{}, oikade.NewPlugin("ewelink", ewelink.New)))
+home.Plugin("ewelink", ewelink.New)
 ```
 
 **Importing a plugin means trusting its code.** It runs as the host's user, with everything that user can reach.

@@ -2,11 +2,11 @@
 
 Home automation as code you can test, on one small machine.
 
-Your home is a Go module: holds, moments and flows that compile, run in tests on a fake clock, and deploy without stopping anything. `oikade-host` is one binary that keeps your devices, runs a Matter bridge for the Home app and other controllers, and supervises your code. Prometheus keeps the history.
+Your home is a Go module: decisions and flows that compile, run in tests on a fake clock, and deploy without stopping anything. `oikade-host` is one binary that keeps your devices, runs a Matter bridge for the Home app and other controllers, and supervises your code. Prometheus keeps the history.
 
 | | Owner | Examples |
 |---|---|---|
-| **Your automations** | Git, as a Go module | What should happen: holds, moments, flows, arbitration |
+| **Your automations** | Git, as a Go module | What should happen: decisions, flows, arbitration |
 | **Devices and state** | The host's data directory | Which devices exist, their names and rooms, claims, latches, Matter's pairing |
 | **History** | Prometheus and Grafana | Temperature over time, how often the door opened, rule runs |
 
@@ -60,13 +60,17 @@ func home() *oikade.Home {
 		Default(false)
 	return home
 }
+
+func main() {
+	home().Run()
+}
 ```
 
-A [decision](docs/automations.md#decisions) is everything that sets one capability, as a list read top to bottom: the first case that applies wins, and `Default` is what's left.
+A [decision](docs/automations.md#decisions) is everything that sets one capability, as a list read top to bottom: the first case that applies wins, and `Default` is what's left. A [flow](docs/writing-flows.md), added with `home.Flow`, does something when a trigger fires.
 
 `devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is one of its capabilities, an `oikade.Bool` or an `oikade.Number`. Your editor lists what each device can do. A `Bool` is a [condition](docs/automations.md#conditions) and a `Number` makes one, as `Bathroom.Humidity.Above(70)` does, `To` writes one, and either is a change that triggers a rule. The capabilities are constants in `oikade`, such as `oikade.On`, for [rooms](docs/automations.md#rooms).
 
-`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a `Set`, rule or other `oikade` value that's built and thrown away, such as `HallLamp.On.To(true)` without `r.Set`, or a chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
+`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a `Set`, condition or other `oikade` value that's built and thrown away, such as `HallLamp.On.To(true)` without `r.Set`, or a chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
 
 `oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
 
@@ -154,7 +158,7 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 
 ## Guides
 
-- [Automations](docs/automations.md): moments, holds, rooms, budgets, arbitration, and composing a home
+- [Automations](docs/automations.md): decisions, flows' triggers, rooms, budgets, arbitration, and composing a home
 - [Writing flows](docs/writing-flows.md): automations as ordinary Go that survive a crash
 - [Devices](docs/devices.md): names, rooms, device types, capabilities and the Matter bridge
 - [Running a home](docs/running-a-home.md): deploying, the host, secrets, upgrades, the network API, backups and security

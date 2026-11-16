@@ -759,23 +759,6 @@ func TestAHostStoppingConfirmsNoDeployWaitingOnIt(t *testing.T) {
 	}
 }
 
-// A flow that became a moment of the same name has left its run behind.
-func TestAFlowThatChangedKindLosesItsRuns(t *testing.T) {
-	r := flowRig(t, "")
-	r.launch(settle)
-	r.awaitLoaded()
-	r.contact("park-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "parked") })
-	r.sync()
-	r.mustDeploy("parkmoment")
-	r.stop()
-	s := r.openStore()
-	defer func() { _ = s.Close() }()
-	if runs, err := s.Journal().Runs(); err != nil || len(runs) != 0 {
-		t.Fatalf("got %v, %v. The log:\n%s", runs, err, r.dump())
-	}
-}
-
 // The override covers a gone flow's Safety claim and its run, as well as a hold's.
 func TestAllowedDeployEndsAGoneFlowsSafetyClaim(t *testing.T) {
 	r := flowRig(t, "")
@@ -910,36 +893,18 @@ func TestAnUnfinishedDeployCleansUpOnlyWhatItMade(t *testing.T) {
 	r.expectSafetyKept()
 }
 
-// A Safety claim made once the check has read them still counts: the old version stops, the check
-// runs again, and it comes back.
-func TestASafetyClaimMadeAfterTheCheckStopsTheDeploy(t *testing.T) {
-	r := flowRig(t, fmt.Sprintf("%s 1 wait\n", fault.HostDeployChecked))
+// A flow a decision ranks above its override line is a Safety rule by its declaration, so a deploy
+// that drops it is refused before it has claimed anything.
+func TestADeployThatDropsASafetyFlowIsRefused(t *testing.T) {
+	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
-	bin := variant(t, "nofail")
-	type result struct {
-		stderr string
-		err    error
+	stderr, err := r.deploy("nofail")
+	if err == nil || !strings.Contains(stderr, `Safety flow "failing" is gone`) {
+		t.Fatalf("got %v, %s. The log:\n%s", err, stderr, r.dump())
 	}
-	done := make(chan result, 1)
-	go func() {
-		stderr, err := r.oikade(nil, "deploy", "--binary", bin)
-		done <- result{stderr, err}
-	}()
-	r.waitFor(func(l line) bool { return l.is(checked) })
-	r.contact("fail-go", true)
-	r.wrote("claimed-safety", false)
-	if err := os.WriteFile(filepath.Join(r.dir, "faults.go"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got := <-done
-	if got.err == nil || !strings.Contains(got.stderr, `"failing"`) {
-		t.Fatalf("got %v, %s. The log:\n%s", got.err, got.stderr, r.dump())
-	}
-	r.waitFor(func(l line) bool { return l.is(restored) })
-	r.stop()
-	if claims := r.ruleClaims("claimed-safety"); len(claims) == 0 {
-		t.Fatalf("the claim went. The log:\n%s", r.dump())
+	if r.count(checked) != 0 {
+		t.Fatalf("the check passed. The log:\n%s", r.dump())
 	}
 }
 

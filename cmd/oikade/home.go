@@ -282,7 +282,7 @@ func home() *oikade.Home {
 }
 
 func main() {
-	oikade.Run(home())
+	home().Run()
 }
 `
 

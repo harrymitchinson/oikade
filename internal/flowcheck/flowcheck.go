@@ -147,7 +147,11 @@ func callee(pass *analysis.Pass, x ast.Expr) (*types.Func, *ast.CallExpr) {
 
 // isDo reports whether a call is FlowRun.Do, whose last argument is the outside call.
 func isDo(pass *analysis.Pass, call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
+	fun := call.Fun
+	if index, ok := fun.(*ast.IndexExpr); ok {
+		fun = index.X // Do[T], with its type given.
+	}
+	sel, ok := fun.(*ast.SelectorExpr)
 	if !ok || sel.Sel.Name != "Do" || len(call.Args) == 0 {
 		return false
 	}

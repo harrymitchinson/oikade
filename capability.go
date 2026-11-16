@@ -93,7 +93,7 @@ func (n Number) change() engine.Change { return n.handle().change() }
 // Becomes is a change to v: a trigger that fires when the capability changes to v, and not when it
 // changes away from it.
 //
-//	oikade.NewFlow("front-door-arrival", arrival).On(FrontDoor.Open.Becomes(true))
+//	home.Flow("front-door-arrival", arrival).When(FrontDoor.Open.Becomes(true))
 func (b Bool) Becomes(v bool) Change { return becomes{b.handle(), v} }
 
 // becomes is a change to one value.
@@ -190,7 +190,7 @@ func (r Room[T]) engineTypes() []devicetype.Type {
 	return out
 }
 
-// Change is what triggers a moment or a flow: a capability changing on a device, as a Bool or a
+// Change is what triggers a flow, in its When: a capability changing on a device, as a Bool or a
 // Number, a Bool's Becomes, or a change on any device in a room, from InRoom.
 type Change interface {
 	change() engine.Change

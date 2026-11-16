@@ -373,8 +373,8 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 	case rules[i].Safety:
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a safety line, so pausing it stops that protection", req.Rule)}
 	case s.srv.engine.RuleClaims()[req.Rule] == control.Safety:
-		// As a deploy's check: a flow can make a Safety claim its declaration doesn't show, and a pause
-		// would leave that claim with no run to release it.
+		// As a deploy's check: a rule an older version declared can hold a Safety claim this one's
+		// declaration doesn't show, and a pause would leave that claim with no run to release it.
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s holds a Safety claim, which a pause would strand", req.Rule)}
 	}
 	ended, kept := s.claimsOf(req.Rule)

@@ -284,7 +284,7 @@ func runPlugin(ctx context.Context, h *Home, socket string) error {
 	if len(os.Args) != 3 {
 		return errors.New("which plugin? run this with oikade-host")
 	}
-	i := slices.IndexFunc(h.plugins, func(p Plugin) bool { return p.name == os.Args[2] })
+	i := slices.IndexFunc(h.plugins, func(p imported) bool { return p.name == os.Args[2] })
 	if i < 0 {
 		return fmt.Errorf("this home has no plugin %s", os.Args[2])
 	}

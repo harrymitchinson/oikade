@@ -17,7 +17,7 @@ var homeDevices = Snapshot{Next: 6, Devices: []Device{
 	{Name: "garden-light", Endpoint: 5},
 }}
 
-// homeWith is a home whose rules are body.
+// homeWith is a home whose rules are body, which adds them to home.
 func homeWith(body string) string {
 	return `package main
 
@@ -29,12 +29,9 @@ import (
 
 func main() {
 	_ = GardenLight.Name
-	var parts []oikade.Part
-	decide := func(*oikade.Home) {}
+	home := oikade.NewHome(oikade.Options{})
 	` + body + `
-	home := oikade.NewHome(oikade.Options{}, parts...)
-	decide(home)
-	oikade.Run(home)
+	home.Run()
 }
 
 var _ = time.Minute
@@ -53,41 +50,42 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 		want string
 	}{
 		"fine": {body: `
-		decide = func(home *oikade.Home) {
-			home.Decide(PorchLight.On).
-				Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
-				Default(false)
-			home.Decide(Hallway.Brightness).Case("evening", 40, oikade.Daily("18:00", "23:00")).Flows().Default(0)
-		}
-		parts = append(parts, oikade.NewMoment("goodnight", oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
-At(oikade.Clock("23:30")).
-On(PorchSensor.Occupied, oikade.InRoom("porch", oikade.Everything, oikade.Occupied)))`},
+		home.Decide(PorchLight.On).
+			Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
+			Default(false)
+		home.Decide(Hallway.Brightness).Case("evening", 40, oikade.Daily("18:00", "23:00")).Flows().Default(0)
+		home.Flow("goodnight", func(r *oikade.FlowRun) {
+			r.Set(oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false))
+			r.Set(Hallway.Brightness.To(10).For(time.Hour))
+		}).
+			At(oikade.Clock("23:30")).
+			When(PorchSensor.Occupied, oikade.InRoom("porch", oikade.Everything, oikade.Occupied))`},
 		"a capability the device hasn't": {
-			body: `decide = func(home *oikade.Home) { home.Decide(PorchLight.Occupied).Default(false) }`,
+			body: `home.Decide(PorchLight.Occupied).Default(false)`,
 			want: "PorchLight.Occupied undefined",
 		},
 		"a reserved device's capability": {
-			body: `decide = func(home *oikade.Home) { home.Decide(GardenLight.On).Default(false) }`,
+			body: `home.Decide(GardenLight.On).Default(false)`,
 			want: "GardenLight.On undefined",
 		},
 		"a number set to a bool": {
-			body: `parts = append(parts, oikade.NewMoment("a", Hallway.Brightness.To(true)))`,
+			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(Hallway.Brightness.To(true)) })`,
 			want: "cannot use true",
 		},
 		"a case of the wrong type": {
-			body: `decide = func(home *oikade.Home) { home.Decide(Hallway.Brightness).Case("a", true, Hallway.On).Default(0) }`,
+			body: `home.Decide(Hallway.Brightness).Case("a", true, Hallway.On).Default(0)`,
 			want: "cannot use true",
 		},
 		"a bool read as a number": {
-			body: `decide = func(home *oikade.Home) { home.Decide(Hallway.On).Case("a", true, Hallway.On.Above(5)).Default(false) }`,
+			body: `home.Decide(Hallway.On).Case("a", true, Hallway.On.Above(5)).Default(false)`,
 			want: "Hallway.On.Above undefined",
 		},
 		"a room's capability set to the wrong type": {
-			body: `parts = append(parts, oikade.NewMoment("a", oikade.InRoom("hall", oikade.Lights, oikade.On).To(10)))`,
+			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(oikade.InRoom("hall", oikade.Lights, oikade.On).To(10)) })`,
 			want: "cannot use 10",
 		},
 		"a room write that doesn't say what it's for": {
-			body: `parts = append(parts, oikade.NewMoment("a", oikade.InRoom("hall", oikade.On).To(true)))`,
+			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(oikade.InRoom("hall", oikade.On).To(true)) })`,
 			want: "not enough arguments in call to oikade.InRoom",
 		},
 	} {

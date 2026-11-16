@@ -468,14 +468,14 @@ func (s *Sim) Claims(device, name string) []Claim {
 	return out
 }
 
-// Finished says a flow or moment has run to the end, successfully, and nothing of it is running.
+// Finished says a flow has run to the end, successfully, and nothing of it is running.
 func (s *Sim) Finished(rule string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Contains(s.ended[rule], engine.ResultSucceeded) && s.runs[rule] == 0
 }
 
-// Failed says how the runs of a flow or moment that didn't succeed ended.
+// Failed says how the runs of a flow that didn't succeed ended.
 func (s *Sim) Failed(rule string) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

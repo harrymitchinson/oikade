@@ -10,8 +10,11 @@ type FlowRun struct{}
 
 func (r *FlowRun) Now() time.Time { return time.Time{} }
 
-func (r *FlowRun) Do(name string, result any, call func(context.Context) error) error { return nil }
-
-type Flow struct {
-	Run func(*FlowRun) error
+func (r *FlowRun) Do[T any](name string, call func(context.Context) (T, error)) (T, error) {
+	var v T
+	return v, nil
 }
+
+type Home struct{}
+
+func (h *Home) Flow(name string, run func(*FlowRun)) {}

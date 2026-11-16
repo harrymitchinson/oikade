@@ -140,7 +140,7 @@ var localTiming = timing{
 	request: 10 * time.Second, set: 4 * time.Second, execution: 2 * time.Minute,
 }
 
-// New returns the plugin's Factory, for oikade.NewPlugin.
+// New returns the plugin's Factory, for home.Plugin.
 func New(a Account) plugin.Factory {
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		if a == nil {
