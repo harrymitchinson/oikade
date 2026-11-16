@@ -34,7 +34,7 @@ const idleTimeout = 30 * time.Second
 // ended by then, so this is for what ignores it, such as a backup, and for the answer itself.
 const apiStopTimeout = 2 * time.Second
 
-// maxRequest bounds a request's body. The largest is a restore's registry.
+// maxRequest bounds a request's body. The largest is a deploy's.
 const maxRequest = 16 << 20
 
 // maxPublicRequest bounds the body of a call that needs no token, such as a login.
@@ -350,7 +350,7 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 	case api.TypeSecrets, api.TypeSecretSet, api.TypeSecretRemove:
 		return s.secret(req)
 	case api.TypeDevices, api.TypeDeviceName, api.TypeDeviceRoom, api.TypeDeviceType, api.TypeDeviceReserve,
-		api.TypeDeviceRemove, api.TypeDeviceReplace, api.TypeDeviceRestore:
+		api.TypeDeviceRemove, api.TypeDeviceReplace:
 		return s.device(req)
 	}
 	return api.Response{Error: fmt.Sprintf("unknown request %q", req.Type)}

@@ -210,38 +210,6 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 	}
 }
 
-func TestRestoringFromTheCommittedFile(t *testing.T) {
-	t.Parallel()
-	r := start(t)
-	r.pair("hall-lamp", "hall-lamp")
-	r.stdout(nil, "devices", "name", "hall-lamp", "lamp", "--allow-safety")
-	r.stdout(nil, "devices", "room", "lamp", "Hall")
-	r.stdout(nil, "devices", "type", "lamp", "OnOffLight")
-	r.stdout(nil, "devices", "reserve", "porch-light", "--room", "Porch")
-	want := r.devices()
-	file := filepath.Join(t.TempDir(), "devices.go")
-	r.stdout(nil, "types", "--out", file)
-	r.stop()
-
-	lost := start(t)
-	lost.stdout(nil, "devices", "restore", file)
-	got := lost.devices()
-	if got.Next != want.Next {
-		t.Errorf("next is %d, want %d", got.Next, want.Next)
-	}
-	for _, name := range []string{"fan", "lamp", "porch-light"} {
-		w, g := deviceOf(t, want, name), deviceOf(t, got, name)
-		if g.Endpoint != w.Endpoint || g.Room != w.Room || g.ID != w.ID || g.DeviceType != w.DeviceType {
-			t.Errorf("%s: got %+v, want %+v", name, g, w)
-		}
-	}
-	if lamp := deviceOf(t, got, "lamp"); lamp.DeviceType != "OnOffLight" {
-		t.Errorf("the lamp lost its device type: %+v", lamp)
-	}
-	lost.stdout(nil, "set", "fan", "on", "on")
-	lost.wrote("fan", true)
-}
-
 func TestASafetyDeviceCanBeRemovedOnPurpose(t *testing.T) {
 	t.Parallel()
 	r := start(t)
@@ -253,34 +221,6 @@ func TestASafetyDeviceCanBeRemovedOnPurpose(t *testing.T) {
 	if _, err := r.oikade(nil, "status", "valve"); err == nil {
 		t.Error("the valve stayed")
 	}
-}
-
-func TestRestoreRefusesToMoveAClaimedName(t *testing.T) {
-	t.Parallel()
-	r := start(t)
-	r.sync()
-	r.change("leak-sensor", "open", true)
-	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
-	r.sync()
-	list := r.devices()
-	for n, d := range list.Devices {
-		if d.Name == "valve" {
-			list.Devices[n].Name = "main-valve"
-		}
-	}
-	file, err := registry.Render(list, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "devices.go")
-	if err := os.WriteFile(path, file, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if stderr, err := r.oikade(nil, "devices", "restore", path, "--force"); err == nil ||
-		!strings.Contains(stderr, "Rule/valve on leak-shutoff") {
-		t.Errorf("moved a claimed name: %v: %s", err, stderr)
-	}
-	deviceOf(t, r.devices(), "valve")
 }
 
 func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
@@ -350,31 +290,6 @@ func TestASafetyClaimIsEnforcedBeforeItsDeviceReports(t *testing.T) {
 	if err == nil || !strings.Contains(stderr, `"valve on leak-shutoff"`) {
 		t.Errorf("the deploy check missed the claim: %v: %s", err, stderr)
 	}
-}
-
-func TestAFileThatDisagreesNeedsForce(t *testing.T) {
-	t.Parallel()
-	r := start(t)
-	list := r.devices()
-	for n, d := range list.Devices {
-		if d.Name == "fan" {
-			list.Devices[n].Name = "old-fan"
-		}
-	}
-	file, err := registry.Render(list, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "devices.go")
-	if err := os.WriteFile(path, file, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if stderr, err := r.oikade(nil, "devices", "restore", path); err == nil || !strings.Contains(stderr, "--force") {
-		t.Errorf("restored a file that disagrees: %v: %s", err, stderr)
-	}
-	deviceOf(t, r.devices(), "fan")
-	r.stdout(nil, "devices", "restore", path, "--force")
-	deviceOf(t, r.devices(), "old-fan")
 }
 
 func TestChangingANameWaitsForAllowSafetyWhileASafetyRuleRuns(t *testing.T) {

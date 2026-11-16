@@ -207,11 +207,11 @@ func runDev(h *Home) error {
 	if len(os.Args) != 3 {
 		return errors.New("run this with oikade dev")
 	}
-	devices, err := simhome.ReadTypes(os.Args[2])
+	home, err := h.simulated()
 	if err != nil {
 		return err
 	}
-	home, err := h.simulated()
+	devices, err := simhome.ReadTypes(os.Args[2], home.Inventory)
 	if err != nil {
 		return err
 	}
@@ -231,11 +231,11 @@ func runReplay(h *Home) error {
 	if len(os.Args) != 5 {
 		return errors.New("run this with oikade replay")
 	}
-	devices, err := simhome.ReadTypes(os.Args[3])
+	home, err := h.simulated()
 	if err != nil {
 		return err
 	}
-	home, err := h.simulated()
+	devices, err := simhome.ReadTypes(os.Args[3], home.Inventory)
 	if err != nil {
 		return err
 	}
@@ -262,7 +262,9 @@ func (h *Home) simulated() (simhome.Home, error) {
 	if err != nil {
 		return simhome.Home{}, err
 	}
-	return simhome.Home{Compile: h.compile, Control: settings, Site: h.options.site(), Averages: averagesUsed}, nil
+	return simhome.Home{
+		Compile: h.compile, Control: settings, Site: h.options.site(), Averages: averagesUsed, Inventory: h.inventory(),
+	}, nil
 }
 
 func init() {

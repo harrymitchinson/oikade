@@ -141,25 +141,37 @@ func printStatus(out, stderr io.Writer, st *api.Status, bridge *api.Matter, summ
 		}
 	}
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	var declare []string
 	for _, d := range st.Devices {
-		for _, c := range d.Capabilities {
+		if d.Declare != "" {
+			declare = append(declare, d.Declare)
+		}
+		for i, c := range d.Capabilities {
 			state := why(c)
 			if d.PluginNotImported {
 				state = strings.TrimSpace(notImported + "  " + state)
+			}
+			if d.Declare != "" && i == 0 {
+				state = strings.TrimSpace(notInYourCode + "  " + state)
 			}
 			if d.Problem != "" {
 				state = strings.TrimSpace(d.Problem + "  " + state)
 			}
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%v\t%s\n", d.Name, c.Name, display(c.Value), state)
 		}
-		if d.Problem != "" && len(d.Capabilities) == 0 {
-			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%s\n", d.Name, d.Problem)
+		if len(d.Capabilities) == 0 && (d.Problem != "" || d.Declare != "") {
+			state := d.Problem
+			if d.Declare != "" {
+				state = strings.TrimSpace(notInYourCode + "  " + state)
+			}
+			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%s\n", d.Name, state)
 		}
 	}
 	_ = w.Flush()
 	if !summary {
 		return
 	}
+	printUndeclared(stderr, declare)
 	_, _ = fmt.Fprintln(out)
 	for _, r := range st.Rules {
 		name := r.Name
@@ -532,12 +544,11 @@ func done(resp api.Response, asJSON bool, message string) error {
 			OK      bool            `json:"ok"`
 			Error   string          `json:"error,omitempty"`
 			Warning string          `json:"warning,omitempty"`
-			Moved   []string        `json:"moved,omitempty"`
 			Removed []string        `json:"removed,omitempty"`
 			Outcome *api.Capability `json:"outcome,omitempty"`
 			Ended   []string        `json:"ended,omitempty"`
 			Kept    []string        `json:"kept,omitempty"`
-		}{resp.Error == "", resp.Error, resp.Warning, resp.Moved, resp.Removed, resp.Outcome, resp.Ended, resp.Kept}
+		}{resp.Error == "", resp.Error, resp.Warning, resp.Removed, resp.Outcome, resp.Ended, resp.Kept}
 		if err := cli.PrintJSON(out); err != nil {
 			return err
 		}

@@ -45,6 +45,8 @@ type Home struct {
 	Site *sun.Site
 	// Averages are the rolling averages the home's conditions read, kept across a restart.
 	Averages func() []engine.Average
+	// Inventory is the devices the home declares, whose rooms and types ReadTypes gives them.
+	Inventory []wire.DeviceDeclaration
 }
 
 // Device is a simulated device.

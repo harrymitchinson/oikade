@@ -454,58 +454,6 @@ func (i *inventory) replace(name, with string) error {
 	return nil
 }
 
-// restore refuses a copy that would take a claimed name from its hardware, since claims stay with a
-// name. After a real loss nothing is claimed, because claims are in the same store.
-func (i *inventory) restore(from registry.Snapshot, force bool) ([]string, error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	before := i.registry.List()
-	for _, d := range before.Devices {
-		if d.Removed {
-			continue
-		}
-		holders, _ := i.claimed(d.Name)
-		if len(holders) > 0 && restoreMoves(from, d) {
-			return nil, fmt.Errorf("%s holds %s, and restoring would move that name", strings.Join(holders, ", "), d.Name)
-		}
-	}
-	moved, err := i.registry.Restore(from, force)
-	if err != nil {
-		return nil, err
-	}
-	names := map[string]string{}
-	for _, d := range before.Devices {
-		if d.Removed || d.ID == "" {
-			continue
-		}
-		if now, ok := i.registry.ByID(d.Driver, d.ID); ok && now.Name != d.Name {
-			names[d.Name] = now.Name
-		}
-	}
-	i.moveLive(names)
-	for _, d := range i.registry.List().Devices {
-		if !d.Removed {
-			i.announce(key(d.Name))
-		}
-	}
-	i.log.Info("Restored device registry", "devices", len(from.Devices), "moved", len(moved))
-	return moved, nil
-}
-
-// restoreMoves says a copy would rename or remove a device, or give its name to other hardware.
-func restoreMoves(from registry.Snapshot, d registry.Device) bool {
-	for _, f := range from.Devices {
-		same := d.ID != "" && f.ID == d.ID && f.Driver == d.Driver
-		if same && (f.Name != d.Name || f.Removed) {
-			return true
-		}
-		if !same && !f.Removed && f.Name == d.Name {
-			return true
-		}
-	}
-	return false
-}
-
 // typedOut names the running code's Safety rules that a device would drop out of with device type t:
 // a room write limited to types it's one of now and wouldn't be. known is false if nothing can say,
 // as rulesInfo's.
@@ -624,15 +572,6 @@ func (s *apiServer) device(req api.Request) api.Response {
 		return s.remove(req)
 	case api.TypeDeviceReplace:
 		err = s.devices.replace(req.Device, req.To)
-	case api.TypeDeviceRestore:
-		if req.Registry == nil {
-			return api.Response{Error: "a restore needs a registry"}
-		}
-		moved, err := s.devices.restore(*req.Registry, req.Force)
-		if err != nil {
-			return api.Response{Error: err.Error(), NeedsForce: errors.Is(err, registry.ErrDisagrees)}
-		}
-		return api.Response{Moved: moved}
 	default:
 		err = errors.New("unknown device request")
 	}

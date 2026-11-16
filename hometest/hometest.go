@@ -38,7 +38,8 @@ type Options struct {
 	// Start is when the test starts. Zero means midnight UTC on Monday 7 January 2030. Its location
 	// is the home's.
 	Start time.Time
-	// Devices are the devices. Empty means the ones in Types.
+	// Devices are the devices. Empty means the ones in Types, in the rooms and of the types your home
+	// declares.
 	Devices []Device
 	// Types is the file oikade types wrote, which a test finds beside itself. Empty means devices.go.
 	Types string
@@ -86,18 +87,17 @@ func New(t testing.TB, home *oikade.Home, o Options) *Home {
 			DeviceTypes: devicetype.Of(devicetype.Type(d.DeviceType), "", d.Capabilities),
 		})
 	}
+	compiled, err := simhome.FromHome(home)
+	if err != nil {
+		t.Fatalf("Your home has mistakes in it: %v", err)
+	}
 	if len(devices) == 0 {
 		if o.Types == "" {
 			o.Types = "devices.go"
 		}
-		var err error
-		if devices, err = simhome.ReadTypes(o.Types); err != nil {
+		if devices, err = simhome.ReadTypes(o.Types, compiled.Inventory); err != nil {
 			t.Fatalf("Reading the home's devices: %v. Run oikade types, or give Options.Devices", err)
 		}
-	}
-	compiled, err := simhome.FromHome(home)
-	if err != nil {
-		t.Fatalf("Your home has mistakes in it: %v", err)
 	}
 	sim, err := simhome.New(simhome.Options{Home: compiled, Devices: devices, Start: o.Start, Log: testLog(t)})
 	if err != nil {

@@ -189,3 +189,43 @@ func TestWhatADeclarationTouchesIsSaid(t *testing.T) {
 		t.Errorf("got %+v, want hall-sensor fresh and touched, shed-fan removed, other untouched", got)
 	}
 }
+
+func TestDeclaringChangesOnlyItsCopy(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "0x1", "Living room lamp")
+	before := r.List()
+	got, err := Declaring(before, []Declaration{{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "Study"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := live(got, "reading-lamp"); i < 0 || got.Devices[i].Room != "Study" {
+		t.Errorf("got %+v", got.Devices)
+	}
+	if live(before, "living-room-lamp") < 0 || live(r.List(), "living-room-lamp") < 0 {
+		t.Error("declaring changed the registry or the snapshot it was given")
+	}
+	if _, err := Declaring(before, []Declaration{{Name: "Bad Name", Driver: "sim", ID: "0x1"}}); err == nil {
+		t.Error("took a name a device can't have")
+	}
+}
+
+func TestAnUndeclaredPluginDeviceHasALineToPaste(t *testing.T) {
+	lamp := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee"}
+	if line, ok := Undeclared(lamp); !ok || line != `home.Device("lamp").Hardware("zigbee", "0x1")` {
+		t.Errorf("got %q, %v", line, ok)
+	}
+	placed := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Room: "Hall", DeviceType: devicetype.OnOffLight}
+	if line, _ := Undeclared(placed); line != `home.Device("lamp").Hardware("zigbee", "0x1").Room("Hall").Is(oikade.OnOffLight)` {
+		t.Errorf("got %q, want its room and type kept", line)
+	}
+	for _, d := range []Device{
+		{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Declared: true},
+		{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Removed: true},
+		{Name: "shed-fan"},
+		{Name: "kettle", ID: "k", Driver: "simulated/simulator"},
+	} {
+		if line, ok := Undeclared(d); ok {
+			t.Errorf("%+v has %q", d, line)
+		}
+	}
+}
