@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -15,11 +16,12 @@ import (
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 const devicesUsage = "usage: oikade devices [name DEVICE NAME | room DEVICE ROOM | type DEVICE TYPE | reserve NAME | " +
-	"replace DEVICE WITH | remove DEVICE | remove --plugin NAME | restore FILE]"
+	"replace DEVICE WITH | remove DEVICE | remove --plugin NAME]"
 
 // verbRemove is the one verb --plugin goes with.
 const verbRemove = "remove"
@@ -36,7 +38,6 @@ func runDevices(ctx context.Context, args []string) error {
 	allow := fs.Bool("allow-safety", false,
 		"Remove a device under a Safety claim, change a name while a Safety rule runs, or change a type "+
 			"that takes a device out of a Safety rule's room.")
-	force := fs.Bool("force", false, "Restore a file that disagrees with the registry.")
 	plugin := fs.String("plugin", "", "Remove every device of this plugin, such as one your home no longer imports.")
 	words := cli.Parse(fs, args)
 	if len(words) == 0 {
@@ -47,7 +48,7 @@ func runDevices(ctx context.Context, args []string) error {
 	if *plugin != "" && verb != verbRemove {
 		return errors.New("--plugin is only for oikade devices remove")
 	}
-	req := api.Request{AllowSafety: *allow, Force: *force}
+	req := api.Request{AllowSafety: *allow}
 	var message string
 	switch {
 	case verb == "name" && len(words) == 2:
@@ -75,17 +76,6 @@ func runDevices(ctx context.Context, args []string) error {
 			message = fmt.Sprintf("Removed %s, and ended its claims. "+
 				"If it's still paired, it comes back when it next reports", words[0])
 		}
-	case verb == "restore" && len(words) == 1:
-		file, err := os.ReadFile(words[0])
-		if err != nil {
-			return err
-		}
-		snapshot, err := registry.Parse(file)
-		if err != nil {
-			return fmt.Errorf("%s: %w", words[0], err)
-		}
-		req.Type, req.Registry = api.TypeDeviceRestore, &snapshot
-		message = fmt.Sprintf("Restored %d devices", len(snapshot.Devices))
 	default:
 		return errors.New(devicesUsage)
 	}
@@ -96,15 +86,9 @@ func runDevices(ctx context.Context, args []string) error {
 	if resp.NeedsAllowSafety {
 		fmt.Fprintln(os.Stderr, "Pass --allow-safety to go ahead anyway.")
 	}
-	if resp.NeedsForce {
-		fmt.Fprintln(os.Stderr, "Pass --force to make the registry match the file.")
-	}
 	if req.Plugin != "" && resp.Error == "" {
 		message = fmt.Sprintf("Removed %s, every device of %s. If %s is imported again, they come back when they next report",
 			strings.Join(resp.Removed, ", "), req.Plugin, req.Plugin)
-	}
-	for _, name := range resp.Moved {
-		fmt.Fprintln(os.Stderr, name, "isn't in the file, and the file has its name or Matter endpoint, so it has a new one")
 	}
 	return done(resp, *asJSON, message)
 }
@@ -158,8 +142,21 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 		noDevices(os.Stderr, removed)
 		return nil
 	}
-	printDevices(os.Stdout, list, marks)
+	printUndeclared(os.Stderr, printDevices(os.Stdout, list, marks))
 	return nil
+}
+
+// printUndeclared gives the lines that would declare the devices your home doesn't, which it needs
+// only to name, place or type them.
+func printUndeclared(out io.Writer, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	slices.Sort(lines)
+	_, _ = fmt.Fprintln(out, "To name, place or type a device that's not in your code, declare it in your home:")
+	for _, l := range lines {
+		_, _ = fmt.Fprintln(out, "  "+l)
+	}
 }
 
 // deviceMarks are what the host says of devices beyond the registry, by name.
@@ -185,9 +182,13 @@ const (
 	notImported = "plugin not imported"
 	// hiddenFromMatter is the state of a device your home keeps off Matter.
 	hiddenFromMatter = "hidden from Matter"
+	// notInYourCode is the state of a device your home doesn't declare.
+	notInYourCode = "not in your code"
 )
 
-func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) {
+// printDevices prints the table, and returns the lines that would declare the devices that are
+// marked not in your code.
+func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) (undeclared []string) {
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tDRIVER\tID\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
@@ -210,10 +211,15 @@ func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) {
 				state += ", " + hiddenFromMatter
 			}
 		}
+		if line, ok := registry.Undeclared(d); ok {
+			state += ", " + notInYourCode
+			undeclared = append(undeclared, line)
+		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
 			or(d.ID, "-"), d.Endpoint, or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
 	}
 	_ = w.Flush()
+	return undeclared
 }
 
 // listedDevice is a device as oikade devices --json prints it: as on record, with what it is.
@@ -263,6 +269,7 @@ func runTypes(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	out := fs.String("out", "devices.go", "The file to write, or - for standard output.")
 	pkg := fs.String("package", "main", "The file's Go package.")
+	module := fs.String("module", ".", "Your home's module, whose declarations name its devices.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
 		return fmt.Errorf("oikade types takes no %q", extra[0])
 	}
@@ -270,6 +277,9 @@ func runTypes(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	list = declaredIn(ctx, os.Stderr, *module, list, func(ctx context.Context) (wire.Manifest, error) {
+		return homeManifest(ctx, *module)
+	})
 	file, err := registry.Render(list, *pkg)
 	if err != nil {
 		return err
@@ -279,6 +289,38 @@ func runTypes(ctx context.Context, args []string) error {
 		return err
 	}
 	return os.WriteFile(*out, file, 0o644)
+}
+
+// declaredIn is the host's devices as your home's declarations would make them once it's deployed,
+// so that a name you declare has its handle before the deploy that gives it. A home that doesn't
+// build, as when it already names that handle, has its declarations read from its source.
+func declaredIn(ctx context.Context, stderr io.Writer, module string, list registry.Snapshot,
+	manifest func(context.Context) (wire.Manifest, error),
+) registry.Snapshot {
+	if _, err := os.Stat(filepath.Join(module, "go.mod")); err != nil {
+		_, _ = fmt.Fprintf(stderr, "%s isn't a Go module, so devices are under the host's names, not your declarations': "+
+			"pass your home's with --module\n", module)
+		return list
+	}
+	_, _ = fmt.Fprintln(stderr, "Building your home for its device declarations")
+	var inventory []wire.DeviceDeclaration
+	if m, err := manifest(ctx); err == nil {
+		inventory = m.Inventory
+	} else {
+		if inventory, err = declarationsInSource(module); err != nil {
+			_, _ = fmt.Fprintf(stderr, "Your home doesn't build, and its source can't be read, so devices are under "+
+				"the host's names: %v\n", err)
+			return list
+		}
+		_, _ = fmt.Fprintf(stderr, "Your home doesn't build, so its %d device declarations are read from its source\n",
+			len(inventory))
+	}
+	declared, err := registry.Declaring(list, wire.Declarations(inventory))
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "The host would refuse your declarations, so devices are under its names: %v\n", err)
+		return list
+	}
+	return declared
 }
 
 // printTakenOffMatter says which devices a deploy took off Matter, which controllers have lost with

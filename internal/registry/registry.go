@@ -36,20 +36,18 @@ const (
 var (
 	// ErrNoDevice is a name the registry doesn't have.
 	ErrNoDevice = errors.New("no such device")
-	// ErrDisagrees is a copy that would change a registry already in use.
-	ErrDisagrees = errors.New("the file disagrees with the registry")
 
 	validName = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 )
 
-// Device is one device. Its JSON is in oikade devices --json and in the file oikade types writes, so
+// Device is one device. Its JSON is in oikade devices --json, so
 // add to it, and don't rename.
 type Device struct {
 	// Name is what code and the command line call it: what the home declares, or else copied from
 	// the device's app once, and never following it.
 	Name string `json:"name"`
 	// Declared says the home's code declares the device, so its name, room and type are the code's.
-	Declared bool `json:"declared,omitempty"`
+	Declared bool `json:"declared"`
 	// AppName and AppRoom are what its app called it and where, read once as Name and Room are,
 	// which a device the home stops declaring goes back to.
 	AppName string `json:"appName,omitempty"`
@@ -363,126 +361,6 @@ func (r *Registry) Replace(name, with string) error {
 		source.ID, source.Removed = "", true
 		return nil
 	})
-}
-
-// Restore rebuilds the registry from a copy. The copy decides everything it names, matched by
-// hardware, so a device that re-entered after a loss gets its old name and endpoint back. Anything
-// else stays, on a new endpoint if the copy gives its one to something else, or a new name if the
-// copy gives its one to something else, and moved lists the live devices that changed so. Next never
-// falls, so nothing allocated since the copy is handed out again while the registry still
-// remembers it.
-//
-// A registry in use is the authority, and a copy can be old, so unless force is set Restore refuses
-// one that disagrees with it, with ErrDisagrees.
-func (r *Registry) Restore(from Snapshot, force bool) (moved []string, err error) {
-	if err := check(from); err != nil {
-		return nil, err
-	}
-	err = r.change(func(s *Snapshot) error {
-		moved = nil
-		if why := disagreement(*s, from); why != "" && !force {
-			return fmt.Errorf("%w: %s", ErrDisagrees, why)
-		}
-		out := clone(from)
-		out.Next = max(from.Next, s.Next)
-		for _, d := range s.Devices {
-			if named(from, d) {
-				continue
-			}
-			was := d.Name
-			collides := slices.ContainsFunc(from.Devices, func(f Device) bool { return f.Endpoint == d.Endpoint })
-			if collides && d.Removed && d.ID == "" {
-				continue // A retired endpoint with nothing that could come back to it.
-			}
-			if collides {
-				endpoint, err := allocate(&out)
-				if err != nil {
-					return err
-				}
-				d.Endpoint = endpoint
-			}
-			if !d.Removed {
-				d.Name = uniqueName(out, d.Name)
-				if collides || d.Name != was {
-					moved = append(moved, was)
-				}
-			}
-			out.Devices = append(out.Devices, cloneDevice(d))
-		}
-		*s = out
-		return nil
-	})
-	return moved, err
-}
-
-// disagreement says how a copy differs from a registry in use, on the hardware and names it has. A
-// registry with nothing in it has nothing to lose.
-func disagreement(s, from Snapshot) string {
-	if len(s.Devices) == 0 {
-		return ""
-	}
-	for _, f := range from.Devices {
-		if i := hardware(s, f.Driver, f.ID); f.ID != "" && i >= 0 {
-			if d := s.Devices[i]; d.Name != f.Name || d.Endpoint != f.Endpoint || d.Removed != f.Removed {
-				return fmt.Sprintf("the file has %s as %s, and the registry as %s", f.ID, f.Name, d.Name)
-			}
-		}
-		if i := live(s, f.Name); !f.Removed && i >= 0 {
-			if d := s.Devices[i]; d.ID != f.ID || d.Driver != f.Driver || d.Endpoint != f.Endpoint {
-				return fmt.Sprintf("%s is different hardware or a different endpoint in the file", f.Name)
-			}
-		}
-	}
-	return ""
-}
-
-// named reports whether the copy already has this device.
-func named(from Snapshot, d Device) bool {
-	return slices.ContainsFunc(from.Devices, func(f Device) bool {
-		if d.ID != "" {
-			return f.ID == d.ID && f.Driver == d.Driver
-		}
-		return f.ID == "" && f.Endpoint == d.Endpoint && f.Name == d.Name
-	})
-}
-
-// check refuses a copy that couldn't have come from a registry.
-func check(s Snapshot) error {
-	if s.Next < FirstEndpoint {
-		return fmt.Errorf("its next endpoint is %d", s.Next)
-	}
-	endpoints, names, ids := map[uint16]bool{}, map[string]bool{}, map[string]bool{}
-	for _, d := range s.Devices {
-		if d.Endpoint < FirstEndpoint || d.Endpoint >= s.Next {
-			return fmt.Errorf("%s has endpoint %d, outside %d to %d", d.Name, d.Endpoint, FirstEndpoint, s.Next-1)
-		}
-		if endpoints[d.Endpoint] {
-			return fmt.Errorf("endpoint %d is used twice", d.Endpoint)
-		}
-		endpoints[d.Endpoint] = true
-		if err := checkName(d.Name); err != nil {
-			return err
-		}
-		for _, t := range []devicetype.Type{d.DeviceType, d.DriverDeviceType} {
-			if t != "" && !devicetype.Choosable(t) {
-				return fmt.Errorf("%s has device type %q, which isn't one of %s", d.Name, t, devicetype.Join(devicetype.OnOff))
-			}
-		}
-		if !d.Removed {
-			if names[d.Name] {
-				return fmt.Errorf("%s is used twice", d.Name)
-			}
-			names[d.Name] = true
-		}
-		if d.ID != "" {
-			hw := d.Driver + "\x00" + d.ID
-			if ids[hw] {
-				return fmt.Errorf("the hardware %s is used twice", d.ID)
-			}
-			ids[hw] = true
-		}
-	}
-	return nil
 }
 
 func allocate(s *Snapshot) (uint16, error) {

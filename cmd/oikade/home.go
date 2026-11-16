@@ -57,21 +57,9 @@ func runCheck(ctx context.Context, args []string) error {
 	if err := checkSource(*module); err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, path, wire.RoleCheck)
-	cmd.Stderr = os.Stderr
-	out, err := cmd.Output()
+	m, err := manifestOf(ctx, path)
 	if err != nil {
-		return fmt.Errorf("checking your home: %w", err)
-	}
-	// A home's own code may have printed first.
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var m wire.Manifest
-	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &m); err != nil {
-		return fmt.Errorf("reading your home's check: %w", err)
-	}
-	if m.Protocol != wire.Version {
-		return fmt.Errorf("your home was built for protocol %d, and this oikade speaks %d: "+
-			"use the same version of both", m.Protocol, wire.Version)
+		return err
 	}
 	for _, w := range m.Warnings {
 		fmt.Fprintln(os.Stderr, "Warning:", w)
@@ -91,6 +79,37 @@ func runCheck(ctx context.Context, args []string) error {
 	printHiding(os.Stderr, *devices.Registry, m.HiddenFromMatter, devices.HiddenFromMatter)
 	printUnseen(os.Stderr, *devices.Registry, m.Inventory)
 	return nil
+}
+
+// homeManifest builds a home and asks it what it is, as a deploy does.
+func homeManifest(ctx context.Context, module string) (wire.Manifest, error) {
+	path, done, err := buildHome(ctx, module)
+	if err != nil {
+		return wire.Manifest{}, err
+	}
+	defer done()
+	return manifestOf(ctx, path)
+}
+
+// manifestOf asks a built home what it is.
+func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
+	cmd := exec.CommandContext(ctx, path, wire.RoleCheck)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return wire.Manifest{}, fmt.Errorf("checking your home: %w", err)
+	}
+	// A home's own code may have printed first.
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var m wire.Manifest
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &m); err != nil {
+		return wire.Manifest{}, fmt.Errorf("reading your home's check: %w", err)
+	}
+	if m.Protocol != wire.Version {
+		return wire.Manifest{}, fmt.Errorf("your home was built for protocol %d, and this oikade speaks %d: "+
+			"use the same version of both", m.Protocol, wire.Version)
+	}
+	return m, nil
 }
 
 // printUnseen warns of the hardware your home declares that the host has never seen, whose name

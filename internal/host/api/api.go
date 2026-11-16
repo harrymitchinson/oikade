@@ -58,7 +58,6 @@ const (
 	TypeDeviceReserve = "deviceReserve"
 	TypeDeviceRemove  = "deviceRemove"
 	TypeDeviceReplace = "deviceReplace"
-	TypeDeviceRestore = "deviceRestore"
 
 	TypeClients      = "clients"
 	TypeClientAdd    = "clientAdd"
@@ -117,7 +116,6 @@ var Routes = []Route{
 	{TypeDeviceReserve, http.MethodPost, Prefix + "/devices/reserve", false, false},
 	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false, false},
 	{TypeDeviceReplace, http.MethodPost, Prefix + "/devices/replace", false, false},
-	{TypeDeviceRestore, http.MethodPost, Prefix + "/devices/restore", false, false},
 
 	{TypeClients, http.MethodGet, Prefix + "/clients", false, false},
 	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false, false},
@@ -153,10 +151,6 @@ type Request struct {
 	Plugin string `json:"plugin,omitempty"`
 	// DeviceType is what a device is, one of devicetype.OnOff. Empty goes back to what its driver says.
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
-	// Registry is what a restore reads back.
-	Registry *registry.Snapshot `json:"registry,omitempty"`
-	// Force restores a file that disagrees with the registry.
-	Force bool `json:"force,omitempty"`
 	// Rule is a pause's or a resume's.
 	Rule string `json:"rule,omitempty"`
 	// AllowSafety pauses a Safety rule, removes a device a Safety claim holds, or changes a device's
@@ -197,8 +191,6 @@ type Response struct {
 	GOARCH string `json:"goarch,omitempty"`
 	// NeedsAllowSafety is a request that AllowSafety would let through.
 	NeedsAllowSafety bool `json:"needsAllowSafety,omitempty"`
-	// NeedsForce is a restore that Force would let through.
-	NeedsForce bool `json:"needsForce,omitempty"`
 	// Status is a status's.
 	Status *Status `json:"status,omitempty"`
 	// Registry is a devices request's.
@@ -206,8 +198,6 @@ type Response struct {
 	// Warning is something a request that went ahead should tell you, such as a move that left a
 	// room a rule reads with no devices.
 	Warning string `json:"warning,omitempty"`
-	// Moved are the devices a restore had to give a new endpoint or name.
-	Moved []string `json:"moved,omitempty"`
 	// Removed are the devices a remove of a plugin's devices removed.
 	Removed []string `json:"removed,omitempty"`
 	// Outcome is a set's: the capability once the device answered and nothing wrote it back, with its
@@ -405,6 +395,8 @@ type Device struct {
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
 	// Problem is what's wrong with it, as its driver says, such as a missing key.
 	Problem string `json:"problem,omitempty"`
+	// Declare is the line that would declare it, for a device your home's code doesn't declare.
+	Declare string `json:"declare,omitempty"`
 }
 
 // Capability is a device's capability, and who has it if it's arbitrated.

@@ -72,7 +72,7 @@ func TestEveryRequestTypeHasOneRoute(t *testing.T) {
 			t.Errorf("%s is outside %s", r.Path, api.Prefix)
 		}
 	}
-	if len(seen) != 28 {
-		t.Errorf("%d routes, want the API's 28", len(seen))
+	if len(seen) != 27 {
+		t.Errorf("%d routes, want the API's 27", len(seen))
 	}
 }

@@ -66,6 +66,14 @@ func (r *Registry) Plan(decls []Declaration) (Declared, error) {
 	return declare(&s, decls)
 }
 
+// Declaring is s as decls would make it once a version with them attaches, for oikade types, which
+// writes a home's handles before it's deployed.
+func Declaring(s Snapshot, decls []Declaration) (Snapshot, error) {
+	s = clone(s)
+	_, err := declare(&s, decls)
+	return s, err
+}
+
 // CheckDeclarations refuses declarations that disagree among themselves.
 func CheckDeclarations(decls []Declaration) error {
 	var errs []error
@@ -322,6 +330,23 @@ func typeLine(d Device) string {
 // describeDriver names a device's hardware as a person would: its plugin and ID.
 func describeDriver(d Device) string {
 	return DescribeHardware(d.Driver, d.ID)
+}
+
+// Undeclared says the line that would declare a device your home's code doesn't, as it is now, to
+// paste into it, or false for one it declares, or can't, as with a removed or simulated device.
+func Undeclared(d Device) (string, bool) {
+	plugin, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
+	if d.Declared || d.Removed || d.ID == "" || !ok {
+		return "", false
+	}
+	line := fmt.Sprintf("home.Device(%q).Hardware(%q, %q)", d.Name, plugin, d.ID)
+	if d.Room != "" {
+		line += fmt.Sprintf(".Room(%q)", d.Room)
+	}
+	if d.DeviceType != "" {
+		line += fmt.Sprintf(".Is(oikade.%s)", d.DeviceType)
+	}
+	return line, true
 }
 
 // DescribeHardware names hardware as a person would: its plugin and ID.

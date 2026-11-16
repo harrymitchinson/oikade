@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
 // rulesInfo says what the running code's rules are: from the process, or if it's down, from the
@@ -71,6 +72,11 @@ func (s *apiServer) status() api.Response {
 		d := api.Device{
 			Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
 			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[dev.Name], Problem: snap.Info.Error,
+		}
+		if s.devices != nil {
+			if r, ok := s.devices.registry.Get(dev.Name); ok {
+				d.Declare, _ = registry.Undeclared(r)
+			}
 		}
 		held := s.srv.engine.ControlOf(dev)
 		names := slices.Clone(snap.Info.Capabilities)

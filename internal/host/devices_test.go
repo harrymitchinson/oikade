@@ -110,14 +110,6 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if err := known.replace("valve", "valve"); err == nil {
 		t.Error("moved a device with a claim on record")
 	}
-	if _, err := known.restore(registry.Snapshot{Next: 9}, true); err != nil {
-		t.Errorf("a file that doesn't name it: %v", err)
-	}
-	if _, err := known.restore(registry.Snapshot{Next: 9, Devices: []registry.Device{
-		{Name: "valve", ID: "other", Driver: "later/x", Endpoint: 8},
-	}}, true); err == nil {
-		t.Error("gave a claimed name to other hardware")
-	}
 }
 
 func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {

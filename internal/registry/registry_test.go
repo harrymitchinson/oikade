@@ -236,155 +236,6 @@ func TestReplacingKeepsTheNameAndEndpoint(t *testing.T) {
 	}
 }
 
-func TestRestoreRebuildsARegistryThatWasLost(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "first")
-	second := report(t, r, "b", "second")
-	report(t, r, "c", "gone")
-	if err := r.Remove("gone"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Move("second", "Hall"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Reserve("porch", "Porch"); err != nil {
-		t.Fatal(err)
-	}
-	file, err := Render(r.List(), "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	copied, err := Parse(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	lost, _ := open(t)
-	// The drivers got there first, in another order, under the names from their apps.
-	if d := report(t, lost, "b", "from-the-app"); d.Endpoint != FirstEndpoint {
-		t.Fatalf("got %+v", d)
-	}
-	report(t, lost, "new", "not-in-the-file")
-	moved, err := lost.Restore(copied, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d := get(t, lost, "second"); d.ID != "b" || d.Endpoint != second.Endpoint || d.Room != "Hall" {
-		t.Errorf("got %+v", d)
-	}
-	if d := get(t, lost, "porch"); !d.Reserved() {
-		t.Errorf("got %+v", d)
-	}
-	if _, ok := lost.Get("gone"); ok {
-		t.Error("a removed device came back")
-	}
-	if back := report(t, lost, "c", "ignored"); back.Name != "gone" || back.Endpoint != FirstEndpoint+2 {
-		t.Errorf("a removed device lost its endpoint: %+v", back)
-	}
-	kept := get(t, lost, "not-in-the-file")
-	if len(moved) != 1 || moved[0] != kept.Name || kept.Endpoint < copied.Next {
-		t.Errorf("moved %v, kept %+v, next %d", moved, kept, copied.Next)
-	}
-	list := lost.List()
-	if d := report(t, lost, "later", "later"); d.Endpoint < list.Next {
-		t.Errorf("handed out %d below next %d", d.Endpoint, list.Next)
-	}
-	seen := map[uint16]bool{}
-	for _, d := range lost.List().Devices {
-		if seen[d.Endpoint] {
-			t.Errorf("endpoint %d used twice", d.Endpoint)
-		}
-		seen[d.Endpoint] = true
-	}
-}
-
-func TestRestoringAnOldCopyNeverLowersNext(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "first")
-	old := r.List()
-	report(t, r, "b", "second")
-	after := r.List().Next
-	if _, err := r.Restore(old, true); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.List().Next; got != after {
-		t.Errorf("next went from %d to %d", after, got)
-	}
-	if d := get(t, r, "second"); d.Endpoint != FirstEndpoint+1 {
-		t.Errorf("got %+v", d)
-	}
-}
-
-func TestRestoreKeepsAnUnrelatedReservationOnTheSameEndpoint(t *testing.T) {
-	r, _ := open(t)
-	if err := r.Reserve("shed", ""); err != nil {
-		t.Fatal(err)
-	}
-	moved, err := r.Restore(Snapshot{Next: 3, Devices: []Device{{Name: "porch", Endpoint: 2}}}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d := get(t, r, "shed"); d.Endpoint == 2 || len(moved) != 1 || moved[0] != "shed" {
-		t.Errorf("got %+v, moved %v", d, moved)
-	}
-}
-
-func TestRestoreDropsARetiredRecordItsCopyCovers(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "first")
-	new := report(t, r, "b", "second")
-	old := r.List()
-	if err := r.Replace("first", "second"); err != nil {
-		t.Fatal(err)
-	}
-	moved, err := r.Restore(old, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(moved) != 0 || r.List().Next != new.Endpoint+1 {
-		t.Errorf("moved %v, list %+v", moved, r.List())
-	}
-}
-
-func TestRestoreRenamesWhatItsCopyGivesAway(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "lamp")
-	moved, err := r.Restore(Snapshot{Next: 9, Devices: []Device{{Name: "lamp", ID: "b", Driver: "sim", Endpoint: 8}}}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if byID, ok := r.ByID("sim", "a"); !ok || byID.Name != "lamp-2" || byID.Endpoint != FirstEndpoint {
-		t.Errorf("got %+v", byID)
-	}
-	if len(moved) != 1 || moved[0] != "lamp" {
-		t.Errorf("moved %v", moved)
-	}
-}
-
-func TestRestoreRefusesABadCopy(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "first")
-	for name, s := range map[string]Snapshot{
-		"no next":             {},
-		"past next":           {Next: 3, Devices: []Device{{Name: "a", Endpoint: 3}}},
-		"root endpoint":       {Next: 3, Devices: []Device{{Name: "a", Endpoint: 1}}},
-		"same endpoint":       {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "b", Endpoint: 2}}},
-		"same name":           {Next: 5, Devices: []Device{{Name: "a", Endpoint: 2}, {Name: "a", Endpoint: 3}}},
-		"same hardware":       {Next: 5, Devices: []Device{{Name: "a", ID: "x", Endpoint: 2}, {Name: "b", ID: "x", Endpoint: 3}}},
-		"a bad name":          {Next: 3, Devices: []Device{{Name: "Not Valid", Endpoint: 2}}},
-		"a bad type":          {Next: 3, Devices: []Device{{Name: "a", Endpoint: 2, DeviceType: devicetype.ContactSensor}}},
-		"a bad driver's type": {Next: 3, Devices: []Device{{Name: "a", Endpoint: 2, DriverDeviceType: "Toaster"}}},
-	} {
-		before := r.List()
-		if _, err := r.Restore(s, true); err == nil {
-			t.Errorf("%s: restored", name)
-		}
-		if after := r.List(); after.Next != before.Next || len(after.Devices) != len(before.Devices) {
-			t.Errorf("%s: changed the registry", name)
-		}
-	}
-}
-
 func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "z", "zebra-lamp")
@@ -426,7 +277,7 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	}
 }
 
-func TestRenderCleansWhatARestoreBrought(t *testing.T) {
+func TestRenderCleansWhatAnAppReports(t *testing.T) {
 	file, err := Render(Snapshot{Next: 3, Devices: []Device{{
 		Name: "lamp", Room: "Hall\nconst Evil = 1", Capabilities: []string{"a\nvar X = 2"}, Endpoint: 2,
 	}}}, "main")
@@ -451,12 +302,30 @@ func TestRenderLeavesOutRemovedDevices(t *testing.T) {
 	if strings.Contains(string(file), "var Lamp") || strings.Contains(string(file), "import") {
 		t.Errorf("the device stayed:\n%s", file)
 	}
-	back, err := Parse(file)
+}
+
+func TestHandlesReadsBackWhatRenderWrote(t *testing.T) {
+	r, _ := open(t)
+	report(t, r, "0x1", "lamp")
+	if err := r.Reserve("shed-fan", ""); err != nil {
+		t.Fatal(err)
+	}
+	file, err := Render(r.List(), "home")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back.Devices) != 1 || !back.Devices[0].Removed || back.Next != FirstEndpoint+1 {
-		t.Errorf("got %+v", back)
+	if strings.Contains(string(file), "//oikade:") {
+		t.Errorf("registry lines stayed:\n%s", file)
+	}
+	got, err := Handles(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got["lamp"], []string{"on"}) || got["shed-fan"] == nil || len(got) != 2 {
+		t.Errorf("read back %v", got)
+	}
+	if _, err := Handles([]byte("not go")); err == nil {
+		t.Error("read a file that isn't Go")
 	}
 }
 
@@ -469,15 +338,6 @@ func TestRenderRefusesNamesThatMeetInGo(t *testing.T) {
 	}
 	if _, err := Render(r.List(), "main"); err == nil || !strings.Contains(err.Error(), "A1") {
 		t.Errorf("got %v", err)
-	}
-}
-
-func TestParseRefusesOtherFiles(t *testing.T) {
-	if _, err := Parse([]byte("package main\n")); err == nil {
-		t.Error("read a file oikade types didn't write")
-	}
-	if _, err := Parse([]byte(registryLine + "{\n")); err == nil {
-		t.Error("read a broken file")
 	}
 }
 
@@ -513,57 +373,6 @@ func TestEndpointsRunOut(t *testing.T) {
 	}
 }
 
-func TestAStaleFileLeavesAHealthyRegistryAlone(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "h1", "lamp")
-	report(t, r, "h2", "lamp-new")
-	report(t, r, "h3", "gone")
-	stale := r.List()
-	if err := r.Replace("lamp", "lamp-new"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Remove("gone"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.Restore(stale, false); !errors.Is(err, ErrDisagrees) {
-		t.Errorf("got %v", err)
-	}
-	if d, ok := r.ByID("sim", "h2"); !ok || d.Name != "lamp" || d.Endpoint != FirstEndpoint {
-		t.Fatalf("a stale file moved live hardware: %+v", d)
-	}
-	if _, ok := r.Get("gone"); ok {
-		t.Error("a removed device came back")
-	}
-	if _, err := r.Restore(stale, true); err != nil {
-		t.Fatal(err)
-	}
-	if d, ok := r.ByID("sim", "h2"); !ok || d.Name != "lamp-new" {
-		t.Errorf("force didn't apply the file: %+v", d)
-	}
-}
-
-func TestRestoreNeedsNoForceWhenNothingDisagrees(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "lamp")
-	copied := r.List()
-	if _, err := r.Restore(copied, false); err != nil {
-		t.Errorf("a file that agrees: %v", err)
-	}
-	empty, _ := open(t)
-	if _, err := empty.Restore(copied, false); err != nil {
-		t.Errorf("an empty registry: %v", err)
-	}
-	if err := r.Reserve("porch", ""); err != nil {
-		t.Fatal(err)
-	}
-	reserved := r.List()
-	other, _ := open(t)
-	report(t, other, "x", "porch")
-	if _, err := other.Restore(reserved, false); !errors.Is(err, ErrDisagrees) {
-		t.Errorf("a name on other hardware: %v", err)
-	}
-}
-
 func TestArbitrationStaysOnRecordAndWithTheName(t *testing.T) {
 	r, values := open(t)
 	settings := []byte(`[{"capability":"on"}]`)
@@ -583,17 +392,6 @@ func TestArbitrationStaysOnRecordAndWithTheName(t *testing.T) {
 	}
 	if d, _ := reopened.Get("valve"); d.ID != "b" || !bytes.Equal(d.Control, settings) {
 		t.Errorf("got %+v", d)
-	}
-	file, err := Render(reopened.List(), "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	back, err := Parse(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if i := live(back, "valve"); i < 0 || !bytes.Equal(back.Devices[i].Control, settings) {
-		t.Errorf("the file lost them: %+v", back)
 	}
 }
 
@@ -674,25 +472,6 @@ func TestSetDeviceTypeRefusesWhatCantBe(t *testing.T) {
 	}
 	if err := r.SetDeviceType("future", devicetype.DimmableLight); err != nil {
 		t.Errorf("a reserved name, whose capabilities aren't known yet: %v", err)
-	}
-}
-
-func TestADeviceTypeIsInTheTypesFile(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "0x1", "lamp")
-	if err := r.SetDeviceType("lamp", devicetype.OnOffLight); err != nil {
-		t.Fatal(err)
-	}
-	file, err := Render(r.List(), "home")
-	if err != nil {
-		t.Fatal(err)
-	}
-	back, err := Parse(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(back.Devices) != 1 || back.Devices[0].DeviceType != devicetype.OnOffLight {
-		t.Errorf("read back %+v", back.Devices)
 	}
 }
 

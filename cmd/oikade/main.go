@@ -45,8 +45,7 @@ const usage = `Usage:
   oikade devices replace DEVICE WITH [--allow-safety] [--json]
   oikade devices remove DEVICE [--allow-safety] [--json]
   oikade devices remove --plugin NAME [--allow-safety] [--json]
-  oikade devices restore FILE [--force] [--json]
-  oikade types [--out FILE] [--package NAME]
+  oikade types [--out FILE] [--package NAME] [--module DIR]
   oikade matter [--json]
   oikade setup PLUGIN [--json]         Asks what the plugin needs, and checks it, on the host.
   oikade backup
