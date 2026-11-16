@@ -33,7 +33,7 @@ func (n Number) AverageOver(d time.Duration) Number {
 	defer averagesMu.Unlock()
 	switch {
 	case n.Device == "" || n.Capability == "":
-	case strings.Contains(string(n.Capability), " over "):
+	case isAverage(n):
 		badAverages[out.handle()] = fmt.Sprintf("%s %s is an average already", n.Device, n.Capability)
 	case d < time.Minute:
 		badAverages[out.handle()] = fmt.Sprintf("AverageOver(%v) must be at least a minute", d)
@@ -45,6 +45,9 @@ func (n Number) AverageOver(d time.Duration) Number {
 	}
 	return out
 }
+
+// isAverage says whether n was made by AverageOver.
+func isAverage(n Number) bool { return strings.Contains(string(n.Capability), " over ") }
 
 // averagesUsed are the averages the home's code has made.
 func averagesUsed() []engine.Average {

@@ -200,7 +200,10 @@ func TestThePoolPumpsBudgetReadsTheAverageAcrossARestart(t *testing.T) {
 	h.Set(poolWater, 20.0)
 	h.Advance(time.Hour)
 	h.Restart()
-	h.Advance(time.Hour)
+	// A sensor reports now and then, so its average is fresh at midnight.
+	h.Advance(50 * time.Minute)
+	h.Set(poolWater, 20.0)
+	h.Advance(10 * time.Minute)
 	midnight := start.Add(24 * time.Hour)
 	h.Advance(10 * time.Hour)
 	if ran := pumpRun(h, midnight, midnight.Add(10*time.Hour)); ran != 240 {

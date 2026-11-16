@@ -153,6 +153,10 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			deciding(Options{}, "a", Number{"t", Temperature}.AverageOver(time.Second).Below(3)),
 			"AverageOver(1s) must be at least a minute",
 		},
+		"an average as a trigger": {
+			decide(func(h *Home) { h.Flow("a", nothing).When(Number{"t", Temperature}.AverageOver(time.Hour)) }),
+			"When[0] is an average",
+		},
 		"a budget's condition": {
 			decide(func(h *Home) {
 				h.Decide(d).Budget("b", true, NewBudget(func(Snapshot) int { return 1 }), Yearly("1 Jun", "June 30")).Default(false)

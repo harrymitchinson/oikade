@@ -238,15 +238,14 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 			read := func(device, name string) *schedule.Reading {
 				in, ok := e.Store.Get(ident.ID{Name: device})
 				v, has := in.Values[name]
-				at := in.LastSeen
 				if avg, isAverage := e.averageOf(device, name, now); isAverage {
-					// An average is the reading's up to now, taking the last value to have held.
-					v, has, at = avg, true, now
+					// An average is as fresh as the device's last report, so a dead sensor's is stale.
+					v, has = avg, true
 				}
 				if !ok || !has {
 					return nil
 				}
-				return &schedule.Reading{Value: capability.Float(v), At: at}
+				return &schedule.Reading{Value: capability.Float(v), At: in.LastSeen}
 			}
 			vars := e.conditionVars(now, devices)
 			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}

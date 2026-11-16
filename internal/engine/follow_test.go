@@ -3,10 +3,12 @@ package engine
 import (
 	"errors"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
@@ -31,6 +33,13 @@ func TestAFollowedHoldWritesOnlyWhenTheRoundedValueChanges(t *testing.T) {
 	r.expect(call{"bay-blind", capability.Position, int64(20)})
 	r.change("outdoor-temp", capability.Temperature, 2.04)
 	r.expect(call{"bay-blind", capability.Position, int64(20)})
+	// 20.6 rounds to 21, but it's within three quarters of a step of what was written.
+	r.change("outdoor-temp", capability.Temperature, 2.06)
+	r.expect(call{"bay-blind", capability.Position, int64(20)})
+	r.change("outdoor-temp", capability.Temperature, 2.08)
+	r.expect(call{"bay-blind", capability.Position, int64(20)}, call{"bay-blind", capability.Position, int64(21)})
+	// Back across the edge, a wobble isn't a write either.
+	r.change("outdoor-temp", capability.Temperature, 2.04)
 	r.change("outdoor-temp", capability.Temperature, 2.06)
 	r.expect(call{"bay-blind", capability.Position, int64(20)}, call{"bay-blind", capability.Position, int64(21)})
 	r.change("outdoor-temp", capability.Temperature, 20.0)
@@ -62,6 +71,15 @@ func TestAFollowedHoldsStepRounds(t *testing.T) {
 	r.expect(call{"bay-blind", capability.Position, int64(20)})
 	r.change("outdoor-temp", capability.Temperature, 2.6)
 	r.expect(call{"bay-blind", capability.Position, int64(20)}, call{"bay-blind", capability.Position, int64(25)})
+}
+
+// A Follow that gives NaN is as one whose reading isn't known: nothing is written.
+func TestAFollowThatGivesNaNWritesNothing(t *testing.T) {
+	h := Hold{Device: "bay-blind", Capability: capability.Position, Follow: func(Vars) (float64, error) { return math.NaN(), nil }}
+	r := startRig(t, local("2026-10-21 08:00 BST"), nil, map[string]map[string]any{"outdoor-temp": {capability.Temperature: 2.0}}, nil,
+		holdRule(t, "blind", h))
+	r.change("outdoor-temp", capability.Temperature, 3.0)
+	r.expect()
 }
 
 func TestFollowNeedsANumberWithAStep(t *testing.T) {
@@ -107,10 +125,35 @@ func TestAnAverageSurvivesARestart(t *testing.T) {
 	r := startRigWith(t, opts, holdRule(t, "blind", blind))
 	r.expect(call{"bay-blind", capability.Position, int64(10)})
 	r.at("2026-10-21 08:30 BST")
+	r.change("water-temp", capability.Temperature, 25.0)
+	// A second reading in the same bucket is saved as the engine stops.
 	r.change("water-temp", capability.Temperature, 20.0)
 	r.stop()
 	opts.now, opts.values = local("2026-10-21 09:00 BST"), map[string]map[string]any{"water-temp": {capability.Temperature: 20.0}}
 	r = startRigWith(t, opts, holdRule(t, "blind", blind))
 	// Half an hour at 10 and half at 20, rather than a fresh 20.
 	r.expect(call{"bay-blind", capability.Position, int64(15)})
+}
+
+// A budget's when that can't be told counts as false, so the budget stops rather than running on
+// past its slot.
+func TestABudgetsUnknownWhenStopsIt(t *testing.T) {
+	var unknown atomic.Bool
+	h := pumpBudget
+	h.When = func(Vars) (bool, error) {
+		if unknown.Load() {
+			return false, errors.New("the sensor hasn't reported")
+		}
+		return true, nil
+	}
+	r := startRigWith(t, rigOptions{
+		now: local("2026-10-21 21:59 BST"), control: map[string][]control.Entry{"pump": {pumpEntry()}},
+		values: map[string]map[string]any{"water-temp": {capability.Temperature: 10.0}},
+	}, holdRule(t, "pump-daily", h))
+	r.report("water-temp", capability.Temperature, 10.0)
+	r.at("2026-10-21 22:30 BST")
+	r.expect(call{"pump", capability.On, false}, call{"pump", capability.On, true})
+	unknown.Store(true)
+	r.at("2026-10-21 23:01 BST") // after the pump's MinimumOn, and before its planned slot ends
+	r.expect(call{"pump", capability.On, false}, call{"pump", capability.On, true}, call{"pump", capability.On, false})
 }

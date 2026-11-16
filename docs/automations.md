@@ -43,7 +43,7 @@ A condition is something true or false about the home now. It's a value, so the 
 oikade.All(PoolWater.Temperature.Below(3), oikade.Not(oikade.Yearly("1 Jun", "15 Sep")))
 ```
 
-`PoolWater.Temperature.AverageOver(24 * time.Hour)` is a `Number` too: the reading's average over the last day, each value weighted by how long it held. A condition, a [`Follow`](#values-that-follow-a-reading) or a budget's `Bands` reads it like the reading itself. Your process keeps it from each report, and the host saves it, so a restart carries on with it rather than starting again. Until a whole window has gone by, it averages what it has, and while your process is down the last value counts as having held. Make it where the home is built, not inside a `ConditionFunc`, because only those made before the home runs are kept. An average of an average, or one over less than a minute, fails `oikade check`.
+`PoolWater.Temperature.AverageOver(24 * time.Hour)` is a `Number` too: the reading's average over the last day, each value weighted by how long it held. A condition, a [`Follow`](#values-that-follow-a-reading) or a budget's `Bands` reads it like the reading itself. Your process keeps it from each report, and the host saves it, so a restart carries on with it rather than starting again. Until a whole window has gone by, it averages what it has, and while your process is down the last value counts as having held. Make it where the home is built, not inside a `ConditionFunc`, because only those made before the home runs are kept. A budget's `Bands` take it to be as fresh as the device's last report. It never changes as a reading does, so it isn't a flow's trigger. An average of an average, one over less than a minute, or one in `When`, fails `oikade check`.
 
 A condition reading a value nobody has reported yet stops there: a case keeps its state, and a flow's `If` doesn't let it run. If a `Delay` or `Linger` runs out meanwhile, the case starts or ends once the value is back, if its conditions still say so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts.
 
@@ -258,7 +258,7 @@ home.Decide(StudyRadiator.Setpoint).
 	Default(18)
 ```
 
-The value is rounded to the capability's step, 0.5 for a setpoint and 1 for brightness and position, or to `.Step(n)`'s, and kept within the capability's bounds. It's written only when the rounded value changes, so a reading's every wobble isn't a write, and the host saves the last one written, so a restart doesn't write it again. The reading can be an [`AverageOver`](#conditions). Until it's reported, the lines below apply, and `oikade status` says why. A `Follow` is a line like a case, named `study-radiator setpoint: weather`, so `oikade pause study-radiator setpoint weather` pauses it.
+The value is rounded to the capability's step, 0.5 for a setpoint and 1 for brightness and position, or to `.Step(n)`'s, and kept within the capability's bounds. It's written only when the value is three quarters of a step from the last one written, so a reading that wobbles across a rounding edge isn't a write each time. The host saves the last one written, so a restart doesn't write it again. A function that gives NaN or an infinity counts as an unreported reading. The reading can be an [`AverageOver`](#conditions). Until it's reported, the lines below apply, and `oikade status` says why. A `Follow` is a line like a case, named `study-radiator setpoint: weather`, so `oikade pause study-radiator setpoint weather` pauses it.
 
 ### Budgets
 
@@ -294,7 +294,7 @@ home.Decide(LoftFan.On).
 | `Prefer(hours, score)` | A `Daily` the minutes go in first. Each slot it touches gains the score, from -100 to 100, and overlapping ones add up. Give it once per `Daily`. |
 | `Forbid` | `Daily`s the minutes never go in. |
 
-A budget's conditions come after it, as a case's do: `Budget("summer-extra", true, extra, oikade.Yearly("1 Jun", "15 Sep"))` runs only in summer. The day is planned whatever they say, and a planned slot they rule out isn't made up later. A `Bands` reading can be an [`AverageOver`](#conditions), such as the water's temperature over the last day.
+A budget's conditions come after it, as a case's do: `Budget("summer-extra", true, extra, oikade.Yearly("1 Jun", "15 Sep"))` runs only in summer. The day is planned whatever they say, and a planned slot they rule out isn't made up later. A condition that can't be told yet, such as one reading a device that hasn't reported, counts as false, so the budget stops rather than running on. A `Bands` reading can be an [`AverageOver`](#conditions), such as the water's temperature over the last day.
 
 A budget's `Daily`s take clock times only, because the day is planned in slots. A budget sets a `Bool` to `true`. The decision's `Limits` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. Something that must run whatever the budget says, such as frost protection, is a case above it.
 

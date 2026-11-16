@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -188,21 +189,27 @@ func edited(hs *holdState, c *Compiled) *HoldTarget {
 // when to look again. Call with e.mu held.
 func (e *Engine) budgetLook(key ident.ID, s *state, st *HoldState, now time.Time, devices *home) (on, known bool, next time.Time) {
 	hs, h := s.hold, s.c.hold
-	// A budget's when is looked at first, so a plan it couldn't make is what's said to stop it.
-	when, known := true, true
+	// A budget's when is looked at first, so a plan it couldn't make is what's said to stop it. A
+	// when that can't be told is false: the budget's slots, not its when, say when it stops.
+	when := true
 	var whenNext time.Time
 	if h.when != nil {
-		when, known, whenNext = e.condition(key, hs, h, now, devices)
+		var whenKnown bool
+		when, whenKnown, whenNext = e.condition(key, hs, h, now, devices)
+		when = when && whenKnown
 	}
 	on, next = e.budgetCondition(key, s, now, devices)
-	on = on && when
+	on, known = on && when, true
 	if !whenNext.IsZero() && (next.IsZero() || whenNext.Before(next)) {
 		next = whenNext
 	}
-	if r := hs.budget.reported; r != nil && r.Unplanned {
+	switch r := hs.budget.reported; {
+	case r != nil && r.Unplanned:
 		e.stopped(key, hs, r.Message)
-	} else if h.when == nil {
+	case h.when == nil:
 		e.stopped(key, hs, "")
+	}
+	if h.when == nil {
 		// A Rule edited into a budget hold with no When, so a stretch it was in has ended.
 		e.whenKnown(key, hs)
 	}
@@ -216,12 +223,15 @@ func (e *Engine) budgetLook(key ident.ID, s *state, st *HoldState, now time.Time
 // is. Why it isn't is the hold's why-not. Call with e.mu held.
 func (e *Engine) follow(hs *holdState, h *hold, st *HoldState, now time.Time, devices *home) bool {
 	v, err := h.follow(e.conditionVars(now, devices))
+	if err == nil && (math.IsNaN(v) || math.IsInf(v, 0)) {
+		err = fmt.Errorf("follow gave %v", v)
+	}
 	if err != nil {
 		hs.followWhy = err.Error()
 		return false
 	}
 	hs.followWhy = ""
-	st.Target.Value = h.followed(v)
+	st.Target.Value = h.followed(v, st.Target.Value)
 	return true
 }
 

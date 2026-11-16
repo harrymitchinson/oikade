@@ -797,6 +797,11 @@ func nilChange(on []Change) error {
 	if i := slices.Index(on, nil); i >= 0 {
 		return fmt.Errorf("a nil change, at When[%d]: give a handle, or InRoom", i)
 	}
+	for i, c := range on {
+		if n, ok := c.(Number); ok && isAverage(n) {
+			return fmt.Errorf("the change at When[%d] is an average, which never changes as a reading does: give the reading", i)
+		}
+	}
 	return nil
 }
 

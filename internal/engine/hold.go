@@ -139,12 +139,17 @@ func guardedFollow(f func(Vars) (float64, error)) func(Vars) (float64, error) {
 	}
 }
 
-// followed is v rounded to h's step, within the capability's bounds, as a hold's Value is kept.
-func (h *hold) followed(v float64) any {
-	v = math.Round(v/h.followStep) * h.followStep
+// followed is v rounded to h's step, within the capability's bounds, as a hold's Value is kept. It
+// stays last, the value last written, until v is three quarters of a step from it, so a reading
+// that wobbles across a rounding edge isn't a write each time.
+func (h *hold) followed(v float64, last any) any {
 	if spec, ok := capability.Lookup(h.capability); ok && spec.Max > spec.Min {
 		v = min(max(v, spec.Min), spec.Max)
 	}
+	if last != nil && math.Abs(v-capability.Float(last)) < 0.75*h.followStep {
+		return last
+	}
+	v = math.Round(v/h.followStep) * h.followStep
 	if out, err := writableValue(h.capability, v); err == nil {
 		return out
 	}

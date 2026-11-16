@@ -452,6 +452,7 @@ func (e *Engine) Run(ctx context.Context) {
 	go func() { e.saveControls(saveCtx); close(saverDone) }()
 	defer func() {
 		e.runs.Wait()
+		e.flushAverages(saveCtx)
 		stopSaving()
 		<-saverDone
 	}()

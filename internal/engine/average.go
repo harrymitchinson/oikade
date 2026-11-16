@@ -77,7 +77,8 @@ type AverageBucket struct {
 type AverageStates = States[AverageState]
 
 // averages are the engine's rolling averages, which take every reading of the capabilities they
-// average, and are saved as each one changes.
+// average. Each is saved when a reading lands in a new bucket, and all of them when the engine
+// stops, so a crash loses at most a bucket's readings, which the last saved value stands in for.
 type averages struct {
 	mu sync.Mutex
 	// ctx is Run's, which saves outlive.
@@ -91,6 +92,9 @@ type averages struct {
 type averageState struct {
 	AverageState
 	loaded bool
+	// savedBucket is the bucket the state was last saved in, and dirty whether it has changed since.
+	savedBucket time.Time
+	dirty       bool
 }
 
 // add takes the reading from LastAt to at into the buckets.
@@ -163,12 +167,14 @@ func (e *Engine) averageState(a Average, now time.Time) *averageState {
 		s.loaded = true
 		if saved, ok := e.AverageStates.Get(a.Key()); ok {
 			s.AverageState = saved
+			s.savedBucket = saved.LastAt.Truncate(a.bucket())
 		}
 		if s.Last == nil {
 			if snap, ok := e.Store.Get(ident.ID{Name: a.Device}); ok {
 				if v, ok := snap.Values[a.Capability]; ok {
 					f := capability.Float(v)
 					s.Last, s.LastAt = &f, now
+					s.savedBucket = now.Truncate(a.bucket())
 					e.saveAverage(a, s.AverageState)
 				}
 			}
@@ -177,7 +183,8 @@ func (e *Engine) averageState(a Average, now time.Time) *averageState {
 	return s
 }
 
-// observeAverages takes a report's readings into the averages of their capabilities, and saves them.
+// observeAverages takes a report's readings into the averages of their capabilities, and saves those
+// whose bucket has moved on since they were last saved.
 func (e *Engine) observeAverages(changes []driver.Update, now time.Time) {
 	if len(e.Averages) == 0 {
 		return
@@ -192,8 +199,11 @@ func (e *Engine) observeAverages(changes []driver.Update, now time.Time) {
 			s := e.averageState(a, now)
 			s.add(a, now)
 			f := capability.Float(u.Value)
-			s.Last, s.LastAt = &f, now
-			e.saveAverage(a, s.AverageState)
+			s.Last, s.LastAt, s.dirty = &f, now, true
+			if bucket := now.Truncate(a.bucket()); !bucket.Equal(s.savedBucket) {
+				s.savedBucket, s.dirty = bucket, false
+				e.saveAverage(a, s.AverageState)
+			}
 		}
 	}
 }
@@ -261,6 +271,25 @@ func (e *Engine) addAverages(devices map[string]map[string]any, now time.Time) {
 		}
 		if v, ok := e.averageState(a, now).at(a, now); ok {
 			values[a.Var()] = v
+		}
+	}
+}
+
+// flushAverages saves every average that has changed since it was last saved, as the engine stops.
+func (e *Engine) flushAverages(ctx context.Context) {
+	e.averages.mu.Lock()
+	var due []Average
+	var states []AverageState
+	for a, s := range e.averages.states {
+		if s.dirty {
+			s.dirty = false
+			due, states = append(due, a), append(states, s.AverageState)
+		}
+	}
+	e.averages.mu.Unlock()
+	for i, a := range due {
+		if err := e.AverageStates.Put(ctx, a.Key(), states[i]); err != nil && ctx.Err() == nil {
+			e.Log.Error("Failed to save average", "err", err, "average", a.Key().Name)
 		}
 	}
 }
