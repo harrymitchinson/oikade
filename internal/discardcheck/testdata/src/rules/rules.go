@@ -24,16 +24,16 @@ func discarded(s oikade.Set, g oikade.Bool, r *oikade.FlowRun) {
 		UntilNext() // want `the result of UntilNext isn't used`
 }
 
-func thrownAway(s oikade.Set, g oikade.Bool, n oikade.Number, r *oikade.FlowRun) {
-	g.To(true)                        // want `the result of To isn't used, so it does nothing: a Set does nothing until r.Set takes it`
-	oikade.InRoom("hall", g).To(true) // want `the result of To isn't used, so it does nothing: a Set`
-	oikade.InRoom("hall", g)          // want `the result of InRoom isn't used, so it does nothing: a Room does nothing until something takes it`
-	oikade.NewHome()                  // want `the result of NewHome isn't used, so it does nothing: a Home does nothing until its Run runs it`
-	oikade.Daily("18:00", "22:00")    // want `the result of Daily isn't used, so it does nothing: a condition does nothing until something takes it`
-	n.Above(3)                        // want `the result of Above isn't used, so it does nothing: a condition does nothing until something takes it`
-	oikade.Not(g)                     // want `the result of Not isn't used`
-	g.Becomes(true)                   // want `the result of Becomes isn't used, so it does nothing: a Change does nothing until something takes it`
-	defer g.To(true)                  // want `the result of To isn't used`
+func thrownAway(s oikade.Set, g oikade.Bool, n oikade.Number, r *oikade.FlowRun, h *oikade.Home) {
+	g.To(true)                     // want `the result of To isn't used, so it does nothing: a Set does nothing until r.Set takes it`
+	h.Room("hall").On.To(true)     // want `the result of To isn't used, so it does nothing: a Set`
+	h.Room("hall")                 // want `the result of Room isn't used, so it does nothing: a Group does nothing until something takes it`
+	oikade.NewHome()               // want `the result of NewHome isn't used, so it does nothing: a Home does nothing until its Run runs it`
+	oikade.Daily("18:00", "22:00") // want `the result of Daily isn't used, so it does nothing: a condition does nothing until something takes it`
+	n.Above(3)                     // want `the result of Above isn't used, so it does nothing: a condition does nothing until something takes it`
+	oikade.Not(g)                  // want `the result of Not isn't used`
+	g.Becomes(true)                // want `the result of Becomes isn't used, so it does nothing: a Change does nothing until something takes it`
+	defer g.To(true)               // want `the result of To isn't used`
 }
 
 // Results that aren't oikade values, or calls that do something.

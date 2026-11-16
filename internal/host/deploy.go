@@ -460,11 +460,12 @@ func safetyFindings(old, next wire.Manifest, held map[string]control.Level, safe
 		}
 	}
 	// A device stops being arbitrated with its Control, and that ends every claim on it.
+	// A room's Control covers whichever devices are there, and its Safety cases are found above.
 	for _, c := range old.Control {
 		kept := slices.ContainsFunc(next.Control, func(n wire.DeviceControl) bool {
-			return n.Device == c.Device && n.Entry.Capability == c.Entry.Capability
+			return n.Device == c.Device && n.Room == c.Room && n.Entry.Capability == c.Entry.Capability
 		})
-		if !kept && safetyHeld(c.Device, c.Entry.Capability) {
+		if !kept && c.Device != "" && safetyHeld(c.Device, c.Entry.Capability) {
 			findings = append(findings, fmt.Sprintf("%s on %s has no Control any more, which would end a Safety claim on it", c.Entry.Capability, c.Device))
 		}
 	}

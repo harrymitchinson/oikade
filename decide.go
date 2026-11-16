@@ -31,6 +31,7 @@ type Decision[T Value] struct {
 	lines    []line
 	limits   *Limits
 	def      *T
+	then     Ref[T]
 	mistakes []error
 }
 
@@ -109,8 +110,11 @@ func (h *Home) Decide[T Value](r Ref[T]) *Decision[T] {
 }
 
 func (d *Decision[T]) add(l line) *Decision[T] {
-	if d.def != nil {
+	switch {
+	case d.def != nil:
 		d.mistakes = append(d.mistakes, fmt.Errorf("%s comes after Default, which is the last line", l.what()))
+	case d.then != nil:
+		d.mistakes = append(d.mistakes, fmt.Errorf("%s comes after Then, which is the last line", l.what()))
 	}
 	d.lines = append(d.lines, l)
 	return d
@@ -217,10 +221,37 @@ func (d *Decision[T]) Limits(l Limits) *Decision[T] {
 
 // Default is the capability's value when no line applies, and the list's last line.
 func (d *Decision[T]) Default(v T) *Decision[T] {
-	if d.def != nil {
+	switch {
+	case d.def != nil:
 		d.mistakes = append(d.mistakes, errors.New("Default is given twice"))
+	case d.then != nil:
+		d.mistakes = append(d.mistakes, errors.New("Default comes after Then, which is the last line"))
 	}
 	d.def = &v
+	return d
+}
+
+// Then hands a member of a group over to the group's decision on the capability when none of its
+// own lines apply. It's the last line, in place of Default:
+//
+//	home.Decide(StudyRadiator.Setpoint).
+//		Case("working", 21, StudySensor.Occupied, oikade.Daily("09:00", "17:30")).
+//		Then(radiators.Setpoint)
+//
+// The member's lines rank above all of the group's, so with no override line of their own, they're
+// safety lines. With one, it takes the place of the group's for this member, and the group's lines
+// above its override line are still safety lines. The group's Limits and Default are the member's.
+func (d *Decision[T]) Then(r Ref[T]) *Decision[T] {
+	switch {
+	case d.then != nil:
+		d.mistakes = append(d.mistakes, errors.New("Then is given twice"))
+	case d.def != nil:
+		d.mistakes = append(d.mistakes, errors.New("Then comes after Default, which is the last line"))
+	case r == nil:
+		d.mistakes = append(d.mistakes, errors.New("Then needs a group's capability, such as radiators.Setpoint"))
+		return d
+	}
+	d.then = r
 	return d
 }
 
@@ -230,10 +261,18 @@ type decider interface {
 }
 
 // compiledDecision is a decision compiled: its arbitration settings, and a hold for each of its cases.
+// A group's is under the group's name, with g set, and each of its members has one of its own, made
+// from it, with derived set.
 type compiledDecision struct {
 	device, capability string
-	entry              control.Entry
-	cases              []decidedCase
+	g                  *group
+	// then is the group's capability a member's decision hands over to, and ownOverride whether
+	// the member's decision has an override line of its own.
+	then        *handle
+	ownOverride bool
+	derived     bool
+	entry       control.Entry
+	cases       []decidedCase
 	// flows is whether the decision has a Flows line for every flow, and flowsSafety whether it's a
 	// safety line.
 	flows, flowsSafety bool
@@ -263,7 +302,8 @@ func (d compiledDecision) name() string {
 	return fmt.Sprintf("decision %s %s", d.device, d.capability)
 }
 
-// override finds the override line, at -1 for none, and sets what an outside change does.
+// override finds the override line, at -1 for none, and sets what an outside change does. A decision
+// that hands over with Then and has none takes its group's.
 func (d *Decision[T]) override(entry *control.Entry) (int, error) {
 	over := -1
 	var err error
@@ -279,6 +319,7 @@ func (d *Decision[T]) override(entry *control.Entry) (int, error) {
 	switch {
 	case over >= 0 && d.lines[over].none:
 		entry.External = control.NameRevert
+	case over < 0 && d.then != nil:
 	case over < 0:
 		// An outside change ranks above every line, until their answer next changes.
 		entry.External, entry.OverrideHold = control.NameOverride, control.NameNext
@@ -291,25 +332,60 @@ func (d *Decision[T]) override(entry *control.Entry) (int, error) {
 	return over, err
 }
 
+// ends checks how the decision ends: with a Default, or a Then to a group's capability, and sets the
+// entry's default.
+func (d *Decision[T]) ends(h handle, entry *control.Entry) []error {
+	switch {
+	case d.then != nil:
+		t := d.then.handle()
+		var errs []error
+		switch {
+		case h.g != nil:
+			errs = append(errs, errors.New("Then hands a device's decision over to its group's: "+
+				"a group's decision needs a Default"))
+		case t.g == nil:
+			errs = append(errs, fmt.Errorf("Then(%s) needs a group's or a room's capability, such as radiators.Setpoint",
+				t.named()))
+		case t.capability != h.capability:
+			errs = append(errs, fmt.Errorf("Then(%s) is another capability", t.named()))
+		case t.g.room == "" && !slices.Contains(t.g.has(t.capability), h.device):
+			errs = append(errs, fmt.Errorf("Then(%s): %s isn't a member with %s", t.named(), h.device, h.capability))
+		}
+		if d.limits != nil {
+			errs = append(errs, errors.New("Limits are the group's for a decision that hands over with Then"))
+		}
+		return errs
+	case d.def == nil:
+		return []error{errors.New("it needs a Default, its last line")}
+	}
+	raw, err := json.Marshal(*d.def)
+	if err != nil {
+		return []error{fmt.Errorf("default: %w", err)}
+	}
+	entry.Default = raw
+	return nil
+}
+
 func (d *Decision[T]) compile(o Options) compiledDecision {
 	out := compiledDecision{errs: slices.Clone(d.mistakes)}
 	if d.ref == nil {
 		return out
 	}
 	h := d.ref.handle()
-	out.device, out.capability = h.device, h.capability
+	out.device, out.capability, out.g = h.device, h.capability, h.g
 	bad := func(err error) { out.errs = append(out.errs, err) }
 	if h.device == "" || h.capability == "" {
 		bad(errors.New("Decide needs a device's capability, such as PoolPump.On"))
 		return out
 	}
+	if err := checkGroup(h); err != nil {
+		bad(err)
+	}
 	entry := control.Entry{Capability: h.capability}
-	if d.def == nil {
-		bad(errors.New("it needs a Default, its last line"))
-	} else if raw, err := json.Marshal(*d.def); err != nil {
-		bad(fmt.Errorf("default: %w", err))
-	} else {
-		entry.Default = raw
+	out.errs = append(out.errs, d.ends(h, &entry)...)
+	if d.then != nil {
+		t := d.then.handle()
+		out.then = &t
 	}
 
 	over, err := d.override(&entry)
@@ -317,11 +393,13 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 		bad(err)
 	}
 	none := over >= 0 && d.lines[over].none
+	out.ownOverride = over >= 0
 
 	names := map[string]bool{}
 	latched := false
 	for i, l := range d.lines {
-		safety := none || i < over
+		// With Then and no override line, every line is above the group's.
+		safety := none || i < over || d.then != nil && over < 0
 		switch l.kind {
 		case overrideLine:
 			if !none {
@@ -333,6 +411,10 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 				bad(err)
 			}
 			continue
+		case budgetLine:
+			if h.g != nil {
+				bad(fmt.Errorf("%s: a budget is per device, so it can't be in %s's decision", l.what(), h.g.what()))
+			}
 		}
 		if err := caseName(l.name); err != nil {
 			bad(fmt.Errorf("%s: %w", l.what(), err))
@@ -348,10 +430,11 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 			bad(fmt.Errorf("%s: %w", l.what(), err))
 		}
 		c.key, c.name = key, l.name
+		c.target(h)
 		latched = latched || c.latch
 		out.cases = append(out.cases, c)
 	}
-	if latched && over < 0 {
+	if latched && over < 0 && d.then == nil {
 		out.warnings = append(out.warnings, fmt.Sprintf("%s has a latched case and no override line, "+
 			"so a tap in the Home app wins until the case lets go: give OverrideFor, OverrideUntilNext or NoOverride",
 			out.name()))
@@ -360,18 +443,41 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 		entry.MinimumOn, entry.MaximumOn = control.Duration(l.MinimumOn), control.Duration(l.MaximumOn)
 		entry.MinimumOff, entry.MaximumStartsPerDay = control.Duration(l.MinimumOff), l.MaximumStartsPerDay
 	}
-	if len(out.errs) == 0 {
-		if _, err := engine.ControlSettings(entry, nil); err != nil {
-			bad(err)
-		}
-	}
 	out.entry = entry
-	for _, c := range out.cases {
-		if c.isBudget && len(out.errs) == 0 {
-			bad(checkBudget(c.budget, h, c.hold.Value, entry))
-		}
+	if len(out.errs) == 0 && d.then == nil {
+		// One that hands over is checked once it's merged with its group's.
+		out.errs = append(out.errs, out.checkEntry(h))
 	}
 	return out
+}
+
+// checkEntry checks the decision's arbitration settings, and its budgets against them.
+func (out *compiledDecision) checkEntry(h handle) error {
+	if _, err := engine.ControlSettings(out.entry, nil); err != nil {
+		return err
+	}
+	var errs []error
+	for _, c := range out.cases {
+		if c.isBudget {
+			errs = append(errs, checkBudget(c.budget, h, c.hold.Value, out.entry))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// target points a case's hold at its decision's capability: a device's, a group's members' or a
+// room's devices'.
+func (c *decidedCase) target(h handle) {
+	g := h.g
+	if g == nil {
+		return
+	}
+	c.hold.Device = ""
+	if g.room != "" {
+		c.hold.Room, c.hold.DeviceTypes = g.room, g.types
+		return
+	}
+	c.hold.Devices = g.has(h.capability)
 }
 
 // caseName reports a case's name that oikade pause can't take as one word.
@@ -451,7 +557,8 @@ func whyNot(c Condition) func(engine.Vars) string {
 }
 
 // compileDecisions compiles the home's decisions: the engine's holds, the host's settings and the
-// manifest's rules.
+// manifest's rules. A member of a decided group gets a decision of its own, the group's, or its own
+// lines above the group's when it hands over with Then.
 func (h *Home) compileDecisions() ([]compiledDecision, error) {
 	out := make([]compiledDecision, 0, len(h.decisions))
 	var errs []error
@@ -462,22 +569,151 @@ func (h *Home) compileDecisions() ([]compiledDecision, error) {
 				errs = append(errs, fmt.Errorf("%s: %w", c.name(), err))
 			}
 		}
-		if c.device != "" && slices.ContainsFunc(out, func(o compiledDecision) bool {
-			return o.device == c.device && o.capability == c.capability
-		}) {
-			errs = append(errs, fmt.Errorf("%s is decided twice: a capability has one decision", c.name()))
+		if i := slices.IndexFunc(out, func(o compiledDecision) bool {
+			return c.device != "" && o.device == c.device && o.capability == c.capability
+		}); i >= 0 {
+			if o := out[i]; o.g != c.g && (o.g != nil || c.g != nil) {
+				// A room, a group and a device of one name would key their cases alike.
+				errs = append(errs, fmt.Errorf("%s and %s are both decided, and would name their cases alike: rename one",
+					whatDecided(o), whatDecided(c)))
+			} else {
+				errs = append(errs, fmt.Errorf("%s is decided twice: a capability has one decision", c.name()))
+			}
 		}
 		out = append(out, c)
 	}
-	return out, errors.Join(errs...)
+	if len(errs) > 0 {
+		return out, errors.Join(errs...)
+	}
+	out, err := handOver(out)
+	return out, err
 }
 
-// settings are the home's decisions as the host takes them.
+// whatDecided names what a decision is on: a device's, a group's or a room's capability.
+func whatDecided(d compiledDecision) string {
+	return handle{d.device, d.capability, d.g}.named()
+}
+
+// groupDecision is the decision on a group's capability, if there is one.
+func groupDecision(decided []compiledDecision, g *group, capability string) (int, bool) {
+	i := slices.IndexFunc(decided, func(d compiledDecision) bool { return d.g == g && d.capability == capability })
+	return i, i >= 0
+}
+
+// handOver merges each Then into its group's decision, gives each member of a decided group a
+// decision of its own, and leaves a room's devices with decisions of their own out of its holds.
+func handOver(decided []compiledDecision) ([]compiledDecision, error) {
+	var errs []error
+	// Members that hand over, by group decision and member.
+	handed := map[int]map[string]bool{}
+	for i := range decided {
+		d := &decided[i]
+		if d.then == nil {
+			continue
+		}
+		gi, ok := groupDecision(decided, d.then.g, d.capability)
+		if !ok {
+			errs = append(errs, fmt.Errorf("%s: Then(%s) has no decision", d.name(), d.then.named()))
+			continue
+		}
+		if handed[gi] == nil {
+			handed[gi] = map[string]bool{}
+		}
+		handed[gi][d.device] = true
+		if err := d.merge(decided[gi]); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", d.name(), err))
+		}
+	}
+	// Members of a decided group, by name and capability, and the group that decides them.
+	in := map[[2]string]*group{}
+	var derived []compiledDecision
+	for gi, g := range decided {
+		if g.g == nil || g.g.room != "" {
+			continue
+		}
+		for _, m := range g.g.has(g.capability) {
+			switch other := in[[2]string{m, g.capability}]; {
+			case other != nil:
+				errs = append(errs, fmt.Errorf("%s %s is in %s and %s, which both decide it",
+					m, g.capability, other.what(), g.g.what()))
+				continue
+			case handed[gi][m]:
+			case slices.ContainsFunc(decided, func(o compiledDecision) bool {
+				return o.g == nil && o.device == m && o.capability == g.capability
+			}):
+				errs = append(errs, fmt.Errorf("%s %s is decided on its own and in %s: hand its decision over with Then(%s)",
+					m, g.capability, g.g.what(), handle{g.device, g.capability, g.g}.named()))
+			default:
+				own := g
+				own.device, own.g, own.derived, own.cases, own.warnings, own.errs = m, nil, true, nil, nil, nil
+				derived = append(derived, own)
+			}
+			in[[2]string{m, g.capability}] = g.g
+		}
+	}
+	decided = append(decided, derived...)
+	for ri := range decided {
+		r := &decided[ri]
+		if r.g == nil || r.g.room == "" {
+			continue
+		}
+		// A device with a decision of its own on the capability keeps it, unless it hands over to
+		// this room's.
+		var except []string
+		for _, o := range decided {
+			if o.g == nil && o.capability == r.capability && !handed[ri][o.device] {
+				except = append(except, o.device)
+			}
+		}
+		slices.Sort(except)
+		for ci := range r.cases {
+			r.cases[ci].hold.Except = slices.Compact(except)
+		}
+	}
+	return decided, errors.Join(errs...)
+}
+
+// merge makes a member's decision that hands over with Then its own lines above its group's, with
+// the group's Default and Limits, and its own override line in place of the group's if it has one.
+func (d *compiledDecision) merge(g compiledDecision) error {
+	own := d.entry
+	e := g.entry
+	e.Lines = slices.Clone(own.Lines)
+	for _, l := range g.entry.Lines {
+		if l == control.LineOverride && d.ownOverride || slices.Contains(e.Lines, l) {
+			continue
+		}
+		e.Lines = append(e.Lines, l)
+	}
+	if d.ownOverride {
+		e.External, e.OverrideHold = own.External, own.OverrideHold
+	}
+	d.entry = e
+	err := d.checkEntry(handle{device: d.device, capability: d.capability})
+	if !d.flows && g.flows {
+		d.flows, d.flowsSafety = true, g.flowsSafety && !d.ownOverride
+	}
+	for name, safety := range g.ranked {
+		if _, mine := d.ranked[name]; !mine {
+			if d.ranked == nil {
+				d.ranked = map[string]bool{}
+			}
+			d.ranked[name] = safety
+		}
+	}
+	return err
+}
+
+// settings are the home's decisions as the host takes them: one for each device, and each room's.
 func settingsOf(decided []compiledDecision) []wire.DeviceControl {
 	out := make([]wire.DeviceControl, 0, len(decided))
 	for _, d := range decided {
-		if d.device != "" {
+		switch {
+		case d.device == "":
+		case d.g == nil:
 			out = append(out, wire.DeviceControl{Device: d.device, Entry: d.entry})
+		case d.g.room != "":
+			out = append(out, wire.DeviceControl{Room: d.g.room, DeviceTypes: d.g.types, Entry: d.entry})
 		}
 	}
 	return out
@@ -518,10 +754,10 @@ func (d compiledDecision) flowLine(flowName string) (ranked, safety bool) {
 	return d.flows, d.flows && d.flowsSafety
 }
 
-// decisionOf is the decision on a device's capability, if there is one.
+// decisionOf is the decision on a device's capability, or a room's, if there is one.
 func decisionOf(decided []compiledDecision, device, capability string) (compiledDecision, bool) {
 	i := slices.IndexFunc(decided, func(d compiledDecision) bool {
-		return d.device == device && d.capability == capability
+		return d.device == device && d.capability == capability && (d.g == nil || d.g.room != "")
 	})
 	if i < 0 {
 		return compiledDecision{}, false

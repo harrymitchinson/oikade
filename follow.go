@@ -33,6 +33,8 @@ func (n Number) AverageOver(d time.Duration) Number {
 	defer averagesMu.Unlock()
 	switch {
 	case n.Device == "" || n.Capability == "":
+	case n.g != nil:
+		badAverages[out.handle()] = fmt.Sprintf("%s is a group's, which has no one reading to average", n.handle().named())
 	case isAverage(n):
 		badAverages[out.handle()] = fmt.Sprintf("%s %s is an average already", n.Device, n.Capability)
 	case d < time.Minute:

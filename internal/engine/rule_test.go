@@ -275,7 +275,7 @@ func TestGoRulesAreChecked(t *testing.T) {
 		{moment(Moment{Timers: []Timer{SunTime{Event: sun.Sunset, Days: []time.Weekday{-1}}}, Do: []Action{set}}), "unknown day -1"},
 		{hold(Hold{Device: "d", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "06:00"}, End: At{Time: "07:00"}, Days: []time.Weekday{9}}}), "unknown day 9"},
 		{hold(Hold{Device: "d", Capability: capability.On, Value: true}), "a window or when is required"},
-		{hold(Hold{Capability: capability.On, Value: true, When: always}), "exactly one of device or room"},
+		{hold(Hold{Capability: capability.On, Value: true, When: always}), "exactly one of device, devices or room"},
 		{hold(Hold{Device: "d", Capability: capability.On, Value: true, Latch: true, Window: &Window{Start: At{Time: "06:00"}, End: At{Time: "07:00"}}}), "latch needs when"},
 		{hold(Hold{Device: "d", Capability: capability.On, Value: true, When: always, OnDelay: -1}), "onDelay must not be negative"},
 		{hold(Hold{Device: "d", Capability: capability.On, Value: true, Window: &Window{End: At{Time: "07:00"}}}), "hold.window: start: no time"},

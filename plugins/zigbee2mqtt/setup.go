@@ -126,6 +126,10 @@ func (b *bridge) awaitInfo(ctx context.Context) {
 	}
 }
 
+// stateWait is how long setup waits for bridge/state after bridge/info. A broker sends retained
+// messages together, so one that isn't heard by then isn't retained.
+const stateWait = 500 * time.Millisecond
+
 // Setup implements plugin.Setup. It checks what the plugin can't fix: that it reaches the broker,
 // that Zigbee2MQTT uses it and is up, and Zigbee2MQTT's settings. It changes nothing in Zigbee2MQTT,
 // whose configuration is yours.
@@ -151,6 +155,14 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 	case <-time.After(time.Until(deadline)):
 		return "", fmt.Errorf("found no Zigbee2MQTT on %s under %s/bridge: check that it uses this broker, "+
 			"and that its mqtt.base_topic is %s, or set zigbee2mqtt.Config's BaseTopic", broker, b.config.BaseTopic, b.config.BaseTopic)
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	// Zigbee2MQTT retains its bridge/state as it does its bridge/info, and the broker sends them
+	// one after the other in either order, so the state comes soon after the info if it's there.
+	select {
+	case <-b.stateHeard:
+	case <-time.After(min(stateWait, time.Until(deadline))):
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}

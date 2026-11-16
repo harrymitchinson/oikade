@@ -24,7 +24,7 @@ home.Flow("hallway-motion-light", func(r *oikade.FlowRun) {
 	If(oikade.Daily("18:00", "07:00"))
 ```
 
-`When` takes the changes that trigger it: a `Bool` or a `Number` fires whenever it changes, a `Bool`'s `Becomes(true)` only when it changes to true, and [`InRoom`](#rooms) on a change from any device in a room. `At` takes [times of day](#times-of-day). `If` is a [condition](#conditions), looked at when a trigger fires. For a light that should stay on while there's motion, a [decision](#decisions)'s `Linger` says it more simply.
+`When` takes the changes that trigger it: a `Bool` or a `Number` fires whenever it changes, a `Bool`'s `Becomes(true)` only when it changes to true, and a [group's or a room's](#groups-and-rooms) on a change from any of its members. `At` takes [times of day](#times-of-day). `If` is a [condition](#conditions), looked at when a trigger fires. For a light that should stay on while there's motion, a [decision](#decisions)'s `Linger` says it more simply.
 
 ### Conditions
 
@@ -47,7 +47,7 @@ oikade.All(PoolWater.Temperature.Below(3), oikade.Not(oikade.Yearly("1 Jun", "15
 
 A condition reading a value nobody has reported yet stops there: a case keeps its state, and a flow's `If` doesn't let it run. If a `Delay` or `Linger` runs out meanwhile, the case starts or ends once the value is back, if its conditions still say so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts.
 
-A `ConditionFunc` reads the home through its `Snapshot`: `Get` reads a `Bool` or a `Number`, `Is` says whether another condition is true, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. Its label is how the host names it, since it can't see inside a function to say why it's false. `Lookup` carries on without a value, and reports whether there is one:
+A `ConditionFunc` reads the home through its `Snapshot`: `Get` reads a `Bool` or a `Number`, `Is` says whether another condition is true, `Any`, `All`, `Count` and `Readings` read a [group or a room](#reading-a-room-or-a-group), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. Its label is how the host names it, since it can't see inside a function to say why it's false. `Lookup` carries on without a value, and reports whether there is one:
 
 ```go
 oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
@@ -86,50 +86,83 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
 - **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A flow a decision ranks above its override line fires however late it is. Only the latest missed time counts.
 
-### Rooms
+### Groups and rooms
 
-`oikade.InRoom` is a capability of a room's devices in a group, as a `Change`, a condition's read, or with `To` as a flow's `Set`. A decision is on one device's capability, so a room can't have one yet. A device is in a room when the [registry](devices.md#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
+A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool` or a `Number` as a device does, which a decision, a flow's `Set` and a trigger take, and whose `Any()` and `All()` are [conditions](#conditions) ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
 
 ```go
+radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
+windows := home.Group("windows", BedroomWindow, StudyWindow, KitchenWindow)
+
+home.Decide(radiators.Setpoint).
+	Case("windows-open", 7, windows.Open.Any()).Delay(2 * time.Minute).
+	OverrideFor(2 * time.Hour).
+	Follow("weather", OutdoorSensor.Temperature, compensate).
+	Default(18)
+
 home.Flow("lights-out", func(r *oikade.FlowRun) {
-	r.Set(oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false)) // the lights, not the plugs
-}).When(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)) // any sensor in the hallway
+	r.Set(home.Room("living-room", oikade.Lights).On.To(false)) // the lights, not the plugs
+}).When(home.Room("hallway").Occupied) // any sensor in the hallway
 ```
 
-The group says which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
+A group's members are devices from `devices.go`, which `oikade types` writes, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `radiators setpoint: windows-open`, so it can't be a device's name too.
 
-| Group | Device types |
+A room's devices can change without a deploy, with `oikade devices room`, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there. Its kinds say which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
+
+| Kind | Device types |
 |---|---|
 | `oikade.Lights` | `OnOffLight`, `DimmableLight` |
 | `oikade.Plugs` | `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl`, `MountedDimmableLoadControl` |
 | `oikade.Heaters` | `Thermostat`: any device with a setpoint |
 | `oikade.Kinds(...)` | the types you list, such as `oikade.Kinds(oikade.DimmableLight)` |
-| `oikade.Everything` | every device in the room with the capability, whatever it is |
+| `oikade.Everything`, or none | every device in the room with the capability, whatever it is |
 
-A device whose type isn't in the group is left alone, and the log names it, so a wall switch typed `MountedOnOffControl` is a plug until `oikade devices type` makes it a light. A room's sensors have no group of their own: read and trigger on them with `Everything`.
+A device whose type isn't one of the room's kinds is left alone, and the log names it, so a wall switch typed `MountedOnOffControl` is a plug until `oikade devices type` makes it a light. A room's sensors have no kind of their own: read and trigger on them with none.
 
-A `ConditionFunc` reads a room with its `Snapshot`'s `Any`, `All` and `Count` for a `bool` capability, and `Readings` for a number, whose values go to `slices.Max`, `slices.Min` or an average:
+#### A decision on a group or a room
+
+A group's decision is each member's: each member with the capability is arbitrated by it, and its cases write them all, with one delay and one latch between them. A tap on one radiator is an override on that radiator only. Each member has its own [limits](#arbitration), the group's `Limits`. A budget is per device, so a group's decision can't have one.
+
+A member can have lines of its own above the group's, and end its decision with `Then` in place of `Default`:
+
+```go
+home.Decide(StudyRadiator.Setpoint).
+	Case("working", 21, StudySensor.Occupied, oikade.Daily("09:00", "17:30")).
+	Then(radiators.Setpoint)
+```
+
+The study's radiator is at 21 while someone works there, and otherwise as the group's decision says. Its own lines rank above all of the group's, so with no override line of their own, they're safety lines, and an open window doesn't turn the radiator down while someone works there. Give it an override line to rank them below a tap, and it takes the group's place for this radiator. The group's `Default` and `Limits` are the member's. Without `Then`, `oikade check` refuses a decision on a member of a decided group, and a device in two decided groups.
+
+A room's decision is the host's for each device in the room of its kinds that has the capability, and the host keeps it with the room. So a device moved in is arbitrated by it, and one moved out isn't, with no deploy. A device in the room with a decision of its own keeps it, unless that decision hands over to the room's with `Then`, and `oikade devices room` warns on stderr when a move puts one in a room that decides the same capability.
+
+#### Reading a room or a group
+
+A `ConditionFunc` reads a room or a group with its `Snapshot`'s `Any`, `All` and `Count` for a `bool` capability, and `Readings` for a number, whose values go to `slices.Max`, `slices.Min` or an average:
 
 ```go
 // A dehumidifier that runs on whichever cellar sensors have reported.
+cellar := home.Room("cellar")
 oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
-	return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
+	return slices.Max(s.Readings(cellar.Humidity)) > 65
 })
 ```
 
-A read covers the devices in the room now that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. If none has reported, the condition stops, as at a `Get`. A case that reads a room looks again when a device moves in or out with `oikade devices room`, with no deploy. A sensor that reported and then died keeps its last value.
+A read covers the members that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. A group's capability isn't a condition on its own: `oikade check` asks for `Any` or `All`. If none has reported, the condition stops, as at a `Get`. A case that reads a room looks again when a device moves in or out with `oikade devices room`, with no deploy. A sensor that reported and then died keeps its last value.
 
-A room with no devices in it, or none in the read's group, stops the condition too, and a case keeps its state: one that applied, or was lingering, stays until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices room`, `oikade devices type` and `oikade devices remove` still make the change when it leaves a room a case reads with nothing of the read's group in it, but they warn on stderr, naming the room and the cases, and `--json` has the warning as `warning`.
+A room with no devices in it, or none of the read's kinds, stops the condition too, and a case keeps its state: one that applied, or was lingering, stays until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices room`, `oikade devices type` and `oikade devices remove` still make the change when it leaves a room a case reads with nothing of the read's group in it, but they warn on stderr, naming the room and the cases, and `--json` has the warning as `warning`.
 
-- **Room triggers** fire on a change from any device in the room and the group at the time of the change.
-- **A room's `Set`** sets every device in the room and the group that has reported the capability, in name order, and skips the rest. So `on` on a room's `Everything` leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone ([OIK-20](https://linear.app/oikade/issue/OIK-20)). Membership is read when the `Set` runs, so a lamp added to the room during a `Sleep` is included in the `Set`s after it.
+#### Triggers and writes
+
+- **A group's or a room's trigger** fires on a change from any member: for a room, any device in the room and of its kinds at the time of the change.
+- **A group's `Set`** writes each member with the capability, each ranked by its own decision, and one that fails doesn't stop the others.
+- **A room's `Set`** sets every device in the room and of its kinds that has reported the capability, in name order, and skips the rest. So `on` on a room with no kinds leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone ([OIK-20](https://linear.app/oikade/issue/OIK-20)). Membership is read when the `Set` runs, so a lamp added to the room during a `Sleep` is included in the `Set`s after it.
 - **If some devices fail**, the others are still set and the flow carries on, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
 - **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Sleep` longer than the time your sensor holds occupancy after the last movement.
 - **A room `Set` with no end skips arbitrated members,** because a claim must end (see [claims from flows](#claims-from-flows)). The log names them, with members of other types, as `Skipped Room members`.
 
 ### Decisions
 
-A decision is everything that sets one capability, in one list read top to bottom. `home.Decide` takes the capability, and each line after it says when it applies and what it wants. The first line that applies wins, and `Default`, the last line, is what's left when none does ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+A decision is everything that sets one capability, in one list read top to bottom. `home.Decide` takes the capability, a device's or a [group's](#groups-and-rooms), and each line after it says when it applies and what it wants. The first line that applies wins, and `Default`, the last line, is what's left when none does ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
 
 ```go
 home.Decide(BathroomFan.On).
@@ -156,6 +189,7 @@ The rest are lines of their own:
 | `Flows()`, `Flows(f)` | Where every flow's `Set` ranks, or one flow's. See [Claims from flows](#claims-from-flows). |
 | `Limits(oikade.Limits{…})` | Equipment limits, which beat every line. |
 | `Default(v)` | Required, and last: the value when no line applies. |
+| `Then(group.Capability)` | In place of `Default`, on a member of a group or a room: the group's decision, when none of the member's lines applies. See [Groups and rooms](#a-decision-on-a-group-or-a-room). |
 
 A capability has one decision, and `oikade check` refuses a second, a line after `Default`, a case with no condition and a name given twice. A case's conditions are looked at again on every device change and at least once a minute. A `Daily` in them, on its own or in an `All`, is different: the case starts and ends on its edge, and `oikade status` shows when it next does. One inside an `Any` or a `Not` changes within a minute of its edge.
 

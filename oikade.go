@@ -20,6 +20,7 @@
 package oikade
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -73,9 +74,11 @@ func (s Snapshot) value(device, capability string) any {
 
 // Get reads a device's capability. A condition reading a value nobody has reported yet stops there:
 // a case keeps its state, and a flow's If doesn't let it run. So does one with a mistake in it, such as a
-// device that doesn't exist, which is logged. Lookup carries on instead.
+// device that doesn't exist, or a group's capability, which Any, All, Count and Readings read, which
+// is logged. Lookup carries on instead.
 func (s Snapshot) Get[T Value](r Ref[T]) T {
 	h := r.handle()
+	notGroup(h)
 	return as[T](h.device, h.capability, s.value(h.device, h.capability))
 }
 
@@ -85,6 +88,7 @@ func (s Snapshot) Get[T Value](r Ref[T]) T {
 //	if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
 func (s Snapshot) Lookup[T Value](r Ref[T]) (T, bool) {
 	h := r.handle()
+	notGroup(h)
 	values, declared := s.devices[h.device]
 	if !declared {
 		panic(fmt.Sprintf("no device %s", h.device))
@@ -95,6 +99,13 @@ func (s Snapshot) Lookup[T Value](r Ref[T]) (T, bool) {
 		return zero, false
 	}
 	return as[T](h.device, h.capability, v), true
+}
+
+// notGroup refuses a read of one value from a group's capability.
+func notGroup(h handle) {
+	if h.g != nil {
+		panic(fmt.Sprintf("%s is a group's: read it with Any, All, Count or Readings", h.named()))
+	}
 }
 
 // Is reports whether c is true now, as a case's condition or a flow's If would be. A condition that
@@ -114,23 +125,23 @@ func as[T Value](device, capability string, v any) T {
 	return t
 }
 
-// Any reports whether the capability is true on any of the room's devices that have reported it.
+// Any reports whether a group's capability is true on any of its members that have reported it.
 //
-//	s.Any(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied))
+//	s.Any(home.Room("hallway").Occupied)
 //
-// A room read, like Any, All, Count and Readings, covers the devices in the room now, in its group,
-// and ignores those that haven't reported the capability. If none has, the condition
-// stops there, as at a Get. A room with no members stops it too, and a hold keeps its state, so it's
-// logged at Warn.
-func (s Snapshot) Any(r Room[bool]) bool { return s.Count(r) > 0 }
+// A group's read, like Any, All, Count and Readings, ignores the members that haven't reported the
+// capability. If none has, the condition stops there, as at a Get. A room's covers the devices in it
+// now, of its kinds, and a room with none stops it too, and a case keeps its state, so it's logged
+// at Warn.
+func (s Snapshot) Any(b Bool) bool { return s.Count(b) > 0 }
 
-// All reports whether the capability is true on all of the room's devices that have reported it.
-func (s Snapshot) All(r Room[bool]) bool { return !slices.Contains(roomValues(s, r), false) }
+// All reports whether a group's capability is true on all of its members that have reported it.
+func (s Snapshot) All(b Bool) bool { return !slices.Contains(groupValues[bool](s, b.handle()), false) }
 
-// Count is how many of the room's devices that have reported the capability have it true.
-func (s Snapshot) Count(r Room[bool]) int {
+// Count is how many of a group's members that have reported the capability have it true.
+func (s Snapshot) Count(b Bool) int {
 	n := 0
-	for _, v := range roomValues(s, r) {
+	for _, v := range groupValues[bool](s, b.handle()) {
 		if v {
 			n++
 		}
@@ -138,15 +149,15 @@ func (s Snapshot) Count(r Room[bool]) int {
 	return n
 }
 
-// Readings are the capability's values on the room's devices that have reported it, in device name
-// order, for slices.Max or an average.
+// Readings are a group's capability's values on its members that have reported it, for slices.Max
+// or an average: in the order given for a group, and by device name for a room.
 //
-//	slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity)))
-func (s Snapshot) Readings(r Room[float64]) []float64 { return roomValues(s, r) }
+//	slices.Max(s.Readings(cellar.Humidity))
+func (s Snapshot) Readings(n Number) []float64 { return groupValues[float64](s, n.handle()) }
 
-// roomValues are the reported values of a room's capability, in device name order.
-func roomValues[T Value](s Snapshot, r Room[T]) []T {
-	room, c, types := r.room, r.capability, r.engineTypes()
+// roomValues are the reported values of a room's capability, on its devices of types, in device
+// name order.
+func roomValues[T Value](s Snapshot, room string, types []devicetype.Type, c string) []T {
 	var names []string
 	for name, m := range s.members {
 		// A device with no room is in none, as for a room's writes and triggers.
@@ -166,12 +177,12 @@ func roomValues[T Value](s Snapshot, r Room[T]) []T {
 	slices.Sort(names)
 	var out []T
 	for _, name := range names {
-		if v, ok := s.devices[name][string(c)]; ok {
-			out = append(out, as[T](name, string(c), v))
+		if v, ok := s.devices[name][c]; ok {
+			out = append(out, as[T](name, c, v))
 		}
 	}
 	if len(out) == 0 {
-		panic(roomNotReported{room, string(c)})
+		panic(roomNotReported{room, c})
 	}
 	return out
 }
@@ -210,6 +221,9 @@ func evaluate(v engine.Vars, f func(Snapshot)) (err error) {
 			return
 		case roomEmpty:
 			err = engine.EmptyRoom{Room: n.room}
+			return
+		case groupNotReported:
+			err = fmt.Errorf("no member of group %s has reported %s", n.group, n.capability)
 			return
 		}
 		panic(r)
@@ -488,13 +502,37 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 // which needs For, UntilReleased or UntilNext. It may run more than once, after a crash, so set a
 // value and never toggle one. A Set that fails, as on a device that doesn't answer or a decision with
 // no Flows line for this flow, is logged, and the run carries on and ends as failed.
+//
+// A group's write is one to each member with the capability, ranked by its own decision, and one
+// that fails doesn't stop the others.
 func (r *FlowRun) Set(s Set) {
 	replayed := r.run.Replaying()
-	err := needsFlowsLine(r.decided, r.name, s.device, s.capability)
-	if err == nil {
-		err = r.run.Apply(s.toEngine(r.decided, r.name))
+	var err error
+	if s.group != nil && s.group.room == "" {
+		if len(s.devices) == 0 {
+			err = fmt.Errorf("no member of %s has %s", s.group.what(), s.capability)
+		}
+		for _, dev := range s.devices {
+			one := s
+			one.device, one.devices, one.group = dev, nil, nil
+			err = errors.Join(err, r.set(one))
+		}
+	} else {
+		err = r.set(s)
 	}
 	r.failedStep("set", err, replayed)
+}
+
+// set is a write to a device, or a room.
+func (r *FlowRun) set(s Set) error {
+	at := s.device
+	if s.room != "" {
+		at = s.room
+	}
+	if err := needsFlowsLine(r.decided, r.name, at, s.capability); err != nil {
+		return err
+	}
+	return r.run.Apply(s.toEngine(r.decided, r.name))
 }
 
 // Release ends the named rule's claims, and its latch if it's a case: "<device> <capability> <case>"
@@ -548,12 +586,15 @@ func (r *FlowRun) Do[T any](name string, call func(context.Context) (T, error)) 
 	return result, nil
 }
 
-// Set writes a capability, from a Bool's, a Number's or InRoom's To. For, UntilReleased and UntilNext make it a
-// claim on an arbitrated capability, which needs one of them:
+// Set writes a capability, from a Bool's or a Number's To, a device's or a group's. For,
+// UntilReleased and UntilNext make it a claim on an arbitrated capability, which needs one of them:
 //
 //	Heater.On.To(true).For(time.Hour)
 type Set struct {
 	device, room, capability string
+	// devices are a group's members that the write goes to, and group the group, if it's one's.
+	devices []string
+	group   *group
 	// types limits a room's write to devices of these types.
 	types    []devicetype.Type
 	value    any
@@ -588,7 +629,7 @@ func (s Set) endUntil(u engine.Until) Set {
 func (s Set) toEngine(decided []compiledDecision, flowName string) engine.Action {
 	return engine.Set{
 		Device: s.device, Room: s.room, DeviceTypes: s.types, Capability: s.capability, Value: s.value, For: s.claimFor,
-		Until: s.until, Priority: claimPriority(decided, flowName, s.device, s.capability),
+		Until: s.until, Priority: claimPriority(decided, flowName, cmp.Or(s.device, s.room), s.capability),
 	}
 }
 
@@ -648,8 +689,11 @@ func (l Location) site() *sun.Site {
 type Home struct {
 	options   Options
 	decisions []decider
-	flows     []*Flow
-	plugins   []imported
+	groups    []*group
+	// mistakes are those made adding a group or room, which oikade check reports.
+	mistakes []error
+	flows    []*Flow
+	plugins  []imported
 }
 
 // NewHome makes a home.
@@ -694,7 +738,8 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		rules = append(rules, c)
 	}
 	decided, err := h.compileDecisions()
-	errs = append(errs, err, h.options.check())
+	errs = append(errs, err, h.options.check(), h.checkGroups(decided))
+	errs = append(errs, h.mistakes...)
 	for _, d := range decided {
 		for _, f := range d.own {
 			if !slices.Contains(h.flows, f) {
@@ -746,10 +791,17 @@ func (h *Home) manifest() wire.Manifest {
 	decided, _ := h.compileDecisions()
 	for _, d := range decided {
 		for _, c := range d.cases {
-			m.Rules = append(m.Rules, wire.RuleInfo{
+			info := wire.RuleInfo{
 				Name: c.key, Kind: wire.KindCase, Safety: c.safety, Latch: c.latch,
 				Device: d.device, Capability: d.capability, Case: c.name,
-			})
+			}
+			if c.safety && len(c.hold.DeviceTypes) > 0 {
+				// oikade devices type checks a retype doesn't take a device out of it.
+				info.Rooms = []wire.RoomOfTypes{{
+					Room: c.hold.Room, Capability: d.capability, DeviceTypes: c.hold.DeviceTypes, Except: c.hold.Except,
+				}}
+			}
+			m.Rules = append(m.Rules, info)
 		}
 		m.Warnings = append(m.Warnings, d.warnings...)
 	}
@@ -783,7 +835,7 @@ func trigger(on []Change, at []Time, cond Condition, late time.Duration, safety 
 	t := engine.Trigger{Condition: toEngine(cond), StartingDeadline: lateness(late, safety)}
 	for _, c := range on {
 		if c != nil { // nilChange reports it.
-			t.Changes = append(t.Changes, c.change())
+			t.Changes = append(t.Changes, c.changes()...)
 		}
 	}
 	for _, a := range at {
@@ -795,14 +847,19 @@ func trigger(on []Change, at []Time, cond Condition, late time.Duration, safety 
 // nilChange reports a nil in a flow's When, which trigger leaves out.
 func nilChange(on []Change) error {
 	if i := slices.Index(on, nil); i >= 0 {
-		return fmt.Errorf("a nil change, at When[%d]: give a handle, or InRoom", i)
+		return fmt.Errorf("a nil change, at When[%d]: give a device's or a group's capability", i)
 	}
+	var errs []error
 	for i, c := range on {
 		if n, ok := c.(Number); ok && isAverage(n) {
-			return fmt.Errorf("the change at When[%d] is an average, which never changes as a reading does: give the reading", i)
+			errs = append(errs, fmt.Errorf("the change at When[%d] is an average, "+
+				"which never changes as a reading does: give the reading", i))
+		}
+		if err := checkGroup(c.handle()); err != nil {
+			errs = append(errs, fmt.Errorf("the change at When[%d]: %w", i, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // toFlow is the flow as the runner takes it. A flow that a decision ranks above its override line

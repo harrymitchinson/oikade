@@ -96,7 +96,7 @@ func New(c Config) plugin.Factory {
 		}
 		return &bridge{
 			config: c, name: env.Root.Plugin(), declared: ids, up: true, online: map[string]bool{},
-			infoHeard: make(chan struct{}), infoWait: defaultInfoWait,
+			infoHeard: make(chan struct{}), stateHeard: make(chan struct{}), infoWait: defaultInfoWait,
 			connectTimeout: connectTimeout, secretWait: secretWait,
 			log: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
 		}, nil
@@ -134,6 +134,10 @@ type bridge struct {
 	info      *bridgeInfo
 	infoHeard chan struct{}
 	infoWait  time.Duration
+	// stateHeard is closed once bridge/state is first heard, which a broker may deliver after
+	// bridge/info, though both are retained.
+	stateHeard     chan struct{}
+	stateHeardOnce sync.Once
 	// connected is whether the plugin has the broker now.
 	connected bool
 	// reporting is held while devices are reported, so that a report with nothing to list can't
@@ -248,6 +252,7 @@ func (b *bridge) setUp(up bool) {
 	changed := up != b.up
 	b.up = up
 	b.mu.Unlock()
+	b.stateHeardOnce.Do(func() { close(b.stateHeard) })
 	if changed {
 		b.log.Info("Zigbee2MQTT changed state", "online", up)
 		b.publishAllAvailability()

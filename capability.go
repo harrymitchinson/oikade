@@ -2,7 +2,6 @@ package oikade
 
 import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
@@ -45,10 +44,13 @@ const (
 // Bool is one capability of one device that's true or false, such as PorchLight.On. oikade types
 // writes one for each such capability each of your devices has, so that naming a capability the
 // device doesn't have, or a value of the wrong type, doesn't compile. A Bool is a condition, true
-// while the capability is, and a change, which fires whenever it changes.
+// while the capability is, and a change, which fires whenever it changes. A group's, such as
+// windows.Open, is a change on any member, and Any and All make conditions of it.
 type Bool struct {
 	Device     string
 	Capability Capability[bool]
+	// g is the group or room the capability is of, or nil for a device's.
+	g *group
 }
 
 // Number is one capability of one device that's a number, such as Study.Setpoint. oikade types writes
@@ -57,38 +59,55 @@ type Bool struct {
 type Number struct {
 	Device     string
 	Capability Capability[float64]
+	g          *group
 }
 
-// Ref is a Bool or a Number: a capability of one device whose values are T, which hometest's helpers
-// take.
+// Ref is a Bool or a Number: a capability of one device, or of a group, whose values are T, which a
+// decision and hometest's helpers take.
 type Ref[T Value] interface {
-	// To is a write of v to the device.
+	// To is a write of v to the device, or to the group's members.
 	To(v T) Set
 	handle() handle
 }
 
-// handle is a device's capability, as Bool and Number name it.
-type handle struct{ device, capability string }
-
-func (h handle) change() engine.Change {
-	return engine.Change{Device: h.device, Capability: h.capability}
+// handle is a device's capability, as Bool and Number name it, or a group's.
+type handle struct {
+	device, capability string
+	g                  *group
 }
 
-// To is a write of v to the device: an action, a hold's Set or a Control's default.
-func (b Bool) To(v bool) Set {
-	return Set{device: b.Device, capability: string(b.Capability), value: v}
+func (h handle) changes() []engine.Change {
+	if h.g != nil {
+		return groupChanges(h)
+	}
+	return []engine.Change{{Device: h.device, Capability: h.capability}}
 }
 
-// To is a write of v to the device: an action, a hold's Set or a Control's default.
-func (n Number) To(v float64) Set {
-	return Set{device: n.Device, capability: string(n.Capability), value: v}
+// set is a write of v to the device, the group's members that have the capability, or the room's.
+func (h handle) set(v any) Set {
+	s := Set{device: h.device, capability: h.capability, value: v}
+	if g := h.g; g != nil {
+		s.device, s.group = "", g
+		if g.room != "" {
+			s.room, s.types = g.room, g.types
+		} else {
+			s.devices = g.has(h.capability)
+		}
+	}
+	return s
 }
 
-func (b Bool) handle() handle   { return handle{b.Device, string(b.Capability)} }
-func (n Number) handle() handle { return handle{n.Device, string(n.Capability)} }
+// To is a write of v to the device, or the group's members: a flow's Set.
+func (b Bool) To(v bool) Set { return b.handle().set(v) }
 
-func (b Bool) change() engine.Change   { return b.handle().change() }
-func (n Number) change() engine.Change { return n.handle().change() }
+// To is a write of v to the device, or the group's members: a flow's Set.
+func (n Number) To(v float64) Set { return n.handle().set(v) }
+
+func (b Bool) handle() handle   { return handle{b.Device, string(b.Capability), b.g} }
+func (n Number) handle() handle { return handle{n.Device, string(n.Capability), n.g} }
+
+func (b Bool) changes() []engine.Change   { return b.handle().changes() }
+func (n Number) changes() []engine.Change { return n.handle().changes() }
 
 // Becomes is a change to v: a trigger that fires when the capability changes to v, and not when it
 // changes away from it.
@@ -102,14 +121,18 @@ type becomes struct {
 	to bool
 }
 
-func (c becomes) change() engine.Change {
-	e := c.h.change()
-	e.To = c.to
-	return e
+func (c becomes) handle() handle { return c.h }
+
+func (c becomes) changes() []engine.Change {
+	out := c.h.changes()
+	for i := range out {
+		out[i].To = c.to
+	}
+	return out
 }
 
 // DeviceType is what a device that's on or off is, in Matter's names, as oikade devices shows it. A
-// Group from Kinds is some of them.
+// Kind from Kinds is some of them.
 type DeviceType string
 
 // Thermostat is a heater or thermostat: any device with a Setpoint.
@@ -125,14 +148,14 @@ const (
 	MountedDimmableLoadControl DeviceType = contractv1.MountedDimmableLoadControl
 )
 
-// Group is which of a room's devices InRoom means: Lights, Plugs, Heaters, Everything, or some
+// Kind is which of a room's devices Home.Room means: Lights, Plugs, Heaters, Everything, or some
 // device types from Kinds. A room write says what it's for, so turning on the lights at dusk doesn't
 // also turn on the heater.
-type Group struct {
+type Kind struct {
 	types []DeviceType
 }
 
-// The groups a room's devices fall into, by device type.
+// The kinds a room's devices fall into, by device type.
 var (
 	// Lights are the on/off and dimmable lights.
 	Lights = Kinds(OnOffLight, DimmableLight)
@@ -142,56 +165,19 @@ var (
 	Heaters = Kinds(Thermostat)
 	// Everything is every device in the room with the capability, whatever it is: any of its sensors,
 	// or every device there that has on, lights, plugs and heaters alike.
-	Everything = Group{}
+	Everything = Kind{}
 )
 
-// Kinds is a group of the devices of these types, such as only the dimmable lights.
+// Kinds is a kind of the devices of these types, such as only the dimmable lights.
 //
-//	oikade.InRoom("study", oikade.Kinds(oikade.DimmableLight), oikade.Brightness).To(40)
-func Kinds(t DeviceType, more ...DeviceType) Group {
-	return Group{types: append([]DeviceType{t}, more...)}
-}
-
-// Room is a capability of a room's devices in a group, from InRoom. A room's devices can change
-// without a deploy, so it takes the capability rather than handles.
-type Room[T Value] struct {
-	room       string
-	group      Group
-	capability Capability[T]
-}
-
-// InRoom is capability c of room's devices in group g: a trigger, which fires for a change on any of
-// them, a condition's read, as with State's Any, or with To a write to them all.
-//
-//	oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false) // the lights, not the plugs
-//	oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)    // any sensor in the hallway
-func InRoom[T Value](room string, g Group, c Capability[T]) Room[T] {
-	return Room[T]{room: room, group: g, capability: c}
-}
-
-// To is a write of v to the room's devices in the group that have the capability.
-func (r Room[T]) To(v T) Set {
-	return Set{room: r.room, types: r.engineTypes(), capability: string(r.capability), value: v}
-}
-
-func (r Room[T]) change() engine.Change {
-	return engine.Change{Room: r.room, DeviceTypes: r.engineTypes(), Capability: string(r.capability)}
-}
-
-// engineTypes are the group's device types. None means every device.
-func (r Room[T]) engineTypes() []devicetype.Type {
-	if len(r.group.types) == 0 {
-		return nil
-	}
-	out := make([]devicetype.Type, 0, len(r.group.types))
-	for _, t := range r.group.types {
-		out = append(out, devicetype.Type(t))
-	}
-	return out
+//	home.Room("study", oikade.Kinds(oikade.DimmableLight)).Brightness.To(40)
+func Kinds(t DeviceType, more ...DeviceType) Kind {
+	return Kind{types: append([]DeviceType{t}, more...)}
 }
 
 // Change is what triggers a flow, in its When: a capability changing on a device, as a Bool or a
-// Number, a Bool's Becomes, or a change on any device in a room, from InRoom.
+// Number, a Bool's Becomes, or a change on any member of a group or device in a room.
 type Change interface {
-	change() engine.Change
+	changes() []engine.Change
+	handle() handle
 }

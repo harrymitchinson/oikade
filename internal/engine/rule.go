@@ -530,9 +530,13 @@ func windowTime(t Timer) (timeTrigger, error) {
 // one of them, or else a Budget, which is then the only one.
 type Hold struct {
 	Device string
-	Room   string
-	// DeviceTypes limits a room's hold to devices of these types, as on a Set.
+	// Devices are a group's members, which the hold writes as one, keeping one delay and latch.
+	Devices []string
+	Room    string
+	// DeviceTypes limits a room's hold to devices of these types, as on a Set, and Except leaves out
+	// the devices named, which have decisions of their own.
 	DeviceTypes []devicetype.Type
+	Except      []string
 	Capability  string
 	// Value is a bool or a number.
 	Value    any
@@ -562,21 +566,31 @@ type Hold struct {
 	Generation int64
 }
 
-// NewHold compiles a hold written in Go. It reports every problem.
-func NewHold(key ident.ID, h Hold) (*Compiled, error) {
-	c := &Compiled{Key: key, Generation: max(h.Generation, 1), Mode: ModeSingle}
-	c.hold = &hold{
-		device: h.Device, room: h.Room, types: slices.Clone(h.DeviceTypes), capability: h.Capability, priority: h.Priority,
-		when:    guarded(h.When),
-		onDelay: h.OnDelay, offDelay: h.OffDelay, latch: h.Latch, until: guarded(h.Until), whyNot: h.WhyNot,
-	}
+// checkTarget checks what a hold writes: a device, a group's members or a room's devices.
+func checkTarget(h Hold) []error {
 	var errs []error
-	if (h.Device == "") == (h.Room == "") {
-		errs = append(errs, errors.New("hold: exactly one of device or room is required"))
+	if btoi(h.Device != "")+btoi(h.Room != "")+btoi(len(h.Devices) > 0) != 1 {
+		errs = append(errs, errors.New("hold: exactly one of device, devices or room is required"))
+	}
+	if len(h.Except) > 0 && h.Room == "" {
+		errs = append(errs, errors.New("hold: except needs a room"))
 	}
 	if err := checkTypes(h.Room, h.DeviceTypes); err != nil {
 		errs = append(errs, fmt.Errorf("hold: %w", err))
 	}
+	return errs
+}
+
+// NewHold compiles a hold written in Go. It reports every problem.
+func NewHold(key ident.ID, h Hold) (*Compiled, error) {
+	c := &Compiled{Key: key, Generation: max(h.Generation, 1), Mode: ModeSingle}
+	c.hold = &hold{
+		device: h.Device, devices: slices.Clone(h.Devices), room: h.Room, types: slices.Clone(h.DeviceTypes),
+		except: slices.Clone(h.Except), capability: h.Capability, priority: h.Priority,
+		when:    guarded(h.When),
+		onDelay: h.OnDelay, offDelay: h.OffDelay, latch: h.Latch, until: guarded(h.Until), whyNot: h.WhyNot,
+	}
+	errs := checkTarget(h)
 	if h.Follow != nil {
 		step, err := followStep(h.Capability, h.Step)
 		if err != nil {

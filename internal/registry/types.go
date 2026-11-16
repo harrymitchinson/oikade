@@ -35,7 +35,7 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 		}
 	}
 	slices.SortFunc(names, func(a, b Device) int { return strings.Compare(a.Name, b.Name) })
-	if slices.ContainsFunc(names, func(d Device) bool { return len(handles(d)) > 0 }) {
+	if len(names) > 0 {
 		b.WriteString("import \"github.com/harrymitchinson/oikade\"\n\n")
 	}
 	seen := map[string]string{}
@@ -48,12 +48,12 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 			return nil, fmt.Errorf("%s and %s are both %s in Go: rename one", other, d.Name, ident)
 		}
 		seen[ident] = d.Name
-		fmt.Fprintf(&b, "// %s is %s.\nvar %s = struct {\n\tName string\n", ident, describe(d), ident)
+		fmt.Fprintf(&b, "// %s is %s.\nvar %s = struct {\n\toikade.Device\n", ident, describe(d), ident)
 		hs := handles(d)
 		for _, h := range hs {
 			fmt.Fprintf(&b, "\t%s oikade.%s\n", h.field, h.typ)
 		}
-		fmt.Fprintf(&b, "}{\n\tName: %q,\n", d.Name)
+		fmt.Fprintf(&b, "}{\n\tDevice: oikade.Device{Name: %q},\n", d.Name)
 		for _, h := range hs {
 			fmt.Fprintf(&b, "\t%s: oikade.%s{Device: %q, Capability: oikade.%s},\n", h.field, h.typ, d.Name, h.field)
 		}

@@ -35,9 +35,13 @@ type HoldState struct {
 // HoldTarget is a hold's device or room, capability and value.
 type HoldTarget struct {
 	Device string `json:"device,omitempty"`
-	Room   string `json:"room,omitempty"`
-	// DeviceTypes limits a room to devices of these types.
+	// Devices are a group's members, which the hold writes as one.
+	Devices []string `json:"devices,omitempty"`
+	Room    string   `json:"room,omitempty"`
+	// DeviceTypes limits a room to devices of these types, and Except leaves out those with a
+	// decision of their own.
 	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
+	Except      []string          `json:"except,omitempty"`
 	Capability  string            `json:"capability"`
 	Value       any               `json:"value"`
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -37,6 +38,15 @@ func homeWith(o Options, f func(h *Home)) *Home {
 	f(h)
 	return h
 }
+
+// room is a room of a home of its own, for tests that only read or write it.
+func room(name string, kinds ...Kind) Group { return NewHome(Options{}).Room(name, kinds...) }
+
+// outside and radiator are a temperature and a setpoint, for a Follow.
+var (
+	outside  = Number{Device: "t", Capability: Temperature}
+	radiator = Number{Device: "r", Capability: Setpoint}
+)
 
 // nothing is a flow's body that does nothing.
 func nothing(*FlowRun) {}
@@ -79,7 +89,7 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		"a window that isn't one": {deciding(Options{}, "evening", d, Daily("18:00", "7")), `time "7" is not HH:MM`},
 		"a date that isn't one":   {deciding(Options{}, "summer", Yearly("1 Jun", "31 Jun")), `"31 Jun" isn't a date`},
 		"a Within the wrong way round": {
-			deciding(Options{}, "comfy", Number{"t", Temperature}.Within(25, 18)), "give the lower first",
+			deciding(Options{}, "comfy", outside.Within(25, 18)), "give the lower first",
 		},
 		"a nil condition in All":   {deciding(Options{}, "a", All(d, nil)), "All has a nil condition, at 1"},
 		"a case with no condition": {deciding(Options{}, "a"), "it needs a condition: Default is for always"},
@@ -115,46 +125,48 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		},
 		"Follow on a bool": {
 			decide(func(h *Home) {
-				h.Decide(d).Follow("w", Number{"t", Temperature}, func(float64) bool { return true }).Default(false)
+				h.Decide(d).Follow("w", outside, func(float64) bool { return true }).Default(false)
 			}), `Follow "w" needs a number capability`,
 		},
 		"Follow with no function": {
 			decide(func(h *Home) {
-				h.Decide(Number{"r", Setpoint}).Follow("w", Number{"t", Temperature}, nil).Default(18)
+				h.Decide(radiator).Follow("w", outside, nil).Default(18)
 			}), `Follow "w" needs a function`,
 		},
 		"Follow of no reading": {
 			decide(func(h *Home) {
-				h.Decide(Number{"r", Setpoint}).Follow("w", Number{}, func(v float64) float64 { return v }).Default(18)
+				h.Decide(radiator).Follow("w", Number{}, func(v float64) float64 { return v }).Default(18)
 			}), "a condition reads a device's capability",
 		},
 		"Step with no Follow": {
 			decide(func(h *Home) {
-				h.Decide(Number{"r", Setpoint}).Case("a", 7, d).Step(1).Default(18)
+				h.Decide(radiator).Case("a", 7, d).Step(1).Default(18)
 			}), "Step needs a Follow before it",
 		},
 		"a Step of zero": {
 			decide(func(h *Home) {
-				h.Decide(Number{"r", Setpoint}).Follow("w", Number{"t", Temperature}, func(v float64) float64 { return v }).
+				h.Decide(radiator).Follow("w", outside, func(v float64) float64 { return v }).
 					Step(0).Default(18)
 			}), `Follow "w": Step 0 must be positive`,
 		},
 		"Step twice": {
 			decide(func(h *Home) {
-				h.Decide(Number{"r", Setpoint}).Follow("w", Number{"t", Temperature}, func(v float64) float64 { return v }).
+				h.Decide(radiator).Follow("w", outside, func(v float64) float64 { return v }).
 					Step(1).Step(2).Default(18)
 			}), "Step is given twice",
 		},
 		"an average of an average": {
-			deciding(Options{}, "a", Number{"t", Temperature}.AverageOver(time.Hour).AverageOver(time.Hour).Below(3)),
+			deciding(Options{}, "a", outside.AverageOver(time.Hour).AverageOver(time.Hour).Below(3)),
 			"t temperature over 1h is an average already",
 		},
 		"an average over seconds": {
-			deciding(Options{}, "a", Number{"t", Temperature}.AverageOver(time.Second).Below(3)),
+			deciding(Options{}, "a", outside.AverageOver(time.Second).Below(3)),
 			"AverageOver(1s) must be at least a minute",
 		},
 		"an average as a trigger": {
-			decide(func(h *Home) { h.Flow("a", nothing).When(Number{"t", Temperature}.AverageOver(time.Hour)) }),
+			decide(func(h *Home) {
+				h.Flow("a", nothing).When(outside.AverageOver(time.Hour))
+			}),
 			"When[0] is an average",
 		},
 		"a budget's condition": {
@@ -288,12 +300,12 @@ func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
 		cond func(Snapshot) bool
 		want bool
 	}{
-		"any":         {func(s Snapshot) bool { return s.Any(InRoom("hallway", Everything, Occupied)) }, true},
-		"all":         {func(s Snapshot) bool { return s.All(InRoom("hallway", Everything, Occupied)) }, false},
-		"count":       {func(s Snapshot) bool { return s.Count(InRoom("hallway", Everything, Occupied)) == 1 }, true},
-		"all on":      {func(s Snapshot) bool { return s.All(InRoom("hallway", Everything, On)) }, false},
-		"lights only": {func(s Snapshot) bool { return s.All(InRoom("hallway", Lights, On)) }, true},
-		"plugs only":  {func(s Snapshot) bool { return s.Any(InRoom("hallway", Kinds(OnOffPlugInUnit), On)) }, false},
+		"any":         {func(s Snapshot) bool { return s.Any(room("hallway", Everything).Occupied) }, true},
+		"all":         {func(s Snapshot) bool { return s.All(room("hallway", Everything).Occupied) }, false},
+		"count":       {func(s Snapshot) bool { return s.Count(room("hallway", Everything).Occupied) == 1 }, true},
+		"all on":      {func(s Snapshot) bool { return s.All(room("hallway", Everything).On) }, false},
+		"lights only": {func(s Snapshot) bool { return s.All(room("hallway", Lights).On) }, true},
+		"plugs only":  {func(s Snapshot) bool { return s.Any(room("hallway", Kinds(OnOffPlugInUnit)).On) }, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ok, err := toEngine(ConditionFunc(name, tc.cond))(hallway())
@@ -307,7 +319,7 @@ func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
 func TestReadingsAreInDeviceNameOrder(t *testing.T) {
 	var got []float64
 	cond := toEngine(ConditionFunc("cellar damp", func(s Snapshot) bool {
-		got = s.Readings(InRoom("cellar", Everything, Humidity))
+		got = s.Readings(room("cellar", Everything).Humidity)
 		return slices.Max(got) > 65
 	}))
 	ok, err := cond(engine.Vars{
@@ -322,10 +334,10 @@ func TestReadingsAreInDeviceNameOrder(t *testing.T) {
 // A hold keeps its state while it can't tell, as with a single device that hasn't reported.
 func TestARoomWhereNothingHasReportedIsAnError(t *testing.T) {
 	for name, cond := range map[string]func(Snapshot) bool{
-		"nothing reported": func(s Snapshot) bool { return s.Any(InRoom("cellar", Everything, Occupied)) },
-		"no such room":     func(s Snapshot) bool { return s.Any(InRoom("loft", Everything, Occupied)) },
-		"no room":          func(s Snapshot) bool { return s.Any(InRoom("", Everything, Occupied)) },
-		"no such type":     func(s Snapshot) bool { return s.Any(InRoom("hallway", Kinds(DimmableLight), On)) },
+		"nothing reported": func(s Snapshot) bool { return s.Any(room("cellar", Everything).Occupied) },
+		"no such room":     func(s Snapshot) bool { return s.Any(room("loft", Everything).Occupied) },
+		"no room":          func(s Snapshot) bool { return s.Any(room("", Everything).Occupied) },
+		"no such type":     func(s Snapshot) bool { return s.Any(room("hallway", Kinds(DimmableLight)).On) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := toEngine(ConditionFunc(name, cond))(hallway()); err == nil {
@@ -609,7 +621,8 @@ func TestAChangeReachesTheEngineAsOneReport(t *testing.T) {
 
 func TestManifestDescribesTheHome(t *testing.T) {
 	when := ConditionFunc("always", func(Snapshot) bool { return true })
-	valve, fan, siren := Bool{"valve", On}, Bool{"fan", On}, Bool{"siren", On}
+	valve, fan := Bool{Device: "valve", Capability: On}, Bool{Device: "fan", Capability: On}
+	siren := Bool{Device: "siren", Capability: On}
 	m := decide(func(h *Home) {
 		leak := h.Flow("leak", nothing).When(valve)
 		h.Flow("bedtime", nothing).At(Clock("22:00"))
@@ -676,7 +689,7 @@ func TestADecisionsOverrideLineSaysWhatAnOutsideChangeDoes(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			h := decide(func(h *Home) { tc.decide(h.Decide(Bool{"d", On})).Default(false) })
+			h := decide(func(h *Home) { tc.decide(h.Decide(Bool{Device: "d", Capability: On})).Default(false) })
 			m := h.manifest()
 			e := m.Control[0].Entry
 			if e.External != tc.external || e.OverrideHold != tc.holds || !slices.Equal(e.Lines, tc.lines) {
@@ -847,6 +860,22 @@ func TestMetaHasTheLimitsOfTheHomesDecision(t *testing.T) {
 	if len(m.Control) != 2 || time.Duration(m.Control[0].MinimumOn) != time.Hour ||
 		m.Control[1].Capability != "brightness" {
 		t.Fatalf("got %+v", m.Control)
+	}
+}
+
+// A room's setting is a device's there of its kinds, and not a plug's beside it.
+func TestMetaHasTheRoomsSettingForItsKinds(t *testing.T) {
+	lights := []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight}
+	dusk := control.Entry{Capability: "on", Lines: []string{"Rule/hall on dusk"}}
+	settings := []wire.DeviceControl{{Room: "hall", DeviceTypes: lights, Entry: dusk}}
+	device := func(name string, t devicetype.Type) wire.Device {
+		return wire.Device{Name: name, Room: "hall", DeviceTypes: []devicetype.Type{t}, Arbitrated: []string{"on"}}
+	}
+	lamp := meta(device("lamp", devicetype.OnOffLight), settings)
+	plug := meta(device("plug", devicetype.OnOffPlugInUnit), settings)
+	if len(lamp.Control) != 1 || len(lamp.Control[0].Lines) != 1 ||
+		len(plug.Control) != 1 || len(plug.Control[0].Lines) != 0 {
+		t.Fatalf("got the lamp's %+v and the plug's %+v", lamp.Control, plug.Control)
 	}
 }
 
