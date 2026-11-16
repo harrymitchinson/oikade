@@ -14,12 +14,12 @@ Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`
 ### Moments
 
 ```go
-framework.NewMoment("hallway-motion-light", HallwayLight.On.To(true), framework.Wait(5*time.Minute), HallwayLight.On.To(false)).
+oikade.NewMoment("hallway-motion-light", HallwayLight.On.To(true), oikade.Wait(5*time.Minute), HallwayLight.On.To(false)).
 	Restart(). // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On(framework.InRoom("hallway", framework.Everything, framework.Occupied)).
-	If(func(s framework.State) bool {
-		return s.Any(framework.InRoom("hallway", framework.Everything, framework.Occupied)) &&
-			s.Within(framework.NewWindow(framework.Clock("18:00"), framework.Clock("07:00")))
+	On(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)).
+	If(func(s oikade.State) bool {
+		return s.Any(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)) &&
+			s.Within(oikade.NewWindow(oikade.Clock("18:00"), oikade.Clock("07:00")))
 	})
 ```
 
@@ -33,20 +33,20 @@ The 5 minutes in this example live in your process's memory, so a restart during
 
 ### Times of day
 
-`At` fires at times of day, instead of or as well as `On`. `framework.Clock("23:30")` is a local time, in the host machine's zone, from `"00:00"` to `"23:59"`:
+`At` fires at times of day, instead of or as well as `On`. `oikade.Clock("23:30")` is a local time, in the host machine's zone, from `"00:00"` to `"23:59"`:
 
 ```go
-framework.NewMoment("downstairs-bedtime", PorchLight.On.To(false)).
-	At(framework.Clock("23:30")).
+oikade.NewMoment("downstairs-bedtime", PorchLight.On.To(false)).
+	At(oikade.Clock("23:30")).
 	Late(10 * time.Minute)
 ```
 
-`framework.Sunrise` and `framework.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Location`, made by `framework.NewLocation` from its latitude and longitude in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
+`oikade.Sunrise` and `oikade.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Location`, made by `oikade.NewLocation` from its latitude and longitude in degrees (north and east are positive), which your process, `oikade dev`, `oikade replay` and `hometest` all read from the `Home`:
 
 ```go
-framework.NewHome(framework.Options{Location: framework.NewLocation(51.48, -0.01)}, // round to 2 decimals
-	framework.NewMoment("porch-at-dusk", PorchLight.On.To(true)).
-		At(framework.Sunset(-20*time.Minute)), // 20 minutes before sunset
+oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}, // round to 2 decimals
+	oikade.NewMoment("porch-at-dusk", PorchLight.On.To(true)).
+		At(oikade.Sunset(-20*time.Minute)), // 20 minutes before sunset
 )
 ```
 
@@ -61,23 +61,23 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 
 ### Rooms
 
-`framework.InRoom` is a capability of a room's devices in a group, as a `Change`, a condition's read, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](devices.md#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
+`oikade.InRoom` is a capability of a room's devices in a group, as a `Change`, a condition's read, or with `To` as a `Set` or a hold's `Set`. A device is in a room when the [registry](devices.md#devices) says so, so a lamp added to the room later is covered without a deploy, which is why a room takes a capability rather than handles.
 
 ```go
-framework.NewMoment("lights-out",
-	framework.InRoom("living-room", framework.Lights, framework.On).To(false), // the lights, not the plugs
-).On(framework.InRoom("hallway", framework.Everything, framework.Occupied)) // any sensor in the hallway
+oikade.NewMoment("lights-out",
+	oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false), // the lights, not the plugs
+).On(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)) // any sensor in the hallway
 ```
 
 The group says which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
 
 | Group | Device types |
 |---|---|
-| `framework.Lights` | `OnOffLight`, `DimmableLight` |
-| `framework.Plugs` | `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl`, `MountedDimmableLoadControl` |
-| `framework.Heaters` | `Thermostat`: any device with a setpoint |
-| `framework.Kinds(...)` | the types you list, such as `framework.Kinds(framework.DimmableLight)` |
-| `framework.Everything` | every device in the room with the capability, whatever it is |
+| `oikade.Lights` | `OnOffLight`, `DimmableLight` |
+| `oikade.Plugs` | `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl`, `MountedDimmableLoadControl` |
+| `oikade.Heaters` | `Thermostat`: any device with a setpoint |
+| `oikade.Kinds(...)` | the types you list, such as `oikade.Kinds(oikade.DimmableLight)` |
+| `oikade.Everything` | every device in the room with the capability, whatever it is |
 
 A device whose type isn't in the group is left alone, and the log names it, so a wall switch typed `MountedOnOffControl` is a plug until `oikade devices type` makes it a light. A room's sensors have no group of their own: read and trigger on them with `Everything`.
 
@@ -85,8 +85,8 @@ A condition reads a room with `State`'s `Any`, `All` and `Count` for a `bool` ca
 
 ```go
 // A dehumidifier that runs on whichever cellar sensors have reported.
-When: func(s framework.State) bool {
-	return slices.Max(s.Readings(framework.InRoom("cellar", framework.Everything, framework.Humidity))) > 65
+When: func(s oikade.State) bool {
+	return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
 },
 ```
 
@@ -103,14 +103,14 @@ A room with no devices in it, or none in the read's group, stops the condition t
 
 ### Holds
 
-`framework.NewHold` takes a name and the `Set` to keep. A hold keeps that value while its `Window` is open and `When` is true:
+`oikade.NewHold` takes a name and the `Set` to keep. A hold keeps that value while its `Window` is open and `When` is true:
 
 ```go
-framework.NewBundle(
-	framework.NewHold("water-heater-night", WaterHeater.On.To(true)).
-		Window(framework.NewWindow(framework.Clock("22:00"), framework.Clock("06:00"))), // an end at or before the start is the next morning
-	framework.NewHold("bathroom-humid", BathroomFan.On.To(true)).
-		When(func(s framework.State) bool {
+oikade.NewBundle(
+	oikade.NewHold("water-heater-night", WaterHeater.On.To(true)).
+		Window(oikade.NewWindow(oikade.Clock("22:00"), oikade.Clock("06:00"))), // an end at or before the start is the next morning
+	oikade.NewHold("bathroom-humid", BathroomFan.On.To(true)).
+		When(func(s oikade.State) bool {
 			return s.Get(BathroomSensor.Humidity) > 70
 		}).
 		OffDelay(10*time.Minute), // run on for 10 minutes after it drops
@@ -119,7 +119,7 @@ framework.NewBundle(
 
 | Method | |
 |---|---|
-| `Window` | `framework.NewWindow(start, end)`, from times of day such as `framework.Clock("22:00")` or `framework.Sunset(0)`, as in [`At`](#times-of-day). `.Days(…)` on it limits it to windows that start on those days. |
+| `Window` | `oikade.NewWindow(start, end)`, from times of day such as `oikade.Clock("22:00")` or `oikade.Sunset(0)`, as in [`At`](#times-of-day). `.Days(…)` on it limits it to windows that start on those days. |
 | `When` | A condition, as in a moment. |
 | `OnDelay` | How long `When` must stay true before the hold starts. |
 | `OffDelay` | How long the hold stays active after `When` stops being true. |
@@ -140,31 +140,31 @@ A `When` is looked at again on every device change and at least once a minute, s
 A budget hold runs a device for a number of minutes a day, and plans when. Here a loft fan runs one to five hours a day depending on how humid the loft was at midnight, overnight where it can, and never in the evening:
 
 ```go
-framework.NewBundle(
-	framework.NewControl(LoftFan.On.To(false), framework.PreferOn, framework.ExternalOverride).
+oikade.NewBundle(
+	oikade.NewControl(LoftFan.On.To(false), oikade.PreferOn, oikade.ExternalOverride).
 		OverrideHold(time.Hour).
 		MinimumOn(time.Hour).        // each run at least an hour
 		MinimumOff(30*time.Minute). // and half an hour's rest between runs
 		MaximumStartsPerDay(3),
-	framework.NewHold("loft-airing", LoftFan.On.To(true)).
-		Budget(framework.NewBandedBudget(framework.Bands{
+	oikade.NewHold("loft-airing", LoftFan.On.To(true)).
+		Budget(oikade.NewBandedBudget(oikade.Bands{
 			Reading: LoftHumidity.Humidity,
 			MaxAge:  time.Hour, Missing: 180, // if the sensor hasn't reported in the last hour
-			Ranges:    []framework.Band{{Below: 55, Minutes: 60}, {Below: 70, Minutes: 180}},
+			Ranges:    []oikade.Band{{Below: 55, Minutes: 60}, {Below: 70, Minutes: 180}},
 			Otherwise: 300,
 		}).
-			Prefer(framework.NewWindow(framework.Clock("23:00"), framework.Clock("07:00")), 3).
-			Forbid(framework.NewWindow(framework.Clock("18:00"), framework.Clock("22:00")))),
+			Prefer(oikade.NewWindow(oikade.Clock("23:00"), oikade.Clock("07:00")), 3).
+			Forbid(oikade.NewWindow(oikade.Clock("18:00"), oikade.Clock("22:00")))),
 )
 ```
 
-`framework.NewBudget` takes a function of the home, and `framework.NewBandedBudget` takes `framework.Bands`. The rest are chained:
+`oikade.NewBudget` takes a function of the home, and `oikade.NewBandedBudget` takes `oikade.Bands`. The rest are chained:
 
 | Method or input | |
 |---|---|
 | `PlanningTime` | When each planning day starts, `"HH:MM"` local time. The day is planned then, and the plan is frozen until the next one. Defaults to `"00:00"`. |
 | `SlotMinutes` | The day is planned in slots of 15, 30 or 60 minutes. Defaults to 30. |
-| `framework.Bands` | The day's minutes from the band the reading falls in at `PlanningTime`: the first whose `Below` it's under, and `Otherwise` for the rest. `Missing` applies when it hasn't reported within `MaxAge` (default 30 minutes). |
+| `oikade.Bands` | The day's minutes from the band the reading falls in at `PlanningTime`: the first whose `Below` it's under, and `Otherwise` for the rest. `Missing` applies when it hasn't reported within `MaxAge` (default 30 minutes). |
 | `NewBudget`'s function | Or a function of the home at planning time. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. |
 | `Prefer(window, score)` | Windows the minutes go in first. Each slot a window touches gains the score, from -100 to 100, and overlapping windows add up. Give it once per window. |
 | `Forbid` | Windows the minutes never go in. |
@@ -180,14 +180,14 @@ At `PlanningTime` your process plans the day and freezes the plan. The hold is a
 A capability is arbitrated when your home has a `Control` for it. The host saves that, so a device is arbitrated, and a Safety claim holds, while your automations are down.
 
 ```go
-framework.NewBundle(
-	framework.NewControl(
+oikade.NewBundle(
+	oikade.NewControl(
 		HallLight.On.To(false),     // what's left when nobody claims it
-		framework.PreferOn,         // two claims at one level: on wins
-		framework.ExternalOverride, // a wall switch or Home app tap becomes a claim...
+		oikade.PreferOn,         // two claims at one level: on wins
+		oikade.ExternalOverride, // a wall switch or Home app tap becomes a claim...
 	).OverrideUntilNext(), // ...until what the rules want next changes
-	framework.NewHold("hall-motion-light", HallLight.On.To(true)).
-		When(func(s framework.State) bool { return s.Get(HallMotion.Occupied) }).
+	oikade.NewHold("hall-motion-light", HallLight.On.To(true)).
+		When(func(s oikade.State) bool { return s.Get(HallMotion.Occupied) }).
 		OffDelay(5*time.Minute),
 )
 ```
@@ -196,12 +196,12 @@ Rules, Matter controllers and the device itself make **claims**. The highest lev
 
 | Level | Who claims | Ends |
 |---|---|---|
-| Safety | Rules with `Priority(framework.Safety)` | A rule's claim ends when its hold ends (for a latched hold, at a `Release`), or as its `Set` says |
-| Override | Outside changes (a Matter controller, `oikade set`, or the device by itself), and rules with `Priority(framework.Override)` | An outside change ends after `OverrideHold`. A rule's claim ends as above. |
+| Safety | Rules with `Priority(oikade.Safety)` | A rule's claim ends when its hold ends (for a latched hold, at a `Release`), or as its `Set` says |
+| Override | Outside changes (a Matter controller, `oikade set`, or the device by itself), and rules with `Priority(oikade.Override)` | An outside change ends after `OverrideHold`. A rule's claim ends as above. |
 | Normal | Ordinary rules | As above |
 | Default | Nobody | Never |
 
-`framework.NewControl` takes the first three, in order. The rest are chained:
+`oikade.NewControl` takes the first three, in order. The rest are chained:
 
 | Input or method | |
 |---|---|
@@ -222,15 +222,15 @@ An outside change is recorded by the path it came in by: `Matter` for a command 
 A `Set` on an arbitrated capability is a claim, so it must say when it ends:
 
 ```go
-framework.NewMoment("towel-rail-boost", TowelRail.On.To(true).For(time.Hour).UntilNext()).
-	At(framework.Clock("21:30"))
+oikade.NewMoment("towel-rail-boost", TowelRail.On.To(true).For(time.Hour).UntilNext()).
+	At(oikade.Clock("21:30"))
 ```
 
 - `For` ends it after that long.
 - `UntilNext` ends it when the winner without it next changes. If the rail also had a hold from 06:00 to 08:00, that's when the hold starts the next morning.
 - `For` together with `UntilNext` ends it at whichever comes first. This boost ends after an hour, unless what the other claims want changes sooner.
-- `UntilReleased` ends it at a `framework.Release("<name>")` action in another rule.
-- `Priority(framework.Override)` on the `Set` raises the claim's level. It's Normal otherwise, or in a flow the flow's `Priority`.
+- `UntilReleased` ends it at an `oikade.Release("<name>")` action in another rule.
+- `Priority(oikade.Override)` on the `Set` raises the claim's level. It's Normal otherwise, or in a flow the flow's `Priority`.
 
 A `Set` with none of these on an arbitrated capability of a single device is an error when it runs. A `Set` on a capability that isn't arbitrated is a plain write, and these don't apply to it.
 
@@ -239,15 +239,15 @@ A `Set` with none of these on an arbitrated capability of a single device is an 
 A latched hold stays active once it has started, until another rule releases it. It's worked out from state rather than from a change. So if the garage overheated while your process was down and is still too hot when it next sees the temperature, it latches then.
 
 ```go
-framework.NewBundle(
-	framework.NewControl(GarageHeater.On.To(true), framework.PreferOff, framework.ExternalRevert),
-	framework.NewHold("garage-overheat", GarageHeater.On.To(false)).
-		Priority(framework.Safety).
+oikade.NewBundle(
+	oikade.NewControl(GarageHeater.On.To(true), oikade.PreferOff, oikade.ExternalRevert),
+	oikade.NewHold("garage-overheat", GarageHeater.On.To(false)).
+		Priority(oikade.Safety).
 		Latch().
-		When(func(s framework.State) bool { return s.Get(GarageTemperature.Temperature) > 40 }),
-	framework.NewMoment("garage-overheat-reset", framework.Release("garage-overheat")).
+		When(func(s oikade.State) bool { return s.Get(GarageTemperature.Temperature) > 40 }),
+	oikade.NewMoment("garage-overheat-reset", oikade.Release("garage-overheat")).
 		On(GarageDoor.Open).
-		If(func(s framework.State) bool { return s.Get(GarageDoor.Open) }),
+		If(func(s oikade.State) bool { return s.Get(GarageDoor.Open) }),
 )
 ```
 
@@ -255,44 +255,44 @@ Overheating turns the heater off. Turning it on from the Home app is reverted at
 
 ### Composing a home
 
-A home is made of parts. Each `Hold`, `Moment`, `Flow`, `Control` and `Plugin` is a `framework.Part`, and `framework.NewHome` takes any number of them after its `framework.Options`. An ordinary Go function can return one, so what belongs together stays together and can move between files. `framework.NewBundle` groups parts, and is a part itself, so bundles nest:
+A home is made of parts. Each `Hold`, `Moment`, `Flow`, `Control` and `Plugin` is an `oikade.Part`, and `oikade.NewHome` takes any number of them after its `oikade.Options`. An ordinary Go function can return one, so what belongs together stays together and can move between files. `oikade.NewBundle` groups parts, and is a part itself, so bundles nest:
 
 ```go
-func home() framework.Home {
-	return framework.NewHome(framework.Options{Location: framework.NewLocation(51.48, -0.01)},
+func home() oikade.Home {
+	return oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)},
 		lights(),
 		dehumidifier(),
 	)
 }
 
-func lights() framework.Bundle {
-	var parts []framework.Part
+func lights() oikade.Bundle {
+	var parts []oikade.Part
 	for _, z := range zones {
 		parts = append(parts, motionLight(z))
 	}
-	return framework.NewBundle(parts...)
+	return oikade.NewBundle(parts...)
 }
 
-func motionLight(z zone) framework.Hold {
-	return framework.NewHold(z.name+"-motion-light", z.light.To(true)).
-		When(func(s framework.State) bool { return s.Get(z.motion) }).
+func motionLight(z zone) oikade.Hold {
+	return oikade.NewHold(z.name+"-motion-light", z.light.To(true)).
+		When(func(s oikade.State) bool { return s.Get(z.motion) }).
 		OffDelay(5 * time.Minute)
 }
 
 // A budgeted hold and the Control it needs.
-func dehumidifier() framework.Bundle {
-	return framework.NewBundle(
-		framework.NewControl(Dehumidifier.On.To(false), framework.PreferOn, framework.ExternalOverride).
+func dehumidifier() oikade.Bundle {
+	return oikade.NewBundle(
+		oikade.NewControl(Dehumidifier.On.To(false), oikade.PreferOn, oikade.ExternalOverride).
 			OverrideHold(time.Hour),
-		framework.NewHold("dehumidifier", Dehumidifier.On.To(true)).Budget(cellarBudget),
+		oikade.NewHold("dehumidifier", Dehumidifier.On.To(true)).Budget(cellarBudget),
 	)
 }
 ```
 
-A helper can be tested on its own: `hometest.New(t, framework.NewHome(framework.Options{}, dehumidifier()), hometest.Options{})`.
+A helper can be tested on its own: `hometest.New(t, oikade.NewHome(oikade.Options{}, dehumidifier()), hometest.Options{})`.
 
 - **A rule keeps the name you wrote,** whichever `Bundle` it's in, because a name is the rule's state key. A helper used twice builds a different name each time, and a clash fails `oikade check`.
-- **`Options` holds what a home has exactly one of,** so a second location, or one inside a helper, doesn't compile. A home with no sunrise or sunset writes `framework.Options{}`.
+- **`Options` holds what a home has exactly one of,** so a second location, or one inside a helper, doesn't compile. A home with no sunrise or sunset writes `oikade.Options{}`.
 - **A nil part, or a pointer to one,** fails `oikade check`, which says where it is.
 
 ### Reading status

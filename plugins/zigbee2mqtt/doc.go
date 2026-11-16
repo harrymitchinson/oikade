@@ -1,9 +1,9 @@
 // Package zigbee2mqtt is the plugin for a Zigbee2MQTT you run yourself, on a broker you run yourself.
 // A home imports it, and its Config says where the broker is:
 //
-//	framework.NewHome(framework.Options{},
-//		framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
-//			Broker: "mqtt://oikade@broker:1883", Password: framework.Secret("broker"),
+//	oikade.NewHome(oikade.Options{},
+//		oikade.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
+//			Broker: "mqtt://oikade@broker:1883", Password: oikade.Secret("broker"),
 //		})),
 //	)
 //

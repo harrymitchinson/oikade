@@ -5,16 +5,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 )
 
 func TestAPlanThatFailsIsAnEvent(t *testing.T) {
-	pump := framework.Handle[bool]{Device: "pump", Capability: framework.On}
-	home := framework.NewHome(framework.Options{},
-		framework.NewControl(pump.To(false), framework.PreferOn, framework.ExternalOverride).
+	pump := oikade.Handle[bool]{Device: "pump", Capability: oikade.On}
+	home := oikade.NewHome(oikade.Options{},
+		oikade.NewControl(pump.To(false), oikade.PreferOn, oikade.ExternalOverride).
 			OverrideHold(time.Hour),
-		framework.NewHold("pump", pump.To(true)).
-			Budget(framework.NewBudget(func(framework.State) int { panic("no reading") })),
+		oikade.NewHold("pump", pump.To(true)).
+			Budget(oikade.NewBudget(func(oikade.State) int { panic("no reading") })),
 	)
 	h := New(t, home, Options{Devices: []Device{{
 		Name: "pump", Capabilities: []string{"on"}, Values: map[string]any{"on": false},

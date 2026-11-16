@@ -5,7 +5,7 @@
 ```
 cmd/oikade/*                   oikade: every command you run, from a laptop or CI
 cmd/oikade-host/*              oikade-host: the host, plus client add
-framework/*                    What a home is written with (public API)
+*.go, hometest/*               Package oikade: what a home is written with (public API)
 internal/host/*                The host
 internal/engine/*              Holds, moments, arbitration, the day planner
 internal/matter/*              Oikade's own Matter stack
@@ -34,7 +34,7 @@ make test       # Run the tests
 make test-conformance    # Drive test/fixtures/simswitch through the oikade/v1 contract
 ```
 
-The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1`, `sdk/plugin` and `framework` are public API: their exported signatures must not mention `internal/` types. `cmd/oikade-conformance`'s name and flags are public API too, because plugin repos run it in CI: removing or renaming one is a breaking change (`feat!:` with a `BREAKING CHANGE:` footer). An SDK for another language may live here only if it's generated from the contract (OIK-62).
+The contract is `docs/plugin-contract.md`. Change it, `contract/v1`, the decoder in `internal/driver/plugin` and the conformance suite in `internal/conformance` (run by `test/conformance` and `cmd/oikade-conformance`) together. `contract/v1`, `sdk/plugin` and the package `oikade` at the root are public API: their exported signatures must not mention `internal/` types. `cmd/oikade-conformance`'s name and flags are public API too, because plugin repos run it in CI: removing or renaming one is a breaking change (`feat!:` with a `BREAKING CHANGE:` footer). An SDK for another language may live here only if it's generated from the contract (OIK-62).
 
 **First-party plugins live in `plugins/`, and anyone else's in its own repo** (`oikade-plugin-<name>`), with its own `go.mod`, images and releases. Each plugin's README (`plugins/<name>/README.md`) is its user docs: setup, keys and what it reports. The main README only lists it. `test/fixtures/simswitch` exists only so the SDK and the conformance suite are tested end to end.
 

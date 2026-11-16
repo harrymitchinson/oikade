@@ -1,12 +1,12 @@
 // Package overkiz is the plugin for Overkiz, the platform behind Somfy TaHoma and others. A home
 // imports it once per hub or account:
 //
-//	framework.NewHome(framework.Options{},
-//		framework.NewPlugin("tahoma", overkiz.New(overkiz.Local{
-//			Address: "192.168.1.40:8443", PIN: "1234-5678-9012", Token: framework.Secret("tahoma-token"),
+//	oikade.NewHome(oikade.Options{},
+//		oikade.NewPlugin("tahoma", overkiz.New(overkiz.Local{
+//			Address: "192.168.1.40:8443", PIN: "1234-5678-9012", Token: oikade.Secret("tahoma-token"),
 //		})),
-//		framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
-//			Brand: overkiz.Thermor, Username: "someone@example.com", Password: framework.Secret("cozytouch"),
+//		oikade.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
+//			Brand: overkiz.Thermor, Username: "someone@example.com", Password: oikade.Secret("cozytouch"),
 //		})),
 //	)
 //

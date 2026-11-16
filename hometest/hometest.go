@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -27,8 +27,8 @@ type Device struct {
 	Name, Room   string
 	Capabilities []string
 	// DeviceType is what a device that's on or off is, as oikade devices type would say. Empty is
-	// what its capabilities say: a dimmable light with framework.Brightness, and a plug without.
-	DeviceType framework.DeviceType
+	// what its capabilities say: a dimmable light with oikade.Brightness, and a plug without.
+	DeviceType oikade.DeviceType
 	// Values are its first values, by capability.
 	Values map[string]any
 }
@@ -71,7 +71,7 @@ type Home struct {
 }
 
 // New starts a simulated home, which stops with the test.
-func New(t testing.TB, home framework.Home, o Options) *Home {
+func New(t testing.TB, home oikade.Home, o Options) *Home {
 	t.Helper()
 	if o.Start.IsZero() {
 		o.Start = time.Date(2030, time.January, 7, 0, 0, 0, 0, time.UTC)
@@ -95,7 +95,7 @@ func New(t testing.TB, home framework.Home, o Options) *Home {
 			t.Fatalf("Reading the home's devices: %v. Run oikade types, or give Options.Devices", err)
 		}
 	}
-	compiled, err := simhome.FromFramework(home)
+	compiled, err := simhome.FromHome(home)
 	if err != nil {
 		t.Fatalf("Your home has mistakes in it: %v", err)
 	}
@@ -117,7 +117,7 @@ func (h *Home) Now() time.Time { return h.sim.Now() }
 
 // Set changes a device from outside your automations, as its sensor or a tap in an app would, and
 // waits for your automations to take it in.
-func (h *Home) Set[T framework.Value](c framework.Handle[T], value T) {
+func (h *Home) Set[T oikade.Value](c oikade.Handle[T], value T) {
 	h.t.Helper()
 	if err := h.sim.Set(c.Device, string(c.Capability), value); err != nil {
 		h.t.Fatal(err)
@@ -129,7 +129,7 @@ func (h *Home) Set[T framework.Value](c framework.Handle[T], value T) {
 // they do on a real host:
 //
 //	h.Report(HallSensor.Humidity.To(72), HallSensor.Occupied.To(true))
-func (h *Home) Report(values ...framework.Set) {
+func (h *Home) Report(values ...oikade.Set) {
 	h.t.Helper()
 	var device string
 	report := map[string]any{}
@@ -171,7 +171,7 @@ func (h *Home) Restart() {
 }
 
 // Value reads a device's value, and whether it has one yet.
-func (h *Home) Value[T framework.Value](c framework.Handle[T]) (T, bool) {
+func (h *Home) Value[T oikade.Value](c oikade.Handle[T]) (T, bool) {
 	var zero T
 	v, ok := h.sim.Value(c.Device, string(c.Capability))
 	if !ok {
@@ -182,7 +182,7 @@ func (h *Home) Value[T framework.Value](c framework.Handle[T]) (T, bool) {
 }
 
 // as is a value the simulated home holds as T, which takes an int for a number.
-func as[T framework.Value](name string, v any) (T, bool) {
+func as[T oikade.Value](name string, v any) (T, bool) {
 	if valid, err := capability.Validate(name, v); err == nil {
 		v = valid
 	}
@@ -201,7 +201,7 @@ func (h *Home) Writes() []Write {
 }
 
 // Claims are the claims on an arbitrated capability.
-func (h *Home) Claims[T framework.Value](c framework.Handle[T]) []Claim {
+func (h *Home) Claims[T oikade.Value](c oikade.Handle[T]) []Claim {
 	claims := h.sim.Claims(c.Device, string(c.Capability))
 	out := make([]Claim, 0, len(claims))
 	for _, c := range claims {
@@ -214,7 +214,7 @@ func (h *Home) Claims[T framework.Value](c framework.Handle[T]) []Claim {
 func (h *Home) Finished(rule string) bool { return h.sim.Finished(rule) }
 
 // ExpectValue fails the test unless a device has this value.
-func (h *Home) ExpectValue[T framework.Value](c framework.Handle[T], want T) {
+func (h *Home) ExpectValue[T oikade.Value](c oikade.Handle[T], want T) {
 	h.t.Helper()
 	if got, ok := h.Value(c); ok && got == want {
 		return
@@ -226,7 +226,7 @@ func (h *Home) ExpectValue[T framework.Value](c framework.Handle[T], want T) {
 }
 
 // ExpectWrite fails the test unless your automations have written this value to a device.
-func (h *Home) ExpectWrite[T framework.Value](c framework.Handle[T], want T) {
+func (h *Home) ExpectWrite[T oikade.Value](c oikade.Handle[T], want T) {
 	h.t.Helper()
 	for _, w := range h.Writes() {
 		if w.Device != c.Device || w.Capability != string(c.Capability) {
@@ -240,7 +240,7 @@ func (h *Home) ExpectWrite[T framework.Value](c framework.Handle[T], want T) {
 }
 
 // ExpectClaim fails the test unless source holds a claim at this level.
-func (h *Home) ExpectClaim[T framework.Value](c framework.Handle[T], source, level string) {
+func (h *Home) ExpectClaim[T oikade.Value](c oikade.Handle[T], source, level string) {
 	h.t.Helper()
 	claims := h.Claims(c)
 	for _, claim := range claims {

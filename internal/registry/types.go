@@ -20,7 +20,7 @@ const (
 )
 
 // Render writes the Go file oikade types commits: a value for each device, with its name and a
-// framework.Handle for each of its capabilities, so that code naming a device that's gone, or a
+// oikade.Handle for each of its capabilities, so that code naming a device that's gone, or a
 // capability it doesn't have, stops compiling. The registry follows as comments, one device to a
 // line, which Parse reads back. The same registry always gives the same bytes.
 func Render(s Snapshot, pkg string) ([]byte, error) {
@@ -36,7 +36,7 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 	}
 	slices.SortFunc(names, func(a, b Device) int { return strings.Compare(a.Name, b.Name) })
 	if slices.ContainsFunc(names, func(d Device) bool { return len(handles(d)) > 0 }) {
-		b.WriteString("import \"github.com/harrymitchinson/oikade/framework\"\n\n")
+		b.WriteString("import \"github.com/harrymitchinson/oikade\"\n\n")
 	}
 	seen := map[string]string{}
 	if len(names) > 0 {
@@ -51,11 +51,11 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 		fmt.Fprintf(&b, "// %s is %s.\nvar %s = struct {\n\tName string\n", ident, describe(d), ident)
 		hs := handles(d)
 		for _, h := range hs {
-			fmt.Fprintf(&b, "\t%s framework.Handle[%s]\n", h.field, h.typ)
+			fmt.Fprintf(&b, "\t%s oikade.Handle[%s]\n", h.field, h.typ)
 		}
 		fmt.Fprintf(&b, "}{\n\tName: %q,\n", d.Name)
 		for _, h := range hs {
-			fmt.Fprintf(&b, "\t%s: framework.Handle[%s]{Device: %q, Capability: framework.%s},\n", h.field, h.typ, d.Name, h.field)
+			fmt.Fprintf(&b, "\t%s: oikade.Handle[%s]{Device: %q, Capability: oikade.%s},\n", h.field, h.typ, d.Name, h.field)
 		}
 		b.WriteString("}\n\n")
 	}

@@ -63,7 +63,7 @@ type lan interface {
 	Close() error
 }
 
-// New returns the plugin's Factory, for framework.Plugin.
+// New returns the plugin's Factory, for oikade.Plugin.
 func New(c Config) plugin.Factory {
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		return newBridge(c, env, declared, func() (lan, error) { return mdns.ListenMulticast() }, defaults, time.Now,

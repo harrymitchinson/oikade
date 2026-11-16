@@ -1,4 +1,4 @@
-package framework
+package oikade
 
 import (
 	"reflect"
@@ -45,7 +45,7 @@ func TestTheConstantsAreTheRegistrys(t *testing.T) {
 
 func TestThermostatIsTheDeviceTypes(t *testing.T) {
 	if devicetype.Type(Thermostat) != devicetype.Thermostat {
-		t.Errorf("framework.Thermostat is %q, and devicetype's is %q", Thermostat, devicetype.Thermostat)
+		t.Errorf("oikade.Thermostat is %q, and devicetype's is %q", Thermostat, devicetype.Thermostat)
 	}
 }
 

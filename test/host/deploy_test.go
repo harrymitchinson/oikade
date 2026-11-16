@@ -1097,10 +1097,10 @@ func TestDeployBuildsAModuleAndChecksItsFlows(t *testing.T) {
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 )
 
-var _ = func(r *framework.FlowRun) error {
+var _ = func(r *oikade.FlowRun) error {
 	_ = time.Now()
 	return nil
 }

@@ -11,7 +11,7 @@ On a host there are two ways to run one ([OIK-143](https://linear.app/oikade/iss
 A plugin is a Go module with a `plugin.Factory`. Your home imports it and registers it, and there's no image or binary to run:
 
 ```go
-framework.Run(framework.NewHome(framework.Options{}, framework.NewPlugin("ewelink", ewelink.New)))
+oikade.Run(oikade.NewHome(oikade.Options{}, oikade.NewPlugin("ewelink", ewelink.New)))
 ```
 
 **Importing a plugin means trusting its code.** It runs as the host's user, with everything that user can reach.
@@ -22,7 +22,7 @@ A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a
 
 A device you remove with `oikade devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
 
-While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. A claim on one is written again as soon as it does, and a write its last process took with it is written again rather than read as somebody changing the device. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A home declares a plugin device's arbitration settings in a `framework.Control` part of the home, as for any device.
+While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. A claim on one is written again as soon as it does, and a write its last process took with it is written again rather than read as somebody changing the device. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A home declares a plugin device's arbitration settings in an `oikade.Control` part of the home, as for any device.
 
 The messages are this contract's, on the host's socket rather than a broker, so the host checks them with the same decoder. A process that dies is marked offline by the host, as a Last Will would.
 
@@ -180,7 +180,7 @@ The devices file is yours to write, and lists the devices this plugin serves.
 
 `parameters` is passed through without validation. Validating it is the plugin's job, and problems go in `devices[].error`.
 
-The secrets directory holds one file per secret, by convention one per device ID. Never log its contents. In the Go SDK, a plugin your home imports takes a credential the person chooses as a `plugin.Secret` in its config, which the home makes with `framework.Secret`, so `oikade deploy` names it while it isn't set. It reads the ones it names itself with `plugin.ReadSecret`.
+The secrets directory holds one file per secret, by convention one per device ID. Never log its contents. In the Go SDK, a plugin your home imports takes a credential the person chooses as a `plugin.Secret` in its config, which the home makes with `oikade.Secret`, so `oikade deploy` names it while it isn't set. It reads the ones it names itself with `plugin.ReadSecret`.
 
 ## How Oikade treats bad messages
 

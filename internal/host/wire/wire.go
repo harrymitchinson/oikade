@@ -80,7 +80,7 @@ type Manifest struct {
 	Plugins []string `json:"plugins,omitempty"`
 	// Control is every device setting the home declares.
 	Control []DeviceControl `json:"control,omitempty"`
-	// Secrets names the secrets the home's code uses, made with framework.Secret as it was built.
+	// Secrets names the secrets the home's code uses, made with oikade.Secret as it was built.
 	Secrets []string `json:"secrets,omitempty"`
 }
 

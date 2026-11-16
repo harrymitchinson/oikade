@@ -1,4 +1,4 @@
-package framework
+package oikade
 
 import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -104,7 +104,7 @@ var (
 
 // Kinds is a group of the devices of these types, such as only the dimmable lights.
 //
-//	framework.InRoom("study", framework.Kinds(framework.DimmableLight), framework.Brightness).To(40)
+//	oikade.InRoom("study", oikade.Kinds(oikade.DimmableLight), oikade.Brightness).To(40)
 func Kinds(t DeviceType, more ...DeviceType) Group {
 	return Group{types: append([]DeviceType{t}, more...)}
 }
@@ -120,8 +120,8 @@ type Room[T Value] struct {
 // InRoom is capability c of room's devices in group g: a trigger, which fires for a change on any of
 // them, a condition's read, as with State's Any, or with To a write to them all.
 //
-//	framework.InRoom("living-room", framework.Lights, framework.On).To(false) // the lights, not the plugs
-//	framework.InRoom("hallway", framework.Everything, framework.Occupied)    // any sensor in the hallway
+//	oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false) // the lights, not the plugs
+//	oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)    // any sensor in the hallway
 func InRoom[T Value](room string, g Group, c Capability[T]) Room[T] {
 	return Room[T]{room: room, group: g, capability: c}
 }

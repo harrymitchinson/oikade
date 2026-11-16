@@ -46,7 +46,7 @@ type Local struct {
 	// Address is the hub's host and port, such as 192.168.1.40:8443 or
 	// gateway-1234-5678-9012.local:8443.
 	Address string
-	// Token is the token you made in Developer Mode, such as framework.Secret("tahoma-token").
+	// Token is the token you made in Developer Mode, such as oikade.Secret("tahoma-token").
 	Token plugin.Secret
 	// PIN is the hub's PIN, such as 1234-5678-9012, which its certificate is checked against when
 	// Address isn't of the form gateway-<pin>.local, which gives it already. Without one, any
@@ -140,7 +140,7 @@ var localTiming = timing{
 	request: 10 * time.Second, set: 4 * time.Second, execution: 2 * time.Minute,
 }
 
-// New returns the plugin's Factory, for framework.NewPlugin.
+// New returns the plugin's Factory, for oikade.NewPlugin.
 func New(a Account) plugin.Factory {
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		if a == nil {
@@ -150,7 +150,7 @@ func New(a Account) plugin.Factory {
 			return nil, err
 		}
 		if a.secret() == "" {
-			return nil, fmt.Errorf("%s isn't set: pass it a framework.Secret", a.secretField())
+			return nil, fmt.Errorf("%s isn't set: pass it an oikade.Secret", a.secretField())
 		}
 		log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "overkiz")
 		if l, ok := a.(Local); ok {

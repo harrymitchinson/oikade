@@ -3,10 +3,10 @@
 This plugin connects Zigbee devices through Zigbee2MQTT. It's a plugin your home imports ([OIK-155](https://linear.app/oikade/issue/OIK-155)). You run Zigbee2MQTT and an MQTT broker such as Mosquitto yourself. Oikade connects to them, and doesn't start them or write their configuration.
 
 ```go
-framework.Run(framework.NewHome(framework.Options{},
-	framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
+oikade.Run(oikade.NewHome(oikade.Options{},
+	oikade.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
 		Broker:   "mqtt://oikade@broker.home:1883", // as the host reaches it
-		Password: framework.Secret("broker"),       // leave out the user and this for none
+		Password: oikade.Secret("broker"),       // leave out the user and this for none
 	})),
 	// ...
 ))

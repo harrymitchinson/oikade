@@ -15,7 +15,7 @@
 //     such as 0-254.
 //
 // Each name is a judgement call, so a new one is checked against these and the existing names.
-// contract/v1 holds the names, framework gives them to homes as typed constants, and Spec.Matter
+// contract/v1 holds the names, package oikade gives them to homes as typed constants, and Spec.Matter
 // says what the Matter bridge shows each one as. docs/capabilities.md is generated from here.
 package capability
 
@@ -71,7 +71,7 @@ const (
 
 // Spec describes a capability's type and valid range.
 type Spec struct {
-	// Go is the capability's name in a home: framework's constant, and a handle's field.
+	// Go is the capability's name in a home: package oikade's constant, and a handle's field.
 	Go       string
 	Kind     Kind
 	Writable bool

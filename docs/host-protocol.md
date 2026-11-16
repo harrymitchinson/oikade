@@ -2,7 +2,7 @@
 
 How your process talks to the host: a Unix socket in the data directory, `host.sock`, carrying one JSON message per line. The host creates it with mode `0600`, and whoever can reach it can run the home. It has no network listener. `docs/architecture.md` says what each side owns, and [OIK-143](https://linear.app/oikade/issue/OIK-143) holds the design.
 
-Nobody writes this protocol by hand. `framework.Run` speaks it, and the code is `internal/host/wire`.
+Nobody writes this protocol by hand. `oikade.Run` speaks it, and the code is `internal/host/wire`.
 
 ## Sessions
 
@@ -12,7 +12,7 @@ The host starts your binary as `<binary> automations`, with the socket's path in
 {"type":"hello","version":7,"role":"automations","rules":["fan","leak-shutoff"]}
 ```
 
-A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks, and a Safety hold's or moment's `rooms`, each `room`, `capability` and `deviceTypes` it writes at Safety limited to device types, which `oikade devices type` checks, and `control`, each `device` and `entry` the home arbitrates. `control` adds and changes settings, and takes effect before the `welcome`. One the home has dropped stays until a deploy of that version settles. `matterName` is the Matter bridge's name from `framework.Options`, empty for `Oikade`: the host saves it, then renames the bridge in place, before the `welcome` ([OIK-296](https://linear.app/oikade/issue/OIK-296)).
+A `hello` may carry `info`, each rule's `name`, `kind`, `safety` and `latch`, which `oikade status` shows and `oikade pause` checks, and a Safety hold's or moment's `rooms`, each `room`, `capability` and `deviceTypes` it writes at Safety limited to device types, which `oikade devices type` checks, and `control`, each `device` and `entry` the home arbitrates. `control` adds and changes settings, and takes effect before the `welcome`. One the home has dropped stays until a deploy of that version settles. `matterName` is the Matter bridge's name from `oikade.Options`, empty for `Oikade`: the host saves it, then renames the bridge in place, before the `welcome` ([OIK-296](https://linear.app/oikade/issue/OIK-296)).
 
 `version` comes first so that it can change, and it rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, which it says in its log, so a process from before `below` existed can never reach `releaseAll`. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
@@ -105,7 +105,7 @@ The host runs a binary as `<binary> check` before it stops anything. That loads 
 {"protocol":4,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
 ```
 
-It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `framework.Secret` as it was built ([OIK-297](https://linear.app/oikade/issue/OIK-297)). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy.
+It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `oikade.Secret` as it was built ([OIK-297](https://linear.app/oikade/issue/OIK-297)). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy.
 
 A failure, such as a secret whose name `oikade secret set` would refuse, or a `protocol` other than the host's, rejects the version.
 

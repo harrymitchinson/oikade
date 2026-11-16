@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 }
 
 // build builds the binaries once. The home goes in a module of its own, outside this one, so it
-// compiles only if the public framework is enough.
+// compiles only if the public package oikade is enough.
 func build(t *testing.T) {
 	t.Helper()
 	buildOnce.Do(func() {

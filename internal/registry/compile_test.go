@@ -24,12 +24,12 @@ func homeWith(body string) string {
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 )
 
 func main() {
 	_ = GardenLight.Name
-	framework.Run(framework.NewHome(framework.Options{}, ` + body + `))
+	oikade.Run(oikade.NewHome(oikade.Options{}, ` + body + `))
 }
 
 var _ = time.Minute
@@ -48,36 +48,36 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 		want string
 	}{
 		"fine": {body: `
-		framework.NewHold("porch-light", PorchLight.On.To(true)).
-When(func(s framework.State) bool { return s.Get(PorchSensor.Occupied) }).
+		oikade.NewHold("porch-light", PorchLight.On.To(true)).
+When(func(s oikade.State) bool { return s.Get(PorchSensor.Occupied) }).
 OffDelay(5 * time.Minute),
-		framework.NewMoment("goodnight", framework.InRoom("living-room", framework.Lights, framework.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
-At(framework.Clock("23:30")).
-On(PorchSensor.Occupied, framework.InRoom("porch", framework.Everything, framework.Occupied)),`},
+		oikade.NewMoment("goodnight", oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false), Hallway.Brightness.To(10).For(time.Hour)).
+At(oikade.Clock("23:30")).
+On(PorchSensor.Occupied, oikade.InRoom("porch", oikade.Everything, oikade.Occupied)),`},
 		"a capability the device hasn't": {
-			body: `framework.NewHold("a", PorchLight.Occupied.To(true)),`,
+			body: `oikade.NewHold("a", PorchLight.Occupied.To(true)),`,
 			want: "PorchLight.Occupied undefined",
 		},
 		"a reserved device's capability": {
-			body: `framework.NewHold("a", GardenLight.On.To(true)),`,
+			body: `oikade.NewHold("a", GardenLight.On.To(true)),`,
 			want: "GardenLight.On undefined",
 		},
 		"a number set to a bool": {
-			body: `framework.NewMoment("a", Hallway.Brightness.To(true)),`,
+			body: `oikade.NewMoment("a", Hallway.Brightness.To(true)),`,
 			want: "cannot use true",
 		},
 		"a bool read as a number": {
-			body: `framework.NewHold("a", framework.Set{}).
-When(func(s framework.State) bool { return s.Get(Hallway.On) > 5 }),`,
+			body: `oikade.NewHold("a", oikade.Set{}).
+When(func(s oikade.State) bool { return s.Get(Hallway.On) > 5 }),`,
 			want: "mismatched types",
 		},
 		"a room's capability set to the wrong type": {
-			body: `framework.NewMoment("a", framework.InRoom("hall", framework.Lights, framework.On).To(10)),`,
+			body: `oikade.NewMoment("a", oikade.InRoom("hall", oikade.Lights, oikade.On).To(10)),`,
 			want: "cannot use 10",
 		},
 		"a room write that doesn't say what it's for": {
-			body: `framework.NewMoment("a", framework.InRoom("hall", framework.On).To(true)),`,
-			want: "not enough arguments in call to framework.InRoom",
+			body: `oikade.NewMoment("a", oikade.InRoom("hall", oikade.On).To(true)),`,
+			want: "not enough arguments in call to oikade.InRoom",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

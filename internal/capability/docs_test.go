@@ -18,7 +18,7 @@ func table() string {
 	b.WriteString("<!-- Generated from internal/capability by its tests: go test ./internal/capability -update -->\n\n")
 	b.WriteString("# Capabilities\n\n")
 	b.WriteString("Every capability Oikade knows, named for people rather than for a protocol ")
-	b.WriteString("([OIK-181](https://linear.app/oikade/issue/OIK-181)). A home names them through `framework`'s ")
+	b.WriteString("([OIK-181](https://linear.app/oikade/issue/OIK-181)). A home names them through `oikade`'s ")
 	b.WriteString("constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. ")
 	b.WriteString("Any other name is unknown.\n\n")
 	b.WriteString("| Name | In a home | Type | Range | Writable | Matter |\n|---|---|---|---|---|---|\n")
@@ -40,7 +40,7 @@ func table() string {
 				matter += ", inverted"
 			}
 		}
-		fmt.Fprintf(&b, "| `%s` | `framework.%s` | %s | %s | %s | %s |\n", name, s.Go, kind, span, writable, matter)
+		fmt.Fprintf(&b, "| `%s` | `oikade.%s` | %s | %s | %s | %s |\n", name, s.Go, kind, span, writable, matter)
 	}
 	return b.String()
 }

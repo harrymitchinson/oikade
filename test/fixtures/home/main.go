@@ -1,4 +1,4 @@
-// Command home is a small home for the host's tests. It imports only the public framework, and
+// Command home is a small home for the host's tests. It imports only the public package oikade, and
 // the tests build it as a module of its own to prove that's enough.
 package main
 
@@ -11,27 +11,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/harrymitchinson/oikade"
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/framework"
 	"github.com/harrymitchinson/oikade/plugins/zigbee2mqtt"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
 )
 
 // The tests bring their own devices, so this home has no devices.go: these are its handles.
-func on(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.On}
+func on(device string) oikade.Handle[bool] {
+	return oikade.Handle[bool]{Device: device, Capability: oikade.On}
 }
 
-func open(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.Open}
+func open(device string) oikade.Handle[bool] {
+	return oikade.Handle[bool]{Device: device, Capability: oikade.Open}
 }
 
 // humidity is the bathroom's, which the fan follows.
-var humidity = framework.Handle[float64]{Device: "bathroom-sensor", Capability: framework.Humidity}
+var humidity = oikade.Handle[float64]{Device: "bathroom-sensor", Capability: oikade.Humidity}
 
 // studyHeater is a simulated heater: a Thermostat on the Matter bridge.
-var studyHeater = framework.Handle[float64]{Device: "study-heater", Capability: framework.Setpoint}
+var studyHeater = oikade.Handle[float64]{Device: "study-heater", Capability: oikade.Setpoint}
 
 // The devices a test has plugins do something with.
 const (
@@ -59,7 +59,7 @@ func (f faulty) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := f.Handler.Serve(ctx, p); err != nil {
 		return err
 	}
-	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: string(framework.On), Value: true})
+	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: string(oikade.On), Value: true})
 }
 
 func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
@@ -139,7 +139,7 @@ func (r refused) Serve(ctx context.Context, p *plugin.Plugin) error {
 
 // routine takes every kind of step in a known order, which the tests count on: start, now, set,
 // set, do, sleep, now, set, finish.
-func routine(r *framework.FlowRun) error {
+func routine(r *oikade.FlowRun) error {
 	began := r.Now()
 	for _, lamp := range []string{"lamp-0", "lamp-1"} {
 		if err := r.Set(on(lamp).To(true)); err != nil {
@@ -177,7 +177,7 @@ func call() error {
 }
 
 // editable waits for an hour, unless the test has "edited" it.
-func editable(r *framework.FlowRun) error {
+func editable(r *oikade.FlowRun) error {
 	wait := time.Hour
 	if _, err := os.Stat(os.Getenv("OIKADE_TEST_EDITED")); err == nil {
 		wait = time.Millisecond
@@ -188,12 +188,12 @@ func editable(r *framework.FlowRun) error {
 
 // parked waits for a sensor, with a limit that says which step it's waiting at. A deploy can land
 // while it does.
-func parked(r *framework.FlowRun) error {
+func parked(r *oikade.FlowRun) error {
 	limit := time.Hour
 	if variant == "edited" {
 		limit = 2 * time.Hour
 	}
-	r.WaitFor(func(s framework.State) bool { return s.Get(open("park-end")) }, limit)
+	r.WaitFor(func(s oikade.State) bool { return s.Get(open("park-end")) }, limit)
 	out := "park-out"
 	if variant == "tail" {
 		out = "park-tail"
@@ -202,7 +202,7 @@ func parked(r *framework.FlowRun) error {
 }
 
 // claiming holds a claim until a sensor says so, and releases it.
-func claiming(r *framework.FlowRun) error {
+func claiming(r *oikade.FlowRun) error {
 	err := r.Set(on("claimed-flow").To(false).UntilReleased())
 	if err != nil {
 		return err
@@ -211,22 +211,22 @@ func claiming(r *framework.FlowRun) error {
 	if strings.Contains(variant, "editclaim") {
 		limit = 2 * time.Hour
 	}
-	if !r.WaitFor(func(s framework.State) bool { return s.Get(open("claim-end")) }, limit) {
+	if !r.WaitFor(func(s oikade.State) bool { return s.Get(open("claim-end")) }, limit) {
 		return errors.New("nobody ended the claim")
 	}
 	return r.Release("claiming")
 }
 
 // failing holds a normal claim and a Safety one, and fails when a sensor says so.
-func failing(r *framework.FlowRun) error {
+func failing(r *oikade.FlowRun) error {
 	err := r.Set(on("claimed-normal").To(false).UntilReleased())
 	if err != nil {
 		return err
 	}
-	if err = r.Set(on("claimed-safety").To(false).UntilReleased().Priority(framework.Safety)); err != nil {
+	if err = r.Set(on("claimed-safety").To(false).UntilReleased().Priority(oikade.Safety)); err != nil {
 		return err
 	}
-	r.WaitFor(func(s framework.State) bool { return s.Get(open("fail-now")) }, time.Hour)
+	r.WaitFor(func(s oikade.State) bool { return s.Get(open("fail-now")) }, time.Hour)
 	return errors.New("this flow fails on purpose")
 }
 
@@ -256,7 +256,7 @@ func start() {
 }
 
 // fixtureSecret is the secret the tests set, declared as the home is built.
-var fixtureSecret = framework.Secret("fixture-secret")
+var fixtureSecret = oikade.Secret("fixture-secret")
 
 // reportSecret tells the tests a secret arrived, and only how long it is: the value mustn't be logged.
 func reportSecret() {
@@ -271,11 +271,11 @@ func reportSecret() {
 func main() {
 	start()
 	reportSecret()
-	framework.Run(home().home())
+	oikade.Run(home().home())
 }
 
 // when is the rule, or nothing if a variant leaves it out.
-func when[T framework.Part](keep bool, rule T) []T {
+func when[T oikade.Part](keep bool, rule T) []T {
 	if keep {
 		return []T{rule}
 	}
@@ -292,95 +292,95 @@ func home() rules {
 		claimMoment = "claim-moment-2"
 	case "badsecret":
 		// A name oikade secret set refuses fails the check.
-		_ = framework.Secret("not/a-name")
+		_ = oikade.Secret("not/a-name")
 	}
 	plugins := strings.Contains(variant, "plugins")
 
 	holds := slices.Concat(
-		when(variant != "nofan", framework.NewHold("fan", on("fan").To(true)).
-			When(func(s framework.State) bool {
+		when(variant != "nofan", oikade.NewHold("fan", on("fan").To(true)).
+			When(func(s oikade.State) bool {
 				return s.Get(humidity) > 70
 			})),
-		when(variant != "noleak", framework.NewHold(leakShutoff, on(valve).To(false)).
-			Priority(framework.Safety).
+		when(variant != "noleak", oikade.NewHold(leakShutoff, on(valve).To(false)).
+			Priority(oikade.Safety).
 			Latch().
-			When(func(s framework.State) bool {
+			When(func(s oikade.State) bool {
 				return s.Get(open("leak-sensor"))
 			})),
-		[]framework.Hold{
+		[]oikade.Hold{
 			// With no arbiter to hold a claim, only the hold's saved state remembers this latch.
-			framework.NewHold("leak-alarm", on("siren").To(true)).
+			oikade.NewHold("leak-alarm", on("siren").To(true)).
 				Latch().
-				When(func(s framework.State) bool {
+				When(func(s oikade.State) bool {
 					return s.Get(open("leak-sensor"))
 				}),
 			// Reads whichever devices are in the cellar now, which oikade devices room changes.
-			framework.NewHold("cellar-damp", on("dehumidifier").To(true)).
-				When(func(s framework.State) bool {
-					return slices.Max(s.Readings(framework.InRoom("cellar", framework.Everything, framework.Humidity))) > 65
+			oikade.NewHold("cellar-damp", on("dehumidifier").To(true)).
+				When(func(s oikade.State) bool {
+					return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
 				}),
 			// A bug in a home: a condition that never returns once the sensor says so.
-			framework.NewHold("stuck", on("trap-light").To(true)).
-				When(func(s framework.State) bool {
+			oikade.NewHold("stuck", on("trap-light").To(true)).
+				When(func(s oikade.State) bool {
 					for s.Get(open("trap")) {
 						continue
 					}
 					return false
 				}),
 		},
-		when(plugins, framework.NewHold("once", on(once).To(true)).
-			When(func(s framework.State) bool { return s.Get(open("once-sensor")) })),
+		when(plugins, oikade.NewHold("once", on(once).To(true)).
+			When(func(s oikade.State) bool { return s.Get(open("once-sensor")) })),
 		// Names a plugin's device, which a test moves to another room.
-		when(plugins, framework.NewHold("quiet-held", on("quiet-held").To(true)).
-			When(func(s framework.State) bool { return s.Get(on("quiet")) })),
+		when(plugins, oikade.NewHold("quiet-held", on("quiet-held").To(true)).
+			When(func(s oikade.State) bool { return s.Get(on("quiet")) })),
 		// A Safety rule that keeps the porch's plugs on, and only its plugs.
-		when(variant == "typed", framework.NewHold("porch-plugs",
-			framework.InRoom("porch", framework.Kinds(framework.OnOffPlugInUnit), framework.On).To(true)).
-			Priority(framework.Safety).
-			When(func(s framework.State) bool { return s.Get(open("porch-go")) })),
+		when(variant == "typed", oikade.NewHold("porch-plugs",
+			oikade.InRoom("porch", oikade.Kinds(oikade.OnOffPlugInUnit), oikade.On).To(true)).
+			Priority(oikade.Safety).
+			When(func(s oikade.State) bool { return s.Get(open("porch-go")) })),
 	)
 
 	// parkmoment turns the parked flow into a moment of the same name.
 	parkedStays := variant != "parkmoment" && variant != "nopark"
 	flows := slices.Concat(
-		[]framework.Flow{
-			framework.NewFlow("routine", routine).On(open("flow-go")),
-			framework.NewFlow("editable", editable).On(open("edit-go")),
+		[]oikade.Flow{
+			oikade.NewFlow("routine", routine).On(open("flow-go")),
+			oikade.NewFlow("editable", editable).On(open("edit-go")),
 		},
-		when(!strings.Contains(variant, "noflow"), framework.NewFlow("claiming", claiming).On(open("claim-flow-go"))),
-		when(variant != "nofail", framework.NewFlow("failing", failing).On(open("fail-go"))),
-		when(parkedStays, framework.NewFlow(parkedName, parked).On(open("park-go"))),
+		when(!strings.Contains(variant, "noflow"), oikade.NewFlow("claiming", claiming).On(open("claim-flow-go"))),
+		when(variant != "nofail", oikade.NewFlow("failing", failing).On(open("fail-go"))),
+		when(parkedStays, oikade.NewFlow(parkedName, parked).On(open("park-go"))),
 	)
 
 	moments := slices.Concat(
-		[]framework.Moment{
+		[]oikade.Moment{
 			// A change here gets an answer, so a test knows when the process has caught up.
-			framework.NewMoment("probe", on("probe-out").To(true)).On(open("probe")).Restart(),
-			framework.NewMoment("reset", framework.Release(leakShutoff), framework.Release("leak-alarm")).On(open("reset")),
-			framework.NewMoment(claimMoment, on("claimed").To(false).For(time.Hour)).On(open("claim-go")),
-			framework.NewMoment("study-setback", studyHeater.To(18)).On(open("study-go")),
+			oikade.NewMoment("probe", on("probe-out").To(true)).On(open("probe")).Restart(),
+			oikade.NewMoment("reset", oikade.Release(leakShutoff), oikade.Release("leak-alarm")).On(open("reset")),
+			oikade.NewMoment(claimMoment, on("claimed").To(false).For(time.Hour)).On(open("claim-go")),
+			oikade.NewMoment("study-setback", studyHeater.To(18)).On(open("study-go")),
 		},
 		// A time of day comes from the test, which seeds when it was last accounted for.
 		when(os.Getenv("OIKADE_TEST_AT") != "",
-			framework.NewMoment("timed", on("timed-out").To(true)).At(framework.Clock(os.Getenv("OIKADE_TEST_AT")))),
-		when(variant == "badcheck", framework.NewMoment(leakShutoff)),
-		when(variant == "parkmoment", framework.NewMoment(parkedName, on("park-out").To(true)).On(open("park-go"))),
-		when(plugins, framework.NewMoment("quiet-heard", on("quiet-heard").To(true)).On(on("quiet"))),
+			oikade.NewMoment("timed", on("timed-out").To(true)).At(oikade.Clock(os.Getenv("OIKADE_TEST_AT")))),
+		when(variant == "badcheck", oikade.NewMoment(leakShutoff)),
+		when(variant == "parkmoment", oikade.NewMoment(parkedName, on("park-out").To(true)).On(open("park-go"))),
+		when(plugins, oikade.NewMoment("quiet-heard", on("quiet-heard").To(true)).On(on("quiet"))),
 	)
 
-	var pluginParts []framework.Plugin
-	var control []framework.Control
+	var pluginParts []oikade.Plugin
+	var control []oikade.Control
 	switch {
 	case plugins:
-		pluginParts = []framework.Plugin{
-			framework.NewPlugin("relays", faultyRelays), framework.NewPlugin("quiet", quietRelays),
+		pluginParts = []oikade.Plugin{
+			oikade.NewPlugin("relays", faultyRelays), oikade.NewPlugin("quiet", quietRelays),
 		}
-		control = []framework.Control{
-			framework.NewControl(on(valve).To(true), framework.PreferOff, framework.ExternalOverride).OverrideHold(time.Hour),
-			framework.NewControl(on(once).To(false), framework.PreferOn, framework.ExternalOverride).OverrideHold(time.Hour),
+		control = []oikade.Control{
+			oikade.NewControl(on(valve).To(true), oikade.PreferOff, oikade.ExternalOverride).OverrideHold(time.Hour),
+			oikade.NewControl(on(once).To(false), oikade.PreferOn, oikade.ExternalOverride).OverrideHold(time.Hour),
 		}
 	case variant == "zigbee":
-		pluginParts = []framework.Plugin{framework.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
+		pluginParts = []oikade.Plugin{oikade.NewPlugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
 			// A test's broker has a port of its own. A home writes its broker here.
 			Broker: os.Getenv("OIKADE_TEST_ZIGBEE_BROKER"),
 		}))}
@@ -393,26 +393,26 @@ const parkedName = "parked"
 
 // rules is a home by kind.
 type rules struct {
-	Holds   []framework.Hold
-	Moments []framework.Moment
-	Flows   []framework.Flow
-	Control []framework.Control
-	Plugins []framework.Plugin
+	Holds   []oikade.Hold
+	Moments []oikade.Moment
+	Flows   []oikade.Flow
+	Control []oikade.Control
+	Plugins []oikade.Plugin
 }
 
-func (r rules) home() framework.Home {
-	var options framework.Options
+func (r rules) home() oikade.Home {
+	var options oikade.Options
 	if variant == "cottage" {
 		options.MatterName = "Cottage"
 	}
-	return framework.NewHome(options, bundle(r.Holds), bundle(r.Moments), bundle(r.Flows), bundle(r.Control),
+	return oikade.NewHome(options, bundle(r.Holds), bundle(r.Moments), bundle(r.Flows), bundle(r.Control),
 		bundle(r.Plugins))
 }
 
-func bundle[T framework.Part](parts []T) framework.Bundle {
-	all := make([]framework.Part, 0, len(parts))
+func bundle[T oikade.Part](parts []T) oikade.Bundle {
+	all := make([]oikade.Part, 0, len(parts))
 	for _, p := range parts {
 		all = append(all, p)
 	}
-	return framework.NewBundle(all...)
+	return oikade.NewBundle(all...)
 }

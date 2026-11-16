@@ -90,13 +90,13 @@ oikade secret remove api-key
 
 Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them.
 
-Your code names a secret with `framework.Secret`, and passes it where it's used, such as a plugin's config ([OIK-297](https://linear.app/oikade/issue/OIK-297)):
+Your code names a secret with `oikade.Secret`, and passes it where it's used, such as a plugin's config ([OIK-297](https://linear.app/oikade/issue/OIK-297)):
 
 ```go
-var weatherKey = framework.Secret("weather-api-key") // a step reads weatherKey.Read() when it runs
+var weatherKey = oikade.Secret("weather-api-key") // a step reads weatherKey.Read() when it runs
 
-framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
-	Brand: overkiz.Thermor, Username: "someone@example.com", Password: framework.Secret("cozytouch"),
+oikade.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
+	Brand: overkiz.Thermor, Username: "someone@example.com", Password: oikade.Secret("cozytouch"),
 }))
 ```
 
@@ -112,7 +112,7 @@ A missing secret doesn't stop a deploy: the plugin says what it's waiting for, a
 
 `--secrets-dir DIR` on `oikade-host` points at another directory, which can be read-only, such as a systemd credentials directory. `oikade secret list` shows what's in it, and `set` says to change it where it's mounted from.
 
-A broker's password is a secret too, passed to the plugin that uses the broker, such as `zigbee2mqtt.Config{Broker: "mqtt://oikade@broker:1883", Password: framework.Secret("broker")}`. Outside plugins share the host's `--broker`, whose password is `--broker-password-secret broker`. Neither is ever logged.
+A broker's password is a secret too, passed to the plugin that uses the broker, such as `zigbee2mqtt.Config{Broker: "mqtt://oikade@broker:1883", Password: oikade.Secret("broker")}`. Outside plugins share the host's `--broker`, whose password is `--broker-password-secret broker`. Neither is ever logged.
 
 ### Upgrading the host
 
@@ -199,7 +199,7 @@ A setup that waits 10 minutes for you, or for the plugin, is ended by the host. 
 
 ## Removing a plugin
 
-Taking a `framework.Plugin` out of your home doesn't remove its devices ([OIK-225](https://linear.app/oikade/issue/OIK-225)). They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding, so that a plugin missing from one build, or a rollback, loses nothing. `oikade check` and `oikade deploy` list those devices, and call out any a Safety claim holds. `oikade devices` and `oikade status` mark them `plugin not imported`. Import the plugin again and they come back as they were. To be rid of them, `oikade devices remove --plugin NAME` removes all of that plugin's devices at once, as `remove` does one, and needs `--allow-safety` if a Safety claim holds any of them.
+Taking an `oikade.Plugin` out of your home doesn't remove its devices ([OIK-225](https://linear.app/oikade/issue/OIK-225)). They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding, so that a plugin missing from one build, or a rollback, loses nothing. `oikade check` and `oikade deploy` list those devices, and call out any a Safety claim holds. `oikade devices` and `oikade status` mark them `plugin not imported`. Import the plugin again and they come back as they were. To be rid of them, `oikade devices remove --plugin NAME` removes all of that plugin's devices at once, as `remove` does one, and needs `--allow-safety` if a Safety claim holds any of them.
 
 ## State that must survive
 

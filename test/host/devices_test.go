@@ -167,7 +167,7 @@ func TestARemovedDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 	}
 }
 
-// goBuild builds a module of main.go and the generated devices.go, on this checkout's framework,
+// goBuild builds a module of main.go and the generated devices.go, on this checkout's package oikade,
 // with nothing else to fetch.
 func goBuild(t *testing.T, dir, code string) error {
 	t.Helper()

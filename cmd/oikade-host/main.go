@@ -177,7 +177,7 @@ func runHost(ctx context.Context, args []string) error {
 // removed are flags that described the home rather than the machine, and the field that replaced
 // each. A unit file that still passes one fails loudly rather than being quietly ignored.
 var removed = map[string]string{
-	"matter-name": "the bridge's name is MatterName in your home's framework.Options now: set it there and deploy",
+	"matter-name": "the bridge's name is MatterName in your home's oikade.Options now: set it there and deploy",
 }
 
 const clientUsage = "usage: oikade-host client add NAME [--token] [--data-dir DIR] [--json]"

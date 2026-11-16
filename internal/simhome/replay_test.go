@@ -8,41 +8,41 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/framework"
+	"github.com/harrymitchinson/oikade"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
 
 const (
-	on       = string(framework.On)
-	humidity = string(framework.Humidity)
-	contact  = string(framework.Open)
+	on       = string(oikade.On)
+	humidity = string(oikade.Humidity)
+	contact  = string(oikade.Open)
 )
 
-func switchOf(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.On}
+func switchOf(device string) oikade.Handle[bool] {
+	return oikade.Handle[bool]{Device: device, Capability: oikade.On}
 }
 
-func humidityOf(device string) framework.Handle[float64] {
-	return framework.Handle[float64]{Device: device, Capability: framework.Humidity}
+func humidityOf(device string) oikade.Handle[float64] {
+	return oikade.Handle[float64]{Device: device, Capability: oikade.Humidity}
 }
 
-func contactOf(device string) framework.Handle[bool] {
-	return framework.Handle[bool]{Device: device, Capability: framework.Open}
+func contactOf(device string) oikade.Handle[bool] {
+	return oikade.Handle[bool]{Device: device, Capability: oikade.Open}
 }
 
 var monday = time.Date(2030, time.January, 7, 8, 0, 0, 0, time.UTC)
 
-func fanAbove(threshold float64) framework.Home {
-	return framework.NewHome(framework.Options{}, framework.NewHold("fan", switchOf("fan").To(true)).
+func fanAbove(threshold float64) oikade.Home {
+	return oikade.NewHome(oikade.Options{}, oikade.NewHold("fan", switchOf("fan").To(true)).
 		OffDelay(10*time.Minute).
-		When(func(s framework.State) bool { return s.Get(humidityOf("sensor")) > threshold }))
+		When(func(s oikade.State) bool { return s.Get(humidityOf("sensor")) > threshold }))
 }
 
-func options(t *testing.T, home framework.Home) simhome.Options {
+func options(t *testing.T, home oikade.Home) simhome.Options {
 	t.Helper()
-	simulated, err := simhome.FromFramework(home)
+	simulated, err := simhome.FromHome(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ type reading struct {
 
 // recorded plays a home for real, as far as a simulation goes, and writes the log a host would have:
 // each outside change, each write a moment after what caused it, and the device's answer after that.
-func recorded(t *testing.T, home framework.Home, readings []reading) []api.Event {
+func recorded(t *testing.T, home oikade.Home, readings []reading) []api.Event {
 	t.Helper()
 	sim, err := simhome.New(options(t, home))
 	if err != nil {
@@ -147,7 +147,7 @@ func TestAChangedThresholdShowsExactlyTheWritesThatMoved(t *testing.T) {
 
 func TestCodeThatStopsWritingLeavesTheDeviceAlone(t *testing.T) {
 	log := recorded(t, fanAbove(70), damp)
-	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(monday.Add(end)), log)
+	r, err := simhome.Replay(options(t, oikade.NewHome(oikade.Options{})), head(monday.Add(end)), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestABaselineGivesValuesThatNeverChanged(t *testing.T) {
 // have made through one is what the check is for.
 func TestReplayMakesNoOutsideCalls(t *testing.T) {
 	calls := 0
-	home := framework.NewHome(framework.Options{}, framework.NewFlow("alarm", func(r *framework.FlowRun) error {
+	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("alarm", func(r *oikade.FlowRun) error {
 		if err := r.Do("notify", nil, func(context.Context) error { calls++; return nil }); err != nil {
 			return err
 		}
@@ -215,7 +215,7 @@ func TestReplayMakesNoOutsideCalls(t *testing.T) {
 }
 
 func TestAFlowTakesTheAnswerItGotLastTime(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.NewFlow("weather", func(r *framework.FlowRun) error {
+	home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("weather", func(r *oikade.FlowRun) error {
 		var rain bool
 		if err := r.Do("forecast", &rain, func(context.Context) error {
 			return errors.New("a replay must not make this call")
@@ -266,7 +266,7 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 		{Time: monday.Add(time.Hour + time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: true},
 		{Time: monday.Add(time.Hour + 8*time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 	}
-	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(monday.Add(2*time.Hour)), log)
+	r, err := simhome.Replay(options(t, oikade.NewHome(oikade.Options{})), head(monday.Add(2*time.Hour)), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,8 +276,8 @@ func TestSomeoneChangingADeviceJustAfterAWriteIsAChange(t *testing.T) {
 }
 
 func TestADevicePairedLaterHasNoValueUntilItReports(t *testing.T) {
-	home := framework.NewHome(framework.Options{}, framework.NewHold("fan", switchOf("fan").To(true)).
-		When(func(s framework.State) bool { return s.Get(humidityOf("late")) > 70 }))
+	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("fan", switchOf("fan").To(true)).
+		When(func(s oikade.State) bool { return s.Get(humidityOf("late")) > 70 }))
 	log := []api.Event{
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 		{Time: monday.Add(5 * time.Hour), Type: api.EventChange, Device: "late", Capability: humidity, Value: 90.0},
@@ -297,7 +297,7 @@ func TestWhatLandedAfterTheFetchBeganIsLeftOut(t *testing.T) {
 		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 		{Time: now.Add(3 * time.Second), Type: api.EventWrite, Device: "fan", Capability: on, Value: true},
 	}
-	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(now), log)
+	r, err := simhome.Replay(options(t, oikade.NewHome(oikade.Options{})), head(now), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,8 +307,8 @@ func TestWhatLandedAfterTheFetchBeganIsLeftOut(t *testing.T) {
 }
 
 func TestTwoFlowsCanUseOneCallName(t *testing.T) {
-	flowOf := func(name, device string, out string) framework.Flow {
-		return framework.NewFlow(name, func(r *framework.FlowRun) error {
+	flowOf := func(name, device string, out string) oikade.Flow {
+		return oikade.NewFlow(name, func(r *oikade.FlowRun) error {
 			var got string
 			if err := r.Do("fetch", &got, func(context.Context) error { return nil }); err != nil {
 				return err
@@ -317,7 +317,7 @@ func TestTwoFlowsCanUseOneCallName(t *testing.T) {
 		}).
 			On(contactOf(device))
 	}
-	opts := options(t, framework.NewHome(framework.Options{}, flowOf("a", "door-a", "fan"), flowOf("b", "door-b", "fan-b")))
+	opts := options(t, oikade.NewHome(oikade.Options{}, flowOf("a", "door-a", "fan"), flowOf("b", "door-b", "fan-b")))
 	at := monday.Add(time.Minute)
 	event := func(device string, when time.Time, v bool) api.Event {
 		return api.Event{Time: when, Type: api.EventChange, Device: device, Capability: contact, Value: v}
@@ -347,7 +347,7 @@ func TestAnOutageThatHasntEndedGetsANote(t *testing.T) {
 		{Time: monday, Type: api.EventProcess, Message: "disconnected"},
 		{Time: monday.Add(time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
 	}
-	r, err := simhome.Replay(options(t, framework.NewHome(framework.Options{})), head(monday.Add(time.Hour)), log)
+	r, err := simhome.Replay(options(t, oikade.NewHome(oikade.Options{})), head(monday.Add(time.Hour)), log)
 	if err != nil {
 		t.Fatal(err)
 	}

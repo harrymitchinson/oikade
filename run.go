@@ -1,4 +1,4 @@
-package framework
+package oikade
 
 import (
 	"context"
@@ -258,10 +258,10 @@ func (h Home) simulated() (simhome.Home, error) {
 }
 
 func init() {
-	simhome.FromFramework = func(home any) (simhome.Home, error) {
+	simhome.FromHome = func(home any) (simhome.Home, error) {
 		h, ok := home.(Home)
 		if !ok {
-			return simhome.Home{}, fmt.Errorf("%T isn't a framework.Home", home)
+			return simhome.Home{}, fmt.Errorf("%T isn't an oikade.Home", home)
 		}
 		return h.simulated()
 	}
@@ -269,7 +269,7 @@ func init() {
 		s, ok := set.(Set)
 		switch {
 		case !ok:
-			return "", "", nil, fmt.Errorf("%T isn't a framework.Set", set)
+			return "", "", nil, fmt.Errorf("%T isn't an oikade.Set", set)
 		case s.device == "":
 			return "", "", nil, errors.New("a room's Set can't be reported: give a device's")
 		case s.claimFor != 0 || s.until != "" || s.priority != "":
