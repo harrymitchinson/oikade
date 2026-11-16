@@ -20,6 +20,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // The fake hub's PIN, and the name its certificate gives.
@@ -193,7 +194,7 @@ func TestTheHubsCertificate(t *testing.T) {
 
 func TestAnotherHubsCertificateIsRefusedBeforeTheTokenIsSent(t *testing.T) {
 	hub := newFakeHub(t)
-	account := Local{Address: hub.address(), TokenSecret: "tahoma-token", PIN: "9999-9999-9999", roots: hub.ca}
+	account := Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), PIN: "9999-9999-9999", roots: hub.ca}
 	b := startWith(t, hub, account, fast, token, kitchen)
 	b.eventually("the refusal", func() bool {
 		return strings.Contains(b.status().Error, "has a certificate that is for "+hubName+", not gateway-9999-9999-9999.local: check the PIN")
@@ -218,7 +219,7 @@ func TestAnotherHubsCertificateIsRefusedBeforeTheTokenIsSent(t *testing.T) {
 func TestAHubNotSignedByOverkizIsRefused(t *testing.T) {
 	hub := newFakeHub(t)
 	// With no roots of its own, the plugin trusts only Overkiz's.
-	b := startWith(t, hub, Local{Address: hub.address(), TokenSecret: "tahoma-token"}, fast, token)
+	b := startWith(t, hub, Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token")}, fast, token)
 	b.eventually("the refusal", func() bool { return strings.Contains(b.status().Error, "isn't signed by Overkiz's root CA") })
 }
 
@@ -253,7 +254,7 @@ func TestAnOutOfDateCertificateSaysToCheckTheClock(t *testing.T) {
 
 func TestSkippingTheCheckTrustsAnyHub(t *testing.T) {
 	hub := newFakeHub(t)
-	account := Local{Address: hub.address(), TokenSecret: "tahoma-token", SkipCertificateCheck: true}
+	account := Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), SkipCertificateCheck: true}
 	b := startWith(t, hub, account, fast, token)
 	b.waitAvailability(kitchen, "online")
 }

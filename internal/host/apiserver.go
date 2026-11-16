@@ -332,7 +332,7 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	case api.TypeRollback:
-		return s.deploys.rollback(s.ctx, req.AllowSafetyRemoval)
+		return s.withUnsetSecrets(s.deploys.rollback(s.ctx, req.AllowSafetyRemoval))
 	case api.TypeStatus:
 		return s.status()
 	case api.TypeSet:

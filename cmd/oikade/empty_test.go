@@ -146,6 +146,17 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	}
 }
 
+// A secret that isn't set comes before the plugins' problems, which it often explains.
+func TestASecretNotSetSaysHowToSetIt(t *testing.T) {
+	st := &api.Status{Version: "v3", Process: true, UnsetSecrets: []string{"cozytouch"},
+		PluginProblems: map[string]string{"cozytouch": "no credential"}}
+	got := setupGaps(st, nil)
+	want := []string{"Secret cozytouch isn't set: oikade secret set cozytouch", "Plugin cozytouch: no credential"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q", got)
+	}
+}
+
 // A bridge that's down can't say whether it's paired, so it says it's down instead.
 func TestABridgeThatsDownSaysSoRatherThanUnpaired(t *testing.T) {
 	st := &api.Status{Version: "v3", Process: true}

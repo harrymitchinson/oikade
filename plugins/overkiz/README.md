@@ -5,12 +5,12 @@ This plugin connects devices on Overkiz, the platform behind Somfy TaHoma and At
 ```go
 framework.Run(framework.NewHome(framework.Options{},
 	framework.NewPlugin("tahoma", overkiz.New(overkiz.Local{
-		Address:     "192.168.1.40:8443", // the hub, or gateway-1234-5678-9012.local:8443
-		PIN:         "1234-5678-9012",    // the hub's PIN, which an IP address doesn't give
-		TokenSecret: "tahoma-token",
+		Address: "192.168.1.40:8443", // the hub, or gateway-1234-5678-9012.local:8443
+		PIN:     "1234-5678-9012",    // the hub's PIN, which an IP address doesn't give
+		Token:   framework.Secret("tahoma-token"),
 	})),
 	framework.NewPlugin("cozytouch", overkiz.New(overkiz.Cozytouch{
-		Brand: overkiz.Thermor, Username: "someone@example.com", PasswordSecret: "cozytouch",
+		Brand: overkiz.Thermor, Username: "someone@example.com", Password: framework.Secret("cozytouch"),
 	})),
 	// ...
 ))

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -229,5 +230,46 @@ func TestAHostStartsBeforeItsBrokerPasswordIsSet(t *testing.T) {
 	}
 	if r.count("Could not read the broker's password; restart the host once it's set") != 1 {
 		t.Errorf("it didn't say why it has no password:\n%s", r.dump())
+	}
+}
+
+// A deploy goes ahead with a secret the home uses that isn't set, and names it, as status does until
+// it's set.
+func TestADeployNamesTheSecretsThatArentSet(t *testing.T) {
+	t.Parallel()
+	r := start(t, "--matter-port=0")
+	stderr, err := r.deploy("second")
+	if err != nil {
+		t.Fatalf("%v: %s", err, stderr)
+	}
+	r.awaitDeployed()
+	notSet := "Secret fixture-secret isn't set: oikade secret set fixture-secret"
+	if !strings.Contains(stderr, notSet) {
+		t.Errorf("the deploy said:\n%s", stderr)
+	}
+	status := func() *api.Status {
+		var st api.Status
+		if err := json.Unmarshal(r.stdout(nil, "status", "--json"), &st); err != nil {
+			t.Fatal(err)
+		}
+		return &st
+	}
+	if got := status().UnsetSecrets; !slices.Equal(got, []string{"fixture-secret"}) {
+		t.Errorf("status has unset %q", got)
+	}
+	if err := r.setSecret("fixture-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if got := status().UnsetSecrets; len(got) != 0 {
+		t.Errorf("once it's set, status has unset %q", got)
+	}
+}
+
+func TestASecretsBadNameFailsTheCheck(t *testing.T) {
+	t.Parallel()
+	r := start(t, "--matter-port=0")
+	stderr, err := r.deploy("badsecret")
+	if err == nil || !strings.Contains(stderr, `secret "not/a-name" isn't a valid name`) {
+		t.Errorf("err = %v, the deploy said:\n%s", err, stderr)
 	}
 }

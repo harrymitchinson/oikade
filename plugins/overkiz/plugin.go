@@ -22,8 +22,10 @@ import (
 
 // Account is where the plugin reaches Overkiz. Local is a TaHoma hub's local API.
 type Account interface {
-	// secret is the name of the secret that holds the credential.
+	// secret is the name of the secret that holds the credential, or "" if it has none.
 	secret() string
+	// secretField is the field that holds it, as an error names it.
+	secretField() string
 	// connect returns a client authorized with the credential, logging in first if it must.
 	connect(ctx context.Context, credential string) (*client, error)
 	// timing is how often to poll, and how long to wait.
@@ -44,8 +46,8 @@ type Local struct {
 	// Address is the hub's host and port, such as 192.168.1.40:8443 or
 	// gateway-1234-5678-9012.local:8443.
 	Address string
-	// TokenSecret is the secret that holds the token you made in Developer Mode.
-	TokenSecret string
+	// Token is the token you made in Developer Mode, such as framework.Secret("tahoma-token").
+	Token plugin.Secret
 	// PIN is the hub's PIN, such as 1234-5678-9012, which its certificate is checked against when
 	// Address isn't of the form gateway-<pin>.local, which gives it already. Without one, any
 	// certificate Overkiz signed for a hub passes.
@@ -61,7 +63,9 @@ type Local struct {
 // pin is the PIN the hub's certificate is checked against, or "" if it isn't known.
 func (l Local) pin() string { return cmp.Or(gatewayPIN(l.Address), l.PIN) }
 
-func (l Local) secret() string { return l.TokenSecret }
+func (l Local) secret() string { return l.Token.Name() }
+
+func (Local) secretField() string { return "overkiz.Local's Token" }
 
 func (l Local) describe() string { return "the TaHoma hub at " + l.Address }
 
@@ -146,7 +150,7 @@ func New(a Account) plugin.Factory {
 			return nil, err
 		}
 		if a.secret() == "" {
-			return nil, fmt.Errorf("%s has no secret named for its credential", a.describe())
+			return nil, fmt.Errorf("%s isn't set: pass it a framework.Secret", a.secretField())
 		}
 		log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "overkiz")
 		if l, ok := a.(Local); ok {

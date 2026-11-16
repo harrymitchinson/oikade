@@ -45,6 +45,21 @@ func (s secrets) list() ([]api.Secret, error) {
 	return found, nil
 }
 
+// unset are those of names that aren't set, in order. A file that can't be read for another reason
+// counts as set: the plugin that reads it says what's wrong.
+func (s secrets) unset(names []string) []string {
+	var out []string
+	for _, name := range names {
+		if !contractv1.ValidSecretName(name) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(s.dir, name)); errors.Is(err, fs.ErrNotExist) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func (s secrets) set(name, value string) error {
 	f, err := os.CreateTemp(s.dir, ".new-*")
 	if err != nil {

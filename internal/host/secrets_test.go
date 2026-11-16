@@ -116,3 +116,17 @@ func mustTime(t *testing.T, s string) time.Time {
 	}
 	return at
 }
+
+func TestUnsetAreTheNamesWithNoFile(t *testing.T) {
+	s := secrets{dir: t.TempDir()}
+	if err := s.set("cozytouch", "value"); err != nil {
+		t.Fatal(err)
+	}
+	got := s.unset([]string{"cozytouch", "weather-api-key", "../escape"})
+	if !slices.Equal(got, []string{"weather-api-key"}) {
+		t.Errorf("unset = %q", got)
+	}
+	if got := s.unset(nil); got != nil {
+		t.Errorf("with none used: %q", got)
+	}
+}

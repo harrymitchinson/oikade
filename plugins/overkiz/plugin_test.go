@@ -82,7 +82,7 @@ type bench struct {
 
 func start(t *testing.T, hub *fakeHub, secret string, declared ...string) *bench {
 	t.Helper()
-	return startWith(t, hub, Local{Address: hub.address(), TokenSecret: "tahoma-token", PIN: hubPIN, roots: hub.ca}, fast, secret, declared...)
+	return startWith(t, hub, Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), PIN: hubPIN, roots: hub.ca}, fast, secret, declared...)
 }
 
 // cloudFast is fast, with the cloud's limit waits.
@@ -94,7 +94,7 @@ func startCloud(t *testing.T, cloud *fakeHub, secret string, timings timing, dec
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: cloud.roots()}
 	account := Cozytouch{
-		Brand: Thermor, Username: "someone@example.com", PasswordSecret: "cozytouch",
+		Brand: Thermor, Username: "someone@example.com", Password: plugin.NewSecret("cozytouch"),
 		atlanticAPI: cloud.server.URL, endpoint: cloud.server.URL + cloudAPI, transport: transport,
 	}
 	return startWith(t, cloud, account, timings, secret, declared...)
@@ -600,16 +600,16 @@ func TestASessionEndedAsItBeginsBacksOff(t *testing.T) {
 
 func TestCozytouchNeedsABrandAndAUsername(t *testing.T) {
 	for _, c := range []Cozytouch{
-		{Username: "someone@example.com", PasswordSecret: "cozytouch"},
-		{Brand: "Atlantique", Username: "someone@example.com", PasswordSecret: "cozytouch"},
-		{Brand: Thermor, PasswordSecret: "cozytouch"},
+		{Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")},
+		{Brand: "Atlantique", Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")},
+		{Brand: Thermor, Password: plugin.NewSecret("cozytouch")},
 		{Brand: Thermor, Username: "someone@example.com"},
 	} {
 		if _, err := New(c)(plugin.Environment{}, nil); err == nil {
 			t.Errorf("%+v was taken", c)
 		}
 	}
-	if _, err := New(Local{TokenSecret: "tahoma-token"})(plugin.Environment{}, nil); err == nil {
+	if _, err := New(Local{Token: plugin.NewSecret("tahoma-token")})(plugin.Environment{}, nil); err == nil {
 		t.Error("a Local with no Address was taken")
 	}
 }

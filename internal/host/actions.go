@@ -42,11 +42,24 @@ func (s *apiServer) unknownRules() string {
 	return "no process is connected"
 }
 
+// withUnsetSecrets tells a deploy or rollback that went ahead which of its version's secrets aren't
+// set, so you hear of them now rather than from a plugin that can't log in.
+func (s *apiServer) withUnsetSecrets(resp api.Response) api.Response {
+	if resp.Error != "" {
+		return resp
+	}
+	if v, ok, _ := s.deploys.state(); ok {
+		resp.UnsetSecrets = s.secrets.unset(v.Manifest.Secrets)
+	}
+	return resp
+}
+
 func (s *apiServer) status() api.Response {
 	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}}
 	v, ok, busy := s.deploys.state()
 	if ok {
 		st.Version = v.ID
+		st.UnsetSecrets = s.secrets.unset(v.Manifest.Secrets)
 	}
 	st.Deploying = busy
 	s.srv.mu.Lock()

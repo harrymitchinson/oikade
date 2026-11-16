@@ -105,7 +105,9 @@ The host runs a binary as `<binary> check` before it stops anything. That loads 
 {"protocol":4,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
 ```
 
-A failure, or a `protocol` other than the host's, rejects the version.
+It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `framework.Secret` as it was built ([OIK-297](https://linear.app/oikade/issue/OIK-297)). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy.
+
+A failure, such as a secret whose name `oikade secret set` would refuse, or a `protocol` other than the host's, rejects the version.
 
 ## Deploys
 
