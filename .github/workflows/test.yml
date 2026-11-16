@@ -39,9 +39,19 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Runs a cross-compiled arm64 home's check mode (test/host).
+      # Runs a cross-compiled arm64 home's check mode (test/host). A slow
+      # Ubuntu mirror once hung this for 44 minutes (OIK-300), so each try gets
+      # three minutes, and a third failure fails the job.
       - name: Install the arm64 emulator
-        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+        timeout-minutes: 10
+        run: |
+          for try in 1 2 3; do
+            if sudo timeout 3m sh -c 'apt-get update && apt-get install -y -o DPkg::Lock::Timeout=60 qemu-user-static'; then
+              exit 0
+            fi
+            echo "Could not install qemu-user-static, try $try of 3"
+          done
+          exit 1
 
       # Fails instead of tidying, so an untidy go.mod can't hide behind CI.
       - name: Check go.mod is tidy
