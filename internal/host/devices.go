@@ -42,6 +42,9 @@ type inventory struct {
 	home []wire.DeviceControl
 	// declarations keeps the devices your home declares, from declaredNamespace.
 	declarations *store.Namespace
+	// renamed, if set, moves what's on record for cases and averages to the keys its function gives
+	// them, before the registry renames their devices.
+	renamed func(rename func(string) string) error
 }
 
 // homeSettingsNamespace keeps the device settings of the home last attached.

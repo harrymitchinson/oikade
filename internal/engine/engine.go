@@ -163,6 +163,9 @@ type Engine struct {
 	// before mu. savedControls is what was last saved, by device.
 	saveMu        sync.Mutex
 	savedControls map[ident.ID]string
+	// moving are devices whose claims MoveDevices is taking to a new name, which get no arbiters
+	// meanwhile.
+	moving map[ident.ID]bool
 }
 
 type state struct {
@@ -210,6 +213,7 @@ func (e *Engine) Init() {
 	e.saveWake = make(chan struct{}, 1)
 	e.bridgeWrites = map[ident.ID]map[string]bridgeWrite{}
 	e.savedControls = map[ident.ID]string{}
+	e.moving = map[ident.ID]bool{}
 	e.changes = make(chan struct{})
 }
 

@@ -87,7 +87,7 @@ type server struct {
 	deploying func() bool
 	// declare, if set, takes up the devices a connecting process declares, and planDeclared says
 	// what a version's would do.
-	declare      func([]wire.DeviceDeclaration) error
+	declare      func(decls []wire.DeviceDeclaration, keys []string) error
 	planDeclared func([]wire.DeviceDeclaration) (registry.Declared, error)
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
@@ -360,7 +360,7 @@ func (s *server) open(sess *session, hello wire.Message) string {
 	if !s.turningAway(sess.generation) {
 		// Names first, since the settings name devices by them.
 		if s.declare != nil {
-			if err := s.declare(hello.Inventory); err != nil {
+			if err := s.declare(hello.Inventory, append(wire.OwnCases(hello.Control), hello.Averages...)); err != nil {
 				s.log.Error("Failed to apply the home's device declarations", "err", err)
 				return "the host couldn't apply the home's device declarations: " + err.Error()
 			}

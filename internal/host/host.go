@@ -153,12 +153,8 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := known.loadHome(); err != nil {
 		return fmt.Errorf("reading the home's device settings: %w", err)
 	}
-	if err := known.loadDeclared(); err != nil {
-		// The registry is as it was, and the next process to attach declares again.
-		h.Log.Error("Failed to apply the home's device declarations", "err", err)
-	}
 	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
-	srv.declare, srv.planDeclared = known.takeDeclared, known.planDeclared
+	srv.declare, srv.planDeclared, known.renamed = known.takeDeclared, known.planDeclared, srv.renameRules
 	sim := &simulator{store: devices, known: known, log: h.Log.With("logger", "simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)
@@ -169,6 +165,11 @@ func (h *Host) Run(ctx context.Context) error {
 	recorded := recordedSetter{emit: srv.emit, setter: setter}
 	eng.Store, eng.Setter, srv.devices, srv.setter, srv.outside = devices, recorded, devices, recorded, setter
 	eng.Init()
+	// Before any driver attaches, so devices come in under the names the home declares.
+	if err := known.loadDeclared(); err != nil {
+		// The registry is as it was, and the next process to attach declares again.
+		h.Log.Error("Failed to apply the home's device declarations", "err", err)
+	}
 	if bridge.working() {
 		bridge.connect(devices, known, options, eng, setter, srv.emit)
 	}

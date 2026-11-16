@@ -87,8 +87,8 @@ func TestADeclaredNameMovesOntoNewHardwareAndKeepsItsEndpoint(t *testing.T) {
 	if d.ID != "0x2" || d.Endpoint != old.Endpoint || d.Room != "Hall" {
 		t.Errorf("got %+v, want 0x2 on endpoint %d", d, old.Endpoint)
 	}
-	if got.Renamed["sensor-7"] != "hall-sensor" {
-		t.Errorf("renamed %v, want sensor-7's values to come across", got.Renamed)
+	if got.Absorbed["sensor-7"] != "hall-sensor" {
+		t.Errorf("absorbed %v, want sensor-7's values to come across", got.Absorbed)
 	}
 	if _, ok := r.ByID("sim", "0x1"); ok {
 		t.Error("the old hardware is still on record")

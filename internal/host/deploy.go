@@ -260,19 +260,20 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		old = home.Manifest
 		begin = func(next version, spared []string) error { return d.versions.beginFromHome(*home, next, spared) }
 	}
-	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
-	if d.running != "" && old.Protocol == 0 {
-		findings = append(findings, "the running version couldn't be kept or checked, so a Safety rule it has can't be seen, and a failed deploy has nothing to go back to")
-	}
-	if len(findings) > 0 && !allow {
-		return reject(api.Response{Error: "this would remove Safety rules", Findings: findings})
-	}
 	// Before anything stops, so that declarations the host can't apply leave the old version running.
+	// A rename takes a device's cases with it, so the Safety ones aren't gone.
 	var declared registry.Declared
 	if d.srv.planDeclared != nil {
 		if declared, err = d.srv.planDeclared(manifest.Inventory); err != nil {
 			return reject(api.Response{Error: "the home's device declarations: " + err.Error()})
 		}
+	}
+	findings := safetyFindings(old, manifest, declared.Renamed, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
+	if d.running != "" && old.Protocol == 0 {
+		findings = append(findings, "the running version couldn't be kept or checked, so a Safety rule it has can't be seen, and a failed deploy has nothing to go back to")
+	}
+	if len(findings) > 0 && !allow {
+		return reject(api.Response{Error: "this would remove Safety rules", Findings: findings})
 	}
 
 	d.log.Info("Checked automations version", "version", id)
@@ -293,7 +294,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	var late []string
 	vet := func() error {
 		if !allow {
-			late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
+			late = safetyFindings(old, manifest, declared.Renamed, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
 			if len(late) > 0 {
 				return errLateClaim
 			}
@@ -476,9 +477,21 @@ func (d *deployer) state() (v version, ok, busy bool) {
 // reopen a valve, and a latch dies with its name, so a rule renamed is one removed. held catches a
 // Safety claim the old version's declaration doesn't show, such as one an older binary's rule made,
 // since a home declares every rule that can make one.
-func safetyFindings(old, next wire.Manifest, held map[string]control.Level, safetyHeld func(device, capability string) bool) []string {
-	stays := func(name string) bool {
+func safetyFindings(old, next wire.Manifest, renamed map[string]string, held map[string]control.Level,
+	safetyHeld func(device, capability string) bool,
+) []string {
+	has := func(name string) bool {
 		return slices.ContainsFunc(next.Rules, func(r wire.RuleInfo) bool { return r.Name == name })
+	}
+	// A case of a device the new version renames is the new name's. Only a device's own: a group's
+	// can be keyed by a name a device has too.
+	oldOwn, nextOwn := wire.OwnCases(old.Control), wire.OwnCases(next.Control)
+	stays := func(name string) bool {
+		if to := control.RenamedKey(name, renamed); to != name && slices.Contains(oldOwn, name) &&
+			slices.Contains(nextOwn, to) {
+			name = to
+		}
+		return has(name)
 	}
 	var findings []string
 	named := map[string]bool{}
@@ -501,8 +514,12 @@ func safetyFindings(old, next wire.Manifest, held map[string]control.Level, safe
 	// A device stops being arbitrated with its Control, and that ends every claim on it.
 	// A room's Control covers whichever devices are there, and its Safety cases are found above.
 	for _, c := range old.Control {
+		device := c.Device
+		if to, ok := renamed[device]; ok {
+			device = to
+		}
 		kept := slices.ContainsFunc(next.Control, func(n wire.DeviceControl) bool {
-			return n.Device == c.Device && n.Room == c.Room && n.Entry.Capability == c.Entry.Capability
+			return n.Device == device && n.Room == c.Room && n.Entry.Capability == c.Entry.Capability
 		})
 		if !kept && c.Device != "" && safetyHeld(c.Device, c.Entry.Capability) {
 			findings = append(findings, fmt.Sprintf("%s on %s has no Control any more, which would end a Safety claim on it", c.Entry.Capability, c.Device))
