@@ -76,16 +76,14 @@ func writeFile(t *testing.T, dir, name, content string) string {
 
 func TestReadDevices(t *testing.T) {
 	file := writeFile(t, t.TempDir(), "devices.json", `{"contract":1,"devices":[
-		{"id":"1000aabbcc","name":"porch-light","displayName":"Porch light","room":"porch",
-		 "parameters":{"model":"MINIR4"}},
+		{"id":"1000aabbcc","name":"porch-light","displayName":"Porch light","room":"porch"},
 		{"id":"2","name":"hall","displayName":"hall"}]}`)
 	got, err := ReadDevices(file)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []contractv1.DeclaredDevice{
-		{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch",
-			Parameters: map[string]string{"model": "MINIR4"}},
+		{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch"},
 		{ID: "2", Name: "hall", DisplayName: "hall"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -101,11 +99,6 @@ func TestReadDevicesRejects(t *testing.T) {
 		{"another contract", `{"contract":2,"devices":[]}`, "contract 2"},
 		{"no devices", `{"contract":1}`, "devices must be a list"},
 		{"no display name", `{"contract":1,"devices":[{"id":"x","name":"x"}]}`, "devices[0]: displayName"},
-		{
-			"parameter not a string",
-			`{"contract":1,"devices":[{"id":"x","name":"x","displayName":"x","parameters":{"a":1}}]}`,
-			"parameters",
-		},
 		{"not JSON", `nope`, "invalid character"},
 		{
 			"repeated id",

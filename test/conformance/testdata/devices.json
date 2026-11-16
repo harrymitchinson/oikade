@@ -1,11 +1,11 @@
 {
   "contract": 1,
   "devices": [
-    {"id": "hall-relay", "name": "hall-light", "displayName": "Hall light", "room": "hall", "parameters": {}},
-    {"id": "pump-relay", "name": "pool-pump", "displayName": "Pool pump", "parameters": {}},
-    {"id": "attic-relay", "name": "attic-fan", "displayName": "Attic fan", "parameters": {"simulate": "needs-setup"}},
-    {"id": "bad-relay", "name": "mystery", "displayName": "Mystery", "parameters": {"simulate": "misconfigured"}},
-    {"id": "locked-relay", "name": "locked", "displayName": "Locked", "parameters": {"simulate": "needs-key"}},
-    {"id": "cloud-relay", "name": "cloud", "displayName": "Cloud", "parameters": {"simulate": "refused-login"}}
+    {"id": "hall-relay", "name": "hall-light", "displayName": "Hall light", "room": "hall"},
+    {"id": "pump-relay", "name": "pool-pump", "displayName": "Pool pump"},
+    {"id": "attic-relay.needs-setup", "name": "attic-fan", "displayName": "Attic fan"},
+    {"id": "bad-relay.misconfigured", "name": "mystery", "displayName": "Mystery"},
+    {"id": "locked-relay.needs-key", "name": "locked", "displayName": "Locked"},
+    {"id": "cloud-relay.refused-login", "name": "cloud", "displayName": "Cloud"}
   ]
 }

@@ -11,8 +11,8 @@ import (
 
 var declared = []contractv1.DeclaredDevice{
 	{ID: "a", Name: "hall", DisplayName: "Hall"},
-	{ID: "b", Name: "porch", DisplayName: "Porch", Parameters: map[string]string{"model": "MINIR4"}},
-	{ID: "c", Name: "fan", DisplayName: "Fan", Parameters: map[string]string{"simulate": "misconfigured"}},
+	{ID: "b", Name: "porch", DisplayName: "Porch"},
+	{ID: "c.misconfigured", Name: "fan", DisplayName: "Fan"},
 }
 
 func TestNewSwitchesReportsEachDevice(t *testing.T) {
@@ -30,7 +30,7 @@ func TestNewSwitchesReportsEachDevice(t *testing.T) {
 	if !reflect.DeepEqual(s.reports[:2], want) {
 		t.Fatalf("got %+v, want %+v", s.reports[:2], want)
 	}
-	if c := s.reports[2]; c.ID != "c" || c.Found || !strings.Contains(c.Error, "misconfigured") {
+	if c := s.reports[2]; c.ID != "c.misconfigured" || c.Found || !strings.Contains(c.Error, "misconfigured") {
 		t.Fatalf("got %+v, want c not found with the reason", c)
 	}
 }
@@ -58,15 +58,16 @@ func TestApply(t *testing.T) {
 
 func TestNewSwitchesDiscoversEveryRelayAndASpare(t *testing.T) {
 	den := contractv1.DeclaredDevice{
-		ID: "d", DisplayName: "Den", Room: "den", Parameters: map[string]string{"simulate": "unstable-id"},
+		ID: "d.unstable-id", DisplayName: "Den", Room: "den",
 	}
 	s := newSwitches(append(slices.Clone(declared), den))
 	ids := make([]string, 0, len(s.discovered))
 	for _, d := range s.discovered {
 		ids = append(ids, d.ID)
 	}
-	if len(ids) != 4 || ids[0] != "a" || ids[1] != "b" || !strings.HasPrefix(ids[2], "d-") || ids[3] != spare.ID {
-		t.Fatalf("discovered %v, want a, b, d-<random> and %s", ids, spare.ID)
+	if len(ids) != 4 || ids[0] != "a" || ids[1] != "b" || !strings.HasPrefix(ids[2], "d.unstable-id-") ||
+		ids[3] != spare.ID {
+		t.Fatalf("discovered %v, want a, b, d.unstable-id-<random> and %s", ids, spare.ID)
 	}
 	if d := s.discovered[2]; d.Name != "Den" || d.Room != "den" {
 		t.Errorf("got %+v, want the declared name and room", d)
@@ -78,12 +79,12 @@ func TestNewSwitchesDiscoversEveryRelayAndASpare(t *testing.T) {
 
 func TestARefusedLoginIsThePluginsProblem(t *testing.T) {
 	s := newSwitches([]contractv1.DeclaredDevice{
-		{ID: "a", Name: "hall"}, {ID: "d", Name: "cloud", Parameters: map[string]string{"simulate": "refused-login"}},
+		{ID: "a", Name: "hall"}, {ID: "d.refused-login", Name: "cloud"},
 	})
 	if s.problem == "" || len(s.relays) != 1 {
 		t.Fatalf("got problem %q and relays %v, want a problem and relay a", s.problem, s.relays)
 	}
-	if d := s.reports[1]; d.ID != "d" || d.Found || d.Error == "" {
+	if d := s.reports[1]; d.ID != "d.refused-login" || d.Found || d.Error == "" {
 		t.Fatalf("got %+v, want d not found with the reason", d)
 	}
 	if newSwitches(declared).problem != "" {

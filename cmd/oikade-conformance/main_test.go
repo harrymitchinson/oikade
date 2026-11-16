@@ -106,8 +106,8 @@ func TestAnswersASetupFromItsReplies(t *testing.T) {
 func TestFailsAPluginWhoseSetupFails(t *testing.T) {
 	bin := fixturePlugin(t)
 	devices := filepath.Join(t.TempDir(), "devices.json")
-	refused := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +
-		`"displayName":"Desk lamp","parameters":{"simulate":"refused-setup"}}]}`
+	refused := `{"contract":1,"devices":[{"id":"desk-relay.refused-setup","name":"desk-lamp",` +
+		`"displayName":"Desk lamp"}]}`
 	if err := os.WriteFile(devices, []byte(refused), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +131,8 @@ func TestFailsAPluginWhoseSetupFails(t *testing.T) {
 func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
 	bin := fixturePlugin(t)
 	devices := filepath.Join(t.TempDir(), "devices.json")
-	unstable := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +
-		`"displayName":"Desk lamp","parameters":{"simulate":"unstable-id"}}]}`
+	unstable := `{"contract":1,"devices":[{"id":"desk-relay.unstable-id","name":"desk-lamp",` +
+		`"displayName":"Desk lamp"}]}`
 	if err := os.WriteFile(devices, []byte(unstable), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
 	for _, want := range []string{
 		"--- PASS: goes offline on SIGTERM",
 		"--- FAIL: comes back after a restart",
-		"the plugin no longer discovers desk-relay-",
+		"the plugin no longer discovers desk-relay.unstable-id-",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -159,8 +159,8 @@ func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
 func TestFailsAPluginThatNamesAnOldCapability(t *testing.T) {
 	bin := fixturePlugin(t)
 	devices := filepath.Join(t.TempDir(), "devices.json")
-	old := `{"contract":1,"devices":[{"id":"desk-relay","name":"desk-lamp",` +
-		`"displayName":"Desk lamp","parameters":{"simulate":"old-name"}}]}`
+	old := `{"contract":1,"devices":[{"id":"desk-relay.old-name","name":"desk-lamp",` +
+		`"displayName":"Desk lamp"}]}`
 	if err := os.WriteFile(devices, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
