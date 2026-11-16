@@ -72,6 +72,7 @@ type options struct {
 	will         *paho.WillMessage
 	onConnect    func(ctx context.Context)
 	onDisconnect func()
+	password     func() (string, error)
 }
 
 // WithWill sets a Last Will the broker publishes, retained at QoS 1, if the connection drops
@@ -91,6 +92,13 @@ func WithOnConnect(f func(ctx context.Context)) Option {
 // WithOnDisconnect calls f each time an established connection is lost. It mustn't block.
 func WithOnDisconnect(f func()) Option {
 	return func(o *options) { o.onDisconnect = f }
+}
+
+// WithPassword reads the password for the URL's user as each connection is made, so a changed one
+// is used from the next reconnect. An error fails that attempt, which is retried. Never put the
+// password in an error.
+func WithPassword(f func() (string, error)) Option {
+	return func(o *options) { o.password = f }
 }
 
 // Connect dials server (mqtt://host:port) and blocks until the first connection succeeds or ctx ends.
@@ -153,6 +161,16 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 	if u.User != nil {
 		pw, _ := u.User.Password()
 		cfg.ConnectUsername, cfg.ConnectPassword = u.User.Username(), []byte(pw)
+	}
+	if o.password != nil {
+		cfg.ConnectPacketBuilder = func(cp *paho.Connect, _ *url.URL) (*paho.Connect, error) {
+			pw, err := o.password()
+			if err != nil {
+				return nil, err
+			}
+			cp.Password, cp.PasswordFlag = []byte(pw), true
+			return cp, nil
+		}
 	}
 	cm, err := autopaho.NewConnection(ctx, cfg)
 	if err != nil {

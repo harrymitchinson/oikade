@@ -332,13 +332,15 @@ func (b *Bridge) AddDeviceTypes(id uint16, deviceTypes []im.DeviceType, label, u
 	return info, nil
 }
 
-// SetNodeLabel renames the bridge in place: its NodeLabel changes, and subscribers are told. Call it
-// inside Node.Update.
-func (b *Bridge) SetNodeLabel(label string) {
-	if label != b.info.NodeLabel {
-		b.info.NodeLabel = label
-		b.basic.Changed(0x05)
+// SetNodeLabel renames the bridge in place: its NodeLabel changes, and subscribers are told. It
+// says whether the label was another. Call it inside Node.Update.
+func (b *Bridge) SetNodeLabel(label string) bool {
+	if label == b.info.NodeLabel {
+		return false
 	}
+	b.info.NodeLabel = label
+	b.basic.Changed(0x05)
+	return true
 }
 
 // RemoveDevice removes the bridged device on endpoint id, and reports whether there was one.

@@ -6,6 +6,7 @@ package matterbridge
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -249,6 +250,20 @@ func mapHeater(m *Mapped, switchable bool, set SetFunc) {
 		}
 	}
 }
+
+// CheckBridgeName says what's wrong with a name for the bridge itself, its NodeLabel.
+func CheckBridgeName(name string) error {
+	switch {
+	case len(name) > maxLabel:
+		return fmt.Errorf("the Matter bridge's name %q is %d bytes, and it's at most %d", name, len(name), maxLabel)
+	case !utf8.ValidString(name):
+		return errors.New("the Matter bridge's name isn't valid UTF-8")
+	}
+	return nil
+}
+
+// maxLabel is the most a NodeLabel holds, in bytes.
+const maxLabel = 32
 
 // Label returns a Device's name cut to the 32 bytes a NodeLabel holds.
 func Label(name string) string {

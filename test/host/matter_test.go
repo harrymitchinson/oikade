@@ -286,7 +286,8 @@ func TestADeployRenamesTheBridge(t *testing.T) {
 	c.reaches("fan")
 
 	c.r.stop()
-	c.r.launchWithout("--simulate", devicesFile(t), matterFlag(c.port))
+	c.r.launch(matterFlag(c.port))
+	c.r.waitFor(func(l line) bool { return l.is(attached) })
 	c.r.until("the bridge", func() bool { return c.r.matter().Serving })
 	c.admin = c.cm.CASE(nodetest.Addr(c.port))
 	if got := c.nodeLabel(); got != "Cottage" {

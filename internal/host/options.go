@@ -1,9 +1,9 @@
 package host
 
 import (
-	"errors"
 	"sync"
 
+	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -16,15 +16,14 @@ const (
 	// declared them, so that a host that restarts applies them before any process connects.
 	optionsNamespace = "options"
 	matterNameKey    = "matterName"
-	// maxMatterName is the most a NodeLabel holds, in bytes.
-	maxMatterName = 32
 )
 
 // homeOptions are the settings a home declares in framework.Options that the host applies, rather
 // than its process.
 type homeOptions struct {
 	values *store.Namespace
-	// renamed, if set, hears of a new bridge name once it's saved. It must not block for long.
+	// renamed, if set, is given the bridge's name once it's saved, on every connect, so that the
+	// home's code wins over a controller that wrote another. It must not block for long.
 	renamed func(string)
 
 	mu         sync.Mutex
@@ -52,23 +51,23 @@ func (o *homeOptions) bridgeName() string {
 }
 
 // takeMatterName takes up a connecting process's bridge name, where empty is DefaultMatterName. It's
-// saved before it's applied, so a host that restarts serves the name the running code gave.
+// saved before it's applied, so a host that restarts serves the name the running code gave, and
+// applied even if it's the saved one, since a controller may have written the NodeLabel since.
 func (o *homeOptions) takeMatterName(name string) error {
 	if name == "" {
 		name = DefaultMatterName
 	}
-	if len(name) > maxMatterName {
-		return errors.New("the Matter bridge's name is longer than 32 bytes")
+	if err := matterbridge.CheckBridgeName(name); err != nil {
+		return err
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if name == o.matterName {
-		return nil
+	if name != o.matterName {
+		if err := o.values.Put(matterNameKey, []byte(name)); err != nil {
+			return err
+		}
+		o.matterName = name
 	}
-	if err := o.values.Put(matterNameKey, []byte(name)); err != nil {
-		return err
-	}
-	o.matterName = name
 	if o.renamed != nil {
 		o.renamed(name)
 	}

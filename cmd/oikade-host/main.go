@@ -103,8 +103,8 @@ func runHost(ctx context.Context, args []string) error {
 		"How long a plugin's Set may run before the plugin counts as hung.")
 	stopTimeout := fs.Duration("stop-timeout", host.DefaultStopTimeout,
 		"How long stopping may take before the rest is cut off. Keep it under systemd's TimeoutStopSec.")
-	if err := removedFlags(args); err != nil {
-		return err
+	for name, why := range removed {
+		fs.Func(name, "Gone: "+why+".", func(string) error { return fmt.Errorf("--%s is gone: %s", name, why) })
 	}
 	_ = fs.Parse(args)
 	if fs.NArg() > 0 {
@@ -178,20 +178,6 @@ func runHost(ctx context.Context, args []string) error {
 // each. A unit file that still passes one fails loudly rather than being quietly ignored.
 var removed = map[string]string{
 	"matter-name": "the bridge's name is MatterName in your home's framework.Options now: set it there and deploy",
-}
-
-// removedFlags refuses a flag that's gone, and names what replaced it.
-func removedFlags(args []string) error {
-	for _, arg := range args {
-		if arg == "--" {
-			return nil
-		}
-		name, _, _ := strings.Cut(strings.TrimLeft(arg, "-"), "=")
-		if why, ok := removed[name]; ok && strings.HasPrefix(arg, "-") {
-			return fmt.Errorf("--%s is gone: %s", name, why)
-		}
-	}
-	return nil
 }
 
 const clientUsage = "usage: oikade-host client add NAME [--token] [--data-dir DIR] [--json]"

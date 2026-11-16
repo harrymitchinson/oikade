@@ -189,11 +189,9 @@ func (m *matterBridge) open(c *Matter, name string, values, subscriptions *store
 // rename renames the bridge in place, as the home now names it. A controller reads its new name from
 // Basic Information, and a new commissioning window advertises it.
 func (m *matterBridge) rename(name string) {
-	if !m.working() {
-		return
+	if m.working() && m.node.Rename(name) {
+		m.log.Info("Renamed Matter bridge", "name", name)
 	}
-	m.node.Rename(name)
-	m.log.Info("Renamed Matter bridge", "name", name)
 }
 
 // working is whether the bridge has a node to serve, so that there's anything to connect or run.

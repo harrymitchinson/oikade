@@ -69,7 +69,7 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		},
 		"a bridge name too long": {
 			NewHome(Options{MatterName: "The cottage at the end of the lane"}, NewHold("a", d.To(true)).When(when)),
-			"is 34 bytes, and a Matter bridge's name is at most 32",
+			"is 34 bytes, and it's at most 32",
 		},
 		"a bridge name that isn't UTF-8": {
 			NewHome(Options{MatterName: "Caf\xe9"}, NewHold("a", d.To(true)).When(when)), "isn't valid UTF-8",

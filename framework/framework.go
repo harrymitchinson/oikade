@@ -28,7 +28,6 @@ import (
 	"os"
 	"slices"
 	"time"
-	"unicode/utf8"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -38,6 +37,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/schedule"
 	"github.com/harrymitchinson/oikade/internal/secretuse"
 	"github.com/harrymitchinson/oikade/internal/sun"
@@ -844,18 +844,11 @@ type Options struct {
 
 func (o Options) check() error {
 	var name error
-	switch {
-	case len(o.MatterName) > maxMatterName:
-		name = fmt.Errorf("the MatterName %q is %d bytes, and a Matter bridge's name is at most %d",
-			o.MatterName, len(o.MatterName), maxMatterName)
-	case !utf8.ValidString(o.MatterName):
-		name = errors.New("the MatterName isn't valid UTF-8")
+	if err := matterbridge.CheckBridgeName(o.MatterName); err != nil {
+		name = fmt.Errorf("MatterName: %w", err)
 	}
 	return errors.Join(o.Location.check(), name)
 }
-
-// maxMatterName is the most a Matter NodeLabel holds, in bytes.
-const maxMatterName = 32
 
 // site is the home's location for the engine, and nil if it has none.
 func (o Options) site() *sun.Site { return o.Location.site() }

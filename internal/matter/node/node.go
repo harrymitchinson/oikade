@@ -221,10 +221,12 @@ func New(cfg Config) (*Node, error) {
 func (n *Node) Bridge() *clusters.Bridge { return n.bridge }
 
 // Rename renames the node in place: its NodeLabel, which subscribers are told of, and the DN key of
-// the commissionable service it next advertises. name is at most 32 bytes.
-func (n *Node) Rename(name string) {
+// the commissionable service it next advertises. name is at most 32 bytes. It says whether the
+// NodeLabel was another, such as one a controller wrote.
+func (n *Node) Rename(name string) (changed bool) {
 	n.name.Store(&name)
-	n.bridge.Node.Update(func() { n.bridge.SetNodeLabel(name) })
+	n.bridge.Node.Update(func() { changed = n.bridge.SetNodeLabel(name) })
+	return changed
 }
 
 // Fabrics returns the node's fabric table.

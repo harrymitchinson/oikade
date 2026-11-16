@@ -1,6 +1,7 @@
 package host
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -32,8 +33,9 @@ func TestTheBridgesNameIsSavedBeforeItsApplied(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(renamed) != 2 || renamed[0] != "Cottage" || renamed[1] != DefaultMatterName {
-		t.Errorf("renamed %q, want once to Cottage and once back", renamed)
+	// Every connect applies the name, saved or not, in case a controller wrote another.
+	if want := []string{"Cottage", "Cottage", DefaultMatterName, DefaultMatterName}; !slices.Equal(renamed, want) {
+		t.Errorf("renamed %q, want %q", renamed, want)
 	}
 	if err := o.takeMatterName("a name that is longer than thirty-two bytes"); err == nil {
 		t.Error("took a name too long for a NodeLabel")
