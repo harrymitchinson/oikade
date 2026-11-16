@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -30,6 +31,9 @@ type hold struct {
 	whyNot func(Vars) string
 	// budget is nil when the hold has none.
 	budget *budgetHold
+	// follow is nil when the hold's value is its own, and followStep what a followed value rounds to.
+	follow     func(Vars) (float64, error)
+	followStep float64
 }
 
 // window is a compiled Window. Its start and end are at or sun times with no days.
@@ -101,4 +105,48 @@ func checkPriority(p Priority) error {
 		return nil
 	}
 	return fmt.Errorf("unknown priority %q", p)
+}
+
+// followStep is what a followed value of capability rounds to: step, or the capability's own.
+func followStep(name string, step float64) (float64, error) {
+	spec, ok := capability.Lookup(name)
+	switch {
+	case !ok:
+		return 0, fmt.Errorf("unknown capability %q", name)
+	case !spec.Writable:
+		return 0, fmt.Errorf("capability %s is read-only", name)
+	case spec.Kind != capability.KindNumber:
+		return 0, fmt.Errorf("capability %s isn't a number, so it can't follow a reading", name)
+	case step < 0:
+		return 0, fmt.Errorf("step %v must be positive", step)
+	case step == 0 && spec.Step == 0:
+		return 0, fmt.Errorf("capability %s has no step of its own: give one", name)
+	case step == 0:
+		return spec.Step, nil
+	}
+	return step, nil
+}
+
+// guardedFollow is f, with a panic an error, since the engine holds its lock.
+func guardedFollow(f func(Vars) (float64, error)) func(Vars) (float64, error) {
+	return func(v Vars) (out float64, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				out, err = 0, fmt.Errorf("follow panicked: %v", r)
+			}
+		}()
+		return f(v)
+	}
+}
+
+// followed is v rounded to h's step, within the capability's bounds, as a hold's Value is kept.
+func (h *hold) followed(v float64) any {
+	v = math.Round(v/h.followStep) * h.followStep
+	if spec, ok := capability.Lookup(h.capability); ok && spec.Max > spec.Min {
+		v = min(max(v, spec.Min), spec.Max)
+	}
+	if out, err := writableValue(h.capability, v); err == nil {
+		return out
+	}
+	return v
 }

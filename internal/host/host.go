@@ -124,8 +124,11 @@ func (h *Host) Run(ctx context.Context) error {
 	srv := &server{
 		since: time.Now(),
 		log:   h.Log.With("logger", "socket"), ctx: engineCtx, engine: eng,
-		holds:   &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: h.Log},
-		fires:   &engine.Stored[time.Time]{Values: data.Namespace(engine.FireStatesNamespace), Log: h.Log},
+		holds: &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: h.Log},
+		fires: &engine.Stored[time.Time]{Values: data.Namespace(engine.FireStatesNamespace), Log: h.Log},
+		averages: &engine.Stored[engine.AverageState]{
+			Values: data.Namespace(engine.AverageStatesNamespace), Log: h.Log,
+		},
 		journal: data.Journal(),
 		paused:  &engine.Stored[time.Time]{Values: data.Namespace(pausedNamespace), Log: h.Log},
 		feed:    newFeed(), events: newEventLog(data.Events(), h.EventLog, h.Log.With("logger", "events")), pushed: &pushed{},

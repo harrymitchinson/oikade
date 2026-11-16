@@ -37,6 +37,8 @@ type holdState struct {
 	saved HoldState
 	// dirty is set when saved has changed without being saved, as after an edit.
 	dirty bool
+	// followWhy is why a followed hold's value isn't known, or "".
+	followWhy string
 	// released is set by a release, for the next look to clear the latch.
 	released bool
 	// writing is true while a write or a save is in progress.
@@ -163,11 +165,75 @@ func (e *Engine) untilHolds(h *hold, now time.Time, devices *home) bool {
 	return err == nil && ok
 }
 
+// edited starts a hold's state afresh if an edit changed what it writes, and returns the old target
+// for the write to end, if it was active. A followed value is the hold's to change, not an edit.
+func edited(hs *holdState, c *Compiled) *HoldTarget {
+	t := c.target()
+	if c.hold.follow != nil {
+		t.Value = hs.saved.Target.Value
+	}
+	if sameTarget(hs.saved.Target, t) {
+		return nil
+	}
+	var end *HoldTarget
+	if hs.saved.Active {
+		old := hs.saved.Target
+		end = &old
+	}
+	hs.saved, hs.dirty = HoldState{Target: t}, true
+	return end
+}
+
+// budgetLook says whether a budget hold's plan, and its when if it has one, want it active now, and
+// when to look again. Call with e.mu held.
+func (e *Engine) budgetLook(key ident.ID, s *state, st *HoldState, now time.Time, devices *home) (on, known bool, next time.Time) {
+	hs, h := s.hold, s.c.hold
+	// A budget's when is looked at first, so a plan it couldn't make is what's said to stop it.
+	when, known := true, true
+	var whenNext time.Time
+	if h.when != nil {
+		when, known, whenNext = e.condition(key, hs, h, now, devices)
+	}
+	on, next = e.budgetCondition(key, s, now, devices)
+	on = on && when
+	if !whenNext.IsZero() && (next.IsZero() || whenNext.Before(next)) {
+		next = whenNext
+	}
+	if r := hs.budget.reported; r != nil && r.Unplanned {
+		e.stopped(key, hs, r.Message)
+	} else if h.when == nil {
+		e.stopped(key, hs, "")
+		// A Rule edited into a budget hold with no When, so a stretch it was in has ended.
+		e.whenKnown(key, hs)
+	}
+	if saved := hs.budget.saved; saved != "" {
+		st.Budget = saved
+	}
+	return on, known, next
+}
+
+// follow works out a followed hold's value, into st's target while it's known, and says whether it
+// is. Why it isn't is the hold's why-not. Call with e.mu held.
+func (e *Engine) follow(hs *holdState, h *hold, st *HoldState, now time.Time, devices *home) bool {
+	v, err := h.follow(e.conditionVars(now, devices))
+	if err != nil {
+		hs.followWhy = err.Error()
+		return false
+	}
+	hs.followWhy = ""
+	st.Target.Value = h.followed(v)
+	return true
+}
+
 // whyNot works out why an inactive hold isn't active, and tells OnWhyNot when that changed. Call
 // with e.mu held.
 func (e *Engine) whyNot(key ident.ID, hs *holdState, h *hold, inactive bool, now time.Time, devices *home) {
 	why := ""
-	if inactive && h.whyNot != nil {
+	switch {
+	case !inactive:
+	case h.follow != nil:
+		why = hs.followWhy
+	case h.whyNot != nil:
 		why = h.whyNot(e.conditionVars(now, devices))
 	}
 	if hs.whyNot != why {
@@ -228,15 +294,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 			hs.saved = saved
 		}
 	}
-	// An edit that changed what the hold writes ends the old one, then starts afresh.
-	var end *HoldTarget
-	if t := s.c.target(); !sameTarget(hs.saved.Target, t) {
-		if hs.saved.Active {
-			old := hs.saved.Target
-			end = &old
-		}
-		hs.saved, hs.dirty = HoldState{Target: t}, true
-	}
+	end := edited(hs, s.c)
 	st := hs.saved
 	if hs.released {
 		st.Latched, hs.released = false, false
@@ -245,23 +303,16 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	var on, known bool
 	var next time.Time
 	if h.budget != nil {
-		on, next = e.budgetCondition(key, s, now, devices)
-		known = true
-		why := ""
-		if r := hs.budget.reported; r != nil && r.Unplanned {
-			why = r.Message
-		}
-		e.stopped(key, hs, why)
-		// A Rule edited into a budget hold has no When, so a stretch it was in has ended.
-		e.whenKnown(key, hs)
-		if saved := hs.budget.saved; saved != "" {
-			st.Budget = saved
-		}
+		on, known, next = e.budgetLook(key, s, &st, now, devices)
+	} else if h.follow != nil {
+		on, known = e.follow(hs, h, &st, now, devices), true
 	} else {
 		on, known, next = e.condition(key, hs, h, now, devices)
 	}
 	st, active := h.step(st, on, known, now)
 	e.whyNot(key, hs, h, known && !on && !active, now, devices)
+	// A followed value that changed while the hold stays active is written again.
+	rewrite := h.follow != nil && active && st.Active && !sameTarget(st.Target, hs.saved.Target)
 	switch {
 	case hs.retry.IsZero():
 	case now.Before(hs.retry):
@@ -281,7 +332,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim || len(joined) > 0 || len(left) > 0 {
 		hs.writing, hs.dirty, hs.claimed = true, false, &claim
 		e.holdWrites = append(e.holdWrites, holdWrite{level: claim.Level, key: key, target: st.Target, run: func() {
-			e.write(ctx, key, hs, st, active, end, claim, reclaim, joined, left)
+			e.write(ctx, key, hs, st, active, end, claim, reclaim || rewrite, rewrite, joined, left)
 		}})
 		s.next = fire{}
 	} else {
@@ -445,7 +496,7 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 		}
 	}
 	// A budget looks every minute too, to credit its target's run.
-	if every := now.Add(whenEvery); (h.when != nil || h.budget != nil) && (!st.Latched || h.until != nil) && every.Before(at) {
+	if every := now.Add(whenEvery); (h.when != nil || h.budget != nil || h.follow != nil) && (!st.Latched || h.until != nil) && every.Before(at) {
 		at = every
 	}
 	return at
@@ -453,8 +504,10 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 
 // write ends an edited hold's old target, writes the hold's start or end, and saves its state.
 // A failed write isn't saved as done, so it's tried again.
+//
+// rewrite writes an active hold's target again, as when the value it follows has changed.
 func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st HoldState, active bool, end *HoldTarget,
-	claim control.Claim, reclaim bool, joined, left []ident.ID,
+	claim control.Claim, reclaim, rewrite bool, joined, left []ident.ID,
 ) {
 	var retry time.Duration
 	// started is what a start wrote. added are the members that joined and were written.
@@ -478,7 +531,13 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 			}
 		}
 	} else if ended {
-		if reclaim {
+		switch {
+		case rewrite:
+			if _, d, err := e.applyHold(ctx, key, st.Target, true, claim); err != nil {
+				// The value isn't saved as written, so the next look writes it again.
+				retry, st.Target = d, hs.saved.Target
+			}
+		case reclaim:
 			e.claimHold(ctx, key, st.Target, claim)
 		}
 		for _, dev := range left {

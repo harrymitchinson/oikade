@@ -87,6 +87,10 @@ type Engine struct {
 	States HoldStates
 	// Controls keeps arbitrated capabilities' state across restarts. Nil keeps it in memory only.
 	Controls ControlStates
+	// Averages are the rolling averages conditions read, kept in AverageStates. Nil keeps them in
+	// memory only.
+	Averages      []Average
+	AverageStates AverageStates
 	// Arbitration, if set, takes this engine's claims, and it runs no arbiters itself.
 	Arbitration Arbitration
 	// ControlLevel is the winning level of each arbitrated capability.
@@ -156,6 +160,7 @@ type Engine struct {
 	// holdWrites are the hold writes the current look at the rules has started, and triggers the
 	// moments it set off, for startWrites.
 	holdWrites []holdWrite
+	averages   averages
 	triggers   []pendingTrigger
 	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
 	bridgeWrites map[ident.ID]map[string]bridgeWrite
@@ -224,6 +229,9 @@ func (e *Engine) Init() {
 	}
 	if e.Controls == nil {
 		e.Controls = newMemoryStates[ControlState]()
+	}
+	if e.AverageStates == nil {
+		e.AverageStates = newMemoryStates[AverageState]()
 	}
 	e.arbs = map[ident.ID]map[string]*arb{}
 	e.controlDue = map[ident.ID]bool{}
@@ -437,6 +445,9 @@ func (e *Engine) queue(changes []driver.Update) {
 func (e *Engine) Run(ctx context.Context) {
 	// The saver outlives the runs, so it saves what their last writes changed.
 	saveCtx, stopSaving := context.WithCancel(context.WithoutCancel(ctx))
+	e.averages.mu.Lock()
+	e.averages.ctx = saveCtx
+	e.averages.mu.Unlock()
 	saverDone := make(chan struct{})
 	go func() { e.saveControls(saveCtx); close(saverDone) }()
 	defer func() {
@@ -602,7 +613,9 @@ type home struct {
 }
 
 func (e *Engine) home() *home {
-	return &home{devices: e.Store.Values(), members: e.Store.Members()}
+	devices := e.Store.Values()
+	e.addAverages(devices, e.Clock.Now())
+	return &home{devices: devices, members: e.Store.Members()}
 }
 
 // conditionVars are what a condition sees at now. h is the home's devices, or nil to read
@@ -637,6 +650,7 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 		e.outside(ctx, u)
 	}
 	now := e.Clock.Now()
+	e.observeAverages(changes, now)
 	evaluated := false
 	var devices *home
 	// vars are each change's, read once a rule needs them.
@@ -644,7 +658,8 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 	for key, s := range e.rules {
 		// A hold with when may read any device, and a budget credits its target's
 		// run as it changes.
-		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.budget != nil && s.c.hold.device == dev.Name) {
+		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.follow != nil ||
+			s.c.hold.budget != nil && s.c.hold.device == dev.Name) {
 			if devices == nil {
 				devices = e.home()
 			}

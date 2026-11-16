@@ -48,7 +48,9 @@ type server struct {
 	outside driver.Setter
 	holds   *engine.Stored[engine.HoldState]
 	fires   *engine.Stored[time.Time]
-	journal *store.Journal
+	// averages are the rolling averages the process's conditions read.
+	averages *engine.Stored[engine.AverageState]
+	journal  *store.Journal
 	// paused are the rules paused, with when.
 	paused *engine.Stored[time.Time]
 	// feed is what oikade tail streams, events what oikade replay reads, and pushed your process's
@@ -293,6 +295,12 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 	welcome := wire.Message{
 		Type: wire.TypeWelcome, Version: wire.Version,
 		Holds: map[string]engine.HoldState{}, Fires: map[string]time.Time{},
+		AverageStates: map[string]engine.AverageState{},
+	}
+	for _, name := range hello.Averages {
+		if st, ok := s.averages.Get(key(name)); ok {
+			welcome.AverageStates[name] = st
+		}
 	}
 	for _, name := range hello.Rules {
 		if st, ok := s.holds.Get(key(name)); ok {
@@ -793,6 +801,12 @@ func (s *server) answer(m wire.Message) wire.Message {
 		err = s.holds.Delete(s.ctx, key(m.Rule))
 	case wire.TypeSaveFire:
 		err = s.fires.Put(s.ctx, key(m.Rule), m.Time)
+	case wire.TypeSaveAverage:
+		if m.Average == nil {
+			err = errors.New("saving an average needs its state")
+			break
+		}
+		err = s.averages.Put(s.ctx, key(m.Rule), *m.Average)
 	case wire.TypeJournal:
 		fault.Hit(fault.HostJournalBefore)
 		if !fault.Drop(fault.HostJournalAppend) {

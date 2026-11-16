@@ -840,6 +840,11 @@ func checkBudget(b *Budget, h handle, value any, entry control.Entry) error {
 	if err := b.clockOnly(); err != nil {
 		return err
 	}
+	if b.bands != nil {
+		if err := checkAverage(b.bands.Reading.handle()); err != nil {
+			return err
+		}
+	}
 	spec := *b.toSchedule()
 	spec.Device, spec.Capability, spec.Value = h.device, h.capability, value
 	_, err := schedule.CompileSpec(spec, &entry)

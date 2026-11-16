@@ -81,6 +81,9 @@ type rigOptions struct {
 	values   map[string]map[string]any
 	// control is each device's control entries.
 	control map[string][]control.Entry
+	// averages are the rolling averages, kept in averageStates.
+	averages      []Average
+	averageStates AverageStates
 }
 
 func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
@@ -94,6 +97,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 		Runs: NewRunsCounter(), NextChange: NewNextChangeGauge(), Active: NewActiveGauge(),
 		OnSchedule: r.sched.record, States: states, Controls: o.controls, ControlLevel: NewControlLevelGauge(),
 		OnBudget: r.recordBudget, Budget: NewBudgetMetrics(),
+		Averages: o.averages, AverageStates: o.averageStates,
 	}
 	r.e.Init()
 	r.store = hub.NewStore(logging.Discard(), r.e)

@@ -58,17 +58,19 @@ const (
 	TypeSaveHold   Type = "saveHold"
 	TypeDeleteHold Type = "deleteHold"
 	TypeSaveFire   Type = "saveFire"
-	TypeJournal    Type = "journal"
-	TypeFinish     Type = "finish"
-	TypeReply      Type = "reply"
-	TypePause      Type = "pause"
-	TypeResume     Type = "resume"
-	TypeRuleRun    Type = "ruleRun"
-	TypeRoomReads  Type = "roomReads"
-	TypeStopped    Type = "stopped"
-	TypeWhyNot     Type = "whyNot"
-	TypeMetrics    Type = "metrics"
-	TypePublish         = pluginwire.TypePublish
+	// TypeSaveAverage saves a rolling average a condition reads.
+	TypeSaveAverage Type = "saveAverage"
+	TypeJournal     Type = "journal"
+	TypeFinish      Type = "finish"
+	TypeReply       Type = "reply"
+	TypePause       Type = "pause"
+	TypeResume      Type = "resume"
+	TypeRuleRun     Type = "ruleRun"
+	TypeRoomReads   Type = "roomReads"
+	TypeStopped     Type = "stopped"
+	TypeWhyNot      Type = "whyNot"
+	TypeMetrics     Type = "metrics"
+	TypePublish          = pluginwire.TypePublish
 )
 
 // Manifest is what your binary's check mode prints: enough for the host to judge a version before
@@ -160,6 +162,9 @@ type Message struct {
 	Plugin string `json:"plugin,omitempty"`
 	// Rules names the process's holds, so the Welcome can return their saved state.
 	Rules []string `json:"rules,omitempty"`
+	// Averages names the process's rolling averages, by engine.Average's Key, so the Welcome can
+	// return their saved state, in AverageStates.
+	Averages []string `json:"averages,omitempty"`
 	// Info says what the process's rules are, for oikade status and pause.
 	Info []RuleInfo `json:"info,omitempty"`
 	// Control is every device setting the process's home declares.
@@ -177,7 +182,9 @@ type Message struct {
 	Holds   map[string]engine.HoldState `json:"holds,omitempty"`
 	Runs    int                         `json:"runs,omitempty"`
 	Fires   map[string]time.Time        `json:"fires,omitempty"`
-	Error   string                      `json:"error,omitempty"`
+	// AverageStates is a Welcome's: the saved averages Averages named.
+	AverageStates map[string]engine.AverageState `json:"averageStates,omitempty"`
+	Error         string                         `json:"error,omitempty"`
 	// Unfinished is a Run's run, one per message, and in what Dial returns, all of them.
 	Unfinished []Run `json:"unfinished,omitempty"`
 
@@ -199,6 +206,8 @@ type Message struct {
 	// Rule and Hold are a saved hold's. Rule and Time are a timer's last accounted fire.
 	Rule string            `json:"rule,omitempty"`
 	Hold *engine.HoldState `json:"hold,omitempty"`
+	// Average is a saved average's, with Rule its Key.
+	Average *engine.AverageState `json:"average,omitempty"`
 	// Run and Data are a journal entry's, and Seq its place in the run.
 	Run  string `json:"run,omitempty"`
 	Data []byte `json:"data,omitempty"`

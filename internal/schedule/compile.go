@@ -161,7 +161,7 @@ func (out *Budget) compileMinutes(s *Spec) []error {
 
 	bands := s.Bands
 	var errs []error
-	if spec, ok := capability.Lookup(bands.Capability); !ok || spec.Kind != capability.KindNumber {
+	if spec, ok := capability.Lookup(capability.Averaged(bands.Capability)); !ok || spec.Kind != capability.KindNumber {
 		errs = append(errs, fmt.Errorf("budget.minutes.bands.input: %q isn't a number capability", bands.Capability))
 	}
 	out.inputDevice, out.inputCapability = bands.Device, bands.Capability

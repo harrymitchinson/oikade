@@ -1,6 +1,7 @@
 package hometest_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -35,8 +36,7 @@ func designDevices(water float64) []hometest.Device {
 	}
 }
 
-// designHome is the design's porch light, pool pump and garage heater. The pump's budget has no
-// condition and reads the water as it is, rather than its average: those come in a later step.
+// designHome is the design's porch light, pool pump and garage heater.
 func designHome() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
 
@@ -49,7 +49,7 @@ func designHome() *oikade.Home {
 	swimHours := oikade.Daily("10:00", "18:00")
 	cheapHours := oikade.Daily("00:30", "05:30")
 	extra := oikade.NewBandedBudget(oikade.Bands{
-		Reading:   poolWater,
+		Reading:   poolWater.AverageOver(24 * time.Hour),
 		Ranges:    []oikade.Band{{Below: 22, Minutes: 0}, {Below: 26, Minutes: 60}, {Below: 29, Minutes: 120}},
 		Otherwise: 240,
 	}).Prefer(cheapHours, 3).Forbid(swimHours).
@@ -60,7 +60,7 @@ func designHome() *oikade.Home {
 		Case("frost", true, poolWater.Below(3)).Linger(30*time.Minute).
 		OverrideFor(2*time.Hour).
 		Case("swimming-hours", true, summer, swimHours).
-		Budget("summer-extra", true, extra).
+		Budget("summer-extra", true, extra, summer).
 		Case("shoulder", true, shoulder, cheapHours).
 		Default(false)
 
@@ -166,6 +166,55 @@ func TestThePoolPumpRunsItsSummerBudget(t *testing.T) {
 	}
 	if ran != 60 {
 		t.Errorf("ran %d minutes before swimming hours, want 60: %v", ran, h.Writes())
+	}
+}
+
+// pumpRun is how many minutes the pool pump ran from since to until.
+func pumpRun(h *hometest.Home, since, until time.Time) int {
+	ran := 0
+	var on time.Time
+	for _, w := range h.Writes() {
+		if w.Device != "pool-pump" || w.Time.Before(since) {
+			continue
+		}
+		if w.Value == true {
+			on = w.Time
+		} else if !on.IsZero() {
+			ran += int(w.Time.Sub(on).Minutes())
+			on = time.Time{}
+		}
+	}
+	if !on.IsZero() {
+		ran += int(until.Sub(on).Minutes())
+	}
+	return ran
+}
+
+// The summer budget is planned from the water's average over the last day, which a restart keeps:
+// a day at 30 with its last two hours at 20 averages above 29, for four hours' run, where the water
+// as it is, or an average started again at the restart, would give none.
+func TestThePoolPumpsBudgetReadsTheAverageAcrossARestart(t *testing.T) {
+	start := time.Date(2030, time.June, 30, 0, 0, 0, 0, time.UTC)
+	h := designTest(t, start, 30)
+	h.Advance(22 * time.Hour)
+	h.Set(poolWater, 20.0)
+	h.Advance(time.Hour)
+	h.Restart()
+	h.Advance(time.Hour)
+	midnight := start.Add(24 * time.Hour)
+	h.Advance(10 * time.Hour)
+	if ran := pumpRun(h, midnight, midnight.Add(10*time.Hour)); ran != 240 {
+		t.Errorf("ran %d minutes before swimming hours, want 240: %v", ran, h.Writes())
+	}
+}
+
+// Outside summer the budget doesn't run, however warm the water.
+func TestThePoolPumpsBudgetIsOnlyForSummer(t *testing.T) {
+	start := time.Date(2030, time.November, 10, 0, 0, 0, 0, time.UTC)
+	h := designTest(t, start, 30)
+	h.Advance(10 * time.Hour)
+	if ran := pumpRun(h, start, start.Add(10*time.Hour)); ran != 0 {
+		t.Errorf("ran %d minutes in November: %v", ran, h.Writes())
 	}
 }
 
@@ -293,4 +342,82 @@ func TestTheLeakFlowBeatsASwitchAndTheOthersDont(t *testing.T) {
 	h.Advance(12 * time.Hour)
 	h.ExpectValue(mainsValve, false)
 	h.ExpectClaim(mainsValve, "Rule/leak", "Safety")
+}
+
+// The design's weather compensation. A radiator stands in for its group of them, which comes with
+// groups.
+var (
+	studyRadiator = oikade.Number{Device: "study-radiator", Capability: oikade.Setpoint}
+	studyWindow   = oikade.Bool{Device: "study-window", Capability: oikade.Open}
+	outdoorTemp   = oikade.Number{Device: "outdoor-sensor", Capability: oikade.Temperature}
+)
+
+// compensate is the setpoint for a temperature outside: warmer inside the colder it is.
+func compensate(outside float64) float64 { return 21 - outside/4 }
+
+func weatherTest(t *testing.T, outside float64) *hometest.Home {
+	t.Helper()
+	home := oikade.NewHome(oikade.Options{})
+	home.Decide(studyRadiator).
+		Case("windows-open", 7, studyWindow).Delay(2*time.Minute).
+		OverrideFor(2*time.Hour).
+		Flows().
+		Follow("weather", outdoorTemp, compensate).
+		Default(18)
+	open, setpoint, temperature := string(oikade.Open), string(oikade.Setpoint), string(oikade.Temperature)
+	values := map[string]any{}
+	if outside != 0 {
+		values[temperature] = outside
+	}
+	return hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+		{Name: "study-radiator", Capabilities: []string{setpoint}, Values: map[string]any{setpoint: 15.0}},
+		{Name: "study-window", Capabilities: []string{open}, Values: map[string]any{open: false}},
+		{Name: "outdoor-sensor", Capabilities: []string{temperature}, Values: values},
+	}})
+}
+
+// radiatorWrites are the setpoints written to the study's radiator.
+func radiatorWrites(h *hometest.Home) []any {
+	var out []any
+	for _, w := range h.Writes() {
+		if w.Device == "study-radiator" {
+			out = append(out, w.Value)
+		}
+	}
+	return out
+}
+
+// The radiator follows the weather in half degrees, writing only when that changes, and a restart
+// doesn't write it again.
+func TestTheRadiatorFollowsTheWeatherAcrossARestart(t *testing.T) {
+	h := weatherTest(t, 8)
+	h.ExpectValue(studyRadiator, 19)
+	h.ExpectClaim(studyRadiator, "Rule/study-radiator setpoint weather", "Normal")
+	h.Set(outdoorTemp, 8.5) // 18.875, which rounds to 19
+	h.Restart()
+	h.Set(outdoorTemp, 8.6)
+	h.Advance(time.Hour)
+	h.Set(outdoorTemp, 10.0)
+	h.ExpectValue(studyRadiator, 18.5)
+	// The Default comes first on startup, before any line has claimed, as with a case.
+	if got := fmt.Sprint(radiatorWrites(h)); got != "[18 19 18.5]" {
+		t.Errorf("wrote %s, want [18 19 18.5]", got)
+	}
+
+	// An open window beats the weather, and once it's shut the weather's setpoint is back.
+	h.Set(studyWindow, true)
+	h.Advance(3 * time.Minute)
+	h.ExpectValue(studyRadiator, 7)
+	h.Set(studyWindow, false)
+	h.ExpectValue(studyRadiator, 18.5)
+}
+
+// Until the sensor outside reports, the radiator is at its Default.
+func TestTheRadiatorWaitsForTheWeather(t *testing.T) {
+	h := weatherTest(t, 0)
+	h.ExpectValue(studyRadiator, 18)
+	h.Set(outdoorTemp, 12.0)
+	h.ExpectValue(studyRadiator, 18)
+	h.Set(outdoorTemp, 4.0)
+	h.ExpectValue(studyRadiator, 20)
 }

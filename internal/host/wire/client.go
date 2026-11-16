@@ -42,6 +42,8 @@ type Client struct {
 	mu      sync.Mutex
 	pending map[uint64]chan Message
 	holds   map[string]engine.HoldState
+	// averages are the saved averages, as holds are.
+	averages map[string]engine.AverageState
 
 	done chan struct{}
 	once sync.Once
@@ -98,6 +100,10 @@ func DialHello(ctx context.Context, socket string, hello Message) (*Client, Mess
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 	c := &Client{conn: conn, pending: map[uint64]chan Message{}, holds: welcome.Holds, done: make(chan struct{})}
+	c.averages = welcome.AverageStates
+	if c.averages == nil {
+		c.averages = map[string]engine.AverageState{}
+	}
 	if c.holds == nil {
 		c.holds = map[string]engine.HoldState{}
 	}
@@ -326,5 +332,38 @@ func (c *Client) Delete(ctx context.Context, key ident.ID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.holds, key.Name)
+	return nil
+}
+
+// Averages is the engine's AverageStates, kept on the host as holds are.
+func (c *Client) Averages() engine.AverageStates { return clientAverages{c} }
+
+type clientAverages struct{ c *Client }
+
+// Get implements engine.AverageStates from what the Welcome returned and what's been saved since.
+func (a clientAverages) Get(key ident.ID) (engine.AverageState, bool) {
+	a.c.mu.Lock()
+	defer a.c.mu.Unlock()
+	s, ok := a.c.averages[key.Name]
+	return s, ok
+}
+
+// Put implements engine.AverageStates. It returns once the state is on the host's disk.
+func (a clientAverages) Put(ctx context.Context, key ident.ID, s engine.AverageState) error {
+	if _, err := a.c.request(ctx, Message{Type: TypeSaveAverage, Rule: key.Name, Average: &s}); err != nil {
+		return err
+	}
+	a.c.mu.Lock()
+	defer a.c.mu.Unlock()
+	a.c.averages[key.Name] = s
+	return nil
+}
+
+// Delete implements engine.AverageStates. An average the home no longer makes is left on the host,
+// where it's small, and kept for a version that makes it again.
+func (a clientAverages) Delete(_ context.Context, key ident.ID) error {
+	a.c.mu.Lock()
+	defer a.c.mu.Unlock()
+	delete(a.c.averages, key.Name)
 	return nil
 }

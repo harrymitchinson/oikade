@@ -43,6 +43,8 @@ A condition is something true or false about the home now. It's a value, so the 
 oikade.All(PoolWater.Temperature.Below(3), oikade.Not(oikade.Yearly("1 Jun", "15 Sep")))
 ```
 
+`PoolWater.Temperature.AverageOver(24 * time.Hour)` is a `Number` too: the reading's average over the last day, each value weighted by how long it held. A condition, a [`Follow`](#values-that-follow-a-reading) or a budget's `Bands` reads it like the reading itself. Your process keeps it from each report, and the host saves it, so a restart carries on with it rather than starting again. Until a whole window has gone by, it averages what it has, and while your process is down the last value counts as having held. Make it where the home is built, not inside a `ConditionFunc`, because only those made before the home runs are kept. An average of an average, or one over less than a minute, fails `oikade check`.
+
 A condition reading a value nobody has reported yet stops there: a case keeps its state, and a flow's `If` doesn't let it run. If a `Delay` or `Linger` runs out meanwhile, the case starts or ends once the value is back, if its conditions still say so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts.
 
 A `ConditionFunc` reads the home through its `Snapshot`: `Get` reads a `Bool` or a `Number`, `Is` says whether another condition is true, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. Its label is how the host names it, since it can't see inside a function to say why it's false. `Lookup` carries on without a value, and reports whether there is one:
@@ -148,7 +150,8 @@ The rest are lines of their own:
 
 | Line | |
 |---|---|
-| `Budget(name, true, b)` | Runs a `Bool` for a number of minutes a day, in the slots that suit it best. See [Budgets](#budgets). |
+| `Budget(name, true, b, conditions…)` | Runs a `Bool` for a number of minutes a day, in the slots that suit it best, while its conditions are true. See [Budgets](#budgets). |
+| `Follow(name, reading, f)` | Sets a number to `f` of a reading, such as a setpoint from the temperature outside. `.Step(n)` after it sets what it's rounded to. See [below](#values-that-follow-a-reading). |
 | `OverrideFor(d)`, `OverrideUntilNext()`, `NoOverride()` | Where a tap in the Home app, a wall switch or `oikade set` ranks. See [Arbitration](#arbitration). |
 | `Flows()`, `Flows(f)` | Where every flow's `Set` ranks, or one flow's. See [Claims from flows](#claims-from-flows). |
 | `Limits(oikade.Limits{…})` | Equipment limits, which beat every line. |
@@ -242,6 +245,21 @@ home.Decide(GarageHeater.On).
 
 Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. No other rule is needed to reset it. The Home app keeps showing your tap for about 10 seconds before it shows the heater off again. Oikade has already sent the real value by then, and sending it later doesn't change the wait ([OIK-239](https://linear.app/oikade/issue/OIK-239)). Rules run only while your process is up. If the garage overheats and cools again while it's down, nothing latches. An `r.Release("garage-heater on overheat")` in a flow ends the latch too.
 
+### Values that follow a reading
+
+A `Follow` line sets a number capability to a function of a reading, such as weather compensation for a radiator:
+
+```go
+home.Decide(StudyRadiator.Setpoint).
+	Case("windows-open", 7, StudyWindow.Open).Delay(2 * time.Minute).
+	OverrideFor(2 * time.Hour).
+	Flows().
+	Follow("weather", OutdoorSensor.Temperature, func(outside float64) float64 { return 21 - outside/4 }).
+	Default(18)
+```
+
+The value is rounded to the capability's step, 0.5 for a setpoint and 1 for brightness and position, or to `.Step(n)`'s, and kept within the capability's bounds. It's written only when the rounded value changes, so a reading's every wobble isn't a write, and the host saves the last one written, so a restart doesn't write it again. The reading can be an [`AverageOver`](#conditions). Until it's reported, the lines below apply, and `oikade status` says why. A `Follow` is a line like a case, named `study-radiator setpoint: weather`, so `oikade pause study-radiator setpoint weather` pauses it.
+
 ### Budgets
 
 A budget line runs a device for a number of minutes a day, and plans when. Here a loft fan runs one to five hours a day depending on how humid the loft was at midnight, overnight where it can, and never in the evening:
@@ -275,6 +293,8 @@ home.Decide(LoftFan.On).
 | `NewBudget`'s function | Or a function of the home at planning time. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. |
 | `Prefer(hours, score)` | A `Daily` the minutes go in first. Each slot it touches gains the score, from -100 to 100, and overlapping ones add up. Give it once per `Daily`. |
 | `Forbid` | `Daily`s the minutes never go in. |
+
+A budget's conditions come after it, as a case's do: `Budget("summer-extra", true, extra, oikade.Yearly("1 Jun", "15 Sep"))` runs only in summer. The day is planned whatever they say, and a planned slot they rule out isn't made up later. A `Bands` reading can be an [`AverageOver`](#conditions), such as the water's temperature over the last day.
 
 A budget's `Daily`s take clock times only, because the day is planned in slots. A budget sets a `Bool` to `true`. The decision's `Limits` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. Something that must run whatever the budget says, such as frost protection, is a case above it.
 
