@@ -41,8 +41,8 @@ Everything that happens outside the flow, or varies between runs, is a step on i
 | `r.WaitFor(cond, timeout)` | Waits until a condition is true and returns true, or returns false at the timeout. Zero means no limit |
 | `r.Set(Hallway.On.To(true))` | Writes a capability. On an arbitrated one it's a claim, which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()`. `Hallway.On.To(true)` alone writes nothing, and fails `oikade check` |
 | `r.Release(rule)` | Ends a rule's claims, and a case's latch |
-| `r.Do(name, call)` | Makes an outside call, a `func(context.Context) (T, error)`, and records and returns its result and error |
-| `r.Fail(err)` | Ends the run as failed, there and then |
+| `r.Do(name, call)` | Makes an outside call, a `func(context.Context) (T, error)`, and records and returns its result, or the zero value and its error |
+| `r.Fail(err)` | Ends the run as failed, there and then, even if the flow recovers from it |
 
 A `Set` or a `Release` that fails, such as on a device that doesn't answer, is logged, and the run carries on and ends as failed. So a flow doesn't stop at a dead bulb, and `r.Fail` is for when it should stop.
 

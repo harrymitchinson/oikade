@@ -139,6 +139,10 @@ func (r *Run) waiting(until time.Time) {
 	r.f.Log.Info("Waiting in flow run", "rule", r.f.Key.Name, "run", r.id, "until", until)
 }
 
+// Replaying reports whether the run is still replaying its journal, so the next step was taken
+// before, and anything it says was said then.
+func (r *Run) Replaying() bool { return r.pos < len(r.recorded) }
+
 // Log is the flow's logger, naming the flow and the run.
 func (r *Run) Log() *slog.Logger { return r.f.Log.With("rule", r.f.Key.Name, "run", r.id) }
 

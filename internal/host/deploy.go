@@ -435,7 +435,8 @@ func (d *deployer) state() (v version, ok, busy bool) {
 
 // safetyFindings lists what a new version would lose. A Safety rule's claims end with it, which could
 // reopen a valve, and a latch dies with its name, so a rule renamed is one removed. held catches a
-// Safety claim the rule's own declaration doesn't show, such as one a flow makes in a step.
+// Safety claim the old version's declaration doesn't show, such as one an older binary's rule made,
+// since a home declares every rule that can make one.
 func safetyFindings(old, next wire.Manifest, held map[string]control.Level, safetyHeld func(device, capability string) bool) []string {
 	stays := func(name string) bool {
 		return slices.ContainsFunc(next.Rules, func(r wire.RuleInfo) bool { return r.Name == name })

@@ -120,6 +120,12 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			}),
 			"Flows(f) is given twice",
 		},
+		"a flow from another home": {
+			decide(func(h *Home) {
+				h.Decide(Bool{Device: "e", Capability: On}).Flows(NewHome(Options{}).Flow("f", nothing)).Default(false)
+			}),
+			"Flows(f) is a flow this home doesn't have",
+		},
 		"a nil flow ranked": {
 			decide(func(h *Home) { h.Decide(Bool{Device: "e", Capability: On}).Flows(nil).Default(false) }),
 			"Flows is given a nil flow",

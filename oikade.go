@@ -432,10 +432,10 @@ type FlowRun struct {
 // if it has a mistake in it.
 func (r *FlowRun) checked(step string, c Condition) {
 	if c == nil {
-		panic(step + " needs a condition")
+		r.Fail(errors.New(step + " needs a condition"))
 	}
 	if err := c.check(r.options); err != nil {
-		panic(fmt.Sprintf("%s: %v", step, err))
+		r.Fail(fmt.Errorf("%s: %w", step, err))
 	}
 }
 
@@ -454,7 +454,7 @@ func (r *FlowRun) Get[T Value](c Ref[T]) T {
 		return true, evaluate(vars, func(s Snapshot) { v = s.Get(c) })
 	})
 	if err != nil {
-		panic(fmt.Sprintf("Get: %v", err))
+		r.Fail(fmt.Errorf("Get: %w", err))
 	}
 	return v
 }
@@ -472,7 +472,7 @@ func (r *FlowRun) Is(c Condition) bool {
 		return true, nil
 	})
 	if err != nil {
-		panic(fmt.Sprintf("Is: %v", err))
+		r.Fail(fmt.Errorf("Is: %w", err))
 	}
 	return ok
 }
@@ -489,41 +489,50 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 // value and never toggle one. A Set that fails, as on a device that doesn't answer or a decision with
 // no Flows line for this flow, is logged, and the run carries on and ends as failed.
 func (r *FlowRun) Set(s Set) {
+	replayed := r.run.Replaying()
 	err := needsFlowsLine(r.decided, r.name, s.device, s.capability)
 	if err == nil {
 		err = r.run.Apply(s.toEngine(r.decided, r.name))
 	}
-	r.failedStep("set", err)
+	r.failedStep("set", err, replayed)
 }
 
 // Release ends the named rule's claims, and its latch if it's a case: "<device> <capability> <case>"
 // for a case, or a flow's name. One that fails is logged, and the run ends as failed.
-func (r *FlowRun) Release(rule string) { r.failedStep("release", r.run.Apply(engine.Release(rule))) }
+func (r *FlowRun) Release(rule string) {
+	replayed := r.run.Replaying()
+	r.failedStep("release", r.run.Apply(engine.Release(rule)), replayed)
+}
 
-// failedStep records a step that failed, which the run carries on past.
-func (r *FlowRun) failedStep(step string, err error) {
+// failedStep records a step that failed, which the run carries on past. A step replayed from the
+// journal was logged when it failed.
+func (r *FlowRun) failedStep(step string, err error, replayed bool) {
 	if err == nil {
 		return
 	}
-	r.run.Log().Error("Failed step of flow run", "err", err, "step", step)
+	if !replayed {
+		r.run.Log().Error("Failed step of flow run", "err", err, "step", step)
+	}
 	r.failed = append(r.failed, fmt.Errorf("%s: %w", step, err))
 }
 
-// Fail ends the run as failed, with err as the reason. It doesn't return.
+// Fail ends the run as failed, with err as the reason, and any steps that failed before it. It
+// doesn't return. A recover in the flow can catch it, and the run still ends as failed.
 func (r *FlowRun) Fail(err error) {
 	if err == nil {
 		err = errors.New("the flow failed")
 	}
+	r.failed = append(r.failed, err)
 	panic(failure{err})
 }
 
 // failure is the panic Fail ends a run with.
 type failure struct{ err error }
 
-// Do makes an outside call and returns its result. Once it's recorded the call never happens again:
-// a replay returns the recorded result, and an error with the same message, which errors.Is won't
-// match. A crash before that repeats it, so make the call safe to repeat. Names tell a flow's calls
-// apart, and the result must survive JSON.
+// Do makes an outside call and returns its result, or the zero value and its error. Once it's
+// recorded the call never happens again: a replay returns the recorded result, or an error with the
+// same message, which errors.Is won't match. A crash before that repeats it, so make the call safe
+// to repeat. Names tell a flow's calls apart, and the result must survive JSON.
 func (r *FlowRun) Do[T any](name string, call func(context.Context) (T, error)) (T, error) {
 	var result T
 	err := r.run.Do(name, &result, func(ctx context.Context) error {
@@ -531,7 +540,12 @@ func (r *FlowRun) Do[T any](name string, call func(context.Context) (T, error)) 
 		result = v
 		return err
 	})
-	return result, err
+	if err != nil {
+		// A replay has only the error, so a live run mustn't give more.
+		var zero T
+		return zero, err
+	}
+	return result, nil
 }
 
 // Set writes a capability, from a Bool's, a Number's or InRoom's To. For, UntilReleased and UntilNext make it a
@@ -682,6 +696,12 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	decided, err := h.compileDecisions()
 	errs = append(errs, err, h.options.check())
 	for _, d := range decided {
+		for _, f := range d.own {
+			if !slices.Contains(h.flows, f) {
+				errs = append(errs, fmt.Errorf("decision %s %s: Flows(%s) is a flow this home doesn't have", d.device,
+					d.capability, f.name))
+			}
+		}
 		for _, c := range d.cases {
 			key := name(c.key)
 			r, err := c.rule()
@@ -789,14 +809,14 @@ func (r *Flow) toFlow(key ident.ID, o Options, decided []compiledDecision) *flow
 			fr := &FlowRun{run: run, name: r.name, decided: decided, options: o}
 			defer func() {
 				if p := recover(); p != nil {
-					failed, ok := p.(failure)
-					if !ok {
+					if _, ok := p.(failure); !ok {
 						panic(p)
 					}
-					err = failed.err
+					err = errors.Join(fr.failed...)
 				}
 			}()
 			r.run(fr)
+			// Fail's failure counts even if the flow recovered from it.
 			return errors.Join(fr.failed...)
 		}
 	}

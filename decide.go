@@ -226,8 +226,10 @@ type compiledDecision struct {
 	// flows is whether the decision has a Flows line for every flow, and flowsSafety whether it's a
 	// safety line.
 	flows, flowsSafety bool
-	// ranked are the flows with a line of their own, and whether it's a safety line.
+	// ranked are the flows with a line of their own, by name, and whether it's a safety line, and
+	// own are those flows, which must be the home's.
 	ranked   map[string]bool
+	own      []*Flow
 	errs     []error
 	warnings []string
 }
@@ -485,6 +487,7 @@ func (d *compiledDecision) addFlowsLine(l line, safety bool, entry *control.Entr
 		d.ranked = map[string]bool{}
 	}
 	d.ranked[l.flow.name] = safety
+	d.own = append(d.own, l.flow)
 	entry.Lines = append(entry.Lines, "Rule/"+l.flow.name)
 	return nil
 }
