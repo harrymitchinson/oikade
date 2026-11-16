@@ -797,7 +797,9 @@ func (h *Home) manifest() wire.Manifest {
 			}
 			if c.safety && len(c.hold.DeviceTypes) > 0 {
 				// oikade devices type checks a retype doesn't take a device out of it.
-				info.Rooms = []wire.RoomOfTypes{{Room: c.hold.Room, Capability: d.capability, DeviceTypes: c.hold.DeviceTypes}}
+				info.Rooms = []wire.RoomOfTypes{{
+					Room: c.hold.Room, Capability: d.capability, DeviceTypes: c.hold.DeviceTypes, Except: c.hold.Except,
+				}}
 			}
 			m.Rules = append(m.Rules, info)
 		}
@@ -853,16 +855,7 @@ func nilChange(on []Change) error {
 			errs = append(errs, fmt.Errorf("the change at When[%d] is an average, "+
 				"which never changes as a reading does: give the reading", i))
 		}
-		var h handle
-		switch c := c.(type) {
-		case Bool:
-			h = c.handle()
-		case Number:
-			h = c.handle()
-		case becomes:
-			h = c.h
-		}
-		if err := checkGroup(h); err != nil {
+		if err := checkGroup(c.handle()); err != nil {
 			errs = append(errs, fmt.Errorf("the change at When[%d]: %w", i, err))
 		}
 	}

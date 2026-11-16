@@ -268,14 +268,15 @@ func TestARoomsDecisionLeavesOutDevicesWithTheirOwn(t *testing.T) {
 			info = r
 		}
 	}
-	if want := []wire.RoomOfTypes{{Room: "hall", Capability: "on", DeviceTypes: lights}}; !reflect.DeepEqual(info.Rooms, want) {
+	want := []wire.RoomOfTypes{{Room: "hall", Capability: "on", DeviceTypes: lights, Except: []string{"hall-lamp"}}}
+	if !reflect.DeepEqual(info.Rooms, want) {
 		t.Errorf("the room's Safety case writes %+v, want %+v", info.Rooms, want)
 	}
 	evening := caseNamed(t, h, "hall on evening")
-	want := engine.Hold{Room: "hall", DeviceTypes: lights, Except: []string{"hall-lamp"}}
+	wantHold := engine.Hold{Room: "hall", DeviceTypes: lights, Except: []string{"hall-lamp"}}
 	got := engine.Hold{Room: evening.Room, DeviceTypes: evening.DeviceTypes, Except: evening.Except}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("the room's hold is %+v, want %+v", got, want)
+	if !reflect.DeepEqual(got, wantHold) {
+		t.Errorf("the room's hold is %+v, want %+v", got, wantHold)
 	}
 }
 
@@ -316,5 +317,37 @@ func TestAGroupsAnyAndAllReadItsMembers(t *testing.T) {
 	}
 	if _, err := toEngine(g.On.Any())(engine.Vars{"devices": map[string]map[string]any{}}); err == nil {
 		t.Error("a group where nothing has reported is told")
+	}
+}
+
+// A room made twice is one, so a Then finds its decision, and a room deciding what a device of its
+// name decides is refused, since their cases would be named alike.
+func TestARoomMadeTwiceIsOne(t *testing.T) {
+	when := ConditionFunc("always", func(Snapshot) bool { return true })
+	h := decide(func(h *Home) {
+		h.Decide(h.Room("hall", Lights).On).Default(false)
+		h.Decide(hallLamp.On).Case("a", true, when).Then(h.Room("hall", Lights).On)
+	})
+	if _, _, err := h.compile(); err != nil {
+		t.Fatal(err)
+	}
+	porch := newLight("porch")
+	h = decide(func(h *Home) {
+		h.Decide(porch.On).Default(false)
+		h.Decide(h.Room("porch").On).Default(false)
+	})
+	_, _, err := h.compile()
+	want := "porch on and room porch on are both decided, and would name their cases alike"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("got %v, want %q", err, want)
+	}
+}
+
+// A typed nil member is a mistake, not a panic.
+func TestATypedNilMemberIsAMistake(t *testing.T) {
+	var none *light
+	_, _, err := decide(func(h *Home) { h.Group("g", none) }).compile()
+	if err == nil || !strings.Contains(err.Error(), "it has a nil member") {
+		t.Fatalf("got %v", err)
 	}
 }

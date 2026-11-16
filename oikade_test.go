@@ -9,6 +9,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -859,6 +860,22 @@ func TestMetaHasTheLimitsOfTheHomesDecision(t *testing.T) {
 	if len(m.Control) != 2 || time.Duration(m.Control[0].MinimumOn) != time.Hour ||
 		m.Control[1].Capability != "brightness" {
 		t.Fatalf("got %+v", m.Control)
+	}
+}
+
+// A room's setting is a device's there of its kinds, and not a plug's beside it.
+func TestMetaHasTheRoomsSettingForItsKinds(t *testing.T) {
+	lights := []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight}
+	dusk := control.Entry{Capability: "on", Lines: []string{"Rule/hall on dusk"}}
+	settings := []wire.DeviceControl{{Room: "hall", DeviceTypes: lights, Entry: dusk}}
+	device := func(name string, t devicetype.Type) wire.Device {
+		return wire.Device{Name: name, Room: "hall", DeviceTypes: []devicetype.Type{t}, Arbitrated: []string{"on"}}
+	}
+	lamp := meta(device("lamp", devicetype.OnOffLight), settings)
+	plug := meta(device("plug", devicetype.OnOffPlugInUnit), settings)
+	if len(lamp.Control) != 1 || len(lamp.Control[0].Lines) != 1 ||
+		len(plug.Control) != 1 || len(plug.Control[0].Lines) != 0 {
+		t.Fatalf("got the lamp's %+v and the plug's %+v", lamp.Control, plug.Control)
 	}
 }
 

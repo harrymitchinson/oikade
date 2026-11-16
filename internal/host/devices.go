@@ -298,7 +298,8 @@ func (i *inventory) move(name, room string) (members, error) {
 }
 
 // keptDecisions are the capabilities a device has its own decision on that its room also decides,
-// sorted, which it keeps rather than taking the room's.
+// sorted, which it keeps rather than taking the room's. One whose decision hands over to the room's
+// with Then has the room's lines in its own, and isn't one.
 func keptDecisions(settings []wire.DeviceControl, d registry.Device) []string {
 	var kept []string
 	for _, c := range settings {
@@ -307,7 +308,9 @@ func keptDecisions(settings []wire.DeviceControl, d registry.Device) []string {
 			continue
 		}
 		if slices.ContainsFunc(settings, func(o wire.DeviceControl) bool {
-			return o.Device == d.Name && o.Entry.Capability == c.Entry.Capability
+			return o.Device == d.Name && o.Entry.Capability == c.Entry.Capability && !slices.ContainsFunc(c.Entry.Lines, func(l string) bool {
+				return strings.HasPrefix(l, "Rule/") && slices.Contains(o.Entry.Lines, l)
+			})
 		}) {
 			kept = append(kept, c.Entry.Capability)
 		}
@@ -499,7 +502,7 @@ func (s *apiServer) typedOut(name string, t devicetype.Type) (out []string, know
 			continue
 		}
 		if slices.ContainsFunc(r.Rooms, func(room wire.RoomOfTypes) bool {
-			if room.Room != d.Room || !slices.Contains(d.Capabilities, room.Capability) {
+			if room.Room != d.Room || !slices.Contains(d.Capabilities, room.Capability) || slices.Contains(room.Except, d.Name) {
 				return false
 			}
 			return devicetype.Any(before, room.DeviceTypes) && !devicetype.Any(after, room.DeviceTypes)

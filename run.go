@@ -354,18 +354,13 @@ func deviceKey(name string) ident.ID {
 
 func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
 	m := hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: hostInstance, DeviceTypes: slices.Clone(d.DeviceTypes)}
+	home := wire.SettingsFor(settings, d.Name, d.Room, d.DeviceTypes, d.Arbitrated)
 	for _, c := range d.Arbitrated {
 		// The host runs the arbiter, so only the name matters here to a claim. A budget plans around
 		// the limits, which the home declared.
 		entry := control.Entry{Capability: c}
-		if i := slices.IndexFunc(settings, func(s wire.DeviceControl) bool {
-			return s.Device == d.Name && s.Entry.Capability == c
-		}); i >= 0 {
-			entry = settings[i].Entry
-		} else if i := slices.IndexFunc(settings, func(s wire.DeviceControl) bool {
-			return s.Room != "" && s.Room == d.Room && s.Entry.Capability == c
-		}); i >= 0 {
-			entry = settings[i].Entry
+		if i := slices.IndexFunc(home, func(e control.Entry) bool { return e.Capability == c }); i >= 0 {
+			entry = home[i]
 		}
 		m.Control = append(m.Control, entry)
 	}

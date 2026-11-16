@@ -399,21 +399,18 @@ func (e *Engine) startWrites(ctx context.Context) {
 		holdWrite
 		claims bool
 	}
-	groups := map[string][]ordered{}
-	together := false
-	for _, w := range writes {
-		group, claims := e.writeGroup(w.target)
-		together = together || group == groupWrites
-		groups[group] = append(groups[group], ordered{w, claims})
-	}
-	if together {
-		// A group's write can reach any of its members' rooms, so every write of the look goes in
-		// order, one after another.
-		var all []ordered
-		for _, g := range groups {
-			all = append(all, g...)
+	each := make([]ordered, len(writes))
+	reach := make([][]string, len(writes))
+	for i, w := range writes {
+		gs, claims := e.writeGroups(w.target)
+		each[i], reach[i] = ordered{w, claims}, gs
+		if len(gs) == 0 {
+			reach[i] = []string{"rule/" + w.key.Name}
 		}
-		groups = map[string][]ordered{groupWrites: all}
+	}
+	groups := map[string][]ordered{}
+	for i, g := range joinGroups(reach) {
+		groups[g] = append(groups[g], each[i])
 	}
 	var done sync.WaitGroup
 	for _, group := range groups {
@@ -455,9 +452,6 @@ func (e *Engine) startWrites(ctx context.Context) {
 	})
 }
 
-// groupWrites is the write group of a hold on a group's members.
-const groupWrites = "group"
-
 // named are the devices a hold names: its device, or its group's members.
 func named(t HoldTarget) []ident.ID {
 	if t.Device != "" {
@@ -475,27 +469,53 @@ func (e *Engine) roomMembers(t HoldTarget) []ident.ID {
 	return slices.DeleteFunc(e.Store.Room(t.Room), func(d ident.ID) bool { return slices.Contains(t.Except, d.Name) })
 }
 
-// writeGroup returns which writes a hold's may reach the same device as, and whether it claims
-// rather than writes: its room, or its device when that has none.
-func (e *Engine) writeGroup(t HoldTarget) (group string, claims bool) {
-	if len(t.Devices) > 0 {
-		for _, d := range t.Devices {
-			claims = claims || e.arbitrated(ident.ID{Name: d}, t.Capability)
+// joinGroups says which group each write runs in, given the write groups each reaches: a write
+// that reaches several, as a group's members in several rooms do, joins them into one.
+func joinGroups(reach [][]string) []string {
+	parent := map[string]string{}
+	var find func(string) string
+	find = func(g string) string {
+		p, ok := parent[g]
+		if !ok || p == g {
+			return g
 		}
-		return groupWrites, claims
+		root := find(p)
+		parent[g] = root
+		return root
 	}
+	for _, gs := range reach {
+		for _, g := range gs[1:] {
+			if a, b := find(gs[0]), find(g); a != b {
+				parent[b] = a
+			}
+		}
+	}
+	out := make([]string, len(reach))
+	for i, gs := range reach {
+		out[i] = find(gs[0])
+	}
+	return out
+}
+
+// writeGroups returns which writes a hold's may reach the same device as, and whether it claims
+// rather than writes: its room, or its device when that has none, or each of a group's members'.
+func (e *Engine) writeGroups(t HoldTarget) (groups []string, claims bool) {
 	if t.Room != "" {
 		for _, dev := range e.roomMembers(t) {
 			claims = claims || e.arbitrated(dev, t.Capability)
 		}
-		return "room/" + t.Room, claims
+		return []string{"room/" + t.Room}, claims
 	}
-	dev := ident.ID{Name: t.Device}
-	snap, _ := e.Store.Get(dev)
-	if snap.Room != "" {
-		return "room/" + snap.Room, snap.Controls(t.Capability)
+	for _, dev := range named(t) {
+		snap, _ := e.Store.Get(dev)
+		claims = claims || snap.Controls(t.Capability)
+		if snap.Room != "" {
+			groups = append(groups, "room/"+snap.Room)
+		} else {
+			groups = append(groups, "device/"+dev.Name)
+		}
 	}
-	return "device/" + t.Device, snap.Controls(t.Capability)
+	return groups, claims
 }
 
 // step moves a hold's state on to now, given its condition, and returns whether it should be

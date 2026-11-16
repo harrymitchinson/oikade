@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -244,6 +245,21 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 	if resp := s.move("ceiling", "attic"); resp.Warning != "" || lines("ceiling") != "" {
 		t.Errorf("ceiling, out of the hall, warns %q and has lines %q", resp.Warning, lines("ceiling"))
 	}
+
+	// A lamp that hands over to the hall's decision with Then has the hall's lines below its own.
+	handed := entry("Rule/lamp on reading")
+	handed.Lines = append(handed.Lines, "Rule/hall on evening")
+	if err := known.setHome([]wire.DeviceControl{
+		{Room: "hall", Entry: entry("Rule/hall on evening")}, {Device: "lamp", Entry: handed},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp := s.move("lamp", "attic"); resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	if resp := s.move("lamp", "hall"); resp.Warning != "" {
+		t.Errorf("a lamp that hands over warns %q", resp.Warning)
+	}
 }
 
 func TestAProcessCantDropASetting(t *testing.T) {
@@ -470,5 +486,39 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 	}
 	if resp, _ := known.removePlugin(ctx, "relays", false); resp.Error == "" {
 		t.Errorf("removed them twice: %+v", resp)
+	}
+}
+
+// A retype that takes a device out of a room's Safety case is named, and one the case leaves out,
+// as it has a decision of its own, isn't.
+func TestRetypingOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), hub.NewStore(logging.Discard()), nil, logging.Discard())
+	known.attach(simInstance)
+	for _, d := range []driver.AppDevice{
+		{ID: "c", Name: "ceiling", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight},
+		{ID: "l", Name: "lamp", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight},
+	} {
+		if _, err := known.paired(simInstance, d, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules := []wire.RuleInfo{{Name: "hall on smoke", Kind: wire.KindCase, Safety: true, Rooms: []wire.RoomOfTypes{{
+		Room: "hall", Capability: capability.On, DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Except: []string{"lamp"},
+	}}}}
+	s := &apiServer{devices: known, srv: &server{session: &session{rules: rules}}}
+	if out, _ := s.typedOut("ceiling", devicetype.OnOffPlugInUnit); !slices.Equal(out, []string{"hall on smoke"}) {
+		t.Errorf("retyping ceiling names %v", out)
+	}
+	if out, _ := s.typedOut("lamp", devicetype.OnOffPlugInUnit); len(out) != 0 {
+		t.Errorf("retyping lamp, which the case leaves out, names %v", out)
 	}
 }

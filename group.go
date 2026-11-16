@@ -96,7 +96,7 @@ func (h *Home) Group(name string, members ...member) Group {
 		bad(errors.New("it needs a member"))
 	}
 	for _, m := range members {
-		if m == nil {
+		if v := reflect.ValueOf(m); m == nil || v.Kind() == reflect.Pointer && v.IsNil() {
 			bad(errors.New("it has a nil member"))
 			continue
 		}
@@ -125,9 +125,6 @@ func (h *Home) Group(name string, members ...member) Group {
 // capability keeps it, rather than taking the room's.
 func (h *Home) Room(name string, kinds ...Kind) Group {
 	g := &group{name: name, room: name}
-	if name == "" {
-		h.mistakes = append(h.mistakes, errors.New("Room needs a name"))
-	}
 	for _, k := range kinds {
 		for _, t := range k.types {
 			if !slices.Contains(g.types, devicetype.Type(t)) {
@@ -140,8 +137,25 @@ func (h *Home) Room(name string, kinds ...Kind) Group {
 			break
 		}
 	}
+	// A room of these kinds is one group however often it's made, so a Then finds its decision.
+	if i := slices.IndexFunc(h.groups, func(o *group) bool {
+		return o.room == name && name != "" && sameTypes(o.types, g.types)
+	}); i >= 0 {
+		return h.groups[i].fields()
+	}
+	if name == "" {
+		h.mistakes = append(h.mistakes, errors.New("Room needs a name"))
+	}
 	h.groups = append(h.groups, g)
 	return g.fields()
+}
+
+// sameTypes says a and b have the same device types, in any order.
+func sameTypes(a, b []devicetype.Type) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 // fields are g's capabilities.

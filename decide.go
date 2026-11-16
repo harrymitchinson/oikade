@@ -569,10 +569,16 @@ func (h *Home) compileDecisions() ([]compiledDecision, error) {
 				errs = append(errs, fmt.Errorf("%s: %w", c.name(), err))
 			}
 		}
-		if c.device != "" && slices.ContainsFunc(out, func(o compiledDecision) bool {
-			return o.device == c.device && o.capability == c.capability
-		}) {
-			errs = append(errs, fmt.Errorf("%s is decided twice: a capability has one decision", c.name()))
+		if i := slices.IndexFunc(out, func(o compiledDecision) bool {
+			return c.device != "" && o.device == c.device && o.capability == c.capability
+		}); i >= 0 {
+			if o := out[i]; o.g != c.g && (o.g != nil || c.g != nil) {
+				// A room, a group and a device of one name would key their cases alike.
+				errs = append(errs, fmt.Errorf("%s and %s are both decided, and would name their cases alike: rename one",
+					whatDecided(o), whatDecided(c)))
+			} else {
+				errs = append(errs, fmt.Errorf("%s is decided twice: a capability has one decision", c.name()))
+			}
 		}
 		out = append(out, c)
 	}
@@ -581,6 +587,11 @@ func (h *Home) compileDecisions() ([]compiledDecision, error) {
 	}
 	out, err := handOver(out)
 	return out, err
+}
+
+// whatDecided names what a decision is on: a device's, a group's or a room's capability.
+func whatDecided(d compiledDecision) string {
+	return handle{d.device, d.capability, d.g}.named()
 }
 
 // groupDecision is the decision on a group's capability, if there is one.

@@ -121,6 +121,8 @@ type becomes struct {
 	to bool
 }
 
+func (c becomes) handle() handle { return c.h }
+
 func (c becomes) changes() []engine.Change {
 	out := c.h.changes()
 	for i := range out {
@@ -177,4 +179,5 @@ func Kinds(t DeviceType, more ...DeviceType) Kind {
 // Number, a Bool's Becomes, or a change on any member of a group or device in a room.
 type Change interface {
 	changes() []engine.Change
+	handle() handle
 }

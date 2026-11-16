@@ -123,6 +123,8 @@ type RoomOfTypes struct {
 	Room        string            `json:"room"`
 	Capability  string            `json:"capability"`
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
+	// Except are the devices it leaves out, which have decisions of their own.
+	Except []string `json:"except,omitempty"`
 }
 
 // Change is one value a change message carries.
