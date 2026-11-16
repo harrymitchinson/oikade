@@ -347,80 +347,175 @@ func TestTheLeakFlowBeatsASwitchAndTheOthersDont(t *testing.T) {
 	h.ExpectClaim(mainsValve, "Rule/leak", "Safety")
 }
 
-// The design's weather compensation. A radiator stands in for its group of them, which comes with
-// groups.
+// The design's radiators, declared as oikade types writes them.
 var (
-	studyRadiator = oikade.Number{Device: "study-radiator", Capability: oikade.Setpoint}
-	studyWindow   = oikade.Bool{Device: "study-window", Capability: oikade.Open}
-	outdoorTemp   = oikade.Number{Device: "outdoor-sensor", Capability: oikade.Temperature}
+	BedroomRadiator = radiator("bedroom-radiator")
+	StudyRadiator   = radiator("study-radiator")
+	KitchenRadiator = radiator("kitchen-radiator")
+	BedroomWindow   = window("bedroom-window")
+	StudyWindow     = window("study-window")
+	KitchenWindow   = window("kitchen-window")
+	StudySensor     = struct {
+		oikade.Device
+		Occupied oikade.Bool
+	}{oikade.Device{Name: "study-sensor"}, oikade.Bool{Device: "study-sensor", Capability: oikade.Occupied}}
+	OutdoorSensor = struct {
+		oikade.Device
+		Temperature oikade.Number
+	}{oikade.Device{Name: "outdoor-sensor"}, oikade.Number{Device: "outdoor-sensor", Capability: oikade.Temperature}}
 )
+
+type radiatorDevice struct {
+	oikade.Device
+	Setpoint oikade.Number
+}
+
+func radiator(name string) radiatorDevice {
+	return radiatorDevice{oikade.Device{Name: name}, oikade.Number{Device: name, Capability: oikade.Setpoint}}
+}
+
+type windowDevice struct {
+	oikade.Device
+	Open oikade.Bool
+}
+
+func window(name string) windowDevice {
+	return windowDevice{oikade.Device{Name: name}, oikade.Bool{Device: name, Capability: oikade.Open}}
+}
 
 // compensate is the setpoint for a temperature outside: warmer inside the colder it is.
 func compensate(outside float64) float64 { return 21 - outside/4 }
 
-func weatherTest(t *testing.T, outside float64) *hometest.Home {
-	t.Helper()
+// radiatorsHome is the design's: every radiator follows the weather, and goes down while a window
+// is open, and the study's is warmer while someone works there.
+func radiatorsHome() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
-	home.Decide(studyRadiator).
-		Case("windows-open", 7, studyWindow).Delay(2*time.Minute).
+	radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
+	windows := home.Group("windows", BedroomWindow, StudyWindow, KitchenWindow)
+	home.Decide(radiators.Setpoint).
+		Case("windows-open", 7, windows.Open.Any()).Delay(2*time.Minute).
 		OverrideFor(2*time.Hour).
 		Flows().
-		Follow("weather", outdoorTemp, compensate).
+		Follow("weather", OutdoorSensor.Temperature, compensate).
 		Default(18)
+	home.Decide(StudyRadiator.Setpoint).
+		Case("working", 21, StudySensor.Occupied, oikade.Daily("09:00", "17:30")).
+		Then(radiators.Setpoint)
+	return home
+}
+
+// radiatorsTest starts on a Monday at 06:00, with outside the temperature outside, or none reported
+// for 0.
+func radiatorsTest(t *testing.T, outside float64) *hometest.Home {
+	t.Helper()
 	open, setpoint, temperature := string(oikade.Open), string(oikade.Setpoint), string(oikade.Temperature)
+	occupied := string(oikade.Occupied)
 	values := map[string]any{}
 	if outside != 0 {
 		values[temperature] = outside
 	}
-	return hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
-		{Name: "study-radiator", Capabilities: []string{setpoint}, Values: map[string]any{setpoint: 15.0}},
-		{Name: "study-window", Capabilities: []string{open}, Values: map[string]any{open: false}},
+	devices := make([]hometest.Device, 0, 8)
+	devices = append(devices, []hometest.Device{
+		{Name: "study-sensor", Capabilities: []string{occupied}, Values: map[string]any{occupied: false}},
 		{Name: "outdoor-sensor", Capabilities: []string{temperature}, Values: values},
-	}})
+	}...)
+	for _, room := range []string{"bedroom", "study", "kitchen"} {
+		devices = append(devices,
+			hometest.Device{Name: room + "-radiator", Capabilities: []string{setpoint}, Values: map[string]any{setpoint: 15.0}},
+			hometest.Device{Name: room + "-window", Capabilities: []string{open}, Values: map[string]any{open: false}},
+		)
+	}
+	return hometest.New(t, radiatorsHome(), hometest.Options{
+		Start: time.Date(2030, time.January, 7, 6, 0, 0, 0, time.UTC), Devices: devices,
+	})
 }
 
-// radiatorWrites are the setpoints written to the study's radiator.
-func radiatorWrites(h *hometest.Home) []any {
+// radiatorWrites are the setpoints written to a radiator.
+func radiatorWrites(h *hometest.Home, device string) []any {
 	var out []any
 	for _, w := range h.Writes() {
-		if w.Device == "study-radiator" {
+		if w.Device == device {
 			out = append(out, w.Value)
 		}
 	}
 	return out
 }
 
-// The radiator follows the weather in half degrees, writing only when that changes, and a restart
+// Every radiator follows the weather in half degrees, writing only when that changes, and a restart
 // doesn't write it again.
-func TestTheRadiatorFollowsTheWeatherAcrossARestart(t *testing.T) {
-	h := weatherTest(t, 8)
-	h.ExpectValue(studyRadiator, 19)
-	h.ExpectClaim(studyRadiator, "Rule/study-radiator setpoint weather", "Normal")
-	h.Set(outdoorTemp, 8.5) // 18.875, which rounds to 19
+func TestTheRadiatorsFollowTheWeatherAcrossARestart(t *testing.T) {
+	h := radiatorsTest(t, 8)
+	for _, r := range []radiatorDevice{BedroomRadiator, StudyRadiator, KitchenRadiator} {
+		h.ExpectValue(r.Setpoint, 19)
+		h.ExpectClaim(r.Setpoint, "Rule/radiators setpoint weather", "Normal")
+	}
+	h.Set(OutdoorSensor.Temperature, 8.5) // 18.875, which rounds to 19
 	h.Restart()
-	h.Set(outdoorTemp, 8.6)
+	h.Set(OutdoorSensor.Temperature, 8.6)
 	h.Advance(time.Hour)
-	h.Set(outdoorTemp, 10.0)
-	h.ExpectValue(studyRadiator, 18.5)
+	h.Set(OutdoorSensor.Temperature, 10.0)
+	h.ExpectValue(KitchenRadiator.Setpoint, 18.5)
 	// The Default comes first on startup, before any line has claimed, as with a case.
-	if got := fmt.Sprint(radiatorWrites(h)); got != "[18 19 18.5]" {
+	if got := fmt.Sprint(radiatorWrites(h, "kitchen-radiator")); got != "[18 19 18.5]" {
 		t.Errorf("wrote %s, want [18 19 18.5]", got)
 	}
-
-	// An open window beats the weather, and once it's shut the weather's setpoint is back.
-	h.Set(studyWindow, true)
-	h.Advance(3 * time.Minute)
-	h.ExpectValue(studyRadiator, 7)
-	h.Set(studyWindow, false)
-	h.ExpectValue(studyRadiator, 18.5)
 }
 
-// Until the sensor outside reports, the radiator is at its Default.
-func TestTheRadiatorWaitsForTheWeather(t *testing.T) {
-	h := weatherTest(t, 0)
-	h.ExpectValue(studyRadiator, 18)
-	h.Set(outdoorTemp, 12.0)
-	h.ExpectValue(studyRadiator, 18)
-	h.Set(outdoorTemp, 4.0)
-	h.ExpectValue(studyRadiator, 20)
+// One open window turns every radiator down, after two minutes, and once it's shut the weather's
+// setpoint is back.
+func TestAnOpenWindowTurnsEveryRadiatorDown(t *testing.T) {
+	h := radiatorsTest(t, 8)
+	h.Set(KitchenWindow.Open, true)
+	h.Advance(time.Minute)
+	h.ExpectValue(BedroomRadiator.Setpoint, 19)
+	h.Advance(2 * time.Minute)
+	for _, r := range []radiatorDevice{BedroomRadiator, StudyRadiator, KitchenRadiator} {
+		h.ExpectValue(r.Setpoint, 7)
+		h.ExpectClaim(r.Setpoint, "Rule/radiators setpoint windows-open", "Safety")
+	}
+	h.Set(KitchenWindow.Open, false)
+	h.ExpectValue(BedroomRadiator.Setpoint, 19)
+	h.ExpectValue(StudyRadiator.Setpoint, 19)
+}
+
+// The study's own case ranks above the group's, so someone working there keeps it warm, window or
+// not, while the others follow the group.
+func TestTheStudyIsWarmWhileSomeoneWorksThere(t *testing.T) {
+	h := radiatorsTest(t, 8)
+	h.Advance(4 * time.Hour) // 10:00
+	h.Set(StudySensor.Occupied, true)
+	h.ExpectValue(StudyRadiator.Setpoint, 21)
+	h.ExpectClaim(StudyRadiator.Setpoint, "Rule/study-radiator setpoint working", "Safety")
+	h.ExpectValue(BedroomRadiator.Setpoint, 19)
+
+	h.Set(StudyWindow.Open, true)
+	h.Advance(3 * time.Minute)
+	h.ExpectValue(StudyRadiator.Setpoint, 21)
+	h.ExpectValue(BedroomRadiator.Setpoint, 7)
+	h.Set(StudyWindow.Open, false)
+
+	h.Advance(8 * time.Hour) // 18:03, after work
+	h.ExpectValue(StudyRadiator.Setpoint, 19)
+}
+
+// A tap on one radiator wins on that radiator for two hours, and the others keep following.
+func TestATapOnOneRadiatorWinsOnlyThere(t *testing.T) {
+	h := radiatorsTest(t, 8)
+	h.Advance(time.Minute) // past the settle of the engine's write
+	h.Set(BedroomRadiator.Setpoint, 23.0)
+	h.ExpectClaim(BedroomRadiator.Setpoint, "Device", "Override")
+	h.Set(OutdoorSensor.Temperature, 12.0)
+	h.ExpectValue(BedroomRadiator.Setpoint, 23)
+	h.ExpectValue(KitchenRadiator.Setpoint, 18)
+	h.Advance(2*time.Hour + time.Minute)
+	h.ExpectValue(BedroomRadiator.Setpoint, 18)
+}
+
+// Until the sensor outside reports, the radiators are at their Default.
+func TestTheRadiatorsWaitForTheWeather(t *testing.T) {
+	h := radiatorsTest(t, 0)
+	h.ExpectValue(BedroomRadiator.Setpoint, 18)
+	h.Set(OutdoorSensor.Temperature, 4.0)
+	h.ExpectValue(BedroomRadiator.Setpoint, 20)
+	h.ExpectValue(StudyRadiator.Setpoint, 20)
 }

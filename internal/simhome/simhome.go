@@ -145,7 +145,7 @@ func New(o Options) (*Sim, error) {
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range o.Devices {
 		metas[key(d.Name)] = hub.Meta{
-			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d.Name), DeviceTypes: d.DeviceTypes,
+			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d), DeviceTypes: d.DeviceTypes,
 		}
 	}
 	s.store.SetDevices(instance, metas)
@@ -170,14 +170,8 @@ func key(name string) ident.ID {
 	return ident.ID{Name: name}
 }
 
-func (s *Sim) entries(device string) []control.Entry {
-	var out []control.Entry
-	for _, c := range s.home.Control {
-		if c.Device == device {
-			out = append(out, c.Entry)
-		}
-	}
-	return out
+func (s *Sim) entries(d Device) []control.Entry {
+	return wire.SettingsFor(s.home.Control, d.Name, d.Room, d.DeviceTypes, d.Capabilities)
 }
 
 // start begins a process's life, from what the last one left.
@@ -384,7 +378,7 @@ func (s *Sim) Move(device, room string) error {
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range s.devices {
 		metas[key(d.Name)] = hub.Meta{
-			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d.Name), DeviceTypes: d.DeviceTypes,
+			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d), DeviceTypes: d.DeviceTypes,
 		}
 	}
 	s.store.SetDevices(instance, metas)

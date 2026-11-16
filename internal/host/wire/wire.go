@@ -4,6 +4,7 @@ package wire
 
 import (
 	"net"
+	"slices"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -91,8 +92,12 @@ type Manifest struct {
 
 // DeviceControl is how a home arbitrates one capability of a device.
 type DeviceControl struct {
-	Device string        `json:"device"`
-	Entry  control.Entry `json:"entry"`
+	// Device is the device's name, or Room a room's, whose devices of DeviceTypes, or every one with
+	// none, take the entry unless they have one of their own.
+	Device      string            `json:"device,omitempty"`
+	Room        string            `json:"room,omitempty"`
+	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
+	Entry       control.Entry     `json:"entry"`
 }
 
 // RuleInfo is one rule of a home.
@@ -246,3 +251,23 @@ func NewConn(c net.Conn) *Conn { return pluginwire.NewConn[Message](c) }
 
 // ErrRejected is a session the host refused.
 var ErrRejected = pluginwire.ErrRejected
+
+// SettingsFor are the settings a home gives a device: its own, and for a capability it has none of
+// its own for, its room's, if it has the capability and is of the room's device types.
+func SettingsFor(settings []DeviceControl, name, room string, types []devicetype.Type, capabilities []string) []control.Entry {
+	var out []control.Entry
+	for _, c := range settings {
+		if c.Device == name {
+			out = append(out, c.Entry)
+		}
+	}
+	for _, c := range settings {
+		if c.Room == "" || c.Room != room || !slices.Contains(capabilities, c.Entry.Capability) ||
+			len(c.DeviceTypes) > 0 && !devicetype.Any(types, c.DeviceTypes) ||
+			slices.ContainsFunc(out, func(e control.Entry) bool { return e.Capability == c.Entry.Capability }) {
+			continue
+		}
+		out = append(out, c.Entry)
+	}
+	return out
+}

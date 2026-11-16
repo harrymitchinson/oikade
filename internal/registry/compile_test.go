@@ -55,11 +55,13 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			Default(false)
 		home.Decide(Hallway.Brightness).Case("evening", 40, oikade.Daily("18:00", "23:00")).Flows().Default(0)
 		home.Flow("goodnight", func(r *oikade.FlowRun) {
-			r.Set(oikade.InRoom("living-room", oikade.Lights, oikade.On).To(false))
+			r.Set(home.Room("living-room", oikade.Lights).On.To(false))
 			r.Set(Hallway.Brightness.To(10).For(time.Hour))
 		}).
 			At(oikade.Clock("23:30")).
-			When(PorchSensor.Occupied, oikade.InRoom("porch", oikade.Everything, oikade.Occupied))`},
+			When(PorchSensor.Occupied, home.Room("porch").Occupied)
+		porch := home.Group("porch", PorchLight, PorchSensor, GardenLight)
+		home.Decide(porch.On).Case("dusk", true, oikade.Daily("18:00", "23:00")).Default(false)`},
 		"a capability the device hasn't": {
 			body: `home.Decide(PorchLight.Occupied).Default(false)`,
 			want: "PorchLight.Occupied undefined",
@@ -81,12 +83,16 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			want: "Hallway.On.Above undefined",
 		},
 		"a room's capability set to the wrong type": {
-			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(oikade.InRoom("hall", oikade.Lights, oikade.On).To(10)) })`,
+			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(home.Room("hall", oikade.Lights).On.To(10)) })`,
 			want: "cannot use 10",
 		},
-		"a room write that doesn't say what it's for": {
-			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(oikade.InRoom("hall", oikade.On).To(true)) })`,
-			want: "not enough arguments in call to oikade.InRoom",
+		"a group as a member": {
+			body: `home.Group("g", home.Room("hall"))`,
+			want: "does not implement",
+		},
+		"a capability as a member": {
+			body: `home.Group("g", PorchLight.On)`,
+			want: "does not implement",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

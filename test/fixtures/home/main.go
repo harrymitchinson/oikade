@@ -346,9 +346,10 @@ func home() *oikade.Home {
 		Case("leak-alarm", true, open("leak-sensor")).LatchUntil(open("reset")).
 		Default(false)
 	// Reads whichever devices are in the cellar now, which oikade devices room changes.
+	cellar := h.Room("cellar")
 	h.Decide(on("dehumidifier")).
 		Case("cellar-damp", true, oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
-			return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
+			return slices.Max(s.Readings(cellar.Humidity)) > 65
 		})).
 		Default(false)
 	// A bug in a home: a condition that never returns once the sensor says so.

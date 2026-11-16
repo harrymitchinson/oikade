@@ -14,8 +14,10 @@ import (
 // hold is a compiled Hold.
 type hold struct {
 	device     string
+	devices    []string
 	room       string
 	types      []devicetype.Type
+	except     []string
 	capability string
 	value      any
 	priority   Priority

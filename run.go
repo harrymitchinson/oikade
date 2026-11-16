@@ -362,6 +362,10 @@ func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
 			return s.Device == d.Name && s.Entry.Capability == c
 		}); i >= 0 {
 			entry = settings[i].Entry
+		} else if i := slices.IndexFunc(settings, func(s wire.DeviceControl) bool {
+			return s.Room != "" && s.Room == d.Room && s.Entry.Capability == c
+		}); i >= 0 {
+			entry = settings[i].Entry
 		}
 		m.Control = append(m.Control, entry)
 	}

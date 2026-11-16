@@ -37,9 +37,13 @@ func (b Bool) explain(s Snapshot, _ bool) string {
 
 func (b Bool) check(Options) error { return checkHandle(b.handle()) }
 
+// checkHandle refuses a condition's read of no capability, or of a group's, which Any and All read.
 func checkHandle(h handle) error {
-	if h.device == "" || h.capability == "" {
+	switch {
+	case h.device == "" || h.capability == "":
 		return errors.New("a condition reads a device's capability: give one from devices.go")
+	case h.g != nil:
+		return fmt.Errorf("%s is a group's: read it with Any or All, or Readings in a ConditionFunc", h.named())
 	}
 	return nil
 }
@@ -388,7 +392,7 @@ func (n not) check(o Options) error { return checkAll("Not", []Condition{n.c}, o
 // rule, and one that runs for too long gets the process replaced.
 //
 //	oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
-//		return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
+//		return slices.Max(s.Readings(cellar.Humidity)) > 65
 //	})
 func ConditionFunc(label string, f func(Snapshot) bool) Condition { return funcCondition{label, f} }
 

@@ -67,11 +67,11 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 			engine.Set{Device: "heater", Capability: "on", Value: false, Until: engine.UntilReleased},
 		},
 		"a room": {
-			InRoom("hall", Everything, Brightness).To(20),
+			room("hall", Everything).Brightness.To(20),
 			engine.Set{Room: "hall", Capability: "brightness", Value: 20.0},
 		},
 		"a room's lights": {
-			InRoom("hall", Lights, On).To(false),
+			room("hall", Lights).On.To(false),
 			engine.Set{
 				Room: "hall", DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight},
 				Capability: "on", Value: false,
@@ -82,19 +82,19 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 			t.Errorf("%s: got %+v, want %+v", name, got, tc.want)
 		}
 	}
-	want := engine.Change{Room: "hall", Capability: "occupied"}
-	if got := InRoom("hall", Everything, Occupied).change(); !reflect.DeepEqual(got, want) {
+	want := []engine.Change{{Room: "hall", Capability: "occupied"}}
+	if got := room("hall", Everything).Occupied.changes(); !reflect.DeepEqual(got, want) {
 		t.Errorf("a room's change is %+v", got)
 	}
-	heaters := engine.Change{Room: "hall", DeviceTypes: []devicetype.Type{devicetype.Thermostat}, Capability: "on"}
-	if got := InRoom("hall", Heaters, On).change(); !reflect.DeepEqual(got, heaters) {
+	heaters := []engine.Change{{Room: "hall", DeviceTypes: []devicetype.Type{devicetype.Thermostat}, Capability: "on"}}
+	if got := room("hall", Heaters).On.changes(); !reflect.DeepEqual(got, heaters) {
 		t.Errorf("a room's heaters' change is %+v", got)
 	}
-	if got := heater.change(); !reflect.DeepEqual(got, engine.Change{Device: "heater", Capability: "on"}) {
+	if got := heater.changes(); !reflect.DeepEqual(got, []engine.Change{{Device: "heater", Capability: "on"}}) {
 		t.Errorf("a handle's change is %+v", got)
 	}
-	becomes := engine.Change{Device: "heater", Capability: "on", To: true}
-	if got := heater.Becomes(true).change(); !reflect.DeepEqual(got, becomes) {
+	becomes := []engine.Change{{Device: "heater", Capability: "on", To: true}}
+	if got := heater.Becomes(true).changes(); !reflect.DeepEqual(got, becomes) {
 		t.Errorf("a Becomes is %+v", got)
 	}
 }

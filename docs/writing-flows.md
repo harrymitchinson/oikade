@@ -5,8 +5,11 @@ A flow is an automation written as ordinary Go, with real `if`, `for` and `switc
 This belongs to [the host](architecture.md#the-host). `hometest` tests a flow on a fake clock, crashes included: [Getting started in Go](../README.md#getting-started-in-go).
 
 ```go
+// downstairs is the downstairs lights, from home.Room("downstairs", oikade.Lights).
+var downstairs oikade.Group
+
 func bedtime(r *oikade.FlowRun) {
-	r.Set(oikade.InRoom("downstairs", oikade.Lights, oikade.Brightness).To(20))
+	r.Set(downstairs.Brightness.To(20))
 	r.Sleep(30 * time.Minute)
 
 	guests, err := r.Do("calendar", calendar.HasGuests) // func(context.Context) (bool, error)
@@ -21,6 +24,7 @@ func bedtime(r *oikade.FlowRun) {
 
 func main() {
 	home := oikade.NewHome(oikade.Options{})
+	downstairs = home.Room("downstairs", oikade.Lights)
 	home.Flow("bedtime", bedtime).At(oikade.Clock("22:30"))
 	home.Run()
 }

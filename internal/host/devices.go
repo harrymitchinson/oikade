@@ -118,26 +118,21 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 		}
 	}
 	return hub.Meta{
-		DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.withHome(d.Name, entries), DeviceTypes: d.DeviceTypes(),
+		DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.withHome(d, entries), DeviceTypes: d.DeviceTypes(),
 	}, true
 }
 
-// withHome is what's on record for a device, overlaid with what the home says. Call with mu held.
-func (i *inventory) withHome(name string, entries []control.Entry) []control.Entry {
+// withHome is what's on record for a device, overlaid with what the home says: its own settings, and
+// its room's on the capabilities it has none of its own for. Call with mu held.
+func (i *inventory) withHome(d registry.Device, entries []control.Entry) []control.Entry {
+	home := wire.SettingsFor(i.home, d.Name, d.Room, d.DeviceTypes(), d.Capabilities)
 	var out []control.Entry
 	for _, e := range entries {
-		if !slices.ContainsFunc(i.home, func(c wire.DeviceControl) bool {
-			return c.Device == name && c.Entry.Capability == e.Capability
-		}) {
+		if !slices.ContainsFunc(home, func(h control.Entry) bool { return h.Capability == e.Capability }) {
 			out = append(out, e)
 		}
 	}
-	for _, c := range i.home {
-		if c.Device == name {
-			out = append(out, c.Entry)
-		}
-	}
-	return out
+	return append(out, home...)
 }
 
 // loadHome takes up the settings saved by the last process to attach. They're there before any
@@ -160,7 +155,7 @@ func (i *inventory) takeHome(settings []wire.DeviceControl) error {
 	merged := slices.Clone(settings)
 	for _, c := range i.home {
 		if !slices.ContainsFunc(settings, func(n wire.DeviceControl) bool {
-			return n.Device == c.Device && n.Entry.Capability == c.Entry.Capability
+			return n.Device == c.Device && n.Room == c.Room && n.Entry.Capability == c.Entry.Capability
 		}) {
 			merged = append(merged, c)
 		}
@@ -280,9 +275,11 @@ func (i *inventory) rename(name, to string) error {
 }
 
 // members are the hub's devices, by name, before and after a change to the registry. Both are read
-// with mu held, so no other change is taken for it.
+// with mu held, so no other change is taken for it. kept are the capabilities a device moved into a
+// decided room keeps its own decision on.
 type members struct {
 	before, after map[string]hub.Member
+	kept          []string
 }
 
 // move puts a device in a room.
@@ -296,7 +293,27 @@ func (i *inventory) move(name, room string) (members, error) {
 	i.sync()
 	i.announce(key(name))
 	i.log.Info("Moved device", "device", name, "room", room)
-	return members{before, i.store.Members()}, nil
+	d, _ := i.registry.Get(name)
+	return members{before, i.store.Members(), keptDecisions(i.home, d)}, nil
+}
+
+// keptDecisions are the capabilities a device has its own decision on that its room also decides,
+// sorted, which it keeps rather than taking the room's.
+func keptDecisions(settings []wire.DeviceControl, d registry.Device) []string {
+	var kept []string
+	for _, c := range settings {
+		if c.Room == "" || c.Room != d.Room || !slices.Contains(d.Capabilities, c.Entry.Capability) ||
+			len(c.DeviceTypes) > 0 && !devicetype.Any(d.DeviceTypes(), c.DeviceTypes) {
+			continue
+		}
+		if slices.ContainsFunc(settings, func(o wire.DeviceControl) bool {
+			return o.Device == d.Name && o.Entry.Capability == c.Entry.Capability
+		}) {
+			kept = append(kept, c.Entry.Capability)
+		}
+	}
+	slices.Sort(kept)
+	return slices.Compact(kept)
 }
 
 // setType says what a device is. The Matter bridge rebuilds its endpoint, on the same ID.
@@ -311,7 +328,7 @@ func (i *inventory) setType(name string, t devicetype.Type) (members, error) {
 	i.announce(key(name))
 	d, _ := i.registry.Get(name)
 	i.log.Info("Set device type", "device", name, "deviceType", t, "deviceTypes", d.DeviceTypes())
-	return members{before, i.store.Members()}, nil
+	return members{before: before, after: i.store.Members()}, nil
 }
 
 func (i *inventory) reserve(name, room string) error {
@@ -393,7 +410,7 @@ func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafet
 		}
 		i.log.Info("Removed device", "device", name)
 	}
-	return api.Response{Error: strings.Join(problems, "; "), Removed: removed}, members{before, i.store.Members()}
+	return api.Response{Error: strings.Join(problems, "; "), Removed: removed}, members{before: before, after: i.store.Members()}
 }
 
 // replace moves name onto with's hardware. name's claims and arbitration settings stay, and with's
@@ -595,7 +612,15 @@ func (s *apiServer) move(name, room string) api.Response {
 	if err != nil {
 		return api.Response{Error: err.Error()}
 	}
-	return api.Response{Warning: s.emptiedWarning(change)}
+	warnings := []string{}
+	if w := s.emptiedWarning(change); w != "" {
+		warnings = append(warnings, w)
+	}
+	if len(change.kept) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%s keeps its own decision on %s rather than %s's, "+
+			"unless the home hands it over with Then", name, strings.Join(change.kept, " and "), room))
+	}
+	return api.Response{Warning: strings.Join(warnings, "; ")}
 }
 
 // retype says what a device is, and warns as move does when that leaves its room with none of the

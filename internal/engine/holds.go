@@ -91,7 +91,10 @@ func NewActiveGauge() *prometheus.GaugeVec {
 
 func (c *Compiled) target() HoldTarget {
 	h := c.hold
-	return HoldTarget{Device: h.device, Room: h.room, DeviceTypes: h.types, Capability: h.capability, Value: h.value}
+	return HoldTarget{
+		Device: h.device, Devices: h.devices, Room: h.room, DeviceTypes: h.types, Except: h.except,
+		Capability: h.capability, Value: h.value,
+	}
 }
 
 // same reports whether two states are the same, comparing targets as sameTarget does.
@@ -397,9 +400,20 @@ func (e *Engine) startWrites(ctx context.Context) {
 		claims bool
 	}
 	groups := map[string][]ordered{}
+	together := false
 	for _, w := range writes {
 		group, claims := e.writeGroup(w.target)
+		together = together || group == groupWrites
 		groups[group] = append(groups[group], ordered{w, claims})
+	}
+	if together {
+		// A group's write can reach any of its members' rooms, so every write of the look goes in
+		// order, one after another.
+		var all []ordered
+		for _, g := range groups {
+			all = append(all, g...)
+		}
+		groups = map[string][]ordered{groupWrites: all}
 	}
 	var done sync.WaitGroup
 	for _, group := range groups {
@@ -441,11 +455,37 @@ func (e *Engine) startWrites(ctx context.Context) {
 	})
 }
 
+// groupWrites is the write group of a hold on a group's members.
+const groupWrites = "group"
+
+// named are the devices a hold names: its device, or its group's members.
+func named(t HoldTarget) []ident.ID {
+	if t.Device != "" {
+		return []ident.ID{{Name: t.Device}}
+	}
+	out := make([]ident.ID, 0, len(t.Devices))
+	for _, d := range t.Devices {
+		out = append(out, ident.ID{Name: d})
+	}
+	return out
+}
+
+// roomMembers are the devices in a room hold's room, apart from those it leaves out.
+func (e *Engine) roomMembers(t HoldTarget) []ident.ID {
+	return slices.DeleteFunc(e.Store.Room(t.Room), func(d ident.ID) bool { return slices.Contains(t.Except, d.Name) })
+}
+
 // writeGroup returns which writes a hold's may reach the same device as, and whether it claims
 // rather than writes: its room, or its device when that has none.
 func (e *Engine) writeGroup(t HoldTarget) (group string, claims bool) {
+	if len(t.Devices) > 0 {
+		for _, d := range t.Devices {
+			claims = claims || e.arbitrated(ident.ID{Name: d}, t.Capability)
+		}
+		return groupWrites, claims
+	}
 	if t.Room != "" {
-		for _, dev := range e.Store.Room(t.Room) {
+		for _, dev := range e.roomMembers(t) {
 			claims = claims || e.arbitrated(dev, t.Capability)
 		}
 		return "room/" + t.Room, claims
@@ -622,7 +662,7 @@ func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarge
 		return nil, nil
 	}
 	var members []ident.ID
-	for _, dev := range e.Store.Room(t.Room) {
+	for _, dev := range e.roomMembers(t) {
 		if snap, ok := e.Store.Get(dev); ok && snap.OfTypes(t.DeviceTypes) {
 			members = append(members, dev)
 		}
@@ -684,14 +724,11 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 		value = !b
 	}
 	log := e.Log.With("rule", key, "capability", t.Capability)
-	var devices []ident.ID
-	if t.Device != "" {
-		devices = []ident.ID{{Name: t.Device}}
-	}
+	devices := named(t)
 	if t.Room != "" {
 		waiting := false
 		var skipped []string
-		for _, dev := range e.Store.Room(t.Room) {
+		for _, dev := range e.roomMembers(t) {
 			snap, ok := e.Store.Get(dev)
 			waiting = waiting || !ok || !snap.Discovered
 			if !ok || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, t.Capability) {
@@ -757,9 +794,9 @@ func writesEnd(t HoldTarget) bool {
 // claimHold makes an active hold's claim again on its arbitrated targets, and writes nothing.
 func (e *Engine) claimHold(ctx context.Context, key ident.ID, t HoldTarget, claim control.Claim) {
 	claim.Value = capability.Float(t.Value)
-	devices := e.Store.Room(t.Room)
-	if t.Device != "" {
-		devices = []ident.ID{{Name: t.Device}}
+	devices := e.roomMembers(t)
+	if t.Room == "" {
+		devices = named(t)
 	}
 	for _, dev := range devices {
 		if snap, ok := e.Store.Get(dev); ok && !snap.OfTypes(t.DeviceTypes) {

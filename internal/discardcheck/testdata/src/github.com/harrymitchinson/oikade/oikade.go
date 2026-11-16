@@ -21,11 +21,9 @@ type Number struct{}
 
 func (n Number) Above(v float64) Condition { return nil }
 
-type Room[T any] struct{}
+type Group struct{ On Bool }
 
-func InRoom(room string, b Bool) Room[bool] { return Room[bool]{} }
-
-func (r Room[T]) To(v T) Set { return Set{} }
+func (h *Home) Room(name string) Group { return Group{} }
 
 type Hours struct{}
 

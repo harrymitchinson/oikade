@@ -179,6 +179,73 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 	}
 }
 
+// A room's setting is each device's there with the capability and no setting of its own, and one
+// that moves in with a setting of its own keeps it, which the move warns of.
+func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices := hub.NewStore(logging.Discard())
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), devices, nil, logging.Discard())
+	known.attach(simInstance)
+	ids := map[string]ident.ID{}
+	for _, d := range []driver.AppDevice{
+		{ID: "c", Name: "ceiling", Room: "hall", Capabilities: []string{capability.On}},
+		{ID: "l", Name: "lamp", Room: "attic", Capabilities: []string{capability.On}},
+		{ID: "s", Name: "sensor", Room: "hall", Capabilities: []string{capability.Occupied}},
+	} {
+		id, err := known.paired(simInstance, d, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[d.Name] = id
+	}
+	entry := func(line string) control.Entry {
+		return control.Entry{Capability: capability.On, Lines: []string{line}, External: control.NameRevert}
+	}
+	if err := known.setHome([]wire.DeviceControl{
+		{Room: "hall", Entry: entry("Rule/hall on evening")},
+		{Device: "lamp", Entry: entry("Rule/lamp on reading")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lines := func(name string) string {
+		snap, _ := devices.Get(ids[name])
+		var out []string
+		for _, c := range snap.Control {
+			out = append(out, c.Lines...)
+		}
+		return strings.Join(out, " ")
+	}
+	if got := lines("ceiling"); got != "Rule/hall on evening" {
+		t.Errorf("ceiling's lines are %q, want the hall's", got)
+	}
+	if got := lines("sensor"); got != "" {
+		t.Errorf("sensor, which has no on, has lines %q", got)
+	}
+
+	s := &apiServer{devices: known, srv: &server{}}
+	resp := s.move("lamp", "hall")
+	if resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	if got := lines("lamp"); got != "Rule/lamp on reading" {
+		t.Errorf("lamp's lines are %q, want its own", got)
+	}
+	if want := "lamp keeps its own decision on on rather than hall's"; !strings.Contains(resp.Warning, want) {
+		t.Errorf("got warning %q, want %q", resp.Warning, want)
+	}
+	if resp := s.move("ceiling", "attic"); resp.Warning != "" || lines("ceiling") != "" {
+		t.Errorf("ceiling, out of the hall, warns %q and has lines %q", resp.Warning, lines("ceiling"))
+	}
+}
+
 func TestAProcessCantDropASetting(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
