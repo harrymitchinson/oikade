@@ -313,7 +313,7 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 			bad(fmt.Errorf("%s is given twice", l.what()))
 		}
 		names[l.name] = true
-		key := h.device + " " + h.capability + " " + l.name
+		key := control.CaseKey(h.device, h.capability, l.name)
 		entry.Lines = append(entry.Lines, "Rule/"+key)
 		c, err := l.compile(h, safety, o)
 		if err != nil {
@@ -460,6 +460,18 @@ func claimPriority(decided []compiledDecision, device, capability string) engine
 		return engine.PrioritySafety
 	}
 	return ""
+}
+
+// needsFlowsLine refuses a moment's or a flow's Set on a decided capability whose decision has no Flows
+// line to rank it at.
+func needsFlowsLine(decided []compiledDecision, device, capability string) error {
+	i := slices.IndexFunc(decided, func(d compiledDecision) bool {
+		return d.device == device && d.capability == capability
+	})
+	if i >= 0 && !decided[i].flows {
+		return fmt.Errorf("%s %s is decided, and its decision has no Flows line for a Set", device, capability)
+	}
+	return nil
 }
 
 // caseRule is a case's engine rule.

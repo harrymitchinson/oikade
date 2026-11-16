@@ -61,7 +61,7 @@ A trigger isn't a step. If your process dies after a trigger and before the run'
 
 ## Running late
 
-A flow that's more than 10 minutes late gives up and logs it, rather than turn the lights off at 09:00 after an outage. `Late` sets a flow's own limit. A run is late if it wakes past the end of a wait, or comes back from a crash that long after its last step. A flow's `Set` on a decided capability ranks at the decision's [`Flows()` line](automations.md#claims-from-moments-and-flows), and above the override line it's a Safety claim.
+A flow that's more than 10 minutes late gives up and logs it, rather than turn the lights off at 09:00 after an outage. `Late` sets a flow's own limit. A run is late if it wakes past the end of a wait, or comes back from a crash that long after its last step. A flow's `Set` on a decided capability ranks at the decision's [`Flows()` line](automations.md#claims-from-moments-and-flows), and above the override line it's a Safety claim. While any decision has its `Flows()` line there, every flow is Safety: it never gives up late, so a leak response still acts, and pausing it needs `--allow-safety`. A `Set` on a decision with no `Flows()` line returns an error.
 
 Times of day follow the same rule. A moment or flow's time in `At` that passed while no process was running still fires when one starts, within `Late`, and is skipped and logged after that. Only the last missed time counts. A moment with a Safety `Set` always fires.
 

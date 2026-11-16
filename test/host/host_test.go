@@ -519,7 +519,6 @@ func TestDecisionsKeepTheirLingersAndLatchesAcrossAKill(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	r.wrote("garage-heater", true)
 	r.change("entry-sensor", "occupied", true)
 	r.wrote("entry-light", true)
 	r.change("pool-water", "temperature", 2)
@@ -539,7 +538,7 @@ func TestDecisionsKeepTheirLingersAndLatchesAcrossAKill(t *testing.T) {
 		device string
 		value  bool
 	}{{"entry-light", false}, {"pool-pump", false}, {"garage-heater", true}} {
-		if n := r.count(wrote, "device", w.device, "value", w.value); n != map[bool]int{false: 0, true: 1}[w.value] {
+		if n := r.count(wrote, "device", w.device, "value", w.value); n != 0 {
 			t.Errorf("%s was written %v %d times\n%s", w.device, w.value, n, r.dump())
 		}
 	}

@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -402,15 +401,14 @@ func (a *Arbiter) Decide() Decision {
 		}
 	}
 	d.Write = !a.st.Known || a.st.Value != d.Value
+	// Highest first, and within a tie the later claim first, as it wins.
 	d.Claims = slices.Clone(a.st.Claims)
+	slices.Reverse(d.Claims)
 	slices.SortStableFunc(d.Claims, func(x, y Claim) int {
 		if x.Level != y.Level {
 			return int(y.Level - x.Level)
 		}
-		if rx, ry := a.Rank(x), a.Rank(y); rx != ry {
-			return rx - ry
-		}
-		return strings.Compare(x.Source, y.Source)
+		return a.Rank(x) - a.Rank(y)
 	})
 	d.Reverted = cloneRevert(a.st.Reverted)
 	return d

@@ -189,7 +189,7 @@ An outside change is recorded by the path it came in by: `Matter` for a command 
 
 ### Claims from moments and flows
 
-A moment's or a flow's `Set` on a decided capability is a claim at the decision's `Flows()` line, so a decision without one refuses it, and the run fails. Above the override line, it's a safety line:
+A moment's or a flow's `Set` on a decided capability is a claim at the decision's `Flows()` line. On a decision without one, a moment fails `oikade check`, and a flow's `r.Set` returns an error. Above the override line, it's a safety line:
 
 ```go
 home.Decide(TowelRail.On).

@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -208,7 +207,7 @@ func (s *Sim) start() error {
 			defer s.mu.Unlock()
 			if sc.Hold && sc.Active != s.active[key.Name] {
 				s.active[key.Name] = sc.Active
-				s.note(caseName(key.Name), map[bool]string{true: " applies", false: " no longer applies"}[sc.Active])
+				s.note(control.CaseShown(key.Name), map[bool]string{true: " applies", false: " no longer applies"}[sc.Active])
 			}
 			if !sc.LastFire.IsZero() {
 				s.fires[key.Name] = sc.LastFire
@@ -493,12 +492,4 @@ func (s *Sim) settle() error {
 		time.Sleep(50 * time.Microsecond)
 	}
 	return errors.New("the home didn't settle: a condition or flow step may be stuck")
-}
-
-// caseName is how a case's rule reads, "porch-light on: motion", from its key, "porch-light on motion".
-func caseName(key string) string {
-	if i := strings.LastIndex(key, " "); i > 0 {
-		return key[:i] + ": " + key[i+1:]
-	}
-	return key
 }

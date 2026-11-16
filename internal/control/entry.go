@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -99,4 +100,23 @@ func (d *Duration) UnmarshalText(b []byte) error {
 	v, err := time.ParseDuration(string(b))
 	*d = Duration(v)
 	return err
+}
+
+// CaseKey is a decision's case as a rule: "<device> <capability> <case>". Its claims' source is
+// "Rule/" and the key.
+func CaseKey(device, capability, name string) string { return device + " " + capability + " " + name }
+
+// CaseOf is the name of the case whose claims come from source, if it's one of device's
+// capability's.
+func CaseOf(source, device, capability string) (string, bool) {
+	return strings.CutPrefix(source, "Rule/"+CaseKey(device, capability, ""))
+}
+
+// CaseShown is how a case's rule reads, "porch-light on: motion", from its key. Any other key is
+// as it is.
+func CaseShown(key string) string {
+	if i := strings.LastIndex(key, " "); i > 0 && strings.Count(key, " ") == 2 {
+		return key[:i] + ": " + key[i+1:]
+	}
+	return key
 }

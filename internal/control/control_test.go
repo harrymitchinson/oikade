@@ -210,16 +210,17 @@ func TestClaimFromSameSourceReplaces(t *testing.T) {
 	}
 }
 
+// Within a tie the later claim wins, so it comes first.
 func TestClaimsSortedHighestFirst(t *testing.T) {
 	h := newHarness(t, boolSettings, "10:00")
-	h.claim(Claim{Source: "Rule/b", Level: Normal, Value: on})
+	h.claim(Claim{Source: "Rule/a", Level: Normal, Value: on})
 	h.claim(Claim{Source: "Rule/s", Level: Safety, Value: on})
-	d := h.claim(Claim{Source: "Rule/a", Level: Normal, Value: off})
+	d := h.claim(Claim{Source: "Rule/b", Level: Normal, Value: off})
 	got := make([]string, 0, len(d.Claims))
 	for _, c := range d.Claims {
 		got = append(got, c.Source)
 	}
-	if want := "Rule/s Rule/a Rule/b"; strings.Join(got, " ") != want {
+	if want := "Rule/s Rule/b Rule/a"; strings.Join(got, " ") != want {
 		t.Errorf("got %v, want %s", got, want)
 	}
 }
@@ -544,4 +545,20 @@ func TestMinimumOnStaysWithinMaximumOn(t *testing.T) {
 	h.to("10:05")
 	h.want("held", h.release("Rule/n"), on, LevelDefault, "", MinimumOn)
 	h.want("10:30", h.to("10:30"), off, LevelDefault, "", NoLimit)
+}
+
+func TestACaseKeyReadsBack(t *testing.T) {
+	key := CaseKey("pool-pump", "on", "frost")
+	if name, ok := CaseOf("Rule/"+key, "pool-pump", "on"); !ok || name != "frost" {
+		t.Errorf("got %q, %v", name, ok)
+	}
+	if _, ok := CaseOf("Rule/"+key, "pool-pump", "brightness"); ok {
+		t.Error("read another capability's case")
+	}
+	if got := CaseShown(key); got != "pool-pump on: frost" {
+		t.Errorf("shown as %q", got)
+	}
+	if got := CaseShown("bedtime"); got != "bedtime" {
+		t.Errorf("a flow is shown as %q", got)
+	}
 }

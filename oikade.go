@@ -530,6 +530,9 @@ func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
 // needs For, UntilReleased or UntilNext, and is an error without one. It may run more than once,
 // after a crash, so set a value and never toggle one.
 func (r *FlowRun) Set(s Set) error {
+	if err := needsFlowsLine(r.decided, s.device, s.capability); err != nil {
+		return err
+	}
 	return r.run.Apply(s.toEngine(r.decided))
 }
 
@@ -774,7 +777,7 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	for _, r := range h.moments {
 		c, err := engine.NewMoment(name(r.name), r.toEngine(decided))
 		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
-			checkCondition(r.cond, h.options)))
+			checkCondition(r.cond, h.options), r.checkSets(decided)))
 	}
 	for _, r := range h.flows {
 		f := r.toFlow(name(r.name), h.options, decided)
@@ -869,7 +872,11 @@ func nilChange(on []Change) error {
 }
 
 func (r Flow) toFlow(key ident.ID, o Options, decided []compiledDecision) *flow.Flow {
-	f := &flow.Flow{Key: key, Late: r.late}
+	// Until a decision can name the flows it ranks, any flow may make a Safety claim where a Flows
+	// line is above the override line, so every flow is Safety then: it acts however late it is.
+	f := &flow.Flow{Key: key, Late: r.late, Safety: slices.ContainsFunc(decided, func(d compiledDecision) bool {
+		return d.flows && d.flowsSafety
+	})}
 	if r.run != nil {
 		f.Body = func(run *flow.Run) error { return r.run(&FlowRun{run: run, decided: decided, options: o}) }
 	}
@@ -948,6 +955,17 @@ func (b *Budget) clockOnly() error {
 
 func (h Hours) toSchedule() schedule.WindowSpec {
 	return schedule.WindowSpec{Start: h.start.clock, End: h.end.clock, Days: h.days}
+}
+
+// checkSets refuses a Set on a decided capability whose decision has no Flows line.
+func (r Moment) checkSets(decided []compiledDecision) error {
+	var errs []error
+	for _, a := range r.do {
+		if s, ok := a.(Set); ok && s.device != "" {
+			errs = append(errs, needsFlowsLine(decided, s.device, s.capability))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // safety reports whether the moment sets a capability whose Flows line is a safety line.

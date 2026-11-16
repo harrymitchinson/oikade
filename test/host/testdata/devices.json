@@ -14,7 +14,7 @@
   {"name": "pool-pump", "capabilities": ["on"], "values": {"on": false}},
   {"name": "garage-sensor", "capabilities": ["temperature"], "values": {"temperature": 20}},
   {"name": "garage-door", "capabilities": ["open"], "values": {"open": false}},
-  {"name": "garage-heater", "capabilities": ["on"], "values": {"on": false}},
+  {"name": "garage-heater", "capabilities": ["on"], "values": {"on": true}},
   {"name": "trap", "capabilities": ["open"], "values": {"open": false}},
   {"name": "trap-light", "capabilities": ["on"], "values": {"on": false}},
   {"name": "probe", "capabilities": ["open"], "values": {"open": false}},

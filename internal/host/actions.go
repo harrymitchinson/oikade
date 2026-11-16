@@ -162,7 +162,7 @@ func withControl(device string, c *api.Capability, held control.Status) {
 			continue
 		}
 		claim := api.Claim{Source: o.Source, Level: o.Level, Value: rawValue(o.Value), Winner: o.Winner, Latched: o.Latched}
-		if name, ok := strings.CutPrefix(o.Source, "Rule/"+device+" "+held.Capability+" "); ok {
+		if name, ok := control.CaseOf(o.Source, device, held.Capability); ok {
 			claim.Case = name
 			if o.Winner {
 				c.Case = name
@@ -202,7 +202,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	if holder, _ := heldAtSafety(s.srv.engine, s.srv.devices, dev, req.Capability, value); holder != "" {
-		if name, ok := strings.CutPrefix(holder, "Rule/"+req.Device+" "+req.Capability+" "); ok {
+		if name, ok := control.CaseOf(holder, req.Device, req.Capability); ok {
 			return api.Response{Error: fmt.Sprintf("%s %s: %s holds it, a safety line", req.Device, req.Capability, name)}
 		}
 		return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
