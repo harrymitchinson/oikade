@@ -91,3 +91,23 @@ func TestARefusedLoginIsThePluginsProblem(t *testing.T) {
 		t.Fatal("a plugin with no refused login has a problem")
 	}
 }
+
+func TestFaultIsAfterTheIDsLastDot(t *testing.T) {
+	for id, want := range map[string]string{
+		"hall": "", "cloud.refused-login": "refused-login", "porch.relay.needs-key": "needs-key",
+	} {
+		if got := fault(id); got != want {
+			t.Errorf("fault(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+func TestARelayWithNoKeyIsDiscoveredUnderItsName(t *testing.T) {
+	s := newSwitches([]contractv1.DeclaredDevice{{ID: "l.needs-key", Name: "locked", DisplayName: "Locked"}})
+	if len(s.relays) != 0 || len(s.reports) != 1 || !s.reports[0].Found || s.reports[0].Error == "" {
+		t.Fatalf("got relays %v and reports %+v, want it found, unusable, with the reason", s.relays, s.reports)
+	}
+	if d := s.discovered[0]; d.ID != "l.needs-key" || d.Name != "Locked" {
+		t.Fatalf("got %+v, want it discovered under its name", d)
+	}
+}

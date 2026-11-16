@@ -64,17 +64,28 @@ const PairingSecret = "simswitch-pairing-code"
 // New returns a plugin of simulated relays for the devices.
 func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitches(devices) }
 
-// fault is what a device's ID asks the relays to simulate, after a dot: a fixture's devices have no
-// settings of their own.
+// fault is what a device's ID asks the relays to simulate: the part after its last dot. The
+// conformance suite runs the fixture with an environment of its own, so the devices file is the only
+// way in.
 func fault(id string) string {
-	_, f, _ := strings.Cut(id, ".")
-	return f
+	if _, after, ok := strings.CutLast(id, "."); ok {
+		return after
+	}
+	return ""
+}
+
+// discoveredAs is a relay as the simulated app lists it, under its name there.
+func discoveredAs(d contractv1.DeclaredDevice, id, capability string) contractv1.DiscoveredDevice {
+	return contractv1.DiscoveredDevice{
+		ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{capability},
+		Name: d.DisplayName, Room: d.Room,
+	}
 }
 
 // newSwitches turns the declared devices into relays and the devices report. A device whose ID
 // ends in .misconfigured is reported not found, with the reason, as a plugin reports
-// configuration it can't use. One with .needs-key is found and can't be used until it's
-// given something, as a device a plugin can see but not read. One with .refused-login is
+// configuration it can't use. One with .needs-key is found, and discovered, and can't be used
+// until it's given something, as a device a plugin can see but not read. One with .refused-login is
 // reported not found, and the plugin says in its status that its simulated account refused its
 // login, as a cloud plugin would. One with .needs-setup makes the plugin say it needs its
 // setup run, until it is. All four keep to the contract.
@@ -99,11 +110,7 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 			s.reports = append(s.reports, contractv1.DeviceReport{
 				ID: d.ID, Found: true, Capabilities: []string{contractv1.On}, Error: "no key: give this relay one",
 			})
-			// It's in the simulated app, so it's discovered, under its name there.
-			s.discovered = append(s.discovered, contractv1.DiscoveredDevice{
-				ID: d.ID, Manufacturer: manufacturer, Model: model, Capabilities: []string{contractv1.On},
-				Name: d.DisplayName, Room: d.Room,
-			})
+			s.discovered = append(s.discovered, discoveredAs(d, d.ID, contractv1.On))
 			continue
 		}
 		switch simulate {
@@ -129,10 +136,7 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 			_, _ = rand.Read(b)
 			id = d.ID + "-" + hex.EncodeToString(b)
 		}
-		s.discovered = append(s.discovered, contractv1.DiscoveredDevice{
-			ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
-			Name: d.DisplayName, Room: d.Room,
-		})
+		s.discovered = append(s.discovered, discoveredAs(d, id, c))
 	}
 	// A host records what it's shown, so the spare can come back declared.
 	if s.relays[spare.ID] == nil {
