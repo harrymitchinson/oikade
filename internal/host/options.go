@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -74,6 +75,7 @@ func (o *homeOptions) hiddenFromMatter() []wire.HiddenPlugin {
 // takeHidden takes up the plugins a connecting process's home hides from Matter. They're saved before
 // they're applied, so a host that restarts keeps off Matter what the running code keeps off.
 func (o *homeOptions) takeHidden(hidden []wire.HiddenPlugin) error {
+	hidden = normalHidden(hidden)
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if slices.EqualFunc(hidden, o.hidden, func(a, b wire.HiddenPlugin) bool {
@@ -93,11 +95,25 @@ func (o *homeOptions) takeHidden(hidden []wire.HiddenPlugin) error {
 	if err != nil {
 		return err
 	}
-	o.hidden = slices.Clone(hidden)
+	o.hidden = hidden
 	if o.rehidden != nil {
 		o.rehidden()
 	}
 	return nil
+}
+
+// normalHidden is hidden in order, by plugin and then by device, so that reordering a home's code
+// changes nothing. Nil hides none.
+func normalHidden(hidden []wire.HiddenPlugin) []wire.HiddenPlugin {
+	if len(hidden) == 0 {
+		return nil
+	}
+	out := make([]wire.HiddenPlugin, len(hidden))
+	for i, h := range hidden {
+		out[i] = wire.HiddenPlugin{Plugin: h.Plugin, Shown: slices.Sorted(slices.Values(h.Shown))}
+	}
+	slices.SortFunc(out, func(a, b wire.HiddenPlugin) int { return strings.Compare(a.Plugin, b.Plugin) })
+	return out
 }
 
 // bridgeName is the Matter bridge's name.

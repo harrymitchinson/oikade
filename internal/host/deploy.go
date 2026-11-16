@@ -98,10 +98,35 @@ func (d *deployer) deployLocked(ctx context.Context, binary string, allow bool) 
 
 // unchanged answers a deploy of the version already running.
 func (d *deployer) unchanged(id string) api.Response {
-	if err := d.removals(); err != nil {
-		return api.Response{Error: removalsFailed(err), Version: id}
+	off, err := d.hide()
+	if err != nil {
+		return api.Response{Error: hideFailed(err), Version: id}
 	}
-	return api.Response{Version: id, Unchanged: true}
+	if err := d.removals(); err != nil {
+		return api.Response{Error: removalsFailed(err), Version: id, TakenOffMatter: off}
+	}
+	return api.Response{Version: id, Unchanged: true, TakenOffMatter: off}
+}
+
+// hide takes up what the running version hides from Matter once it's confirmed, rather than as its
+// process connects: a version that fails to settle would cost controllers the devices' rooms and
+// scenes for nothing. It says which devices it took off the bridge.
+func (d *deployer) hide() ([]string, error) {
+	cur, ok := d.versions.current()
+	if !ok || d.srv == nil || d.versions.state.Pending || cur.Manifest.Protocol == 0 {
+		return nil, nil
+	}
+	off := d.srv.takenOffMatter(cur.Manifest)
+	if err := d.srv.takeHidden(cur.Manifest.HiddenFromMatter); err != nil {
+		d.log.Error("Failed to save the plugins hidden from Matter", "err", err, "version", cur.ID)
+		return nil, err
+	}
+	return off, nil
+}
+
+func hideFailed(err error) string {
+	return fmt.Sprintf("the version is running, but the host couldn't save the plugins it hides from Matter, "+
+		"which deploying it again will retry: %s", err)
 }
 
 // rollback returns to the version before the running one, on the same terms as a deploy. The running
@@ -243,7 +268,6 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	}
 
 	d.log.Info("Checked automations version", "version", id)
-	takenOff := d.srv.takenOffMatter(manifest)
 	last := d.running
 	spared, err := d.srv.leftovers()
 	if err != nil {
@@ -287,9 +311,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		return d.restore(ctx, id, last, fmt.Errorf("the new version failed: %w", err))
 	}
 	fault.Hit(fault.HostDeploySettled)
-	resp := d.confirm(id)
-	resp.TakenOffMatter = takenOff
-	return resp
+	return d.confirm(id)
 }
 
 // confirm makes a version that has settled the running one for good.
@@ -310,10 +332,14 @@ func (d *deployer) confirm(id string) api.Response {
 	fault.Hit(fault.HostDeployConfirmed)
 	d.log.Info("Deployed automations version", "version", id)
 	d.srv.emit(api.Event{Time: time.Now(), Type: api.EventDeploy, Message: id})
-	if err := d.removals(); err != nil {
-		return api.Response{Error: removalsFailed(err), Version: id}
+	off, err := d.hide()
+	if err != nil {
+		return api.Response{Error: hideFailed(err), Version: id}
 	}
-	return api.Response{Version: id}
+	if err := d.removals(); err != nil {
+		return api.Response{Error: removalsFailed(err), Version: id, TakenOffMatter: off}
+	}
+	return api.Response{Version: id, TakenOffMatter: off}
 }
 
 // restore brings the last version back after a new one failed. With nothing before it, all there is

@@ -81,14 +81,16 @@ func TestCheckFindsAShownDeviceThatIsntThePlugins(t *testing.T) {
 
 func TestCheckSaysWhichDevicesADeployHides(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "bedroom-shutter", ID: "s1", Driver: "plugin/tahoma", Endpoint: 2},
-		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3},
-		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4},
+		{Name: "bedroom-shutter", ID: "s1", Driver: "plugin/tahoma", Endpoint: 2, Capabilities: []string{"position"}},
+		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3, Capabilities: []string{"position"}},
+		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4, Capabilities: []string{"position"}},
+		// Matter has nothing to show of it, so it was never on the bridge.
+		{Name: "box-signal", ID: "s4", Driver: "plugin/tahoma", Endpoint: 5, Capabilities: []string{"link-quality"}},
 	}}
 	hidden := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}
 	var out bytes.Buffer
 	printHiding(&out, list, hidden, []string{"attic-shutter"})
-	if want := "A deploy hides bedroom-shutter from Matter"; !strings.HasPrefix(out.String(), want) {
+	if want := "A deploy hides bedroom-shutter from Matter,"; !strings.HasPrefix(out.String(), want) {
 		t.Errorf("got %q, want %q", out.String(), want)
 	}
 	out.Reset()

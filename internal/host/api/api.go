@@ -271,11 +271,17 @@ func PluginOf(d registry.Device) (string, bool) {
 	return strings.CutPrefix(d.Driver, driver.Plugin+"/")
 }
 
-// HiddenFromMatter says whether hidden, a home's plugins hidden from Matter, keeps a device on record
-// off it.
+// Bridgeable says whether the Matter bridge shows a device on record, unless its plugin is hidden:
+// it's paired, and it's something in Matter's names, which is what the bridge maps.
+func Bridgeable(d registry.Device) bool {
+	return d.ID != "" && !d.Removed && len(d.DeviceTypes()) > 0
+}
+
+// HiddenFromMatter says whether hidden, a home's plugins hidden from Matter, keeps a device the bridge
+// would show off it.
 func HiddenFromMatter(hidden []wire.HiddenPlugin, d registry.Device) bool {
 	plugin, ok := PluginOf(d)
-	return ok && !d.Removed && wire.Hidden(hidden, plugin, d.Name)
+	return ok && Bridgeable(d) && wire.Hidden(hidden, plugin, d.Name)
 }
 
 // HiddenDevices names the devices on record that hidden keeps off Matter, by name.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -57,6 +58,8 @@ type versions struct {
 	uploads string
 	values  *store.Namespace
 	state   history
+	// pendingNow is state.Pending, for those who read it without the deployer's lock.
+	pendingNow atomic.Bool
 }
 
 func openVersions(dataDir string, data *store.Store) (*versions, error) {
@@ -76,6 +79,7 @@ func openVersions(dataDir string, data *store.Store) (*versions, error) {
 			return nil, fmt.Errorf("reading the version history: %w", err)
 		}
 	}
+	v.pendingNow.Store(v.state.Pending)
 	return v, nil
 }
 
@@ -89,8 +93,12 @@ func (v *versions) save(next history) error {
 		return err
 	}
 	v.state = next
+	v.pendingNow.Store(next.Pending)
 	return nil
 }
+
+// deploying says a version is running that hasn't settled, safe to call from any goroutine.
+func (v *versions) deploying() bool { return v.pendingNow.Load() }
 
 func (v *versions) path(id string) string { return filepath.Join(v.dir, id) }
 

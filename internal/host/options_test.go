@@ -92,8 +92,22 @@ func TestThePluginsHiddenFromMatterAreSavedBeforeTheyreApplied(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if changes != 1 {
-		t.Errorf("the bridge heard of %d changes for one", changes)
+	// Reordering a home's code changes nothing.
+	if err := o.takeHidden([]wire.HiddenPlugin{
+		{Plugin: "tahoma", Shown: []string{"garage-door", "attic"}}, {Plugin: "lan"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.takeHidden([]wire.HiddenPlugin{
+		{Plugin: "lan"}, {Plugin: "tahoma", Shown: []string{"attic", "garage-door"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.takeHidden(hidden); err != nil {
+		t.Fatal(err)
+	}
+	if changes != 3 {
+		t.Errorf("the bridge heard of %d changes for three", changes)
 	}
 	if err := data.Close(); err != nil {
 		t.Fatal(err)

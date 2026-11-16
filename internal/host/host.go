@@ -141,6 +141,7 @@ func (h *Host) Run(ctx context.Context) error {
 	bridge := h.openMatter(data, options.bridgeName())
 	options.renamed = bridge.rename
 	srv.options = options
+	srv.deploying = kept.deploying
 	if bridge.working() {
 		sinks = append(sinks, bridge)
 	}

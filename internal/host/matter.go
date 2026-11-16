@@ -245,7 +245,7 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 	out := map[uint16]matterbridge.Device{}
 	hidden := m.options.hiddenFromMatter()
 	for _, d := range m.known.registry.List().Devices {
-		if d.Removed || d.ID == "" || !matterbridge.Supported(d.Capabilities) || api.HiddenFromMatter(hidden, d) {
+		if !api.Bridgeable(d) || api.HiddenFromMatter(hidden, d) {
 			continue
 		}
 		dev := key(d.Name)

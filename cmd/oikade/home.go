@@ -76,15 +76,16 @@ func runCheck(ctx context.Context, args []string) error {
 	for _, w := range m.Warnings {
 		fmt.Fprintln(os.Stderr, "Warning:", w)
 	}
-	devices, ok := hostDevices(ctx, target.transport())
-	if !ok {
-		fmt.Printf("Your home is fine: %d rules, %d plugins\n", len(m.Rules), len(m.Plugins))
-		return nil
-	}
-	if err := checkShown(*devices.Registry, m.HiddenFromMatter); err != nil {
-		return err
+	devices, reached := hostDevices(ctx, target.transport())
+	if reached {
+		if err := checkShown(*devices.Registry, m.HiddenFromMatter); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("Your home is fine: %d rules, %d plugins\n", len(m.Rules), len(m.Plugins))
+	if !reached {
+		return nil
+	}
 	printUnimported(os.Stderr, api.UnimportedOf(*devices.Registry, m.Plugins, devices.OutsidePlugins,
 		func(name string) bool { return slices.Contains(devices.SafetyHeld, name) }))
 	printHiding(os.Stderr, *devices.Registry, m.HiddenFromMatter, devices.HiddenFromMatter)

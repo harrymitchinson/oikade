@@ -330,6 +330,20 @@ func TestAHiddenPluginsDevicesAreOffTheBridge(t *testing.T) {
 	}
 }
 
+// api.Bridgeable is what oikade devices and a deploy say is on the bridge, so it must be what the
+// bridge maps.
+func TestBridgeableIsWhatTheBridgeMaps(t *testing.T) {
+	for _, c := range capability.Names() {
+		d := registry.Device{ID: "x", Capabilities: []string{c}}
+		if got, want := api.Bridgeable(d), matterbridge.Supported(d.Capabilities); got != want {
+			t.Errorf("%s: bridgeable is %v, and the bridge maps it: %v", c, got, want)
+		}
+	}
+	if api.Bridgeable(registry.Device{Capabilities: []string{capability.On}}) {
+		t.Error("a reserved device is bridgeable")
+	}
+}
+
 func TestABridgeTriesAgainUntilItsPortIsFree(t *testing.T) {
 	taken, err := net.ListenPacket("udp", "[::]:0")
 	if err != nil {

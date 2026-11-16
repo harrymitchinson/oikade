@@ -375,6 +375,42 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	}
 }
 
+func TestAFailedDeployLeavesThePluginsDevicesOnMatter(t *testing.T) {
+	t.Parallel()
+	port := freeUDP(t)
+	r := prepare(t)
+	r.env = append(r.env, "OIKADE_TEST_PLUGIN_DOWN="+filepath.Join(r.dir, "plugin-down"),
+		"OIKADE_TEST_CRASH="+filepath.Join(r.dir, "crash"))
+	r.launchPlugins(matterFlag(port), longSettle)
+	r.waitFor(func(l line) bool { return l.is(attached) })
+	r.until("the relay", func() bool { return r.count(pluginConnected, "plugin", "relays") >= 1 })
+	r.untilValue("relay", false)
+
+	bin := variant(t, "plugins-hidden-crash")
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.oikade(nil, "deploy", "--binary", bin)
+		done <- err
+	}()
+	r.until("the new version to connect", func() bool { return r.count(attached) >= 2 })
+	r.sync()
+	if err := os.WriteFile(filepath.Join(r.dir, "crash"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
+	}
+	r.waitFor(func(l line) bool { return l.is(restored) })
+	r.sync()
+	// Off and back on, a controller would have lost the devices' rooms and scenes.
+	if n := r.count("Removed bridged device"); n != 0 {
+		t.Errorf("a version that never settled took %d devices off the bridge. The log:\n%s", n, r.dump())
+	}
+	if got := deviceOf(t, r.devices(), "relay"); got.ID == "" {
+		t.Errorf("relay: %+v", got)
+	}
+}
+
 // switchedOn is an outside process's device, as simswitch would do it.
 type switchedOn struct{ sets atomic.Int32 }
 

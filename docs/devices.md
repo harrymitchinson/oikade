@@ -87,6 +87,6 @@ home.Plugin("tahoma", overkiz.New(overkiz.Local{ /* … */ })).
 	ShowOnMatter("garage-door")  // except this one, which it doesn't
 ```
 
-Your code still reads and sets them, and a tap on the platform's own tile reaches Oikade as the device changing by itself, as its own remote's would. A device the plugin reports later is hidden too. The host saves the setting before it applies it, so a restart keeps them off before your process connects.
+Your code still reads and sets them, and a tap on the platform's own tile reaches Oikade as the device changing by itself, as its own remote's would. A device the plugin reports later is hidden too. A deploy hides them once the version has settled, so one that fails leaves the bridge as it was. The host saves the setting before it applies it, so a restart keeps them off before your process connects.
 
 `oikade check` says which devices a deploy would take off, and fails on a `ShowOnMatter` name that isn't one of that plugin's devices on record. `oikade deploy` says which it took off. A controller loses a device it took off, with its room and scenes there. A hidden device keeps its endpoint, so showing it again brings it back as the same device to Matter, though whether the Home app puts it back in its room isn't verified. `oikade devices` shows it as `hidden from Matter` (`"matter": false` in `--json`).

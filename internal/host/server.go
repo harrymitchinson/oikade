@@ -22,7 +22,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -83,6 +82,8 @@ type server struct {
 	// options, if set, takes up the Matter bridge's name a connecting process declares, and the
 	// plugins it hides from Matter.
 	options *homeOptions
+	// deploying, if set, says a version is running that hasn't settled.
+	deploying func() bool
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
 
@@ -358,9 +359,13 @@ func (s *server) open(sess *session, hello wire.Message) string {
 			s.log.Error("Failed to save the Matter bridge's name", "err", err)
 			return "the host couldn't save the Matter bridge's name"
 		}
-		if err := s.takeHidden(hello.HiddenFromMatter); err != nil {
-			s.log.Error("Failed to save the plugins hidden from Matter", "err", err)
-			return "the host couldn't save the plugins hidden from Matter"
+		// A version that hasn't settled may fail, and its hiding would cost controllers the devices'
+		// rooms and scenes for nothing, so a deploy hides them once it's confirmed.
+		if s.deploying == nil || !s.deploying() {
+			if err := s.takeHidden(hello.HiddenFromMatter); err != nil {
+				s.log.Error("Failed to save the plugins hidden from Matter", "err", err)
+				return "the host couldn't save the plugins hidden from Matter"
+			}
 		}
 	}
 	welcome, runs, err := s.welcome(hello)
@@ -416,8 +421,7 @@ func (s *server) takenOffMatter(m wire.Manifest) []string {
 	now := s.options.hiddenFromMatter()
 	var out []string
 	for _, d := range s.plugins.known.registry.List().Devices {
-		if d.ID != "" && matterbridge.Supported(d.Capabilities) && api.HiddenFromMatter(m.HiddenFromMatter, d) &&
-			!api.HiddenFromMatter(now, d) {
+		if api.HiddenFromMatter(m.HiddenFromMatter, d) && !api.HiddenFromMatter(now, d) {
 			out = append(out, d.Name)
 		}
 	}
