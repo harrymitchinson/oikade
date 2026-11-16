@@ -650,7 +650,7 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 			continue
 		}
 		for i, u := range changes {
-			if !s.c.matches(u.Device.Name, room, types, u.Capability) {
+			if !s.c.matches(u.Device.Name, room, types, u.Capability, u.Value) {
 				continue
 			}
 			if vars[i] == nil {

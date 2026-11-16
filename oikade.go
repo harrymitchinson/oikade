@@ -4,14 +4,12 @@
 //	func main() {
 //		oikade.Run(oikade.NewHome(oikade.Options{},
 //			oikade.NewHold("bathroom-fan", BathroomFan.On.To(true)).
-//				When(func(s oikade.State) bool {
-//					return s.Get(BathroomSensor.Humidity) > 70
-//				}),
+//				When(BathroomSensor.Humidity.Above(70)),
 //		))
 //	}
 //
 // BathroomFan and BathroomSensor come from devices.go, which oikade types writes from the home's
-// devices, with a Handle for each capability each one has.
+// devices, with a Bool or a Number for each capability each one has.
 //
 // A flow is ordinary Go that can wait for hours and survive a crash: docs/writing-flows.md.
 //
@@ -56,8 +54,8 @@ const (
 	Safety Priority = "Safety"
 )
 
-// State is what a condition reads: the home now.
-type State struct {
+// Snapshot is the home at one moment, which a ConditionFunc and NewBudget's function read.
+type Snapshot struct {
 	devices  map[string]map[string]any
 	members  map[string]hub.Member
 	now      time.Time
@@ -76,7 +74,7 @@ type roomNotReported struct{ room, capability string }
 // roomEmpty ends a condition that read a room with no members in the read's group.
 type roomEmpty struct{ room string }
 
-func (s State) value(device, capability string) any {
+func (s Snapshot) value(device, capability string) any {
 	v, ok := s.devices[device][capability]
 	if !ok {
 		panic(notReported{device, capability})
@@ -87,25 +85,36 @@ func (s State) value(device, capability string) any {
 // Get reads a device's capability. A condition reading a value nobody has reported yet stops there:
 // a hold keeps its state, and a moment doesn't run. So does one with a mistake in it, such as a
 // device that doesn't exist, which is logged. Lookup carries on instead.
-func (s State) Get[T Value](h Handle[T]) T {
-	return as[T](h.Device, string(h.Capability), s.value(h.Device, string(h.Capability)))
+func (s Snapshot) Get[T Value](r Ref[T]) T {
+	h := r.handle()
+	return as[T](h.device, h.capability, s.value(h.device, h.capability))
 }
 
 // Lookup reads a device's capability, and reports false if nobody has reported it yet, so that a
 // condition can carry on without it:
 //
 //	if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
-func (s State) Lookup[T Value](h Handle[T]) (T, bool) {
-	values, declared := s.devices[h.Device]
+func (s Snapshot) Lookup[T Value](r Ref[T]) (T, bool) {
+	h := r.handle()
+	values, declared := s.devices[h.device]
 	if !declared {
-		panic(fmt.Sprintf("no device %s", h.Device))
+		panic(fmt.Sprintf("no device %s", h.device))
 	}
-	v, ok := values[string(h.Capability)]
+	v, ok := values[h.capability]
 	if !ok {
 		var zero T
 		return zero, false
 	}
-	return as[T](h.Device, string(h.Capability), v), true
+	return as[T](h.device, h.capability, v), true
+}
+
+// Is reports whether c is true now, as a condition of a hold or a moment would be. A condition that
+// reads a value nobody has reported yet stops the ConditionFunc there too.
+func (s Snapshot) Is(c Condition) bool {
+	if c == nil {
+		panic("Is needs a condition")
+	}
+	return c.holds(s)
 }
 
 func as[T Value](device, capability string, v any) T {
@@ -124,13 +133,13 @@ func as[T Value](device, capability string, v any) T {
 // and ignores those that haven't reported the capability. If none has, the condition
 // stops there, as at a Get. A room with no members stops it too, and a hold keeps its state, so it's
 // logged at Warn.
-func (s State) Any(r Room[bool]) bool { return s.Count(r) > 0 }
+func (s Snapshot) Any(r Room[bool]) bool { return s.Count(r) > 0 }
 
 // All reports whether the capability is true on all of the room's devices that have reported it.
-func (s State) All(r Room[bool]) bool { return !slices.Contains(roomValues(s, r), false) }
+func (s Snapshot) All(r Room[bool]) bool { return !slices.Contains(roomValues(s, r), false) }
 
 // Count is how many of the room's devices that have reported the capability have it true.
-func (s State) Count(r Room[bool]) int {
+func (s Snapshot) Count(r Room[bool]) int {
 	n := 0
 	for _, v := range roomValues(s, r) {
 		if v {
@@ -144,10 +153,10 @@ func (s State) Count(r Room[bool]) int {
 // order, for slices.Max or an average.
 //
 //	slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity)))
-func (s State) Readings(r Room[float64]) []float64 { return roomValues(s, r) }
+func (s Snapshot) Readings(r Room[float64]) []float64 { return roomValues(s, r) }
 
 // roomValues are the reported values of a room's capability, in device name order.
-func roomValues[T Value](s State, r Room[T]) []T {
+func roomValues[T Value](s Snapshot, r Room[T]) []T {
 	room, c, types := r.room, r.capability, r.engineTypes()
 	var names []string
 	for name, m := range s.members {
@@ -179,70 +188,48 @@ func roomValues[T Value](s State, r Room[T]) []T {
 }
 
 // Now is the time of this look at the home.
-func (s State) Now() time.Time { return s.now }
+func (s Snapshot) Now() time.Time { return s.now }
 
-// Within reports whether Now is inside the window, by the same rules as a hold's Window:
-//
-//	s.Within(oikade.NewWindow(oikade.Clock("18:00"), oikade.Clock("07:00")))
-//
-// A hold looks again every minute, so one whose When uses it changes within a minute of the window's
-// edge, where a hold's own Window changes on it. A window with a mistake in it, such as a time
-// that isn't one, stops the condition, and that's logged. A sunrise or sunset needs the home's
-// location, and a window with one is never open without it.
-func (s State) Within(w Window) bool {
-	in, err := w.toEngine().Contains(s.now, s.location, s.site)
-	if err != nil {
-		panic(fmt.Sprintf("window: %v", err))
+// evaluate runs f on a snapshot of vars, and turns the panic of a read that can't be made yet into
+// an error. A mistake panics on, for the engine to recover and log.
+func evaluate(v engine.Vars, f func(Snapshot)) (err error) {
+	devices, _ := v["devices"].(map[string]map[string]any)
+	members, _ := v["members"].(map[string]hub.Member)
+	now, _ := v["now"].(time.Time)
+	location, _ := v["location"].(*time.Location)
+	if location == nil {
+		location = time.Local // as the engine's
 	}
-	return in
-}
-
-// Condition decides from the home now. It must not block: it holds up every other rule, and one
-// that runs for too long gets the process replaced.
-type Condition func(State) bool
-
-func (c Condition) toEngine() engine.Condition {
-	if c == nil {
-		return nil
-	}
-	return func(v engine.Vars) (ok bool, err error) {
-		devices, _ := v["devices"].(map[string]map[string]any)
-		members, _ := v["members"].(map[string]hub.Member)
-		now, _ := v["now"].(time.Time)
-		location, _ := v["location"].(*time.Location)
-		if location == nil {
-			location = time.Local // as the engine's
+	site, _ := v["site"].(*sun.Site)
+	reads, _ := v[engine.VarRoomReads].(*[]engine.RoomRead)
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
 		}
-		site, _ := v["site"].(*sun.Site)
-		reads, _ := v[engine.VarRoomReads].(*[]engine.RoomRead)
-		defer func() {
-			r := recover()
-			if r == nil {
+		// Waiting for a device to report is normal. Anything else is a bug: the engine recovers it,
+		// and logs it where a person will see it.
+		switch n := r.(type) {
+		case notReported:
+			if _, declared := devices[n.device]; declared {
+				err = fmt.Errorf("%s %s hasn't reported", n.device, n.capability)
 				return
 			}
-			// Waiting for a device to report is normal. Anything else is a bug: the engine
-			// recovers it, and logs it where a person will see it.
-			switch n := r.(type) {
-			case notReported:
-				if _, declared := devices[n.device]; declared {
-					ok, err = false, fmt.Errorf("%s %s hasn't reported", n.device, n.capability)
-					return
-				}
-				panic(fmt.Sprintf("no device %s", n.device))
-			case roomNotReported:
-				ok, err = false, fmt.Errorf("no device in room %s has reported %s", n.room, n.capability)
-				return
-			case roomEmpty:
-				ok, err = false, engine.EmptyRoom{Room: n.room}
-				return
-			}
-			panic(r)
-		}()
-		return c(State{devices: devices, members: members, now: now, location: location, site: site, reads: reads}), nil
-	}
+			panic(fmt.Sprintf("no device %s", n.device))
+		case roomNotReported:
+			err = fmt.Errorf("no device in room %s has reported %s", n.room, n.capability)
+			return
+		case roomEmpty:
+			err = engine.EmptyRoom{Room: n.room}
+			return
+		}
+		panic(r)
+	}()
+	f(Snapshot{devices: devices, members: members, now: now, location: location, site: site, reads: reads})
+	return nil
 }
 
-// Time is a time of day, in At and a Window. Clock, Sunrise and Sunset make one.
+// Time is a time of day, in At and Daily. Clock, Sunrise and Sunset make one.
 type Time struct {
 	clock string
 	// sun is the event of a sunrise or sunset, and zero for a clock time.
@@ -283,14 +270,6 @@ func needsLocation(o Options, times ...Time) error {
 	return nil
 }
 
-// times are the window's edges, or none.
-func (w *Window) times() []Time {
-	if w == nil {
-		return nil
-	}
-	return []Time{w.start, w.end}
-}
-
 // once records which of a rule's single-valued options have been given, so that compile can report
 // one given twice. A method on a rule returns a copy, so what's here is clipped before it's added
 // to, and two chains from one rule stay separate.
@@ -315,29 +294,11 @@ func (o once) err() error {
 	return errors.Join(errs...)
 }
 
-// Window is when a hold may be active, from its start until the next end. An end at or before its
-// start is the next day. NewWindow makes one.
-type Window struct {
-	start, end Time
-	days       []time.Weekday
-}
-
-// NewWindow is open from start until the next end, starting on any day.
-func NewWindow(start, end Time) Window { return Window{start: start, end: end} }
-
-// Days limits the days the window starts on, adding to any it has.
-func (w Window) Days(days ...time.Weekday) Window {
-	w.days = append(slices.Clip(w.days), days...)
-	return w
-}
-
-// Hold keeps a capability at a value while its Window is open and When is true. It needs at least
-// one of them, or a Budget on its own. NewHold makes one.
+// Hold keeps a capability at a value while When is true, or as a Budget plans. NewHold makes one.
 type Hold struct {
 	name              string
 	set               Set
 	priority          Priority
-	window            *Window
 	when              Condition
 	onDelay, offDelay time.Duration
 	latch             bool
@@ -356,14 +317,9 @@ func (r Hold) Priority(p Priority) Hold {
 	return r
 }
 
-// Window is when the hold may be active.
-func (r Hold) Window(w Window) Hold {
-	r.window = &w
-	r.once = r.once.note("Window")
-	return r
-}
-
-// When is the condition the hold is active under.
+// When is the condition the hold is active under. A Daily in it, on its own or in an All, starts and
+// ends the hold on the minute of its edge. Any other condition is looked at again on every change
+// and at least once a minute.
 func (r Hold) When(c Condition) Hold {
 	r.when = c
 	r.once = r.once.note("When")
@@ -411,22 +367,22 @@ func (r Hold) repeats() error {
 type Budget struct {
 	planningTime string
 	slotMinutes  int
-	minutes      func(State) int
+	minutes      func(Snapshot) int
 	bands        *Bands
 	prefer       []prefer
-	forbid       []Window
+	forbid       []Hours
 	once         once
 }
 
-// prefer weights the slots in a window.
+// prefer weights the slots in some hours.
 type prefer struct {
-	window Window
-	score  int
+	hours Hours
+	score int
 }
 
 // NewBudget works out the day's minutes at the planning time. A device that hasn't reported, or a
 // panic, makes it zero for the day, and that's logged.
-func NewBudget(minutes func(State) int) Budget { return Budget{minutes: minutes} }
+func NewBudget(minutes func(Snapshot) int) Budget { return Budget{minutes: minutes} }
 
 // NewBandedBudget picks the day's minutes from a reading.
 func NewBandedBudget(bands Bands) Budget { return Budget{bands: &bands} }
@@ -446,22 +402,22 @@ func (b Budget) SlotMinutes(minutes int) Budget {
 	return b
 }
 
-// Prefer weights the slots in a window, adding to any others.
-func (b Budget) Prefer(w Window, score int) Budget {
-	b.prefer = append(slices.Clip(b.prefer), prefer{window: w, score: score})
+// Prefer weights the slots in some hours, from Daily, adding to any others.
+func (b Budget) Prefer(h Hours, score int) Budget {
+	b.prefer = append(slices.Clip(b.prefer), prefer{hours: h, score: score})
 	return b
 }
 
-// Forbid rules out the slots in these windows, adding to any others. It beats a Prefer.
-func (b Budget) Forbid(windows ...Window) Budget {
-	b.forbid = append(slices.Clip(b.forbid), windows...)
+// Forbid rules out the slots in these hours, from Daily, adding to any others. It beats a Prefer.
+func (b Budget) Forbid(hours ...Hours) Budget {
+	b.forbid = append(slices.Clip(b.forbid), hours...)
 	return b
 }
 
 // Bands picks a day's minutes from the band a reading falls in.
 type Bands struct {
 	// Reading is what picks the band.
-	Reading Handle[float64]
+	Reading Number
 	// MaxAge is how old the reading may be. Zero means 30 minutes.
 	MaxAge time.Duration
 	// Missing is the minutes when there's no reading that recent.
@@ -713,10 +669,38 @@ func (r *FlowRun) Now() time.Time { return r.run.Now() }
 // Sleep waits. A restart doesn't move the time it ends.
 func (r *FlowRun) Sleep(d time.Duration) { r.run.Sleep(d) }
 
+// Get reads a capability now, such as Hallway.Occupied. A replay returns what it read the first
+// time. A value nobody has reported yet ends the run as failed, and that's logged.
+func (r *FlowRun) Get[T Value](c Ref[T]) T {
+	h := c.handle()
+	var v T
+	err := r.run.Look(h.device+" "+h.capability, &v, func(vars engine.Vars) (bool, error) {
+		return true, evaluate(vars, func(s Snapshot) { v = s.Get(c) })
+	})
+	if err != nil {
+		panic(fmt.Sprintf("Get: %v", err))
+	}
+	return v
+}
+
+// Is reports whether c is true now, such as oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0)) for
+// whether it's dark. A replay returns what it found the first time. A condition that reads a value
+// nobody has reported yet is false.
+func (r *FlowRun) Is(c Condition) bool {
+	if c == nil {
+		panic("Is needs a condition") // Ends the run as failed.
+	}
+	var ok bool
+	err := r.run.Look("is", &ok, func(vars engine.Vars) (bool, error) {
+		return true, evaluate(vars, func(s Snapshot) { ok = c.holds(s) })
+	})
+	return err == nil && ok
+}
+
 // WaitFor waits until c is true and returns true, or returns false once timeout has passed. Zero
 // means no limit. A restart doesn't move the time it ends.
 func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
-	return r.run.WaitFor(c.toEngine(), timeout)
+	return r.run.WaitFor(toEngine(c), timeout)
 }
 
 // Set writes a capability, such as Hallway.On.To(true), or claims it if it's arbitrated, which
@@ -745,7 +729,7 @@ type Action interface {
 	toEngine() engine.Action
 }
 
-// Set writes a capability, from a Handle's To or InRoom's. For, UntilReleased and UntilNext make it a
+// Set writes a capability, from a Bool's, a Number's or InRoom's To. For, UntilReleased and UntilNext make it a
 // claim on an arbitrated capability, which needs one of them:
 //
 //	Heater.On.To(true).For(time.Hour)
@@ -1005,17 +989,19 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		if err == nil {
 			err = r.checkBudget(settings)
 		}
-		add(r.name, c, errors.Join(err, r.repeats(), needsLocation(h.options, r.window.times()...)))
+		add(r.name, c, errors.Join(err, r.repeats(), checkCondition(r.when, h.options)))
 	}
 	for _, r := range h.moments {
 		c, err := engine.NewMoment(name(r.name), r.toEngine())
-		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...)))
+		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
+			checkCondition(r.cond, h.options)))
 	}
 	for _, r := range h.flows {
 		f := r.toFlow(name(r.name))
 		flows[r.name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
-		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...)))
+		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
+			checkCondition(r.cond, h.options)))
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.plugins {
@@ -1110,7 +1096,7 @@ func lateness(late time.Duration, safety bool) time.Duration {
 const neverLate = 100 * 365 * 24 * time.Hour
 
 func trigger(on []Change, at []Time, cond Condition, late time.Duration, safety bool) engine.Trigger {
-	t := engine.Trigger{Condition: cond.toEngine(), StartingDeadline: lateness(late, safety)}
+	t := engine.Trigger{Condition: toEngine(cond), StartingDeadline: lateness(late, safety)}
 	for _, c := range on {
 		if c != nil { // nilChange reports it.
 			t.Changes = append(t.Changes, c.change())
@@ -1152,17 +1138,15 @@ func (r Flow) toEngine(f *flow.Flow) engine.Flow {
 func (r Hold) toEngine() engine.Hold {
 	h := engine.Hold{
 		Device: r.set.device, Room: r.set.room, DeviceTypes: r.set.types, Capability: r.set.capability, Value: r.set.value,
-		Priority: engine.Priority(r.priority), When: r.when.toEngine(),
-		OnDelay: r.onDelay, OffDelay: r.offDelay, Latch: r.latch, Budget: r.budget.toSchedule(),
+		Priority: engine.Priority(r.priority),
+		OnDelay:  r.onDelay, OffDelay: r.offDelay, Latch: r.latch, Budget: r.budget.toSchedule(),
 	}
-	if r.window != nil {
-		h.Window = r.window.toEngine()
+	hours, when := splitHours(r.when)
+	h.When = toEngine(when)
+	if hours != nil {
+		h.Window = hours.toEngine()
 	}
 	return h
-}
-
-func (w Window) toEngine() *engine.Window {
-	return &engine.Window{Start: w.start.timer(), End: w.end.timer(), Days: w.days}
 }
 
 // checkBudget checks a hold's budget against its Control, which the engine can't see until the
@@ -1199,10 +1183,7 @@ func (b *Budget) toSchedule() *schedule.Spec {
 					err = fmt.Errorf("%v", r)
 				}
 			}()
-			_, err = Condition(func(st State) bool {
-				minutes = m(st)
-				return true
-			}).toEngine()(vars)
+			err = evaluate(vars, func(st Snapshot) { minutes = m(st) })
 			return minutes, err
 		}
 	}
@@ -1218,7 +1199,7 @@ func (b *Budget) toSchedule() *schedule.Spec {
 		s.Bands = bands
 	}
 	for _, p := range b.prefer {
-		s.Prefer = append(s.Prefer, schedule.PreferSpec{Window: p.window.toSchedule(), Score: p.score})
+		s.Prefer = append(s.Prefer, schedule.PreferSpec{Window: p.hours.toSchedule(), Score: p.score})
 	}
 	for _, f := range b.forbid {
 		s.Forbid = append(s.Forbid, f.toSchedule())
@@ -1228,16 +1209,16 @@ func (b *Budget) toSchedule() *schedule.Spec {
 
 // clockOnly rejects a sunrise or sunset in a budget's windows, which are planned in slots.
 func (b *Budget) clockOnly() error {
-	sunEdged := func(w Window) bool { return w.start.isSun() || w.end.isSun() }
-	preferred := func(p prefer) bool { return sunEdged(p.window) }
+	sunEdged := func(h Hours) bool { return h.start.isSun() || h.end.isSun() }
+	preferred := func(p prefer) bool { return sunEdged(p.hours) }
 	if slices.ContainsFunc(b.forbid, sunEdged) || slices.ContainsFunc(b.prefer, preferred) {
 		return errors.New("a budget's windows take clock times only, not a sunrise or sunset")
 	}
 	return nil
 }
 
-func (w Window) toSchedule() schedule.WindowSpec {
-	return schedule.WindowSpec{Start: w.start.clock, End: w.end.clock, Days: w.days}
+func (h Hours) toSchedule() schedule.WindowSpec {
+	return schedule.WindowSpec{Start: h.start.clock, End: h.end.clock, Days: h.days}
 }
 
 // safety reports whether the moment has a Safety set.

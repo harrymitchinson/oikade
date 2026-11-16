@@ -48,11 +48,11 @@ type action struct {
 	priority Priority
 }
 
-// matches reports whether a capability change on a device, currently in room and of types,
+// matches reports whether a capability change to value on a device, currently in room and of types,
 // triggers the Rule. room is empty when the device has none.
-func (c *Compiled) matches(device, room string, types []devicetype.Type, name string) bool {
+func (c *Compiled) matches(device, room string, types []devicetype.Type, name string, value any) bool {
 	for _, t := range c.changes {
-		if t.Capability != name {
+		if t.Capability != name || t.To != nil && t.To != value {
 			continue
 		}
 		if (t.Device != "" && t.Device == device) || (t.Room != "" && t.Room == room && devicetype.Any(types, t.DeviceTypes)) {

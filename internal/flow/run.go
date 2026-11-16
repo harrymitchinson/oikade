@@ -19,6 +19,7 @@ const (
 	kindSleep = "sleep"
 	kindWait  = "wait"
 	kindWoke  = "woke"
+	kindLook  = "look"
 )
 
 // entry is one step in a run's journal. Kind and ID say which step it was, so a replay notices code
@@ -208,6 +209,37 @@ func (r *Run) WaitFor(cond engine.Condition, timeout time.Duration) bool {
 	}
 	r.record(entry{Kind: kindWoke, ID: id, OK: met})
 	return met
+}
+
+// Look reads the home once, through read, which sets result, a pointer, and records it, so a replay
+// sets the same. An error, as from a read of a value nobody has reported yet, is recorded too, and a
+// replay returns one with its message. id tells a flow's looks apart, so a replay notices code that
+// reads something else.
+func (r *Run) Look(id string, result any, read engine.Condition) error {
+	if e, ok := r.replay(kindLook, id); ok {
+		if e.Err != "" {
+			return recordedErr(e)
+		}
+		if err := json.Unmarshal(e.Result, result); err != nil {
+			return fmt.Errorf("reading the recorded look at %s: %w", id, err)
+		}
+		return nil
+	}
+	_, err := r.f.Actions.Look(r.ctx, r.f.Key, read)
+	r.stopIfCancelled(err)
+	e := entry{Kind: kindLook, ID: id}
+	if err == nil {
+		raw, merr := json.Marshal(result)
+		if merr != nil {
+			err = fmt.Errorf("recording the look at %s: %w", id, merr)
+		}
+		e.Result = raw
+	}
+	if err != nil {
+		e.Err, e.Result = err.Error(), nil
+	}
+	r.record(e)
+	return err
 }
 
 // Apply runs an action: a set, or a release. It runs at least once. A failed action's error is

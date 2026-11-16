@@ -1,6 +1,6 @@
 # Automations
 
-How a home's rules are written: moments, holds, rooms, budgets and arbitration. The [README](../README.md#getting-started-in-go) gets you to a first deploy, and [writing-flows.md](writing-flows.md) covers flows.
+How a home's rules are written: moments, holds, conditions, rooms, budgets and arbitration. The [README](../README.md#getting-started-in-go) gets you to a first deploy, and [writing-flows.md](writing-flows.md) covers flows.
 
 ## Automations
 
@@ -16,20 +16,43 @@ Capabilities are last-write-wins unless they're **arbitrated** with a [`Control`
 ```go
 oikade.NewMoment("hallway-motion-light", HallwayLight.On.To(true), oikade.Wait(5*time.Minute), HallwayLight.On.To(false)).
 	Restart(). // new motion restarts the 5 minutes; without it, triggers are ignored while it runs
-	On(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)).
-	If(func(s oikade.State) bool {
-		return s.Any(oikade.InRoom("hallway", oikade.Everything, oikade.Occupied)) &&
-			s.Within(oikade.NewWindow(oikade.Clock("18:00"), oikade.Clock("07:00")))
-	})
+	On(HallwaySensor.Occupied.Becomes(true)).
+	If(oikade.Daily("18:00", "07:00"))
 ```
 
-A condition reads the home through its `State`: `Get` reads a handle, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), `Within` says whether it's inside a [window](#holds), by the rules a hold's `Window` keeps, and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. If an `OnDelay` or `OffDelay` runs out meanwhile, the hold starts or ends once the value is back, if `When` still says so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts. `Lookup` carries on instead, and reports whether there's a value:
-
-```go
-if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
-```
+`On` takes the changes that trigger it: a `Bool` or a `Number` fires whenever it changes, a `Bool`'s `Becomes(true)` only when it changes to true, and [`InRoom`](#rooms) on a change from any device in a room. `If` is a [condition](#conditions), looked at when a trigger fires.
 
 The 5 minutes in this example live in your process's memory, so a restart during them leaves the light on. The [hold](#holds) version below doesn't have that problem, and a flow's `Sleep` survives it too.
+
+### Conditions
+
+A condition is something true or false about the home now. It's a value, so the host can say why one is false ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+
+| Condition | True while |
+|---|---|
+| `GarageDoor.Open` | a `Bool` is true |
+| `Bathroom.Humidity.Above(70)`, `.Below(3)`, `.Within(18, 24)` | a `Number` is above, below, or from the first to the second, both included |
+| `oikade.Daily("22:00", "06:00")` | it's between two [times of day](#times-of-day), which may be a `Sunrise` or a `Sunset`. An end at or before the start is the next day. `.Days(time.Saturday, time.Sunday)` limits it to the windows that start on those days |
+| `oikade.Yearly("1 Jun", "15 Sep")` | it's between two dates of the year, both whole days, in the host's time zone. An end before the start is the next year, so `Yearly("1 Nov", "28 Feb")` is the winter |
+| `oikade.Any(a, b, …)`, `oikade.All(a, b, …)`, `oikade.Not(a)` | any of them is, all of them are, or it isn't |
+| `oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool { … })` | the function says so, for what the others can't say |
+
+```go
+oikade.All(PoolWater.Temperature.Below(3), oikade.Not(oikade.Yearly("1 Jun", "15 Sep")))
+```
+
+A condition reading a value nobody has reported yet stops there: a hold keeps its state, and a moment doesn't run. If an `OnDelay` or `OffDelay` runs out meanwhile, the hold starts or ends once the value is back, if `When` still says so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts.
+
+A `ConditionFunc` reads the home through its `Snapshot`: `Get` reads a `Bool` or a `Number`, `Is` says whether another condition is true, `Any`, `All`, `Count` and `Readings` read a [room](#rooms), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. Its label is how the host names it, since it can't see inside a function to say why it's false. `Lookup` carries on without a value, and reports whether there is one:
+
+```go
+oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
+	v, ok := s.Lookup(CellarSensor.Humidity)
+	return ok && v > 65
+})
+```
+
+A date or time that isn't one, such as `Yearly("1 Jun", "31 Jun")`, `Within(25, 18)` or a `ConditionFunc` with no label, fails `oikade check`, naming the rule.
 
 ### Times of day
 
@@ -53,9 +76,10 @@ oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}, // ro
 Two decimals are about a kilometre, which moves sunset by seconds, so your home's repo needn't hold more than its postcode. A home with no sun times needs no `Location`. `NewLocation` takes both coordinates, so one can't be forgotten, and 0 is a coordinate like any other.
 
 - **A time that isn't one,** such as `Clock("25:00")`, a sun time with no location, or an offset over 6 hours, fails `oikade check`, naming the rule.
+- **A `Daily` takes two strings or two times,** so one with a sun edge writes its clock edge as `oikade.Clock("23:30")`.
 - **Several times** fire at each, so `At(Clock("18:00"), Sunset(0))` fires at both, and the same time twice fires once.
 - **A day the sun doesn't rise or set,** as near the poles, that time doesn't fire, and a window with it as an edge stays shut.
-- **A window with a sun edge and a clock edge** ends at the first end after its start, as any window does. So in midsummer `NewWindow(Sunset(3 * time.Hour), Clock("23:30"))` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
+- **A `Daily` with a sun edge and a clock edge** ends at the first end after its start, as any `Daily` does. So in midsummer `Daily(Sunset(3*time.Hour), Clock("23:30"))` starts after midnight, and stays open until 23:30 that evening. Keep the offset small enough that the order holds all year.
 - **A time the clocks skip** when daylight saving starts fires when they go forward, and a time that happens twice when it ends fires the first time.
 - **`Late`** is how late a time may still fire after your process was down at it, 10 minutes by default. A later one is skipped, logged and counted as `missed`. A moment with a Safety `Set` fires however late it is. Only the latest missed time counts.
 
@@ -81,13 +105,13 @@ The group says which of the room's devices you mean, by their [device types](dev
 
 A device whose type isn't in the group is left alone, and the log names it, so a wall switch typed `MountedOnOffControl` is a plug until `oikade devices type` makes it a light. A room's sensors have no group of their own: read and trigger on them with `Everything`.
 
-A condition reads a room with `State`'s `Any`, `All` and `Count` for a `bool` capability, and `Readings` for a number, whose values go to `slices.Max`, `slices.Min` or an average:
+A `ConditionFunc` reads a room with its `Snapshot`'s `Any`, `All` and `Count` for a `bool` capability, and `Readings` for a number, whose values go to `slices.Max`, `slices.Min` or an average:
 
 ```go
 // A dehumidifier that runs on whichever cellar sensors have reported.
-When: func(s oikade.State) bool {
+oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 	return slices.Max(s.Readings(oikade.InRoom("cellar", oikade.Everything, oikade.Humidity))) > 65
-},
+})
 ```
 
 A read covers the devices in the room now that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. If none has reported, the condition stops, as at a `Get`. A hold that reads a room looks again when a device moves in or out with `oikade devices room`, with no deploy. A sensor that reported and then died keeps its last value.
@@ -103,34 +127,31 @@ A room with no devices in it, or none in the read's group, stops the condition t
 
 ### Holds
 
-`oikade.NewHold` takes a name and the `Set` to keep. A hold keeps that value while its `Window` is open and `When` is true:
+`oikade.NewHold` takes a name and the `Set` to keep. A hold keeps that value while `When` is true:
 
 ```go
 oikade.NewBundle(
 	oikade.NewHold("water-heater-night", WaterHeater.On.To(true)).
-		Window(oikade.NewWindow(oikade.Clock("22:00"), oikade.Clock("06:00"))), // an end at or before the start is the next morning
+		When(oikade.Daily("22:00", "06:00")), // an end at or before the start is the next morning
 	oikade.NewHold("bathroom-humid", BathroomFan.On.To(true)).
-		When(func(s oikade.State) bool {
-			return s.Get(BathroomSensor.Humidity) > 70
-		}).
+		When(BathroomSensor.Humidity.Above(70)).
 		OffDelay(10*time.Minute), // run on for 10 minutes after it drops
 )
 ```
 
 | Method | |
 |---|---|
-| `Window` | `oikade.NewWindow(start, end)`, from times of day such as `oikade.Clock("22:00")` or `oikade.Sunset(0)`, as in [`At`](#times-of-day). `.Days(…)` on it limits it to windows that start on those days. |
-| `When` | A condition, as in a moment. |
+| `When` | A [condition](#conditions). |
 | `OnDelay` | How long `When` must stay true before the hold starts. |
 | `OffDelay` | How long the hold stays active after `When` stops being true. |
 | `Latch` | Stays active once it starts, until a `Release`. See [below](#latched-safety-holds). |
 | `Budget` | Runs a device for a number of minutes a day instead, in the slots that suit it best. It's the only condition of its hold, and a lock can't have one. See [Budgets](#budgets). |
 
-A hold needs a `Window`, a `When` or a `Budget`, and everything in it must be true together.
+A hold needs a `When` or a `Budget`.
 
-A `When` is looked at again on every device change and at least once a minute, so one that uses `s.Within` changes within a minute of the window's edge. A hold's own `Window` changes on the edge, and `oikade status` shows when it next does, so prefer it when the window is the whole story.
+A `When` is looked at again on every device change and at least once a minute. A `Daily` in it, on its own or in an `All`, is different: the hold starts and ends on its edge, and `oikade status` shows when it next does. One inside an `Any` or a `Not` changes within a minute of its edge.
 
-- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. A `Locked` hold writes nothing either: only `To(false)` unlocks a door, so `BackDoor.Locked.To(true)` over a night's `Window` leaves it locked in the morning, and a hold of `To(false)` leaves it unlocked when it ends ([OIK-23](https://linear.app/oikade/issue/OIK-23)). A lock with a `Control` is left at the `Control`'s default when a claim on it ends, as any arbitrated capability is, so give it `Locked.To(true)` as its default unless it should unlock by itself. To go back to a set value, give the capability a `Control`: its default is what's left when the hold ends.
+- **When a hold starts,** your process writes its value. When it ends, a bool hold writes the opposite, and a number hold writes nothing, so the device keeps the held value. A `Locked` hold writes nothing either: only `To(false)` unlocks a door, so `BackDoor.Locked.To(true)` over a night's `Daily` leaves it locked in the morning, and a hold of `To(false)` leaves it unlocked when it ends ([OIK-23](https://linear.app/oikade/issue/OIK-23)). A lock with a `Control` is left at the `Control`'s default when a claim on it ends, as any arbitrated capability is, so give it `Locked.To(true)` as its default unless it should unlock by itself. To go back to a set value, give the capability a `Control`: its default is what's left when the hold ends.
 - **Without a `Control`, the last write wins.** A Home app tap at 23:00 turns the water heater off until the hold next starts.
 - **Restarts are safe.** The host saves each hold's state, and a new process writes only if the hold started or ended meanwhile. A restart at 02:00 doesn't undo the 23:00 tap, but automations down from 21:50 to 02:00 turn the heater on when they come back. `OffDelay` deadlines are saved too, so the fan still stops on time.
 - **Two holds on one capability need a `Control`** to decide between them.
@@ -153,8 +174,8 @@ oikade.NewBundle(
 			Ranges:    []oikade.Band{{Below: 55, Minutes: 60}, {Below: 70, Minutes: 180}},
 			Otherwise: 300,
 		}).
-			Prefer(oikade.NewWindow(oikade.Clock("23:00"), oikade.Clock("07:00")), 3).
-			Forbid(oikade.NewWindow(oikade.Clock("18:00"), oikade.Clock("22:00")))),
+			Prefer(oikade.Daily("23:00", "07:00"), 3).
+			Forbid(oikade.Daily("18:00", "22:00"))),
 )
 ```
 
@@ -166,10 +187,10 @@ oikade.NewBundle(
 | `SlotMinutes` | The day is planned in slots of 15, 30 or 60 minutes. Defaults to 30. |
 | `oikade.Bands` | The day's minutes from the band the reading falls in at `PlanningTime`: the first whose `Below` it's under, and `Otherwise` for the rest. `Missing` applies when it hasn't reported within `MaxAge` (default 30 minutes). |
 | `NewBudget`'s function | Or a function of the home at planning time. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. |
-| `Prefer(window, score)` | Windows the minutes go in first. Each slot a window touches gains the score, from -100 to 100, and overlapping windows add up. Give it once per window. |
-| `Forbid` | Windows the minutes never go in. |
+| `Prefer(hours, score)` | A `Daily` the minutes go in first. Each slot it touches gains the score, from -100 to 100, and overlapping ones add up. Give it once per `Daily`. |
+| `Forbid` | `Daily`s the minutes never go in. |
 
-A budget's windows take clock times only, because the day is planned in slots.
+A budget's `Daily`s take clock times only, because the day is planned in slots.
 
 A budget holds one device's `Bool` capability at `true`, and that capability needs a `Control`: its `MinimumOn`, `MinimumOff` and `MaximumStartsPerDay` shape the planned runs, and `MinimumOn` and `MinimumOff` must be whole numbers of slots. `oikade check` says if there's no `Control`. Something that must run whatever the budget says, such as frost protection, is a separate `Safety` hold on the same capability, which wins over the budget.
 
@@ -187,7 +208,7 @@ oikade.NewBundle(
 		oikade.ExternalOverride, // a wall switch or Home app tap becomes a claim...
 	).OverrideUntilNext(), // ...until what the rules want next changes
 	oikade.NewHold("hall-motion-light", HallLight.On.To(true)).
-		When(func(s oikade.State) bool { return s.Get(HallMotion.Occupied) }).
+		When(HallMotion.Occupied).
 		OffDelay(5*time.Minute),
 )
 ```
@@ -244,10 +265,9 @@ oikade.NewBundle(
 	oikade.NewHold("garage-overheat", GarageHeater.On.To(false)).
 		Priority(oikade.Safety).
 		Latch().
-		When(func(s oikade.State) bool { return s.Get(GarageTemperature.Temperature) > 40 }),
+		When(GarageTemperature.Temperature.Above(40)),
 	oikade.NewMoment("garage-overheat-reset", oikade.Release("garage-overheat")).
-		On(GarageDoor.Open).
-		If(func(s oikade.State) bool { return s.Get(GarageDoor.Open) }),
+		On(GarageDoor.Open.Becomes(true)),
 )
 ```
 
@@ -275,7 +295,7 @@ func lights() oikade.Bundle {
 
 func motionLight(z zone) oikade.Hold {
 	return oikade.NewHold(z.name+"-motion-light", z.light.To(true)).
-		When(func(s oikade.State) bool { return s.Get(z.motion) }).
+		When(z.motion).
 		OffDelay(5 * time.Minute)
 }
 

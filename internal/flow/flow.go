@@ -59,6 +59,8 @@ type Actions interface {
 	// ReleaseFlow ends a flow's claims, whichever run made them, but for Safety ones.
 	ReleaseFlow(ctx context.Context, key ident.ID) error
 	WaitFor(ctx context.Context, key ident.ID, cond engine.Condition, until time.Time) (bool, error)
+	// Look evaluates cond once, on the home now.
+	Look(ctx context.Context, key ident.ID, cond engine.Condition) (bool, error)
 }
 
 // Flow is one flow and what it runs against.

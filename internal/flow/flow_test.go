@@ -111,6 +111,10 @@ func (h *fakeHome) holds(device string) bool {
 	return ok
 }
 
+func (h *fakeHome) Look(_ context.Context, _ ident.ID, cond engine.Condition) (bool, error) {
+	return cond(nil)
+}
+
 func (h *fakeHome) WaitFor(ctx context.Context, _ ident.ID, cond engine.Condition, _ time.Time) (bool, error) {
 	if cond == nil {
 		return false, errors.New("a wait needs a condition") // As the engine answers.

@@ -51,11 +51,11 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 		fmt.Fprintf(&b, "// %s is %s.\nvar %s = struct {\n\tName string\n", ident, describe(d), ident)
 		hs := handles(d)
 		for _, h := range hs {
-			fmt.Fprintf(&b, "\t%s oikade.Handle[%s]\n", h.field, h.typ)
+			fmt.Fprintf(&b, "\t%s oikade.%s\n", h.field, h.typ)
 		}
 		fmt.Fprintf(&b, "}{\n\tName: %q,\n", d.Name)
 		for _, h := range hs {
-			fmt.Fprintf(&b, "\t%s: oikade.Handle[%s]{Device: %q, Capability: oikade.%s},\n", h.field, h.typ, d.Name, h.field)
+			fmt.Fprintf(&b, "\t%s: oikade.%s{Device: %q, Capability: oikade.%s},\n", h.field, h.typ, d.Name, h.field)
 		}
 		b.WriteString("}\n\n")
 	}
@@ -137,9 +137,9 @@ func handles(d Device) []handle {
 		if !ok || slices.ContainsFunc(out, func(h handle) bool { return h.field == spec.Go }) {
 			continue
 		}
-		typ := "bool"
+		typ := "Bool"
 		if spec.Kind == capability.KindNumber {
-			typ = "float64"
+			typ = "Number"
 		}
 		out = append(out, handle{field: spec.Go, typ: typ})
 	}

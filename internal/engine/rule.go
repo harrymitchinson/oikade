@@ -112,6 +112,8 @@ type Change struct {
 	// device in the room.
 	DeviceTypes []devicetype.Type
 	Capability  string
+	// To, if set, fires only on a change to this value.
+	To any
 }
 
 func (c Change) check() []error {
@@ -124,6 +126,10 @@ func (c Change) check() []error {
 	}
 	if _, ok := capability.Lookup(c.Capability); !ok {
 		errs = append(errs, fmt.Errorf("unknown capability %q", c.Capability))
+	} else if c.To != nil {
+		if _, err := capability.Validate(c.Capability, c.To); err != nil {
+			errs = append(errs, fmt.Errorf("a change to %v: %w", c.To, err))
+		}
 	}
 	return errs
 }
@@ -451,6 +457,22 @@ func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, unti
 
 // look evaluates a wait's condition, and returns what will close on the next change. Nothing that
 // goes wrong in it can leave e.mu held, which would stop every rule and heartbeat.
+// Look evaluates cond once, on the home now, for a flow's look. A panic in it is an error, and a
+// mistake, rather than a value that hasn't been reported, is logged.
+func (e *Engine) Look(ctx context.Context, key ident.ID, cond Condition) (bool, error) {
+	if cond == nil {
+		return false, errors.New("a look needs a condition")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	_, ok, err := e.look(guarded(cond))
+	if _, ok := errors.AsType[brokenCondition](err); ok {
+		e.Log.Error("Failed to evaluate flow condition", "err", err, "rule", key)
+	}
+	return ok, err
+}
+
 func (e *Engine) look(cond Condition) (changed <-chan struct{}, ok bool, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

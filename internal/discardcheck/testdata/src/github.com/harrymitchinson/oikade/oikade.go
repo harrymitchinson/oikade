@@ -14,19 +14,30 @@ type Set struct{}
 
 func (s Set) UntilNext() Set { return s }
 
-type Handle[T any] struct{}
+type Condition interface{ holds() bool }
 
-func (h Handle[T]) To(v T) Set { return Set{} }
+type Bool struct{}
+
+func (b Bool) To(v bool) Set       { return Set{} }
+func (b Bool) holds() bool         { return false }
+func (b Bool) Becomes(v bool) Bool { return b }
+
+type Number struct{}
+
+func (n Number) Above(v float64) Condition { return nil }
 
 type Room[T any] struct{}
 
-func InRoom[T any](room string, h Handle[T]) Room[T] { return Room[T]{} }
+func InRoom(room string, b Bool) Room[bool] { return Room[bool]{} }
 
 func (r Room[T]) To(v T) Set { return Set{} }
 
-type Window struct{}
+type Hours struct{}
 
-func NewWindow() Window { return Window{} }
+func Daily(start, end string) Hours { return Hours{} }
+func (h Hours) holds() bool         { return false }
+
+func Not(c Condition) Condition { return c }
 
 type Bundle struct{}
 
@@ -48,6 +59,6 @@ func (r *FlowRun) Set(s Set) error { return nil }
 func (r *FlowRun) WaitFor() bool   { return false }
 func (r *FlowRun) Release() error  { return nil }
 
-type State struct{}
+type Snapshot struct{}
 
-func (s State) Get(h Handle[bool]) bool { return false }
+func (s Snapshot) Get(b Bool) bool { return false }

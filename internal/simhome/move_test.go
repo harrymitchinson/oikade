@@ -34,9 +34,9 @@ func TestAHoldWhoseRoomLosesItsLastMemberWarnsOnce(t *testing.T) {
 	occupied := string(oikade.Occupied)
 	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("hall-lamp", switchOf("lamp").To(true)).
 		OffDelay(time.Minute).
-		When(func(s oikade.State) bool {
+		When(oikade.ConditionFunc("hall occupied", func(s oikade.Snapshot) bool {
 			return s.Any(oikade.InRoom("hall", oikade.Everything, oikade.Occupied))
-		}))
+		})))
 	simulated, err := simhome.FromHome(home)
 	if err != nil {
 		t.Fatal(err)

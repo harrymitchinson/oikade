@@ -181,7 +181,7 @@ func TestCheckFailsOnACapabilityTheDeviceHasnt(t *testing.T) {
 func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "When(func", "OnDelay(-time.Minute).\n\t\t\tWhen(func")
+	replaceIn(t, filepath.Join(dir, "main.go"), "When(PorchSensor", "OnDelay(-time.Minute).\n\t\t\tWhen(PorchSensor")
 	out, err := run(t, bin, dir, "", "check")
 	if err == nil {
 		t.Fatalf("oikade check passed:\n%s", out)
@@ -329,7 +329,7 @@ func discard(h oikade.Hold) {
 	h.OffDelay(time.Minute)
 }
 
-func thrownAway(g oikade.Handle[bool]) {
+func thrownAway(g oikade.Bool) {
 	g.To(true)
 }
 `
