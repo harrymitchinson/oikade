@@ -9,7 +9,7 @@ import (
 // and Release, as the engine drives them.
 
 func TestScenario3WaterHeaterArbitrated(t *testing.T) {
-	s := Settings{Kind: Bool, Default: off, Resolve: On, External: ExternalOverride, OverrideHold: time.Hour}
+	s := Settings{Kind: Bool, Default: off, External: ExternalOverride, OverrideHold: time.Hour}
 	h := newHarness(t, s, "22:00")
 	h.want("22:00 hold starts", h.claim(Claim{Source: "Rule/water-heater-night", Level: Normal, Value: on}),
 		on, Normal, "Rule/water-heater-night", NoLimit)
@@ -30,7 +30,7 @@ func TestScenario3WaterHeaterArbitrated(t *testing.T) {
 
 func TestScenario5PumpWithoutBudget(t *testing.T) {
 	s := Settings{
-		Kind: Bool, Default: off, Resolve: On, External: ExternalOverride, OverrideHold: 2 * time.Hour,
+		Kind: Bool, Default: off, External: ExternalOverride, OverrideHold: 2 * time.Hour,
 		MinimumOn: time.Hour, MinimumOff: 30 * time.Minute, MaximumStartsPerDay: 4, Location: london,
 	}
 	h := newHarness(t, s, "00:00")
@@ -71,7 +71,7 @@ func TestScenario5PumpWithoutBudget(t *testing.T) {
 }
 
 func hallLight(t *testing.T, start string) *harness {
-	return newHarness(t, Settings{Kind: Bool, Default: off, Resolve: On, External: ExternalOverride, OverrideUntilNext: true}, start)
+	return newHarness(t, Settings{Kind: Bool, Default: off, External: ExternalOverride, OverrideUntilNext: true}, start)
 }
 
 const hallMotion = "Rule/hall-motion"
@@ -117,7 +117,7 @@ func TestScenario6HallLight(t *testing.T) {
 
 func TestScenario7TowelRailBoost(t *testing.T) {
 	const schedule, boost = "Rule/towel-rail-heating", "Rule/towel-rail-boost"
-	s := Settings{Kind: Bool, Default: off, Resolve: On, External: ExternalOverride, OverrideHold: time.Hour}
+	s := Settings{Kind: Bool, Default: off, External: ExternalOverride, OverrideHold: time.Hour}
 	t.Run("press at 14:00", func(t *testing.T) {
 		h := newHarness(t, s, "14:00")
 		h.want("14:00", h.claim(Claim{Source: boost, Level: Normal, Value: on, UntilNext: true}), on, Normal, boost, NoLimit)
@@ -153,9 +153,9 @@ func TestScenario7TowelRailBoost(t *testing.T) {
 
 func TestScenario7DoorbellLights(t *testing.T) {
 	const doorbell = "Rule/doorbell"
-	lightOn := newHarness(t, Settings{Kind: Bool, Default: off, Resolve: On, External: ExternalOverride, OverrideUntilNext: true}, "19:00")
+	lightOn := newHarness(t, Settings{Kind: Bool, Default: off, External: ExternalOverride, OverrideUntilNext: true}, "19:00")
 	// Each capability is arbitrated on its own, on the same clock.
-	a, err := New(Settings{Kind: Number, Default: 40, Resolve: Highest, External: ExternalOverride, OverrideUntilNext: true, Location: london}, lightOn.clock, State{})
+	a, err := New(Settings{Kind: Number, Default: 40, External: ExternalOverride, OverrideUntilNext: true, Location: london}, lightOn.clock, State{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestScenario7DoorbellLights(t *testing.T) {
 }
 
 func TestScenario8LeakShutoff(t *testing.T) {
-	s := Settings{Kind: Bool, Default: on, Resolve: Off, External: ExternalRevert}
+	s := Settings{Kind: Bool, Default: on, External: ExternalRevert}
 	const leak = "Rule/leak-shutoff"
 	h := newHarness(t, s, "13:00")
 	h.want("13:00 open", h.apply(), on, LevelDefault, "", NoLimit)
@@ -204,7 +204,7 @@ func TestScenario8LeakShutoff(t *testing.T) {
 }
 
 func TestScenario9DehumidifierQuietAtNight(t *testing.T) {
-	s := Settings{Kind: Bool, Default: off, Resolve: Off, External: ExternalOverride, OverrideHold: time.Hour}
+	s := Settings{Kind: Bool, Default: off, External: ExternalOverride, OverrideHold: time.Hour}
 	const humid, night = "Rule/dehumidifier-humid", "Rule/dehumidifier-night"
 	h := newHarness(t, s, "21:00")
 	h.claim(Claim{Source: humid, Level: Normal, Value: on})

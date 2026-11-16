@@ -19,7 +19,7 @@ import (
 // pumpEntry is scenario 5's pump: on for at least an hour, resting half an hour, three starts a
 // day, and a Home app tap holds for two hours.
 func pumpEntry() control.Entry {
-	e := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "2h")
+	e := entry(capability.On, "false", control.NameOverride, "2h")
 	e.MinimumOn, e.MinimumOff = control.Duration(time.Hour), control.Duration(30*time.Minute)
 	e.MaximumStartsPerDay = 3
 	return e

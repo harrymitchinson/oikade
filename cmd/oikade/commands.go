@@ -162,7 +162,11 @@ func printStatus(out, stderr io.Writer, st *api.Status, bridge *api.Matter, summ
 	}
 	_, _ = fmt.Fprintln(out)
 	for _, r := range st.Rules {
-		line := []string{r.Name, or(r.Kind, "gone")}
+		name := r.Name
+		if r.Case != "" {
+			name = fmt.Sprintf("%s %s: %s", r.Device, r.Capability, r.Case)
+		}
+		line := []string{name, or(r.Kind, "gone")}
 		if r.Safety {
 			line = append(line, "Safety")
 		}
@@ -286,6 +290,9 @@ func holdState(r api.Rule, now time.Time) []string {
 			b.Date, b.PlannedMinutes, b.TargetMinutes, b.RunMinutes))
 	}
 	line := []string{strings.Join(state, ", ")}
+	if r.WhyNot != "" {
+		line[0] += ": " + r.WhyNot
+	}
 	if r.Stopped != "" {
 		line = append(line, "stopped: "+r.Stopped)
 	}
@@ -306,17 +313,54 @@ func display(v any) any {
 	return v
 }
 
-// why says who has a capability.
+// why says which line of a capability's decision wins, and what holds it back.
 func why(c api.Capability) string {
 	if c.Level == "" {
 		return ""
 	}
+	wins := "Default"
 	for _, claim := range c.Claims {
 		if claim.Winner {
-			return fmt.Sprintf("%s wants %v at %s", claim.Source, display(claim.Value), claim.Level)
+			wins = fmt.Sprintf("%s wants %v", lineName(claim), display(claim.Value))
 		}
 	}
-	return "no claims"
+	if l := limited(c); l != "" {
+		wins += ", " + l
+	}
+	return wins
+}
+
+// lineName is how a claim's line reads: a case's name, a rule's, or where an outside change came
+// from.
+func lineName(c api.Claim) string {
+	if c.Case != "" {
+		return c.Case
+	}
+	if rule, ok := strings.CutPrefix(c.Source, "Rule/"); ok {
+		return rule
+	}
+	return "a change from " + c.Source
+}
+
+// limited says how a capability's Limits hold its winner back, if they do.
+func limited(c api.Capability) string {
+	until := ""
+	if c.LimitUntil != nil {
+		until = " until " + c.LimitUntil.Local().Format("15:04")
+	}
+	switch c.Limit {
+	case "":
+		return ""
+	case "MinimumOn":
+		return "on for its MinimumOn" + until
+	case "MinimumOff":
+		return "resting" + until
+	case "MaximumOn":
+		return "resting after its MaximumOn" + until
+	case "MaximumStartsPerDay":
+		return "out of starts for the day" + until
+	}
+	return "held by " + c.Limit + until
 }
 
 func runTail(ctx context.Context, args []string) error {
@@ -399,14 +443,17 @@ func outcome(device, name string, asked any, c *api.Capability) string {
 	}
 	for _, claim := range c.Claims {
 		if claim.Winner {
-			is += fmt.Sprintf(": %s holds it at %s", claim.Source, claim.Level)
+			is += fmt.Sprintf(": %s holds it", lineName(claim))
 			if claim.Expires != nil {
 				is += " until " + claim.Expires.Local().Format("15:04")
+			}
+			if l := limited(*c); l != "" {
+				is += ", " + l
 			}
 			return is
 		}
 	}
-	return is + ": nothing claims it, so its Default wins"
+	return is + ": no line applies, so its Default wins"
 }
 
 // rounded reports whether a number the device reported is the one asked for, as a driver rounds it:
@@ -439,19 +486,21 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	allow := fs.Bool("allow-safety", false, "Pause a Safety rule. Its Safety claims stay.")
+	allow := fs.Bool("allow-safety", false, "Pause a safety line, a case above its decision's override line. Its claims stay.")
 	words := cli.Parse(fs, args)
-	if len(words) != 1 {
-		return fmt.Errorf("usage: oikade %s RULE", name)
+	if len(words) != 1 && len(words) != 3 {
+		return fmt.Errorf("usage: oikade %s DEVICE CAPABILITY CASE, or oikade %s FLOW", name, name)
 	}
-	resp, err := api.Call(ctx, target.transport(), api.Request{Type: kind, Rule: words[0], AllowSafety: *allow})
+	// A case's rule is its device, capability and name, with a space between.
+	rule := strings.Join(words, " ")
+	resp, err := api.Call(ctx, target.transport(), api.Request{Type: kind, Rule: rule, AllowSafety: *allow})
 	if err != nil {
 		return err
 	}
 	if resp.NeedsAllowSafety {
 		fmt.Fprintln(os.Stderr, "Pass --allow-safety to pause it anyway.")
 	}
-	return done(resp, *asJSON, paused(did, words[0], resp))
+	return done(resp, *asJSON, paused(did, rule, resp))
 }
 
 // paused says what a pause or a resume did to the rule's claims.

@@ -7,16 +7,19 @@ import (
 	"time"
 )
 
-// The names an Entry uses, which are the ones people write.
+// The names an Entry uses.
 const (
-	NamePreferOn  = "PreferOn"
-	NamePreferOff = "PreferOff"
-	NameHighest   = "Highest"
-	NameLowest    = "Lowest"
-	NameOverride  = "Override"
-	NameRevert    = "Revert"
+	NameOverride = "Override"
+	NameRevert   = "Revert"
 	// NameNext is Entry.OverrideHold for an outside change that holds until the next change.
 	NameNext = "Next"
+)
+
+// LineOverride and LineFlows are the override line and the flows' line among Settings.Lines. A
+// claim's source is never one: it's Matter, Device or Rule/<name>.
+const (
+	LineOverride = "override"
+	LineFlows    = "flows"
 )
 
 // The levels a Status names. NameOverride is one too.
@@ -35,6 +38,10 @@ type Status struct {
 	Level string `json:"level,omitempty"`
 	// Claims are the current claims, the winner among them.
 	Claims []ClaimStatus `json:"claims,omitempty"`
+	// Limit names the limit holding the winner back, such as MinimumOff, until LimitUntil, which is
+	// zero if it doesn't end at a time.
+	Limit      string    `json:"limit,omitempty"`
+	LimitUntil time.Time `json:"limitUntil,omitzero"`
 }
 
 // ClaimStatus is one claim on a capability.
@@ -60,8 +67,8 @@ type Entry struct {
 	Capability string `json:"capability"`
 	// Default is the JSON value the capability has when nothing claims it.
 	Default json.RawMessage `json:"default"`
-	// Resolve is NamePreferOn, NamePreferOff, NameHighest or NameLowest.
-	Resolve string `json:"resolve"`
+	// Lines are the decision's lines, highest first, as Settings.Lines.
+	Lines []string `json:"lines,omitempty"`
 	// External is NameOverride or NameRevert: what an outside change does.
 	External string `json:"external"`
 	// OverrideHold is how long an outside change holds, as a duration, or NameNext.

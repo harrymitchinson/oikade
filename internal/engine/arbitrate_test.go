@@ -19,8 +19,8 @@ import (
 )
 
 // entry is a bool control entry.
-func entry(name, def, resolve, external, hold string) control.Entry {
-	return control.Entry{Capability: name, Default: []byte(def), Resolve: resolve, External: external, OverrideHold: hold}
+func entry(name, def, external, hold string) control.Entry {
+	return control.Entry{Capability: name, Default: []byte(def), External: external, OverrideHold: hold}
 }
 
 // status returns the device's control status for one capability.
@@ -48,7 +48,7 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 19:59 BST"),
 		values:  map[string]map[string]any{"hall-motion": {capability.Occupied: false}, "hall-light": {capability.On: false}},
-		control: map[string][]control.Entry{"hall-light": {entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "Next")}},
+		control: map[string][]control.Entry{"hall-light": {entry(capability.On, "false", control.NameOverride, "Next")}},
 	}, light)
 	r.expect()
 	r.at("2026-10-21 20:00 BST")
@@ -78,7 +78,7 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 }
 
 func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBackend) {
-	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "Next")
+	rail := entry(capability.On, "false", control.NameOverride, "Next")
 	rules := func() []*Compiled {
 		evening := holdRule(t, "towel-rail-evenings", Hold{Device: "towel-rail", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "18:00"}, End: At{Time: "21:00"}}})
 		boost := momentRule(t, "towel-rail-boost", Moment{Timers: []Timer{At{Time: "21:30"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Set{Device: "towel-rail", Capability: capability.On, Value: true, For: time.Hour, Until: UntilNext}}})
@@ -110,7 +110,7 @@ func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBac
 }
 
 func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states *storeBackend) {
-	valve := entry(capability.On, "true", control.NamePreferOff, control.NameRevert, "")
+	valve := entry(capability.On, "true", control.NameRevert, "")
 	shutoff := func() *Compiled {
 		return holdRule(t, "leak-shutoff", Hold{Device: "main-valve", Capability: capability.On, Value: false, Priority: PrioritySafety, When: isTrue("leak-sensor", capability.Open), Latch: true})
 	}
@@ -151,7 +151,7 @@ func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states *storeBac
 }
 
 func TestScenario5LimitsHoldThePumpOn(t *testing.T) {
-	pump := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "2h")
+	pump := entry(capability.On, "false", control.NameOverride, "2h")
 	pump.MinimumOn = control.Duration(time.Hour)
 	pump.MinimumOff = control.Duration(30 * time.Minute)
 	pump.MaximumStartsPerDay = 4
@@ -180,7 +180,7 @@ func TestScenario5LimitsHoldThePumpOn(t *testing.T) {
 }
 
 func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
-	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	rail := entry(capability.On, "false", control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"towel-rail": {capability.On: false}},
@@ -242,7 +242,7 @@ func (g *gate) Set(ctx context.Context, dev ident.ID, c string, v any) error {
 	return g.fakeSetter.Set(ctx, dev, c, v)
 }
 
-var railEntry = entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+var railEntry = entry(capability.On, "false", control.NameOverride, "1h")
 
 func railRig(t *testing.T, rules ...*Compiled) *rig {
 	return startRigWith(t, rigOptions{
@@ -485,7 +485,7 @@ func TestChangesThatDontMatchAMatterWriteAreTheDevices(t *testing.T) {
 				values: map[string]map[string]any{"towel-rail": {capability.On: tc.from}},
 				// Its default is what it starts as, so the engine doesn't write it.
 				control: map[string][]control.Entry{"towel-rail": {
-					entry(capability.On, fmt.Sprint(tc.from), control.NamePreferOn, control.NameOverride, "1h"),
+					entry(capability.On, fmt.Sprint(tc.from), control.NameOverride, "1h"),
 				}},
 			})
 			r.expect()
@@ -513,7 +513,7 @@ func TestAMatterDimmerWriteMatchesTheRoundedLevel(t *testing.T) {
 		now:    local("2026-10-21 20:00 BST"),
 		values: map[string]map[string]any{"hall-light": {capability.Brightness: 0.0}},
 		control: map[string][]control.Entry{"hall-light": {
-			entry(capability.Brightness, "0", control.NameHighest, control.NameOverride, "1h"),
+			entry(capability.Brightness, "0", control.NameOverride, "1h"),
 		}},
 	})
 	// The Home app's slider passes 10 on its way to 40. The dimmer reports 10.2 as it ramps, which is
@@ -613,7 +613,7 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 // A plug retyped out of a typed hold while the hold holds it loses the hold's claim when the hold
 // ends, rather than keeping it for good.
 func TestATypedHoldLetsGoOfAMemberRetypedOutOfIt(t *testing.T) {
-	plug := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	plug := entry(capability.On, "false", control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"porch-plug": {capability.On: false}, "porch-door": {capability.Open: false}},
@@ -653,7 +653,7 @@ func blindRig(t *testing.T, rules ...*Compiled) *rig {
 		now:    local("2026-10-21 12:00 BST"),
 		values: map[string]map[string]any{"bay-blind": {capability.Position: 0.0}},
 		control: map[string][]control.Entry{"bay-blind": {
-			entry(capability.Position, "70", control.NameHighest, control.NameOverride, "1h"),
+			entry(capability.Position, "70", control.NameOverride, "1h"),
 		}},
 	}, rules...)
 }

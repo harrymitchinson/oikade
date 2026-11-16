@@ -105,6 +105,9 @@ type Engine struct {
 	// active changes: a when it couldn't evaluate, or a budget it couldn't plan. "" means it can
 	// again. It must not block.
 	OnStopped func(key ident.ID, why string)
+	// OnWhyNot, if set, is called with e.mu held when why a hold is inactive changed, as its WhyNot
+	// says, or with "" once it's active or can't tell.
+	OnWhyNot func(key ident.ID, why string)
 	// OnBudget, if set, is called with e.mu held when a budget hold plans, or its status changes.
 	// It must not block.
 	OnBudget func(key ident.ID, r BudgetReport)

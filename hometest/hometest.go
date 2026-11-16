@@ -71,7 +71,7 @@ type Home struct {
 }
 
 // New starts a simulated home, which stops with the test.
-func New(t testing.TB, home oikade.Home, o Options) *Home {
+func New(t testing.TB, home *oikade.Home, o Options) *Home {
 	t.Helper()
 	if o.Start.IsZero() {
 		o.Start = time.Date(2030, time.January, 7, 0, 0, 0, 0, time.UTC)

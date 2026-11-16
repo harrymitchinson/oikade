@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -42,23 +43,7 @@ func controlSettings(c control.Entry, loc *time.Location) (control.Settings, err
 	} else {
 		s.Default = capability.Float(def)
 	}
-	switch c.Resolve {
-	case control.NamePreferOn:
-		s.Resolve = control.On
-	case control.NamePreferOff:
-		s.Resolve = control.Off
-	case control.NameHighest:
-		s.Resolve = control.Highest
-	case control.NameLowest:
-		s.Resolve = control.Lowest
-	}
-	// Checked here rather than by the arbiter, so the message uses the API's names.
-	if s.Kind == control.Bool && s.Resolve != control.On && s.Resolve != control.Off {
-		errs = append(errs, errors.New("resolve must be PreferOn or PreferOff for a bool capability"))
-	}
-	if s.Kind == control.Number && s.Resolve != control.Highest && s.Resolve != control.Lowest {
-		errs = append(errs, errors.New("resolve must be Highest or Lowest for a number capability"))
-	}
+	s.Lines = slices.Clone(c.Lines)
 	switch c.External {
 	case control.NameOverride:
 		s.External = control.ExternalOverride
@@ -81,7 +66,7 @@ func controlSettings(c control.Entry, loc *time.Location) (control.Settings, err
 	s.MinimumOff = time.Duration(c.MinimumOff)
 	s.MaximumStartsPerDay = c.MaximumStartsPerDay
 	if len(errs) == 0 {
-		// The kind, default and resolve are settled, so the arbiter's own checks report the rest.
+		// The kind and default are settled, so the arbiter's own checks report the rest.
 		errs = append(errs, s.Validate())
 	}
 	return s, errors.Join(errs...)

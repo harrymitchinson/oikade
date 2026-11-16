@@ -87,7 +87,7 @@ func (s *apiServer) status() api.Response {
 				c.Value = v
 			}
 			if i := slices.IndexFunc(held, func(o control.Status) bool { return o.Capability == name }); i >= 0 {
-				withControl(&c, held[i])
+				withControl(d.Name, &c, held[i])
 			}
 			d.Capabilities = append(d.Capabilities, c)
 		}
@@ -101,15 +101,21 @@ func (s *apiServer) status() api.Response {
 	}
 	rules, _ := s.rulesInfo()
 	s.srv.mu.Lock()
-	var stopped map[string]string
+	var stopped, whyNot map[string]string
 	if sess := s.srv.session; sess != nil {
-		stopped = maps.Clone(sess.stopped)
+		stopped, whyNot = maps.Clone(sess.stopped), maps.Clone(sess.whyNot)
 	}
 	s.srv.mu.Unlock()
 	for _, r := range rules {
-		rule := api.Rule{Name: r.Name, Kind: r.Kind, Safety: r.Safety, Paused: slices.Contains(paused, r.Name)}
-		if r.Kind == wire.KindHold && !rule.Paused {
+		rule := api.Rule{
+			Name: r.Name, Kind: r.Kind, Safety: r.Safety, Paused: slices.Contains(paused, r.Name),
+			Device: r.Device, Capability: r.Capability, Case: r.Case,
+		}
+		if r.Kind == wire.KindCase && !rule.Paused {
 			s.withHold(&rule, stopped[r.Name])
+			if !*rule.Active {
+				rule.WhyNot = whyNot[r.Name]
+			}
 		}
 		st.Rules = append(st.Rules, rule)
 	}
@@ -135,8 +141,16 @@ func (s *apiServer) withHold(r *api.Rule, stopped string) {
 	}
 }
 
-func withControl(c *api.Capability, held control.Status) {
+// withControl adds who holds a device's capability, naming each of its decision's cases.
+func withControl(device string, c *api.Capability, held control.Status) {
 	c.Level = held.Level
+	if held.Limit != "" {
+		c.Limit = held.Limit
+		if !held.LimitUntil.IsZero() {
+			at := held.LimitUntil
+			c.LimitUntil = &at
+		}
+	}
 	if held.Level == "" {
 		c.Level = control.NameDefault
 	}
@@ -148,6 +162,12 @@ func withControl(c *api.Capability, held control.Status) {
 			continue
 		}
 		claim := api.Claim{Source: o.Source, Level: o.Level, Value: rawValue(o.Value), Winner: o.Winner, Latched: o.Latched}
+		if name, ok := strings.CutPrefix(o.Source, "Rule/"+device+" "+held.Capability+" "); ok {
+			claim.Case = name
+			if o.Winner {
+				c.Case = name
+			}
+		}
 		if !o.Expires.IsZero() {
 			at := o.Expires
 			claim.Expires = &at
@@ -221,7 +241,7 @@ func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, valu
 	c := &api.Capability{Name: name, Value: snap.Values[name]}
 	for _, held := range s.srv.engine.ControlOf(dev) {
 		if held.Capability == name {
-			withControl(c, held)
+			withControl(dev.Name, c, held)
 		}
 	}
 	return c
@@ -348,7 +368,7 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 		// In an emergency a process may be down, which is no reason to guess it isn't a Safety rule.
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: %s", req.Rule, s.unknownRules())}
 	case rules[i].Safety:
-		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a Safety rule, so pausing it stops that protection", req.Rule)}
+		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a safety line, so pausing it stops that protection", req.Rule)}
 	case s.srv.engine.RuleClaims()[req.Rule] == control.Safety:
 		// As a deploy's check: a flow can make a Safety claim its declaration doesn't show, and a pause
 		// would leave that claim with no run to release it.

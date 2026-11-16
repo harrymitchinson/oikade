@@ -56,6 +56,8 @@ type holdState struct {
 	// stopped is why the hold's last look couldn't tell whether it should be active, as OnStopped
 	// last heard it. Empty means it could.
 	stopped string
+	// whyNot is why the hold is inactive, as OnWhyNot last heard it.
+	whyNot string
 	// unknown is set while the hold's when can't be evaluated, so the start and end of that stretch
 	// are each logged once at Info.
 	unknown bool
@@ -214,6 +216,12 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	if hs.released {
 		st.Latched, hs.released = false, false
 	}
+	if st.Latched && h.until != nil {
+		// A condition that can't be told yet keeps the latch.
+		if ok, err := h.until(e.conditionVars(now, devices)); err == nil && ok {
+			st.Latched = false
+		}
+	}
 	var on, known bool
 	var next time.Time
 	if h.budget != nil {
@@ -233,6 +241,16 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 		on, known, next = e.condition(key, hs, h, now, devices)
 	}
 	st, active := h.step(st, on, known, now)
+	why := ""
+	if known && !on && !active && h.whyNot != nil {
+		why = h.whyNot(e.conditionVars(now, devices))
+	}
+	if hs.whyNot != why {
+		hs.whyNot = why
+		if e.OnWhyNot != nil {
+			e.OnWhyNot(key, why)
+		}
+	}
 	switch {
 	case hs.retry.IsZero():
 	case now.Before(hs.retry):
@@ -416,7 +434,7 @@ func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 		}
 	}
 	// A budget looks every minute too, to credit its target's run.
-	if every := now.Add(whenEvery); (h.when != nil || h.budget != nil) && !st.Latched && every.Before(at) {
+	if every := now.Add(whenEvery); (h.when != nil || h.budget != nil) && (!st.Latched || h.until != nil) && every.Before(at) {
 		at = every
 	}
 	return at

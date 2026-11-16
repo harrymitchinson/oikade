@@ -42,7 +42,7 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	t.Cleanup(func() { cancel(); <-running })
 
 	var entries []control.Entry
-	raw := `[{"capability":"on","default":true,"resolve":"PreferOff","external":"Override","overrideHold":"1h"}]`
+	raw := `[{"capability":"on","default":true,"external":"Override","overrideHold":"1h"}]`
 	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 		return known, devices
 	}
 	known, devices := open()
-	recorded := control.Entry{Capability: capability.On, Default: json.RawMessage("true"), Resolve: control.NamePreferOff, External: control.NameRevert}
+	recorded := control.Entry{Capability: capability.On, Default: json.RawMessage("true"), External: control.NameRevert}
 	dev, err := known.paired(simInstance, driver.AppDevice{ID: "v", Name: "valve", Capabilities: []string{capability.On}}, []control.Entry{recorded})
 	if err != nil {
 		t.Fatal(err)
@@ -193,10 +193,10 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	setting := func(device, resolve string) wire.DeviceControl {
 		return wire.DeviceControl{Device: device, Entry: control.Entry{Capability: capability.On, Resolve: resolve}}
 	}
-	if err := known.takeHome([]wire.DeviceControl{setting("a", control.NamePreferOn), setting("b", control.NamePreferOn)}); err != nil {
+	if err := known.takeHome([]wire.DeviceControl{setting("a"), setting("b")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := known.takeHome([]wire.DeviceControl{setting("a", control.NamePreferOff)}); err != nil {
+	if err := known.takeHome([]wire.DeviceControl{setting("a")}); err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]string{}
@@ -206,7 +206,7 @@ func TestAProcessCantDropASetting(t *testing.T) {
 	if got["a"] != control.NamePreferOff || got["b"] != control.NamePreferOn {
 		t.Fatalf("after taking: %v", got)
 	}
-	if err := known.setHome([]wire.DeviceControl{setting("a", control.NamePreferOff)}); err != nil {
+	if err := known.setHome([]wire.DeviceControl{setting("a")}); err != nil {
 		t.Fatal(err)
 	}
 	if len(known.home) != 1 {

@@ -627,7 +627,7 @@ func TestAnActiveRoomHoldTakesUpADeviceThatMovesIn(t *testing.T) {
 
 // A Safety hold on a typed room claims a member retyped into its types while it's active, at once.
 func TestAnActiveTypedSafetyHoldClaimsADeviceRetypedIn(t *testing.T) {
-	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	rail := entry(capability.On, "false", control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"towel-rail": {capability.On: true}, "pump": {capability.On: true}},
@@ -679,7 +679,7 @@ func TestARestartedRoomHoldDoesntRewriteItsMembers(t *testing.T) {
 // A member a Safety room hold claimed lets go of the claim when it leaves the room, so it isn't held
 // at Safety by a hold it's no longer in.
 func TestAClaimedMemberThatLeavesARoomHoldIsReleased(t *testing.T) {
-	rail := entry(capability.On, "false", control.NamePreferOn, control.NameOverride, "1h")
+	rail := entry(capability.On, "false", control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"pump": {capability.On: false}},

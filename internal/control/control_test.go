@@ -119,18 +119,16 @@ func (h *harness) want(when string, d Decision, value float64, level Level, sour
 	}
 }
 
-var boolSettings = Settings{Kind: Bool, Resolve: On, External: ExternalOverride, OverrideHold: time.Hour}
+var boolSettings = Settings{Kind: Bool, External: ExternalOverride, OverrideHold: time.Hour}
 
 func TestValidate(t *testing.T) {
 	for name, s := range map[string]Settings{
-		"bool with Highest":     {Kind: Bool, Resolve: Highest, External: ExternalRevert},
-		"bool default 2":        {Kind: Bool, Default: 2, Resolve: On, External: ExternalRevert},
-		"number with On":        {Kind: Number, Resolve: On, External: ExternalRevert},
-		"no kind":               {Resolve: On, External: ExternalRevert},
-		"no external":           {Kind: Bool, Resolve: On},
-		"override without hold": {Kind: Bool, Resolve: On, External: ExternalOverride},
-		"negative minimum":      {Kind: Bool, Resolve: On, External: ExternalRevert, MinimumOn: -time.Minute},
-		"maximum under minimum": {Kind: Bool, Resolve: On, External: ExternalRevert, MinimumOn: time.Hour, MaximumOn: time.Minute},
+		"bool default 2":        {Kind: Bool, Default: 2, External: ExternalRevert},
+		"no kind":               {External: ExternalRevert},
+		"no external":           {Kind: Bool},
+		"override without hold": {Kind: Bool, External: ExternalOverride},
+		"negative minimum":      {Kind: Bool, External: ExternalRevert, MinimumOn: -time.Minute},
+		"maximum under minimum": {Kind: Bool, External: ExternalRevert, MinimumOn: time.Hour, MaximumOn: time.Minute},
 	} {
 		if err := s.Validate(); err == nil {
 			t.Errorf("%s: Validate passed", name)
@@ -138,8 +136,8 @@ func TestValidate(t *testing.T) {
 	}
 	for name, s := range map[string]Settings{
 		"bool":          boolSettings,
-		"number":        {Kind: Number, Default: 20, Resolve: Lowest, External: ExternalRevert},
-		"override next": {Kind: Bool, Resolve: Off, External: ExternalOverride, OverrideUntilNext: true},
+		"number":        {Kind: Number, Default: 20, External: ExternalRevert},
+		"override next": {Kind: Bool, External: ExternalOverride, OverrideUntilNext: true},
 	} {
 		if err := s.Validate(); err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -175,25 +173,30 @@ func TestLevels(t *testing.T) {
 	h.want("override released", h.release("Rule/o"), on, Normal, "Rule/n", NoLimit)
 }
 
-func TestResolve(t *testing.T) {
-	for _, tc := range []struct {
-		kind    Kind
-		resolve Resolve
-		values  []float64
-		want    float64
-	}{
-		{Bool, On, []float64{off, on}, on},
-		{Bool, Off, []float64{on, off}, off},
-		{Number, Highest, []float64{40, 80, 60}, 80},
-		{Number, Lowest, []float64{40, 80, 20}, 20},
-	} {
-		h := newHarness(t, Settings{Kind: tc.kind, Resolve: tc.resolve, External: ExternalRevert}, "10:00")
-		for i, v := range tc.values {
-			h.claim(Claim{Source: fmt.Sprintf("Rule/%d", i), Level: Normal, Value: v})
-		}
-		if d := h.apply(); d.Value != tc.want || d.Level != Normal {
-			t.Errorf("resolve %v over %v: got %v at %v, want %v", tc.resolve, tc.values, d.Value, d.Level, tc.want)
-		}
+// Claims at one level rank by their line, and of two on one line, or on none, the later wins.
+func TestClaimsAtALevelRankByLine(t *testing.T) {
+	s := Settings{Kind: Number, External: ExternalOverride, OverrideHold: time.Hour,
+		Lines: []string{"Rule/frost", LineOverride, "Rule/swim", LineFlows, "Rule/shoulder"}}
+	h := newHarness(t, s, "10:00")
+	h.want("a line", h.claim(Claim{Source: "Rule/shoulder", Level: Normal, Value: 10}), 10, Normal, "Rule/shoulder", NoLimit)
+	h.want("a flow above it", h.claim(Claim{Source: "Rule/bedtime", Level: Normal, Value: 20}), 20, Normal, "Rule/bedtime", NoLimit)
+	h.want("a later flow", h.claim(Claim{Source: "Rule/arrival", Level: Normal, Value: 30}), 30, Normal, "Rule/arrival", NoLimit)
+	h.want("a higher line", h.claim(Claim{Source: "Rule/swim", Level: Normal, Value: 40}), 40, Normal, "Rule/swim", NoLimit)
+	h.want("lower again", h.claim(Claim{Source: "Rule/shoulder", Level: Normal, Value: 50}), 40, Normal, "Rule/swim", NoLimit)
+	if got := h.a.Rank(Claim{Source: "Matter", External: true}); got != 1 {
+		t.Errorf("an outside change ranks %d, want the override line's 1", got)
+	}
+	if got := h.a.Rank(Claim{Source: "Rule/gone"}); got != 3 {
+		t.Errorf("a rule with no line ranks %d, want the flows' 3", got)
+	}
+	s.Lines = []string{"Rule/a"}
+	h = newHarness(t, s, "10:00")
+	if got := h.a.Rank(Claim{Source: "Rule/gone"}); got != 1 {
+		t.Errorf("with no flows line, a rule with no line ranks %d, want after every line", got)
+	}
+	if err := h.a.Claim(Claim{Source: "Rule/bedtime", Level: Normal, Value: 1}); err == nil ||
+		!strings.Contains(err.Error(), "no Flows line") {
+		t.Errorf("a claim with no line got %v, want it refused", err)
 	}
 }
 
@@ -345,7 +348,7 @@ func TestOutsideChangeIsNotFoughtByLimits(t *testing.T) {
 func TestRevertWritesWinnerBack(t *testing.T) {
 	// Counting Matter's change would make 10:05 the last start, so minimumOn would keep the
 	// valve open, and the reopening at 10:30 would be the third start of the day.
-	s := Settings{Kind: Bool, Default: on, Resolve: Off, External: ExternalRevert, MinimumOn: time.Hour, MaximumStartsPerDay: 2}
+	s := Settings{Kind: Bool, Default: on, External: ExternalRevert, MinimumOn: time.Hour, MaximumStartsPerDay: 2}
 	h := newHarness(t, s, "09:00")
 	h.apply()
 	h.to("10:00")
@@ -373,7 +376,7 @@ func TestRevertWritesWinnerBack(t *testing.T) {
 }
 
 func TestRevertOfAChangeThatAgreesIsAccepted(t *testing.T) {
-	s := Settings{Kind: Bool, Resolve: On, External: ExternalRevert}
+	s := Settings{Kind: Bool, External: ExternalRevert}
 	h := newHarness(t, s, "10:00")
 	h.apply()
 	h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
@@ -441,6 +444,7 @@ func TestClaimEnds(t *testing.T) {
 func TestStateSurvivesRestart(t *testing.T) {
 	s := boolSettings
 	s.MinimumOn, s.OverrideHold = time.Hour, 2*time.Hour
+	s.Lines = []string{"Rule/boost", "Rule/sched"}
 	h := newHarness(t, s, "10:00")
 	h.claim(Claim{Source: "Rule/boost", Level: Normal, Value: on, UntilNext: true})
 	h.claim(Claim{Source: "Rule/sched", Level: Normal, Value: off})
@@ -489,7 +493,7 @@ func TestFirstSeenOnIsNotAStart(t *testing.T) {
 
 func TestRepeatedValueIsNoOutsideChange(t *testing.T) {
 	for _, ext := range []External{ExternalOverride, ExternalRevert} {
-		h := newHarness(t, Settings{Kind: Bool, Resolve: On, External: ext, OverrideHold: time.Hour}, "10:00")
+		h := newHarness(t, Settings{Kind: Bool, External: ext, OverrideHold: time.Hour}, "10:00")
 		h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
 		if err := h.a.Outside("Device", on); err != nil {
 			t.Fatal(err)
@@ -502,7 +506,7 @@ func TestRepeatedValueIsNoOutsideChange(t *testing.T) {
 
 func TestRevertDoesNotBypassLimitsForANewWinner(t *testing.T) {
 	// The device is resting, and a winner wants it on. An outside change can't get past the rest.
-	s := Settings{Kind: Bool, Resolve: On, External: ExternalRevert, MinimumOff: time.Hour}
+	s := Settings{Kind: Bool, External: ExternalRevert, MinimumOff: time.Hour}
 	h := newHarness(t, s, "10:00")
 	h.claim(Claim{Source: "Rule/n", Level: Normal, Value: on})
 	h.to("10:10")
@@ -517,7 +521,7 @@ func TestRevertDoesNotBypassLimitsForANewWinner(t *testing.T) {
 func TestRevertedChangeThatStandsKeepsLimitDeadlines(t *testing.T) {
 	// The winner changes to the outside value before the write back, so the change stands, and
 	// Next still shows when maximumOn stops the device.
-	s := Settings{Kind: Bool, Resolve: On, External: ExternalRevert, MaximumOn: time.Hour, MinimumOff: time.Minute}
+	s := Settings{Kind: Bool, External: ExternalRevert, MaximumOn: time.Hour, MinimumOff: time.Minute}
 	h := newHarness(t, s, "10:00")
 	h.apply()
 	if err := h.a.Outside("Matter", on); err != nil {

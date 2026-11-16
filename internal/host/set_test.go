@@ -35,8 +35,7 @@ func TestAFailedSetLeavesTheDevicesNextChangeItsOwn(t *testing.T) {
 
 	dev := key("fan")
 	entry := control.Entry{
-		Capability: capability.On, Default: []byte("false"), Resolve: control.NamePreferOn,
-		External: control.NameOverride, OverrideHold: "1h",
+		Capability: capability.On, Default: []byte("false"), External: control.NameOverride, OverrideHold: "1h",
 	}
 	devices.SetDevices(simInstance, map[ident.ID]hub.Meta{dev: {Instance: simInstance, Control: []control.Entry{entry}}})
 	devices.Discovered(dev, driver.Info{Found: true, Capabilities: []string{capability.On}})

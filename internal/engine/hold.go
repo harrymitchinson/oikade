@@ -24,6 +24,10 @@ type hold struct {
 	when              Condition
 	onDelay, offDelay time.Duration
 	latch             bool
+	// until is nil when the latch ends only with a release.
+	until Condition
+	// whyNot is nil when the hold can't say why it's inactive.
+	whyNot func(Vars) string
 	// budget is nil when the hold has none.
 	budget *budgetHold
 }
