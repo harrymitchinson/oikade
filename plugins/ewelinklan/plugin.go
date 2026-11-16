@@ -105,12 +105,14 @@ type bridge struct {
 	humidity map[string]bool
 	env      plugin.Environment
 	declared []string
-	listen   func() (lan, error)
-	timing   timing
-	now      func() time.Time
-	log      *slog.Logger
-	client   *http.Client
-	cloud    cloud
+	// named are the declared devices the host has under a name other than their ID.
+	named  map[string]bool
+	listen func() (lan, error)
+	timing timing
+	now    func() time.Time
+	log    *slog.Logger
+	client *http.Client
+	cloud  cloud
 
 	// ctx and plugin are set before anything can be heard.
 	ctx    context.Context
@@ -140,11 +142,13 @@ func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredD
 		humidity[strings.ToLower(id)] = true
 	}
 	ids := make([]string, 0, len(declared))
+	named := map[string]bool{}
 	for _, d := range declared {
 		ids = append(ids, d.ID)
+		named[d.ID] = d.Name != d.ID
 	}
 	return &bridge{
-		humidity: humidity, env: env, declared: ids, listen: listen, timing: t, now: now, log: log,
+		humidity: humidity, env: env, declared: ids, named: named, listen: listen, timing: t, now: now, log: log,
 		client: &http.Client{Timeout: t.http}, cloud: ewelink,
 		devices: map[string]*device{}, records: newRecords(), skipped: map[string]bool{}, early: map[string]contractv1.State{},
 	}

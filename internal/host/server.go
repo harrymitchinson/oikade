@@ -90,7 +90,7 @@ type server struct {
 	declare      func(decls []wire.DeviceDeclaration, keys []string) error
 	planDeclared func([]wire.DeviceDeclaration) (registry.Declared, error)
 	// leavingSafety, if set, names the devices a version's declared rooms and types take out of Safety rules.
-	leavingSafety func(decls []wire.DeviceDeclaration, rules []wire.RuleInfo) []string
+	leavingSafety func(decls []wire.DeviceDeclaration, old, next []wire.RuleInfo) []string
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
 

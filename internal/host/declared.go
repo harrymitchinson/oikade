@@ -59,7 +59,7 @@ func (i *inventory) planDeclared(decls []wire.DeviceDeclaration) (registry.Decla
 }
 
 // planLocked refuses declarations the registry can't take. A renamed device's claims go with it,
-// but hardware a declared name takes over keeps none, as with replace, and a reserved name that goes
+// but hardware a declared name takes over keeps none, and a reserved name that goes
 // would leave its claims behind, so either is refused while something holds it. Call with mu held.
 func (i *inventory) planLocked(decls []wire.DeviceDeclaration) (registry.Declared, error) {
 	plan, err := i.registry.Plan(wire.Declarations(decls))
@@ -255,29 +255,33 @@ func renameKeys[T any](values *engine.Stored[T], rename func(string) string) err
 
 // leavingSafety names the Safety rules a device would drop out of under decls: a room write it's in now,
 // as one of the device types it's limited to, and wouldn't be once its declared room or type is.
-func (i *inventory) leavingSafety(decls []wire.DeviceDeclaration, rules []wire.RuleInfo) []string {
+func (i *inventory) leavingSafety(decls []wire.DeviceDeclaration, old, next []wire.RuleInfo) []string {
+	i.mu.Lock()
 	before := i.registry.List()
+	i.mu.Unlock()
 	after, err := registry.Declaring(before, wire.Declarations(decls))
 	if err != nil {
-		return nil // The plan refuses it.
+		return []string{"what the declarations take out of Safety rules can't be checked: " + err.Error()}
+	}
+	writes := func(rooms []wire.RoomOfTypes, d registry.Device) bool {
+		return slices.ContainsFunc(rooms, func(room wire.RoomOfTypes) bool {
+			return d.Room == room.Room && slices.Contains(d.Capabilities, room.Capability) &&
+				!slices.Contains(room.Except, d.Name) && devicetype.Any(d.DeviceTypes(), room.DeviceTypes)
+		})
 	}
 	var out []string
 	for _, a := range after.Devices {
-		i := slices.IndexFunc(before.Devices, func(b registry.Device) bool {
+		k := slices.IndexFunc(before.Devices, func(b registry.Device) bool {
 			return b.Endpoint == a.Endpoint && !b.Removed
 		})
-		if a.Removed || i < 0 {
+		if a.Removed || k < 0 {
 			continue
 		}
-		b := before.Devices[i]
-		for _, r := range rules {
-			if r.Safety && slices.ContainsFunc(r.Rooms, func(room wire.RoomOfTypes) bool {
-				in := func(d registry.Device) bool {
-					return d.Room == room.Room && slices.Contains(d.Capabilities, room.Capability) &&
-						!slices.Contains(room.Except, d.Name) && devicetype.Any(d.DeviceTypes(), room.DeviceTypes)
-				}
-				return in(b) && !in(a)
-			}) {
+		b := before.Devices[k]
+		// A rule the next version drops is a finding of its own.
+		for _, r := range next {
+			was := slices.IndexFunc(old, func(o wire.RuleInfo) bool { return o.Name == r.Name && o.Safety })
+			if r.Safety && was >= 0 && writes(old[was].Rooms, b) && !writes(r.Rooms, a) {
 				out = append(out, fmt.Sprintf("%s would leave the devices %s writes at Safety, by its declared room or "+
 					"type, so it would stop protecting it", a.Name, r.Name))
 			}

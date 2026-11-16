@@ -352,8 +352,7 @@ func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafet
 	return api.Response{Error: strings.Join(problems, "; "), Removed: removed}, members{before: before, after: i.store.Members()}
 }
 
-// device answers the commands that read and change the registry. Running code loses track of a
-// device whose name changes until a deploy, which would silently stop a Safety rule naming it.
+// device answers the commands that read and change the registry.
 func (s *apiServer) device(req api.Request) api.Response {
 	var err error
 	switch req.Type {
@@ -385,8 +384,8 @@ func (s *apiServer) device(req api.Request) api.Response {
 	return api.Response{}
 }
 
-// remove removes a device, or every device of a plugin, and warns as move does when that empties a
-// room a hold reads.
+// remove removes a device, or every device of a plugin, and warns when that empties a room a hold
+// reads.
 func (s *apiServer) remove(req api.Request) api.Response {
 	if req.Plugin != "" && req.Device != "" {
 		return api.Response{Error: "a remove takes a device or a plugin, not both"}

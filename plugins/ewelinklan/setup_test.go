@@ -259,6 +259,23 @@ func TestSetupAgainAsksNothingAndChangesNothing(t *testing.T) {
 	}
 }
 
+func TestSetupGivesNoDeclarationForADeviceWithAName(t *testing.T) {
+	cloud := newFakeEWeLink(t, things)
+	b := startWith(t, Config{}, fast, cloud.cloud(), relayID+"=greenhouse-heater-2")
+	b.secret(appIDSecret, testAppID+"\n")
+	b.secret(appSecretSecret, testAppSecret)
+	b.device(relayID, "th_plug", relayOf("on")).report()
+	b.eventually("the relay", func() bool { _, ok := b.reports()[relayID]; return ok })
+
+	steps := b.setup(person{browse: signIn(t, "us")})
+	if done := steps[len(steps)-1].Done; done.Error != "" {
+		t.Fatalf("done: %+v", done)
+	}
+	if strings.Contains(said(steps), "home.Device(") {
+		t.Errorf("said, of a device the home names already:\n%s", said(steps))
+	}
+}
+
 func TestSetupSaysWhatWentWrong(t *testing.T) {
 	for name, c := range map[string]struct {
 		things string

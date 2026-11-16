@@ -271,8 +271,13 @@ func startWith(t *testing.T, c Config, timings timing, cl *cloud, declared ...st
 
 	env := plugin.Environment{MQTTURL: broker, Root: root, SecretsDir: b.secrets}
 	devices := make([]contractv1.DeclaredDevice, 0, len(declared))
-	for _, id := range declared {
-		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
+	for _, d := range declared {
+		// id=name is a device the host has under another name.
+		id, name, ok := strings.Cut(d, "=")
+		if !ok {
+			name = id
+		}
+		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: name, DisplayName: name})
 	}
 	b.handler = newBridge(c, env, devices, func() (lan, error) { return b.lan, nil }, timings, b.now, slog.New(slog.DiscardHandler))
 	if cl != nil {

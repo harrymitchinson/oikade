@@ -392,8 +392,9 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 	}
 }
 
-// A retype that takes a device out of a room's Safety case is named, and one the case leaves out,
-// as it has a decision of its own, isn't.
+// A declared room or type that takes a device out of a room's Safety case is named, and one the
+// case leaves out, as it has a decision of its own, or that the next version's case still covers,
+// isn't.
 func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
@@ -420,17 +421,35 @@ func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 	as := func(name, room string, t devicetype.Type) []wire.DeviceDeclaration {
 		return []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: name[:1], Room: room, DeviceType: t}}
 	}
-	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffPlugInUnit), rules); len(out) != 1 ||
+	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffPlugInUnit), rules, rules); len(out) != 1 ||
 		!strings.Contains(out[0], "ceiling would leave the devices hall on smoke writes at Safety") {
 		t.Errorf("declaring ceiling a plug names %q", out)
 	}
-	if out := known.leavingSafety(as("ceiling", "attic", ""), rules); len(out) != 1 {
+	if out := known.leavingSafety(as("ceiling", "attic", ""), rules, rules); len(out) != 1 {
 		t.Errorf("declaring ceiling in the attic names %q", out)
 	}
-	if out := known.leavingSafety(as("lamp", "hall", devicetype.OnOffPlugInUnit), rules); len(out) != 0 {
+	if out := known.leavingSafety(as("lamp", "hall", devicetype.OnOffPlugInUnit), rules, rules); len(out) != 0 {
 		t.Errorf("declaring lamp a plug, which the case leaves out, names %v", out)
 	}
-	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffLight), rules); len(out) != 0 {
+	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffLight), rules, rules); len(out) != 0 {
 		t.Errorf("declaring ceiling what it is names %v", out)
+	}
+	// The next version's case takes plugs too, so a plug is still covered.
+	widened := []wire.RuleInfo{rules[0]}
+	widened[0].Rooms = []wire.RoomOfTypes{{Room: "hall", Capability: capability.On,
+		DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.OnOffPlugInUnit}, Except: []string{"lamp"}}}
+	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffPlugInUnit), rules, widened); len(out) != 0 {
+		t.Errorf("declaring ceiling a plug, which the next case covers, names %v", out)
+	}
+	// One the next version drops is its own finding.
+	if out := known.leavingSafety(as("ceiling", "attic", ""), rules, nil); len(out) != 0 {
+		t.Errorf("a dropped case names %v", out)
+	}
+	// A room write of any type covers a move.
+	anyType := []wire.RuleInfo{{Name: "hall off", Kind: wire.KindCase, Safety: true, Rooms: []wire.RoomOfTypes{{
+		Room: "hall", Capability: capability.On,
+	}}}}
+	if out := known.leavingSafety(as("lamp", "attic", ""), anyType, anyType); len(out) != 1 {
+		t.Errorf("moving lamp out of a room written at Safety names %v", out)
 	}
 }
