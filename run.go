@@ -80,8 +80,13 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	if err != nil {
 		return err
 	}
+	averaged := averagesUsed()
+	averageNames := make([]string, 0, len(averaged))
+	for _, a := range averaged {
+		averageNames = append(averageNames, a.Key().Name)
+	}
 	client, welcome, err := wire.DialHello(dial, socket, wire.Message{
-		Rules: names, Info: h.manifest().Rules, Control: settings, MatterName: h.options.MatterName,
+		Rules: names, Averages: averageNames, Info: h.manifest().Rules, Control: settings, MatterName: h.options.MatterName,
 	})
 	if err != nil {
 		return err
@@ -101,6 +106,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	}
 	eng := &engine.Engine{
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
+		Averages: averaged, AverageStates: client.Averages(),
 		Site: h.options.site(), Log: log.With("logger", "automations"),
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
@@ -254,7 +260,7 @@ func (h *Home) simulated() (simhome.Home, error) {
 	if err != nil {
 		return simhome.Home{}, err
 	}
-	return simhome.Home{Compile: h.compile, Control: settings, Site: h.options.site()}, nil
+	return simhome.Home{Compile: h.compile, Control: settings, Site: h.options.site(), Averages: averagesUsed}, nil
 }
 
 func init() {

@@ -113,6 +113,55 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 			}),
 			"offset 7h0m0s is not between -6h and 6h",
 		},
+		"Follow on a bool": {
+			decide(func(h *Home) {
+				h.Decide(d).Follow("w", Number{"t", Temperature}, func(float64) bool { return true }).Default(false)
+			}), `Follow "w" needs a number capability`,
+		},
+		"Follow with no function": {
+			decide(func(h *Home) {
+				h.Decide(Number{"r", Setpoint}).Follow("w", Number{"t", Temperature}, nil).Default(18)
+			}), `Follow "w" needs a function`,
+		},
+		"Follow of no reading": {
+			decide(func(h *Home) {
+				h.Decide(Number{"r", Setpoint}).Follow("w", Number{}, func(v float64) float64 { return v }).Default(18)
+			}), "a condition reads a device's capability",
+		},
+		"Step with no Follow": {
+			decide(func(h *Home) {
+				h.Decide(Number{"r", Setpoint}).Case("a", 7, d).Step(1).Default(18)
+			}), "Step needs a Follow before it",
+		},
+		"a Step of zero": {
+			decide(func(h *Home) {
+				h.Decide(Number{"r", Setpoint}).Follow("w", Number{"t", Temperature}, func(v float64) float64 { return v }).
+					Step(0).Default(18)
+			}), `Follow "w": Step 0 must be positive`,
+		},
+		"Step twice": {
+			decide(func(h *Home) {
+				h.Decide(Number{"r", Setpoint}).Follow("w", Number{"t", Temperature}, func(v float64) float64 { return v }).
+					Step(1).Step(2).Default(18)
+			}), "Step is given twice",
+		},
+		"an average of an average": {
+			deciding(Options{}, "a", Number{"t", Temperature}.AverageOver(time.Hour).AverageOver(time.Hour).Below(3)),
+			"t temperature over 1h is an average already",
+		},
+		"an average over seconds": {
+			deciding(Options{}, "a", Number{"t", Temperature}.AverageOver(time.Second).Below(3)),
+			"AverageOver(1s) must be at least a minute",
+		},
+		"an average as a trigger": {
+			decide(func(h *Home) { h.Flow("a", nothing).When(Number{"t", Temperature}.AverageOver(time.Hour)) }),
+			"When[0] is an average",
+		},
+		"a budget's condition": {
+			decide(func(h *Home) {
+				h.Decide(d).Budget("b", true, NewBudget(func(Snapshot) int { return 1 }), Yearly("1 Jun", "June 30")).Default(false)
+			}), `"June 30" isn't a date`,
+		},
 		"a flow ranked twice": {
 			decide(func(h *Home) {
 				f := h.Flow("f", nothing).When(d)

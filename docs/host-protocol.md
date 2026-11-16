@@ -17,7 +17,7 @@ A `hello` may carry `info`, each rule's `name`, `kind` (`case` or `flow`), `safe
 `version` comes first so that it can change, and it rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, which it says in its log, so a process from before `below` existed can never reach `releaseAll`. The host answers `welcome` or `rejected`, and closes the connection after `rejected`:
 
 - **`rejected`** with an `error`: the version or role is wrong, or an automations process is already connected. Exactly one runs at a time, because two would run everything twice.
-- **`welcome`** with `paused`, the rules not to run; `devices`, every device with its room, capabilities, `deviceTypes`, values, `lastSeen` and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
+- **`welcome`** with `paused`, the rules not to run; `devices`, every device with its room, capabilities, `deviceTypes`, values, `lastSeen` and the capabilities the host arbitrates; `holds`, the saved state of each named rule that has any; `fires`, when each named rule's timers were last accounted for; `averageStates`, the saved state of each rolling average the hello names in `averages`; and `runs`, how many `run` messages follow straight after it. Each of those carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB.
 
 The host streams from the `welcome` on. A change landing as the session opens can arrive twice, so a process ignores a value it already has.
 
@@ -46,6 +46,7 @@ Each request has an `id`, and gets a `reply` with the same one. A reply with `er
 | `saveHold` | `rule`, `hold` | Saves a hold's state. The reply means it's on disk | |
 | `deleteHold` | `rule` | Forgets a hold's state. The reply means it's on disk | |
 | `saveFire` | `rule`, `time` | Saves when a rule's timers were last accounted for. The reply means it's on disk | |
+| `saveAverage` | `rule`, `average` | Saves a rolling average a condition reads, by its name in `rule`, such as `pool-water temperature 24h`: the reading's sums in buckets, and its last value and when. The reply means it's on disk | |
 | `journal` | `run`, `data` | Appends a journal entry. The reply means it's on disk | `seq`, its place in the run |
 | `finish` | `run` | Forgets a run's journal. The reply means it's on disk | |
 | `pong` | `id` | Answers a `ping`. It isn't a request, so it gets no reply | |

@@ -550,7 +550,14 @@ type Hold struct {
 	// is known to be false.
 	WhyNot func(Vars) string
 	// Budget, if set, plans when the hold is active each day. Its target and value are the hold's.
+	// With When, it's active only in a planned slot while When is true too.
 	Budget *schedule.Spec
+	// Follow, if set, is the hold's value, worked out from the home on every look: the hold is
+	// active while it returns no error, which says why not, and holds the value rounded to Step, or
+	// the capability's own step when Step is zero, within the capability's bounds. It writes again
+	// only when the rounded value changes. Value is unused.
+	Follow func(Vars) (float64, error)
+	Step   float64
 	// Generation is the rule's version, as on a Trigger. Zero means 1.
 	Generation int64
 }
@@ -570,18 +577,30 @@ func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 	if err := checkTypes(h.Room, h.DeviceTypes); err != nil {
 		errs = append(errs, fmt.Errorf("hold: %w", err))
 	}
-	v, err := writableValue(h.Capability, h.Value)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("hold: %w", err))
+	if h.Follow != nil {
+		step, err := followStep(h.Capability, h.Step)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("hold: %w", err))
+		}
+		c.hold.follow, c.hold.followStep = guardedFollow(h.Follow), step
+	} else {
+		v, err := writableValue(h.Capability, h.Value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("hold: %w", err))
+		}
+		c.hold.value = v
 	}
-	c.hold.value = v
 	if err := checkPriority(h.Priority); err != nil {
 		errs = append(errs, err)
 	}
 	switch {
+	case h.Follow != nil:
+		if h.Budget != nil || h.Window != nil || h.When != nil || h.OnDelay != 0 || h.OffDelay != 0 || h.Latch {
+			errs = append(errs, errors.New("hold: follow must be the only condition"))
+		}
 	case h.Budget != nil:
-		if h.Window != nil || h.When != nil || h.OnDelay != 0 || h.OffDelay != 0 || h.Latch {
-			errs = append(errs, errors.New("hold: budget must be the only condition"))
+		if h.Window != nil || h.OnDelay != 0 || h.OffDelay != 0 || h.Latch {
+			errs = append(errs, errors.New("hold: a budget's only other condition is when"))
 		}
 		spec := *h.Budget
 		spec.Device, spec.Capability, spec.Value = h.Device, h.Capability, h.Value

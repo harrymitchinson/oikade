@@ -41,6 +41,7 @@ const (
 	budgetLine
 	overrideLine
 	flowsLine
+	followLine
 )
 
 // line is one line of a decision.
@@ -62,6 +63,10 @@ type line struct {
 	untilNext   bool
 	none        bool
 	once        once
+	// reading, follow and step are a Follow line's.
+	reading Number
+	follow  func(float64) any
+	step    float64
 }
 
 // what names the line in a mistake.
@@ -73,6 +78,8 @@ func (l line) what() string {
 		return fmt.Sprintf("Budget %q", l.name)
 	case overrideLine:
 		return "the override line"
+	case followLine:
+		return fmt.Sprintf("Follow %q", l.name)
 	}
 	return "Flows"
 }
@@ -149,9 +156,13 @@ func (d *Decision[T]) onCase(option string, f func(*line)) *Decision[T] {
 }
 
 // Budget is a line that sets the capability to v for as many minutes a day as b says, in the slots
-// it plans, around the Limits. It needs a Bool, with v true.
-func (d *Decision[T]) Budget(name string, v T, b Budget) *Decision[T] {
-	return d.add(line{kind: budgetLine, name: name, value: v, budget: &b})
+// it plans, around the Limits, while every condition is true:
+//
+//	Budget("summer-extra", true, extra, oikade.Yearly("1 Jun", "15 Sep"))
+//
+// It needs a Bool, with v true. A slot the conditions rule out isn't made up later.
+func (d *Decision[T]) Budget(name string, v T, b Budget, when ...Condition) *Decision[T] {
+	return d.add(line{kind: budgetLine, name: name, value: v, budget: &b, when: slices.Clone(when)})
 }
 
 // OverrideFor is the override line: an outside change, such as a tap in the Home app, wins over
@@ -382,22 +393,28 @@ func (l line) compile(h handle, safety bool, o Options) (decidedCase, error) {
 	}
 	c.hold = engine.Hold{Device: h.device, Capability: h.capability, Value: l.value, Priority: priority}
 	errs := []error{l.once.err()}
-	if l.kind == budgetLine {
+	var cond Condition = allOf(slices.Clone(l.when))
+	if len(l.when) == 1 {
+		cond = l.when[0]
+	}
+	switch {
+	case l.kind == followLine:
+		return c, l.compileFollow(&c)
+	case l.kind == budgetLine:
 		if l.value != true {
 			errs = append(errs, errors.New("a budget sets a Bool to true"))
 		}
 		c.isBudget, c.budget = true, l.budget
 		c.hold.Budget = l.budget.toSchedule()
 		errs = append(errs, l.budget.once.err())
+		if len(l.when) > 0 {
+			errs = append(errs, checkCondition(cond, o))
+			c.hold.When, c.hold.WhyNot = toEngine(cond), whyNot(cond)
+		}
 		return c, errors.Join(errs...)
-	}
-	if len(l.when) == 0 {
+	case len(l.when) == 0:
 		errs = append(errs, errors.New("it needs a condition: Default is for always"))
 		return c, errors.Join(errs...)
-	}
-	var cond Condition = allOf(slices.Clone(l.when))
-	if len(l.when) == 1 {
-		cond = l.when[0]
 	}
 	errs = append(errs, checkCondition(cond, o), checkCondition(l.until, o))
 	if l.delay < 0 {

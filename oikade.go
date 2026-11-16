@@ -797,6 +797,11 @@ func nilChange(on []Change) error {
 	if i := slices.Index(on, nil); i >= 0 {
 		return fmt.Errorf("a nil change, at When[%d]: give a handle, or InRoom", i)
 	}
+	for i, c := range on {
+		if n, ok := c.(Number); ok && isAverage(n) {
+			return fmt.Errorf("the change at When[%d] is an average, which never changes as a reading does: give the reading", i)
+		}
+	}
 	return nil
 }
 
@@ -839,6 +844,11 @@ func (r *Flow) toEngine(f *flow.Flow) engine.Flow {
 func checkBudget(b *Budget, h handle, value any, entry control.Entry) error {
 	if err := b.clockOnly(); err != nil {
 		return err
+	}
+	if b.bands != nil {
+		if err := checkAverage(b.bands.Reading.handle()); err != nil {
+			return err
+		}
 	}
 	spec := *b.toSchedule()
 	spec.Device, spec.Capability, spec.Value = h.device, h.capability, value

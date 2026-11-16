@@ -100,7 +100,7 @@ func (c compare) check(Options) error {
 	if c.op == within && c.a > c.b {
 		return fmt.Errorf("Within(%s, %s) is never true: give the lower first", number(c.a), number(c.b))
 	}
-	return checkHandle(c.n.handle())
+	return errors.Join(checkHandle(c.n.handle()), checkAverage(c.n.handle()))
 }
 
 func number(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }

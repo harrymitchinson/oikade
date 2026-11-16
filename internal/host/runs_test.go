@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
@@ -132,5 +134,43 @@ func TestAResumeWithNoProcessLeavesPausedTimesBehind(t *testing.T) {
 	}
 	if _, untimed := welcome.Fires["other"]; untimed {
 		t.Error("a rule with no timers got one")
+	}
+}
+
+// An average saved by one process comes back in the next one's Welcome, when its Hello names it,
+// and after the host itself restarts.
+func TestASavedAverageComesBackInTheWelcome(t *testing.T) {
+	dir := tempDir(t)
+	socket, stop := startHost(t, dir)
+	first, _ := dial(t, socket)
+	last := 14.5
+	saved := engine.AverageState{
+		Buckets: []engine.AverageBucket{{Start: time.Now().Add(-time.Hour).UTC().Truncate(time.Second), Sum: 36000, Seconds: 3600}},
+		Last:    &last, LastAt: time.Now().UTC().Truncate(time.Second),
+	}
+	name := engine.Average{Device: "pool-water", Capability: "temperature", Over: 24 * time.Hour}.Key()
+	if err := first.Averages().Put(t.Context(), name, saved); err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	<-first.Done()
+	stop()
+	socket, _ = startHost(t, dir)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	c, welcome, err := wire.DialHello(ctx, socket, wire.Message{Averages: []string{name.Name, "other temperature 1h"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	if got := welcome.AverageStates[name.Name]; !reflect.DeepEqual(got, saved) {
+		t.Errorf("got %+v, want %+v", got, saved)
+	}
+	if _, ok := welcome.AverageStates["other temperature 1h"]; ok {
+		t.Error("an average nobody saved came back")
+	}
+	if got, ok := c.Averages().Get(name); !ok || *got.Last != last {
+		t.Errorf("the client has %+v", got)
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -87,6 +88,9 @@ type Spec struct {
 	// NoEndWrite is a bool a hold's end leaves as it is, rather than writing the opposite: only an
 	// explicit write unlocks a door. A Budget, which turns its target on and off, can't have it.
 	NoEndWrite bool
+	// Step is what a number a hold follows is rounded to, so a reading's every wobble isn't a write.
+	// Zero is none: a Follow of it gives its own.
+	Step float64
 }
 
 // Matter is a Matter cluster's attribute.
@@ -101,7 +105,7 @@ var registry = map[string]Spec{
 	On: {Go: "On", Kind: KindBool, Writable: true, Matter: &Matter{
 		Cluster: "On/Off", ClusterID: 0x0006, Attribute: "OnOff", AttributeID: 0x0000,
 	}},
-	Brightness: {Go: "Brightness", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Matter: &Matter{
+	Brightness: {Go: "Brightness", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Step: 1, Matter: &Matter{
 		Cluster: "Level Control", ClusterID: 0x0008, Attribute: "CurrentLevel", AttributeID: 0x0000,
 	}},
 	Temperature: {Go: "Temperature", Kind: KindNumber, Min: -273.15, Max: 1000, Unit: "°C", Matter: &Matter{
@@ -120,10 +124,10 @@ var registry = map[string]Spec{
 		Cluster: "Power Source", ClusterID: 0x002F, Attribute: "BatPercentRemaining", AttributeID: 0x000C,
 	}},
 	LinkQuality: {Go: "LinkQuality", Kind: KindNumber, Min: 0, Max: 255},
-	Setpoint: {Go: "Setpoint", Kind: KindNumber, Writable: true, Min: 0, Max: 50, Unit: "°C", Matter: &Matter{
+	Setpoint: {Go: "Setpoint", Kind: KindNumber, Writable: true, Min: 0, Max: 50, Unit: "°C", Step: 0.5, Matter: &Matter{
 		Cluster: "Thermostat", ClusterID: 0x0201, Attribute: "OccupiedHeatingSetpoint", AttributeID: 0x0012,
 	}},
-	Position: {Go: "Position", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Settle: 2 * time.Minute, Matter: &Matter{
+	Position: {Go: "Position", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Settle: 2 * time.Minute, Step: 1, Matter: &Matter{
 		Cluster: "Window Covering", ClusterID: 0x0102, Attribute: "CurrentPositionLiftPercent100ths", AttributeID: 0x000E,
 	}},
 	Locked: {Go: "Locked", Kind: KindBool, Writable: true, NoEndWrite: true, Settle: 30 * time.Second, Matter: &Matter{
@@ -230,4 +234,11 @@ func toFloat(v any) (float64, bool) {
 		return f, err == nil
 	}
 	return 0, false
+}
+
+// Averaged is the capability a rolling average's name, such as "temperature over 24h", averages,
+// or name itself when it isn't one.
+func Averaged(name string) string {
+	base, _, _ := strings.Cut(name, " over ")
+	return base
 }

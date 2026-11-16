@@ -238,6 +238,10 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 			read := func(device, name string) *schedule.Reading {
 				in, ok := e.Store.Get(ident.ID{Name: device})
 				v, has := in.Values[name]
+				if avg, isAverage := e.averageOf(device, name, now); isAverage {
+					// An average is as fresh as the device's last report, so a dead sensor's is stale.
+					v, has = avg, true
+				}
 				if !ok || !has {
 					return nil
 				}
