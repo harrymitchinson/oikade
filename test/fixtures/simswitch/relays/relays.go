@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -63,43 +64,63 @@ const PairingSecret = "simswitch-pairing-code"
 // New returns a plugin of simulated relays for the devices.
 func New(devices []contractv1.DeclaredDevice) plugin.Handler { return newSwitches(devices) }
 
-// newSwitches turns the declared devices into relays and the devices report. A device with the
-// parameter simulate: misconfigured is reported not found, with the reason, as a plugin reports
-// configuration it can't use. One with simulate: needs-key is found and can't be used until it's
-// given something, as a device a plugin can see but not read. One with simulate: refused-login is
+// fault is what a device's ID asks the relays to simulate: the part after its last dot. The
+// conformance suite runs the fixture with an environment of its own, so the devices file is the only
+// way in.
+func fault(id string) string {
+	if _, after, ok := strings.CutLast(id, "."); ok {
+		return after
+	}
+	return ""
+}
+
+// discoveredAs is a relay as the simulated app lists it, under its name there.
+func discoveredAs(d contractv1.DeclaredDevice, id, capability string) contractv1.DiscoveredDevice {
+	return contractv1.DiscoveredDevice{
+		ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{capability},
+		Name: d.DisplayName, Room: d.Room,
+	}
+}
+
+// newSwitches turns the declared devices into relays and the devices report. A device whose ID
+// ends in .misconfigured is reported not found, with the reason, as a plugin reports
+// configuration it can't use. One with .needs-key is found, and discovered, and can't be used
+// until it's given something, as a device a plugin can see but not read. One with .refused-login is
 // reported not found, and the plugin says in its status that its simulated account refused its
-// login, as a cloud plugin would. One with simulate: needs-setup makes the plugin say it needs its
+// login, as a cloud plugin would. One with .needs-setup makes the plugin say it needs its
 // setup run, until it is. All four keep to the contract.
 //
-// Three break it, so the conformance suite's own tests can see it fail: one with simulate: unstable-id
-// is discovered under a new ID each start, and one with simulate: old-name reports a capability by a
-// name Oikade no longer knows, and one with simulate: refused-setup makes every setup fail.
+// Three break it, so the conformance suite's own tests can see it fail: one with .unstable-id
+// is discovered under a new ID each start, and one with .old-name reports a capability by a
+// name Oikade no longer knows, and one with .refused-setup makes every setup fail.
 func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 	s := &switches{relays: map[string]*relay{}}
 	for _, d := range declared {
-		if d.Parameters["simulate"] == "misconfigured" {
+		simulate := fault(d.ID)
+		if simulate == "misconfigured" {
 			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: "this relay was told it's misconfigured"})
 			continue
 		}
-		if d.Parameters["simulate"] == "refused-login" {
+		if simulate == "refused-login" {
 			s.problem = "the simulated account refused the login"
 			s.reports = append(s.reports, contractv1.DeviceReport{ID: d.ID, Error: "not seen: the plugin can't log in"})
 			continue
 		}
-		if d.Parameters["simulate"] == "needs-key" {
+		if simulate == "needs-key" {
 			s.reports = append(s.reports, contractv1.DeviceReport{
 				ID: d.ID, Found: true, Capabilities: []string{contractv1.On}, Error: "no key: give this relay one",
 			})
+			s.discovered = append(s.discovered, discoveredAs(d, d.ID, contractv1.On))
 			continue
 		}
-		switch d.Parameters["simulate"] {
+		switch simulate {
 		case "needs-setup":
 			s.needsSetup = true
 		case "refused-setup":
 			s.refuseSetup = true
 		}
 		c := contractv1.On
-		if d.Parameters["simulate"] == "old-name" {
+		if simulate == "old-name" {
 			c = "switch.on" // A name from before OIK-181, which Oikade no longer knows.
 		}
 		r := &relay{id: d.ID, capability: c}
@@ -110,15 +131,12 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
 		})
 		id := d.ID
-		if d.Parameters["simulate"] == "unstable-id" {
+		if simulate == "unstable-id" {
 			b := make([]byte, 4)
 			_, _ = rand.Read(b)
 			id = d.ID + "-" + hex.EncodeToString(b)
 		}
-		s.discovered = append(s.discovered, contractv1.DiscoveredDevice{
-			ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
-			Name: d.DisplayName, Room: d.Room,
-		})
+		s.discovered = append(s.discovered, discoveredAs(d, id, c))
 	}
 	// A host records what it's shown, so the spare can come back declared.
 	if s.relays[spare.ID] == nil {

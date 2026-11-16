@@ -102,9 +102,9 @@ func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (pl
 // run until it is.
 func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
 	locked := relay("locked")
-	locked.Parameters = map[string]string{"simulate": "needs-key"}
+	locked.ID += ".needs-key"
 	quiet := relay("quiet")
-	quiet.Parameters = map[string]string{"simulate": "needs-setup"}
+	quiet.ID += ".needs-setup"
 	h, _ := relays.New([]contractv1.DeclaredDevice{quiet, locked}).(withSetup)
 	return refused{h}, nil
 }

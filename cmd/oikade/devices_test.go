@@ -81,11 +81,11 @@ func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 			Name: "porch-light", Problem: "no LAN key: oikade secret set 1000aabbcc",
 			Capabilities: []api.Capability{{Name: "on"}},
 		},
-		{Name: "shed-relay", Problem: "bad parameters"},
+		{Name: "shed-relay", Problem: "not seen on the LAN"},
 	}}, nil, false, time.Now())
 	for _, want := range []string{
 		"porch-light  on  -  no LAN key: oikade secret set 1000aabbcc",
-		"shed-relay   -   -  bad parameters",
+		"shed-relay   -   -  not seen on the LAN",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("no %q in:\n%s", want, out.String())

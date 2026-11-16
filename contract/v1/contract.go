@@ -312,6 +312,4 @@ type DeclaredDevice struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
 	Room        string `json:"room,omitempty"`
-	// Parameters are passed through from Device.spec.plugin.parameters without validation.
-	Parameters map[string]string `json:"parameters,omitempty"`
 }
