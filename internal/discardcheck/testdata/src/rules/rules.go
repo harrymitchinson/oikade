@@ -39,6 +39,7 @@ func thrownAway(s oikade.Set, g oikade.Bool, n oikade.Number, r *oikade.FlowRun)
 	oikade.Daily("18:00", "22:00")    // want `the result of Daily isn't used, so it does nothing: a condition does nothing until a rule takes it`
 	n.Above(3)                        // want `the result of Above isn't used, so it does nothing: a condition does nothing until a rule takes it`
 	oikade.Not(g)                     // want `the result of Not isn't used`
+	g.Becomes(true)                   // want `the result of Becomes isn't used, so it does nothing: a Change does nothing until something takes it`
 	defer g.To(true)                  // want `the result of To isn't used`
 }
 

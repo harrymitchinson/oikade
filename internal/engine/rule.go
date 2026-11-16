@@ -455,8 +455,6 @@ func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, unti
 	}
 }
 
-// look evaluates a wait's condition, and returns what will close on the next change. Nothing that
-// goes wrong in it can leave e.mu held, which would stop every rule and heartbeat.
 // Look evaluates cond once, on the home now, for a flow's look. A panic in it is an error, and a
 // mistake, rather than a value that hasn't been reported, is logged.
 func (e *Engine) Look(ctx context.Context, key ident.ID, cond Condition) (bool, error) {
@@ -473,6 +471,8 @@ func (e *Engine) Look(ctx context.Context, key ident.ID, cond Condition) (bool, 
 	return ok, err
 }
 
+// look evaluates a wait's condition, and returns what will close on the next change. Nothing that
+// goes wrong in it can leave e.mu held, which would stop every rule and heartbeat.
 func (e *Engine) look(cond Condition) (changed <-chan struct{}, ok bool, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

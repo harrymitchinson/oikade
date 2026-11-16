@@ -113,7 +113,8 @@ type Hours struct {
 }
 
 // Daily is open each day from start until the next end: times such as "22:00", from "00:00" to
-// "23:59" in the host's time zone, or a Sunrise or Sunset. An end at or before its start is the next
+// "23:59" in the host's time zone, or a Sunrise or Sunset. Both are strings or both are Times, so
+// one with a sun edge writes its clock edge as Clock("23:30"). An end at or before its start is the next
 // day, so Daily("22:00", "06:00") is the night.
 //
 //	oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0)) // while it's dark
@@ -276,8 +277,39 @@ func Not(c Condition) Condition { return not{c} }
 
 type anyOf []Condition
 
+// holds is true if any condition is, and reads on past one that reads a value nobody has reported,
+// which stops it only if no other is true.
 func (a anyOf) holds(s Snapshot) bool {
-	return slices.ContainsFunc(a, func(c Condition) bool { return c.holds(s) })
+	var pending any
+	for _, c := range a {
+		ok, p := try(c, s)
+		if ok {
+			return true
+		}
+		if pending == nil {
+			pending = p
+		}
+	}
+	if pending != nil {
+		panic(pending)
+	}
+	return false
+}
+
+// try is whether c holds, or, if it reads a value nobody has reported yet, the panic that says so.
+// Any other panic goes on.
+func try(c Condition, s Snapshot) (ok bool, pending any) {
+	defer func() {
+		r := recover()
+		switch r.(type) {
+		case nil:
+		case notReported, roomNotReported, roomEmpty:
+			ok, pending = false, r
+		default:
+			panic(r)
+		}
+	}()
+	return c.holds(s), nil
 }
 
 func (a anyOf) explain(s Snapshot, want bool) string {
@@ -292,8 +324,25 @@ func (a anyOf) check(o Options) error { return checkAll("Any", a, o) }
 
 type allOf []Condition
 
+// holds is true if every condition is, and reads on past one that reads a value nobody has reported,
+// so one that's false makes it false whatever the others are.
 func (a allOf) holds(s Snapshot) bool {
-	return !slices.ContainsFunc(a, func(c Condition) bool { return !c.holds(s) })
+	var pending any
+	for _, c := range a {
+		ok, p := try(c, s)
+		switch {
+		case p != nil:
+			if pending == nil {
+				pending = p
+			}
+		case !ok:
+			return false
+		}
+	}
+	if pending != nil {
+		panic(pending)
+	}
+	return true
 }
 
 func (a allOf) explain(s Snapshot, want bool) string {
@@ -419,4 +468,42 @@ func splitHours(c Condition) (*Hours, Condition) {
 		return &h, rest
 	}
 	return nil, c
+}
+
+// label is how a flow's journal names c, so a replay notices code that now asks something else.
+func label(c Condition) string {
+	switch c := c.(type) {
+	case Bool:
+		return c.Device + " " + string(c.Capability)
+	case compare:
+		h := c.n.handle()
+		switch c.op {
+		case above:
+			return fmt.Sprintf("%s %s above %s", h.device, h.capability, number(c.a))
+		case below:
+			return fmt.Sprintf("%s %s below %s", h.device, h.capability, number(c.a))
+		}
+		return fmt.Sprintf("%s %s within %s to %s", h.device, h.capability, number(c.a), number(c.b))
+	case Hours:
+		return "daily " + c.String()
+	case Dates:
+		return "yearly " + c.start + " to " + c.end
+	case anyOf:
+		return "any(" + labels(c) + ")"
+	case allOf:
+		return "all(" + labels(c) + ")"
+	case not:
+		return "not(" + label(c.c) + ")"
+	case funcCondition:
+		return c.label
+	}
+	return fmt.Sprintf("%T", c)
+}
+
+func labels(cs []Condition) string {
+	out := make([]string, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, label(c))
+	}
+	return strings.Join(out, ", ")
 }

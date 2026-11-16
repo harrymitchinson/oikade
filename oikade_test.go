@@ -65,6 +65,7 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		"a nil condition in All": {
 			NewHome(Options{}, NewHold("a", d.To(true)).When(All(d, nil))), "All has a nil condition, at 1",
 		},
+		"a hold with no When": {NewHome(Options{}, NewHold("a", d.To(true))), "a hold needs a When or a Budget"},
 		"a ConditionFunc with no label": {
 			NewHome(Options{}, NewHold("a", d.To(true)).When(ConditionFunc("", func(Snapshot) bool { return true }))),
 			"a ConditionFunc needs a label",
@@ -367,8 +368,9 @@ func TestConditionsCombine(t *testing.T) {
 	pump := Bool{Device: "pump", Capability: On}
 	vars := engine.Vars{
 		"now": time.Date(2026, 7, 1, 11, 0, 0, 0, time.UTC), "location": time.UTC,
-		"devices": map[string]map[string]any{"pool": {"temperature": 24.5}, "pump": {"on": true}},
+		"devices": map[string]map[string]any{"pool": {"temperature": 24.5}, "pump": {"on": true}, "unheard": {}},
 	}
+	unheard := Bool{Device: "unheard", Capability: Open}
 	summer, swim := Yearly("1 Jun", "15 Sep"), Daily("10:00", "18:00")
 	for name, tc := range map[string]struct {
 		c    Condition
@@ -388,6 +390,8 @@ func TestConditionsCombine(t *testing.T) {
 		"not of any":       {Not(Any(water.Below(3), Not(pump))), true},
 		"a func":           {ConditionFunc("warm", func(s Snapshot) bool { return s.Get(water) > 20 }), true},
 		"a func that's Is": {ConditionFunc("is", func(s Snapshot) bool { return s.Is(All(summer, pump)) }), true},
+		"any past unheard": {Any(unheard, pump), true},
+		"all past unheard": {All(unheard, Not(pump)), false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ok, err := toEngine(tc.c)(vars)
@@ -395,6 +399,28 @@ func TestConditionsCombine(t *testing.T) {
 				t.Fatalf("got %v, %v; want %v", ok, err, tc.want)
 			}
 		})
+	}
+}
+
+// Any and All stop at a value nobody has reported only when the others can't decide without it.
+func TestAnyAndAllWaitForAnUnreportedValueOnlyIfItDecides(t *testing.T) {
+	vars := engine.Vars{"devices": map[string]map[string]any{"pump": {"on": false}, "unheard": {}}}
+	pump, unheard := Bool{Device: "pump", Capability: On}, Bool{Device: "unheard", Capability: Open}
+	for name, c := range map[string]Condition{"any": Any(pump, unheard), "all": All(Not(pump), unheard)} {
+		if _, err := toEngine(c)(vars); err == nil || !strings.Contains(err.Error(), "unheard open hasn't reported") {
+			t.Errorf("%s: got %v, want it to wait for unheard", name, err)
+		}
+	}
+}
+
+func TestAConditionHasALabelForTheJournal(t *testing.T) {
+	water := Number{Device: "pool", Capability: Temperature}
+	c := All(Not(Bool{Device: "door", Capability: Open}), water.Within(1, 2.5), Any(Daily("22:00", "06:00"),
+		Yearly("1 Jun", "15 Sep")), ConditionFunc("damp", func(Snapshot) bool { return true }))
+	want := "all(not(door open), pool temperature within 1 to 2.5, " +
+		"any(daily 22:00 to 06:00, yearly 1 Jun to 15 Sep), damp)"
+	if got := label(c); got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

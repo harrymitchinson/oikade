@@ -632,3 +632,36 @@ func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 		})
 	}
 }
+
+// A latched hold whose When is a Daily latches at its start.
+func TestALatchedDailyHoldLatches(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{}, oikade.NewHold("night", fan.To(true)).
+		Latch().
+		When(oikade.Daily("01:00", "02:00")))
+	h := hometest.New(t, home, hometest.Options{Devices: devices()})
+	h.Advance(90 * time.Minute)
+	h.ExpectValue(fan, true)
+	h.Advance(2 * time.Hour)
+	h.ExpectValue(fan, true)
+}
+
+// A flow's condition with a mistake in it, which oikade check can't see, fails the run.
+func TestAFlowsConditionWithAMistakeFailsTheRun(t *testing.T) {
+	for name, step := range map[string]func(*oikade.FlowRun){
+		"Is":      func(r *oikade.FlowRun) { r.Is(oikade.Yearly("1 Nov", "31 Feb")) },
+		"WaitFor": func(r *oikade.FlowRun) { r.WaitFor(sensor.Within(25, 18), time.Hour) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := oikade.NewHome(oikade.Options{}, oikade.NewFlow("broken", func(r *oikade.FlowRun) error {
+				step(r)
+				return r.Set(fan.To(true))
+			}).On(light))
+			h := hometest.New(t, home, hometest.Options{Devices: devices()})
+			h.Set(light, false)
+			h.ExpectValue(fan, false)
+			if h.Finished("broken") {
+				t.Fatal("the run finished")
+			}
+		})
+	}
+}

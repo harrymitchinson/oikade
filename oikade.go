@@ -661,6 +661,19 @@ func (r Flow) Late(d time.Duration) Flow {
 type FlowRun struct {
 	run      *flow.Run
 	priority Priority
+	// options are the home's, which a condition is checked against when the flow uses it.
+	options Options
+}
+
+// checked checks a condition a flow uses, which oikade check can't see, and ends the run as failed
+// if it has a mistake in it.
+func (r *FlowRun) checked(step string, c Condition) {
+	if c == nil {
+		panic(step + " needs a condition")
+	}
+	if err := c.check(r.options); err != nil {
+		panic(fmt.Sprintf("%s: %v", step, err))
+	}
 }
 
 // Now is the time. It returns the same time when a flow replays, which time.Now wouldn't.
@@ -685,21 +698,26 @@ func (r *FlowRun) Get[T Value](c Ref[T]) T {
 
 // Is reports whether c is true now, such as oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0)) for
 // whether it's dark. A replay returns what it found the first time. A condition that reads a value
-// nobody has reported yet is false.
+// nobody has reported yet is false. One with a mistake in it ends the run as failed.
 func (r *FlowRun) Is(c Condition) bool {
-	if c == nil {
-		panic("Is needs a condition") // Ends the run as failed.
-	}
+	r.checked("Is", c)
 	var ok bool
-	err := r.run.Look("is", &ok, func(vars engine.Vars) (bool, error) {
-		return true, evaluate(vars, func(s Snapshot) { ok = c.holds(s) })
+	err := r.run.Look("is "+label(c), &ok, func(vars engine.Vars) (bool, error) {
+		if evaluate(vars, func(s Snapshot) { ok = c.holds(s) }) != nil {
+			ok = false // Not reported yet.
+		}
+		return true, nil
 	})
-	return err == nil && ok
+	if err != nil {
+		panic(fmt.Sprintf("Is: %v", err))
+	}
+	return ok
 }
 
 // WaitFor waits until c is true and returns true, or returns false once timeout has passed. Zero
 // means no limit. A restart doesn't move the time it ends.
 func (r *FlowRun) WaitFor(c Condition, timeout time.Duration) bool {
+	r.checked("WaitFor", c)
 	return r.run.WaitFor(toEngine(c), timeout)
 }
 
@@ -982,6 +1000,9 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	for _, r := range h.holds {
 		key := name(r.name)
 		err := r.set.plain("a hold's Set", false)
+		if err == nil && r.when == nil && r.budget == nil {
+			err = errors.New("a hold needs a When or a Budget")
+		}
 		var c *engine.Compiled
 		if err == nil {
 			c, err = engine.NewHold(key, r.toEngine())
@@ -997,7 +1018,7 @@ func (h Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 			checkCondition(r.cond, h.options)))
 	}
 	for _, r := range h.flows {
-		f := r.toFlow(name(r.name))
+		f := r.toFlow(name(r.name), h.options)
 		flows[r.name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
 		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
@@ -1116,10 +1137,10 @@ func nilChange(on []Change) error {
 	return nil
 }
 
-func (r Flow) toFlow(key ident.ID) *flow.Flow {
+func (r Flow) toFlow(key ident.ID, o Options) *flow.Flow {
 	f := &flow.Flow{Key: key, Safety: r.priority == Safety, Late: r.late}
 	if r.run != nil {
-		f.Body = func(run *flow.Run) error { return r.run(&FlowRun{run: run, priority: r.priority}) }
+		f.Body = func(run *flow.Run) error { return r.run(&FlowRun{run: run, priority: r.priority, options: o}) }
 	}
 	return f
 }
@@ -1141,7 +1162,11 @@ func (r Hold) toEngine() engine.Hold {
 		Priority: engine.Priority(r.priority),
 		OnDelay:  r.onDelay, OffDelay: r.offDelay, Latch: r.latch, Budget: r.budget.toSchedule(),
 	}
+	// A latch is the engine's on a When, so a latched hold keeps its Daily there.
 	hours, when := splitHours(r.when)
+	if r.latch {
+		hours, when = nil, r.when
+	}
 	h.When = toEngine(when)
 	if hours != nil {
 		h.Window = hours.toEngine()

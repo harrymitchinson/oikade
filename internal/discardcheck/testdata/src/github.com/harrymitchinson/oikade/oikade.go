@@ -16,11 +16,13 @@ func (s Set) UntilNext() Set { return s }
 
 type Condition interface{ holds() bool }
 
+type Change interface{ change() }
+
 type Bool struct{}
 
-func (b Bool) To(v bool) Set       { return Set{} }
-func (b Bool) holds() bool         { return false }
-func (b Bool) Becomes(v bool) Bool { return b }
+func (b Bool) To(v bool) Set         { return Set{} }
+func (b Bool) holds() bool           { return false }
+func (b Bool) Becomes(v bool) Change { return nil }
 
 type Number struct{}
 
