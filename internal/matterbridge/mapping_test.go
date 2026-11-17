@@ -256,6 +256,8 @@ func TestTheBridgeShowsTheRegistrysMatterAttributes(t *testing.T) {
 			caps = append(caps, capability.On) // A brightness belongs to a light.
 		case capability.Battery:
 			caps = append(caps, capability.Occupied) // A battery powers a device.
+		case capability.Mode:
+			caps = append(caps, capability.Setpoint) // A mode is an air conditioner's.
 		}
 		m, _ := mapDevice(t, "", caps...)
 		c := cluster(t, m, spec.Matter.ClusterID)
@@ -650,5 +652,152 @@ func TestAReplayedPositionIsntAReportSinceTheMove(t *testing.T) {
 				t.Errorf("StopMotion: %v, want Failure", err)
 			}
 		}
+	}
+}
+
+func TestAnAirConditionerIsARoomAirConditioner(t *testing.T) {
+	m, calls := mapDevice(t, devicetype.OnOffPlugInUnit,
+		capability.On, capability.Mode, capability.Setpoint, capability.Temperature)
+	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x0072}) {
+		t.Errorf("device types %#x, want only Room Air Conditioner", got)
+	}
+	if f := cluster(t, m, clusters.IDOnOff).FeatureMap; f != clusters.FeatureDeadFront {
+		t.Errorf("On/Off features %#x, want only DeadFrontBehavior", f)
+	}
+	for _, c := range m.Clusters {
+		if c.ID == clusters.IDTemperatureMeasurement {
+			t.Error("an air conditioner has a Temperature Measurement cluster")
+		}
+	}
+	th := cluster(t, m, clusters.IDThermostat)
+	if th.FeatureMap != 0x23 {
+		t.Errorf("features %#x, want Heating, Cooling and Auto", th.FeatureMap)
+	}
+	const local, cooling, heating, deadBand, control, mode = 0x0000, 0x0011, 0x0012, 0x0019, 0x001B, 0x001C
+	if read(t, th, control) != uint64(4) || read(t, th, deadBand) != int64(0) {
+		t.Errorf("ControlSequenceOfOperation %v, MinSetpointDeadBand %v, want CoolingAndHeating and 0",
+			read(t, th, control), read(t, th, deadBand))
+	}
+	for attr, want := range map[uint32]int64{
+		0x0003: 500, 0x0004: 3500, 0x0005: 500, 0x0006: 3500, 0x0015: 500, 0x0016: 3500, 0x0017: 500, 0x0018: 3500,
+	} {
+		if got := read(t, th, attr); got != want {
+			t.Errorf("limit %#x is %v, want %d", attr, got, want)
+		}
+	}
+
+	// The bus reaches the attributes: off is SystemMode Off whatever the mode, and on shows it.
+	m.Update(capability.Temperature, 26.04)
+	m.Update(capability.Setpoint, 23.0)
+	m.Update(capability.Mode, "dry")
+	if read(t, th, mode) != uint64(0) {
+		t.Errorf("SystemMode while off %v, want Off", read(t, th, mode))
+	}
+	m.Update(capability.On, true)
+	if read(t, th, mode) != uint64(8) {
+		t.Errorf("SystemMode in dry %v, want Dry (8)", read(t, th, mode))
+	}
+	if read(t, th, local) != int64(2604) || read(t, th, heating) != int64(2300) || read(t, th, cooling) != int64(2300) {
+		t.Errorf("LocalTemperature %v, setpoints %v and %v", read(t, th, local), read(t, th, heating), read(t, th, cooling))
+	}
+	for name, want := range map[string]uint64{"auto": 1, "cool": 3, "heat": 4, "fan": 7, "dry": 8} {
+		m.Update(capability.Mode, name)
+		if got := read(t, th, mode); got != want {
+			t.Errorf("SystemMode in %s %v, want %d", name, got, want)
+		}
+	}
+
+	// SystemMode is the mode, then on. Off leaves the mode alone, and a mode the unit can't do is
+	// refused.
+	if s := write(t, th, mode, putUint(3)); s != im.StatusSuccess {
+		t.Errorf("SystemMode Cool: %v", s)
+	}
+	if s := write(t, th, mode, putUint(0)); s != im.StatusSuccess {
+		t.Errorf("SystemMode Off: %v", s)
+	}
+	for _, v := range []uint64{2, 5, 6, 9} {
+		if s := write(t, th, mode, putUint(v)); s != im.StatusConstraintError {
+			t.Errorf("SystemMode %d: %v, want a constraint error", v, s)
+		}
+	}
+	want := []setCall{{capability.Mode, "cool"}, {capability.On, true}, {capability.On, false}}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Errorf("writes %v, want %v", *calls, want)
+	}
+	if read(t, th, mode) != uint64(0) {
+		t.Errorf("SystemMode after Off %v", read(t, th, mode))
+	}
+}
+
+// Matter's Room Air Conditioner has an On/Off, so a unit with no on is a heater, whose mode the
+// bridge doesn't show.
+func TestAnAirConditionerWithNoOnIsAThermostat(t *testing.T) {
+	m, _ := mapDevice(t, "", capability.Mode, capability.Setpoint)
+	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x0301}) {
+		t.Errorf("device types %#x, want only Thermostat", got)
+	}
+}
+
+// Both setpoints are the one setpoint. In Cool, the heating setpoint's slider isn't the target, so a
+// write to it is taken and not sent, and in Heat the cooling one's. In Auto either sets it.
+func TestAnAirConditionerSendsOnlyTheSetpointInUse(t *testing.T) {
+	m, calls := mapDevice(t, "", capability.On, capability.Mode, capability.Setpoint)
+	th := cluster(t, m, clusters.IDThermostat)
+	const cooling, heating = 0x0011, 0x0012
+	m.Update(capability.On, true)
+	m.Update(capability.Setpoint, 24.0)
+
+	m.Update(capability.Mode, "cool")
+	if s := write(t, th, heating, putInt(1800)); s != im.StatusSuccess {
+		t.Errorf("heating setpoint in Cool: %v", s)
+	}
+	if read(t, th, heating) != int64(2400) {
+		t.Errorf("the heating setpoint moved to %v in Cool", read(t, th, heating))
+	}
+	if s := write(t, th, cooling, putInt(2200)); s != im.StatusSuccess {
+		t.Errorf("cooling setpoint in Cool: %v", s)
+	}
+	if read(t, th, heating) != int64(2200) {
+		t.Errorf("the heating setpoint is %v, not the cooling one's", read(t, th, heating))
+	}
+
+	for _, w := range []struct {
+		mode  string
+		attr  uint32
+		value int64
+	}{{"heat", cooling, 2600}, {"heat", heating, 2100}, {"auto", cooling, 2300}} {
+		m.Update(capability.Mode, w.mode)
+		if s := write(t, th, w.attr, putInt(w.value)); s != im.StatusSuccess {
+			t.Errorf("setpoint %#x in %s: %v", w.attr, w.mode, s)
+		}
+	}
+	if s := write(t, th, cooling, putInt(3600)); s != im.StatusConstraintError {
+		t.Errorf("a setpoint above the limits: %v", s)
+	}
+	invoke(t, th, 0x00, func(w *tlv.Writer) { // SetpointRaiseLower, Both, down 1 °C
+		w.PutUint(tlv.Context(0), 2)
+		w.PutInt(tlv.Context(1), -10)
+	})
+	want := []setCall{{capability.Setpoint, 22.0}, {capability.Setpoint, 21.0}, {capability.Setpoint, 23.0},
+		{capability.Setpoint, 22.0}}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Errorf("writes %v, want %v", *calls, want)
+	}
+}
+
+// One Home app change can be two writes. Through the Coalescer, SystemMode Cool sends the mode
+// before turning the unit on, so it never starts in its old mode, and Off goes before anything.
+func TestSystemModeCoolWritesTheModeAndThenOn(t *testing.T) {
+	c, rec, clk := coalescer(t, func(ident.ID, string) (any, bool) { return nil, false })
+	ac := ident.ID{Name: "bedroom-ac"}
+	m := Map(Device{Key: ac, Endpoint: 7, Name: "AC", Capabilities: []string{capability.On, capability.Mode, capability.Setpoint}},
+		func(name string, value any) { c.Add(ac, name, value) })
+	th := cluster(t, m, clusters.IDThermostat)
+	if s := write(t, th, 0x001C, putUint(3)); s != im.StatusSuccess {
+		t.Fatalf("SystemMode Cool: %v", s)
+	}
+	burstEnds(c, clk)
+	if got, want := rec.list(), []string{"bedroom-ac mode=cool", "bedroom-ac on=true"}; !slices.Equal(got, want) {
+		t.Errorf("writes %v, want %v", got, want)
 	}
 }

@@ -31,7 +31,11 @@ func TestOf(t *testing.T) {
 		"a setpoint is a thermostat":       {"", "", []string{capability.On, capability.Setpoint, capability.Temperature}, []Type{Thermostat}},
 		"a thermostat's on is its own":     {OnOffLight, OnOffPlugInUnit, []string{capability.On, capability.Setpoint}, []Type{Thermostat}},
 		"a thermostat keeps other sensors": {"", "", []string{capability.Setpoint, capability.Humidity}, []Type{Thermostat, HumiditySensor}},
-		"a lock":                           {"", "", []string{capability.Locked, capability.Battery}, []Type{DoorLock}},
+		"a setpoint and a mode are an air conditioner": {OnOffPlugInUnit, "", []string{capability.On, capability.Mode, capability.Setpoint, capability.Temperature},
+			[]Type{RoomAirConditioner}},
+		"a mode alone is no air conditioner": {"", "", []string{capability.On, capability.Mode}, []Type{OnOffPlugInUnit}},
+		"an air conditioner needs an on":     {"", "", []string{capability.Mode, capability.Setpoint}, []Type{Thermostat}},
+		"a lock":                             {"", "", []string{capability.Locked, capability.Battery}, []Type{DoorLock}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := Of(tc.yours, tc.drivers, tc.caps); !slices.Equal(got, tc.want) {

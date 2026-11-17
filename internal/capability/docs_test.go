@@ -72,13 +72,12 @@ func TestTheDocsTableIsTheRegistrys(t *testing.T) {
 }
 
 // The Matter bridge shows each capability as the attribute the registry names, so every one has one
-// but link-quality, which Matter has no attribute for, and mode, which the bridge doesn't show until
-// the Room Air Conditioner does (OIK-265).
-func TestEveryCapabilityTheBridgeShowsHasAMatterAttribute(t *testing.T) {
+// but link-quality, which Matter has no attribute for. Some need another with them: a mode shows on
+// an air conditioner, with a setpoint and an on, and a brightness on a light.
+func TestEveryCapabilityButLinkQualityHasAMatterAttribute(t *testing.T) {
 	for _, name := range Names() {
 		m := registry[name].Matter
 		switch {
-		case name == Mode:
 		case name == LinkQuality && m != nil:
 			t.Errorf("%s has a Matter attribute", name)
 		case name != LinkQuality && (m == nil || m.Cluster == "" || m.Attribute == "" || m.ClusterID == 0):

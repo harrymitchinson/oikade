@@ -223,7 +223,7 @@ func (s Set) action() (action, error) {
 }
 
 // checkTypes checks a room rule's device types: only a room takes them, and each is one a device
-// that's on or off can be, or Thermostat.
+// that's on or off can be, Thermostat or RoomAirConditioner.
 func checkTypes(room string, types []devicetype.Type) error {
 	if len(types) > 0 && room == "" {
 		return errors.New("device types limit a room, and there's no room")

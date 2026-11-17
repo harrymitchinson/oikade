@@ -13,7 +13,7 @@ A name's number, in brackets, is what claims hold and the `oikade_capability_val
 | `humidity` | `oikade.Humidity` | number | 0 to 100% |  | Relative Humidity Measurement (0x0405) MeasuredValue (0x0000) |
 | `link-quality` | `oikade.LinkQuality` | number | 0 to 255 |  | none |
 | `locked` | `oikade.Locked` | bool |  | yes | Door Lock (0x0101) LockState (0x0000) |
-| `mode` | `oikade.Mode` | name | `auto` (0), `heat` (1), `cool` (2), `dry` (3), `fan` (4) | yes | none |
+| `mode` | `oikade.Mode` | name | `auto` (0), `heat` (1), `cool` (2), `dry` (3), `fan` (4) | yes | Thermostat (0x0201) SystemMode (0x001C) |
 | `occupied` | `oikade.Occupied` | bool |  |  | Occupancy Sensing (0x0406) Occupancy (0x0000) |
 | `on` | `oikade.On` | bool |  | yes | On/Off (0x0006) OnOff (0x0000) |
 | `open` | `oikade.Open` | bool |  |  | Boolean State (0x0045) StateValue (0x0000), inverted |
