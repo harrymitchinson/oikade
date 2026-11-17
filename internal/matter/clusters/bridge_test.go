@@ -3,8 +3,11 @@ package clusters
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"slices"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,6 +53,12 @@ func serve(t *testing.T) *transport.Transport {
 // newFixture is a bridge with one on/off plug on endpoint 2, served over a PASE session.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureLogging(t, logging.Test(t))
+}
+
+// newFixtureLogging is newFixture, with the Interaction Model server logging to log.
+func newFixtureLogging(t *testing.T, log *slog.Logger) *fixture {
+	t.Helper()
 	f := &fixture{devTr: serve(t), cliTr: serve(t)}
 	f.bridge = NewBridge(Info{
 		VendorName: "Oikade", VendorID: 0xFFF1, ProductName: "Bridge", ProductID: 0x8000,
@@ -61,7 +70,7 @@ func newFixture(t *testing.T) *fixture {
 	if f.info, err = f.bridge.AddDevice(2, DeviceOnOffPlug, "Desk lamp", "lamp-1", f.onoff.Cluster()); err != nil {
 		t.Fatal(err)
 	}
-	f.server = &im.Server{Node: f.bridge.Node, Log: logging.Test(t)}
+	f.server = &im.Server{Node: f.bridge.Node, Log: log}
 	f.server.Register(f.devTr)
 
 	v, err := mcrypto.NewVerifier(passcode, salt, 1000)
@@ -390,14 +399,33 @@ func TestDataVersionChanges(t *testing.T) {
 	}
 }
 
+// TestRefusesUnsecuredSession: the server refuses a read over an unsecured session, which it
+// says, and answers nothing, while the same read over the secure session is answered.
 func TestRefusesUnsecuredSession(t *testing.T) {
-	f := newFixture(t)
+	var mu sync.Mutex
+	var lines []string
+	f := newFixtureLogging(t, logging.Lines(func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, line)
+	}, slog.LevelInfo))
+	refused := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "Refused interaction over an unsecured session") })
+	}
 	unsecured := f.cliTr.NewUnsecuredSession(f.devTr.Addr().(*net.UDPAddr).AddrPort())
 	c := &im.Client{Session: unsecured}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	if _, err := c.Read(ctx, wildcard()); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("read over an unsecured session: %v, want no answer", err)
+	}
+	if !refused() {
+		t.Errorf("the server didn't refuse the read; it logged %q", lines)
+	}
+	if reports, err := f.client.Read(timeout(t), wildcard()); err != nil || len(reports) == 0 {
+		t.Errorf("the same read over the secure session: %d reports, %v", len(reports), err)
 	}
 }
 

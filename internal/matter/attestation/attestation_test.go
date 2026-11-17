@@ -40,19 +40,24 @@ func TestTestCredentialsVerify(t *testing.T) {
 
 	csrNonce := nonce()
 	nocsr := NOCSRElements([]byte("a CSR"), csrNonce)
-	sig, err = creds.Sign(append(append([]byte(nil), nocsr...), challenge...))
+	csrSig, err := creds.Sign(append(append([]byte(nil), nocsr...), challenge...))
 	if err != nil {
 		t.Fatal(err)
 	}
-	csr, err := VerifyNOCSR(res.DAC, nocsr, sig, challenge, csrNonce)
+	csr, err := VerifyNOCSR(res.DAC, nocsr, csrSig, challenge, csrNonce)
 	if err != nil || string(csr) != "a CSR" {
 		t.Errorf("VerifyNOCSR: %q, %v", csr, err)
 	}
 
-	// What must fail.
+	// What must fail. Each changes one thing from what verified above.
 	for name, f := range map[string]func() error{
 		"another challenge": func() error {
 			_, err := trust.Verify(creds.DAC, creds.PAI, elements, sig, nonce()[:16], n)
+			return err
+		},
+		"signed without the challenge": func() error {
+			s, _ := creds.Sign(elements)
+			_, err := trust.Verify(creds.DAC, creds.PAI, elements, s, challenge, n)
 			return err
 		},
 		"another nonce": func() error {
@@ -76,7 +81,16 @@ func TestTestCredentialsVerify(t *testing.T) {
 			return err
 		},
 		"NOCSR, another nonce": func() error {
-			_, err := VerifyNOCSR(res.DAC, nocsr, sig, challenge, nonce())
+			_, err := VerifyNOCSR(res.DAC, nocsr, csrSig, challenge, nonce())
+			return err
+		},
+		"NOCSR, another challenge": func() error {
+			_, err := VerifyNOCSR(res.DAC, nocsr, csrSig, nonce()[:16], csrNonce)
+			return err
+		},
+		"NOCSR, signed without the challenge": func() error {
+			s, _ := creds.Sign(nocsr)
+			_, err := VerifyNOCSR(res.DAC, nocsr, s, challenge, csrNonce)
 			return err
 		},
 	} {
