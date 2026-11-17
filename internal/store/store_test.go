@@ -309,7 +309,7 @@ func TestSnapshotOpensWithWhatTheStoreHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	copied := t.TempDir()
-	if err := s.Snapshot(filepath.Join(copied, fileName)); err != nil {
+	if err := s.Snapshot(filepath.Join(copied, FileName)); err != nil {
 		t.Fatal(err)
 	}
 	// Nothing written after the snapshot is in it, and the store it came from is still open.

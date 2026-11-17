@@ -226,7 +226,7 @@ func commit(t *testing.T, dir string) (before, after []byte, pageSize int) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, fileName)
+	path := filepath.Join(dir, FileName)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func changedPages(t *testing.T, before, after []byte, pageSize int) (meta int, d
 func expectFirstThree(t *testing.T, image []byte) {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, fileName), image, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, FileName), image, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Open(dir)

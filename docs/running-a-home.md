@@ -33,14 +33,15 @@ Removing a Safety rule is refused, and so is renaming one, because a rule's clai
 
 ## Running the host
 
-The host is one long-running process, `oikade-host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Put `oikade-host` from a [release](https://github.com/harrymitchinson/oikade/releases), in `oikade-host-linux-<arch>.tar.gz`, at `/usr/local/bin/oikade-host`, make a user for it that nobody logs in as, and run it under systemd:
+The host is one long-running process, `oikade-host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Take `oikade-host` from a [release](https://github.com/harrymitchinson/oikade/releases), in `oikade-host-linux-<arch>.tar.gz`, and on a machine with systemd it installs itself:
 
 ```sh
-sudo useradd --system --home-dir /var/lib/oikade --shell /usr/sbin/nologin oikade
+sudo ./oikade-host install     # --api-addr :8443 and --client laptop, unless you say
 ```
 
+It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`, which nobody logs in as, writes `/etc/systemd/system/oikade.service`, starts it and waits until the host answers on its socket. Then it prints the `oikade login` line for your laptop, and the firewall rule if ufw is on, which it leaves to you. `--json` prints what it did, for scripts. The unit it writes is this:
+
 ```ini
-# /etc/systemd/system/oikade.service
 [Unit]
 Description=Oikade host
 After=network-online.target
@@ -48,7 +49,7 @@ Wants=network-online.target
 
 [Service]
 User=oikade
-ExecStart=/usr/local/bin/oikade-host --data-dir /var/lib/oikade --api-addr :8443
+ExecStart=/usr/local/bin/oikade-host --api-addr :8443
 StateDirectory=oikade
 StateDirectoryMode=0700
 Restart=always
@@ -60,11 +61,7 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 ```
 
-```sh
-sudo systemctl enable --now oikade
-```
-
-The unit says only where the data lives and what to listen on. What's about the home, such as the Matter bridge's name or where Zigbee2MQTT's broker is, is in its code, so rebuilding the machine is this file and `oikade deploy` ([OIK-296](https://linear.app/oikade/issue/OIK-296)). Add any other flags for `oikade-host`, such as `--metrics-addr`, to `ExecStart`. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
+The unit says only where the data lives and what to listen on. What's about the home, such as the Matter bridge's name or where Zigbee2MQTT's broker is, is in its code, so rebuilding the machine is this file and `oikade deploy` ([OIK-296](https://linear.app/oikade/issue/OIK-296)). Add any other flags for `oikade-host`, such as `--metrics-addr`, to `ExecStart` in a drop-in, with `sudo systemctl edit oikade`. `install` writes the unit itself only on a first install or when it's given `--api-addr`, and never touches a drop-in. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
 
 When the host stops, it goes in order: the API, ending streams such as `oikade tail`, then your automations, then the writes already under way, then each plugin, which is sent `SIGTERM` and says it's offline before its socket closes, then the Matter bridge and the store. The log has a line for each. `--stop-timeout` (10 seconds) bounds all of it: past that the rest is cut off, the log says where, and the host kills what's left and exits with an error. No state that must survive is lost, because the host only ever crashes safe, though `oikade replay` can miss the last few seconds. `KillMode=mixed` is what leaves the order to the host: by default systemd sends `SIGTERM` to your automations and plugins at the same moment as the host.
 
@@ -117,13 +114,12 @@ A broker's password is a secret too, passed to the plugin that uses the broker, 
 ### Upgrading the host
 
 ```sh
-oikade backup                                                             # a snapshot of the store, in backups/
-sudo cp -p /usr/local/bin/oikade-host /usr/local/bin/oikade-host.previous # to go back to
-sudo install -m 755 oikade-host /usr/local/bin/oikade-host                # the new version, as a new file
-sudo systemctl restart oikade
+sudo ./oikade-host install     # the new release's oikade-host
 ```
 
-Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back, and the Home app shows the bridge as not responding until it reconnects. The new `oikade-host` opens the same data directory, so nothing needs pairing again. If it doesn't come up, `sudo install -m 755 /usr/local/bin/oikade-host.previous /usr/local/bin/oikade-host` and restart. Update `oikade` on the machines you run commands from to the same version, as an older or newer client may not speak this host's API.
+On a machine with an install, `install` upgrades it ([OIK-277](https://linear.app/oikade/issue/OIK-277)). It backs up the store through the running host, as `oikade backup` does, keeps the old binary as `/usr/local/bin/oikade-host.previous`, swaps in the new one and restarts the host. If the new version doesn't answer on the socket within a minute, it puts the old binary and unit back, restarts that, and fails. A host that isn't serving, such as one that crashes on start, is stopped and its store copied instead. A unit it didn't write is fine if it's at `/etc/systemd/system/oikade.service` and runs `/usr/local/bin/oikade-host`. Any other unit, it leaves alone and stops.
+
+Unlike a deploy, this restarts the host, so Matter, your automations and your plugins all stop until it's back, and the Home app shows the bridge as not responding until it reconnects. The new `oikade-host` opens the same data directory, so nothing needs pairing again. Update `oikade` on the machines you run commands from to the same version, as an older or newer client may not speak this host's API.
 
 A new host may speak a new protocol to your code, in which case your process is turned away until you bump `oikade` in your module and deploy. Do that straight after upgrading.
 

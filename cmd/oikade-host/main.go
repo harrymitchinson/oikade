@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/install"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -34,6 +36,8 @@ const usage = `Usage:
               [--stop-timeout DURATION]
   oikade-host client add NAME [--token] [--data-dir DIR] [--json]
                               A code for oikade login, or a token for CI, from the host running here.
+  oikade-host install [--api-addr ADDRESS] [--client NAME] [--json]
+                              Install this binary as the host under systemd, or upgrade the one there.
   oikade-host version
 
 With no command, oikade-host runs the host. Everything else, from deploy to status, is oikade.`
@@ -57,6 +61,8 @@ func main() {
 		err = runHost(ctx, args)
 	case "client":
 		err = runClient(ctx, args)
+	case "install":
+		err = runInstall(ctx, args)
 	case "version":
 		fmt.Println(cli.Version(version))
 	case "help":
@@ -205,17 +211,9 @@ func runClient(ctx context.Context, args []string) error {
 	}
 	if !*token {
 		if *asJSON {
-			return cli.PrintJSON(struct {
-				Name    string    `json:"name"`
-				Code    string    `json:"code"`
-				Expires time.Time `json:"expires"`
-				Pin     string    `json:"pin"`
-				Address string    `json:"address"`
-			}{name, resp.Code, resp.Expires, resp.Pin, resp.Address})
+			return cli.PrintJSON(newLogin(name, resp))
 		}
-		fmt.Printf("On %s, by %s, run:\n  oikade login %s --pin %s --code %s\n",
-			name, resp.Expires.Local().Format(time.TimeOnly), resp.Address, resp.Pin, resp.Code)
-		fmt.Println("The code works once. If the host's name doesn't reach it from there, use its address.")
+		printLogin(name, resp)
 		return nil
 	}
 	if resp.Pin == "" {
@@ -231,5 +229,105 @@ func runClient(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("Token for %s. It isn't shown again, and it can do anything you can:\n  %s\n", name, resp.Token)
 	fmt.Printf("The host's pin, which a client checks it by:\n  %s\n", resp.Pin)
+	return nil
+}
+
+// login is a new client's code, as client add --json and install --json print it.
+type login struct {
+	Name    string    `json:"name"`
+	Code    string    `json:"code"`
+	Expires time.Time `json:"expires"`
+	Pin     string    `json:"pin"`
+	Address string    `json:"address"`
+}
+
+func newLogin(name string, resp api.Response) login {
+	return login{name, resp.Code, resp.Expires, resp.Pin, resp.Address}
+}
+
+func printLogin(name string, resp api.Response) {
+	fmt.Printf("On %s, by %s, run:\n  oikade login %s --pin %s --code %s\n",
+		name, resp.Expires.Local().Format(time.TimeOnly), resp.Address, resp.Pin, resp.Code)
+	fmt.Println("The code works once. If the host's name doesn't reach it from there, use its address.")
+}
+
+const installUsage = "usage: oikade-host install [--api-addr ADDRESS] [--client NAME] [--json]"
+
+// runInstall installs this binary as the host under systemd, or upgrades the one there (OIK-277).
+func runInstall(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	apiAddr := fs.String("api-addr", install.DefaultAPIAddr,
+		"Where the unit serves the API over TLS. Empty serves it only on the socket. "+
+			"An upgrade writes the unit again only when it's given.")
+	client := fs.String("client", install.DefaultClient,
+		"Who the login line is for. An upgrade prints one only when it's given.")
+	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
+	if words := cli.Parse(fs, args); len(words) > 0 {
+		return errors.New(installUsage)
+	}
+	opts := install.Options{APIAddr: *apiAddr, Client: *client}
+	fs.Visit(func(f *flag.Flag) {
+		opts.APIAddrSet = opts.APIAddrSet || f.Name == "api-addr"
+		opts.ClientSet = opts.ClientSet || f.Name == "client"
+	})
+	self, err := os.Executable()
+	if err == nil {
+		self, err = filepath.EvalSymlinks(self)
+	}
+	if err != nil {
+		return fmt.Errorf("couldn't find this binary: %w", err)
+	}
+	in := &install.Installer{
+		Root: "/", Self: self, Version: cli.Version(version), Privileged: os.Geteuid() == 0,
+		Run: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+			if err != nil {
+				return out, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err,
+					strings.TrimSpace(string(out)))
+			}
+			return out, nil
+		},
+		Call: func(ctx context.Context, req api.Request) (api.Response, error) {
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			return api.Call(ctx, api.Local{DataDir: cli.DefaultDataDir}, req)
+		},
+		Progress: os.Stderr, Wait: install.DefaultWait, Poll: 250 * time.Millisecond,
+	}
+	res, err := in.Install(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		out := struct {
+			Version      string `json:"version"`
+			Upgraded     bool   `json:"upgraded"`
+			From         string `json:"from,omitempty"`
+			Unchanged    bool   `json:"unchanged,omitempty"`
+			Previous     string `json:"previous,omitempty"`
+			Backup       string `json:"backup,omitempty"`
+			Login        *login `json:"login,omitempty"`
+			FirewallRule string `json:"firewallRule,omitempty"`
+		}{res.Version, res.Upgraded, res.From, res.Unchanged, res.Previous, res.Backup, nil, res.FirewallRule}
+		if res.Login != nil {
+			l := newLogin(opts.Client, *res.Login)
+			out.Login = &l
+		}
+		return cli.PrintJSON(out)
+	}
+	switch {
+	case res.Previous != "":
+		fmt.Printf("Upgraded to %s. The previous version is %s\n", res.Version, res.Previous)
+	case res.Upgraded && !res.Unchanged:
+		fmt.Printf("Restarted %s with its new unit\n", install.UnitName)
+	case !res.Upgraded:
+		fmt.Printf("Installed oikade-host %s, running as %s\n", res.Version, install.UnitName)
+	}
+	if res.Login != nil {
+		printLogin(opts.Client, *res.Login)
+	}
+	if res.Firewall != "" {
+		_, _ = fmt.Fprintf(os.Stderr, "%s is active: %s\n", res.Firewall, res.FirewallRule)
+	}
 	return nil
 }

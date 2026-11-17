@@ -38,7 +38,7 @@ driver ──▶ hub ──▶ metrics, event log, your process, Matter bridge
 
 ## The host
 
-`oikade-host` (`cmd/oikade-host`, `internal/host`) is how Oikade runs ([OIK-143](https://linear.app/oikade/issue/OIK-143)).
+`oikade-host` (`cmd/oikade-host`, `internal/host`) is how Oikade runs ([OIK-143](https://linear.app/oikade/issue/OIK-143)). `oikade-host install` (`internal/install`) puts it under systemd, or upgrades it, on the machine itself: its steps take a root directory, a command runner and the socket as a function, so its tests run with a fake `systemctl` ([OIK-277](https://linear.app/oikade/issue/OIK-277)).
 
 ```
                  host (long-lived)                         your process (replaceable)
