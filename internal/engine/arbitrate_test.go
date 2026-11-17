@@ -81,7 +81,7 @@ func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBac
 	rail := entry(capability.On, "false", control.NameOverride, "Next")
 	rules := func() []*Compiled {
 		evening := holdRule(t, "towel-rail-evenings", Hold{Device: "towel-rail", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "18:00"}, End: At{Time: "21:00"}}})
-		boost := momentRule(t, "towel-rail-boost", Moment{Timers: []Timer{At{Time: "21:30"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Set{Device: "towel-rail", Capability: capability.On, Value: true, For: time.Hour, Until: UntilNext}}})
+		boost := flowRule(t, "towel-rail-boost", steps{Timers: []Timer{At{Time: "21:30"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Set{Device: "towel-rail", Capability: capability.On, Value: true, For: time.Hour, Until: UntilNext}}})
 		return []*Compiled{evening, boost}
 	}
 	start := func(now string, on bool) *rig {
@@ -114,7 +114,7 @@ func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states *storeBac
 	shutoff := func() *Compiled {
 		return holdRule(t, "leak-shutoff", Hold{Device: "main-valve", Capability: capability.On, Value: false, Priority: PrioritySafety, When: isTrue("leak-sensor", capability.Open), Latch: true})
 	}
-	reset := momentRule(t, "leak-reset", Moment{Timers: []Timer{At{Time: "16:00"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Release("leak-shutoff")}})
+	reset := flowRule(t, "leak-reset", steps{Timers: []Timer{At{Time: "16:00"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Release("leak-shutoff")}})
 	start := func(now string, open bool, rules ...*Compiled) *rig {
 		return startRigWith(t, rigOptions{
 			now: local(now), holds: states.holds(t), controls: states.controls(t),
@@ -198,21 +198,24 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 	}
 	// Let the bath rail's default write land before the run, so the order below is fixed.
 	r.settle()
-	c := momentRule(t, "bathroom-on", Moment{Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}}, Do: []Action{Set{Room: "bathroom", Capability: capability.On, Value: true}, Set{Device: "towel-rail", Capability: capability.On, Value: true}, Set{Room: "bathroom", Capability: capability.On, Value: true, For: 10 * time.Minute}}})
+	c := flowRule(t, "bathroom-on", steps{Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}}, Do: []Action{Set{Room: "bathroom", Capability: capability.On, Value: true}, Set{Device: "towel-rail", Capability: capability.On, Value: true}, Set{Room: "bathroom", Capability: capability.On, Value: true, For: 10 * time.Minute}}})
 	r.e.Load(c)
 	r.change("hall-motion", capability.Occupied, true)
 	r.wrote(4, "the run")
 	r.settle()
 	// The bath rail gets its default when it's discovered with no value. Then the endless sets
-	// write the fan and skip both rails, and the timed one claims the bath rail.
+	// write the fan and skip both rails, each an error for the flow, and the timed one claims the
+	// bath rail.
 	r.expect(call{"bath-rail", capability.On, false}, call{"bath-fan", capability.On, true},
 		call{"bath-fan", capability.On, true}, call{"bath-rail", capability.On, true})
 	r.logs.mu.Lock()
 	defer r.logs.mu.Unlock()
-	if !slices.ContainsFunc(r.logs.lines, func(l string) bool {
-		return strings.Contains(l, "Skipped Room members") && strings.Contains(l, "bath-rail")
-	}) {
-		t.Errorf("no log of the skipped bath rail in %q", r.logs.lines)
+	for _, want := range []string{"left out [bath-rail (arbitrates on", "towel-rail on is arbitrated"} {
+		if !slices.ContainsFunc(r.logs.lines, func(l string) bool {
+			return strings.Contains(l, "Failed step of flow run") && strings.Contains(l, want)
+		}) {
+			t.Errorf("no failed step %q in %q", want, r.logs.lines)
+		}
 	}
 }
 
@@ -563,7 +566,7 @@ func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
 	}
 }
 
-// A room set limited to lights leaves the fridge plug in the same room alone, and says so. A hold
+// A flow's room set limited to lights leaves the fridge plug in the same room alone, and says so. A hold
 // limited the same way writes only the lights too.
 func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 	r := startRigWith(t, rigOptions{now: local("2026-10-21 22:00 BST")})
@@ -578,7 +581,7 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 	for dev := range metas {
 		r.store.Discovered(dev, driver.Info{Found: true, Capabilities: []string{capability.On, capability.Occupied}})
 	}
-	c := momentRule(t, "living-room-off", Moment{
+	c := flowRule(t, "living-room-off", steps{
 		Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}},
 		Do:      []Action{Set{Room: "living-room", DeviceTypes: lights, Capability: capability.On, Value: false}},
 	})
@@ -596,10 +599,12 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 		t.Errorf("no log of the skipped fridge plug in %q", r.logs.lines)
 	}
 
-	if _, err := NewMoment(ident.ID{Name: "bad"}, Moment{
-		Changes: []Change{{Device: "hall-motion", Capability: capability.Occupied}},
-		Do:      []Action{Set{Device: "fridge-plug", DeviceTypes: lights, Capability: capability.On, Value: false}},
-	}); err == nil {
+	// Leaving out what the set's types leave out is what it was written to do, so the run succeeds.
+	r.eventually("the run to succeed", func() bool {
+		return r.e.metrics.runs.Counter("living-room-off", ResultSucceeded).Get() == 1
+	})
+
+	if _, err := (Set{Device: "fridge-plug", DeviceTypes: lights, Capability: capability.On, Value: false}).action(); err == nil {
 		t.Error("device types on a device, not a room, compiled")
 	}
 	if _, err := NewHold(ident.ID{Name: "bad"}, Hold{

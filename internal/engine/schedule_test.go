@@ -38,8 +38,7 @@ func sunsetTrigger(offset time.Duration) Timer { return SunTime{Event: sun.Sunse
 
 func compiled(t *testing.T, triggers ...Timer) *Compiled {
 	t.Helper()
-	c := momentRule(t, "timed", Moment{Timers: triggers, Do: []Action{delay(time.Second)}})
-	return c
+	return flowRule(t, "timed", steps{Timers: triggers, Do: []Action{delay(time.Second)}})
 }
 
 // follow returns the next n fires after t.
@@ -116,7 +115,7 @@ func TestCompileTimeTriggers(t *testing.T) {
 		"unknown event": {SunTime{Event: 9}, "unknown event"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewMoment(goKey("timed"), Moment{Timers: []Timer{tc.trigger}, Do: []Action{delay(time.Second)}})
+			_, err := NewFlow(goKey("timed"), Flow{Timers: []Timer{tc.trigger}, Body: noop})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("got %v, want an error containing %q", err, tc.wantErr)
 			}
@@ -145,13 +144,13 @@ func (s *schedules) last() Schedule {
 }
 
 // timedHarness runs a Rule named lights-on that turns the hallway light on at its triggers.
-func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*Moment), triggers ...Timer) (*harness, *schedules) {
+func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*steps), triggers ...Timer) (*harness, *schedules) {
 	t.Helper()
-	m := Moment{Timers: triggers, Condition: timerFired, Since: now.Add(-30 * 24 * time.Hour), Do: []Action{set("hallway-light", capability.On, "true")}}
+	m := steps{Timers: triggers, Condition: timerFired, Since: now.Add(-30 * 24 * time.Hour), Do: []Action{set("hallway-light", capability.On, "true")}}
 	if edit != nil {
 		edit(&m)
 	}
-	r := momentRule(t, "lights-on", m)
+	r := flowRule(t, "lights-on", m)
 	s := &schedules{}
 	h := newHarnessWith(t, now, func(e *Engine) {
 		e.Site, e.suns, e.OnSchedule = site, newSunCache(site), s.record
@@ -177,7 +176,7 @@ func (h *harness) advance(t time.Time, n int) {
 }
 
 func TestAtFiresWithTheClock(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 06:59 BST"), nil, func(r *Moment) {
+	h, s := timedHarness(t, local("2026-10-21 06:59 BST"), nil, func(r *steps) {
 		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
 	if got := s.last().Next; !got.Equal(local("2026-10-21 07:00 BST")) {
@@ -207,7 +206,7 @@ func TestSunFiresWithTheClock(t *testing.T) {
 }
 
 func TestMissedFireInsideTheDeadlineRunsOnStartup(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *Moment) {
+	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *steps) {
 		r.StartingDeadline = 10 * time.Minute
 		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
@@ -216,7 +215,7 @@ func TestMissedFireInsideTheDeadlineRunsOnStartup(t *testing.T) {
 }
 
 func TestMissedFireOutsideTheDeadlineIsCounted(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *Moment) {
+	h, s := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *steps) {
 		r.StartingDeadline = 10 * time.Minute
 		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
@@ -233,7 +232,7 @@ func TestMissedFireOutsideTheDeadlineIsCounted(t *testing.T) {
 }
 
 func TestMissedFireWithoutADeadlineIsSkipped(t *testing.T) {
-	h, _ := timedHarness(t, local("2026-10-21 07:01 BST"), nil, func(r *Moment) {
+	h, _ := timedHarness(t, local("2026-10-21 07:01 BST"), nil, func(r *steps) {
 		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
 	if got := h.result("lights-on", ResultMissed); got != 1 {
@@ -242,7 +241,7 @@ func TestMissedFireWithoutADeadlineIsSkipped(t *testing.T) {
 }
 
 func TestOnlyFiresSinceTheRuleWasCreated(t *testing.T) {
-	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *Moment) {
+	h, s := timedHarness(t, local("2026-10-21 07:05 BST"), nil, func(r *steps) {
 		r.StartingDeadline = time.Hour
 		r.Since = local("2026-10-21 07:02 BST")
 	}, atTrigger("07:00"))
@@ -256,10 +255,10 @@ func TestOnlyFiresSinceTheRuleWasCreated(t *testing.T) {
 }
 
 func TestReloadDoesNotCatchUp(t *testing.T) {
-	h, _ := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *Moment) {
+	h, _ := timedHarness(t, local("2026-10-21 07:20 BST"), nil, func(r *steps) {
 		r.Since = local("2026-10-20 07:00 BST")
 	}, atTrigger("07:00"))
-	r := momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2, Do: []Action{set("hallway-light", capability.On, "true")}})
+	r := flowRule(t, "lights-on", steps{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-20 07:00 BST"), Generation: 2, Do: []Action{set("hallway-light", capability.On, "true")}})
 	h.e.Load(r)
 	h.settle()
 	if calls := h.setter.got(); len(calls) != 0 {
@@ -283,10 +282,9 @@ func TestSunWithoutASiteNeverFires(t *testing.T) {
 
 func TestEditingAwayTimersClearsTheSchedule(t *testing.T) {
 	h, s := timedHarness(t, local("2026-10-21 06:00 BST"), nil, nil, atTrigger("07:00"))
-	r := momentRule(t, "lights-on", Moment{Changes: motionTrigger, Do: []Action{delay(time.Second)}})
+	r := flowRule(t, "lights-on", steps{Changes: motionTrigger, Do: []Action{delay(time.Second)}})
 	r.Generation = 2
-	c := r
-	h.e.Load(c)
+	h.e.Load(r)
 	if got := s.last(); !got.Cleared || got.Generation != 2 {
 		t.Errorf("got %+v, want the schedule cleared for generation 2", got)
 	}
@@ -303,7 +301,7 @@ func TestRemoveClearsTheScheduleAndForgetsTheLoad(t *testing.T) {
 	}
 	// Recreated, it looks for missed fires again, but only since it was created.
 	h.clock.SetTime(local("2026-10-21 07:05 BST"))
-	h.e.Load(momentRule(t, "lights-on", Moment{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST"), Do: []Action{set("hallway-light", capability.On, "true")}}))
+	h.e.Load(flowRule(t, "lights-on", steps{Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: time.Hour, Since: local("2026-10-21 07:01 BST"), Do: []Action{set("hallway-light", capability.On, "true")}}))
 	h.settle()
 	if calls := h.setter.got(); len(calls) != 0 {
 		t.Errorf("calls = %v; 07:00 was before the new rule existed", calls)

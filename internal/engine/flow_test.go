@@ -239,7 +239,7 @@ func TestApplyRunsOneAction(t *testing.T) {
 	}
 }
 
-func TestApplyIsAnErrorWhereAMomentOnlyLogs(t *testing.T) {
+func TestApplyIsAnErrorWhereARunMustNotCarryOn(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
 	key := goKey("routine")
 	unended := Set{Device: dev.Name, Capability: capability.On, Value: false}
@@ -390,13 +390,10 @@ func TestNewFlowNeedsABody(t *testing.T) {
 
 func TestKeepSinceCatchesUpOnAMissedTime(t *testing.T) {
 	timer := func(deadline time.Duration) *Compiled {
-		c, err := NewMoment(goKey("motion-light"), Moment{
+		c := flowRule(t, "motion-light", steps{
 			Timers: []Timer{At{Time: "07:00"}}, StartingDeadline: deadline,
 			Do: []Action{Set{Device: "hallway-light", Capability: capability.On, Value: true}},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 		c.KeepSince(local("2026-06-15 06:00 BST"))
 		return c
 	}
@@ -538,7 +535,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			eng.runActions(ctx, key, &Compiled{actions: []action{{delay: time.Minute}}})
+			_ = eng.Apply(ctx, key, Delay(time.Minute))
 		}()
 		waiting(t, c)
 		cancel()

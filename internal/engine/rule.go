@@ -47,11 +47,11 @@ const (
 // Vars are what a condition sees: "devices", each device's capability values by name; "members",
 // each device's hub.Member by name, for reading a room; "now", a time.Time; "tz", the household's
 // IANA timezone, and "location", the same as a *time.Location; "site", the *sun.Site sun times are
-// for, or nil; and for a moment, "trigger".
+// for, or nil; and for a flow's trigger, "trigger".
 type Vars = map[string]any
 
 // Condition is a rule's condition. An error means it can't be evaluated yet, as before a device it
-// reads has reported: a moment doesn't run, and a hold keeps its state. It runs with the engine's
+// reads has reported: a flow doesn't run, and a hold keeps its state. It runs with the engine's
 // lock held, so it must not block, and rules share its Vars, so it must not change them. A panic
 // counts as an error.
 type Condition func(Vars) (bool, error)
@@ -169,7 +169,7 @@ func (s SunTime) timer() (timeTrigger, error) {
 	return t, errors.Join(checkSunOffset(s.Offset), checkDays(s.Days))
 }
 
-// Action is a step of a moment: Set, Delay or Release.
+// Action is what a flow applies: Set, Delay or Release.
 type Action interface {
 	action() (action, error)
 }
@@ -256,7 +256,7 @@ func (r Release) action() (action, error) {
 	return action{release: string(r)}, nil
 }
 
-// Trigger is when a moment, or a flow, starts.
+// Trigger is when a flow starts.
 type Trigger struct {
 	Changes []Change
 	Timers  []Timer
@@ -308,42 +308,6 @@ func compileTimer(t Timer) (timeTrigger, error) {
 	return t.timer()
 }
 
-// Moment runs its actions when its trigger fires.
-type Moment struct {
-	Trigger
-	// Mode defaults to ModeSingle.
-	Mode Mode
-	Do   []Action
-}
-
-// NewMoment compiles a moment written in Go. It reports every problem.
-func NewMoment(key ident.ID, m Moment) (*Compiled, error) {
-	c, errs := m.compile(key)
-	switch m.Mode {
-	case "":
-	case ModeSingle, ModeRestart:
-		c.Mode = m.Mode
-	default:
-		errs = append(errs, fmt.Errorf("unknown mode %q", m.Mode))
-	}
-	if len(m.Do) == 0 {
-		errs = append(errs, errors.New("do is required"))
-	}
-	for i, do := range m.Do {
-		if do == nil {
-			errs = append(errs, fmt.Errorf("do[%d]: no action", i))
-			continue
-		}
-		a, err := do.action()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("do[%d]: %w", i, err))
-			continue
-		}
-		c.actions = append(c.actions, a)
-	}
-	return c, errors.Join(errs...)
-}
-
 // Body is what a flow runs when its trigger fires. It returns the run's result, as Rule metrics
 // count it, and ends when ctx does.
 type Body func(ctx context.Context) string
@@ -382,10 +346,11 @@ func (c *Compiled) KeepSince(t time.Time) {
 // HasTimers reports whether the rule fires at times of day.
 func (c *Compiled) HasTimers() bool { return len(c.timers) > 0 }
 
-// Apply runs one action for a flow, as a moment would, including the claim a set makes on an
-// arbitrated capability. Unlike a moment, a flow can act on what went wrong, so what a moment only
-// logs is an error here: a set with no end on an arbitrated capability, and an action cut short by
-// ctx, which a flow must not take for done.
+// Apply runs one action for a flow, including the claim a set makes on an arbitrated capability. A
+// flow can act on what went wrong, so each of these is an error: a set with no end on an arbitrated
+// capability, a room member that arbitrates it and so was left out, and an action cut short by ctx,
+// which a flow must not take for done. A room member of another type than the set's is left out as
+// written, and logged once.
 func (e *Engine) Apply(ctx context.Context, key ident.ID, a Action) error {
 	act, err := a.action()
 	if err != nil {
@@ -394,14 +359,14 @@ func (e *Engine) Apply(ctx context.Context, key ident.ID, a Action) error {
 	if act.device != "" && !act.ends() && e.arbitrated(ident.ID{Name: act.device}, act.capability) {
 		return fmt.Errorf("%s %s is arbitrated, so a set needs for or until", act.device, act.capability)
 	}
-	result, skipped := e.runActions(ctx, key, &Compiled{actions: []action{act}})
+	ok, arbitrated := e.act(ctx, key, act)
 	switch {
 	case ctx.Err() != nil:
 		return ctx.Err()
-	case result == ResultFailed:
+	case !ok:
 		return errors.New("the action failed, and the log says why")
-	case len(skipped) > 0:
-		return fmt.Errorf("left out %v: they arbitrate %s, so a set needs for or until", skipped, act.capability)
+	case len(arbitrated) > 0:
+		return fmt.Errorf("left out %v: they arbitrate %s, so a set needs for or until", arbitrated, act.capability)
 	}
 	return nil
 }

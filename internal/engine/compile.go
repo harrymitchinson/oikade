@@ -1,4 +1,4 @@
-// Package engine runs Rules: when a trigger fires and the condition holds, run the actions.
+// Package engine runs Rules: holds, and flows, which run when a trigger fires and the condition holds.
 package engine
 
 import (
@@ -25,10 +25,9 @@ type Compiled struct {
 	sinceLoad bool
 	// condition is nil when there is none.
 	condition Condition
-	actions   []action
-	// body runs in place of actions, for a flow.
+	// body is what a flow runs.
 	body Body
-	// hold is nil for a moment.
+	// hold is nil for a flow.
 	hold *hold
 }
 
