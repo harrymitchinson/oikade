@@ -42,7 +42,7 @@ func secretFor(name string) plugin.Secret { return plugin.NewSecret(name) }
 // allows one of 1 s only 1 s, so a ping can come too late.
 var fast = timing{
 	reload: time.Hour, keepAlive: 2 * time.Second, retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond,
-	limited: 50 * time.Millisecond, refused: time.Hour, secret: 10 * time.Millisecond, request: 2 * time.Second,
+	limited: 50 * time.Millisecond, refused: time.Hour, secret: 10 * time.Millisecond, request: 2 * time.Second, set: 2 * time.Second,
 }
 
 // home is an account with a heating bedroom and a study that's off, in two groups.
@@ -449,17 +449,105 @@ func TestASASTokenNearItsEndStartsTheSessionAgainWithItsUnitsOnline(t *testing.T
 	}
 }
 
-func TestAWriteFailsUntilWritesAreServed(t *testing.T) {
+// set writes as the host does, on the set topic.
+func (b *bench) set(id string, payload string) {
+	b.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
+	defer cancel()
+	c, err := mqtt.Connect(ctx, b.broker, "toshiba-host")
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer func() { _ = c.Disconnect(context.Background()) }()
+	if err := c.Publish(ctx, root.Set(id), []byte(payload), false); err != nil {
+		b.t.Fatal(err)
+	}
+}
+
+func TestAWriteIsACommandTheHubTakes(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	b := start(t, cloud, password, fast)
+	b.waitAvailability(study, "online")
+
+	client := cloud.config().clientID()
+	topic := "devices/" + client + "/messages/events/$.ct=application%2Fjson&$.ce=utf-8&type=mob"
+	message := func(state string) string {
+		return topic + " 1 {'sourceId': '" + client + "', 'messageId': '0000000', 'targetId': ['" + studyUnique +
+			"'], 'cmd': 'CMD_FCU_TO_AC', 'payload': {'data': '" + state + "'}, 'timeStamp': '0000000'}"
+	}
+	on := newCommand()
+	on.status = statusOn
+	b.set(study, `{"on":true}`)
+	b.eventually("the command sent", func() bool { return slices.Contains(cloud.messages(), message(on.encode())) })
+	// The plugin reports what the unit says, not what it was told.
+	if got := b.topic(root.State(study)); got != `{"mode":"cool","on":false,"setpoint":24,"temperature":23}` {
+		t.Errorf("state after the write: %s", got)
+	}
+	cloud.method(methodName, cmdState, studyUnique, map[string]string{"data": partial(0x30, 0xff, -1)})
+	b.waitState(study, `{"mode":"cool","on":true,"setpoint":24,"temperature":23}`)
+
+	// Set returns once the hub has it.
+	setpoint := newCommand()
+	setpoint.setpoint = 26
+	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: contractv1.Setpoint, Value: 26.0}); err != nil {
+		t.Fatal(err)
+	}
+	if got := cloud.messages(); !slices.Contains(got, message(setpoint.encode())) {
+		t.Errorf("sent %v", got)
+	}
+}
+
+func TestAWriteTheUnitCantHoldFails(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	// The bedroom only heats.
+	cloud.set(func(c *fakeCloud) { c.groups[0][0].Merit = "0100" })
+	b := start(t, cloud, password, fast)
+	b.waitAvailability(bedroom, "online")
+	for _, cmd := range []struct {
+		capability string
+		value      any
+		says       string
+	}{
+		{"mode", "cool", "could not set mode on " + bedroom + ": the unit doesn't do cool: it does heat"},
+		{"setpoint", 21.5, "whole degrees"},
+	} {
+		err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: bedroom, Capability: cmd.capability, Value: cmd.value})
+		if err == nil || !strings.Contains(err.Error(), cmd.says) {
+			t.Errorf("%s %v: %v", cmd.capability, cmd.value, err)
+		}
+	}
+	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: "nothing", Capability: contractv1.On, Value: false}); err == nil {
+		t.Error("Set on no unit: no error")
+	}
+	if got := cloud.messages(); len(got) != 0 {
+		t.Errorf("sent %v", got)
+	}
+}
+
+func TestAWriteWhileTheCloudIsDownFailsAtOnce(t *testing.T) {
 	cloud := newFakeCloud(t)
 	cloud.set(home)
 	b := start(t, cloud, password, fast)
 	b.waitAvailability(bedroom, "online")
+	cloud.set(func(c *fakeCloud) { c.down, c.refuseHub = true, true })
+	cloud.kick()
+	b.waitAvailability(bedroom, "offline")
+
+	began := time.Now()
 	err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: bedroom, Capability: contractv1.On, Value: false})
-	if err == nil || !strings.Contains(err.Error(), "could not set on on "+bedroom) {
+	if err == nil || !strings.Contains(err.Error(), "can't reach Toshiba's cloud") {
 		t.Errorf("Set: %v", err)
 	}
-	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: "nothing", Capability: contractv1.On, Value: false}); err == nil {
-		t.Error("Set on no unit: no error")
+	if took := time.Since(began); took > time.Second {
+		t.Errorf("Set took %s", took)
+	}
+	// Nor is it sent once the cloud is back.
+	cloud.set(func(c *fakeCloud) { c.down, c.refuseHub = false, false })
+	b.waitAvailability(bedroom, "online")
+	if got := cloud.messages(); len(got) != 0 {
+		t.Errorf("sent %v", got)
 	}
 }
 
@@ -513,5 +601,48 @@ func TestAReadThatFailsKeepsTheSession(t *testing.T) {
 	}
 	if h := b.history(root.Availability(bedroom)); slices.Contains(h, "offline") {
 		t.Errorf("the bedroom went offline: %v", h)
+	}
+}
+
+func TestWritesSentTogetherSeeEachOther(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	// The bedroom is in 8 °C heating.
+	cloud.set(func(c *fakeCloud) { c.groups[0][0].State = hexState(0x30, 0x43, 24, meritHeating8C, 9) })
+	b := start(t, cloud, password, fast)
+	b.waitState(bedroom, `{"mode":"heat","on":true,"setpoint":8,"temperature":9}`)
+
+	// The Home app switches it to cooling at 24, before it has reported.
+	for _, cmd := range []contractv1.SetCommand{
+		{ID: bedroom, Capability: contractv1.Mode, Value: "cool"},
+		{ID: bedroom, Capability: contractv1.Setpoint, Value: 24.0},
+	} {
+		if err := b.handler.Set(t.Context(), nil, cmd); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cool, setpoint := newCommand(), newCommand()
+	cool.mode, cool.meritA = 0x42, meritOff
+	// Not 40: it's no longer heating.
+	setpoint.setpoint = 24
+	sent := cloud.messages()
+	if len(sent) != 2 || !strings.Contains(sent[0], cool.encode()) || !strings.Contains(sent[1], setpoint.encode()) {
+		t.Errorf("sent %v, want %s then %s", sent, cool.encode(), setpoint.encode())
+	}
+
+	// Its report says what it did, which the next write starts from: here, it stayed heating.
+	cloud.method(methodName, cmdState, bedroomUnique, map[string]string{"data": hexState(0x30, 0x43, 24, meritHeating8C, 9)})
+	b.eventually("the report taken", func() bool {
+		b.handler.mu.Lock()
+		defer b.handler.mu.Unlock()
+		return b.handler.devices[bedroom].intent == nil
+	})
+	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: bedroom, Capability: contractv1.Setpoint, Value: 9.0}); err != nil {
+		t.Fatal(err)
+	}
+	again := newCommand()
+	again.setpoint = 25
+	if sent := cloud.messages(); len(sent) != 3 || !strings.Contains(sent[2], again.encode()) {
+		t.Errorf("sent %v, want %s last", sent, again.encode())
 	}
 }

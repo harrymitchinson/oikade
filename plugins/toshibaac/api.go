@@ -54,6 +54,7 @@ type unit struct {
 	UniqueID string `json:"DeviceUniqueId"`
 	Name     string `json:"Name"`
 	State    string `json:"ACStateData"`
+	Merit    string `json:"MeritFeature"`
 }
 
 // answer is every answer's envelope.

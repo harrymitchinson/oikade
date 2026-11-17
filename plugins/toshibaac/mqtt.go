@@ -13,7 +13,7 @@ import (
 )
 
 // mqttConn is the little of MQTT 3.1.1 an Azure IoT Hub device needs: connect, one subscription,
-// publish at QoS 0 and keep-alive. The hub doesn't speak MQTT 5, which is all paho.golang does,
+// publish at QoS 0 and 1, and keep-alive. The hub doesn't speak MQTT 5, which is all paho.golang does,
 // and a 3.1.1 client this size is less to depend on than a library.
 type mqttConn struct {
 	conn net.Conn
@@ -22,6 +22,13 @@ type mqttConn struct {
 	keepAlive time.Duration
 
 	wmu sync.Mutex
+
+	// mu guards the publishes at QoS 1 waiting for their PUBACK, by packet ID, and why the
+	// connection ended, once it has.
+	mu      sync.Mutex
+	nextID  uint16
+	waiting map[uint16]chan error
+	ended   error
 }
 
 // The packet types, as the high nibble of a fixed header.
@@ -45,7 +52,7 @@ var errConnRefused = errors.New("the hub refused the plugin's credentials")
 
 // mqttConnect sends CONNECT on conn, with a clean session, and waits for the CONNACK.
 func mqttConnect(ctx context.Context, conn net.Conn, clientID, username, password string, keepAlive time.Duration) (*mqttConn, error) {
-	c := &mqttConn{conn: conn, r: bufio.NewReader(conn), keepAlive: keepAlive}
+	c := &mqttConn{conn: conn, r: bufio.NewReader(conn), keepAlive: keepAlive, waiting: map[uint16]chan error{}}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 		defer func() { _ = conn.SetDeadline(time.Time{}) }()
@@ -109,9 +116,69 @@ func (c *mqttConn) publish(topic string, payload []byte) error {
 	return c.write(pktPublish<<4, append(appendString(nil, topic), payload...))
 }
 
+// publishAcked sends a message at QoS 1, and waits for the PUBACK that says the hub took it.
+func (c *mqttConn) publishAcked(ctx context.Context, topic string, payload []byte) error {
+	acked := make(chan error, 1)
+	c.mu.Lock()
+	if c.ended != nil {
+		c.mu.Unlock()
+		return c.ended
+	}
+	// The subscription took ID 1.
+	c.nextID = max(c.nextID+1, 2)
+	id := c.nextID
+	c.waiting[id] = acked
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.waiting, id)
+		c.mu.Unlock()
+	}()
+	body := binary.BigEndian.AppendUint16(appendString(nil, topic), id)
+	if err := c.write(pktPublish<<4|0x02, append(body, payload...)); err != nil {
+		return err
+	}
+	select {
+	case err := <-acked:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("no PUBACK from the hub: %w", ctx.Err())
+	}
+}
+
+// acked passes on a PUBACK to the publish waiting for it.
+func (c *mqttConn) acked(body []byte) {
+	if len(body) != 2 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Delivered once, so a PUBACK sent twice can't block on a full channel.
+	id := binary.BigEndian.Uint16(body)
+	if w, ok := c.waiting[id]; ok {
+		w <- nil
+		delete(c.waiting, id)
+	}
+}
+
+// end fails every publish waiting for its PUBACK, and any to come.
+func (c *mqttConn) end(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ended == nil {
+		c.ended = fmt.Errorf("the connection to the hub ended: %w", err)
+	}
+	// Each is still waiting, so its channel is empty.
+	for id, w := range c.waiting {
+		w <- c.ended
+		delete(c.waiting, id)
+	}
+}
+
 // run reads messages until the connection fails or ctx ends, and gives each to got. It pings as
 // keep-alive says, and fails if the hub says nothing for half as long again.
-func (c *mqttConn) run(ctx context.Context, got func(topic string, payload []byte)) error {
+func (c *mqttConn) run(ctx context.Context, got func(topic string, payload []byte)) (err error) {
+	defer func() { c.end(err) }()
 	stop := context.AfterFunc(ctx, func() {
 		_ = c.write(pktDisconnect<<4, nil)
 		_ = c.conn.Close()
@@ -142,6 +209,9 @@ func (c *mqttConn) run(ctx context.Context, got func(topic string, payload []byt
 			}
 			return err
 		}
+		if kind>>4 == pktPuback {
+			c.acked(body)
+		}
 		if kind>>4 != pktPublish {
 			continue
 		}
@@ -159,7 +229,10 @@ func (c *mqttConn) run(ctx context.Context, got func(topic string, payload []byt
 }
 
 // close ends the connection without a DISCONNECT.
-func (c *mqttConn) close() error { return c.conn.Close() }
+func (c *mqttConn) close() error {
+	c.end(errors.New("closed"))
+	return c.conn.Close()
+}
 
 // parsePublish reads a PUBLISH's topic, payload and, at QoS 1 or 2, its packet ID.
 func parsePublish(header byte, body []byte) (topic string, payload []byte, id uint16, err error) {

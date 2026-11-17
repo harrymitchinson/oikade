@@ -48,8 +48,9 @@ type timing struct {
 	refused time.Duration
 	// secret is how often the secret is read while waiting for it to change.
 	secret time.Duration
-	// request bounds one request.
-	request time.Duration
+	// request bounds one request, and set a write, which must answer within the host's Matter
+	// write timeout (5s).
+	request, set time.Duration
 	// renew is how long before its SAS token runs out a session starts again.
 	renew time.Duration
 	// backoff waits d after a failure, or until ctx ends. Nil is sleep; a test sees the waits
@@ -60,7 +61,7 @@ type timing struct {
 var cloudTiming = timing{
 	reload: 30 * time.Minute, keepAlive: time.Minute, retry: 30 * time.Second, retryMax: 5 * time.Minute,
 	limited: 10 * time.Minute, refused: time.Hour, secret: 5 * time.Second, request: 15 * time.Second,
-	renew: 5 * time.Minute,
+	set: 4 * time.Second, renew: 5 * time.Minute,
 }
 
 // capabilities are what every unit reports, sorted.
@@ -86,7 +87,13 @@ type device struct {
 	// cloudID is the unit's ID in the cloud's API, and uniqueID the one its messages carry.
 	cloudID, uniqueID string
 	info              contractv1.DiscoveredDevice
-	state             fcuState
+	// modes are the modes it does, by raw value.
+	modes []byte
+	state fcuState
+	// intent is its state with the writes sent since its last report, which the next write is
+	// worked out from, nil if there are none: a mode and then a setpoint, sent together, must
+	// see the new mode.
+	intent *fcuState
 	// values are what was last reported.
 	values contractv1.State
 }
@@ -101,9 +108,13 @@ type bridge struct {
 
 	plugin *plugin.Plugin
 
-	// mu guards the devices, and each device's state and values.
+	// mu guards the devices, each device's state and values, and the hub.
 	mu      sync.Mutex
 	devices map[string]*device
+	// hub is the session's connection to the hub, nil while there's none, and hubDevice the
+	// device ID the plugin is on it.
+	hub       *mqttConn
+	hubDevice string
 	// byUnique finds a device by the ID its messages carry.
 	byUnique map[string]*device
 	// unknownModes are the mode bytes not served, each logged once.
@@ -222,15 +233,19 @@ func (b *bridge) session(ctx context.Context, password string, connected func())
 		return fmt.Errorf("could not connect to the hub %s: %w", tok.host, err)
 	}
 	defer func() { _ = hub.close() }()
+	// Writes go to the hub from now, before the units are online, and fail at once when the session
+	// ends.
+	b.mu.Lock()
+	b.hub, b.hubDevice = hub, tok.device
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		b.hub = nil
+		b.mu.Unlock()
+	}()
 
-	b.take(units)
-	if err := b.publishAll(ctx); err != nil {
-		return reporting(err)
-	}
-	b.setProblem(ctx, "")
-	b.log.Info("Connected to Toshiba's cloud", "units", len(units), "hub", tok.host)
-	connected()
-
+	// The hub is read from now, so a write's PUBACK is heard while the units are reported. Its calls
+	// wait for the session's loop.
 	following, stop := context.WithCancel(ctx)
 	defer stop()
 	ended := make(chan error, 1)
@@ -245,6 +260,14 @@ func (b *bridge) session(ctx context.Context, password string, connected func())
 			}
 		})
 	}()
+
+	b.take(units)
+	if err := b.publishAll(ctx); err != nil {
+		return reporting(err)
+	}
+	b.setProblem(ctx, "")
+	b.log.Info("Connected to Toshiba's cloud", "units", len(units), "hub", tok.host)
+	connected()
 
 	// A session starts again before its SAS token runs out, or halfway through a short one.
 	var renew <-chan time.Time
@@ -312,7 +335,7 @@ func (b *bridge) take(units []unit) {
 			continue
 		}
 		d := &device{
-			id: id, cloudID: u.ID, uniqueID: u.UniqueID, state: newFCUState(), values: contractv1.State{},
+			id: id, cloudID: u.ID, uniqueID: u.UniqueID, modes: unitModes(u.Merit), state: newFCUState(), values: contractv1.State{},
 			info: contractv1.DiscoveredDevice{ID: id, Manufacturer: "Toshiba", Capabilities: slices.Clone(capabilities), Name: u.Name},
 		}
 		if u.State != "" {
@@ -350,6 +373,10 @@ func (b *bridge) apply(d *device, from string, change func(*fcuState) error) con
 	if err := change(&d.state); err != nil {
 		b.log.Warn("Could not read Toshiba unit's report", "err", err, "device", d.id, "from", from)
 		return nil
+	}
+	// A report of its state says what it did with the writes sent. A heartbeat only has a temperature.
+	if from != cmdHeartbeat {
+		d.intent = nil
 	}
 	values, unknown := d.state.values()
 	if unknown != 0 && !b.unknownModes[unknown] {
@@ -579,14 +606,46 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// Set implements plugin.Handler. Writes to a unit aren't served yet (OIK-256's second step), so
-// every write fails and the unit keeps its state.
-func (b *bridge) Set(_ context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
+// Set implements plugin.Handler. It sends the unit the change, and returns once the hub has taken
+// it, before the unit has changed: the unit's report then shows it. It fails at once while there's
+// no session.
+func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
 	b.mu.Lock()
-	_, ok := b.devices[cmd.ID]
-	b.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("no Toshiba unit %s", cmd.ID)
+	d, hub, device := b.devices[cmd.ID], b.hub, b.hubDevice
+	var (
+		c   command
+		err error
+	)
+	if d != nil {
+		c, err = d.current().command(cmd.Capability, cmd.Value, d.modes)
 	}
-	return fmt.Errorf("could not set %s on %s: the plugin doesn't change Toshiba units yet", cmd.Capability, cmd.ID)
+	b.mu.Unlock()
+	switch {
+	case d == nil:
+		return fmt.Errorf("no Toshiba unit %s", cmd.ID)
+	case hub == nil:
+		return errors.New("can't reach Toshiba's cloud")
+	case err != nil:
+		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, b.timing.set)
+	defer cancel()
+	if err := hub.publishAcked(ctx, telemetryTopic(device), commandMessage(device, d.uniqueID, c.encode())); err != nil {
+		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
+	}
+	b.mu.Lock()
+	intent := d.current()
+	// A command is a state with only what changes, so it applies as a report would.
+	_ = intent.update(c.encode())
+	d.intent = &intent
+	b.mu.Unlock()
+	return nil
+}
+
+// current is the unit's state with the writes sent since its last report. b.mu must be held.
+func (d *device) current() fcuState {
+	if d.intent != nil {
+		return *d.intent
+	}
+	return d.state
 }

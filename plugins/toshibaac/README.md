@@ -8,8 +8,6 @@ home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
 }))
 ```
 
-**For now it only reads the units.** A write to one fails, and the unit keeps its state. Changing a unit's power, mode and setpoint comes next.
-
 ## Setting it up
 
 1. **Add your units in Toshiba's Home AC Control app**, if they aren't there already. The plugin sees what the app's account sees.
@@ -17,7 +15,9 @@ home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
 
 A refused password shows in `oikade status`, and the plugin waits for the secret to change, or an hour, rather than trying again, since too many failed logins could lock the account.
 
-**The units' WiFi modules work only through Toshiba's cloud.** They listen for nothing on your network, so the plugin can't reach them locally. While the internet or Toshiba's cloud is down, every unit is offline, `oikade status` says why, and a unit keeps its own remote and its own timers.
+**The units' WiFi modules work only through Toshiba's cloud.** They listen for nothing on your network, so the plugin can't reach them locally. While the internet or Toshiba's cloud is down, every unit is offline, `oikade status` says why, a write fails at once, and a unit keeps its own remote and its own timers.
+
+**A Safety claim on a unit can't act while the cloud is down.** The unit keeps its own controls, but Oikade can't turn it off until the cloud is back.
 
 **Toshiba's API isn't published.** The plugin logs in as Toshiba's app does, as [KaSroka/Toshiba-AC-control](https://github.com/KaSroka/Toshiba-AC-control) worked it out, and Toshiba can change that. If it does, the plugin's status says the login failed. The plugin registers with the account as a phone would, once, under one name for the account, so it doesn't fill the account with devices.
 
@@ -33,5 +33,11 @@ Each unit's ID comes from its `DeviceUniqueId` in Toshiba's API, in lower case, 
 | `temperature` | its room sensor |
 
 A mode the plugin doesn't know, such as one a later unit adds, isn't reported, and the host's log names it once. Fan speed, swing and Toshiba's other features aren't reported.
+
+## Changing a unit
+
+`on`, `mode` and `setpoint` can be written, from a rule or the Home app. A write returns once Toshiba's cloud has taken it, before the unit has changed: the unit's own report then shows what it did. Writing `on` true clears a unit's self-cleaning, which would keep it off, as the app does, and changing `mode` turns off a feature the new mode doesn't allow, such as 8 °C heating when it starts cooling.
+
+A write the plugin knows the unit can't hold fails, rather than being rounded: a `setpoint` that isn't a whole degree, or a `mode` the unit doesn't do. Which setpoints a unit takes isn't known yet, so one it doesn't take is sent, and its report then shows the setpoint it kept. Which modes it does comes from what Toshiba's cloud says of it: a heater only heats, and an air conditioner without a heat pump does everything but heat. The cloud doesn't say whether a unit could follow a write it took. If it can't, say an indoor unit asked to heat while another on the same outdoor unit cools, its next report says what it's doing instead.
 
 Toshiba's cloud passes on each change to a unit as it happens, and the unit's room temperature with its heartbeats. The plugin also reads every unit's state every 30 minutes, in case a change was missed, and reads the account's units again whenever it logs in: when it starts, when it reconnects, and each time its session's tokens run out. While the cloud doesn't answer, it tries again from 30 seconds up to 5 minutes apart. Told there were too many requests, it waits 10 minutes.
