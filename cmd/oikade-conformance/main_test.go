@@ -2,22 +2,58 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
-// fixturePlugin builds the simswitch test fixture and returns its absolute path.
+var (
+	buildOnce sync.Once
+	binDir    string
+	buildErr  error
+)
+
+// TestMain removes the fixtures the tests built.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if binDir != "" {
+		_ = os.RemoveAll(binDir)
+	}
+	os.Exit(code)
+}
+
+// fixture is the absolute path of a fixture binary: simswitch, the test plugin, or home, a home that
+// imports it. The first test to ask builds both, with one go build, for every test.
+func fixture(t *testing.T, name string) string {
+	t.Helper()
+	buildOnce.Do(func() {
+		if binDir, buildErr = os.MkdirTemp("", "oikconf"); buildErr != nil {
+			return
+		}
+		// From this package's directory, whichever directory a test has moved to.
+		_, file, _, _ := runtime.Caller(0)
+		cmd := exec.Command("go", "build", "-o", binDir+string(filepath.Separator),
+			"./test/fixtures/simswitch", "./test/fixtures/simswitch/home")
+		cmd.Dir = filepath.Join(filepath.Dir(file), "..", "..")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			buildErr = fmt.Errorf("building the fixtures: %w\n%s", err, out)
+		}
+	})
+	if buildErr != nil {
+		t.Fatal(buildErr)
+	}
+	return filepath.Join(binDir, name)
+}
+
+// fixturePlugin is the simswitch test plugin.
 func fixturePlugin(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "simswitch")
-	out, err := exec.Command("go", "build", "-o", bin, "../../test/fixtures/simswitch").CombinedOutput()
-	if err != nil {
-		t.Fatalf("building simswitch: %v\n%s", err, out)
-	}
-	return bin
+	return fixture(t, "simswitch")
 }
 
 // fromTestdata runs the command from the suite's testdata, as a plugin repo runs it from its own
@@ -29,11 +65,7 @@ func fromTestdata(t *testing.T) {
 }
 
 func TestPassesAgainstAnImportedPlugin(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "simhome")
-	out, err := exec.Command("go", "build", "-o", bin, "../../test/fixtures/simswitch/home").CombinedOutput()
-	if err != nil {
-		t.Fatalf("building the home: %v\n%s", err, out)
-	}
+	bin := fixture(t, "home")
 	fromTestdata(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--devices", "devices.json", "--plugin", "simswitch", "--", bin}, &stdout, &stderr)

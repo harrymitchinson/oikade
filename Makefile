@@ -51,9 +51,9 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-# The journeys need Docker and take minutes, so they have their own target. test/host's tests
-# mostly wait on the hosts they started, so it runs eight at once however many CPUs there are
-# (no other package has more than a few parallel tests).
+# The journeys need Docker and take minutes, so they have their own target. test/host's and
+# test/cli's tests mostly wait on the processes they started, so they run eight at once however
+# many CPUs there are (no other package has more than a few parallel tests).
 .PHONY: test
 test: fmt vet ## Run the tests.
 	go test -parallel 8 $$(go list ./... | grep -v -e /test/journeys) -coverprofile cover.out
