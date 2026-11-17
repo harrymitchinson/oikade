@@ -597,18 +597,29 @@ func (i *Instance) upLocked() bool {
 	return i.status != nil && i.status.State == contractv1.Online && i.status.Contract == contractv1.Contract
 }
 
+// maxUnseen bounds what's kept per ID that no Device has, since anything on the broker can publish
+// under the plugin's root with an ID it makes up: the latest state and availability of that many,
+// and the rejections logged for that many reason and ID pairs.
+const maxUnseen = 1024
+
+// lastLocked is where id's latest state and availability go. Past maxUnseen IDs, an undeclared
+// one's are kept nowhere.
 func (i *Instance) lastLocked(id string) *lastSeen {
 	if i.last == nil {
 		i.last = map[string]*lastSeen{}
 	}
 	if i.last[id] == nil {
+		if _, declared := i.declared[id]; !declared && len(i.last) >= maxUnseen+len(i.declared) {
+			return &lastSeen{}
+		}
 		i.last[id] = &lastSeen{}
 	}
 	return i.last[id]
 }
 
-// rejectLocked counts a dropped message and logs the first one per reason and id.
-// An empty topic marks a replay, which was counted when it first arrived.
+// rejectLocked counts a dropped message and logs the first one per reason and id, or past
+// maxUnseen pairs, per reason. An empty topic marks a replay, which was counted when it first
+// arrived.
 func (i *Instance) rejectLocked(reason, id, topic string) {
 	if topic == "" {
 		return
@@ -617,7 +628,11 @@ func (i *Instance) rejectLocked(reason, id, topic string) {
 		i.rejected, i.logged = map[string]uint64{}, map[string]bool{}
 	}
 	i.rejected[reason]++
-	if k := reason + "/" + id; !i.logged[k] {
+	k := reason + "/" + id
+	if !i.logged[k] && len(i.logged) >= maxUnseen {
+		k = reason + "/"
+	}
+	if !i.logged[k] {
 		i.logged[k] = true
 		i.Log.Info("Rejected plugin message", "plugin", i.Key, "reason", reason, "topic", topic)
 	}
