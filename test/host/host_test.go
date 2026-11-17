@@ -209,14 +209,15 @@ func devicesFile(t *testing.T) string {
 	return devices
 }
 
-// launchWithout starts a host with only these flags.
+// launchWithout starts a host with only these flags. A deploy settles in settle rather than the 5 s
+// default unless they say otherwise: the last of a flag given twice wins.
 func (r *rig) launchWithout(args ...string) {
 	t := r.t
 	t.Helper()
 	r.exit = make(chan error, 1)
 	r.probe = false
-	base := make([]string, 0, 4+len(args))
-	base = append(base, "--data-dir", r.dir, "--metrics-addr=127.0.0.1:0", "--matter-port=0")
+	base := make([]string, 0, 5+len(args))
+	base = append(base, "--data-dir", r.dir, "--metrics-addr=127.0.0.1:0", "--matter-port=0", settle)
 	cmd := exec.Command(hostBin, append(base, args...)...)
 	cmd.Env = append(os.Environ(), r.env...)
 	r.cmd = cmd
