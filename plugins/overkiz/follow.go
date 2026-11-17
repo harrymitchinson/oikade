@@ -84,7 +84,10 @@ func (f *follower) follow(ctx context.Context, l link) {
 			l.pause()
 			continue
 		}
-		l.lost(ctx)
+		// A cloud still without an account for the login, asked again, had nothing to lose.
+		if classify(err) != absent || !live.IsZero() {
+			l.lost(ctx)
+		}
 		switch {
 		case expired:
 			f.log.Warn(f.name+" ended the plugin's session as it began", "err", err, "account", f.account.describe(), "retry", ended.String())

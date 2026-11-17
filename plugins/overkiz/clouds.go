@@ -50,7 +50,7 @@ func (c *clouds) Serve(ctx context.Context, p *plugin.Plugin) error {
 
 // Set implements plugin.Handler, on whichever cloud has the device.
 func (c *clouds) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
-	if c.magellan.has(cmd.ID) {
+	if strings.HasPrefix(cmd.ID, magellanIDPrefix) {
 		return c.magellan.set(ctx, cmd)
 	}
 	return c.overkiz.Set(ctx, p, cmd)

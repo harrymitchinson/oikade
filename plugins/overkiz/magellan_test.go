@@ -232,7 +232,7 @@ func TestAMagellanSetupThatIsntJSONIsAnError(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer server.Close()
-			c := &magellanClient{http: server.Client(), base: server.URL}
+			c := newMagellanClient(server.Client(), server.URL, "token")
 			setups, err := c.setup(t.Context())
 			switch {
 			case tc.fails && err == nil:
@@ -244,5 +244,45 @@ func TestAMagellanSetupThatIsntJSONIsAnError(t *testing.T) {
 				t.Errorf("read %+v", setups)
 			}
 		})
+	}
+}
+
+func TestAQuickOffThenOnWritesBoth(t *testing.T) {
+	cloud := newMagellanCloud(t)
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitAvailability(towel, "online")
+	b.set(towel, `{"on":false}`)
+	b.set(towel, `{"on":true}`)
+	if got := waitWrites(b, 3); !reflect.DeepEqual(got, []string{"7=0", "7=4", "184=0"}) {
+		t.Errorf("wrote %v", got)
+	}
+}
+
+// A token that ended while Magellan was down is refused as the next session starts: that's a new
+// token, not a refused password.
+func TestATokenThatEndedMeanwhileIsntARefusedPassword(t *testing.T) {
+	cloud := newMagellanCloud(t)
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitAvailability(towel, "online")
+	cloud.set(func(h *fakeHub) { h.magellanDown = true })
+	b.waitAvailability(towel, "offline")
+	cloud.expireTokens()
+	cloud.set(func(h *fakeHub) { h.magellanDown = false })
+	b.waitAvailability(towel, "online")
+	if n := b.logs.count("Magellan refused the credential"); n != 0 {
+		t.Errorf("a refused credential logged %d times:\n%s", n, b.logs.String())
+	}
+}
+
+// A 404 that isn't Magellan's own, such as a proxy's, is an error, not an account with no setup.
+func TestAProxysNotFoundIsntNoAccount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("<html>Not Found</html>"))
+	}))
+	defer server.Close()
+	_, err := newMagellanClient(server.Client(), server.URL, "token").setup(t.Context())
+	if err == nil || classify(err) == absent {
+		t.Errorf("got %v, %v", err, classify(err))
 	}
 }

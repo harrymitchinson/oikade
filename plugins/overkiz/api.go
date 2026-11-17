@@ -22,6 +22,8 @@ type client struct {
 	base string
 	// authorize adds the credentials to a request.
 	authorize func(*http.Request)
+	// failed reads an answer that failed, if the API says so other than as Overkiz does.
+	failed func(status int, raw []byte) error
 }
 
 // apiDevice is a device in /setup/devices. A sub-device, such as a sensor inside a heater, is its own
@@ -209,6 +211,9 @@ func (c *client) call(ctx context.Context, method, path string, body, out any) e
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if c.failed != nil {
+			return c.failed(resp.StatusCode, raw)
+		}
 		e := &apiError{Status: resp.StatusCode}
 		_ = json.Unmarshal(raw, e)
 		return e

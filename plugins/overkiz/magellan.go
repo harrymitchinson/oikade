@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -31,11 +30,15 @@ import (
 // A device's capabilities are numbered, with string values, and what a number means depends on
 // the product: magellanModels says, by model.
 
-// magellanClient speaks Magellan's API with one Atlantic token.
-type magellanClient struct {
-	http  *http.Client
-	base  string
-	token string
+// magellanClient speaks Magellan's API with one Atlantic token: Overkiz's client, with Magellan's
+// errors.
+type magellanClient struct{ *client }
+
+func newMagellanClient(httpc *http.Client, base, token string) *magellanClient {
+	return &magellanClient{&client{
+		http: httpc, base: base, failed: magellanError,
+		authorize: func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+token) },
+	}}
 }
 
 // mSetup is one setup in /magellan/cozytouch/setupviewv2: its devices, the zones they're in and the
@@ -103,46 +106,6 @@ func (f *flexString) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// call sends a request to path and decodes the answer into out, if it isn't nil.
-func (c *magellanClient) call(ctx context.Context, method, path string, body, out any) error {
-	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reader)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return magellanError(resp.StatusCode, raw)
-	}
-	if out == nil {
-		return nil
-	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("reading %s: %w", path, err)
-	}
-	return nil
-}
-
 // magellanError is an answer that failed, with Magellan's message, such as
 // {"code":"900901","message":"Invalid Credentials"} for a token it doesn't take.
 func magellanError(status int, raw []byte) error {
@@ -150,9 +113,18 @@ func magellanError(status int, raw []byte) error {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 	}
-	_ = json.Unmarshal(raw, &body)
+	if json.Unmarshal(raw, &body) != nil || body.Message == "" {
+		// Not Magellan's own answer, such as a proxy's error page.
+		return &apiError{Status: status, Code: codeNotMagellan}
+	}
 	return &apiError{Status: status, Code: body.Type, Message: body.Message}
 }
+
+// codeNotMagellan marks a failed answer that isn't in Magellan's form.
+const codeNotMagellan = "not Magellan's answer"
+
+// mForbidden is Magellan's type for a resource the token may not reach.
+const mForbidden = "ResourceAccessForbidden"
 
 // setup reads every setup on the account. Magellan answers with a list of them, or one.
 func (c *magellanClient) setup(ctx context.Context) ([]mSetup, error) {
@@ -160,9 +132,10 @@ func (c *magellanClient) setup(ctx context.Context) ([]mSetup, error) {
 	err := c.call(ctx, http.MethodGet, "/magellan/cozytouch/setupviewv2", nil, &raw)
 	var e *apiError
 	switch {
-	case errors.As(err, &e) && e.Status == http.StatusNotFound:
+	case errors.As(err, &e) && e.Status == http.StatusNotFound && e.Code != codeNotMagellan:
+		// Magellan's own answer that it has no setup: the account's devices are on Overkiz.
 		return nil, fmt.Errorf("%w: %w", errNoAccount, err)
-	case errors.As(err, &e) && e.Status == http.StatusForbidden:
+	case errors.As(err, &e) && e.Status == http.StatusForbidden && e.Code != mForbidden:
 		// A read the cloud won't let this token make now: wait as for a limit.
 		e.Code = codeLimited
 		return nil, err
@@ -224,7 +197,8 @@ func (c *magellanClient) execution(ctx context.Context, id string) (int, error) 
 	var out struct {
 		State int `json:"state"`
 	}
-	return out.State, c.call(ctx, http.MethodGet, "/magellan/executions/"+id, nil, &out)
+	err := c.call(ctx, http.MethodGet, "/magellan/executions/"+id, nil, &out)
+	return out.State, err
 }
 
 // capabilities are a device's capabilities, by number, as Magellan gives them.
@@ -384,26 +358,38 @@ func (m *magellan) serve(ctx context.Context, out reporter) {
 }
 
 func (m *magellan) session(ctx context.Context, password string, connected func()) (err error) {
-	token, err := m.cozytouch.token(ctx, password)
-	if err != nil {
-		return err
+	httpc := &http.Client{Timeout: m.timing.request, Transport: m.cozytouch.transport}
+	defer httpc.CloseIdleConnections()
+	// A token both clouds have used may have ended, so one Magellan refuses as it reads the setup is
+	// dropped, and a new one asked for once: only a new token refused is a refused login.
+	var (
+		c     *magellanClient
+		token string
+	)
+	for fresh := false; ; fresh = true {
+		var failed error
+		if token, failed = m.cozytouch.token(ctx, password); failed != nil {
+			return failed
+		}
+		c = newMagellanClient(httpc, cmp.Or(m.cozytouch.atlanticAPI, atlanticAPI), token)
+		failed = m.read(ctx, c, true)
+		if failed == nil {
+			break
+		}
+		if !refusedToken(failed) {
+			return failed
+		}
+		m.cozytouch.forget(token)
+		if fresh {
+			return failed
+		}
 	}
-	c := &magellanClient{
-		http:  &http.Client{Timeout: m.timing.request, Transport: m.cozytouch.transport},
-		base:  cmp.Or(m.cozytouch.atlanticAPI, atlanticAPI),
-		token: token,
-	}
-	defer c.http.CloseIdleConnections()
 	defer func() {
 		// Atlantic's token has ended, so the next login asks for another.
-		var e *apiError
-		if errors.As(err, &e) && e.Status == http.StatusUnauthorized {
+		if refusedToken(err) {
 			m.cozytouch.forget(token)
 		}
 	}()
-	if err := m.read(ctx, c, true); err != nil {
-		return err
-	}
 	m.mu.Lock()
 	m.client = c
 	m.mu.Unlock()
@@ -431,6 +417,12 @@ func (m *magellan) session(ctx context.Context, password string, connected func(
 }
 
 func (m *magellan) describe() string { return m.account.describe() }
+
+// refusedToken is whether err is a cloud refusing Atlantic's token.
+func refusedToken(err error) bool {
+	var e *apiError
+	return errors.As(err, &e) && e.Status == http.StatusUnauthorized
+}
 
 // interval is how long until the next read: sooner while an execution runs.
 func (m *magellan) interval() time.Duration {
@@ -662,14 +654,6 @@ func (m *magellan) absent(ctx context.Context) {
 	m.check(m.out.SetDevices(ctx, found, 0), "Could not report Magellan devices", "")
 }
 
-// has is whether the device is one of Magellan's.
-func (m *magellan) has(id string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	_, ok := m.devices[id]
-	return ok
-}
-
 // set writes a command's capabilities, and returns once Magellan has taken them, before the device
 // has acted on them. It fails at once while there's no session.
 func (m *magellan) set(ctx context.Context, cmd contractv1.SetCommand) error {
@@ -708,11 +692,16 @@ func (m *magellan) set(ctx context.Context, cmd contractv1.SetCommand) error {
 		if err != nil {
 			return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
 		}
+		m.mu.Lock()
 		if exec != "" {
-			m.mu.Lock()
 			m.running[exec] = time.Now()
-			m.mu.Unlock()
 		}
+		// What's written is what the next write decides from, as a quick off then on, until the
+		// setup is read again.
+		if dev := m.devices[cmd.ID]; dev != nil {
+			dev.caps[w.capability] = w.value
+		}
+		m.mu.Unlock()
 	}
 	return nil
 }

@@ -90,29 +90,37 @@ func (c Cozytouch) check() error {
 // Overkiz session for that, which a cookie keeps.
 func (c Cozytouch) connect(ctx context.Context, password string) (*client, error) {
 	api, endpoint := cmp.Or(c.atlanticAPI, atlanticAPI), cmp.Or(c.endpoint, cozytouchEndpoint)
-	token, err := c.token(ctx, password)
-	if err != nil {
-		return nil, err
-	}
 	jar, _ := cookiejar.New(nil)
 	httpc := &http.Client{Jar: jar, Timeout: cloudTiming.request, Transport: c.transport}
-	status, body, err := send(ctx, httpc, http.MethodGet, api+"/magellan/accounts/jwt", nil, "Bearer "+token)
-	if err != nil {
-		return nil, err
-	}
-	jwt := strings.Trim(strings.TrimSpace(string(body)), `"`)
-	switch {
-	case status == http.StatusUnauthorized:
-		// Atlantic's token has ended: the next login asks for another.
-		c.forget(token)
-		return nil, overkizError(status, body)
-	case status < 200 || status > 299:
-		return nil, overkizError(status, body)
-	case jwt == "":
-		return nil, &apiError{Status: status, Message: "Atlantic gave no JWT"}
+	// A token both clouds have used may have ended, so one refused for the JWT is dropped, and a new
+	// one asked for once: only a new token refused is a refused login.
+	var jwt string
+	for fresh := false; ; fresh = true {
+		token, err := c.token(ctx, password)
+		if err != nil {
+			return nil, err
+		}
+		status, body, err := send(ctx, httpc, http.MethodGet, api+"/magellan/accounts/jwt", nil, "Bearer "+token)
+		if err != nil {
+			return nil, err
+		}
+		jwt = strings.Trim(strings.TrimSpace(string(body)), `"`)
+		switch {
+		case status == http.StatusUnauthorized:
+			c.forget(token)
+			if !fresh {
+				continue
+			}
+			return nil, overkizError(status, body)
+		case status < 200 || status > 299:
+			return nil, overkizError(status, body)
+		case jwt == "":
+			return nil, &apiError{Status: status, Message: "Atlantic gave no JWT"}
+		}
+		break
 	}
 
-	status, body, err = send(ctx, httpc, http.MethodPost, endpoint+"/login", url.Values{"jwt": {jwt}}, "")
+	status, body, err := send(ctx, httpc, http.MethodPost, endpoint+"/login", url.Values{"jwt": {jwt}}, "")
 	if err != nil {
 		return nil, err
 	}
@@ -213,11 +221,11 @@ func (s *signer) token(ctx context.Context, c Cozytouch, password string) (strin
 	case err != nil:
 		return "", err
 	}
-	// A token whose life Atlantic doesn't say is used until a cloud refuses it.
-	s.current, s.expires = token, now.Add(max(life-tokenMargin, 0))
+	// A token whose life Atlantic doesn't say is kept for an hour, or until a cloud refuses it.
 	if life <= 0 {
-		s.expires = now.Add(100 * 365 * 24 * time.Hour)
+		life = time.Hour
 	}
+	s.current, s.expires = token, now.Add(life-min(tokenMargin, life/2))
 	return token, nil
 }
 
