@@ -354,6 +354,12 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 	i.mu.Lock()
 	i.announced = map[string]driver.Info{}
 	for _, d := range msg.Devices {
+		if _, seen := i.announced[d.ID]; seen || !contractv1.ValidID(d.ID) {
+			// The first entry for an ID wins. Logged once per plugin, not per id: an invalid id may
+			// be anything, and new each time.
+			i.rejectLocked(ReasonMalformed, "", topic)
+			continue
+		}
 		info := driver.Info{Found: d.Found, Manufacturer: d.Manufacturer, Model: d.Model, Error: d.Error}
 		if d.Found {
 			for _, c := range d.Capabilities {

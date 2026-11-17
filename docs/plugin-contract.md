@@ -85,7 +85,7 @@ A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"on
 }
 ```
 
-- List every device from the devices file (see [Environment](#environment)).
+- List every device from the devices file (see [Environment](#environment)), each once, by its `id`. Oikade drops an entry whose `id` isn't valid (1 to 63 letters, digits, `_`, `.` or `-`, starting with a letter or digit) or repeats an earlier one's, and keeps the rest ([OIK-317](https://linear.app/oikade/issue/OIK-317)).
 - `found` is true once the plugin can reach the device. `manufacturer`, `model`, `capabilities` and `deviceType` matter only when it's true.
 - `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. They're added to Oikade's registry, named by the guide in `internal/capability`'s package doc.
 - `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless your home declares one with `Is`, and a device's other types follow from its capabilities ([OIK-142](https://linear.app/oikade/issue/OIK-142)).
@@ -188,7 +188,7 @@ Oikade never adopts what it can't validate. It drops the message, or the offendi
 
 | Reason | Cause |
 |---|---|
-| `malformed` | A payload that isn't the JSON or string described above, a discovered device with an invalid or repeated `id`, or a setup step that isn't one of the five. |
+| `malformed` | A payload that isn't the JSON or string described above, a device or a discovered device with an invalid or repeated `id`, or a setup step that isn't one of the five. |
 | `wrong_contract` | `status` names a contract other than 1. Oikade then ignores the plugin until it publishes contract 1 again. |
 | `unknown_capability` | A capability name not in Oikade's registry. |
 | `unknown_device_type` | A `deviceType` that isn't one of the six. The device is kept, and its type follows from its capabilities. |
