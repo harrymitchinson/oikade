@@ -42,7 +42,7 @@ A write the plugin knows the unit can't hold fails, rather than being rounded: a
 
 ### Units that share an outdoor unit
 
-Indoor units on one outdoor unit, a multi-split, can't heat and cool at once. Toshiba's cloud takes such a write anyway, and the unit then reports the mode it was given without running it. The cloud doesn't say which units share an outdoor unit, so tell the plugin, by the IDs `oikade devices` shows:
+Indoor units on one outdoor unit, a multi-split, can't heat and cool at once. Toshiba's cloud takes such a write anyway, and the unit then reports the mode it was given without running it. The cloud doesn't say which units share an outdoor unit, so tell the plugin, by the IDs `oikade devices` shows, or the `DeviceUniqueId` as the app's API writes it:
 
 ```go
 home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
@@ -51,6 +51,8 @@ home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
 }))
 ```
 
-A write that would run one of them in a mode that clashes with another one running then fails and says which one: heating clashes with cooling, dry and fan, and `auto` with every other mode, since it may pick either. Turning a unit off, changing its setpoint, and changing the mode of a unit that's off are never refused, so the Home app can set a mode before turning a unit on. A refused write from the Home app shows on its tile until the unit's next report puts it back. An ID in `OutdoorUnits` that isn't on the account is logged at each login.
+A write that would run one of them in a mode that clashes with another one running then fails and says which one: heating clashes with cooling, dry and fan, and `auto` with every other mode, since it may pick either. Turning a unit off, changing its setpoint, and changing the mode of a unit that's off are never refused, so the Home app can set a mode before turning a unit on. A unit whose mode isn't known yet can't be turned on beside a running one, since it would run in whatever mode it last had. A refused write from the Home app shows on its tile until the unit's next report puts it back. An ID in `OutdoorUnits` that isn't on the account is logged at each login.
+
+The check counts the writes sent to each unit, from before they're sent, until the unit reports, so two writes at once to units on one outdoor unit can't both pass. A write the unit never reports, say because it lost its WiFi, stops counting after a minute, and its last report is checked instead.
 
 Toshiba's cloud passes on each change to a unit as it happens, and the unit's room temperature with its heartbeats. The plugin also reads every unit's state every 30 minutes, in case a change was missed, and reads the account's units again whenever it logs in: when it starts, when it reconnects, and each time its session's tokens run out. While the cloud doesn't answer, it tries again from 30 seconds up to 5 minutes apart. Told there were too many requests, it waits 10 minutes.

@@ -39,22 +39,33 @@ type Config struct {
 	hub       hubOptions
 }
 
-// outdoorUnits numbers each unit in OutdoorUnits by the outdoor unit it's on. A unit can be on only
-// one.
-func (c Config) outdoorUnits() (map[string]int, error) {
-	on := map[string]int{}
+// outdoorUnits are the lists in OutdoorUnits, by the device IDs the plugin reports, and the list
+// each unit is in. A unit can be in only one, and a list has at least two.
+func (c Config) outdoorUnits() (groups [][]string, on map[string]int, err error) {
+	on = map[string]int{}
 	for i, ids := range c.OutdoorUnits {
-		for _, id := range ids {
+		if len(ids) < 2 {
+			return nil, nil, fmt.Errorf("toshibaac.Config's OutdoorUnits has a list of %d units: each lists the units that share one outdoor unit", len(ids))
+		}
+		group := make([]string, 0, len(ids))
+		for _, raw := range ids {
+			// As a unit's DeviceUniqueId becomes its ID, so one copied from the app matches.
+			id, ok := deviceID(raw)
+			if !ok {
+				return nil, nil, fmt.Errorf("toshibaac.Config's OutdoorUnits has %q, which isn't a unit's ID", raw)
+			}
 			if j, ok := on[id]; ok {
 				if j == i {
-					return nil, fmt.Errorf("toshibaac.Config's OutdoorUnits lists %s twice on one outdoor unit", id)
+					return nil, nil, fmt.Errorf("toshibaac.Config's OutdoorUnits lists %s twice on one outdoor unit", id)
 				}
-				return nil, fmt.Errorf("toshibaac.Config's OutdoorUnits puts %s on two outdoor units", id)
+				return nil, nil, fmt.Errorf("toshibaac.Config's OutdoorUnits puts %s on two outdoor units", id)
 			}
 			on[id] = i
+			group = append(group, id)
 		}
+		groups = append(groups, group)
 	}
-	return on, nil
+	return groups, on, nil
 }
 
 // timing is how often the plugin reads and how long it waits, which tests shorten.
@@ -76,6 +87,9 @@ type timing struct {
 	request, set time.Duration
 	// renew is how long before its SAS token runs out a session starts again.
 	renew time.Duration
+	// intent is how long the writes sent to a unit count, until it reports: one it never
+	// reports, say because it lost its WiFi, mustn't hold the units on its outdoor unit for good.
+	intent time.Duration
 	// backoff waits d after a failure, or until ctx ends. Nil is sleep; a test sees the waits
 	// through it.
 	backoff func(ctx context.Context, d time.Duration)
@@ -84,7 +98,7 @@ type timing struct {
 var cloudTiming = timing{
 	reload: 30 * time.Minute, keepAlive: time.Minute, retry: 30 * time.Second, retryMax: 5 * time.Minute,
 	limited: 10 * time.Minute, refused: time.Hour, secret: 5 * time.Second, request: 15 * time.Second,
-	set: 4 * time.Second, renew: 5 * time.Minute,
+	set: 4 * time.Second, renew: 5 * time.Minute, intent: time.Minute,
 }
 
 // capabilities are what every unit reports, sorted.
@@ -99,11 +113,8 @@ func New(c Config) plugin.Factory {
 		case c.Password.Name() == "":
 			return nil, errors.New("toshibaac.Config's Password isn't set: pass it an oikade.Secret")
 		}
-		if _, err := c.outdoorUnits(); err != nil {
-			return nil, err
-		}
 		log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "toshibaac")
-		return newBridge(c, env, declared, cloudTiming, log), nil
+		return newBridge(c, env, declared, cloudTiming, log)
 	}
 }
 
@@ -120,6 +131,8 @@ type device struct {
 	// worked out from, nil if there are none: a mode and then a setpoint, sent together, must
 	// see the new mode.
 	intent *fcuState
+	// intentUntil is when intent stops counting.
+	intentUntil time.Time
 	// values are what was last reported.
 	values contractv1.State
 }
@@ -146,26 +159,27 @@ type bridge struct {
 	// unknownModes are the mode bytes not served, each logged once.
 	unknownModes map[byte]bool
 
-	// outdoor is the outdoor unit each unit in OutdoorUnits is on, and sharing holds an outdoor
-	// unit's lock while one of its units is written, so two writes can't both pass the check.
-	outdoor map[string]int
-	sharing []sync.Mutex
+	// outdoorUnits are the units that share each outdoor unit, and outdoor the one each is on.
+	outdoorUnits [][]string
+	outdoor      map[string]int
 }
 
 var _ plugin.Handler = (*bridge)(nil)
 
-func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) *bridge {
+func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) (*bridge, error) {
+	groups, outdoor, err := c.outdoorUnits()
+	if err != nil {
+		return nil, err
+	}
 	ids := make([]string, 0, len(declared))
 	for _, d := range declared {
 		ids = append(ids, d.ID)
 	}
-	// New has checked it.
-	outdoor, _ := c.outdoorUnits()
 	return &bridge{
 		config: c, env: env, declared: ids, timing: t, log: log,
 		devices: map[string]*device{}, byUnique: map[string]*device{}, unknownModes: map[byte]bool{},
-		outdoor: outdoor, sharing: make([]sync.Mutex, len(c.OutdoorUnits)),
-	}
+		outdoorUnits: groups, outdoor: outdoor,
+	}, nil
 }
 
 // clientID is the mobile device the plugin registers as: one per account, the same each time, so
@@ -649,11 +663,6 @@ func sleep(ctx context.Context, d time.Duration) bool {
 // it, before the unit has changed: the unit's report then shows it. It fails at once while there's
 // no session.
 func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
-	// The other units on its outdoor unit can't change while it's checked and sent.
-	if i, ok := b.outdoor[cmd.ID]; ok {
-		b.sharing[i].Lock()
-		defer b.sharing[i].Unlock()
-	}
 	b.mu.Lock()
 	d, hub, device := b.devices[cmd.ID], b.hub, b.hubDevice
 	var (
@@ -664,6 +673,15 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 		c, err = d.current().command(cmd.Capability, cmd.Value, d.modes)
 		if err == nil {
 			err = b.clashLocked(d, c)
+		}
+		if err == nil && hub != nil {
+			// The write counts from before it's sent, so a write to another unit on its outdoor
+			// unit, checked meanwhile, sees it. It counts even if the hub's PUBACK doesn't come,
+			// since the hub may have taken it, until the unit reports or intent runs out.
+			intent := d.current()
+			// A command is a state with only what changes, so it applies as a report would.
+			_ = intent.update(c.encode())
+			d.intent, d.intentUntil = &intent, time.Now().Add(b.timing.intent)
 		}
 	}
 	b.mu.Unlock()
@@ -680,16 +698,9 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 	if err := hub.publishAcked(ctx, telemetryTopic(device), commandMessage(device, d.uniqueID, c.encode())); err != nil {
 		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
 	}
-	b.mu.Lock()
-	intent := d.current()
-	// A command is a state with only what changes, so it applies as a report would.
-	_ = intent.update(c.encode())
-	d.intent = &intent
-	b.mu.Unlock()
 	return nil
 }
 
-// current is the unit's state with the writes sent since its last report. b.mu must be held.
 // clashLocked refuses a command that would run d in a mode that clashes with another unit running on
 // its outdoor unit, as each will be once the writes sent to it are done. Only one that turns d on
 // or changes its mode is checked: turning it off or changing its setpoint never makes a clash.
@@ -703,12 +714,20 @@ func (b *bridge) clashLocked(d *device, c command) error {
 	if after.status != statusOn {
 		return nil
 	}
-	for _, id := range b.config.OutdoorUnits[i] {
+	for _, id := range b.outdoorUnits[i] {
 		o := b.devices[id]
 		if o == nil || o == d {
 			continue
 		}
-		if other := o.current(); other.status == statusOn && clashes(after.mode, other.mode) {
+		other := o.current()
+		if _, known := modes[other.mode]; other.status != statusOn || !known {
+			continue
+		}
+		// It would run in whatever mode it last had, which could be either.
+		if after.mode == noneByte {
+			return fmt.Errorf("its mode isn't known yet, and it shares its outdoor unit with %s, which is running %s", id, modes[other.mode])
+		}
+		if clashes(after.mode, other.mode) {
 			return fmt.Errorf("it shares its outdoor unit with %s, which is running %s, and %s and %s can't run at once",
 				id, modes[other.mode], modes[after.mode], modes[other.mode])
 		}
@@ -716,8 +735,10 @@ func (b *bridge) clashLocked(d *device, c command) error {
 	return nil
 }
 
+// current is the unit's state with the writes sent since its last report, while they count. b.mu
+// must be held.
 func (d *device) current() fcuState {
-	if d.intent != nil {
+	if d.intent != nil && time.Now().Before(d.intentUntil) {
 		return *d.intent
 	}
 	return d.state

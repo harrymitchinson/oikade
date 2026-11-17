@@ -40,7 +40,7 @@ var root = contractv1.NewRoot("toshiba")
 // allows one of 1 s only 1 s, so a ping can come too late.
 var fast = timing{
 	reload: time.Hour, keepAlive: 2 * time.Second, retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond,
-	limited: 50 * time.Millisecond, refused: time.Hour, secret: 10 * time.Millisecond, request: 2 * time.Second, set: 2 * time.Second,
+	limited: 50 * time.Millisecond, refused: time.Hour, secret: 10 * time.Millisecond, request: 2 * time.Second, set: 2 * time.Second, intent: time.Minute,
 }
 
 // home is an account with a heating bedroom and a study that's off, in two groups.
@@ -125,7 +125,11 @@ func start(t *testing.T, cloud *fakeCloud, secret string, timings timing, declar
 	for _, id := range declared {
 		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
-	b.handler = newBridge(cloud.config(), env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	handler, err := newBridge(cloud.config(), env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.handler = handler
 	ctx, cancel := context.WithCancel(t.Context())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
@@ -555,6 +559,10 @@ func TestNewChecksTheConfig(t *testing.T) {
 		{Username: username},
 		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, study}, {study}}},
 		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, bedroom}}},
+		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom}}},
+		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, ""}}},
+		// The same unit, as the app writes it.
+		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, bedroomUnique}}},
 	} {
 		if _, err := New(c)(plugin.Environment{}, nil); err == nil {
 			t.Errorf("%+v: no error", c)
@@ -655,7 +663,8 @@ func TestAModeThatClashesOnASharedOutdoorUnitIsRefused(t *testing.T) {
 	cloud.set(home)
 	// The bedroom heats and the study, off, last cooled. They share an outdoor unit, with one the
 	// account doesn't have.
-	cloud.set(func(c *fakeCloud) { c.outdoor = [][]string{{bedroom, study, "loft"}} })
+	// The bedroom's ID is as the app writes it.
+	cloud.set(func(c *fakeCloud) { c.outdoor = [][]string{{bedroomUnique, study, "loft"}} })
 	b := start(t, cloud, password, fast)
 	b.waitAvailability(study, "online")
 	if b.logs.count("Found no Toshiba unit for an ID in OutdoorUnits") != 1 {
@@ -724,5 +733,57 @@ func TestUnitsNotOnASharedOutdoorUnitDontClash(t *testing.T) {
 	b.waitAvailability(study, "online")
 	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: contractv1.On, Value: true}); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestAWriteTheUnitNeverReportsStopsCountingForItsOutdoorUnit(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	cloud.set(func(c *fakeCloud) {
+		c.outdoor = [][]string{{bedroom, study}}
+		// The bedroom is off.
+		c.groups[0][0].State = hexState(0x31, 0x43, 21, 0, 19)
+	})
+	timings := fast
+	timings.intent = 300 * time.Millisecond
+	b := start(t, cloud, password, timings)
+	b.waitAvailability(study, "online")
+	set := func(id, capability string, value any) error {
+		return b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: id, Capability: capability, Value: value})
+	}
+	// The bedroom is turned on, heating, and loses its WiFi before it reports.
+	if err := set(bedroom, contractv1.On, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(study, contractv1.On, true); err == nil {
+		t.Error("the study cooling while the bedroom's write counts: no error")
+	}
+	// Once it stops counting, its last report is what's checked.
+	b.eventually("the bedroom's write to stop counting", func() bool { return set(study, contractv1.On, true) == nil })
+}
+
+func TestAUnitWhoseModeIsntKnownCantTurnOnBesideARunningOne(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	cloud.set(func(c *fakeCloud) {
+		c.outdoor = [][]string{{bedroom, study}}
+		// The study is listed with no state, and reading it fails.
+		c.groups[1][0].State = ""
+		delete(c.states, "ac-2")
+	})
+	b := start(t, cloud, password, fast)
+	b.waitAvailability(study, "online")
+	err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: contractv1.On, Value: true})
+	if err == nil || !strings.Contains(err.Error(), "its mode isn't known yet") {
+		t.Errorf("on: %v", err)
+	}
+	// Given a mode that doesn't clash, it can.
+	for _, w := range []struct {
+		capability string
+		value      any
+	}{{contractv1.Mode, "heat"}, {contractv1.On, true}} {
+		if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: w.capability, Value: w.value}); err != nil {
+			t.Errorf("%s %v: %v", w.capability, w.value, err)
+		}
 	}
 }
