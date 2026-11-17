@@ -139,20 +139,35 @@ const (
 	noListener
 	// rejected is a request the server won't take, such as a command a device doesn't have.
 	rejected
+	// absent is a login to a cloud that has no account for it: a Cozytouch account's devices are on
+	// one of its two clouds, and the other has never heard of it.
+	absent
 )
+
+// errNoAccount is a cloud that has no account for the login.
+var errNoAccount = errors.New("no account for this login")
+
+// codeLimited is Overkiz's errorCode for a quota, which classify reads as limited.
+const codeLimited = "QUOTA_EXCEEDED"
 
 // classify says what kind of failure err is. Overkiz says most in errorCode, and pyoverkiz's
 // exceptions follow the same codes and messages.
 func classify(err error) failure {
+	if errors.Is(err, errNoAccount) {
+		return absent
+	}
 	var e *apiError
 	if !errors.As(err, &e) {
 		return unreachable
 	}
 	message := strings.ToLower(e.Message)
 	switch {
+	case strings.Contains(message, "no such user account"):
+		// Overkiz's answer for a Cozytouch login whose account is on Magellan.
+		return absent
 	case strings.Contains(message, "no registered event listener"):
 		return noListener
-	case e.Status == http.StatusTooManyRequests, e.Code == "QUOTA_EXCEEDED", strings.Contains(message, "too many"):
+	case e.Status == http.StatusTooManyRequests, e.Code == codeLimited, strings.Contains(message, "too many"):
 		return limited
 	case e.Status == http.StatusUnauthorized, e.Code == codeAuthentication, e.Code == "RESOURCE_ACCESS_DENIED",
 		strings.Contains(message, "not authenticated"), strings.Contains(message, "bad credentials"):

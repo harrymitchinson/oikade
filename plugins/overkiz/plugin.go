@@ -125,6 +125,8 @@ var dialHub = mdns.DialContext
 type timing struct {
 	// poll is how often events are fetched, and busy how often while an execution runs.
 	poll, busy time.Duration
+	// read is how often a cloud without events, Magellan, is read.
+	read time.Duration
 	// retry is the first wait after the hub or cloud doesn't answer, doubling up to retryMax.
 	retry, retryMax time.Duration
 	// limited is how long to wait after being told there were too many requests.
@@ -165,8 +167,16 @@ func New(a Account) plugin.Factory {
 		if l, ok := a.(Local); ok {
 			l.warn(log)
 		}
-		return newBridge(a, env, declared, a.timing(), log), nil
+		return newHandler(a, env, declared, a.timing(), log), nil
 	}
+}
+
+// newHandler is a hub's bridge, or a Cozytouch account's two clouds.
+func newHandler(a Account, env plugin.Environment, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) plugin.Handler {
+	if c, ok := a.(Cozytouch); ok {
+		return newClouds(c, env, declared, t, log)
+	}
+	return newBridge(a, env, declared, t, log)
 }
 
 // device is one Overkiz device the plugin serves, with its sub-devices folded in.
@@ -184,15 +194,11 @@ type device struct {
 	values contractv1.State
 }
 
-// bridge is the plugin.
+// bridge follows one hub's or account's devices on Overkiz.
 type bridge struct {
-	account  Account
-	env      plugin.Environment
+	follower
 	declared []string
-	timing   timing
-	log      *slog.Logger
 
-	plugin *plugin.Plugin
 	// kick asks for an early fetch, after a write.
 	kick chan struct{}
 
@@ -216,85 +222,39 @@ func newBridge(a Account, env plugin.Environment, declared []contractv1.Declared
 		ids = append(ids, d.ID)
 	}
 	return &bridge{
-		account: a, env: env, declared: ids, timing: t, log: log, kick: make(chan struct{}, 1),
+		account: a, env: env, timing: t, log: log, name: "Overkiz",
+		declared: ids, kick: make(chan struct{}, 1),
 		devices: map[string]*device{}, byURL: map[string]*device{}, running: map[string]time.Time{}, skipped: map[string]bool{},
 	}
 }
 
 // Serve implements plugin.Handler. It reports the devices on record as not found until the hub or
 // cloud answers, then follows them, and logs in again whenever it loses them.
-func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
-	b.plugin = p
+func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error { return b.serve(ctx, p) }
+
+// serve is Serve, reporting to out.
+func (b *bridge) serve(ctx context.Context, out reporter) error {
+	b.out = out
 	if err := b.publishDevices(ctx); err != nil {
 		return err
 	}
-	// wait is the backoff after a failure, and ended after sessions that end as they begin, which a
-	// login doesn't reset.
-	wait, ended := b.timing.retry, b.timing.retry
-	for ctx.Err() == nil {
-		credential, ok, err := plugin.ReadSecret(b.env, b.account.secret())
-		switch {
-		case err != nil:
-			b.setProblem(ctx, fmt.Sprintf("could not read the secret %q: %v", b.account.secret(), err))
-			b.untilSecretChanges(ctx, "", b.timing.refused)
-			continue
-		case !ok || strings.TrimSpace(credential) == "":
-			b.setProblem(ctx, fmt.Sprintf("waiting for the secret %s", b.account.secret()))
-			b.untilSecretChanges(ctx, "", b.timing.refused)
-			continue
-		}
-		credential = strings.TrimSpace(credential)
-		var live time.Time
-		err = b.session(ctx, credential, func() { wait, live = b.timing.retry, time.Now() })
-		if ctx.Err() != nil {
-			break
-		}
-		// A cloud session ends by itself, and one that lasted logs in again at once, its devices
-		// online meanwhile. A credential refused then is refused for real. One that ends as soon as
-		// it starts backs off, so a cloud that keeps ending them isn't asked to log in over and over.
-		expired := b.account.expires() && !live.IsZero() && !errors.Is(err, errReport) && classify(err) == refused
-		if expired && time.Since(live) >= b.timing.retryMax {
-			b.log.Info("Overkiz ended the plugin's session, so it's logging in again", "err", err, "account", b.account.describe())
-			ended = b.timing.retry
-			// Its devices stay online meanwhile, and a write fails at once rather than on a dead session.
-			b.mu.Lock()
-			b.client = nil
-			b.mu.Unlock()
-			continue
-		}
-		b.lost(ctx)
-		switch {
-		case expired:
-			b.log.Warn("Overkiz ended the plugin's session as it began", "err", err, "account", b.account.describe(), "retry", ended.String())
-			b.setProblem(ctx, fmt.Sprintf("%s keeps ending the plugin's session: trying again in %s", b.account.describe(), ended))
-			b.backoff(ctx, ended)
-			ended = min(2*ended, b.timing.retryMax)
-		case errors.Is(err, errReport):
-			b.log.Error("Could not report Overkiz devices", "err", err, "account", b.account.describe(), "retry", wait.String())
-			b.setProblem(ctx, fmt.Sprintf("could not report the devices of %s: %v", b.account.describe(), err))
-			b.backoff(ctx, wait)
-			wait = min(2*wait, b.timing.retryMax)
-		case classify(err) == refused:
-			b.log.Warn("Overkiz refused the credential", "err", err, "account", b.account.describe())
-			b.setProblem(ctx, fmt.Sprintf("%s refused the login (%v): check the secret %q", b.account.describe(), err, b.account.secret()))
-			b.untilSecretChanges(ctx, credential, b.timing.refused)
-		case classify(err) == limited:
-			b.log.Warn("Overkiz limited the plugin's requests", "err", err, "account", b.account.describe(), "retry", b.timing.limited.String())
-			b.setProblem(ctx, fmt.Sprintf("%s says there were too many requests: trying again in %s", b.account.describe(), b.timing.limited))
-			b.backoff(ctx, b.timing.limited)
-		case certFailure(err) != nil:
-			b.log.Warn("Refused Overkiz hub's certificate", "err", err, "account", b.account.describe(), "retry", wait.String())
-			b.setProblem(ctx, fmt.Sprintf("%s has a certificate that %v", b.account.describe(), certFailure(err)))
-			b.backoff(ctx, wait)
-			wait = min(2*wait, b.timing.retryMax)
-		default:
-			b.log.Warn("Could not reach Overkiz", "err", err, "account", b.account.describe(), "retry", wait.String())
-			b.setProblem(ctx, fmt.Sprintf("could not reach %s: %v", b.account.describe(), err))
-			b.backoff(ctx, wait)
-			wait = min(2*wait, b.timing.retryMax)
-		}
-	}
+	b.follow(ctx, b)
 	return nil
+}
+
+// pause drops the session and leaves the devices online, while it logs in again.
+func (b *bridge) pause() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.client = nil
+}
+
+// absent reports that the account has nothing on Overkiz.
+func (b *bridge) absent(ctx context.Context) {
+	b.mu.Lock()
+	b.devices, b.byURL = map[string]*device{}, map[string]*device{}
+	b.mu.Unlock()
+	b.check(b.publishAll(ctx), "Could not report Overkiz devices", "")
 }
 
 // session logs in, reads the setup and follows its events until something fails. connected runs
@@ -526,12 +486,12 @@ func (b *bridge) take(ctx context.Context, events []apiEvent) (bool, error) {
 	}
 	b.mu.Unlock()
 	for _, u := range updates {
-		if err := b.plugin.ReportState(ctx, u.id, u.state); err != nil {
+		if err := b.out.ReportState(ctx, u.id, u.state); err != nil {
 			return false, err
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(availability)) {
-		if err := b.plugin.SetAvailability(ctx, id, availability[id]); err != nil {
+		if err := b.out.SetAvailability(ctx, id, availability[id]); err != nil {
 			return false, err
 		}
 	}
@@ -546,16 +506,10 @@ func (b *bridge) lost(ctx context.Context) {
 	ids := slices.Sorted(maps.Keys(b.devices))
 	b.mu.Unlock()
 	for _, id := range ids {
-		b.check(b.plugin.SetAvailability(ctx, id, false), "Could not report Overkiz device offline", id)
+		b.check(b.out.SetAvailability(ctx, id, false), "Could not report Overkiz device offline", id)
 	}
 	// Nil, not empty: an empty list would say every device was removed from the app.
-	b.check(b.plugin.SetDiscovered(ctx, nil), "Could not report Overkiz devices", "")
-}
-
-func (b *bridge) check(err error, msg, id string) {
-	if err != nil && !errors.Is(err, plugin.ErrClosed) && !errors.Is(err, context.Canceled) {
-		b.log.Error(msg, "err", err, "device", id)
-	}
+	b.check(b.out.SetDiscovered(ctx, nil), "Could not report Overkiz devices", "")
 }
 
 // publishAll reports the setup: what the app holds, every device, and their availability and what
@@ -577,19 +531,19 @@ func (b *bridge) publishAll(ctx context.Context) error {
 	}
 	devices := b.reportsLocked()
 	b.mu.Unlock()
-	if err := b.plugin.SetDiscovered(ctx, discovered); err != nil {
+	if err := b.out.SetDiscovered(ctx, discovered); err != nil {
 		return err
 	}
-	if err := b.plugin.SetDevices(ctx, devices, 0); err != nil {
+	if err := b.out.SetDevices(ctx, devices, 0); err != nil {
 		return err
 	}
 	for _, r := range reports {
-		if err := b.plugin.SetAvailability(ctx, r.id, r.online); err != nil {
+		if err := b.out.SetAvailability(ctx, r.id, r.online); err != nil {
 			return err
 		}
 		// What's known: a shutter yet to report where it is, or one the hub can't place, has no
 		// position, and that's no reason to drop the rest.
-		if err := b.plugin.ReportState(ctx, r.id, r.values); err != nil {
+		if err := b.out.ReportState(ctx, r.id, r.values); err != nil {
 			return err
 		}
 	}
@@ -601,7 +555,7 @@ func (b *bridge) publishDevices(ctx context.Context) error {
 	b.mu.Lock()
 	reports := b.reportsLocked()
 	b.mu.Unlock()
-	return b.plugin.SetDevices(ctx, reports, 0)
+	return b.out.SetDevices(ctx, reports, 0)
 }
 
 func (b *bridge) reportsLocked() []contractv1.DeviceReport {
@@ -618,58 +572,6 @@ func (b *bridge) reportsLocked() []contractv1.DeviceReport {
 		}
 	}
 	return reports
-}
-
-// setProblem sets the plugin's error, which oikade status shows.
-func (b *bridge) setProblem(ctx context.Context, problem string) {
-	b.check(b.plugin.SetError(ctx, problem), "Could not report the plugin's problem", "")
-}
-
-// untilSecretChanges waits until the secret is other than was, or for at most most.
-func (b *bridge) untilSecretChanges(ctx context.Context, was string, most time.Duration) {
-	deadline := time.Now().Add(most)
-	for time.Now().Before(deadline) {
-		if !sleep(ctx, b.timing.secret) {
-			return
-		}
-		now, _, _ := plugin.ReadSecret(b.env, b.account.secret())
-		if strings.TrimSpace(now) != was {
-			return
-		}
-	}
-}
-
-// errReport is a report the SDK refused or couldn't publish: the plugin's fault, or the host's
-// connection, not the hub's.
-var errReport = errors.New("could not report to Oikade")
-
-// reporting marks err as errReport.
-func reporting(err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("%w: %w", errReport, err)
-}
-
-// backoff waits d after a failure.
-func (b *bridge) backoff(ctx context.Context, d time.Duration) {
-	if b.timing.backoff != nil {
-		b.timing.backoff(ctx, d)
-		return
-	}
-	sleep(ctx, d)
-}
-
-// sleep waits for d, and says false if ctx ended first.
-func sleep(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
 }
 
 // Set implements plugin.Handler. It returns once Overkiz has taken the command, before the device

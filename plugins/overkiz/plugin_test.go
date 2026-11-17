@@ -36,7 +36,7 @@ var root = contractv1.NewRoot("tahoma")
 
 // fast keeps the real timing's order, in less time.
 var fast = timing{
-	poll: 20 * time.Millisecond, busy: 5 * time.Millisecond, retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond,
+	poll: 20 * time.Millisecond, busy: 5 * time.Millisecond, read: 20 * time.Millisecond, retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond,
 	limited: 50 * time.Millisecond, refused: time.Hour, secret: 10 * time.Millisecond,
 	request: 2 * time.Second, set: 2 * time.Second, execution: time.Minute,
 }
@@ -130,7 +130,7 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secr
 	for _, id := range declared {
 		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
-	handler := newBridge(account, env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	handler := newHandler(account, env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
 	ctx, cancel := context.WithCancel(t.Context())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()

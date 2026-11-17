@@ -152,7 +152,7 @@ First-party plugins, each with its own README:
 
 - [Zigbee2MQTT](plugins/zigbee2mqtt/README.md): Zigbee devices, through a Zigbee2MQTT and an MQTT broker you run
 - [eWeLink LAN](plugins/ewelinklan/README.md): relays with sensors on the eWeLink LAN protocol, such as SONOFF's TH Elite
-- [Overkiz](plugins/overkiz/README.md): Somfy io shutters and screens through a TaHoma hub's local API, and Atlantic, Thermor and Sauter towel radiators through Cozytouch's cloud
+- [Overkiz](plugins/overkiz/README.md): Somfy io shutters and screens through a TaHoma hub's local API, and Atlantic, Thermor and Sauter towel radiators through Cozytouch's clouds
 - [Toshiba Home AC Control](plugins/toshibaac/README.md): Toshiba air conditioners with a WiFi module, through Toshiba's cloud
 
 To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
