@@ -2,13 +2,14 @@ package tlv
 
 import (
 	"bytes"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // specExamples are the encoding examples in the Matter Core Specification, Appendix A.12.
@@ -53,19 +54,10 @@ var specExamples = []struct {
 	{"Structure with a fully qualified tag, 65521::57069:1 = {65521::57069:43605 = 42U}", "d5 f1 ff ed de 01 00 c4 f1 ff ed de 55 aa 2a 18"},
 }
 
-func unhex(t testing.TB, s string) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(strings.ReplaceAll(s, " ", ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
 func TestSpecExamplesRoundTrip(t *testing.T) {
 	for _, ex := range specExamples {
 		t.Run(ex.name, func(t *testing.T) {
-			in := unhex(t, ex.hex)
+			in := testkit.Unhex(t, ex.hex)
 			var w Writer
 			if err := copyTLV(NewReader(in), &w); err != nil {
 				t.Fatalf("decode: %v", err)
@@ -115,14 +107,14 @@ func TestSpecExamplesEncode(t *testing.T) {
 	for _, c := range cases {
 		var w Writer
 		c.write(&w)
-		if want := unhex(t, c.hex); !bytes.Equal(w.Bytes(), want) {
+		if want := testkit.Unhex(t, c.hex); !bytes.Equal(w.Bytes(), want) {
 			t.Errorf("encoded % x, want % x", w.Bytes(), want)
 		}
 	}
 }
 
 func TestReadValues(t *testing.T) {
-	r := NewReader(unhex(t, "16 00 2a 02 f0 67 fd ff 15 18 0a 33 33 8f 41 0c 06 48 65 6c 6c 6f 21 18"))
+	r := NewReader(testkit.Unhex(t, "16 00 2a 02 f0 67 fd ff 15 18 0a 33 33 8f 41 0c 06 48 65 6c 6c 6f 21 18"))
 	must(t, r.Next())
 	must(t, r.Enter())
 
@@ -157,7 +149,7 @@ func TestReadValues(t *testing.T) {
 
 func TestExitSkipsTheRest(t *testing.T) {
 	// {0 = [1, {}], 1 = "x"}, then 7U at the top level.
-	r := NewReader(unhex(t, "15 36 00 00 01 15 18 18 2c 01 01 78 18 04 07"))
+	r := NewReader(testkit.Unhex(t, "15 36 00 00 01 15 18 18 2c 01 01 78 18 04 07"))
 	must(t, r.Next())
 	must(t, r.Enter())
 	must(t, r.Next())
@@ -178,7 +170,7 @@ func TestExitSkipsTheRest(t *testing.T) {
 }
 
 func TestSkipDoesNotAllocate(t *testing.T) {
-	in := unhex(t, "16 15 36 00 00 01 18 18 18 04 07")
+	in := testkit.Unhex(t, "16 15 36 00 00 01 18 18 18 04 07")
 	allocs := testing.AllocsPerRun(100, func() {
 		var r Reader
 		r.buf = in
@@ -193,7 +185,7 @@ func TestSkipDoesNotAllocate(t *testing.T) {
 }
 
 func TestTypeMismatch(t *testing.T) {
-	r := NewReader(unhex(t, "04 2a"))
+	r := NewReader(testkit.Unhex(t, "04 2a"))
 	must(t, r.Next())
 	_, err := r.Int()
 	var te *ErrType
@@ -229,7 +221,7 @@ func TestMalformed(t *testing.T) {
 	}
 	for name, h := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := walk(NewReader(unhex(t, h)))
+			err := walk(NewReader(testkit.Unhex(t, h)))
 			if !errors.Is(err, ErrInvalid) {
 				t.Errorf("walk() = %v, want an ErrInvalid", err)
 			}
@@ -238,7 +230,7 @@ func TestMalformed(t *testing.T) {
 }
 
 func TestSkipTooDeep(t *testing.T) {
-	r := NewReader(unhex(t, "16"+strings.Repeat("17", MaxDepth)+strings.Repeat("18", MaxDepth+1)))
+	r := NewReader(testkit.Unhex(t, "16"+strings.Repeat("17", MaxDepth)+strings.Repeat("18", MaxDepth+1)))
 	must(t, r.Next())
 	if err := r.Next(); !errors.Is(err, ErrTooDeep) {
 		t.Errorf("skipping a container nested too deep: %v, want ErrTooDeep", err)
@@ -246,7 +238,7 @@ func TestSkipTooDeep(t *testing.T) {
 }
 
 func TestErrorsStick(t *testing.T) {
-	r := NewReader(unhex(t, "19 04 2a"))
+	r := NewReader(testkit.Unhex(t, "19 04 2a"))
 	first := r.Next()
 	if !errors.Is(first, ErrInvalid) {
 		t.Fatalf("Next() = %v, want ErrInvalid", first)
@@ -305,10 +297,10 @@ func TestIntWidths(t *testing.T) {
 // back to the same elements.
 func FuzzReader(f *testing.F) {
 	for _, ex := range specExamples {
-		f.Add(unhex(f, ex.hex))
+		f.Add(testkit.Unhex(f, ex.hex))
 	}
-	f.Add(unhex(f, "0f ff ff ff ff ff ff ff ff 00"))
-	f.Add(unhex(f, "15 36 00 00 01 15 18 18 2c 01 01 78 18 04 07"))
+	f.Add(testkit.Unhex(f, "0f ff ff ff ff ff ff ff ff 00"))
+	f.Add(testkit.Unhex(f, "15 36 00 00 01 15 18 18 2c 01 01 78 18 04 07"))
 	f.Fuzz(func(t *testing.T, in []byte) {
 		want, err := dump(NewReader(in))
 		if err != nil {
@@ -479,7 +471,7 @@ func TestPutRaw(t *testing.T) {
 	w.PutRaw(item.Bytes())
 	w.PutRaw(item.Bytes())
 	w.End()
-	if want := unhex(t, "16 15 24 01 2a 18 15 24 01 2a 18 18"); !bytes.Equal(w.Bytes(), want) {
+	if want := testkit.Unhex(t, "16 15 24 01 2a 18 15 24 01 2a 18 18"); !bytes.Equal(w.Bytes(), want) {
 		t.Errorf("encoded % x, want % x", w.Bytes(), want)
 	}
 	defer func() {
@@ -489,5 +481,5 @@ func TestPutRaw(t *testing.T) {
 	}()
 	var bad Writer
 	bad.StartArray(Anonymous)
-	bad.PutRaw(unhex(t, "24 01 2a"))
+	bad.PutRaw(testkit.Unhex(t, "24 01 2a"))
 }

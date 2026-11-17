@@ -3,15 +3,9 @@ package sun
 import (
 	"testing"
 	"time"
-)
 
-func mustLocation(name string) *time.Location {
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		panic(err)
-	}
-	return loc
-}
+	"github.com/harrymitchinson/oikade/internal/testkit"
+)
 
 // The expected times are the US Naval Observatory's (aa.usno.navy.mil/api/rstt/oneday), which
 // round to the minute.
@@ -36,7 +30,7 @@ func TestMatchesPublishedTables(t *testing.T) {
 		{"Reykjavik, midsummer, sunset after midnight", Site{64.1466, -21.9426}, "Atlantic/Reykjavik", "2026-06-21", "02:55", "00:04", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			loc := mustLocation(tc.zone)
+			loc := testkit.Location(tc.zone)
 			d, err := time.ParseInLocation(time.DateOnly, tc.date, loc)
 			if err != nil {
 				t.Fatal(err)
@@ -63,7 +57,7 @@ func TestMatchesPublishedTables(t *testing.T) {
 
 func TestPolarDayHasNoSunset(t *testing.T) {
 	tromso := Site{69.6492, 18.9553}
-	loc := mustLocation("Europe/Oslo")
+	loc := testkit.Location("Europe/Oslo")
 	for _, e := range []Event{Sunrise, Sunset} {
 		if got, ok := tromso.Time(e, 2026, time.June, 21, loc); ok {
 			t.Errorf("event %d: got %v, want none in the midnight sun", e, got)

@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sync"
 	"testing"
@@ -20,6 +19,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/sun"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // holdDevices are the devices every hold test declares, with their capabilities.
@@ -52,19 +52,8 @@ type rig struct {
 	setter  *fakeSetter
 	store   *hub.Store
 	sched   *schedules
-	logs    *logLines
+	logs    *testkit.Log
 	stop    func()
-}
-
-type logLines struct {
-	mu    sync.Mutex
-	lines []string
-}
-
-func (l *logLines) add(args string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.lines = append(l.lines, args)
 }
 
 // startRig runs an engine from now with these saved states and device values, and loads the Rules.
@@ -89,11 +78,11 @@ type rigOptions struct {
 func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	t.Helper()
 	now, states, values := o.now, o.holds, o.values
-	logs := &logLines{}
+	logs := testkit.Logs(t)
 	r := &rig{t: t, clock: clock.NewFake(now), setter: &fakeSetter{}, sched: &schedules{}, logs: logs}
 	r.e = &Engine{
 		Setter: r.setter, Clock: r.clock, Location: london, Site: londonSite,
-		Log:         logging.Lines(logs.add, slog.LevelDebug),
+		Log:         logs.Logger,
 		RuleMetrics: metrics.NewSet(), ControlMetrics: metrics.NewSet(),
 		OnSchedule: r.sched.record, States: states, Controls: o.controls,
 		OnBudget: r.recordBudget,
@@ -132,7 +121,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 // timer armed.
 func (r *rig) settle() {
 	r.t.Helper()
-	poll(r.t, "the engine to settle", func() bool { return r.e.Idle() && r.holdsArmed() })
+	testkit.Eventually(r.t, "the engine to settle", func() bool { return r.e.Idle() && r.holdsArmed() })
 }
 
 // holdsArmed says every hold has a next look due.

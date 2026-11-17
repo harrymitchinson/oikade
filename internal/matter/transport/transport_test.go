@@ -17,6 +17,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/contain"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 var echo = ProtocolID{Vendor: 0xFFF1, ID: 0x0042}
@@ -120,16 +121,6 @@ func ctx(t *testing.T) context.Context {
 	return c
 }
 
-func eventually(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("timed out waiting for %s", what)
-}
-
 // echoHandler answers each exchange's first message with its payload reversed, and counts the
 // exchanges it served.
 func echoHandler(calls *atomic.Int32) Handler {
@@ -170,7 +161,7 @@ func TestExchangeRequestResponse(t *testing.T) {
 	ex.Close() // acknowledges the reply at once
 
 	// The device's exchange goes away once the client's ack arrives.
-	eventually(t, "the device to forget the exchange", func() bool {
+	testkit.Eventually(t, "the device to forget the exchange", func() bool {
 		dev.t.mu.Lock()
 		defer dev.t.mu.Unlock()
 		for _, s := range dev.t.unsecured {
@@ -266,7 +257,7 @@ func TestDropsDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	ex.Close()
-	eventually(t, "the duplicate to be logged", func() bool {
+	testkit.Eventually(t, "the duplicate to be logged", func() bool {
 		return strings.Contains(dev.log.String(), "Dropped duplicate message")
 	})
 	if calls.Load() != 1 {
@@ -325,7 +316,7 @@ func TestDropsUnknownSession(t *testing.T) {
 	if _, err := raw.Write(ph.Append(h.Append(nil))); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "the drop to be logged", func() bool {
+	testkit.Eventually(t, "the drop to be logged", func() bool {
 		return strings.Contains(dev.log.String(), `reason="unknown session"`)
 	})
 	_ = raw.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
@@ -417,7 +408,7 @@ func TestDropsTamperedSecureMessage(t *testing.T) {
 	}
 	ex, _ := s.NewExchange()
 	_ = ex.Send(ctx(t), Message{Protocol: echo})
-	eventually(t, "the failed authentication to be logged", func() bool {
+	testkit.Eventually(t, "the failed authentication to be logged", func() bool {
 		return strings.Contains(dev.log.String(), "failed authentication")
 	})
 	if calls.Load() != 0 || dev.conn.writes.Load() != 0 {
@@ -451,7 +442,7 @@ func TestSecureCounterWindow(t *testing.T) {
 		request()
 	}
 	recent := request()
-	eventually(t, "every exchange to finish", func() bool { return calls.Load() == windowSize/2+2 })
+	testkit.Eventually(t, "every exchange to finish", func() bool { return calls.Load() == windowSize/2+2 })
 
 	raw, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -464,7 +455,7 @@ func TestSecureCounterWindow(t *testing.T) {
 	if _, err := raw.WriteTo(old, devAddr); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "the old message to be dropped", func() bool {
+	testkit.Eventually(t, "the old message to be dropped", func() bool {
 		return strings.Contains(dev.log.String(), "message counter behind the window")
 	})
 	if got := dev.conn.writes.Load(); got != writes {
@@ -474,7 +465,7 @@ func TestSecureCounterWindow(t *testing.T) {
 	if _, err := raw.WriteTo(recent, devAddr); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "the recent duplicate to be acknowledged", func() bool { return dev.conn.writes.Load() == writes+1 })
+	testkit.Eventually(t, "the recent duplicate to be acknowledged", func() bool { return dev.conn.writes.Load() == writes+1 })
 	if calls.Load() != windowSize/2+2 {
 		t.Errorf("a replayed message reached the handler")
 	}
@@ -557,7 +548,7 @@ func TestLateMessageDoesNotStartAnExchange(t *testing.T) {
 	if _, err := ex.Recv(ctx(t)); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, "the device to close its exchange", func() bool {
+	testkit.Eventually(t, "the device to close its exchange", func() bool {
 		dev.t.mu.Lock()
 		defer dev.t.mu.Unlock()
 		for _, s := range dev.t.unsecured {
@@ -602,7 +593,7 @@ func TestFullInboxIsRetransmittedLater(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	eventually(t, "the inbox to fill", func() bool { return strings.Contains(dev.log.String(), "exchange inbox full") })
+	testkit.Eventually(t, "the inbox to fill", func() bool { return strings.Contains(dev.log.String(), "exchange inbox full") })
 	close(drain)
 	if err := ex.WaitAck(ctx(t)); err != nil {
 		t.Fatalf("the last message was never acknowledged: %v", err)
@@ -644,9 +635,9 @@ func TestBusyUnsecuredSessionsAreNotEvicted(t *testing.T) {
 	for i := range maxUnsecuredSessions {
 		start(uint64(i + 1))
 	}
-	eventually(t, "every session to start", func() bool { return calls.Load() == maxUnsecuredSessions })
+	testkit.Eventually(t, "every session to start", func() bool { return calls.Load() == maxUnsecuredSessions })
 	start(1000)
-	eventually(t, "the extra session to be refused", func() bool {
+	testkit.Eventually(t, "the extra session to be refused", func() bool {
 		return strings.Contains(dev.log.String(), "too many unsecured sessions")
 	})
 	if calls.Load() != maxUnsecuredSessions {
@@ -654,7 +645,7 @@ func TestBusyUnsecuredSessionsAreNotEvicted(t *testing.T) {
 	}
 
 	close(release) // every exchange ends, so their sessions become idle
-	eventually(t, "the sessions to go idle", func() bool {
+	testkit.Eventually(t, "the sessions to go idle", func() bool {
 		dev.t.mu.Lock()
 		defer dev.t.mu.Unlock()
 		for _, s := range dev.t.unsecured {
@@ -665,7 +656,7 @@ func TestBusyUnsecuredSessionsAreNotEvicted(t *testing.T) {
 		return true
 	})
 	start(1001)
-	eventually(t, "an idle session to make room", func() bool { return calls.Load() == maxUnsecuredSessions+1 })
+	testkit.Eventually(t, "an idle session to make room", func() bool { return calls.Load() == maxUnsecuredSessions+1 })
 }
 
 func TestAddSecureSessionReplaces(t *testing.T) {
@@ -814,7 +805,7 @@ func TestAHandlerThatPanicsCostsOnlyItsSession(t *testing.T) {
 	if err := send(cli.t.NewUnsecuredSession(dev.addr()), "boom"); err == nil {
 		t.Error("a handler that panicked answered")
 	}
-	eventually(t, "the panic to be counted", func() bool { return counted.in(contain.Handler) == 1 })
+	testkit.Eventually(t, "the panic to be counted", func() bool { return counted.in(contain.Handler) == 1 })
 	if ended.Load() != 1 {
 		t.Errorf("%d sessions ended, want 1", ended.Load())
 	}
@@ -862,7 +853,7 @@ func TestAPanicSendingIsContained(t *testing.T) {
 		return string(m.Payload), err
 	}
 	_, _ = send("boom") // its retransmission may still arrive
-	eventually(t, "the panic to be counted", func() bool { return counted.in(contain.Handler) == 1 })
+	testkit.Eventually(t, "the panic to be counted", func() bool { return counted.in(contain.Handler) == 1 })
 	if got, err := send("abc"); err != nil || got != "cba" {
 		t.Errorf("another session after the panic: %q, %v", got, err)
 	}

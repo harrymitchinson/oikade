@@ -10,6 +10,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // A command that panics does so with the Node's lock held: the lock must come free, or every other
@@ -81,7 +82,7 @@ func TestASubscriptionThatPanicsEndsItsSession(t *testing.T) {
 	}
 	broken.Store(true)
 	node.Update(func() { c.Changed(0) })
-	waitFor(t, "the subscription to end", func() bool { return srv.Subscriptions() == 0 })
+	testkit.Eventually(t, "the subscription to end", func() bool { return srv.Subscriptions() == 0 })
 	if o.panics.Load() != 1 || ended.Load() != 1 {
 		t.Errorf("%d panics heard, %d sessions ended: want 1 of each", o.panics.Load(), ended.Load())
 	}

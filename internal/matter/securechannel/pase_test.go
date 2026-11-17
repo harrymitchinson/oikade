@@ -3,7 +3,6 @@ package securechannel
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"net"
 	"net/netip"
@@ -14,6 +13,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/logging"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 const testPasscode = 20202021
@@ -97,9 +97,7 @@ func TestPASE(t *testing.T) {
 		t.Fatalf("EstablishPASE: %v", err)
 	}
 	// The device reports the session once the commissioner acknowledges its success status.
-	for deadline := time.Now().Add(3 * time.Second); sessions.Load() == 0 && time.Now().Before(deadline); {
-		time.Sleep(5 * time.Millisecond)
-	}
+	testkit.Eventually(t, "the device's session", func() bool { return sessions.Load() != 0 })
 	if !s.Secure() || sessions.Load() != 1 || dev.t.SecureSessions() != 1 {
 		t.Fatalf("secure %v, device sessions %d/%d", s.Secure(), sessions.Load(), dev.t.SecureSessions())
 	}
@@ -217,7 +215,7 @@ func TestPASEBusy(t *testing.T) {
 // connectedhomeip's Matter AES-CCM vector, whose nonce is one: flags 0, counter 0x01000080 and
 // node 0x7856341200000112.
 func TestSessionNonce(t *testing.T) {
-	want, _ := hex.DecodeString("00800000011201000012345678")
+	want := testkit.Unhex(t, "00800000011201000012345678")
 	if got := nonce(0, 0x01000080, 0x7856341200000112); !bytes.Equal(got, want) {
 		t.Errorf("nonce = % x, want % x", got, want)
 	}
@@ -287,7 +285,7 @@ func TestMessagesRejected(t *testing.T) {
 func TestStatusReport(t *testing.T) {
 	sr := StatusReport{General: GeneralFailure, Protocol: transport.ProtocolID{Vendor: 0xFFF1, ID: 2}, Code: 3, Data: []byte{9}}
 	m := sr.Message()
-	want, _ := hex.DecodeString("0100" + "0200f1ff" + "0300" + "09")
+	want := testkit.Unhex(t, "0100 0200f1ff 0300 09")
 	if !bytes.Equal(m.Payload, want) || m.Opcode != OpStatusReport {
 		t.Errorf("encoded % x, want % x", m.Payload, want)
 	}

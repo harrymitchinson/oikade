@@ -52,7 +52,7 @@ make cover-binaries    # Coverage of the binaries test/host and test/cli run
 make test-journeys     # From oikade init to a running host, and chip-tool (Docker, linux/arm64)
 ```
 
-Tests are plain Go `testing`. A simulated home on a fake clock is `internal/simhome`, and a real host with simulated devices is `test/host`.
+Tests are plain Go `testing`, with no assertion library. What more than one package's tests need, waiting for a condition, a time zone, hex and a log to read, is `internal/testkit`. A simulated home on a fake clock is `internal/simhome`, and a real host with simulated devices is `test/host`.
 
 ## Implementation rules
 

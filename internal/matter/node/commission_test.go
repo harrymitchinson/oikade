@@ -19,6 +19,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 func addr(n *Node) netip.AddrPort { return nodetest.Addr(n.cfg.Port) }
@@ -50,17 +51,17 @@ func (n *Node) secureSessions(mode transport.AuthMode) int {
 func TestCommissionAndRestart(t *testing.T) {
 	dir := t.TempDir()
 	n, fake, stop := start(t, Config{DataDir: dir})
-	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 	cm := nodetest.New(t)
 	admin := cm.Commission(addr(n), testSetup.Passcode)
 
-	waitFor(t, "the window to close and the fabric to be advertised", func() bool {
+	testkit.Eventually(t, "the window to close and the fabric to be advertised", func() bool {
 		return fake.commissionable() == nil && !n.WindowOpen() && len(fake.operational()) == 1
 	})
 	if name := fake.operational()[0]; !strings.HasSuffix(name, "-0000000000000A0B") {
 		t.Errorf("operational instance %q", name)
 	}
-	waitFor(t, "EndPASE to close the PASE session", func() bool { return n.secureSessions(transport.AuthPASE) == 0 })
+	testkit.Eventually(t, "EndPASE to close the PASE session", func() bool { return n.secureSessions(transport.AuthPASE) == 0 })
 
 	// A peer's CloseSession ends its session.
 	ex, err := admin.Session.NewExchange()
@@ -72,14 +73,14 @@ func TestCommissionAndRestart(t *testing.T) {
 	}.Message()); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the node to close the CASE session", func() bool { return n.secureSessions(transport.AuthCASE) == 0 })
+	testkit.Eventually(t, "the node to close the CASE session", func() bool { return n.secureSessions(transport.AuthCASE) == 0 })
 
 	// After a restart the node is still on the fabric: it advertises it, doesn't open a window,
 	// and answers CASE.
 	port := n.cfg.Port
 	stop()
 	n, fake, _ = start(t, Config{DataDir: dir, Port: port})
-	waitFor(t, "the fabric to be advertised after the restart", func() bool { return len(fake.operational()) == 1 })
+	testkit.Eventually(t, "the fabric to be advertised after the restart", func() bool { return len(fake.operational()) == 1 })
 	if fake.commissionable() != nil || n.WindowOpen() {
 		t.Error("a commissioned node opened its window after a restart")
 	}
@@ -94,7 +95,7 @@ func TestCommissionAndRestart(t *testing.T) {
 	if f[0] != uint64(0) {
 		t.Fatalf("RemoveFabric: %v", f)
 	}
-	waitFor(t, "the window to reopen", func() bool {
+	testkit.Eventually(t, "the window to reopen", func() bool {
 		return len(fake.operational()) == 0 && fake.commissionable() != nil && n.WindowOpen()
 	})
 }
@@ -104,9 +105,9 @@ func TestCommissionAndRestart(t *testing.T) {
 // packet is on its way to another socket: one sent after the goodbye never arrives in time.
 func TestStoppingClosesSessionsBeforeTheGoodbye(t *testing.T) {
 	n, fake, stop := start(t, Config{DataDir: t.TempDir()})
-	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 	admin := nodetest.New(t).Commission(addr(n), testSetup.Passcode)
-	waitFor(t, "the CASE session alone", func() bool {
+	testkit.Eventually(t, "the CASE session alone", func() bool {
 		return n.secureSessions(transport.AuthCASE) == 1 && n.secureSessions(transport.AuthPASE) == 0
 	})
 
@@ -162,19 +163,19 @@ func TestRunAgain(t *testing.T) {
 		}
 	}
 	stop := run()
-	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 	stop()
 
 	stop = run()
-	waitFor(t, "the window to be offered again", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the window to be offered again", func() bool { return fake.commissionable() != nil })
 	cm := nodetest.New(t)
 	cm.Commission(addr(n), testSetup.Passcode)
-	waitFor(t, "the fabric", func() bool { return fake.commissionable() == nil && len(fake.operational()) == 1 })
+	testkit.Eventually(t, "the fabric", func() bool { return fake.commissionable() == nil && len(fake.operational()) == 1 })
 	stop()
 
 	stop = run()
 	defer stop()
-	waitFor(t, "the fabric to be advertised again", func() bool { return len(fake.operational()) == 1 })
+	testkit.Eventually(t, "the fabric to be advertised again", func() bool { return len(fake.operational()) == 1 })
 	if fake.commissionable() != nil || n.WindowOpen() {
 		t.Error("a commissioned node opened its window")
 	}
@@ -229,9 +230,9 @@ func (h *heard) reports() int {
 func TestTheObserverHearsWhatAControllerDoes(t *testing.T) {
 	h := &heard{}
 	n, fake, _ := start(t, Config{DataDir: t.TempDir(), Observer: h})
-	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 	admin := nodetest.New(t).Commission(addr(n), testSetup.Passcode)
-	waitFor(t, "the PASE session to end", func() bool { return n.secureSessions(transport.AuthPASE) == 0 })
+	testkit.Eventually(t, "the PASE session to end", func() bool { return n.secureSessions(transport.AuthPASE) == 0 })
 	if n.Sessions() != 1 {
 		t.Errorf("%d CASE sessions, want 1", n.Sessions())
 	}
@@ -253,7 +254,7 @@ func TestTheObserverHearsWhatAControllerDoes(t *testing.T) {
 	if err != nil || st != im.StatusSuccess {
 		t.Fatalf("writing NodeLabel: %v, %v", st, err)
 	}
-	waitFor(t, "the change to be reported", func() bool { return h.reports() > 0 })
+	testkit.Eventually(t, "the change to be reported", func() bool { return h.reports() > 0 })
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !slices.Equal(h.wrote, []string{"basic_information success"}) {
@@ -288,13 +289,13 @@ func TestTheObserverHearsAContainedPanic(t *testing.T) {
 			t.Errorf("Run: %v", err)
 		}
 	}()
-	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 
 	admin := nodetest.New(t).Commission(addr(n), testSetup.Passcode)
 	readCtx, stopRead := context.WithTimeout(context.Background(), time.Second)
 	defer stopRead()
 	_, _ = admin.Read(readCtx, im.Concrete(im.Path{Endpoint: 2, Cluster: clusters.IDOnOff, Attribute: 0})) // unanswered
-	waitFor(t, "the panic to be heard", func() bool { return len(h.panics()) > 0 })
+	testkit.Eventually(t, "the panic to be heard", func() bool { return len(h.panics()) > 0 })
 	if got := h.panics(); !slices.Equal(got, []string{contain.Handler}) {
 		t.Errorf("heard panics at %v, want one at %s", got, contain.Handler)
 	}

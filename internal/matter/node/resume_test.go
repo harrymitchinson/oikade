@@ -16,6 +16,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // memSubscriptions is an im.SubscriptionStore in memory, which outlives the nodes that use it.
@@ -67,7 +68,7 @@ func (m *memSubscriptions) ids() []uint32 {
 func TestResumeAfterRestart(t *testing.T) {
 	dir, saved := t.TempDir(), &memSubscriptions{}
 	n, fake, stop := start(t, Config{DataDir: dir, Subscriptions: saved})
-	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 	cm := nodetest.New(t)
 	cm.AcceptCASE()
 	admin := cm.Commission(addr(n), testSetup.Passcode)
@@ -78,7 +79,7 @@ func TestResumeAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the subscription to be saved", func() bool { return slices.Equal(saved.ids(), []uint32{id}) })
+	testkit.Eventually(t, "the subscription to be saved", func() bool { return slices.Equal(saved.ids(), []uint32{id}) })
 
 	port := n.cfg.Port
 	stop()
@@ -94,7 +95,7 @@ func TestResumeAfterRestart(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("no report under the old subscription ID after the restart")
 	}
-	waitFor(t, "the resumed subscription to run", func() bool { return n.Subscriptions() == 1 })
+	testkit.Eventually(t, "the resumed subscription to run", func() bool { return n.Subscriptions() == 1 })
 	if !slices.Equal(saved.ids(), []uint32{id}) {
 		t.Errorf("saved %v after resuming, want %v", saved.ids(), []uint32{id})
 	}
@@ -115,13 +116,13 @@ func TestResumeAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "only the new subscription to be saved", func() bool { return slices.Equal(saved.ids(), []uint32{id2}) })
+	testkit.Eventually(t, "only the new subscription to be saved", func() bool { return slices.Equal(saved.ids(), []uint32{id2}) })
 
 	// Removing the fabric deletes its records.
 	if f := cm.Invoke(admin, clusters.IDOperationalCredentials, 0x0A, func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 1) }); f[0] != uint64(0) {
 		t.Fatalf("RemoveFabric: %v", f)
 	}
-	waitFor(t, "the fabric's records to go", func() bool { return len(saved.ids()) == 0 })
+	testkit.Eventually(t, "the fabric's records to go", func() bool { return len(saved.ids()) == 0 })
 }
 
 // TestResumeGivesUpAfterOneMaxInterval: a subscriber that can't be reached is tried after 1, 2 and
@@ -193,7 +194,7 @@ func TestResumeStopsWithTheNode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { r.resume(ctx, kept); close(done) }()
-	waitFor(t, "a retry to wait", clk.HasWaiters)
+	testkit.Eventually(t, "a retry to wait", clk.HasWaiters)
 	cancel()
 	<-done
 	if !slices.Equal(saved.ids(), []uint32{kept.ID}) {
