@@ -109,6 +109,10 @@ func (s *Session) step(ctx context.Context, step contractv1.SetupStep) (string, 
 		s.mu.Unlock()
 	}()
 	if err := s.p.publishSetup(ctx, step); err != nil {
+		// The session ending cancels the publish too, so it says so first.
+		if s.ctx.Err() != nil {
+			return "", ErrSetupEnded
+		}
 		return "", err
 	}
 	if reply == nil {
