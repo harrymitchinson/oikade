@@ -117,7 +117,7 @@ A plugin that can list the devices in its app (a hub, a cloud account) adds them
 
 ### `<id>/state`
 
-Publish the device's full current values every time one changes. Oikade compares them with the previous values, so unchanged values cost nothing. A device that reports when it chooses and can't be asked, such as a battery sensor, may leave out what it has yet to report: Go plugins use `ReportState` for that. Use only capabilities announced for that id in `devices`. Booleans are JSON `true` or `false`, and numbers are JSON numbers within the capability's range.
+Publish the device's full current values every time one changes. Oikade compares them with the previous values, so unchanged values cost nothing. A device that reports when it chooses and can't be asked, such as a battery sensor, may leave out what it has yet to report: Go plugins use `ReportState` for that. Use only capabilities announced for that id in `devices`. Booleans are JSON `true` or `false`, and numbers are JSON numbers within the capability's range. `mode` is the one capability whose value is a string: one of its names, `auto`, `heat`, `cool`, `dry` or `fan`, in lower case ([capabilities](capabilities.md)). Any other name is an `invalid_value`. There's no `off` mode: a unit that's off reports `on` false, and keeps reporting the mode it will start in.
 
 ### `<id>/availability`
 
@@ -125,7 +125,7 @@ Publish `online` when the device is reachable and `offline` when it isn't. Repub
 
 ### `<id>/set`
 
-Oikade sends one capability per message, already validated against the registry and the device's announced capabilities. Apply it, then report the result through `<id>/state`. A `Set` returns once the device has accepted the command, not once it's done: a blind's `position` reports as it travels, and Oikade takes what it reports for 2 minutes after the write as the device catching up, not a person changing it. A Matter controller's write fails after 5 seconds. There's no acknowledgement in v1: success is the state changing. Don't retain anything on this topic.
+Oikade sends one capability per message, such as `{"mode":"dry"}`, already validated against the registry and the device's announced capabilities. Apply it, then report the result through `<id>/state`. A `Set` returns once the device has accepted the command, not once it's done: a blind's `position` reports as it travels, and Oikade takes what it reports for 2 minutes after the write as the device catching up, not a person changing it. A Matter controller's write fails after 5 seconds. There's no acknowledgement in v1: success is the state changing. Don't retain anything on this topic.
 
 ## Setup
 
@@ -207,7 +207,7 @@ The conformance suite is a fake hub: an in-process broker and Oikade's own decod
 - `status` goes online with contract 1, and `devices` lists every declared device
 - every found device with no `error` has availability, state and a value for each capability it announced, and one with a `deviceType` has `on`. One found with an `error` needs none of them, and the suite doesn't set it
 - `status`, `devices`, `<id>/state` and `<id>/availability` are retained, and nothing is retained on `<id>/set`
-- a `/set` for each writable capability is applied and reported back as state
+- a `/set` for each writable capability is applied and reported back as state: the opposite bool, a number in the range, or the next of `mode`'s names
 - a plugin whose status has `setup` runs its setup twice, each ending in a `done` with no `error`. The suite answers each `ask` and `open` from `--setup-replies`, a JSON list of strings in order, and then with empty strings, and says every `keep` is kept without keeping it
 - on SIGTERM the plugin exits 0 and leaves `status` offline
 - after a restart, the plugin and its devices come back online, and it discovers every device it discovered before, by the same `id`

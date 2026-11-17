@@ -151,6 +151,8 @@ func TestParseSet(t *testing.T) {
 			SetCommand{ID: "1000aa", Capability: "brightness", Value: 42.5}, true, false},
 		{"integer", "oikade/v1/sonoff/1000aa/set", ` {"brightness": 3} `,
 			SetCommand{ID: "1000aa", Capability: "brightness", Value: 3.0}, true, false},
+		{"mode", "oikade/v1/sonoff/1000aa/set", `{"mode":"dry"}`,
+			SetCommand{ID: "1000aa", Capability: "mode", Value: "dry"}, true, false},
 
 		{"state topic", "oikade/v1/sonoff/1000aa/state", `{"on":true}`, SetCommand{}, false, false},
 		{"status topic", "oikade/v1/sonoff/status", `{}`, SetCommand{}, false, false},
@@ -190,6 +192,7 @@ func TestSetCommandPayloadRoundTrips(t *testing.T) {
 	for _, want := range []SetCommand{
 		{ID: "1000aa", Capability: "on", Value: true},
 		{ID: "1000aa", Capability: "brightness", Value: 42.5},
+		{ID: "1000aa", Capability: "mode", Value: "cool"},
 	} {
 		payload, err := want.Payload()
 		if err != nil {

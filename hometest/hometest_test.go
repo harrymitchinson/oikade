@@ -750,3 +750,33 @@ func expectFails(t *testing.T, ft *fatalT, name string, expect func(), want stri
 		t.Errorf("%s said %q, want %q", name, ft.failed, want)
 	}
 }
+
+// A mode is decided, written, tapped and read as a ClimateMode, and a restart brings back the
+// decision's claim as the same mode.
+func TestAnAirConditionersModeFollowsTheHumidity(t *testing.T) {
+	ac := oikade.Choice{Device: "bedroom-ac", Capability: oikade.Mode}
+	mode := string(oikade.Mode)
+	home := oikade.NewHome(oikade.Options{})
+	home.Decide(ac).
+		OverrideFor(time.Hour).
+		Case("humid", oikade.ModeDry, sensor.Above(70)).
+		Default(oikade.ModeCool)
+	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+		{Name: "sensor", Capabilities: []string{humidity}, Values: map[string]any{humidity: 40.0}},
+		{Name: "bedroom-ac", Capabilities: []string{on, mode}, Values: map[string]any{on: true, mode: "auto"}},
+	}})
+	h.ExpectValue(ac, oikade.ModeCool)
+	h.Set(sensor, 80.0)
+	h.ExpectWrite(ac, oikade.ModeDry)
+	h.ExpectValue(ac, oikade.ModeDry)
+	h.ExpectClaim(ac, "Rule/bedroom-ac mode humid", "Normal")
+
+	h.Restart()
+	h.ExpectValue(ac, oikade.ModeDry)
+	h.ExpectClaim(ac, "Rule/bedroom-ac mode humid", "Normal")
+
+	h.Set(ac, oikade.ModeFan)
+	h.ExpectValue(ac, oikade.ModeFan)
+	h.Advance(61 * time.Minute)
+	h.ExpectValue(ac, oikade.ModeDry)
+}

@@ -1001,6 +1001,12 @@ func holdsClaim(claims []control.Claim, source string, level control.Level) bool
 // ruleClaims reads a stopped host's saved claims on a device's switch.
 func (r *rig) ruleClaims(device string) []control.Claim {
 	r.t.Helper()
+	return r.savedClaims(device, "on")
+}
+
+// savedClaims reads a stopped host's saved claims on a device's capability.
+func (r *rig) savedClaims(device, capability string) []control.Claim {
+	r.t.Helper()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
 	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get(device)
@@ -1011,7 +1017,7 @@ func (r *rig) ruleClaims(device string) []control.Claim {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		r.t.Fatal(err)
 	}
-	return st["on"].Claims
+	return st[capability].Claims
 }
 
 func TestDeployBuildsAModuleAndChecksItsFlows(t *testing.T) {

@@ -48,6 +48,8 @@
   {"name": "towel-rail", "capabilities": ["on"], "values": {"on": false},
    "control": [{"capability": "on", "default": false, "external": "Revert"}]},
   {"name": "study-go", "capabilities": ["open"], "values": {"open": false}},
+  {"name": "bedroom-ac", "capabilities": ["on", "mode"], "values": {"on": true, "mode": "auto"}},
+  {"name": "bedroom-damp", "capabilities": ["open"], "values": {"open": false}},
   {"name": "study-heater", "capabilities": ["on", "setpoint", "temperature"], "values": {"on": true, "setpoint": 21, "temperature": 19.5}},
   {"name": "back-door", "capabilities": ["locked"], "values": {"locked": false}}
 ]

@@ -118,6 +118,9 @@ func (s Snapshot) Is(c Condition) bool {
 }
 
 func as[T Value](device, capability string, v any) T {
+	if name, ok := v.(string); ok {
+		v = ClimateMode(name)
+	}
 	t, ok := v.(T)
 	if !ok {
 		panic(fmt.Sprintf("%s %s isn't a %T", device, capability, t))

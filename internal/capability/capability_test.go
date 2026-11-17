@@ -25,6 +25,11 @@ func TestValidate(t *testing.T) {
 		{Brightness, true, nil, false},
 		{Temperature, -12.3, -12.3, true},
 		{LinkQuality, 255, 255.0, true},
+		{Mode, "dry", "dry", true},
+		{Mode, "off", nil, false},
+		{Mode, "Dry", nil, false},
+		{Mode, 3.0, nil, false},
+		{Mode, true, nil, false},
 		{"made.up", true, nil, false},
 	} {
 		got, err := Validate(tc.name, tc.v)
@@ -50,6 +55,49 @@ func TestParseJSON(t *testing.T) {
 func TestFloat(t *testing.T) {
 	if Float(true) != 1 || Float(false) != 0 || Float(21.5) != 21.5 {
 		t.Error("Float conversion is wrong")
+	}
+}
+
+// A mode's number is fixed: claims hold it and PromQL reads it, so a name never changes number.
+func TestModeNumbersAreFixed(t *testing.T) {
+	for want, name := range []string{"auto", "heat", "cool", "dry", "fan"} {
+		if got := Float(name); got != float64(want) {
+			t.Errorf("Float(%q) = %v, want %d", name, got, want)
+		}
+		if got, ok := NameOf(Mode, float64(want)); !ok || got != name {
+			t.Errorf("NameOf(mode, %d) = %q, %v, want %q", want, got, ok, name)
+		}
+	}
+	for _, f := range []float64{-1, 0.5, 5, math.NaN()} {
+		if got, ok := NameOf(Mode, f); ok {
+			t.Errorf("NameOf(mode, %v) = %q, want none", f, got)
+		}
+	}
+	if _, ok := NameOf(On, 1); ok {
+		t.Error("NameOf named a bool's number")
+	}
+}
+
+// Float turns a name into its number without the capability, so a name has one number everywhere.
+func TestANameHasOneNumberInEveryCapability(t *testing.T) {
+	seen := map[string]float64{}
+	for _, c := range Names() {
+		s := registry[c]
+		if s.Kind != KindName {
+			if len(s.Names) > 0 {
+				t.Errorf("%s isn't a KindName and has names", c)
+			}
+			continue
+		}
+		if len(s.Names) == 0 {
+			t.Errorf("%s has no names", c)
+		}
+		for i, n := range s.Names {
+			if f, ok := seen[n]; ok && f != float64(i) {
+				t.Errorf("%s is %v in one capability and %d in %s", n, f, i, c)
+			}
+			seen[n] = float64(i)
+		}
 	}
 }
 

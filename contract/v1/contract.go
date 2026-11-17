@@ -59,6 +59,18 @@ const (
 	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
 	// fully closed, as in Matter.
 	Position = "position"
+	// Mode is what an air conditioner or heat pump does while it's on: one of the Mode names, as a
+	// string. Off is On false, so there's no off mode.
+	Mode = "mode"
+)
+
+// The names Mode takes.
+const (
+	ModeAuto = "auto"
+	ModeHeat = "heat"
+	ModeCool = "cool"
+	ModeDry  = "dry"
+	ModeFan  = "fan"
 )
 
 // The device types a plugin may report for a device that's on or off, in Matter's names. A device's
@@ -209,15 +221,16 @@ type DeviceReport struct {
 	Error string `json:"error,omitempty"`
 }
 
-// State is a device's current values: bool, or float64 within the capability's range. It's full, but
-// for values a device has yet to report and can't be asked for.
+// State is a device's current values: bool, float64 within the capability's range, or, for Mode, one
+// of its names as a string. It's full, but for values a device has yet to report and can't be asked
+// for.
 type State map[string]any
 
 // SetCommand is one capability of one device, as sent on <root>/<id>/set.
 type SetCommand struct {
 	ID         string
 	Capability string
-	// Value is a bool or a float64.
+	// Value is a bool, a float64 or, for Mode, a string.
 	Value any
 }
 
@@ -230,8 +243,9 @@ func (c SetCommand) Payload() ([]byte, error) {
 }
 
 // ParseSet parses a message on <root>/<id>/set. ok is false for any other topic; err is set for a
-// payload that isn't exactly one capability with a bool or number value. Whether the capability
-// exists and the value is in range is left to the caller.
+// payload that isn't exactly one capability with a bool or number value, or a string for Mode.
+// Whether the capability exists and the value is in range, or one of Mode's names, is left to the
+// caller.
 func (r Root) ParseSet(topic string, payload []byte) (cmd SetCommand, ok bool, err error) {
 	rest, found := strings.CutPrefix(topic, string(r)+"/")
 	if !found {
@@ -250,8 +264,12 @@ func (r Root) ParseSet(topic string, payload []byte) (cmd SetCommand, ok bool, e
 	}
 	switch v.(type) {
 	case bool, float64:
+	case string:
+		if name != Mode {
+			return SetCommand{}, true, fmt.Errorf("set value of %s is a string, which only %s takes", name, Mode)
+		}
 	default:
-		return SetCommand{}, true, fmt.Errorf("set value of %s is %s, want a bool or a number", name, kind(v))
+		return SetCommand{}, true, fmt.Errorf("set value of %s is %s, want a bool, a number or a string", name, kind(v))
 	}
 	if name == "" {
 		return SetCommand{}, true, errors.New("set payload has an empty capability")

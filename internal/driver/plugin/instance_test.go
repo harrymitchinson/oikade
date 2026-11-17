@@ -203,6 +203,38 @@ func TestStateChangesAndRejects(t *testing.T) {
 	}
 }
 
+// A mode is a name on the wire, and the host keeps it as one. A name the registry doesn't have is
+// an invalid value, as a number out of range is.
+func TestAModeIsANameAndAnUnknownOneIsRefused(t *testing.T) {
+	i, bus, rec := setup(t, map[string]string{
+		"status":  `{"state":"online","contract":1}`,
+		"devices": `{"devices":[{"id":"1000aa","found":true,"capabilities":["on","mode"]}]}`,
+	})
+
+	publish(t, bus, root+"/1000aa/state", `{"on":true,"mode":"dry"}`)
+	got := rec.takeChanges()
+	if len(got) != 2 || got[0].Capability != capability.Mode || got[0].Value != "dry" {
+		t.Fatalf("state = %+v, want mode dry", got)
+	}
+
+	for _, payload := range []string{`{"on":true,"mode":"frost"}`, `{"on":true,"mode":3}`} {
+		publish(t, bus, root+"/1000aa/state", payload)
+	}
+	if got := rec.takeChanges(); len(got) != 0 {
+		t.Errorf("an unknown mode changed the value: %+v", got)
+	}
+	if got := i.Stats().Rejected[ReasonInvalidValue]; got != 2 {
+		t.Errorf("invalid_value = %d, want 2", got)
+	}
+
+	if err := i.Set(t.Context(), porch, capability.Mode, "cool"); err != nil {
+		t.Fatal(err)
+	}
+	if got := bus.Sent(root + "/1000aa/set"); !slices.Equal(got, []string{`{"mode":"cool"}`}) {
+		t.Errorf("sent = %v", got)
+	}
+}
+
 func TestRetainedStateBeforeDeclaration(t *testing.T) {
 	// The broker replays retained topics in any order, and before the hub declares devices.
 	retained := online()

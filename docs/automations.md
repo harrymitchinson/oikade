@@ -24,7 +24,7 @@ home.Flow("hallway-motion-light", func(r *oikade.FlowRun) {
 	If(oikade.Daily("18:00", "07:00"))
 ```
 
-`When` takes the changes that trigger it: a `Bool` or a `Number` fires whenever it changes, a `Bool`'s `Becomes(true)` only when it changes to true, and a [group's or a room's](#groups-and-rooms) on a change from any of its members. `At` takes [times of day](#times-of-day). `If` is a [condition](#conditions), looked at when a trigger fires. For a light that should stay on while there's motion, a [decision](#decisions)'s `Linger` says it more simply.
+`When` takes the changes that trigger it: a `Bool`, a `Number` or a `Choice` fires whenever it changes, a `Bool`'s `Becomes(true)` only when it changes to true, and a [group's or a room's](#groups-and-rooms) on a change from any of its members. `At` takes [times of day](#times-of-day). `If` is a [condition](#conditions), looked at when a trigger fires. For a light that should stay on while there's motion, a [decision](#decisions)'s `Linger` says it more simply.
 
 ### Conditions
 
@@ -47,7 +47,7 @@ oikade.All(PoolWater.Temperature.Below(3), oikade.Not(oikade.Yearly("1 Jun", "15
 
 A condition reading a value nobody has reported yet stops there: a case keeps its state, and a flow's `If` doesn't let it run. If a `Delay` or `Linger` runs out meanwhile, the case starts or ends once the value is back, if its conditions still say so. The log says `Could not evaluate hold; keeping its state until it can` at Info when that starts, with the rule and why, and `Evaluated hold again` when it ends, once each however long it lasts.
 
-A `ConditionFunc` reads the home through its `Snapshot`: `Get` reads a `Bool` or a `Number`, `Is` says whether another condition is true, `Any`, `All`, `Count` and `Readings` read a [group or a room](#reading-a-room-or-a-group), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. Its label is how the host names it, since it can't see inside a function to say why it's false. `Lookup` carries on without a value, and reports whether there is one:
+A `ConditionFunc` reads the home through its `Snapshot`: `Get` reads a `Bool`, a `Number` or a `Choice`, so `s.Get(BedroomAC.Mode) == oikade.ModeDry` is whether the air conditioner is drying, `Is` says whether another condition is true, `Any`, `All`, `Count` and `Readings` read a [group or a room](#reading-a-room-or-a-group), and `Now` is local time, in the host machine's zone. It must not block, because it holds up every other rule. Its label is how the host names it, since it can't see inside a function to say why it's false. `Lookup` carries on without a value, and reports whether there is one:
 
 ```go
 oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
@@ -88,7 +88,7 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 
 ### Groups and rooms
 
-A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool` or a `Number` as a device does, which a decision, a flow's `Set` and a trigger take, and whose `Any()` and `All()` are [conditions](#conditions) ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool`, a `Number` or a `Choice` as a device does, which a decision, a flow's `Set` and a trigger take, and whose `Any()` and `All()` are [conditions](#conditions) ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
 
 ```go
 radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)

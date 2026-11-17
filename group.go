@@ -22,7 +22,7 @@ func (d Device) device() Device { return d }
 type member interface{ device() Device }
 
 // Group is some devices together, from Home.Group or Home.Room, with a field for each capability. A
-// group's capability is a Bool or a Number that a decision, a flow's Set, a trigger, Any and All take:
+// group's capability is a Bool, a Number or a Choice that a decision, a flow's Set, a trigger, Any and All take:
 //
 //	radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
 //	home.Decide(radiators.Setpoint).Case("windows-open", 7, windows.Open.Any()).Default(18)
@@ -44,6 +44,8 @@ type Group struct {
 	LinkQuality Number
 	Setpoint    Number
 	Position    Number
+
+	Mode Choice
 }
 
 // group is what a group's capabilities know of it.
@@ -168,6 +170,8 @@ func (g *group) fields() Group {
 			*f = Bool{Device: g.name, Capability: Capability[bool](capabilityNamed(v.Type().Field(i).Name)), g: g}
 		case *Number:
 			*f = Number{Device: g.name, Capability: Capability[float64](capabilityNamed(v.Type().Field(i).Name)), g: g}
+		case *Choice:
+			*f = Choice{Device: g.name, Capability: Capability[ClimateMode](capabilityNamed(v.Type().Field(i).Name)), g: g}
 		}
 	}
 	return out
@@ -179,7 +183,7 @@ func capabilityNamed(field string) string {
 		"On": string(On), "Open": string(Open), "Occupied": string(Occupied), "Locked": string(Locked),
 		"Brightness": string(Brightness), "Temperature": string(Temperature), "Humidity": string(Humidity),
 		"Battery": string(Battery), "LinkQuality": string(LinkQuality), "Setpoint": string(Setpoint),
-		"Position": string(Position),
+		"Position": string(Position), "Mode": string(Mode),
 	}[field]
 	if !ok {
 		panic("no capability for Group." + field)
@@ -187,7 +191,8 @@ func capabilityNamed(field string) string {
 	return c
 }
 
-// capabilitiesOf are the capabilities a device from devices.go has: its Bool and Number fields.
+// capabilitiesOf are the capabilities a device from devices.go has: its Bool, Number and Choice
+// fields.
 func capabilitiesOf(m member) []string {
 	v := reflect.ValueOf(m)
 	for v.Kind() == reflect.Pointer {
@@ -202,6 +207,8 @@ func capabilitiesOf(m member) []string {
 		case Bool:
 			out = append(out, string(f.Capability))
 		case Number:
+			out = append(out, string(f.Capability))
+		case Choice:
 			out = append(out, string(f.Capability))
 		}
 	}

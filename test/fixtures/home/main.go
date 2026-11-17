@@ -39,6 +39,10 @@ var (
 // studyHeater is a simulated heater: a Thermostat on the Matter bridge.
 var studyHeater = oikade.Number{Device: "study-heater", Capability: oikade.Setpoint}
 
+// bedroomAC is a simulated air conditioner's mode, which the host keeps as a number and a home
+// writes as a name.
+var bedroomAC = oikade.Choice{Device: "bedroom-ac", Capability: oikade.Mode}
+
 // The devices a test has plugins do something with.
 const (
 	valve  = "valve"
@@ -326,6 +330,7 @@ func home() *oikade.Home {
 	}).When(open("reset"))
 	h.Flow(claimMoment, setting(on("claimed").To(false).For(time.Hour))).When(open("claim-go"))
 	h.Flow("study-setback", setting(studyHeater.To(18))).When(open("study-go"))
+	h.Flow("bedroom-dry-out", setting(bedroomAC.To(oikade.ModeDry).For(time.Hour))).When(open("bedroom-damp"))
 	// A time of day comes from the test, which seeds when it was last accounted for.
 	if at := os.Getenv("OIKADE_TEST_AT"); at != "" {
 		h.Flow("timed", setting(on("timed-out").To(true))).At(oikade.Clock(at))
@@ -390,6 +395,7 @@ func home() *oikade.Home {
 		NoOverride().
 		Case("overheat", false, garageTemp.Above(40)).LatchUntil(open("garage-door")).
 		Default(true)
+	h.Decide(bedroomAC).Flows().Default(oikade.ModeCool)
 	// The failing flow's Safety claim: its decision ranks it above the override line.
 	h.Decide(on("claimed-safety")).Flows(failer).OverrideFor(time.Hour).Flows().Default(true)
 	if plugins {

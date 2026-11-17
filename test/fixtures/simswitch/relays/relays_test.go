@@ -41,7 +41,7 @@ func TestApply(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, contractv1.State{"on": true}) {
 		t.Fatalf("got %v, %v, want on true", got, err)
 	}
-	if !s.relays["b"].on {
+	if s.relays["b"].values["on"] != true {
 		t.Fatal("relay b didn't switch on")
 	}
 
@@ -49,10 +49,28 @@ func TestApply(t *testing.T) {
 		{ID: "a", Capability: "brightness", Value: 40.0},
 		{ID: "a", Capability: "on", Value: 1.0},
 		{ID: "c", Capability: "on", Value: true},
+		{ID: "a", Capability: "mode", Value: "dry"},
+		{ID: "missing", Capability: "on", Value: true},
 	} {
 		if _, err := s.apply(cmd); err == nil {
 			t.Fatalf("applied %+v", cmd)
 		}
+	}
+}
+
+// An air conditioner has an on and a mode, which starts at auto and takes a name.
+func TestAnAirConditionerHasAMode(t *testing.T) {
+	const id = "bedroom.air-conditioner"
+	s := newSwitches([]contractv1.DeclaredDevice{{ID: id, Name: "bedroom-ac", DisplayName: "AC"}})
+	if got := s.reports[0].Capabilities; !reflect.DeepEqual(got, []string{"mode", "on"}) {
+		t.Fatalf("capabilities = %v", got)
+	}
+	got, err := s.apply(contractv1.SetCommand{ID: id, Capability: "mode", Value: "dry"})
+	if err != nil || !reflect.DeepEqual(got, contractv1.State{"on": false, "mode": "dry"}) {
+		t.Fatalf("got %v, %v, want mode dry", got, err)
+	}
+	if _, err := s.apply(contractv1.SetCommand{ID: id, Capability: "mode", Value: true}); err == nil {
+		t.Fatal("a bool set the mode")
 	}
 }
 

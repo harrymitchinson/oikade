@@ -541,9 +541,14 @@ func isStatus(payload []byte, state string) bool {
 
 // toggled returns a different valid value for a writable capability.
 func toggled(spec capability.Spec, current any) any {
-	if spec.Kind == capability.KindBool {
+	switch spec.Kind {
+	case capability.KindBool:
 		b, _ := current.(bool)
 		return !b
+	case capability.KindName:
+		// The name after the current one, so every name but the first can be written.
+		i := slices.Index(spec.Names, fmt.Sprint(current))
+		return spec.Names[(i+1)%len(spec.Names)]
 	}
 	mid := float64(int((spec.Min + spec.Max) / 2))
 	if current == mid {

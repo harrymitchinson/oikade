@@ -13,6 +13,8 @@
 //     Zigbee2MQTT's contact or Matter's Boolean State say. Inverting is the mapping's job.
 //   - Units are the ones a person writes: degrees Celsius and percent, never a protocol's scale
 //     such as 0-254.
+//   - A choice of a few things is names, as a person says them (dry, fan), not a protocol's
+//     numbers. Off isn't one of them when the device has an on: it's On false.
 //
 // Each name is a judgement call, so a new one is checked against these and the existing names.
 // contract/v1 holds the names, package oikade gives them to homes as typed constants, and Spec.Matter
@@ -60,7 +62,13 @@ const (
 	// fully closed, as in Matter. A driver whose platform is the other way round, as Zigbee2MQTT's
 	// is, inverts it.
 	Position = contractv1.Position
+	// Mode is what an air conditioner or heat pump does while it's on: one of ModeNames. It's kept
+	// while the device is off: On turns it on and off.
+	Mode = contractv1.Mode
 )
+
+// ModeNames are Mode's names, in the order that gives each its number. The list is append-only.
+var ModeNames = []string{contractv1.ModeAuto, contractv1.ModeHeat, contractv1.ModeCool, contractv1.ModeDry, contractv1.ModeFan}
 
 // Kind is a capability's value type.
 type Kind string
@@ -68,6 +76,9 @@ type Kind string
 const (
 	KindBool   Kind = "Bool"
 	KindNumber Kind = "Number"
+	// KindName is one of a few names, such as a mode. Each has a fixed number, its index in Names,
+	// which is what claims hold and metrics export, so Names is append-only.
+	KindName Kind = "Name"
 )
 
 // Spec describes a capability's type and valid range.
@@ -80,6 +91,8 @@ type Spec struct {
 	Min, Max float64
 	// Unit is what a number is in, for people.
 	Unit string
+	// Names are a KindName capability's values, in the order of their numbers.
+	Names []string
 	// Matter is the Matter attribute the bridge shows it as, if any.
 	Matter *Matter
 	// Settle is how long after a write a report of another value is the device catching up, as a
@@ -130,6 +143,7 @@ var registry = map[string]Spec{
 	Position: {Go: "Position", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Settle: 2 * time.Minute, Step: 1, Matter: &Matter{
 		Cluster: "Window Covering", ClusterID: 0x0102, Attribute: "CurrentPositionLiftPercent100ths", AttributeID: 0x000E,
 	}},
+	Mode: {Go: "Mode", Kind: KindName, Writable: true, Names: ModeNames},
 	Locked: {Go: "Locked", Kind: KindBool, Writable: true, NoEndWrite: true, Settle: 30 * time.Second, Matter: &Matter{
 		Cluster: "Door Lock", ClusterID: 0x0101, Attribute: "LockState", AttributeID: 0x0000,
 	}},
@@ -158,8 +172,8 @@ func Lookup(name string) (Spec, bool) {
 	return s, ok
 }
 
-// Validate checks v against the capability and returns it normalised to bool or float64.
-// Values of the wrong kind or out of range are rejected, never coerced.
+// Validate checks v against the capability and returns it normalised to bool, float64 or, for a
+// KindName, string. Values of the wrong kind or out of range are rejected, never coerced.
 func Validate(name string, v any) (any, error) {
 	s, ok := registry[name]
 	if !ok {
@@ -172,6 +186,15 @@ func Validate(name string, v any) (any, error) {
 			return nil, fmt.Errorf("%s takes a bool, got %T", name, v)
 		}
 		return b, nil
+	case KindName:
+		n, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s takes one of %s, got %T", name, strings.Join(s.Names, ", "), v)
+		}
+		if !slices.Contains(s.Names, n) {
+			return nil, fmt.Errorf("%s is one of %s, not %q", name, strings.Join(s.Names, ", "), n)
+		}
+		return n, nil
 	default:
 		f, ok := toFloat(v)
 		if !ok {
@@ -203,16 +226,42 @@ func Near(reported, wrote float64) bool {
 	return math.Abs(reported-wrote) <= tolerance
 }
 
-// Float converts a validated value to a float64 for metrics: bools become 0 or 1.
+// Float converts a validated value to a float64 for metrics and claims: bools become 0 or 1, and a
+// name its number.
 func Float(v any) float64 {
-	if b, ok := v.(bool); ok {
-		if b {
+	switch v := v.(type) {
+	case bool:
+		if v {
 			return 1
 		}
 		return 0
+	case string:
+		return numbers[v]
 	}
 	f, _ := toFloat(v)
 	return f
+}
+
+// numbers are every KindName capability's names' numbers. A name means one number in all of them,
+// which the registry's tests check, so Float needs no capability.
+var numbers = func() map[string]float64 {
+	out := map[string]float64{}
+	for _, s := range registry {
+		for i, n := range s.Names {
+			out[n] = float64(i)
+		}
+	}
+	return out
+}()
+
+// NameOf is the name a KindName capability's number stands for, and false for a number that isn't
+// one of them.
+func NameOf(name string, f float64) (string, bool) {
+	s, ok := registry[name]
+	if !ok || s.Kind != KindName || f != math.Trunc(f) || f < 0 || int(f) >= len(s.Names) {
+		return "", false
+	}
+	return s.Names[int(f)], true
 }
 
 func toFloat(v any) (float64, bool) {

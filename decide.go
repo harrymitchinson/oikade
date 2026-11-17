@@ -124,7 +124,7 @@ func (d *Decision[T]) add(l line) *Decision[T] {
 // capability's own, such as frost on pool-pump on, which oikade status, pause and resume use: keep
 // it, because its delay and latch are kept by it.
 func (d *Decision[T]) Case(name string, v T, when ...Condition) *Decision[T] {
-	return d.add(line{kind: caseLine, name: name, value: v, when: slices.Clone(when)})
+	return d.add(line{kind: caseLine, name: name, value: raw(v), when: slices.Clone(when)})
 }
 
 // Delay is how long the last case's conditions must stay true before it applies.
