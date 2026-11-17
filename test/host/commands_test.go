@@ -492,6 +492,8 @@ func TestStatusSaysWhatsLeftToSetUp(t *testing.T) {
 	r := prepare(t)
 	r.launchWithout(settle, matterFlag(freeUDP(t)), "--simulate", devicesFile(t))
 	r.waitSocket()
+	// Until it serves, the bridge is down rather than waiting for a controller.
+	r.until("the bridge", func() bool { return r.matter().Serving })
 	gaps := r.statusGaps()
 	for _, want := range []string{
 		"No home deployed. Run oikade deploy", "The Matter bridge has no controller. oikade matter",
