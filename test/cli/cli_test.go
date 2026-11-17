@@ -453,6 +453,13 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 			t.Errorf("oikade-host %s: %v: %s", strings.Join(args, " "), err, out)
 		}
 	}
+	// Installing writes system files, so it asks for sudo rather than half do it.
+	if os.Geteuid() != 0 {
+		out, err := run(t, bin, dir, "", "install")
+		if err == nil || !strings.Contains(out, "run it with sudo") {
+			t.Errorf("oikade-host install as a user: %v: %s", err, out)
+		}
+	}
 	// Adding a client needs the host's socket, so with no host there it says so rather than pass.
 	out, err = run(t, bin, dir, "", "client", "add", "laptop", "--data-dir", dir)
 	if err == nil {
