@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -234,4 +235,25 @@ func TestNeedsSetupGoesWithTheDevices(t *testing.T) {
 	}
 	w.expect(root.Devices() + `={"devices":[],"undeclared":0}`)
 	w.quiet(b.URL)
+}
+
+// A session that ends while a step waits to be published ends the step with ErrSetupEnded, not
+// the publish's own context error.
+func TestASessionEndingDuringAPublishEndsTheStep(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := &Plugin{pub: make(chan struct{}, 1)}
+		p.pub <- struct{}{} // another publish holds the lock
+		ctx, end := context.WithCancel(t.Context())
+		s := &Session{p: p, name: "s1", ctx: ctx, waiting: map[int]chan contractv1.SetupRequest{}}
+		got := make(chan error, 1)
+		go func() {
+			_, err := s.Ask(ctx, "Code")
+			got <- err
+		}()
+		synctest.Wait() // the Ask waits for the lock
+		end()
+		if err := <-got; !errors.Is(err, ErrSetupEnded) {
+			t.Fatalf("the ask: %v, want ErrSetupEnded", err)
+		}
+	})
 }
