@@ -2,11 +2,18 @@
 // look at what your automations did. It runs the real engine, arbiters and planner in your test, with
 // no host and no hardware.
 //
-//	func TestFanRunsWhenItsHumid(t *testing.T) {
+//	func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 //		h := hometest.New(t, home(), hometest.Options{})
-//		h.Set(BathroomSensor.Humidity, 80)
-//		h.ExpectValue(BathroomFan.On, true)
-//		h.Advance(time.Hour)
+//
+//		h.Set(PorchSensor.Occupied, true)
+//		h.ExpectValue(PorchLight.On, true)
+//
+//		h.Set(PorchSensor.Occupied, false)
+//		h.Advance(4 * time.Minute)
+//		h.ExpectValue(PorchLight.On, true)
+//
+//		h.Advance(2 * time.Minute)
+//		h.ExpectValue(PorchLight.On, false)
 //	}
 package hometest
 

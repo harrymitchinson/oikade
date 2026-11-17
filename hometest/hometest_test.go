@@ -1,6 +1,7 @@
 package hometest_test
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"slices"
@@ -541,8 +542,9 @@ func agree(t *testing.T, w oikade.Hours, site oikade.Options, start time.Time, d
 	}
 }
 
-// fatalT records a Fatalf inside fails instead of failing the test, so a test can see an Expect
-// fail. Anywhere else, a Fatalf fails the test as usual.
+// fatalT records a Fatal or Fatalf inside fails instead of failing the test, so a test can see an
+// Expect fail. Anywhere else, they fail the test as usual. fails runs expect on a goroutine of its
+// own, so the test's must never see either: each is caught there, or passed on outside fails.
 type fatalT struct {
 	testing.TB
 	catching bool
@@ -557,7 +559,15 @@ func (f *fatalT) Fatalf(format string, args ...any) {
 	runtime.Goexit()
 }
 
-// fails says whether expect called Fatalf on f.
+func (f *fatalT) Fatal(args ...any) {
+	if !f.catching {
+		f.TB.Fatal(args...)
+	}
+	f.failed = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+// fails says whether expect called Fatal or Fatalf on f.
 func (f *fatalT) fails(expect func()) bool {
 	f.catching, f.failed = true, ""
 	defer func() { f.catching = false }()
@@ -679,5 +689,64 @@ func TestAFlowsConditionWithAMistakeFailsTheRun(t *testing.T) {
 				t.Fatal("the run finished")
 			}
 		})
+	}
+}
+
+// Each Expect that fails says what it wanted, and what the home has instead.
+func TestAFailedExpectSaysWhatItFound(t *testing.T) {
+	ft := &fatalT{TB: t}
+	unread := oikade.Bool{Device: "unread", Capability: oikade.On}
+	home := fanHome()
+	home.Flow("airing", func(r *oikade.FlowRun) { r.Fail(errors.New("the pump is off for the winter")) }).
+		When(light.Becomes(false))
+	h := hometest.New(ft, home, hometest.Options{Devices: append(devices(),
+		hometest.Device{Name: "unread", Capabilities: []string{on}})})
+	for _, tc := range []struct {
+		name   string
+		expect func()
+		want   string
+	}{
+		{"ExpectValue", func() { h.ExpectValue(fan, true) }, "fan on is false, want true"},
+		{"ExpectValue with no value", func() { h.ExpectValue(unread, true) }, "unread on has no value, want true"},
+		{"ExpectWrite", func() { h.ExpectWrite(light, false) }, "nothing wrote false to light on. Writes: []"},
+		{
+			"ExpectClaim", func() { h.ExpectClaim(fan, "Rule/fan on humid", "Normal") },
+			"Rule/fan on humid holds no Normal claim on fan on. Claims: []",
+		},
+		{"ExpectFinished", func() { h.ExpectFinished("airing") }, "airing hasn't finished. How it ended otherwise: []"},
+	} {
+		expectFails(t, ft, tc.name, tc.expect, tc.want)
+	}
+
+	// Once there's something to show, the message shows it.
+	h.Set(sensor, 80)
+	h.Set(light, false)
+	expectFails(t, ft, "ExpectWrite", func() { h.ExpectWrite(fan, false) },
+		"nothing wrote false to fan on. Writes: [{2030-01-07 00:00:00 +0000 UTC fan on true}]")
+	expectFails(t, ft, "ExpectClaim", func() { h.ExpectClaim(fan, "Rule/fan on humid", "Safety") },
+		"Rule/fan on humid holds no Safety claim on fan on. "+
+			"Claims: [{Source:Rule/fan on humid Level:Normal Value:true Winner:true Latched:false}]")
+	expectFails(t, ft, "ExpectFinished", func() { h.ExpectFinished("airing") },
+		"airing hasn't finished. How it ended otherwise: [failed]")
+}
+
+// A Report that isn't one device's report fails the test, from Fatal as well as Fatalf.
+func TestAReportOfNoOneDeviceFails(t *testing.T) {
+	ft := &fatalT{TB: t}
+	h := hometest.New(ft, fanHome(), hometest.Options{Devices: devices()})
+	expectFails(t, ft, "no values", func() { h.Report() }, "Report has no values")
+	expectFails(t, ft, "two devices", func() { h.Report(sensor.To(80), fan.To(true)) },
+		"Report has sensor and fan: a report is one device's")
+	expectFails(t, ft, "a value twice", func() { h.Report(sensor.To(80), sensor.To(90)) },
+		"Report has sensor's humidity twice")
+}
+
+// expectFails checks that expect fails with the message want.
+func expectFails(t *testing.T, ft *fatalT, name string, expect func(), want string) {
+	t.Helper()
+	if !ft.fails(expect) {
+		t.Errorf("%s passed", name)
+	} else if ft.failed != want {
+		t.Errorf("%s said %q, want %q", name, ft.failed, want)
 	}
 }
