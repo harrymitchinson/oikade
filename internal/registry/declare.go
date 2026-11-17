@@ -338,18 +338,25 @@ func describeDriver(d Device) string {
 // HardwareRef is the ref of a device's hardware, hardware/<plugin>/<id>, or empty for one that has
 // no plugin's hardware, as with a reserved or simulated device.
 func HardwareRef(d Device) ident.Ref {
-	plugin, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
-	if !ok || d.ID == "" {
+	plugin, ok := pluginOf(d)
+	if !ok {
 		return ""
 	}
 	return ident.HardwareRef(plugin, d.ID)
 }
 
+// pluginOf is the name a home imports a device's plugin by, or false for a device no plugin's
+// hardware is, as with a reserved or simulated one.
+func pluginOf(d Device) (string, bool) {
+	plugin, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
+	return plugin, ok && d.ID != ""
+}
+
 // Undeclared says the line that would declare a device your home's code doesn't, as it is now, to
 // paste into it, or false for one it declares, or can't, as with a removed or simulated device.
 func Undeclared(d Device) (string, bool) {
-	plugin, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
-	if d.Declared || d.Removed || d.ID == "" || !ok {
+	plugin, ok := pluginOf(d)
+	if d.Declared || d.Removed || !ok {
 		return "", false
 	}
 	line := fmt.Sprintf("home.Device(%q).Hardware(%q, %q)", d.Name, plugin, d.ID)

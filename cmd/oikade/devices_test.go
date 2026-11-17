@@ -253,7 +253,7 @@ func TestDevicesShowTheirHardwareByItsRef(t *testing.T) {
 	printDevices(&out, list, deviceMarks{})
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[0], "HARDWARE") || !strings.Contains(lines[2], ref) ||
-		!strings.Contains(lines[1], "simulated/simulator") {
+		!strings.Contains(lines[1], "simulated/simulator's k") {
 		t.Errorf("got\n%s", out.String())
 	}
 

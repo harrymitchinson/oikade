@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -201,11 +200,20 @@ func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) (und
 			undeclared = append(undeclared, line)
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state,
-			cmp.Or(registry.HardwareRef(d).String(), d.Driver, "-"), d.Endpoint,
+			or(registry.HardwareRef(d).String(), hardwareOf(d)), d.Endpoint,
 			or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
 	}
 	_ = w.Flush()
 	return undeclared
+}
+
+// hardwareOf names hardware that isn't a plugin's, such as a simulated device's, by its driver and
+// ID, or "-" for a reserved name.
+func hardwareOf(d registry.Device) string {
+	if d.Driver == "" {
+		return "-"
+	}
+	return registry.DescribeHardware(d.Driver, d.ID)
 }
 
 // listedDevice is a device as oikade devices --json prints it: as on record, with what it is.

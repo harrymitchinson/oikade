@@ -42,7 +42,7 @@ A write the plugin knows the unit can't hold fails, rather than being rounded: a
 
 ### Units that share an outdoor unit
 
-Indoor units on one outdoor unit, a multi-split, can't heat and cool at once. Toshiba's cloud takes such a write anyway, and the unit then reports the mode it was given without running it. The cloud doesn't say which units share an outdoor unit, so tell the plugin, by the IDs `oikade devices` shows, or the `DeviceUniqueId` as the app's API writes it:
+Indoor units on one outdoor unit, a multi-split, can't heat and cool at once. Toshiba's cloud takes such a write anyway, and the unit then reports the mode it was given without running it. The cloud doesn't say which units share an outdoor unit, so tell the plugin, by their IDs, each the last part of a unit's `hardware/…` ref in `oikade devices` (`id` in its `--json`), or the `DeviceUniqueId` as the app's API writes it:
 
 ```go
 home.Plugin("toshiba", toshibaac.New(toshibaac.Config{

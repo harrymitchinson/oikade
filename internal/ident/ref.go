@@ -56,7 +56,11 @@ func NewRef(k Kind, parts ...string) Ref {
 	b.WriteString(string(k))
 	for _, p := range parts {
 		b.WriteByte('/')
-		b.WriteString(url.PathEscape(p))
+		e := url.PathEscape(p)
+		if e == "." || e == ".." {
+			e = strings.ReplaceAll(e, ".", "%2E") // a dot segment would be resolved away, as in a URI
+		}
+		b.WriteString(e)
 	}
 	return Ref(b.String())
 }
