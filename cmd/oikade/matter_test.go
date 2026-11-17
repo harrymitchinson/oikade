@@ -42,7 +42,7 @@ func TestMatterDrawsTheQRCodeWhileItPairs(t *testing.T) {
 	}
 	paired.Window = true
 	out = matterOutput(&paired, true)
-	if strings.Contains(out, "█") || !strings.Contains(out, "the code that opened the window") {
+	if strings.Contains(out, "█") || !strings.Contains(out, "the code that opened the window, not these") {
 		t.Errorf("paired, with a window open:\n%s", out)
 	}
 }

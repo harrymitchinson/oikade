@@ -25,10 +25,18 @@ func runMatter(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	window := fs.Duration("for", defaultWindow, "How long open keeps the window open: 3m to 15m.")
 	words := cli.Parse(fs, args)
+	forSet := false
+	fs.Visit(func(f *flag.Flag) { forSet = forSet || f.Name == "for" })
 	req := api.Request{Type: api.TypeMatter}
 	switch {
+	case len(words) == 0 && forSet:
+		return errors.New("--for is how long oikade matter open keeps the window open, and needs open")
 	case len(words) == 0:
 	case len(words) == 1 && words[0] == "open":
+		// Under a second would round to 0, which the host takes as the longest.
+		if *window < time.Second {
+			return fmt.Errorf("--for is 3m to 15m, not %v", *window)
+		}
 		req = api.Request{Type: api.TypeMatterOpen, WindowSeconds: int(window.Seconds())}
 		_, _ = fmt.Fprintln(os.Stderr, "Opening the Matter bridge's window")
 	default:
@@ -41,7 +49,7 @@ func runMatter(ctx context.Context, args []string) error {
 	if resp.Error != "" {
 		return errors.New(resp.Error)
 	}
-	drawQR := term.IsTerminal(int(os.Stdout.Fd()))
+	drawQR := term.IsTerminal(int(os.Stdout.Fd())) && os.Getenv("TERM") != "dumb"
 	if req.Type == api.TypeMatterOpen {
 		if resp.MatterWindow == nil {
 			return errors.New("the host opened no window")
@@ -84,8 +92,8 @@ func printMatter(out io.Writer, m *api.Matter, drawQR bool) {
 	case m.Window && len(m.Fabrics) == 0:
 		_, _ = fmt.Fprintln(out, "Ready to pair: scan it with the Home app, or the camera of any controller.")
 	case m.Window:
-		_, _ = fmt.Fprintln(out, "Ready to pair, with the code that opened the window:",
-			"oikade matter open's, or the one a controller shared.")
+		_, _ = fmt.Fprintln(out, "Ready to pair, with the code that opened the window, not these:",
+			"oikade matter open replaces it with a new one.")
 	case len(m.Fabrics) == 0:
 		_, _ = fmt.Fprintln(out, "Not ready to pair: the window has closed. oikade matter open opens it again.")
 	default:

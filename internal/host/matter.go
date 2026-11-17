@@ -45,6 +45,8 @@ const (
 	matterWriteTimeout = 5 * time.Second
 	// matterRetry is how soon a bridge that couldn't start, or take a device, tries again.
 	matterRetry = time.Minute
+	// matterOpenTimeout bounds oikade matter open's wait for its window to be advertised.
+	matterOpenTimeout = 10 * time.Second
 )
 
 // Matter configures the bridge a host serves.
@@ -417,11 +419,10 @@ func (s *apiServer) matterOpen(req api.Request) api.Response {
 	if req.WindowSeconds != 0 {
 		timeout = time.Duration(req.WindowSeconds) * time.Second
 	}
-	if timeout < node.MinWindowTimeout || timeout > node.DefaultWindowTimeout {
-		return api.Response{Error: fmt.Sprintf("a window stays open for %v to %v, not %v",
-			node.MinWindowTimeout, node.DefaultWindowTimeout, timeout)}
-	}
-	w, err := m.node.OpenWindow(s.ctx, timeout)
+	// Advertising takes about a second, unless a hook ahead of it is stuck.
+	ctx, cancel := context.WithTimeout(s.ctx, matterOpenTimeout)
+	defer cancel()
+	w, err := m.node.OpenWindow(ctx, timeout)
 	if errors.Is(err, clusters.ErrWindowBusy) {
 		return api.Response{Error: "a controller is pairing with the bridge, or sharing it, now: try again once it's done"}
 	}

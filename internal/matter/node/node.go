@@ -404,7 +404,7 @@ type OwnersWindow struct {
 // window answers PASE and is advertised, which takes about a second, or once ctx is done.
 func (n *Node) OpenWindow(ctx context.Context, timeout time.Duration) (OwnersWindow, error) {
 	if timeout < MinWindowTimeout || timeout > DefaultWindowTimeout {
-		return OwnersWindow{}, fmt.Errorf("matter: a window stays open from %v to %v, not %v",
+		return OwnersWindow{}, fmt.Errorf("a window stays open for %v to %v, not %v",
 			MinWindowTimeout, DefaultWindowTimeout, timeout)
 	}
 	if n.run.Load() == nil {
@@ -413,7 +413,7 @@ func (n *Node) OpenWindow(ctx context.Context, timeout time.Duration) (OwnersWin
 	if n.table.Count() == 0 {
 		closes, err := n.comm.OpenOwnersWindow(clusters.Window{Basic: true, Timeout: timeout})
 		if err == nil {
-			err = n.comm.Hooked(ctx)
+			err = n.advertised(ctx)
 		}
 		if !errors.Is(err, clusters.ErrOnFabric) {
 			return OwnersWindow{Payload: n.Payload(), Closes: closes}, err
@@ -431,7 +431,7 @@ func (n *Node) OpenWindow(ctx context.Context, timeout time.Duration) (OwnersWin
 		Verifier: v, Salt: salt, Iterations: pbkdfIterations, Discriminator: discriminator, Timeout: timeout,
 	})
 	if err == nil {
-		err = n.comm.Hooked(ctx)
+		err = n.advertised(ctx)
 	}
 	if err != nil {
 		return OwnersWindow{}, err
@@ -439,6 +439,20 @@ func (n *Node) OpenWindow(ctx context.Context, timeout time.Duration) (OwnersWin
 	return OwnersWindow{
 		Payload: PayloadFor(Setup{Passcode: passcode, Discriminator: discriminator}), Fresh: true, Closes: closes,
 	}, nil
+}
+
+// advertised waits for the window just opened to answer PASE and be advertised, and says if it
+// couldn't be: Node.openWindow logs why.
+func (n *Node) advertised(ctx context.Context) error {
+	if err := n.comm.Hooked(ctx); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.commissionable == nil {
+		return errors.New("matter: the window couldn't be advertised, and the log says why")
+	}
+	return nil
 }
 
 // openWindow starts answering PASE with w's verifier, or the node's own for a basic window,
