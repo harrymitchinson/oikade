@@ -255,12 +255,17 @@ type fakeSetter struct {
 	err   error
 	// fail names devices whose Set fails.
 	fail map[string]bool
+	// before, when set, runs as each Set arrives.
+	before func()
 }
 
 func (f *fakeSetter) Set(_ context.Context, dev ident.ID, c string, v any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, call{dev.Name, c, v})
+	if f.before != nil {
+		f.before()
+	}
 	if f.fail[dev.Name] {
 		return errors.New("not responding")
 	}

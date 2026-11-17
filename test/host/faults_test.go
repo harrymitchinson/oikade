@@ -28,10 +28,23 @@ func faultRig(t *testing.T) *rig {
 
 // plan kills the host at point's next hit. A host that's running takes it up from its next hit of
 // any point. The plan arrives whole, by a rename, so a host never reads half of one.
-func (r *rig) plan(point string) {
+func (r *rig) plan(point string) { r.planTo(point, "kill") }
+
+// holdAt stops whichever of the host and your process hits point next there, until a kill.
+func (r *rig) holdAt(point string) { r.planTo(point, "wait") }
+
+// unplan leaves the next process or host to run clean: holdAt's plan stays after a kill.
+func (r *rig) unplan() {
+	r.t.Helper()
+	if err := os.Remove(filepath.Join(r.dir, "faults")); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+func (r *rig) planTo(point, how string) {
 	r.t.Helper()
 	next := filepath.Join(r.dir, "faults.new")
-	if err := os.WriteFile(next, []byte(point+" 1 kill\n"), 0o600); err != nil {
+	if err := os.WriteFile(next, []byte(point+" 1 "+how+"\n"), 0o600); err != nil {
 		r.t.Fatal(err)
 	}
 	if err := os.Rename(next, filepath.Join(r.dir, "faults")); err != nil {
@@ -157,4 +170,28 @@ func TestKilledAsAnUploadMovesDeploysNothingAndLeavesNothing(t *testing.T) {
 			r.mustDeploy("second")
 		})
 	}
+}
+
+// OIK-299: a case is saved as started before it claims, so your process killed right after the claim
+// keeps the case's latch. Here the overheat passes while the process is held there, and the heater
+// stays off until the door opens, rather than held off by a claim nothing ends.
+func TestACaseKilledAsItClaimsKeepsItsLatch(t *testing.T) {
+	t.Parallel()
+	r := faultRig(t)
+	r.launch()
+	r.waitFor(func(l line) bool { return l.is(attached) })
+	r.sync()
+	r.holdAt(fault.ClientHoldStarted)
+	r.change("garage-sensor", "temperature", 45)
+	r.wrote("garage-heater", false)
+	r.change("garage-sensor", "temperature", 20)
+	r.unplan()
+	r.kill()
+	r.sync()
+	// The latch outlived the kill: a hold that forgot it would turn the heater back on here.
+	if n := r.count(wrote, "device", "garage-heater", "value", true); n != 0 {
+		t.Fatalf("the heater came back on before the door opened\n%s", r.dump())
+	}
+	r.change("garage-door", "open", true)
+	r.until("the heater back on", func() bool { return onOf(t, r.status("garage-heater"), "garage-heater").Value == true })
 }

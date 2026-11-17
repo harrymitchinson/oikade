@@ -74,6 +74,8 @@ type rigOptions struct {
 	// averages are the rolling averages, kept in averageStates.
 	averages      []Average
 	averageStates AverageStates
+	// arbitration, when set, takes the engine's claims, as the host does for your process.
+	arbitration Arbitration
 }
 
 func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
@@ -88,6 +90,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 		OnSchedule: r.sched.record, States: states, Controls: o.controls,
 		OnBudget: r.recordBudget,
 		Averages: o.averages, AverageStates: o.averageStates,
+		Arbitration: o.arbitration,
 	}
 	r.e.Init()
 	r.store = hub.NewStore(logging.Discard(), r.e)
