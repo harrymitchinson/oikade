@@ -12,6 +12,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
+	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/mdns"
 	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
@@ -184,6 +185,7 @@ type heard struct {
 	mu       sync.Mutex
 	wrote    []string
 	invoked  []string
+	panicked []string
 	reported int
 }
 
@@ -199,7 +201,17 @@ func (h *heard) Invoked(cluster uint32, st im.Status) {
 	h.invoked = append(h.invoked, clusters.Name(cluster)+" "+st.Name())
 }
 
-func (h *heard) Panicked(string) {}
+func (h *heard) Panicked(site string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.panicked = append(h.panicked, site)
+}
+
+func (h *heard) panics() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.panicked)
+}
 
 func (h *heard) Reported() {
 	h.mu.Lock()
@@ -245,5 +257,51 @@ func TestTheObserverHearsWhatAControllerDoes(t *testing.T) {
 	defer h.mu.Unlock()
 	if !slices.Equal(h.wrote, []string{"basic_information success"}) {
 		t.Errorf("writes: %v", h.wrote)
+	}
+}
+
+// TestTheObserverHearsAContainedPanic: a panic that costs only its message reaches the Observer,
+// with where it was contained, from the transport, and from the mDNS responder.
+func TestTheObserverHearsAContainedPanic(t *testing.T) {
+	h := &heard{}
+	n, err := New(Config{DataDir: t.TempDir(), Setup: testSetup, Port: freePort(t), Observer: h, Log: logging.Test(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := &im.Cluster{ID: clusters.IDOnOff, Revision: 6, Attributes: []im.Attribute{{
+		ID: 0, Read: func(*im.Request, *tlv.Writer, tlv.Tag) error { panic("injected") },
+	}}}
+	if _, err := n.Bridge().AddDevice(2, clusters.DeviceOnOffPlug, "Broken", "broken-1", broken); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeMDNS{services: map[string]mdns.Service{}}
+	var opts mdns.Options
+	n.listenMDNS = func(o mdns.Options) (advertiser, error) { opts = o; return fake, nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- n.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	waitFor(t, "the initial window", func() bool { return fake.commissionable() != nil })
+
+	admin := nodetest.New(t).Commission(addr(n), testSetup.Passcode)
+	readCtx, stopRead := context.WithTimeout(context.Background(), time.Second)
+	defer stopRead()
+	_, _ = admin.Read(readCtx, im.Concrete(im.Path{Endpoint: 2, Cluster: clusters.IDOnOff, Attribute: 0})) // unanswered
+	waitFor(t, "the panic to be heard", func() bool { return len(h.panics()) > 0 })
+	if got := h.panics(); !slices.Equal(got, []string{contain.Handler}) {
+		t.Errorf("heard panics at %v, want one at %s", got, contain.Handler)
+	}
+
+	if opts.Panicked == nil {
+		t.Fatal("the mDNS responder has nowhere to report a panic")
+	}
+	opts.Panicked(contain.MDNS)
+	if got := h.panics(); !slices.Equal(got, []string{contain.Handler, contain.MDNS}) {
+		t.Errorf("heard panics at %v, want the mDNS responder's too", got)
 	}
 }

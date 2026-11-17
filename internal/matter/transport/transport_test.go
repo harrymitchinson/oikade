@@ -826,6 +826,48 @@ func TestAHandlerThatPanicsCostsOnlyItsSession(t *testing.T) {
 	}
 }
 
+// A panic sending a reply, which happens with the Transport's lock held, is contained like any
+// other in a handler: it leaves no lock held, and nothing that ending the session trips on.
+func TestAPanicSendingIsContained(t *testing.T) {
+	counted := &panics{}
+	dev, cli := newNodeWith(t, Options{Panicked: counted.panicked}), newNode(t)
+	var calls atomic.Int32
+	dev.t.Handle(echo, echoOps, echoHandler(&calls))
+	var first atomic.Bool
+	dev.conn.mu.Lock()
+	dev.conn.fault = func(_ int, pkt []byte) int {
+		h, n, err := ParseHeader(pkt)
+		if err != nil {
+			return 1
+		}
+		if ph, _, err := ParseProtocolHeader(pkt[n:]); err == nil && h.SessionID == 0 && ph.Protocol == echo &&
+			ph.Opcode != OpStandaloneAck && first.CompareAndSwap(false, true) {
+			panic("a bug in a write")
+		}
+		return 1
+	}
+	dev.conn.mu.Unlock()
+	send := func(payload string) (string, error) {
+		ex, err := cli.t.NewUnsecuredSession(dev.addr()).NewExchange()
+		if err != nil {
+			return "", err
+		}
+		defer ex.Close()
+		c, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		if err := ex.Send(c, Message{Protocol: echo, Opcode: 1, Payload: []byte(payload)}); err != nil {
+			return "", err
+		}
+		m, err := ex.Recv(c)
+		return string(m.Payload), err
+	}
+	_, _ = send("boom") // its retransmission may still arrive
+	eventually(t, "the panic to be counted", func() bool { return counted.in(contain.Handler) == 1 })
+	if got, err := send("abc"); err != nil || got != "cba" {
+		t.Errorf("another session after the panic: %q, %v", got, err)
+	}
+}
+
 // A panic in reading one packet leaves Serve reading the next.
 func TestAPanicInTheReadLoopLeavesServeRunning(t *testing.T) {
 	counted := &panics{}

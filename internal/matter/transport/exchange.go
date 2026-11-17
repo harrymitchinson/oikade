@@ -460,11 +460,13 @@ func (ex *Exchange) signal() {
 	ex.changed = make(chan struct{})
 }
 
+// transmit sends r, with the Transport's lock held. It arms the retransmission before writing,
+// so that a panic in the write leaves a retransmission that the exchange can stop as it fails.
 func (ex *Exchange) transmit(r *retransmission) {
-	ex.s.t.write(r.pkt, ex.s.peer)
 	after := ex.s.retransmitAfter(r.sends)
 	r.sends++
 	r.timer = time.AfterFunc(after, func() { ex.retransmit(r) })
+	ex.s.t.write(r.pkt, ex.s.peer)
 }
 
 func (ex *Exchange) retransmit(r *retransmission) {

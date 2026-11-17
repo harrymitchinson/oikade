@@ -2,42 +2,52 @@ package mdns
 
 import (
 	"bytes"
+	"os"
 	"testing"
 	"time"
+
+	"golang.org/x/net/dns/dnsmessage"
 )
 
+// TestListenerHearsWhatItSends multicasts an mDNS query on the real network, for a name nobody
+// has, and checks that the Listener hears it come back. Some networks don't loop multicast back,
+// and a test shouldn't multicast wherever it runs, so it runs only with OIKADE_TEST_MULTICAST=1.
 func TestListenerHearsWhatItSends(t *testing.T) {
+	if os.Getenv("OIKADE_TEST_MULTICAST") != "1" {
+		t.Skip("OIKADE_TEST_MULTICAST isn't 1")
+	}
 	l, err := ListenMulticast()
 	if err != nil {
-		t.Skipf("No multicast here: %v", err)
+		t.Fatal(err)
 	}
-	heard := make(chan bool, 1)
-	want := []byte("oikade listener test")
+	want := pack(t, dnsmessage.Message{Questions: []dnsmessage.Question{{
+		Name: mustName("_oikade-listener-test._udp.local."), Type: dnsmessage.TypePTR, Class: dnsmessage.ClassINET,
+	}}})
+	heard := make(chan error, 1)
 	go func() {
 		b := make([]byte, maxPacket)
 		for {
 			n, err := l.Read(b)
 			if err != nil {
-				heard <- false
+				heard <- err
 				return
 			}
 			if bytes.Equal(b[:n], want) {
-				heard <- true
+				heard <- nil
 				return
 			}
 		}
 	}()
 	if err := l.Send(want); err != nil {
-		_ = l.Close()
-		t.Skipf("Can't send multicast here: %v", err)
+		t.Fatal(err)
 	}
 	select {
-	case ok := <-heard:
-		if !ok {
-			t.Error("The read failed")
+	case err := <-heard:
+		if err != nil {
+			t.Errorf("Read: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Log("No multicast came back, which some networks don't do")
+		t.Error("the query didn't come back")
 	}
 	if err := l.Close(); err != nil {
 		t.Error(err)
