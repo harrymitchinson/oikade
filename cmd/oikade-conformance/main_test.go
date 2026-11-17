@@ -137,7 +137,9 @@ func TestFailsAPluginWhoseDiscoveredIDsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--devices", devices, "--timeout", "2s", "--", bin}, &stdout, &stderr)
+	// A loaded machine can take more than 2 s to bring the plugin online, and the step that
+	// fails waits out the whole timeout, so it's 5 s rather than more.
+	code := run([]string{"--devices", devices, "--timeout", "5s", "--", bin}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
 	}
