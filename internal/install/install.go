@@ -17,6 +17,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/store"
 )
 
 const (
@@ -135,9 +136,6 @@ func (in *Installer) Install(ctx context.Context, opts Options) (Result, error) 
 func (in *Installer) first(ctx context.Context, opts Options, unitExists bool) (Result, error) {
 	res := Result{Version: in.Version}
 	in.say("Installing oikade-host %s to %s", in.Version, BinPath)
-	if err := copyFile(in.Self, in.path(BinPath)); err != nil {
-		return res, err
-	}
 	if _, err := in.Run(ctx, "id", "-u", User); err != nil {
 		if _, err := in.Run(ctx, "useradd", "--system", "--home-dir", cli.DefaultDataDir,
 			"--shell", "/usr/sbin/nologin", User); err != nil {
@@ -145,10 +143,15 @@ func (in *Installer) first(ctx context.Context, opts Options, unitExists bool) (
 		}
 		in.say("Created user %s", User)
 	}
+	// The unit goes first, so an install that fails part way is one install finishes: a unit with
+	// no binary is a first install, and a binary with no unit isn't.
 	if !unitExists || opts.APIAddrSet {
 		if err := in.writeUnit(opts.APIAddr); err != nil {
 			return res, err
 		}
+	}
+	if err := copyFile(in.Self, in.path(BinPath)); err != nil {
+		return res, err
 	}
 	if err := in.start(ctx, true); err != nil {
 		return res, err
@@ -191,13 +194,9 @@ func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) 
 	} else {
 		in.say("Upgrading oikade-host %s to %s", res.From, in.Version)
 	}
-	backup, err := in.call(ctx, api.Request{Type: api.TypeBackup})
-	if err != nil {
-		return res, fmt.Errorf("couldn't back up the store first, as the host isn't serving (%w): "+
-			"sudo systemctl start %s, or upgrade by hand", err, UnitName)
+	if err := in.backup(ctx, &res); err != nil {
+		return res, err
 	}
-	res.Backup = backup.Backup
-	in.say("Backed up the store to %s", res.Backup)
 	if !same {
 		if err := copyFile(bin, in.path(PreviousPath)); err != nil {
 			return res, err
@@ -233,6 +232,23 @@ func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) 
 		}
 	}
 	return res, nil
+}
+
+// backup snapshots the store through the host. A host that has never served has no store, so there's
+// nothing to lose: a first install that failed can be run again.
+func (in *Installer) backup(ctx context.Context, res *Result) error {
+	backup, err := in.call(ctx, api.Request{Type: api.TypeBackup})
+	if err == nil {
+		res.Backup = backup.Backup
+		in.say("Backed up the store to %s", res.Backup)
+		return nil
+	}
+	if _, serr := os.Stat(in.path(filepath.Join(cli.DefaultDataDir, store.FileName))); errors.Is(serr, os.ErrNotExist) {
+		in.say("The host has no store yet, so there's nothing to back up")
+		return nil
+	}
+	return fmt.Errorf("couldn't back up the store first, as the host isn't serving (%w): "+
+		"sudo systemctl start %s, or upgrade by hand", err, UnitName)
 }
 
 // putBack restores the binary, if the upgrade replaced it, and the unit, if it had one, then

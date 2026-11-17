@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	// fileName is the store's file in the data directory.
-	fileName = "oikade.db"
+	// FileName is the store's file in the data directory.
+	FileName = "oikade.db"
 	// formatVersion is the layout of the buckets and the keys in them. Raise it when that changes.
 	formatVersion = "2"
 	// lockTimeout is how long Open waits for another process to let go of the data directory.
@@ -59,7 +59,7 @@ func Open(dir string) (*Store, error) {
 	}
 	opts := *bolt.DefaultOptions
 	opts.Timeout = lockTimeout
-	path := filepath.Join(dir, fileName)
+	path := filepath.Join(dir, FileName)
 	if err := checkFile(path); err != nil {
 		return nil, err
 	}

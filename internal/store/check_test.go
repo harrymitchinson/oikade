@@ -67,7 +67,7 @@ func TestOpenRefusesAFileItCantRead(t *testing.T) {
 			if size < 8*page {
 				t.Fatalf("the store is only %d bytes", size)
 			}
-			damage(t, filepath.Join(dir, fileName), size)
+			damage(t, filepath.Join(dir, FileName), size)
 			s, err := Open(dir)
 			if err == nil {
 				_ = s.Close()
@@ -83,7 +83,7 @@ func TestOpenRefusesAFileItCantRead(t *testing.T) {
 // which is a new store.
 func TestOpenTakesAWholeFileAndAnEmptyOne(t *testing.T) {
 	dir, size := fullStore(t)
-	if err := os.Truncate(filepath.Join(dir, fileName), size); err != nil {
+	if err := os.Truncate(filepath.Join(dir, FileName), size); err != nil {
 		t.Fatal(err)
 	}
 	s := open(t, dir)
@@ -92,7 +92,7 @@ func TestOpenTakesAWholeFileAndAnEmptyOne(t *testing.T) {
 	}
 
 	dir = t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, fileName), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, FileName), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	open(t, dir)

@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/store"
 )
 
 // machine is a systemd machine under a directory. A binary is a file holding its version, and one
@@ -249,6 +251,7 @@ func TestUpgradeOfAHostThatIsntServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.running = ""
+	writeStore(t, m)
 	_, _, err := m.install(t, "v0.3.1", Options{})
 	if err == nil || !strings.Contains(err.Error(), "couldn't back up the store first") {
 		t.Fatalf("error is %v", err)
@@ -347,5 +350,49 @@ func TestRunsHost(t *testing.T) {
 		if got := runsHost([]byte(unit)); got != want {
 			t.Errorf("runsHost(%q) = %v", unit, got)
 		}
+	}
+}
+
+func writeStore(t *testing.T, m *machine) {
+	t.Helper()
+	dir := m.at(cli.DefaultDataDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, store.FileName), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A first install whose host never served can be run again, with a binary that does.
+func TestInstallAgainAfterAFirstInstallThatFailed(t *testing.T) {
+	m := newMachine(t)
+	if _, _, err := m.install(t, "v0.3.0 broken", firstOptions); err == nil {
+		t.Fatal("a host that never serves installed")
+	}
+	res, progress, err := m.install(t, "v0.3.0", firstOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.running != "v0.3.0" || res.Backup != "" || !strings.Contains(progress, "nothing to back up") {
+		t.Errorf("running %q, result %+v:\n%s", m.running, res, progress)
+	}
+}
+
+// A first install that stopped after the unit finishes as a first install.
+func TestInstallWithAUnitAndNoBinary(t *testing.T) {
+	m := newMachine(t)
+	if err := os.MkdirAll(filepath.Dir(m.at(UnitPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.at(UnitPath), []byte(Unit(":9443")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, _, err := m.install(t, "v0.3.0", firstOptions)
+	if err != nil || res.Upgraded || m.running != "v0.3.0" {
+		t.Fatalf("result %+v, running %q: %v", res, m.running, err)
+	}
+	if !strings.Contains(m.read(UnitPath), ":9443") {
+		t.Error("wrote the unit again with no flags")
 	}
 }
