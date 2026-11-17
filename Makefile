@@ -59,11 +59,18 @@ vet: ## Run go vet against code.
 test: fmt vet ## Run the tests.
 	go test -parallel 8 -timeout 20m $$(go list ./... | grep -v -e /test/journeys) -coverprofile cover.out
 
-# The race detector, on everything that runs in this process: test/host and test/cli run built
-# binaries, which test-race doesn't rebuild.
+# The race detector, on everything but test/host and test/cli, which take minutes under it and have
+# a target of their own.
 .PHONY: test-race
 test-race: ## Run the tests in this process under the race detector.
 	go test -race $$(go list ./... | grep -v -e /test/journeys -e /test/host -e /test/cli)
+
+# Under -race, test/host and test/cli build the host, the CLI and the home with it too, and fail if
+# any process they started reported a race (test/internal/childrace). CI runs this nightly: it takes
+# about ten minutes.
+.PHONY: test-race-binaries
+test-race-binaries: ## Run test/host and test/cli with the race detector in every binary they start.
+	go test -race -parallel 8 -timeout 30m -count=1 ./test/host ./test/cli
 
 # test/host and test/cli run built binaries, which make test's coverage can't see. This builds them
 # with coverage and writes what they ran to cover-binaries.out.

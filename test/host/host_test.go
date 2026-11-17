@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/test/internal/childrace"
 )
 
 const (
@@ -43,8 +44,9 @@ var (
 	homeBin   string
 )
 
+// TestMain fails the tests if a host, home, plugin or CLI they started reported a data race.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := childrace.Main(m)
 	if buildDir != "" {
 		_ = os.RemoveAll(buildDir)
 	}
@@ -92,7 +94,7 @@ func build(t *testing.T) {
 // when this test has it, and coverage when make cover-binaries asks for it.
 func buildArgs(extra ...string) []string {
 	args := append([]string{"build", "-tags", "faultpoints"}, extra...)
-	if raceBuild {
+	if childrace.Enabled {
 		args = append(args, "-race")
 	}
 	if os.Getenv("OIKADE_COVER") != "" {

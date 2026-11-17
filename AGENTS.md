@@ -45,12 +45,13 @@ Run the `code-review` skill (`/code-review`) on the branch and fix or explain ea
 ## Testing & Development
 
 ```bash
-make test              # Unit and integration tests, with a real host and simulated devices
-make test-conformance  # The plugin contract
-make test-race         # The tests in this process, under the race detector
-make fuzz              # Every fuzz target for 30 s (FUZZTIME), as the nightly Fuzz workflow does
-make cover-binaries    # Coverage of the binaries test/host and test/cli run
-make test-journeys     # From oikade init to a running host, and chip-tool (Docker, linux/arm64)
+make test                # Unit and integration tests, with a real host and simulated devices
+make test-conformance    # The plugin contract
+make test-race           # The tests in this process, under the race detector
+make test-race-binaries  # test/host and test/cli, with the race detector in every binary (nightly in CI)
+make fuzz                # Every fuzz target for 30 s (FUZZTIME), as the nightly Fuzz workflow does
+make cover-binaries      # Coverage of the binaries test/host and test/cli run
+make test-journeys       # From oikade init to a running host, and chip-tool (Docker, linux/arm64)
 ```
 
 Tests are plain Go `testing`, with no assertion library. What more than one package's tests need, waiting for a condition, a time zone, hex and a log to read, is `internal/testkit`. A simulated home on a fake clock is `internal/simhome`, and a real host with simulated devices is `test/host`.
