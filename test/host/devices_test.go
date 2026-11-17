@@ -282,10 +282,6 @@ func TestAClaimOnAModeSurvivesARestart(t *testing.T) {
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
-	r.sync()
-	if r.count(wrote, "device", "bedroom-ac", "value", "cool") != 1 {
-		t.Fatalf("the default didn't write cool. The log:\n%s", r.dump())
-	}
 	r.change("bedroom-damp", opened, true)
 	r.wrote("bedroom-ac", "dry")
 	r.sync()
@@ -298,7 +294,8 @@ func TestAClaimOnAModeSurvivesARestart(t *testing.T) {
 		t.Errorf("the claim holds %v, want dry's number", claims[0].Value)
 	}
 
-	// The simulated unit starts in auto again, so only the saved claim makes it dry.
+	// The simulated unit starts in cool again, its decision's Default, so only the saved claim makes
+	// it dry.
 	r.launch(settle)
 	r.awaitLoaded()
 	r.sync()
