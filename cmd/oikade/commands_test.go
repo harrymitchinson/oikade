@@ -32,17 +32,17 @@ func TestSetSaysWhatTheDeviceWasLeftAt(t *testing.T) {
 	}{
 		{"unarbitrated", &api.Capability{Name: "on", Value: true}, "desk-plug on is true"},
 		{"held", &api.Capability{Name: "on", Value: false, Level: "Safety", Case: "hall-too-humid", Claims: []api.Claim{
-			{Source: "Rule/desk-plug on hall-too-humid", Case: "hall-too-humid", Level: "Safety", Value: false, Winner: true},
+			{Source: "case/desk-plug/on/hall-too-humid", Case: "hall-too-humid", Level: "Safety", Value: false, Winner: true},
 		}}, "desk-plug on is false, not true: hall-too-humid holds it"},
 		{"for a while", &api.Capability{Name: "on", Value: true, Level: "Override", Claims: []api.Claim{
-			{Source: "Command", Level: "Override", Value: true, Winner: true, Expires: &expires},
+			{Source: "command", Level: "Override", Value: true, Winner: true, Expires: &expires},
 		}}, "desk-plug on is true: oikade set holds it until 17:30"},
 		{"a flow", &api.Capability{Name: "on", Value: true, Level: "Normal", Claims: []api.Claim{
-			{Source: "Rule/bedtime", Level: "Normal", Value: true, Winner: true},
-		}}, "desk-plug on is true: bedtime holds it"},
+			{Source: "flow/bedtime", Level: "Normal", Value: true, Winner: true},
+		}}, "desk-plug on is true: flow/bedtime holds it"},
 		{"held back", &api.Capability{
 			Name: "on", Value: false, Level: "Safety", Limit: "MinimumOff", LimitUntil: &expires,
-			Claims: []api.Claim{{Source: "Rule/desk-plug on frost", Case: "frost", Level: "Safety", Value: true, Winner: true}},
+			Claims: []api.Claim{{Source: "case/desk-plug/on/frost", Case: "frost", Level: "Safety", Value: true, Winner: true}},
 		}, "desk-plug on is false, not true: frost holds it, resting until 17:30"},
 		{"written back", &api.Capability{Name: "on", Value: false, Level: "Default"},
 			"desk-plug on is false, not true: no line applies, so its Default wins"},

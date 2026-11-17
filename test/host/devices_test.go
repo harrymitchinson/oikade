@@ -204,7 +204,7 @@ func TestASafetyClaimIsEnforcedBeforeItsDeviceReports(t *testing.T) {
 	if len(st.Devices) == 1 && len(st.Devices[0].Capabilities) > 0 {
 		c = st.Devices[0].Capabilities[0]
 	}
-	if c.Level != "Safety" || winner(c) != "Rule/valve on leak-shutoff" {
+	if c.Level != "Safety" || winner(c) != "case/valve/on/leak-shutoff" {
 		t.Errorf("the arbiter didn't load before the device reported: %+v", st.Devices)
 	}
 	stderr, err := r.deploy("renamed")

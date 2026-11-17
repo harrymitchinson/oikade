@@ -422,7 +422,8 @@ type Capability struct {
 
 // Claim is one claim on a capability.
 type Claim struct {
-	// Source is who made it, such as Rule/fan, Matter or Command.
+	// Source is the ref of who made it: a case's, such as case/fan/on/humid, a flow's, such as
+	// flow/morning, or matter, device or command (oikade set).
 	Source string `json:"source"`
 	// Case is the decision's case that made it, if one did.
 	Case    string     `json:"case,omitempty"`

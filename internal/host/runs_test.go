@@ -80,11 +80,11 @@ func TestAPauseWithNoProcessEndsTheFlowsRunOnceAsked(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	resp, err := api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "flow"})
+	resp, err := api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "flow/flow"})
 	if err != nil || !resp.NeedsAllowSafety {
 		t.Fatalf("paused something it couldn't check: %+v, %v", resp, err)
 	}
-	resp, err = api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "flow", AllowSafety: true})
+	resp, err = api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "flow/flow", AllowSafety: true})
 	if err != nil || resp.Error != "" {
 		t.Fatalf("got %+v, %v", resp, err)
 	}
@@ -123,7 +123,7 @@ func TestAResumeWithNoProcessLeavesPausedTimesBehind(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	for _, kind := range []string{api.TypePause, api.TypeResume} {
-		resp, err := api.Call(ctx, local, api.Request{Type: kind, Rule: "morning", AllowSafety: true})
+		resp, err := api.Call(ctx, local, api.Request{Type: kind, Rule: "flow/morning", AllowSafety: true})
 		if err != nil || resp.Error != "" {
 			t.Fatalf("%s: got %+v, %v", kind, resp, err)
 		}

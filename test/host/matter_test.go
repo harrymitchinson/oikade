@@ -351,7 +351,7 @@ func TestAControllerGoesThroughArbitration(t *testing.T) {
 	c.command(endpoint, turnOff)
 	c.r.until("the Matter claim", func() bool {
 		s := onOf(t, c.r.status(), "claimed")
-		return s.Value == false && winner(s) == "Matter"
+		return s.Value == false && winner(s) == "matter"
 	})
 }
 

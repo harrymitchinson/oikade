@@ -167,7 +167,7 @@ func withControl(device string, c *api.Capability, held control.Status) {
 		if o.Reverted {
 			continue
 		}
-		claim := api.Claim{Source: o.Source, Level: o.Level, Value: rawValue(o.Value), Winner: o.Winner, Latched: o.Latched}
+		claim := api.Claim{Source: control.SourceRef(o.Source).String(), Level: o.Level, Value: rawValue(o.Value), Winner: o.Winner, Latched: o.Latched}
 		if name, ok := control.CaseOf(o.Source, device, held.Capability); ok {
 			claim.Case = name
 			if o.Winner {
@@ -368,26 +368,44 @@ func sameValue(c control.Status, value any) bool {
 // pause stops a rule until it's resumed. It's on disk before this answers, and in force at once.
 func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 	rules, known := s.rulesInfo()
-	i := slices.IndexFunc(rules, func(r wire.RuleInfo) bool { return r.Name == req.Rule })
+	rule, err := s.ruleKey(req.Rule, rules)
+	if err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	i := slices.IndexFunc(rules, func(r wire.RuleInfo) bool { return r.Name == rule })
 	switch {
 	case known && i < 0:
-		return api.Response{Error: fmt.Sprintf("no rule %q", req.Rule)}
+		return api.Response{Error: fmt.Sprintf("no rule %s", req.Rule)}
 	case req.AllowSafety:
 	case !known:
 		// In an emergency a process may be down, which is no reason to guess it isn't a Safety rule.
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("can't tell what %s is: %s", req.Rule, s.unknownRules())}
 	case rules[i].Safety:
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s is a safety line, so pausing it stops that protection", req.Rule)}
-	case s.srv.engine.RuleClaims()[req.Rule] == control.Safety:
+	case s.srv.engine.RuleClaims()[rule] == control.Safety:
 		// As a deploy's check: a rule an older version declared can hold a Safety claim this one's
 		// declaration doesn't show, and a pause would leave that claim with no run to release it.
 		return api.Response{NeedsAllowSafety: true, Error: fmt.Sprintf("%s holds a Safety claim, which a pause would strand", req.Rule)}
 	}
-	ended, kept := s.claimsOf(req.Rule)
-	if err := s.srv.setPaused(ctx, req.Rule, true); err != nil {
+	ended, kept := s.claimsOf(rule)
+	if err := s.srv.setPaused(ctx, rule, true); err != nil {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{Ended: ended, Kept: kept}
+}
+
+// ruleKey is the key the host keeps a rule under, from the ref a pause or a resume names it by. A
+// rule's key on its own, as these took before refs, is refused with the rule's ref.
+func (s *apiServer) ruleKey(ref string, rules []wire.RuleInfo) (string, error) {
+	rule, err := control.RuleKey(ref)
+	if err == nil {
+		return rule, nil
+	}
+	_, paused := s.srv.paused.Get(key(ref))
+	if paused || slices.ContainsFunc(rules, func(r wire.RuleInfo) bool { return r.Name == ref }) {
+		return "", fmt.Errorf("%q isn't a ref: name the rule as %s", ref, control.RuleRef(ref))
+	}
+	return "", err
 }
 
 // claimsOf lists what a rule claims, as "device capability": the claims a pause ends, and the Safety
@@ -414,10 +432,15 @@ func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
 }
 
 func (s *apiServer) resume(ctx context.Context, req api.Request) api.Response {
-	if _, ok := s.srv.paused.Get(key(req.Rule)); !ok {
+	rules, _ := s.rulesInfo()
+	rule, err := s.ruleKey(req.Rule, rules)
+	if err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	if _, ok := s.srv.paused.Get(key(rule)); !ok {
 		return api.Response{Error: fmt.Sprintf("%s isn't paused", req.Rule)}
 	}
-	if err := s.srv.setPaused(ctx, req.Rule, false); err != nil {
+	if err := s.srv.setPaused(ctx, rule, false); err != nil {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{}

@@ -35,14 +35,14 @@ const allLevels = control.LevelDefault
 // Sources of claims that aren't Rules.
 const (
 	// SourceDevice is a change the engine didn't write, as from a wall switch.
-	SourceDevice = "Device"
+	SourceDevice = control.SourceDevice
 	// SourceMatter is a change a Matter bridge announced writing, for a Matter controller such as
 	// the Home app.
-	SourceMatter = "Matter"
+	SourceMatter = control.SourceMatter
 	// SourceCommand is a change oikade asked for.
-	SourceCommand = "Command"
+	SourceCommand = control.SourceCommand
 	// rulePrefix starts a Rule's source, Rule/<name>.
-	rulePrefix = "Rule/"
+	rulePrefix = control.SourceRule
 )
 
 // bridgeSlack is how much longer than a capability's settle a bridge's write is waited for: after

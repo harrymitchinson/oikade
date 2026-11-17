@@ -62,7 +62,8 @@ type Write struct {
 
 // Claim is a claim on an arbitrated capability.
 type Claim struct {
-	// Source says who holds it: Rule/<name>, or an outside change.
+	// Source is the ref of who holds it: a case's, such as case/porch-light/on/motion, a flow's,
+	// such as flow/arrival, or matter, device or command for an outside change.
 	Source string
 	// Level is Normal, Override or Safety.
 	Level string
@@ -280,7 +281,8 @@ func (h *Home) ExpectWrite[T oikade.Value](c oikade.Ref[T], want T) {
 	h.t.Fatalf("nothing wrote %v to %s %s. Writes: %v", want, device, name, h.Writes())
 }
 
-// ExpectClaim fails the test unless source holds a claim at this level.
+// ExpectClaim fails the test unless source, a ref such as case/porch-light/on/motion or
+// flow/arrival, holds a claim at this level.
 func (h *Home) ExpectClaim[T oikade.Value](c oikade.Ref[T], source, level string) {
 	h.t.Helper()
 	claims := h.Claims(c)
