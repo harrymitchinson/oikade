@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/contain"
@@ -72,7 +73,9 @@ type CommissioningConfig struct {
 	Fabrics     *fabric.Table
 	Attestation *attestation.Credentials
 	Hooks       Hooks
-	Log         *slog.Logger
+	// Clock times the fail-safe and commissioning windows; nil is the real one.
+	Clock clock.Clock
+	Log   *slog.Logger
 }
 
 // Commissioning is the root endpoint's commissioning clusters (Core spec, chapter 11): General
@@ -83,6 +86,7 @@ type Commissioning struct {
 	fabrics *fabric.Table
 	creds   *attestation.Credentials
 	hooks   Hooks
+	clock   clock.Clock
 	log     *slog.Logger
 
 	general, opCreds, network, acl, groupKeys, admin *im.Cluster
@@ -133,7 +137,7 @@ type failSafe struct {
 	fabricIndex uint8 // the accessing fabric that armed it, or that AddNOC added
 	session     *transport.Session
 	started     time.Time // when it was first armed, for the cumulative limit
-	timer       *time.Timer
+	timer       clock.Timer
 	generation  int // which timer is current
 
 	csrForUpdate bool
@@ -149,7 +153,10 @@ func NewCommissioning(cfg CommissioningConfig) (*Commissioning, error) {
 	if cfg.Fabrics == nil || cfg.Attestation == nil {
 		return nil, errors.New("matter: commissioning needs a fabric table and attestation credentials")
 	}
-	c := &Commissioning{fabrics: cfg.Fabrics, creds: cfg.Attestation, hooks: cfg.Hooks, log: logging.OrDiscard(cfg.Log)}
+	c := &Commissioning{fabrics: cfg.Fabrics, creds: cfg.Attestation, hooks: cfg.Hooks, clock: cfg.Clock, log: logging.OrDiscard(cfg.Log)}
+	if c.clock == nil {
+		c.clock = clock.Real{}
+	}
 	c.general = c.generalCommissioning()
 	c.opCreds = c.operationalCredentials()
 	c.network = networkCommissioning()
@@ -291,13 +298,13 @@ func (c *Commissioning) armFailSafe(req *im.Request, fields *tlv.Reader) (*im.Re
 		c.setBreadcrumb(breadcrumb)
 		return commissioningResponse(resp, commissioningOK), nil
 	}
-	now := time.Now()
+	now := c.clock.Now()
 	if !fs.armed {
 		*fs = failSafe{armed: true, fabricIndex: req.FabricIndex, session: req.Session, started: now, generation: fs.generation}
 	}
 	d := time.Duration(expiry) * time.Second
 	if now.Add(d).After(fs.started.Add(maxCumulativeFailSafe)) {
-		d = time.Until(fs.started.Add(maxCumulativeFailSafe))
+		d = fs.started.Add(maxCumulativeFailSafe).Sub(now)
 	}
 	c.armTimer(d)
 	c.setBreadcrumb(breadcrumb)
@@ -312,7 +319,7 @@ func (c *Commissioning) armTimer(d time.Duration) {
 	}
 	fs.generation++
 	gen := fs.generation
-	fs.timer = time.AfterFunc(d, func() {
+	fs.timer = clock.AfterFunc(c.clock, d, func() {
 		c.update(func() {
 			if c.failSafe.armed && c.failSafe.generation == gen {
 				c.log.Info("Fail-safe expired: rolling back")

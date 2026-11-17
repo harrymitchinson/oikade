@@ -109,17 +109,7 @@ func (b *Bridge) after(d time.Duration, f func()) (stop func()) {
 	if c == nil {
 		c = clock.Real{}
 	}
-	t := c.NewTimer(d)
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-t.C():
-			b.Matter.Node.Update(f)
-		case <-done:
-		}
-	}()
-	var once sync.Once
-	return func() { once.Do(func() { t.Stop(); close(done) }) }
+	return clock.AfterFunc(c, d, func() { b.Matter.Node.Update(f) }).Stop
 }
 
 // Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose device
