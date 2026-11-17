@@ -27,6 +27,8 @@ type fakeMDNS struct {
 	services map[string]mdns.Service
 	// closing, if set, runs as the responder closes, which is when it says goodbye.
 	closing func()
+	// resolve, if set, answers ResolveOperational. Unset, it finds nothing.
+	resolve func(compressedFabricID, nodeID uint64) (mdns.Resolved, error)
 }
 
 func (f *fakeMDNS) Add(_ context.Context, svc mdns.Service) error {
@@ -43,9 +45,16 @@ func (f *fakeMDNS) Remove(svc mdns.Service) error {
 	return nil
 }
 
-// ResolveOperational finds nothing: a node's tests reach controllers at their last address.
-func (f *fakeMDNS) ResolveOperational(ctx context.Context, _, _ uint64) (mdns.Resolved, error) {
-	return mdns.Resolved{}, mdns.ErrNotFound
+// ResolveOperational answers with resolve, or else finds nothing, so the node reaches controllers at
+// their last address.
+func (f *fakeMDNS) ResolveOperational(_ context.Context, compressedFabricID, nodeID uint64) (mdns.Resolved, error) {
+	f.mu.Lock()
+	resolve := f.resolve
+	f.mu.Unlock()
+	if resolve == nil {
+		return mdns.Resolved{}, mdns.ErrNotFound
+	}
+	return resolve(compressedFabricID, nodeID)
 }
 
 func (f *fakeMDNS) Close() error {
@@ -119,6 +128,12 @@ var testSetup = Setup{Passcode: 20202021, Discriminator: 3840}
 // start runs a node in dir until the test ends, or until it calls the returned stop.
 func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	t.Helper()
+	return startWith(t, cfg, &fakeMDNS{services: map[string]mdns.Service{}})
+}
+
+// startWith is start, with fake as the node's mDNS responder from the moment it runs.
+func startWith(t *testing.T, cfg Config, fake *fakeMDNS) (*Node, *fakeMDNS, func()) {
+	t.Helper()
 	if cfg.Port == 0 {
 		cfg.Port = freePort(t)
 	}
@@ -127,7 +142,6 @@ func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake := &fakeMDNS{services: map[string]mdns.Service{}}
 	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
 	n.listenUDP = listenHeld
 	ctx, cancel := context.WithCancel(t.Context())
