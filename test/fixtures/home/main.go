@@ -316,10 +316,7 @@ func home() *oikade.Home {
 	if !strings.Contains(variant, "noflow") {
 		h.Flow("claiming", claiming).When(open("claim-flow-go"))
 	}
-	var failer *oikade.Flow
-	if variant != "nofail" {
-		failer = h.Flow("failing", failing).When(open("fail-go"))
-	}
+	failer := h.Flow("failing", failing).When(open("fail-go"))
 	if variant != "nopark" {
 		h.Flow(parkedName, parked).When(open("park-go"))
 	}
@@ -388,11 +385,7 @@ func home() *oikade.Home {
 		Case("overheat", false, garageTemp.Above(40)).LatchUntil(open("garage-door")).
 		Default(true)
 	// The failing flow's Safety claim: its decision ranks it above the override line.
-	if failer != nil {
-		h.Decide(on("claimed-safety")).Flows(failer).OverrideFor(time.Hour).Flows().Default(true)
-	} else {
-		h.Decide(on("claimed-safety")).OverrideFor(time.Hour).Flows().Default(true)
-	}
+	h.Decide(on("claimed-safety")).Flows(failer).OverrideFor(time.Hour).Flows().Default(true)
 	if plugins {
 		h.Decide(on(once)).OverrideFor(time.Hour).Case("once", true, open("once-sensor")).Default(false)
 		// Names a plugin's device, which a test moves to another room.
