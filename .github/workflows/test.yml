@@ -171,6 +171,49 @@ jobs:
           path: ${{ env.GO_CACHE_PATHS }}
           key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
 
+  # test/host and test/cli with the race detector in every binary they start:
+  # the host, its home, plugins and the CLI. It takes about ten minutes, so it
+  # runs nightly, and on a branch by hand (workflow_dispatch), not on each PR.
+  race-binaries:
+    permissions:
+      contents: read
+    name: Race detector in the binaries
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Name the Go cache
+        id: cache
+        run: echo "prefix=go-$RUNNER_OS-$(go env GOVERSION)-$GITHUB_JOB-${{ hashFiles('go.sum') }}" >>"$GITHUB_OUTPUT"
+
+      - name: Restore the Go cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}-
+
+      - name: Run test/host and test/cli under the race detector
+        run: make test-race-binaries
+
+      - name: Save the Go cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+
   plugins:
     permissions:
       contents: read

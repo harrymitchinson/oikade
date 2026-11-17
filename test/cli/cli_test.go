@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/sun"
+	"github.com/harrymitchinson/oikade/test/internal/childrace"
 )
 
 // repo is this checkout, which a new home builds against so that nothing needs fetching.
@@ -33,9 +34,10 @@ var (
 	buildErr  error
 )
 
-// TestMain removes the binaries the tests built.
+// TestMain removes the binaries the tests built, and fails the tests if one of them reported a data
+// race.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := childrace.Main(m)
 	if binDir != "" {
 		_ = os.RemoveAll(binDir)
 	}
@@ -58,6 +60,10 @@ func binary(t *testing.T, name string) string {
 			return
 		}
 		args := []string{"build", "-o", binDir + string(filepath.Separator)}
+		// Under the race detector, so are the binaries.
+		if childrace.Enabled {
+			args = append(args, "-race")
+		}
 		// make cover-binaries measures what these binaries run.
 		if os.Getenv("OIKADE_COVER") != "" {
 			args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...")
