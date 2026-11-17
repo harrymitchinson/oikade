@@ -36,28 +36,31 @@ const (
 	longSettle = "--settle=10s"
 )
 
-var (
-	variantsMu sync.Mutex
-	variants   = map[string]string{}
-)
+type builtVariant struct {
+	once sync.Once
+	path string
+	err  error
+}
 
-// variant builds the fixture as another version of the home.
+var variants sync.Map // name to *builtVariant
+
+// variant builds the fixture as another version of the home. Each name is built once, and
+// different names build at the same time.
 func variant(t *testing.T, name string) string {
 	t.Helper()
 	build(t)
-	variantsMu.Lock()
-	defer variantsMu.Unlock()
-	if path, ok := variants[name]; ok {
-		return path
+	v, _ := variants.LoadOrStore(name, &builtVariant{})
+	b := v.(*builtVariant)
+	b.once.Do(func() {
+		b.path = filepath.Join(buildDir, "home-"+name)
+		args := buildArgs("-ldflags", "-X main.variant="+name)
+		module := filepath.Join(buildDir, "module")
+		b.err = run(module, []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}, append(args, "-o", b.path, ".")...)
+	})
+	if b.err != nil {
+		t.Fatal(b.err)
 	}
-	path := filepath.Join(buildDir, "home-"+name)
-	args := buildArgs("-ldflags", "-X main.variant="+name)
-	module := filepath.Join(buildDir, "module")
-	if err := run(module, []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}, append(args, "-o", path, ".")...); err != nil {
-		t.Fatal(err)
-	}
-	variants[name] = path
-	return path
+	return b.path
 }
 
 // oikade runs the command against the rig's host.
