@@ -147,6 +147,27 @@ func destinationID(ipk, initiatorRandom, rootPublicKey []byte, fabricID, nodeID 
 	return m.Sum(nil)
 }
 
+// sigma2Key is S2K, the key of Sigma2's encrypted part (Core spec, 4.14.2).
+func sigma2Key(secret, ipk, responderRandom, responderEphPub, sigma1 []byte) ([]byte, error) {
+	return caseKey(secret, sigma2Info, ipk, responderRandom, responderEphPub, transcriptHash(sigma1))
+}
+
+// sigma3Key is S3K, the key of Sigma3's encrypted part (Core spec, 4.14.2).
+func sigma3Key(secret, ipk, sigma1, sigma2 []byte) ([]byte, error) {
+	return caseKey(secret, sigma3Info, ipk, transcriptHash(sigma1, sigma2))
+}
+
+// caseSessionKeys are the keys of a session established by a full CASE (Core spec, 4.14.2).
+func caseSessionKeys(secret, ipk, sigma1, sigma2, sigma3 []byte) (SessionKeys, error) {
+	return deriveSessionKeys(secret, append(append([]byte(nil), ipk...), transcriptHash(sigma1, sigma2, sigma3)...), caseKeysInfo)
+}
+
+// resumedSessionKeys are the keys of a resumed session: the salt is the initiator's random and
+// the resumption ID that Sigma1 resumed, not the new one Sigma2_Resume gives (Core spec, 4.14.2).
+func resumedSessionKeys(secret, initiatorRandom, resumptionID []byte) (SessionKeys, error) {
+	return deriveSessionKeys(secret, append(append([]byte(nil), initiatorRandom...), resumptionID...), resumptionKeysInfo)
+}
+
 func caseKey(secret []byte, info string, salt ...[]byte) ([]byte, error) {
 	var s []byte
 	for _, b := range salt {
@@ -180,6 +201,10 @@ func resumeMIC(secret, initiatorRandom, resumptionID []byte, info string, nonce 
 	}
 	return aead.Seal(nil, nonce, nil, nil), nil
 }
+
+// ephemeralKey is a handshake's ephemeral key. The test that records CASE with chip-tool
+// (capture_case_linux_test.go) replaces it, to keep the key it needs to replay the handshake.
+var ephemeralKey = func() (*ecdh.PrivateKey, error) { return ecdh.P256().GenerateKey(rand.Reader) }
 
 // sign signs msg with an operational key, and returns the signature as r and s, 32 bytes each.
 func sign(key crypto.Signer, msg []byte) ([]byte, error) {
@@ -444,7 +469,7 @@ func (r *CASEResponder) full(ctx context.Context, ex *transport.Exchange, s1Byte
 	if err != nil {
 		return nil, r.fail(ctx, ex, CodeInvalidParameter, err)
 	}
-	eph, err := ecdh.P256().GenerateKey(rand.Reader)
+	eph, err := ephemeralKey()
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +500,7 @@ func (r *CASEResponder) full(ctx context.Context, ex *transport.Exchange, s1Byte
 	}
 	tbe := (&tbeData{noc: f.NOC, icac: f.ICAC, signature: sig, resumptionID: resumptionID}).encode()
 	responderRandom := random()
-	s2k, err := caseKey(secret, sigma2Info, f.ipk, responderRandom, ephPub, transcriptHash(s1Bytes))
+	s2k, err := sigma2Key(secret, f.ipk, responderRandom, ephPub, s1Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +524,7 @@ func (r *CASEResponder) full(ctx context.Context, ex *transport.Exchange, s1Byte
 	if err != nil {
 		return nil, r.fail(ctx, ex, CodeInvalidParameter, err)
 	}
-	s3k, err := caseKey(secret, sigma3Info, f.ipk, transcriptHash(s1Bytes, s2Bytes))
+	s3k, err := sigma3Key(secret, f.ipk, s1Bytes, s2Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -522,7 +547,7 @@ func (r *CASEResponder) full(ctx context.Context, ex *transport.Exchange, s1Byte
 		return nil, r.fail(ctx, ex, CodeInvalidParameter, errors.New("the initiator's signature doesn't verify"))
 	}
 
-	sk, err := deriveSessionKeys(secret, append(append([]byte(nil), f.ipk...), transcriptHash(s1Bytes, s2Bytes, s3Bytes)...), caseKeysInfo)
+	sk, err := caseSessionKeys(secret, f.ipk, s1Bytes, s2Bytes, s3Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -565,7 +590,7 @@ func (r *CASEResponder) resume(ctx context.Context, ex *transport.Exchange, s1 *
 	if err != nil {
 		return nil, err
 	}
-	sk, err := deriveSessionKeys(res.secret, append(append([]byte(nil), s1.initiatorRandom...), s1.resumptionID...), resumptionKeysInfo)
+	sk, err := resumedSessionKeys(res.secret, s1.initiatorRandom, s1.resumptionID)
 	if err != nil {
 		return nil, err
 	}
@@ -656,7 +681,7 @@ func EstablishCASE(ctx context.Context, tr *transport.Transport, addr netip.Addr
 		}
 	}()
 
-	eph, err := ecdh.P256().GenerateKey(rand.Reader)
+	eph, err := ephemeralKey()
 	if err != nil {
 		return nil, err
 	}
@@ -741,7 +766,7 @@ func (i *caseInitiator) full(ctx context.Context, eph *ecdh.PrivateKey, s1Bytes,
 		return nil, fmt.Errorf("%w: %w", ErrInvalidMessage, err)
 	}
 	ephPub := eph.PublicKey().Bytes()
-	s2k, err := caseKey(secret, sigma2Info, f.ipk, s2.responderRandom, s2.responderEphPubKey, transcriptHash(s1Bytes))
+	s2k, err := sigma2Key(secret, f.ipk, s2.responderRandom, s2.responderEphPubKey, s1Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +798,7 @@ func (i *caseInitiator) full(ctx context.Context, eph *ecdh.PrivateKey, s1Bytes,
 		return nil, err
 	}
 	tbe := (&tbeData{noc: f.NOC, icac: f.ICAC, signature: sig}).encode()
-	s3k, err := caseKey(secret, sigma3Info, f.ipk, transcriptHash(s1Bytes, s2Bytes))
+	s3k, err := sigma3Key(secret, f.ipk, s1Bytes, s2Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -788,7 +813,7 @@ func (i *caseInitiator) full(ctx context.Context, eph *ecdh.PrivateKey, s1Bytes,
 		return nil, err
 	}
 
-	sk, err := deriveSessionKeys(secret, append(append([]byte(nil), f.ipk...), transcriptHash(s1Bytes, s2Bytes, s3Bytes)...), caseKeysInfo)
+	sk, err := caseSessionKeys(secret, f.ipk, s1Bytes, s2Bytes, s3Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -820,7 +845,7 @@ func (i *caseInitiator) resumed(ctx context.Context, initiatorRandom []byte, res
 		i.c.Resumption.forget(f.Index, i.peerNode)
 		return nil, fmt.Errorf("%w: Sigma2_Resume's MIC doesn't match", ErrCASEFailed)
 	}
-	sk, err := deriveSessionKeys(res.secret, append(append([]byte(nil), initiatorRandom...), res.id[:]...), resumptionKeysInfo)
+	sk, err := resumedSessionKeys(res.secret, initiatorRandom, res.id[:])
 	if err != nil {
 		return nil, err
 	}

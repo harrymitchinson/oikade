@@ -20,18 +20,24 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
 
-// A capture is a handshake between connectedhomeip's chip-tool and Oikade, recorded by
-// TestCaptureChipToolPASE into testdata, with the randomness Oikade's side used. The tests that
-// read it (vectors_test.go) replay Oikade's side and check it against what chip-tool sent.
+// A capture is handshakes between connectedhomeip's chip-tool and Oikade, recorded into testdata
+// by TestCaptureChipToolPASE and TestCaptureChipToolCASE, with the secrets Oikade's side drew. The
+// tests that read it (chiptool_test.go) replay Oikade's side and check it against what chip-tool
+// sent.
 type capture struct {
 	// Source is where chip-tool came from.
 	Source     string   `json:"source"`
 	Passcode   uint32   `json:"passcode"`
-	Salt       hexBytes `json:"salt"`
-	Iterations int      `json:"iterations"`
-	// Random is each random value Oikade's side drew, in order, and Scalars each scalar.
-	Random  []hexBytes `json:"random"`
-	Scalars []hexBytes `json:"scalars"`
+	Salt       hexBytes `json:"salt,omitempty"`
+	Iterations int      `json:"iterations,omitempty"`
+	// Random is each random value PASE drew on Oikade's side, in order, and Scalars each scalar.
+	Random  []hexBytes `json:"random,omitempty"`
+	Scalars []hexBytes `json:"scalars,omitempty"`
+	// EphemeralKeys are the private keys of each CASE that Oikade's side answered, in order.
+	EphemeralKeys []hexBytes `json:"ephemeralKeys,omitempty"`
+	// Fabric is the fabric chip-tool commissioned Oikade's side onto, without its operational
+	// key, which CASE's replay doesn't need.
+	Fabric *capturedFabric `json:"fabric,omitempty"`
 	// Datagrams are every UDP datagram, in the order Oikade's side saw them.
 	Datagrams []datagram `json:"datagrams"`
 	// ChipToolLog is chip-tool's log of the messages it sent and received, which shows that it
@@ -39,8 +45,38 @@ type capture struct {
 	ChipToolLog []string `json:"chipToolLog"`
 }
 
-// ansi matches the terminal colours chip-tool logs in.
-var ansi = regexp.MustCompile("\x1b\\[[0-9;]*m")
+// ansi matches the terminal escapes in chip-tool's log: colours, and clearing the line.
+var ansi = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
+
+type capturedFabric struct {
+	RCAC hexBytes `json:"rcac"`
+	ICAC hexBytes `json:"icac,omitempty"`
+	NOC  hexBytes `json:"noc"`
+	IPK  hexBytes `json:"ipk"` // the epoch key
+}
+
+// write writes the capture to testdata/name.
+func (c *capture) write(name string) error {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false) // chip-tool's log has <<< and >>>
+	enc.SetIndent("", "\t")
+	if err := enc.Encode(c); err != nil {
+		return err
+	}
+	return os.WriteFile("testdata/"+name, b.Bytes(), 0o644)
+}
+
+// chipToolLog is the lines of chip-tool's output that say what it sent and received.
+func chipToolLog(out string) []string {
+	var lines []string
+	for line := range strings.Lines(ansi.ReplaceAllString(out, "")) {
+		if strings.Contains(line, "Msg RX") || strings.Contains(line, "Msg TX") || strings.Contains(line, "Rxd Ack") {
+			lines = append(lines, strings.TrimSpace(line))
+		}
+	}
+	return lines
+}
 
 type datagram struct {
 	From string   `json:"from"` // "chip-tool" or "oikade"
@@ -188,24 +224,13 @@ func TestCaptureChipToolPASE(t *testing.T) {
 	stop()
 	_ = cmd.Wait()
 
-	for line := range strings.Lines(ansi.ReplaceAllString(out.String(), "")) {
-		if strings.Contains(line, "Msg RX") || strings.Contains(line, "Msg TX") || strings.Contains(line, "Rxd Ack") {
-			c.ChipToolLog = append(c.ChipToolLog, strings.TrimSpace(line))
-		}
-	}
+	c.ChipToolLog = chipToolLog(out.String())
 	drawn.Lock()
 	defer drawn.Unlock()
 	conn.mu.Lock()
 	c.Datagrams = conn.all
 	conn.mu.Unlock()
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false) // chip-tool's log has <<< and >>>
-	enc.SetIndent("", "\t")
-	if err := enc.Encode(c); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile("testdata/pase-chip-tool.json", b.Bytes(), 0o644); err != nil {
+	if err := c.write("pase-chip-tool.json"); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("chip-tool printed:\n%s", out.String())
