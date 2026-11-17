@@ -254,9 +254,9 @@ func TestWhichModesClashOnOneOutdoorUnit(t *testing.T) {
 		want bool
 	}{
 		{heat, heat, false}, {cool, cool, false}, {auto, auto, false},
-		{cool, dry, false}, {cool, fan, false}, {dry, fan, false},
-		{heat, cool, true}, {heat, dry, true}, {heat, fan, true},
-		{auto, cool, true}, {auto, heat, true}, {auto, fan, true},
+		{cool, dry, false}, {cool, fan, false}, {dry, fan, false}, {heat, fan, false}, {auto, fan, false},
+		{heat, cool, true}, {heat, dry, true},
+		{auto, cool, true}, {auto, heat, true}, {auto, dry, true},
 		{unknown, heat, false}, {noneByte, cool, false},
 	}
 	for _, tt := range tests {

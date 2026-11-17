@@ -689,16 +689,18 @@ func TestAModeThatClashesOnASharedOutdoorUnitIsRefused(t *testing.T) {
 			t.Errorf("%s %v: %v", w.capability, w.value, err)
 		}
 	}
-	// Fan clashes with heating too, and auto may pick either.
-	for _, mode := range []string{"fan", "auto"} {
-		if mode == "auto" {
-			if err := set(study, contractv1.Mode, "auto"); err != nil {
-				t.Fatal(err)
-			}
+	// Fan runs beside heating.
+	for _, on := range []bool{true, false} {
+		if err := set(study, contractv1.On, on); err != nil {
+			t.Errorf("on %v in fan while the bedroom heats: %v", on, err)
 		}
-		if err := set(study, contractv1.On, true); err == nil {
-			t.Errorf("on in %s while the bedroom heats: no error", mode)
-		}
+	}
+	// Auto may pick either.
+	if err := set(study, contractv1.Mode, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(study, contractv1.On, true); err == nil {
+		t.Error("on in auto while the bedroom heats: no error")
 	}
 	// Heating with it is fine, and then the bedroom can't cool.
 	for _, w := range []struct {
@@ -721,8 +723,8 @@ func TestAModeThatClashesOnASharedOutdoorUnitIsRefused(t *testing.T) {
 			t.Errorf("%s %s %v: %v", w.id, w.capability, w.value, err)
 		}
 	}
-	if got := len(cloud.messages()); got != 7 {
-		t.Errorf("sent %d messages, want 7: %v", got, cloud.messages())
+	if got := len(cloud.messages()); got != 9 {
+		t.Errorf("sent %d messages, want 9: %v", got, cloud.messages())
 	}
 }
 

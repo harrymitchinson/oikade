@@ -51,7 +51,7 @@ home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
 }))
 ```
 
-A write that would run one of them in a mode that clashes with another one running then fails and says which one: heating clashes with cooling, dry and fan, and `auto` with every other mode, since it may pick either. Turning a unit off, changing its setpoint, and changing the mode of a unit that's off are never refused, so the Home app can set a mode before turning a unit on. A unit whose mode isn't known yet can't be turned on beside a running one, since it would run in whatever mode it last had. A refused write from the Home app shows on its tile until the unit's next report puts it back. An ID in `OutdoorUnits` that isn't on the account is logged at each login.
+A write that would run one of them in a mode that clashes with another one running then fails and says which one: heating clashes with cooling and dry, and `auto` with heating, cooling and dry, since it may pick either. Fan runs beside any mode. Turning a unit off, changing its setpoint, and changing the mode of a unit that's off are never refused, so the Home app can set a mode before turning a unit on. A unit whose mode isn't known yet can't be turned on beside a running one, since it would run in whatever mode it last had. A refused write from the Home app shows on its tile until the unit's next report puts it back. An ID in `OutdoorUnits` that isn't on the account is logged at each login.
 
 The check counts the writes sent to each unit, from before they're sent, until the unit reports, so two writes at once to units on one outdoor unit can't both pass. A write the unit never reports, say because it lost its WiFi, stops counting after a minute, and its last report is checked instead.
 

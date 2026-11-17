@@ -45,10 +45,11 @@ const (
 	heating8COffset = 16
 )
 
-// modeAuto and modeHeat are auto's and heating's raw values.
+// modeAuto, modeHeat and modeFan are auto's, heating's and fan's raw values.
 const (
 	modeAuto = 0x41
 	modeHeat = 0x43
+	modeFan  = 0x45
 )
 
 // modes are the modes a unit reports, by raw value.
@@ -57,7 +58,7 @@ var modes = map[byte]string{
 	0x42:     contractv1.ModeCool,
 	modeHeat: contractv1.ModeHeat,
 	0x44:     contractv1.ModeDry,
-	0x45:     contractv1.ModeFan,
+	modeFan:  contractv1.ModeFan,
 }
 
 // stateLength is how many hex digits of a state the plugin reads: the merit A and B fields are a
@@ -171,13 +172,14 @@ var (
 )
 
 // clashes is whether units on one outdoor unit can't run modes a and b at once, from Toshiba's
-// manuals for its multi-split units: heating can't run alongside cooling, dry or fan, which all
-// need the outdoor unit the other way. Auto clashes with every other mode, since it may pick
-// either. A mode the plugin doesn't know clashes with nothing.
+// manuals for its multi-split units: heating can't run alongside cooling or dry, which need the
+// outdoor unit the other way. Fan runs beside any mode, since it doesn't use the outdoor unit
+// (OIK-324). Auto clashes with heating, cooling and dry, since it may pick either. A mode the
+// plugin doesn't know clashes with nothing.
 func clashes(a, b byte) bool {
 	_, knowA := modes[a]
 	_, knowB := modes[b]
-	if !knowA || !knowB || a == b {
+	if !knowA || !knowB || a == b || a == modeFan || b == modeFan {
 		return false
 	}
 	return a == modeAuto || b == modeAuto || a == modeHeat || b == modeHeat
