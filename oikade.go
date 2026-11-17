@@ -825,9 +825,9 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.plugins {
-		switch {
-		case !ident.ValidName(p.name):
-			errs = append(errs, ident.CheckName(ident.Plugin, p.name))
+		switch named := ident.CheckName(ident.Plugin, p.name); {
+		case named != nil:
+			errs = append(errs, named)
 		case plugins[p.name]:
 			errs = append(errs, fmt.Errorf("plugin %q is declared twice", p.name))
 		case p.factory == nil:

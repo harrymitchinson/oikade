@@ -66,19 +66,16 @@ func TestSetOnAReadOnlyDirectorySaysWhereToChangeIt(t *testing.T) {
 	}
 }
 
-func TestASetSecretsNameFollowsTheRule(t *testing.T) {
-	dir := t.TempDir()
-	s := &apiServer{log: logging.Discard(), secrets: secrets{dir: dir}}
-	resp := s.secret(api.Request{Type: api.TypeSecretSet, Secret: "Tahoma_Token", SecretValue: "v"})
-	if !strings.Contains(resp.Error, `"Tahoma_Token" isn't a secret name`) || !strings.Contains(resp.Error, `such as "tahoma-token"`) {
-		t.Errorf("error = %q", resp.Error)
-	}
-	// One a plugin kept under the contract's wider rule can still be removed.
-	if err := os.WriteFile(filepath.Join(dir, "1000abc_key"), []byte("v"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if resp := s.secret(api.Request{Type: api.TypeSecretRemove, Secret: "1000abc_key"}); resp.Error != "" {
-		t.Error(resp.Error)
+func TestASecretCanHaveAPluginsName(t *testing.T) {
+	// eWeLink LAN keeps a device's key under the device's ID, which starts with a digit.
+	s := &apiServer{log: logging.Discard(), secrets: secrets{dir: t.TempDir()}}
+	for _, req := range []api.Request{
+		{Type: api.TypeSecretSet, Secret: "1000aabbcc", SecretValue: "v"},
+		{Type: api.TypeSecretRemove, Secret: "1000aabbcc"},
+	} {
+		if resp := s.secret(req); resp.Error != "" {
+			t.Errorf("%s: %s", req.Type, resp.Error)
+		}
 	}
 }
 

@@ -13,7 +13,6 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // DefaultSecretsDir is the secrets' directory inside the data directory, so a backup has them.
@@ -117,13 +116,9 @@ func (s *apiServer) secret(req api.Request) api.Response {
 		}
 		return api.Response{Secrets: found}
 	}
-	// A name you set follows the rule every name Oikade owns does. One a plugin kept follows the
-	// contract's, which is wider, so remove takes that.
-	if req.Type == api.TypeSecretSet {
-		if err := ident.CheckName(ident.Secret, req.Secret); err != nil {
-			return api.Response{Error: err.Error()}
-		}
-	} else if !contractv1.ValidSecretName(req.Secret) {
+	// A plugin may name a secret after its own IDs, such as a device's key under the device's ID, so
+	// this takes any name the contract does. Your home's own follow ident's rule, which oikade check holds.
+	if !contractv1.ValidSecretName(req.Secret) {
 		return api.Response{Error: fmt.Sprintf("%q isn't a secret's name: use letters, digits, '.', '_' and '-'", req.Secret)}
 	}
 	var err error
