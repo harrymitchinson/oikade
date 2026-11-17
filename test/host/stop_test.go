@@ -36,11 +36,16 @@ func (r *rig) gone(what string, pid int) {
 // the process it couldn't stop, and the next start on the same data is a clean one.
 func TestAStopCutOffAtItsTimeoutKillsWhatIsLeft(t *testing.T) {
 	t.Parallel()
-	r := start(t, "--stop-timeout=1s")
+	r := prepare(t)
+	trapped := filepath.Join(r.dir, "trapped")
+	r.env = append(r.env, "OIKADE_TEST_TRAPPED="+trapped)
+	r.launch("--stop-timeout=1s")
+	r.waitFor(func(l line) bool { return l.is(attached) })
 	r.sync()
 	automations := r.pid()
 	// The home's condition never returns, so its process can't stop when asked, for 5 s.
 	r.change("trap", "open", true)
+	r.until("the condition to spin", func() bool { _, err := os.Stat(trapped); return err == nil })
 
 	began := time.Now()
 	err := r.signalled(syscall.SIGTERM)
@@ -68,8 +73,8 @@ func TestAStopCutOffAtItsTimeoutKillsWhatIsLeft(t *testing.T) {
 // a time, exiting 0.
 func TestSIGTERMStopsTheHostAsSIGINTDoes(t *testing.T) {
 	t.Parallel()
-	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGINT} {
-		t.Run(sig.String(), func(t *testing.T) {
+	for name, sig := range map[string]syscall.Signal{"SIGTERM": syscall.SIGTERM, "SIGINT": syscall.SIGINT} {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			r := start(t)
 			r.sync()
@@ -77,7 +82,10 @@ func TestSIGTERMStopsTheHostAsSIGINTDoes(t *testing.T) {
 			if err := r.signalled(sig); err != nil {
 				t.Fatalf("the host exited with %v on %v. The log:\n%s", err, sig, r.dump())
 			}
-			for _, phase := range []string{"Stopping host", "Stopping automations", "Closing store", "Stopped host"} {
+			for _, phase := range []string{
+				"Stopping host", "Stopping API", "Stopping automations", "Finishing device writes",
+				"Stopping plugins", "Closing store", "Stopped host",
+			} {
 				r.waitFor(func(l line) bool { return l.is(phase) })
 			}
 			r.gone("the automations process to stop", automations)

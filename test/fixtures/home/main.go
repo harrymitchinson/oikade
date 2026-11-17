@@ -363,9 +363,15 @@ func home() *oikade.Home {
 			return slices.Max(s.Readings(cellar.Humidity)) > 65
 		})).
 		Default(false)
-	// A bug in a home: a condition that never returns once the sensor says so.
+	// A bug in a home: a condition that never returns once the sensor says so. It marks the file
+	// OIKADE_TEST_TRAPPED, if set, as it starts to spin.
 	h.Decide(on("trap-light")).
 		Case("stuck", true, oikade.ConditionFunc("trap", func(s oikade.Snapshot) bool {
+			if s.Get(open("trap")) {
+				if mark := os.Getenv("OIKADE_TEST_TRAPPED"); mark != "" {
+					_ = os.WriteFile(mark, nil, 0o600)
+				}
+			}
 			for s.Get(open("trap")) {
 				continue
 			}

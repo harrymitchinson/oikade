@@ -89,15 +89,7 @@ func (r *rig) calls() int {
 // stop stops the host, and returns once its store is free.
 func (r *rig) stop() {
 	r.t.Helper()
-	if err := r.cmd.Process.Signal(os.Interrupt); err != nil {
-		r.t.Fatal(err)
-	}
-	select {
-	case err := <-r.exit:
-		r.exit <- err
-	case <-time.After(waitLimit):
-		r.t.Fatalf("the host didn't stop. The log:\n%s", r.dump())
-	}
+	_ = r.signalled(os.Interrupt)
 }
 
 // died waits for a host killed by a fault point.
