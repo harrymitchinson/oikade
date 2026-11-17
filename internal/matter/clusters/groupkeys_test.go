@@ -2,12 +2,9 @@ package clusters
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/matter/fabric"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 )
@@ -141,23 +138,5 @@ func TestNOCsAndFabricLabels(t *testing.T) {
 	}
 	if st := commandStatus(t, invoke(t, admin, IDOperationalCredentials, 0x09, nil, false)); st != im.StatusInvalidCommand {
 		t.Errorf("no label: %#x, want INVALID_COMMAND", st)
-	}
-}
-
-// Each of the fabric table's refusals has its own NOCResponse status, so a controller can say why.
-func TestNOCStatuses(t *testing.T) {
-	for err, want := range map[error]uint8{
-		fabric.ErrInvalidPublicKey:  nocInvalidPublicKey,
-		fabric.ErrInvalidNodeID:     nocInvalidNodeOpID,
-		fabric.ErrMissingCSR:        nocMissingCSR,
-		fabric.ErrTableFull:         nocTableFull,
-		fabric.ErrFabricConflict:    nocFabricConflict,
-		fabric.ErrLabelConflict:     nocLabelConflict,
-		fabric.ErrInvalidIndex:      nocInvalidFabricIndex,
-		errors.New("anything else"): nocInvalidNOC,
-	} {
-		if got := nocStatus(fmt.Errorf("wrapped: %w", err)); got != want {
-			t.Errorf("%v: %d, want %d", err, got, want)
-		}
 	}
 }

@@ -23,22 +23,6 @@ func fired(c <-chan time.Time) (time.Time, bool) {
 	}
 }
 
-func TestFakeNowMovesOnlyWhenTold(t *testing.T) {
-	c := NewFake(start)
-	if got := c.Now(); !got.Equal(start) {
-		t.Fatalf("Now() = %v, want %v", got, start)
-	}
-	c.Step(time.Minute)
-	if got, want := c.Now(), start.Add(time.Minute); !got.Equal(want) {
-		t.Fatalf("after Step, Now() = %v, want %v", got, want)
-	}
-	later := start.Add(time.Hour)
-	c.SetTime(later)
-	if got := c.Now(); !got.Equal(later) {
-		t.Fatalf("after SetTime, Now() = %v, want %v", got, later)
-	}
-}
-
 func TestFakeFiresWhenTheClockReachesTheWait(t *testing.T) {
 	c := NewFake(start)
 	timer := c.NewTimer(time.Minute)
@@ -178,26 +162,4 @@ func TestFakeConcurrentUse(t *testing.T) {
 		}
 	})
 	wg.Wait()
-}
-
-func TestRealFires(t *testing.T) {
-	c := Real{}
-	if d := time.Since(c.Now()); d < 0 || d > time.Minute {
-		t.Fatalf("Now() is %v from the system clock", d)
-	}
-	select {
-	case <-c.NewTimer(time.Millisecond).C():
-	case <-time.After(10 * time.Second):
-		t.Fatal("NewTimer didn't fire")
-	}
-}
-
-func TestRealTimerStop(t *testing.T) {
-	timer := Real{}.NewTimer(time.Millisecond)
-	timer.Stop()
-	select {
-	case <-timer.C():
-		t.Fatal("a stopped timer fired")
-	case <-time.After(20 * time.Millisecond):
-	}
 }

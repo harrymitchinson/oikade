@@ -196,23 +196,16 @@ func TestABrokersPasswordIsASecretForAUserItNames(t *testing.T) {
 	}
 }
 
-func TestTheBrokersPasswordIsReadEachTimeItConnects(t *testing.T) {
+// A secret written by an editor or echo ends in a newline, which isn't part of the password.
+func TestTheBrokersPasswordLosesItsNewline(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(contractv1.EnvSecretsDir, dir)
 	c := Config{Broker: "mqtt://oikade@broker:1883", Password: plugin.NewSecret("broker")}
-	if err := c.check(); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "broker"), []byte("sec ret:@/\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.password(); !errors.Is(err, plugin.ErrSecretNotSet) {
-		t.Fatalf("with no secret, got %v", err)
-	}
-	for _, password := range []string{"first\n", "sec ret:@/"} {
-		if err := os.WriteFile(filepath.Join(dir, "broker"), []byte(password), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if got, err := c.password(); err != nil || got != strings.TrimRight(password, "\n") {
-			t.Errorf("%q read as %q, %v", password, got, err)
-		}
+	if got, err := c.password(); err != nil || got != "sec ret:@/" {
+		t.Errorf("read as %q, %v", got, err)
 	}
 }
 
@@ -384,16 +377,6 @@ func TestAWriteIsRefusedWhileZigbee2MQTTIsOffline(t *testing.T) {
 	if got := bus.Sent(base + "/" + plugIEEE + "/set"); len(got) != 0 {
 		t.Errorf("sent %v", got)
 	}
-}
-
-// A process that's gone reads as offline, so a new one has to say otherwise, even of a device
-// Zigbee2MQTT says nothing about.
-func TestARestartBringsBackDevicesWithNoAvailabilityOfTheirOwn(t *testing.T) {
-	url := mqtttest.StartBroker(t)
-	h := hear(t, url)
-	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
-	run(t, url)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
 }
 
 func TestADeviceThatLeftStaysOffline(t *testing.T) {

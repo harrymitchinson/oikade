@@ -130,12 +130,13 @@ func TestGatewayPIN(t *testing.T) {
 }
 
 func TestAPINIsChecked(t *testing.T) {
-	for _, l := range []Local{
-		{Address: "192.168.1.40:8443", PIN: "1234"},
-		{Address: "gateway-1234-5678-9012.local:8443", PIN: "1111-2222-3333"},
+	for l, want := range map[Local]string{
+		{Address: "192.168.1.40:8443", PIN: "1234"}: `has PIN "1234": it's the hub's PIN`,
+		{Address: "gateway-1234-5678-9012.local:8443", PIN: "1111-2222-3333"}: `has PIN "1111-2222-3333", but its Address ` +
+			`"gateway-1234-5678-9012.local:8443" has the PIN "1234-5678-9012"`,
 	} {
-		if err := l.check(); err == nil {
-			t.Errorf("%+v was taken", l)
+		if err := l.check(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%+v: got %v, want %q", l, err, want)
 		}
 	}
 	for _, l := range []Local{

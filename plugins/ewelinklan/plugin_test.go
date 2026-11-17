@@ -44,6 +44,8 @@ type fakeLAN struct {
 	closed  chan struct{}
 	once    sync.Once
 	queries atomic.Int32
+	// asked is the last query's questions.
+	asked atomic.Pointer[[]dnsmessage.Question]
 }
 
 func newFakeLAN() *fakeLAN {
@@ -61,8 +63,13 @@ func (f *fakeLAN) Read(b []byte) (int, error) {
 
 var errClosedLAN = errors.New("closed")
 
-func (f *fakeLAN) Send([]byte) error {
+func (f *fakeLAN) Send(b []byte) error {
 	f.queries.Add(1)
+	var msg dnsmessage.Message
+	if err := msg.Unpack(b); err != nil {
+		return err
+	}
+	f.asked.Store(&msg.Questions)
 	return nil
 }
 
@@ -821,6 +828,10 @@ func TestItAsksForDevices(t *testing.T) {
 	timings.query = 0 // every sweep
 	b := start(t, Config{}, timings)
 	b.eventually("repeated questions", func() bool { return b.lan.queries.Load() > 3 })
+	want := dnsmessage.Question{Name: name(serviceType), Type: dnsmessage.TypePTR, Class: dnsmessage.ClassINET}
+	if asked := *b.lan.asked.Load(); len(asked) == 0 || asked[0] != want {
+		t.Errorf("asked %v, want %v first", asked, want)
+	}
 }
 
 func TestAGoodbyeOrAnAddressIsntHearingFromADevice(t *testing.T) {

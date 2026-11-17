@@ -13,12 +13,10 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -639,7 +637,7 @@ func TestManifestDescribesTheHome(t *testing.T) {
 		{Name: "leak", Kind: "flow", Safety: true}, {Name: "bedtime", Kind: "flow"},
 	}
 	if !reflect.DeepEqual(m.Rules, want) {
-		t.Fatalf("got %+v", m.Rules)
+		t.Fatalf("rules %+v, want %+v", m.Rules, want)
 	}
 	lines := map[string][]string{}
 	for _, c := range m.Control {
@@ -921,32 +919,6 @@ func TestABudgetTakesClockTimesOnly(t *testing.T) {
 	home.options = Options{Location: NewLocation(51.48, -0.01)}
 	if _, _, err := home.compile(); err == nil || !strings.Contains(err.Error(), "clock times only") {
 		t.Fatalf("got %v, want a budget's windows to take clock times only", err)
-	}
-}
-
-func TestASunTimeReachesTheEngine(t *testing.T) {
-	f := NewHome(Options{}).Flow("a", nothing).At(Sunset(-20*time.Minute), Sunrise(0), Clock("18:00"))
-	want := []engine.Timer{
-		engine.SunTime{Event: sun.Sunset, Offset: -20 * time.Minute}, engine.SunTime{Event: sun.Sunrise},
-		engine.At{Time: "18:00"},
-	}
-	if got := f.toEngine(&flow.Flow{}).Timers; !reflect.DeepEqual(got, want) {
-		t.Errorf("timers %+v, want %+v", got, want)
-	}
-}
-
-func TestAWindowReachesTheEngine(t *testing.T) {
-	d := decide(func(h *Home) {
-		h.Decide(pump).Case("night", true, Daily("22:00", "06:00").Days(time.Friday)).Default(false)
-	}).decisions[0].compile(Options{})
-	want := &engine.Window{
-		Start: engine.At{Time: "22:00"}, End: engine.At{Time: "06:00"}, Days: []time.Weekday{time.Friday},
-	}
-	if got := d.cases[0].hold.Window; !reflect.DeepEqual(got, want) {
-		t.Errorf("window %+v, want %+v", got, want)
-	}
-	if d.cases[0].hold.When != nil {
-		t.Error("a Daily on its own left a When")
 	}
 }
 

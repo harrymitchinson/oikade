@@ -339,3 +339,11 @@ func TestANewTargetIsPlannedForAtOnce(t *testing.T) {
 		t.Errorf("plan for %s, want a new one for towel-rail", p.device)
 	}
 }
+
+func TestNewHoldBudgetIsTheOnlyCondition(t *testing.T) {
+	h := pumpBudget
+	h.Latch, h.When = true, func(Vars) (bool, error) { return true, nil }
+	if _, err := NewHold(ident.ID{Name: "x"}, h); err == nil {
+		t.Fatal("a budget with a when compiled")
+	}
+}

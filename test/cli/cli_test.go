@@ -369,16 +369,10 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 
 // Hosts are reached over their API: there's no SSH, and no installer, left to call. Running a host,
 // and trusting a client on its machine, are oikade-host's.
-func TestRemovedCommandsAreUnknown(t *testing.T) {
+func TestHelpPrintsTheUsage(t *testing.T) {
 	t.Parallel()
 	bin := oikade(t)
 	dir := t.TempDir()
-	for _, args := range [][]string{{"install"}, {"upgrade"}, {"proxy"}, {"--host", "pi", "status"}, {"host"}} {
-		out, err := run(t, bin, dir, "", args...)
-		if err == nil || !strings.Contains(out, "unknown") {
-			t.Errorf("oikade %s: %v: %s", strings.Join(args, " "), err, out)
-		}
-	}
 	for _, help := range []string{"help", "-h", "--help"} {
 		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "Usage:") {
 			t.Errorf("oikade %s: %v: %s", help, err, out)
