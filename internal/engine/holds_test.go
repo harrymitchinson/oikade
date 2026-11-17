@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -185,7 +186,7 @@ func (r *rig) expect(want ...call) {
 }
 
 func (r *rig) active(name string) float64 {
-	return r.e.metrics.active.Gauge(name).Get()
+	return r.e.metrics.active.Gauge(ruleRef(ident.ID{Name: name})).Get()
 }
 
 var heaterNight = Hold{Device: "water-heater", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}}
@@ -771,5 +772,18 @@ func TestAnUnloadedHoldIsNoLongerStopped(t *testing.T) {
 	defer mu.Unlock()
 	if want := []string{"workshop-temp temperature hasn't reported", ""}; !slices.Equal(heard, want) {
 		t.Errorf("heard %q, want %q", heard, want)
+	}
+}
+
+func TestARulesSeriesAndLogLinesNameItByItsRef(t *testing.T) {
+	r := startRig(t, local("2026-10-21 21:59 BST"), nil, nil, nil, holdRule(t, "water-heater on night", heaterNight))
+	r.at("2026-10-21 22:00 BST")
+	r.expect(call{"water-heater", capability.On, true})
+	if got := r.e.metrics.active.Names(); !slices.Equal(got, []string{`oikade_rule_active{rule="case/water-heater/on/night"}`}) {
+		t.Errorf("series %v", got)
+	}
+	r.e.release(ident.ID{Name: "lamp on dusk"})
+	if !r.logs.Has("Released no hold", "rule=case/lamp/on/dusk") {
+		t.Errorf("the log:\n%s", strings.Join(r.logs.Lines(), "\n"))
 	}
 }

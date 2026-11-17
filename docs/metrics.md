@@ -6,7 +6,7 @@ What the host exposes for Prometheus and Grafana, and what it logs.
 
 The host serves these on `:8080/metrics`, and health on `:8080/healthz`, over HTTP. That listener is read-only and apart from the local API. It's open to whoever can reach the port, and it shows device names and values. `--metrics-addr` moves it, such as to `127.0.0.1:8080`, and an empty value turns it off. If the port is taken the host logs that and carries on without it. Your process's rule metrics reach the host every 5 seconds, so a scrape can be that far behind, and they go when the process does. `oikade_undeclared_devices` and the plugin metrics have no series on the host yet. With Matter off (`--matter-port=0`) there are no `oikade_matter_*` series.
 
-Each family on `/metrics` has its `# TYPE`, and an empty `# HELP`: the table below says what each metric is. The host serves your process's rule metrics only if they're all `oikade_rule_*` and well formed, and logs `Refused rule metrics from your process` when they aren't.
+Each family on `/metrics` has its `# TYPE`, and an empty `# HELP`: the table below says what each metric is. The host serves your process's rule metrics only if they're all `oikade_rule_*` and well formed, and logs `Refused rule metrics from your process` when they aren't. A rule metric's `rule` label is the case's or the flow's [ref](devices.md#refs), such as `rule="case/towel-rail/on/evening"` or `rule="flow/morning"`, so it pastes into `oikade pause`. `device`, `room` and `capability` labels are bare names, for PromQL.
 
 Point Prometheus at it, and import [`config/grafana/oikade-home.json`](../config/grafana/oikade-home.json) into Grafana for the "Oikade home" dashboard.
 

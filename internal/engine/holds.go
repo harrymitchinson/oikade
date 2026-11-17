@@ -125,7 +125,7 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 		hs.emptyRoom = ""
 	case hs.emptyRoom != empty.Room:
 		hs.emptyRoom = empty.Room
-		e.Log.Warn("Rule read a Room with no members", "rule", key, "room", empty.Room)
+		e.Log.Warn("Rule read a Room with no members", "rule", ruleRef(key), "room", empty.Room)
 	}
 	if err != nil {
 		e.stopped(key, hs, err.Error())
@@ -133,15 +133,15 @@ func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, 
 		e.stopped(key, hs, "")
 	}
 	if broken, ok := errors.AsType[brokenCondition](err); ok {
-		e.Log.Info("Hold's when failed; keeping its state", "rule", key, "err", broken)
+		e.Log.Info("Hold's when failed; keeping its state", "rule", ruleRef(key), "err", broken)
 		hs.unknown = true
 		return false, false, next
 	}
 	if err != nil {
 		if hs.unknown {
-			e.Log.Debug("Could not evaluate hold; keeping its state", "rule", key, "err", err)
+			e.Log.Debug("Could not evaluate hold; keeping its state", "rule", ruleRef(key), "err", err)
 		} else {
-			e.Log.Info("Could not evaluate hold; keeping its state until it can", "rule", key, "err", err)
+			e.Log.Info("Could not evaluate hold; keeping its state until it can", "rule", ruleRef(key), "err", err)
 			hs.unknown = true
 		}
 		return false, false, next
@@ -253,7 +253,7 @@ func (e *Engine) whyNot(key ident.ID, hs *holdState, h *hold, inactive bool, now
 func (e *Engine) whenKnown(key ident.ID, hs *holdState) {
 	if hs.unknown {
 		hs.unknown = false
-		e.Log.Info("Evaluated hold again", "rule", key)
+		e.Log.Info("Evaluated hold again", "rule", ruleRef(key))
 	}
 }
 
@@ -326,7 +326,7 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 		hs.retry = time.Time{}
 	}
 
-	e.metrics.active.Set(float64(btoi(st.Active)), key.Name)
+	e.metrics.active.Set(float64(btoi(st.Active)), ruleRef(key))
 	// An active hold claims again when its priority or latch changed, or it has just loaded.
 	claim := control.Claim{Source: ruleSource(key.Name), Level: claimLevel(h.priority), Latched: h.latch}
 	reclaim := active && st.Active && (hs.claimed == nil || *hs.claimed != claim)
@@ -619,7 +619,7 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 	// state again and retries.
 	if ended && !saved {
 		if err := e.States.Put(ctx, key, st); err != nil && ctx.Err() == nil {
-			e.Log.Error("Failed to save hold state", "err", err, "rule", key)
+			e.Log.Error("Failed to save hold state", "err", err, "rule", ruleRef(key))
 		}
 	}
 
@@ -672,7 +672,7 @@ func (e *Engine) saveStart(ctx context.Context, key ident.ID, st HoldState, sinc
 	st.Active, st.Since = true, since
 	if err := e.States.Put(ctx, key, st); err != nil {
 		if ctx.Err() == nil {
-			e.Log.Error("Failed to save hold state", "err", err, "rule", key)
+			e.Log.Error("Failed to save hold state", "err", err, "rule", ruleRef(key))
 		}
 		return false
 	}
@@ -690,7 +690,7 @@ func (e *Engine) onlyClaims(t HoldTarget) bool {
 
 func (e *Engine) deleteState(key ident.ID) {
 	if err := e.States.Delete(context.Background(), key); err != nil {
-		e.Log.Error("Failed to delete hold state", "err", err, "rule", key)
+		e.Log.Error("Failed to delete hold state", "err", err, "rule", ruleRef(key))
 	}
 }
 
@@ -750,7 +750,7 @@ func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, cla
 			retry = max(retry, d)
 			continue
 		}
-		e.Log.Info("Held Room member that joined", "rule", key, "device", dev.Name, "room", t.Room)
+		e.Log.Info("Held Room member that joined", "rule", ruleRef(key), "device", dev.Name, "room", t.Room)
 		added = append(added, dev)
 	}
 	return added, retry
@@ -768,7 +768,7 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 	if b, ok := value.(bool); ok && !start {
 		value = !b
 	}
-	log := e.Log.With("rule", key, "capability", t.Capability)
+	log := e.Log.With("rule", ruleRef(key), "capability", t.Capability)
 	devices := named(t)
 	if t.Room != "" {
 		waiting := false
@@ -883,7 +883,7 @@ func (e *Engine) release(key ident.ID) {
 	defer e.mu.Unlock()
 	s := e.rules[key]
 	if s == nil || s.hold == nil {
-		e.Log.Info("Released no hold; the Rule isn't loaded or has none", "rule", key)
+		e.Log.Info("Released no hold; the Rule isn't loaded or has none", "rule", ruleRef(key))
 		return
 	}
 	s.hold.released = true

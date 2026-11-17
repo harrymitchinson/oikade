@@ -450,7 +450,7 @@ func (e *Engine) recordOutside(dev ident.ID, name string, ar *arb, v float64) {
 		source = w.source
 	}
 	if err := ar.a.Outside(source, v); err != nil {
-		e.Log.Error("Failed to record outside change", "err", err, "device", dev, "capability", name, "source", source)
+		e.Log.Error("Failed to record outside change", "err", err, "device", dev, "capability", name, "source", control.SourceRef(source))
 	}
 }
 
@@ -585,7 +585,7 @@ func (e *Engine) Claim(ctx context.Context, dev ident.ID, name string, c control
 // makeClaim gives the arbiter a claim and decides again. Call with e.mu held.
 func (e *Engine) makeClaim(ctx context.Context, dev ident.ID, name string, ar *arb, c control.Claim) {
 	if err := ar.a.Claim(c); err != nil {
-		e.Log.Error("Failed to claim", "err", err, "device", dev, "capability", name, "source", c.Source)
+		e.Log.Error("Failed to claim", "err", err, "device", dev, "capability", name, "source", control.SourceRef(c.Source))
 		return
 	}
 	e.decide(ctx, dev, name, ar)

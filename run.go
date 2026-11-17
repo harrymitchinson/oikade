@@ -112,7 +112,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
-				log.Info("Could not plan budget", "rule", key.Name, "reason", r.Reason, "message", r.Message)
+				log.Info("Could not plan budget", "rule", control.RuleRef(key.Name), "reason", r.Reason, "message", r.Message)
 			}
 		},
 	}
@@ -321,7 +321,7 @@ func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire)
 			return
 		case f := <-fires:
 			if err := client.SaveFire(ctx, f.rule, f.at); err != nil {
-				log.Error("Failed to save timer fire", "err", err, "rule", f.rule)
+				log.Error("Failed to save timer fire", "err", err, "rule", control.RuleRef(f.rule))
 			}
 		}
 	}

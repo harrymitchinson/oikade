@@ -183,7 +183,7 @@ func killAt(t *testing.T, r *rig, point string, step int) {
 		r.stop()
 		return
 	}
-	r.waitFor(func(l line) bool { return l.is(finished, "rule", "routine") })
+	r.waitFor(func(l line) bool { return l.is(finished, "rule", "flow/routine") })
 	r.stop()
 }
 
@@ -246,7 +246,7 @@ func TestChangedFlowIsDroppedAndTheNextTriggerStartsAgain(t *testing.T) {
 	r.launch()
 	r.awaitLoaded()
 	r.contact("edit-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "editable") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/editable") })
 	r.sync()
 
 	// The edit lands while it waits, and takes effect when the process is replaced.
@@ -255,7 +255,7 @@ func TestChangedFlowIsDroppedAndTheNextTriggerStartsAgain(t *testing.T) {
 	}
 	r.kill()
 	r.waitFor(func(l line) bool {
-		return l.is("Dropped flow run; its code changed while it waited", "rule", "editable")
+		return l.is("Dropped flow run; its code changed while it waited", "rule", "flow/editable")
 	})
 	r.sync()
 	if n := r.count(wrote, "device", "edit-out"); n != 0 {
@@ -273,16 +273,16 @@ func TestClaimInAFlowSurvivesAKillAndIsReleased(t *testing.T) {
 	r.awaitLoaded()
 	r.contact("claim-flow-go", true)
 	r.wrote("claimed-flow", false)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 
 	r.kill()
 	if resumed := r.awaitLoaded(); resumed != 1 {
 		t.Fatalf("resumed %d runs", resumed)
 	}
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 	r.change("claim-end", opened, true)
 	r.wrote("claimed-flow", true)
-	r.waitFor(func(l line) bool { return l.is(finished, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(finished, "rule", "flow/claiming") })
 }
 
 // TestClaimSurvivesTheHostDyingRightAfterItsAnswer is the gap a save behind the answer leaves open:
@@ -340,10 +340,10 @@ func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
 		r.contact("fail-go", true)
 		r.wrote("claimed-normal", false)
 		r.wrote("claimed-safety", false)
-		r.waitFor(func(l line) bool { return l.is(waiting, "rule", "failing") })
+		r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/failing") })
 		return r
 	}
-	failed := func(l line) bool { return l.is("Failed flow run", "rule", "failing") }
+	failed := func(l line) bool { return l.is("Failed flow run", "rule", "flow/failing") }
 
 	t.Run("the claim's device goes back, and the Safety one's doesn't", func(t *testing.T) {
 		r := start(t)
@@ -367,7 +367,7 @@ func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
 		if resumed := r.awaitLoaded(); resumed != 1 {
 			t.Fatalf("resumed %d runs", resumed)
 		}
-		r.waitFor(func(l line) bool { return l.is(waiting, "rule", "failing") })
+		r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/failing") })
 		r.change("fail-now", opened, true)
 		r.waitFor(failed)
 		survivesRestart(t, r)

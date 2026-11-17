@@ -324,7 +324,7 @@ func (h *harness) motion(v bool) {
 }
 
 func (h *harness) runs(result string) float64 {
-	return float64(h.e.metrics.runs.Counter("motion-light", result).Get())
+	return float64(h.e.metrics.runs.Counter("flow/motion-light", result).Get())
 }
 
 func (h *harness) eventually(what string, cond func() bool) {

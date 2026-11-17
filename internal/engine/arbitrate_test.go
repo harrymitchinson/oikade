@@ -593,7 +593,7 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 
 	// Leaving out what the set's types leave out is what it was written to do, so the run succeeds.
 	r.eventually("the run to succeed", func() bool {
-		return r.e.metrics.runs.Counter("living-room-off", ResultSucceeded).Get() == 1
+		return r.e.metrics.runs.Counter("flow/living-room-off", ResultSucceeded).Get() == 1
 	})
 
 	if _, err := (Set{Device: "fridge-plug", DeviceTypes: lights, Capability: capability.On, Value: false}).action(); err == nil {

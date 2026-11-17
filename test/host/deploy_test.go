@@ -366,7 +366,7 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 		t.Fatalf("the process changed. The log:\n%s", r.dump())
 	}
 	r.mustDeploy("renamed", "--allow-safety-removal")
-	if r.count(ended, "rule", "valve on leak-shutoff", "highest", "Safety") != 1 {
+	if r.count(ended, "rule", "case/valve/on/leak-shutoff", "highest", "Safety") != 1 {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
 	r.stop()
@@ -389,7 +389,7 @@ func TestRemovedRulesLeaveNothingBehind(t *testing.T) {
 	r.change("claim-go", opened, true)
 	r.sync()
 	r.mustDeploy("removed")
-	if r.count(ended, "rule", "claim-moment") != 1 {
+	if r.count(ended, "rule", "flow/claim-moment") != 1 {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
 	r.stop()
@@ -439,7 +439,7 @@ func TestAFailedVersionLeavesNoClaimsOfItsOwn(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
 	}
-	r.waitFor(func(l line) bool { return l.is(ended, "rule", "claim-moment-2") })
+	r.waitFor(func(l line) bool { return l.is(ended, "rule", "flow/claim-moment-2") })
 	r.stop()
 	if got := r.ruleClaims("claimed"); len(got) != 0 {
 		t.Fatalf("got %+v", got)
@@ -478,7 +478,7 @@ func TestAFailedVersionLeavesAFlowItDroppedAlone(t *testing.T) {
 	r.launch(longSettle)
 	r.awaitLoaded()
 	r.contact("claim-flow-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 	r.sync()
 	r.crashAfterLoading("crash-noflow")
 	if got := r.awaitLoaded(); got != 1 {
@@ -499,7 +499,7 @@ const (
 func (r *rig) claimWaiting() {
 	r.t.Helper()
 	r.contact("claim-flow-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 	r.sync()
 }
 
@@ -637,11 +637,11 @@ func TestAClaimMadeAgainWhileSettlingOutlivesTheDeploy(t *testing.T) {
 	r.awaitLoaded()
 	// The new process resumes the old run and drops it after loading. A trigger before then finds
 	// that run still going and starts no other.
-	r.waitFor(func(l line) bool { return l.is(droppedEdited, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(droppedEdited, "rule", "flow/claiming") })
 	r.sync()
 	r.contact("claim-flow-go", false)
 	r.contact("claim-flow-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 	if err := <-done; err != nil {
 		t.Fatalf("%v. The log:\n%s", err, r.dump())
 	}
@@ -659,7 +659,7 @@ func TestABinaryChangedWithoutADeployLeavesAFlowAlone(t *testing.T) {
 	r.launch(settle)
 	r.awaitLoaded()
 	r.contact("claim-flow-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 	r.sync()
 	r.stop()
 	r.launchWithout("--home", variant(t, "noflow"), "--simulate", devicesFile(t), settle)
@@ -682,10 +682,10 @@ func TestADeployedVersionEndsAFlowItDropped(t *testing.T) {
 	r.launch(settle)
 	r.awaitLoaded()
 	r.contact("claim-flow-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 	r.sync()
 	r.mustDeploy("noflow")
-	if r.count(ended, "rule", "claiming") != 1 {
+	if r.count(ended, "rule", "flow/claiming") != 1 {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
 	r.stop()
@@ -784,7 +784,7 @@ func TestAFailedEndKeepsARunsJournal(t *testing.T) {
 	r.launch(settle)
 	r.awaitLoaded()
 	r.contact("claim-flow-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "claiming") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/claiming") })
 	r.sync()
 	stderr, err := r.deploy("noflow")
 	if err == nil || !strings.Contains(stderr, "retry") {
@@ -856,7 +856,7 @@ func TestAFailedVersionSparesARunOfAFlowTheLastOneLacks(t *testing.T) {
 	r.launch(settle)
 	r.awaitLoaded()
 	r.contact("park-go", true)
-	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "parked") })
+	r.waitFor(func(l line) bool { return l.is(waiting, "rule", "flow/parked") })
 	r.sync()
 	r.stop()
 	r.launchWithout("--home", variant(t, "nopark"), "--simulate", devicesFile(t), settle)
@@ -908,7 +908,7 @@ func TestRedeployingRetriesAFailedRemoval(t *testing.T) {
 	if _, err := r.deploy("removed"); err != nil {
 		t.Fatal(err)
 	}
-	r.waitFor(func(l line) bool { return l.is(ended, "rule", "claim-moment") })
+	r.waitFor(func(l line) bool { return l.is(ended, "rule", "flow/claim-moment") })
 }
 
 // Only a deploy ends a rule, so a binary changed behind the host's back can't get past the check.
@@ -950,7 +950,7 @@ func TestRemovalsFinishAfterACrash(t *testing.T) {
 		t.Fatalf("the removal came first. The log:\n%s", r.dump())
 	}
 	r.launch(settle)
-	r.waitFor(func(l line) bool { return l.is(ended, "rule", "claim-moment") })
+	r.waitFor(func(l line) bool { return l.is(ended, "rule", "flow/claim-moment") })
 	r.awaitLoaded()
 	r.stop()
 	// The simulator starts claimed at its file's on, which isn't the rule's off the host saved. That

@@ -544,10 +544,10 @@ func (s *server) reconcile(rules, flows []string) error {
 			err = errors.New("dropped by a fault point")
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", rule, err))
+			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", control.RuleRef(rule), err))
 			continue
 		}
-		s.log.Info("Ended the claims of a removed rule", "rule", rule, "highest", level.String())
+		s.log.Info("Ended the claims of a removed rule", "rule", control.RuleRef(rule), "highest", level.String())
 	}
 	for _, saved := range []interface {
 		Names() ([]string, error)
@@ -563,10 +563,10 @@ func (s *server) reconcile(rules, flows []string) error {
 				continue
 			}
 			if err := saved.Delete(s.ctx, key(name)); err != nil {
-				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", name, err))
+				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", control.RuleRef(name), err))
 				continue
 			}
-			s.log.Info("Forgot the saved state of a removed rule", "rule", name)
+			s.log.Info("Forgot the saved state of a removed rule", "rule", control.RuleRef(name))
 		}
 	}
 	if len(errs) > 0 {
@@ -678,9 +678,9 @@ func (s *server) endReleased() error {
 		}
 		delete(s.held, r)
 		if ended {
-			s.log.Info("Ended the claim of a flow run", "source", r.Source, "device", r.Device, "capability", r.Capability)
+			s.log.Info("Ended the claim of a flow run", "source", control.SourceRef(r.Source), "device", r.Device, "capability", r.Capability)
 		} else {
-			s.log.Info("Found no claim of a flow run to end", "source", r.Source, "device", r.Device, "capability", r.Capability)
+			s.log.Info("Found no claim of a flow run to end", "source", control.SourceRef(r.Source), "device", r.Device, "capability", r.Capability)
 		}
 	}
 	return errors.Join(errs...)

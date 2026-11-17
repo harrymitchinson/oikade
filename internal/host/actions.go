@@ -472,7 +472,7 @@ func (s *server) setPaused(ctx context.Context, rule string, paused bool) error 
 		return fmt.Errorf("saving the pause: %w", err)
 	}
 	s.broadcast(m)
-	s.log.Info("Changed rule pause", "rule", rule, "paused", paused)
+	s.log.Info("Changed rule pause", "rule", control.RuleRef(rule), "paused", paused)
 	s.emit(api.Event{Time: time.Now(), Type: api.EventPause, Rule: rule, Message: what})
 	if paused {
 		if err := s.engine.ReleaseRule(ctx, key(rule)); err != nil {
