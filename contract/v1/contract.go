@@ -195,6 +195,7 @@ type DiscoveredDevice struct {
 
 // DeviceReport is one declared device in the devices payload.
 type DeviceReport struct {
+	// ID is the device's ID from the devices file, a ValidID listed once.
 	ID    string `json:"id"`
 	Found bool   `json:"found"`
 	// Manufacturer, Model, Capabilities and DeviceType matter only when Found is true.

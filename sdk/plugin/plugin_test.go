@@ -584,6 +584,13 @@ func TestSetDiscovered(t *testing.T) {
 	if err := p.SetDevices(ctx, old, 0); err == nil || !strings.Contains(err.Error(), "unknown capability switch.on") {
 		t.Errorf("SetDevices with switch.on: %v", err)
 	}
+	for _, bad := range [][]contractv1.DeviceReport{
+		{{ID: ""}}, {{ID: "a/b"}}, {{ID: "relay"}, {ID: "relay", Found: true}},
+	} {
+		if err := p.SetDevices(ctx, bad, 0); err == nil {
+			t.Errorf("SetDevices(%+v) succeeded, want an error", bad)
+		}
+	}
 	typed := []contractv1.DeviceReport{{ID: "relay", Found: true, Capabilities: []string{"on"}, DeviceType: "Kettle"}}
 	if err := p.SetDevices(ctx, typed, 0); err == nil || !strings.Contains(err.Error(), "unknown device type Kettle") {
 		t.Errorf("SetDevices with an unknown device type: %v", err)

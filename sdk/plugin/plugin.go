@@ -215,9 +215,18 @@ func newClientID() string {
 
 // SetDevices publishes the devices this plugin serves. List every device from devices.json.
 // Values a device no longer announces are dropped from its state, and that state is republished.
-// It refuses a capability or a device type Oikade doesn't know, and publishes nothing.
+// It refuses an invalid or repeated ID, and a capability or a device type Oikade doesn't know, and
+// publishes nothing.
 func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceReport, undeclared int) error {
+	seen := map[string]bool{}
 	for _, d := range devices {
+		if !contractv1.ValidID(d.ID) {
+			return fmt.Errorf("device id %q is not valid", d.ID)
+		}
+		if seen[d.ID] {
+			return fmt.Errorf("device %s is listed twice", d.ID)
+		}
+		seen[d.ID] = true
 		for _, c := range d.Capabilities {
 			if _, ok := capability.Lookup(c); !ok {
 				return fmt.Errorf("device %s: unknown capability %s", d.ID, c)

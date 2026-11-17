@@ -52,17 +52,42 @@ func TestAMalformedDevicesMessageKeepsTheLastOne(t *testing.T) {
 	}
 }
 
-// TestADevicesMessageWithInvalidUTF8 reads as JSON does: each invalid byte is U+FFFD, so an ID or a
-// capability with one is another ID or capability.
+// TestADevicesMessageWithInvalidUTF8 reads as JSON does: each invalid byte is U+FFFD, so a
+// capability with one is another capability, and an ID with one is invalid.
 func TestADevicesMessageWithInvalidUTF8(t *testing.T) {
 	i, bus, rec := setup(t, online())
 	payload := `{"devices":[{"id":"1000aa","found":true,"capabilities":["on","on` + "\xff" + `"]},{"id":"1000bb` + "\xfe" + `","found":true}]}`
-	wantDelta(t, "devices", rejectedDelta(t, i, bus, root+"/devices", payload), map[string]uint64{ReasonUnknownCapability: 1})
+	wantDelta(t, "devices", rejectedDelta(t, i, bus, root+"/devices", payload), map[string]uint64{ReasonUnknownCapability: 1, ReasonMalformed: 1})
 	if got := rec.discovered[porch]; !got.Found || len(got.Capabilities) != 1 || got.Capabilities[0] != capability.On {
 		t.Errorf("porch = %+v, want on alone", got)
 	}
 	if got := rec.discovered[hall]; got.Found {
-		t.Errorf("hall = %+v, want not found: its ID was another", got)
+		t.Errorf("hall = %+v, want not found: its ID was invalid", got)
+	}
+}
+
+// TestADeviceWithAnInvalidOrRepeatedIDIsDropped: an entry in devices whose ID isn't valid, or
+// repeats an earlier one's, is dropped and counted as malformed, as for discovered, and the rest of
+// the message is kept. The first entry for an ID wins.
+func TestADeviceWithAnInvalidOrRepeatedIDIsDropped(t *testing.T) {
+	i, bus, rec := setup(t, online())
+	payload := `{"devices":[
+		{"id":"","found":true,"capabilities":["on"]},
+		{"id":"a/b","found":true,"capabilities":["on"]},
+		{"id":"-1000aa","found":true,"capabilities":["on"]},
+		{"id":"1000aa","found":true,"model":"first","capabilities":["on"]},
+		{"id":"1000aa","found":true,"model":"second","capabilities":["on","temperature"]},
+		{"id":"1000bb","found":false,"error":"no LAN key"}
+	]}`
+	wantDelta(t, "devices", rejectedDelta(t, i, bus, root+"/devices", payload), map[string]uint64{ReasonMalformed: 4})
+	if got := rec.discovered[porch]; !got.Found || got.Model != "first" || len(got.Capabilities) != 1 {
+		t.Errorf("porch = %+v, want the first entry for 1000aa", got)
+	}
+	if got := rec.discovered[hall]; got.Found || got.Error != "no LAN key" {
+		t.Errorf("hall = %+v, want the entry after the dropped ones", got)
+	}
+	if got := i.Announced(); len(got) != 2 {
+		t.Errorf("announced %v, want 1000aa and 1000bb", got)
 	}
 }
 
