@@ -151,6 +151,10 @@ func ciphertext(txt map[string]string) (iv, data []byte, err error) {
 // decrypt reads a report. An error that isn't errMalformed means the key is wrong, or the report
 // was damaged in a way that looks the same.
 func decrypt(iv, data, key []byte) (map[string]any, error) {
+	// Its callers check these, but CBC panics on either.
+	if len(iv) != aes.BlockSize || len(data) == 0 || len(data)%aes.BlockSize != 0 {
+		return nil, fmt.Errorf("%w: data", errMalformed)
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
