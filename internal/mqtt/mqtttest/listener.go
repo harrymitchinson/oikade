@@ -30,9 +30,19 @@ func newListener(id, addr string) *listener {
 	return &listener{id: id, addr: addr, accepted: map[net.Conn]bool{}}
 }
 
+// boundListener serves a socket that's already bound.
+func boundListener(id string, ln net.Listener) *listener {
+	l := newListener(id, ln.Addr().String())
+	l.l = ln
+	return l
+}
+
 // Init implements listeners.Listener.
 func (l *listener) Init(log *slog.Logger) error {
 	l.log = log
+	if l.l != nil {
+		return nil
+	}
 	ln, err := net.Listen("tcp", l.addr)
 	if err != nil {
 		return err

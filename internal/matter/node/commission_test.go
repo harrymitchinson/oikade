@@ -146,6 +146,7 @@ func TestRunAgain(t *testing.T) {
 	}
 	fake := &fakeMDNS{services: map[string]mdns.Service{}}
 	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
+	n.listenUDP = listenHeld
 	run := func() func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error, 1)
@@ -277,6 +278,7 @@ func TestTheObserverHearsAContainedPanic(t *testing.T) {
 	fake := &fakeMDNS{services: map[string]mdns.Service{}}
 	var opts mdns.Options
 	n.listenMDNS = func(o mdns.Options) (advertiser, error) { opts = o; return fake, nil }
+	n.listenUDP = listenHeld
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- n.Run(ctx) }()

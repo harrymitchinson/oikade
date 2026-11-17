@@ -69,15 +69,48 @@ func (f *fakeMDNS) commissionable() []string {
 	return nil
 }
 
+// held are the sockets freePort keeps open, by port, until their test ends.
+var held sync.Map
+
+// freePort binds a UDP port and keeps it until the test ends, so no other test can be handed it,
+// even between a node's runs. A node's listenUDP is listenHeld, which takes the socket over.
 func freePort(t *testing.T) uint16 {
 	t.Helper()
 	pc, err := net.ListenPacket("udp", "[::]:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = pc.Close() }()
-	return uint16(pc.LocalAddr().(*net.UDPAddr).Port)
+	port := uint16(pc.LocalAddr().(*net.UDPAddr).Port)
+	held.Store(port, pc)
+	t.Cleanup(func() {
+		held.Delete(port)
+		_ = pc.Close()
+	})
+	return port
 }
+
+// listenHeld hands a node the socket freePort keeps for addr's port, or listens as a node does.
+func listenHeld(addr string) (net.PacketConn, error) {
+	ap, err := netip.ParseAddrPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	pc, ok := held.Load(ap.Port())
+	if !ok {
+		return listenUDP(addr)
+	}
+	c := heldConn{pc.(net.PacketConn)}
+	if err := c.SetReadDeadline(time.Time{}); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// heldConn is a held socket that a node's Close leaves open: it ends the node's reads, and the
+// port stays the test's for the node's next run.
+type heldConn struct{ net.PacketConn }
+
+func (c heldConn) Close() error { return c.SetReadDeadline(time.Now()) }
 
 // testSetup is the setup code of the nodes the tests start.
 var testSetup = Setup{Passcode: 20202021, Discriminator: 3840}
@@ -95,6 +128,7 @@ func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	}
 	fake := &fakeMDNS{services: map[string]mdns.Service{}}
 	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
+	n.listenUDP = listenHeld
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- n.Run(ctx) }()
