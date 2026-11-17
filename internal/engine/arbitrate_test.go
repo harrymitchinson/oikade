@@ -658,13 +658,34 @@ func blindRig(t *testing.T, rules ...*Compiled) *rig {
 	}, rules...)
 }
 
-// travel reports the blind on its way, every 30 s.
+// travel reports the blind on its way, every 29 s, so four reports all land inside position's
+// 2-minute settle and none on its deadline, where the settle's timer would race the report.
 func (r *rig) travel(positions ...float64) {
 	r.t.Helper()
 	for _, p := range positions {
-		r.clock.Step(30 * time.Second)
+		r.clock.Step(29 * time.Second)
 		r.change("bay-blind", capability.Position, p)
 	}
+}
+
+// At the settle's deadline the write has settled: a blind still short of the write then is an
+// Override where it stopped, and its report on the deadline is an Override too, not the write.
+func TestABlindsReportOnTheSettleDeadlineIsAnOverride(t *testing.T) {
+	r := blindRig(t)
+	r.expect(call{"bay-blind", capability.Position, 70.0})
+	r.travel(20, 40, 60)
+	r.clock.Step(2*time.Minute - 3*29*time.Second)
+	r.settle()
+	s := r.status("bay-blind", capability.Position)
+	if w := winner(s); w != "Device Override" || string(s.Value) != "60" {
+		t.Errorf("winner %q at %v on the deadline, want the device's override at 60", w, s.Value)
+	}
+	r.change("bay-blind", capability.Position, 70.0)
+	s = r.status("bay-blind", capability.Position)
+	if w := winner(s); w != "Device Override" || string(s.Value) != "70" {
+		t.Errorf("winner %q at %v after its report on the deadline, want the device's override at 70", w, s.Value)
+	}
+	r.expect(call{"bay-blind", capability.Position, 70.0})
 }
 
 // A blind takes a while to get there, and what it reports on the way is the write, not a person.
