@@ -9,6 +9,9 @@ const (
 	// answer.
 	ClientJournalBefore = "client.journal.before"
 	ClientJournalAfter  = "client.journal.after"
+	// ClientHoldStarted is your process having written or claimed a hold's start, with the hold's
+	// state as saved before it.
+	ClientHoldStarted = "client.hold.started"
 	// HostJournalBefore is the host about to write, and HostJournalAfter the entry durable and
 	// not yet answered.
 	HostJournalBefore = "host.journal.before"

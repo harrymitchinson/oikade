@@ -532,7 +532,6 @@ func TestDecisionsKeepTheirLingersAndLatchesAcrossAKill(t *testing.T) {
 	r.change("entry-sensor", "occupied", false)
 	r.change("pool-water", "temperature", 10)
 	r.change("garage-sensor", "temperature", 20)
-	// A kill between a case's claim and the save of its state would leave the claim behind (OIK-299).
 	r.sync()
 	r.kill()
 	r.sync()
