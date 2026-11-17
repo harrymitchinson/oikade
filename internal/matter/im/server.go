@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
@@ -39,6 +40,8 @@ type Server struct {
 	EndSession func(*transport.Session)
 	// Saved, if set, keeps subscriptions over CASE so they can be resumed after a restart.
 	Saved SubscriptionStore
+	// Clock times subscriptions' reports; nil is the real one.
+	Clock clock.Clock
 	Log   *slog.Logger
 
 	mu       sync.Mutex
@@ -60,6 +63,13 @@ type Observer interface {
 	Reported()
 	// Panicked is a panic contained, with where (contain.Parts).
 	Panicked(part string)
+}
+
+func (s *Server) clock() clock.Clock {
+	if s.Clock == nil {
+		return clock.Real{}
+	}
+	return s.Clock
 }
 
 // Register starts serving on tr.

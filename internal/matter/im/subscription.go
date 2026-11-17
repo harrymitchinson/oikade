@@ -182,9 +182,8 @@ func (sub *subscription) changed(changes []Path) {
 
 // runSubscription sends reports until the client stops answering, the session closes or ctx ends.
 func (s *Server) runSubscription(ctx context.Context, sub *subscription) error {
-	last := time.Now()
-	timer := time.NewTimer(sub.max)
-	defer timer.Stop()
+	clk := s.clock()
+	last := clk.Now()
 	for {
 		sub.mu.Lock()
 		dirty := len(sub.dirty) > 0
@@ -193,15 +192,18 @@ func (s *Server) runSubscription(ctx context.Context, sub *subscription) error {
 		if dirty {
 			next = last.Add(sub.min)
 		}
-		timer.Reset(time.Until(next))
+		timer := clk.NewTimer(next.Sub(clk.Now()))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return context.Cause(ctx)
 		case <-sub.session.Done():
+			timer.Stop()
 			return transport.ErrClosed
 		case <-sub.wake:
+			timer.Stop()
 			continue // recompute when to report
-		case <-timer.C:
+		case <-timer.C():
 		}
 
 		sub.mu.Lock()
@@ -220,7 +222,7 @@ func (s *Server) runSubscription(ctx context.Context, sub *subscription) error {
 		if err := s.report(ctx, sub, reports); err != nil {
 			return err
 		}
-		last = time.Now()
+		last = clk.Now()
 	}
 }
 

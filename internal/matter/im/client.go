@@ -206,6 +206,11 @@ func (c *Client) Invoke(ctx context.Context, path CommandPath, fieldsFn func(w *
 // max interval in seconds and a channel of later reports. Register must have been called on the
 // client's Transport.
 func (c *Client) Subscribe(ctx context.Context, minFloor, maxCeiling uint16, paths ...AttributePath) ([]AttributeReport, uint32, uint16, <-chan []AttributeReport, error) {
+	return c.subscribe(ctx, false, minFloor, maxCeiling, paths...)
+}
+
+// subscribe is Subscribe, keeping the client's other subscriptions if keep is true.
+func (c *Client) subscribe(ctx context.Context, keep bool, minFloor, maxCeiling uint16, paths ...AttributePath) ([]AttributeReport, uint32, uint16, <-chan []AttributeReport, error) {
 	ex, err := c.Session.NewExchange()
 	if err != nil {
 		return nil, 0, 0, nil, err
@@ -213,7 +218,7 @@ func (c *Client) Subscribe(ctx context.Context, minFloor, maxCeiling uint16, pat
 	defer ex.Close()
 	var w tlv.Writer
 	w.StartStructure(tlv.Anonymous)
-	w.PutBool(tlv.Context(0), false)
+	w.PutBool(tlv.Context(0), keep)
 	w.PutUint(tlv.Context(1), uint64(minFloor))
 	w.PutUint(tlv.Context(2), uint64(maxCeiling))
 	putPaths(&w, tlv.Context(3), paths)

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -91,7 +92,8 @@ type node struct {
 
 func newNode(t *testing.T) *node { t.Helper(); return newNodeWith(t, Options{}) }
 
-// newNodeWith is newNode, with opts: its log and MRP are the test's.
+// newNodeWith is newNode, with opts: its log is the test's, and each field of opts.MRP left zero
+// is fastMRP's.
 func newNodeWith(t *testing.T, opts Options) *node {
 	t.Helper()
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -99,7 +101,11 @@ func newNodeWith(t *testing.T, opts Options) *node {
 		t.Fatal(err)
 	}
 	n := &node{conn: &faultyConn{PacketConn: pc}, log: &logBuffer{}}
-	opts.Log, opts.MRP = n.log.logger(), fastMRP
+	mrp := opts.MRP
+	mrp.Idle = cmp.Or(mrp.Idle, fastMRP.Idle)
+	mrp.Active = cmp.Or(mrp.Active, fastMRP.Active)
+	mrp.StandaloneAckTimeout = cmp.Or(mrp.StandaloneAckTimeout, fastMRP.StandaloneAckTimeout)
+	opts.Log, opts.MRP = n.log.logger(), mrp
 	n.t = New(n.conn, opts)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -610,6 +616,62 @@ func TestFullInboxIsRetransmittedLater(t *testing.T) {
 			t.Fatalf("message %d never arrived", i)
 		}
 	}
+}
+
+// TestExchangesAreCappedPerSession: a session holds maxExchanges, counting those either end
+// started. Past that, it starts none of its own, and doesn't take or acknowledge the peer's next,
+// so the peer retransmits it until one ends.
+func TestExchangesAreCappedPerSession(t *testing.T) {
+	// The client keeps retransmitting for about 6 s, long enough to outlast a busy machine's pause
+	// between the device's refusal and its letting an exchange go.
+	dev, cli := newNode(t), newNodeWith(t, Options{MRP: MRPConfig{MaxTransmissions: 10}})
+	release := make(chan struct{})
+	var started atomic.Int32
+	dev.t.Handle(echo, echoOps, func(ctx context.Context, ex *Exchange, _ Message) {
+		started.Add(1)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		ex.Close()
+	})
+	defer close(release)
+	cid, _ := cli.t.AllocateSessionID()
+	did, _ := dev.t.AllocateSessionID()
+	sec := xorSecurity{key: 0x5A}
+	devSession := dev.t.AddSecureSession(SecureSessionConfig{LocalSessionID: did, PeerSessionID: cid, Peer: cli.addr(), Security: sec})
+	cliSession := cli.t.AddSecureSession(SecureSessionConfig{LocalSessionID: cid, PeerSessionID: did, Peer: dev.addr(), Security: sec})
+
+	// The device starts one exchange of its own, and the client as many as it may, one too many
+	// for the device.
+	own, err := devSession.NewExchange()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range maxExchanges {
+		ex, err := cliSession.NewExchange()
+		if err != nil {
+			t.Fatalf("client's exchange %d of %d: %v", i+1, maxExchanges, err)
+		}
+		defer ex.Close()
+		if err := ex.Send(ctx(t), Message{Protocol: echo, Payload: []byte{byte(i)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := cliSession.NewExchange(); !errors.Is(err, ErrTooManyExchanges) {
+		t.Fatalf("client's exchange %d: %v, want %v", maxExchanges+1, err, ErrTooManyExchanges)
+	}
+	testkit.Eventually(t, "the device to refuse the last", func() bool { return strings.Contains(dev.log.String(), "too many exchanges") })
+	testkit.Eventually(t, "the device to take all but one of the client's exchanges", func() bool { return started.Load() == maxExchanges-1 })
+	if n := started.Load(); n != maxExchanges-1 {
+		t.Fatalf("the device took %d of the client's exchanges with its own open, want %d", n, maxExchanges-1)
+	}
+	if _, err := devSession.NewExchange(); !errors.Is(err, ErrTooManyExchanges) {
+		t.Fatalf("device's exchange with the session full: %v, want %v", err, ErrTooManyExchanges)
+	}
+
+	own.Close()
+	testkit.Eventually(t, "the device to take the refused exchange once its own ended", func() bool { return started.Load() == maxExchanges })
 }
 
 func TestBusyUnsecuredSessionsAreNotEvicted(t *testing.T) {
