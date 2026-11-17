@@ -34,6 +34,10 @@ import (
 // Options.SettleTimeout says otherwise.
 const settleTimeout = 10 * time.Second
 
+// settleRecheck is how often settle checks the engine without being told it may be idle, in case
+// something makes it idle without telling MaybeIdle. Tests set it to an hour.
+var settleRecheck = time.Millisecond
+
 // instance is the driver instance simulated devices belong to.
 var instance = driver.InstanceKey{Driver: "simulated", Name: "home"}
 
@@ -493,12 +497,17 @@ func (s *Sim) Failed(rule string) []string {
 
 // settle waits for the engine and every run to catch up with the clock.
 func (s *Sim) settle() error {
-	deadline := time.Now().Add(s.settleFor)
-	for time.Now().Before(deadline) {
-		if s.engine.Idle() {
-			return nil
+	deadline := time.NewTimer(s.settleFor)
+	defer deadline.Stop()
+	recheck := time.NewTicker(settleRecheck)
+	defer recheck.Stop()
+	for !s.engine.Idle() {
+		select {
+		case <-s.engine.MaybeIdle():
+		case <-recheck.C:
+		case <-deadline.C:
+			return errors.New("the home didn't settle: a condition or flow step may be stuck")
 		}
-		time.Sleep(50 * time.Microsecond)
 	}
-	return errors.New("the home didn't settle: a condition or flow step may be stuck")
+	return nil
 }
