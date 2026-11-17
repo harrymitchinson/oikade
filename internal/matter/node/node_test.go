@@ -128,11 +128,13 @@ var testSetup = Setup{Passcode: 20202021, Discriminator: 3840}
 // start runs a node in dir until the test ends, or until it calls the returned stop.
 func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	t.Helper()
-	return startWith(t, cfg, &fakeMDNS{services: map[string]mdns.Service{}})
+	fake := &fakeMDNS{services: map[string]mdns.Service{}}
+	n, stop := startWith(t, cfg, fake)
+	return n, fake, stop
 }
 
 // startWith is start, with fake as the node's mDNS responder from the moment it runs.
-func startWith(t *testing.T, cfg Config, fake *fakeMDNS) (*Node, *fakeMDNS, func()) {
+func startWith(t *testing.T, cfg Config, fake *fakeMDNS) (*Node, func()) {
 	t.Helper()
 	if cfg.Port == 0 {
 		cfg.Port = freePort(t)
@@ -159,7 +161,7 @@ func startWith(t *testing.T, cfg Config, fake *fakeMDNS) (*Node, *fakeMDNS, func
 		}
 	}
 	t.Cleanup(stop)
-	return n, fake, stop
+	return n, stop
 }
 
 func client(t *testing.T) *transport.Transport {

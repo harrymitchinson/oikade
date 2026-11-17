@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"slices"
 	"sync"
@@ -127,10 +128,10 @@ func TestResumeAfterRestart(t *testing.T) {
 	testkit.Eventually(t, "the fabric's records to go", func() bool { return len(saved.ids()) == 0 })
 }
 
-// subscribeAndRestart commissions a node that saves subscriptions in saved, subscribes to its
-// NodeLabel, and stops it once the subscription is saved. It returns the controller, the saved
-// record, its reports and the node's port, for the test to start the node again.
-func subscribeAndRestart(t *testing.T, dir string, saved *memSubscriptions) (*im.Client, im.SavedSubscription, <-chan []im.AttributeReport, uint16) {
+// subscribeAndStop commissions a node that saves subscriptions in saved, subscribes to its
+// NodeLabel, and stops the node once the subscription is saved. It returns the controller, the
+// saved record, its reports and the node's port, for the test to start the node again.
+func subscribeAndStop(t *testing.T, dir string, saved *memSubscriptions) (*im.Client, im.SavedSubscription, <-chan []im.AttributeReport, uint16) {
 	t.Helper()
 	n, fake, stop := start(t, Config{DataDir: dir, Subscriptions: saved})
 	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
@@ -154,52 +155,76 @@ func subscribeAndRestart(t *testing.T, dir string, saved *memSubscriptions) (*im
 }
 
 // TestResumeFindsTheSubscriberByDiscovery: a subscriber that has moved since it subscribed is found
-// by operational discovery, under the fabric's compressed ID and its node ID, and the resumed
-// report reaches it there.
+// by operational discovery, under the fabric's compressed ID and its node ID, and tried there before
+// its last address, where the resumed report would wait out a CASE timeout.
 func TestResumeFindsTheSubscriberByDiscovery(t *testing.T) {
 	dir, saved := t.TempDir(), &memSubscriptions{}
-	_, rec, reports, port := subscribeAndRestart(t, dir, saved)
+	_, rec, reports, port := subscribeAndStop(t, dir, saved)
 	if !rec.Peer.IsValid() {
 		t.Fatalf("saved %+v with no address", rec)
 	}
-	// The saved address is no use: only discovery can find the subscriber.
+	// The saved address is stale: a socket that counts what reaches it and never answers.
+	stale, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stale.Close() })
+	var staleGot atomic.Int32
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			if _, _, err := stale.ReadFrom(buf); err != nil {
+				return
+			}
+			staleGot.Add(1)
+		}
+	}()
 	moved := rec
-	moved.Peer = netip.AddrPort{}
+	moved.Peer = stale.LocalAddr().(*net.UDPAddr).AddrPort()
 	_ = saved.SaveSubscription(moved)
 
+	type query struct{ fabric, node uint64 }
 	var mu sync.Mutex
-	var asked []uint64 // node IDs
-	var askedFabric uint64
+	var asked []query
 	fake := &fakeMDNS{services: map[string]mdns.Service{}, resolve: func(cfid, nodeID uint64) (mdns.Resolved, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		asked, askedFabric = append(asked, nodeID), cfid
+		asked = append(asked, query{cfid, nodeID})
 		if nodeID != rec.PeerNode {
 			return mdns.Resolved{}, mdns.ErrNotFound
 		}
 		return mdns.Resolved{Addrs: []netip.AddrPort{rec.Peer}}, nil
 	}}
-	n, _, _ := startWith(t, Config{DataDir: dir, Port: port, Subscriptions: saved}, fake)
+	n, _ := startWith(t, Config{DataDir: dir, Port: port, Subscriptions: saved}, fake)
 	select {
 	case <-reports:
 	case <-time.After(10 * time.Second):
 		t.Fatal("no report under the old subscription ID at the address discovery found")
 	}
 	testkit.Eventually(t, "the resumed subscription to run", func() bool { return n.Subscriptions() == 1 })
-	f, _ := n.table.Fabric(rec.FabricIndex)
+	if got := staleGot.Load(); got != 0 {
+		t.Errorf("the stale address was sent %d packets, though discovery found the subscriber", got)
+	}
+	f, ok := n.table.Fabric(rec.FabricIndex)
+	if !ok {
+		t.Fatalf("fabric %d gone after the restart", rec.FabricIndex)
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(asked) == 0 || asked[0] != rec.PeerNode || askedFabric != f.CompressedFabricID {
-		t.Errorf("resolved nodes %x on fabric %016X, want %016X on %016X", asked, askedFabric, rec.PeerNode, f.CompressedFabricID)
+	if want := (query{f.CompressedFabricID, rec.PeerNode}); len(asked) == 0 || asked[0] != want {
+		t.Errorf("resolved %x, want %x first", asked, want)
 	}
 }
 
 // TestResumeRefusedDeletesTheRecord: a subscriber that has forgotten the subscription answers the
-// resumed priming report with INVALID_SUBSCRIPTION, and the node deletes the record at once rather
-// than retrying it.
+// resumed priming report with INVALID_SUBSCRIPTION, and the node deletes the record at once. Its
+// max interval is an hour, so retrying until that passed would keep it far longer than the test
+// waits.
 func TestResumeRefusedDeletesTheRecord(t *testing.T) {
 	dir, saved := t.TempDir(), &memSubscriptions{}
-	admin, _, _, port := subscribeAndRestart(t, dir, saved)
+	admin, rec, _, port := subscribeAndStop(t, dir, saved)
+	rec.Max = 3600
+	_ = saved.SaveSubscription(rec)
 	// A client with no subscriptions takes over the controller's reports, as after its restart.
 	(&im.Client{}).Register(admin.Session.Transport())
 
