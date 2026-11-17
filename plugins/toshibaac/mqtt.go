@@ -93,10 +93,11 @@ func (c *mqttConn) subscribe(ctx context.Context, filter string) error {
 		if err != nil {
 			return fmt.Errorf("no SUBACK: %w", err)
 		}
+		// Nothing is routed to the plugin until it has subscribed, so anything else can be skipped.
 		if kind>>4 != pktSuback {
 			continue
 		}
-		if len(payload) != 3 || payload[2] == 0x80 {
+		if len(payload) != 3 || binary.BigEndian.Uint16(payload) != 1 || payload[2] == 0x80 {
 			return fmt.Errorf("the hub refused the subscription to %s", filter)
 		}
 		return nil
@@ -179,11 +180,15 @@ func parsePublish(header byte, body []byte) (topic string, payload []byte, id ui
 	return topic, rest, id, nil
 }
 
+// writeTimeout bounds one write, so a hub that stops reading can't hold the connection open.
+const writeTimeout = 10 * time.Second
+
 // write sends one packet.
 func (c *mqttConn) write(header byte, body []byte) error {
 	pkt := append([]byte{header}, appendLength(nil, len(body))...)
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	_, err := c.conn.Write(append(pkt, body...))
 	return err
 }

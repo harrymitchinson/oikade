@@ -153,14 +153,19 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		}
 		password = strings.TrimSpace(password)
 		var live time.Time
-		err = b.session(ctx, password, func() { wait, live = b.timing.retry, time.Now() })
+		err = b.session(ctx, password, func() { live = time.Now() })
 		if ctx.Err() != nil {
 			break
 		}
+		// Only a session that lasted resets the backoff, so one that fails as soon as it connects
+		// isn't tried again every 30 seconds.
+		if !live.IsZero() && time.Since(live) >= b.timing.retryMax {
+			wait = b.timing.retry
+		}
 		// A session whose tokens ran out starts again at once, its devices online meanwhile. One that
 		// ends as soon as it starts backs off, so the cloud isn't asked to log in over and over.
-		if errors.Is(err, errRenew) && !live.IsZero() && time.Since(live) >= b.timing.retryMax {
-			b.log.Info("Renewing Toshiba session", "reason", err.Error())
+		if errors.Is(err, errRenew) && !live.IsZero() && time.Since(live) >= b.timing.retry {
+			b.log.Info("Toshiba session ran out, so the plugin is logging in again", "err", err)
 			continue
 		}
 		b.lost(ctx)
@@ -241,14 +246,19 @@ func (b *bridge) session(ctx context.Context, password string, connected func())
 		})
 	}()
 
+	// A session starts again before its SAS token runs out, or halfway through a short one.
 	var renew <-chan time.Time
 	if !tok.expires.IsZero() {
-		t := time.NewTimer(max(time.Until(tok.expires)-b.timing.renew, 0))
+		left := time.Until(tok.expires)
+		t := time.NewTimer(max(left-min(b.timing.renew, left/2), 0))
 		defer t.Stop()
 		renew = t.C
 	}
 	reload := time.NewTicker(b.timing.reload)
 	defer reload.Stop()
+	// A reload runs beside the hub, so a slow cloud doesn't hold up its calls, and one at a time.
+	reloads, reloaded := make(chan reading), make(chan error, 1)
+	reloading := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -264,8 +274,25 @@ func (b *bridge) session(ctx context.Context, password string, connected func())
 				}
 			}
 		case <-reload.C:
-			if err := b.reloadAll(ctx, a); err != nil {
+			if !reloading {
+				reloading = true
+				go func() { reloaded <- b.reloadAll(following, a, reloads) }()
+			}
+		case r := <-reloads:
+			if changed := b.apply(r.device, "reload", func(s *fcuState) error { return s.update(r.state) }); len(changed) > 0 {
+				if err := b.plugin.ReportState(ctx, r.device.id, changed); err != nil {
+					return reporting(err)
+				}
+			}
+		case err := <-reloaded:
+			reloading = false
+			// The hub still carries every change, so a failed read is only logged, unless the access
+			// token ran out: the session then starts again.
+			if errors.Is(err, errRenew) {
 				return err
+			}
+			if err != nil && ctx.Err() == nil {
+				b.log.Warn("Could not read Toshiba units' state", "err", err)
 			}
 		}
 	}
@@ -381,12 +408,15 @@ func (b *bridge) message(call methodCall) (string, contractv1.State) {
 		})
 	case cmdHeartbeat:
 		return d.id, b.apply(d, call.Command, func(s *fcuState) error {
-			var p map[string]string
+			// Only iTemp: the rest of a heartbeat can be of any type.
+			var p struct {
+				ITemp *string `json:"iTemp"`
+			}
 			if err := json.Unmarshal(call.Payload, &p); err != nil {
 				return err
 			}
-			if iTemp, ok := p["iTemp"]; ok {
-				return s.heartbeat(iTemp)
+			if p.ITemp != nil {
+				return s.heartbeat(*p.ITemp)
 			}
 			return nil
 		})
@@ -394,8 +424,15 @@ func (b *bridge) message(call methodCall) (string, contractv1.State) {
 	return "", nil
 }
 
-// reloadAll reads every unit's state again, and reports what changed.
-func (b *bridge) reloadAll(ctx context.Context, a *api) error {
+// reading is a unit's state, read again.
+type reading struct {
+	device *device
+	state  string
+}
+
+// reloadAll reads every unit's state again, and passes each on to readings. It stops at the first
+// that fails.
+func (b *bridge) reloadAll(ctx context.Context, a *api, readings chan<- reading) error {
 	b.mu.Lock()
 	devices := slices.Collect(maps.Values(b.devices))
 	b.mu.Unlock()
@@ -405,10 +442,10 @@ func (b *bridge) reloadAll(ctx context.Context, a *api) error {
 		if err != nil {
 			return err
 		}
-		if changed := b.apply(d, "reload", func(s *fcuState) error { return s.update(state) }); len(changed) > 0 {
-			if err := b.plugin.ReportState(ctx, d.id, changed); err != nil {
-				return reporting(err)
-			}
+		select {
+		case readings <- reading{d, state}:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 	return nil

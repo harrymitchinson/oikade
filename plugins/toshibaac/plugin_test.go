@@ -273,8 +273,8 @@ func TestTheHubsCallsChangeAUnit(t *testing.T) {
 		return slices.Contains(cloud.answered(), "$iothub/methods/res/0/?$rid="+rid+" null")
 	})
 
-	// A heartbeat carries the room's temperature.
-	cloud.method(methodName, cmdHeartbeat, bedroomUnique, map[string]string{"iTemp": "17", "oTemp": "0c"})
+	// A heartbeat carries the room's temperature, among fields of any type.
+	cloud.method(methodName, cmdHeartbeat, bedroomUnique, map[string]any{"iTemp": "17", "oTemp": "0c", "rssi": -60})
 	b.waitState(bedroom, `{"mode":"cool","on":true,"setpoint":25,"temperature":23}`)
 
 	// Another unit's, another method's and a report it can't read change nothing, and are answered.
@@ -429,7 +429,7 @@ func TestAnAccessTokenThatRunsOutLogsInAgainWithItsUnitsOnline(t *testing.T) {
 	if h := b.history(root.Availability(bedroom)); slices.Contains(h, "offline") {
 		t.Errorf("the bedroom went offline while the session was renewed: %v\n%s", h, b.logs)
 	}
-	if b.logs.count("Renewing Toshiba session") == 0 {
+	if b.logs.count("Toshiba session ran out, so the plugin is logging in again") == 0 {
 		t.Errorf("no session was renewed:\n%s", b.logs)
 	}
 }
@@ -492,5 +492,26 @@ func TestAUnitWithNoUsableIDOrAnothersIsSkipped(t *testing.T) {
 		if b.logs.count(msg) != 1 {
 			t.Errorf("%q not logged once:\n%s", msg, b.logs)
 		}
+	}
+}
+
+func TestAReadThatFailsKeepsTheSession(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	timings := fast
+	timings.reload = 20 * time.Millisecond
+	b := start(t, cloud, password, timings)
+	b.waitAvailability(bedroom, "online")
+	// The study can't be read: the cloud answers 404.
+	cloud.set(func(c *fakeCloud) { delete(c.states, "ac-2") })
+	b.eventually("the failed read logged", func() bool { return b.logs.count("Could not read Toshiba units' state") > 0 })
+	// The hub still carries changes, and the plugin didn't log in again.
+	cloud.method(methodName, cmdState, bedroomUnique, map[string]string{"data": partial(0x31, 0xff, -1)})
+	b.waitState(bedroom, `{"mode":"heat","on":false,"setpoint":21,"temperature":19}`)
+	if n := cloud.count(); n != 1 {
+		t.Errorf("logged in %d times", n)
+	}
+	if h := b.history(root.Availability(bedroom)); slices.Contains(h, "offline") {
+		t.Errorf("the bedroom went offline: %v", h)
 	}
 }
