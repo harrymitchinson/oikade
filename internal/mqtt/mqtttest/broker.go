@@ -10,7 +10,6 @@ import (
 
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
-	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/mochi-mqtt/server/v2/packets"
 )
 
@@ -83,7 +82,7 @@ func (b *Broker) start() error {
 	// After a Restart the old listener's port can take a moment to free up.
 	var err error
 	for range 50 {
-		if err = s.AddListener(listeners.NewTCP(listeners.Config{ID: "test", Address: b.addr})); err == nil {
+		if err = s.AddListener(newListener("test", b.addr)); err == nil {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
