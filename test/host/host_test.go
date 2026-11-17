@@ -97,8 +97,11 @@ func buildArgs(extra ...string) []string {
 	if childrace.Enabled {
 		args = append(args, "-race")
 	}
+	// "." is the package in the directory go build runs in: the root package oikade for the host and
+	// the CLI, already in the pattern, and the home's main package for a home, which isn't. A binary
+	// whose main package isn't measured writes no coverage at all.
 	if os.Getenv("OIKADE_COVER") != "" {
-		args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...")
+		args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...,.")
 	}
 	return args
 }
