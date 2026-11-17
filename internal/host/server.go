@@ -792,7 +792,7 @@ func eventRef(e api.Event) string {
 	case e.Device != "" && e.Capability != "":
 		return ident.CapabilityRef(e.Device, e.Capability).String()
 	case e.Device != "":
-		return ident.NewRef(ident.Device, e.Device).String()
+		return ident.DeviceRef(e.Device).String()
 	case e.Rule != "":
 		return control.RuleRef(e.Rule).String()
 	}

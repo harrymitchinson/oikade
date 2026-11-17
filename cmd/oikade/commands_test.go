@@ -67,7 +67,7 @@ func TestSetDoesntCallARoundedValueADifferentOne(t *testing.T) {
 
 func TestSetOnADeviceThatHasntAnsweredSaysSoAndPasses(t *testing.T) {
 	got := outcome("desk-plug", "on", true, nil)
-	if !strings.Contains(got, "desk-plug hasn't answered yet") {
+	if !strings.Contains(got, "device/desk-plug/on hasn't answered yet") {
 		t.Errorf("got %q", got)
 	}
 	if err := done(api.Response{}, false, got); err != nil {
@@ -165,7 +165,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 		{
 			Name: "pool-pump on frost", Ref: "case/pool-pump/on/frost", Kind: "case", Device: "pool-pump", Capability: "on",
 			Case: "frost", Safety: true,
-			Active: &no, WhyNot: "pool-water temperature is 5, not below 3",
+			Active: &no, WhyNot: "device/pool-water/temperature is 5, not below 3",
 		},
 		{Name: "gate", Kind: "moment"},
 		{Name: "hall-heater", Kind: "hold", Active: &no, Stopped: "no device in room hall has reported occupancy"},
@@ -182,7 +182,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 	printStatus(&out, io.Discard, st, nil, true, now)
 	want := []string{
 		"flow/desk-fan  hold  inactive, on at 23:08",
-		"case/pool-pump/on/frost  case  Safety  inactive: pool-water temperature is 5, not below 3",
+		"case/pool-pump/on/frost  case  Safety  inactive: device/pool-water/temperature is 5, not below 3",
 		"gate  moment",
 		"hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy",
 		"lounge-lamp  hold  active since 23:07, off at 23:10",

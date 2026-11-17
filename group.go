@@ -284,7 +284,7 @@ func (c groupCondition) holds(s Snapshot) bool {
 }
 
 func (c groupCondition) explain(s Snapshot, want bool) string {
-	what := c.b.handle().named()
+	what := c.b.handle().ref()
 	switch {
 	case c.all && want:
 		return fmt.Sprintf("%s isn't true on all of them", what)
@@ -309,6 +309,17 @@ func (c groupCondition) check(Options) error {
 
 // named is how a mistake or oikade status names a capability: "study-radiator setpoint", or
 // "group radiators setpoint".
+// ref is its ref: a device's capability's, a room's or a group's.
+func (h handle) ref() string {
+	switch {
+	case h.g == nil:
+		return ident.CapabilityRef(h.device, h.capability).String()
+	case h.g.room != "":
+		return ident.NewRef(ident.Room, h.g.room, h.capability).String()
+	}
+	return ident.NewRef(ident.Group, h.g.name, h.capability).String()
+}
+
 func (h handle) named() string {
 	if h.g != nil {
 		return h.g.what() + " " + h.capability

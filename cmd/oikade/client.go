@@ -34,7 +34,6 @@ func runClient(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		words[1] = name
 		req = api.Request{Type: api.TypeClientRevoke, Client: name}
 	default:
 		return errors.New(clientUsage)

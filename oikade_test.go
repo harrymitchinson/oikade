@@ -523,11 +523,11 @@ func TestAConditionSaysWhyItsFalse(t *testing.T) {
 		want string
 	}{
 		"true":      {water.Above(3), ""},
-		"a bool":    {door, "garage-door open is false"},
-		"not":       {Not(Not(door)), "garage-door open is false"},
-		"below":     {water.Below(3), "pool-water temperature is 5, not below 3"},
-		"not above": {Not(water.Above(3)), "pool-water temperature is 5, above 3"},
-		"within":    {water.Within(18, 25.5), "pool-water temperature is 5, not within 18 to 25.5"},
+		"a bool":    {door, "device/garage-door/open is false"},
+		"not":       {Not(Not(door)), "device/garage-door/open is false"},
+		"below":     {water.Below(3), "device/pool-water/temperature is 5, not below 3"},
+		"not above": {Not(water.Above(3)), "device/pool-water/temperature is 5, above 3"},
+		"within":    {water.Within(18, 25.5), "device/pool-water/temperature is 5, not within 18 to 25.5"},
 		"daily":     {Daily("10:00", "18:00"), "it's 09:12, outside 10:00 to 18:00"},
 		"days":      {Daily("10:00", "18:00").Days(time.Saturday), "it's Mon 09:12, outside 10:00 to 18:00 starting Sat"},
 		"not daily": {Not(Daily("09:00", "10:00")), "it's 09:12, inside 09:00 to 10:00"},
@@ -535,10 +535,13 @@ func TestAConditionSaysWhyItsFalse(t *testing.T) {
 			Daily(Sunset(-20*time.Minute), Sunrise(time.Hour)), "it's 09:12, outside sunset-20m0s to sunrise+1h0m0s",
 		},
 		"yearly": {Yearly("1 Jun", "15 Sep"), "it's 16 Nov, outside 1 Jun to 15 Sep"},
-		"all":    {All(water.Above(3), door, water.Below(3)), "garage-door open is false"},
-		"any":    {Any(door, water.Below(3)), "garage-door open is false, and pool-water temperature is 5, not below 3"},
+		"all":    {All(water.Above(3), door, water.Below(3)), "device/garage-door/open is false"},
+		"any": {
+			Any(door, water.Below(3)), "device/garage-door/open is false, and device/pool-water/temperature is 5, not below 3",
+		},
 		"not all": {
-			Not(All(water.Above(3), Not(door))), "pool-water temperature is 5, above 3, and garage-door open is false",
+			Not(All(water.Above(3), Not(door))),
+			"device/pool-water/temperature is 5, above 3, and device/garage-door/open is false",
 		},
 		"a func":     {ConditionFunc("cellar damp", func(Snapshot) bool { return false }), "cellar damp is false"},
 		"unreported": {Bool{Device: "unheard", Capability: Open}, "unheard open hasn't reported"},

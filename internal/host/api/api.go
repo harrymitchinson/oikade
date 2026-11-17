@@ -292,7 +292,7 @@ func UnimportedOf(list registry.Snapshot, imported, outside []string, safety fun
 		if !ok || d.Removed || slices.Contains(imported, plugin) || slices.Contains(outside, plugin) {
 			continue
 		}
-		u := Unimported{Device: d.Name, Ref: ident.NewRef(ident.Device, d.Name).String(), Plugin: plugin}
+		u := Unimported{Device: d.Name, Ref: ident.DeviceRef(d.Name).String(), Plugin: plugin}
 		if safety != nil {
 			u.Safety = safety(d.Name)
 		}
@@ -474,7 +474,7 @@ type Rule struct {
 	// keeps its state, or its budget couldn't be planned, so its device stays off. Only a connected
 	// process says.
 	Stopped string `json:"stopped,omitempty"`
-	// WhyNot is why an inactive case's conditions are false, such as "pool-water temperature is 5,
+	// WhyNot is why an inactive case's conditions are false, such as "device/pool-water/temperature is 5,
 	// not below 3", or a ConditionFunc's label.
 	WhyNot string `json:"whyNot,omitempty"`
 	// Budget is a budget hold's day.

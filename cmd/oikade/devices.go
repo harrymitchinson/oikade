@@ -233,7 +233,7 @@ func listed(list registry.Snapshot, marks deviceMarks) any {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		l := listedDevice{
-			Device: d, Ref: ident.NewRef(ident.Device, d.Name).String(),
+			Device: d, Ref: ident.DeviceRef(d.Name).String(),
 			DeviceTypes:       append([]devicetype.Type{}, d.DeviceTypes()...),
 			PluginNotImported: !d.Removed && marks.unimported[d.Name],
 			Problem:           removedHasNone(d, marks.problems),

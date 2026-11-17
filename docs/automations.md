@@ -378,7 +378,7 @@ pool-pump  on  true  case/pool-pump/on/frost wants true
 Its rules say what each case is doing, and why one doesn't apply:
 
 ```console
-case/pool-pump/on/frost  case  Safety  inactive: pool-water temperature is 12, not below 3
+case/pool-pump/on/frost  case  Safety  inactive: device/pool-water/temperature is 12, not below 3
 ```
 
 A `ConditionFunc` shows only its label. `oikade status --json` names the `case` that won, and lists every claim, with `expires` when it ends at a set time, `latched` for a latched case, and `reverted` for an outside change that `NoOverride` wrote back. `oikade_device_control_level` has the winning level over time: `Safety` for a safety line, `Override` for an outside change, `Normal` for the rest, and `Default`.

@@ -29,3 +29,10 @@ func TestACommandTakesARefOrABareName(t *testing.T) {
 		t.Error("a device named a capability")
 	}
 }
+
+func TestSetWithoutAValueSaysHowToUseIt(t *testing.T) {
+	err := runSet(t.Context(), []string{"desk-plug", "on"})
+	if err == nil || !strings.HasPrefix(err.Error(), "usage: oikade set") {
+		t.Errorf("err = %v", err)
+	}
+}

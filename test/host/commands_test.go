@@ -267,7 +267,7 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 	r.until("a why-not", func() bool { return rule().WhyNot != "" })
 	if got := rule(); got.Kind != "case" || got.Ref != "case/valve/on/leak-shutoff" || got.Device != "valve" ||
 		got.Case != "leak-shutoff" ||
-		!got.Safety || !strings.Contains(got.WhyNot, "leak-sensor open") {
+		!got.Safety || !strings.Contains(got.WhyNot, "device/leak-sensor/open") {
 		t.Errorf("inactive: %+v", got)
 	}
 	if out := string(r.stdout(nil, "status")); !strings.Contains(out, "case/valve/on/leak-shutoff  case") {

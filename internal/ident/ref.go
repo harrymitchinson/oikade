@@ -61,6 +61,9 @@ func NewRef(k Kind, parts ...string) Ref {
 	return Ref(b.String())
 }
 
+// DeviceRef is a device's ref, such as device/desk-plug.
+func DeviceRef(name string) Ref { return NewRef(Device, name) }
+
 // CapabilityRef is a device's capability's ref, such as device/desk-plug/on.
 func CapabilityRef(device, capability string) Ref { return NewRef(Device, device, capability) }
 

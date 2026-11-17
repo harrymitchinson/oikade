@@ -430,14 +430,17 @@ func runSet(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
 	var device, name string
-	switch len(words) {
-	case 2:
-		var err error
+	var err error
+	switch {
+	case len(words) == 2 && strings.Contains(words[0], "/"):
 		if device, name, err = capabilityOf(words[0]); err != nil {
 			return err
 		}
-	case 3:
-		device, name = words[0], words[1]
+	case len(words) == 3:
+		if device, err = nameOf(ident.Device, words[0]); err != nil {
+			return err
+		}
+		name = words[1]
 	default:
 		return errors.New("usage: oikade set device/DEVICE/CAPABILITY VALUE, or oikade set DEVICE CAPABILITY VALUE")
 	}
@@ -455,7 +458,8 @@ func runSet(ctx context.Context, args []string) error {
 // outcome says what a set left the capability at, and why, rather than what it asked for.
 func outcome(device, name string, asked any, c *api.Capability) string {
 	if c == nil {
-		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows its %s when it does", device, device, name)
+		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",
+			ident.CapabilityRef(device, name), device)
 	}
 	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), display(c.Value))
 	if fmt.Sprint(c.Value) != fmt.Sprint(asked) && !rounded(name, c.Value, asked) {
