@@ -36,10 +36,50 @@ func parsed(value string) any {
 
 func delay(d time.Duration) Action { return Delay(d) }
 
-// momentRule compiles a moment.
-func momentRule(t *testing.T, name string, m Moment) *Compiled {
+// steps is a flow written as the actions it applies in order, as a home's flow does: a step that
+// fails is logged and the run carries on, and then ends as failed.
+type steps struct {
+	Trigger
+	// Mode defaults to ModeSingle.
+	Mode Mode
+	Do   []Action
+}
+
+// engineKey is the context key of the engine a steps flow applies its actions to: the one whose
+// Run got the context, by withEngine.
+type engineKey struct{}
+
+func withEngine(ctx context.Context, e *Engine) context.Context {
+	return context.WithValue(ctx, engineKey{}, e)
+}
+
+// body applies the steps to the engine in ctx.
+func (s steps) body(key ident.ID) Body {
+	return func(ctx context.Context) string {
+		e := ctx.Value(engineKey{}).(*Engine)
+		failed := false
+		for _, a := range s.Do {
+			err := e.Apply(ctx, key, a)
+			switch {
+			case ctx.Err() != nil:
+				return ResultCancelled
+			case err != nil:
+				e.Log.Error("Failed step of flow run", "err", err, "rule", key)
+				failed = true
+			}
+		}
+		if failed {
+			return ResultFailed
+		}
+		return ResultSucceeded
+	}
+}
+
+// flowRule compiles steps as a flow.
+func flowRule(t *testing.T, name string, s steps) *Compiled {
 	t.Helper()
-	c, err := NewMoment(ident.ID{Name: name}, m)
+	key := ident.ID{Name: name}
+	c, err := NewFlow(key, Flow{Trigger: s.Trigger, Mode: s.Mode, Body: s.body(key)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +170,10 @@ func hallwaySensor(v Vars) (bool, error) {
 
 var motionTrigger = []Change{{Device: "hallway-motion", Capability: capability.Occupied}}
 
-func TestNewMomentChecksItsActions(t *testing.T) {
+// noop is a flow's body that does nothing, for a test of its trigger.
+func noop(context.Context) string { return ResultSucceeded }
+
+func TestApplyChecksItsActions(t *testing.T) {
 	for name, tc := range map[string]struct {
 		do      Action
 		wantErr string
@@ -140,55 +183,65 @@ func TestNewMomentChecksItsActions(t *testing.T) {
 		"out of range":  {set("x", capability.Brightness, "150"), "between 0 and 100"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewMoment(goKey("a"), Moment{Changes: motionTrigger, Do: []Action{tc.do}})
+			e := &Engine{Store: hub.NewStore(logging.Discard()), Setter: &fakeSetter{}, Log: logging.Discard()}
+			e.Init()
+			err := e.Apply(context.Background(), goKey("a"), tc.do)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
 			}
 		})
 	}
 	unknown := Trigger{Changes: []Change{{Device: "x", Capability: "made.up"}}}
-	if _, err := NewMoment(goKey("a"), Moment{Trigger: unknown, Do: []Action{delay(time.Second)}}); err == nil || !strings.Contains(err.Error(), "changes[0]") {
+	if _, err := NewFlow(goKey("a"), Flow{Trigger: unknown, Body: noop}); err == nil || !strings.Contains(err.Error(), "changes[0]") {
 		t.Fatalf("error = %v, want it to name the change", err)
 	}
 }
 
-func TestRoomMoment(t *testing.T) {
-	c := momentRule(t, "goodnight", Moment{
-		Changes: []Change{{Room: "hallway", Capability: capability.Occupied}},
-		Do:      []Action{roomLightOn("living-room", "false")},
-	})
-	if want := (action{room: "living-room", capability: capability.On, value: false}); !reflect.DeepEqual(c.actions[0], want) {
-		t.Fatalf("action = %+v, want %+v", c.actions[0], want)
+func TestRoomSetsAndChangesAreChecked(t *testing.T) {
+	a, err := roomLightOn("living-room", "false").action()
+	if want := (action{room: "living-room", capability: capability.On, value: false}); err != nil || !reflect.DeepEqual(a, want) {
+		t.Fatalf("action = %+v, %v, want %+v", a, err, want)
 	}
 
 	for name, tc := range map[string]struct {
-		m       Moment
+		err     error
 		wantErr string
 	}{
 		"trigger with neither": {
-			Moment{Changes: []Change{{Capability: capability.Occupied}}, Do: []Action{delay(time.Second)}},
+			flowErr(Trigger{Changes: []Change{{Capability: capability.Occupied}}}),
 			"changes[0]: exactly one of device or room is required",
 		},
 		"set with neither": {
-			Moment{Changes: motionTrigger, Do: []Action{set("", capability.On, "true")}},
-			"do[0]: exactly one of device or room is required",
+			actionErr(set("", capability.On, "true")),
+			"exactly one of device or room is required",
 		},
 		"trigger with both": {
-			Moment{Changes: []Change{{Device: "m", Room: "hallway", Capability: capability.Occupied}}, Do: []Action{delay(time.Second)}},
+			flowErr(Trigger{Changes: []Change{{Device: "m", Room: "hallway", Capability: capability.Occupied}}}),
 			"changes[0]: exactly one of device or room is required",
 		},
 		"set with both": {
-			Moment{Changes: motionTrigger, Do: []Action{Set{Device: "lamp", Room: "hallway", Capability: capability.On, Value: true}}},
-			"do[0]: exactly one of device or room is required",
+			actionErr(Set{Device: "lamp", Room: "hallway", Capability: capability.On, Value: true}),
+			"exactly one of device or room is required",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewMoment(goKey("a"), tc.m)
-			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
+			if tc.err == nil || !strings.Contains(tc.err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want it to contain %q", tc.err, tc.wantErr)
 			}
 		})
 	}
+}
+
+// flowErr is the error compiling a flow with this trigger.
+func flowErr(tr Trigger) error {
+	_, err := NewFlow(goKey("a"), Flow{Trigger: tr, Body: noop})
+	return err
+}
+
+// actionErr is the error Apply gets checking a.
+func actionErr(a Action) error {
+	_, err := a.action()
+	return err
 }
 
 type call struct {
@@ -258,7 +311,7 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { h.e.Run(ctx); close(done) }()
+	go func() { h.e.Run(withEngine(ctx, h.e)); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
 	return h
 }
@@ -299,7 +352,7 @@ func (h *harness) expectCalls(want ...call) {
 }
 
 func TestConditionUsesLocalTime(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Condition: eveningMotion, Do: []Action{set("hallway-light", capability.On, "true")}})
+	a := flowRule(t, "motion-light", steps{Changes: motionTrigger, Condition: eveningMotion, Do: []Action{set("hallway-light", capability.On, "true")}})
 	// 17:30 UTC is 18:30 in London during BST.
 	h := newHarness(t, time.Date(2026, 6, 1, 17, 30, 0, 0, time.UTC), a)
 
@@ -311,7 +364,7 @@ func TestConditionUsesLocalTime(t *testing.T) {
 }
 
 func TestRestartKeepsLightOnUntilMotionStops(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Condition: triggerValue, Mode: ModeRestart, Do: []Action{
+	a := flowRule(t, "motion-light", steps{Changes: motionTrigger, Condition: triggerValue, Mode: ModeRestart, Do: []Action{
 		set("hallway-light", capability.On, "true"),
 		delay(5 * time.Minute),
 		set("hallway-light", capability.On, "false"),
@@ -341,7 +394,7 @@ func TestRestartKeepsLightOnUntilMotionStops(t *testing.T) {
 }
 
 func TestSingleIgnoresTriggersWhileRunning(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Do: []Action{delay(time.Minute), set("hallway-light", capability.On, "true")}})
+	a := flowRule(t, "motion-light", steps{Changes: motionTrigger, Do: []Action{delay(time.Minute), set("hallway-light", capability.On, "true")}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 
 	h.motion(true)
@@ -352,8 +405,9 @@ func TestSingleIgnoresTriggersWhileRunning(t *testing.T) {
 	h.expectCalls(call{"hallway-light", capability.On, true})
 }
 
-func TestFailedActionStopsTheRun(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Do: []Action{
+// A set that fails is Apply's error, and the run that made it counts as failed.
+func TestAFailedSetFailsTheRun(t *testing.T) {
+	a := flowRule(t, "motion-light", steps{Changes: motionTrigger, Do: []Action{
 		set("hallway-light", capability.On, "true"),
 		set("hallway-light", capability.Brightness, "40"),
 	}})
@@ -362,12 +416,12 @@ func TestFailedActionStopsTheRun(t *testing.T) {
 
 	h.motion(true)
 	h.eventually("failed", func() bool { return h.runs(ResultFailed) == 1 })
-	h.expectCalls(call{"hallway-light", capability.On, true})
+	h.expectCalls(call{"hallway-light", capability.On, true}, call{"hallway-light", capability.Brightness, 40.0})
 }
 
 func TestReloadingTheSameGenerationKeepsTheRun(t *testing.T) {
 	a := func() *Compiled {
-		return momentRule(t, "motion-light", Moment{
+		return flowRule(t, "motion-light", steps{
 			Changes: motionTrigger,
 			Do:      []Action{delay(time.Minute), set("hallway-light", capability.On, "true")},
 		})
@@ -418,11 +472,10 @@ func declare(store *hub.Store, devices map[string]member) {
 	}
 }
 
-// runRoom executes a Rule's actions once against these devices, and returns the result
-// and the log lines.
+// runRoom runs a flow's steps once against these devices, and returns the result and the log
+// lines.
 func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, actions ...Action) (string, []string) {
 	t.Helper()
-	c := momentRule(t, "goodnight", Moment{Changes: motionTrigger, Do: actions})
 	var logs []string
 	e := &Engine{
 		Store: hub.NewStore(logging.Discard()), Setter: setter, Log: logging.Lines(func(line string) {
@@ -431,11 +484,12 @@ func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, action
 	}
 	e.Init()
 	declare(e.Store, devices)
-	return e.execute(context.Background(), c.Key, c), logs
+	body := steps{Do: actions}.body(ident.ID{Name: "goodnight"})
+	return body(withEngine(context.Background(), e)), logs
 }
 
 func TestRoomTriggerMatches(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Changes: []Change{{Room: "hallway", Capability: capability.Occupied}}, Condition: hallwaySensor, Do: []Action{set("hallway-light", capability.On, "true")}})
+	a := flowRule(t, "motion-light", steps{Changes: []Change{{Room: "hallway", Capability: capability.Occupied}}, Condition: hallwaySensor, Do: []Action{set("hallway-light", capability.On, "true")}})
 	h := newHarness(t, time.Date(2026, 10, 17, 20, 0, 0, 0, time.UTC), a)
 	declare(h.e.Store, map[string]member{
 		"hallway-motion": {room: "hallway"},
@@ -525,7 +579,7 @@ func TestRoomActionPartialFailure(t *testing.T) {
 }
 
 func TestRoomMembershipAtExecution(t *testing.T) {
-	a := momentRule(t, "motion-light", Moment{Changes: motionTrigger, Do: []Action{
+	a := flowRule(t, "motion-light", steps{Changes: motionTrigger, Do: []Action{
 		roomLightOn("hallway", "true"),
 		delay(5 * time.Minute),
 		roomLightOn("hallway", "false"),

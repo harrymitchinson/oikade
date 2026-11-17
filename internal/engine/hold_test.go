@@ -27,21 +27,8 @@ func TestCompileHold(t *testing.T) {
 	if len(w.days) != 2 || w.days[0] != time.Friday {
 		t.Errorf("days: %v", w.days)
 	}
-	if len(c.changes) != 0 || len(c.timers) != 0 || len(c.actions) != 0 {
-		t.Error("a hold has no triggers or actions")
-	}
-}
-
-func TestCompileClaims(t *testing.T) {
-	c := momentRule(t, "r", Moment{Changes: []Change{{Device: "b", Capability: capability.Open}}, Do: []Action{Set{Device: "rail", Capability: capability.On, Value: true, For: time.Hour, Until: UntilNext, Priority: PriorityOverride}, Set{Device: "rail", Capability: capability.On, Value: false, Until: UntilReleased}, Release("other")}})
-	if a := c.actions[0]; a.claimFor != time.Hour || a.until != UntilNext || a.priority != PriorityOverride {
-		t.Errorf("first set: %+v", a)
-	}
-	if a := c.actions[1]; a.until != UntilReleased {
-		t.Errorf("second set: %+v", a)
-	}
-	if a := c.actions[2]; a.release != "other" {
-		t.Errorf("release: %+v", a)
+	if len(c.changes) != 0 || len(c.timers) != 0 || c.body != nil {
+		t.Error("a hold has no triggers or body")
 	}
 }
 

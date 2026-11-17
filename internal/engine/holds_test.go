@@ -120,7 +120,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { r.e.Run(ctx); close(done) }()
+	go func() { r.e.Run(withEngine(ctx, r.e)); close(done) }()
 	var once sync.Once
 	r.stop = func() { once.Do(func() { cancel(); <-done }) }
 	t.Cleanup(r.stop)
@@ -283,7 +283,7 @@ var overheat = Hold{Device: "workshop-heater", Capability: capability.On, Value:
 
 func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states *storeBackend) {
 	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}}
-	reset := momentRule(t, "workshop-overheat-reset", Moment{Timers: []Timer{At{Time: "09:00"}}, Since: local("2026-10-21 08:00 BST"), Do: []Action{Release("workshop-overheat")}})
+	reset := flowRule(t, "workshop-overheat-reset", steps{Timers: []Timer{At{Time: "09:00"}}, Since: local("2026-10-21 08:00 BST"), Do: []Action{Release("workshop-overheat")}})
 
 	// It overheated while the host was down: the latch acts on startup.
 	r := startRig(t, local("2026-10-21 08:00 BST"), states.holds(t), hot, nil, holdRule(t, "workshop-overheat", overheat), reset)

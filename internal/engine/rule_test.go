@@ -81,9 +81,9 @@ func TestGoHoldRunsItsDelaysAndWindow(t *testing.T) {
 	}
 }
 
-func TestGoMomentRuns(t *testing.T) {
+func TestGoFlowRuns(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
-	c, err := NewMoment(goKey("motion-light"), Moment{
+	c := flowRule(t, "motion-light", steps{
 		Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupied}},
 		Condition: func(v Vars) (bool, error) { return v["trigger"] != nil && v["now"] != nil, nil },
 		Do: []Action{
@@ -92,9 +92,6 @@ func TestGoMomentRuns(t *testing.T) {
 			Set{Device: "hallway-light", Capability: capability.On, Value: false},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	h.e.Load(c)
 	h.motion(true)
 	h.expectCalls(call{device: "hallway-light", capability: capability.On, value: true})
@@ -108,14 +105,11 @@ func TestGoMomentRuns(t *testing.T) {
 
 func TestGoConditionErrorCountsAsAConditionError(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
-	c, err := NewMoment(goKey("motion-light"), Moment{
+	c := flowRule(t, "motion-light", steps{
 		Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupied}},
 		Condition: func(Vars) (bool, error) { return false, fmt.Errorf("not yet") },
 		Do:        []Action{Set{Device: "hallway-light", Capability: capability.On, Value: true}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	h.e.Load(c)
 	h.motion(true)
 	h.eventually("a condition error", func() bool { return h.runs(ResultConditionError) == 1 })
@@ -126,14 +120,11 @@ func TestGoConditionErrorCountsAsAConditionError(t *testing.T) {
 
 func TestGoConditionPanicIsAConditionError(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
-	c, err := NewMoment(goKey("motion-light"), Moment{
+	c := flowRule(t, "motion-light", steps{
 		Changes:   []Change{{Device: "hallway-motion", Capability: capability.Occupied}},
 		Condition: func(Vars) (bool, error) { panic("no reading yet") },
 		Do:        []Action{Set{Device: "hallway-light", Capability: capability.On, Value: true}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	h.e.Load(c)
 	h.motion(true)
 	h.eventually("a condition error", func() bool { return h.runs(ResultConditionError) == 1 })
@@ -157,31 +148,24 @@ func TestGoHoldWhenPanicKeepsItsState(t *testing.T) {
 
 func TestGoRuleReplacedByAHigherGeneration(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
-	moment := func(generation int64, value bool) *Compiled {
-		c, err := NewMoment(goKey("motion-light"), Moment{
+	rule := func(generation int64, value bool) *Compiled {
+		return flowRule(t, "motion-light", steps{
 			Changes: []Change{{Device: "hallway-motion", Capability: capability.Occupied}}, Generation: generation,
 			Do: []Action{Set{Device: "hallway-light", Capability: capability.On, Value: value}},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return c
 	}
-	h.e.Load(moment(0, true))
-	h.e.Load(moment(2, false))
+	h.e.Load(rule(0, true))
+	h.e.Load(rule(2, false))
 	h.motion(true)
 	h.expectCalls(call{device: "hallway-light", capability: capability.On, value: false})
 }
 
 func TestGoTimerIsNotMissedBeforeItLoads(t *testing.T) {
 	h := newHarness(t, time.Date(2026, 6, 15, 20, 0, 0, 0, london))
-	c, err := NewMoment(goKey("motion-light"), Moment{
+	c := flowRule(t, "motion-light", steps{
 		Timers: []Timer{At{Time: "19:00"}}, StartingDeadline: 2 * time.Hour,
 		Do: []Action{Set{Device: "hallway-light", Capability: capability.On, Value: true}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	h.e.Load(c)
 	h.eventually("the engine to arm", h.clock.HasWaiters)
 	if got, missed := h.setter.got(), h.runs(ResultMissed); len(got) != 0 || missed != 0 {
@@ -245,34 +229,37 @@ func TestARoomChangeOfTypesMatchesOnlyThoseTypes(t *testing.T) {
 
 func TestGoRulesAreChecked(t *testing.T) {
 	on := []Change{{Device: "d", Capability: capability.Occupied}}
-	set := Set{Device: "d", Capability: capability.On, Value: true}
-	moment := func(m Moment) error { _, err := NewMoment(goKey("r"), m); return err }
+	flow := func(f Flow) error {
+		f.Body = noop
+		_, err := NewFlow(goKey("r"), f)
+		return err
+	}
+	tr := func(t Trigger) Flow { return Flow{Trigger: t} }
+	do := func(a Action) error { _, err := a.action(); return err }
 	hold := func(h Hold) error { _, err := NewHold(goKey("r"), h); return err }
 	always := func(Vars) (bool, error) { return true, nil }
 	for _, tc := range []struct {
 		err  error
 		want string
 	}{
-		{moment(Moment{Do: []Action{set}}), "a trigger is required"},
-		{moment(Moment{Changes: on}), "do is required"},
-		{moment(Moment{Changes: []Change{{Capability: capability.Occupied}}, Do: []Action{set}}), "changes[0]: exactly one of device or room"},
-		{moment(Moment{Changes: []Change{{Device: "d", Capability: "nope"}}, Do: []Action{set}}), `unknown capability "nope"`},
-		{moment(Moment{Changes: []Change{{Room: "hall", DeviceTypes: []devicetype.Type{"Toaster"}, Capability: capability.On}}, Do: []Action{set}}), `unknown device type "Toaster"`},
-		{moment(Moment{Changes: []Change{{Device: "d", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Capability: capability.On}}, Do: []Action{set}}), "device types limit a room"},
-		{moment(Moment{Timers: []Timer{At{Time: "25:00"}}, Do: []Action{set}}), `timers[0]: time "25:00" is not HH:MM`},
-		{moment(Moment{Timers: []Timer{SunTime{Event: sun.Sunrise, Offset: 7 * time.Hour}}, Do: []Action{set}}), "not between -6h and 6h"},
-		{moment(Moment{Changes: on, StartingDeadline: -1, Do: []Action{set}}), "startingDeadline must not be negative"},
-		{moment(Moment{Changes: on, Mode: "Queued", Do: []Action{set}}), `unknown mode "Queued"`},
-		{moment(Moment{Changes: on, Do: []Action{Delay(0)}}), "do[0]: delay must be positive"},
-		{moment(Moment{Changes: on, Do: []Action{Release("")}}), "release needs a rule"},
-		{moment(Moment{Changes: on, Do: []Action{nil}}), "do[0]: no action"},
-		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.Temperature, Value: 1.0}}}), "read-only"},
-		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.On, Value: "on"}}}), "do[0]: "},
-		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.On, Value: true, For: time.Hour, Until: UntilReleased}}}), "can't be combined"},
-		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.On, Value: true, For: -time.Hour}}}), "for must be positive"},
-		{moment(Moment{Changes: on, Do: []Action{Set{Device: "d", Capability: capability.On, Value: true, Priority: "Top"}}}), `unknown priority "Top"`},
-		{moment(Moment{Timers: []Timer{At{Time: "19:00", Days: []time.Weekday{7}}}, Do: []Action{set}}), "unknown day 7"},
-		{moment(Moment{Timers: []Timer{SunTime{Event: sun.Sunset, Days: []time.Weekday{-1}}}, Do: []Action{set}}), "unknown day -1"},
+		{flow(Flow{}), "a trigger is required"},
+		{flow(tr(Trigger{Changes: []Change{{Capability: capability.Occupied}}})), "changes[0]: exactly one of device or room"},
+		{flow(tr(Trigger{Changes: []Change{{Device: "d", Capability: "nope"}}})), `unknown capability "nope"`},
+		{flow(tr(Trigger{Changes: []Change{{Room: "hall", DeviceTypes: []devicetype.Type{"Toaster"}, Capability: capability.On}}})), `unknown device type "Toaster"`},
+		{flow(tr(Trigger{Changes: []Change{{Device: "d", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Capability: capability.On}}})), "device types limit a room"},
+		{flow(tr(Trigger{Timers: []Timer{At{Time: "25:00"}}})), `timers[0]: time "25:00" is not HH:MM`},
+		{flow(tr(Trigger{Timers: []Timer{SunTime{Event: sun.Sunrise, Offset: 7 * time.Hour}}})), "not between -6h and 6h"},
+		{flow(tr(Trigger{Changes: on, StartingDeadline: -1})), "startingDeadline must not be negative"},
+		{flow(Flow{Changes: on, Mode: "Queued"}), `unknown mode "Queued"`},
+		{flow(tr(Trigger{Timers: []Timer{At{Time: "19:00", Days: []time.Weekday{7}}}})), "unknown day 7"},
+		{flow(tr(Trigger{Timers: []Timer{SunTime{Event: sun.Sunset, Days: []time.Weekday{-1}}}})), "unknown day -1"},
+		{do(Delay(0)), "delay must be positive"},
+		{do(Release("")), "release needs a rule"},
+		{do(Set{Device: "d", Capability: capability.Temperature, Value: 1.0}), "read-only"},
+		{do(Set{Device: "d", Capability: capability.On, Value: "on"}), "takes a bool"},
+		{do(Set{Device: "d", Capability: capability.On, Value: true, For: time.Hour, Until: UntilReleased}), "can't be combined"},
+		{do(Set{Device: "d", Capability: capability.On, Value: true, For: -time.Hour}), "for must be positive"},
+		{do(Set{Device: "d", Capability: capability.On, Value: true, Priority: "Top"}), `unknown priority "Top"`},
 		{hold(Hold{Device: "d", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "06:00"}, End: At{Time: "07:00"}, Days: []time.Weekday{9}}}), "unknown day 9"},
 		{hold(Hold{Device: "d", Capability: capability.On, Value: true}), "a window or when is required"},
 		{hold(Hold{Capability: capability.On, Value: true, When: always}), "exactly one of device, devices or room"},

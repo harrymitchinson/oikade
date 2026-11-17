@@ -152,7 +152,7 @@ type Engine struct {
 	// changes closes after a change has been handled, for flows waiting on a condition.
 	changes chan struct{}
 	// holdWrites are the hold writes the current look at the rules has started, and triggers the
-	// moments it set off, for startWrites.
+	// flows it set off, for startWrites.
 	holdWrites []holdWrite
 	averages   averages
 	triggers   []pendingTrigger
@@ -178,7 +178,7 @@ type state struct {
 	// with no type is a recheck, which only looks for the next fire again. For a hold, next is
 	// when to evaluate it again.
 	next, due fire
-	// hold is nil for a moment.
+	// hold is nil for a flow.
 	hold *holdState
 }
 
@@ -701,12 +701,12 @@ func (e *Engine) trigger(ctx context.Context, key ident.ID, s *state, vars Vars)
 	e.start(ctx, key, s)
 }
 
-// start launches a run. Call with e.mu held.
+// start launches a run. Call with e.mu held. A rule with no body, from NewTrigger, has nothing to
+// run.
 func (e *Engine) start(ctx context.Context, key ident.ID, s *state) {
-	c := s.c
-	body := func(ctx context.Context) string { return e.execute(ctx, key, c) }
-	if c.body != nil {
-		body = c.body
+	body := s.c.body
+	if body == nil {
+		body = func(context.Context) string { return ResultSucceeded }
 	}
 	e.launch(ctx, key, s, body)
 }
@@ -762,17 +762,8 @@ func (e *Engine) launch(ctx context.Context, key ident.ID, s *state, body Body) 
 	})
 }
 
-// execute runs the actions in order. A failing device action stops the run; a room action that
-// fails on some devices lets the run continue, so a dead bulb can't leave the rest of the room on,
-// and the run counts as failed at the end.
-func (e *Engine) execute(ctx context.Context, key ident.ID, c *Compiled) string {
-	result, skipped := e.runActions(ctx, key, c)
-	e.reportSkipped(key, skipped)
-	return result
-}
-
-// reportSkipped logs the Room members a run left out when they differ from the last run's, so a
-// moment that fires all day logs them once.
+// reportSkipped logs the Room members a rule left out when they differ from the last time's, so a
+// rule that writes all day logs them once.
 func (e *Engine) reportSkipped(key ident.ID, skipped []string) {
 	slices.Sort(skipped)
 	skipped = slices.Compact(skipped)
@@ -790,7 +781,7 @@ func (e *Engine) reportSkipped(key ident.ID, skipped []string) {
 	}
 }
 
-// arbitrates is a Room member left out because it arbitrates the capability, for the skipped log.
+// arbitrates is a Room member left out because it arbitrates the capability, for Apply's error.
 func arbitrates(dev ident.ID, name string) string {
 	return fmt.Sprintf("%s (arbitrates %s, so the set needs for or until)", dev.Name, name)
 }
@@ -800,69 +791,49 @@ func otherType(dev ident.ID, snap hub.Snapshot) string {
 	return fmt.Sprintf("%s (%s, not one of the rule's device types)", dev.Name, cmp.Or(devicetype.Join(snap.DeviceTypes), "no device type"))
 }
 
-// runActions is execute, returning the Room members left out as well.
-func (e *Engine) runActions(ctx context.Context, key ident.ID, c *Compiled) (result string, skipped []string) {
-	log := e.Log.With("rule", key)
-	failed := false
-	for _, a := range c.actions {
-		if a.delay > 0 {
-			timer := e.Clock.NewTimer(a.delay)
-			unpark := e.park(ctx, e.Clock.Now().Add(a.delay), nil)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				unpark()
-				return ResultCancelled, skipped
-			case <-timer.C():
-			}
-			unpark()
-			continue
+// act runs one action, and returns whether it worked, and the Room members it left out because
+// they arbitrate the capability and the set has no end.
+func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbitrated []string) {
+	switch {
+	case a.delay > 0:
+		timer := e.Clock.NewTimer(a.delay)
+		unpark := e.park(ctx, e.Clock.Now().Add(a.delay), nil)
+		defer unpark()
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C():
 		}
-		if ctx.Err() != nil {
-			return ResultCancelled, skipped
-		}
-		if a.release != "" {
-			e.release(ident.ID{Name: a.release})
-			_ = e.endClaims(ctx, ruleSource(a.release), allLevels)
-			continue
-		}
-		if a.room != "" {
-			ok, left := e.setRoom(ctx, key, a)
-			if !ok {
-				failed = true
-			}
-			skipped = append(skipped, left...)
-			if ctx.Err() != nil {
-				return ResultCancelled, skipped
-			}
-			continue
-		}
-		dev := ident.ID{Name: a.device}
-		if e.arbitrated(dev, a.capability) {
-			if !a.ends() {
-				log.Info("Skipped set on an arbitrated capability; it needs for or until", "device", a.device, "capability", a.capability)
-				continue
-			}
-			if e.claim(ctx, key, dev, a.capability, e.setClaim(key, a)) {
-				continue
-			}
-		}
-		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
-			log.Error("Failed to run Rule action", "err", err, "device", a.device, "capability", a.capability)
-			return ResultFailed, skipped
-		}
+		return true, nil
+	case ctx.Err() != nil:
+		return true, nil
+	case a.release != "":
+		e.release(ident.ID{Name: a.release})
+		_ = e.endClaims(ctx, ruleSource(a.release), allLevels)
+		return true, nil
+	case a.room != "":
+		ok, others, arbitrated := e.setRoom(ctx, key, a)
+		e.reportSkipped(key, others)
+		return ok, arbitrated
 	}
-	if failed {
-		return ResultFailed, skipped
+	// Apply has refused a set with no end on an arbitrated capability.
+	dev := ident.ID{Name: a.device}
+	if e.arbitrated(dev, a.capability) && e.claim(ctx, key, dev, a.capability, e.setClaim(key, a)) {
+		return true, nil
 	}
-	return ResultSucceeded, skipped
+	if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
+		e.Log.Error("Failed to run Rule action", "err", err, "rule", key, "device", a.device, "capability", a.capability)
+		return false, nil
+	}
+	return true, nil
 }
 
 // setRoom sets a capability on every discovered device in a room that reports it, in name order.
 // Membership is read now, not when the run started. It tries every device and reports whether
 // all of them succeeded. A member that arbitrates the capability gets a claim, or, when the set
-// has no end, is left out and returned.
-func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, skipped []string) {
+// has no end, is left out and returned in arbitrated. A member of another type is left out and
+// returned in others.
+func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, others, arbitrated []string) {
 	log := e.Log.With("rule", key)
 	ok, matched := true, false
 	for _, dev := range e.Store.Room(a.room) {
@@ -871,16 +842,16 @@ func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, 
 			continue
 		}
 		if !snap.OfTypes(a.types) {
-			skipped = append(skipped, otherType(dev, snap))
+			others = append(others, otherType(dev, snap))
 			continue
 		}
 		if ctx.Err() != nil {
-			return ok, skipped
+			return ok, others, arbitrated
 		}
 		matched = true
 		if snap.Controls(a.capability) {
 			if !a.ends() {
-				skipped = append(skipped, arbitrates(dev, a.capability))
+				arbitrated = append(arbitrated, arbitrates(dev, a.capability))
 				continue
 			}
 			if e.claim(ctx, key, dev, a.capability, e.setClaim(key, a)) {
@@ -895,7 +866,7 @@ func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, 
 	if !matched {
 		log.Debug("Matched no Devices in Room", "room", a.room, "capability", a.capability)
 	}
-	return ok, skipped
+	return ok, others, arbitrated
 }
 
 // ends reports whether a set has an end, which a set on an arbitrated capability needs.

@@ -353,21 +353,21 @@ type holdWrite struct {
 	run    func()
 }
 
-// pendingTrigger is a moment a look set off, to start once that look's hold writes are done.
+// pendingTrigger is a flow a look set off, to start once that look's hold writes are done.
 type pendingTrigger struct {
 	key  ident.ID
 	s    *state
 	vars Vars
 }
 
-// triggerAfterWrites runs trigger once the hold writes of the current look are in, so a moment
+// triggerAfterWrites runs trigger once the hold writes of the current look are in, so a flow
 // can't write before a Safety hold set off by the same report has claimed. Call with e.mu held,
 // then startWrites.
 func (e *Engine) triggerAfterWrites(key ident.ID, s *state, vars Vars) {
 	e.triggers = append(e.triggers, pendingTrigger{key: key, s: s, vars: vars})
 }
 
-// startWrites runs the hold writes evaluate queued, and then the moments the same look set off.
+// startWrites runs the hold writes evaluate queued, and then the flows the same look set off.
 // Writes that can reach the same device, those in one room or to one device with no room, run one
 // after another. Claims go first, highest level first: a Safety claim is in before a Normal one, so
 // the arbiter never writes the Normal value. Plain writes, with nothing to arbitrate, go after,
