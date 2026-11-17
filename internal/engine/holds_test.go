@@ -40,6 +40,7 @@ var holdDevices = map[string][]string{
 	"outdoor-temp":    {capability.Temperature},
 	"back-door":       {capability.Locked},
 	"bay-blind":       {capability.Position},
+	"study-radiator":  {capability.Setpoint},
 }
 
 // rig is an engine running holds against a fake clock, as one run of the host.

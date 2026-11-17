@@ -238,7 +238,7 @@ func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, valu
 	has := func() bool {
 		snap, ok := s.srv.devices.Get(dev)
 		v, known := snap.Values[name]
-		return ok && known && capability.Near(capability.Float(v), capability.Float(value))
+		return ok && known && capability.Near(name, capability.Float(v), capability.Float(value))
 	}
 	if !awaitAnswer(ctx, events, dev.Name, name, value, has, setSettle) {
 		return nil
@@ -281,7 +281,7 @@ func awaitAnswer(ctx context.Context, events <-chan api.Event, dev, name string,
 			if e.Type != api.EventChange || e.Device != dev || e.Capability != name {
 				continue
 			}
-			if answered || capability.Near(capability.Float(e.Value), capability.Float(value)) {
+			if answered || capability.Near(name, capability.Float(e.Value), capability.Float(value)) {
 				answered = true
 				quiet = time.After(t.quiet)
 			}
