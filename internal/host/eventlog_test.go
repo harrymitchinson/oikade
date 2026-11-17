@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -195,5 +196,56 @@ func TestAStreamCutShortSaysWhyOnlyToARevokedClient(t *testing.T) {
 	log.stream(t.Context(), &out, fail)
 	if len(out.lines) != 3 || out.lines[2] != api.LogEnd("") {
 		t.Errorf("a whole stream: %+v", out.lines)
+	}
+}
+
+// Events reach the store every 5 seconds, so a crash loses at most that long, as docs/architecture.md
+// says: one added just after a flush is on disk by the next, and not before.
+func TestEventsReachTheStoreWithinAFlush(t *testing.T) {
+	const promised = 5 * time.Second
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = data.Close() }()
+	log := newEventLog(data.Events(), store.Bound{}, logging.Discard())
+	c := clock.NewFake(time.Now())
+	log.clock = c
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() { log.run(ctx); close(stopped) }()
+
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("waited 5s for %s", what)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	saved := func() int {
+		records, err := data.Events().Read(0, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(records)
+	}
+	for want := 1; want <= 2; want++ {
+		waitFor("the next flush to be set", c.HasWaiters)
+		log.add(api.Event{Time: time.Now(), Type: api.EventChange, Device: "d", Capability: "temperature", Value: float64(want)})
+		c.Step(promised - time.Millisecond)
+		if got := saved(); got != want-1 {
+			t.Fatalf("%d events saved before the flush, want %d", got, want-1)
+		}
+		c.Step(time.Millisecond)
+		waitFor("the event to be saved", func() bool { return saved() == want })
+	}
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the flushes went on after the host stopped")
 	}
 }
