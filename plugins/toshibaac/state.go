@@ -3,6 +3,10 @@ package toshibaac
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
+	"slices"
+	"strconv"
+	"strings"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
@@ -14,8 +18,11 @@ type fcuState struct {
 	status, mode byte
 	// setpoint and indoor are signed degrees Celsius, with their own none values.
 	setpoint, indoor int8
-	// meritA is a half byte: the unit's feature mode, such as 8 °C heating.
-	meritA byte
+	// meritA and meritB are half bytes: the unit's feature modes, such as 8 °C heating or a
+	// fireplace mode.
+	meritA, meritB byte
+	// selfCleaning is whether it's cleaning itself.
+	selfCleaning byte
 }
 
 // The raw values, from KaSroka/Toshiba-AC-control's fcu_state.py.
@@ -28,18 +35,25 @@ const (
 	statusOn  = 0x30
 	statusOff = 0x31
 
+	meritOff       = 0x00
 	meritHeating8C = 0x04
+
+	selfCleaningOn  = 0x18
+	selfCleaningOff = 0x10
 	// heating8COffset is how much higher than its real setpoint a unit in 8 °C heating reports.
 	heating8COffset = 16
 )
 
+// modeHeat is heating's raw value.
+const modeHeat = 0x43
+
 // modes are the modes a unit reports, by raw value.
 var modes = map[byte]string{
-	0x41: contractv1.ModeAuto,
-	0x42: contractv1.ModeCool,
-	0x43: contractv1.ModeHeat,
-	0x44: contractv1.ModeDry,
-	0x45: contractv1.ModeFan,
+	0x41:     contractv1.ModeAuto,
+	0x42:     contractv1.ModeCool,
+	modeHeat: contractv1.ModeHeat,
+	0x44:     contractv1.ModeDry,
+	0x45:     contractv1.ModeFan,
 }
 
 // stateLength is how many hex digits of a state the plugin reads: the merit A and B fields are a
@@ -48,7 +62,10 @@ const stateLength = 38
 
 // newFCUState is a state with nothing reported yet.
 func newFCUState() fcuState {
-	return fcuState{status: noneByte, mode: noneByte, setpoint: noneTemp, indoor: noneTemp, meritA: noneHalf}
+	return fcuState{
+		status: noneByte, mode: noneByte, setpoint: noneTemp, indoor: noneTemp, meritA: noneHalf, meritB: noneHalf,
+		selfCleaning: noneByte,
+	}
 }
 
 // update applies a state the cloud sent, keeping every field it doesn't report.
@@ -71,11 +88,17 @@ func (s *fcuState) update(hexState string) error {
 	if t := int8(raw[2]); t != noneTemp {
 		s.setpoint = t
 	}
+	if m := raw[6]; m != noneByte && m != noneHalf {
+		s.meritB = m
+	}
 	if m := raw[7]; m != noneByte && m != noneHalf {
 		s.meritA = m
 	}
 	if t := int8(raw[9]); t != noneTemp {
 		s.indoor = t
+	}
+	if raw[15] != noneByte {
+		s.selfCleaning = raw[15]
 	}
 	return nil
 }
@@ -120,7 +143,7 @@ func (s fcuState) values() (v contractv1.State, unknownMode byte) {
 		unknownMode = s.mode
 	}
 	if t, ok := celsius(s.setpoint); ok {
-		if mode == contractv1.ModeHeat && s.meritA == meritHeating8C {
+		if s.mode == modeHeat && s.meritA == meritHeating8C {
 			t -= heating8COffset
 		}
 		v[contractv1.Setpoint] = t
@@ -129,4 +152,139 @@ func (s fcuState) values() (v contractv1.State, unknownMode byte) {
 		v[contractv1.Temperature] = t
 	}
 	return v, unknownMode
+}
+
+// modeByte is a mode's raw value.
+func modeByte(name string) (byte, bool) {
+	for b, n := range modes {
+		if n == name {
+			return b, true
+		}
+	}
+	return 0, false
+}
+
+// The merit features a mode turns off, from KaSroka/Toshiba-AC-control's features.py: merit A's
+// high power (1), silent (2, 10), eco (3), 8 °C heating (4), sleep care (5) and floor (6), and
+// merit B's fireplace modes (2, 3). Heating allows them all.
+var (
+	meritAOff = map[byte][]byte{
+		0x41: {4, 5, 6}, 0x42: {4, 5, 6},
+		0x44: {1, 2, 3, 4, 5, 6, 10}, 0x45: {1, 2, 3, 4, 5, 6, 10},
+	}
+	meritBOff = map[byte][]byte{0x41: {2, 3}, 0x42: {2, 3}, 0x44: {2, 3}, 0x45: {2, 3}}
+)
+
+// command is a change to a unit: a state with only the fields to change, the rest none.
+type command struct {
+	status, mode   byte
+	setpoint       int8
+	meritA, meritB byte
+	selfCleaning   byte
+}
+
+func newCommand() command {
+	return command{status: noneByte, mode: noneByte, setpoint: noneTemp, meritA: noneByte, meritB: noneByte, selfCleaning: noneByte}
+}
+
+// command is the change that sets capability to value on a unit in state s that does the modes
+// given. It refuses what the unit can't hold, rather than letting it round.
+func (s fcuState) command(capability string, value any, unitModes []byte) (command, error) {
+	c := newCommand()
+	mode := s.mode
+	switch capability {
+	case contractv1.On:
+		on, ok := value.(bool)
+		if !ok {
+			return c, fmt.Errorf("on is a bool, not %T", value)
+		}
+		c.status = statusOff
+		if on {
+			c.status = statusOn
+			// A unit cleaning itself doesn't turn on until that's cleared, as the app does.
+			if s.selfCleaning == selfCleaningOn {
+				c.selfCleaning = selfCleaningOff
+			}
+		}
+	case contractv1.Mode:
+		name, ok := value.(string)
+		if !ok {
+			return c, fmt.Errorf("mode is a name, not %T", value)
+		}
+		b, known := modeByte(name)
+		if !known || !slices.Contains(unitModes, b) {
+			return c, fmt.Errorf("the unit doesn't do %s: it does %s", name, modeNames(unitModes))
+		}
+		c.mode, mode = b, b
+	case contractv1.Setpoint:
+		t, ok := value.(float64)
+		if !ok {
+			return c, fmt.Errorf("setpoint is a number, not %T", value)
+		}
+		if t != math.Trunc(t) {
+			return c, fmt.Errorf("the unit takes whole degrees, not %v", t)
+		}
+		raw := int(t)
+		// In 8 °C heating the unit takes its setpoint 16 higher, as it reports it.
+		if s.mode == modeHeat && s.meritA == meritHeating8C {
+			raw += heating8COffset
+		}
+		// 126 and 127 aren't setpoints, and -1 is none.
+		if raw < 0 || raw > 125 {
+			return c, fmt.Errorf("the unit can't take a setpoint of %v", t)
+		}
+		c.setpoint = int8(raw)
+	default:
+		return c, fmt.Errorf("the unit has no %s", capability)
+	}
+	// A feature the mode doesn't allow is turned off with it, as the app does.
+	if slices.Contains(meritAOff[mode], s.meritA) {
+		c.meritA = meritOff
+	}
+	if slices.Contains(meritBOff[mode], s.meritB) {
+		c.meritB = meritOff
+	}
+	return c, nil
+}
+
+// encode is the command in hex, as the cloud takes it: fan, swing, power, ion and the
+// temperatures are none, and the merit fields are a half byte each.
+func (c command) encode() string {
+	raw := []byte{
+		c.status, c.mode, byte(c.setpoint), noneByte, noneByte, noneByte, c.meritB, c.meritA, noneByte,
+		noneByte, noneByte, noneByte, noneByte, noneByte, noneByte, c.selfCleaning,
+		noneByte, noneByte, noneByte, noneByte,
+	}
+	h := hex.EncodeToString(raw)
+	// Digits 12 and 14 are the merit bytes' high halves.
+	return h[:12] + h[13:14] + h[15:]
+}
+
+// unitModes are the modes a unit does, from bits 6 and 7 of its MeritFeature: a heat pump does
+// them all, a heater only heats, and an air conditioner without heat pump does all but heating.
+// A MeritFeature the plugin can't read does them all.
+func unitModes(merit string) []byte {
+	all := []byte{0x41, 0x42, 0x43, 0x44, 0x45}
+	// Four digits, padded or cut, as the library reads it.
+	v, err := strconv.ParseUint((merit + "0000")[:4], 16, 16)
+	if err != nil {
+		return all
+	}
+	bit := func(i int) bool { return v>>(15-i)&1 == 1 }
+	switch {
+	case !bit(6) && bit(7):
+		return []byte{0x43}
+	case bit(6) && !bit(7):
+		return []byte{0x41, 0x42, 0x44, 0x45}
+	}
+	return all
+}
+
+// modeNames lists modes by name.
+func modeNames(bs []byte) string {
+	names := make([]string, 0, len(bs))
+	for _, b := range bs {
+		names = append(names, modes[b])
+	}
+	return strings.Join(names, ", ")
 }

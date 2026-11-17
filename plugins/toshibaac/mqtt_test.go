@@ -165,3 +165,61 @@ func TestAPacketThatIsntMQTTFails(t *testing.T) {
 		}
 	}
 }
+
+func TestAPublishAtQoS1WaitsForItsPUBACK(t *testing.T) {
+	client, server := pipe(t)
+	c := &mqttConn{conn: client, r: bufio.NewReader(client), keepAlive: time.Minute, waiting: map[uint16]chan error{}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.run(ctx, func(string, []byte) {}) }()
+
+	published := make(chan error, 1)
+	go func() { published <- c.publishAcked(t.Context(), "a/b", []byte("hi")) }()
+	header, body, err := server.c.read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// QoS 1, and the first ID after the subscription's.
+	if want := append(appendString(nil, "a/b"), 0, 2, 'h', 'i'); header != pktPublish<<4|0x02 || !bytes.Equal(body, want) {
+		t.Errorf("PUBLISH %x %x, want %x", header, body, want)
+	}
+	// Another ID's PUBACK isn't its.
+	server.send(pktPuback<<4, []byte{0, 7})
+	select {
+	case err := <-published:
+		t.Fatalf("returned %v on another's PUBACK", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	server.send(pktPuback<<4, []byte{0, 2})
+	if err := <-published; err != nil {
+		t.Errorf("publish: %v", err)
+	}
+
+	// One that's never acknowledged gives up when its context does.
+	short, stop := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer stop()
+	go func() { published <- c.publishAcked(short, "a/b", nil) }()
+	if _, _, err := server.c.read(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-published; err == nil || !strings.Contains(err.Error(), "no PUBACK") {
+		t.Errorf("publish without a PUBACK: %v", err)
+	}
+
+	// And one waiting when the connection ends fails with it.
+	go func() { published <- c.publishAcked(t.Context(), "a/b", nil) }()
+	if _, _, err := server.c.read(); err != nil {
+		t.Fatal(err)
+	}
+	_ = server.c.conn.Close()
+	if err := <-published; err == nil || !strings.Contains(err.Error(), "ended") {
+		t.Errorf("publish as the connection ended: %v", err)
+	}
+	if err := <-done; err == nil {
+		t.Error("run ended without an error")
+	}
+	if err := c.publishAcked(t.Context(), "a/b", nil); err == nil {
+		t.Error("a publish after the end: no error")
+	}
+}

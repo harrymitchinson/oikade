@@ -124,3 +124,31 @@ func parseMethod(topic string) (name, rid string, ok bool) {
 func answerMethod(c *mqttConn, rid string) error {
 	return c.publish("$iothub/methods/res/0/?$rid="+url.QueryEscape(rid), []byte("null"))
 }
+
+// cmdCommand is a change sent to a unit.
+const cmdCommand = "CMD_FCU_TO_AC"
+
+// telemetryTopic is where a device sends the cloud a message, with the properties the app's SDK
+// gives it: JSON in UTF-8, of the type mob. IoT Hub takes the device ID as it is.
+func telemetryTopic(device string) string {
+	return "devices/" + device + "/messages/events/$.ct=application%2Fjson&$.ce=utf-8&type=mob"
+}
+
+// commandMessage is a command to the unit whose unique ID is target, from device. It's written as
+// KaSroka/Toshiba-AC-control sends it, which is Python's str() of a dict rather than JSON, since
+// that's what the cloud is known to take.
+func commandMessage(device, target, state string) []byte {
+	return []byte("{'sourceId': " + pyString(device) + ", 'messageId': '0000000', 'targetId': [" + pyString(target) +
+		"], 'cmd': '" + cmdCommand + "', 'payload': {'data': " + pyString(state) + "}, 'timeStamp': '0000000'}")
+}
+
+// pyString is s as Python's repr writes a string: in single quotes, or double if it has a single
+// quote and no double one, with backslashes and the quote escaped.
+func pyString(s string) string {
+	quote := "'"
+	if strings.Contains(s, "'") && !strings.Contains(s, `"`) {
+		quote = `"`
+	}
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	return quote + strings.ReplaceAll(s, quote, `\`+quote) + quote
+}

@@ -88,3 +88,24 @@ func TestTheClientIDIsTheAccountsEachTime(t *testing.T) {
 		t.Errorf("client ID %q", a)
 	}
 }
+
+func TestACommandMessageIsWhatTheLibrarySends(t *testing.T) {
+	got := string(commandMessage("someone@example.com_0123", "A1B2", "30ff"))
+	want := `{'sourceId': 'someone@example.com_0123', 'messageId': '0000000', 'targetId': ['A1B2'], 'cmd': 'CMD_FCU_TO_AC', 'payload': {'data': '30ff'}, 'timeStamp': '0000000'}`
+	if got != want {
+		t.Errorf("message\n got %s\nwant %s", got, want)
+	}
+	if got := telemetryTopic("d@x_1"); got != "devices/d@x_1/messages/events/$.ct=application%2Fjson&$.ce=utf-8&type=mob" {
+		t.Errorf("topic %s", got)
+	}
+	for s, want := range map[string]string{
+		`plain`:   `'plain'`,
+		`o'brien`: `"o'brien"`,
+		`a'b"c`:   `'a\'b"c'`,
+		`back\`:   `'back\\'`,
+	} {
+		if got := pyString(s); got != want {
+			t.Errorf("pyString(%s) = %s, want %s", s, got, want)
+		}
+	}
+}

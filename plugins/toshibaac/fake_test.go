@@ -51,7 +51,9 @@ type fakeCloud struct {
 	connects [][2]string
 	// answers are the topics the plugin answered method calls on.
 	answers []string
-	rid     int
+	// sent are the messages the plugin sent the cloud, as topic, QoS and payload.
+	sent []string
+	rid  int
 }
 
 func newFakeCloud(t *testing.T) *fakeCloud {
@@ -169,6 +171,12 @@ func (c *fakeCloud) hubLogins() [][2]string {
 	return append([][2]string(nil), c.connects...)
 }
 
+func (c *fakeCloud) messages() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.sent...)
+}
+
 func (c *fakeCloud) answered() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -193,6 +201,13 @@ func (c *fakeCloud) startHub() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		c.answers = append(c.answers, pk.TopicName+" "+string(pk.Payload))
+	}); err != nil {
+		c.t.Fatal(err)
+	}
+	if err := s.Subscribe("devices/#", 2, func(_ *mochi.Client, _ packets.Subscription, pk packets.Packet) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.sent = append(c.sent, fmt.Sprintf("%s %d %s", pk.TopicName, pk.FixedHeader.Qos, pk.Payload))
 	}); err != nil {
 		c.t.Fatal(err)
 	}
