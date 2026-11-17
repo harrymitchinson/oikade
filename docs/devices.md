@@ -4,7 +4,7 @@ What Oikade knows about each device, how you name and type it, and how it reache
 
 ## The device list
 
-The host owns the list of devices, in its registry in the data directory. A paired device enters it the moment a driver reports it, and it's usable at once, under a name copied from its app once. Oikade never writes to an app's names, or follows them after that.
+The host owns the list of devices, in its registry in the data directory. A paired device enters it the moment a driver reports it, and it's usable at once, under a name and in a room copied from its app once, each made into a [name](#names) (the app's `Living Room` is `living-room`). Oikade never writes to an app's names, or follows them after that.
 
 ```sh
 oikade devices                               # every device, and how it's doing
@@ -19,18 +19,22 @@ oikade types                                 # write devices.go: a handle for ev
 
 If the host's data is lost, your next deploy gives its devices their names, rooms and types back as they report, since they're in your code. Matter endpoints are allocated again, and the Home app pairs afresh anyway, since its fabric went with the data. A backup (`oikade backup`, in [Running a home](running-a-home.md#upgrading-the-host)) restores everything.
 
+## Names
+
+Every name Oikade owns follows one rule: lowercase letters, digits and single dashes, starting with a letter, and at most 63 of them, such as `porch-light` ([OIK-313](https://linear.app/oikade/issue/OIK-313)). That's devices, rooms, groups, a decision's cases, flows, plugins, the secrets you set and the API's clients, so a name needs no quoting anywhere you paste it. `oikade check` refuses one in your code that doesn't, and `oikade secret set` and `oikade-host client add` refuse one on the command line, each with a name that would do: `"Living Room" isn't a room name: use lowercase letters, digits and single dashes, starting with a letter, such as "living-room"`. Nothing rewrites a name you wrote. A name copied from an app is made into one instead, and `oikade devices --json` keeps the app's own as `appName` and `appRoom`.
+
 ## Declaring devices in code
 
 Your home's code can say what a device is called, which room it's in and what it is, so a rename, a move or a swap of hardware is a change you review and deploy with the code that uses it ([OIK-295](https://linear.app/oikade/issue/OIK-295)):
 
 ```go
-home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("Porch").Is(oikade.OnOffLight)
-home.Device("greenhouse-fan").Room("Greenhouse") // no hardware yet: the name is reserved
+home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(oikade.OnOffLight)
+home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is reserved
 ```
 
 `Hardware` takes the name you import the device's plugin by, with `home.Plugin`, and the ID `oikade devices --json` shows. Declaring is optional: a device you don't declare works under its app's name, as above.
 
-A deploy applies the declarations, matched by hardware, and lists what it changed: `Renamed lamp to porch-light`, `Moved porch-light to Porch`. A declared name keeps its Matter endpoint, so the Home app keeps its room and scenes. Change a declaration's ID to swap a failed device for new hardware: the name, room, claims and endpoint stay, so the Home app keeps its rooms and automations, and the new hardware's own entry goes. Stop declaring a device, and the next deploy gives it back its app's name, or removes a reserved name.
+A deploy applies the declarations, matched by hardware, and lists what it changed: `Renamed lamp to porch-light`, `Moved porch-light to porch`. A declared name keeps its Matter endpoint, so the Home app keeps its room and scenes. Change a declaration's ID to swap a failed device for new hardware: the name, room, claims and endpoint stay, so the Home app keeps its rooms and automations, and the new hardware's own entry goes. Stop declaring a device, and the next deploy gives it back its app's name, or removes a reserved name.
 
 A declaration with no hardware, or hardware that hasn't reported, reserves its name until it does, and `oikade check` and the deploy say so. So you can write code for something that isn't paired yet, which does nothing until the hardware arrives. A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`: until it reports, name a capability yourself, such as `oikade.Bool{Device: GreenhouseFan.Name, Capability: oikade.On}`, and run `oikade types` once it has. Give it its `Hardware` and deploy, and the name moves onto it.
 

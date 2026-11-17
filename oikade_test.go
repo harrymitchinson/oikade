@@ -56,8 +56,8 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		home *Home
 		want string
 	}{
-		"no name":           {deciding(Options{}, "", when), "Case \"\": it needs a name"},
-		"a space in a name": {deciding(Options{}, "a b", when), "its name has a space in it"},
+		"no name":           {deciding(Options{}, "", when), "Case \"\": a case needs a name"},
+		"a space in a name": {deciding(Options{}, "a b", when), `"a b" isn't a case name`},
 		"twice": {decide(func(h *Home) {
 			h.Decide(d).Case("a", true, when).Case("a", false, when).Default(false)
 		}), `Case "a" is given twice`},

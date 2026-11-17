@@ -20,15 +20,15 @@ func declareOK(t *testing.T, r *Registry, decls ...Declaration) Declared {
 func TestDeclaringADeviceNamesPlacesAndTypesItByItsHardware(t *testing.T) {
 	r, values := open(t)
 	before := report(t, r, "0x1", "Living room lamp")
-	got := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "Study", DeviceType: devicetype.OnOffLight})
+	got := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study", DeviceType: devicetype.OnOffLight})
 	d := get(t, r, "reading-lamp")
-	if !d.Declared || d.Room != "Study" || d.DeviceType != devicetype.OnOffLight || d.Endpoint != before.Endpoint {
+	if !d.Declared || d.Room != "study" || d.DeviceType != devicetype.OnOffLight || d.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, want it declared, in the study, a light, on its endpoint", d)
 	}
 	if got.Renamed["living-room-lamp"] != "reading-lamp" {
 		t.Errorf("renamed %v", got.Renamed)
 	}
-	want := []string{"Renamed living-room-lamp to reading-lamp", "Moved reading-lamp to Study", "Set reading-lamp's device type to OnOffLight"}
+	want := []string{"Renamed living-room-lamp to reading-lamp", "Moved reading-lamp to study", "Set reading-lamp's device type to OnOffLight"}
 	if !slices.Equal(got.Changes, want) {
 		t.Errorf("changes %q, want %q", got.Changes, want)
 	}
@@ -36,7 +36,7 @@ func TestDeclaringADeviceNamesPlacesAndTypesItByItsHardware(t *testing.T) {
 	if err != nil || !get(t, again, "reading-lamp").Declared {
 		t.Fatalf("declaration not saved: %v", err)
 	}
-	if same := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "Study", DeviceType: devicetype.OnOffLight}); len(same.Changes) != 0 || len(same.Renamed) != 0 {
+	if same := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study", DeviceType: devicetype.OnOffLight}); len(same.Changes) != 0 || len(same.Renamed) != 0 {
 		t.Errorf("declaring it again changed %+v", same)
 	}
 }
@@ -44,7 +44,7 @@ func TestDeclaringADeviceNamesPlacesAndTypesItByItsHardware(t *testing.T) {
 func TestADeviceNoLongerDeclaredGoesBackToItsAppsName(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "Living room lamp")
-	declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "Study"}, Declaration{Name: "shed-fan"})
+	declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study"}, Declaration{Name: "shed-fan"})
 	got := declareOK(t, r)
 	d := get(t, r, "living-room-lamp")
 	if d.Declared || d.Room != "" || got.Renamed["reading-lamp"] != "living-room-lamp" {
@@ -62,7 +62,7 @@ func TestADeviceNoLongerDeclaredGoesBackToItsAppsName(t *testing.T) {
 
 func TestADeclaredNameWaitsForItsHardware(t *testing.T) {
 	r, _ := open(t)
-	got := declareOK(t, r, Declaration{Name: "porch-light", Driver: "sim", ID: "0x9"}, Declaration{Name: "greenhouse-fan", Room: "Greenhouse"})
+	got := declareOK(t, r, Declaration{Name: "porch-light", Driver: "sim", ID: "0x9"}, Declaration{Name: "greenhouse-fan", Room: "greenhouse"})
 	if !slices.Equal(got.Unseen, []string{"porch-light"}) {
 		t.Errorf("unseen %v", got.Unseen)
 	}
@@ -79,12 +79,12 @@ func TestADeclaredNameWaitsForItsHardware(t *testing.T) {
 func TestADeclaredNameMovesOntoNewHardwareAndKeepsItsEndpoint(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "Hall sensor")
-	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x1", Room: "Hall"})
+	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x1", Room: "hall"})
 	old := get(t, r, "hall-sensor")
 	report(t, r, "0x2", "Sensor 7")
-	got := declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: "Hall"})
+	got := declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: "hall"})
 	d := get(t, r, "hall-sensor")
-	if d.ID != "0x2" || d.Endpoint != old.Endpoint || d.Room != "Hall" {
+	if d.ID != "0x2" || d.Endpoint != old.Endpoint || d.Room != "hall" {
 		t.Errorf("got %+v, want 0x2 on endpoint %d", d, old.Endpoint)
 	}
 	if got.Absorbed["sensor-7"] != "hall-sensor" {
@@ -182,11 +182,11 @@ func TestDeclaringChangesOnlyItsCopy(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "Living room lamp")
 	before := r.List()
-	got, err := Declaring(before, []Declaration{{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "Study"}})
+	got, err := Declaring(before, []Declaration{{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if i := live(got, "reading-lamp"); i < 0 || got.Devices[i].Room != "Study" {
+	if i := live(got, "reading-lamp"); i < 0 || got.Devices[i].Room != "study" {
 		t.Errorf("got %+v", got.Devices)
 	}
 	if live(before, "living-room-lamp") < 0 || live(r.List(), "living-room-lamp") < 0 {
@@ -202,8 +202,8 @@ func TestAnUndeclaredPluginDeviceHasALineToPaste(t *testing.T) {
 	if line, ok := Undeclared(lamp); !ok || line != `home.Device("lamp").Hardware("zigbee", "0x1")` {
 		t.Errorf("got %q, %v", line, ok)
 	}
-	placed := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Room: "Hall", DeviceType: devicetype.OnOffLight}
-	if line, _ := Undeclared(placed); line != `home.Device("lamp").Hardware("zigbee", "0x1").Room("Hall").Is(oikade.OnOffLight)` {
+	placed := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Room: "hall", DeviceType: devicetype.OnOffLight}
+	if line, _ := Undeclared(placed); line != `home.Device("lamp").Hardware("zigbee", "0x1").Room("hall").Is(oikade.OnOffLight)` {
 		t.Errorf("got %q, want its room and type kept", line)
 	}
 	for _, d := range []Device{

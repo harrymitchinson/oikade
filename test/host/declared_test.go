@@ -26,14 +26,14 @@ func TestADeployAppliesTheHomesDeviceDeclarations(t *testing.T) {
 		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
 	}
 	r.awaitDeployed()
-	for _, want := range []string{"Renamed relay to porch-relay", "Moved porch-relay to Porch",
+	for _, want := range []string{"Renamed relay to porch-relay", "Moved porch-relay to porch",
 		"Set porch-relay's device type to OnOffLight", "Reserved shed-fan"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("no %q in:\n%s", want, stderr)
 		}
 	}
 	d := deviceOf(t, r.devices(), "porch-relay")
-	if !d.Declared || d.Room != "Porch" || d.DeviceType != devicetype.OnOffLight || d.Endpoint != before.Endpoint {
+	if !d.Declared || d.Room != "porch" || d.DeviceType != devicetype.OnOffLight || d.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, want it declared, in the porch, a light, on endpoint %d", d, before.Endpoint)
 	}
 	if !deviceOf(t, r.devices(), "shed-fan").Reserved() {

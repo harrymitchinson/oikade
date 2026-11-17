@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -440,12 +439,10 @@ func Secret(name string) plugin.Secret { return plugin.NewSecret(name) }
 
 // checkSecrets says which of the secrets the home uses have names oikade secret set refuses.
 func checkSecrets() error {
-	var errs []error
-	for _, name := range secretuse.Names() {
-		if !contractv1.ValidSecretName(name) {
-			errs = append(errs, fmt.Errorf("secret %q isn't a valid name: "+
-				"use 1 to 253 letters, digits, '.', '_' and '-', starting with a letter or digit", name))
-		}
+	names := secretuse.Names()
+	errs := make([]error, 0, len(names))
+	for _, name := range names {
+		errs = append(errs, ident.CheckName(ident.Secret, name))
 	}
 	return errors.Join(errs...)
 }

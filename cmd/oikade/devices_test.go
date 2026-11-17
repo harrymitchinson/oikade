@@ -178,13 +178,13 @@ func TestTypesNamesDevicesAsYourHomeDeclaresThem(t *testing.T) {
 		return wire.Manifest{}, errors.New("undefined: PorchLight")
 	}
 	code := "package main\n\nfunc main() {\n\thome.Device(\"porch-light\").\n" +
-		"\t\tHardware(\"zigbee\", \"0x2\").Room(\"Porch\")\n\t_ = PorchLight.On\n}\n"
+		"\t\tHardware(\"zigbee\", \"0x2\").Room(\"porch\")\n\t_ = PorchLight.On\n}\n"
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stderr.Reset()
 	got = declaredIn(t.Context(), &stderr, dir, list, broken)
-	if got.Devices[0].Name != "porch-light" || got.Devices[0].Room != "Porch" ||
+	if got.Devices[0].Name != "porch-light" || got.Devices[0].Room != "porch" ||
 		!strings.Contains(stderr.String(), "its 1 device declarations are read from its source") {
 		t.Errorf("got %+v, and said %q", got.Devices, stderr.String())
 	}
@@ -203,9 +203,9 @@ func TestDeclarationsAreReadFromTheSource(t *testing.T) {
 import "github.com/harrymitchinson/oikade"
 
 func declare(home *oikade.Home, name string) {
-	home.Device("study-blind").Hardware("overkiz", "io://1").Room("Study").Is(oikade.WindowCovering)
+	home.Device("study-blind").Hardware("overkiz", "io://1").Room("study").Is(oikade.WindowCovering)
 	home.Device("shed-fan")
-	home.Device(name).Room("Hall") // not a literal, so not read
+	home.Device(name).Room("hall") // not a literal, so not read
 }
 `
 	if err := os.WriteFile(filepath.Join(dir, "inventory.go"), []byte(code), 0o644); err != nil {
@@ -216,7 +216,7 @@ func declare(home *oikade.Home, name string) {
 		t.Fatal(err)
 	}
 	want := []wire.DeviceDeclaration{
-		{Name: "study-blind", Plugin: "overkiz", ID: "io://1", Room: "Study", DeviceType: "WindowCovering"},
+		{Name: "study-blind", Plugin: "overkiz", ID: "io://1", Room: "study", DeviceType: "WindowCovering"},
 		{Name: "shed-fan"},
 	}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {

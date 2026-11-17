@@ -245,7 +245,7 @@ func TestASecretsBadNameFailsTheCheck(t *testing.T) {
 	t.Parallel()
 	r := start(t, "--matter-port=0")
 	stderr, err := r.deploy("badsecret")
-	if err == nil || !strings.Contains(stderr, `secret "not/a-name" isn't a valid name`) {
+	if err == nil || !strings.Contains(stderr, `"not/a-name" isn't a secret name`) {
 		t.Errorf("err = %v, the deploy said:\n%s", err, stderr)
 	}
 }

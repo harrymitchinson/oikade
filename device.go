@@ -14,8 +14,8 @@ import (
 // hardware, room and type you give it. A deploy applies it, so a rename, a move or a swap of
 // hardware is a change to your code, reviewed and deployed with the code that uses it.
 //
-//	home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("Porch").Is(oikade.OnOffLight)
-//	home.Device("greenhouse-fan").Room("Greenhouse") // no hardware yet: the name is reserved
+//	home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(oikade.OnOffLight)
+//	home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is reserved
 //
 // Declaring is optional. A device you've paired and not declared works under its app's name.
 type Declaration struct {

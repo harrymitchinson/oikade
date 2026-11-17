@@ -416,8 +416,8 @@ func home() *oikade.Home {
 			Default(true)
 	}
 	if variant == "plugins-declared" {
-		h.Device("porch-relay").Hardware("relays", "relay").Room("Porch").Is(oikade.OnOffLight)
-		h.Device("shed-fan").Room("Shed")
+		h.Device("porch-relay").Hardware("relays", "relay").Room("porch").Is(oikade.OnOffLight)
+		h.Device("shed-fan").Room("shed")
 	}
 	switch {
 	case plugins:

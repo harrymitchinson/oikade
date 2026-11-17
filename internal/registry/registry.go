@@ -5,10 +5,10 @@ package registry
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/fault"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -31,14 +32,11 @@ const (
 	LastEndpoint = 0xFFFE
 
 	stateKey = "state"
-	maxName  = 63
 )
 
 var (
 	// ErrNoDevice is a name the registry doesn't have.
 	ErrNoDevice = errors.New("no such device")
-
-	validName = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 )
 
 // Device is one device. Its JSON is in oikade devices --json, so
@@ -211,7 +209,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 			}
 			s.Devices = append(s.Devices, Device{
 				Name: uniqueName(*s, Slug(report.Name, report.ID)), ID: report.ID, Driver: report.Driver,
-				Room: clean(report.Room), Endpoint: endpoint, AppName: clean(report.Name), AppRoom: clean(report.Room),
+				Room: roomOf(report.Room), Endpoint: endpoint, AppName: clean(report.Name), AppRoom: clean(report.Room),
 			})
 			i = len(s.Devices) - 1
 		}
@@ -282,37 +280,15 @@ func hardware(s Snapshot, driver, id string) int {
 	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.ID == id && d.Driver == driver })
 }
 
-func checkName(name string) error {
-	if len(name) > maxName || !validName.MatchString(name) {
-		return fmt.Errorf("%q isn't a device name: use lowercase letters, digits and single dashes, starting with a letter", name)
-	}
-	return nil
-}
+func checkName(name string) error { return ident.CheckName(ident.Device, name) }
 
 // Slug makes a device name from what its app calls it, or its ID if that gives nothing.
 func Slug(name, id string) string {
-	slug := dashed(name)
-	if slug == "" {
-		slug = dashed(id)
-	}
-	if slug == "" || !unicode.IsLetter(rune(slug[0])) {
-		slug = strings.TrimSuffix("device-"+slug, "-")
-	}
-	return strings.TrimRight(slug[:min(len(slug), maxName)], "-")
+	return cmp.Or(ident.Slug(ident.Device, name), ident.Slug(ident.Device, id), string(ident.Device))
 }
 
-func dashed(s string) string {
-	var b strings.Builder
-	for _, c := range strings.ToLower(s) {
-		switch {
-		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
-			b.WriteRune(c)
-		case b.Len() > 0 && !strings.HasSuffix(b.String(), "-"):
-			b.WriteByte('-')
-		}
-	}
-	return strings.TrimRight(b.String(), "-")
-}
+// roomOf is the room Oikade puts a device in from what its app calls the room.
+func roomOf(appRoom string) string { return ident.Slug(ident.Room, appRoom) }
 
 // uniqueName adds a number if a live device has the name.
 func uniqueName(s Snapshot, name string) string {
@@ -321,7 +297,7 @@ func uniqueName(s Snapshot, name string) string {
 	}
 	for n := 2; ; n++ {
 		suffix := "-" + strconv.Itoa(n)
-		candidate := strings.TrimRight(name[:min(len(name), maxName-len(suffix))], "-") + suffix
+		candidate := strings.TrimRight(name[:min(len(name), ident.MaxName-len(suffix))], "-") + suffix
 		if live(s, candidate) < 0 {
 			return candidate
 		}

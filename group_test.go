@@ -47,14 +47,14 @@ func TestCompileRejectsAnUnsoundGroup(t *testing.T) {
 		"a member twice": {func(h *Home) { h.Group("g", hallLamp, hallLamp) }, "hall-lamp is a member twice"},
 		"a nil member":   {func(h *Home) { h.Group("g", nil) }, "it has a nil member"},
 		"a nameless one": {func(h *Home) { h.Group("g", light{}) }, "a member with no name"},
-		"a space":        {func(h *Home) { h.Group("a b", hallLamp) }, "its name has a space in it"},
+		"a space":        {func(h *Home) { h.Group("a b", hallLamp) }, `"a b" isn't a group name`},
 		"its own name":   {func(h *Home) { h.Group("hall-lamp", hallLamp) }, "a member of its own name"},
 		"a device's name": {
 			func(h *Home) { h.Group("hall-heater", hallLamp); h.Group("g", hallHeater) },
 			`group "hall-heater" has a device's name`,
 		},
 		"made twice":       {func(h *Home) { h.Group("g", hallLamp); h.Group("g", hallHeater) }, `group "g" is made twice`},
-		"a room with none": {func(h *Home) { h.Room("") }, "Room needs a name"},
+		"a room with none": {func(h *Home) { h.Room("") }, "a room needs a name"},
 		"no member has it": {
 			func(h *Home) { h.Decide(h.Group("g", hallLamp).Setpoint).Default(18) },
 			"no member of group g has setpoint",

@@ -10,6 +10,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // Declaration is a device a home's code declares: its name, and the hardware, room and type it gives
@@ -82,6 +83,11 @@ func CheckDeclarations(decls []Declaration) error {
 		if err := checkName(d.Name); err != nil {
 			errs = append(errs, err)
 		}
+		if d.Room != "" {
+			if err := ident.CheckName(ident.Room, d.Room); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", d.Name, err))
+			}
+		}
 		if names[d.Name] {
 			errs = append(errs, fmt.Errorf("%s is declared twice", d.Name))
 		}
@@ -128,7 +134,7 @@ func declare(s *Snapshot, decls []Declaration) (Declared, error) {
 	}
 	for k, d := range decls {
 		e := &s.Devices[targets[k]]
-		e.Name, e.Room, e.DeviceType, e.Declared, e.Removed = d.Name, clean(d.Room), d.DeviceType, true, false
+		e.Name, e.Room, e.DeviceType, e.Declared, e.Removed = d.Name, d.Room, d.DeviceType, true, false
 		if err := fits(*e, d.DeviceType); err != nil {
 			return Declared{}, err
 		}
@@ -143,7 +149,7 @@ func declare(s *Snapshot, decls []Declaration) (Declared, error) {
 		if _, ok := taken[i]; ok || !e.Declared || e.Removed {
 			continue
 		}
-		e.Declared, e.Room, e.DeviceType = false, e.AppRoom, ""
+		e.Declared, e.Room, e.DeviceType = false, roomOf(e.AppRoom), ""
 		if e.ID == "" {
 			e.Removed = true
 			out.Removed = append(out.Removed, e.Name)

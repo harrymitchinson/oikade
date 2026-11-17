@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -24,6 +23,7 @@ import (
 	"github.com/VictoriaMetrics/metrics"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -44,15 +44,8 @@ const (
 var errBadCode = fmt.Errorf("that code doesn't work: it's wrong, used or more than %v old. Run oikade-host client add again",
 	codeLifetime)
 
-// clientName is what a client can be called.
-var clientName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
-
-func validClientName(name string) error {
-	if !clientName.MatchString(name) {
-		return fmt.Errorf("%q can't name a client: use lower-case letters, digits, '.', '_' and '-'", name)
-	}
-	return nil
-}
+// validClientName refuses a new client's name that breaks the rule every name Oikade owns follows.
+func validClientName(name string) error { return ident.CheckName(ident.Client, name) }
 
 // apiIdentity is the network API's key and self-signed certificate. Clients pin its public key, so
 // its names and expiry don't matter.

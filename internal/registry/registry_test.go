@@ -48,22 +48,22 @@ func get(t *testing.T, r *Registry, name string) Device {
 
 func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	r, _ := open(t)
-	d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Room: "Hall", Capabilities: []string{"on"}})
+	d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Room: "Living Room", Capabilities: []string{"on"}})
 	if err != nil || !changed {
 		t.Fatal(changed, err)
 	}
 	if _, changed, _ := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Capabilities: []string{"on"}}); changed {
 		t.Error("the same report changed something")
 	}
-	if d.Name != "hall-lamp" || d.Room != "Hall" || d.Endpoint != FirstEndpoint {
+	if d.Name != "hall-lamp" || d.Room != "living-room" || d.AppRoom != "Living Room" || d.Endpoint != FirstEndpoint {
 		t.Errorf("got %+v", d)
 	}
-	declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1", Room: "Attic"})
+	declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1", Room: "attic"})
 	again, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"on", "brightness"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Name != "lamp" || again.Room != "Attic" || again.Endpoint != d.Endpoint || len(again.Capabilities) != 2 {
+	if again.Name != "lamp" || again.Room != "attic" || again.Endpoint != d.Endpoint || len(again.Capabilities) != 2 {
 		t.Errorf("an app's names were followed, or capabilities weren't: %+v", again)
 	}
 }
@@ -175,7 +175,10 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "z", "zebra-lamp")
 	report(t, r, "a", "apple-lamp")
-	declareOK(t, r, Declaration{Name: "porch", Room: "Front\nconst Evil = 1\n"})
+	if _, _, err := r.Report(Report{ID: "p", Driver: "sim", Name: "Side\nconst Evil = 1\n", Room: "Front\nconst Evil = 1\n"}); err != nil {
+		t.Fatal(err)
+	}
+	declareOK(t, r, Declaration{Name: "porch", Room: "front"})
 	first, err := Render(r.List(), "home")
 	if err != nil {
 		t.Fatal(err)
