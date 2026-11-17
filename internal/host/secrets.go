@@ -116,6 +116,8 @@ func (s *apiServer) secret(req api.Request) api.Response {
 		}
 		return api.Response{Secrets: found}
 	}
+	// A plugin may name a secret after its own IDs, such as a device's key under the device's ID, so
+	// this takes any name the contract does. Your home's own follow ident's rule, which oikade check holds.
 	if !contractv1.ValidSecretName(req.Secret) {
 		return api.Response{Error: fmt.Sprintf("%q isn't a secret's name: use letters, digits, '.', '_' and '-'", req.Secret)}
 	}

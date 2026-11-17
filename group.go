@@ -8,6 +8,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // Device is what each device oikade types writes embeds: its name, which makes it a member a group
@@ -92,8 +93,8 @@ func (g *group) what() string {
 func (h *Home) Group(name string, members ...member) Group {
 	g := &group{name: name}
 	bad := func(err error) { h.mistakes = append(h.mistakes, fmt.Errorf("group %q: %w", name, err)) }
-	if err := caseName(name); err != nil {
-		bad(err)
+	if err := ident.CheckName(ident.Group, name); err != nil {
+		h.mistakes = append(h.mistakes, err)
 	}
 	if len(members) == 0 {
 		bad(errors.New("it needs a member"))
@@ -146,8 +147,8 @@ func (h *Home) Room(name string, kinds ...Kind) Group {
 	}); i >= 0 {
 		return h.groups[i].fields()
 	}
-	if name == "" {
-		h.mistakes = append(h.mistakes, errors.New("Room needs a name"))
+	if err := ident.CheckName(ident.Room, name); err != nil {
+		h.mistakes = append(h.mistakes, err)
 	}
 	h.groups = append(h.groups, g)
 	return g.fields()

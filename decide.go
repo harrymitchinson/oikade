@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -416,7 +414,7 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 				bad(fmt.Errorf("%s: a budget is per device, so it can't be in %s's decision", l.what(), h.g.what()))
 			}
 		}
-		if err := caseName(l.name); err != nil {
+		if err := ident.CheckName(ident.Case, l.name); err != nil {
 			bad(fmt.Errorf("%s: %w", l.what(), err))
 		}
 		if names[l.name] {
@@ -478,17 +476,6 @@ func (c *decidedCase) target(h handle) {
 		return
 	}
 	c.hold.Devices = g.has(h.capability)
-}
-
-// caseName reports a case's name that oikade pause can't take as one word.
-func caseName(name string) error {
-	switch {
-	case name == "":
-		return errors.New("it needs a name")
-	case strings.ContainsFunc(name, unicode.IsSpace):
-		return errors.New("its name has a space in it")
-	}
-	return nil
 }
 
 func (l line) compile(h handle, safety bool, o Options) (decidedCase, error) {

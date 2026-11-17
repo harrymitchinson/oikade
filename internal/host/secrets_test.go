@@ -66,6 +66,19 @@ func TestSetOnAReadOnlyDirectorySaysWhereToChangeIt(t *testing.T) {
 	}
 }
 
+func TestASecretCanHaveAPluginsName(t *testing.T) {
+	// eWeLink LAN keeps a device's key under the device's ID, which starts with a digit.
+	s := &apiServer{log: logging.Discard(), secrets: secrets{dir: t.TempDir()}}
+	for _, req := range []api.Request{
+		{Type: api.TypeSecretSet, Secret: "1000aabbcc", SecretValue: "v"},
+		{Type: api.TypeSecretRemove, Secret: "1000aabbcc"},
+	} {
+		if resp := s.secret(req); resp.Error != "" {
+			t.Errorf("%s: %s", req.Type, resp.Error)
+		}
+	}
+}
+
 func TestAnAPIRefusalNeverEchoesTheValue(t *testing.T) {
 	s := &apiServer{log: logging.Discard(), secrets: secrets{dir: filepath.Join(t.TempDir(), "gone")}}
 	resp := s.secret(api.Request{Type: api.TypeSecretSet, Secret: "api-key", SecretValue: "the-value"})

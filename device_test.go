@@ -14,15 +14,15 @@ var zigbee = func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handl
 func TestADeclaredDeviceGoesToTheHost(t *testing.T) {
 	h := decide(func(h *Home) {
 		h.Plugin("zigbee", zigbee)
-		h.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("Porch").Is(OnOffLight)
-		h.Device("greenhouse-fan").Room("Greenhouse")
+		h.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(OnOffLight)
+		h.Device("greenhouse-fan").Room("greenhouse")
 	})
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
 	}
 	want := []wire.DeviceDeclaration{
-		{Name: "porch-light", Plugin: "zigbee", ID: "0x00178801049a2b3c", Room: "Porch", DeviceType: "OnOffLight"},
-		{Name: "greenhouse-fan", Room: "Greenhouse"},
+		{Name: "porch-light", Plugin: "zigbee", ID: "0x00178801049a2b3c", Room: "porch", DeviceType: "OnOffLight"},
+		{Name: "greenhouse-fan", Room: "greenhouse"},
 	}
 	got := h.manifest().Inventory
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {

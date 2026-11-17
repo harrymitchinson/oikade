@@ -29,7 +29,6 @@ import (
 	"slices"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
@@ -813,6 +812,11 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		}
 	}
 	for _, r := range h.flows {
+		if r.name != "" {
+			if err := ident.CheckName(ident.Flow, r.name); err != nil {
+				errs = append(errs, err)
+			}
+		}
 		f := r.toFlow(name(r.name), h.options, decided)
 		flows[r.name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
@@ -821,9 +825,9 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.plugins {
-		switch {
-		case !contractv1.ValidID(p.name):
-			errs = append(errs, fmt.Errorf("plugin name %q isn't valid", p.name))
+		switch named := ident.CheckName(ident.Plugin, p.name); {
+		case named != nil:
+			errs = append(errs, named)
 		case plugins[p.name]:
 			errs = append(errs, fmt.Errorf("plugin %q is declared twice", p.name))
 		case p.factory == nil:

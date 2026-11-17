@@ -42,7 +42,7 @@ func declaredHome(t *testing.T, dir string) (*inventory, *engine.Stored[engine.C
 	return known, controls
 }
 
-var readingLamp = []wire.DeviceDeclaration{{Name: "reading-lamp", Plugin: "x", ID: "l1", Room: "Study"}}
+var readingLamp = []wire.DeviceDeclaration{{Name: "reading-lamp", Plugin: "x", ID: "l1", Room: "study"}}
 
 func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	dir := t.TempDir()
@@ -60,7 +60,7 @@ func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	if err := known.loadDeclared(); err != nil {
 		t.Fatal(err)
 	}
-	if d, ok := known.registry.Get("reading-lamp"); !ok || d.Room != "Study" {
+	if d, ok := known.registry.Get("reading-lamp"); !ok || d.Room != "study" {
 		t.Errorf("loading the saved declarations gave %+v", known.registry.List())
 	}
 }

@@ -71,10 +71,13 @@ func TestClientNamesAndDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{"", "Laptop", "a/b", "../x", strings.Repeat("a", 64)} {
+	for _, bad := range []string{"", "Laptop", "a/b", "../x", "my.laptop", "ci_2", "2nd", strings.Repeat("a", 64)} {
 		if _, err := c.add(bad); err == nil {
 			t.Errorf("%q named a client", bad)
 		}
+	}
+	if _, err := c.add("My Laptop"); err == nil || !strings.Contains(err.Error(), `such as "my-laptop"`) {
+		t.Errorf("err = %v, want a suggestion", err)
 	}
 	if _, err := c.add("ci"); err != nil {
 		t.Fatal(err)

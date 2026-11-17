@@ -17,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/install"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -156,8 +156,8 @@ func runHost(ctx context.Context, args []string) error {
 		}
 		for name := range strings.SplitSeq(*outside, ",") {
 			name = strings.TrimSpace(name)
-			if !contractv1.ValidID(name) {
-				return fmt.Errorf("--outside-plugins: %q isn't a plugin name", name)
+			if err := ident.CheckName(ident.Plugin, name); err != nil {
+				return fmt.Errorf("--outside-plugins: %w", err)
 			}
 			h.Outside = append(h.Outside, name)
 		}
