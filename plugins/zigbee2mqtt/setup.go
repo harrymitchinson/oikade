@@ -160,9 +160,11 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 	}
 	// Zigbee2MQTT retains its bridge/state as it does its bridge/info, and the broker sends them
 	// one after the other in either order, so the state comes soon after the info if it's there.
+	// Until it does, up is only the default. The wait is stateWait however late the info came:
+	// the deadline is for finding Zigbee2MQTT, which the info has done.
 	select {
 	case <-b.stateHeard:
-	case <-time.After(min(stateWait, time.Until(deadline))):
+	case <-time.After(stateWait):
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
