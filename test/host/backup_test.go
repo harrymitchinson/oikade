@@ -110,8 +110,11 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.dir = copied
-	r.launchWithout(matterFlag(c.port), "--simulate", devicesFile(t))
-	r.awaitCount(2, "Started host")
+	c.port = r.serveMatter(c.port, func(flag string) {
+		started := r.count("Started host")
+		r.launchWithout(flag, "--simulate", devicesFile(t))
+		r.awaitCount(started+1, "Started host")
+	})
 
 	var after api.Matter
 	r.until("the fabric", func() bool {

@@ -39,6 +39,8 @@ type controller struct {
 	admin *im.Client
 }
 
+// freeUDP picks a UDP port for a host's Matter bridge. The host is another process, so the port is
+// let go before the host binds it, and another test can take it first: serveMatter recovers.
 func freeUDP(t *testing.T) uint16 {
 	t.Helper()
 	pc, err := net.ListenPacket("udp", "[::]:0")
@@ -50,6 +52,47 @@ func freeUDP(t *testing.T) uint16 {
 }
 
 func matterFlag(port uint16) string { return "--matter-port=" + strconv.Itoa(int(port)) }
+
+// serveMatter launches the host with launch, which passes on the Matter flag it's given, and waits
+// for its bridge to serve. If something took the port first, it stops the host and launches it
+// again on another. It returns the port the bridge serves on, as oikade matter says.
+func (r *rig) serveMatter(port uint16, launch func(flag string)) uint16 {
+	r.t.Helper()
+	for range 5 {
+		launch(matterFlag(port))
+		var m api.Matter
+		r.until("the bridge to serve", func() bool {
+			m = r.matter()
+			return m.Serving || portTaken(m.Problem)
+		})
+		if m.Serving {
+			return m.Port
+		}
+		r.t.Logf("Matter port %d was taken: launching the host again on another", port)
+		r.stop()
+		port = freeUDP(r.t)
+	}
+	r.t.Fatalf("every Matter port tried was taken. The log:\n%s", r.dump())
+	return 0
+}
+
+// portTaken says a bridge is down because its port is taken.
+func portTaken(problem string) bool { return strings.Contains(problem, "address already in use") }
+
+// relaunch launches the host again with launch, as serveMatter does, and has the controller reach
+// it on the port it serves on.
+func (c *controller) relaunch(launch func(flag string)) {
+	c.t.Helper()
+	c.port = c.r.serveMatter(c.port, launch)
+	c.admin = c.cm.CASE(nodetest.Addr(c.port))
+}
+
+// launchAttached launches the host with args, and waits for its process to connect.
+func (r *rig) launchAttached(args ...string) {
+	r.t.Helper()
+	r.launch(args...)
+	r.waitFor(func(l line) bool { return l.is(attached) })
+}
 
 // matter asks the host about its bridge.
 func (r *rig) matter() api.Matter {
@@ -80,8 +123,8 @@ func (r *rig) untilWithin(d time.Duration, what string, cond func() bool) {
 // commissioned starts a host and pairs a controller with it.
 func commissioned(t *testing.T) *controller {
 	t.Helper()
-	port := freeUDP(t)
-	r := start(t, matterFlag(port))
+	r := prepare(t)
+	port := r.serveMatter(freeUDP(t), func(flag string) { r.launchAttached(flag) })
 	r.until("the commissioning window", func() bool { return r.matter().Window })
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
 	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
@@ -205,8 +248,7 @@ func TestPairingSurvivesTheHostDying(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.r.died()
-	c.r.launch(matterFlag(c.port))
-	c.r.waitFor(func(l line) bool { return l.is(attached) })
+	c.relaunch(func(flag string) { c.r.launchAttached(flag) })
 
 	var after api.Matter
 	c.r.until("the fabric", func() bool {
@@ -216,7 +258,6 @@ func TestPairingSurvivesTheHostDying(t *testing.T) {
 	if after.Window || after.ManualCode != before.ManualCode || after.QRCode != before.QRCode {
 		t.Errorf("before %+v, after %+v", before, after)
 	}
-	c.admin = c.cm.CASE(nodetest.Addr(c.port))
 	if got := c.endpoint("fan"); got != endpoint {
 		t.Errorf("fan moved from endpoint %d to %d", endpoint, got)
 	}
@@ -257,10 +298,7 @@ func TestADeployRenamesTheBridge(t *testing.T) {
 	c.reaches("fan")
 
 	c.r.stop()
-	c.r.launch(matterFlag(c.port))
-	c.r.waitFor(func(l line) bool { return l.is(attached) })
-	c.r.until("the bridge", func() bool { return c.r.matter().Serving })
-	c.admin = c.cm.CASE(nodetest.Addr(c.port))
+	c.relaunch(func(flag string) { c.r.launchAttached(flag) })
 	if got := c.nodeLabel(); got != "Cottage" {
 		t.Errorf("after a restart, the bridge is named %v", got)
 	}
@@ -601,8 +639,8 @@ func TestARuleSetsAHeatersSetpointThatAControllerReads(t *testing.T) {
 // commissionedPlugins is commissioned, on a host running the plugins, whose devices a home declares.
 func commissionedPlugins(t *testing.T) *controller {
 	t.Helper()
-	port := freeUDP(t)
-	r := startPlugins(t, matterFlag(port))
+	r := preparePlugins(t)
+	port := r.serveMatter(freeUDP(t), func(flag string) { r.launchedPlugins(flag) })
 	r.until("the relays", func() bool {
 		devices := r.devices().Devices
 		return slices.ContainsFunc(devices, func(d registry.Device) bool { return d.ID == "relay" }) &&
@@ -618,10 +656,10 @@ func commissionedPlugins(t *testing.T) *controller {
 func (c *controller) restartPlugins() {
 	c.t.Helper()
 	c.r.stop()
-	c.r.launchPlugins(matterFlag(c.port))
-	c.r.waitFor(func(l line) bool { return l.is(attached) })
-	c.r.until("the bridge", func() bool { return c.r.matter().Serving })
-	c.admin = c.cm.CASE(nodetest.Addr(c.port))
+	c.relaunch(func(flag string) {
+		c.r.launchPlugins(flag)
+		c.r.waitFor(func(l line) bool { return l.is(attached) })
+	})
 }
 
 // drives turns a device on or off from the controller, and waits for the host to say it is.

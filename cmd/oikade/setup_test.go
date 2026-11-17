@@ -14,7 +14,9 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
-// freePort is a port on 127.0.0.1 nothing listens on, for now.
+// freePort is a port on 127.0.0.1 nothing listens on, for now. catchRedirect binds the redirect's
+// port itself, so the port is let go first, and another test can take it in between: a test that
+// needs the redirect caught tries again on another (portTaken).
 func freePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -25,9 +27,25 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// portTaken says catchRedirect couldn't listen because something had the port.
+func portTaken(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "address already in use")
+}
+
 func TestCatchRedirectReturnsTheQueryOfItsPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	for range 5 {
+		if !catchesARedirect(ctx, t) {
+			return
+		}
+	}
+	t.Fatal("every port tried was taken")
+}
+
+// catchesARedirect checks catchRedirect on a free port, and says whether the port was taken first.
+func catchesARedirect(ctx context.Context, t *testing.T) (taken bool) {
+	t.Helper()
 	redirect := fmt.Sprintf("http://localhost:%d/callback", freePort(t))
 	base := strings.Replace(redirect, "localhost", "127.0.0.1", 1)
 	got, err := catchRedirect(ctx, redirect, func() {
@@ -51,9 +69,13 @@ func TestCatchRedirectReturnsTheQueryOfItsPath(t *testing.T) {
 			}
 		}()
 	})
+	if portTaken(err) {
+		return true
+	}
 	if err != nil || got != "code=abc&state=1" {
 		t.Fatalf("got %q, %v", got, err)
 	}
+	return false
 }
 
 func TestCatchRedirectRefusesAnotherMachineAndGivesUp(t *testing.T) {
