@@ -213,10 +213,20 @@ func (e *Engine) ensure(dev ident.ID) {
 			continue
 		}
 		ar := &arb{spec: c, a: a}
-		if old != nil {
+		switch {
+		case old != nil:
 			// A write in progress finishes on the new arbiter.
 			ar.writing, ar.pending, ar.wrote, ar.retry, ar.dropped = old.writing, old.pending, old.wrote, old.retry, old.dropped
 			ar.unconfirmed, ar.lost = old.unconfirmed, old.lost
+		case st.Known:
+			// Started from what was saved, as after the host starts: the device may have changed
+			// meanwhile, so its first report is what it is now, not an outside change, as when its
+			// driver returns (DriverReturned). The arbiter writes again if that's wrong.
+			if v, reported := snap.Values[c.Capability]; reported {
+				a.Wrote(capability.Float(v))
+			} else {
+				ar.lost = true
+			}
 		}
 		arbs[c.Capability] = ar
 	}
