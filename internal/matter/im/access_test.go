@@ -120,7 +120,8 @@ func TestAccessGranted(t *testing.T) {
 }
 
 func timeoutCtx(t *testing.T) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	t.Cleanup(cancel)
 	return ctx
 }

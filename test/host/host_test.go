@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 func build(t *testing.T) {
 	t.Helper()
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "oikbin")
+		dir, err := os.MkdirTemp("", "oikbin") //nolint:usetesting // every test shares it
 		if err != nil {
 			buildErr = err
 			return
@@ -184,8 +184,7 @@ func start(t *testing.T, args ...string) *rig {
 func prepare(t *testing.T) *rig {
 	t.Helper()
 	build(t)
-	// Not t.TempDir: a Unix socket's path has to fit in about 100 bytes.
-	dir, err := os.MkdirTemp("", "oik")
+	dir, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
 	if err != nil {
 		t.Fatal(err)
 	}

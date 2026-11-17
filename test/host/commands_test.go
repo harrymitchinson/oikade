@@ -345,7 +345,9 @@ func (r *rig) tailing(env []string, args ...string) <-chan api.Event {
 	r.t.Helper()
 	cmd := exec.Command(ctlBin, append([]string{"tail", "--json", "--data-dir", r.dir}, args...)...)
 	cmd.Env = append(os.Environ(), env...)
-	cmd.Stderr = os.Stderr
+	// What it says on stderr is the test's to show if it fails, not go test's own stderr.
+	var errOut bytes.Buffer
+	cmd.Stderr = &errOut
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		r.t.Fatal(err)
@@ -356,6 +358,9 @@ func (r *rig) tailing(env []string, args ...string) <-chan api.Event {
 	r.t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
+		if r.t.Failed() && errOut.Len() > 0 {
+			r.t.Logf("oikade tail said:\n%s", errOut.String())
+		}
 	})
 	events := make(chan api.Event, 1024)
 	go func() {

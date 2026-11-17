@@ -42,8 +42,9 @@ func (c *countingConn) WriteTo(p []byte, a net.Addr) (int, error) {
 }
 
 func serveOn(t *testing.T, conn net.PacketConn) *transport.Transport {
+	t.Helper()
 	tr := transport.New(conn, transport.Options{})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -51,6 +52,7 @@ func serveOn(t *testing.T, conn net.PacketConn) *transport.Transport {
 }
 
 func listen(t *testing.T) net.PacketConn {
+	t.Helper()
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -60,12 +62,14 @@ func listen(t *testing.T) net.PacketConn {
 
 // pair serves node and returns a client on a plain secure session to it.
 func pair(t *testing.T, node *Node) (*Client, *countingConn) {
+	t.Helper()
 	c, conn, _, _ := pairServer(t, node)
 	return c, conn
 }
 
 // pairServer pairs over a session the device sees as PASE, which may do anything.
 func pairServer(t *testing.T, node *Node) (*Client, *countingConn, *Server, *transport.Transport) {
+	t.Helper()
 	return pairAs(t, node, nil, transport.SecureSessionConfig{Auth: transport.AuthPASE})
 }
 
@@ -105,7 +109,7 @@ func TestReadIsChunked(t *testing.T) {
 	_ = node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}})
 	client, conn := pair(t, node)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	reports, err := client.Read(ctx, AttributePath{WildEndpoint: true, WildCluster: true, WildAttribute: true})
 	if err != nil {
@@ -143,7 +147,7 @@ func TestLargeListIsSplit(t *testing.T) {
 		t.Fatal(err)
 	}
 	client, conn := pair(t, node)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	reports, err := client.Read(ctx, AttributePath{Endpoint: 1, Cluster: c.ID, Attribute: 0})
 	if err != nil || len(reports) != 1 || reports[0].Status != StatusSuccess {
@@ -168,7 +172,7 @@ func TestOversizedAttribute(t *testing.T) {
 	node := &Node{}
 	_ = node.AddEndpoint(&Endpoint{ID: 1, Clusters: []*Cluster{c}})
 	client, _ := pair(t, node)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	reports, err := client.Read(ctx, AttributePath{Endpoint: 1, Cluster: c.ID, Attribute: 0})
 	if err != nil || len(reports) != 1 || reports[0].Status != StatusResourceExhausted {
@@ -178,7 +182,7 @@ func TestOversizedAttribute(t *testing.T) {
 
 func TestMalformedRequests(t *testing.T) {
 	client, _ := pair(t, &Node{})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for name, payload := range map[string][]byte{
 		"not TLV":             {0xFF},
@@ -237,7 +241,7 @@ func onOffNode() (*Node, *Cluster) {
 func TestUnknownSubscriptionIsEnded(t *testing.T) {
 	node, c := onOffNode()
 	client, _, srv, _ := pairServer(t, node)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, id, _, _, err := client.Subscribe(ctx, 0, 60, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0})
 	if err != nil {
@@ -255,7 +259,7 @@ func TestUnknownSubscriptionIsEnded(t *testing.T) {
 func TestSubscriptionEndsWithItsSession(t *testing.T) {
 	node, _ := onOffNode()
 	client, _, srv, dev := pairServer(t, node)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if _, _, _, _, err := client.Subscribe(ctx, 0, 3600, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0}); err != nil {
 		t.Fatal(err)
@@ -285,7 +289,7 @@ func TestSubscriptionLogsItsIntervals(t *testing.T) {
 	}, slog.LevelInfo)
 	node, _ := onOffNode()
 	client, _, srv, _ := pairWith(t, &Server{Node: node, Log: log}, transport.SecureSessionConfig{Auth: transport.AuthPASE})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	path := AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0}
 	if _, _, _, _, err := client.Subscribe(ctx, 3, 60, path); err != nil {
@@ -345,7 +349,7 @@ func TestGrantMaxInterval(t *testing.T) {
 func TestSubscriptionIsGrantedAtMost60s(t *testing.T) {
 	node, _ := onOffNode()
 	client, _, _, _ := pairWith(t, &Server{Node: node}, transport.SecureSessionConfig{Auth: transport.AuthPASE})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, _, granted, _, err := client.Subscribe(ctx, 0, 600, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0})
 	if err != nil {

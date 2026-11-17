@@ -1,7 +1,6 @@
 package host
 
 import (
-	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -73,7 +72,7 @@ func TestARenamedDeviceTakesItsClaims(t *testing.T) {
 		// A room's case keyed by the same name, which isn't the device's own.
 		{Source: "Rule/lamp on dusk", Level: control.Normal},
 	}}}
-	if err := controls.Put(context.Background(), key("lamp"), state); err != nil {
+	if err := controls.Put(t.Context(), key("lamp"), state); err != nil {
 		t.Fatal(err)
 	}
 	var renamed func(string) string
@@ -100,7 +99,7 @@ func TestARenamedDeviceTakesItsClaims(t *testing.T) {
 func TestARenameWhoseRuleStateCantMoveKeepsItsClaims(t *testing.T) {
 	known, controls := declaredHome(t, t.TempDir())
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/lamp on night", Level: control.Safety}}}}
-	if err := controls.Put(context.Background(), key("lamp"), state); err != nil {
+	if err := controls.Put(t.Context(), key("lamp"), state); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -133,7 +132,7 @@ func TestRuleStateFollowsARename(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = data.Close() })
 	holds := &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: logging.Discard()}
-	ctx := context.Background()
+	ctx := t.Context()
 	for _, name := range []string{"a on night", "b on night", "hall on motion"} {
 		if err := holds.Put(ctx, key(name), engine.HoldState{Active: name == "a on night"}); err != nil {
 			t.Fatal(err)
@@ -162,13 +161,13 @@ func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testin
 		t.Fatal(err)
 	}
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
-	if err := controls.Put(context.Background(), key("shed-fan"), state); err != nil {
+	if err := controls.Put(t.Context(), key("shed-fan"), state); err != nil {
 		t.Fatal(err)
 	}
 	if err := known.takeDeclared(fan[1:], nil); err == nil || !strings.Contains(err.Error(), "Rule/frost holds shed-fan") {
 		t.Errorf("dropped a claimed reservation: %v", err)
 	}
-	if resp, _ := known.remove(context.Background(), "lamp", true); !strings.Contains(resp.Error, "declared in your home's code") {
+	if resp, _ := known.remove(t.Context(), "lamp", true); !strings.Contains(resp.Error, "declared in your home's code") {
 		t.Errorf("removed a declared device: %+v", resp)
 	}
 }

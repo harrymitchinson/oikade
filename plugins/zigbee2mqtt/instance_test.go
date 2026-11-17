@@ -2,7 +2,6 @@ package zigbee2mqtt
 
 import (
 	"bytes"
-	"context"
 	"log/slog"
 	"os"
 	"slices"
@@ -84,7 +83,7 @@ var (
 
 func setup(t *testing.T) (*Instance, *mqtt.Memory, *recorder) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	bus := mqtt.NewMemory()
 	devices, err := os.ReadFile("testdata/bridge-devices.json")
 	if err != nil {
@@ -146,7 +145,7 @@ func TestDiscovery(t *testing.T) {
 }
 
 func TestStateChanges(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	_, bus, rec := setup(t)
 
 	// Addressed by IEEE because Zigbee2MQTT hasn't applied the friendly name yet.
@@ -190,7 +189,7 @@ func TestStateChanges(t *testing.T) {
 // TestRenamedInFrontend checks that a Device follows its IEEE address, not its friendly name, which
 // Zigbee2MQTT owns: after a rename, even to a name with a slash, state and commands still work.
 func TestRenamedInFrontend(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	i, bus, rec := setup(t)
 
 	devices, err := os.ReadFile("testdata/bridge-devices.json")
@@ -227,7 +226,7 @@ func TestRenamedInFrontend(t *testing.T) {
 // TestNameIsAnotherAddress checks that a friendly name equal to another device's IEEE address
 // doesn't take that device's topic.
 func TestNameIsAnotherAddress(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	_, bus, rec := setup(t)
 	devices, err := os.ReadFile("testdata/bridge-devices.json")
 	if err != nil {
@@ -243,7 +242,7 @@ func TestNameIsAnotherAddress(t *testing.T) {
 }
 
 func TestAvailability(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	_, bus, rec := setup(t)
 	_ = bus.Publish(ctx, "z2m/desk-plug/availability", []byte(`{"state":"online"}`), true)
 	_ = bus.Publish(ctx, "z2m/front-door/availability", []byte(`offline`), true)
@@ -256,7 +255,7 @@ func TestAvailability(t *testing.T) {
 }
 
 func TestSet(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	i, bus, _ := setup(t)
 	for _, tc := range []struct {
 		dev   ident.ID
@@ -307,7 +306,7 @@ func TestInventory(t *testing.T) {
 	}
 
 	// An empty network is an empty list, not none.
-	if err := bus.Publish(context.Background(), "z2m/bridge/devices", []byte(`[]`), true); err != nil {
+	if err := bus.Publish(t.Context(), "z2m/bridge/devices", []byte(`[]`), true); err != nil {
 		t.Fatal(err)
 	}
 	if rec.inventory == nil || len(rec.inventory) != 0 {
@@ -317,7 +316,7 @@ func TestInventory(t *testing.T) {
 
 // A broker replays retained messages in any order, and only the device list resolves a device's.
 func TestMessagesFromBeforeTheDeviceListAreKept(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	bus := mqtt.NewMemory()
 	rec := newRecorder()
 	now := time.Date(2026, 10, 17, 19, 0, 0, 0, time.UTC)
@@ -329,6 +328,7 @@ func TestMessagesFromBeforeTheDeviceListAreKept(t *testing.T) {
 	if err := i.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(i.Stop)
 	for _, m := range [][2]string{
 		{"z2m/front-door", `{"contact":false}`},
 		{"z2m/front-door", `{"contact":true}`},
@@ -364,7 +364,7 @@ func TestMessagesFromBeforeTheDeviceListAreKept(t *testing.T) {
 // A new device can report before it's in the list, and its first report may be its last for hours.
 func TestAMessageFromADeviceNotYetListedIsKept(t *testing.T) {
 	_, bus, rec := setup(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	devices, err := os.ReadFile("testdata/bridge-devices.json")
 	if err != nil {
 		t.Fatal(err)
@@ -386,7 +386,7 @@ func TestAMessageFromADeviceNotYetListedIsKept(t *testing.T) {
 // A device re-paired under its address has no values anywhere else, so its first report counts.
 func TestARepairedDevicesReportIsNotARepeat(t *testing.T) {
 	_, bus, rec := setup(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	report := []byte(`{"contact":true}`)
 	if err := bus.Publish(ctx, "z2m/front-door", report, false); err != nil {
 		t.Fatal(err)
@@ -412,7 +412,7 @@ func TestARepairedDevicesReportIsNotARepeat(t *testing.T) {
 // A message held while a device was undeclared is older than anything heard since.
 func TestAHeldMessageDoesNotUndoANewerOne(t *testing.T) {
 	i, bus, rec := setup(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	devices, err := os.ReadFile("testdata/bridge-devices.json")
 	if err != nil {
 		t.Fatal(err)
@@ -441,7 +441,7 @@ func startRequesting(t *testing.T, bus *mqtt.Memory, log *slog.Logger) (*Instanc
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	_ = bus.Publish(ctx, "z2m/bridge/devices", devices, true)
 	rec := newRecorder()
 	done := make(chan struct{}, 1)
@@ -488,7 +488,7 @@ func gets(bus *mqtt.Memory) []string {
 // the sensors' properties can't be read. Nothing is asked of a device that isn't declared.
 func TestARetainedValueIsNotRequested(t *testing.T) {
 	bus := mqtt.NewMemory()
-	_ = bus.Publish(context.Background(), "z2m/desk-plug", []byte(`{"state":"OFF"}`), true)
+	_ = bus.Publish(t.Context(), "z2m/desk-plug", []byte(`{"state":"OFF"}`), true)
 	i, _ := startRequesting(t, bus, logging.Discard())
 	want := []string{
 		`z2m/0x000b57fffe000001/get={"state":""}`,
@@ -508,7 +508,7 @@ func TestARetainedValueIsNotRequested(t *testing.T) {
 // A device Zigbee2MQTT says is offline can't answer, so it isn't asked.
 func TestAnOfflineDeviceIsNotAsked(t *testing.T) {
 	bus := mqtt.NewMemory()
-	_ = bus.Publish(context.Background(), "z2m/0x000b57fffe000001/availability", []byte(`{"state":"offline"}`), true)
+	_ = bus.Publish(t.Context(), "z2m/0x000b57fffe000001/availability", []byte(`{"state":"offline"}`), true)
 	startRequesting(t, bus, logging.Discard())
 	want := []string{`z2m/0x00124b0000000004/get={"state":""}`}
 	if got := gets(bus); !slices.Equal(got, want) {
@@ -519,8 +519,8 @@ func TestAnOfflineDeviceIsNotAsked(t *testing.T) {
 // A reply is a first value, as a retained one is: it has no previous value, so it fires nothing.
 func TestAReplyIsAFirstValue(t *testing.T) {
 	bus := mqtt.NewMemory()
-	_, err := bus.Subscribe(context.Background(), "z2m/0x000b57fffe000001/get", func(mqtt.Message) {
-		_ = bus.Publish(context.Background(), "z2m/0x000b57fffe000001", []byte(`{"state":"ON","brightness":254}`), false)
+	_, err := bus.Subscribe(t.Context(), "z2m/0x000b57fffe000001/get", func(mqtt.Message) {
+		_ = bus.Publish(t.Context(), "z2m/0x000b57fffe000001", []byte(`{"state":"ON","brightness":254}`), false)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -559,7 +559,7 @@ func TestADeviceThatNeverAnswersStaysUnknown(t *testing.T) {
 
 // Zigbee2MQTT's contact is true while the door is shut, and open is true while it's open.
 func TestAShutContactIsNotOpen(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	_, bus, rec := setup(t)
 	_ = bus.Publish(ctx, "z2m/front-door", []byte(`{"contact":true}`), false)
 	if len(rec.changes) == 0 {

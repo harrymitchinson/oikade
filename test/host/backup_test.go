@@ -37,7 +37,7 @@ func (r *rig) setSecret(name string) error {
 // copyDataDir copies what's in a data directory, as a backup tool does: it has no use for sockets.
 func copyDataDir(t *testing.T, from string) string {
 	t.Helper()
-	to, err := os.MkdirTemp("", "oik")
+	to, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
 	if err != nil {
 		t.Fatal(err)
 	}

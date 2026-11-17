@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -16,7 +15,7 @@ func TestAMovedDeviceKeepsItsClaimsUnderItsNewName(t *testing.T) {
 		t.Fatalf("winner %q before the move", w)
 	}
 	r.settle()
-	done, err := r.e.MoveDevices(context.Background(), map[ident.ID]ident.ID{from: to}, func(s string) string { return s + "!" })
+	done, err := r.e.MoveDevices(t.Context(), map[ident.ID]ident.ID{from: to}, func(s string) string { return s + "!" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +53,7 @@ func TestAMoveThatCantSaveLeavesTheClaimsWhereTheyWere(t *testing.T) {
 	r.e.Controls = &failingFor{States: r.e.Controls, broken: to}
 	r.e.mu.Unlock()
 	r.e.saveMu.Unlock()
-	done, err := r.e.MoveDevices(context.Background(), map[ident.ID]ident.ID{from: to}, func(s string) string { return s })
+	done, err := r.e.MoveDevices(t.Context(), map[ident.ID]ident.ID{from: to}, func(s string) string { return s })
 	if err == nil {
 		t.Fatal("the move saved")
 	}

@@ -1,7 +1,6 @@
 package mdns
 
 import (
-	"context"
 	"errors"
 	"net"
 	"slices"
@@ -79,12 +78,12 @@ func announced(ttl int64) []rr {
 func TestAddProbesThenAnnounces(t *testing.T) {
 	r, c := newTestResponder(t)
 	defer func() { _ = r.Close() }()
-	if err := r.Add(context.Background(), testService()); err != nil {
+	if err := r.Add(t.Context(), testService()); err != nil {
 		t.Fatal(err)
 	}
 
 	for i := range 3 {
-		p := c.next()
+		p := c.next(t)
 		if p.dst != nil || p.ifIndex != testIf || p.msg.Response {
 			t.Fatalf("probe %d: not a multicast query: %+v", i, p)
 		}
@@ -109,7 +108,7 @@ func TestAddProbesThenAnnounces(t *testing.T) {
 		}
 	}
 	for i := range 2 {
-		p := c.next()
+		p := c.next(t)
 		if p.dst != nil || !p.msg.Response || !p.msg.Authoritative {
 			t.Fatalf("announcement %d: not a multicast response: %+v", i, p)
 		}
@@ -117,18 +116,18 @@ func TestAddProbesThenAnnounces(t *testing.T) {
 			t.Errorf("announcement %d: %v, want %v", i, got, announced(-1))
 		}
 	}
-	c.none()
+	c.none(t)
 
 	// A second service doesn't probe the host name again.
 	svc := testService()
 	svc.Instance = "0123456789ABCDEF"
-	if err := r.Add(context.Background(), svc); err != nil {
+	if err := r.Add(t.Context(), svc); err != nil {
 		t.Fatal(err)
 	}
-	if p := c.next(); len(p.msg.Questions) != 1 {
+	if p := c.next(t); len(p.msg.Questions) != 1 {
 		t.Errorf("second probe asks %d questions, want only the instance", len(p.msg.Questions))
 	}
-	if err := r.Add(context.Background(), svc); err == nil {
+	if err := r.Add(t.Context(), svc); err == nil {
 		t.Error("added the same service twice")
 	}
 }
@@ -138,8 +137,8 @@ func TestAddConflict(t *testing.T) {
 	defer func() { _ = r.Close() }()
 
 	errc := make(chan error, 1)
-	go func() { errc <- r.Add(context.Background(), testService()) }()
-	c.next() // the first probe
+	go func() { errc <- r.Add(t.Context(), testService()) }()
+	c.next(t) // the first probe
 
 	// Our own records, as multicast loopback brings them back, aren't conflicts.
 	ours := mustRecords(t, r.host, testService())
@@ -170,10 +169,11 @@ func TestAddConflict(t *testing.T) {
 	}
 	// The service is gone, so it isn't announced or answered for.
 	r.handle(c, testIf, peer, query(t, "_matterc._udp.local.", dnsmessage.TypePTR, false))
-	c.none()
+	c.none(t)
 }
 
 func mustRecords(t testing.TB, host dnsmessage.Name, svc Service) []record {
+	t.Helper()
 	recs, err := svc.records(host)
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestUpdateRemoveClose(t *testing.T) {
 	if err := r.Update(closed); err != nil {
 		t.Fatal(err)
 	}
-	bye := c.next()
+	bye := c.next(t)
 	want := []rr{
 		{"_CM._sub._matterc._udp.local.", dnsmessage.TypePTR, 0, false},
 		{testInstance, dnsmessage.TypeTXT, 0, true},
@@ -201,7 +201,7 @@ func TestUpdateRemoveClose(t *testing.T) {
 		t.Errorf("goodbye on update: %v, want %v", got, want)
 	}
 	for range 2 {
-		ann := c.next()
+		ann := c.next(t)
 		var txt []string
 		for _, a := range ann.msg.Answers {
 			if a.Header.Type == dnsmessage.TypeTXT {
@@ -223,7 +223,7 @@ func TestUpdateRemoveClose(t *testing.T) {
 	if err := r.Remove(closed); err != nil {
 		t.Fatal(err)
 	}
-	bye = c.next()
+	bye = c.next(t)
 	for _, a := range bye.msg.Answers {
 		if a.Header.TTL != 0 {
 			t.Errorf("goodbye has TTL %d", a.Header.TTL)
@@ -242,7 +242,7 @@ func TestUpdateRemoveClose(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatal(err)
 	}
-	svcBye, hostBye := c.next(), c.next()
+	svcBye, hostBye := c.next(t), c.next(t)
 	want = announced(0)
 	for i := range want {
 		want[i].name = strings.Replace(want[i].name, "B7322C948581262F", second.Instance, 1)
@@ -250,12 +250,13 @@ func TestUpdateRemoveClose(t *testing.T) {
 	if got := summarise(slices.Concat(svcBye.msg.Answers, hostBye.msg.Answers)); !sameSet(got, want) {
 		t.Errorf("goodbye on Close: %v, want %v", got, want)
 	}
-	if !errors.Is(r.Add(context.Background(), testService()), ErrClosed) {
+	if !errors.Is(r.Add(t.Context(), testService()), ErrClosed) {
 		t.Error("Add after Close didn't return ErrClosed")
 	}
 }
 
 func query(t testing.TB, name string, typ dnsmessage.Type, qu bool) []byte {
+	t.Helper()
 	class := dnsmessage.ClassINET
 	if qu {
 		class |= unicastResponse
@@ -303,7 +304,7 @@ func TestAnswer(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r.handle(c, testIf, peer, query(t, tc.qname, tc.typ, false))
-			p := c.next()
+			p := c.next(t)
 			if p.dst != nil || p.ifIndex != testIf {
 				t.Errorf("answered to %v on %d, want multicast on %d", p.dst, p.ifIndex, testIf)
 			}
@@ -313,18 +314,18 @@ func TestAnswer(t *testing.T) {
 			if got := summarise(p.msg.Additionals); !sameSet(got, tc.extras) {
 				t.Errorf("additionals %v, want %v", got, tc.extras)
 			}
-			c.none()
+			c.none(t)
 		})
 	}
 
 	t.Run("unknown name", func(t *testing.T) {
 		r.handle(c, testIf, peer, query(t, "_ipp._tcp.local.", dnsmessage.TypePTR, false))
-		c.none()
+		c.none(t)
 	})
 
 	t.Run("QU bit", func(t *testing.T) {
 		r.handle(c, testIf, peer, query(t, testHost, dnsmessage.TypeA, true))
-		if p := c.next(); p.dst != peer || p.msg.ID != 0 || len(p.msg.Answers) != 1 {
+		if p := c.next(t); p.dst != peer || p.msg.ID != 0 || len(p.msg.Answers) != 1 {
 			t.Errorf("got %+v, want a unicast mDNS reply to %v", p, peer)
 		}
 	})
@@ -332,7 +333,7 @@ func TestAnswer(t *testing.T) {
 	t.Run("legacy unicast", func(t *testing.T) {
 		legacy := &net.UDPAddr{IP: peer.IP, Port: 49152}
 		r.handle(c, testIf, legacy, query(t, "_matterc._udp.local.", dnsmessage.TypePTR, false))
-		p := c.next()
+		p := c.next(t)
 		if p.dst != legacy || p.msg.ID != 7 || len(p.msg.Questions) != 1 {
 			t.Fatalf("got %+v, want a DNS reply to %v with the query's ID and question", p, legacy)
 		}
@@ -350,10 +351,10 @@ func TestAnswer(t *testing.T) {
 			Answers:   []dnsmessage.Resource{recs[0].resource(otherTTL/2, false)},
 		}
 		r.handle(c, testIf, peer, pack(t, m))
-		c.none()
+		c.none(t)
 		m.Answers[0].Header.TTL = otherTTL/2 - 1 // less than half left: answer it
 		r.handle(c, testIf, peer, pack(t, m))
-		c.next()
+		c.next(t)
 	})
 }
 
@@ -361,10 +362,10 @@ func TestNotAnsweredWhileProbing(t *testing.T) {
 	r, c := newTestResponder(t)
 	defer func() { _ = r.Close() }()
 	r.timing.probeInterval = time.Hour
-	go func() { _ = r.Add(context.Background(), testService()) }()
-	c.next() // the first probe
+	go func() { _ = r.Add(t.Context(), testService()) }()
+	c.next(t) // the first probe
 	r.handle(c, testIf, peer, query(t, testInstance, dnsmessage.TypeALL, false))
-	c.none()
+	c.none(t)
 	if err := r.Update(testService()); err == nil {
 		t.Error("updated a service that is still being probed")
 	}
@@ -391,20 +392,20 @@ func TestServiceValidation(t *testing.T) {
 func TestLateAnnouncement(t *testing.T) {
 	r, c := newTestResponder(t)
 	defer func() { _ = r.Close() }()
-	if err := r.Add(context.Background(), testService()); err != nil {
+	if err := r.Add(t.Context(), testService()); err != nil {
 		t.Fatal(err)
 	}
 	for range 4 { // three probes and the first announcement
-		c.next()
+		c.next(t)
 	}
 	closed := testService()
 	closed.Subtypes = []string{"_L3840", "_S15"}
 	if err := r.Update(closed); err != nil {
 		t.Fatal(err)
 	}
-	c.next() // the goodbye to _CM
+	c.next(t) // the goodbye to _CM
 	for range 3 {
-		for _, a := range c.next().msg.Answers {
+		for _, a := range c.next(t).msg.Answers {
 			if strings.HasPrefix(a.Header.Name.String(), "_CM.") {
 				t.Fatalf("announced %v after its goodbye", a.Header.Name)
 			}
@@ -413,8 +414,8 @@ func TestLateAnnouncement(t *testing.T) {
 	if err := r.Remove(closed); err != nil {
 		t.Fatal(err)
 	}
-	c.next() // the goodbye
-	c.none()
+	c.next(t) // the goodbye
+	c.none(t)
 }
 
 // TestNothingAfterClose checks that a multicast answer waiting out its delay isn't sent once Close
@@ -427,9 +428,9 @@ func TestNothingAfterClose(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatal(err)
 	}
-	c.next() // the services' goodbye
-	c.next() // the host's
-	c.none()
+	c.next(t) // the services' goodbye
+	c.next(t) // the host's
+	c.none(t)
 }
 
 // TestRemoveWhileAnotherProbes checks that the services listing gets its goodbye when the only
@@ -448,7 +449,7 @@ func TestRemoveWhileAnotherProbes(t *testing.T) {
 	if err := r.Remove(testService()); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(c.next().msg.Answers, func(a dnsmessage.Resource) bool { return a.Header.Name.String() == servicesName }) {
+	if !slices.ContainsFunc(c.next(t).msg.Answers, func(a dnsmessage.Resource) bool { return a.Header.Name.String() == servicesName }) {
 		t.Error("no goodbye to the services listing")
 	}
 }

@@ -111,7 +111,7 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secr
 	if secret != "" {
 		b.secret(secret)
 	}
-	listening, stopListening := context.WithCancel(context.Background())
+	listening, stopListening := context.WithCancel(t.Context())
 	t.Cleanup(stopListening)
 	bus, err := mqtt.Connect(listening, broker, "overkiz-test")
 	if err != nil {
@@ -131,7 +131,7 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secr
 		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
 	handler := newBridge(account, env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
 	b.plugin, err = plugin.Start(started, plugin.Options{Environment: env, OnSet: handler.Set, Logger: slog.New(slog.DiscardHandler)})
@@ -148,7 +148,7 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secr
 	t.Cleanup(func() {
 		cancel()
 		<-done
-		_ = b.plugin.Close(context.Background())
+		_ = b.plugin.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
 	})
 	return b
 }

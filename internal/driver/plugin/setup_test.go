@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -22,7 +21,7 @@ func withSetup() map[string]string {
 func requests(t *testing.T, bus *mqtt.Memory) <-chan contractv1.SetupRequest {
 	t.Helper()
 	got := make(chan contractv1.SetupRequest, 16)
-	if _, err := bus.Subscribe(context.Background(), root+"/_setup/in", func(m mqtt.Message) {
+	if _, err := bus.Subscribe(t.Context(), root+"/_setup/in", func(m mqtt.Message) {
 		var r contractv1.SetupRequest
 		if err := json.Unmarshal(m.Payload, &r); err != nil {
 			t.Errorf("decoder sent %s: %v", m.Payload, err)
@@ -47,7 +46,7 @@ func step(t *testing.T, steps <-chan contractv1.SetupStep) (contractv1.SetupStep
 
 func say(t *testing.T, bus *mqtt.Memory, payload string) {
 	t.Helper()
-	if err := bus.Publish(context.Background(), root+"/_setup/out", []byte(payload), false); err != nil {
+	if err := bus.Publish(t.Context(), root+"/_setup/out", []byte(payload), false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -57,7 +56,7 @@ func TestSetupFlags(t *testing.T) {
 	if has, needs := i.Setup(); has || needs {
 		t.Fatalf("a plugin with no setup: got %v, %v", has, needs)
 	}
-	if _, err := i.StartSetup(context.Background(), "s"); !errors.Is(err, ErrNoSetup) {
+	if _, err := i.StartSetup(t.Context(), "s"); !errors.Is(err, ErrNoSetup) {
 		t.Fatalf("StartSetup on a plugin with no setup: %v, want ErrNoSetup", err)
 	}
 	i, bus, _ := setup(t, withSetup())
@@ -73,7 +72,7 @@ func TestSetupFlags(t *testing.T) {
 func TestSetupSession(t *testing.T) {
 	i, bus, _ := setup(t, withSetup())
 	sent := requests(t, bus)
-	ctx := context.Background()
+	ctx := t.Context()
 	steps, err := i.StartSetup(ctx, "s1")
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +110,7 @@ func TestSetupSession(t *testing.T) {
 func TestSetupEndsWhenThePluginBreaksIt(t *testing.T) {
 	i, bus, _ := setup(t, withSetup())
 	sent := requests(t, bus)
-	steps, err := i.StartSetup(context.Background(), "s1")
+	steps, err := i.StartSetup(t.Context(), "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +134,7 @@ func TestSetupEndsWhenThePluginBreaksIt(t *testing.T) {
 
 func TestSetupEndsWhenThePluginNoLongerHasOne(t *testing.T) {
 	i, bus, _ := setup(t, withSetup())
-	steps, err := i.StartSetup(context.Background(), "s1")
+	steps, err := i.StartSetup(t.Context(), "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +146,7 @@ func TestSetupEndsWhenThePluginNoLongerHasOne(t *testing.T) {
 
 func TestSetupEndsWhenThePluginGoesOffline(t *testing.T) {
 	i, bus, _ := setup(t, withSetup())
-	steps, err := i.StartSetup(context.Background(), "s1")
+	steps, err := i.StartSetup(t.Context(), "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +159,7 @@ func TestSetupEndsWhenThePluginGoesOffline(t *testing.T) {
 func TestEndAndRestartSetup(t *testing.T) {
 	i, bus, _ := setup(t, withSetup())
 	sent := requests(t, bus)
-	ctx := context.Background()
+	ctx := t.Context()
 	first, err := i.StartSetup(ctx, "s1")
 	if err != nil {
 		t.Fatal(err)

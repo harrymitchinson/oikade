@@ -149,7 +149,7 @@ func TestRunAgain(t *testing.T) {
 	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
 	n.listenUDP = listenHeld
 	run := func() func() {
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan error, 1)
 		go func() { done <- n.Run(ctx) }()
 		return func() {
@@ -280,7 +280,7 @@ func TestTheObserverHearsAContainedPanic(t *testing.T) {
 	var opts mdns.Options
 	n.listenMDNS = func(o mdns.Options) (advertiser, error) { opts = o; return fake, nil }
 	n.listenUDP = listenHeld
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- n.Run(ctx) }()
 	defer func() {
@@ -292,7 +292,7 @@ func TestTheObserverHearsAContainedPanic(t *testing.T) {
 	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 
 	admin := nodetest.New(t).Commission(addr(n), testSetup.Passcode)
-	readCtx, stopRead := context.WithTimeout(context.Background(), time.Second)
+	readCtx, stopRead := context.WithTimeout(t.Context(), time.Second)
 	defer stopRead()
 	_, _ = admin.Read(readCtx, im.Concrete(im.Path{Endpoint: 2, Cluster: clusters.IDOnOff, Attribute: 0})) // unanswered
 	testkit.Eventually(t, "the panic to be heard", func() bool { return len(h.panics()) > 0 })

@@ -89,7 +89,7 @@ type node struct {
 	log  *logBuffer
 }
 
-func newNode(t *testing.T) *node { return newNodeWith(t, Options{}) }
+func newNode(t *testing.T) *node { t.Helper(); return newNodeWith(t, Options{}) }
 
 // newNodeWith is newNode, with opts: its log and MRP are the test's.
 func newNodeWith(t *testing.T, opts Options) *node {
@@ -101,7 +101,7 @@ func newNodeWith(t *testing.T, opts Options) *node {
 	n := &node{conn: &faultyConn{PacketConn: pc}, log: &logBuffer{}}
 	opts.Log, opts.MRP = n.log.logger(), fastMRP
 	n.t = New(n.conn, opts)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- n.t.Serve(ctx) }()
 	t.Cleanup(func() {
@@ -116,7 +116,8 @@ func newNodeWith(t *testing.T, opts Options) *node {
 func (n *node) addr() netip.AddrPort { return n.t.Addr().(*net.UDPAddr).AddrPort() }
 
 func ctx(t *testing.T) context.Context {
-	c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Helper()
+	c, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	t.Cleanup(cancel)
 	return c
 }
@@ -498,7 +499,7 @@ func TestDualStack(t *testing.T) {
 	}
 	var calls atomic.Int32
 	dev.Handle(echo, echoOps, echoHandler(&calls))
-	c, cancel := context.WithCancel(context.Background())
+	c, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- dev.Serve(c) }()
 	defer func() {
@@ -516,7 +517,7 @@ func TestDualStack(t *testing.T) {
 			continue
 		}
 		cli := New(pc, Options{MRP: fastMRP})
-		cc, stop := context.WithCancel(context.Background())
+		cc, stop := context.WithCancel(t.Context())
 		served := make(chan struct{})
 		go func() { _ = cli.Serve(cc); close(served) }()
 
@@ -689,7 +690,7 @@ func TestServeStopsHandlersOnSocketFailure(t *testing.T) {
 		<-ctx.Done() // blocked on something other than its exchange
 	})
 	done := make(chan error, 1)
-	go func() { done <- dev.Serve(context.Background()) }()
+	go func() { done <- dev.Serve(t.Context()) }()
 
 	cli := newNode(t)
 	ex, _ := cli.t.NewUnsecuredSession(pc.LocalAddr().(*net.UDPAddr).AddrPort()).NewExchange()
@@ -794,7 +795,7 @@ func TestAHandlerThatPanicsCostsOnlyItsSession(t *testing.T) {
 			return err
 		}
 		defer ex.Close()
-		c, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		c, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 		defer cancel()
 		if err := ex.Send(c, Message{Protocol: echo, Opcode: 1, Payload: []byte(payload)}); err != nil {
 			return err
@@ -844,7 +845,7 @@ func TestAPanicSendingIsContained(t *testing.T) {
 			return "", err
 		}
 		defer ex.Close()
-		c, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		c, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 		defer cancel()
 		if err := ex.Send(c, Message{Protocol: echo, Opcode: 1, Payload: []byte(payload)}); err != nil {
 			return "", err

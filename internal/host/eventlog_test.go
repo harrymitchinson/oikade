@@ -211,7 +211,7 @@ func TestEventsReachTheStoreWithinAFlush(t *testing.T) {
 	log := newEventLog(data.Events(), store.Bound{}, logging.Discard())
 	c := clock.NewFake(time.Now())
 	log.clock = c
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	stopped := make(chan struct{})
 	go func() { log.run(ctx); close(stopped) }()
 

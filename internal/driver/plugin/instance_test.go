@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -103,7 +102,7 @@ const devicesJSON = `{"devices":[
 // publish sends a retained message, as plugins do on every topic.
 func publish(t *testing.T, bus *mqtt.Memory, topic, payload string) {
 	t.Helper()
-	if err := bus.Publish(context.Background(), topic, []byte(payload), true); err != nil {
+	if err := bus.Publish(t.Context(), topic, []byte(payload), true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -120,7 +119,7 @@ func setup(t *testing.T, retained map[string]string) (*Instance, *mqtt.Memory, *
 		Key: dev("sonoff"), Root: root, Bus: bus, Sink: rec,
 		Now: func() time.Time { return now }, Log: logging.Discard(),
 	}
-	if err := i.Start(context.Background()); err != nil {
+	if err := i.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall, "1000ff": ghost})
@@ -266,7 +265,7 @@ func TestStatusOfflineAndContract(t *testing.T) {
 			t.Errorf("%s still available after the plugin went offline", d)
 		}
 	}
-	if err := i.Set(context.Background(), porch, capability.On, true); err == nil {
+	if err := i.Set(t.Context(), porch, capability.On, true); err == nil {
 		t.Errorf("Set succeeded while the plugin is offline")
 	}
 
@@ -324,7 +323,7 @@ func TestStatusError(t *testing.T) {
 
 func TestSetPublishes(t *testing.T) {
 	i, bus, _ := setup(t, online())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := i.Set(ctx, porch, capability.On, false); err != nil {
 		t.Fatal(err)
@@ -355,7 +354,7 @@ func TestSetPublishes(t *testing.T) {
 
 func TestAWriteWaitsForTheNextProcessToAnnounce(t *testing.T) {
 	i, bus, _ := setup(t, online())
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := i.Set(ctx, porch, capability.On, false); err != nil {
 		t.Fatal(err)
 	}

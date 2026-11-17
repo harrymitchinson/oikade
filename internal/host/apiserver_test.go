@@ -1,7 +1,6 @@
 package host
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -15,7 +14,7 @@ import (
 )
 
 func TestAPI(t *testing.T) {
-	s := &apiServer{log: slog.New(slog.DiscardHandler), ctx: context.Background()}
+	s := &apiServer{log: slog.New(slog.DiscardHandler), ctx: t.Context()}
 	server := httptest.NewServer(s.routes())
 	defer server.Close()
 
@@ -86,7 +85,7 @@ func TestEveryRouteButLoginNeedsAToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &apiServer{
-		log: slog.New(slog.DiscardHandler), ctx: context.Background(), clients: c,
+		log: slog.New(slog.DiscardHandler), ctx: t.Context(), clients: c,
 		authFailures: metrics.NewSet().NewCounter("auth_failures_total"),
 	}
 	server := httptest.NewServer(s.networkRoutes())

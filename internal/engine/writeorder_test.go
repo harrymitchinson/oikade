@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"slices"
 	"sync"
 	"testing"
@@ -59,7 +58,7 @@ func runWrites(t *testing.T, e *Engine, writes ...queuedWrite) []string {
 			},
 		})
 	}
-	e.startWrites(context.Background())
+	e.startWrites(t.Context())
 	e.mu.Unlock()
 	waitGroup(t, &done)
 	return ran
@@ -159,7 +158,7 @@ func TestARoomsWritesWaitForEachOtherAndNotForAnotherRoom(t *testing.T) {
 			close(garageRan)
 		}},
 	}
-	e.startWrites(context.Background())
+	e.startWrites(t.Context())
 	e.mu.Unlock()
 	waitGroup(t, &done)
 	if hallClash {

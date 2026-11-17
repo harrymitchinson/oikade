@@ -71,6 +71,7 @@ func TestScenario5PumpWithoutBudget(t *testing.T) {
 }
 
 func hallLight(t *testing.T, start string) *harness {
+	t.Helper()
 	return newHarness(t, Settings{Kind: Bool, Default: off, External: ExternalOverride, OverrideUntilNext: true}, start)
 }
 

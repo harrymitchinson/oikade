@@ -33,7 +33,7 @@ func portTaken(err error) bool {
 }
 
 func TestCatchRedirectReturnsTheQueryOfItsPath(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	for range 5 {
 		if !catchesARedirect(ctx, t) {
@@ -79,10 +79,10 @@ func catchesARedirect(ctx context.Context, t *testing.T) (taken bool) {
 }
 
 func TestCatchRedirectRefusesAnotherMachineAndGivesUp(t *testing.T) {
-	if _, err := catchRedirect(context.Background(), "http://example.com:80/cb", func() {}); err == nil {
+	if _, err := catchRedirect(t.Context(), "http://example.com:80/cb", func() {}); err == nil {
 		t.Fatal("listened for another machine")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	redirect := fmt.Sprintf("http://127.0.0.1:%d/", freePort(t))
 	if _, err := catchRedirect(ctx, redirect, func() {}); err == nil {
@@ -94,12 +94,12 @@ func TestAskReadsALineAndSaysWhenThereIsNone(t *testing.T) {
 	var stderr strings.Builder
 	s := setupper{stderr: &stderr, in: bufio.NewReader(strings.NewReader("app-1\r\nlast"))}
 	for _, want := range []string{"app-1", "last"} {
-		got, err := s.ask(context.Background(), contractv1.SetupAsk{Prompt: "App ID", Secret: true}) // not a terminal
+		got, err := s.ask(t.Context(), contractv1.SetupAsk{Prompt: "App ID", Secret: true}) // not a terminal
 		if err != nil || got != want {
 			t.Fatalf("got %q, %v, want %q", got, err, want)
 		}
 	}
-	_, err := s.ask(context.Background(), contractv1.SetupAsk{Prompt: "App ID"})
+	_, err := s.ask(t.Context(), contractv1.SetupAsk{Prompt: "App ID"})
 	if err == nil || !strings.Contains(err.Error(), "stdin ended") {
 		t.Fatalf("got %v, want stdin ended", err)
 	}
@@ -110,7 +110,7 @@ func TestAskReadsALineAndSaysWhenThereIsNone(t *testing.T) {
 
 func TestAskStopsWhenItsContextEnds(t *testing.T) {
 	never, _ := io.Pipe()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	s := setupper{stderr: io.Discard, in: bufio.NewReader(never)}
 	if _, err := s.ask(ctx, contractv1.SetupAsk{Prompt: "Code"}); err != context.Canceled {

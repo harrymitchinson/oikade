@@ -54,7 +54,7 @@ func binary(t *testing.T, name string) string {
 	t.Helper()
 	dir := repo(t)
 	buildOnce.Do(func() {
-		if binDir, buildErr = os.MkdirTemp("", "oikcli"); buildErr != nil {
+		if binDir, buildErr = os.MkdirTemp("", "oikcli"); buildErr != nil { //nolint:usetesting // every test shares it
 			return
 		}
 		args := []string{"build", "-o", binDir + string(filepath.Separator)}

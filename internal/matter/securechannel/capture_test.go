@@ -185,7 +185,7 @@ func TestCaptureChipToolPASE(t *testing.T) {
 	}
 	conn := &capturingConn{PacketConn: pc}
 	tr := transport.New(conn, transport.Options{Log: logging.Test(t)})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	served := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(served) }()
 	defer func() { cancel(); <-served }()

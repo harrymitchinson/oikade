@@ -69,6 +69,7 @@ func (r *rig) expectBudgetMetrics(name string, target, scheduled, run float64) {
 }
 
 func testScenario5PumpBudgetWithFrostAndAHomeAppTap(t *testing.T, states *storeBackend) {
+	t.Helper()
 	start := func(now string, pumpOn bool) *rig {
 		budget := holdRule(t, "pump-daily", pumpBudget)
 		return startRigWith(t, rigOptions{

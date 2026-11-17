@@ -41,7 +41,7 @@ func startFakeZigbee2MQTT(t *testing.T, url string) *fakeZigbee2MQTT {
 func startFakeZigbee2MQTTRetaining(t *testing.T, url string, retain bool) *fakeZigbee2MQTT {
 	t.Helper()
 	// The connection lasts as long as this context.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	bus, err := mqtt.Connect(ctx, url, "fake-zigbee2mqtt")
 	if err != nil {
@@ -87,7 +87,7 @@ func startFakeZigbee2MQTTRetaining(t *testing.T, url string, retain bool) *fakeZ
 
 func (z *fakeZigbee2MQTT) publish(t *testing.T, topic, payload string) {
 	t.Helper()
-	if err := z.bus.Publish(context.Background(), zigbeeBase+"/"+topic, []byte(payload), true); err != nil {
+	if err := z.bus.Publish(t.Context(), zigbeeBase+"/"+topic, []byte(payload), true); err != nil {
 		t.Fatal(err)
 	}
 }

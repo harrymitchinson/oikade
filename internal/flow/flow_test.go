@@ -188,7 +188,7 @@ func outcome(t *testing.T, result <-chan string) string {
 // it, and the journal stays.
 func crash(t *testing.T, f *Flow, c *clock.Fake) {
 	t.Helper()
-	process, die := context.WithCancel(context.Background())
+	process, die := context.WithCancel(t.Context())
 	f.Process = process
 	result := make(chan string, 1)
 	go func() { result <- f.Start(process) }()
@@ -197,7 +197,7 @@ func crash(t *testing.T, f *Flow, c *clock.Fake) {
 	if got := outcome(t, result); got != engine.ResultCancelled {
 		t.Fatalf("crashed run ended %q", got)
 	}
-	f.Process = context.Background()
+	f.Process = t.Context()
 }
 
 func bedtime(r *Run) error {
@@ -212,7 +212,7 @@ func TestAWaitOutlivesARestartAndWakesAtItsOriginalTime(t *testing.T) {
 
 	// Back up 40 minutes into the hour. A wait that started again would end 40 minutes too late.
 	c.Step(40 * time.Minute)
-	result := resume(context.Background(), t, f, h, l)
+	result := resume(t.Context(), t, f, h, l)
 	parked(t, c)
 	c.Step(19 * time.Minute)
 	if got := h.appliedTo(); len(got) != 0 {
@@ -237,7 +237,7 @@ func TestLateNormalFlowGivesUpAndLogsIt(t *testing.T) {
 	crash(t, f, c)
 
 	c.Step(10 * time.Hour) // Nine hours past its wake.
-	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+	if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultGaveUp {
 		t.Fatalf("got %q", got)
 	}
 	if got := h.appliedTo(); len(got) != 0 {
@@ -258,7 +258,7 @@ func TestLateSafetyFlowRuns(t *testing.T) {
 	crash(t, f, c)
 
 	c.Step(10 * time.Hour)
-	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != engine.ResultSucceeded {
+	if got := outcome(t, resume(t.Context(), t, f, h, l)); got != engine.ResultSucceeded {
 		t.Fatalf("got %q", got)
 	}
 	if got := h.appliedTo(); len(got) != 1 {
@@ -281,7 +281,7 @@ func TestFlowSetsItsOwnLimit(t *testing.T) {
 			f.Late = tc.limit
 			crash(t, f, c)
 			c.Step(time.Hour + tc.late)
-			if got := outcome(t, resume(context.Background(), t, f, h, l)); got != tc.want {
+			if got := outcome(t, resume(t.Context(), t, f, h, l)); got != tc.want {
 				t.Fatalf("got %q", got)
 			}
 		})
@@ -296,14 +296,14 @@ func TestRunDownBetweenStepsIsLateFromItsLastStep(t *testing.T) {
 		return r.Apply(engine.Set{Device: "a", Capability: "on", Value: true})
 	}
 	f := newFlow(h, c, l, body)
-	if _, err := h.Journal(context.Background(), "bedtime/x", mustEntry(t, entry{Kind: kindStart, ID: "bedtime", At: epoch})); err != nil {
+	if _, err := h.Journal(t.Context(), "bedtime/x", mustEntry(t, entry{Kind: kindStart, ID: "bedtime", At: epoch})); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.Journal(context.Background(), "bedtime/x", mustEntry(t, entry{Kind: kindNow, At: epoch})); err != nil {
+	if _, err := h.Journal(t.Context(), "bedtime/x", mustEntry(t, entry{Kind: kindNow, At: epoch})); err != nil {
 		t.Fatal(err)
 	}
 	c.Step(11 * time.Minute)
-	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+	if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultGaveUp {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -337,7 +337,7 @@ func TestRecordedStepsReturnWhatTheyReturned(t *testing.T) {
 	f := newFlow(h, c, l, body)
 	crash(t, f, c)
 	c.Step(30 * time.Minute)
-	result := resume(context.Background(), t, f, h, l)
+	result := resume(t.Context(), t, f, h, l)
 	parked(t, c)
 	c.Step(30 * time.Minute)
 	if got := outcome(t, result); got != engine.ResultSucceeded {
@@ -363,19 +363,19 @@ func TestWaitForKeepsItsDeadlineAndResult(t *testing.T) {
 		return r.Apply(engine.Set{Device: "timed-out", Capability: "on", Value: true})
 	})
 	// The fake's wait ends with its context, and a flow past its deadline takes the timeout path.
-	process, die := context.WithCancel(context.Background())
+	process, die := context.WithCancel(t.Context())
 	f.Process = process
 	done := make(chan string, 1)
 	go func() { done <- f.Start(process) }()
 	waitJournal(t, h, 2)
 	die()
 	outcome(t, done)
-	f.Process = context.Background()
+	f.Process = t.Context()
 
 	// Five minutes past the deadline, so the fake's wait returns at once by being told so.
 	c.Step(65 * time.Minute)
 	close(h.woken)
-	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != engine.ResultSucceeded {
+	if got := outcome(t, resume(t.Context(), t, f, h, l)); got != engine.ResultSucceeded {
 		t.Fatalf("got %q", got)
 	}
 	if ran != 2 {
@@ -390,17 +390,17 @@ func TestWaitForFarPastItsDeadlineGivesUp(t *testing.T) {
 		r.WaitFor(never, time.Hour)
 		return nil
 	})
-	process, die := context.WithCancel(context.Background())
+	process, die := context.WithCancel(t.Context())
 	f.Process = process
 	done := make(chan string, 1)
 	go func() { done <- f.Start(process) }()
 	waitJournal(t, h, 2)
 	die()
 	outcome(t, done)
-	f.Process = context.Background()
+	f.Process = t.Context()
 
 	c.Step(2 * time.Hour)
-	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+	if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultGaveUp {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -437,7 +437,7 @@ func TestChangedFlowIsDropped(t *testing.T) {
 			crash(t, f, c)
 
 			f.Body = edited
-			if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultDropped {
+			if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultDropped {
 				t.Fatalf("got %q", got)
 			}
 			if !l.Has("Dropped flow run") {
@@ -457,7 +457,7 @@ func TestChangedFlowIsDropped(t *testing.T) {
 func TestCancelledRunIsOver(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 	f := newFlow(h, c, l, bedtime)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan string, 1)
 	go func() { done <- f.Start(ctx) }()
 	parked(t, c)
@@ -482,7 +482,7 @@ func TestRunStopsWithoutFinishingWhenTheJournalFails(t *testing.T) {
 		h.mu.Unlock()
 		return r.Apply(engine.Set{Device: "a", Capability: "on", Value: true})
 	})
-	if got := f.Start(context.Background()); got != engine.ResultFailed {
+	if got := f.Start(t.Context()); got != engine.ResultFailed {
 		t.Fatalf("got %q", got)
 	}
 	if len(h.finished) != 0 {
@@ -497,7 +497,7 @@ func TestFailedFlowIsLoggedAndOver(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
-			if got := newFlow(h, c, l, body).Start(context.Background()); got != engine.ResultFailed {
+			if got := newFlow(h, c, l, body).Start(t.Context()); got != engine.ResultFailed {
 				t.Fatalf("got %q", got)
 			}
 			if !l.Has("Failed flow run") {
@@ -548,7 +548,7 @@ func TestRunAfterACompletedWaitIsStillLate(t *testing.T) {
 		return r.Apply(engine.Set{Device: "a", Capability: "on", Value: true})
 	}
 	c.Step(11 * time.Minute)
-	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+	if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultGaveUp {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -566,7 +566,7 @@ func TestLongJournalEndsTheRun(t *testing.T) {
 			}
 		}
 	})
-	if got := f.Start(context.Background()); got != engine.ResultFailed {
+	if got := f.Start(t.Context()); got != engine.ResultFailed {
 		t.Fatalf("got %q", got)
 	}
 	if !l.Has("its journal is too long") {
@@ -595,7 +595,7 @@ func TestRunEndingBadlyReleasesTheFlowsClaims(t *testing.T) {
 		f := newFlow(h, c, l, claimThenSleep)
 		crash(t, f, c)
 		c.Step(10 * time.Hour)
-		if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+		if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultGaveUp {
 			t.Fatalf("got %q", got)
 		}
 		if h.holds("lamp") {
@@ -607,7 +607,7 @@ func TestRunEndingBadlyReleasesTheFlowsClaims(t *testing.T) {
 		f := newFlow(h, c, l, claimThenSleep)
 		crash(t, f, c)
 		f.Body = func(r *Run) error { r.Sleep(time.Minute); return nil }
-		if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultDropped {
+		if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultDropped {
 			t.Fatalf("got %q", got)
 		}
 		if h.holds("lamp") {
@@ -625,7 +625,7 @@ func TestRunEndingBadlyReleasesTheFlowsClaims(t *testing.T) {
 					return err
 				}
 				return end()
-			}).Start(context.Background())
+			}).Start(t.Context())
 			if h.holds("lamp") {
 				t.Fatal("the claim wasn't released")
 			}
@@ -634,7 +634,7 @@ func TestRunEndingBadlyReleasesTheFlowsClaims(t *testing.T) {
 	t.Run("keeps the journal if the release fails, for the next process", func(t *testing.T) {
 		h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 		h.releaseErr = errors.New("no host")
-		newFlow(h, c, l, func(*Run) error { return errors.New("no") }).Start(context.Background())
+		newFlow(h, c, l, func(*Run) error { return errors.New("no") }).Start(t.Context())
 		if len(h.saved()) != 1 {
 			t.Fatal("it lost the journal, and with it the next process's chance to release")
 		}
@@ -648,7 +648,7 @@ func TestReplacedRunsClaimPassesToTheRunThatReplacedIt(t *testing.T) {
 	replace := func(t *testing.T, f *Flow, c *clock.Fake) {
 		t.Helper()
 		f.Body = claimThenSleep
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan string, 1)
 		go func() { done <- f.Start(ctx) }()
 		parked(t, c)
@@ -665,7 +665,7 @@ func TestReplacedRunsClaimPassesToTheRunThatReplacedIt(t *testing.T) {
 			t.Fatal("the replaced run released the claim")
 		}
 		f.Body = func(*Run) error { return errors.New("no") }
-		f.Start(context.Background())
+		f.Start(t.Context())
 		if h.holds("lamp") {
 			t.Fatal("the claim was left with nothing to end it")
 		}
@@ -675,12 +675,12 @@ func TestReplacedRunsClaimPassesToTheRunThatReplacedIt(t *testing.T) {
 		f := newFlow(h, c, l, nil)
 		replace(t, f, c)
 		f.Body = func(*Run) error { return nil }
-		f.Start(context.Background())
+		f.Start(t.Context())
 		if !h.holds("lamp") {
 			t.Fatal("a run that succeeded released a claim")
 		}
 		f.Body = func(*Run) error { return errors.New("no") }
-		f.Start(context.Background())
+		f.Start(t.Context())
 		if h.holds("lamp") {
 			t.Fatal("the claim was left with nothing to end it")
 		}
@@ -692,11 +692,11 @@ func TestReplacedRunsClaimPassesToTheRunThatReplacedIt(t *testing.T) {
 		c.Step(time.Minute)
 		crash(t, f, c)
 		c.Step(10 * time.Hour)
-		bodies := Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		bodies := Recover(t.Context(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if !h.holds("lamp") {
 			t.Fatal("dropping the replaced run released the claim")
 		}
-		if got := bodies[f.Key.Name](context.Background()); got != ResultGaveUp {
+		if got := bodies[f.Key.Name](t.Context()); got != ResultGaveUp {
 			t.Fatalf("got %q", got)
 		}
 		if h.holds("lamp") {
@@ -708,7 +708,7 @@ func TestReplacedRunsClaimPassesToTheRunThatReplacedIt(t *testing.T) {
 // A process stopping during a claim's round trip leaves the claim made and no entry to say so.
 func TestStopDuringAClaimThenAGiveUpLeavesNoClaim(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
-	process, die := context.WithCancel(context.Background())
+	process, die := context.WithCancel(t.Context())
 	f := newFlow(h, c, l, claimThenSleep)
 	f.Process = process
 	h.onClaim = func() error {
@@ -722,9 +722,9 @@ func TestStopDuringAClaimThenAGiveUpLeavesNoClaim(t *testing.T) {
 		t.Fatal("the test's claim wasn't made")
 	}
 	h.onClaim = nil
-	f.Process = context.Background()
+	f.Process = t.Context()
 	c.Step(10 * time.Hour)
-	if got := outcome(t, resume(context.Background(), t, f, h, l)); got != ResultGaveUp {
+	if got := outcome(t, resume(t.Context(), t, f, h, l)); got != ResultGaveUp {
 		t.Fatalf("got %q", got)
 	}
 	if h.holds("lamp") {
@@ -736,7 +736,7 @@ func TestStopDuringAClaimThenAGiveUpLeavesNoClaim(t *testing.T) {
 // the only thing telling the next process to.
 func TestStopJustBeforeAReleaseKeepsTheJournal(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
-	process, die := context.WithCancel(context.Background())
+	process, die := context.WithCancel(t.Context())
 	f := newFlow(h, c, l, func(r *Run) error {
 		if err := r.Apply(set("lamp")); err != nil {
 			return err
@@ -760,8 +760,8 @@ func TestStopJustBeforeAReleaseKeepsTheJournal(t *testing.T) {
 		t.Fatal("the test's claim went")
 	}
 	f.Log = l.Logger
-	f.Process = context.Background()
-	outcome(t, resume(context.Background(), t, f, h, l))
+	f.Process = t.Context()
+	outcome(t, resume(t.Context(), t, f, h, l))
 	if h.holds("lamp") {
 		t.Fatal("the next process didn't release the claim")
 	}
@@ -798,12 +798,12 @@ func TestRunEndingBadlyLeavesANewerRunsClaim(t *testing.T) {
 				}
 				return end() // With no step left to notice the cancel.
 			}
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan string, 1)
 			go func() { done <- f.Start(ctx) }()
 			<-started
 			cancel()
-			if got := f.Start(context.Background()); got != engine.ResultSucceeded {
+			if got := f.Start(t.Context()); got != engine.ResultSucceeded {
 				t.Fatalf("the newer run ended %q", got)
 			}
 			close(finish)
@@ -825,7 +825,7 @@ func TestStoppedRunWithAnEndedContextReleasesNothing(t *testing.T) {
 			h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 			f := newFlow(h, c, l, nil)
 			h.claims["lamp"] = false
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			r := &Run{f: f, ctx: ctx, id: "bedtime/1", stopped: &stop{reason: reason}}
 			if got := r.conclude(l.Logger, nil); got != engine.ResultCancelled {
@@ -856,10 +856,10 @@ func TestReleaseWaitsOutANewRunsClaim(t *testing.T) {
 		return nil
 	}
 	old := make(chan string, 1)
-	go func() { old <- f.Start(context.Background()) }()
+	go func() { old <- f.Start(t.Context()) }()
 	<-h.entered
 	newer := make(chan string, 1)
-	go func() { newer <- f.Start(context.Background()) }()
+	go func() { newer <- f.Start(t.Context()) }()
 	select {
 	case <-newer:
 		t.Fatal("the newer run claimed in the middle of the old run's release")
@@ -877,14 +877,14 @@ func TestReleaseWaitsOutANewRunsClaim(t *testing.T) {
 func TestFailingRunReleasesAnEarlierRunsClaim(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 	f := newFlow(h, c, l, func(r *Run) error { return r.Apply(set("lamp")) })
-	if got := f.Start(context.Background()); got != engine.ResultSucceeded {
+	if got := f.Start(t.Context()); got != engine.ResultSucceeded {
 		t.Fatalf("got %q", got)
 	}
 	if !h.holds("lamp") {
 		t.Fatal("a run that succeeded released its claim")
 	}
 	f.Body = func(*Run) error { return errors.New("no") }
-	f.Start(context.Background())
+	f.Start(t.Context())
 	if h.holds("lamp") {
 		t.Fatal("the earlier run's claim stayed")
 	}
@@ -904,7 +904,7 @@ func TestRunEndingBadlyKeepsItsSafetyClaims(t *testing.T) {
 				return err
 			}
 			return notify(r)
-		}).Start(context.Background())
+		}).Start(t.Context())
 		if !h.holds("valve") {
 			t.Fatal("a failed notification released a Safety claim")
 		}
@@ -912,9 +912,9 @@ func TestRunEndingBadlyKeepsItsSafetyClaims(t *testing.T) {
 	t.Run("left by an earlier run", func(t *testing.T) {
 		h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 		f := newFlow(h, c, l, func(r *Run) error { return r.Apply(safety) })
-		f.Start(context.Background())
+		f.Start(t.Context())
 		f.Body = notify
-		f.Start(context.Background())
+		f.Start(t.Context())
 		if !h.holds("valve") {
 			t.Fatal("a later failure released a Safety claim")
 		}
@@ -930,7 +930,7 @@ func TestRunEndingBadlyKeepsItsSafetyClaims(t *testing.T) {
 		})
 		crash(t, f, c)
 		c.Step(10 * time.Hour)
-		outcome(t, resume(context.Background(), t, f, h, l))
+		outcome(t, resume(t.Context(), t, f, h, l))
 		if !h.holds("valve") {
 			t.Fatal("a run that gave up released a Safety claim")
 		}
@@ -944,7 +944,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 	t.Run("its flow has gone: everything stays, for the host to end", func(t *testing.T) {
 		h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 		logged(h, c, l, claimThenSleep)
-		if bodies := Recover(context.Background(), nil, h.saved(), h, h); len(bodies) != 0 {
+		if bodies := Recover(t.Context(), nil, h.saved(), h, h); len(bodies) != 0 {
 			t.Fatalf("got %d bodies", len(bodies))
 		}
 		if !h.holds("lamp") || len(h.saved()) != 1 || len(h.order) != 0 {
@@ -957,7 +957,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		for id := range h.journal {
 			h.journal[id] = append(h.journal[id], []byte("not json"))
 		}
-		Recover(context.Background(), nil, h.saved(), h, h)
+		Recover(t.Context(), nil, h.saved(), h, h)
 		if !h.holds("lamp") || len(h.saved()) != 1 {
 			t.Fatal("a binary without the flow ended it")
 		}
@@ -969,7 +969,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		for id := range h.journal {
 			h.journal[id] = append(h.journal[id], []byte("not json"))
 		}
-		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(t.Context(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if h.holds("lamp") {
 			t.Fatal("an unreadable journal's claim was kept for ever")
 		}
@@ -985,7 +985,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 			h.journal[id] = append(h.journal[id], []byte("not json"))
 		}
 		h.releaseErr = errors.New("no host")
-		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(t.Context(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if len(h.saved()) != 1 {
 			t.Fatal("the only record of the claim went")
 		}
@@ -996,7 +996,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		crash(t, f, c)
 		c.Step(time.Minute)
 		crash(t, f, c)
-		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(t.Context(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if !h.holds("lamp") {
 			t.Fatal("a replaced run dropped the claim of the run that replaced it")
 		}
@@ -1010,7 +1010,7 @@ func TestRecoveringARunNothingContinues(t *testing.T) {
 		}
 		c.Step(time.Minute)
 		crash(t, f, c)
-		Recover(context.Background(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
+		Recover(t.Context(), map[string]*Flow{f.Key.Name: f}, h.saved(), h, h)
 		if !h.holds("lamp") {
 			t.Fatal("a damaged run dropped the claim of a run that's carrying on")
 		}
@@ -1024,14 +1024,14 @@ func TestWaitWithNoConditionFailsTheRun(t *testing.T) {
 		r.WaitFor(nil, time.Hour)
 		return nil
 	})
-	if got := f.Start(context.Background()); got != engine.ResultFailed {
+	if got := f.Start(t.Context()); got != engine.ResultFailed {
 		t.Fatalf("got %q", got)
 	}
 }
 
 func TestStepFailingWithItsContextEndedPausesTheRun(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
-	process, die := context.WithCancel(context.Background())
+	process, die := context.WithCancel(t.Context())
 	f := newFlow(h, c, l, func(r *Run) error {
 		return r.Do("call", nil, func(context.Context) error {
 			die()
@@ -1055,7 +1055,7 @@ func TestTimeoutAlreadyPastLooksOnce(t *testing.T) {
 		got = append(got, r.WaitFor(func(engine.Vars) (bool, error) { return true, nil }, -time.Hour))
 		return nil
 	})
-	if result := f.Start(context.Background()); result != engine.ResultSucceeded {
+	if result := f.Start(t.Context()); result != engine.ResultSucceeded {
 		t.Fatalf("got %q", result)
 	}
 	if len(got) != 1 || !got[0] {
@@ -1070,7 +1070,7 @@ func TestTooManyStepsEndTheRun(t *testing.T) {
 			r.Now()
 		}
 	})
-	if got := f.Start(context.Background()); got != engine.ResultFailed {
+	if got := f.Start(t.Context()); got != engine.ResultFailed {
 		t.Fatalf("got %q", got)
 	}
 	if !l.Has("its journal is too long") {
@@ -1089,7 +1089,7 @@ func TestDoRefusesAHugeResult(t *testing.T) {
 		})
 		return nil
 	})
-	f.Start(context.Background())
+	f.Start(t.Context())
 	if got == nil {
 		t.Fatal("a result over the limit was recorded")
 	}
@@ -1099,17 +1099,17 @@ func TestRecoverKeepsOnlyTheNewestRunOfAFlow(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 	f := newFlow(h, c, l, func(*Run) error { return nil })
 	add := func(id string, at time.Time, flow string) {
-		if _, err := h.Journal(context.Background(), id, mustEntry(t, entry{Kind: kindStart, ID: flow, At: at})); err != nil {
+		if _, err := h.Journal(t.Context(), id, mustEntry(t, entry{Kind: kindStart, ID: flow, At: at})); err != nil {
 			t.Fatal(err)
 		}
 	}
 	add("bedtime/old", epoch, "bedtime")
 	add("bedtime/new", epoch.Add(time.Minute), "bedtime")
 	add("removed/x", epoch, "removed")
-	if _, err := h.Journal(context.Background(), "junk", []byte("{")); err != nil {
+	if _, err := h.Journal(t.Context(), "junk", []byte("{")); err != nil {
 		t.Fatal(err)
 	}
-	bodies := Recover(context.Background(), map[string]*Flow{"bedtime": f}, h.saved(), h, h)
+	bodies := Recover(t.Context(), map[string]*Flow{"bedtime": f}, h.saved(), h, h)
 	if len(bodies) != 1 || bodies["bedtime"] == nil {
 		t.Fatalf("resumed %v", bodies)
 	}

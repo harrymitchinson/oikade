@@ -38,6 +38,7 @@ type fakeConn struct {
 }
 
 func newFakeConn(t testing.TB) *fakeConn {
+	t.Helper()
 	return &fakeConn{t: t, in: make(chan []byte), sent: make(chan sentPacket, 1024), closed: make(chan struct{})}
 }
 
@@ -72,30 +73,32 @@ func (c *fakeConn) Close() error {
 	return nil
 }
 
-// next returns the next packet sent, or fails the test after a second.
-func (c *fakeConn) next() sentPacket {
-	c.t.Helper()
+// next returns the next packet sent, or fails t after a second. t is the test that asks, which may
+// be a subtest of the one that made c.
+func (c *fakeConn) next(t testing.TB) sentPacket {
+	t.Helper()
 	select {
 	case p := <-c.sent:
 		return p
 	case <-time.After(time.Second):
-		c.t.Fatal("nothing sent")
+		t.Fatal("nothing sent")
 		return sentPacket{}
 	}
 }
 
 // none checks that nothing more is sent for a while.
-func (c *fakeConn) none() {
-	c.t.Helper()
+func (c *fakeConn) none(t testing.TB) {
+	t.Helper()
 	select {
 	case p := <-c.sent:
-		c.t.Fatalf("sent %+v", p.msg)
+		t.Fatalf("sent %+v", p.msg)
 	case <-time.After(50 * time.Millisecond):
 	}
 }
 
 // newTestResponder returns a Responder on a fakeConn, with short delays.
 func newTestResponder(t testing.TB) (*Responder, *fakeConn) {
+	t.Helper()
 	c := newFakeConn(t)
 	addrs := func(int) []netip.Addr { return []netip.Addr{testAddr4, testAddr6} }
 	r, err := newResponder([]packetConn{c}, []int{testIf}, "DCA632A1B2C3", addrs, logging.Test(t), nil)
@@ -108,6 +111,7 @@ func newTestResponder(t testing.TB) (*Responder, *fakeConn) {
 
 // addReady adds svc as if it had been probed, without sending anything.
 func addReady(t testing.TB, r *Responder, svc Service) {
+	t.Helper()
 	recs, err := svc.records(r.host)
 	if err != nil {
 		t.Fatal(err)

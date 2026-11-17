@@ -13,8 +13,7 @@ import (
 
 // oikade tail says so when the host ends its stream, and fails, so a script sees it stopped.
 func TestTailSaysTheHostStopped(t *testing.T) {
-	// Not t.TempDir: a Unix socket's path has to fit in about 100 bytes.
-	dir, err := os.MkdirTemp("", "oik")
+	dir, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
 	if err != nil {
 		t.Fatal(err)
 	}

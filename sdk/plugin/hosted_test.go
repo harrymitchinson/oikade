@@ -10,7 +10,7 @@ import (
 )
 
 func TestAPluginIsStuckOnlyOnceASetRunsTooLong(t *testing.T) {
-	life, stop := context.WithCancel(context.Background())
+	life, stop := context.WithCancel(t.Context())
 	defer stop()
 	p := newPlugin(contractv1.NewRoot("relays"), slog.Default(), nil, time.Second, life, stop)
 	if p.stuck() {

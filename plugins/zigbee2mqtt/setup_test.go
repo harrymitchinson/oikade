@@ -51,13 +51,13 @@ func TestBridgeInfoNamesTheSettingsThatAreWrong(t *testing.T) {
 // runSetup runs the plugin's setup as the host would, and returns its steps.
 func runSetup(t *testing.T, url string) []contractv1.SetupStep {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
+	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
 	defer cancel()
 	c, err := mqtt.Connect(ctx, url, "z2m-setup-"+clientID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = c.Disconnect(context.Background()) }()
+	defer func() { _ = c.Disconnect(t.Context()) }()
 	got := make(chan contractv1.SetupStep, 16)
 	if _, err := c.Subscribe(ctx, root.SetupOut(), func(m mqtt.Message) {
 		var s contractv1.SetupStep

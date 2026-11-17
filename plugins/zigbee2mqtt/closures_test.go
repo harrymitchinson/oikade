@@ -1,7 +1,6 @@
 package zigbee2mqtt
 
 import (
-	"context"
 	"encoding/json"
 	"path/filepath"
 	"slices"
@@ -25,7 +24,7 @@ func fromFixture(t *testing.T, name string, getInterval time.Duration) (*Instanc
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	bus := mqtt.NewMemory()
 	_ = bus.Publish(ctx, DefaultBaseTopic+"/bridge/devices", list, true)
 	rec := newRecorder()
@@ -55,7 +54,7 @@ func lastChange(rec *recorder, name string) any {
 
 // A cover's position is served the other way round: Zigbee2MQTT's 100 is open, and Oikade's closed.
 func TestACoversPositionIsReversedBothWays(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	i, bus, rec := fromFixture(t, "ikea-e1757.json", time.Hour)
 	_ = bus.Publish(ctx, DefaultBaseTopic+"/"+fixtureIEEE, []byte(`{"position":30}`), false)
 	if got := lastChange(rec, capability.Position); got != 70.0 {
@@ -84,7 +83,7 @@ func TestACoverWithoutAPositionIsntServed(t *testing.T) {
 
 // A lock is locked from lock_state, where the bolt is, and set with state's LOCK and UNLOCK.
 func TestALockReadsLockStateAndSetsState(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	i, bus, rec := fromFixture(t, "yale-yrd226ha2619.json", time.Hour)
 	topic := DefaultBaseTopic + "/" + fixtureIEEE
 	for _, tc := range []struct {
@@ -127,7 +126,7 @@ func TestALockWithoutLockStateReadsState(t *testing.T) {
 // A lock is asked for its state with a /get of state, since Zigbee2MQTT can't get lock_state, and a
 // lock_state Oikade doesn't know isn't locked.
 func TestALockIsAskedByStateAndAnUnknownLockStateIsntLocked(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	_, bus, rec := fromFixture(t, "yale-yrd226ha2619.json", time.Millisecond)
 	topic := DefaultBaseTopic + "/" + fixtureIEEE
 	deadline := time.Now().Add(5 * time.Second)

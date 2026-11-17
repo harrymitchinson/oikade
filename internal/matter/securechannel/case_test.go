@@ -178,7 +178,7 @@ func newCASENode(t *testing.T) *caseNode {
 	}
 	conn := &opcodeConn{PacketConn: pc}
 	tr := transport.New(conn, transport.Options{Log: logging.Test(t)})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })

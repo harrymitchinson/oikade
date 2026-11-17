@@ -113,7 +113,7 @@ func TestTheHostRefusesMetricsThatArentRules(t *testing.T) {
 }
 
 func TestSocketsKeepOtherUsersOut(t *testing.T) {
-	dir, err := os.MkdirTemp("", "oik")
+	dir, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
 	if err != nil {
 		t.Fatal(err)
 	}

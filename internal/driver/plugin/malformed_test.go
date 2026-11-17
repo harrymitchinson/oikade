@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -18,7 +17,7 @@ func rejectedDelta(t *testing.T, i *Instance, bus *mqtt.Memory, topic string, pa
 	t.Helper()
 	before := i.Stats().Rejected
 	for _, p := range payloads {
-		if err := bus.Publish(context.Background(), topic, []byte(p), false); err != nil {
+		if err := bus.Publish(t.Context(), topic, []byte(p), false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -112,7 +111,7 @@ func TestAMalformedSetupStepIsCounted(t *testing.T) {
 	payloads := []string{`not json`, ``, `[]`, `{"session":1}`, `{"session":"s","seq":"one"}`, huge}
 	wantDelta(t, "no session", rejectedDelta(t, i, bus, root+"/_setup/out", payloads...), map[string]uint64{ReasonMalformed: uint64(len(payloads))})
 
-	steps, err := i.StartSetup(context.Background(), "s")
+	steps, err := i.StartSetup(t.Context(), "s")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +132,7 @@ func TestAMalformedSetupStepIsCounted(t *testing.T) {
 // counted as malformed, and changes nothing.
 func TestAMalformedAvailabilityIsCounted(t *testing.T) {
 	i, bus, rec := setup(t, online())
-	if err := bus.Publish(context.Background(), root+"/1000aa/availability", []byte("online"), false); err != nil {
+	if err := bus.Publish(t.Context(), root+"/1000aa/availability", []byte("online"), false); err != nil {
 		t.Fatal(err)
 	}
 	payloads := []string{``, `ONLINE`, `"offline"`, `offline `, "off\xffline", `{"state":"offline"}`, huge}
@@ -167,12 +166,12 @@ func TestIDsNoDeviceHasAreBounded(t *testing.T) {
 	for n := range 3 * maxUnseen {
 		id := fmt.Sprintf("made-up-%d", n)
 		for _, m := range []struct{ topic, payload string }{{"/state", `{"on":true}`}, {"/availability", "online"}} {
-			if err := bus.Publish(context.Background(), root+"/"+id+m.topic, []byte(m.payload), false); err != nil {
+			if err := bus.Publish(t.Context(), root+"/"+id+m.topic, []byte(m.payload), false); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	if err := bus.Publish(context.Background(), root+"/1000aa/state", []byte(`{"on":true}`), false); err != nil {
+	if err := bus.Publish(t.Context(), root+"/1000aa/state", []byte(`{"on":true}`), false); err != nil {
 		t.Fatal(err)
 	}
 	i.mu.Lock()
@@ -185,7 +184,7 @@ func TestIDsNoDeviceHasAreBounded(t *testing.T) {
 		t.Errorf("undeclared_device = %d, want every message counted", got)
 	}
 	// The devices message replays porch's state, kept although the made-up IDs came first.
-	if err := bus.Publish(context.Background(), root+"/devices", []byte(devicesJSON), true); err != nil {
+	if err := bus.Publish(t.Context(), root+"/devices", []byte(devicesJSON), true); err != nil {
 		t.Fatal(err)
 	}
 	if got := rec.takeChanges(); len(got) != 1 || got[0].Device != porch || got[0].Value != true {

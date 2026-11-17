@@ -1,7 +1,6 @@
 package host
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,7 +128,7 @@ func TestCheckTakesTheManifestFromCheckMode(t *testing.T) {
 	path := script(t, fmt.Sprintf(`[ "$1" = check ] || exit 9
 echo something a home printed
 echo '%s'`, raw))
-	m, err := runCheck(context.Background(), path)
+	m, err := runCheck(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +147,7 @@ func TestCheckRefuses(t *testing.T) {
 		"no protocol":    {`echo '{"rules":[]}'`, "protocol 0"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := runCheck(context.Background(), script(t, tc.body))
+			_, err := runCheck(t.Context(), script(t, tc.body))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want it to mention %q", err, tc.want)
 			}
@@ -440,7 +439,7 @@ func TestRedeployingAVersionThatCouldntBeConfirmedRetries(t *testing.T) {
 	if resp := d.confirm(id); resp.Error == "" {
 		t.Fatalf("a save to a closed store worked: %+v", resp)
 	}
-	resp := d.deploy(context.Background(), v.path(id), false)
+	resp := d.deploy(t.Context(), v.path(id), false)
 	if resp.Error == "" || resp.Unchanged || !v.state.Pending {
 		t.Fatalf("got %+v, %+v", resp, v.state)
 	}
@@ -450,11 +449,11 @@ func TestRedeployingAVersionThatCouldntBeConfirmedRetries(t *testing.T) {
 	}
 	defer func() { _ = data.Close() }()
 	v.values = data.Namespace(versionsNamespace)
-	resp = d.deploy(context.Background(), v.path(id), false)
+	resp = d.deploy(t.Context(), v.path(id), false)
 	if resp.Error != "" || resp.Unchanged || v.state.Pending {
 		t.Fatalf("got %+v, %+v", resp, v.state)
 	}
-	if resp = d.deploy(context.Background(), v.path(id), false); !resp.Unchanged {
+	if resp = d.deploy(t.Context(), v.path(id), false); !resp.Unchanged {
 		t.Fatalf("it was confirmed twice: %+v", resp)
 	}
 }
@@ -467,7 +466,7 @@ func TestRedeployingAVersionThatHasntSettledConfirmsNothing(t *testing.T) {
 	if err := v.begin(version{ID: id}, nil); err != nil {
 		t.Fatal(err)
 	}
-	resp := (&deployer{log: logging.Discard(), versions: v}).deploy(context.Background(), v.path(id), false)
+	resp := (&deployer{log: logging.Discard(), versions: v}).deploy(t.Context(), v.path(id), false)
 	if resp.Error == "" || resp.Unchanged || !v.state.Pending {
 		t.Fatalf("got %+v, %+v", resp, v.state)
 	}
@@ -523,7 +522,7 @@ func TestARefusedDeployLeavesTheHomeBinaryOffTheRecord(t *testing.T) {
 	v, closeStore := openTestVersions(t, dir)
 	d := &deployer{log: logging.Discard(), versions: v, home: script(t, "echo '{\"protocol\":"+strconv.Itoa(wire.Version)+"}'")}
 	d.running = d.home
-	resp := d.deploy(context.Background(), script(t, "echo broken >&2; exit 1"), false)
+	resp := d.deploy(t.Context(), script(t, "echo broken >&2; exit 1"), false)
 	if resp.Error == "" {
 		t.Fatalf("a binary that fails its check was taken: %+v", resp)
 	}
@@ -554,7 +553,7 @@ func TestDeployingTheHomeBinaryItself(t *testing.T) {
 			defer closeStore()
 			d := &deployer{log: logging.Discard(), versions: v, home: script(t, tc.body)}
 			d.running = d.home
-			resp := d.deploy(context.Background(), d.home, false)
+			resp := d.deploy(t.Context(), d.home, false)
 			if _, ok := v.current(); ok != tc.kept || resp.Unchanged != tc.kept || (resp.Error == "") != tc.kept {
 				t.Fatalf("got %+v, %+v", resp, v.state)
 			}
@@ -600,7 +599,7 @@ func TestRestoringWithNothingBeforeItRestoresNothing(t *testing.T) {
 		stopped <- sw.path
 		sw.started <- nil
 	}()
-	resp := d.restore(context.Background(), id, "", errors.New("it exited"))
+	resp := d.restore(t.Context(), id, "", errors.New("it exited"))
 	if resp.Restored || resp.Error != "it exited" || resp.Version != "" {
 		t.Fatalf("got %+v", resp)
 	}

@@ -36,7 +36,7 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 	devices := hub.NewStore(logging.Discard(), eng)
 	eng.Store, eng.Setter = devices, driver.SetterFunc(func(context.Context, ident.ID, string, any) error { return nil })
 	eng.Init()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	running := make(chan struct{})
 	go func() { defer close(running); eng.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-running })
@@ -89,7 +89,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if _, _, err := reg.Report(registry.Report{ID: "v", Driver: "later/x", Name: "valve"}); err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{
 		{Source: "Rule/leak", Level: control.Safety},
 		{Source: "Rule/old", Level: control.Normal, Expires: time.Now().Add(-time.Hour)},
@@ -308,7 +308,7 @@ func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 		"landing-plugs": {{Room: "landing", Types: []devicetype.Type{devicetype.OnOffPlugInUnit}}},
 		"study-fan":     {{Room: "study"}},
 	}
-	s := &apiServer{ctx: context.Background(), devices: known, srv: &server{session: &session{reads: reads}}}
+	s := &apiServer{ctx: t.Context(), devices: known, srv: &server{session: &session{reads: reads}}}
 
 	resp := s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "sensor"})
 	if resp.Error != "" {
@@ -323,7 +323,7 @@ func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 
 	// A refused remove empties nothing.
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/study-fan", Level: control.Safety}}}}
-	if err := controls.Put(context.Background(), key("bulb"), state); err != nil {
+	if err := controls.Put(t.Context(), key("bulb"), state); err != nil {
 		t.Fatal(err)
 	}
 	if resp := s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "bulb"}); !resp.NeedsAllowSafety || resp.Warning != "" {
@@ -368,7 +368,7 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
 	if err := controls.Put(ctx, key("boiler"), state); err != nil {
 		t.Fatal(err)

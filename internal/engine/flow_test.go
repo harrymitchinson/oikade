@@ -55,7 +55,7 @@ func TestClaimAnswersOnlyOnceSaved(t *testing.T) {
 	eng, dev := arbitratedEngine(t, controls)
 	answered := make(chan error, 1)
 	go func() {
-		_, err := eng.Claim(context.Background(), dev, capability.On, testClaim())
+		_, err := eng.Claim(t.Context(), dev, capability.On, testClaim())
 		answered <- err
 	}()
 	select {
@@ -84,12 +84,12 @@ func TestClaimReportsAFailedSave(t *testing.T) {
 	failure := errors.New("disk full")
 	controls.err.Store(&failure)
 	eng, dev := arbitratedEngine(t, controls)
-	if _, err := eng.Claim(context.Background(), dev, capability.On, testClaim()); err == nil {
+	if _, err := eng.Claim(t.Context(), dev, capability.On, testClaim()); err == nil {
 		t.Fatal("a claim that wasn't saved was reported as saved")
 	}
 	// It stays marked, so the next save still carries it.
 	controls.err.Store(nil)
-	if err := eng.flushControls(context.Background()); err != nil {
+	if err := eng.flushControls(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if saved, _ := controls.Get(dev); len(saved[capability.On].Claims) != 1 {
@@ -101,10 +101,10 @@ func TestReleaseAnswersOnlyOnceSaved(t *testing.T) {
 	controls := newMemoryStates[ControlState]()
 	eng, dev := arbitratedEngine(t, controls)
 	c := testClaim()
-	if ok, err := eng.Claim(context.Background(), dev, capability.On, c); !ok || err != nil {
+	if ok, err := eng.Claim(t.Context(), dev, capability.On, c); !ok || err != nil {
 		t.Fatalf("claim: %v %v", ok, err)
 	}
-	if ok, err := eng.ReleaseClaim(context.Background(), dev, capability.On, c.Source); !ok || err != nil {
+	if ok, err := eng.ReleaseClaim(t.Context(), dev, capability.On, c.Source); !ok || err != nil {
 		t.Fatalf("release: %v %v", ok, err)
 	}
 	if saved, _ := controls.Get(dev); len(saved[capability.On].Claims) != 0 {
@@ -114,7 +114,7 @@ func TestReleaseAnswersOnlyOnceSaved(t *testing.T) {
 
 func TestClaimOnAnUnarbitratedCapabilityIsRefused(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
-	if ok, err := eng.Claim(context.Background(), dev, capability.Brightness, testClaim()); ok || err != nil {
+	if ok, err := eng.Claim(t.Context(), dev, capability.Brightness, testClaim()); ok || err != nil {
 		t.Fatalf("got %v %v", ok, err)
 	}
 }
@@ -156,14 +156,14 @@ func TestResumedRunHoldsItsPlace(t *testing.T) {
 	}
 	h := newHarnessWith(t, time.Now(), func(e *Engine) {
 		e.Load(c)
-		if !e.Resume(context.Background(), key, func(context.Context) string {
+		if !e.Resume(t.Context(), key, func(context.Context) string {
 			runs <- "resumed"
 			<-stop
 			return ResultSucceeded
 		}) {
 			t.Error("no such flow")
 		}
-		if e.Resume(context.Background(), goKey("nothing"), nil) {
+		if e.Resume(t.Context(), goKey("nothing"), nil) {
 			t.Error("resumed a flow that isn't loaded")
 		}
 	})
@@ -188,7 +188,7 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 	}
 	woke := make(chan bool, 1)
 	go func() {
-		ok, err := h.e.WaitFor(context.Background(), key, occupied, time.Time{})
+		ok, err := h.e.WaitFor(t.Context(), key, occupied, time.Time{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -214,10 +214,10 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 		t.Fatal("a change didn't wake the wait")
 	}
 
-	if ok, err := h.e.WaitFor(context.Background(), key, func(Vars) (bool, error) { return false, nil }, h.clock.Now()); ok || err != nil {
+	if ok, err := h.e.WaitFor(t.Context(), key, func(Vars) (bool, error) { return false, nil }, h.clock.Now()); ok || err != nil {
 		t.Fatalf("at its limit: %v %v", ok, err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := h.e.WaitFor(ctx, key, occupied, time.Time{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled: %v", err)
@@ -227,15 +227,15 @@ func TestWaitForWakesOnAChangeAndAtItsLimit(t *testing.T) {
 func TestApplyRunsOneAction(t *testing.T) {
 	h := newHarness(t, time.Now())
 	key := goKey("motion-light")
-	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: capability.On, Value: true}); err != nil {
+	if err := h.e.Apply(t.Context(), key, Set{Device: "hallway-light", Capability: capability.On, Value: true}); err != nil {
 		t.Fatal(err)
 	}
 	h.expectCalls(call{"hallway-light", capability.On, true})
-	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: "no.such", Value: true}); err == nil {
+	if err := h.e.Apply(t.Context(), key, Set{Device: "hallway-light", Capability: "no.such", Value: true}); err == nil {
 		t.Fatal("an invalid set was applied")
 	}
 	h.setter.err = errors.New("offline")
-	if err := h.e.Apply(context.Background(), key, Set{Device: "hallway-light", Capability: capability.On, Value: true}); err == nil {
+	if err := h.e.Apply(t.Context(), key, Set{Device: "hallway-light", Capability: capability.On, Value: true}); err == nil {
 		t.Fatal("a failed write wasn't reported")
 	}
 }
@@ -244,10 +244,10 @@ func TestApplyIsAnErrorWhereARunMustNotCarryOn(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
 	key := goKey("routine")
 	unended := Set{Device: dev.Name, Capability: capability.On, Value: false}
-	if err := eng.Apply(context.Background(), key, unended); err == nil {
+	if err := eng.Apply(t.Context(), key, unended); err == nil {
 		t.Fatal("a set with no end on an arbitrated capability looked done")
 	}
-	cancelled, cancel := context.WithCancel(context.Background())
+	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
 	ended := unended
 	ended.For = time.Hour
@@ -266,13 +266,13 @@ func TestFlushReportsOnlyTheDeviceItWasAskedAbout(t *testing.T) {
 	eng.arbiter(dev, capability.On)
 	eng.markSave(dev)
 	eng.mu.Unlock()
-	if err := eng.flushControls(context.Background(), goKey("another")); err != nil {
+	if err := eng.flushControls(t.Context(), goKey("another")); err != nil {
 		t.Fatalf("another device's failure failed this one: %v", err)
 	}
-	if err := eng.flushControls(context.Background()); err == nil {
+	if err := eng.flushControls(t.Context()); err == nil {
 		t.Fatal("a failed save, still due, was reported as saved")
 	}
-	if err := eng.flushControls(context.Background(), dev); err == nil {
+	if err := eng.flushControls(t.Context(), dev); err == nil {
 		t.Fatal("a failed save, still due, was reported as saved")
 	}
 }
@@ -287,7 +287,7 @@ func TestWaitForRefusesNoConditionAndLeavesTheEngineFree(t *testing.T) {
 				t.Errorf("it panicked: %v", p)
 			}
 		}()
-		if _, err := eng.WaitFor(context.Background(), goKey("routine"), nil, time.Time{}); err == nil {
+		if _, err := eng.WaitFor(t.Context(), goKey("routine"), nil, time.Time{}); err == nil {
 			t.Error("a wait with no condition was accepted")
 		}
 	}()
@@ -320,7 +320,7 @@ func TestReleaseClaimsOnlyAnswersForTheDevicesItChanged(t *testing.T) {
 		dev:    {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NameOverride, "1h")}},
 		broken: {Instance: z2m, Control: []control.Entry{entry(capability.On, "true", control.NameOverride, "1h")}},
 	})
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := eng.Claim(ctx, dev, capability.On, testClaim()); err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 		entry(capability.On, "true", control.NameOverride, "1h"),
 	}}
 	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: meta, other: meta, third: meta})
-	ctx := context.Background()
+	ctx := t.Context()
 	key := goKey("routine")
 	expires := time.Now().Add(time.Hour)
 	for d, level := range map[ident.ID]control.Level{dev: control.Normal, other: control.Override, third: control.Safety} {
@@ -370,7 +370,7 @@ func TestReleaseFlowEndsEveryClaimButSafetyOnes(t *testing.T) {
 
 func TestReleaseWithAllLevelsEndsSafetyClaims(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
-	ctx := context.Background()
+	ctx := t.Context()
 	claim := control.Claim{Source: "Rule/x", Level: control.Safety, Expires: time.Now().Add(time.Hour)}
 	if _, err := eng.Claim(ctx, dev, capability.On, claim); err != nil {
 		t.Fatal(err)
@@ -411,7 +411,7 @@ func TestKeepSinceCatchesUpOnAMissedTime(t *testing.T) {
 
 func TestRuleClaimsAndEndRule(t *testing.T) {
 	eng, dev := arbitratedEngine(t, newMemoryStates[ControlState]())
-	ctx := context.Background()
+	ctx := t.Context()
 	for _, c := range []control.Claim{
 		{Source: "Rule/leak", Level: control.Safety, Expires: time.Now().Add(time.Hour)},
 		{Source: "Rule/leak-too", Level: control.Normal, Expires: time.Now().Add(time.Hour)},
@@ -437,7 +437,7 @@ func TestRuleClaimsAndEndRule(t *testing.T) {
 func TestRuleClaimsCountsClaimsStillOnDisk(t *testing.T) {
 	controls := newMemoryStates[ControlState]()
 	eng, dev := arbitratedEngine(t, controls)
-	ctx := context.Background()
+	ctx := t.Context()
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Expires: time.Now().Add(time.Hour)}
 	if _, err := eng.Claim(ctx, dev, capability.On, claim); err != nil {
 		t.Fatal(err)
@@ -482,7 +482,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 
 	t.Run("WaitFor cancelled", func(t *testing.T) {
 		eng, c := bare(t)
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -502,7 +502,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			_, _ = eng.WaitFor(context.Background(), key, func(Vars) (bool, error) { return met.Load(), nil }, time.Time{})
+			_, _ = eng.WaitFor(t.Context(), key, func(Vars) (bool, error) { return met.Load(), nil }, time.Time{})
 		}()
 		waiting(t, c)
 		met.Store(true)
@@ -522,7 +522,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			_, _ = eng.WaitFor(context.Background(), key, func(Vars) (bool, error) { return met.Load(), nil }, time.Time{})
+			_, _ = eng.WaitFor(t.Context(), key, func(Vars) (bool, error) { return met.Load(), nil }, time.Time{})
 		}()
 		waiting(t, c)
 		met.Store(true)
@@ -532,7 +532,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 
 	t.Run("a delay cancelled", func(t *testing.T) {
 		eng, c := bare(t)
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
 		go func() {
 			defer close(done)

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -25,7 +24,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 		{Source: "Rule/leak", Level: control.Safety, Value: 0},
 		{Source: "Rule/other", Level: control.Override, Value: 1},
 	}}}
-	if err := controls.Put(context.Background(), valve, st); err != nil {
+	if err := controls.Put(t.Context(), valve, st); err != nil {
 		t.Fatal(err)
 	}
 	e := &Engine{Controls: controls, Log: logging.Discard()}
@@ -35,7 +34,7 @@ func TestClaimsOnlyOnDiskCountAndEnd(t *testing.T) {
 	if held["leak"] != control.Safety || held["other"] != control.Override {
 		t.Fatalf("got %v", held)
 	}
-	if err := e.EndRule(context.Background(), "leak"); err != nil {
+	if err := e.EndRule(t.Context(), "leak"); err != nil {
 		t.Fatal(err)
 	}
 	held = e.RuleClaims()

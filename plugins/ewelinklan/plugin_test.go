@@ -156,7 +156,9 @@ func (d *fakeDevice) report() {
 func (d *fakeDevice) announce(key string, fields map[string]any) {
 	iv, data, err := encrypt(fields, lanKey(key))
 	if err != nil {
-		d.t.Fatal(err)
+		// A device answers a command on the server's goroutine, where Fatal can't stop the test.
+		d.t.Error(err)
+		return
 	}
 	d.lan.packets <- d.packet(d.txt(iv, data), true)
 }
@@ -214,11 +216,13 @@ func (d *fakeDevice) a() dnsmessage.Resource {
 	}
 }
 
+// mustPack packs m. It's called off the test's goroutine too, where Fatal can't stop the test,
+// so it fails the test and returns nothing.
 func mustPack(t *testing.T, m dnsmessage.Message) []byte {
 	t.Helper()
 	raw, err := m.Pack()
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 	return raw
 }
@@ -260,9 +264,9 @@ func startWith(t *testing.T, c Config, timings timing, cl *cloud, declared ...st
 		t: t, broker: broker, lan: newFakeLAN(), secrets: t.TempDir(), base: time.Now(),
 		topics: map[string]string{}, published: map[string]int{},
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
-	listening, stopListening := context.WithCancel(context.Background())
+	listening, stopListening := context.WithCancel(t.Context())
 	t.Cleanup(stopListening)
 	bus, err := mqtt.Connect(listening, broker, "ewelink-test")
 	if err != nil {
@@ -307,7 +311,7 @@ func startWith(t *testing.T, c Config, timings timing, cl *cloud, declared ...st
 	t.Cleanup(func() {
 		cancel()
 		<-done
-		_ = b.plugin.Close(context.Background())
+		_ = b.plugin.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
 	})
 	return b
 }
@@ -421,7 +425,7 @@ func TestARelayIsReportedAndCanBeSwitched(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 
-	if err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 	b.waitState(relayID, "on", "true")
@@ -457,7 +461,7 @@ func TestASensorRelayReportsItsReadings(t *testing.T) {
 		t.Errorf("humidity reported unannounced: %v", b.relayState())
 	}
 
-	if err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: probeID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: probeID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 	humid.mu.Lock()
@@ -497,7 +501,7 @@ func TestADeviceWithNoKeyShowsThatAndComesUpWhenItsAdded(t *testing.T) {
 	if !b.reports()[relayID].Found || strings.Join(b.reports()[relayID].Capabilities, ",") != "on,temperature" {
 		t.Errorf("A device with no key should be reported as what it is: %+v", b.reports()[relayID])
 	}
-	err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "no LAN key") {
 		t.Errorf("got %v", err)
 	}
@@ -614,8 +618,10 @@ func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
 	})
 
 	stop := make(chan struct{})
+	var repeating sync.WaitGroup
+	defer repeating.Wait()
 	defer close(stop)
-	go func() {
+	repeating.Go(func() {
 		for {
 			select {
 			case <-stop:
@@ -624,8 +630,8 @@ func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
 				repeat()
 			}
 		}
-	}()
-	err = b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	})
+	err = b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "didn't report the change") {
 		t.Errorf("got %v", err)
 	}
@@ -697,7 +703,7 @@ func TestSettingARelayToWhatItIsNeedsNoNewReport(t *testing.T) {
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
 
-	if err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 	d.mu.Lock()
@@ -779,7 +785,7 @@ func TestRecordsCanArriveSeparately(t *testing.T) {
 		_, _, known := b.handler.records.address(b.handler.records.services["ewelink_"+relayID+"."+serviceType])
 		return known
 	})
-	if err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -794,7 +800,7 @@ func TestACommandMustBeConfirmed(t *testing.T) {
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
 
-	err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "didn't report the change") {
 		t.Errorf("got %v", err)
 	}
@@ -809,7 +815,7 @@ func TestACommandCanBeRefused(t *testing.T) {
 	d.report()
 	b.waitAvailability(relayID, contractv1.Online)
 
-	err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "rejected") {
 		t.Errorf("got %v", err)
 	}
@@ -817,7 +823,7 @@ func TestACommandCanBeRefused(t *testing.T) {
 
 func TestDevicesNotHeardCantBeSet(t *testing.T) {
 	b := start(t, Config{}, fast, relayID)
-	err := b.handler.Set(context.Background(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "hasn't been heard") {
 		t.Errorf("got %v", err)
 	}

@@ -21,14 +21,14 @@ func TestAPanicUnderTheNodesLockLeavesItFree(t *testing.T) {
 		panic("a bug in a command")
 	}}}
 	bad, _ := pair(t, node)
-	short, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	short, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 	if _, err := bad.Invoke(short, CommandPath{Endpoint: 1, Cluster: 6, Command: 0x01}, nil, false, 0); err == nil {
 		t.Error("a command that panicked was answered")
 	}
 
 	good, _ := pair(t, node)
-	ctx, done := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, done := context.WithTimeout(t.Context(), 3*time.Second)
 	defer done()
 	reports, err := good.Read(ctx, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0})
 	if err != nil || len(reports) != 1 {
@@ -75,7 +75,7 @@ func TestASubscriptionThatPanicsEndsItsSession(t *testing.T) {
 	var ended atomic.Int32
 	srv := &Server{Node: node, Observer: o, Log: logging.Test(t), EndSession: func(*transport.Session) { ended.Add(1) }}
 	client, _, _, _ := pairWith(t, srv, transport.SecureSessionConfig{Auth: transport.AuthPASE})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if _, _, _, _, err := client.Subscribe(ctx, 0, 60, AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0}); err != nil {
 		t.Fatal(err)

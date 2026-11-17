@@ -57,6 +57,7 @@ type result struct {
 }
 
 func shortRequery(t *testing.T, d time.Duration) {
+	t.Helper()
 	old := firstRequery
 	firstRequery = d
 	t.Cleanup(func() { firstRequery = old })
@@ -77,11 +78,11 @@ func TestResolveOperational(t *testing.T) {
 	r, c := newTestResponder(t)
 	r.zones = map[int]string{testIf: "en0"}
 	defer func() { _ = r.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	done := resolveAsync(ctx, r)
 
-	q := c.next()
+	q := c.next(t)
 	want := []string{"2906C908D115D362-0000000020317E3F._matter._tcp.local. TypeSRV"}
 	if q.dst != nil || !slices.Equal(questions(q), want) {
 		t.Fatalf("sent %v to %v, want a multicast query for %v", questions(q), q.dst, want)
@@ -103,13 +104,13 @@ func TestResolveAsksForAddresses(t *testing.T) {
 	shortRequery(t, 20*time.Millisecond)
 	r, c := newTestResponder(t)
 	defer func() { _ = r.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	done := resolveAsync(ctx, r)
-	c.next() // the SRV query
+	c.next(t) // the SRV query
 	c.in <- hubResponse(t, hostTTL)
 	want := []string{"HUBHOST0001.local. TypeA", "HUBHOST0001.local. TypeAAAA"}
-	for q := c.next(); !slices.Equal(questions(q), want); q = c.next() {
+	for q := c.next(t); !slices.Equal(questions(q), want); q = c.next(t) {
 		t.Logf("sent %v", questions(q)) // the SRV query again, if the requery came first
 	}
 	resp := dnsmessage.Message{Response: true, Authoritative: true}
@@ -132,11 +133,11 @@ func TestResolveNotFound(t *testing.T) {
 	shortRequery(t, 20*time.Millisecond)
 	r, c := newTestResponder(t)
 	defer func() { _ = r.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	done := resolveAsync(ctx, r)
-	c.next()
+	c.next(t)
 	c.in <- hubResponse(t, 0, netip.MustParseAddr("192.0.2.15")) // a goodbye
 	other := Operational{CompressedFabricID: hubOp.CompressedFabricID, NodeID: 1}.Service()
 	recs, _ := other.records(hubHost)
@@ -181,7 +182,7 @@ func TestResolveFromAnotherResponder(t *testing.T) {
 	}
 	defer func() { _ = ctrl.Close() }()
 	op := Operational{CompressedFabricID: 0x1122334455667788, NodeID: 0xA000 + uint64(time.Now().UnixNano()%0x1000), Port: 5541}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	if err := node.Add(ctx, op.Service()); err != nil {
 		t.Fatal(err)
@@ -205,10 +206,10 @@ func TestResolveFromAnotherResponder(t *testing.T) {
 func TestResolveKeepsWhatCameFirst(t *testing.T) {
 	r, c := newTestResponder(t)
 	defer func() { _ = r.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	done := resolveAsync(ctx, r)
-	c.next()
+	c.next(t)
 	addrs := func(ttl uint32, a ...netip.Addr) []byte {
 		m := dnsmessage.Message{Response: true, Authoritative: true}
 		for _, rec := range addressRecords(hubHost, a) {
@@ -233,10 +234,10 @@ func TestResolveKeepsWhatCameFirst(t *testing.T) {
 func TestResolveWithAContextDone(t *testing.T) {
 	r, c := newTestResponder(t)
 	defer func() { _ = r.Close() }()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := r.ResolveOperational(ctx, 1, 2); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
 	}
-	c.none()
+	c.none(t)
 }

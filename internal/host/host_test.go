@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,7 +31,17 @@ func startHost(t *testing.T, dir string) (socket string, stop func()) {
 	done := make(chan error, 1)
 	go func() { done <- h.Run(ctx) }()
 	socket = filepath.Join(dir, SocketName)
-	t.Cleanup(cancel)
+	// The host stops when the test ends, if the test hasn't stopped it, and its error is the test's.
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			cancel()
+			if err := <-done; err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	t.Cleanup(stop)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if c, err := net.Dial("unix", socket); err == nil {
@@ -42,18 +53,13 @@ func startHost(t *testing.T, dir string) (socket string, stop func()) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	return socket, func() {
-		cancel()
-		if err := <-done; err != nil {
-			t.Fatal(err)
-		}
-	}
+	return socket, stop
 }
 
 // tempDir is short: a Unix socket's path has to fit in about 100 bytes, and t.TempDir's may not.
 func tempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "oik")
+	dir, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ func ChipToolLog(out string) []string { return chipToolLog(out) }
 
 // KeepEphemeralKeys has CASE call keep with each ephemeral key it draws, until t ends.
 func KeepEphemeralKeys(t *testing.T, keep func(*ecdh.PrivateKey)) {
+	t.Helper()
 	original := ephemeralKey
 	t.Cleanup(func() { ephemeralKey = original })
 	ephemeralKey = func() (*ecdh.PrivateKey, error) {

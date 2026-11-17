@@ -185,7 +185,7 @@ func TestApplyChecksItsActions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := &Engine{Store: hub.NewStore(logging.Discard()), Setter: &fakeSetter{}, Log: logging.Discard()}
 			e.Init()
-			err := e.Apply(context.Background(), goKey("a"), tc.do)
+			err := e.Apply(t.Context(), goKey("a"), tc.do)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
 			}
@@ -305,7 +305,7 @@ func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules 
 	for _, c := range rules {
 		h.e.Load(c)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { h.e.Run(withEngine(ctx, h.e)); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -477,7 +477,7 @@ func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, action
 	e.Init()
 	declare(e.Store, devices)
 	body := steps{Do: actions}.body(ident.ID{Name: "goodnight"})
-	return body(withEngine(context.Background(), e)), logs.Lines()
+	return body(withEngine(t.Context(), e)), logs.Lines()
 }
 
 func TestRoomTriggerMatches(t *testing.T) {

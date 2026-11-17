@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -21,7 +20,7 @@ func TestReleaseRuleEndsEveryClaimButSafetyOnes(t *testing.T) {
 		entry(capability.On, "true", control.NameOverride, "1h"),
 	}}
 	eng.Store.SetDevices(z2m, map[ident.ID]hub.Meta{dev: meta, other: meta})
-	ctx := context.Background()
+	ctx := t.Context()
 	key := goKey("routine")
 	expires := time.Now().Add(time.Hour)
 	for d, level := range map[ident.ID]control.Level{dev: control.Override, other: control.Safety} {
@@ -47,7 +46,7 @@ func TestSavedClaimsLeaveOutExpiredOnes(t *testing.T) {
 	now := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
 	controls := newMemoryStates[ControlState]()
 	dev := ident.ID{Name: "valve"}
-	if err := controls.Put(context.Background(), dev, ControlState{capability.On: {Claims: []control.Claim{
+	if err := controls.Put(t.Context(), dev, ControlState{capability.On: {Claims: []control.Claim{
 		{Source: "Rule/gone", Level: control.Safety, Expires: now},
 		{Source: "Rule/later", Level: control.Normal, Expires: now.Add(time.Minute)},
 		{Source: "Rule/until-released", Level: control.Safety},

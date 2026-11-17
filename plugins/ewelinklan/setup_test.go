@@ -38,6 +38,7 @@ type fakeEWeLink struct {
 }
 
 func newFakeEWeLink(t *testing.T, things string) *fakeEWeLink {
+	t.Helper()
 	f := &fakeEWeLink{t: t, things: things}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v2/user/oauth/token", f.token)
@@ -102,6 +103,7 @@ type person struct {
 // signIn follows the sign-in page as eWeLink's would, once you've signed in. Its signature is checked
 // at the token, as eWeLink's is.
 func signIn(t *testing.T, region string) func(string) string {
+	t.Helper()
 	return func(page string) string {
 		u, err := url.Parse(page)
 		if err != nil {
@@ -285,7 +287,7 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 	}{
 		"wrong app secret": {
 			things: things, secret: "not-the-secret",
-			browse: func(t *testing.T) func(string) string { return signIn(t, "eu") },
+			browse: func(t *testing.T) func(string) string { t.Helper(); return signIn(t, "eu") },
 			want: "eWeLink refused to sign in: wrong sign (error 401): check the app's ID, secret and redirect URL, " +
 				"and change them with oikade secret set ewelink-app-id and ewelink-app-secret",
 		},
@@ -308,17 +310,17 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 		},
 		"a region that isn't one": {
 			things: things, secret: testAppSecret,
-			browse: func(t *testing.T) func(string) string { return signIn(t, "evil.example/") },
+			browse: func(t *testing.T) func(string) string { t.Helper(); return signIn(t, "evil.example/") },
 			want:   `the region "evil.example/"`,
 		},
 		"no devices": {
 			things: `[]`, secret: testAppSecret,
-			browse: func(t *testing.T) func(string) string { return signIn(t, "eu") },
+			browse: func(t *testing.T) func(string) string { t.Helper(); return signIn(t, "eu") },
 			want:   "your eWeLink account has no devices with a LAN key",
 		},
 		"only shared devices": {
 			things: `[{"itemType":2,"itemData":{"deviceid":"1000aabbcc","name":"Shared"}}]`, secret: testAppSecret,
-			browse: func(t *testing.T) func(string) string { return signIn(t, "eu") },
+			browse: func(t *testing.T) func(string) string { t.Helper(); return signIn(t, "eu") },
 			want:   "a device shared with you comes without its key",
 		},
 	} {

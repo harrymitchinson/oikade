@@ -42,7 +42,7 @@ func TestReconnectWaitsForTheOldConnection(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 			defer cancel()
 			b := NewBroker(t)
 			if err := b.s.AddHook(tt.hook, nil); err != nil {
@@ -109,7 +109,7 @@ func TestReconnectTakesOverALastingSession(t *testing.T) {
 	connect := func() *paho.Client {
 		t.Helper()
 		// Well inside oneSession's 5s.
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 		defer cancel()
 		conn, err := net.Dial("tcp", strings.TrimPrefix(b.URL, "mqtt://"))
 		if err != nil {
@@ -131,7 +131,7 @@ func TestReconnectTakesOverALastingSession(t *testing.T) {
 // Under -race, a wildcard subscription's retained scan while a retained message is stored, by a
 // PUBLISH or by a Will, is a data race inside mochi v2.7.9 unless retainScan keeps them apart.
 func TestRetainedStoreAndScanDontRace(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	b := NewBroker(t)
 	connect := func(id string, opts ...mqtt.Option) *mqtt.Client {
@@ -140,7 +140,7 @@ func TestRetainedStoreAndScanDontRace(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+		t.Cleanup(func() { _ = c.Disconnect(context.Background()) }) //nolint:usetesting // t.Context() is done once cleanups run
 		return c
 	}
 	publisher := connect("publisher")

@@ -168,7 +168,7 @@ func TestTypesNamesDevicesAsYourHomeDeclaresThem(t *testing.T) {
 		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "porch-light", Plugin: "zigbee", ID: "0x2"}}}, nil
 	}
 	var stderr bytes.Buffer
-	got := declaredIn(context.Background(), &stderr, dir, list, declares)
+	got := declaredIn(t.Context(), &stderr, dir, list, declares)
 	if len(got.Devices) != 1 || got.Devices[0].Name != "porch-light" || list.Devices[0].Name != "lamp-2" {
 		t.Errorf("got %+v, from %+v", got.Devices, list.Devices)
 	}
@@ -183,14 +183,14 @@ func TestTypesNamesDevicesAsYourHomeDeclaresThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	stderr.Reset()
-	got = declaredIn(context.Background(), &stderr, dir, list, broken)
+	got = declaredIn(t.Context(), &stderr, dir, list, broken)
 	if got.Devices[0].Name != "porch-light" || got.Devices[0].Room != "Porch" ||
 		!strings.Contains(stderr.String(), "its 1 device declarations are read from its source") {
 		t.Errorf("got %+v, and said %q", got.Devices, stderr.String())
 	}
 	// Outside a module there's nothing to build, and it says so.
 	stderr.Reset()
-	outside := declaredIn(context.Background(), &stderr, t.TempDir(), list, broken)
+	outside := declaredIn(t.Context(), &stderr, t.TempDir(), list, broken)
 	if outside.Devices[0].Name != "lamp-2" || !strings.Contains(stderr.String(), "--module") {
 		t.Errorf("got %+v, and said %q", outside.Devices, stderr.String())
 	}

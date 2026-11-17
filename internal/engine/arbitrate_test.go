@@ -76,6 +76,7 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 }
 
 func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBackend) {
+	t.Helper()
 	rail := entry(capability.On, "false", control.NameOverride, "Next")
 	rules := func() []*Compiled {
 		evening := holdRule(t, "towel-rail-evenings", Hold{Device: "towel-rail", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "18:00"}, End: At{Time: "21:00"}}})
@@ -108,6 +109,7 @@ func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBac
 }
 
 func testScenario8LeakClosesTheValveUntilReleased(t *testing.T, states *storeBackend) {
+	t.Helper()
 	valve := entry(capability.On, "true", control.NameRevert, "")
 	shutoff := func() *Compiled {
 		return holdRule(t, "leak-shutoff", Hold{Device: "main-valve", Capability: capability.On, Value: false, Priority: PrioritySafety, When: isTrue("leak-sensor", capability.Open), Latch: true})
@@ -242,6 +244,7 @@ func (g *gate) Set(ctx context.Context, dev ident.ID, c string, v any) error {
 var railEntry = entry(capability.On, "false", control.NameOverride, "1h")
 
 func railRig(t *testing.T, rules ...*Compiled) *rig {
+	t.Helper()
 	return startRigWith(t, rigOptions{
 		now:     local("2026-10-21 12:00 BST"),
 		values:  map[string]map[string]any{"towel-rail": {capability.On: false}},
@@ -327,11 +330,11 @@ func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
 	r.at("2026-10-21 12:01 BST")
 	dev := ident.ID{Name: "towel-rail"}
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
-	if _, err := r.e.Claim(context.Background(), dev, capability.On, claim); err != nil {
+	if _, err := r.e.Claim(t.Context(), dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
 	r.wrote(2, "the Safety write")
-	if _, err := r.e.ReleaseClaim(context.Background(), dev, capability.On, claim.Source); err != nil {
+	if _, err := r.e.ReleaseClaim(t.Context(), dev, capability.On, claim.Source); err != nil {
 		t.Fatal(err)
 	}
 	r.wrote(3, "the rule's write")
@@ -351,7 +354,7 @@ func TestAWriteThatFailedIsTriedAgainWhenItsDeviceReports(t *testing.T) {
 	dev := ident.ID{Name: "towel-rail"}
 	r.failing("towel-rail")
 	claim := control.Claim{Source: "Rule/leak", Level: control.Safety, Value: 0, Expires: r.clock.Now().Add(time.Hour)}
-	if _, err := r.e.Claim(context.Background(), dev, capability.On, claim); err != nil {
+	if _, err := r.e.Claim(t.Context(), dev, capability.On, claim); err != nil {
 		t.Fatal(err)
 	}
 	r.wrote(2, "the write that fails")
@@ -392,7 +395,7 @@ func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 	dev := ident.ID{Name: "towel-rail"}
 	r.store.SetDevices(z2m, map[ident.ID]hub.Meta{})
 	r.settle()
-	if err := r.e.ForgetDevice(context.Background(), dev); err != nil {
+	if err := r.e.ForgetDevice(t.Context(), dev); err != nil {
 		t.Fatal(err)
 	}
 	r.settle()
