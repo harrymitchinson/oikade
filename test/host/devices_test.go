@@ -141,6 +141,7 @@ func TestASafetyDeviceCanBeRemovedOnPurpose(t *testing.T) {
 }
 
 func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()

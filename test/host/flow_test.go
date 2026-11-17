@@ -198,6 +198,7 @@ func killAt(t *testing.T, r *rig, point string, step int) {
 // TestKilledAtEveryJournalBoundary kills each side at every journal write of a flow with a loop, a
 // branch, a wait and an outside call, just before and just after the entry is durable.
 func TestKilledAtEveryJournalBoundary(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		point   string
 		durable bool
@@ -231,6 +232,7 @@ func TestKilledAtEveryJournalBoundary(t *testing.T) {
 // entry without writing it, as a journal that isn't write-ahead would, and a kill lands once the
 // flow has been told it's durable. The call then runs twice, which the boundary test forbids.
 func TestBrokenWriteAheadFailsTheCheck(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s %d drop\n%s %d kill\n",
 		fault.HostJournalAppend, stepPlan, fault.ClientJournalAfter, stepPlan))
 	killAt(t, r, fault.ClientJournalAfter, stepPlan)
@@ -247,6 +249,7 @@ func TestBrokenWriteAheadFailsTheCheck(t *testing.T) {
 }
 
 func TestChangedFlowIsDroppedAndTheNextTriggerStartsAgain(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch()
 	r.awaitLoaded()
@@ -272,6 +275,7 @@ func TestChangedFlowIsDroppedAndTheNextTriggerStartsAgain(t *testing.T) {
 }
 
 func TestClaimInAFlowSurvivesAKillAndIsReleased(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch()
 	r.awaitLoaded()
@@ -312,6 +316,7 @@ func (r *rig) claimsOf(device string) []control.Claim {
 }
 
 func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
+	t.Parallel()
 	// Each ends with a restart, so what the release decided has to come back from disk.
 	check := func(t *testing.T, r *rig) {
 		t.Helper()
@@ -378,6 +383,7 @@ func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
 }
 
 func TestClaimSurvivesTheHostDyingRightAfterItsAnswer(t *testing.T) {
+	t.Parallel()
 	// No hold has started, so this moment's is the first claim the host sees.
 	r := flowRig(t, fault.HostClaimReplied+" 1 kill\n")
 	r.launch()
@@ -414,6 +420,7 @@ func seedFire(t *testing.T, r *rig, rule string, at time.Time) {
 }
 
 func TestTimeOfDayMissedWhileNoProcessRan(t *testing.T) {
+	t.Parallel()
 	now := time.Now().Truncate(time.Minute)
 	t.Run("a little late fires", func(t *testing.T) {
 		r := flowRig(t, "")

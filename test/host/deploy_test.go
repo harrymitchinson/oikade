@@ -298,6 +298,7 @@ func TestDeployingTheRunningVersionChangesNothing(t *testing.T) {
 }
 
 func TestDeployedVersionOutlivesAHostRestart(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -378,6 +379,7 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 }
 
 func TestRemovedRulesLeaveNothingBehind(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -396,6 +398,7 @@ func TestRemovedRulesLeaveNothingBehind(t *testing.T) {
 // A claim ends only once the version that dropped its rule has proved itself, because the last one
 // may come back.
 func TestAFailedVersionDoesNotEndTheClaimsOfRulesItDropped(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -414,6 +417,7 @@ func TestAFailedVersionDoesNotEndTheClaimsOfRulesItDropped(t *testing.T) {
 
 // A failed version's own rules go with it, because no code is left to end what they claimed.
 func TestAFailedVersionLeavesNoClaimsOfItsOwn(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(longSettle)
 	r.awaitLoaded()
@@ -466,6 +470,7 @@ func (r *rig) crashAfterLoading(name string, first ...string) {
 // A version that failed hasn't earned ending a flow it doesn't have, whose run comes back with the
 // last version.
 func TestAFailedVersionLeavesAFlowItDroppedAlone(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(longSettle)
 	r.awaitLoaded()
@@ -498,6 +503,7 @@ func (r *rig) claimWaiting() {
 // The new binary dropped the run as it connected. The version failed, so the run comes back, and its
 // claim never ended, so nothing wrote to the device.
 func TestAFailedVersionGivesBackARunItDropped(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(longSettle)
 	r.awaitLoaded()
@@ -522,6 +528,7 @@ func TestAFailedVersionGivesBackARunItDropped(t *testing.T) {
 // Nothing else records what a run the failed version started holds, so the run stays for the last
 // version to deal with, and its claim ends with it.
 func TestAFailedVersionsOwnRunLeavesNoClaimBehind(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(longSettle)
 	r.awaitLoaded()
@@ -550,6 +557,7 @@ func TestAFailedVersionsOwnRunLeavesNoClaimBehind(t *testing.T) {
 
 // A host that dies between settling and confirming finds the deploy unfinished, and does the same.
 func TestAHostThatDiesBeforeConfirmingGivesBackTheRun(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeploySettled))
 	r.launch(settle)
 	r.awaitLoaded()
@@ -573,6 +581,7 @@ func TestAHostThatDiesBeforeConfirmingGivesBackTheRun(t *testing.T) {
 }
 
 func TestAConfirmedVersionEndsTheClaimOfARunItDropped(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -587,6 +596,7 @@ func TestAConfirmedVersionEndsTheClaimOfARunItDropped(t *testing.T) {
 
 // Confirming is on record before the claim ends, so a crash between them still ends it.
 func TestAClaimReleasedUnderAConfirmedVersionEndsAfterACrash(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployConfirmed))
 	r.launch(settle)
 	r.awaitLoaded()
@@ -610,6 +620,7 @@ func TestAClaimReleasedUnderAConfirmedVersionEndsAfterACrash(t *testing.T) {
 // A new run of the flow claims the same device while the version settles. That claim is the new
 // run's, and confirming mustn't end it along with the dropped run's.
 func TestAClaimMadeAgainWhileSettlingOutlivesTheDeploy(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(longSettle)
 	r.awaitLoaded()
@@ -640,6 +651,7 @@ func TestAClaimMadeAgainWhileSettlingOutlivesTheDeploy(t *testing.T) {
 // Only a deploy ends a flow, so a binary changed behind the host's back leaves its run and claims,
 // and the run carries on once the flow is back.
 func TestABinaryChangedWithoutADeployLeavesAFlowAlone(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -662,6 +674,7 @@ func TestABinaryChangedWithoutADeployLeavesAFlowAlone(t *testing.T) {
 
 // A confirmed version without a flow ends what its runs left, and forgets them.
 func TestADeployedVersionEndsAFlowItDropped(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -713,6 +726,7 @@ func (r *rig) expectSafetyKept() {
 
 // A Safety claim the failed version had nothing to do with isn't its to end.
 func TestAFailedVersionCleansUpOnlyWhatItMade(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.orphanedSafety()
 	r.crashAfterLoading("crash-told")
@@ -723,6 +737,7 @@ func TestAFailedVersionCleansUpOnlyWhatItMade(t *testing.T) {
 
 // A deploy that was waiting when the host stopped says so, and confirms nothing that didn't settle.
 func TestAHostStoppingConfirmsNoDeployWaitingOnIt(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch("--settle=60s")
 	r.awaitLoaded()
@@ -761,6 +776,7 @@ func TestAHostStoppingConfirmsNoDeployWaitingOnIt(t *testing.T) {
 
 // The override covers a gone flow's Safety claim and its run, as well as a hold's.
 func TestAllowedDeployEndsAGoneFlowsSafetyClaim(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -787,6 +803,7 @@ func TestAllowedDeployEndsAGoneFlowsSafetyClaim(t *testing.T) {
 
 // A run's journal is the record of what it claimed, so it outlasts a claim that wouldn't end.
 func TestAFailedEndKeepsARunsJournal(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s 1 drop\n", fault.HostEndRule))
 	r.launch(settle)
 	r.awaitLoaded()
@@ -811,6 +828,7 @@ func TestAFailedEndKeepsARunsJournal(t *testing.T) {
 
 // A claim with nothing else on record is spared just the same.
 func TestAFailedVersionSparesAClaimOfARuleTheLastOneLacks(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -834,6 +852,7 @@ func TestAFailedVersionSparesAClaimOfARuleTheLastOneLacks(t *testing.T) {
 
 // So is saved state with no claim.
 func TestAFailedVersionSparesTheStateOfARuleTheLastOneLacks(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -856,6 +875,7 @@ func TestAFailedVersionSparesTheStateOfARuleTheLastOneLacks(t *testing.T) {
 
 // So is a waiting run with no claims at all.
 func TestAFailedVersionSparesARunOfAFlowTheLastOneLacks(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -880,6 +900,7 @@ func TestAFailedVersionSparesARunOfAFlowTheLastOneLacks(t *testing.T) {
 
 // The same goes for a deploy a host died during.
 func TestAnUnfinishedDeployCleansUpOnlyWhatItMade(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployBegun))
 	r.orphanedSafety()
 	if _, err := r.deploy("same"); err == nil {
@@ -896,6 +917,7 @@ func TestAnUnfinishedDeployCleansUpOnlyWhatItMade(t *testing.T) {
 // A flow a decision ranks above its override line is a Safety rule by its declaration, so a deploy
 // that drops it is refused before it has claimed anything.
 func TestADeployThatDropsASafetyFlowIsRefused(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -910,6 +932,7 @@ func TestADeployThatDropsASafetyFlowIsRefused(t *testing.T) {
 
 // Redeploying the running version picks up a removal that failed.
 func TestRedeployingRetriesAFailedRemoval(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s 1 drop\n", fault.HostRemovals))
 	r.launch(settle)
 	r.awaitLoaded()
@@ -930,6 +953,7 @@ func TestRedeployingRetriesAFailedRemoval(t *testing.T) {
 
 // Only a deploy ends a rule, so a binary changed behind the host's back can't get past the check.
 func TestABinaryChangedWithoutADeployEndsNothing(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	r.launch(settle)
 	r.awaitLoaded()
@@ -952,6 +976,7 @@ func TestABinaryChangedWithoutADeployEndsNothing(t *testing.T) {
 
 // A confirmed version's removals outlive a crash just after confirming it.
 func TestRemovalsFinishAfterACrash(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployConfirmed))
 	r.launch(settle)
 	r.awaitLoaded()
@@ -976,6 +1001,7 @@ func TestRemovalsFinishAfterACrash(t *testing.T) {
 // A running binary that has gone costs the way back to it and a sight of its Safety rules. You have
 // to agree to that, but it needn't stop the deploy that may be there to fix it.
 func TestDeployWorksWhenTheRunningBinaryHasGone(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, "")
 	home := filepath.Join(r.dir, "home")
 	raw, err := os.ReadFile(variant(t, "same"))
