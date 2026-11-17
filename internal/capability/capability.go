@@ -220,12 +220,18 @@ func ParseJSON(name string, raw []byte) (any, error) {
 
 // tolerance is how far a reported number may be from a written one and still be it. Drivers round
 // on the way to and from the device: a brightness of 40 comes back from Zigbee2MQTT as 40.2. Bools
-// are 0 and 1, so it can't confuse them.
+// are 0 and 1, and names a whole number apart, so it can't confuse them.
 const tolerance = 0.5
 
-// Near reports whether a reported value is a written one, allowing for the rounding drivers do.
-func Near(reported, wrote float64) bool {
-	return math.Abs(reported-wrote) <= tolerance
+// Near reports whether a number reported for a capability is one written to it, allowing for the
+// rounding drivers do: within half a step of it, and never more than tolerance, so a setpoint turned
+// up by its 0.5 °C step is still a change.
+func Near(name string, reported, wrote float64) bool {
+	tol := tolerance
+	if s, ok := Lookup(name); ok && s.Step > 0 {
+		tol = min(tol, s.Step/2)
+	}
+	return math.Abs(reported-wrote) <= tol
 }
 
 // Float converts a validated value to a float64 for metrics and claims: bools become 0 or 1, and a

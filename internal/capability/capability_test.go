@@ -101,20 +101,23 @@ func TestANameHasOneNumberInEveryCapability(t *testing.T) {
 	}
 }
 
-// A driver's rounding is the value written; a step of 1, or a bool's other value, isn't.
+// A driver's rounding is the value written; a step, or a bool's other value, isn't.
 func TestNear(t *testing.T) {
 	for _, c := range []struct {
+		name            string
 		reported, wrote float64
 		want            bool
 	}{
-		{33.1, 33, true},
-		{40.2, 40, true},
-		{39.5, 40, true},
-		{79, 80, false},
-		{0, 1, false},
+		{Brightness, 33.1, 33, true},
+		{Brightness, 40.2, 40, true},
+		{Brightness, 39.5, 40, true},
+		{Brightness, 79, 80, false},
+		{On, 0, 1, false},
+		{Setpoint, 21.01, 21, true},
+		{Setpoint, 20.5, 20, false},
 	} {
-		if got := Near(c.reported, c.wrote); got != c.want {
-			t.Errorf("Near(%v, %v) = %v, want %v", c.reported, c.wrote, got, c.want)
+		if got := Near(c.name, c.reported, c.wrote); got != c.want {
+			t.Errorf("Near(%s, %v, %v) = %v, want %v", c.name, c.reported, c.wrote, got, c.want)
 		}
 	}
 }

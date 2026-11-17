@@ -749,3 +749,31 @@ func TestABlindTravellingAfterAMatterWriteIsntAnOverride(t *testing.T) {
 		t.Errorf("winner %q once it's there, want Matter's", w)
 	}
 }
+
+// A driver that rounds reports a rule's write back a little off, as Zigbee2MQTT turns 33 into 84 of
+// 254 and back into 33.1. That report is the write, whether it comes while the write settles or after.
+func TestARoundedReportOfAWriteIsntAnOverride(t *testing.T) {
+	for name, wait := range map[string]time.Duration{
+		"while it settles": 0,
+		"after it settles": capability.SettleOf(capability.Brightness) + time.Second,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := startRigWith(t, rigOptions{
+				now:    local("2026-10-21 20:00 BST"),
+				values: map[string]map[string]any{"hall-light": {capability.Brightness: 0.0}},
+				control: map[string][]control.Entry{"hall-light": {
+					entry(capability.Brightness, "33", control.NameOverride, "1h"),
+				}},
+			})
+			r.expect(call{"hall-light", capability.Brightness, 33.0})
+			r.clock.Step(wait)
+			r.change("hall-light", capability.Brightness, 33.1)
+			r.clock.Step(capability.SettleOf(capability.Brightness) + time.Second)
+			r.settle()
+			if w := winner(r.status("hall-light", capability.Brightness)); w != control.NameDefault {
+				t.Errorf("winner %q after a report of 33.1, want the default", w)
+			}
+			r.expect(call{"hall-light", capability.Brightness, 33.0})
+		})
+	}
+}

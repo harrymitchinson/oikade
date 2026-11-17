@@ -300,7 +300,7 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	case ar.dropped && !now.Before(e.settles(dev, name, ar)):
 		// A report ignored while the write settled may have been a real change.
 		ar.dropped = false
-		if f := capability.Float(v); reported && f != st.Value {
+		if f := capability.Float(v); reported && !capability.Near(name, f, st.Value) {
 			e.recordOutside(dev, name, ar, f)
 		}
 	}
@@ -397,7 +397,8 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	case !st.Known:
 		// The first value seen is the device's, not a change.
 		ar.a.Wrote(v)
-	case v == st.Value:
+	case capability.Near(u.Capability, v, st.Value):
+		// The write, or its rounding: the arbiter keeps what it wrote, so it doesn't write again.
 		ar.unconfirmed, ar.lost = false, false
 		return
 	case ar.lost && !ar.writing:
@@ -438,12 +439,12 @@ func (e *Engine) settling(dev ident.ID, name string, ar *arb, v float64) bool {
 		return true
 	}
 	w, ok := e.bridgeWrites[dev][name]
-	return ok && now.Before(w.settled) && !w.matches(v, now)
+	return ok && now.Before(w.settled) && !w.matches(name, v, now)
 }
 
 func (e *Engine) recordOutside(dev ident.ID, name string, ar *arb, v float64) {
 	source := SourceDevice
-	if w, ok := e.bridgeWrites[dev][name]; ok && w.matches(v, e.Clock.Now()) {
+	if w, ok := e.bridgeWrites[dev][name]; ok && w.matches(name, v, e.Clock.Now()) {
 		// A report on the way, as while a dimmer ramps, leaves the write for the final value.
 		e.forgetBridgeWrite(dev, name)
 		source = w.source
@@ -505,7 +506,7 @@ func (e *Engine) bridgeWrote(source string, dev ident.ID, name string, value any
 	settle := capability.SettleOf(name)
 	w := bridgeWrite{source: source, value: capability.Float(value), settled: now.Add(settle), expires: now.Add(settle + bridgeSlack)}
 	if ar := e.arbs[dev][name]; ar != nil {
-		if st := ar.a.State(); st.Known && w.matches(st.Value, now) {
+		if st := ar.a.State(); st.Known && w.matches(name, st.Value, now) {
 			// The device already has it, so no change will come.
 			e.forgetBridgeWrite(dev, name)
 			return
@@ -518,8 +519,8 @@ func (e *Engine) bridgeWrote(source string, dev ident.ID, name string, value any
 }
 
 // matches reports whether a value reported at now is the write's.
-func (w bridgeWrite) matches(v float64, now time.Time) bool {
-	return capability.Near(v, w.value) && now.Before(w.expires)
+func (w bridgeWrite) matches(name string, v float64, now time.Time) bool {
+	return capability.Near(name, v, w.value) && now.Before(w.expires)
 }
 
 // forgetBridgeWrite drops a bridge's write. Call with e.mu held.
