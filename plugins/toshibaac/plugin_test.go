@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -383,22 +385,27 @@ func TestNoSecretWaitsForOne(t *testing.T) {
 	b.waitAvailability(bedroom, "online")
 }
 
+// TestTooManyRequestsWaitsLonger is the firewall's 403 and the login's 429.
 func TestTooManyRequestsWaitsLonger(t *testing.T) {
-	cloud := newFakeCloud(t)
-	cloud.set(home)
-	cloud.set(func(c *fakeCloud) { c.limited = true })
-	b := start(t, cloud, password, fast)
-	b.waitProblem("too many requests")
-	select {
-	case d := <-b.waits:
-		if d != fast.limited {
-			t.Errorf("waited %s, not %s", d, fast.limited)
-		}
-	case <-time.After(waitLimit):
-		t.Fatal("no wait")
+	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			cloud := newFakeCloud(t)
+			cloud.set(home)
+			cloud.set(func(c *fakeCloud) { c.limited = status })
+			b := start(t, cloud, password, fast)
+			b.waitProblem("too many requests")
+			select {
+			case d := <-b.waits:
+				if d != fast.limited {
+					t.Errorf("waited %s, not %s", d, fast.limited)
+				}
+			case <-time.After(waitLimit):
+				t.Fatal("no wait")
+			}
+			cloud.set(func(c *fakeCloud) { c.limited = 0 })
+			b.waitAvailability(bedroom, "online")
+		})
 	}
-	cloud.set(func(c *fakeCloud) { c.limited = false })
-	b.waitAvailability(bedroom, "online")
 }
 
 func TestEveryUnitIsReadAgain(t *testing.T) {

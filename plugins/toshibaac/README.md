@@ -19,7 +19,7 @@ A refused password shows in `oikade status`, and the plugin waits for the secret
 
 **A Safety claim on a unit can't act while the cloud is down.** The unit keeps its own controls, but Oikade can't turn it off until the cloud is back.
 
-**Toshiba's API isn't published.** The plugin logs in as Toshiba's app does, as [KaSroka/Toshiba-AC-control](https://github.com/KaSroka/Toshiba-AC-control) worked it out, and Toshiba can change that. If it does, the plugin's status says the login failed. The plugin registers with the account as a phone would, once, under one name for the account, so it doesn't fill the account with devices.
+**Toshiba's API isn't published.** The plugin logs in as Toshiba's app does, as [KaSroka/Toshiba-AC-control](https://github.com/KaSroka/Toshiba-AC-control) worked it out, with the headers its maintained fork, [vmvelev/Toshiba-AC-control](https://github.com/vmvelev/Toshiba-AC-control), found the cloud has wanted since July 2026, and Toshiba can change that. If it does, the plugin's status says the login failed. The plugin registers with the account as a phone would, once, under one name for the account, so it doesn't fill the account with devices.
 
 ## What it reports
 
