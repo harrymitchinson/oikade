@@ -36,6 +36,43 @@ type realTimer struct{ timer *time.Timer }
 func (t realTimer) C() <-chan time.Time { return t.timer.C }
 func (t realTimer) Stop()               { t.timer.Stop() }
 
+// AfterFunc calls f in its own goroutine once d has passed on c, unless the returned Timer is stopped
+// first. As with time.AfterFunc, a stop as it fires may come too late, and the Timer's C is nil: f is
+// how it fires.
+func AfterFunc(c Clock, d time.Duration, f func()) Timer {
+	if _, ok := c.(Real); ok {
+		return funcTimer{time.AfterFunc(d, f)}
+	}
+	t := &waitTimer{timer: c.NewTimer(d), stop: make(chan struct{})}
+	go func() {
+		select {
+		case <-t.timer.C():
+			f()
+		case <-t.stop:
+		}
+	}()
+	return t
+}
+
+type funcTimer struct{ timer *time.Timer }
+
+func (funcTimer) C() <-chan time.Time { return nil }
+func (t funcTimer) Stop()             { t.timer.Stop() }
+
+// waitTimer is AfterFunc's Timer on a clock other than Real: a goroutine waits on timer.
+type waitTimer struct {
+	timer Timer
+	stop  chan struct{}
+	once  sync.Once
+}
+
+func (*waitTimer) C() <-chan time.Time { return nil }
+
+func (t *waitTimer) Stop() {
+	t.timer.Stop()
+	t.once.Do(func() { close(t.stop) })
+}
+
 // Fake is a clock that only moves when it's told to. A wait fires when the clock is moved to or past
 // its time, so a wait of zero or less fires on the next move, not at once.
 type Fake struct {

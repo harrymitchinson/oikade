@@ -166,6 +166,46 @@ func TestFakeNextWait(t *testing.T) {
 	}
 }
 
+func TestAfterFuncOnAFake(t *testing.T) {
+	c := NewFake(start)
+	ran := make(chan time.Time, 1)
+	AfterFunc(c, time.Minute, func() { ran <- c.Now() })
+	stopped := AfterFunc(c, time.Minute, func() { t.Error("a stopped AfterFunc ran") })
+	stopped.Stop()
+	stopped.Stop() // Stopping it twice is harmless.
+
+	c.Step(time.Minute - time.Nanosecond)
+	select {
+	case <-ran:
+		t.Fatal("ran before its time")
+	case <-time.After(20 * time.Millisecond):
+	}
+	c.Step(time.Nanosecond)
+	select {
+	case at := <-ran:
+		if want := start.Add(time.Minute); !at.Equal(want) {
+			t.Fatalf("ran at %v, want %v", at, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("never ran")
+	}
+	if c.HasWaiters() {
+		t.Fatal("HasWaiters() = true once both had fired or stopped")
+	}
+}
+
+func TestAfterFuncOnTheRealClock(t *testing.T) {
+	ran := make(chan struct{})
+	AfterFunc(Real{}, time.Millisecond, func() { close(ran) })
+	AfterFunc(Real{}, time.Millisecond, func() { t.Error("a stopped AfterFunc ran") }).Stop()
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatal("never ran")
+	}
+	time.Sleep(10 * time.Millisecond) // for the stopped one, had it not stopped
+}
+
 // The engine and its runs wait on the clock while a simulated home moves it. go test -race checks this.
 func TestFakeConcurrentUse(t *testing.T) {
 	c := NewFake(start)

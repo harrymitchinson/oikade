@@ -40,7 +40,7 @@ type Server struct {
 	EndSession func(*transport.Session)
 	// Saved, if set, keeps subscriptions over CASE so they can be resumed after a restart.
 	Saved SubscriptionStore
-	// Clock times subscriptions' reports; nil is the real one.
+	// Clock times subscriptions' reports and timed requests; nil is the real one.
 	Clock clock.Clock
 	Log   *slog.Logger
 
@@ -590,7 +590,8 @@ func (s *Server) timed(ctx context.Context, ex *transport.Exchange, b []byte) er
 	if err != nil {
 		return fail(ctx, ex, StatusInvalidAction, err)
 	}
-	deadline := time.Now().Add(time.Duration(timeout) * time.Millisecond)
+	clk := s.clock()
+	deadline := clk.Now().Add(time.Duration(timeout) * time.Millisecond)
 	if err := ex.Send(ctx, statusResponse(StatusSuccess)); err != nil {
 		return err
 	}
@@ -598,7 +599,7 @@ func (s *Server) timed(ctx context.Context, ex *transport.Exchange, b []byte) er
 	if err != nil {
 		return err
 	}
-	if time.Now().After(deadline) {
+	if clk.Now().After(deadline) {
 		return fail(ctx, ex, StatusTimeout, errors.New("timed request expired"))
 	}
 	switch m.Opcode {

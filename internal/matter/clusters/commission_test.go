@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
 	"github.com/harrymitchinson/oikade/internal/matter/cert"
@@ -53,6 +54,12 @@ type node struct {
 
 func newNode(t *testing.T, dir string) *node {
 	t.Helper()
+	return newNodeOn(t, dir, nil)
+}
+
+// newNodeOn is newNode, with its fail-safe and commissioning windows on clk (nil for the real clock).
+func newNodeOn(t *testing.T, dir string, clk clock.Clock) *node {
+	t.Helper()
 	n := &node{dir: dir, devTr: serve(t), cliTr: serve(t), resumption: securechannel.NewResumptionStore(8)}
 	n.devAddr = n.devTr.Addr()
 	var err error
@@ -64,7 +71,7 @@ func newNode(t *testing.T, dir string) *node {
 		t.Fatal(err)
 	}
 	n.comm, err = NewCommissioning(CommissioningConfig{
-		Fabrics: n.table, Attestation: creds, Log: logging.Test(t),
+		Fabrics: n.table, Attestation: creds, Clock: clk, Log: logging.Test(t),
 		Hooks: Hooks{
 			FabricAdded: func(i uint8) {
 				n.mu.Lock()

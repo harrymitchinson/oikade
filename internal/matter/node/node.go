@@ -83,7 +83,8 @@ type Config struct {
 	// Subscriptions, if set, keeps controllers' subscriptions, so that the next Run resumes them
 	// rather than waiting for each controller to notice the node is gone.
 	Subscriptions im.SubscriptionStore
-	// Clock times resuming subscriptions; nil is the real one.
+	// Clock times what the node waits for: subscriptions' reports and resuming them, timed requests,
+	// the fail-safe, commissioning windows and a removed fabric's sessions' grace. nil is the real one.
 	Clock clock.Clock
 	Log   *slog.Logger
 }
@@ -195,7 +196,7 @@ func New(cfg Config) (*Node, error) {
 		}
 	}
 	n.comm, err = clusters.NewCommissioning(clusters.CommissioningConfig{
-		Fabrics: n.table, Attestation: creds, Log: cfg.Log.With("part", "commissioning"),
+		Fabrics: n.table, Attestation: creds, Clock: cfg.Clock, Log: cfg.Log.With("part", "commissioning"),
 		Hooks: clusters.Hooks{
 			OpenWindow:    n.openWindow,
 			CloseWindow:   n.closeWindow,
@@ -215,7 +216,7 @@ func New(cfg Config) (*Node, error) {
 	n.bridge = clusters.NewBridge(info, n.comm.Clusters()...)
 	n.server = &im.Server{
 		Node: n.bridge.Node, Access: n.comm, Observer: cfg.Observer, EndSession: n.endSession,
-		Saved: cfg.Subscriptions, Log: cfg.Log.With("part", "im"),
+		Saved: cfg.Subscriptions, Clock: cfg.Clock, Log: cfg.Log.With("part", "im"),
 	}
 	return n, nil
 }
@@ -563,7 +564,7 @@ func (n *Node) fabricRemoved(index uint8) {
 			ending = append(ending, s)
 		}
 	}
-	time.AfterFunc(fabricSessionGrace, func() {
+	clock.AfterFunc(n.cfg.Clock, fabricSessionGrace, func() {
 		for _, s := range ending {
 			n.endSession(s)
 		}

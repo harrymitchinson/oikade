@@ -3,6 +3,7 @@ package clusters
 import (
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
@@ -47,7 +48,7 @@ type window struct {
 	initial     bool
 	adminFabric uint8
 	adminVendor uint16
-	timer       *time.Timer
+	timer       clock.Timer
 	generation  int
 }
 
@@ -191,7 +192,7 @@ func (c *Commissioning) openWindow(fabric uint8, initial bool, w Window) {
 	gen := c.window.generation
 	c.window = window{
 		status: status, initial: initial, adminFabric: fabric, adminVendor: vendor, generation: gen,
-		timer: time.AfterFunc(w.Timeout, func() {
+		timer: clock.AfterFunc(c.clock, w.Timeout, func() {
 			c.update(func() {
 				if c.window.generation == gen {
 					c.log.Info("Commissioning window timed out")
