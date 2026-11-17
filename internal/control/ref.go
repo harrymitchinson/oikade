@@ -39,6 +39,12 @@ func RuleKey(ref string) (string, error) {
 	return "", fmt.Errorf("%w: a rule is a case, as case/DEVICE/CAPABILITY/CASE, or a flow, as flow/FLOW", err)
 }
 
+// SameRule reports whether ref is the ref of the rule whose key is key.
+func SameRule(ref, key string) bool {
+	got, err := RuleKey(ref)
+	return err == nil && got == key
+}
+
 // SourceRef is a claim's source as its ref: a rule's, or matter, device or command.
 func SourceRef(source string) ident.Ref {
 	if key, ok := strings.CutPrefix(source, SourceRule); ok {

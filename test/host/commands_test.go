@@ -265,7 +265,8 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 	}
 	// Your process sends why after it evaluates, which sync waits for.
 	r.until("a why-not", func() bool { return rule().WhyNot != "" })
-	if got := rule(); got.Kind != "case" || got.Device != "valve" || got.Case != "leak-shutoff" ||
+	if got := rule(); got.Kind != "case" || got.Ref != "case/valve/on/leak-shutoff" || got.Device != "valve" ||
+		got.Case != "leak-shutoff" ||
 		!got.Safety || !strings.Contains(got.WhyNot, "leak-sensor open") {
 		t.Errorf("inactive: %+v", got)
 	}

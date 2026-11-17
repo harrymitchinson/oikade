@@ -437,6 +437,8 @@ type Claim struct {
 // Rule is one rule of your home.
 type Rule struct {
 	Name string `json:"name"`
+	// Ref is the rule's ref, a case's or a flow's, which oikade pause and resume take.
+	Ref string `json:"ref"`
 	// Kind is case or flow. Empty is a paused rule no running code names.
 	Kind string `json:"kind,omitempty"`
 	// Device, Capability and Case name a case: its Name is the three, with a space between.

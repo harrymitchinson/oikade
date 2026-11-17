@@ -422,7 +422,7 @@ func (d *Decision[T]) compile(o Options) compiledDecision {
 		}
 		names[l.name] = true
 		key := control.CaseKey(h.device, h.capability, l.name)
-		entry.Lines = append(entry.Lines, "Rule/"+key)
+		entry.Lines = append(entry.Lines, control.SourceRule+key)
 		c, err := l.compile(h, safety, o)
 		if err != nil {
 			bad(fmt.Errorf("%s: %w", l.what(), err))
@@ -728,7 +728,7 @@ func (d *compiledDecision) addFlowsLine(l line, safety bool, entry *control.Entr
 	}
 	d.ranked[l.flow.name] = safety
 	d.own = append(d.own, l.flow)
-	entry.Lines = append(entry.Lines, "Rule/"+l.flow.name)
+	entry.Lines = append(entry.Lines, control.SourceRule+l.flow.name)
 	return nil
 }
 

@@ -195,8 +195,8 @@ func deviceMoves(renamed map[string]string) map[ident.ID]ident.ID {
 // ruleSources renames claims' sources that are cases, by rename.
 func ruleSources(rename func(string) string) func(string) string {
 	return func(source string) string {
-		if k, ok := strings.CutPrefix(source, "Rule/"); ok {
-			return "Rule/" + rename(k)
+		if k, ok := strings.CutPrefix(source, control.SourceRule); ok {
+			return control.SourceRule + rename(k)
 		}
 		return source
 	}

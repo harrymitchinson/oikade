@@ -24,6 +24,12 @@ func TestARulesRefAndKeyGoBothWays(t *testing.T) {
 	}
 }
 
+func TestSameRuleIsARefThatReadsBackToTheKey(t *testing.T) {
+	if !SameRule("case/desk-plug/on/night", "desk-plug on night") || SameRule("flow/Good%20Morning", "Good Morning") {
+		t.Error("SameRule took a ref that doesn't read back")
+	}
+}
+
 func TestAClaimsSourceIsARef(t *testing.T) {
 	for source, ref := range map[string]string{
 		"Rule/desk-plug on night": "case/desk-plug/on/night",

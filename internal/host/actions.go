@@ -114,7 +114,8 @@ func (s *apiServer) status() api.Response {
 	s.srv.mu.Unlock()
 	for _, r := range rules {
 		rule := api.Rule{
-			Name: r.Name, Kind: r.Kind, Safety: r.Safety, Paused: slices.Contains(paused, r.Name),
+			Name: r.Name, Ref: control.RuleRef(r.Name).String(), Kind: r.Kind, Safety: r.Safety,
+			Paused: slices.Contains(paused, r.Name),
 			Device: r.Device, Capability: r.Capability, Case: r.Case,
 		}
 		if r.Kind == wire.KindCase && !rule.Paused {
@@ -127,7 +128,7 @@ func (s *apiServer) status() api.Response {
 	}
 	for _, name := range paused {
 		if !slices.ContainsFunc(st.Rules, func(r api.Rule) bool { return r.Name == name }) {
-			st.Rules = append(st.Rules, api.Rule{Name: name, Paused: true})
+			st.Rules = append(st.Rules, api.Rule{Name: name, Ref: control.RuleRef(name).String(), Paused: true})
 		}
 	}
 	slices.SortFunc(st.Rules, func(a, b api.Rule) int { return strings.Compare(a.Name, b.Name) })
@@ -368,7 +369,7 @@ func sameValue(c control.Status, value any) bool {
 // pause stops a rule until it's resumed. It's on disk before this answers, and in force at once.
 func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 	rules, known := s.rulesInfo()
-	rule, err := s.ruleKey(req.Rule, rules)
+	rule, err := s.ruleKey(req.Rule, func() []wire.RuleInfo { return rules })
 	if err != nil {
 		return api.Response{Error: err.Error()}
 	}
@@ -395,15 +396,20 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 }
 
 // ruleKey is the key the host keeps a rule under, from the ref a pause or a resume names it by. A
-// rule's key on its own, as these took before refs, is refused with the rule's ref.
-func (s *apiServer) ruleKey(ref string, rules []wire.RuleInfo) (string, error) {
+// rule's key on its own, as these took before refs, is refused with the rule's ref, which rules
+// is only asked for then.
+func (s *apiServer) ruleKey(ref string, rules func() []wire.RuleInfo) (string, error) {
 	rule, err := control.RuleKey(ref)
 	if err == nil {
 		return rule, nil
 	}
 	_, paused := s.srv.paused.Get(key(ref))
-	if paused || slices.ContainsFunc(rules, func(r wire.RuleInfo) bool { return r.Name == ref }) {
-		return "", fmt.Errorf("%q isn't a ref: name the rule as %s", ref, control.RuleRef(ref))
+	if !paused && !slices.ContainsFunc(rules(), func(r wire.RuleInfo) bool { return r.Name == ref }) {
+		return "", err
+	}
+	// A key from before names had a rule, such as a flow called "Good Morning", has no ref to give.
+	if suggested := control.RuleRef(ref); control.SameRule(suggested.String(), ref) {
+		return "", fmt.Errorf("%q isn't a ref: name the rule as %s", ref, suggested)
 	}
 	return "", err
 }
@@ -411,7 +417,7 @@ func (s *apiServer) ruleKey(ref string, rules []wire.RuleInfo) (string, error) {
 // claimsOf lists what a rule claims, as "device capability": the claims a pause ends, and the Safety
 // ones it keeps.
 func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
-	source := "Rule/" + rule
+	source := control.SourceRule + rule
 	for dev := range s.srv.devices.List() {
 		for _, held := range s.srv.engine.ControlOf(dev) {
 			for _, c := range held.Claims {
@@ -432,8 +438,7 @@ func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
 }
 
 func (s *apiServer) resume(ctx context.Context, req api.Request) api.Response {
-	rules, _ := s.rulesInfo()
-	rule, err := s.ruleKey(req.Rule, rules)
+	rule, err := s.ruleKey(req.Rule, func() []wire.RuleInfo { rules, _ := s.rulesInfo(); return rules })
 	if err != nil {
 		return api.Response{Error: err.Error()}
 	}

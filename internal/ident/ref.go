@@ -92,7 +92,7 @@ func ParseRef(s string) (Kind, []string, error) {
 		return "", nil, fmt.Errorf("%q isn't a ref: a %s's is %s", s, k, shapesOf(k))
 	}
 	for j, p := range parts {
-		if err := checkPart(k, shapes[i][j], p); err != nil {
+		if err := checkPart(shapes[i][j], p); err != nil {
 			return "", nil, fmt.Errorf("%q isn't a ref: %w", s, err)
 		}
 	}
@@ -101,7 +101,7 @@ func ParseRef(s string) (Kind, []string, error) {
 
 // checkPart refuses a part that should be a name and isn't. A driver's ID is the driver's, and a
 // secret may be named by a plugin, under the contract's rule.
-func checkPart(k Kind, part, p string) error {
+func checkPart(part, p string) error {
 	switch part {
 	case "ID", "SECRET":
 		return nil
@@ -111,11 +111,7 @@ func checkPart(k Kind, part, p string) error {
 		}
 		return nil
 	}
-	of := Kind(strings.ToLower(part))
-	if k == Hardware {
-		of = Plugin
-	}
-	return CheckName(of, p)
+	return CheckName(Kind(strings.ToLower(part)), p)
 }
 
 // shapesOf is how a kind's refs look, such as case/DEVICE/CAPABILITY/CASE.

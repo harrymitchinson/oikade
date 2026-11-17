@@ -207,3 +207,15 @@ func TestTailShowsARefusedWrite(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestPauseByThreeWordsGivesTheCasesRef(t *testing.T) {
+	err := runPause(t.Context(), []string{"desk-plug", "on", "night"}, true)
+	if err == nil || err.Error() != "a case is one ref: oikade pause case/desk-plug/on/night" {
+		t.Errorf("err = %v", err)
+	}
+	// Words that make no ref are refused for what's wrong with them, rather than with a ref that fails.
+	err = runPause(t.Context(), []string{"Desk-Plug", "on", "night"}, false)
+	if err == nil || !strings.Contains(err.Error(), `"Desk-Plug" isn't a device name`) {
+		t.Errorf("err = %v", err)
+	}
+}

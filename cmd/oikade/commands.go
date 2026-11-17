@@ -508,7 +508,11 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 		"Pause a safety line, a case above its decision's override line. Its claims stay.")
 	words := cli.Parse(fs, args)
 	if len(words) == 3 {
-		return fmt.Errorf("a case is one ref: oikade %s %s", name, ident.CaseRef(words[0], words[1], words[2]))
+		ref := ident.CaseRef(words[0], words[1], words[2])
+		if _, _, err := ident.ParseRef(ref.String()); err != nil {
+			return err
+		}
+		return fmt.Errorf("a case is one ref: oikade %s %s", name, ref)
 	}
 	if len(words) != 1 {
 		return fmt.Errorf("usage: oikade %s REF, a case's, such as case/desk-plug/on/night, "+
