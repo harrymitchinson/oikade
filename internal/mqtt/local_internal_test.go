@@ -1,29 +1,27 @@
 package mqtt
 
 import (
-	"context"
-	"errors"
-	"net"
 	"net/url"
-	"strings"
 	"testing"
-
-	"github.com/eclipse/paho.golang/autopaho"
 )
 
-func TestDialLocalRefusesWebSockets(t *testing.T) {
-	dialed := false
-	attempt := dialLocal(func(context.Context, string, string) (net.Conn, error) {
-		dialed = true
-		return nil, errors.New("dialed")
-	})
-	for _, scheme := range []string{"ws", "wss"} {
-		_, err := attempt(t.Context(), autopaho.ClientConfig{}, &url.URL{Scheme: scheme, Host: "broker.local:9001"})
-		if err == nil || !strings.Contains(err.Error(), "mqtt://") {
-			t.Errorf("%s: got %v, want an error naming mqtt://", scheme, err)
+func TestFindsLocalOnlyWhatItCanDial(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"mqtt://broker.local:1883":  true,
+		"MQTTS://broker.local:8883": true,
+		"tcp://broker.local:1883":   true,
+		// autopaho dials WebSockets itself, through the system's resolver.
+		"ws://broker.local:9001":   false,
+		"wss://broker.local:8884":  false,
+		"mqtt://broker.home:1883":  false,
+		"mqtt://192.168.1.40:1883": false,
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if dialed {
-		t.Error("dialed a WebSocket broker")
+		if got := findsLocal(u); got != want {
+			t.Errorf("findsLocal(%s) = %v, want %v", raw, got, want)
+		}
 	}
 }

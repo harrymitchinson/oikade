@@ -12,6 +12,7 @@ import (
 	"golang.org/x/net/ipv4"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
+	mdnsnet "github.com/harrymitchinson/oikade/internal/mdns"
 )
 
 // multicastInterface returns an IPv4 interface on which a packet sent to a multicast group comes
@@ -109,7 +110,7 @@ func TestMulticast(t *testing.T) {
 		if _, err := q.WriteTo(pack(t, dnsmessage.Message{
 			ID:        id,
 			Questions: []dnsmessage.Question{{Name: mustName(name), Type: typ, Class: dnsmessage.ClassINET}},
-		}), nil, group4); err != nil {
+		}), nil, mdnsnet.Group4); err != nil {
 			t.Fatal(err)
 		}
 		b := make([]byte, maxPacket)

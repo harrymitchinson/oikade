@@ -25,6 +25,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/contain"
+	mdnsnet "github.com/harrymitchinson/oikade/internal/mdns"
 )
 
 // Errors from a Responder.
@@ -112,7 +113,7 @@ func Listen(opts Options) (*Responder, error) {
 	ifaces := opts.Interfaces
 	if len(ifaces) == 0 {
 		var err error
-		if ifaces, err = multicastInterfaces(); err != nil {
+		if ifaces, err = mdnsnet.MulticastInterfaces(); err != nil {
 			return nil, fmt.Errorf("mdns: list interfaces: %w", err)
 		}
 		if len(ifaces) == 0 {
@@ -120,11 +121,11 @@ func Listen(opts Options) (*Responder, error) {
 		}
 	}
 	var conns []packetConn
-	c4, err4 := listen4(ifaces)
+	c4, err4 := mdnsnet.Listen4(ifaces)
 	if err4 == nil {
 		conns = append(conns, c4)
 	}
-	c6, err6 := listen6(ifaces)
+	c6, err6 := mdnsnet.Listen6(ifaces)
 	if err6 == nil {
 		conns = append(conns, c6)
 	}

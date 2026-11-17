@@ -138,6 +138,7 @@ func TestLookupHostTakesTheHostsAddresses(t *testing.T) {
 			hostResponse(t,
 				aRecord("HUB.local.", 120, "192.0.2.7"),
 				aaaaRecord("hub.local.", 120, "fe80::7"), // which interface it's on is lost
+				aRecord("hub.local.", 120, "169.254.0.7"),
 				aaaaRecord("hub.local.", 120, "2001:db8::7"),
 				aRecord("hub.local.", 120, "192.0.2.7"),
 			),
@@ -148,7 +149,7 @@ func TestLookupHostTakesTheHostsAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []netip.Addr{netip.MustParseAddr("192.0.2.7"), netip.MustParseAddr("2001:db8::7")}
+	want := []netip.Addr{netip.MustParseAddr("192.0.2.7"), netip.MustParseAddr("169.254.0.7"), netip.MustParseAddr("2001:db8::7")}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -220,7 +221,7 @@ func listenLoopback(t *testing.T, address string) string {
 	return port
 }
 
-func found(addrs ...string) func(context.Context, string) ([]netip.Addr, error) {
+func answers(addrs ...string) lookupFunc {
 	return func(context.Context, string) ([]netip.Addr, error) {
 		out := make([]netip.Addr, 0, len(addrs))
 		for _, a := range addrs {
@@ -230,21 +231,15 @@ func found(addrs ...string) func(context.Context, string) ([]netip.Addr, error) 
 	}
 }
 
-func failed(msg string) func(context.Context, string) ([]netip.Addr, error) {
+func failed(msg string) lookupFunc {
 	return func(context.Context, string) ([]netip.Addr, error) { return nil, errors.New(msg) }
 }
 
-// waitsForCtx is a lookup that never answers.
-func waitsForCtx(ctx context.Context, _ string) ([]netip.Addr, error) {
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-
-func TestDialerDialsWhicheverLookupFindsTheHost(t *testing.T) {
+func TestDialerDialsWhatALookupFinds(t *testing.T) {
 	port := listenLoopback(t, "127.0.0.1:0")
-	for name, d := range map[string]dialer{
-		"mdns":   {mdns: found("127.0.0.1"), system: failed("no such host")},
-		"system": {mdns: waitsForCtx, system: found("::ffff:127.0.0.1")},
+	for name, d := range map[string]*dialer{
+		"mdns":   newDialer(answers("127.0.0.1"), failed("no such host")),
+		"system": newDialer(failed("nothing answered over mDNS"), answers("::ffff:127.0.0.1")),
 	} {
 		t.Run(name, func(t *testing.T) {
 			conn, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("hub.local", port))
@@ -256,10 +251,112 @@ func TestDialerDialsWhicheverLookupFindsTheHost(t *testing.T) {
 	}
 }
 
+// A router's DNS may answer for any name, and sooner than mDNS does, so mDNS's answer wins.
+func TestDialerPrefersMDNS(t *testing.T) {
+	port := listenLoopback(t, "127.0.0.1:0")
+	slow := func(ctx context.Context, host string) ([]netip.Addr, error) {
+		time.Sleep(50 * time.Millisecond)
+		return answers("127.0.0.1")(ctx, host)
+	}
+	// 192.0.2.1 is TEST-NET-1, which nothing answers.
+	d := newDialer(slow, answers("192.0.2.1"))
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort("hub.local", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := conn.RemoteAddr().(*net.TCPAddr).IP.String(); got != "127.0.0.1" {
+		t.Errorf("reached %s, want 127.0.0.1", got)
+	}
+	_ = conn.Close()
+}
+
+func TestDialerKeepsWhatItFound(t *testing.T) {
+	port := listenLoopback(t, "127.0.0.1:0")
+	var mu sync.Mutex
+	asked := 0
+	addr := "127.0.0.1"
+	d := newDialer(func(ctx context.Context, host string) ([]netip.Addr, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked++
+		return answers(addr)(ctx, host)
+	}, failed("no such host"))
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	dial := func(address string) error {
+		conn, err := d.DialContext(t.Context(), "tcp", address)
+		if err == nil {
+			_ = conn.Close()
+		}
+		return err
+	}
+	expect := func(want int) {
+		t.Helper()
+		mu.Lock()
+		defer mu.Unlock()
+		if asked != want {
+			t.Errorf("asked %d times, want %d", asked, want)
+		}
+	}
+	if err := dial(net.JoinHostPort("hub.local", port)); err != nil {
+		t.Fatal(err)
+	}
+	if err := dial(net.JoinHostPort("HUB.local.", port)); err != nil {
+		t.Fatal(err)
+	}
+	expect(1)
+	now = now.Add(keepFor)
+	if err := dial(net.JoinHostPort("hub.local", port)); err != nil {
+		t.Fatal(err)
+	}
+	expect(2)
+	// Once nothing it kept answers, it asks again.
+	if err := dial("hub.local:1"); err == nil {
+		t.Fatal("dialed port 1")
+	}
+	if err := dial(net.JoinHostPort("hub.local", port)); err != nil {
+		t.Fatal(err)
+	}
+	expect(3)
+}
+
+// An address that never answers gets only its share of the time, so the next is still tried.
+func TestDialerSplitsTheTimeBetweenAddresses(t *testing.T) {
+	old := minPerAddress
+	minPerAddress = 10 * time.Millisecond
+	t.Cleanup(func() { minPerAddress = old })
+	port := listenLoopback(t, "127.0.0.1:0")
+	// 192.0.2.1 is TEST-NET-1, which nothing answers.
+	d := newDialer(answers("192.0.2.1", "127.0.0.1"), failed("no such host"))
+	ctx, cancel := context.WithTimeout(t.Context(), 600*time.Millisecond)
+	defer cancel()
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort("hub.local", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+}
+
+func TestDialerLeavesMacOSToItsResolver(t *testing.T) {
+	port := listenLoopback(t, "127.0.0.1:0")
+	d := newDialer(failed("asked mDNS"), failed("asked the resolver"))
+	d.systemOnly = true
+	// Nobody has the name, so it fails, but not by asking mDNS. The system's resolver may wait for
+	// mDNS itself, so it gets only a moment.
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	_, err := d.DialContext(ctx, "tcp", net.JoinHostPort("nobody.invalid.local", port))
+	if err == nil || strings.Contains(err.Error(), "asked mDNS") {
+		t.Errorf("got %v, want the system's own error", err)
+	}
+}
+
 func TestDialerTriesTheNextAddress(t *testing.T) {
 	// Only ::1 listens, so 127.0.0.1, which it tries first, refuses.
 	port := listenLoopback(t, "[::1]:0")
-	d := dialer{mdns: found("::1", "127.0.0.1"), system: waitsForCtx}
+	d := newDialer(answers("::1", "127.0.0.1"), failed("no such host"))
 	conn, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("hub.local", port))
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +368,7 @@ func TestDialerTriesTheNextAddress(t *testing.T) {
 }
 
 func TestDialerDialsOnlyTheNetworksAddresses(t *testing.T) {
-	d := dialer{mdns: found("127.0.0.1"), system: waitsForCtx}
+	d := newDialer(answers("127.0.0.1"), failed("no such host"))
 	_, err := d.DialContext(t.Context(), "tcp6", "hub.local:8443")
 	if err == nil || !strings.Contains(err.Error(), "hub.local has no tcp6 address") {
 		t.Errorf("got %v, want hub.local has no tcp6 address", err)
@@ -293,7 +390,7 @@ func TestIPv4First(t *testing.T) {
 }
 
 func TestDialerSaysWhatEachLookupFound(t *testing.T) {
-	d := dialer{mdns: failed("nothing answered over mDNS"), system: failed("no such host")}
+	d := newDialer(failed("nothing answered over mDNS"), failed("no such host"))
 	_, err := d.DialContext(t.Context(), "tcp", "hub.local:8443")
 	if err == nil {
 		t.Fatal("dialed a host nobody found")
@@ -307,7 +404,7 @@ func TestDialerSaysWhatEachLookupFound(t *testing.T) {
 
 func TestDialerDialsOtherHostsDirectly(t *testing.T) {
 	port := listenLoopback(t, "127.0.0.1:0")
-	d := dialer{mdns: failed("asked mDNS"), system: failed("asked the resolver")}
+	d := newDialer(failed("asked mDNS"), failed("asked the resolver"))
 	conn, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", port))
 	if err != nil {
 		t.Fatal(err)
