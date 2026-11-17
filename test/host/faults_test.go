@@ -27,10 +27,14 @@ func faultRig(t *testing.T) *rig {
 }
 
 // plan kills the host at point's next hit. A host that's running takes it up from its next hit of
-// any point.
+// any point. The plan arrives whole, by a rename, so a host never reads half of one.
 func (r *rig) plan(point string) {
 	r.t.Helper()
-	if err := os.WriteFile(filepath.Join(r.dir, "faults"), []byte(point+" 1 kill\n"), 0o600); err != nil {
+	next := filepath.Join(r.dir, "faults.new")
+	if err := os.WriteFile(next, []byte(point+" 1 kill\n"), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := os.Rename(next, filepath.Join(r.dir, "faults")); err != nil {
 		r.t.Fatal(err)
 	}
 }
@@ -40,7 +44,7 @@ func TestKilledAsTheRegistrySavesKeepsTheChange(t *testing.T) {
 	r := faultRig(t)
 	r.launchAttached()
 	r.pair("shed-lamp", "shed-lamp")
-	r.plan(fault.HostRegistrySaved)
+	r.plan(fault.RegistrySaved)
 	if _, err := r.oikade(nil, "devices", "remove", "shed-lamp"); err == nil {
 		t.Fatalf("the removal was answered. The log:\n%s", r.dump())
 	}
@@ -118,6 +122,9 @@ func TestKilledAsASecretSavesKeepsIt(t *testing.T) {
 	if out := r.stdout(nil, "secret", "list"); !strings.Contains(string(out), "api-key") {
 		t.Errorf("the secret is gone after the restart:\n%s", out)
 	}
+	if got, err := os.ReadFile(filepath.Join(r.dir, "secrets", "api-key")); err != nil || string(got) != secretValue {
+		t.Errorf("the secret's value after the restart is %q, %v", got, err)
+	}
 }
 
 // A deploy killed as its upload moves among the versions is no deploy: the old version runs after a
@@ -139,6 +146,10 @@ func TestKilledAsAnUploadMovesDeploysNothingAndLeavesNothing(t *testing.T) {
 			r.sync()
 			if left, err := os.ReadDir(filepath.Join(r.dir, "uploads")); err != nil || len(left) != 0 {
 				t.Errorf("left %v among the uploads: %v", left, err)
+			}
+			// Nothing was deployed before, so no binary is kept: not even the one the kill left.
+			if kept, err := os.ReadDir(filepath.Join(r.dir, "versions")); err != nil || len(kept) != 0 {
+				t.Errorf("kept %v among the versions: %v", kept, err)
 			}
 			if n := r.count(deployed); n != 0 {
 				t.Errorf("%d deploys finished. The log:\n%s", n, r.dump())

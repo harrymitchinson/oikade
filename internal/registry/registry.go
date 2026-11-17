@@ -175,7 +175,7 @@ func (r *Registry) change(f func(*Snapshot) error) error {
 	if err := r.values.Put(stateKey, raw); err != nil {
 		return fmt.Errorf("saving the device registry: %w", err)
 	}
-	fault.Hit(fault.HostRegistrySaved)
+	fault.Hit(fault.RegistrySaved)
 	r.state = next
 	return nil
 }

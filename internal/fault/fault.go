@@ -30,8 +30,8 @@ const (
 	// HostEndRule is the host about to end a removed rule's claims, which a test can drop to make
 	// that fail.
 	HostEndRule = "host.removals.end"
-	// HostRegistrySaved is a change to the device registry on disk, not yet taken up or answered.
-	HostRegistrySaved = "host.registry.saved"
+	// RegistrySaved is a change to the device registry on disk, not yet taken up or answered.
+	RegistrySaved = "registry.saved"
 	// HostOptionsSaved is a setting of the home's, such as the bridge's name, on disk and not yet
 	// applied.
 	HostOptionsSaved = "host.options.saved"

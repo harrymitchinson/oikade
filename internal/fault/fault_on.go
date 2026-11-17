@@ -36,8 +36,14 @@ func load() {
 		return
 	}
 	plan = map[string]planned{}
-	raw, err := os.ReadFile(os.Getenv(FileEnv))
-	if err != nil {
+	file := os.Getenv(FileEnv)
+	if file == "" {
+		read = true // nothing will ever be planned
+		return
+	}
+	// A plan is written whole, by a rename: an empty file is one still to come.
+	raw, err := os.ReadFile(file)
+	if err != nil || len(raw) == 0 {
 		return
 	}
 	read = true

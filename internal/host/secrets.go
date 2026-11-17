@@ -93,6 +93,10 @@ func (s secrets) remove(name string) error {
 	if errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("no secret %s", name)
 	}
+	if err == nil {
+		// The removal is on disk only once the directory is.
+		err = syncDir(s.dir)
+	}
 	return writable(err)
 }
 
