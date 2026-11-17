@@ -17,6 +17,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -174,6 +175,7 @@ func (r *Registry) change(f func(*Snapshot) error) error {
 	if err := r.values.Put(stateKey, raw); err != nil {
 		return fmt.Errorf("saving the device registry: %w", err)
 	}
+	fault.Hit(fault.RegistrySaved)
 	r.state = next
 	return nil
 }

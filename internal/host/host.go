@@ -108,6 +108,10 @@ func (h *Host) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// A host that stopped between taking an upload and recording it left a binary no version names.
+	if err := kept.prune(); err != nil {
+		h.Log.Error("Failed to remove binaries no version names", "err", err)
+	}
 	devicesOnRecord, err := registry.Open(data.Namespace(registry.Namespace))
 	if err != nil {
 		return err

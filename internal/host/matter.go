@@ -19,6 +19,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -109,7 +110,13 @@ func (f fabricStore) Load() ([]byte, error) {
 }
 
 // Save implements fabric.Store.
-func (f fabricStore) Save(b []byte) error { return f.values.Put(fabricsKey, b) }
+func (f fabricStore) Save(b []byte) error {
+	if err := f.values.Put(fabricsKey, b); err != nil {
+		return err
+	}
+	fault.Hit(fault.HostFabricsSaved)
+	return nil
+}
 
 // matterBridge is the Matter bridge: it lives in the host so that nothing your code does reaches a
 // controller. It's a driver.Sink, so it follows devices without your process.
