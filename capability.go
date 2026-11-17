@@ -12,7 +12,8 @@ type Value interface{ bool | float64 | ClimateMode }
 // ModeCool, ModeDry and ModeFan. Off isn't one: On is.
 type ClimateMode string
 
-// The modes Mode takes. oikade check refuses any other.
+// The modes Mode takes. oikade check refuses any other in a decision's Case or Default, and a flow
+// that writes one fails its run.
 const (
 	ModeAuto ClimateMode = contractv1.ModeAuto
 	ModeHeat ClimateMode = contractv1.ModeHeat

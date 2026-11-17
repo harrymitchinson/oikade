@@ -262,6 +262,9 @@ func (r Root) ParseSet(topic string, payload []byte) (cmd SetCommand, ok bool, e
 	if n != 1 {
 		return SetCommand{}, true, fmt.Errorf("set payload has %d capabilities, want 1", n)
 	}
+	if name == "" {
+		return SetCommand{}, true, errors.New("set payload has an empty capability")
+	}
 	switch v.(type) {
 	case bool, float64:
 	case string:
@@ -269,10 +272,11 @@ func (r Root) ParseSet(topic string, payload []byte) (cmd SetCommand, ok bool, e
 			return SetCommand{}, true, fmt.Errorf("set value of %s is a string, which only %s takes", name, Mode)
 		}
 	default:
-		return SetCommand{}, true, fmt.Errorf("set value of %s is %s, want a bool, a number or a string", name, kind(v))
-	}
-	if name == "" {
-		return SetCommand{}, true, errors.New("set payload has an empty capability")
+		want := "a bool or a number"
+		if name == Mode {
+			want = "a string"
+		}
+		return SetCommand{}, true, fmt.Errorf("set value of %s is %s, want %s", name, kind(v), want)
 	}
 	cmd = SetCommand{ID: id, Capability: name, Value: v}
 	return cmd, true, nil

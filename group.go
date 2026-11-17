@@ -22,7 +22,8 @@ func (d Device) device() Device { return d }
 type member interface{ device() Device }
 
 // Group is some devices together, from Home.Group or Home.Room, with a field for each capability. A
-// group's capability is a Bool, a Number or a Choice that a decision, a flow's Set, a trigger, Any and All take:
+// group's capability is a Bool, a Number or a Choice that a decision, a flow's Set and a trigger take,
+// and a Bool's Any and All are conditions:
 //
 //	radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
 //	home.Decide(radiators.Setpoint).Case("windows-open", 7, windows.Open.Any()).Default(18)

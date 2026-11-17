@@ -24,6 +24,8 @@ type Kind int
 const (
 	Bool Kind = iota + 1
 	Number
+	// Name is one of Settings.Names names, held as its number: 0 up to, not including, Names.
+	Name
 )
 
 // Level orders claims. A higher level always wins.
@@ -90,7 +92,9 @@ func (l Limit) String() string {
 
 // Settings are a capability's control settings.
 type Settings struct {
-	Kind    Kind
+	Kind Kind
+	// Names is how many names a Name has.
+	Names   int
 	Default float64
 	// Lines are the claims' sources in the decision's order, highest first, with LineOverride for
 	// the override line and LineFlows for the flows'. A claim from a rule that isn't a line ranks
@@ -119,6 +123,14 @@ func (s Settings) Validate() error {
 			errs = append(errs, errors.New("default must be 0 or 1 for a bool capability"))
 		}
 	case Number:
+	case Name:
+		if !s.isName(s.Default) {
+			errs = append(errs, fmt.Errorf("default %v isn't one of the %d names", s.Default, s.Names))
+		}
+		// A limit counts the time a device is on, which a name has no part in.
+		if s.MinimumOn != 0 || s.MaximumOn != 0 || s.MinimumOff != 0 || s.MaximumStartsPerDay != 0 {
+			errs = append(errs, errors.New("limits need a bool, and this capability is one of some names"))
+		}
 	default:
 		errs = append(errs, fmt.Errorf("unknown kind %d", s.Kind))
 	}
@@ -253,7 +265,15 @@ func (a *Arbiter) checkValue(v float64) error {
 	if a.settings.Kind == Bool && v != 0 && v != 1 {
 		return fmt.Errorf("value %v is not 0 or 1", v)
 	}
+	if a.settings.Kind == Name && !a.settings.isName(v) {
+		return fmt.Errorf("value %v is not one of the %d names", v, a.settings.Names)
+	}
 	return nil
+}
+
+// isName reports whether v is one of a Name's numbers.
+func (s Settings) isName(v float64) bool {
+	return v == math.Trunc(v) && v >= 0 && v < float64(s.Names)
 }
 
 // Claim adds c, replacing any claim from the same source.

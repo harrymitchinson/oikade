@@ -546,7 +546,7 @@ func toggled(spec capability.Spec, current any) any {
 		b, _ := current.(bool)
 		return !b
 	case capability.KindName:
-		// The name after the current one, so every name but the first can be written.
+		// The name after the current one, or the first if the current one isn't a name.
 		i := slices.Index(spec.Names, fmt.Sprint(current))
 		return spec.Names[(i+1)%len(spec.Names)]
 	}

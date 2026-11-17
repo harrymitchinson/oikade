@@ -134,8 +134,8 @@ func TestAModeIsItsNameToTheEngine(t *testing.T) {
 }
 
 // A decision on a mode holds its name, and its default is the name in JSON. A name that isn't a
-// mode compiles in Go, as an untyped string, and oikade check refuses it. A flow's write of one fails
-// its run, as any invalid write does.
+// mode compiles in Go, as an untyped string, and oikade check refuses it in a case or a default, as
+// it does limits. A flow's write of one fails its run, as any invalid write does.
 func TestADecisionOnAModeHoldsItsName(t *testing.T) {
 	ac := Choice{Device: "bedroom-ac", Capability: Mode}
 	humid := ConditionFunc("humid", func(Snapshot) bool { return true })
@@ -155,9 +155,11 @@ func TestADecisionOnAModeHoldsItsName(t *testing.T) {
 	for name, f := range map[string]func(h *Home){
 		"a case":    func(h *Home) { h.Decide(ac).Case("humid", "dyr", humid).Default(ModeCool) },
 		"a default": func(h *Home) { h.Decide(ac).Default("off") },
+		// A limit counts time on, which a mode has no part in.
+		"limits": func(h *Home) { h.Decide(ac).Limits(Limits{MaximumOn: time.Hour}).Default(ModeCool) },
 	} {
 		if _, _, err := decide(f).compile(); err == nil {
-			t.Errorf("%s of an unknown mode compiled", name)
+			t.Errorf("%s compiled", name)
 		}
 	}
 }

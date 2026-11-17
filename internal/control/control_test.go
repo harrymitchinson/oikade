@@ -116,12 +116,15 @@ var boolSettings = Settings{Kind: Bool, External: ExternalOverride, OverrideHold
 
 func TestValidate(t *testing.T) {
 	for name, s := range map[string]Settings{
-		"bool default 2":        {Kind: Bool, Default: 2, External: ExternalRevert},
-		"no kind":               {External: ExternalRevert},
-		"no external":           {Kind: Bool},
-		"override without hold": {Kind: Bool, External: ExternalOverride},
-		"negative minimum":      {Kind: Bool, External: ExternalRevert, MinimumOn: -time.Minute},
-		"maximum under minimum": {Kind: Bool, External: ExternalRevert, MinimumOn: time.Hour, MaximumOn: time.Minute},
+		"bool default 2":              {Kind: Bool, Default: 2, External: ExternalRevert},
+		"no kind":                     {External: ExternalRevert},
+		"no external":                 {Kind: Bool},
+		"override without hold":       {Kind: Bool, External: ExternalOverride},
+		"negative minimum":            {Kind: Bool, External: ExternalRevert, MinimumOn: -time.Minute},
+		"maximum under minimum":       {Kind: Bool, External: ExternalRevert, MinimumOn: time.Hour, MaximumOn: time.Minute},
+		"name default past the names": {Kind: Name, Names: 5, Default: 5, External: ExternalRevert},
+		"name default between names":  {Kind: Name, Names: 5, Default: 1.5, External: ExternalRevert},
+		"name with a limit":           {Kind: Name, Names: 5, External: ExternalRevert, MaximumOn: time.Hour},
 	} {
 		if err := s.Validate(); err == nil {
 			t.Errorf("%s: Validate passed", name)
@@ -131,6 +134,7 @@ func TestValidate(t *testing.T) {
 		"bool":          boolSettings,
 		"number":        {Kind: Number, Default: 20, External: ExternalRevert},
 		"override next": {Kind: Bool, External: ExternalOverride, OverrideUntilNext: true},
+		"name":          {Kind: Name, Names: 5, Default: 4, External: ExternalRevert},
 	} {
 		if err := s.Validate(); err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -153,6 +157,19 @@ func TestClaimRejectsBadInput(t *testing.T) {
 	}
 	if err := h.a.Outside("", on); err == nil {
 		t.Error("Outside passed without a source")
+	}
+}
+
+// A name's claim is one of its numbers, so a bad one is refused at the claim, not at the device.
+func TestANameClaimIsOneOfItsNumbers(t *testing.T) {
+	h := newHarness(t, Settings{Kind: Name, Names: 5, External: ExternalRevert}, "10:00")
+	for _, v := range []float64{-1, 2.5, 5} {
+		if err := h.a.Claim(Claim{Source: "Rule/a", Level: Normal, Value: v}); err == nil {
+			t.Errorf("a claim of %v passed", v)
+		}
+	}
+	if err := h.a.Claim(Claim{Source: "Rule/a", Level: Normal, Value: 4}); err != nil {
+		t.Error(err)
 	}
 }
 

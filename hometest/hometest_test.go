@@ -770,6 +770,12 @@ func TestAnAirConditionersModeFollowsTheHumidity(t *testing.T) {
 	h.ExpectWrite(ac, oikade.ModeDry)
 	h.ExpectValue(ac, oikade.ModeDry)
 	h.ExpectClaim(ac, "Rule/bedroom-ac mode humid", "Normal")
+	if w := h.Writes(); w[len(w)-1].Value != oikade.ModeDry {
+		t.Errorf("the last write is %#v, want oikade.ModeDry", w[len(w)-1].Value)
+	}
+	if c := h.Claims(ac); c[0].Value != oikade.ModeDry {
+		t.Errorf("the claim is %#v, want oikade.ModeDry", c[0].Value)
+	}
 
 	h.Restart()
 	h.ExpectValue(ac, oikade.ModeDry)

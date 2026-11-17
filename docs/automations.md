@@ -88,7 +88,7 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 
 ### Groups and rooms
 
-A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool`, a `Number` or a `Choice` as a device does, which a decision, a flow's `Set` and a trigger take, and whose `Any()` and `All()` are [conditions](#conditions) ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool`, a `Number` or a `Choice` as a device does, which a decision, a flow's `Set` and a trigger take, and a `Bool`'s `Any()` and `All()` are [conditions](#conditions) ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
 
 ```go
 radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
