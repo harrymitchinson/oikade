@@ -105,13 +105,7 @@ func (f *Fake) NextWait() (time.Time, bool) {
 	if len(f.waiters) == 0 {
 		return time.Time{}, false
 	}
-	next := f.waiters[0].at
-	for _, t := range f.waiters[1:] {
-		if t.at.Before(next) {
-			next = t.at
-		}
-	}
-	return next, true
+	return slices.MinFunc(f.waiters, func(a, b *fakeTimer) int { return a.at.Compare(b.at) }).at, true
 }
 
 type fakeTimer struct {

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -91,8 +92,8 @@ type node struct {
 
 func newNode(t *testing.T) *node { t.Helper(); return newNodeWith(t, Options{}) }
 
-// newNodeWith is newNode, with opts: its log and MRP's intervals are the test's, and its
-// MaxTransmissions opts.MRP's, if set.
+// newNodeWith is newNode, with opts: its log is the test's, and each field of opts.MRP left zero
+// is fastMRP's.
 func newNodeWith(t *testing.T, opts Options) *node {
 	t.Helper()
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -100,8 +101,10 @@ func newNodeWith(t *testing.T, opts Options) *node {
 		t.Fatal(err)
 	}
 	n := &node{conn: &faultyConn{PacketConn: pc}, log: &logBuffer{}}
-	mrp := fastMRP
-	mrp.MaxTransmissions = opts.MRP.MaxTransmissions
+	mrp := opts.MRP
+	mrp.Idle = cmp.Or(mrp.Idle, fastMRP.Idle)
+	mrp.Active = cmp.Or(mrp.Active, fastMRP.Active)
+	mrp.StandaloneAckTimeout = cmp.Or(mrp.StandaloneAckTimeout, fastMRP.StandaloneAckTimeout)
 	opts.Log, opts.MRP = n.log.logger(), mrp
 	n.t = New(n.conn, opts)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -619,9 +622,9 @@ func TestFullInboxIsRetransmittedLater(t *testing.T) {
 // started. Past that, it starts none of its own, and doesn't take or acknowledge the peer's next,
 // so the peer retransmits it until one ends.
 func TestExchangesAreCappedPerSession(t *testing.T) {
-	// The client keeps retransmitting for about 2 s, long enough to outlast a busy machine's pause
+	// The client keeps retransmitting for about 6 s, long enough to outlast a busy machine's pause
 	// between the device's refusal and its letting an exchange go.
-	dev, cli := newNode(t), newNodeWith(t, Options{MRP: MRPConfig{MaxTransmissions: 8}})
+	dev, cli := newNode(t), newNodeWith(t, Options{MRP: MRPConfig{MaxTransmissions: 10}})
 	release := make(chan struct{})
 	var started atomic.Int32
 	dev.t.Handle(echo, echoOps, func(ctx context.Context, ex *Exchange, _ Message) {
@@ -658,8 +661,8 @@ func TestExchangesAreCappedPerSession(t *testing.T) {
 	if _, err := cliSession.NewExchange(); !errors.Is(err, ErrTooManyExchanges) {
 		t.Fatalf("client's exchange %d: %v, want %v", maxExchanges+1, err, ErrTooManyExchanges)
 	}
-	testkit.Eventually(t, "the device to take all but one of the client's exchanges", func() bool { return started.Load() == maxExchanges-1 })
 	testkit.Eventually(t, "the device to refuse the last", func() bool { return strings.Contains(dev.log.String(), "too many exchanges") })
+	testkit.Eventually(t, "the device to take all but one of the client's exchanges", func() bool { return started.Load() == maxExchanges-1 })
 	if n := started.Load(); n != maxExchanges-1 {
 		t.Fatalf("the device took %d of the client's exchanges with its own open, want %d", n, maxExchanges-1)
 	}

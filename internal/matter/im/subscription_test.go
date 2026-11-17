@@ -33,12 +33,16 @@ func TestSubscriptionReportsAtMostEveryMinInterval(t *testing.T) {
 			return ok && got.Equal(want)
 		})
 	}
-	noReport := func(when string) {
+	// noReport sees nothing reported for a while, and the subscription still waiting for want.
+	noReport := func(when string, want time.Time) {
 		t.Helper()
 		select {
 		case r := <-reports:
 			t.Fatalf("reported %v %s", r, when)
 		case <-time.After(100 * time.Millisecond):
+		}
+		if got, ok := clk.NextWait(); !ok || !got.Equal(want) {
+			t.Fatalf("waiting for %v (%t) %s, want %v", got, ok, when, want)
 		}
 	}
 	report := func(when string) {
@@ -58,7 +62,7 @@ func TestSubscriptionReportsAtMostEveryMinInterval(t *testing.T) {
 	node.Update(func() { c.Changed(0) })
 	waitsFor("the change's wait for the min interval", last.Add(minInterval))
 	clk.SetTime(last.Add(minInterval - time.Nanosecond))
-	noReport("before the min interval since the priming report")
+	noReport("before the min interval since the priming report", last.Add(minInterval))
 	clk.Step(time.Nanosecond)
 	report("at the min interval since the priming report")
 
@@ -67,7 +71,7 @@ func TestSubscriptionReportsAtMostEveryMinInterval(t *testing.T) {
 	node.Update(func() { c.Changed(0) })
 	waitsFor("the next change's wait for a whole min interval", last.Add(minInterval))
 	clk.SetTime(last.Add(minInterval - time.Nanosecond))
-	noReport("before the min interval since the last report")
+	noReport("before the min interval since the last report", last.Add(minInterval))
 	clk.Step(time.Nanosecond)
 	report("at the min interval since the last report")
 }
