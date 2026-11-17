@@ -26,6 +26,10 @@ import (
 // hubName is the fake hub's name, which its certificate, httptest's, holds.
 const hubName = "example.com"
 
+// wantDeviceID is the Device-ID the plugin sends for username: written out, so a change that would
+// make the cloud see a new device at every login fails.
+const wantDeviceID = "381292289610104d"
+
 // fakeCloud is Toshiba's API and its hub, as the plugin uses them.
 type fakeCloud struct {
 	t      *testing.T
@@ -47,8 +51,10 @@ type fakeCloud struct {
 	// lifetime is how long a SAS token lasts, zero for one that doesn't say.
 	lifetime time.Duration
 	logins   int
-	// down answers every request with 503, limited with 403, and refuseHub refuses the hub's logins.
-	down, limited, refuseHub bool
+	// down answers every request with 503, and refuseHub refuses the hub's logins.
+	down, refuseHub bool
+	// limited answers every request with this status, such as 403 or 429, and 0 answers them.
+	limited int
 	// bodies are the last body posted to each path.
 	bodies map[string]map[string]string
 	// connects are the hub's logins, as username and client ID.
@@ -100,11 +106,21 @@ func (c *fakeCloud) serve(w http.ResponseWriter, r *http.Request) {
 	case c.down:
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
-	case c.limited:
+	case c.limited != 0:
+		w.WriteHeader(c.limited)
+		return
+	case r.Header.Get("Device-ID") == "":
+		// As the real cloud has answered a login without one since 2026-07.
+		c.t.Errorf("%s with no Device-ID", r.URL.Path)
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	case r.Header.Get("User-Agent") != "":
+		// As the real cloud's firewall answers a browser's.
+		c.t.Errorf("%s with User-Agent %q", r.URL.Path, r.Header.Get("User-Agent"))
 		w.WriteHeader(http.StatusForbidden)
 		return
-	case r.Header.Get("User-Agent") != userAgent || r.Header.Get("Content-Type") != "application/json":
-		c.t.Errorf("%s with User-Agent %q and Content-Type %q", r.URL.Path, r.Header.Get("User-Agent"), r.Header.Get("Content-Type"))
+	case r.Header.Get("Device-ID") != wantDeviceID || r.Header.Get("Content-Type") != "application/json":
+		c.t.Errorf("%s with Device-ID %q and Content-Type %q", r.URL.Path, r.Header.Get("Device-ID"), r.Header.Get("Content-Type"))
 	}
 	var body map[string]string
 	if r.Method == http.MethodPost {

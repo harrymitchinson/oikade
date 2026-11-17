@@ -184,9 +184,13 @@ func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredD
 
 // clientID is the mobile device the plugin registers as: one per account, the same each time, so
 // the cloud doesn't collect a new one at every login.
-func (c Config) clientID() string {
+func (c Config) clientID() string { return c.Username + "_" + c.deviceID() }
+
+// deviceID is the Device-ID header the plugin sends with every request, as the app sends its
+// Android ID: 16 hex digits, the same each time for the account.
+func (c Config) deviceID() string {
 	sum := sha256.Sum256([]byte("oikade:" + c.Username))
-	return c.Username + "_" + hex.EncodeToString(sum[:8])
+	return hex.EncodeToString(sum[:8])
 }
 
 // Serve implements plugin.Handler. It reports the devices on record as not found until the cloud
@@ -258,7 +262,7 @@ func (b *bridge) session(ctx context.Context, password string, connected func())
 	httpc := &http.Client{Transport: b.config.transport, Timeout: b.timing.request}
 	defer httpc.CloseIdleConnections()
 	base := cmp.Or(b.config.api, apiBase)
-	a, err := login(ctx, httpc, base, b.config.Username, password)
+	a, err := login(ctx, httpc, base, b.config.deviceID(), b.config.Username, password)
 	if err != nil {
 		return err
 	}

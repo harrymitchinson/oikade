@@ -11,11 +11,12 @@ import (
 	"net/url"
 )
 
-// The Home AC Control app's API, as KaSroka/Toshiba-AC-control has it.
+// The Home AC Control app's API, as KaSroka/Toshiba-AC-control has it, with the headers
+// vmvelev/Toshiba-AC-control found the cloud wants since 2026-07: a Device-ID on every request, as
+// the app sends its Android ID, and no User-Agent. Without the Device-ID a login is answered 429, and
+// a browser's User-Agent is refused with 403.
 const (
 	apiBase = "https://mobileapi.toshibahomeaccontrols.com"
-	// userAgent is a browser's, as that library sends: the API has refused others.
-	userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 	loginPath    = "/api/Consumer/Login"
 	registerPath = "/api/Consumer/RegisterMobileDevice"
@@ -34,7 +35,8 @@ const maxResponse = 4 << 20
 var (
 	// errRefused is a username or password the cloud refused: trying again soon could lock the account.
 	errRefused = errors.New("refused the login")
-	// errLimited is the cloud saying there were too many requests: it answers 403.
+	// errLimited is the cloud saying there were too many requests: its firewall answers 403, and its
+	// login 429.
 	errLimited = errors.New("says there were too many requests")
 	// errRenew is a session that has to start again: a token that ran out.
 	errRenew = errors.New("the session ended")
@@ -44,6 +46,7 @@ var (
 type api struct {
 	http          *http.Client
 	base          string
+	device        string
 	authorization string
 	consumer      string
 }
@@ -65,9 +68,9 @@ type answer struct {
 	ResObj     json.RawMessage `json:"ResObj"`
 }
 
-// login logs in with the account's username and password.
-func login(ctx context.Context, httpc *http.Client, base, username, password string) (*api, error) {
-	a := &api{http: httpc, base: base}
+// login logs in with the account's username and password, as the device with the Device-ID device.
+func login(ctx context.Context, httpc *http.Client, base, device, username, password string) (*api, error) {
+	a := &api{http: httpc, base: base, device: device}
 	var res struct {
 		AccessToken string `json:"access_token"`
 		TokenType   string `json:"token_type"`
@@ -160,7 +163,8 @@ func (a *api) call(ctx context.Context, method, path string, query url.Values, b
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Device-ID", a.device)
+	req.Header.Set("User-Agent", "") // Empty sends none, rather than Go's.
 	if a.authorization != "" {
 		req.Header.Set("Authorization", a.authorization)
 	}
@@ -174,7 +178,7 @@ func (a *api) call(ctx context.Context, method, path string, query url.Values, b
 		return err
 	}
 	switch {
-	case resp.StatusCode == http.StatusForbidden:
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
 		return fmt.Errorf("%w: %w", errLimited, &statusError{path, resp.StatusCode})
 	case resp.StatusCode == http.StatusUnauthorized && a.authorization != "":
 		// The access token ran out: logging in again gets another.
