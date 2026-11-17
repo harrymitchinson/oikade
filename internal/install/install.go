@@ -5,7 +5,9 @@
 package install
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -13,9 +15,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
+	"github.com/harrymitchinson/oikade/internal/host"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -70,8 +74,8 @@ type Options struct {
 	// an upgrade only when APIAddrSet.
 	APIAddr    string
 	APIAddrSet bool
-	// Client is who a login line is for. A first install always makes one, and an upgrade only when
-	// ClientSet.
+	// Client is who a login line is for. A first install makes one when the unit serves the network
+	// API, and an upgrade only when ClientSet.
 	Client    string
 	ClientSet bool
 }
@@ -127,13 +131,13 @@ func (in *Installer) Install(ctx context.Context, opts Options) (Result, error) 
 			"know: upgrade it by hand, or remove %s and run install again", BinPath, UnitPath, BinPath)
 	}
 	if !binExists {
-		return in.first(ctx, opts, unitExists)
+		return in.first(ctx, opts, oldUnit)
 	}
 	return in.upgrade(ctx, opts, oldUnit)
 }
 
 // first installs the host where there's no binary.
-func (in *Installer) first(ctx context.Context, opts Options, unitExists bool) (Result, error) {
+func (in *Installer) first(ctx context.Context, opts Options, oldUnit []byte) (Result, error) {
 	res := Result{Version: in.Version}
 	in.say("Installing oikade-host %s to %s", in.Version, BinPath)
 	if _, err := in.Run(ctx, "id", "-u", User); err != nil {
@@ -145,10 +149,13 @@ func (in *Installer) first(ctx context.Context, opts Options, unitExists bool) (
 	}
 	// The unit goes first, so an install that fails part way is one install finishes: a unit with
 	// no binary is a first install, and a binary with no unit isn't.
-	if !unitExists || opts.APIAddrSet {
-		if err := in.writeUnit(opts.APIAddr); err != nil {
+	apiAddr := opts.APIAddr
+	if oldUnit == nil || opts.APIAddrSet {
+		if err := in.writeUnit(apiAddr); err != nil {
 			return res, err
 		}
+	} else {
+		apiAddr = unitAPIAddr(oldUnit)
 	}
 	if err := copyFile(in.Self, in.path(BinPath)); err != nil {
 		return res, err
@@ -159,15 +166,15 @@ func (in *Installer) first(ctx context.Context, opts Options, unitExists bool) (
 	if err := in.waitServing(ctx); err != nil {
 		return res, fmt.Errorf("%w: journalctl -u %s says why", err, UnitName)
 	}
-	if opts.APIAddr != "" || opts.ClientSet {
+	if apiAddr != "" || opts.ClientSet {
 		login, err := in.addClient(ctx, opts.Client)
 		if err != nil {
 			return res, err
 		}
 		res.Login = login
 	}
-	if opts.APIAddr != "" {
-		res.Firewall, res.FirewallRule = in.firewall(ctx, opts.APIAddr)
+	if apiAddr != "" {
+		res.Firewall, res.FirewallRule = in.firewall(ctx, apiAddr)
 	}
 	return res, nil
 }
@@ -177,7 +184,9 @@ func (in *Installer) first(ctx context.Context, opts Options, unitExists bool) (
 func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) (Result, error) {
 	bin := in.path(BinPath)
 	res := Result{Version: in.Version, Upgraded: true, From: in.installedVersion(ctx, bin)}
-	same, err := sameFile(in.Self, bin)
+	// The same bytes are the same release, whichever file they're in: installing it again mustn't
+	// put it over the previous version.
+	same, err := sameContent(in.Self, bin)
 	if err != nil {
 		return res, err
 	}
@@ -194,37 +203,46 @@ func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) 
 	} else {
 		in.say("Upgrading oikade-host %s to %s", res.From, in.Version)
 	}
+	// The new binary is staged before the old one is kept, so Self may be the previous version itself.
+	var staged string
+	if !same {
+		if staged, err = stage(in.Self, bin, 0o755); err != nil {
+			return res, err
+		}
+		defer func() { _ = os.Remove(staged) }()
+	}
 	if err := in.backup(ctx, &res); err != nil {
 		return res, err
 	}
+	// From here on, a cancel mustn't stop the old version coming back.
+	undo := context.WithoutCancel(ctx)
 	if !same {
 		if err := copyFile(bin, in.path(PreviousPath)); err != nil {
 			return res, err
 		}
-		if err := copyFile(in.Self, bin); err != nil {
+		if err := commit(staged, bin); err != nil {
 			return res, err
 		}
 		res.Previous = PreviousPath
 	}
 	if opts.APIAddrSet {
 		if err := in.writeUnit(opts.APIAddr); err != nil {
-			return res, errors.Join(err, in.putBack(ctx, !same, oldUnit))
+			return res, errors.Join(err, in.putBack(undo, !same, oldUnit))
 		}
 	}
 	if err := in.start(ctx, opts.APIAddrSet); err != nil {
-		return res, errors.Join(err, in.putBack(ctx, !same, oldUnit))
+		return res, errors.Join(err, in.putBack(undo, !same, oldUnit))
 	}
 	if err := in.waitServing(ctx); err != nil {
-		if back := in.putBack(ctx, !same, oldUnit); back != nil {
+		if back := in.putBack(undo, !same, oldUnit); back != nil {
 			return res, fmt.Errorf("%w, and putting %s back failed too: %w: journalctl -u %s says why",
 				err, res.From, back, UnitName)
 		}
-		if err := in.waitServing(ctx); err != nil {
-			return res, fmt.Errorf("%s didn't serve, and nor does %s, which is back: journalctl -u %s says why",
-				in.Version, res.From, UnitName)
+		if werr := in.waitServing(undo); werr != nil {
+			return res, fmt.Errorf("%w, and nor does %s, which is back: journalctl -u %s says why",
+				err, res.From, UnitName)
 		}
-		return res, fmt.Errorf("%s didn't serve within %s, so %s is back: journalctl -u %s says why",
-			in.Version, in.Wait, res.From, UnitName)
+		return res, fmt.Errorf("%w, so %s is back: journalctl -u %s says why", err, res.From, UnitName)
 	}
 	if opts.ClientSet {
 		if res.Login, err = in.addClient(ctx, opts.Client); err != nil {
@@ -234,8 +252,8 @@ func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) 
 	return res, nil
 }
 
-// backup snapshots the store through the host. A host that has never served has no store, so there's
-// nothing to lose: a first install that failed can be run again.
+// backup snapshots the store through the host. A host that isn't serving, such as one that crashes
+// on start, is stopped so that the store can be copied whole. One with no store has nothing to lose.
 func (in *Installer) backup(ctx context.Context, res *Result) error {
 	backup, err := in.call(ctx, api.Request{Type: api.TypeBackup})
 	if err == nil {
@@ -243,12 +261,41 @@ func (in *Installer) backup(ctx context.Context, res *Result) error {
 		in.say("Backed up the store to %s", res.Backup)
 		return nil
 	}
-	if _, serr := os.Stat(in.path(filepath.Join(cli.DefaultDataDir, store.FileName))); errors.Is(serr, os.ErrNotExist) {
+	dataDir := in.path(cli.DefaultDataDir)
+	db := filepath.Join(dataDir, store.FileName)
+	if _, serr := os.Stat(db); errors.Is(serr, os.ErrNotExist) {
 		in.say("The host has no store yet, so there's nothing to back up")
 		return nil
 	}
-	return fmt.Errorf("couldn't back up the store first, as the host isn't serving (%w): "+
-		"sudo systemctl start %s, or upgrade by hand", err, UnitName)
+	in.say("The host isn't serving (%v), so stopping %s to copy its store", err, UnitName)
+	if _, err := in.Run(ctx, "systemctl", "stop", UnitName); err != nil {
+		return err
+	}
+	dir := filepath.Join(dataDir, host.BackupsDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	to := filepath.Join(dir, host.BackupName(time.Now()))
+	if err := copyFile(db, to); err != nil {
+		return err
+	}
+	// The host prunes its backups, and reads none it can't.
+	if info, err := os.Stat(dataDir); err == nil {
+		if st, ok := info.Sys().(*syscall.Stat_t); ok {
+			if err := os.Chown(to, int(st.Uid), int(st.Gid)); err != nil {
+				return err
+			}
+			if err := os.Chmod(to, 0o600); err != nil {
+				return err
+			}
+		}
+	}
+	res.Backup = strings.TrimPrefix(to, filepath.Clean(in.Root))
+	if !strings.HasPrefix(res.Backup, "/") {
+		res.Backup = "/" + res.Backup
+	}
+	in.say("Backed up the store to %s", res.Backup)
+	return nil
 }
 
 // putBack restores the binary, if the upgrade replaced it, and the unit, if it had one, then
@@ -284,6 +331,7 @@ func (in *Installer) start(ctx context.Context, reload bool) error {
 // waitServing waits until the host answers on its socket. systemctl restart has stopped the old
 // process by the time it returns, so whatever answers is the new one.
 func (in *Installer) waitServing(ctx context.Context) error {
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, in.Wait)
 	defer cancel()
 	for {
@@ -292,7 +340,10 @@ func (in *Installer) waitServing(ctx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("%s didn't serve within %s", UnitName, in.Wait)
+			if parent.Err() != nil {
+				return fmt.Errorf("stopped waiting for %s %s to serve: %w", UnitName, in.Version, parent.Err())
+			}
+			return fmt.Errorf("%s %s didn't serve within %s", UnitName, in.Version, in.Wait)
 		case <-time.After(in.Poll):
 		}
 	}
@@ -409,41 +460,94 @@ func checkAddr(addr string) error {
 	return nil
 }
 
-func sameFile(a, b string) (bool, error) {
-	ai, err := os.Stat(a)
+// unitAPIAddr is the --api-addr a unit's ExecStart gives the host, or "" for none.
+func unitAPIAddr(unit []byte) string {
+	for line := range strings.SplitSeq(string(unit), "\n") {
+		cmd, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(cmd)
+		for i, f := range fields {
+			if v, ok := strings.CutPrefix(f, "--api-addr="); ok {
+				return v
+			}
+			if f == "--api-addr" && i+1 < len(fields) {
+				return fields[i+1]
+			}
+		}
+	}
+	return ""
+}
+
+// sameContent is whether two files hold the same bytes.
+func sameContent(a, b string) (bool, error) {
+	ha, err := hash(a)
 	if err != nil {
 		return false, err
 	}
-	bi, err := os.Stat(b)
+	hb, err := hash(b)
 	if err != nil {
 		return false, err
 	}
-	return os.SameFile(ai, bi), nil
+	return ha == hb, nil
+}
+
+func hash(path string) ([sha256.Size]byte, error) {
+	var sum [sha256.Size]byte
+	f, err := os.Open(path)
+	if err != nil {
+		return sum, err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return sum, err
+	}
+	copy(sum[:], h.Sum(nil))
+	return sum, nil
 }
 
 // copyFile copies an executable, so that a crash leaves either the old file or the new one.
 func copyFile(from, to string) error {
-	data, err := os.ReadFile(from)
+	tmp, err := stage(from, to, 0o755)
 	if err != nil {
 		return err
 	}
-	return writeFile(to, data, 0o755)
+	defer func() { _ = os.Remove(tmp) }()
+	return commit(tmp, to)
 }
 
-// writeFile replaces a file by renaming a synced copy over it, and syncs the directory, so the new
-// file is on disk before anything depends on it.
+// writeFile replaces a file with data, so that a crash leaves either the old file or the new one.
 func writeFile(path string, data []byte, mode os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+	tmp, err := stageReader(bytes.NewReader(data), path, mode)
 	if err != nil {
 		return err
 	}
-	tmp := f.Name()
 	defer func() { _ = os.Remove(tmp) }()
-	_, err = f.Write(data)
+	return commit(tmp, path)
+}
+
+// stage copies from into a synced file beside to, for commit to rename over it.
+func stage(from, to string, mode os.FileMode) (string, error) {
+	f, err := os.Open(from)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	return stageReader(f, to, mode)
+}
+
+func stageReader(r io.Reader, to string, mode os.FileMode) (string, error) {
+	dir := filepath.Dir(to)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, "."+filepath.Base(to)+".*")
+	if err != nil {
+		return "", err
+	}
+	_, err = io.Copy(f, r)
 	if err == nil {
 		err = f.Chmod(mode)
 	}
@@ -454,12 +558,19 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 		err = cerr
 	}
 	if err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// commit renames a staged file over to, and syncs the directory, so the new file is on disk before
+// anything depends on it.
+func commit(tmp, to string) error {
+	if err := os.Rename(tmp, to); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	d, err := os.Open(dir)
+	d, err := os.Open(filepath.Dir(to))
 	if err != nil {
 		return err
 	}

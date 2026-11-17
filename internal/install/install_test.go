@@ -26,6 +26,8 @@ type machine struct {
 	running  string // the version systemd runs, or "" when it's stopped
 	commands []string
 	ufw      bool
+	// onBroken runs when something asks a broken version whether it serves.
+	onBroken func()
 }
 
 func newMachine(t *testing.T) *machine {
@@ -33,7 +35,10 @@ func newMachine(t *testing.T) *machine {
 	return &machine{t: t, root: t.TempDir(), users: map[string]bool{}}
 }
 
-func (m *machine) run(_ context.Context, name string, args ...string) ([]byte, error) {
+func (m *machine) run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err() // as exec.CommandContext does
+	}
 	m.commands = append(m.commands, strings.Join(append([]string{name}, args...), " "))
 	switch name {
 	case "id":
@@ -50,6 +55,9 @@ func (m *machine) run(_ context.Context, name string, args ...string) ([]byte, e
 		}
 		return []byte("Status: inactive\n"), nil
 	case "systemctl":
+		if args[0] == "stop" {
+			m.running = ""
+		}
 		if args[0] == "restart" {
 			if _, err := os.Stat(m.at(UnitPath)); err != nil {
 				return nil, errors.New("Unit oikade.service not found")
@@ -66,6 +74,9 @@ func (m *machine) run(_ context.Context, name string, args ...string) ([]byte, e
 
 func (m *machine) call(_ context.Context, req api.Request) (api.Response, error) {
 	if m.running == "" || strings.Contains(m.running, "broken") {
+		if m.running != "" && m.onBroken != nil {
+			m.onBroken()
+		}
 		return api.Response{}, syscall.ECONNREFUSED
 	}
 	switch req.Type {
@@ -245,19 +256,113 @@ func TestUpgradeThatDoesntServeRollsBack(t *testing.T) {
 	}
 }
 
+// A host that won't serve is stopped, and its store copied, so a release that fixes it can go on.
 func TestUpgradeOfAHostThatIsntServing(t *testing.T) {
 	m := newMachine(t)
 	if _, _, err := m.install(t, "v0.3.0", firstOptions); err != nil {
 		t.Fatal(err)
 	}
-	m.running = ""
+	m.running = "v0.3.0 broken"
 	writeStore(t, m)
-	_, _, err := m.install(t, "v0.3.1", Options{})
-	if err == nil || !strings.Contains(err.Error(), "couldn't back up the store first") {
+	m.commands = nil
+	res, progress, err := m.install(t, "v0.3.1", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.read(BinPath) != "v0.3.1" || m.running != "v0.3.1" {
+		t.Errorf("binary %q, running %q", m.read(BinPath), m.running)
+	}
+	stop, restart := slices.Index(m.commands, "systemctl stop oikade"), slices.Index(m.commands, "systemctl restart oikade")
+	if stop < 0 || restart < stop {
+		t.Errorf("didn't stop it before copying: %v", m.commands)
+	}
+	if !strings.HasPrefix(res.Backup, "/var/lib/oikade/backups/oikade-") {
+		t.Errorf("backup is %q", res.Backup)
+	}
+	if got := m.read(res.Backup); got != "the store" {
+		t.Errorf("backup holds %q", got)
+	}
+	if !strings.Contains(progress, "so stopping oikade to copy its store") {
+		t.Errorf("progress is\n%s", progress)
+	}
+}
+
+// The previous version installs itself back without losing itself.
+func TestInstallOfThePreviousVersion(t *testing.T) {
+	m := newMachine(t)
+	for _, v := range []string{"v0.3.0", "v0.3.1"} {
+		if _, _, err := m.install(t, v, firstOptions); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in, _ := m.installer("v0.3.0")
+	in.Self = m.at(PreviousPath)
+	res, err := in.Install(t.Context(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.read(BinPath) != "v0.3.0" || m.read(PreviousPath) != "v0.3.1" || m.running != "v0.3.0" {
+		t.Errorf("binary %q, previous %q, running %q", m.read(BinPath), m.read(PreviousPath), m.running)
+	}
+	if res.From != "v0.3.1" {
+		t.Errorf("result is %+v", res)
+	}
+}
+
+// Installing the same release again, from wherever it was downloaded, changes nothing.
+func TestInstallOfTheSameReleaseAgain(t *testing.T) {
+	m := newMachine(t)
+	for _, v := range []string{"v0.3.0", "v0.3.1"} {
+		if _, _, err := m.install(t, v, firstOptions); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.commands = nil
+	res, _, err := m.install(t, "v0.3.1", Options{Client: "desktop", ClientSet: true})
+	if err != nil || !res.Unchanged || res.Login == nil {
+		t.Fatalf("result %+v, %v", res, err)
+	}
+	if m.read(PreviousPath) != "v0.3.0" || slices.Contains(m.commands, "systemctl restart oikade") {
+		t.Errorf("previous %q, ran %v", m.read(PreviousPath), m.commands)
+	}
+}
+
+// Interrupting the wait still puts the old version back, running.
+func TestUpgradeInterruptedWhileWaiting(t *testing.T) {
+	m := newMachine(t)
+	if _, _, err := m.install(t, "v0.3.0", firstOptions); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	m.onBroken = cancel
+	in, _ := m.installer("v0.3.1 broken")
+	in.Wait = time.Minute
+	_, err := in.Install(ctx, Options{})
+	if err == nil || !strings.Contains(err.Error(), "stopped waiting") || !strings.Contains(err.Error(), "so v0.3.0 is back") {
 		t.Fatalf("error is %v", err)
 	}
-	if m.read(BinPath) != "v0.3.0" {
-		t.Errorf("binary is %q", m.read(BinPath))
+	if m.read(BinPath) != "v0.3.0" || m.running != "v0.3.0" {
+		t.Errorf("binary %q, running %q", m.read(BinPath), m.running)
+	}
+}
+
+// A unit that's kept says which port the firewall needs.
+func TestFirstInstallKeepsTheUnitsAddress(t *testing.T) {
+	m := newMachine(t)
+	m.ufw = true
+	if err := os.MkdirAll(filepath.Dir(m.at(UnitPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.at(UnitPath), []byte(Unit(":9443")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, _, err := m.install(t, "v0.3.0", firstOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(res.FirewallRule, "9443/tcp") || res.Login == nil {
+		t.Errorf("result is %+v", res)
 	}
 }
 
@@ -359,7 +464,7 @@ func writeStore(t *testing.T, m *machine) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, store.FileName), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, store.FileName), []byte("the store"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -394,5 +499,17 @@ func TestInstallWithAUnitAndNoBinary(t *testing.T) {
 	}
 	if !strings.Contains(m.read(UnitPath), ":9443") {
 		t.Error("wrote the unit again with no flags")
+	}
+}
+
+func TestUnitAPIAddr(t *testing.T) {
+	for unit, want := range map[string]string{
+		Unit(":9443"): ":9443",
+		Unit(""):      "",
+		"ExecStart=/usr/local/bin/oikade-host --metrics-addr :8080 --api-addr=10.0.0.2:8443": "10.0.0.2:8443",
+	} {
+		if got := unitAPIAddr([]byte(unit)); got != want {
+			t.Errorf("unitAPIAddr(%q) = %q, not %q", unit, got, want)
+		}
 	}
 }

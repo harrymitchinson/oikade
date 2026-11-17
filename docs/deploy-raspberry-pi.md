@@ -79,7 +79,7 @@ Starting oikade, and waiting for it to serve
 Upgraded to v0.3.1. The previous version is /usr/local/bin/oikade-host.previous
 ```
 
-It backs up the store through the running host, keeps the old binary as `oikade-host.previous`, and restarts the host on the new one. If the new version doesn't serve within a minute, it puts the old binary and unit back, restarts that, and fails. The host has to be serving to be backed up, so `install` won't upgrade a stopped one: start it first. It keeps your unit as it is, unless you give it `--api-addr`. A host installed by hand upgrades the same way, as long as its unit is `/etc/systemd/system/oikade.service` and runs `/usr/local/bin/oikade-host`.
+It backs up the store through the running host, keeps the old binary as `oikade-host.previous`, and restarts the host on the new one. If the new version doesn't serve within a minute, it puts the old binary and unit back, restarts that, and fails. If the host isn't serving, say because it crashes on start, `install` stops it and copies the store instead. It keeps your unit as it is, unless you give it `--api-addr`. A host installed by hand upgrades the same way, as long as its unit is `/etc/systemd/system/oikade.service` and runs `/usr/local/bin/oikade-host`.
 
 Matter stops with the host, so the Home app shows no response until it's back. Afterwards, `go install` the same version of `cmd/oikade` on your Mac, update `github.com/harrymitchinson/oikade` in your home's `go.mod` and run `oikade deploy`, as your code is built against the old version.
 
