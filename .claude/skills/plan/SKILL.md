@@ -43,9 +43,9 @@ Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and t
 
 ## Changing the plan
 
-- **A new idea:** `hack/plan idea "<title>" "<a few lines: the problem, and where it came from>"`. It lands in Triage.
+- **A new idea:** `hack/plan idea "<title>" "<a few lines: the problem, and where it came from>"`. It lands in Triage. Triage is only for what needs the user's decision or input before it's built. An idea in Triage that needs neither, such as a bug or follow-up an agent logged there, goes to Todo with `hack/plan promote OIK-N Todo` and a one-line `hack/plan note` on why it needs no design.
 - **Committing to an idea:** when the user wants it built, `hack/plan promote OIK-N` moves it to Backlog. Then use the design skill: it decides whether a design is needed, and writes the steps.
-- **A bug:** `hack/plan issue "<title>" <body file> --label Bug`, written as a feature with one step unless it needs more.
+- **A bug:** `hack/plan issue "<title>" <body file> --label Bug --state Todo`, written as a feature with one step unless it needs more, and a one-line `hack/plan note` on why it needs no design. A fix that changes public API or stored state needs a design, so file it in Backlog and use the design skill.
 - **A feature's description:**
 
   ```markdown

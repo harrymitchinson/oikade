@@ -12,7 +12,7 @@ You work on **one feature**. Its steps are the checklist lines under its `## Ste
 ## 1. Choose and claim
 
 - **If the user named a feature,** use it. Otherwise run `hack/plan ready` and take the first line.
-- **If nothing is ready,** don't invent work. Report what's waiting on the user: issues in Design Review, features nobody may build yet (`hack/plan show OIK-N` says why), PRs waiting for review, and stale claims from `hack/plan claims`. Then stop.
+- **If nothing is ready,** look through `hack/plan ideas` first: a bug or follow-up there that needs no design goes to Todo (`hack/plan promote OIK-N Todo`, with a one-line `hack/plan note` on why), and then it's ready. Otherwise don't invent work. Report what's waiting on the user: issues in Design Review, features nobody may build yet (`hack/plan show OIK-N` says why), PRs waiting for review, and stale claims from `hack/plan claims`. Then stop.
 - **Claim it:** `hack/plan claim OIK-N`. It prints a worktree path, already on the next step's branch. **Do everything after this in that worktree**, not in the main checkout, which other sessions share.
 - **If the claim fails** because the feature is already claimed, take the next line from `hack/plan ready`. Never work on a feature you didn't claim, and never delete someone else's `claim/OIK-N` branch unless the user tells you to.
 
@@ -28,7 +28,7 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 
 ## 3. Build it
 
-- **Only this step.** If you find work for later, mention it in the PR, or add it with `hack/plan idea` if it's new.
+- **Only this step.** If you find work for later, mention it in the PR, or file it if it's new. A bug or follow-up that needs no design (the design skill's list) is ready to build: `hack/plan issue "<title>" <body file> --state Todo`, with `--label Bug` for a bug, and `hack/plan note OIK-N "<one line on why it needs no design>"`. Only one that needs the user's decision or input, such as real devices, is an idea (`hack/plan idea`).
 - **Follow AGENTS.md:** run `make lint-fix test` after Go changes. After changing the plugin contract, the SDK or a plugin, also run `make test-conformance`.
 - **Keep the docs true.** The README stays lean: what Oikade is, getting started and a list of guides, and detail goes in a guide in `docs/`. If the step changes how something works, update the doc that says so in the same PR: the README and the guides in `docs/` for what users write and see, a plugin's own README (`plugins/<name>/README.md`) for that plugin, `docs/architecture.md` for the internals, `docs/plugin-contract.md` for the contract. Describe the present and link the feature for why. Don't copy the design.
 - **Never run the journeys within a step.** The bar for a PR is `make test`. CI runs them only on main after a merge and nightly. If they break on main, fix it forward in a new PR. Say in the PR that they weren't run.
