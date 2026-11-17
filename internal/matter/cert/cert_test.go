@@ -11,16 +11,9 @@ import (
 	"slices"
 	"testing"
 	"time"
-)
 
-func unhex(t *testing.T, s string) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
+	"github.com/harrymitchinson/oikade/internal/testkit"
+)
 
 // vector decodes the named test certificate from its TLV form.
 func vector(t *testing.T, name string) *Certificate {
@@ -29,7 +22,7 @@ func vector(t *testing.T, name string) *Certificate {
 	if !ok {
 		t.Fatalf("no test certificate %s", name)
 	}
-	c, err := Decode(unhex(t, tc.chip))
+	c, err := Decode(testkit.Unhex(t, tc.chip))
 	if err != nil {
 		t.Fatalf("Decode(%s): %v", name, err)
 	}
@@ -39,7 +32,7 @@ func vector(t *testing.T, name string) *Certificate {
 // vectorKey returns the named test certificate's private key.
 func vectorKey(t *testing.T, name string) *ecdsa.PrivateKey {
 	t.Helper()
-	k, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), unhex(t, testCerts[name].priv))
+	k, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), testkit.Unhex(t, testCerts[name].priv))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +45,7 @@ var inValidity = time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 func TestVectorsRoundTrip(t *testing.T) {
 	for name, tc := range testCerts {
 		t.Run(name, func(t *testing.T) {
-			chip, derCert := unhex(t, tc.chip), unhex(t, tc.der)
+			chip, derCert := testkit.Unhex(t, tc.chip), testkit.Unhex(t, tc.der)
 			c, err := Decode(chip)
 			if err != nil {
 				t.Fatalf("Decode: %v", err)
@@ -76,13 +69,13 @@ func TestVectorsRoundTrip(t *testing.T) {
 				t.Fatalf("X.509 → TLV:\n got %x\nwant %x", back, chip)
 			}
 
-			if !bytes.Equal(c.PublicKey, unhex(t, tc.pub)) {
+			if !bytes.Equal(c.PublicKey, testkit.Unhex(t, tc.pub)) {
 				t.Errorf("public key %x, want %s", c.PublicKey, tc.pub)
 			}
-			if !bytes.Equal(c.SubjectKeyID, unhex(t, tc.skid)) {
+			if !bytes.Equal(c.SubjectKeyID, testkit.Unhex(t, tc.skid)) {
 				t.Errorf("subject key ID %x, want %s", c.SubjectKeyID, tc.skid)
 			}
-			if !bytes.Equal(c.AuthorityKeyID, unhex(t, tc.akid)) {
+			if !bytes.Equal(c.AuthorityKeyID, testkit.Unhex(t, tc.akid)) {
 				t.Errorf("authority key ID %x, want %s", c.AuthorityKeyID, tc.akid)
 			}
 			// Go's own parser agrees with the conversion.
@@ -385,7 +378,7 @@ func TestVerifyNoNodeID(t *testing.T) {
 // TestCompressedFabricID uses the Core spec's example, as connectedhomeip's
 // src/crypto/tests/TestChipCryptoPAL.cpp has it.
 func TestCompressedFabricID(t *testing.T) {
-	root := unhex(t, "044a9f42b1ca4840d37292bbc7f6a7e11e22200c976fc900dbc98a7a383a641cb8254a2e56d4e295a847943b4e3897c4a773e930277b4d9fbede8a052686bfacfa")
+	root := testkit.Unhex(t, "044a9f42b1ca4840d37292bbc7f6a7e11e22200c976fc900dbc98a7a383a641cb8254a2e56d4e295a847943b4e3897c4a773e930277b4d9fbede8a052686bfacfa")
 	got, err := CompressedFabricID(root, 0x2906C908D115D362)
 	if err != nil {
 		t.Fatal(err)
@@ -436,7 +429,7 @@ func TestCSR(t *testing.T) {
 }
 
 func TestDecodeRejects(t *testing.T) {
-	chip := unhex(t, testCerts["Node01_01"].chip)
+	chip := testkit.Unhex(t, testCerts["Node01_01"].chip)
 	for n := range len(chip) {
 		if _, err := Decode(chip[:n]); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("Decode of %d bytes = %v", n, err)
@@ -447,13 +440,13 @@ func TestDecodeRejects(t *testing.T) {
 	}
 	// connectedhomeip's Node01_01_Err01: the subject key ID's tag is a common-profile tag.
 	bad := slices.Clone(chip)
-	i := bytes.Index(bad, unhex(t, "3004146967c912"))
+	i := bytes.Index(bad, testkit.Unhex(t, "3004146967c912"))
 	bad = slices.Concat(bad[:i], []byte{0x50, 0xee, 0x04}, bad[i+2:])
 	if _, err := Decode(bad); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Decode(Err01) = %v", err)
 	}
 
-	derCert := unhex(t, testCerts["Node01_01"].der)
+	derCert := testkit.Unhex(t, testCerts["Node01_01"].der)
 	for n := range len(derCert) {
 		if _, err := FromX509(derCert[:n]); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("FromX509 of %d bytes = %v", n, err)

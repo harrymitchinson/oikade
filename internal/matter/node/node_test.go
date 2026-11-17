@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
 	"github.com/harrymitchinson/oikade/internal/matter/setup"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // fakeMDNS records the services the node advertises.
@@ -168,16 +169,6 @@ func pase(t *testing.T, cli *transport.Transport, n *Node, passcode uint32) erro
 	return err
 }
 
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("timed out waiting for %s", what)
-}
-
 func TestNeedsSetup(t *testing.T) {
 	if _, err := New(Config{DataDir: t.TempDir(), Setup: Setup{Passcode: 12345678}}); err == nil {
 		t.Error("New took a trivial passcode")
@@ -189,7 +180,7 @@ func TestNeedsSetup(t *testing.T) {
 // out.
 func TestWindow(t *testing.T) {
 	n, fake, _ := start(t, Config{DataDir: t.TempDir(), WindowTimeout: time.Second})
-	waitFor(t, "the window to open", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the window to open", func() bool { return fake.commissionable() != nil })
 	if txt := fake.commissionable(); !slices.Contains(txt, "CM=1") || !slices.ContainsFunc(txt, func(s string) bool {
 		return s == "D="+strconv.Itoa(int(testSetup.Discriminator))
 	}) {
@@ -208,11 +199,11 @@ func TestWindow(t *testing.T) {
 		}
 		return count
 	}
-	waitFor(t, "the node to record the PASE session", func() bool { return paseSessions() == 1 })
+	testkit.Eventually(t, "the node to record the PASE session", func() bool { return paseSessions() == 1 })
 	n.endPASE()
-	waitFor(t, "EndPASE to end the PASE session", func() bool { return paseSessions() == 0 })
+	testkit.Eventually(t, "EndPASE to end the PASE session", func() bool { return paseSessions() == 0 })
 
-	waitFor(t, "the window to time out", func() bool { return fake.commissionable() == nil && !n.WindowOpen() })
+	testkit.Eventually(t, "the window to time out", func() bool { return fake.commissionable() == nil && !n.WindowOpen() })
 	if err := pase(t, cli, n, testSetup.Passcode); err == nil {
 		t.Error("PASE succeeded with the window closed")
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"slices"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 func set(device, name, value string) Action {
@@ -288,10 +288,6 @@ func newHarness(t *testing.T, now time.Time, rules ...*Compiled) *harness {
 // newHarnessWith is newHarness with a hook to configure the engine before its first Load.
 func newHarnessWith(t *testing.T, now time.Time, configure func(*Engine), rules ...*Compiled) *harness {
 	t.Helper()
-	london, err := time.LoadLocation("Europe/London")
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := hub.NewStore(logging.Discard())
 	store.SetDevices(z2m, map[ident.ID]hub.Meta{
 		{Name: "hallway-motion"}: {},
@@ -328,7 +324,7 @@ func (h *harness) runs(result string) float64 {
 
 func (h *harness) eventually(what string, cond func() bool) {
 	h.t.Helper()
-	poll(h.t, what, cond)
+	testkit.Eventually(h.t, what, cond)
 }
 
 // settle waits for the engine to catch up with the clock.
@@ -476,16 +472,12 @@ func declare(store *hub.Store, devices map[string]member) {
 // lines.
 func runRoom(t *testing.T, setter *fakeSetter, devices map[string]member, actions ...Action) (string, []string) {
 	t.Helper()
-	var logs []string
-	e := &Engine{
-		Store: hub.NewStore(logging.Discard()), Setter: setter, Log: logging.Lines(func(line string) {
-			logs = append(logs, line)
-		}, slog.LevelDebug),
-	}
+	logs := testkit.Logs(t)
+	e := &Engine{Store: hub.NewStore(logging.Discard()), Setter: setter, Log: logs.Logger}
 	e.Init()
 	declare(e.Store, devices)
 	body := steps{Do: actions}.body(ident.ID{Name: "goodnight"})
-	return body(withEngine(context.Background(), e)), logs
+	return body(withEngine(context.Background(), e)), logs.Lines()
 }
 
 func TestRoomTriggerMatches(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 func TestTimeSnapshot(t *testing.T) {
@@ -42,7 +43,7 @@ func TestIdentifyCountsDown(t *testing.T) {
 	if v := identifyTime(); v != uint64(1) {
 		t.Errorf("IdentifyTime = %v, want 1", v)
 	}
-	waitFor(t, "IdentifyTime to run out", func() bool { return identifyTime() == uint64(0) })
+	testkit.Eventually(t, "IdentifyTime to run out", func() bool { return identifyTime() == uint64(0) })
 	if f.changes.Load() != 0 {
 		t.Errorf("Identify changed the switch")
 	}

@@ -6,12 +6,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/contain"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // TestPanicCostsOnlyThePacket: a panic answering one query is contained and counted, and the
@@ -40,21 +40,14 @@ func TestPanicCostsOnlyThePacket(t *testing.T) {
 
 	boom.Store(true)
 	c.in <- query(t, testHost, dnsmessage.TypeA, false) // answering it looks up the addresses
-	deadline := time.Now().Add(time.Second)
-	for {
+	counted := func() []string {
 		mu.Lock()
-		got := slices.Clone(sites)
-		mu.Unlock()
-		if len(got) > 0 {
-			if !slices.Equal(got, []string{contain.MDNS}) {
-				t.Fatalf("panics counted at %v, want one at %s", got, contain.MDNS)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("no panic counted")
-		}
-		time.Sleep(5 * time.Millisecond)
+		defer mu.Unlock()
+		return slices.Clone(sites)
+	}
+	testkit.Eventually(t, "a panic to be counted", func() bool { return len(counted()) > 0 })
+	if got := counted(); !slices.Equal(got, []string{contain.MDNS}) {
+		t.Fatalf("panics counted at %v, want one at %s", got, contain.MDNS)
 	}
 	c.none()
 

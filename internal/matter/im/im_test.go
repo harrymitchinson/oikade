@@ -12,6 +12,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // plain is a Security that doesn't encrypt, so a test can read what goes over the wire.
@@ -231,16 +232,6 @@ func onOffNode() (*Node, *Cluster) {
 	return node, c
 }
 
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("timed out waiting for %s", what)
-}
-
 // TestUnknownSubscriptionIsEnded: a client that has forgotten a subscription answers its next
 // report with INVALID_SUBSCRIPTION, and the server ends it.
 func TestUnknownSubscriptionIsEnded(t *testing.T) {
@@ -256,7 +247,7 @@ func TestUnknownSubscriptionIsEnded(t *testing.T) {
 	delete(client.subs, id)
 	client.mu.Unlock()
 	node.Update(func() { c.Changed(0) })
-	waitFor(t, "the server to end the subscription", func() bool { return srv.Subscriptions() == 0 })
+	testkit.Eventually(t, "the server to end the subscription", func() bool { return srv.Subscriptions() == 0 })
 }
 
 // TestSubscriptionEndsWithItsSession closes the server's end of the session: its subscriptions
@@ -279,7 +270,7 @@ func TestSubscriptionEndsWithItsSession(t *testing.T) {
 	}
 	srv.mu.Unlock()
 	dev.RemoveSession(s)
-	waitFor(t, "the subscription to end", func() bool { return srv.Subscriptions() == 0 })
+	testkit.Eventually(t, "the subscription to end", func() bool { return srv.Subscriptions() == 0 })
 }
 
 // TestSubscriptionLogsItsIntervals: "Started subscription" says, at Info, the min and max the
@@ -303,7 +294,7 @@ func TestSubscriptionLogsItsIntervals(t *testing.T) {
 	if _, _, _, _, err := client.Subscribe(ctx, 1, 30, path); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the first subscription to end", func() bool { return srv.Subscriptions() == 1 })
+	testkit.Eventually(t, "the first subscription to end", func() bool { return srv.Subscriptions() == 1 })
 	find := func(want ...string) bool {
 		mu.Lock()
 		defer mu.Unlock()
@@ -323,9 +314,9 @@ func TestSubscriptionLogsItsIntervals(t *testing.T) {
 		{"level=INFO", `msg="Started subscription"`, "min=3s", "max=1m0s", "replaced=0", "peer="},
 		{"level=INFO", `msg="Started subscription"`, "min=1s", "max=30s", "replaced=1"},
 	} {
-		waitFor(t, strings.Join(want, " "), func() bool { return find(want...) })
+		testkit.Eventually(t, strings.Join(want, " "), func() bool { return find(want...) })
 	}
-	waitFor(t, "the first subscription to log its end", func() bool {
+	testkit.Eventually(t, "the first subscription to log its end", func() bool {
 		return find("level=INFO", `msg="Ended subscription"`, `reason="replaced by a new subscription"`)
 	})
 }

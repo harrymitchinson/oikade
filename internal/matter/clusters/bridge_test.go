@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 const passcode = 20202021
@@ -314,13 +315,7 @@ func TestSubscriptionEndsWithSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.cliTr.RemoveSession(f.session) // the client goes away and stops answering
-	deadline := time.Now().Add(15 * time.Second)
-	for f.server.Subscriptions() != 0 && time.Now().Before(deadline) {
-		time.Sleep(50 * time.Millisecond)
-	}
-	if f.server.Subscriptions() != 0 {
-		t.Error("the subscription outlived its client")
-	}
+	testkit.Eventually(t, "the subscription to end with its client", func() bool { return f.server.Subscriptions() == 0 })
 }
 
 func TestUnsupportedPaths(t *testing.T) {

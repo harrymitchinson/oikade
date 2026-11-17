@@ -8,17 +8,10 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/clock"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
-var london = mustLocation("Europe/London")
-
-func mustLocation(name string) *time.Location {
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		panic(err)
-	}
-	return loc
-}
+var london = testkit.Location("Europe/London")
 
 // day is 2026-10-21 in London.
 var day = time.Date(2026, time.October, 21, 0, 0, 0, 0, london)

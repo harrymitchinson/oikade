@@ -26,6 +26,7 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -337,16 +338,17 @@ func (b *bench) topic(name string) string {
 	return b.topics[name]
 }
 
+// eventually waits for ok, and shows the topics if it never holds.
 func (b *bench) eventually(what string, ok func() bool) {
 	b.t.Helper()
-	deadline := time.Now().Add(waitLimit)
-	for time.Now().Before(deadline) {
-		if ok() {
-			return
+	defer func() {
+		if b.t.Failed() {
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			b.t.Logf("Topics: %v", b.topics)
 		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	b.t.Fatalf("Never saw %s. Topics: %v", what, b.topics)
+	}()
+	testkit.Eventually(b.t, what, ok)
 }
 
 func (b *bench) needsSetup() bool {

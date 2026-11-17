@@ -1,46 +1,25 @@
 package simhome_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"log/slog"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/harrymitchinson/oikade"
 	"github.com/harrymitchinson/oikade/internal/simhome"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
-// lockedBuffer is a log the flows' goroutines can write to while a test reads it.
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *lockedBuffer) count(msg string) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return strings.Count(b.buf.String(), `"msg":"`+msg+`"`)
-}
-
 // flowSim runs a home with one flow, f, on the sensor's humidity, and sets the sensor off.
-func flowSim(t *testing.T, decide func(*oikade.Home), run func(*oikade.FlowRun)) (*simhome.Sim, *lockedBuffer) {
+func flowSim(t *testing.T, decide func(*oikade.Home), run func(*oikade.FlowRun)) (*simhome.Sim, *testkit.Log) {
 	t.Helper()
 	home := oikade.NewHome(oikade.Options{})
 	home.Flow("f", run).When(humidityOf("sensor"))
 	decide(home)
 	opts := options(t, home)
-	log := &lockedBuffer{}
-	opts.Log = slog.New(slog.NewJSONHandler(log, nil))
+	log := testkit.Logs(t)
+	opts.Log = log.Logger
 	sim, err := simhome.New(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +52,7 @@ func TestAFailedStepIsLoggedOnceAcrossARestart(t *testing.T) {
 	if err := sim.Advance(2 * time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if got := log.count("Failed step of flow run"); got != 1 {
+	if got := log.Count(`msg="Failed step of flow run"`); got != 1 {
 		t.Errorf("logged the failed step %d times", got)
 	}
 	if sim.Finished("f") || len(sim.Failed("f")) == 0 {

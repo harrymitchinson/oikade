@@ -14,6 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/contain"
 	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // panickingConn panics, once, writing the unsecured Secure Channel message with an opcode.
@@ -69,21 +70,16 @@ func (d *panickingDevice) addr() netip.AddrPort { return d.t.Addr().(*net.UDPAdd
 // retransmission may start the handshake again, and a CASE then succeeds.
 func (d *panickingDevice) contained(t *testing.T, known func() int) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for {
+	at := func() []string {
 		d.mu.Lock()
-		at := slices.Clone(d.at)
-		d.mu.Unlock()
-		if len(at) > 0 && d.t.SecureSessions() == known() {
-			if !slices.Equal(at, []string{contain.Handler}) {
-				t.Errorf("panics contained at %v, want one at %s", at, contain.Handler)
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("panics contained at %v, and %d secure sessions; want one panic and %d", at, d.t.SecureSessions(), known())
-		}
-		time.Sleep(10 * time.Millisecond)
+		defer d.mu.Unlock()
+		return slices.Clone(d.at)
+	}
+	testkit.Eventually(t, "one contained panic, and only the node's secure sessions", func() bool {
+		return len(at()) > 0 && d.t.SecureSessions() == known()
+	})
+	if got := at(); !slices.Equal(got, []string{contain.Handler}) {
+		t.Errorf("panics contained at %v, want one at %s", got, contain.Handler)
 	}
 }
 

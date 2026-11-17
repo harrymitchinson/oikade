@@ -21,6 +21,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 const (
@@ -325,7 +326,7 @@ func TestCommission(t *testing.T) {
 	if index != 1 {
 		t.Errorf("fabric index %d", index)
 	}
-	waitFor(t, "FabricAdded after AddNOC", func() bool {
+	testkit.Eventually(t, "FabricAdded after AddNOC", func() bool {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		return slices.Equal(n.added, []uint8{1})
@@ -347,7 +348,7 @@ func TestCommission(t *testing.T) {
 	if code := response(t, res, 0x05)[0].(uint64); code != commissioningOK {
 		t.Fatalf("CommissioningComplete: %d", code)
 	}
-	waitFor(t, "EndPASE after CommissioningComplete", func() bool {
+	testkit.Eventually(t, "EndPASE after CommissioningComplete", func() bool {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		return n.endedPASE == 1
@@ -397,7 +398,7 @@ func TestCommission(t *testing.T) {
 	if response(t, res, 0x08)[0] != uint64(nocOK) {
 		t.Errorf("RemoveFabric: %+v", res)
 	}
-	waitFor(t, "FabricRemoved", func() bool {
+	testkit.Eventually(t, "FabricRemoved", func() bool {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		return reflect.DeepEqual(n.removed, []uint8{index})
@@ -460,7 +461,7 @@ func TestFailSafeRollsBack(t *testing.T) {
 	if code := armFailSafe(t, c, 1); code != commissioningOK {
 		t.Fatalf("ArmFailSafe: %d", code)
 	}
-	waitFor(t, "the fail-safe to expire", func() bool {
+	testkit.Eventually(t, "the fail-safe to expire", func() bool {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		return n.endedPASE == 1 && reflect.DeepEqual(n.removed, []uint8{index})
@@ -548,7 +549,7 @@ func TestCommissioningWindow(t *testing.T) {
 	if res := invoke(t, c, IDAdministratorCommissioning, 0x02, nil, true); res.ClusterStatus == nil || *res.ClusterStatus != adminWindowNotOpen {
 		t.Errorf("second revoke: %+v", res)
 	}
-	waitFor(t, "the hooks", func() bool {
+	testkit.Eventually(t, "the hooks", func() bool {
 		mu.Lock()
 		defer mu.Unlock()
 		return len(opened) == 1 && closed == 1
@@ -556,16 +557,6 @@ func TestCommissioningWindow(t *testing.T) {
 	if opened[0].Discriminator != 3840 || opened[0].Iterations != 1000 || !bytes.Equal(opened[0].Verifier.Bytes(), v.Bytes()) {
 		t.Errorf("opened %+v", opened[0])
 	}
-}
-
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if cond() {
-			return
-		}
-	}
-	t.Fatalf("timed out waiting for %s", what)
 }
 
 func TestACLMatching(t *testing.T) {
@@ -636,7 +627,7 @@ func TestInitialWindow(t *testing.T) {
 	}
 
 	n.comm.OpenInitialWindow(time.Minute)
-	waitFor(t, "the window to open", hooks(1, 0))
+	testkit.Eventually(t, "the window to open", hooks(1, 0))
 	if !opened[0].Basic || !n.comm.WindowOpen() {
 		t.Errorf("opened %+v, open %v", opened[0], n.comm.WindowOpen())
 	}
@@ -654,13 +645,13 @@ func TestInitialWindow(t *testing.T) {
 	if res := invoke(t, c, IDAdministratorCommissioning, 0x02, nil, true); res.Status != im.StatusSuccess {
 		t.Errorf("revoke: %+v", res)
 	}
-	waitFor(t, "the window to close", hooks(1, 1))
+	testkit.Eventually(t, "the window to close", hooks(1, 1))
 	if n.comm.WindowOpen() {
 		t.Error("open after revoke")
 	}
 
 	n.comm.OpenInitialWindow(50 * time.Millisecond)
-	waitFor(t, "the window to time out", hooks(2, 2))
+	testkit.Eventually(t, "the window to time out", hooks(2, 2))
 }
 
 // TestUpdateNOC: UpdateNOC asks the node to advertise the new node ID, and so does the fail-safe
@@ -709,7 +700,7 @@ func TestUpdateNOC(t *testing.T) {
 	if f := response(t, res, 0x08); f[0] != uint64(nocOK) {
 		t.Fatalf("UpdateNOC: %+v", f)
 	}
-	waitFor(t, "FabricUpdated after UpdateNOC", func() bool {
+	testkit.Eventually(t, "FabricUpdated after UpdateNOC", func() bool {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		return slices.Equal(n.updated, []uint8{index})
@@ -722,7 +713,7 @@ func TestUpdateNOC(t *testing.T) {
 	if code := armFailSafe(t, admin, 0); code != commissioningOK {
 		t.Fatalf("ArmFailSafe(0): %d", code)
 	}
-	waitFor(t, "FabricUpdated after the rollback", func() bool {
+	testkit.Eventually(t, "FabricUpdated after the rollback", func() bool {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		return slices.Equal(n.updated, []uint8{index, index})

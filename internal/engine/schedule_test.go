@@ -9,20 +9,13 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/sun"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 var (
-	london     = mustLocation("Europe/London")
+	london     = testkit.Location("Europe/London")
 	londonSite = &sun.Site{Latitude: 51.5074, Longitude: -0.1278}
 )
-
-func mustLocation(name string) *time.Location {
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		panic(err)
-	}
-	return loc
-}
 
 func local(s string) time.Time {
 	t, err := time.ParseInLocation("2006-01-02 15:04 MST", s, london)

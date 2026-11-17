@@ -8,17 +8,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
-var paris = mustLocation("Europe/Paris")
-
-func mustLocation(name string) *time.Location {
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		panic(err)
-	}
-	return loc
-}
+var paris = testkit.Location("Europe/Paris")
 
 // saturday is 2026-07-04, a Saturday in Paris.
 var saturday = time.Date(2026, time.July, 4, 0, 0, 0, 0, paris)

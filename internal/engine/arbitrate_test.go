@@ -3,9 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +13,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // entry is a bool control entry.
@@ -208,13 +206,9 @@ func TestEndlessSetsSkipArbitratedDevices(t *testing.T) {
 	// bath rail.
 	r.expect(call{"bath-rail", capability.On, false}, call{"bath-fan", capability.On, true},
 		call{"bath-fan", capability.On, true}, call{"bath-rail", capability.On, true})
-	r.logs.mu.Lock()
-	defer r.logs.mu.Unlock()
 	for _, want := range []string{"left out [bath-rail (arbitrates on", "towel-rail on is arbitrated"} {
-		if !slices.ContainsFunc(r.logs.lines, func(l string) bool {
-			return strings.Contains(l, "Failed step of flow run") && strings.Contains(l, want)
-		}) {
-			t.Errorf("no failed step %q in %q", want, r.logs.lines)
+		if !r.logs.Has("Failed step of flow run", want) {
+			t.Errorf("no failed step %q in the log", want)
 		}
 	}
 }
@@ -231,7 +225,7 @@ func (r *rig) wrote(n int, what string) {
 
 func (r *rig) eventually(what string, cond func() bool) {
 	r.t.Helper()
-	poll(r.t, what, cond)
+	testkit.Eventually(r.t, what, cond)
 }
 
 // gate holds every Set until it's opened.
@@ -551,18 +545,18 @@ func TestAMatterWriteThatChangesNothingIsForgotten(t *testing.T) {
 
 // A moment firing all day says once which Room members it leaves out, and again when that changes.
 func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
-	var logs []string
-	e := &Engine{Log: logging.Lines(func(line string) { logs = append(logs, line) }, slog.LevelInfo)}
+	logs := testkit.Logs(t)
+	e := &Engine{Log: logs.Logger}
 	key := ident.ID{Name: "bathroom-on"}
 	e.reportSkipped(key, []string{"rail", "towel", "rail"})
 	e.reportSkipped(key, []string{"towel", "rail"})
-	if len(logs) != 1 {
-		t.Fatalf("logged %d times: %q", len(logs), logs)
+	if n := len(logs.Lines()); n != 1 {
+		t.Fatalf("logged %d times, want once", n)
 	}
 	e.reportSkipped(key, nil)
 	e.reportSkipped(key, []string{"rail"})
-	if len(logs) != 2 {
-		t.Errorf("logged %d times: %q", len(logs), logs)
+	if n := len(logs.Lines()); n != 2 {
+		t.Errorf("logged %d times, want twice", n)
 	}
 }
 
@@ -590,13 +584,8 @@ func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 	r.wrote(2, "the run")
 	r.settle()
 	r.expect(call{"ceiling-light", capability.On, false}, call{"floor-lamp", capability.On, false})
-	r.logs.mu.Lock()
-	skippedLogged := slices.ContainsFunc(r.logs.lines, func(l string) bool {
-		return strings.Contains(l, "Skipped Room members") && strings.Contains(l, "fridge-plug (OnOffPlugInUnit")
-	})
-	r.logs.mu.Unlock()
-	if !skippedLogged {
-		t.Errorf("no log of the skipped fridge plug in %q", r.logs.lines)
+	if !r.logs.Has("Skipped Room members", "fridge-plug (OnOffPlugInUnit") {
+		t.Error("no log of the skipped fridge plug")
 	}
 
 	// Leaving out what the set's types leave out is what it was written to do, so the run succeeds.

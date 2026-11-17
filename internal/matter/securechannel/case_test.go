@@ -6,7 +6,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net"
 	"net/netip"
@@ -22,16 +21,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
-
-func unhex(t *testing.T, s string) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
 
 // TestOperationalIPK checks connectedhomeip's group operational key vectors
 // (src/crypto/tests/TestChipCryptoPAL.cpp, TestGroup_OperationalKeyDerivation), the last of which
@@ -42,13 +33,13 @@ func TestOperationalIPK(t *testing.T) {
 		{"b0b1b2b3b4b5b6b7b8b9babbbcbdbebf", "2906C908D115D362", "aa979a48bd8cdf293a0709b9c1eb1930"},
 		{"235bf7e62823d358dca4ba50b1535f4b", "87e1b004e235a130", "a6f5306baf6d050af23ba4bd6b9dd960"},
 	} {
-		cfid := unhex(t, v.cfid)
+		cfid := testkit.Unhex(t, v.cfid)
 		var id uint64
 		for _, b := range cfid {
 			id = id<<8 | uint64(b)
 		}
-		got, err := operationalIPK(unhex(t, v.epoch), id)
-		if err != nil || !bytes.Equal(got, unhex(t, v.want)) {
+		got, err := operationalIPK(testkit.Unhex(t, v.epoch), id)
+		if err != nil || !bytes.Equal(got, testkit.Unhex(t, v.want)) {
 			t.Errorf("operationalIPK(%s, %s) = %x, %v, want %s", v.epoch, v.cfid, got, err, v.want)
 		}
 	}
@@ -60,10 +51,10 @@ func TestOperationalIPK(t *testing.T) {
 // TestDestinationID checks the spec's example, from connectedhomeip's
 // src/protocols/secure_channel/tests/TestCASESession.cpp (DestinationIdTest).
 func TestDestinationID(t *testing.T) {
-	root := unhex(t, "044a9f42b1ca4840d37292bbc7f6a7e11e22200c976fc900dbc98a7a383a641cb8254a2e56d4e295a847943b4e3897c4a773e930277b4d9fbede8a052686bfacfa")
-	ipk := unhex(t, "9bc61cd9c62a2df6d64dfcaa9dc472d4")
-	random := unhex(t, "7e171231568dfa17206b3accf8faec2f4d21b580113196f47c7c4deb810a73dc")
-	want := unhex(t, "dc35dd5fc9134cc5544538c9c3fc4297c1ec3370c839136a80e10796451d4c53")
+	root := testkit.Unhex(t, "044a9f42b1ca4840d37292bbc7f6a7e11e22200c976fc900dbc98a7a383a641cb8254a2e56d4e295a847943b4e3897c4a773e930277b4d9fbede8a052686bfacfa")
+	ipk := testkit.Unhex(t, "9bc61cd9c62a2df6d64dfcaa9dc472d4")
+	random := testkit.Unhex(t, "7e171231568dfa17206b3accf8faec2f4d21b580113196f47c7c4deb810a73dc")
+	want := testkit.Unhex(t, "dc35dd5fc9134cc5544538c9c3fc4297c1ec3370c839136a80e10796451d4c53")
 	const fabricID, nodeID = 0x2906C908D115D362, 0xCD5544AA7B13EF14
 	if got := destinationID(ipk, random, root, fabricID, nodeID); !bytes.Equal(got, want) {
 		t.Errorf("destinationID = %x, want %x", got, want)
@@ -356,12 +347,9 @@ func TestCASERefused(t *testing.T) {
 			t.Fatalf("got %v, want the controller to refuse the device", err)
 		}
 		// The controller tells the device it gave up.
-		for deadline := time.Now().Add(3 * time.Second); dev.t.SecureSessions() != 0 || dev.active() != 0; {
-			if time.Now().After(deadline) {
-				t.Fatal("the device still holds the handshake")
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
+		testkit.Eventually(t, "the device to let go of the handshake", func() bool {
+			return dev.t.SecureSessions() == 0 && dev.active() == 0
+		})
 	})
 	t.Run("wrong node", func(t *testing.T) {
 		// The device is on the fabric, but isn't the node the controller asked for.

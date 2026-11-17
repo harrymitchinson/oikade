@@ -14,6 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // gatedControls is a store whose saves wait for the test, and can fail.
@@ -460,7 +461,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 	never := func(Vars) (bool, error) { return false, nil }
 	waiting := func(t *testing.T, c *clock.Fake) {
 		t.Helper()
-		poll(t, "something to wait on the clock", c.HasWaiters)
+		testkit.Eventually(t, "something to wait on the clock", c.HasWaiters)
 	}
 	finished := func(t *testing.T, done <-chan struct{}) {
 		t.Helper()

@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 func TestHeaderRoundTrip(t *testing.T) {
@@ -85,7 +87,7 @@ func TestProtocolHeaderRoundTrip(t *testing.T) {
 
 func TestProtocolHeaderLayout(t *testing.T) {
 	p := ProtocolHeader{Initiator: true, Reliable: true, Ack: true, AckCounter: 7, Opcode: 0x20, ExchangeID: 0x0102, Protocol: SecureChannel}
-	want, _ := hex.DecodeString("07200201000007000000")
+	want := testkit.Unhex(t, "07200201000007000000")
 	if got := p.Append(nil); !bytes.Equal(got, want) {
 		t.Errorf("encoded % x, want % x", got, want)
 	}
@@ -111,7 +113,7 @@ func TestHeaderRejects(t *testing.T) {
 		"version 1":     "10 0000 00 01000000",
 		"reserved DSIZ": "03 0000 00 01000000 0000000000000000",
 	} {
-		b, _ := hex.DecodeString(strings.ReplaceAll(h, " ", ""))
+		b := testkit.Unhex(t, h)
 		if _, _, err := ParseHeader(b); !errors.Is(err, ErrMalformed) {
 			t.Errorf("%s: %v, want ErrMalformed", name, err)
 		}

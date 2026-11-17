@@ -3,7 +3,6 @@ package engine
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree is OIK-216: a hold's off-delay
@@ -51,7 +51,7 @@ func TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree(t *testing.T) {
 		Device: ident.ID{Name: "bathroom-sensor"}, Capability: capability.Humidity, Value: 75.0,
 	})
 	want := fmt.Sprint([]call{{"hall-light", capability.On, true}, {"bathroom-fan", capability.On, true}})
-	poll(t, "the fan to follow the humidity", func() bool { return fmt.Sprint(r.setter.got()) == want })
+	testkit.Eventually(t, "the fan to follow the humidity", func() bool { return fmt.Sprint(r.setter.got()) == want })
 	r.settle()
 
 	// The light kept its state while when was unknown, and goes off once it's known again.
@@ -89,32 +89,15 @@ func TestAHoldWhoseWhenStaysUnknownLogsTheStretchOnceAtInfo(t *testing.T) {
 	r.change("hall-motion", capability.Occupied, true)
 	r.at("2026-10-21 20:10 BST")
 
-	infos := func(msg string) (n int) {
-		r.logs.mu.Lock()
-		defer r.logs.mu.Unlock()
-		for _, l := range r.logs.lines {
-			if strings.Contains(l, "level=INFO") && strings.Contains(l, msg) && strings.Contains(l, "hall-light") {
-				n++
-			}
-		}
-		return n
-	}
-	r.logs.mu.Lock()
-	looks := 0
-	for _, l := range r.logs.lines {
-		if strings.Contains(l, `msg="Could not evaluate hold; keeping its state"`) && strings.Contains(l, "hall-light") {
-			looks++
-		}
-	}
-	r.logs.mu.Unlock()
-	if looks < 2 {
+	infos := func(msg string) int { return r.logs.Count("level=INFO", msg, "hall-light") }
+	if looks := r.logs.Count(`msg="Could not evaluate hold; keeping its state"`, "hall-light"); looks < 2 {
 		t.Errorf("looked %d more times while when was unknown, want at least 2, so the test shows once", looks)
 	}
 	if n := infos(`msg="Could not evaluate hold; keeping its state until it can"`); n != 1 {
-		t.Errorf("logged the start of the stretch %d times at Info, want 1: %q", n, r.logs.lines)
+		t.Errorf("logged the start of the stretch %d times at Info, want 1", n)
 	}
 	if n := infos(`msg="Evaluated hold again"`); n != 1 {
-		t.Errorf("logged the end of the stretch %d times at Info, want 1: %q", n, r.logs.lines)
+		t.Errorf("logged the end of the stretch %d times at Info, want 1", n)
 	}
 	r.expect(call{"hall-light", capability.On, true})
 }
