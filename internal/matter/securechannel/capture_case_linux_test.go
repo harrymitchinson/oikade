@@ -49,7 +49,7 @@ func TestCaptureChipToolCASE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	ran := make(chan error, 1)
 	go func() { ran <- n.Run(ctx) }()
 	defer func() {
