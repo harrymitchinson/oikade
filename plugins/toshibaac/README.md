@@ -1,6 +1,6 @@
 # Toshiba Home AC Control plugin
 
-This plugin connects Toshiba air conditioners with a WiFi module, through Toshiba Home AC Control, the cloud behind Toshiba's app ([OIK-256](https://linear.app/oikade/issue/OIK-256)). It's a plugin your home imports, once for each account. Every indoor unit in the account appears in `oikade devices`, under its ID, and on the Matter bridge as a Room Air Conditioner.
+This plugin connects Toshiba air conditioners with a WiFi module, through Toshiba Home AC Control, the cloud behind Toshiba's app ([OIK-256](https://linear.app/oikade/issue/OIK-256)). It's a plugin your home imports, once for each account. Every indoor unit in the account appears in `oikade devices`, under its hardware's ref, `hardware/<plugin>/<ID>` by the name your home imports it by, and on the Matter bridge as a Room Air Conditioner.
 
 ```go
 home.Plugin("toshiba", toshibaac.New(toshibaac.Config{

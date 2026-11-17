@@ -1,6 +1,6 @@
 # eWeLink LAN plugin
 
-This plugin connects relays with sensors that speak the eWeLink LAN protocol, such as SONOFF's TH Elite. It's a plugin your home imports ([OIK-10](https://linear.app/oikade/issue/OIK-10)). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade devices`, under its ID.
+This plugin connects relays with sensors that speak the eWeLink LAN protocol, such as SONOFF's TH Elite. It's a plugin your home imports ([OIK-10](https://linear.app/oikade/issue/OIK-10)). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade devices`, under its hardware's ref, `hardware/<plugin>/<ID>` by the name your home imports it by.
 
 ```go
 home.Plugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{

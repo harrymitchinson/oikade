@@ -335,6 +335,16 @@ func describeDriver(d Device) string {
 	return DescribeHardware(d.Driver, d.ID)
 }
 
+// HardwareRef is the ref of a device's hardware, hardware/<plugin>/<id>, or empty for one that has
+// no plugin's hardware, as with a reserved or simulated device.
+func HardwareRef(d Device) ident.Ref {
+	plugin, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
+	if !ok || d.ID == "" {
+		return ""
+	}
+	return ident.HardwareRef(plugin, d.ID)
+}
+
 // Undeclared says the line that would declare a device your home's code doesn't, as it is now, to
 // paste into it, or false for one it declares, or can't, as with a removed or simulated device.
 func Undeclared(d Device) (string, bool) {

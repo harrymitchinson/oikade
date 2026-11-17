@@ -64,6 +64,10 @@ func NewRef(k Kind, parts ...string) Ref {
 // DeviceRef is a device's ref, such as device/desk-plug.
 func DeviceRef(name string) Ref { return NewRef(Device, name) }
 
+// HardwareRef is a device's hardware's ref, such as hardware/overkiz/io:%2F%2F1234%2F5: the
+// plugin's name and the ID it knows the device by, percent-encoded where it isn't safe in a ref.
+func HardwareRef(plugin, id string) Ref { return NewRef(Hardware, plugin, id) }
+
 // CapabilityRef is a device's capability's ref, such as device/desk-plug/on.
 func CapabilityRef(device, capability string) Ref { return NewRef(Device, device, capability) }
 
