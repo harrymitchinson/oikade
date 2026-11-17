@@ -56,3 +56,15 @@ func TestABadRefSaysWhatOneLooksLike(t *testing.T) {
 		}
 	}
 }
+
+func TestADotIDKeepsItsSegment(t *testing.T) {
+	for _, id := range []string{".", ".."} {
+		r := HardwareRef("relays", id)
+		if strings.HasSuffix(r.String(), "/"+id) {
+			t.Errorf("HardwareRef(%q) = %s, a dot segment", id, r)
+		}
+		if _, parts, err := ParseRef(r.String()); err != nil || parts[1] != id {
+			t.Errorf("ParseRef(%s) = %q %v", r, parts, err)
+		}
+	}
+}

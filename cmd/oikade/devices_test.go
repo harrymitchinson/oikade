@@ -8,12 +8,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -238,5 +240,47 @@ func TestStatusMarksADeviceNotInYourCode(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), `  home.Device("new-plug").Hardware("zigbee", "0x2")`) {
 		t.Errorf("got:\n%s", stderr.String())
+	}
+}
+
+func TestDevicesShowTheirHardwareByItsRef(t *testing.T) {
+	list := registry.Snapshot{Devices: []registry.Device{
+		{Name: "study-blind", ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 2},
+		{Name: "kettle", ID: "k", Driver: "simulated/simulator", Endpoint: 3},
+	}}
+	const ref = "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5"
+	var out bytes.Buffer
+	printDevices(&out, list, deviceMarks{})
+	lines := strings.Split(out.String(), "\n")
+	if !strings.Contains(lines[0], "HARDWARE") || !strings.Contains(lines[2], ref) ||
+		!strings.Contains(lines[1], "simulated/simulator's k") {
+		t.Errorf("got\n%s", out.String())
+	}
+
+	raw, err := json.Marshal(listed(list, deviceMarks{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listing struct {
+		Devices []struct {
+			Name     string `json:"name"`
+			Hardware string `json:"hardware"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(raw, &listing); err != nil {
+		t.Fatal(err)
+	}
+	hardware := map[string]string{}
+	for _, d := range listing.Devices {
+		hardware[d.Name] = d.Hardware
+	}
+	if hardware["study-blind"] != ref || hardware["kettle"] != "" {
+		t.Errorf("got %s", raw)
+	}
+
+	// Pasted back, it's the plugin and the ID the plugin gave.
+	k, parts, err := ident.ParseRef(hardware["study-blind"])
+	if err != nil || k != ident.Hardware || !slices.Equal(parts, []string{"overkiz", "io://0812-4471-2093/5"}) {
+		t.Errorf("ParseRef(%s) = %s %q %v", ref, k, parts, err)
 	}
 }

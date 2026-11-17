@@ -175,7 +175,7 @@ const (
 func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) (undeclared []string) {
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tDRIVER\tID\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
+	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tHARDWARE\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
 	for _, d := range list.Devices {
 		state := "paired"
 		switch {
@@ -199,18 +199,31 @@ func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) (und
 			state += ", " + notInYourCode
 			undeclared = append(undeclared, line)
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state, or(d.Driver, "-"),
-			or(d.ID, "-"), d.Endpoint, or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state,
+			or(registry.HardwareRef(d).String(), hardwareOf(d)), d.Endpoint,
+			or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
 	}
 	_ = w.Flush()
 	return undeclared
+}
+
+// hardwareOf names hardware that isn't a plugin's, such as a simulated device's, by its driver and
+// ID, or "-" for a reserved name.
+func hardwareOf(d registry.Device) string {
+	if d.Driver == "" {
+		return "-"
+	}
+	return registry.DescribeHardware(d.Driver, d.ID)
 }
 
 // listedDevice is a device as oikade devices --json prints it: as on record, with what it is.
 type listedDevice struct {
 	registry.Device
 	// Ref is its ref, such as device/desk-plug.
-	Ref         string            `json:"ref"`
+	Ref string `json:"ref"`
+	// Hardware is its hardware's ref, such as hardware/zigbee2mqtt/0x00158d0001a2b3c4, for a device a
+	// plugin reports.
+	Hardware    string            `json:"hardware,omitempty"`
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
 	// PluginNotImported is a device whose plugin the running version doesn't import.
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
@@ -233,7 +246,7 @@ func listed(list registry.Snapshot, marks deviceMarks) any {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		l := listedDevice{
-			Device: d, Ref: ident.DeviceRef(d.Name).String(),
+			Device: d, Ref: ident.DeviceRef(d.Name).String(), Hardware: registry.HardwareRef(d).String(),
 			DeviceTypes:       append([]devicetype.Type{}, d.DeviceTypes()...),
 			PluginNotImported: !d.Removed && marks.unimported[d.Name],
 			Problem:           removedHasNone(d, marks.problems),
