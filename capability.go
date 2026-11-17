@@ -3,6 +3,7 @@ package oikade
 import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // Value is what a capability holds: a bool, a number or a ClimateMode.
@@ -88,6 +89,26 @@ type Choice struct {
 	Device     string
 	Capability Capability[ClimateMode]
 	g          *group
+}
+
+// String is its ref, such as device/porch-light/on, or group/radiators/setpoint for a group's.
+func (b Bool) String() string { return refOf(b.Device, string(b.Capability), b.g) }
+
+// String is its ref, such as device/study/setpoint, or room/hall/temperature for a room's.
+func (n Number) String() string { return refOf(n.Device, string(n.Capability), n.g) }
+
+// String is its ref, such as device/bedroom-ac/mode.
+func (c Choice) String() string { return refOf(c.Device, string(c.Capability), c.g) }
+
+// refOf is a capability's ref: a device's, a room's or a group's.
+func refOf(device, capability string, g *group) string {
+	switch {
+	case g == nil:
+		return ident.CapabilityRef(device, capability).String()
+	case g.room != "":
+		return ident.NewRef(ident.Room, g.room, capability).String()
+	}
+	return ident.NewRef(ident.Group, g.name, capability).String()
 }
 
 // Ref is a Bool, a Number or a Choice: a capability of one device, or of a group, whose values are

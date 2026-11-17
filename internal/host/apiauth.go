@@ -279,7 +279,7 @@ func (c *clients) list() []api.Client {
 	defer c.mu.Unlock()
 	out := make([]api.Client, 0, len(c.records))
 	for name, rec := range c.records {
-		out = append(out, api.Client{Name: name, Created: rec.Created, LastUsed: rec.LastUsed})
+		out = append(out, api.Client{Name: name, Ref: ident.NewRef(ident.Client, name).String(), Created: rec.Created, LastUsed: rec.LastUsed})
 	}
 	slices.SortFunc(out, func(a, b api.Client) int { return strings.Compare(a.Name, b.Name) })
 	return out

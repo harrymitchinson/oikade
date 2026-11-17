@@ -13,6 +13,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 const clientUsage = "usage: oikade client list | revoke NAME. " +
@@ -29,7 +30,12 @@ func runClient(ctx context.Context, args []string) error {
 	case len(words) == 1 && words[0] == "list":
 		req.Type = api.TypeClients
 	case len(words) == 2 && words[0] == "revoke":
-		req = api.Request{Type: api.TypeClientRevoke, Client: words[1]}
+		name, err := nameOf(ident.Client, words[1])
+		if err != nil {
+			return err
+		}
+		words[1] = name
+		req = api.Request{Type: api.TypeClientRevoke, Client: name}
 	default:
 		return errors.New(clientUsage)
 	}

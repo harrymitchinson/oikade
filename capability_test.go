@@ -1,6 +1,7 @@
 package oikade
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // oikade types names a handle's field and its type from the registry, so each constant here must
@@ -247,5 +249,23 @@ func TestAFlowRanksAtItsOwnLineOrTheLineForEveryFlow(t *testing.T) {
 	// A flow a decision ranks above its override line acts however late it is.
 	if !flows["leak"].Safety || flows["bedtime"].Safety {
 		t.Errorf("leak is Safety %v, bedtime %v", flows["leak"].Safety, flows["bedtime"].Safety)
+	}
+}
+
+func TestAHandlePrintsItsRef(t *testing.T) {
+	porch := Bool{Device: "porch-light", Capability: On}
+	for got, want := range map[fmt.Stringer]string{
+		porch: "device/porch-light/on",
+		Number{Device: "study", Capability: Setpoint}:  "device/study/setpoint",
+		Choice{Device: "bedroom-ac", Capability: Mode}: "device/bedroom-ac/mode",
+		NewHome(Options{}).Room("hall").Temperature:    "room/hall/temperature",
+		NewHome(Options{}).Group("lamps", hallLamp).On: "group/lamps/on",
+	} {
+		if got.String() != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+		if _, _, err := ident.ParseRef(got.String()); err != nil {
+			t.Error(err)
+		}
 	}
 }

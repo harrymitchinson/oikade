@@ -99,7 +99,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 		t.Errorf("a Safety hold: %+v", c)
 	}
 	stderr, err := r.oikade(nil, "set", "valve", "on", "on")
-	if err == nil || !strings.Contains(stderr, "valve on: leak-shutoff holds it, a safety line") {
+	if err == nil || !strings.Contains(stderr, "device/valve/on: case/valve/on/leak-shutoff holds it, a safety line") {
 		t.Errorf("set against Safety: %v: %s", err, stderr)
 	}
 	if v := onOf(t, r.status(), "valve").Value; v != false {
@@ -228,7 +228,7 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	}
 	// The claim's source is the ref a pause takes, so it pastes from oikade status --json.
 	source := winner(onOf(t, r.status(), "claimed"))
-	if out := string(r.stdout(nil, "pause", source)); !strings.Contains(out, "ended its claims on claimed on") {
+	if out := string(r.stdout(nil, "pause", source)); !strings.Contains(out, "ended its claims on device/claimed/on") {
 		t.Errorf("pause said %q", out)
 	}
 	r.wrote("claimed", true)
@@ -270,7 +270,7 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 		!got.Safety || !strings.Contains(got.WhyNot, "leak-sensor open") {
 		t.Errorf("inactive: %+v", got)
 	}
-	if out := string(r.stdout(nil, "status")); !strings.Contains(out, "valve on: leak-shutoff  case") {
+	if out := string(r.stdout(nil, "status")); !strings.Contains(out, "case/valve/on/leak-shutoff  case") {
 		t.Errorf("status didn't name the case:\n%s", out)
 	}
 
@@ -304,7 +304,7 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 		t.Errorf("paused a Safety rule without asking: %v: %s", err, stderr)
 	}
 	out := string(r.stdout(nil, "pause", "case/valve/on/leak-shutoff", "--allow-safety"))
-	if !strings.Contains(out, "It keeps its Safety claims on valve on") {
+	if !strings.Contains(out, "It keeps its Safety claims on device/valve/on") {
 		t.Errorf("pause said %q", out)
 	}
 	r.sync()

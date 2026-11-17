@@ -242,7 +242,7 @@ func (i *inventory) announce(dev ident.ID) {
 	}
 }
 
-// claimed says who holds a device: every claim, and whether one is at Safety. A device with no
+// claimed says who holds a device: every claim's source, by its ref, and whether one is at Safety. A device with no
 // arbiters can still have claims on record, waiting for it.
 func (i *inventory) claimed(name string) (holders []string, safety bool) {
 	status := i.engine.ControlOf(key(name))
@@ -251,13 +251,13 @@ func (i *inventory) claimed(name string) (holders []string, safety bool) {
 			if o.Reverted {
 				continue
 			}
-			holders = append(holders, o.Source)
+			holders = append(holders, control.SourceRef(o.Source).String())
 			safety = safety || o.Level == control.NameSafety
 		}
 	}
 	if len(status) == 0 {
 		for _, c := range i.engine.SavedClaims(key(name)) {
-			holders = append(holders, c.Source)
+			holders = append(holders, control.SourceRef(c.Source).String())
 			safety = safety || c.Level == control.Safety
 		}
 	}

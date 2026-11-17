@@ -131,13 +131,13 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 		emit:    func(e api.Event) { events = append(events, e) },
 	}
 	err := w.Set(t.Context(), dev, capability.On, true)
-	if refused, ok := errors.AsType[*driver.Refused](err); !ok || refused.Holder != "Rule/leak-shutoff" || refused.Level != control.NameSafety {
+	if refused, ok := errors.AsType[*driver.Refused](err); !ok || refused.Holder != "flow/leak-shutoff" || refused.Level != control.NameSafety {
 		t.Errorf("the write wasn't refused at Safety: %v", err)
 	}
 	// It's in the event log, once, saying who refused it.
 	if len(events) != 1 || events[0].Type != api.EventRefused || events[0].Device != "valve" ||
 		events[0].Capability != capability.On || events[0].Value != true ||
-		events[0].Message != "Rule/leak-shutoff holds it at Safety" {
+		events[0].Message != "flow/leak-shutoff holds it at Safety" {
 		t.Errorf("events %+v", events)
 	}
 	// The device hasn't reported, so the claim is all a controller can be told.

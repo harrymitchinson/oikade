@@ -30,22 +30,22 @@ func TestSetSaysWhatTheDeviceWasLeftAt(t *testing.T) {
 		c    *api.Capability
 		want string
 	}{
-		{"unarbitrated", &api.Capability{Name: "on", Value: true}, "desk-plug on is true"},
+		{"unarbitrated", &api.Capability{Name: "on", Value: true}, "device/desk-plug/on is true"},
 		{"held", &api.Capability{Name: "on", Value: false, Level: "Safety", Case: "hall-too-humid", Claims: []api.Claim{
 			{Source: "case/desk-plug/on/hall-too-humid", Case: "hall-too-humid", Level: "Safety", Value: false, Winner: true},
-		}}, "desk-plug on is false, not true: hall-too-humid holds it"},
+		}}, "device/desk-plug/on is false, not true: case/desk-plug/on/hall-too-humid holds it"},
 		{"for a while", &api.Capability{Name: "on", Value: true, Level: "Override", Claims: []api.Claim{
 			{Source: "command", Level: "Override", Value: true, Winner: true, Expires: &expires},
-		}}, "desk-plug on is true: oikade set holds it until 17:30"},
+		}}, "device/desk-plug/on is true: oikade set holds it until 17:30"},
 		{"a flow", &api.Capability{Name: "on", Value: true, Level: "Normal", Claims: []api.Claim{
 			{Source: "flow/bedtime", Level: "Normal", Value: true, Winner: true},
-		}}, "desk-plug on is true: flow/bedtime holds it"},
+		}}, "device/desk-plug/on is true: flow/bedtime holds it"},
 		{"held back", &api.Capability{
 			Name: "on", Value: false, Level: "Safety", Limit: "MinimumOff", LimitUntil: &expires,
 			Claims: []api.Claim{{Source: "case/desk-plug/on/frost", Case: "frost", Level: "Safety", Value: true, Winner: true}},
-		}, "desk-plug on is false, not true: frost holds it, resting until 17:30"},
+		}, "device/desk-plug/on is false, not true: case/desk-plug/on/frost holds it, resting until 17:30"},
 		{"written back", &api.Capability{Name: "on", Value: false, Level: "Default"},
-			"desk-plug on is false, not true: no line applies, so its Default wins"},
+			"device/desk-plug/on is false, not true: no line applies, so its Default wins"},
 	} {
 		if got := outcome("desk-plug", "on", true, tc.c); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
@@ -56,11 +56,11 @@ func TestSetSaysWhatTheDeviceWasLeftAt(t *testing.T) {
 // A driver's rounding isn't news: 33.1 is the 33 asked for, but 30 isn't.
 func TestSetDoesntCallARoundedValueADifferentOne(t *testing.T) {
 	got := outcome("lamp", "brightness", 33.0, &api.Capability{Name: "brightness", Value: 33.1})
-	if got != "lamp brightness is 33.1" {
+	if got != "device/lamp/brightness is 33.1" {
 		t.Errorf("got %q", got)
 	}
 	got = outcome("lamp", "brightness", 33.0, &api.Capability{Name: "brightness", Value: 30.0})
-	if got != "lamp brightness is 30, not 33" {
+	if got != "device/lamp/brightness is 30, not 33" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -161,9 +161,10 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 	}
 	yes, no := true, false
 	st := &api.Status{Rules: []api.Rule{
-		{Name: "desk-fan", Kind: "hold", Active: &no, OnAt: at("23:08:00")},
+		{Name: "desk-fan", Ref: "flow/desk-fan", Kind: "hold", Active: &no, OnAt: at("23:08:00")},
 		{
-			Name: "pool-pump on frost", Kind: "case", Device: "pool-pump", Capability: "on", Case: "frost", Safety: true,
+			Name: "pool-pump on frost", Ref: "case/pool-pump/on/frost", Kind: "case", Device: "pool-pump", Capability: "on",
+			Case: "frost", Safety: true,
 			Active: &no, WhyNot: "pool-water temperature is 5, not below 3",
 		},
 		{Name: "gate", Kind: "moment"},
@@ -180,8 +181,8 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 	var out bytes.Buffer
 	printStatus(&out, io.Discard, st, nil, true, now)
 	want := []string{
-		"desk-fan  hold  inactive, on at 23:08",
-		"pool-pump on: frost  case  Safety  inactive: pool-water temperature is 5, not below 3",
+		"flow/desk-fan  hold  inactive, on at 23:08",
+		"case/pool-pump/on/frost  case  Safety  inactive: pool-water temperature is 5, not below 3",
 		"gate  moment",
 		"hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy",
 		"lounge-lamp  hold  active since 23:07, off at 23:10",

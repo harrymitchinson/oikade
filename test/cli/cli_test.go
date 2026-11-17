@@ -359,8 +359,8 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("oikade dev: %v\n%s", err, out)
 	}
-	started := strings.Index(out, "porch-light on: motion applies")
-	ended := strings.Index(out, "porch-light on: motion no longer applies")
+	started := strings.Index(out, "case/porch-light/on/motion applies")
+	ended := strings.Index(out, "case/porch-light/on/motion no longer applies")
 	if started < 0 || ended < started {
 		t.Errorf("no hold starting then ending in:\n%s", out)
 	}

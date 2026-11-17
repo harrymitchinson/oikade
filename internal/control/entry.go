@@ -124,12 +124,3 @@ func RenamedKey(key string, renamed map[string]string) string {
 	}
 	return key
 }
-
-// CaseShown is how a case's rule reads, "porch-light on: motion", from its key. Any other key is
-// as it is.
-func CaseShown(key string) string {
-	if i := strings.LastIndex(key, " "); i > 0 && strings.Count(key, " ") == 2 {
-		return key[:i] + ": " + key[i+1:]
-	}
-	return key
-}

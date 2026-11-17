@@ -348,7 +348,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	start := time.Now()
 	if holder, wants := heldAtSafety(w.engine, w.devices, dev, name, value); holder != "" {
 		w.restore(dev, name, wants)
-		refused := &driver.Refused{Holder: holder, Level: control.NameSafety}
+		refused := &driver.Refused{Holder: control.SourceRef(holder).String(), Level: control.NameSafety}
 		if w.emit != nil {
 			w.emit(api.Event{
 				Time: time.Now(), Type: api.EventRefused, Device: dev.Name, Capability: name, Value: value,

@@ -21,6 +21,7 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // redirectWait is how long a sign-in in the browser may take.
@@ -39,7 +40,11 @@ func runSetup(ctx context.Context, args []string) error {
 		stdout: os.Stdout, stderr: os.Stderr, in: bufio.NewReader(os.Stdin), terminal: os.Stdin,
 		browse: browse, catch: catchRedirect,
 	}
-	return s.run(ctx, transport, host, words[0], *asJSON)
+	plugin, err := nameOf(ident.Plugin, words[0])
+	if err != nil {
+		return err
+	}
+	return s.run(ctx, transport, host, plugin, *asJSON)
 }
 
 // setupper runs a plugin's setup: it asks the person what the plugin asks, opens its pages and

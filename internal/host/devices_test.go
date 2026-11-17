@@ -97,7 +97,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if err := controls.Put(ctx, key("valve"), state); err != nil {
 		t.Fatal(err)
 	}
-	if holders, safety := known.claimed("valve"); !safety || len(holders) != 1 || holders[0] != "Rule/leak" {
+	if holders, safety := known.claimed("valve"); !safety || len(holders) != 1 || holders[0] != "flow/leak" {
 		t.Errorf("got %v, %v", holders, safety)
 	}
 	if resp, _ := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {

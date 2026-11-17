@@ -28,8 +28,8 @@ type Ref string
 var refShape = map[Kind][][]string{
 	Device:   {{}, {partDevice}, {partDevice, partCapability}},
 	Hardware: {{"PLUGIN", "ID"}},
-	Room:     {{"ROOM"}},
-	Group:    {{"GROUP"}},
+	Room:     {{"ROOM"}, {"ROOM", partCapability}},
+	Group:    {{"GROUP"}, {"GROUP", partCapability}},
 	Case:     {{partDevice, partCapability, "CASE"}},
 	Flow:     {{"FLOW"}},
 	Plugin:   {{"PLUGIN"}},

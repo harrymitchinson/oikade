@@ -217,7 +217,7 @@ func (s *Sim) start() error {
 			defer s.mu.Unlock()
 			if sc.Hold && sc.Active != s.active[key.Name] {
 				s.active[key.Name] = sc.Active
-				s.note(control.CaseShown(key.Name), map[bool]string{true: " applies", false: " no longer applies"}[sc.Active])
+				s.note(control.RuleRef(key.Name).String(), map[bool]string{true: " applies", false: " no longer applies"}[sc.Active])
 			}
 			if !sc.LastFire.IsZero() {
 				s.fires[key.Name] = sc.LastFire
