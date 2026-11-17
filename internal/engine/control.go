@@ -33,6 +33,8 @@ func controlSettings(c control.Entry, loc *time.Location) (control.Settings, err
 	switch spec.Kind {
 	case capability.KindBool:
 		s.Kind = control.Bool
+	case capability.KindName:
+		s.Kind, s.Names = control.Name, len(spec.Names)
 	default:
 		s.Kind = control.Number
 	}

@@ -56,7 +56,8 @@ type Options struct {
 type Write struct {
 	Time               time.Time
 	Device, Capability string
-	Value              any
+	// Value is a bool, a float64 or an oikade.ClimateMode.
+	Value any
 }
 
 // Claim is a claim on an arbitrated capability.
@@ -65,6 +66,7 @@ type Claim struct {
 	Source string
 	// Level is Normal, Override or Safety.
 	Level string
+	// Value is a bool, a float64 or an oikade.ClimateMode.
 	Value any
 	// Winner is the claim that decides the value.
 	Winner bool
@@ -127,8 +129,12 @@ func (h *Home) Now() time.Time { return h.sim.Now() }
 // waits for your automations to take it in.
 func (h *Home) Set[T oikade.Value](c oikade.Ref[T], value T) {
 	h.t.Helper()
-	device, name := h.names(c)
-	if err := h.sim.Set(device, name, value); err != nil {
+	// A Set is the value as the host holds it: a mode is its name.
+	device, name, v, err := simhome.FromSet(c.To(value))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err := h.sim.Set(device, name, v); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -203,12 +209,20 @@ func (h *Home) Value[T oikade.Value](c oikade.Ref[T]) (T, bool) {
 	return t, ok
 }
 
-// as is a value the simulated home holds as T, which takes an int for a number.
+// public is a value the simulated home holds as a home writes it: a mode's name is a ClimateMode.
+func public(v any) any {
+	if mode, ok := v.(string); ok {
+		return oikade.ClimateMode(mode)
+	}
+	return v
+}
+
+// as is a value the simulated home holds as T, which takes an int for a number, and a mode's name.
 func as[T oikade.Value](name string, v any) (T, bool) {
 	if valid, err := capability.Validate(name, v); err == nil {
 		v = valid
 	}
-	t, ok := v.(T)
+	t, ok := public(v).(T)
 	return t, ok
 }
 
@@ -217,6 +231,7 @@ func (h *Home) Writes() []Write {
 	writes := h.sim.Writes()
 	out := make([]Write, 0, len(writes))
 	for _, w := range writes {
+		w.Value = public(w.Value)
 		out = append(out, Write(w))
 	}
 	return out
@@ -228,6 +243,7 @@ func (h *Home) Claims[T oikade.Value](c oikade.Ref[T]) []Claim {
 	claims := h.sim.Claims(h.names(c))
 	out := make([]Claim, 0, len(claims))
 	for _, c := range claims {
+		c.Value = public(c.Value)
 		out = append(out, Claim(c))
 	}
 	return out

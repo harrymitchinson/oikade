@@ -21,13 +21,23 @@ func table() string {
 	b.WriteString("([OIK-181](https://linear.app/oikade/issue/OIK-181)). A home names them through `oikade`'s ")
 	b.WriteString("constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. ")
 	b.WriteString("Any other name is unknown.\n\n")
+	b.WriteString("A name's number, in brackets, is what claims hold and the `oikade_capability_value` gauge exports. ")
+	b.WriteString("Names are only ever added, so a number keeps its name.\n\n")
 	b.WriteString("| Name | In a home | Type | Range | Writable | Matter |\n|---|---|---|---|---|---|\n")
 	for _, name := range Names() {
 		s := registry[name]
 		kind, span := "bool", ""
-		if s.Kind == KindNumber {
+		switch s.Kind {
+		case KindNumber:
 			kind = "number"
 			span = fmt.Sprintf("%g to %g%s", s.Min, s.Max, s.Unit)
+		case KindName:
+			kind = "name"
+			var names []string
+			for i, n := range s.Names {
+				names = append(names, fmt.Sprintf("`%s` (%d)", n, i))
+			}
+			span = strings.Join(names, ", ")
 		}
 		writable := ""
 		if s.Writable {
@@ -62,11 +72,13 @@ func TestTheDocsTableIsTheRegistrys(t *testing.T) {
 }
 
 // The Matter bridge shows each capability as the attribute the registry names, so every one has one
-// but link-quality, which Matter has no attribute for.
-func TestEveryCapabilityButLinkQualityHasAMatterAttribute(t *testing.T) {
+// but link-quality, which Matter has no attribute for, and mode, which the bridge doesn't show until
+// the Room Air Conditioner does (OIK-265).
+func TestEveryCapabilityTheBridgeShowsHasAMatterAttribute(t *testing.T) {
 	for _, name := range Names() {
 		m := registry[name].Matter
 		switch {
+		case name == Mode:
 		case name == LinkQuality && m != nil:
 			t.Errorf("%s has a Matter attribute", name)
 		case name != LinkQuality && (m == nil || m.Cluster == "" || m.Attribute == "" || m.ClusterID == 0):

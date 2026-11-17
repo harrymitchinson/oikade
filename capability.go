@@ -5,8 +5,22 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
-// Value is what a capability holds: a bool or a number.
-type Value interface{ bool | float64 }
+// Value is what a capability holds: a bool, a number or a ClimateMode.
+type Value interface{ bool | float64 | ClimateMode }
+
+// ClimateMode is what an air conditioner or heat pump does while it's on: one of ModeAuto, ModeHeat,
+// ModeCool, ModeDry and ModeFan. Off isn't one: On is.
+type ClimateMode string
+
+// The modes Mode takes. oikade check refuses any other in a decision's Case or Default, and a flow
+// that writes one fails its run.
+const (
+	ModeAuto ClimateMode = contractv1.ModeAuto
+	ModeHeat ClimateMode = contractv1.ModeHeat
+	ModeCool ClimateMode = contractv1.ModeCool
+	ModeDry  ClimateMode = contractv1.ModeDry
+	ModeFan  ClimateMode = contractv1.ModeFan
+)
 
 // Capability is the name of a capability whose values are T. The constants below are every
 // capability there is.
@@ -39,6 +53,9 @@ const (
 	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
 	// fully closed. A write settles for 2 minutes while it travels.
 	Position Capability[float64] = contractv1.Position
+	// Mode is what an air conditioner or heat pump does while it's on, such as ModeDry. It's kept
+	// while the unit is off: On turns it on and off.
+	Mode Capability[ClimateMode] = contractv1.Mode
 )
 
 // Bool is one capability of one device that's true or false, such as PorchLight.On. oikade types
@@ -62,8 +79,19 @@ type Number struct {
 	g          *group
 }
 
-// Ref is a Bool or a Number: a capability of one device, or of a group, whose values are T, which a
-// decision and hometest's helpers take.
+// Choice is one capability of one device that's one of a few names, such as BedroomAC.Mode. oikade
+// types writes one for each such capability each of your devices has. It's a change, which fires
+// whenever it changes.
+//
+//	home.Decide(BedroomAC.Mode).Case("humid", oikade.ModeDry, BedroomSensor.Humidity.Above(65)).Default(oikade.ModeCool)
+type Choice struct {
+	Device     string
+	Capability Capability[ClimateMode]
+	g          *group
+}
+
+// Ref is a Bool, a Number or a Choice: a capability of one device, or of a group, whose values are
+// T, which a decision and hometest's helpers take.
 type Ref[T Value] interface {
 	// To is a write of v to the device, or to the group's members.
 	To(v T) Set
@@ -85,7 +113,7 @@ func (h handle) changes() []engine.Change {
 
 // set is a write of v to the device, the group's members that have the capability, or the room's.
 func (h handle) set(v any) Set {
-	s := Set{device: h.device, capability: h.capability, value: v}
+	s := Set{device: h.device, capability: h.capability, value: raw(v)}
 	if g := h.g; g != nil {
 		s.device, s.group = "", g
 		if g.room != "" {
@@ -103,11 +131,24 @@ func (b Bool) To(v bool) Set { return b.handle().set(v) }
 // To is a write of v to the device, or the group's members: a flow's Set.
 func (n Number) To(v float64) Set { return n.handle().set(v) }
 
+// To is a write of v to the device, or the group's members: a flow's Set.
+func (c Choice) To(v ClimateMode) Set { return c.handle().set(v) }
+
 func (b Bool) handle() handle   { return handle{b.Device, string(b.Capability), b.g} }
 func (n Number) handle() handle { return handle{n.Device, string(n.Capability), n.g} }
+func (c Choice) handle() handle { return handle{c.Device, string(c.Capability), c.g} }
 
 func (b Bool) changes() []engine.Change   { return b.handle().changes() }
 func (n Number) changes() []engine.Change { return n.handle().changes() }
+func (c Choice) changes() []engine.Change { return c.handle().changes() }
+
+// raw is a value as the engine holds it: a ClimateMode is its name.
+func raw(v any) any {
+	if m, ok := v.(ClimateMode); ok {
+		return string(m)
+	}
+	return v
+}
 
 // Becomes is a change to v: a trigger that fires when the capability changes to v, and not when it
 // changes away from it.

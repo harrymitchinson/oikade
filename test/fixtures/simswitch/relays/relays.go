@@ -8,6 +8,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 
@@ -16,14 +19,17 @@ import (
 )
 
 // relay is a simulated relay. It starts off and follows /set, as a real relay follows its wall
-// switch.
+// switch. One that simulates an air conditioner has a mode too, which starts at auto.
 type relay struct {
-	id         string
-	capability string
-	on         bool
+	id string
+	// values are the relay's, by capability.
+	values contractv1.State
 }
 
-func (r *relay) state() contractv1.State { return contractv1.State{r.capability: r.on} }
+func (r *relay) state() contractv1.State { return maps.Clone(r.values) }
+
+// capabilities are the relay's, sorted.
+func (r *relay) capabilities() []string { return slices.Sorted(maps.Keys(r.values)) }
 
 // switches is the simswitch handler: one simulated relay per declared device.
 type switches struct {
@@ -75,9 +81,9 @@ func fault(id string) string {
 }
 
 // discoveredAs is a relay as the simulated app lists it, under its name there.
-func discoveredAs(d contractv1.DeclaredDevice, id, capability string) contractv1.DiscoveredDevice {
+func discoveredAs(d contractv1.DeclaredDevice, id string, capabilities ...string) contractv1.DiscoveredDevice {
 	return contractv1.DiscoveredDevice{
-		ID: id, Manufacturer: manufacturer, Model: model, Capabilities: []string{capability},
+		ID: id, Manufacturer: manufacturer, Model: model, Capabilities: capabilities,
 		Name: d.DisplayName, Room: d.Room,
 	}
 }
@@ -89,6 +95,8 @@ func discoveredAs(d contractv1.DeclaredDevice, id, capability string) contractv1
 // reported not found, and the plugin says in its status that its simulated account refused its
 // login, as a cloud plugin would. One with .needs-setup makes the plugin say it needs its
 // setup run, until it is. All four keep to the contract.
+//
+// One with .air-conditioner has a mode as well as an on, so the suite writes a name.
 //
 // Three break it, so the conformance suite's own tests can see it fail: one with .unstable-id
 // is discovered under a new ID each start, and one with .old-name reports a capability by a
@@ -119,16 +127,19 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 		case "refused-setup":
 			s.refuseSetup = true
 		}
-		c := contractv1.On
-		if simulate == "old-name" {
-			c = "switch.on" // A name from before OIK-181, which Oikade no longer knows.
+		r := &relay{id: d.ID, values: contractv1.State{contractv1.On: false}}
+		switch simulate {
+		case "old-name":
+			// A name from before OIK-181, which Oikade no longer knows.
+			r.values = contractv1.State{"switch.on": false}
+		case "air-conditioner":
+			r.values[contractv1.Mode] = contractv1.ModeAuto
 		}
-		r := &relay{id: d.ID, capability: c}
 		s.order = append(s.order, r)
 		s.relays[d.ID] = r
 		// No DeviceType: a relay can't tell what it switches.
 		s.reports = append(s.reports, contractv1.DeviceReport{
-			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: []string{c},
+			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: r.capabilities(),
 		})
 		id := d.ID
 		if simulate == "unstable-id" {
@@ -136,7 +147,7 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 			_, _ = rand.Read(b)
 			id = d.ID + "-" + hex.EncodeToString(b)
 		}
-		s.discovered = append(s.discovered, discoveredAs(d, id, c))
+		s.discovered = append(s.discovered, discoveredAs(d, id, r.capabilities()...))
 	}
 	// A host records what it's shown, so the spare can come back declared.
 	if s.relays[spare.ID] == nil {
@@ -182,7 +193,7 @@ func (s *switches) publishInitial(ctx context.Context, p *plugin.Plugin, r *rela
 	return p.SetState(ctx, r.id, r.state())
 }
 
-// Set switches a relay and reports its new state.
+// Set switches a relay, or changes its mode, and reports its new state.
 func (s *switches) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
 	state, err := s.apply(cmd)
 	if err != nil {
@@ -194,15 +205,19 @@ func (s *switches) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.Set
 func (s *switches) apply(cmd contractv1.SetCommand) (contractv1.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var current any
 	r, ok := s.relays[cmd.ID]
-	if !ok || r.capability != cmd.Capability {
+	if ok {
+		current, ok = r.values[cmd.Capability]
+	}
+	if !ok {
 		return nil, fmt.Errorf("no switch %s with %s", cmd.ID, cmd.Capability)
 	}
-	on, ok := cmd.Value.(bool)
-	if !ok {
-		return nil, fmt.Errorf("%s must be a bool", cmd.Capability)
+	// The plugin SDK has checked the value against the capability. This is the relay's own check.
+	if reflect.TypeOf(cmd.Value) != reflect.TypeOf(current) {
+		return nil, fmt.Errorf("%s must be a %T", cmd.Capability, current)
 	}
-	r.on = on
+	r.values[cmd.Capability] = cmd.Value
 	return r.state(), nil
 }
 

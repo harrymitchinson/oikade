@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
@@ -269,5 +272,38 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	// Out of a room no hold reads, it says nothing.
 	if stderr, err := r.oikade(nil, "devices", "remove", "fan"); err != nil || strings.Contains(stderr, "Warning") {
 		t.Errorf("got %v: %q from a room no hold reads", err, stderr)
+	}
+}
+
+// A claim on a mode is saved as the mode's number and comes back from disk as its name: the host
+// writes it again, and oikade status shows it by name.
+func TestAClaimOnAModeSurvivesARestart(t *testing.T) {
+	t.Parallel()
+	r := flowRig(t, "")
+	r.launch(settle)
+	r.awaitLoaded()
+	r.change("bedroom-damp", opened, true)
+	r.wrote("bedroom-ac", "dry")
+	r.sync()
+	r.stop()
+	claims := r.savedClaims("bedroom-ac", "mode")
+	if !holdsClaim(claims, "Rule/bedroom-dry-out", control.Normal) {
+		t.Fatalf("no claim from the flow: %+v", claims)
+	}
+	if dry, _ := capability.Lookup(capability.Mode); claims[0].Value != float64(slices.Index(dry.Names, "dry")) {
+		t.Errorf("the claim holds %v, want dry's number", claims[0].Value)
+	}
+
+	// The simulated unit starts in cool again, its decision's Default, so only the saved claim makes
+	// it dry.
+	r.launch(settle)
+	r.awaitLoaded()
+	r.sync()
+	if n := r.count(wrote, "device", "bedroom-ac", "value", "dry"); n != 2 {
+		t.Fatalf("dry was written %d times, want again after the restart. The log:\n%s", n, r.dump())
+	}
+	c := capabilityOf(t, r.status("bedroom-ac"), "bedroom-ac", "mode")
+	if c.Value != "dry" || c.Level != "Normal" || len(c.Claims) == 0 || c.Claims[0].Value != "dry" {
+		t.Errorf("status has the mode as %+v", c)
 	}
 }

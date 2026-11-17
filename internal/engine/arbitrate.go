@@ -366,8 +366,14 @@ func (e *Engine) writeControl(ctx context.Context, dev ident.ID, name string, ar
 
 // ValueOf turns an arbiter value into the capability's value.
 func ValueOf(name string, v float64) any {
-	if spec, ok := capability.Lookup(name); ok && spec.Kind == capability.KindBool {
+	spec, _ := capability.Lookup(name)
+	switch spec.Kind {
+	case capability.KindBool:
 		return v != 0
+	case capability.KindName:
+		if n, ok := capability.NameOf(name, v); ok {
+			return n
+		}
 	}
 	return v
 }

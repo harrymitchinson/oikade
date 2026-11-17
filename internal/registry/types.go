@@ -168,10 +168,9 @@ func handles(d Device) []handle {
 		if !ok || slices.ContainsFunc(out, func(h handle) bool { return h.field == spec.Go }) {
 			continue
 		}
-		typ := "Bool"
-		if spec.Kind == capability.KindNumber {
-			typ = "Number"
-		}
+		typ := map[capability.Kind]string{
+			capability.KindBool: "Bool", capability.KindNumber: "Number", capability.KindName: "Choice",
+		}[spec.Kind]
 		out = append(out, handle{field: spec.Go, typ: typ})
 	}
 	slices.SortFunc(out, func(a, b handle) int { return strings.Compare(a.field, b.field) })

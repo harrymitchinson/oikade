@@ -27,6 +27,7 @@ func TestTheConstantsAreTheRegistrys(t *testing.T) {
 		b("Open", Open), b("Occupied", Occupied), n("Battery", Battery), n("LinkQuality", LinkQuality),
 		n("Setpoint", Setpoint),
 		b("Locked", Locked), n("Position", Position),
+		{"Mode", string(Mode), capability.KindName},
 	}
 	values := make([]string, 0, len(all))
 	for _, c := range all {
@@ -96,6 +97,70 @@ func TestASetReachesTheEngineWhole(t *testing.T) {
 	becomes := []engine.Change{{Device: "heater", Capability: "on", To: true}}
 	if got := heater.Becomes(true).changes(); !reflect.DeepEqual(got, becomes) {
 		t.Errorf("a Becomes is %+v", got)
+	}
+}
+
+// The modes are the registry's names for mode, in its order.
+func TestTheModesAreTheRegistrys(t *testing.T) {
+	spec, _ := capability.Lookup(string(Mode))
+	got := []string{string(ModeAuto), string(ModeHeat), string(ModeCool), string(ModeDry), string(ModeFan)}
+	if !slices.Equal(got, spec.Names) {
+		t.Errorf("the modes are %v, and the registry has %v", got, spec.Names)
+	}
+}
+
+// A mode is its name to the engine, and a ClimateMode again to the home that reads it.
+func TestAModeIsItsNameToTheEngine(t *testing.T) {
+	ac := Choice{Device: "bedroom-ac", Capability: Mode}
+	want := engine.Set{Device: "bedroom-ac", Capability: "mode", Value: "dry"}
+	if got := ac.To(ModeDry).toEngine(nil, "f"); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if got := room("bedroom").Mode.To(ModeFan).toEngine(nil, "f"); !reflect.DeepEqual(got,
+		engine.Set{Room: "bedroom", Capability: "mode", Value: "fan"}) {
+		t.Errorf("a room's mode: got %+v", got)
+	}
+	if got := ac.changes(); !reflect.DeepEqual(got, []engine.Change{{Device: "bedroom-ac", Capability: "mode"}}) {
+		t.Errorf("a mode's change is %+v", got)
+	}
+
+	s := Snapshot{devices: map[string]map[string]any{"bedroom-ac": {"mode": "cool"}}}
+	if got := s.Get(ac); got != ModeCool {
+		t.Errorf("Get = %q, want cool", got)
+	}
+	if got, ok := s.Lookup(ac); !ok || got != ModeCool {
+		t.Errorf("Lookup = %q, %v", got, ok)
+	}
+}
+
+// A decision on a mode holds its name, and its default is the name in JSON. A name that isn't a
+// mode compiles in Go, as an untyped string, and oikade check refuses it in a case or a default, as
+// it does limits. A flow's write of one fails its run, as any invalid write does.
+func TestADecisionOnAModeHoldsItsName(t *testing.T) {
+	ac := Choice{Device: "bedroom-ac", Capability: Mode}
+	humid := ConditionFunc("humid", func(Snapshot) bool { return true })
+	decided, err := decide(func(h *Home) {
+		h.Decide(ac).Case("humid", ModeDry, humid).Default(ModeCool)
+	}).compileDecisions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decided[0].cases[0].hold.Value; got != "dry" {
+		t.Errorf("the case holds %#v, want \"dry\"", got)
+	}
+	if got := string(decided[0].entry.Default); got != `"cool"` {
+		t.Errorf("the default is %s", got)
+	}
+
+	for name, f := range map[string]func(h *Home){
+		"a case":    func(h *Home) { h.Decide(ac).Case("humid", "dyr", humid).Default(ModeCool) },
+		"a default": func(h *Home) { h.Decide(ac).Default("off") },
+		// A limit counts time on, which a mode has no part in.
+		"limits": func(h *Home) { h.Decide(ac).Limits(Limits{MaximumOn: time.Hour}).Default(ModeCool) },
+	} {
+		if _, _, err := decide(f).compile(); err == nil {
+			t.Errorf("%s compiled", name)
+		}
 	}
 }
 

@@ -10,11 +10,12 @@ import (
 )
 
 // homeDevices are a home's devices, one of them reserved.
-var homeDevices = Snapshot{Next: 6, Devices: []Device{
+var homeDevices = Snapshot{Next: 7, Devices: []Device{
 	{Name: "porch-light", Room: "porch", Capabilities: []string{"on"}, Endpoint: 2},
 	{Name: "porch-sensor", Room: "porch", Capabilities: []string{"occupied"}, Endpoint: 3},
 	{Name: "hallway", Capabilities: []string{"on", "brightness"}, Endpoint: 4},
 	{Name: "garden-light", Endpoint: 5},
+	{Name: "bedroom-ac", Room: "bedroom", Capabilities: []string{"on", "mode"}, Endpoint: 6},
 }}
 
 // homeWith is a home whose rules are body, which adds them to home.
@@ -61,7 +62,26 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			At(oikade.Clock("23:30")).
 			When(PorchSensor.Occupied, home.Room("porch").Occupied)
 		porch := home.Group("porch", PorchLight, PorchSensor, GardenLight)
-		home.Decide(porch.On).Case("dusk", true, oikade.Daily("18:00", "23:00")).Default(false)`},
+		home.Decide(porch.On).Case("dusk", true, oikade.Daily("18:00", "23:00")).Default(false)
+		home.Decide(BedroomAc.Mode).Case("humid", oikade.ModeDry, PorchSensor.Occupied).Default(oikade.ModeCool)
+		home.Flow("cool-down", func(r *oikade.FlowRun) {
+			if r.Get(BedroomAc.Mode) != oikade.ModeCool {
+				r.Set(BedroomAc.Mode.To(oikade.ModeCool))
+			}
+			r.Set(home.Room("bedroom").Mode.To(oikade.ModeFan))
+		}).At(oikade.Clock("14:00"))`},
+		"a misspelt mode": {
+			body: `home.Decide(BedroomAc.Mode).Default(oikade.ModeDyr)`,
+			want: "undefined: oikade.ModeDyr",
+		},
+		"a mode set to a number": {
+			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(BedroomAc.Mode.To(3)) })`,
+			want: "cannot use 3",
+		},
+		"a mode as a case of a bool": {
+			body: `home.Decide(BedroomAc.On).Case("a", oikade.ModeDry, PorchSensor.Occupied).Default(false)`,
+			want: "cannot use oikade.ModeDry",
+		},
 		"a capability the device hasn't": {
 			body: `home.Decide(PorchLight.Occupied).Default(false)`,
 			want: "PorchLight.Occupied undefined",

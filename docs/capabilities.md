@@ -4,6 +4,8 @@
 
 Every capability Oikade knows, named for people rather than for a protocol ([OIK-181](https://linear.app/oikade/issue/OIK-181)). A home names them through `oikade`'s constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. Any other name is unknown.
 
+A name's number, in brackets, is what claims hold and the `oikade_capability_value` gauge exports. Names are only ever added, so a number keeps its name.
+
 | Name | In a home | Type | Range | Writable | Matter |
 |---|---|---|---|---|---|
 | `battery` | `oikade.Battery` | number | 0 to 100% |  | Power Source (0x002F) BatPercentRemaining (0x000C) |
@@ -11,6 +13,7 @@ Every capability Oikade knows, named for people rather than for a protocol ([OIK
 | `humidity` | `oikade.Humidity` | number | 0 to 100% |  | Relative Humidity Measurement (0x0405) MeasuredValue (0x0000) |
 | `link-quality` | `oikade.LinkQuality` | number | 0 to 255 |  | none |
 | `locked` | `oikade.Locked` | bool |  | yes | Door Lock (0x0101) LockState (0x0000) |
+| `mode` | `oikade.Mode` | name | `auto` (0), `heat` (1), `cool` (2), `dry` (3), `fan` (4) | yes | none |
 | `occupied` | `oikade.Occupied` | bool |  |  | Occupancy Sensing (0x0406) Occupancy (0x0000) |
 | `on` | `oikade.On` | bool |  | yes | On/Off (0x0006) OnOff (0x0000) |
 | `open` | `oikade.Open` | bool |  |  | Boolean State (0x0045) StateValue (0x0000), inverted |
