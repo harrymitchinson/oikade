@@ -73,7 +73,7 @@ func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 	waitForRules(ctx, t, local, func(r map[string]api.Rule) bool { return r["heater"].Stopped == "" })
 
 	// A paused hold has no state: its process isn't running it.
-	if resp, err := api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "lamp-on"}); err != nil || resp.Error != "" {
+	if resp, err := api.Call(ctx, local, api.Request{Type: api.TypePause, Rule: "flow/lamp-on"}); err != nil || resp.Error != "" {
 		t.Fatalf("pause: got %+v, %v", resp, err)
 	}
 	if lamp := waitForRules(ctx, t, local, func(r map[string]api.Rule) bool { return r["lamp-on"].Paused })["lamp-on"]; lamp.Active != nil {

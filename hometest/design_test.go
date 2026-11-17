@@ -81,7 +81,7 @@ func TestThePorchLightLingersAfterMotion(t *testing.T) {
 	h.ExpectValue(porchLight, false)
 	h.Set(porchSensor, true)
 	h.ExpectValue(porchLight, true)
-	h.ExpectClaim(porchLight, "Rule/porch-light on motion", "Normal")
+	h.ExpectClaim(porchLight, "case/porch-light/on/motion", "Normal")
 	h.Set(porchSensor, false)
 	h.Restart()
 	h.Advance(4 * time.Minute)
@@ -97,7 +97,7 @@ func TestThePoolPumpRunsInSwimmingHoursAndASwitchWinsForAWhile(t *testing.T) {
 	h.ExpectValue(poolPump, false)
 	h.Advance(4*time.Hour + time.Minute)
 	h.ExpectValue(poolPump, true)
-	h.ExpectClaim(poolPump, "Rule/pool-pump on swimming-hours", "Normal")
+	h.ExpectClaim(poolPump, "case/pool-pump/on/swimming-hours", "Normal")
 
 	h.Advance(time.Hour)
 	h.Set(poolPump, false)
@@ -117,7 +117,7 @@ func TestThePoolPumpsFrostRunBeatsItsSwitch(t *testing.T) {
 	h.ExpectValue(poolPump, false)
 	h.Set(poolWater, 2.0)
 	h.ExpectValue(poolPump, true)
-	h.ExpectClaim(poolPump, "Rule/pool-pump on frost", "Safety")
+	h.ExpectClaim(poolPump, "case/pool-pump/on/frost", "Safety")
 	// A tap on its switch a minute later turns it off, and its MinimumOff, which beats every line,
 	// rests it for a quarter of an hour before frost turns it back on.
 	h.Advance(time.Minute)
@@ -142,7 +142,7 @@ func TestThePoolPumpRunsInTheCheapHoursInSpring(t *testing.T) {
 	h.ExpectValue(poolPump, false)
 	h.Advance(2 * time.Minute)
 	h.ExpectValue(poolPump, true)
-	h.ExpectClaim(poolPump, "Rule/pool-pump on shoulder", "Normal")
+	h.ExpectClaim(poolPump, "case/pool-pump/on/shoulder", "Normal")
 	h.Advance(5 * time.Hour)
 	h.ExpectValue(poolPump, false)
 }
@@ -228,7 +228,7 @@ func TestTheGarageHeaterLatchesOffUntilTheDoorOpens(t *testing.T) {
 	h.ExpectValue(garageHeater, true)
 	h.Set(garageTemp, 45.0)
 	h.ExpectValue(garageHeater, false)
-	h.ExpectClaim(garageHeater, "Rule/garage-heater on overheat", "Safety")
+	h.ExpectClaim(garageHeater, "case/garage-heater/on/overheat", "Safety")
 	h.Set(garageTemp, 20.0)
 	h.Restart()
 	h.Advance(time.Hour)
@@ -297,7 +297,7 @@ func TestTheFrontDoorLightsTheHallAndTurnsTheRadiatorDown(t *testing.T) {
 	h := flowsTest(t, time.Date(2030, time.January, 7, 18, 0, 0, 0, time.UTC))
 	h.Set(frontDoor, true)
 	h.ExpectValue(hallLight, true)
-	h.ExpectClaim(hallLight, "Rule/front-door-arrival", "Normal")
+	h.ExpectClaim(hallLight, "flow/front-door-arrival", "Normal")
 	h.Advance(4 * time.Minute)
 	h.ExpectValue(hallLight, false)
 	h.Restart()
@@ -328,7 +328,7 @@ func TestTheLeakFlowBeatsASwitchAndTheOthersDont(t *testing.T) {
 	h := flowsTest(t, time.Date(2030, time.January, 7, 22, 0, 0, 0, time.UTC))
 	h.Advance(61 * time.Minute)
 	h.ExpectValue(mainsValve, false)
-	h.ExpectClaim(mainsValve, "Rule/night-off", "Normal")
+	h.ExpectClaim(mainsValve, "flow/night-off", "Normal")
 	h.Set(mainsValve, true)
 	h.Advance(59 * time.Minute)
 	h.ExpectValue(mainsValve, true)
@@ -336,7 +336,7 @@ func TestTheLeakFlowBeatsASwitchAndTheOthersDont(t *testing.T) {
 	h.ExpectValue(mainsValve, false)
 
 	h.Set(sinkHumidity, 95.0)
-	h.ExpectClaim(mainsValve, "Rule/leak", "Safety")
+	h.ExpectClaim(mainsValve, "flow/leak", "Safety")
 	h.Advance(time.Minute)
 	h.Set(mainsValve, true)
 	h.ExpectValue(mainsValve, false)
@@ -344,7 +344,7 @@ func TestTheLeakFlowBeatsASwitchAndTheOthersDont(t *testing.T) {
 	// Night-off's claim ends at 07:00, and the leak's lasts until it's released.
 	h.Advance(12 * time.Hour)
 	h.ExpectValue(mainsValve, false)
-	h.ExpectClaim(mainsValve, "Rule/leak", "Safety")
+	h.ExpectClaim(mainsValve, "flow/leak", "Safety")
 }
 
 // The design's radiators, declared as oikade types writes them.
@@ -447,7 +447,7 @@ func TestTheRadiatorsFollowTheWeatherAcrossARestart(t *testing.T) {
 	h := radiatorsTest(t, 8)
 	for _, r := range []radiatorDevice{BedroomRadiator, StudyRadiator, KitchenRadiator} {
 		h.ExpectValue(r.Setpoint, 19)
-		h.ExpectClaim(r.Setpoint, "Rule/radiators setpoint weather", "Normal")
+		h.ExpectClaim(r.Setpoint, "case/radiators/setpoint/weather", "Normal")
 	}
 	h.Set(OutdoorSensor.Temperature, 8.5) // 18.875, which rounds to 19
 	h.Restart()
@@ -471,7 +471,7 @@ func TestAnOpenWindowTurnsEveryRadiatorDown(t *testing.T) {
 	h.Advance(2 * time.Minute)
 	for _, r := range []radiatorDevice{BedroomRadiator, StudyRadiator, KitchenRadiator} {
 		h.ExpectValue(r.Setpoint, 7)
-		h.ExpectClaim(r.Setpoint, "Rule/radiators setpoint windows-open", "Safety")
+		h.ExpectClaim(r.Setpoint, "case/radiators/setpoint/windows-open", "Safety")
 	}
 	h.Set(KitchenWindow.Open, false)
 	h.ExpectValue(BedroomRadiator.Setpoint, 19)
@@ -485,7 +485,7 @@ func TestTheStudyIsWarmWhileSomeoneWorksThere(t *testing.T) {
 	h.Advance(4 * time.Hour) // 10:00
 	h.Set(StudySensor.Occupied, true)
 	h.ExpectValue(StudyRadiator.Setpoint, 21)
-	h.ExpectClaim(StudyRadiator.Setpoint, "Rule/study-radiator setpoint working", "Safety")
+	h.ExpectClaim(StudyRadiator.Setpoint, "case/study-radiator/setpoint/working", "Safety")
 	h.ExpectValue(BedroomRadiator.Setpoint, 19)
 
 	h.Set(StudyWindow.Open, true)
@@ -503,7 +503,7 @@ func TestATapOnOneRadiatorWinsOnlyThere(t *testing.T) {
 	h := radiatorsTest(t, 8)
 	h.Advance(time.Minute) // past the settle of the engine's write
 	h.Set(BedroomRadiator.Setpoint, 23.0)
-	h.ExpectClaim(BedroomRadiator.Setpoint, "Device", "Override")
+	h.ExpectClaim(BedroomRadiator.Setpoint, "device", "Override")
 	h.Set(OutdoorSensor.Temperature, 12.0)
 	h.ExpectValue(BedroomRadiator.Setpoint, 23)
 	h.ExpectValue(KitchenRadiator.Setpoint, 18)

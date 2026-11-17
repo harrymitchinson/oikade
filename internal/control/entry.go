@@ -109,7 +109,7 @@ func CaseKey(device, capability, name string) string { return device + " " + cap
 // CaseOf is the name of the case whose claims come from source, if it's one of device's
 // capability's.
 func CaseOf(source, device, capability string) (string, bool) {
-	return strings.CutPrefix(source, "Rule/"+CaseKey(device, capability, ""))
+	return strings.CutPrefix(source, SourceRule+CaseKey(device, capability, ""))
 }
 
 // RenamedKey is a case's key, or an average's, "<device> <capability> <rest>", once its device has

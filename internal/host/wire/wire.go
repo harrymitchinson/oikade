@@ -134,7 +134,7 @@ func OwnCases(settings []DeviceControl) []string {
 			continue
 		}
 		for _, l := range c.Entry.Lines {
-			if k, ok := strings.CutPrefix(l, "Rule/"+c.Device+" "); ok {
+			if k, ok := strings.CutPrefix(l, control.SourceRule+c.Device+" "); ok {
 				keys = append(keys, c.Device+" "+k)
 			}
 		}

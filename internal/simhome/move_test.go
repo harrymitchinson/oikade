@@ -105,7 +105,7 @@ func TestARoomsDecisionHoldsTheDevicesThereNow(t *testing.T) {
 			t.Errorf("%s's claims are %v, want %q", device, sources, source)
 		}
 	}
-	expect("ceiling", true, "Rule/hall on evening")
+	expect("ceiling", true, "case/hall/on/evening")
 	expect("lamp", false, "")
 	expect("spare", false, "")
 
@@ -113,7 +113,7 @@ func TestARoomsDecisionHoldsTheDevicesThereNow(t *testing.T) {
 	if err := sim.Move("spare", "hall"); err != nil {
 		t.Fatal(err)
 	}
-	expect("spare", true, "Rule/hall on evening")
+	expect("spare", true, "case/hall/on/evening")
 	// One that moves out is the room's no more.
 	if err := sim.Move("ceiling", "attic"); err != nil {
 		t.Fatal(err)

@@ -169,10 +169,10 @@ func TestClaimsAreArbitrated(t *testing.T) {
 	h := hometest.New(t, arbitrated(), hometest.Options{Devices: devices()})
 	h.Advance(90 * time.Minute)
 	h.ExpectValue(pump, true)
-	h.ExpectClaim(pump, "Rule/pump on night", "Safety")
+	h.ExpectClaim(pump, "case/pump/on/night", "Safety")
 	// A tap in an app loses to a safety line.
 	h.Set(pump, false)
-	h.ExpectClaim(pump, "Rule/pump on night", "Safety")
+	h.ExpectClaim(pump, "case/pump/on/night", "Safety")
 	h.Advance(time.Hour)
 	h.ExpectValue(pump, false)
 	if got := h.Claims(pump); len(got) != 0 {
@@ -645,7 +645,7 @@ func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 						t.Fatalf("wrote the heater on: %v", h.Writes())
 					}
 				}
-				h.ExpectClaim(heater, "Rule/heater on cutoff", "Safety")
+				h.ExpectClaim(heater, "case/heater/on/cutoff", "Safety")
 			}
 		})
 	}
@@ -710,8 +710,8 @@ func TestAFailedExpectSaysWhatItFound(t *testing.T) {
 		{"ExpectValue with no value", func() { h.ExpectValue(unread, true) }, "unread on has no value, want true"},
 		{"ExpectWrite", func() { h.ExpectWrite(light, false) }, "nothing wrote false to light on. Writes: []"},
 		{
-			"ExpectClaim", func() { h.ExpectClaim(fan, "Rule/fan on humid", "Normal") },
-			"Rule/fan on humid holds no Normal claim on fan on. Claims: []",
+			"ExpectClaim", func() { h.ExpectClaim(fan, "case/fan/on/humid", "Normal") },
+			"case/fan/on/humid holds no Normal claim on fan on. Claims: []",
 		},
 		{"ExpectFinished", func() { h.ExpectFinished("airing") }, "airing hasn't finished. How it ended otherwise: []"},
 	} {
@@ -723,9 +723,9 @@ func TestAFailedExpectSaysWhatItFound(t *testing.T) {
 	h.Set(light, false)
 	expectFails(t, ft, "ExpectWrite", func() { h.ExpectWrite(fan, false) },
 		"nothing wrote false to fan on. Writes: [{2030-01-07 00:00:00 +0000 UTC fan on true}]")
-	expectFails(t, ft, "ExpectClaim", func() { h.ExpectClaim(fan, "Rule/fan on humid", "Safety") },
-		"Rule/fan on humid holds no Safety claim on fan on. "+
-			"Claims: [{Source:Rule/fan on humid Level:Normal Value:true Winner:true Latched:false}]")
+	expectFails(t, ft, "ExpectClaim", func() { h.ExpectClaim(fan, "case/fan/on/humid", "Safety") },
+		"case/fan/on/humid holds no Safety claim on fan on. "+
+			"Claims: [{Source:case/fan/on/humid Level:Normal Value:true Winner:true Latched:false}]")
 	expectFails(t, ft, "ExpectFinished", func() { h.ExpectFinished("airing") },
 		"airing hasn't finished. How it ended otherwise: [failed]")
 }
@@ -769,7 +769,7 @@ func TestAnAirConditionersModeFollowsTheHumidity(t *testing.T) {
 	h.Set(sensor, 80.0)
 	h.ExpectWrite(ac, oikade.ModeDry)
 	h.ExpectValue(ac, oikade.ModeDry)
-	h.ExpectClaim(ac, "Rule/bedroom-ac mode humid", "Normal")
+	h.ExpectClaim(ac, "case/bedroom-ac/mode/humid", "Normal")
 	if w := h.Writes(); w[len(w)-1].Value != oikade.ModeDry {
 		t.Errorf("the last write is %#v, want oikade.ModeDry", w[len(w)-1].Value)
 	}
@@ -779,7 +779,7 @@ func TestAnAirConditionersModeFollowsTheHumidity(t *testing.T) {
 
 	h.Restart()
 	h.ExpectValue(ac, oikade.ModeDry)
-	h.ExpectClaim(ac, "Rule/bedroom-ac mode humid", "Normal")
+	h.ExpectClaim(ac, "case/bedroom-ac/mode/humid", "Normal")
 
 	h.Set(ac, oikade.ModeFan)
 	h.ExpectValue(ac, oikade.ModeFan)

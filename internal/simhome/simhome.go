@@ -475,7 +475,7 @@ func (s *Sim) Claims(device, name string) []Claim {
 			if err := json.Unmarshal(o.Value, &v); err != nil {
 				continue
 			}
-			out = append(out, Claim{Source: o.Source, Level: o.Level, Value: v, Winner: o.Winner, Latched: o.Latched})
+			out = append(out, Claim{Source: control.SourceRef(o.Source).String(), Level: o.Level, Value: v, Winner: o.Winner, Latched: o.Latched})
 		}
 	}
 	return out

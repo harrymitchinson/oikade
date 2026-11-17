@@ -105,7 +105,7 @@ home.Flow("lights-out", func(r *oikade.FlowRun) {
 }).When(home.Room("hallway").Occupied) // any sensor in the hallway
 ```
 
-A group's members are devices from `devices.go`, which `oikade types` writes, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `radiators setpoint: windows-open`, so it can't be a device's name too.
+A group's members are devices from `devices.go`, which `oikade types` writes, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `radiators setpoint: windows-open` and `case/radiators/setpoint/windows-open`, so it can't be a device's name too.
 
 A room's devices change as a device is paired, removed or [declared](devices.md#declaring-devices-in-code) in another room, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there. Its kinds say which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
 
@@ -224,7 +224,7 @@ In this example, motion turns the light on, and it goes off 5 minutes after the 
 
 A report soon after a write is the device catching up, not an outside change: for 5 seconds, or as long as the capability takes to settle, which is 2 minutes for a blind's `position` and 30 seconds for `locked` ([OIK-23](https://linear.app/oikade/issue/OIK-23)). So a blind reporting 20, 40 and 60 on its way to 70 isn't an override. A report of something else once that's up is, so a blind that someone stopped at 45 is an override at 45, two minutes after the write. A report within half a step of the write is the write, as a driver rounds a brightness of 33 to 33.1 ([OIK-271](https://linear.app/oikade/issue/OIK-271)), so a setpoint turned 0.5 °C from it is still an override. A device's first report after the host starts isn't one either: a change made while the host was down is undone, and the winner written again.
 
-An outside change is recorded by the path it came in by: `Matter` for a command through the bridge, such as a Home app tap, `Command` for `oikade set`, and `Device` for anything else, such as a wall switch. A case's claim is `Rule/<device> <capability> <case>`. Oikade can't tell what a person did, so nothing is called "manual".
+An outside change is recorded by the path it came in by, and a claim's source in `oikade status --json` is its [ref](devices.md#refs): `matter` for a command through the bridge, such as a Home app tap, `command` for `oikade set`, and `device` for anything else, such as a wall switch. A case's claim is `case/<device>/<capability>/<case>`, and a flow's `flow/<flow>`. Oikade can't tell what a person did, so nothing is called "manual".
 
 ### Claims from flows
 
@@ -293,7 +293,7 @@ home.Decide(StudyRadiator.Setpoint).
 	Default(18)
 ```
 
-The value is rounded to the capability's step, 0.5 for a setpoint and 1 for brightness and position, or to `.Step(n)`'s, and kept within the capability's bounds. It's written only when the value is three quarters of a step from the last one written, so a reading that wobbles across a rounding edge isn't a write each time. The host saves the last one written, so a restart doesn't write it again. A function that gives NaN or an infinity counts as an unreported reading. The reading can be an [`AverageOver`](#conditions). Until it's reported, the lines below apply, and `oikade status` says why. A `Follow` is a line like a case, named `study-radiator setpoint: weather`, so `oikade pause study-radiator setpoint weather` pauses it.
+The value is rounded to the capability's step, 0.5 for a setpoint and 1 for brightness and position, or to `.Step(n)`'s, and kept within the capability's bounds. It's written only when the value is three quarters of a step from the last one written, so a reading that wobbles across a rounding edge isn't a write each time. The host saves the last one written, so a restart doesn't write it again. A function that gives NaN or an infinity counts as an unreported reading. The reading can be an [`AverageOver`](#conditions). Until it's reported, the lines below apply, and `oikade status` says why. A `Follow` is a line like a case, named `study-radiator setpoint: weather`, so `oikade pause case/study-radiator/setpoint/weather` pauses it.
 
 ### Budgets
 

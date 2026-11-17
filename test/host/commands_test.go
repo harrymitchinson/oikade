@@ -87,7 +87,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	r.stdout(nil, "set", "claimed", "on", "off", "--json")
 	r.wrote("claimed", false)
 	c := onOf(t, r.status(), "claimed")
-	if c.Value != false || c.Level != "Override" || winner(c) != "Command" {
+	if c.Value != false || c.Level != "Override" || winner(c) != "command" {
 		t.Errorf("after set: %+v", c)
 	}
 
@@ -95,7 +95,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
 	c = onOf(t, r.status(), "valve")
-	if c.Level != "Safety" || winner(c) != "Rule/valve on leak-shutoff" {
+	if c.Level != "Safety" || winner(c) != "case/valve/on/leak-shutoff" {
 		t.Errorf("a Safety hold: %+v", c)
 	}
 	stderr, err := r.oikade(nil, "set", "valve", "on", "on")
@@ -140,7 +140,7 @@ func TestSetReportsWhatTheDeviceWasLeftAt(t *testing.T) {
 	if ok, c := set("towel-rail", "on"); !ok || c.Value != false || c.Level != "Default" {
 		t.Errorf("the towel rail's outcome: %v, %+v", ok, c)
 	}
-	if ok, c := set("claimed", "off"); !ok || c.Value != false || c.Level != "Override" || winner(c) != "Command" {
+	if ok, c := set("claimed", "off"); !ok || c.Value != false || c.Level != "Override" || winner(c) != "command" {
 		t.Errorf("set's outcome: %v, %+v", ok, c)
 	}
 }
@@ -174,7 +174,7 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	t.Parallel()
 	r := start(t, settle)
 	r.sync()
-	r.stdout(nil, "pause", "fan", "on", "fan")
+	r.stdout(nil, "pause", "case/fan/on/fan")
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "fan on fan") })
 	r.sync()
 
@@ -206,12 +206,12 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 		t.Fatalf("a paused hold wrote after a restart")
 	}
 
-	r.stdout(nil, "resume", "fan", "on", "fan")
+	r.stdout(nil, "resume", "case/fan/on/fan")
 	r.wrote("fan", true)
 	if paused(t, r.status(), "fan on fan") {
 		t.Error("still paused")
 	}
-	if _, err := r.oikade(nil, "resume", "fan", "on", "fan"); err == nil {
+	if _, err := r.oikade(nil, "resume", "case/fan/on/fan"); err == nil {
 		t.Error("resumed a rule that isn't paused")
 	}
 }
@@ -223,10 +223,12 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	r.change("claim-go", "open", true)
 	r.wrote("claimed", false)
 	r.sync()
-	if c := onOf(t, r.status(), "claimed"); winner(c) != "Rule/claim-moment" {
+	if c := onOf(t, r.status(), "claimed"); winner(c) != "flow/claim-moment" {
 		t.Fatalf("no claim to end: %+v", c)
 	}
-	if out := string(r.stdout(nil, "pause", "claim-moment")); !strings.Contains(out, "ended its claims on claimed on") {
+	// The claim's source is the ref a pause takes, so it pastes from oikade status --json.
+	source := winner(onOf(t, r.status(), "claimed"))
+	if out := string(r.stdout(nil, "pause", source)); !strings.Contains(out, "ended its claims on claimed on") {
 		t.Errorf("pause said %q", out)
 	}
 	r.wrote("claimed", true)
@@ -238,7 +240,7 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	if n := r.count(wrote, "device", "claimed"); n != writes {
 		t.Fatal("a paused moment ran")
 	}
-	r.stdout(nil, "resume", "claim-moment")
+	r.stdout(nil, "resume", "flow/claim-moment")
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claim-moment", "paused", false) })
 	r.sync()
 	r.change("claim-go", "open", false)
@@ -263,7 +265,8 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 	}
 	// Your process sends why after it evaluates, which sync waits for.
 	r.until("a why-not", func() bool { return rule().WhyNot != "" })
-	if got := rule(); got.Kind != "case" || got.Device != "valve" || got.Case != "leak-shutoff" ||
+	if got := rule(); got.Kind != "case" || got.Ref != "case/valve/on/leak-shutoff" || got.Device != "valve" ||
+		got.Case != "leak-shutoff" ||
 		!got.Safety || !strings.Contains(got.WhyNot, "leak-sensor open") {
 		t.Errorf("inactive: %+v", got)
 	}
@@ -291,19 +294,24 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	r.wrote("valve", false)
 	r.sync()
 
+	// Three words, as pause took before refs, are refused with the case's ref.
 	stderr, err := r.oikade(nil, "pause", "valve", "on", "leak-shutoff")
+	if err == nil || !strings.Contains(stderr, "oikade pause case/valve/on/leak-shutoff") {
+		t.Errorf("paused by three words: %v: %s", err, stderr)
+	}
+	stderr, err = r.oikade(nil, "pause", "case/valve/on/leak-shutoff")
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("paused a Safety rule without asking: %v: %s", err, stderr)
 	}
-	out := string(r.stdout(nil, "pause", "valve", "on", "leak-shutoff", "--allow-safety"))
+	out := string(r.stdout(nil, "pause", "case/valve/on/leak-shutoff", "--allow-safety"))
 	if !strings.Contains(out, "It keeps its Safety claims on valve on") {
 		t.Errorf("pause said %q", out)
 	}
 	r.sync()
-	if c := onOf(t, r.status(), "valve"); winner(c) != "Rule/valve on leak-shutoff" || c.Value != false {
+	if c := onOf(t, r.status(), "valve"); winner(c) != "case/valve/on/leak-shutoff" || c.Value != false {
 		t.Errorf("the pause ended a Safety claim: %+v", c)
 	}
-	if _, err := r.oikade(nil, "pause", "no-such-rule"); err == nil {
+	if _, err := r.oikade(nil, "pause", "flow/no-such-rule"); err == nil {
 		t.Error("paused a rule that doesn't exist")
 	}
 }
@@ -315,11 +323,16 @@ func TestPausingAFlowHoldingASafetyClaimNeedsAsking(t *testing.T) {
 	r.change("fail-go", "open", true)
 	r.wrote("claimed-safety", false)
 	r.sync()
+	// A flow's name on its own is refused with its ref.
 	stderr, err := r.oikade(nil, "pause", "failing")
+	if err == nil || !strings.Contains(stderr, `"failing" isn't a ref: name the rule as flow/failing`) {
+		t.Errorf("paused by a bare name: %v: %s", err, stderr)
+	}
+	stderr, err = r.oikade(nil, "pause", "flow/failing")
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("stranded a Safety claim without asking: %v: %s", err, stderr)
 	}
-	r.stdout(nil, "pause", "failing", "--allow-safety")
+	r.stdout(nil, "pause", "flow/failing", "--allow-safety")
 }
 
 func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
@@ -328,12 +341,12 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 	r.sync()
 	r.change("claim-flow-go", "open", true)
 	r.wrote("claimed-flow", false)
-	r.stdout(nil, "pause", "claiming")
+	r.stdout(nil, "pause", "flow/claiming")
 	r.wrote("claimed-flow", true)
 	r.sync()
 
 	// A resumed flow starts from a new trigger.
-	r.stdout(nil, "resume", "claiming")
+	r.stdout(nil, "resume", "flow/claiming")
 	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claiming", "paused", false) })
 	r.sync()
 	r.change("claim-flow-go", "open", false)

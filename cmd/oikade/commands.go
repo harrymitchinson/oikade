@@ -18,6 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // target says which host a command is for.
@@ -348,16 +349,15 @@ func lineName(c api.Claim) string {
 	if c.Case != "" {
 		return c.Case
 	}
-	if rule, ok := strings.CutPrefix(c.Source, "Rule/"); ok {
-		return rule
-	}
 	switch c.Source {
-	case "Command":
+	case "command":
 		return "oikade set"
-	case "Device":
+	case "device":
 		return "a change on the device"
+	case "matter":
+		return "a change from Matter"
 	}
-	return "a change from " + c.Source
+	return c.Source
 }
 
 // limited says how a capability's Limits hold its winner back, if they do.
@@ -507,11 +507,18 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 	allow := fs.Bool("allow-safety", false,
 		"Pause a safety line, a case above its decision's override line. Its claims stay.")
 	words := cli.Parse(fs, args)
-	if len(words) != 1 && len(words) != 3 {
-		return fmt.Errorf("usage: oikade %s DEVICE CAPABILITY CASE, or oikade %s FLOW", name, name)
+	if len(words) == 3 {
+		ref := ident.CaseRef(words[0], words[1], words[2])
+		if _, _, err := ident.ParseRef(ref.String()); err != nil {
+			return err
+		}
+		return fmt.Errorf("a case is one ref: oikade %s %s", name, ref)
 	}
-	// A case's rule is its device, capability and name, with a space between.
-	rule := strings.Join(words, " ")
+	if len(words) != 1 {
+		return fmt.Errorf("usage: oikade %s REF, a case's, such as case/desk-plug/on/night, "+
+			"or a flow's, such as flow/morning", name)
+	}
+	rule := words[0]
 	resp, err := api.Call(ctx, target.transport(), api.Request{Type: kind, Rule: rule, AllowSafety: *allow})
 	if err != nil {
 		return err

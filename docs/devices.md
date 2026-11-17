@@ -23,6 +23,22 @@ If the host's data is lost, your next deploy gives its devices their names, room
 
 Every name Oikade owns follows one rule: lowercase letters, digits and single dashes, starting with a letter, and at most 63 of them, such as `porch-light` ([OIK-313](https://linear.app/oikade/issue/OIK-313)). That's devices, rooms, groups, a decision's cases, flows, plugins, the secrets your home names with `oikade.Secret` and the API's clients, so a name needs no quoting anywhere you paste it. `oikade check` refuses one in your code that doesn't, and `oikade-host client add` and `--outside-plugins` refuse one on the command line, each with a name that would do: `"Living Room" isn't a room name: use lowercase letters, digits and single dashes, starting with a letter, such as "living-room"`. A plugin may name a secret after its own IDs, as eWeLink LAN does a device's key, so `oikade secret set` takes those too. Nothing rewrites a name you wrote. A name copied from an app is made into one instead, and `oikade devices --json` keeps the app's own as `appName` and `appRoom`.
 
+### Refs
+
+A ref names one thing, by its kind and then its name, and any parts, each a URI path segment ([OIK-313](https://linear.app/oikade/issue/OIK-313)). It's the same wherever Oikade prints or takes it, so you can paste it from one command into another:
+
+| Kind | Ref |
+|---|---|
+| A device, and one of its capabilities | `device/desk-plug`, `device/desk-plug/on` |
+| A decision's case | `case/desk-plug/on/night` |
+| A flow | `flow/morning` |
+| A room, a group | `room/living-room`, `group/downstairs` |
+| A plugin, a secret, a client | `plugin/zigbee2mqtt`, `secret/broker`, `client/laptop` |
+| A device's hardware, by its plugin and the plugin's ID for it | `hardware/zigbee2mqtt/0x00158d0001a2b3c4` |
+| An outside change's claim: a Matter controller's, the device's own, `oikade set`'s | `matter`, `device`, `command` |
+
+A claim's `source` in `oikade status --json` is its ref, so `oikade pause` takes a case's or a flow's straight from it. Only a hardware ID is the driver's and not Oikade's, so it's percent-encoded where it needs to be.
+
 ## Declaring devices in code
 
 Your home's code can say what a device is called, which room it's in and what it is, so a rename, a move or a swap of hardware is a change you review and deploy with the code that uses it ([OIK-295](https://linear.app/oikade/issue/OIK-295)):
@@ -90,7 +106,7 @@ A deploy renames it in place, and the host keeps the name through a restart, so 
 
 Every device on record with something Matter can show is on the bridge, unless your home [hides its plugin](#hiding-a-plugins-devices-from-matter), at its [registry](#devices) endpoint, as soon as it's paired, as its [device types](#what-a-device-is). Its label is its name, and a rename changes that in place: the endpoint and unique ID stay, so a controller keeps its room and scenes. A new device type rebuilds the device on the same endpoint, with the same unique ID. Removing a device takes it off. A device whose driver hasn't reported yet stays on, unreachable, so controllers don't see it vanish.
 
-A controller's write goes through [arbitration](automations.md#arbitration) in the host, shown as `Matter`, and doesn't need your process. A capability a Safety claim holds refuses it, including a claim still on disk from before a restart: the write never reaches the device, the controller sees the value go back, and the log says who holds it. A device whose claim record can't be read counts as held at Safety: nothing writes it, nothing writes over the record, and the log says so. `oikade devices remove --allow-safety` clears it.
+A controller's write goes through [arbitration](automations.md#arbitration) in the host, shown as `matter`, and doesn't need your process. A capability a Safety claim holds refuses it, including a claim still on disk from before a restart: the write never reaches the device, the controller sees the value go back, and the log says who holds it. A device whose claim record can't be read counts as held at Safety: nothing writes it, nothing writes over the record, and the log says so. `oikade devices remove --allow-safety` clears it.
 
 Add the bridge to a controller, such as the Home app, with the 11-digit manual code, or a QR code of the `MT:` payload. In the Home app, choose **Add Accessory**, then **More options**, then the bridge, and enter the code. Apple Home warns that it's an uncertified accessory: choose Add Anyway. It needs a home hub. To add the bridge to a second controller, open a window from the first one (in the Home app: the bridge's settings, Turn On Pairing Mode).
 
