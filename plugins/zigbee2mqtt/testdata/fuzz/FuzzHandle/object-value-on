@@ -1,0 +1,4 @@
+go test fuzz v1
+[]byte("[{\"ieee_address\":\"0x0000000000000001\",\"friendly_name\":\"0x0000000000000001\",\"type\":\"Router\",\"definition\":{\"vendor\":\"SONOFF\",\"model\":\"ZBMINI\",\"exposes\":[{\"type\":\"switch\",\"features\":[{\"type\":\"binary\",\"name\":\"state\",\"property\":\"state\",\"value_on\":{\"on\":true},\"value_off\":{\"on\":false},\"access\":7}]}]}}]")
+string("0x0000000000000001")
+[]byte("{\"state\":{\"on\":true}}")
