@@ -3,12 +3,14 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,27 +27,51 @@ func repo(t *testing.T) string {
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
-// oikade builds the CLI, once a test.
+var (
+	buildOnce sync.Once
+	binDir    string
+	buildErr  error
+)
+
+// TestMain removes the binaries the tests built.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if binDir != "" {
+		_ = os.RemoveAll(binDir)
+	}
+	os.Exit(code)
+}
+
+// oikade is the CLI.
 func oikade(t *testing.T) string {
 	t.Helper()
 	return binary(t, "oikade")
 }
 
-// binary builds one of cmd's binaries.
+// binary is one of cmd's binaries. The first test to ask builds oikade and oikade-host, with one go
+// build, for every test.
 func binary(t *testing.T, name string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	args := []string{"build", "-o", path}
-	// make cover-binaries measures what these binaries run.
-	if os.Getenv("OIKADE_COVER") != "" {
-		args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...")
+	dir := repo(t)
+	buildOnce.Do(func() {
+		if binDir, buildErr = os.MkdirTemp("", "oikcli"); buildErr != nil {
+			return
+		}
+		args := []string{"build", "-o", binDir + string(filepath.Separator)}
+		// make cover-binaries measures what these binaries run.
+		if os.Getenv("OIKADE_COVER") != "" {
+			args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...")
+		}
+		cmd := exec.Command("go", append(args, "./cmd/oikade", "./cmd/oikade-host")...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			buildErr = fmt.Errorf("building oikade and oikade-host: %w\n%s", err, out)
+		}
+	})
+	if buildErr != nil {
+		t.Fatal(buildErr)
 	}
-	cmd := exec.Command("go", append(args, "./cmd/"+name)...)
-	cmd.Dir = repo(t)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building %s: %v\n%s", name, err, out)
-	}
-	return path
+	return filepath.Join(binDir, name)
 }
 
 // run runs a binary in dir, with GOPROXY off to prove a home needs only Go and the binary.
@@ -71,6 +97,7 @@ func newHome(t *testing.T, bin string) string {
 }
 
 func TestInitThenTestAndCheckPass(t *testing.T) {
+	t.Parallel()
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	for _, want := range []string{"go.mod", "main.go", "home_test.go", "devices.go", ".github/workflows/deploy.yml"} {
@@ -121,6 +148,7 @@ func replaceIn(t *testing.T, path, from, to string) {
 }
 
 func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
+	t.Parallel()
 	bin := oikade(t)
 	dir := t.TempDir()
 	mine := filepath.Join(dir, ".github", "workflows", "ci.yml")
@@ -151,60 +179,100 @@ func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
 	}
 }
 
-func TestCheckFailsOnAMisspeltDevice(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.On", "PorchLigth.On")
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	if !strings.Contains(out, "undefined: PorchLigth") {
-		t.Errorf("oikade check said:\n%s", out)
+// A home with a mistake in it fails oikade check, which says what the mistake is.
+func TestCheckFailsOn(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		// mistake puts it in a new home.
+		mistake func(t *testing.T, dir string)
+		want    []string
+	}{
+		{"a misspelt device", replacing("PorchLight.On", "PorchLigth.On"), []string{"undefined: PorchLigth"}},
+		// A capability the device doesn't have, or a value of the wrong type, doesn't compile.
+		{"a capability the device hasn't", replacing("PorchLight.On", "PorchLight.Occupied"),
+			[]string{"PorchLight.Occupied undefined"}},
+		{"a mistake only the home can see", replacing(lingers, lingers+".Delay(-time.Minute)"),
+			[]string{"Delay -1m0s must not be negative"}},
+		{"a time that isn't one", replacing(returns,
+			withFlow(`home.Flow("lights-out", func(r *oikade.FlowRun) { r.Set(PorchLight.On.To(false)) }).`+
+				`At(oikade.Clock("25:00"))`)),
+			[]string{`rule lights-out: timers[0]: time "25:00" is not HH:MM`}},
+		{"a sunset with no location", replacing(returns, duskFlow),
+			[]string{"rule porch-at-dusk: a sunrise or sunset needs the home's location"}},
+		{"a flow that wouldn't replay", writing("flow.go", lateFlow), []string{"time.Now"}},
+		{"a result that isn't used", writing("discard.go", discarded),
+			[]string{"the result of For isn't used", "the result of To isn't used"}},
+		{"an option given twice", replacing(lingers, lingers+".Linger(time.Minute)"),
+			[]string{`decision porch-light on: Case "motion": Linger is given twice`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bin := oikade(t)
+			dir := newHome(t, bin)
+			tc.mistake(t, dir)
+			out, err := run(t, bin, dir, "", "check")
+			if err == nil {
+				t.Fatalf("oikade check passed:\n%s", out)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("oikade check didn't say %q:\n%s", want, out)
+				}
+			}
+		})
 	}
 }
 
-// A capability the device doesn't have, or a value of the wrong type, doesn't compile.
-func TestCheckFailsOnACapabilityTheDeviceHasnt(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), "PorchLight.On", "PorchLight.Occupied")
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	if !strings.Contains(out, "PorchLight.Occupied undefined") {
-		t.Errorf("oikade check said:\n%s", out)
+// replacing makes the first from in a home's main.go to.
+func replacing(from, to string) func(*testing.T, string) {
+	return func(t *testing.T, dir string) {
+		t.Helper()
+		replaceIn(t, filepath.Join(dir, "main.go"), from, to)
 	}
 }
 
-func TestCheckFailsOnAMistakeOnlyTheHomeCanSee(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), lingers, lingers+".Delay(-time.Minute)")
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	if !strings.Contains(out, "Delay -1m0s must not be negative") {
-		t.Errorf("oikade check said:\n%s", out)
+// writing adds a file of code to a home.
+func writing(name, code string) func(*testing.T, string) {
+	return func(t *testing.T, dir string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
-func TestCheckFailsOnATimeThatIsntOne(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), returns,
-		withFlow(`home.Flow("lights-out", func(r *oikade.FlowRun) { r.Set(PorchLight.On.To(false)) }).`+
-			`At(oikade.Clock("25:00"))`))
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	if !strings.Contains(out, `rule lights-out: timers[0]: time "25:00" is not HH:MM`) {
-		t.Errorf("oikade check said:\n%s", out)
-	}
+// lateFlow reads the clock in a flow, which a replay would read again and get another answer.
+const lateFlow = `package main
+
+import (
+	"time"
+
+	"github.com/harrymitchinson/oikade"
+)
+
+func late(r *oikade.FlowRun) {
+	_ = time.Now()
 }
+`
+
+// discarded makes a Set and a Bool's change, and does nothing with either.
+const discarded = `package main
+
+import (
+	"time"
+
+	"github.com/harrymitchinson/oikade"
+)
+
+func discard(s oikade.Set) {
+	s.For(time.Minute)
+}
+
+func thrownAway(g oikade.Bool) {
+	g.To(true)
+}
+`
 
 // duskFlow is a flow for oikade init's home.
 var duskFlow = withFlow(`home.Flow("porch-at-dusk", func(r *oikade.FlowRun) {` +
@@ -220,20 +288,8 @@ const (
 // withFlow is code, which adds a flow to oikade init's home, before it's returned.
 func withFlow(code string) string { return "\t" + code + "\n" + returns }
 
-func TestCheckFailsOnASunsetWithNoLocation(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), returns, duskFlow)
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	if !strings.Contains(out, "rule porch-at-dusk: a sunrise or sunset needs the home's location") {
-		t.Errorf("oikade check said:\n%s", out)
-	}
-}
-
 func TestDevFiresAtSunsetForTheHomesLocation(t *testing.T) {
+	t.Parallel()
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	main := filepath.Join(dir, "main.go")
@@ -281,80 +337,8 @@ func devStart(t *testing.T, out string, before time.Time) time.Time {
 	return time.Time{}
 }
 
-func TestCheckFailsOnAFlowThatWouldntReplay(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	flow := `package main
-
-import (
-	"time"
-
-	"github.com/harrymitchinson/oikade"
-)
-
-func late(r *oikade.FlowRun) {
-	_ = time.Now()
-}
-`
-	if err := os.WriteFile(filepath.Join(dir, "flow.go"), []byte(flow), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	if !strings.Contains(out, "time.Now") {
-		t.Errorf("oikade check said:\n%s", out)
-	}
-}
-
-func TestCheckFailsOnAResultThatIsntUsed(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	code := `package main
-
-import (
-	"time"
-
-	"github.com/harrymitchinson/oikade"
-)
-
-func discard(s oikade.Set) {
-	s.For(time.Minute)
-}
-
-func thrownAway(g oikade.Bool) {
-	g.To(true)
-}
-`
-	if err := os.WriteFile(filepath.Join(dir, "discard.go"), []byte(code), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	for _, want := range []string{"the result of For isn't used", "the result of To isn't used"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("oikade check didn't say %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestCheckFailsOnAnOptionGivenTwice(t *testing.T) {
-	bin := oikade(t)
-	dir := newHome(t, bin)
-	replaceIn(t, filepath.Join(dir, "main.go"), lingers, lingers+".Linger(time.Minute)")
-	out, err := run(t, bin, dir, "", "check")
-	if err == nil {
-		t.Fatalf("oikade check passed:\n%s", out)
-	}
-	if !strings.Contains(out, `decision porch-light on: Case "motion": Linger is given twice`) {
-		t.Errorf("oikade check said:\n%s", out)
-	}
-}
-
 func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
+	t.Parallel()
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	script := strings.Join([]string{
@@ -386,6 +370,7 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 // Hosts are reached over their API: there's no SSH, and no installer, left to call. Running a host,
 // and trusting a client on its machine, are oikade-host's.
 func TestRemovedCommandsAreUnknown(t *testing.T) {
+	t.Parallel()
 	bin := oikade(t)
 	dir := t.TempDir()
 	for _, args := range [][]string{{"install"}, {"upgrade"}, {"proxy"}, {"--host", "pi", "status"}, {"host"}} {
@@ -403,6 +388,7 @@ func TestRemovedCommandsAreUnknown(t *testing.T) {
 
 // oikade runs on a laptop, so it carries nothing of the host: not the host, not Matter.
 func TestOikadeLinksNothingOfTheHost(t *testing.T) {
+	t.Parallel()
 	deps := func(pkg string) []string {
 		cmd := exec.Command("go", "list", "-deps", pkg)
 		cmd.Dir = repo(t)
@@ -426,6 +412,7 @@ func TestOikadeLinksNothingOfTheHost(t *testing.T) {
 }
 
 func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
+	t.Parallel()
 	bin := binary(t, "oikade-host")
 	dir := t.TempDir()
 	if out, err := run(t, bin, dir, "", "version"); err != nil || strings.TrimSpace(out) == "" {
