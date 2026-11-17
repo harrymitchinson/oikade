@@ -18,6 +18,10 @@ import (
 // Main runs the tests, and fails them if a process they started reported a race. Under the race
 // detector, GORACE's log_path sends each child's reports to a file of its own, named by its pid.
 // The race detector in this process, which read GORACE before Main changed it, is left as it was.
+//
+// A binary built with -race sleeps for a second as it exits (atexit_sleep_ms, 1000 by default),
+// which a host stopping within --stop-timeout=1s can't wait for (OIK-325). Children exit straight
+// away instead, as they do without it, unless GORACE already says otherwise.
 func Main(m *testing.M) int {
 	if !Enabled {
 		return m.Run()
@@ -28,7 +32,7 @@ func Main(m *testing.M) int {
 		return 1
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	options := strings.TrimSpace(os.Getenv("GORACE") + " log_path=" + filepath.Join(dir, "race"))
+	options := strings.TrimSpace("atexit_sleep_ms=0 " + os.Getenv("GORACE") + " log_path=" + filepath.Join(dir, "race"))
 	if err := os.Setenv("GORACE", options); err != nil {
 		fmt.Fprintln(os.Stderr, "Could not set GORACE:", err)
 		return 1
