@@ -27,11 +27,34 @@ type Config struct {
 	Username string
 	// Password is the account's password, such as oikade.Secret("toshiba").
 	Password plugin.Secret
+	// OutdoorUnits are the indoor units that share an outdoor unit, one list for each, by the IDs
+	// the plugin reports them as. Units on one outdoor unit can't heat and cool at once, so a
+	// write that would run one in a mode that clashes with another's is refused. The cloud
+	// doesn't say which units share one.
+	OutdoorUnits [][]string
 
 	// The tests' cloud and hub, in place of the real ones.
 	api       string
 	transport http.RoundTripper
 	hub       hubOptions
+}
+
+// outdoorUnits numbers each unit in OutdoorUnits by the outdoor unit it's on. A unit can be on only
+// one.
+func (c Config) outdoorUnits() (map[string]int, error) {
+	on := map[string]int{}
+	for i, ids := range c.OutdoorUnits {
+		for _, id := range ids {
+			if j, ok := on[id]; ok {
+				if j == i {
+					return nil, fmt.Errorf("toshibaac.Config's OutdoorUnits lists %s twice on one outdoor unit", id)
+				}
+				return nil, fmt.Errorf("toshibaac.Config's OutdoorUnits puts %s on two outdoor units", id)
+			}
+			on[id] = i
+		}
+	}
+	return on, nil
 }
 
 // timing is how often the plugin reads and how long it waits, which tests shorten.
@@ -76,6 +99,9 @@ func New(c Config) plugin.Factory {
 		case c.Password.Name() == "":
 			return nil, errors.New("toshibaac.Config's Password isn't set: pass it an oikade.Secret")
 		}
+		if _, err := c.outdoorUnits(); err != nil {
+			return nil, err
+		}
 		log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "toshibaac")
 		return newBridge(c, env, declared, cloudTiming, log), nil
 	}
@@ -119,6 +145,11 @@ type bridge struct {
 	byUnique map[string]*device
 	// unknownModes are the mode bytes not served, each logged once.
 	unknownModes map[byte]bool
+
+	// outdoor is the outdoor unit each unit in OutdoorUnits is on, and sharing holds an outdoor
+	// unit's lock while one of its units is written, so two writes can't both pass the check.
+	outdoor map[string]int
+	sharing []sync.Mutex
 }
 
 var _ plugin.Handler = (*bridge)(nil)
@@ -128,9 +159,12 @@ func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredD
 	for _, d := range declared {
 		ids = append(ids, d.ID)
 	}
+	// New has checked it.
+	outdoor, _ := c.outdoorUnits()
 	return &bridge{
 		config: c, env: env, declared: ids, timing: t, log: log,
 		devices: map[string]*device{}, byUnique: map[string]*device{}, unknownModes: map[byte]bool{},
+		outdoor: outdoor, sharing: make([]sync.Mutex, len(c.OutdoorUnits)),
 	}
 }
 
@@ -342,6 +376,11 @@ func (b *bridge) take(units []unit) {
 			b.apply(d, "listed", func(s *fcuState) error { return s.update(u.State) })
 		}
 		devices[id], byUnique[u.UniqueID] = d, d
+	}
+	for _, id := range slices.Sorted(maps.Keys(b.outdoor)) {
+		if devices[id] == nil {
+			b.log.Warn("Found no Toshiba unit for an ID in OutdoorUnits", "device", id)
+		}
 	}
 	b.mu.Lock()
 	b.devices, b.byUnique = devices, byUnique
@@ -610,6 +649,11 @@ func sleep(ctx context.Context, d time.Duration) bool {
 // it, before the unit has changed: the unit's report then shows it. It fails at once while there's
 // no session.
 func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
+	// The other units on its outdoor unit can't change while it's checked and sent.
+	if i, ok := b.outdoor[cmd.ID]; ok {
+		b.sharing[i].Lock()
+		defer b.sharing[i].Unlock()
+	}
 	b.mu.Lock()
 	d, hub, device := b.devices[cmd.ID], b.hub, b.hubDevice
 	var (
@@ -618,6 +662,9 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 	)
 	if d != nil {
 		c, err = d.current().command(cmd.Capability, cmd.Value, d.modes)
+		if err == nil {
+			err = b.clashLocked(d, c)
+		}
 	}
 	b.mu.Unlock()
 	switch {
@@ -643,6 +690,32 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 }
 
 // current is the unit's state with the writes sent since its last report. b.mu must be held.
+// clashLocked refuses a command that would run d in a mode that clashes with another unit running on
+// its outdoor unit, as each will be once the writes sent to it are done. Only one that turns d on
+// or changes its mode is checked: turning it off or changing its setpoint never makes a clash.
+func (b *bridge) clashLocked(d *device, c command) error {
+	i, shares := b.outdoor[d.id]
+	if !shares || (c.status != statusOn && c.mode == noneByte) {
+		return nil
+	}
+	after := d.current()
+	_ = after.update(c.encode())
+	if after.status != statusOn {
+		return nil
+	}
+	for _, id := range b.config.OutdoorUnits[i] {
+		o := b.devices[id]
+		if o == nil || o == d {
+			continue
+		}
+		if other := o.current(); other.status == statusOn && clashes(after.mode, other.mode) {
+			return fmt.Errorf("it shares its outdoor unit with %s, which is running %s, and %s and %s can't run at once",
+				id, modes[other.mode], modes[after.mode], modes[other.mode])
+		}
+	}
+	return nil
+}
+
 func (d *device) current() fcuState {
 	if d.intent != nil {
 		return *d.intent

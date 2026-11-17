@@ -246,3 +246,24 @@ func TestAUnitsModesComeFromItsMeritFeature(t *testing.T) {
 		}
 	}
 }
+
+func TestWhichModesClashOnOneOutdoorUnit(t *testing.T) {
+	const auto, cool, heat, dry, fan, unknown = 0x41, 0x42, 0x43, 0x44, 0x45, 0x47
+	tests := []struct {
+		a, b byte
+		want bool
+	}{
+		{heat, heat, false}, {cool, cool, false}, {auto, auto, false},
+		{cool, dry, false}, {cool, fan, false}, {dry, fan, false},
+		{heat, cool, true}, {heat, dry, true}, {heat, fan, true},
+		{auto, cool, true}, {auto, heat, true}, {auto, fan, true},
+		{unknown, heat, false}, {noneByte, cool, false},
+	}
+	for _, tt := range tests {
+		for _, pair := range [][2]byte{{tt.a, tt.b}, {tt.b, tt.a}} {
+			if got := clashes(pair[0], pair[1]); got != tt.want {
+				t.Errorf("clashes(%#x, %#x) = %v, want %v", pair[0], pair[1], got, tt.want)
+			}
+		}
+	}
+}

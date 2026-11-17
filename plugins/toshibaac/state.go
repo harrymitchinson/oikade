@@ -45,12 +45,15 @@ const (
 	heating8COffset = 16
 )
 
-// modeHeat is heating's raw value.
-const modeHeat = 0x43
+// modeAuto and modeHeat are auto's and heating's raw values.
+const (
+	modeAuto = 0x41
+	modeHeat = 0x43
+)
 
 // modes are the modes a unit reports, by raw value.
 var modes = map[byte]string{
-	0x41:     contractv1.ModeAuto,
+	modeAuto: contractv1.ModeAuto,
 	0x42:     contractv1.ModeCool,
 	modeHeat: contractv1.ModeHeat,
 	0x44:     contractv1.ModeDry,
@@ -166,6 +169,19 @@ var (
 		return m
 	}()
 )
+
+// clashes is whether units on one outdoor unit can't run modes a and b at once, from Toshiba's
+// manuals for its multi-split units: heating can't run alongside cooling, dry or fan, which all
+// need the outdoor unit the other way. Auto clashes with every other mode, since it may pick
+// either. A mode the plugin doesn't know clashes with nothing.
+func clashes(a, b byte) bool {
+	_, knowA := modes[a]
+	_, knowB := modes[b]
+	if !knowA || !knowB || a == b {
+		return false
+	}
+	return a == modeAuto || b == modeAuto || a == modeHeat || b == modeHeat
+}
 
 // The merit features a mode turns off, from KaSroka/Toshiba-AC-control's features.py: merit A's
 // high power (1), silent (2, 10), eco (3), 8 °C heating (4), sleep care (5) and floor (6), and

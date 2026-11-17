@@ -18,7 +18,8 @@
 //
 // A write is a CMD_FCU_TO_AC message to the hub, at QoS 1: a state in which only what changes is
 // set. It returns once the hub has taken it, and refuses a setpoint that isn't whole degrees or a
-// mode the unit's MeritFeature says it doesn't do.
+// mode the unit's MeritFeature says it doesn't do. Units the home says share an outdoor unit, in
+// Config.OutdoorUnits, can't be set running modes that clash, such as heating and cooling.
 //
 // While the cloud or the hub doesn't answer, every unit is offline and the plugin's status says why,
 // and it tries again with backoff. A refused password is tried again once the secret changes, or
