@@ -118,7 +118,7 @@ type Engine struct {
 	metrics engineMetrics
 	// busy counts the work Idle can't see in the engine's state: changes queued, a wake or save
 	// asked for and not yet done, and goroutines working rather than parked.
-	busy atomic.Int64
+	busy busyCount
 	// armed is when Run's timer fires, or zero for none. Guarded by mu.
 	armed time.Time
 	// parked are the runs waiting on the clock or a change, by Park's id for them.
@@ -188,6 +188,7 @@ func (e *Engine) Init() {
 	e.metrics = newMetrics(e.RuleMetrics, e.ControlMetrics)
 	e.events = make(chan []driver.Update, 1024)
 	e.wake = make(chan struct{}, 1)
+	e.busy.quiet = make(chan struct{}, 1)
 	e.parked = map[int]parking{}
 	e.rules = map[ident.ID]*state{}
 	e.loaded = map[ident.ID]bool{}
@@ -487,8 +488,9 @@ func (e *Engine) arm(ctx context.Context) clock.Timer {
 // setArmed records when Run's timer fires, or that there's none, for Idle.
 func (e *Engine) setArmed(at time.Time) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.armed = at
+	e.mu.Unlock()
+	e.busy.tell()
 }
 
 // earliest returns the earliest next fire of any Rule, or zero.
@@ -976,6 +978,33 @@ func (e *Engine) Idle() bool {
 		return false
 	}
 	return e.busy.Load() == 0 && len(e.events) == 0
+}
+
+// MaybeIdle receives after the engine may have become Idle: when nothing is busy any more, or Run
+// sets its timer. It's for one waiter, which checks Idle, waits on it and checks again. A receive
+// can be stale, but none sent after a check is lost.
+func (e *Engine) MaybeIdle() <-chan struct{} { return e.busy.quiet }
+
+// busyCount is Engine.busy, and tells MaybeIdle when it reaches zero.
+type busyCount struct {
+	n     atomic.Int64
+	quiet chan struct{}
+}
+
+func (b *busyCount) Add(d int64) {
+	if b.n.Add(d) == 0 {
+		b.tell()
+	}
+}
+
+func (b *busyCount) Load() int64 { return b.n.Load() }
+
+// tell sends to MaybeIdle unless a send is waiting there already.
+func (b *busyCount) tell() {
+	select {
+	case b.quiet <- struct{}{}:
+	default:
+	}
 }
 
 // stateIdle says Run's timer is set for a time still to come and no rule or arbiter is due.
