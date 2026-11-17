@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 func fixture(t *testing.T, name string) string {
 	t.Helper()
 	buildOnce.Do(func() {
-		if binDir, buildErr = os.MkdirTemp("", "oikconf"); buildErr != nil {
+		if binDir, buildErr = os.MkdirTemp("", "oikconf"); buildErr != nil { //nolint:usetesting // every test shares it
 			return
 		}
 		// From this package's directory, whichever directory a test has moved to.

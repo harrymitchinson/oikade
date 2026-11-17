@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +33,7 @@ fi
 func TestModuleFromReleaseHidesGoWhenItPasses(t *testing.T) {
 	fakeGo(t, "")
 	var stderr bytes.Buffer
-	if err := moduleFromRelease(context.Background(), &stderr, t.TempDir(), "home"); err != nil {
+	if err := moduleFromRelease(t.Context(), &stderr, t.TempDir(), "home"); err != nil {
 		t.Fatal(err)
 	}
 	if got := stderr.String(); strings.Contains(got, "go:") || strings.Contains(got, "go mod tidy") {
@@ -48,7 +47,7 @@ func TestModuleFromReleaseHidesGoWhenItPasses(t *testing.T) {
 func TestModuleFromReleaseShowsGoWhenItFails(t *testing.T) {
 	fakeGo(t, "get")
 	var stderr bytes.Buffer
-	err := moduleFromRelease(context.Background(), &stderr, t.TempDir(), "home")
+	err := moduleFromRelease(t.Context(), &stderr, t.TempDir(), "home")
 	if err == nil || !strings.Contains(err.Error(), "go get") {
 		t.Fatalf("got %v", err)
 	}

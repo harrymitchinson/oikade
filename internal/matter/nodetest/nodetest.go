@@ -59,7 +59,7 @@ func listen(t testing.TB) *transport.Transport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -68,7 +68,8 @@ func listen(t testing.TB) *transport.Transport {
 
 // Context bounds one call to a node.
 func Context(t testing.TB) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
 	return ctx
 }

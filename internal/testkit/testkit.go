@@ -69,6 +69,7 @@ type Log struct {
 
 // Logs is a Log for t. If t fails, its lines go to t's log, so the failure shows what was logged.
 func Logs(t testing.TB) *Log {
+	t.Helper()
 	l := &Log{}
 	l.Logger = logging.Lines(func(line string) {
 		l.mu.Lock()

@@ -83,7 +83,7 @@ func TestMulticast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	if err := r.Add(ctx, svc); err != nil {
 		t.Fatal(err)

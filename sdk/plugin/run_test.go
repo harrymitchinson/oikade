@@ -74,12 +74,13 @@ func TestRunFails(t *testing.T) {
 	}{
 		{
 			name: "missing environment",
-			env:  func(t *testing.T) { setEnv(t, b.URL); t.Setenv(contractv1.EnvTopic, "") },
+			env:  func(t *testing.T) { t.Helper(); setEnv(t, b.URL); t.Setenv(contractv1.EnvTopic, "") },
 			want: `"msg":"Could not start plugin","err":"OIKADE_TOPIC is not set`,
 		},
 		{
 			name: "bad devices file",
 			env: func(t *testing.T) {
+				t.Helper()
 				setEnv(t, b.URL)
 				t.Setenv(contractv1.EnvDevicesFile, writeFile(t, t.TempDir(), "d.json", `{"contract":2}`))
 			},
@@ -87,7 +88,7 @@ func TestRunFails(t *testing.T) {
 		},
 		{
 			name: "handler refuses",
-			env:  func(t *testing.T) { setEnv(t, b.URL) },
+			env:  func(t *testing.T) { t.Helper(); setEnv(t, b.URL) },
 			newHandler: func(Environment, []contractv1.DeclaredDevice) (Handler, error) {
 				return nil, errors.New("no LAN key")
 			},
@@ -95,13 +96,13 @@ func TestRunFails(t *testing.T) {
 		},
 		{
 			name:       "no broker",
-			env:        func(t *testing.T) { setEnv(t, "mqtt://127.0.0.1:1") },
+			env:        func(t *testing.T) { t.Helper(); setEnv(t, "mqtt://127.0.0.1:1") },
 			newHandler: serveFails,
 			want:       `"msg":"Could not start plugin","err":"could not come online`,
 		},
 		{
 			name:       "serving fails",
-			env:        func(t *testing.T) { setEnv(t, b.URL) },
+			env:        func(t *testing.T) { t.Helper(); setEnv(t, b.URL) },
 			newHandler: serveFails,
 			want:       `"msg":"Could not serve plugin","err":"bus gone"`,
 		},

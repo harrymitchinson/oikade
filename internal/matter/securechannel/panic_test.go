@@ -56,7 +56,7 @@ func newPanickingDevice(t *testing.T) *panickingDevice {
 		defer d.mu.Unlock()
 		d.at = append(d.at, site)
 	}})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = d.t.Serve(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -110,7 +110,7 @@ func TestPASEPanicRemovesTheSession(t *testing.T) {
 				},
 			}).Register()
 			dev.conn.op.Store(tc.op)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
 			_, _ = EstablishPASE(ctx, cli.t, dev.addr(), testPasscode, nil)
 			dev.contained(t, func() int { return 0 })
@@ -163,7 +163,7 @@ func TestCASEPanicRemovesTheSession(t *testing.T) {
 			}
 			panicNow.Store(tc.panicAfter)
 			dev.conn.op.Store(tc.op)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
 			_, _ = EstablishCASE(ctx, ctl.t, dev.addr(), ctlFabric, deviceNode, cfg)
 			dev.contained(t, func() int { return int(known.Load()) })

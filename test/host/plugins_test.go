@@ -453,7 +453,7 @@ func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
 
 	broker.Start(t)
 	t.Cleanup(broker.Close)
-	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
+	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
 	defer cancel()
 	p, err := plugin.Start(ctx, plugin.Options{
 		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("kettle")},
@@ -462,7 +462,7 @@ func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = p.Close(context.Background()) })
+	t.Cleanup(func() { _ = p.Close(context.Background()) }) //nolint:usetesting // t.Context() is done once cleanups run
 	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -486,7 +486,7 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 	r.launch("--broker", broker.URL, "--outside-plugins", "kettle")
 	r.waitFor(func(l line) bool { return l.is(attached) })
 
-	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
+	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
 	defer cancel()
 	device := &switchedOn{}
 	p, err := plugin.Start(ctx, plugin.Options{
@@ -496,7 +496,7 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = p.Close(context.Background()) })
+	t.Cleanup(func() { _ = p.Close(context.Background()) }) //nolint:usetesting // t.Context() is done once cleanups run
 	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 	if err != nil {
 		t.Fatal(err)

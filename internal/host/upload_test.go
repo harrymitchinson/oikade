@@ -28,9 +28,9 @@ func uploadServer(t *testing.T, ctx context.Context) (*apiServer, string) {
 }
 
 func TestAnUploadStopsWhenItsCallerIsCutOff(t *testing.T) {
-	s, dir := uploadServer(t, context.Background())
+	s, dir := uploadServer(t, t.Context())
 	failed := make(chan error, 1)
-	cutOff, cut := context.WithCancel(context.Background())
+	cutOff, cut := context.WithCancel(t.Context())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path, err := s.spool(cutOff, w, r)
 		if err == nil {
@@ -69,7 +69,7 @@ func TestAnUploadStopsWhenItsCallerIsCutOff(t *testing.T) {
 }
 
 func TestADeployOfSomethingElseIsRefused(t *testing.T) {
-	s, _ := uploadServer(t, context.Background())
+	s, _ := uploadServer(t, t.Context())
 	server := httptest.NewServer(http.HandlerFunc(s.deployUpload))
 	defer server.Close()
 	resp, err := http.Post(server.URL+"/v1/deploy", api.ContentType, strings.NewReader(`{"binary":"/tmp/home"}`))

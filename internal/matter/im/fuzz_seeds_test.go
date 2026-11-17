@@ -106,7 +106,7 @@ func TestRecordFuzzSeeds(t *testing.T) {
 	})}
 	client.Register(cli)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	onOff := AttributePath{Endpoint: 1, Cluster: 6, Attribute: 0}
 	if _, err := client.Write(ctx, onOff, func(w *tlv.Writer, tag tlv.Tag) { w.PutBool(tag, true) }); err != nil {

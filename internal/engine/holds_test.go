@@ -107,7 +107,7 @@ func startRigWith(t *testing.T, o rigOptions, rules ...*Compiled) *rig {
 	for _, c := range rules {
 		r.e.Load(c)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { r.e.Run(withEngine(ctx, r.e)); close(done) }()
 	var once sync.Once
@@ -187,6 +187,7 @@ func (r *rig) active(name string) float64 {
 var heaterNight = Hold{Device: "water-heater", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}}
 
 func testWindowHoldRestartRespectsATap(t *testing.T, states *storeBackend) {
+	t.Helper()
 	r := startRig(t, local("2026-10-21 21:59 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.expect()
 	r.at("2026-10-21 22:00 BST")
@@ -210,6 +211,7 @@ func testWindowHoldRestartRespectsATap(t *testing.T, states *storeBackend) {
 }
 
 func testWindowHoldStartsAfterDowntime(t *testing.T, states *storeBackend) {
+	t.Helper()
 	r := startRig(t, local("2026-10-21 21:50 BST"), states.holds(t), nil, nil, holdRule(t, "water-heater-night", heaterNight))
 	r.stop()
 	r.expect()
@@ -220,6 +222,7 @@ func testWindowHoldStartsAfterDowntime(t *testing.T, states *storeBackend) {
 }
 
 func testOffDelaySurvivesARestart(t *testing.T, states *storeBackend) {
+	t.Helper()
 	fan := holdRule(t, "bathroom-humid", Hold{Device: "bathroom-fan", Capability: capability.On, Value: true, When: above("bathroom-sensor", capability.Humidity, 70), OffDelay: 10 * time.Minute})
 	humidity := func(v float64) map[string]map[string]any {
 		return map[string]map[string]any{"bathroom-sensor": {capability.Humidity: v}}
@@ -246,6 +249,7 @@ func testOffDelaySurvivesARestart(t *testing.T, states *storeBackend) {
 }
 
 func testMotionOffDelaySurvivesARestart(t *testing.T, states *storeBackend) {
+	t.Helper()
 	light := holdRule(t, "hall-motion-light", Hold{Device: "hall-light", Capability: capability.On, Value: true, When: isTrue("hall-motion", capability.Occupied), OffDelay: 5 * time.Minute})
 	motion := func(v bool) map[string]map[string]any {
 		return map[string]map[string]any{"hall-motion": {capability.Occupied: v}}
@@ -271,6 +275,7 @@ func testMotionOffDelaySurvivesARestart(t *testing.T, states *storeBackend) {
 var overheat = Hold{Device: "workshop-heater", Capability: capability.On, Value: false, Priority: PrioritySafety, When: above("workshop-temp", capability.Temperature, 45), Latch: true}
 
 func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states *storeBackend) {
+	t.Helper()
 	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}}
 	reset := flowRule(t, "workshop-overheat-reset", steps{Timers: []Timer{At{Time: "09:00"}}, Since: local("2026-10-21 08:00 BST"), Do: []Action{Release("workshop-overheat")}})
 
@@ -299,6 +304,7 @@ func testLatchedHoldActsOnStartupUntilReleased(t *testing.T, states *storeBacken
 }
 
 func testLatchedHoldEndsAtItsUntilAfterARestart(t *testing.T, states *storeBackend) {
+	t.Helper()
 	hold := overheat
 	hold.Until = isTrue("workshop-door", capability.Open)
 	hot := map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}, "workshop-door": {capability.Open: false}}

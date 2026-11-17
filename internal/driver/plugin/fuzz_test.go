@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -49,7 +48,7 @@ func FuzzHandle(f *testing.F) {
 			rejected = got
 		}
 		send(root+"/status", []byte(`{"state":"online","contract":1,"setup":true}`))
-		steps, err := i.StartSetup(context.Background(), "s")
+		steps, err := i.StartSetup(t.Context(), "s")
 		if err != nil {
 			t.Fatal(err)
 		}

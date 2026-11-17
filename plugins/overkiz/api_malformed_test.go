@@ -1,7 +1,6 @@
 package overkiz
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +30,7 @@ func TestAnAnswerThatIsntJSONIsAnError(t *testing.T) {
 			}))
 			defer server.Close()
 			c := &client{http: server.Client(), base: server.URL + "/enduserAPI"}
-			devices, err := c.devices(context.Background())
+			devices, err := c.devices(t.Context())
 			if err == nil {
 				t.Fatalf("got %+v, no error", devices)
 			}

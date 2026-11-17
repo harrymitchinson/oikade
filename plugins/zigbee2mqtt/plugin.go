@@ -83,6 +83,11 @@ const secretWait = 2 * time.Second
 
 // New returns the plugin's Factory, for home.Plugin. Its Config needs a Broker.
 func New(c Config) plugin.Factory {
+	return factory(c, slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+}
+
+// factory is New, logging to log.
+func factory(c Config, log *slog.Logger) plugin.Factory {
 	if c.BaseTopic == "" {
 		c.BaseTopic = DefaultBaseTopic
 	}
@@ -98,7 +103,7 @@ func New(c Config) plugin.Factory {
 			config: c, name: env.Root.Plugin(), declared: ids, up: true, online: map[string]bool{},
 			infoHeard: make(chan struct{}), stateHeard: make(chan struct{}), infoWait: defaultInfoWait,
 			connectTimeout: connectTimeout, secretWait: secretWait,
-			log: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+			log: log,
 		}, nil
 	}
 }

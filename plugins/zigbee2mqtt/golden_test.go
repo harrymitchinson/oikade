@@ -2,7 +2,6 @@ package zigbee2mqtt
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -150,7 +149,7 @@ func replay(t *testing.T, f fixture) golden {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	bus := mqtt.NewMemory()
 	_ = bus.Publish(ctx, DefaultBaseTopic+"/bridge/devices", list, true)
 	rec := newRecorder()
@@ -169,11 +168,12 @@ func replay(t *testing.T, f fixture) golden {
 	t.Cleanup(i.Stop)
 
 	rec.mu.Lock()
-	if len(rec.inventory) != 1 {
-		t.Fatalf("inventory = %+v, want the fixture's device", rec.inventory)
-	}
-	inv := rec.inventory[0]
+	inventory := slices.Clone(rec.inventory)
 	rec.mu.Unlock()
+	if len(inventory) != 1 {
+		t.Fatalf("inventory = %+v, want the fixture's device", inventory)
+	}
+	inv := inventory[0]
 	g := golden{
 		Manufacturer: inv.Manufacturer, Model: inv.Model, DeviceType: string(inv.DeviceType),
 		Capabilities: orEmpty(inv.Capabilities), Bindings: []goldenBinding{},

@@ -130,7 +130,7 @@ func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	fake := &fakeMDNS{services: map[string]mdns.Service{}}
 	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
 	n.listenUDP = listenHeld
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- n.Run(ctx) }()
 	stopped := false
@@ -154,7 +154,7 @@ func client(t *testing.T) *transport.Transport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -163,7 +163,7 @@ func client(t *testing.T) *transport.Transport {
 
 func pase(t *testing.T, cli *transport.Transport, n *Node, passcode uint32) error {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	_, err := securechannel.EstablishPASE(ctx, cli, netip.AddrPortFrom(netip.IPv6Loopback(), n.cfg.Port), passcode, nil)
 	return err

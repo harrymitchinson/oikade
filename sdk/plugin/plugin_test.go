@@ -53,7 +53,7 @@ func (l *logBuffer) String() string {
 
 func testContext(t *testing.T) context.Context {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
 	return ctx
 }
@@ -452,7 +452,7 @@ func TestSetDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = pub.Disconnect(context.Background()) }()
+	defer func() { _ = pub.Disconnect(t.Context()) }()
 	send := func(topic, payload string) {
 		t.Helper()
 		if err := pub.Publish(ctx, topic, []byte(payload), false); err != nil {
@@ -514,7 +514,7 @@ func TestRetainedSetIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = pub.Disconnect(context.Background()) }()
+	defer func() { _ = pub.Disconnect(t.Context()) }()
 	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"on":true}`), true); err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +545,7 @@ func TestSetHandlerFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = pub.Disconnect(context.Background()) }()
+	defer func() { _ = pub.Disconnect(t.Context()) }()
 	if err := pub.Publish(ctx, root.Set("relay-1"), []byte(`{"on":true}`), false); err != nil {
 		t.Fatal(err)
 	}

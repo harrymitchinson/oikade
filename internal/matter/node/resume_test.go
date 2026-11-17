@@ -149,7 +149,7 @@ func TestResumeGivesUpAfterOneMaxInterval(t *testing.T) {
 		},
 	}
 	var done atomic.Bool
-	go func() { r.resume(context.Background(), rec); done.Store(true) }()
+	go func() { r.resume(t.Context(), rec); done.Store(true) }()
 	for !done.Load() {
 		if clk.HasWaiters() {
 			if len(saved.ids()) != 1 {
@@ -190,8 +190,8 @@ func TestResumeStopsWithTheNode(t *testing.T) {
 			return nil, errors.New("no route to host")
 		},
 	}
-	r.resume(context.Background(), refused)
-	ctx, cancel := context.WithCancel(context.Background())
+	r.resume(t.Context(), refused)
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { r.resume(ctx, kept); close(done) }()
 	testkit.Eventually(t, "a retry to wait", clk.HasWaiters)

@@ -319,7 +319,7 @@ func TestDeployedVersionOutlivesAHostRestart(t *testing.T) {
 func TestHostStartsEmptyAndTakesAFirstDeploy(t *testing.T) {
 	t.Parallel()
 	build(t)
-	dir, err := os.MkdirTemp("", "oik")
+	dir, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1022,11 +1022,7 @@ func TestDeployBuildsAModuleAndChecksItsFlows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	module, err := os.MkdirTemp("", "oikmod")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(module) })
+	module := t.TempDir()
 	if err := writeModule(repo, module); err != nil {
 		t.Fatal(err)
 	}

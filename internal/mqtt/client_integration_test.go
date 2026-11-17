@@ -11,7 +11,7 @@ import (
 )
 
 func TestClientAgainstBroker(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	url := mqtttest.StartBroker(t)
 
@@ -85,7 +85,7 @@ func receive(ctx context.Context, t *testing.T, url, clientID string) <-chan mqt
 }
 
 func TestWillOnDrop(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	url := mqtttest.StartBroker(t)
 
@@ -116,7 +116,7 @@ func TestWillOnDrop(t *testing.T) {
 }
 
 func TestDropPublishesWill(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	b := mqtttest.NewBroker(t)
 
@@ -146,7 +146,7 @@ func TestDropPublishesWill(t *testing.T) {
 }
 
 func TestNoWillOnDisconnect(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	b := mqtttest.NewBroker(t)
 
@@ -179,7 +179,7 @@ func TestNoWillOnDisconnect(t *testing.T) {
 }
 
 func TestOnConnectAfterResubscribe(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	b := mqtttest.NewBroker(t)
 
@@ -203,7 +203,7 @@ func TestOnConnectAfterResubscribe(t *testing.T) {
 		t.Fatal(err)
 	}
 	clientCh <- client
-	defer func() { _ = client.Disconnect(context.Background()) }()
+	defer func() { _ = client.Disconnect(t.Context()) }()
 	wait := func(ch <-chan struct{}, what string) {
 		t.Helper()
 		select {

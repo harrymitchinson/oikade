@@ -38,21 +38,25 @@ func TestOpenRefusesAFileItCantRead(t *testing.T) {
 	page := int64(os.Getpagesize())
 	for name, damage := range map[string]func(t *testing.T, path string, size int64){
 		"cut by 3 pages": func(t *testing.T, path string, size int64) {
+			t.Helper()
 			if err := os.Truncate(path, size-3*page); err != nil {
 				t.Fatal(err)
 			}
 		},
 		"one page": func(t *testing.T, path string, _ int64) {
+			t.Helper()
 			if err := os.Truncate(path, page); err != nil {
 				t.Fatal(err)
 			}
 		},
 		"garbage": func(t *testing.T, path string, _ int64) {
+			t.Helper()
 			if err := os.WriteFile(path, []byte(strings.Repeat("not a store ", 8<<10)), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		},
 		"a few bytes": func(t *testing.T, path string, _ int64) {
+			t.Helper()
 			if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}

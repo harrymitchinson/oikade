@@ -49,11 +49,11 @@ func TestPanicCostsOnlyThePacket(t *testing.T) {
 	if got := counted(); !slices.Equal(got, []string{contain.MDNS}) {
 		t.Fatalf("panics counted at %v, want one at %s", got, contain.MDNS)
 	}
-	c.none()
+	c.none(t)
 
 	boom.Store(false)
 	c.in <- query(t, testHost, dnsmessage.TypeA, false)
-	if p := c.next(); len(p.msg.Answers) != 1 {
+	if p := c.next(t); len(p.msg.Answers) != 1 {
 		t.Errorf("after the panic: %+v, want the A record", p.msg)
 	}
 }

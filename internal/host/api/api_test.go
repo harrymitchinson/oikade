@@ -30,7 +30,7 @@ func hangsUp(context.Context) (net.Conn, error) {
 }
 
 func TestCallSaysWhetherTheHostHadIt(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	unreachable := dialer(func(context.Context) (net.Conn, error) { return nil, errors.New("no socket") })
 	_, err := Call(ctx, unreachable, Request{Type: TypeStatus})
 	if err == nil || !strings.HasPrefix(err.Error(), "reaching the host") {
@@ -46,7 +46,7 @@ func TestCallSaysWhetherTheHostHadIt(t *testing.T) {
 }
 
 func TestTailCancelledBeforeTheHostAnswersIsNoError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	waits := dialer(func(ctx context.Context) (net.Conn, error) {
 		cancel()
 		<-ctx.Done()
@@ -74,7 +74,7 @@ func streams(body string) dialer {
 }
 
 func TestTailSaysWhetherTheHostEndedIt(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var got []Event
 	each := func(e Event) error {
 		got = append(got, e)
@@ -103,7 +103,7 @@ func TestADeployCutOffSaysNothingWasDeployed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The host reads the request's head, then goes.
-	_, err := Deploy(context.Background(), dialer(hangsUp), path, false, nil)
+	_, err := Deploy(t.Context(), dialer(hangsUp), path, false, nil)
 	if err == nil || !strings.Contains(err.Error(), "nothing was deployed") {
 		t.Errorf("a deploy cut off mid-upload: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestAddressDefaultsThePort(t *testing.T) {
 }
 
 func TestEventsSaysWhetherTheHostStopped(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	begin := func(EventLog) error { return nil }
 	each := func(Event) error { return nil }
 	head := `{"now":"2026-11-08T10:00:00Z"}` + "\n"
@@ -176,7 +176,7 @@ func TestADeployRefusedBeforeItsUploadIsRaceFree(t *testing.T) {
 	if err := os.WriteFile(path, make([]byte, 4<<20), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Deploy(context.Background(), dialer(answersEarly), path, false, func(int64, int64) {})
+	_, err := Deploy(t.Context(), dialer(answersEarly), path, false, func(int64, int64) {})
 	if err == nil || err.Error() != "the host answered 503 Service Unavailable" {
 		t.Errorf("a deploy the host refused early: %v", err)
 	}

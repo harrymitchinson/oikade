@@ -1,7 +1,6 @@
 package mqtt
 
 import (
-	"context"
 	"testing"
 )
 
@@ -28,7 +27,7 @@ func TestMatch(t *testing.T) {
 }
 
 func TestMemoryRetained(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	m := NewMemory()
 	_ = m.Publish(ctx, "a/retained", []byte("1"), true)
 	_ = m.Publish(ctx, "a/transient", []byte("2"), false)

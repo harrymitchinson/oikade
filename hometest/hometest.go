@@ -116,6 +116,7 @@ func New(t testing.TB, home *oikade.Home, o Options) *Home {
 
 // testLog sends your automations' log to the test's, which shows a mistake in a condition.
 func testLog(t testing.TB) *slog.Logger {
+	t.Helper()
 	return logging.Test(t)
 }
 

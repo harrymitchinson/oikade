@@ -1,7 +1,6 @@
 package host
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -18,7 +17,7 @@ func answer(t *testing.T, times settleTimes, has func() bool, reports ...any) (<
 	events := make(chan api.Event)
 	done := make(chan bool, 1)
 	go func() {
-		done <- awaitAnswer(context.Background(), events, "lamp", "brightness", 80.0, has, times)
+		done <- awaitAnswer(t.Context(), events, "lamp", "brightness", 80.0, has, times)
 	}()
 	for _, r := range reports {
 		select {

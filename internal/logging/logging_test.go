@@ -1,7 +1,6 @@
 package logging
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -20,10 +19,10 @@ func TestOrDiscardKeepsALoggerAndFillsInNil(t *testing.T) {
 }
 
 func TestFromContext(t *testing.T) {
-	FromContext(context.Background()).Info("Wrote nothing")
+	FromContext(t.Context()).Info("Wrote nothing")
 	var lines []string
 	log := Lines(func(line string) { lines = append(lines, line) }, slog.LevelInfo)
-	FromContext(NewContext(context.Background(), log)).Info("Found logger")
+	FromContext(NewContext(t.Context(), log)).Info("Found logger")
 	if len(lines) != 1 {
 		t.Fatalf("lines = %q", lines)
 	}

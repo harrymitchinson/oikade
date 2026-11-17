@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	neturl "net/url"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
@@ -43,13 +45,13 @@ type heard struct {
 func hear(t *testing.T, url string) *heard {
 	t.Helper()
 	// The connection lasts as long as this context.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	bus, err := mqtt.Connect(ctx, url, "z2m-test-"+clientID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = bus.Disconnect(context.Background()) })
+	t.Cleanup(func() { _ = bus.Disconnect(context.Background()) }) //nolint:usetesting // t.Context() is done once cleanups run
 	h := &heard{topics: map[string]string{}, bus: bus}
 	record := func(m mqtt.Message) {
 		h.mu.Lock()
@@ -66,7 +68,7 @@ func hear(t *testing.T, url string) *heard {
 
 func (h *heard) publish(t *testing.T, topic, payload string, retain bool) {
 	t.Helper()
-	if err := h.bus.Publish(context.Background(), topic, []byte(payload), retain); err != nil {
+	if err := h.bus.Publish(t.Context(), topic, []byte(payload), retain); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -75,17 +77,20 @@ func (h *heard) wait(t *testing.T, what string, ok func(topics map[string]string
 	t.Helper()
 	deadline := time.Now().Add(waitLimit)
 	for time.Now().Before(deadline) {
-		h.mu.Lock()
-		done := ok(h.topics)
-		h.mu.Unlock()
-		if done {
+		// ok may fail the test, so it doesn't run under the lock.
+		if ok(h.copy()) {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	t.Fatalf("no %s in %v", what, h.copy())
+}
+
+// copy is what's been heard so far.
+func (h *heard) copy() map[string]string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	t.Fatalf("no %s in %v", what, h.topics)
+	return maps.Clone(h.topics)
 }
 
 func (h *heard) waitFor(t *testing.T, topic, want string) {
@@ -112,8 +117,8 @@ func run(t *testing.T, url string, declared ...contractv1.DeclaredDevice) (stop 
 // link to Oikade is a socket, which outlives the broker.
 func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredDevice) (stop func()) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	h, err := New(Config{Broker: zigbee, BaseTopic: base})(plugin.Environment{Root: root}, declared)
+	ctx, cancel := context.WithCancel(t.Context())
+	h, err := factory(Config{Broker: zigbee, BaseTopic: base}, logging.Test(t))(plugin.Environment{Root: root}, declared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +144,7 @@ func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredD
 		once.Do(func() {
 			cancel()
 			<-done
-			_ = p.Close(context.Background())
+			_ = p.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
 		})
 	}
 	t.Cleanup(stop)
@@ -222,13 +227,13 @@ func TestAPluginWaitsForItsBrokersPassword(t *testing.T) {
 	u.User = neturl.User("oikade")
 	h := hear(t, url)
 	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
-	handler, err := New(Config{Broker: u.String(), Password: plugin.NewSecret("broker"), BaseTopic: base})(plugin.Environment{Root: root}, nil)
+	handler, err := factory(Config{Broker: u.String(), Password: plugin.NewSecret("broker"), BaseTopic: base}, logging.Test(t))(plugin.Environment{Root: root}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b := handler.(*bridge)
 	b.secretWait = 20 * time.Millisecond
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	p, err := plugin.Start(ctx, plugin.Options{
 		Environment: plugin.Environment{MQTTURL: url, Root: root}, OnSet: handler.Set, Logger: slog.New(slog.DiscardHandler),
 	})
@@ -242,7 +247,7 @@ func TestAPluginWaitsForItsBrokersPassword(t *testing.T) {
 		if err := <-served; err != nil {
 			t.Error(err)
 		}
-		_ = p.Close(context.Background())
+		_ = p.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
 	})
 
 	h.wait(t, "the plugin saying it's waiting", func(topics map[string]string) bool {
@@ -270,9 +275,7 @@ func TestEveryPairedDeviceIsReportedAndCanBeSet(t *testing.T) {
 	h.wait(t, "devices", func(topics map[string]string) bool {
 		return len(reported(t, topics[root.Devices()]).Discovered) > 0
 	})
-	h.mu.Lock()
-	got := reported(t, h.topics[root.Devices()])
-	h.mu.Unlock()
+	got := reported(t, h.copy()[root.Devices()])
 
 	if i := slices.IndexFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == plugIEEE }); i < 0 ||
 		got.Discovered[i].Name != "desk-plug" || !slices.Equal(got.Discovered[i].Capabilities, []string{"on"}) {
@@ -370,7 +373,7 @@ func TestDevicesFollowZigbee2MQTTOfflineAndBack(t *testing.T) {
 func TestAWriteIsRefusedWhileZigbee2MQTTIsOffline(t *testing.T) {
 	bus := mqtt.NewMemory()
 	b := &bridge{up: false, instance: &Instance{BaseTopic: base, Bus: bus}}
-	err := b.Set(context.Background(), nil, contractv1.SetCommand{ID: plugIEEE, Capability: "on", Value: true})
+	err := b.Set(t.Context(), nil, contractv1.SetCommand{ID: plugIEEE, Capability: "on", Value: true})
 	if !errors.Is(err, errBridgeOffline) {
 		t.Fatalf("got %v", err)
 	}
@@ -407,7 +410,7 @@ func TestLosingTheBrokerMarksDevicesOffline(t *testing.T) {
 	h.waitFor(t, root.Availability(plugIEEE), contractv1.Offline)
 	// This client is reconnecting too.
 	deadline := time.Now().Add(waitLimit)
-	for z.bus.Publish(context.Background(), base+"/bridge/state", []byte(`{"state":"online"}`), true) != nil {
+	for z.bus.Publish(t.Context(), base+"/bridge/state", []byte(`{"state":"online"}`), true) != nil {
 		if time.Now().After(deadline) {
 			t.Fatal("the test's client never reconnected")
 		}
@@ -423,7 +426,7 @@ func TestItGivesUpOnABrokerItCantReach(t *testing.T) {
 		t.Fatal(err)
 	}
 	broker.Close()
-	h, err := New(Config{Broker: broker.URL})(plugin.Environment{Root: root}, nil)
+	h, err := factory(Config{Broker: broker.URL}, logging.Test(t))(plugin.Environment{Root: root}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +435,7 @@ func TestItGivesUpOnABrokerItCantReach(t *testing.T) {
 		t.Fatalf("got %T", h)
 	}
 	b.connectTimeout = 50 * time.Millisecond
-	if err := b.Serve(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "could not reach") {
+	if err := b.Serve(t.Context(), nil); err == nil || !strings.Contains(err.Error(), "could not reach") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -443,7 +446,7 @@ func TestAMessageIsReportedWholeAndOnceEvenIfNothingChanged(t *testing.T) {
 	h := hear(t, url)
 	var reports []string
 	var mu sync.Mutex
-	_, err := h.bus.Subscribe(context.Background(), root.State(motionIEEE), func(m mqtt.Message) {
+	_, err := h.bus.Subscribe(t.Context(), root.State(motionIEEE), func(m mqtt.Message) {
 		mu.Lock()
 		defer mu.Unlock()
 		reports = append(reports, string(m.Payload))
@@ -488,9 +491,9 @@ func TestItFollowsADefaultBaseTopic(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	h := hear(t, url)
 	h.publish(t, DefaultBaseTopic+"/bridge/devices", bridgeDevices(t), true)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	env := plugin.Environment{MQTTURL: url, Root: root}
-	handler, err := New(Config{Broker: url})(plugin.Environment{Root: root}, nil)
+	handler, err := factory(Config{Broker: url}, logging.Test(t))(plugin.Environment{Root: root}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +509,7 @@ func TestItFollowsADefaultBaseTopic(t *testing.T) {
 	t.Cleanup(func() {
 		cancel()
 		<-done
-		_ = p.Close(context.Background())
+		_ = p.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
 	})
 	h.wait(t, "devices", func(topics map[string]string) bool {
 		return len(reported(t, topics[root.Devices()]).Discovered) > 0

@@ -50,7 +50,7 @@ func newNode(t *testing.T) *node {
 	}
 	conn := &recordingConn{PacketConn: pc, sent: make(chan []byte, 1024)}
 	tr := transport.New(conn, transport.Options{Log: logging.Test(t)})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -83,7 +83,8 @@ func newDevice(t *testing.T, sessions *atomic.Int32) *node {
 }
 
 func timeout(t *testing.T) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
 	return ctx
 }

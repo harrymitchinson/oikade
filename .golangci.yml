@@ -22,7 +22,9 @@ linters:
     - unconvert
     - unparam
     - unused
+    - usetesting
     - sloglint
+    - thelper
   settings:
     sloglint:
       msg-style: capitalized
@@ -42,6 +44,19 @@ linters:
     modernize:
       disable:
         - omitzero
+    # A helper's testing.T or testing.TB is t, as everywhere else in the tests.
+    thelper:
+      test:
+        name: false
+      tb:
+        name: false
+      fuzz:
+        name: false
+      benchmark:
+        name: false
+    usetesting:
+      context-background: true
+      context-todo: true
   exclusions:
     generated: lax
     rules:

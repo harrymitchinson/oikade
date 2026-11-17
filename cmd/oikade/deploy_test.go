@@ -70,7 +70,7 @@ func deployTo(t *testing.T, host fakeHost, binary string, live bool) (stdout, st
 			return os.WriteFile(out, make([]byte, 3_000_000), 0o600)
 		},
 	}
-	runErr := d.run(context.Background(), host, t.TempDir(), binary, false)
+	runErr := d.run(t.Context(), host, t.TempDir(), binary, false)
 	_ = w.Close()
 	errOut := <-read
 	if runErr != nil {
@@ -153,7 +153,7 @@ func TestHeartbeatSaysABuildIsStillGoing(t *testing.T) {
 func TestDeployFailsWithoutAHost(t *testing.T) {
 	var b bytes.Buffer
 	d := deployer{stdout: &b, progress: &progress{w: &b}}
-	err := d.run(context.Background(), fakeHost{addr: "127.0.0.1:1"}, "", binaryOf(t, 10), false)
+	err := d.run(t.Context(), fakeHost{addr: "127.0.0.1:1"}, "", binaryOf(t, 10), false)
 	if err == nil || !strings.HasSuffix(b.String(), "Uploading 10 B\n") {
 		t.Errorf("err %v, output %q", err, b.String())
 	}

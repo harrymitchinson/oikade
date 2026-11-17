@@ -202,8 +202,7 @@ func TestANewHomeRunsOnAHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Not t.TempDir: a Unix socket's path has to fit in about 100 bytes.
-	data, err := os.MkdirTemp("", "oik")
+	data, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
 	if err != nil {
 		t.Fatal(err)
 	}

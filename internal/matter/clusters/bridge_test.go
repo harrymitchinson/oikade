@@ -44,7 +44,7 @@ func serve(t *testing.T) *transport.Transport {
 		t.Fatal(err)
 	}
 	tr := transport.New(pc, transport.Options{})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = tr.Serve(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
@@ -90,7 +90,8 @@ func newFixtureLogging(t *testing.T, log *slog.Logger) *fixture {
 }
 
 func timeout(t *testing.T) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
 	return ctx
 }
@@ -411,7 +412,7 @@ func TestRefusesUnsecuredSession(t *testing.T) {
 	}
 	unsecured := f.cliTr.NewUnsecuredSession(f.devTr.Addr().(*net.UDPAddr).AddrPort())
 	c := &im.Client{Session: unsecured}
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 	if _, err := c.Read(ctx, wildcard()); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("read over an unsecured session: %v, want no answer", err)

@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"context"
 	"errors"
 	"net"
 	"sync/atomic"
@@ -28,7 +27,7 @@ func (c *failingConn) LocalAddr() net.Addr { return &net.UDPAddr{} }
 // A retry has to be able to bind the port again, so a failed Serve can't keep it.
 func TestServeClosesTheSocketWhenItFails(t *testing.T) {
 	conn := &failingConn{}
-	if err := New(conn, Options{}).Serve(context.Background()); err == nil {
+	if err := New(conn, Options{}).Serve(t.Context()); err == nil {
 		t.Fatal("got no error from a failed read")
 	}
 	if !conn.closed.Load() {

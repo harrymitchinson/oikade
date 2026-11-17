@@ -510,7 +510,7 @@ func TestRecord(t *testing.T) {
 		t.Skip("records fixtures only with -record <broker URL>")
 	}
 	fmt.Fprintf(os.Stderr, "Connecting to %s\n", *recordBroker)
-	life, cut := context.WithCancel(context.Background())
+	life, cut := context.WithCancel(t.Context())
 	defer cut()
 	dial, cancel := context.WithTimeout(life, recordConnectTimeout)
 	defer cancel()
@@ -523,7 +523,7 @@ func TestRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = bus.Disconnect(context.Background()) }()
+	defer func() { _ = bus.Disconnect(t.Context()) }()
 	c, err := listen(life, bus, *recordBase)
 	if err != nil {
 		t.Fatal(err)
@@ -591,7 +591,7 @@ func (c *capture) write(dir string) (int, []string, error) {
 }
 
 func TestRecordWritesWhatItHeard(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	bus := mqtt.NewMemory()
 	_ = bus.Publish(ctx, "z2m/bridge/devices", []byte(`[{"ieee_address":"0x00124b00eeeeeeee","friendly_name":"desk","type":"Router",
 		"definition":{"vendor":"V","model":"M","exposes":[]}}]`), true)

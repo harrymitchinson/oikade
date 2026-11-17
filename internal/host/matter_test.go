@@ -118,7 +118,7 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 	saved := engine.ControlState{capability.On: control.State{
 		Claims: []control.Claim{{Source: "Rule/leak-shutoff", Level: control.Safety, Value: 0}},
 	}}
-	if err := controls.Put(context.Background(), dev, saved); err != nil {
+	if err := controls.Put(t.Context(), dev, saved); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +130,7 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 		restore: func(_ ident.ID, _ string, otherwise any) { restored = append(restored, otherwise) },
 		emit:    func(e api.Event) { events = append(events, e) },
 	}
-	err := w.Set(context.Background(), dev, capability.On, true)
+	err := w.Set(t.Context(), dev, capability.On, true)
 	if refused, ok := errors.AsType[*driver.Refused](err); !ok || refused.Holder != "Rule/leak-shutoff" || refused.Level != control.NameSafety {
 		t.Errorf("the write wasn't refused at Safety: %v", err)
 	}
@@ -145,14 +145,14 @@ func TestASavedSafetyClaimRefusesAControllerBeforeItsDeviceReports(t *testing.T)
 		t.Errorf("writes %d, restored %v", setter.calls, restored)
 	}
 	// What the claim wants anyway is no trouble.
-	if err := w.Set(context.Background(), dev, capability.On, false); err != nil {
+	if err := w.Set(t.Context(), dev, capability.On, false); err != nil {
 		t.Error(err)
 	}
 	if setter.calls != 1 || len(events) != 1 {
 		t.Errorf("writes %d, events %d", setter.calls, len(events))
 	}
 	// Nor is a capability it doesn't hold.
-	if err := w.Set(context.Background(), dev, capability.Brightness, 50.0); err != nil {
+	if err := w.Set(t.Context(), dev, capability.Brightness, 50.0); err != nil {
 		t.Error(err)
 	}
 }
@@ -172,7 +172,7 @@ func TestAFailedWriteTakesTheControllerBack(t *testing.T) {
 		engine: eng, devices: devices, setter: &writes{err: errors.New("no answer")},
 		restore: func(ident.ID, string, any) { restored++ },
 	}
-	if err := w.Set(context.Background(), key("fan"), capability.On, true); err == nil {
+	if err := w.Set(t.Context(), key("fan"), capability.On, true); err == nil {
 		t.Error("the failure was lost")
 	}
 	if restored != 1 {
@@ -195,7 +195,7 @@ func TestAClaimOnWhatsNoLongerArbitratedRefusesNothing(t *testing.T) {
 	saved := engine.ControlState{capability.On: control.State{
 		Claims: []control.Claim{{Source: "Rule/gone", Level: control.Safety}},
 	}}
-	if err := controls.Put(context.Background(), dev, saved); err != nil {
+	if err := controls.Put(t.Context(), dev, saved); err != nil {
 		t.Fatal(err)
 	}
 	if holder, _ := heldAtSafety(eng, devices, dev, capability.On, true); holder != "" {
@@ -205,7 +205,7 @@ func TestAClaimOnWhatsNoLongerArbitratedRefusesNothing(t *testing.T) {
 
 func TestAStoppingHostWritesNothing(t *testing.T) {
 	setter := &writes{}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	w := &matterWrites{setter: setter}
 	if err := w.Set(ctx, key("fan"), capability.On, true); !errors.Is(err, context.Canceled) {
@@ -397,19 +397,19 @@ func TestClaimsThatCantBeReadRefuseEveryWrite(t *testing.T) {
 	eng.Init()
 	inner := &writes{}
 	setter := claimedSetter{engine: eng, setter: inner}
-	if err := setter.Set(context.Background(), key("fan"), capability.On, true); err != nil || inner.calls != 1 {
+	if err := setter.Set(t.Context(), key("fan"), capability.On, true); err != nil || inner.calls != 1 {
 		t.Fatalf("a device with no record: %v, %d writes", err, inner.calls)
 	}
 	if err := values.Put(key("fan").String(), []byte("not json")); err != nil {
 		t.Fatal(err)
 	}
-	if err := setter.Set(context.Background(), key("fan"), capability.On, true); err == nil || inner.calls != 1 {
+	if err := setter.Set(t.Context(), key("fan"), capability.On, true); err == nil || inner.calls != 1 {
 		t.Errorf("an unreadable record: %v, %d writes", err, inner.calls)
 	}
 	if holder, _ := heldAtSafety(eng, devices, key("fan"), capability.On, true); holder != engine.UnreadableClaims {
 		t.Errorf("held by %q", holder)
 	}
-	if err := eng.ForgetDevice(context.Background(), key("fan")); err != nil {
+	if err := eng.ForgetDevice(t.Context(), key("fan")); err != nil {
 		t.Fatal(err)
 	}
 	if holder, _ := heldAtSafety(eng, devices, key("fan"), capability.On, true); holder != "" {
