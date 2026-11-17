@@ -636,6 +636,45 @@ func TestARuleSetsAHeatersSetpointThatAControllerReads(t *testing.T) {
 	}
 }
 
+// A controller changes a simulated air conditioner's mode, turns it off and sets its target, as the
+// Home app would, and reads back what the host has.
+func TestAControllerRunsASimulatedAirConditioner(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	endpoint := c.endpoint("bedroom-ac")
+	if got := c.deviceTypes(endpoint); !slices.Contains(got, uint64(clusters.DeviceRoomAirConditioner.ID)) {
+		t.Fatalf("the air conditioner's device types are %#x, want a Room Air Conditioner", got)
+	}
+	attr := func(id uint32) any {
+		v, _ := c.read(endpoint, clusters.IDThermostat, id)
+		return v
+	}
+	const cooling, heating, systemMode = 0x0011, 0x0012, 0x001C
+	c.r.until("the controller to read it cooling to 24 °C", func() bool {
+		return attr(systemMode) == uint64(clusters.SystemModeCool) && attr(cooling) == int64(2400)
+	})
+	write := func(id uint32, put func(w *tlv.Writer, tag tlv.Tag)) {
+		t.Helper()
+		path := im.AttributePath{Endpoint: endpoint, Cluster: clusters.IDThermostat, Attribute: id}
+		status, err := c.admin.Write(nodetest.Context(t), path, put)
+		if err != nil || status != im.StatusSuccess {
+			t.Fatalf("writing %#x: %v, %v", id, status, err)
+		}
+	}
+	value := func(name string) any { return capabilityOf(t, c.r.status(), "bedroom-ac", name).Value }
+
+	write(systemMode, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, clusters.SystemModeHeat) })
+	c.r.until("the unit to heat", func() bool { return value("mode") == "heat" && value("on") == true })
+	write(heating, func(w *tlv.Writer, tag tlv.Tag) { w.PutInt(tag, 2150) })
+	c.r.until("the target to be 21.5 °C", func() bool { return value("setpoint") == 21.5 })
+	write(systemMode, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, clusters.SystemModeOff) })
+	c.r.until("the unit to turn off", func() bool { return value("on") == false })
+	if value("mode") != "heat" {
+		t.Errorf("off changed the mode to %v", value("mode"))
+	}
+	c.r.until("the controller to read it off", func() bool { return attr(systemMode) == uint64(clusters.SystemModeOff) })
+}
+
 // commissionedPlugins is commissioned, on a host running the plugins, whose devices a home declares.
 func commissionedPlugins(t *testing.T) *controller {
 	t.Helper()

@@ -143,7 +143,9 @@ var registry = map[string]Spec{
 	Position: {Go: "Position", Kind: KindNumber, Writable: true, Min: 0, Max: 100, Unit: "%", Settle: 2 * time.Minute, Step: 1, Matter: &Matter{
 		Cluster: "Window Covering", ClusterID: 0x0102, Attribute: "CurrentPositionLiftPercent100ths", AttributeID: 0x000E,
 	}},
-	Mode: {Go: "Mode", Kind: KindName, Writable: true, Names: ModeNames},
+	Mode: {Go: "Mode", Kind: KindName, Writable: true, Names: ModeNames, Matter: &Matter{
+		Cluster: "Thermostat", ClusterID: 0x0201, Attribute: "SystemMode", AttributeID: 0x001C,
+	}},
 	Locked: {Go: "Locked", Kind: KindBool, Writable: true, NoEndWrite: true, Settle: 30 * time.Second, Matter: &Matter{
 		Cluster: "Door Lock", ClusterID: 0x0101, Attribute: "LockState", AttributeID: 0x0000,
 	}},

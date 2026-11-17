@@ -50,6 +50,9 @@ func TestThermostatIsTheDeviceTypes(t *testing.T) {
 	if devicetype.Type(Thermostat) != devicetype.Thermostat {
 		t.Errorf("oikade.Thermostat is %q, and devicetype's is %q", Thermostat, devicetype.Thermostat)
 	}
+	if devicetype.Type(RoomAirConditioner) != devicetype.RoomAirConditioner {
+		t.Errorf("oikade.RoomAirConditioner is %q, and devicetype's is %q", RoomAirConditioner, devicetype.RoomAirConditioner)
+	}
 }
 
 func TestASetReachesTheEngineWhole(t *testing.T) {

@@ -113,7 +113,8 @@ A room's devices change as a device is paired, removed or [declared](devices.md#
 |---|---|
 | `oikade.Lights` | `OnOffLight`, `DimmableLight` |
 | `oikade.Plugs` | `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl`, `MountedDimmableLoadControl` |
-| `oikade.Heaters` | `Thermostat`: any device with a setpoint |
+| `oikade.Heaters` | `Thermostat`: any device with a setpoint and no mode |
+| `oikade.Kinds(oikade.RoomAirConditioner)` | the air conditioners: any device with a setpoint and a mode |
 | `oikade.Kinds(...)` | the types you list, such as `oikade.Kinds(oikade.DimmableLight)` |
 | `oikade.Everything`, or none | every device in the room with the capability, whatever it is |
 

@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -117,9 +118,13 @@ func Map(d Device, set SetFunc) *Mapped {
 	has := func(c string) bool { return slices.Contains(d.Capabilities, c) }
 	m := &Mapped{update: map[string]func(any){}, cancel: map[string]func(){}}
 
-	// A thermostat's on and temperature are its Thermostat cluster's, not an On/Off or a sensor.
+	// A thermostat's on and temperature are its Thermostat cluster's, not an On/Off or a sensor. An
+	// air conditioner's on is its On/Off cluster too.
 	thermostat := has(capability.Setpoint)
-	if thermostat {
+	switch {
+	case thermostat && has(capability.Mode):
+		mapAirConditioner(m, set)
+	case thermostat:
 		mapHeater(m, has(capability.On), set)
 	}
 
@@ -246,6 +251,59 @@ func mapHeater(m *Mapped, switchable bool, set SetFunc) {
 		m.update[capability.On] = func(v any) {
 			if b, ok := v.(bool); ok {
 				h.SetOn(b)
+			}
+		}
+	}
+}
+
+// systemModes are the SystemMode each mode shows as.
+var systemModes = map[string]uint64{
+	contractv1.ModeAuto: clusters.SystemModeAuto,
+	contractv1.ModeHeat: clusters.SystemModeHeat,
+	contractv1.ModeCool: clusters.SystemModeCool,
+	contractv1.ModeDry:  clusters.SystemModeDry,
+	contractv1.ModeFan:  clusters.SystemModeFanOnly,
+}
+
+// mapAirConditioner makes the device a Room Air Conditioner: a Thermostat with Heating, Cooling and
+// Auto, whose SystemMode is its on and its mode, and an On/Off cluster for its on. Both occupied
+// setpoints are its setpoint, and LocalTemperature is its temperature.
+//
+// SystemMode Cool is two writes, mode cool and on true, and the Coalescer sends the mode first, so
+// the unit doesn't start in its old mode. Off is on false alone, so the unit keeps its mode.
+func mapAirConditioner(m *Mapped, set SetFunc) {
+	a := clusters.NewAirConditioner()
+	onoff := clusters.NewOnOff()
+	a.OnSetpoint = func(celsius float64) { set(capability.Setpoint, celsius) }
+	a.OnSystemMode = func(on bool, mode uint64) {
+		onoff.Set(on)
+		if on {
+			for name, v := range systemModes {
+				if v == mode {
+					set(capability.Mode, name)
+				}
+			}
+		}
+		set(capability.On, on)
+	}
+	onoff.OnChange = func(on bool) {
+		a.SetOn(on)
+		set(capability.On, on)
+	}
+	m.Types = append(m.Types, clusters.DeviceRoomAirConditioner)
+	m.Clusters = append(m.Clusters, onoff.Cluster(), a.Cluster())
+	m.update[capability.Setpoint] = func(v any) { a.SetSetpoint(capability.Float(v)) }
+	m.update[capability.Temperature] = func(v any) { a.SetLocal(capability.Float(v)) }
+	m.update[capability.On] = func(v any) {
+		if b, ok := v.(bool); ok {
+			onoff.Set(b)
+			a.SetOn(b)
+		}
+	}
+	m.update[capability.Mode] = func(v any) {
+		if name, ok := v.(string); ok {
+			if mode, ok := systemModes[name]; ok {
+				a.SetMode(mode)
 			}
 		}
 	}
