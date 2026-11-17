@@ -42,7 +42,9 @@ const (
 	TypeTail     = "tail"
 	TypeEvents   = "events"
 	TypeMatter   = "matter"
-	TypeBackup   = "backup"
+	// TypeMatterOpen opens the Matter bridge's commissioning window.
+	TypeMatterOpen = "matterOpen"
+	TypeBackup     = "backup"
 	// TypeSetup runs a plugin's setup, streaming its steps, and TypeSetupReply answers one.
 	TypeSetup      = "setup"
 	TypeSetupReply = "setupReply"
@@ -96,6 +98,7 @@ var Routes = []Route{
 	{TypeTail, http.MethodGet, Prefix + "/tail", true, false},
 	{TypeEvents, http.MethodGet, Prefix + "/events", true, false},
 	{TypeMatter, http.MethodGet, Prefix + "/matter", false, false},
+	{TypeMatterOpen, http.MethodPost, Prefix + "/matter/open", false, false},
 	{TypeBackup, http.MethodPost, Prefix + "/backup", false, false},
 	{TypeSetup, http.MethodPost, Prefix + "/setup", true, false},
 	{TypeSetupReply, http.MethodPost, Prefix + "/setup/reply", false, false},
@@ -135,6 +138,8 @@ type Request struct {
 	Value      any    `json:"value,omitempty"`
 	// Plugin is a remove's in place of Device: every device of that plugin on record.
 	Plugin string `json:"plugin,omitempty"`
+	// WindowSeconds is how long a Matter window stays open: 180 to 900, and 0 for 900.
+	WindowSeconds int `json:"windowSeconds,omitempty"`
 	// Rule is a pause's or a resume's.
 	Rule string `json:"rule,omitempty"`
 	// AllowSafety pauses a Safety rule, or removes a device a Safety claim holds.
@@ -214,6 +219,8 @@ type Response struct {
 	TakenOffMatter []string `json:"takenOffMatter,omitempty"`
 	// Matter is a matter request's.
 	Matter *Matter `json:"matter,omitempty"`
+	// MatterWindow is the window a matter open request opened.
+	MatterWindow *MatterWindow `json:"matterWindow,omitempty"`
 	// Backup is the file a backup wrote, on the host.
 	Backup string `json:"backup,omitempty"`
 	// Secrets are the secrets the host has, and never their values.
@@ -335,6 +342,20 @@ type Matter struct {
 	Window bool `json:"window"`
 	// Fabrics are the controllers it's paired with.
 	Fabrics []Fabric `json:"fabrics"`
+}
+
+// MatterWindow is a commissioning window oikade matter open opened. Its JSON is what oikade matter
+// open --json prints, so scripts rely on it: add to it, and don't rename.
+type MatterWindow struct {
+	// ManualCode and QRCode pair a controller in it, and Passcode is the setup passcode they carry.
+	ManualCode string `json:"manualCode"`
+	QRCode     string `json:"qrCode"`
+	Passcode   uint32 `json:"passcode"`
+	// Fresh is codes made for this window, which pair nothing once it closes: the bridge was already
+	// paired. Otherwise they're the bridge's own, which oikade matter shows.
+	Fresh bool `json:"fresh"`
+	// Expires is when the window closes, unless a controller pairs first.
+	Expires time.Time `json:"expires"`
 }
 
 // Fabric is one controller's fabric.

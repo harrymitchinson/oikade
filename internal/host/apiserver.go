@@ -343,6 +343,8 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 		return s.resume(s.ctx, req)
 	case api.TypeMatter:
 		return s.matter()
+	case api.TypeMatterOpen:
+		return s.matterOpen(req)
 	case api.TypeBackup:
 		return s.backup()
 	case api.TypeSetupReply:

@@ -216,6 +216,39 @@ func TestAControllerPairsWithTheHostAndDrivesADevice(t *testing.T) {
 	}
 }
 
+// Once the bridge is paired, oikade matter open opens a window with a code of its own, and a second
+// controller pairs with it.
+func TestOikadeMatterOpenPairsASecondController(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	if out := string(c.r.stdout(nil, "matter")); !strings.Contains(out, "run oikade matter open") {
+		t.Errorf("oikade matter once paired:\n%s", out)
+	}
+	out := string(c.r.stdout(nil, "matter", "open", "--for", "3m"))
+	if !strings.Contains(out, "Opened the Matter bridge's window until") ||
+		!strings.Contains(out, "pair nothing once it closes") || strings.Contains(out, "█") {
+		t.Errorf("oikade matter open:\n%s", out)
+	}
+	before := time.Now()
+	var w api.MatterWindow
+	if err := json.Unmarshal(c.r.stdout(nil, "matter", "open", "--json"), &w); err != nil {
+		t.Fatal(err)
+	}
+	if !w.Fresh || w.Passcode == c.r.matter().Passcode || !strings.HasPrefix(w.QRCode, "MT:") || len(w.ManualCode) != 11 ||
+		w.Expires.Before(before.Add(14*time.Minute)) || w.Expires.After(time.Now().Add(15*time.Minute)) {
+		t.Fatalf("oikade matter open --json: %+v", w)
+	}
+	if m := c.r.matter(); !m.Window {
+		t.Errorf("no window: %+v", m)
+	}
+	nodetest.New(t).Commission(nodetest.Addr(c.port), w.Passcode)
+	c.r.until("the second controller, and the window closed", func() bool {
+		m := c.r.matter()
+		return len(m.Fabrics) == 2 && !m.Window
+	})
+	c.reaches("fan")
+}
+
 func TestAControllerOutlastsYourProcessAndADeploy(t *testing.T) {
 	t.Parallel()
 	c := commissioned(t)

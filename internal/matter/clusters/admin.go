@@ -1,6 +1,8 @@
 package clusters
 
 import (
+	"context"
+	"errors"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/clock"
@@ -45,7 +47,10 @@ type window struct {
 	status uint8
 	// initial is set for the window the node opens itself while it's on no fabric. The cluster
 	// reports it as not open, since no administrator opened it, but RevokeCommissioning closes it.
-	initial     bool
+	initial bool
+	// owners is set for a window the node or its owner opened, rather than a controller: the initial
+	// window, and OpenOwnersWindow's. OpenOwnersWindow replaces only these.
+	owners      bool
 	adminFabric uint8
 	adminVendor uint16
 	timer       clock.Timer
@@ -116,7 +121,7 @@ func (c *Commissioning) openCommissioningWindow(req *im.Request, fields *tlv.Rea
 	if err != nil || iterations < 1000 || iterations > 100000 || len(salt) < 16 || len(salt) > 32 {
 		return nil, im.ClusterStatus{Status: im.StatusFailure, Code: adminPAKEParameterError}
 	}
-	c.openWindow(req.FabricIndex, false, Window{
+	c.openWindow(req.FabricIndex, false, false, Window{
 		Verifier: v, Salt: append([]byte(nil), salt...), Iterations: uint32(iterations),
 		Discriminator: uint16(discriminator), Timeout: d,
 	})
@@ -142,7 +147,7 @@ func (c *Commissioning) openBasicCommissioningWindow(req *im.Request, fields *tl
 	if d < minWindowTimeout || d > maxWindowTimeout {
 		return nil, im.StatusInvalidCommand
 	}
-	c.openWindow(req.FabricIndex, false, Window{Basic: true, Timeout: d})
+	c.openWindow(req.FabricIndex, false, false, Window{Basic: true, Timeout: d})
 	return nil, nil
 }
 
@@ -155,8 +160,53 @@ func (c *Commissioning) OpenInitialWindow(timeout time.Duration) {
 		if c.window.status != windowClosed || c.failSafe.armed {
 			return
 		}
-		c.openWindow(0, true, Window{Basic: true, Timeout: timeout})
+		c.openWindow(0, true, true, Window{Basic: true, Timeout: timeout})
 	})
+}
+
+// ErrWindowBusy is OpenOwnersWindow's refusal while a controller is commissioning the node, or has
+// opened a window itself, as the Home app does to share it.
+var ErrWindowBusy = errors.New("matter: a controller is pairing with the node, or has opened a window")
+
+// ErrOnFabric is OpenOwnersWindow's refusal of a basic window once the node is on a fabric: its own
+// passcode then pairs nothing, so that a code someone once saw can't add a controller.
+var ErrOnFabric = errors.New("matter: the node is on a fabric, so a window needs a passcode of its own")
+
+// OpenOwnersWindow opens a commissioning window for the node's owner, rather than for a controller,
+// and says when it closes. A basic window, with the node's own passcode, is the initial window, as
+// at start, and only opens while the node is on no fabric. An enhanced one takes w's verifier. It
+// replaces a window the owner or the node opened, and refuses while a controller's is open or the
+// fail-safe is armed. Commissioning a fabric and the timeout close it, as they do any window.
+func (c *Commissioning) OpenOwnersWindow(w Window) (closes time.Time, err error) {
+	n := c.general.Node()
+	if n == nil {
+		return time.Time{}, errors.New("matter: commissioning isn't on a node")
+	}
+	n.Update(func() {
+		switch {
+		case c.failSafe.armed, c.window.status != windowClosed && !c.window.owners:
+			err = ErrWindowBusy
+		case w.Basic && c.fabrics.Count() > 0:
+			err = ErrOnFabric
+		default:
+			closes = c.clock.Now().Add(w.Timeout)
+			c.openWindow(0, w.Basic, true, w)
+		}
+	})
+	return closes, err
+}
+
+// Hooked waits until the hooks queued so far have run, such as the one that starts answering PASE
+// in a window just opened, or until ctx is done.
+func (c *Commissioning) Hooked(ctx context.Context) error {
+	done := make(chan struct{})
+	c.queue.push(func() { close(done) })
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // WindowOpen reports whether a commissioning window is open, the initial one included.
@@ -177,9 +227,9 @@ func (c *Commissioning) windowStatus() uint8 {
 	return c.window.status
 }
 
-// openWindow opens w for the administrator on fabric (0 for the initial window), and closes it
+// openWindow opens w for the administrator on fabric (0 for the node's or its owner's), and closes it
 // when it times out. Call it with the Node's lock.
-func (c *Commissioning) openWindow(fabric uint8, initial bool, w Window) {
+func (c *Commissioning) openWindow(fabric uint8, initial, owners bool, w Window) {
 	status := uint8(windowEnhanced)
 	if w.Basic {
 		status = windowBasic
@@ -194,7 +244,7 @@ func (c *Commissioning) openWindow(fabric uint8, initial bool, w Window) {
 	c.window.generation++
 	gen := c.window.generation
 	c.window = window{
-		status: status, initial: initial, adminFabric: fabric, adminVendor: vendor, generation: gen,
+		status: status, initial: initial, owners: owners, adminFabric: fabric, adminVendor: vendor, generation: gen,
 		timer: clock.AfterFunc(c.clock, w.Timeout, func() {
 			c.update(func() {
 				if c.window.generation == gen {

@@ -43,6 +43,7 @@ const usage = `Usage:
   oikade devices remove --plugin NAME [--allow-safety] [--json]
   oikade types [--out FILE] [--package NAME] [--module DIR]
   oikade matter [--json]
+  oikade matter open [--for DURATION] [--json]   Opens the window to pair, for up to 15 minutes.
   oikade setup PLUGIN [--json]         Asks what the plugin needs, and checks it, on the host.
   oikade backup
   oikade secret list [--json]

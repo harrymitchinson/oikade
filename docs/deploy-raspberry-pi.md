@@ -98,7 +98,7 @@ Then import [`config/grafana/oikade-home.json`](../config/grafana/oikade-home.js
 
 | Symptom | Check |
 |---|---|
-| Bridge doesn't appear in the Home app | `dns-sd -B _matterc._udp` from a Mac on the same network. If it's missing: has the 15-minute window passed (`oikade matter` says, and restarting the host opens it again)? Is the Pi on the same subnet as the home hub? Does a firewall drop mDNS? |
+| Bridge doesn't appear in the Home app | `dns-sd -B _matterc._udp` from a Mac on the same network. If it's missing: has the 15-minute window passed (`oikade matter` says, and `oikade matter open` opens it again)? Is the Pi on the same subnet as the home hub? Does a firewall drop mDNS? |
 | "Accessory not found" or pairing fails | `journalctl -u oikade` on the Pi. Is IPv6 on for the Pi and the network? Is there a home hub? |
 | A capability is missing | Oikade doesn't map that expose yet, e.g. colour, colour temperature or multi-gang switches (`state_l2`). |
 | The Home app shows "No Response" | Does `oikade status` show the device offline? Is Zigbee2MQTT or the broker down? Is the host itself up? |

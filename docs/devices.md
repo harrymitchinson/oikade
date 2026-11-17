@@ -68,10 +68,13 @@ Drivers translate to and from a protocol-neutral set of capabilities, named as a
 Oikade reaches the Home app and other controllers through Matter ([OIK-76](https://linear.app/oikade/issue/OIK-76)). The bridge runs inside `oikade-host`, so nothing your code does reaches a controller: a deploy, a crash or a stuck process leaves sessions up and devices working ([OIK-143](https://linear.app/oikade/issue/OIK-143)). A host crash does take the bridge down, until it restarts.
 
 ```sh
-oikade matter    # the pairing codes, whether it's ready to pair, and what it's paired with
+oikade matter         # the pairing codes, whether it's ready to pair, and what it's paired with
+oikade matter open    # opens the window to pair, for 15 minutes or --for 3m to 15m
 ```
 
-The host needs host networking on its machine: the same L2 network as your controllers, with mDNS and IPv6. `--matter-port` moves the bridge from UDP 5540, and 0 turns Matter off. `--matter-interfaces` limits where it advertises. If its port is taken, or an interface isn't there, the host logs that and carries on without it, tries again every minute, and `oikade matter` says it's down and why: automations don't need it. While it's on no fabric, the commissioning window stays open for 15 minutes after the host starts. Restart the host to open it again.
+The host needs host networking on its machine: the same L2 network as your controllers, with mDNS and IPv6. `--matter-port` moves the bridge from UDP 5540, and 0 turns Matter off. `--matter-interfaces` limits where it advertises. If its port is taken, or an interface isn't there, the host logs that and carries on without it, tries again every minute, and `oikade matter` says it's down and why: automations don't need it. While it's on no fabric, the commissioning window stays open for 15 minutes after the host starts, and `oikade matter` draws the QR code in the terminal for the Home app or a phone's camera to scan, while the window is open.
+
+`oikade matter open` opens the window again, with no restart ([OIK-278](https://linear.app/oikade/issue/OIK-278)), and draws the code that pairs in it. While nothing is paired, that's the bridge's own code. Once something is, it's a code made for that window, as a controller makes when it shares the bridge, and it pairs nothing once the window closes: the bridge's own code can't add a controller to a paired bridge. Running it again replaces the window, and its code. A window closes once a controller pairs, or when it times out, and `open` refuses while a controller is pairing or sharing the bridge. `--json` prints `manualCode`, `qrCode`, `passcode`, `fresh` (a code made for the window) and `expires`.
 
 Your home names the bridge, as a controller first shows it ([OIK-296](https://linear.app/oikade/issue/OIK-296)). It's `Oikade` until a deploy says otherwise:
 

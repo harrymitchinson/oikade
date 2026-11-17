@@ -25,6 +25,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/attestation"
+	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/node"
 	"github.com/harrymitchinson/oikade/internal/matter/setup"
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
@@ -398,4 +399,41 @@ func (s *apiServer) matter() api.Response {
 		out.Fabrics = append(out.Fabrics, api.Fabric{Index: f.Index, VendorID: f.VendorID, Label: f.Label})
 	}
 	return api.Response{Matter: out}
+}
+
+// matterOpen answers oikade matter open: it opens the bridge's commissioning window, with its own code
+// while nothing is paired, and a code made for the window once something is.
+func (s *apiServer) matterOpen(req api.Request) api.Response {
+	m := s.bridge
+	switch {
+	case m == nil:
+		return api.Response{Error: "this host has Matter turned off"}
+	case !m.working():
+		return api.Response{Error: "the Matter bridge is down: " + m.broken.Error()}
+	case !m.serving.Load():
+		return api.Response{Error: "the Matter bridge is down, so it can't pair: oikade matter says why"}
+	}
+	timeout := node.DefaultWindowTimeout
+	if req.WindowSeconds != 0 {
+		timeout = time.Duration(req.WindowSeconds) * time.Second
+	}
+	if timeout < node.MinWindowTimeout || timeout > node.DefaultWindowTimeout {
+		return api.Response{Error: fmt.Sprintf("a window stays open for %v to %v, not %v",
+			node.MinWindowTimeout, node.DefaultWindowTimeout, timeout)}
+	}
+	w, err := m.node.OpenWindow(s.ctx, timeout)
+	if errors.Is(err, clusters.ErrWindowBusy) {
+		return api.Response{Error: "a controller is pairing with the bridge, or sharing it, now: try again once it's done"}
+	}
+	if err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	out := &api.MatterWindow{Passcode: w.Payload.Passcode, Fresh: w.Fresh, Expires: w.Closes}
+	if out.ManualCode, err = w.Payload.ManualCode(); err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	if out.QRCode, err = w.Payload.QRCode(); err != nil {
+		return api.Response{Error: err.Error()}
+	}
+	return api.Response{MatterWindow: out}
 }

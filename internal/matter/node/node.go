@@ -384,6 +384,63 @@ func (n *Node) panicked() contain.Panicked {
 // WindowOpen reports whether a commissioning window is open.
 func (n *Node) WindowOpen() bool { return n.comm.WindowOpen() }
 
+// OwnersWindow is a commissioning window the node's owner opened.
+type OwnersWindow struct {
+	// Payload pairs a controller in it.
+	Payload setup.Payload
+	// Fresh is a window with a passcode of its own, which pairs nothing once it closes: the node was
+	// already paired. Otherwise Payload is the node's own.
+	Fresh bool
+	// Closes is when it times out.
+	Closes time.Time
+}
+
+// OpenWindow opens a commissioning window for the node's owner, such as to pair it again once the
+// initial window has closed, for timeout: from MinWindowTimeout to DefaultWindowTimeout. While the node
+// is on no fabric, it's the initial window, with the node's own passcode. Once it's on one, it's an
+// enhanced window with a passcode made for it, as a controller opens to share the node (Core spec,
+// 5.6.3). Opening one again replaces it, with a new passcode. It refuses with
+// clusters.ErrWindowBusy while a controller is pairing or has a window open. It returns once the
+// window answers PASE and is advertised, which takes about a second, or once ctx is done.
+func (n *Node) OpenWindow(ctx context.Context, timeout time.Duration) (OwnersWindow, error) {
+	if timeout < MinWindowTimeout || timeout > DefaultWindowTimeout {
+		return OwnersWindow{}, fmt.Errorf("matter: a window stays open from %v to %v, not %v",
+			MinWindowTimeout, DefaultWindowTimeout, timeout)
+	}
+	if n.run.Load() == nil {
+		return OwnersWindow{}, errors.New("matter: the node isn't running")
+	}
+	if n.table.Count() == 0 {
+		closes, err := n.comm.OpenOwnersWindow(clusters.Window{Basic: true, Timeout: timeout})
+		if err == nil {
+			err = n.comm.Hooked(ctx)
+		}
+		if !errors.Is(err, clusters.ErrOnFabric) {
+			return OwnersWindow{Payload: n.Payload(), Closes: closes}, err
+		}
+		// A controller paired it just now: it takes a fresh passcode, as below.
+	}
+	passcode, discriminator := setup.Random()
+	salt := make([]byte, 32)
+	_, _ = rand.Read(salt)
+	v, err := mcrypto.NewVerifier(passcode, salt, pbkdfIterations)
+	if err != nil {
+		return OwnersWindow{}, err
+	}
+	closes, err := n.comm.OpenOwnersWindow(clusters.Window{
+		Verifier: v, Salt: salt, Iterations: pbkdfIterations, Discriminator: discriminator, Timeout: timeout,
+	})
+	if err == nil {
+		err = n.comm.Hooked(ctx)
+	}
+	if err != nil {
+		return OwnersWindow{}, err
+	}
+	return OwnersWindow{
+		Payload: PayloadFor(Setup{Passcode: passcode, Discriminator: discriminator}), Fresh: true, Closes: closes,
+	}, nil
+}
+
 // openWindow starts answering PASE with w's verifier, or the node's own for a basic window,
 // and advertises the commissionable service.
 func (n *Node) openWindow(w clusters.Window) {
@@ -457,8 +514,7 @@ func (n *Node) closeWindow() {
 	}
 	n.log.Info("Stopped advertising commissionable service")
 	if n.table.Count() == 0 {
-		n.log.Info("Closed the commissioning window while on no fabric: restart the host to open it again",
-			"timeout", n.cfg.WindowTimeout)
+		n.log.Info("Closed the commissioning window while on no fabric: oikade matter open opens it again")
 	}
 }
 
