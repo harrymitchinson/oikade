@@ -368,14 +368,56 @@ func TestAForgottenListenerIsRegisteredAgain(t *testing.T) {
 	b.waitState(kitchen, `{"position":60}`)
 }
 
+// waits stands in for the plugin's backoff: it records each wait the plugin asks for, and lets one
+// pass only when the test says so.
+type waits struct {
+	asked chan time.Duration
+	pass  chan struct{}
+}
+
+func newWaits() *waits { return &waits{asked: make(chan time.Duration, 16), pass: make(chan struct{})} }
+
+func (w *waits) backoff(ctx context.Context, d time.Duration) {
+	w.asked <- d
+	select {
+	case <-ctx.Done():
+	case <-w.pass:
+	}
+}
+
+// next is the next wait the plugin asks for.
+func (w *waits) next(t *testing.T) time.Duration {
+	t.Helper()
+	select {
+	case d := <-w.asked:
+		return d
+	case <-time.After(10 * time.Second):
+		t.Fatal("the plugin never backed off")
+		return 0
+	}
+}
+
+// A hub that says there are too many requests is left alone for the limit's wait.
 func TestTooManyRequestsBacksOff(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, token)
+	w := newWaits()
+	timings := fast
+	timings.limited, timings.backoff = time.Minute, w.backoff
+	b := startWith(t, hub, Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), PIN: hubPIN, roots: hub.ca}, timings, token)
 	b.waitAvailability(kitchen, "online")
 	hub.set(func(h *fakeHub) { h.limited = true })
-	b.eventually("the limit", func() bool { return strings.Contains(b.status().Error, "too many requests") })
+	if d := w.next(t); d != time.Minute {
+		t.Fatalf("waited %s, want the limit's minute", d)
+	}
+	b.eventually("the limit", func() bool { return strings.Contains(b.status().Error, "too many requests: trying again in 1m0s") })
 	b.waitAvailability(kitchen, "offline")
+	asked := hub.total()
+	time.Sleep(10 * fast.poll)
+	if n := hub.total() - asked; n != 0 {
+		t.Errorf("asked the hub %d times while it said to wait", n)
+	}
 	hub.set(func(h *fakeHub) { h.limited = false })
+	w.pass <- struct{}{}
 	b.waitAvailability(kitchen, "online")
 }
 
@@ -570,47 +612,54 @@ func TestAnEndedSessionLogsInAgainWithTheRadiatorOnline(t *testing.T) {
 	}
 }
 
+// A cloud that ends each session as it begins is asked to log in again after a wait that doubles,
+// up to retryMax, and once for each wait.
 func TestASessionEndedAsItBeginsBacksOff(t *testing.T) {
 	cloud := newFakeCloud(t)
-	b := startCloud(t, cloud, password, cloudFast)
+	w := newWaits()
+	timings := cloudFast
+	timings.retry, timings.retryMax, timings.backoff = time.Second, 4*time.Second, w.backoff
+	b := startCloud(t, cloud, password, timings)
 	b.waitAvailability(radiator, "online")
 	b.listening()
-	// Every session ends at once from now on.
-	cloud.set(func(h *fakeHub) { h.sessions = map[string]bool{}; h.password = password })
-	stop := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			case <-time.After(time.Millisecond):
-				cloud.expire()
-			}
+	cloud.set(func(h *fakeHub) { h.endAtFetch = true })
+	for i, want := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 4 * time.Second} {
+		if d := w.next(t); d != want {
+			t.Fatalf("wait %d is %s, want %s", i, d, want)
 		}
-	}()
-	b.eventually("the problem", func() bool { return strings.Contains(b.status().Error, "keeps ending the plugin's session") })
-	close(stop)
-	logins := cloud.count("/login")
-	time.Sleep(cloudFast.retryMax)
-	if n := cloud.count("/login") - logins; n > 2 {
-		t.Errorf("logged in %d times in %s", n, cloudFast.retryMax)
+		if i == 0 {
+			b.eventually("the problem", func() bool {
+				return strings.Contains(b.status().Error, "keeps ending the plugin's session: trying again in 1s")
+			})
+		}
+		logins := cloud.count("/login")
+		time.Sleep(10 * timings.poll)
+		if n := cloud.count("/login") - logins; n != 0 {
+			t.Fatalf("logged in %d times during wait %d", n, i)
+		}
+		if i == 3 {
+			cloud.set(func(h *fakeHub) { h.endAtFetch = false })
+		}
+		w.pass <- struct{}{}
 	}
 	b.waitAvailability(radiator, "online")
 }
 
 func TestCozytouchNeedsABrandAndAUsername(t *testing.T) {
-	for _, c := range []Cozytouch{
-		{Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")},
-		{Brand: "Atlantique", Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")},
-		{Brand: Thermor, Password: plugin.NewSecret("cozytouch")},
-		{Brand: Thermor, Username: "someone@example.com"},
+	brands := "it's overkiz.Atlantic, overkiz.Thermor or overkiz.Sauter"
+	for _, tc := range []struct {
+		account Account
+		want    string
+	}{
+		{Cozytouch{Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")}, `has Brand "": ` + brands},
+		{Cozytouch{Brand: "Atlantique", Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")}, `has Brand "Atlantique": ` + brands},
+		{Cozytouch{Brand: Thermor, Password: plugin.NewSecret("cozytouch")}, "overkiz.Cozytouch has no Username"},
+		{Cozytouch{Brand: Thermor, Username: "someone@example.com"}, "overkiz.Cozytouch's Password isn't set"},
+		{Local{Token: plugin.NewSecret("tahoma-token")}, "overkiz.Local has no Address"},
 	} {
-		if _, err := New(c)(plugin.Environment{}, nil); err == nil {
-			t.Errorf("%+v was taken", c)
+		if _, err := New(tc.account)(plugin.Environment{}, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: got %v, want %q", tc.account, err, tc.want)
 		}
-	}
-	if _, err := New(Local{Token: plugin.NewSecret("tahoma-token")})(plugin.Environment{}, nil); err == nil {
-		t.Error("a Local with no Address was taken")
 	}
 }
 

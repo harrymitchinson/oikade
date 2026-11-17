@@ -46,6 +46,9 @@ type fakeHub struct {
 	// clientRefused refuses the app's client ID, as Atlantic would once it changes it.
 	clientRefused bool
 	sessions      map[string]bool
+	// endAtFetch ends each session at its first fetch of events, as a cloud that ends them as they
+	// begin does, once the plugin has connected.
+	endAtFetch bool
 
 	// ca is the authority that signed a hub's certificate, standing in for Overkiz's.
 	ca *x509.CertPool
@@ -144,6 +147,11 @@ func (h *fakeHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		switch parts[3] {
 		case "fetch":
+			if c, err := r.Cookie("JSESSIONID"); err == nil && h.endAtFetch {
+				h.sessions[c.Value] = false
+				answer(http.StatusUnauthorized, map[string]string{"errorCode": "RESOURCE_ACCESS_DENIED", "error": "Not authenticated"})
+				return
+			}
 			h.listeners[parts[2]] = []map[string]any{}
 			answer(http.StatusOK, events)
 		case "unregister":
@@ -198,6 +206,17 @@ func (h *fakeHub) count(path string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.requests[path]
+}
+
+// total counts every request.
+func (h *fakeHub) total() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, c := range h.requests {
+		n += c
+	}
+	return n
 }
 
 func (h *fakeHub) executions() []map[string]any {

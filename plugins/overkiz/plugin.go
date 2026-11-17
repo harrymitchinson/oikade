@@ -132,6 +132,9 @@ type timing struct {
 	request, set time.Duration
 	// execution is how long an execution counts as running without an event that ends it.
 	execution time.Duration
+	// backoff waits d after a failure, or until ctx ends. Nil is sleep; a test sees the waits
+	// through it.
+	backoff func(ctx context.Context, d time.Duration)
 }
 
 var localTiming = timing{
@@ -258,12 +261,12 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		case expired:
 			b.log.Warn("Overkiz ended the plugin's session as it began", "err", err, "account", b.account.describe(), "retry", ended.String())
 			b.setProblem(ctx, fmt.Sprintf("%s keeps ending the plugin's session: trying again in %s", b.account.describe(), ended))
-			sleep(ctx, ended)
+			b.backoff(ctx, ended)
 			ended = min(2*ended, b.timing.retryMax)
 		case errors.Is(err, errReport):
 			b.log.Error("Could not report Overkiz devices", "err", err, "account", b.account.describe(), "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("could not report the devices of %s: %v", b.account.describe(), err))
-			sleep(ctx, wait)
+			b.backoff(ctx, wait)
 			wait = min(2*wait, b.timing.retryMax)
 		case classify(err) == refused:
 			b.log.Warn("Overkiz refused the credential", "err", err, "account", b.account.describe())
@@ -272,16 +275,16 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		case classify(err) == limited:
 			b.log.Warn("Overkiz limited the plugin's requests", "err", err, "account", b.account.describe(), "retry", b.timing.limited.String())
 			b.setProblem(ctx, fmt.Sprintf("%s says there were too many requests: trying again in %s", b.account.describe(), b.timing.limited))
-			sleep(ctx, b.timing.limited)
+			b.backoff(ctx, b.timing.limited)
 		case certFailure(err) != nil:
 			b.log.Warn("Refused Overkiz hub's certificate", "err", err, "account", b.account.describe(), "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("%s has a certificate that %v", b.account.describe(), certFailure(err)))
-			sleep(ctx, wait)
+			b.backoff(ctx, wait)
 			wait = min(2*wait, b.timing.retryMax)
 		default:
 			b.log.Warn("Could not reach Overkiz", "err", err, "account", b.account.describe(), "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("could not reach %s: %v", b.account.describe(), err))
-			sleep(ctx, wait)
+			b.backoff(ctx, wait)
 			wait = min(2*wait, b.timing.retryMax)
 		}
 	}
@@ -640,6 +643,15 @@ func reporting(err error) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %w", errReport, err)
+}
+
+// backoff waits d after a failure.
+func (b *bridge) backoff(ctx context.Context, d time.Duration) {
+	if b.timing.backoff != nil {
+		b.timing.backoff(ctx, d)
+		return
+	}
+	sleep(ctx, d)
 }
 
 // sleep waits for d, and says false if ctx ended first.

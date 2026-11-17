@@ -708,8 +708,8 @@ func TestCaptureReplacesAHandWrittenFixture(t *testing.T) {
 }
 
 func TestCaptureNeedsTheDeviceList(t *testing.T) {
-	if _, _, err := (&capture{}).fixtures("recorded", nil); err == nil {
-		t.Error("a capture with no bridge/devices made fixtures")
+	if _, _, err := (&capture{}).fixtures("recorded", nil); err == nil || !strings.Contains(err.Error(), "heard no bridge/devices") {
+		t.Errorf("a capture with no bridge/devices: got %v, want it to say it heard none", err)
 	}
 }
 

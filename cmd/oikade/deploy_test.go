@@ -143,6 +143,8 @@ func TestHeartbeatSaysABuildIsStillGoing(t *testing.T) {
 	if !strings.HasPrefix(got, "Still building, ") || !strings.HasSuffix(got, " so far\n") {
 		t.Errorf("got %q", got)
 	}
+	// Five beats later, there's still nothing more.
+	time.Sleep(50 * time.Millisecond)
 	if b.String() != got {
 		t.Error("the heartbeat went on after stop")
 	}

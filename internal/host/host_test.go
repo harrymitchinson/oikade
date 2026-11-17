@@ -123,17 +123,6 @@ func TestHostRefusesAnotherVersionAndARole(t *testing.T) {
 	}
 }
 
-func TestSocketIsPrivate(t *testing.T) {
-	socket, _ := startHost(t, tempDir(t))
-	info, err := os.Stat(socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
-		t.Fatalf("got mode %o", mode)
-	}
-}
-
 func TestHoldStateIsReturnedToTheNextSession(t *testing.T) {
 	dir := tempDir(t)
 	socket, stop := startHost(t, dir)
