@@ -15,6 +15,15 @@ on:
 
 permissions: {}
 
+# Each job keeps its own Go cache, the modules and the build cache, because
+# each builds differently (coverage, the race detector). Only main's runs save
+# one, under a new key each run, so a PR restores what main built last rather
+# than whatever was first saved for its go.sum.
+env:
+  GO_CACHE_PATHS: |
+    ~/go/pkg/mod
+    ~/.cache/go-build
+
 jobs:
   changes:
     permissions:
@@ -38,10 +47,67 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version-file: go.mod
+          cache: false
 
-      # Runs a cross-compiled arm64 home's check mode (test/host). A slow
-      # Ubuntu mirror once hung this for 44 minutes (OIK-300), so each try gets
-      # three minutes, and a third failure fails the job.
+      - name: Name the Go cache
+        id: cache
+        run: echo "prefix=go-$RUNNER_OS-$(go env GOVERSION)-$GITHUB_JOB-${{ hashFiles('go.sum') }}" >>"$GITHUB_OUTPUT"
+
+      - name: Restore the Go cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}-
+
+      # Fails instead of tidying, so an untidy go.mod can't hide behind CI.
+      - name: Check go.mod is tidy
+        run: go mod tidy -diff
+
+      - name: Running Tests
+        run: make test
+
+      - name: Save the Go cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # A cross-compiled arm64 home's check mode runs under qemu-user here, in a job
+  # of its own, so the emulator's install isn't on the test job's way.
+  arm64:
+    permissions:
+      contents: read
+    name: Cross-compiled check
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Name the Go cache
+        id: cache
+        run: echo "prefix=go-$RUNNER_OS-$(go env GOVERSION)-$GITHUB_JOB-${{ hashFiles('go.sum') }}" >>"$GITHUB_OUTPUT"
+
+      - name: Restore the Go cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}-
+
+      # A slow Ubuntu mirror once hung this for 44 minutes (OIK-300), so each
+      # try gets three minutes, and a third failure fails the job.
       - name: Install the arm64 emulator
         timeout-minutes: 10
         run: |
@@ -53,14 +119,17 @@ jobs:
           done
           exit 1
 
-      # Fails instead of tidying, so an untidy go.mod can't hide behind CI.
-      - name: Check go.mod is tidy
-        run: go mod tidy -diff
-
-      - name: Running Tests
+      - name: Run the arm64 home's check
         env:
           OIKADE_REQUIRE_EMULATOR: "1"
-        run: make test
+        run: go test -count=1 -run '^TestCrossCompiledBuildRunsItsCheck$' -v ./test/host
+
+      - name: Save the Go cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   race:
     permissions:
@@ -79,9 +148,28 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version-file: go.mod
+          cache: false
+
+      - name: Name the Go cache
+        id: cache
+        run: echo "prefix=go-$RUNNER_OS-$(go env GOVERSION)-$GITHUB_JOB-${{ hashFiles('go.sum') }}" >>"$GITHUB_OUTPUT"
+
+      - name: Restore the Go cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}-
 
       - name: Run the tests under the race detector
         run: make test-race
+
+      - name: Save the Go cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   plugins:
     permissions:
@@ -100,6 +188,18 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
           go-version-file: go.mod
+          cache: false
+
+      - name: Name the Go cache
+        id: cache
+        run: echo "prefix=go-$RUNNER_OS-$(go env GOVERSION)-$GITHUB_JOB-${{ hashFiles('go.sum') }}" >>"$GITHUB_OUTPUT"
+
+      - name: Restore the Go cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}-
 
       - name: Run the conformance suite against the simswitch fixture
         run: make test-conformance
@@ -110,3 +210,10 @@ jobs:
           for arch in arm64 amd64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o /dev/null ./test/fixtures/simswitch
           done
+
+      - name: Save the Go cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
