@@ -57,7 +57,7 @@ vet: ## Run go vet against code.
 # test/host can run past go test's 10-minute default, so a slow test fails on its own wait instead.
 .PHONY: test
 test: fmt vet ## Run the tests.
-	go test -parallel 8 -timeout 20m $$(go list ./... | grep -v -e /test/journeys) -coverprofile cover.out
+	go test -parallel 8 -timeout 20m $$(go list ./... | grep -v -e /test/journeys)
 
 # The race detector, on everything but test/host and test/cli, which take minutes under it and have
 # a target of their own.
@@ -72,13 +72,15 @@ test-race: ## Run the tests in this process under the race detector.
 test-race-binaries: ## Run test/host and test/cli with the race detector in every binary they start.
 	go test -race -parallel 8 -timeout 30m -count=1 ./test/host ./test/cli
 
-# test/host and test/cli run built binaries, which make test's coverage can't see. This builds them
-# with coverage and writes what they ran to cover-binaries.out.
+# test/host and test/cli run built binaries, which go test -cover can't see. This builds them with
+# coverage, the home included, prints each package's share and writes what they ran in this module
+# to cover-binaries.out (go tool cover -func or -html reads it; the home's own package isn't in this
+# module). make test measures nothing: no number is checked, so it doesn't pay for one.
 .PHONY: cover-binaries
 cover-binaries: ## Measure the coverage of the binaries test/host and test/cli run.
 	rm -rf $(LOCALBIN)/cover && mkdir -p $(LOCALBIN)/cover
 	OIKADE_COVER=1 GOCOVERDIR=$(LOCALBIN)/cover go test ./test/host ./test/cli -count=1 -timeout 20m
-	go tool covdata textfmt -i=$(LOCALBIN)/cover -o cover-binaries.out
+	go tool covdata textfmt -i=$(LOCALBIN)/cover -pkg='github.com/harrymitchinson/oikade/...' -o cover-binaries.out
 	go tool covdata percent -i=$(LOCALBIN)/cover
 
 # The chip-tool image is tagged by its Dockerfile's hash, so it's built once per change to it.
