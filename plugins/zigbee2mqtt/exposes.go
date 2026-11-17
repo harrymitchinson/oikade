@@ -1,6 +1,7 @@
 package zigbee2mqtt
 
 import (
+	"reflect"
 	"slices"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -228,10 +229,10 @@ func (b binding) decode(raw any) (any, error) {
 		}
 		v = roundTo(f*100/b.scale, 1)
 	case b.valueOn != nil:
-		switch raw {
-		case b.valueOn:
+		switch {
+		case same(raw, b.valueOn):
 			v = true
-		case b.valueOff:
+		case same(raw, b.valueOff):
 			v = false
 		default:
 			v = raw
@@ -246,6 +247,13 @@ func (b binding) decode(raw any) (any, error) {
 		v = raw
 	}
 	return capability.Validate(b.capability, v)
+}
+
+// same says whether two values decoded from JSON are the same scalar. An object or an array is
+// never the same as anything: comparing two of them with == panics, and a device's definition and
+// its payloads both come from the network.
+func same(a, b any) bool {
+	return reflect.ValueOf(a).Comparable() && reflect.ValueOf(b).Comparable() && a == b
 }
 
 // encode converts a canonical value to the raw property value for a /set payload.

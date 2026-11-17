@@ -206,9 +206,9 @@ func (i *Instance) handleDevices(payload []byte) {
 		i.Log.Error("Failed to parse Zigbee2MQTT device list", "err", err, "instance", i.Key)
 		return
 	}
+	// Built before locking, since it reads the definitions, which come from the network.
 	var inventory []driver.AppDevice
-	i.mu.Lock()
-	i.paired, i.byName = map[string]*paired{}, map[string]string{}
+	pairedByIEEE, byName := map[string]*paired{}, map[string]string{}
 	for _, d := range list {
 		if d.Type == "Coordinator" || d.Definition == nil {
 			continue
@@ -221,8 +221,8 @@ func (i *Instance) handleDevices(payload []byte) {
 		for _, b := range bs {
 			p.info.Capabilities = append(p.info.Capabilities, b.capability)
 		}
-		i.paired[d.IEEEAddress] = p
-		i.byName[d.FriendlyName] = d.IEEEAddress
+		pairedByIEEE[d.IEEEAddress] = p
+		byName[d.FriendlyName] = d.IEEEAddress
 		app := driver.AppDevice{
 			ID: d.IEEEAddress, Manufacturer: p.info.Manufacturer, Model: p.info.Model,
 			Capabilities: slices.Clone(p.info.Capabilities), DeviceType: p.info.DeviceType,
@@ -234,9 +234,11 @@ func (i *Instance) handleDevices(payload []byte) {
 		inventory = append(inventory, app)
 	}
 	// Added after every name, so an address wins over a frontend name that equals it.
-	for ieee := range i.paired {
-		i.byName[ieee] = ieee
+	for ieee := range pairedByIEEE {
+		byName[ieee] = ieee
 	}
+	i.mu.Lock()
+	i.paired, i.byName = pairedByIEEE, byName
 	// What a device no longer has, or a device that left, has lost its value everywhere else, so
 	// its next report isn't a repeat.
 	maps.DeleteFunc(i.values, func(ieee string, values map[string]any) bool {
@@ -397,14 +399,29 @@ func (i *Instance) handleAvailability(name string, payload []byte) {
 
 func (i *Instance) handleState(name string, payload []byte) {
 	now := i.Now()
+	dev, updates, ok := i.takeState(name, payload, now)
+	if !ok {
+		return
+	}
+	if len(updates) > 0 {
+		i.Sink.Changed(updates...)
+	}
+	i.Sink.Seen(dev, now)
+}
+
+// takeState decodes a state payload for the device it names, keeps its values, and returns what
+// changed. It says false for a topic that isn't a device's state, or a payload that isn't an
+// object.
+func (i *Instance) takeState(name string, payload []byte, now time.Time) (ident.ID, []driver.Update, bool) {
 	i.mu.Lock()
+	// Deferred, so that a payload that panics in decoding can't leave every later message waiting.
+	defer i.mu.Unlock()
 	// Most topics under the base, such as <name>/set, aren't a device's state: resolve before
 	// decoding.
 	dev, ok := i.deviceLocked(name)
 	var state map[string]any
 	if !ok || json.Unmarshal(payload, &state) != nil {
-		i.mu.Unlock()
-		return
+		return ident.ID{}, nil, false
 	}
 	ieee := i.byName[name]
 	var updates []driver.Update
@@ -431,12 +448,7 @@ func (i *Instance) handleState(name string, payload []byte) {
 		i.values[ieee][b.capability] = v
 		updates = append(updates, driver.Update{Device: dev, Capability: b.capability, Value: v, Previous: prev, Time: now})
 	}
-	i.mu.Unlock()
-
-	if len(updates) > 0 {
-		i.Sink.Changed(updates...)
-	}
-	i.Sink.Seen(dev, now)
+	return dev, updates, true
 }
 
 // deviceLocked resolves a friendly name or IEEE address to a declared, paired Device.
