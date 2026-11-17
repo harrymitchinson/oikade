@@ -53,10 +53,11 @@ vet: ## Run go vet against code.
 
 # The journeys need Docker and take minutes, so they have their own target. test/host's and
 # test/cli's tests mostly wait on the processes they started, so they run eight at once however
-# many CPUs there are (no other package has more than a few parallel tests).
+# many CPUs there are (no other package has more than a few parallel tests). On a loaded machine
+# test/host can run past go test's 10-minute default, so a slow test fails on its own wait instead.
 .PHONY: test
 test: fmt vet ## Run the tests.
-	go test -parallel 8 $$(go list ./... | grep -v -e /test/journeys) -coverprofile cover.out
+	go test -parallel 8 -timeout 20m $$(go list ./... | grep -v -e /test/journeys) -coverprofile cover.out
 
 # The race detector, on everything that runs in this process: test/host and test/cli run built
 # binaries, which test-race doesn't rebuild.
@@ -69,7 +70,7 @@ test-race: ## Run the tests in this process under the race detector.
 .PHONY: cover-binaries
 cover-binaries: ## Measure the coverage of the binaries test/host and test/cli run.
 	rm -rf $(LOCALBIN)/cover && mkdir -p $(LOCALBIN)/cover
-	OIKADE_COVER=1 GOCOVERDIR=$(LOCALBIN)/cover go test ./test/host ./test/cli -count=1
+	OIKADE_COVER=1 GOCOVERDIR=$(LOCALBIN)/cover go test ./test/host ./test/cli -count=1 -timeout 20m
 	go tool covdata textfmt -i=$(LOCALBIN)/cover -o cover-binaries.out
 	go tool covdata percent -i=$(LOCALBIN)/cover
 
