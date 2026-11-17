@@ -188,6 +188,7 @@ func TestACaseKilledAsItClaimsKeepsItsLatch(t *testing.T) {
 	r.unplan()
 	r.kill()
 	r.sync()
+	// The latch outlived the kill: a hold that forgot it would turn the heater back on here.
 	if n := r.count(wrote, "device", "garage-heater", "value", true); n != 0 {
 		t.Fatalf("the heater came back on before the door opened\n%s", r.dump())
 	}

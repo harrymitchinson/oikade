@@ -157,3 +157,25 @@ func TestAHoldThatOnlyWritesIsSavedAfterItsStart(t *testing.T) {
 		t.Errorf("saved as %+v after it, want active", st)
 	}
 }
+
+// A group that claims on one member and writes the other is saved after its start too: loaded
+// active, it would only claim again, and the member it writes would never get its start.
+func TestAGroupThatAlsoWritesIsSavedAfterItsStart(t *testing.T) {
+	key := ident.ID{Name: "workshop-overheat"}
+	holds := newMemoryStates[HoldState]()
+	w := &claimWatch{states: holds, key: key}
+	group := overheat
+	group.Device, group.Devices = "", []string{"workshop-heater", "water-heater"}
+	r := startRigWith(t, rigOptions{
+		now: local("2026-11-17 09:00 GMT"), holds: holds, arbitration: w,
+		control: map[string][]control.Entry{"workshop-heater": {entry(capability.On, "true", control.NameOverride, "1h")}},
+		values:  map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}},
+	}, holdRule(t, "workshop-overheat", group))
+	r.expect(call{"water-heater", capability.On, false})
+	if claims := w.claims(); len(claims) != 1 || claims[0].Active {
+		t.Fatalf("saved as %+v when the claims came, want one claim with the hold inactive", claims)
+	}
+	if st, _ := holds.Get(key); !st.Active {
+		t.Errorf("saved as %+v after the start, want active", st)
+	}
+}

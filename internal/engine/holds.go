@@ -587,13 +587,13 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 			saved = e.saveStart(ctx, key, st, since)
 		}
 		written, d, err := e.applyHold(ctx, key, st.Target, active, claim)
-		if active {
-			fault.Hit(fault.ClientHoldStarted)
-		}
 		if err != nil {
 			retry, saved = d, false
 		} else {
 			st.Active, st.Since, started, startedOrEnded = active, since, written, true
+			if active {
+				fault.Hit(fault.ClientHoldStarted)
+			}
 		}
 	} else if ended {
 		switch {
@@ -661,11 +661,12 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 // saveStart saves a hold as active before its start claims, and reports whether that's on disk. A
 // claim outlives your process, in the host, so a process killed between the two loads the hold
 // active and claims again, latch and all, rather than inactive with nothing to end the claim
-// (OIK-299). A plain write ends with your process, so a hold that only writes is saved after it:
-// the next process writes the start again if it's still due. A failed save doesn't hold the start
-// up, so a Safety hold still acts on a failing disk.
+// (OIK-299). A plain write ends with your process, so a hold that writes any device is saved after:
+// the next process writes the start again if it's still due, where one loaded active would only
+// claim again. A failed save is logged and the start goes ahead, so a Safety hold still acts on a
+// failing disk, though the claim waits for the save's answer.
 func (e *Engine) saveStart(ctx context.Context, key ident.ID, st HoldState, since time.Time) bool {
-	if _, claims := e.writeGroups(st.Target); !claims {
+	if !e.onlyClaims(st.Target) {
 		return false
 	}
 	st.Active, st.Since = true, since
@@ -676,6 +677,15 @@ func (e *Engine) saveStart(ctx context.Context, key ident.ID, st HoldState, sinc
 		return false
 	}
 	return true
+}
+
+// onlyClaims reports whether a hold's start claims on every device it reaches, and writes none.
+func (e *Engine) onlyClaims(t HoldTarget) bool {
+	devices := named(t)
+	if t.Room != "" {
+		devices = e.roomMembers(t)
+	}
+	return len(devices) > 0 && !slices.ContainsFunc(devices, func(dev ident.ID) bool { return !e.arbitrated(dev, t.Capability) })
 }
 
 func (e *Engine) deleteState(key ident.ID) {
