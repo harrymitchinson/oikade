@@ -116,6 +116,13 @@ func (i *Instance) SetDevices(declared map[string]ident.ID, removed map[string]b
 	i.counting.Lock()
 	defer i.counting.Unlock()
 	i.mu.Lock()
+	// A device that leaves, or moves to another id, starts empty where it lands, so the values it
+	// had must not hold back the next report that repeats them.
+	for id, dev := range i.declared {
+		if declared[id] != dev {
+			delete(i.values, id)
+		}
+	}
 	i.declared, i.removed = maps.Clone(declared), maps.Clone(removed)
 	emit := i.discoveryLocked()
 	// Only a discovered list's count depends on what's declared.

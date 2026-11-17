@@ -133,7 +133,7 @@ func (p *plugins) follow(ctx context.Context, h *hosted, bus mqtt.Bus) {
 		Sink: p.devices, Now: time.Now, Log: p.log,
 	}
 	p.known.attach(h.key)
-	h.driver.SetDevices(p.onRecord(h), p.removed(h))
+	h.driver.SetDevices(p.onRecord(h))
 	h.listed = p.removed(h)
 	if err := h.driver.Start(ctx); err != nil {
 		p.log.Error("Failed to follow plugin", "err", err, "plugin", h.name)
@@ -157,28 +157,27 @@ func (b pairingBus) Subscribe(ctx context.Context, filter string, h mqtt.Handler
 	})
 }
 
-// onRecord maps a plugin's device IDs to the devices they are.
-func (p *plugins) onRecord(h *hosted) map[string]ident.ID {
-	devices := map[string]ident.ID{}
+// onRecord maps a plugin's device IDs to the devices they are, and finds those you removed, from
+// one read of the registry so that no ID is in neither.
+func (p *plugins) onRecord(h *hosted) (map[string]ident.ID, map[string]bool) {
+	devices, removed := map[string]ident.ID{}, map[string]bool{}
 	driverName := instanceName(h.key)
 	for _, d := range p.known.registry.List().Devices {
-		if d.Driver == driverName && !d.Removed && d.ID != "" {
+		switch {
+		case d.Driver != driverName || d.ID == "":
+		case d.Removed:
+			removed[d.ID] = true
+		default:
 			devices[d.ID] = key(d.Name)
 		}
 	}
-	return devices
+	return devices, removed
 }
 
 // removed finds the devices of a plugin's that you removed.
 func (p *plugins) removed(h *hosted) map[string]bool {
-	out := map[string]bool{}
-	driverName := instanceName(h.key)
-	for _, d := range p.known.registry.List().Devices {
-		if d.Driver == driverName && d.Removed && d.ID != "" {
-			out[d.ID] = true
-		}
-	}
-	return out
+	_, removed := p.onRecord(h)
+	return removed
 }
 
 // pair records everything a plugin reports, so a paired device is usable at once. A plugin that
@@ -218,7 +217,7 @@ func (p *plugins) pair(h *hosted) {
 		}
 	}
 	h.listed = seen
-	h.driver.SetDevices(p.onRecord(h), p.removed(h))
+	h.driver.SetDevices(p.onRecord(h))
 }
 
 // use asks that the plugins run from this binary. It doesn't wait, so the plugins can't hold up your
@@ -286,7 +285,7 @@ func (p *plugins) refreshing(ctx context.Context) {
 			all := slices.Collect(maps.Values(p.running))
 			p.mu.Unlock()
 			for _, h := range all {
-				h.driver.SetDevices(p.onRecord(h), p.removed(h))
+				h.driver.SetDevices(p.onRecord(h))
 			}
 		}
 	}

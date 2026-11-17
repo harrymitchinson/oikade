@@ -2,10 +2,12 @@ package plugin
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
@@ -206,11 +208,20 @@ func TestARemovedDevicesMessagesAreNotCounted(t *testing.T) {
 		t.Errorf("a removed device's state changed %+v", got)
 	}
 	wantDelta(t, "undeclared", rejectedDelta(t, i, bus, root+"/1000cc/state", `{"on":true}`), map[string]uint64{ReasonUndeclaredDevice: 1})
-	// Declared again, as a re-paired device is, its state is used.
-	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall}, nil)
-	rec.takeChanges()
+}
+
+// TestADeviceDeclaredAgainGetsItsValueAgain: a device you remove loses its values, so when it's
+// declared again, as a re-paired device is, the same state as before is a change.
+func TestADeviceDeclaredAgainGetsItsValueAgain(t *testing.T) {
+	i, bus, rec := setup(t, online())
 	publish(t, bus, root+"/1000bb/state", `{"on":true}`)
-	if got := rec.takeChanges(); len(got) != 1 || got[0].Device != hall {
-		t.Errorf("hall declared again got %+v, want its state", got)
+	if got := rec.takeChanges(); len(got) != 1 || got[0].Device != hall || got[0].Value != true {
+		t.Fatalf("hall got %+v, want on", got)
+	}
+	i.SetDevices(map[string]ident.ID{"1000aa": porch}, map[string]bool{"1000bb": true})
+	rec.takeChanges()
+	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall}, nil)
+	if got := rec.takeChanges(); !slices.ContainsFunc(got, func(c driver.Update) bool { return c.Device == hall && c.Value == true }) {
+		t.Errorf("hall declared again got %+v, want its state replayed", got)
 	}
 }

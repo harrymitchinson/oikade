@@ -185,7 +185,9 @@ func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 			t.Fatalf("it came back: %+v", d)
 		}
 	}
-	// Nor is what the plugin still publishes for it counted against the plugin.
+	// Nor is what the plugin still publishes for it counted against the plugin. The host logs
+	// a rejection before it takes in the valve, so its line is read by the time sync's is.
+	r.sync()
 	if got := r.count(rejectedMessage, "reason", "undeclared_device"); got != rejected {
 		t.Errorf("the removed relay's messages were rejected as undeclared. The log:\n%s", r.dump())
 	}
