@@ -1,0 +1,96 @@
+name: Fuzz
+
+on:
+  # Every fuzz target for 30 s each, one at a time (make fuzz, which finds them with go test -list),
+  # so about 7 minutes. A target that fails leaves its input in its package's testdata/fuzz, which
+  # is uploaded as the crashers artifact: commit it with the fix, and plain go test replays it. Run
+  # it on a branch by hand (workflow_dispatch), or locally with make fuzz. A PR that changes how
+  # it runs runs it too.
+  pull_request:
+    paths:
+      - ".github/workflows/fuzz.yml"
+      - "hack/fuzz"
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: How long to fuzz each target
+        default: 30s
+
+permissions: {}
+
+env:
+  GO_CACHE_PATHS: |
+    ~/go/pkg/mod
+    ~/.cache/go-build
+
+jobs:
+  fuzz:
+    permissions:
+      contents: read
+    name: Fuzz every target
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Name the Go cache
+        id: cache
+        run: echo "prefix=go-$RUNNER_OS-$(go env GOVERSION)-$GITHUB_JOB-${{ hashFiles('go.sum') }}" >>"$GITHUB_OUTPUT"
+
+      - name: Restore the Go cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache.outputs.prefix }}-
+
+      # Lists each target it ran, with how it did, in the run's summary.
+      - name: Fuzz
+        # Named, so that it runs with pipefail.
+        shell: bash
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '30s' }}
+        run: |
+          status=0
+          make fuzz FUZZTIME="$FUZZTIME" | tee fuzz.txt || status=$?
+          {
+            echo "### Fuzz targets, $FUZZTIME each"
+            echo '```'
+            cat fuzz.txt
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      # The inputs a failing target wrote, which no commit has yet.
+      - name: Collect the crashers
+        if: failure()
+        run: |
+          mkdir -p crashers
+          git ls-files --others --exclude-standard -z -- ':(glob)**/testdata/fuzz/**' |
+            xargs -0 -r cp --parents -t crashers
+
+      - name: Upload the crashers
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crashers
+          path: crashers
+          if-no-files-found: ignore
+
+      - name: Save the Go cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.GO_CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}

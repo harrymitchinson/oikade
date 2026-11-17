@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# hack/fuzz runs every fuzz target in the module for a while, one at a time, since go test -fuzz
+# takes one target per run. It finds them with go test -list, so a new target can't be forgotten.
+#
+#	hack/fuzz [TIME]    # each target for TIME, 30s by default
+#
+# It runs every target even after one fails, says how each did, and exits non-zero if any failed.
+# A failure's input is written to its package's testdata/fuzz/<Target>/, which plain go test then
+# replays: commit it with the fix.
+set -euo pipefail
+
+time=${1:-30s}
+cd "$(dirname "$0")/.."
+
+# go test prints a package's matching names, then its "ok" line. The journeys need Docker, and have
+# no fuzz targets.
+echo "Listing fuzz targets" >&2
+# shellcheck disable=SC2046 # one argument per package
+targets=$(go test -list '^Fuzz' $(go list ./... | grep -v -e /test/journeys) |
+	awk '/^Fuzz/ { names = names " " $1; next }
+		/^ok/ { n = split(names, a, " "); for (i = 1; i <= n; i++) print $2 " " a[i]; names = "" }')
+if [ -z "$targets" ]; then
+	echo "No fuzz targets found" >&2
+	exit 1
+fi
+
+out=$(mktemp)
+trap 'rm -f "$out"' EXIT
+failed=0
+ran=0
+while read -r pkg target; do
+	ran=$((ran + 1))
+	echo "Fuzzing $target in $pkg for $time" >&2
+	if go test -run '^$' -fuzz "^${target}\$" -fuzztime "$time" "$pkg" >"$out" 2>&1; then
+		echo "ok    $pkg $target"
+	else
+		grep -v '^fuzz: elapsed' "$out" >&2 || true
+		echo "FAIL  $pkg $target"
+		failed=$((failed + 1))
+	fi
+done <<<"$targets"
+
+echo "Fuzzed $ran targets for $time each, $failed failed" >&2
+[ "$failed" -eq 0 ]
