@@ -116,3 +116,26 @@ func TestADoThatFailsReturnsTheZeroValue(t *testing.T) {
 		t.Errorf("fan is %v", v)
 	}
 }
+
+// A flow step that never ends keeps the home from settling, which says so rather than waiting for
+// good, and the home still stops.
+func TestAStuckStepIsAHomeThatDidntSettle(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("stuck", func(r *oikade.FlowRun) {
+		_, _ = r.Do("the weather", func(ctx context.Context) (bool, error) {
+			<-ctx.Done()
+			return false, ctx.Err()
+		})
+	}).When(humidityOf("sensor"))
+	opts := options(t, home)
+	opts.SettleTimeout = 100 * time.Millisecond
+	sim, err := simhome.New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sim.Close)
+	err = sim.Set("sensor", humidity, 50.0)
+	if want := "the home didn't settle: a condition or flow step may be stuck"; err == nil || err.Error() != want {
+		t.Fatalf("Set = %v, want %q", err, want)
+	}
+}

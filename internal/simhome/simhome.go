@@ -4,6 +4,7 @@
 package simhome
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,10 +30,9 @@ import (
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
 
-const (
-	// settleTimeout is how long the engine has to catch up with one move of the clock.
-	settleTimeout = 10 * time.Second
-)
+// settleTimeout is how long the engine has to catch up with one move of the clock, unless
+// Options.SettleTimeout says otherwise.
+const settleTimeout = 10 * time.Second
 
 // instance is the driver instance simulated devices belong to.
 var instance = driver.InstanceKey{Driver: "simulated", Name: "home"}
@@ -94,6 +94,9 @@ type Options struct {
 	// order, or goes without and is counted.
 	Dry   bool
 	Calls map[string][]api.Event
+	// SettleTimeout is how long the engine has to catch up with one move of the clock. Zero means
+	// 10 seconds.
+	SettleTimeout time.Duration
 }
 
 // Sim is a running simulated home. Its methods are for one goroutine at a time.
@@ -107,10 +110,11 @@ type Sim struct {
 	log      *slog.Logger
 	store    *hub.Store
 
-	holds    *memory[engine.HoldState]
-	controls *memory[engine.ControlState]
-	averages *memory[engine.AverageState]
-	journal  *journal
+	holds     *memory[engine.HoldState]
+	controls  *memory[engine.ControlState]
+	averages  *memory[engine.AverageState]
+	journal   *journal
+	settleFor time.Duration
 
 	engine  *engine.Engine
 	flows   map[string]*flow.Flow
@@ -139,6 +143,7 @@ func New(o Options) (*Sim, error) {
 		averages: newMemory[engine.AverageState](),
 		ended:    map[string][]string{}, fires: map[string]time.Time{}, active: map[string]bool{},
 		runs: map[string]int{}, dry: o.Dry, calls: maps.Clone(o.Calls), skipped: map[string]int{},
+		settleFor: cmp.Or(o.SettleTimeout, settleTimeout),
 	}
 	if s.location == nil {
 		s.location = o.Start.Location()
@@ -488,7 +493,7 @@ func (s *Sim) Failed(rule string) []string {
 
 // settle waits for the engine and every run to catch up with the clock.
 func (s *Sim) settle() error {
-	deadline := time.Now().Add(settleTimeout)
+	deadline := time.Now().Add(s.settleFor)
 	for time.Now().Before(deadline) {
 		if s.engine.Idle() {
 			return nil
