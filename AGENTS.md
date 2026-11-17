@@ -48,6 +48,7 @@ Run the `code-review` skill (`/code-review`) on the branch and fix or explain ea
 make test              # Unit and integration tests, with a real host and simulated devices
 make test-conformance  # The plugin contract
 make test-race         # The tests in this process, under the race detector
+make fuzz              # Every fuzz target for 30 s (FUZZTIME), as the nightly Fuzz workflow does
 make cover-binaries    # Coverage of the binaries test/host and test/cli run
 make test-journeys     # From oikade init to a running host, and chip-tool (Docker, linux/arm64)
 ```

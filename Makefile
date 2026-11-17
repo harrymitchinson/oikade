@@ -100,9 +100,16 @@ test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract and
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 	OIKADE_CONFORMANCE_PLUGIN=bin/simhome OIKADE_CONFORMANCE_IMPORTED=simswitch go test ./test/conformance/ -v -count=1
 
+# go test -fuzz takes one target per run, so hack/fuzz runs each in turn, for FUZZTIME. The nightly
+# Fuzz workflow runs it.
+FUZZTIME ?= 30s
+.PHONY: fuzz
+fuzz: ## Run every fuzz target for FUZZTIME (30s) each, one at a time.
+	hack/fuzz $(FUZZTIME)
+
 .PHONY: test-hack
 test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval, plugin-repo and checklist steps with gh stubbed, and no raw gh writes in skills.
-	shellcheck hack/plan hack/agent-token hack/linear-token hack/owner-approval hack/test/*.sh
+	shellcheck hack/plan hack/fuzz hack/agent-token hack/linear-token hack/owner-approval hack/test/*.sh
 	hack/test/agent-identity.sh
 	hack/test/merge-on-approval.sh
 	hack/test/plugin-repo.sh
