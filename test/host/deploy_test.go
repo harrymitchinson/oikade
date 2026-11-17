@@ -934,9 +934,9 @@ func TestABinaryChangedWithoutADeployEndsNothing(t *testing.T) {
 	}
 }
 
-// A confirmed version's removals outlive a crash just after confirming it. Not parallel: it fails
-// under load (OIK-304).
+// A confirmed version's removals outlive a crash just after confirming it.
 func TestRemovalsFinishAfterACrash(t *testing.T) {
+	t.Parallel()
 	r := flowRig(t, fmt.Sprintf("%s 1 kill\n", fault.HostDeployConfirmed))
 	r.launch(settle)
 	r.awaitLoaded()
