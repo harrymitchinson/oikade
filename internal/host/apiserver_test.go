@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/VictoriaMetrics/metrics"
+
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -72,7 +74,45 @@ func TestEveryRequestTypeHasOneRoute(t *testing.T) {
 			t.Errorf("%s is outside %s", r.Path, api.Prefix)
 		}
 	}
-	if len(seen) != 22 {
-		t.Errorf("%d routes, want the API's 22", len(seen))
+}
+
+// publicRoutes are the only calls the network API takes without a token. It's written out here, not
+// read from api.Routes, so that a route made public by mistake fails this test.
+var publicRoutes = map[string]bool{api.TypeLogin: true}
+
+func TestEveryRouteButLoginNeedsAToken(t *testing.T) {
+	c, err := loadClients(openAPIStore(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &apiServer{
+		log: slog.New(slog.DiscardHandler), ctx: context.Background(), clients: c,
+		authFailures: metrics.NewSet().NewCounter("auth_failures_total"),
+	}
+	server := httptest.NewServer(s.networkRoutes())
+	defer server.Close()
+	for _, r := range api.Routes {
+		t.Run(r.Type, func(t *testing.T) {
+			if r.Public != publicRoutes[r.Type] {
+				t.Fatalf("public is %v, want %v", r.Public, publicRoutes[r.Type])
+			}
+			for _, token := range []string{"", "oik_nothing"} {
+				req, err := http.NewRequest(r.Method, server.URL+r.Path, strings.NewReader("{}"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if token != "" {
+					req.Header.Set("Authorization", "Bearer "+token)
+				}
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = resp.Body.Close()
+				if refused := resp.StatusCode == http.StatusUnauthorized; refused == publicRoutes[r.Type] {
+					t.Errorf("token %q: %d", token, resp.StatusCode)
+				}
+			}
+		})
 	}
 }

@@ -1,9 +1,12 @@
 package host
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -77,14 +80,29 @@ func TestADeployOfSomethingElseIsRefused(t *testing.T) {
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
 		t.Errorf("a JSON deploy: %d", resp.StatusCode)
 	}
-	req, _ := http.NewRequest(http.MethodPost, server.URL+"/v1/deploy", strings.NewReader("x"))
-	req.Header.Set("Content-Type", api.BinaryContentType)
-	req.ContentLength = maxUpload + 1
-	if resp, err = http.DefaultClient.Do(req); err == nil {
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusRequestEntityTooLarge {
-			t.Errorf("a binary over the limit: %d", resp.StatusCode)
-		}
+
+	// A real request that says it's over the limit, and starts sending: the refusal comes before
+	// any of it is read, so a client finds out at once rather than after a gigabyte.
+	conn, err := net.Dial("tcp", server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := fmt.Fprintf(conn, "POST /v1/deploy HTTP/1.1\r\nHost: x\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
+		api.BinaryContentType, maxUpload+1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write(make([]byte, 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	resp, err = http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("no answer to a binary over the limit: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("a binary over the limit: %d", resp.StatusCode)
 	}
 }
 
