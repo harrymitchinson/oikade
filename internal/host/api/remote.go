@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/harrymitchinson/oikade/internal/mdns"
 )
 
 // DefaultPort is the network API's port when an address has none.
@@ -30,13 +32,22 @@ type Remote struct {
 	Token string
 }
 
-// Dial implements Transport. A host without the pin is refused before anything is sent.
+// Dial implements Transport. A host without the pin is refused before anything is sent. A host
+// named in .local is found over mDNS, which Go's own resolver doesn't do on Linux (OIK-328).
 func (r Remote) Dial(ctx context.Context) (net.Conn, error) {
 	if r.Pin == "" {
 		return nil, errors.New("no pin for the host")
 	}
-	dialer := &tls.Dialer{Config: PinnedTLS(r.Pin)}
-	return dialer.DialContext(ctx, "tcp", r.Address)
+	raw, err := mdns.DialContext(ctx, "tcp", r.Address)
+	if err != nil {
+		return nil, err
+	}
+	conn := tls.Client(raw, PinnedTLS(r.Pin))
+	if err := conn.HandshakeContext(ctx); err != nil {
+		_ = raw.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 func (r Remote) token() string { return r.Token }

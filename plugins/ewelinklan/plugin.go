@@ -19,7 +19,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/matter/mdns"
+	"github.com/harrymitchinson/oikade/internal/mdns"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 

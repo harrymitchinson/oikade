@@ -15,6 +15,7 @@ import (
 	"github.com/eclipse/paho.golang/paho"
 
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/mdns"
 )
 
 // Message is a received MQTT message.
@@ -157,6 +158,9 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 				return true, nil
 			},
 		},
+	}
+	if mdns.IsLocal(u.Hostname()) {
+		cfg.AttemptConnection = dialLocal(localDialer)
 	}
 	if u.User != nil {
 		pw, _ := u.User.Password()

@@ -25,7 +25,7 @@ func TestListenerHearsWhatItSends(t *testing.T) {
 	}}})
 	heard := make(chan error, 1)
 	go func() {
-		b := make([]byte, maxPacket)
+		b := make([]byte, MaxPacket)
 		for {
 			n, err := l.Read(b)
 			if err != nil {
