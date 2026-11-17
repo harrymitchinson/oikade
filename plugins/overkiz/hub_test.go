@@ -49,6 +49,17 @@ type fakeHub struct {
 	// endAtFetch ends each session at its first fetch of events, as a cloud that ends them as they
 	// begin does, once the plugin has connected.
 	endAtFetch bool
+	// tokens are Atlantic's tokens, and whether each is still good.
+	tokens map[string]bool
+	// noOverkizAccount answers Overkiz's login as for an account that's only on Magellan.
+	noOverkizAccount bool
+
+	// magellan is Magellan's setup, nil for an account it has no setup for, and magellanDown
+	// answers it with a 503.
+	magellan     []map[string]any
+	magellanDown bool
+	// written are the bodies of Magellan's writecapability.
+	written []map[string]any
 
 	// ca is the authority that signed a hub's certificate, standing in for Overkiz's.
 	ca *x509.CertPool
@@ -74,7 +85,7 @@ func newFake(t *testing.T, setup string, cloud bool) *fakeHub {
 	}
 	h := &fakeHub{
 		t: t, token: token, listeners: map[string][]map[string]any{}, requests: map[string]int{},
-		cloud: cloud, password: password, sessions: map[string]bool{},
+		cloud: cloud, password: password, sessions: map[string]bool{}, tokens: map[string]bool{},
 	}
 	if err := json.Unmarshal(raw, &h.setup); err != nil {
 		t.Fatal(err)
@@ -247,10 +258,12 @@ func (h *fakeHub) login(w http.ResponseWriter, r *http.Request) bool {
 		case r.FormValue("password") != h.password:
 			answer(http.StatusBadRequest, `{"error":"invalid_grant","error_description":"Provided Authorization Grant is invalid."}`)
 		default:
-			answer(http.StatusOK, `{"access_token":"atlantic-token","token_type":"bearer","expires_in":3600}`)
+			issued := fmt.Sprintf("atlantic-token-%d", len(h.tokens)+1)
+			h.tokens[issued] = true
+			answer(http.StatusOK, `{"access_token":"`+issued+`","token_type":"bearer","expires_in":28800}`)
 		}
 	case "/magellan/accounts/jwt":
-		if r.Header.Get("Authorization") != "Bearer atlantic-token" {
+		if !h.tokenGood(r) {
 			answer(http.StatusUnauthorized, `{"error":"invalid_token"}`)
 			return true
 		}
@@ -266,14 +279,137 @@ func (h *fakeHub) login(w http.ResponseWriter, r *http.Request) bool {
 			answer(http.StatusUnauthorized, `{"errorCode":"AUTHENTICATION_ERROR","error":"Bad credentials"}`)
 			return true
 		}
+		if h.noOverkizAccount {
+			answer(http.StatusUnauthorized, `{"errorCode":"AUTHENTICATION_ERROR","error":"No such user account : GACOMA_Production_1234567"}`)
+			return true
+		}
 		session := fmt.Sprintf("session-%d", len(h.sessions)+1)
 		h.sessions[session] = true
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: session, Path: "/"})
 		answer(http.StatusOK, `{"success":true,"roles":[{"name":"ENDUSER"}]}`)
 	default:
+		if strings.HasPrefix(r.URL.Path, "/magellan/") {
+			h.answerMagellan(w, r)
+			return true
+		}
 		return false
 	}
 	return true
+}
+
+func (h *fakeHub) tokenGood(r *http.Request) bool {
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && h.tokens[token]
+}
+
+// answerMagellan answers Magellan's setup, writes and executions, as a real account's did. A write
+// changes the setup at once, and its execution is done.
+func (h *fakeHub) answerMagellan(w http.ResponseWriter, r *http.Request) {
+	answer := func(status int, body string) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}
+	h.requests[r.URL.Path]++
+	switch {
+	case h.magellanDown:
+		answer(http.StatusServiceUnavailable, `{"message":"unavailable"}`)
+	case !h.tokenGood(r):
+		answer(http.StatusUnauthorized, `{"code":"900901","message":"Invalid Credentials","description":"Access failure"}`)
+	case r.Method == http.MethodGet && r.URL.Path == "/magellan/cozytouch/setupviewv2":
+		if h.magellan == nil {
+			answer(http.StatusNotFound, `{"code":43000404,"message":"Setup not found","type":"SetupNotFound"}`)
+			return
+		}
+		raw, _ := json.Marshal(h.magellan)
+		answer(http.StatusOK, string(raw))
+	case r.Method == http.MethodPost && r.URL.Path == "/magellan/executions/writecapability":
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			h.t.Errorf("writecapability body: %s", raw)
+		}
+		if !h.writeMagellan(body) {
+			answer(http.StatusForbidden, `{"code":43000011,"message":"Access to resource is forbidden for provided access_token.","type":"ResourceAccessForbidden"}`)
+			return
+		}
+		h.written = append(h.written, body)
+		answer(http.StatusCreated, fmt.Sprint(900000+len(h.written)))
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/magellan/executions/"):
+		id := strings.TrimPrefix(r.URL.Path, "/magellan/executions/")
+		answer(http.StatusOK, `{"id":`+id+`,"state":3,"executionId":`+id+`,"executionState":3,"details":"execution Done"}`)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// writeMagellan sets a capability of a device in the setup, and says whether it found the device.
+func (h *fakeHub) writeMagellan(body map[string]any) bool {
+	for _, setup := range h.magellan {
+		devices, _ := setup["devices"].([]any)
+		for _, d := range devices {
+			dev, _ := d.(map[string]any)
+			if fmt.Sprint(dev["deviceId"]) != fmt.Sprint(body["deviceId"]) {
+				continue
+			}
+			caps, _ := dev["capabilities"].([]any)
+			for _, c := range caps {
+				cp, _ := c.(map[string]any)
+				if fmt.Sprint(cp["capabilityId"]) == fmt.Sprint(body["capabilityId"]) {
+					cp["value"] = body["value"]
+					return true
+				}
+			}
+			dev["capabilities"] = append(caps, map[string]any{"capabilityId": body["capabilityId"], "value": body["value"]})
+			return true
+		}
+	}
+	return false
+}
+
+// withMagellan gives the account Magellan's setup from testdata/magellan-setup.json.
+func (h *fakeHub) withMagellan() *fakeHub {
+	h.t.Helper()
+	raw, err := os.ReadFile("testdata/magellan-setup.json")
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.set(func(h *fakeHub) {
+		if err := json.Unmarshal(raw, &h.magellan); err != nil {
+			h.t.Fatal(err)
+		}
+	})
+	return h
+}
+
+// magellanWrites are the bodies of Magellan's writecapability.
+func (h *fakeHub) magellanWrites() []map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]map[string]any(nil), h.written...)
+}
+
+// magellanDevice changes a device in Magellan's setup.
+func (h *fakeHub) magellanDevice(id float64, f func(dev map[string]any)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, setup := range h.magellan {
+		devices, _ := setup["devices"].([]any)
+		for _, d := range devices {
+			if dev, _ := d.(map[string]any); dev["deviceId"] == id {
+				f(dev)
+			}
+		}
+	}
+}
+
+// expireTokens ends every Atlantic token, as eight hours do.
+func (h *fakeHub) expireTokens() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for t := range h.tokens {
+		h.tokens[t] = false
+	}
 }
 
 func (h *fakeHub) signedIn(r *http.Request) bool {

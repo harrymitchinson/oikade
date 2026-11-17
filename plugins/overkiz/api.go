@@ -22,6 +22,8 @@ type client struct {
 	base string
 	// authorize adds the credentials to a request.
 	authorize func(*http.Request)
+	// failed reads an answer that failed, if the API says so other than as Overkiz does.
+	failed func(status int, raw []byte) error
 }
 
 // apiDevice is a device in /setup/devices. A sub-device, such as a sensor inside a heater, is its own
@@ -139,20 +141,35 @@ const (
 	noListener
 	// rejected is a request the server won't take, such as a command a device doesn't have.
 	rejected
+	// absent is a login to a cloud that has no account for it: a Cozytouch account's devices are on
+	// one of its two clouds, and the other has never heard of it.
+	absent
 )
+
+// errNoAccount is a cloud that has no account for the login.
+var errNoAccount = errors.New("no account for this login")
+
+// codeLimited is Overkiz's errorCode for a quota, which classify reads as limited.
+const codeLimited = "QUOTA_EXCEEDED"
 
 // classify says what kind of failure err is. Overkiz says most in errorCode, and pyoverkiz's
 // exceptions follow the same codes and messages.
 func classify(err error) failure {
+	if errors.Is(err, errNoAccount) {
+		return absent
+	}
 	var e *apiError
 	if !errors.As(err, &e) {
 		return unreachable
 	}
 	message := strings.ToLower(e.Message)
 	switch {
+	case strings.Contains(message, "no such user account"):
+		// Overkiz's answer for a Cozytouch login whose account is on Magellan.
+		return absent
 	case strings.Contains(message, "no registered event listener"):
 		return noListener
-	case e.Status == http.StatusTooManyRequests, e.Code == "QUOTA_EXCEEDED", strings.Contains(message, "too many"):
+	case e.Status == http.StatusTooManyRequests, e.Code == codeLimited, strings.Contains(message, "too many"):
 		return limited
 	case e.Status == http.StatusUnauthorized, e.Code == codeAuthentication, e.Code == "RESOURCE_ACCESS_DENIED",
 		strings.Contains(message, "not authenticated"), strings.Contains(message, "bad credentials"):
@@ -194,6 +211,9 @@ func (c *client) call(ctx context.Context, method, path string, body, out any) e
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if c.failed != nil {
+			return c.failed(resp.StatusCode, raw)
+		}
 		e := &apiError{Status: resp.StatusCode}
 		_ = json.Unmarshal(raw, e)
 		return e

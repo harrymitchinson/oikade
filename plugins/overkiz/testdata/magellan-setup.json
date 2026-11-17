@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1000001,
+    "name": "Home",
+    "rateLimit": 30,
+    "absence": {"endDate": null, "startDate": null},
+    "zones": [{"id": 2000001, "name": "Salle de bain", "zoneType": 29, "numberOfDevices": 1}],
+    "gateways": [{"id": "3000001", "serialNumber": "1111-2222-3333", "isAlive": true, "setupId": 1000001, "type": 1000}],
+    "devices": [
+      {
+        "customName": "RIVA 5 0750W BLC BRI ",
+        "deviceId": 40000001,
+        "deviceUrl": "1111-2222-3333",
+        "gatewayId": 3000001,
+        "masterDeviceId": null,
+        "modelId": 1560,
+        "name": "RIVA 5 0750W BLC BRI ",
+        "productId": 53,
+        "tags": [],
+        "gatewaySerialNumber": "1111-2222-3333",
+        "isAvailable": true,
+        "zoneId": 2000001,
+        "modelFamily": "Towel_Dryer",
+        "capabilities": [
+          {"capabilityId": 7, "modificationDate": 1791583083, "value": "4"},
+          {"capabilityId": 40, "modificationDate": 1791583083, "value": "15"},
+          {"capabilityId": 117, "modificationDate": 1791583083, "value": "21.94"},
+          {"capabilityId": 154, "modificationDate": 1791583083, "value": "Salle de bain"},
+          {"capabilityId": 160, "modificationDate": 1791583083, "value": "7"},
+          {"capabilityId": 161, "modificationDate": 1791583083, "value": "28"},
+          {"capabilityId": 164, "modificationDate": 1791583083, "value": "2"},
+          {"capabilityId": 184, "modificationDate": 1791583083, "value": "1"},
+          {"capabilityId": 222, "modificationDate": 1791583083, "value": "[0,0]"},
+          {"capabilityId": 100320, "modificationDate": 1791583083, "value": "[[0,15,0],[300,23,0],[420,15,0]]"}
+        ]
+      },
+      {
+        "deviceId": 40000002,
+        "gatewayId": 3000001,
+        "modelId": 1658,
+        "name": "Calypso connecté",
+        "productId": 62,
+        "isAvailable": true,
+        "zoneId": 2000001,
+        "modelFamily": "Water_Heater",
+        "capabilities": [{"capabilityId": 265, "value": "52"}]
+      }
+    ]
+  }
+]
