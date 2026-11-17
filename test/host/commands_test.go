@@ -486,9 +486,10 @@ func TestMetricsAndHealthAreServedOverHTTP(t *testing.T) {
 func TestStatusHasWhatsLeftToSetUp(t *testing.T) {
 	t.Parallel()
 	r := prepare(t)
-	r.launchWithout(settle, matterFlag(freeUDP(t)), "--simulate", devicesFile(t))
-	r.waitSocket()
-	r.until("the bridge", func() bool { return r.matter().Serving })
+	r.serveMatter(freeUDP(t), func(flag string) {
+		r.launchWithout(settle, flag, "--simulate", devicesFile(t))
+		r.waitSocket()
+	})
 	if st := r.status(); st.Version != "" || st.Process || st.Deploying {
 		t.Errorf("a host with no home: %+v", st)
 	}

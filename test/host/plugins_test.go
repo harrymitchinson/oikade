@@ -54,12 +54,27 @@ func pluginDevices(t *testing.T) string {
 // startPlugins starts a host on a home that imports plugins, with both of them connected.
 func startPlugins(t *testing.T, args ...string) *rig {
 	t.Helper()
+	r := preparePlugins(t)
+	r.launchedPlugins(args...)
+	return r
+}
+
+// preparePlugins is prepare, for a host that runs the plugins.
+func preparePlugins(t *testing.T) *rig {
+	t.Helper()
 	r := prepare(t)
 	r.env = append(r.env, "OIKADE_TEST_PLUGIN_DOWN="+filepath.Join(r.dir, "plugin-down"))
+	return r
+}
+
+// launchedPlugins launches a host that runs the plugins, and waits for its process and both plugins
+// to connect.
+func (r *rig) launchedPlugins(args ...string) {
+	r.t.Helper()
+	connected := r.count(pluginConnected)
 	r.launchPlugins(args...)
 	r.waitFor(func(l line) bool { return l.is(attached) })
-	r.until("both plugins", func() bool { return r.count(pluginConnected) >= 2 })
-	return r
+	r.until("both plugins", func() bool { return r.count(pluginConnected) >= connected+2 })
 }
 
 func (r *rig) launchPlugins(args ...string) {
@@ -288,8 +303,8 @@ func TestTheDeployCheckSeesAClaimOnADeviceWhosePluginIsDown(t *testing.T) {
 
 func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	t.Parallel()
-	port := freeUDP(t)
-	r := startPlugins(t, matterFlag(port))
+	r := preparePlugins(t)
+	port := r.serveMatter(freeUDP(t), func(flag string) { r.launchedPlugins(flag) })
 	r.untilValue("relay", false)
 	r.until("the commissioning window", func() bool { return r.matter().Window })
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
@@ -303,8 +318,8 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 
 func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	t.Parallel()
-	port := freeUDP(t)
-	r := startPlugins(t, matterFlag(port))
+	r := preparePlugins(t)
+	port := r.serveMatter(freeUDP(t), func(flag string) { r.launchedPlugins(flag) })
 	r.untilValue("relay", false)
 	r.until("the commissioning window", func() bool { return r.matter().Window })
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
@@ -348,10 +363,10 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 
 	// A host that restarts keeps it off.
 	r.stop()
-	r.launchPlugins(matterFlag(port))
-	r.waitFor(func(l line) bool { return l.is(attached) })
-	r.until("the bridge", func() bool { return r.matter().Serving })
-	c.admin = c.cm.CASE(nodetest.Addr(port))
+	c.relaunch(func(flag string) {
+		r.launchPlugins(flag)
+		r.waitFor(func(l line) bool { return l.is(attached) })
+	})
 	if len(c.deviceTypes(relay)) != 0 {
 		t.Error("after a restart, the relay is on the bridge")
 	}
