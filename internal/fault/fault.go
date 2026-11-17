@@ -30,4 +30,18 @@ const (
 	// HostEndRule is the host about to end a removed rule's claims, which a test can drop to make
 	// that fail.
 	HostEndRule = "host.removals.end"
+	// HostRegistrySaved is a change to the device registry on disk, not yet taken up or answered.
+	HostRegistrySaved = "host.registry.saved"
+	// HostOptionsSaved is a setting of the home's, such as the bridge's name, on disk and not yet
+	// applied.
+	HostOptionsSaved = "host.options.saved"
+	// HostFabricsSaved is the Matter fabric table on disk, with the command that changed it not yet
+	// answered.
+	HostFabricsSaved = "host.fabrics.saved"
+	// HostSecretSaved is a secret on disk, not yet answered.
+	HostSecretSaved = "host.secret.saved"
+	// HostUploadBefore is a deploy's upload received and not yet moved among the versions, and
+	// HostUploadAfter it moved, with no version yet naming it.
+	HostUploadBefore = "host.upload.before"
+	HostUploadAfter  = "host.upload.after"
 )

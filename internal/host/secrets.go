@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -76,6 +77,13 @@ func (s secrets) set(name, value string) error {
 	}
 	if err == nil {
 		err = os.Rename(f.Name(), filepath.Join(s.dir, name))
+	}
+	if err == nil {
+		// The rename is on disk only once the directory is.
+		err = syncDir(s.dir)
+	}
+	if err == nil {
+		fault.Hit(fault.HostSecretSaved)
 	}
 	return writable(err)
 }

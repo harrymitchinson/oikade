@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -181,10 +182,15 @@ func (v *versions) take(path string) (string, error) {
 		return "", err
 	}
 	id := hex.EncodeToString(sum.Sum(nil))[:32]
+	fault.Hit(fault.HostUploadBefore)
 	if err := os.Rename(path, v.path(id)); err != nil {
 		return "", err
 	}
-	return id, syncDir(v.dir)
+	if err := syncDir(v.dir); err != nil {
+		return "", err
+	}
+	fault.Hit(fault.HostUploadAfter)
+	return id, nil
 }
 
 func syncDir(path string) error {

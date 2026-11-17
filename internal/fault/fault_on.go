@@ -13,7 +13,9 @@ import (
 
 // FileEnv names a file of faults, one per line: "<point> <n> <kill|drop|wait>", which acts on the
 // point's nth hit in this process. A kill removes the file first, so the next process runs clean. A
-// wait holds the point until the file's name with ".go" on the end exists.
+// wait holds the point until the file's name with ".go" on the end exists. The file may appear after
+// the process starts, as when a test plans a fault once a host is up: hits before it appeared don't
+// count.
 const FileEnv = "OIKADE_FAULTS"
 
 type planned struct {
@@ -33,12 +35,12 @@ func load() {
 	if read {
 		return
 	}
-	read = true
 	plan = map[string]planned{}
 	raw, err := os.ReadFile(os.Getenv(FileEnv))
 	if err != nil {
 		return
 	}
+	read = true
 	for line := range strings.Lines(string(raw)) {
 		f := strings.Fields(line)
 		if len(f) != 3 {

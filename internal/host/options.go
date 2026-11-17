@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -95,6 +96,7 @@ func (o *homeOptions) takeHidden(hidden []wire.HiddenPlugin) error {
 	if err != nil {
 		return err
 	}
+	fault.Hit(fault.HostOptionsSaved)
 	o.hidden = hidden
 	if o.rehidden != nil {
 		o.rehidden()
@@ -139,6 +141,7 @@ func (o *homeOptions) takeMatterName(name string) error {
 		if err := o.values.Put(matterNameKey, []byte(name)); err != nil {
 			return err
 		}
+		fault.Hit(fault.HostOptionsSaved)
 		o.matterName = name
 	}
 	if o.renamed != nil {
