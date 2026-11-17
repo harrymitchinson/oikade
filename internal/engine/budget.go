@@ -94,23 +94,23 @@ type BudgetReport struct {
 
 // planned sets a budget's metrics from its plan, and whether the plan wants the target on now.
 func (m budgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
-	m.target.Set(float64(p.day.TargetMinutes), key.Name)
-	m.scheduled.Set(float64(p.day.ScheduledMinutes), key.Name)
-	m.desired.Set(float64(btoi(on)), key.Name)
-	m.todayRun.Set(math.Floor(p.run.Minutes()), key.Name)
+	m.target.Set(float64(p.day.TargetMinutes), ruleRef(key))
+	m.scheduled.Set(float64(p.day.ScheduledMinutes), ruleRef(key))
+	m.desired.Set(float64(btoi(on)), ruleRef(key))
+	m.todayRun.Set(math.Floor(p.run.Minutes()), ruleRef(key))
 }
 
 // unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
 // run is kept for when it can plan again.
 func (m budgetMetrics) unplanned(key ident.ID) {
-	m.target.Delete(key.Name)
-	m.scheduled.Delete(key.Name)
-	m.desired.Set(0, key.Name)
+	m.target.Delete(ruleRef(key))
+	m.scheduled.Delete(ruleRef(key))
+	m.desired.Set(0, ruleRef(key))
 }
 
 func (m budgetMetrics) delete(key ident.ID) {
 	for _, v := range m.all() {
-		v.Delete(key.Name)
+		v.Delete(ruleRef(key))
 	}
 }
 
@@ -195,12 +195,12 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 			vars := e.conditionVars(now, devices)
 			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}
 			for _, err := range p.day.Errors {
-				e.Log.Info("Budget planned with an error", "rule", key, "err", err)
+				e.Log.Info("Budget planned with an error", "rule", ruleRef(key), "err", err)
 			}
 			if len(p.day.Errors) > 0 {
 				p.failure = p.day.Errors[0].Error()
 			}
-			e.Log.Info("Planned budget", "rule", key, "date", date, "source", p.day.TargetSource,
+			e.Log.Info("Planned budget", "rule", ruleRef(key), "date", date, "source", p.day.TargetSource,
 				"target", p.day.TargetMinutes, "scheduled", p.day.ScheduledMinutes, "blocks", len(p.day.Blocks))
 		}
 		p.device, p.capability = h.device, h.capability
@@ -211,7 +211,7 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 			p.credit(now, targetOn, e.metrics.budget, key)
 		}
 		bs.plan = p
-		e.metrics.budget.run.Add(0, key.Name) // exported at 0 before any run is credited
+		e.metrics.budget.run.Add(0, ruleRef(key)) // exported at 0 before any run is credited
 	}
 
 	next = p.end
@@ -269,7 +269,7 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 	}
 	var s savedBudget
 	if err := json.Unmarshal([]byte(saved), &s); err != nil {
-		e.Log.Error("Failed to read saved budget plan", "err", err, "rule", key)
+		e.Log.Error("Failed to read saved budget plan", "err", err, "rule", ruleRef(key))
 		return nil
 	}
 	today, failure := s.Today, s.Failure
@@ -307,7 +307,7 @@ func (p *budgetPlan) credit(now time.Time, on bool, m budgetMetrics, key ident.I
 		d := until.Sub(p.credited)
 		if d > 0 {
 			p.run += d
-			m.run.Add(d.Minutes(), key.Name)
+			m.run.Add(d.Minutes(), ruleRef(key))
 		}
 	}
 	p.credited, p.on = now, on
@@ -355,7 +355,7 @@ func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetRep
 		}
 		raw, err := json.Marshal(saved)
 		if err != nil {
-			e.Log.Error("Failed to save budget plan", "err", err, "rule", key)
+			e.Log.Error("Failed to save budget plan", "err", err, "rule", ruleRef(key))
 		} else {
 			bs.saved = string(raw)
 		}

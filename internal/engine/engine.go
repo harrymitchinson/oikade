@@ -255,7 +255,7 @@ func (e *Engine) Load(c *Compiled) {
 		e.report(c.Key, Schedule{Generation: c.Generation, Cleared: true})
 	}
 	if old != nil && old.c.hold != nil && c.hold == nil {
-		e.metrics.active.Delete(c.Key.Name)
+		e.metrics.active.Delete(ruleRef(c.Key))
 	}
 	if old != nil && old.c.hold != nil && old.c.hold.budget != nil && (c.hold == nil || c.hold.budget == nil) {
 		e.clearBudget(c.Key, c.Generation)
@@ -277,7 +277,7 @@ func (e *Engine) schedule(key ident.ID, s *state, first bool) {
 				s.due = f
 			} else {
 				e.Log.Info("Skipped missed trigger; it is older than the startingDeadline",
-					"rule", key, "type", f.Typ, "scheduled", f.At)
+					"rule", ruleRef(key), "type", f.Typ, "scheduled", f.At)
 				e.count(key, ResultMissed)
 				sched.LastFire = f.At
 			}
@@ -301,9 +301,9 @@ func (e *Engine) reschedule(s *state, now time.Time) time.Time {
 
 func (e *Engine) report(key ident.ID, sched Schedule) {
 	if sched.Next.IsZero() || sched.Cleared {
-		e.metrics.nextChange.Delete(key.Name)
+		e.metrics.nextChange.Delete(ruleRef(key))
 	} else {
-		e.metrics.nextChange.Set(float64(sched.Next.Unix()), key.Name)
+		e.metrics.nextChange.Set(float64(sched.Next.Unix()), ruleRef(key))
 	}
 	if e.OnSchedule != nil {
 		e.OnSchedule(key, sched)
@@ -372,9 +372,9 @@ func (e *Engine) unload(key ident.ID) *state {
 	delete(e.rules, key)
 	// A Rule loaded again, after a delete or an invalid edit, looks for missed fires again.
 	delete(e.loaded, key)
-	e.metrics.runs.DeleteMatching(labelRule, key.Name)
-	e.metrics.nextChange.Delete(key.Name)
-	e.metrics.active.Delete(key.Name)
+	e.metrics.runs.DeleteMatching(labelRule, ruleRef(key))
+	e.metrics.nextChange.Delete(ruleRef(key))
+	e.metrics.active.Delete(ruleRef(key))
 	e.signal()
 	return s
 }
@@ -686,7 +686,7 @@ func (e *Engine) trigger(ctx context.Context, key ident.ID, s *state, vars Vars)
 	ok, err := s.c.eval(vars)
 	switch {
 	case err != nil:
-		e.Log.Error("Failed to evaluate Rule condition", "err", err, "rule", key)
+		e.Log.Error("Failed to evaluate Rule condition", "err", err, "rule", ruleRef(key))
 		e.count(key, ResultConditionError)
 		return
 	case !ok:
@@ -779,7 +779,7 @@ func (e *Engine) reportSkipped(key ident.ID, skipped []string) {
 	}
 	e.mu.Unlock()
 	if !same && len(skipped) > 0 {
-		e.Log.Info("Skipped Room members", "rule", key, "devices", skipped)
+		e.Log.Info("Skipped Room members", "rule", ruleRef(key), "devices", skipped)
 	}
 }
 
@@ -824,7 +824,7 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 		return true, nil
 	}
 	if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
-		e.Log.Error("Failed to run Rule action", "err", err, "rule", key, "device", a.device, "capability", a.capability)
+		e.Log.Error("Failed to run Rule action", "err", err, "rule", ruleRef(key), "device", a.device, "capability", a.capability)
 		return false, nil
 	}
 	return true, nil
@@ -836,7 +836,7 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 // has no end, is left out and returned in arbitrated. A member of another type is left out and
 // returned in others.
 func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, others, arbitrated []string) {
-	log := e.Log.With("rule", key)
+	log := e.Log.With("rule", ruleRef(key))
 	ok, matched := true, false
 	for _, dev := range e.Store.Room(a.room) {
 		snap, found := e.Store.Get(dev)
@@ -1041,7 +1041,7 @@ func (e *Engine) stateIdle() bool {
 func (e *Engine) Earliest() time.Time { return e.earliest() }
 
 func (e *Engine) count(key ident.ID, result string) {
-	e.metrics.runs.Inc(key.Name, result)
+	e.metrics.runs.Inc(ruleRef(key), result)
 	if e.OnRun != nil {
 		e.OnRun(key, result)
 	}

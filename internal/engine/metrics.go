@@ -3,6 +3,8 @@ package engine
 import (
 	vm "github.com/VictoriaMetrics/metrics"
 
+	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/series"
 )
 
@@ -66,3 +68,6 @@ type budgetMetrics struct {
 func (m budgetMetrics) all() []series.Vec {
 	return []series.Vec{m.target, m.scheduled, m.run, m.todayRun, m.desired}
 }
+
+// ruleRef is a rule's ref, as its series' rule label and its log lines name it.
+func ruleRef(key ident.ID) string { return control.RuleRef(key.Name).String() }

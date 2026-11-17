@@ -237,7 +237,7 @@ func (e *Engine) saveAverage(a Average, st AverageState) {
 			av.saving[a] = nil
 			av.mu.Unlock()
 			if err := e.AverageStates.Put(ctx, a.Key(), *next); err != nil && ctx.Err() == nil {
-				e.Log.Error("Failed to save average", "err", err, "average", a.Key().Name)
+				e.Log.Error("Failed to save average", "err", err, "average", ident.CapabilityRef(a.Device, a.Capability).String(), "over", ShortDuration(a.Over))
 			}
 		}
 	})
@@ -289,7 +289,7 @@ func (e *Engine) flushAverages(ctx context.Context) {
 	e.averages.mu.Unlock()
 	for i, a := range due {
 		if err := e.AverageStates.Put(ctx, a.Key(), states[i]); err != nil && ctx.Err() == nil {
-			e.Log.Error("Failed to save average", "err", err, "average", a.Key().Name)
+			e.Log.Error("Failed to save average", "err", err, "average", ident.CapabilityRef(a.Device, a.Capability).String(), "over", ShortDuration(a.Over))
 		}
 	}
 }

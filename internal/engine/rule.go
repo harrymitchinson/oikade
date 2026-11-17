@@ -392,7 +392,7 @@ func (e *Engine) WaitFor(ctx context.Context, key ident.ID, cond Condition, unti
 		var broken brokenCondition
 		if err != nil && !logged && errors.As(err, &broken) {
 			logged = true
-			e.Log.Error("Failed to evaluate flow condition", "err", err, "rule", key)
+			e.Log.Error("Failed to evaluate flow condition", "err", err, "rule", ruleRef(key))
 		}
 		if err == nil && ok {
 			return true, nil
@@ -431,7 +431,7 @@ func (e *Engine) Look(ctx context.Context, key ident.ID, cond Condition) (bool, 
 	}
 	_, ok, err := e.look(guarded(cond))
 	if _, ok := errors.AsType[brokenCondition](err); ok {
-		e.Log.Error("Failed to evaluate flow condition", "err", err, "rule", key)
+		e.Log.Error("Failed to evaluate flow condition", "err", err, "rule", ruleRef(key))
 	}
 	return ok, err
 }

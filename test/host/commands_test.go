@@ -175,7 +175,7 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	r := start(t, settle)
 	r.sync()
 	r.stdout(nil, "pause", "case/fan/on/fan")
-	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "fan on fan") })
+	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "case/fan/on/fan") })
 	r.sync()
 
 	r.change("bathroom-sensor", "humidity", 80)
@@ -241,7 +241,7 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 		t.Fatal("a paused moment ran")
 	}
 	r.stdout(nil, "resume", "flow/claim-moment")
-	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claim-moment", "paused", false) })
+	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "flow/claim-moment", "paused", false) })
 	r.sync()
 	r.change("claim-go", "open", false)
 	r.wrote("claimed", false)
@@ -347,7 +347,7 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 
 	// A resumed flow starts from a new trigger.
 	r.stdout(nil, "resume", "flow/claiming")
-	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "claiming", "paused", false) })
+	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "flow/claiming", "paused", false) })
 	r.sync()
 	r.change("claim-flow-go", "open", false)
 	r.wrote("claimed-flow", false)

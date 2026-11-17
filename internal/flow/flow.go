@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/clock"
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -95,7 +96,7 @@ type Flow struct {
 func (f *Flow) Start(ctx context.Context) string {
 	id, err := newRunID(f.Key.Name)
 	if err != nil {
-		f.Log.Error("Failed to start flow run", "err", err, "rule", f.Key.Name)
+		f.Log.Error("Failed to start flow run", "err", err, "rule", control.RuleRef(f.Key.Name))
 		return engine.ResultFailed
 	}
 	return f.run(ctx, id, nil)
@@ -147,7 +148,7 @@ func (f *Flow) run(ctx context.Context, id string, recorded []entry) string {
 	if !r.live {
 		r.pos = 1 // Its start.
 	}
-	log := f.Log.With("rule", f.Key.Name, "run", id)
+	log := f.Log.With("rule", control.RuleRef(f.Key.Name), "run", id)
 	var failure error
 	func() {
 		defer func() {
