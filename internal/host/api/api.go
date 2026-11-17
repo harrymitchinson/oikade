@@ -24,6 +24,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -192,7 +193,7 @@ type Response struct {
 	// claims. It's nil if the device hadn't answered in time.
 	Outcome *Capability `json:"outcome,omitempty"`
 	// Ended are the claims a pause ended, and Kept its Safety claims, which only a release ends, each as
-	// "device capability".
+	// the capability's ref, such as device/fan/on.
 	Ended []string `json:"ended,omitempty"`
 	Kept  []string `json:"kept,omitempty"`
 	// UnsetSecrets are a deploy's or a rollback's: the secrets the version now running uses that
@@ -245,6 +246,8 @@ type Response struct {
 // the Matter bridge, offline, until oikade devices remove takes it.
 type Unimported struct {
 	Device string `json:"device"`
+	// Ref is the device's ref.
+	Ref    string `json:"ref"`
 	Plugin string `json:"plugin"`
 	// Safety is a device a Safety claim holds, which removing it would end.
 	Safety bool `json:"safety,omitempty"`
@@ -289,7 +292,7 @@ func UnimportedOf(list registry.Snapshot, imported, outside []string, safety fun
 		if !ok || d.Removed || slices.Contains(imported, plugin) || slices.Contains(outside, plugin) {
 			continue
 		}
-		u := Unimported{Device: d.Name, Plugin: plugin}
+		u := Unimported{Device: d.Name, Ref: ident.DeviceRef(d.Name).String(), Plugin: plugin}
 		if safety != nil {
 			u.Safety = safety(d.Name)
 		}
@@ -302,7 +305,9 @@ func UnimportedOf(list registry.Snapshot, imported, outside []string, safety fun
 // Client is a client of the network API. Its JSON is what oikade client list --json prints, so
 // scripts rely on it: add to it, and don't rename.
 type Client struct {
-	Name     string    `json:"name"`
+	Name string `json:"name"`
+	// Ref is its ref, such as client/laptop.
+	Ref      string    `json:"ref"`
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"lastUsed,omitzero"`
 }
@@ -318,6 +323,8 @@ func Pin(publicKeyInfo []byte) string {
 // so scripts rely on it: add to it, and don't rename.
 type Secret struct {
 	Name string `json:"name"`
+	// Ref is its ref, such as secret/broker.
+	Ref string `json:"ref"`
 	// Changed is when its value last changed.
 	Changed time.Time `json:"changed"`
 }
@@ -388,7 +395,9 @@ type Status struct {
 
 // Device is one device.
 type Device struct {
-	Name         string       `json:"name"`
+	Name string `json:"name"`
+	// Ref is its ref, such as device/desk-plug.
+	Ref          string       `json:"ref"`
 	Room         string       `json:"room,omitempty"`
 	Online       *bool        `json:"online,omitempty"`
 	Capabilities []Capability `json:"capabilities"`
@@ -405,7 +414,9 @@ type Device struct {
 
 // Capability is a device's capability, and who has it if it's arbitrated.
 type Capability struct {
-	Name  string `json:"name"`
+	Name string `json:"name"`
+	// Ref is its ref, such as device/desk-plug/on.
+	Ref   string `json:"ref"`
 	Value any    `json:"value,omitempty"`
 	// Level is the winning level: Default, Normal, Override or Safety. Empty means it isn't arbitrated.
 	Level string `json:"level,omitempty"`
@@ -463,7 +474,7 @@ type Rule struct {
 	// keeps its state, or its budget couldn't be planned, so its device stays off. Only a connected
 	// process says.
 	Stopped string `json:"stopped,omitempty"`
-	// WhyNot is why an inactive case's conditions are false, such as "pool-water temperature is 5,
+	// WhyNot is why an inactive case's conditions are false, such as "device/pool-water/temperature is 5,
 	// not below 3", or a ConditionFunc's label.
 	WhyNot string `json:"whyNot,omitempty"`
 	// Budget is a budget hold's day.
@@ -514,7 +525,9 @@ type Event struct {
 	Previous   any    `json:"previous,omitempty"`
 	// Rule is a rule run's or a pause's, and Result how the run ended, or a call's error. Value is
 	// also a call's result.
-	Rule   string `json:"rule,omitempty"`
+	Rule string `json:"rule,omitempty"`
+	// Ref is the ref of what it's about: the capability's, the device's or the rule's.
+	Ref    string `json:"ref,omitempty"`
 	Result string `json:"result,omitempty"`
 	// Message says what happened to the process or the pause, which version a deploy brought, which
 	// outside call this is, or why a write was refused.

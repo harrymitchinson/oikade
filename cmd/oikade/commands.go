@@ -80,7 +80,10 @@ func runStatus(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	devices := cli.Parse(fs, args)
+	devices, err := namesOf(ident.Device, cli.Parse(fs, args))
+	if err != nil {
+		return err
+	}
 	transport := target.transport()
 	resp, err := api.Call(ctx, transport, api.Request{Type: api.TypeStatus})
 	if err != nil {
@@ -175,11 +178,7 @@ func printStatus(out, stderr io.Writer, st *api.Status, bridge *api.Matter, summ
 	printUndeclared(stderr, declare)
 	_, _ = fmt.Fprintln(out)
 	for _, r := range st.Rules {
-		name := r.Name
-		if r.Case != "" {
-			name = fmt.Sprintf("%s %s: %s", r.Device, r.Capability, r.Case)
-		}
-		line := []string{name, or(r.Kind, "gone")}
+		line := []string{or(r.Ref, r.Name), or(r.Kind, "gone")}
 		if r.Safety {
 			line = append(line, "Safety")
 		}
@@ -343,12 +342,9 @@ func why(c api.Capability) string {
 	return wins
 }
 
-// lineName is how a claim's line reads: a case's name, a rule's, or where an outside change came
+// lineName is how a claim's line reads: a case's or a flow's ref, or where an outside change came
 // from.
 func lineName(c api.Claim) string {
-	if c.Case != "" {
-		return c.Case
-	}
 	switch c.Source {
 	case "command":
 		return "oikade set"
@@ -433,26 +429,39 @@ func runSet(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
-	if len(words) != 3 {
-		return errors.New("usage: oikade set DEVICE CAPABILITY VALUE")
+	var device, name string
+	var err error
+	switch {
+	case len(words) == 2 && strings.Contains(words[0], "/"):
+		if device, name, err = capabilityOf(words[0]); err != nil {
+			return err
+		}
+	case len(words) == 3:
+		if device, err = nameOf(ident.Device, words[0]); err != nil {
+			return err
+		}
+		name = words[1]
+	default:
+		return errors.New("usage: oikade set device/DEVICE/CAPABILITY VALUE, or oikade set DEVICE CAPABILITY VALUE")
 	}
-	value := parseValue(words[2])
-	_, _ = fmt.Fprintf(os.Stderr, "Setting %s %s to %v\n", words[0], words[1], value)
+	value := parseValue(words[len(words)-1])
+	_, _ = fmt.Fprintf(os.Stderr, "Setting %s to %v\n", ident.CapabilityRef(device, name), value)
 	resp, err := api.Call(ctx, target.transport(), api.Request{
-		Type: api.TypeSet, Device: words[0], Capability: words[1], Value: value,
+		Type: api.TypeSet, Device: device, Capability: name, Value: value,
 	})
 	if err != nil {
 		return err
 	}
-	return done(resp, *asJSON, outcome(words[0], words[1], value, resp.Outcome))
+	return done(resp, *asJSON, outcome(device, name, value, resp.Outcome))
 }
 
 // outcome says what a set left the capability at, and why, rather than what it asked for.
 func outcome(device, name string, asked any, c *api.Capability) string {
 	if c == nil {
-		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows its %s when it does", device, device, name)
+		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",
+			ident.CapabilityRef(device, name), device)
 	}
-	is := fmt.Sprintf("%s %s is %v", device, name, display(c.Value))
+	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), display(c.Value))
 	if fmt.Sprint(c.Value) != fmt.Sprint(asked) && !rounded(name, c.Value, asked) {
 		is += fmt.Sprintf(", not %v", asked)
 	}

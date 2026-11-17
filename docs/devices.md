@@ -30,6 +30,7 @@ A ref names one thing, by its kind and then its name, and any parts, each a URI 
 | Kind | Ref |
 |---|---|
 | A device, and one of its capabilities | `device/desk-plug`, `device/desk-plug/on` |
+| A room's or a group's capability | `room/hall/temperature`, `group/radiators/setpoint` |
 | A decision's case | `case/desk-plug/on/night` |
 | A flow | `flow/morning` |
 | A room, a group | `room/living-room`, `group/downstairs` |
@@ -37,7 +38,7 @@ A ref names one thing, by its kind and then its name, and any parts, each a URI 
 | A device's hardware, by its plugin and the plugin's ID for it | `hardware/zigbee2mqtt/0x00158d0001a2b3c4` |
 | An outside change's claim: a Matter controller's, the device's own, `oikade set`'s | `matter`, `device`, `command` |
 
-A claim's `source` in `oikade status --json` is its ref, so `oikade pause` takes a case's or a flow's straight from it. Only a hardware ID is the driver's and not Oikade's, so it's percent-encoded where it needs to be.
+Each thing `--json` lists has its `ref`, and a claim's `source` in `oikade status --json` is one, so `oikade pause` takes a case's or a flow's straight from it. Answers and errors name a capability, a case or a flow by its ref, such as `device/desk-plug/on is false, not true: case/desk-plug/on/hall-too-humid holds it`, and in your code a handle's `String` is its ref: `PorchLight.On` prints `device/porch-light/on`, and a room's or a group's capability `room/hall/temperature` or `group/radiators/setpoint`. A command that takes one kind of thing takes its ref or its bare name: `oikade status desk-plug` or `oikade status device/desk-plug`. Only a hardware ID is the driver's and not Oikade's, so it's percent-encoded where it needs to be.
 
 ## Declaring devices in code
 

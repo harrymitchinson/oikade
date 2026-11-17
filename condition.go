@@ -32,7 +32,7 @@ type Condition interface {
 func (b Bool) holds(s Snapshot) bool { return s.Get(b) }
 
 func (b Bool) explain(s Snapshot, _ bool) string {
-	return fmt.Sprintf("%s %s is %t", b.Device, b.Capability, s.Get(b))
+	return fmt.Sprintf("%s is %t", b, s.Get(b))
 }
 
 func (b Bool) check(Options) error { return checkHandle(b.handle()) }
@@ -86,7 +86,7 @@ func (c compare) holds(s Snapshot) bool {
 }
 
 func (c compare) explain(s Snapshot, want bool) string {
-	what := fmt.Sprintf("%s %s is %s", c.n.Device, c.n.Capability, number(s.Get(c.n)))
+	what := fmt.Sprintf("%s is %s", c.n, number(s.Get(c.n)))
 	not := ""
 	if want {
 		not = "not "
@@ -478,6 +478,7 @@ func splitHours(c Condition) (*Hours, Condition) {
 func label(c Condition) string {
 	switch c := c.(type) {
 	case Bool:
+		// A label is a flow's journal's ID for a look, so it keeps the form runs recorded it in.
 		return c.Device + " " + string(c.Capability)
 	case compare:
 		h := c.n.handle()

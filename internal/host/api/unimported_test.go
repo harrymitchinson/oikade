@@ -18,7 +18,9 @@ func TestUnimportedListsOnlyDevicesOfPluginsNothingRuns(t *testing.T) {
 		{Name: "reserved"},
 	}}
 	got := UnimportedOf(list, []string{"shades"}, []string{"outdoor"}, func(name string) bool { return name == "fan" })
-	want := []Unimported{{Device: "fan", Plugin: "relays", Safety: true}, {Device: "lamp", Plugin: "relays"}}
+	want := []Unimported{
+		{Device: "fan", Ref: "device/fan", Plugin: "relays", Safety: true}, {Device: "lamp", Ref: "device/lamp", Plugin: "relays"},
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}

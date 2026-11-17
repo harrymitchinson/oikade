@@ -79,11 +79,11 @@ $ oikade dev
 Simulating 2 devices from Fri 18:41. Type help for the commands.
 set porch-sensor occupied true
 Fri 18:41 Wrote porch-light on = true
-Fri 18:41 porch-light on: motion applies
+Fri 18:41 case/porch-light/on/motion applies
 set porch-sensor occupied false
 advance 6m
 Fri 18:46 Wrote porch-light on = false
-Fri 18:46 porch-light on: motion no longer applies
+Fri 18:46 case/porch-light/on/motion no longer applies
 ```
 
 `status` shows every device and what holds it, and `restart` crashes your automations and starts them again. Your automations' log goes to standard error.

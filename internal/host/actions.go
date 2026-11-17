@@ -70,7 +70,7 @@ func (s *apiServer) status() api.Response {
 	}
 	for dev, snap := range s.srv.devices.List() {
 		d := api.Device{
-			Name: dev.Name, Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
+			Name: dev.Name, Ref: ident.DeviceRef(dev.Name).String(), Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
 			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[dev.Name], Problem: snap.Info.Error,
 		}
 		if s.devices != nil {
@@ -88,7 +88,7 @@ func (s *apiServer) status() api.Response {
 		}
 		slices.Sort(names)
 		for _, name := range slices.Compact(names) {
-			c := api.Capability{Name: name}
+			c := api.Capability{Name: name, Ref: ident.CapabilityRef(dev.Name, name).String()}
 			if v, ok := snap.Values[name]; ok {
 				c.Value = v
 			}
@@ -209,10 +209,11 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	if holder, _ := heldAtSafety(s.srv.engine, s.srv.devices, dev, req.Capability, value); holder != "" {
-		if name, ok := control.CaseOf(holder, req.Device, req.Capability); ok {
-			return api.Response{Error: fmt.Sprintf("%s %s: %s holds it, a safety line", req.Device, req.Capability, name)}
+		what := ident.CapabilityRef(req.Device, req.Capability)
+		if _, ok := control.CaseOf(holder, req.Device, req.Capability); ok {
+			return api.Response{Error: fmt.Sprintf("%s: %s holds it, a safety line", what, control.SourceRef(holder))}
 		}
-		return api.Response{Error: fmt.Sprintf("%s holds %s %s at Safety", holder, req.Device, req.Capability)}
+		return api.Response{Error: fmt.Sprintf("%s holds %s at Safety", control.SourceRef(holder), what)}
 	}
 	// Before the write, so that the device's answer can't come first.
 	events, stop := s.srv.feed.subscribe()
@@ -248,7 +249,7 @@ func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, valu
 	if !ok {
 		return nil
 	}
-	c := &api.Capability{Name: name, Value: snap.Values[name]}
+	c := &api.Capability{Name: name, Ref: ident.CapabilityRef(dev.Name, name).String(), Value: snap.Values[name]}
 	for _, held := range s.srv.engine.ControlOf(dev) {
 		if held.Capability == name {
 			withControl(dev.Name, c, held)
@@ -332,7 +333,7 @@ type claimedSetter struct {
 // Set implements driver.Setter.
 func (s claimedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	if c, ok := s.engine.UnreadableClaim(dev); ok {
-		return fmt.Errorf("%s holds %s", c.Source, dev.Name)
+		return fmt.Errorf("%s holds %s", control.SourceRef(c.Source), dev.Name)
 	}
 	return s.setter.Set(ctx, dev, name, value)
 }
@@ -414,7 +415,7 @@ func (s *apiServer) ruleKey(ref string, rules func() []wire.RuleInfo) (string, e
 	return "", err
 }
 
-// claimsOf lists what a rule claims, as "device capability": the claims a pause ends, and the Safety
+// claimsOf lists the capabilities a rule claims, by their refs: the claims a pause ends, and the Safety
 // ones it keeps.
 func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
 	source := control.SourceRule + rule
@@ -425,9 +426,9 @@ func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
 					continue
 				}
 				if c.Level == control.NameSafety {
-					kept = append(kept, dev.Name+" "+held.Capability)
+					kept = append(kept, ident.CapabilityRef(dev.Name, held.Capability).String())
 				} else {
-					ended = append(ended, dev.Name+" "+held.Capability)
+					ended = append(ended, ident.CapabilityRef(dev.Name, held.Capability).String())
 				}
 			}
 		}

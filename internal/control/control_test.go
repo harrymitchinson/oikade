@@ -579,10 +579,4 @@ func TestACaseKeyReadsBack(t *testing.T) {
 	if _, ok := CaseOf("Rule/"+key, "pool-pump", "brightness"); ok {
 		t.Error("read another capability's case")
 	}
-	if got := CaseShown(key); got != "pool-pump on: frost" {
-		t.Errorf("shown as %q", got)
-	}
-	if got := CaseShown("bedtime"); got != "bedtime" {
-		t.Errorf("a flow is shown as %q", got)
-	}
 }

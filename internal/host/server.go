@@ -780,8 +780,23 @@ func (s *server) recordCall(run string, entry []byte) {
 
 // emit passes an event to whoever's tailing, and on to the log. Neither waits.
 func (s *server) emit(e api.Event) {
+	e.Ref = eventRef(e)
 	s.feed.publish(e)
 	s.events.add(e)
+}
+
+// eventRef is the ref of what an event is about: the capability changed, written or refused, the
+// device, or the rule run or paused.
+func eventRef(e api.Event) string {
+	switch {
+	case e.Device != "" && e.Capability != "":
+		return ident.CapabilityRef(e.Device, e.Capability).String()
+	case e.Device != "":
+		return ident.DeviceRef(e.Device).String()
+	case e.Rule != "":
+		return control.RuleRef(e.Rule).String()
+	}
+	return ""
 }
 
 // Changed implements driver.Sink. A report goes to your process as one message, so it takes in

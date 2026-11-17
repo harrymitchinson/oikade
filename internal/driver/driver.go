@@ -103,7 +103,8 @@ func (f SetterFunc) Set(ctx context.Context, dev ident.ID, capability string, va
 // Refused is a write that arbitration turned away because a claim holds the capability: the rule
 // working, not a fault. Callers recognise it with errors.AsType.
 type Refused struct {
-	// Holder is the claim that won, such as Rule/hall-too-humid, and Level its level.
+	// Holder is the ref of the claim that won, such as case/desk-plug/on/hall-too-humid, and Level
+	// its level.
 	Holder, Level string
 }
 

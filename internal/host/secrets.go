@@ -13,6 +13,7 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
 // DefaultSecretsDir is the secrets' directory inside the data directory, so a backup has them.
@@ -40,7 +41,7 @@ func (s secrets) list() ([]api.Secret, error) {
 			return nil, err
 		}
 		if info.Mode().IsRegular() {
-			found = append(found, api.Secret{Name: e.Name(), Changed: info.ModTime().UTC()})
+			found = append(found, api.Secret{Name: e.Name(), Ref: ident.NewRef(ident.Secret, e.Name()).String(), Changed: info.ModTime().UTC()})
 		}
 	}
 	return found, nil

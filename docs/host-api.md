@@ -16,7 +16,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafetyRemoval=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running; `unsetSecrets`, the secrets the version uses that aren't set; `takenOffMatter`, the devices on the bridge it hides from Matter |
 | `POST /v1/rollback` | `allowSafetyRemoval` | `version`, `findings`, `unimported`, `unsetSecrets`, `takenOffMatter` |
 | `POST /v1/set` | `device`, `capability`, `value` | `outcome`, the capability with its claims once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered |
-| `POST /v1/pause`, `POST /v1/resume` | `rule`, the case's or flow's [ref](devices.md#refs), such as `case/fan/on/humid`, and `allowSafety` | `needsAllowSafety`; a pause's `ended`, the claims it ended, and `kept`, its Safety claims, each as `device capability` |
+| `POST /v1/pause`, `POST /v1/resume` | `rule`, the case's or flow's [ref](devices.md#refs), such as `case/fan/on/humid`, and `allowSafety` | `needsAllowSafety`; a pause's `ended`, the claims it ended, and `kept`, its Safety claims, each as the capability's ref, such as `device/fan/on` |
 | `POST /v1/matter/open` | `windowSeconds`, 180 to 900, and 900 if it's left out | `matterWindow`: `manualCode`, `qrCode`, `passcode`, `fresh` and `expires`. It answers once the window is advertised |
 | `POST /v1/backup` | | `backup`, the file it wrote on the host |
 | `POST /v1/setup` | `plugin` | A stream of the plugin's setup steps: see [Setup](#setup) |

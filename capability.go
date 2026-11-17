@@ -90,6 +90,15 @@ type Choice struct {
 	g          *group
 }
 
+// String is its ref, such as device/porch-light/on, or group/radiators/setpoint for a group's.
+func (b Bool) String() string { return b.handle().ref() }
+
+// String is its ref, such as device/study/setpoint, or room/hall/temperature for a room's.
+func (n Number) String() string { return n.handle().ref() }
+
+// String is its ref, such as device/bedroom-ac/mode.
+func (c Choice) String() string { return c.handle().ref() }
+
 // Ref is a Bool, a Number or a Choice: a capability of one device, or of a group, whose values are
 // T, which a decision and hometest's helpers take.
 type Ref[T Value] interface {

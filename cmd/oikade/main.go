@@ -35,7 +35,7 @@ const usage = `Usage:
   oikade rollback [--allow-safety-removal]
   oikade status [DEVICE] [--json]
   oikade tail [--json]
-  oikade set DEVICE CAPABILITY VALUE [--json]
+  oikade set device/DEVICE/CAPABILITY VALUE [--json]   Or DEVICE CAPABILITY VALUE.
   oikade pause REF [--allow-safety] [--json]   A case, case/DEVICE/CAPABILITY/CASE, or a flow, flow/FLOW.
   oikade resume REF [--json]
   oikade devices [--all] [--json]

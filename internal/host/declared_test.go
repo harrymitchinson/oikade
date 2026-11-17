@@ -164,7 +164,7 @@ func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testin
 	if err := controls.Put(t.Context(), key("shed-fan"), state); err != nil {
 		t.Fatal(err)
 	}
-	if err := known.takeDeclared(fan[1:], nil); err == nil || !strings.Contains(err.Error(), "Rule/frost holds shed-fan") {
+	if err := known.takeDeclared(fan[1:], nil); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan") {
 		t.Errorf("dropped a claimed reservation: %v", err)
 	}
 	if resp, _ := known.remove(t.Context(), "lamp", true); !strings.Contains(resp.Error, "declared in your home's code") {

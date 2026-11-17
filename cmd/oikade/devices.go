@@ -17,6 +17,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -39,6 +40,13 @@ func runDevices(ctx context.Context, args []string) error {
 	}
 
 	verb, words := words[0], words[1:]
+	words, err := namesOf(ident.Device, words)
+	if err != nil {
+		return err
+	}
+	if *plugin, err = nameOf(ident.Plugin, *plugin); err != nil {
+		return err
+	}
 	if *plugin != "" && verb != verbRemove {
 		return errors.New("--plugin is only for oikade devices remove")
 	}
@@ -201,6 +209,8 @@ func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) (und
 // listedDevice is a device as oikade devices --json prints it: as on record, with what it is.
 type listedDevice struct {
 	registry.Device
+	// Ref is its ref, such as device/desk-plug.
+	Ref         string            `json:"ref"`
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
 	// PluginNotImported is a device whose plugin the running version doesn't import.
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
@@ -223,7 +233,8 @@ func listed(list registry.Snapshot, marks deviceMarks) any {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		l := listedDevice{
-			Device: d, DeviceTypes: append([]devicetype.Type{}, d.DeviceTypes()...),
+			Device: d, Ref: ident.DeviceRef(d.Name).String(),
+			DeviceTypes:       append([]devicetype.Type{}, d.DeviceTypes()...),
 			PluginNotImported: !d.Removed && marks.unimported[d.Name],
 			Problem:           removedHasNone(d, marks.problems),
 		}
