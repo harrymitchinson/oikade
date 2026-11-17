@@ -278,7 +278,8 @@ func Recover(ctx context.Context, flows map[string]*Flow, saved []Saved, journal
 		if name != "" {
 			key := ident.ID{Name: name}
 			if err := actions.ReleaseFlow(ctx, key); err != nil {
-				log.Error("Failed to release the claims of a flow run; the next process will", "err", err, "run", id)
+				log.Error("Failed to release the claims of a flow run; the next process will", "err", err,
+					"rule", control.RuleRef(name), "run", id)
 				return
 			}
 		}
@@ -293,7 +294,7 @@ func Recover(ctx context.Context, flows map[string]*Flow, saved []Saved, journal
 		}
 		name := entries[0].ID
 		if flows[name] == nil {
-			log.Info("Left flow run alone; this binary doesn't have its flow", "run", s.ID)
+			log.Info("Left flow run alone; this binary doesn't have its flow", "rule", control.RuleRef(name), "run", s.ID)
 			continue
 		}
 		cur, ok := newest[name]
@@ -311,7 +312,7 @@ func Recover(ctx context.Context, flows map[string]*Flow, saved []Saved, journal
 		// Its claims are under the flow's name, and a run that's carrying on may hold the same ones.
 		name := FlowOf(s.ID)
 		if name != "" && flows[name] == nil {
-			log.Info("Left flow run alone; this binary doesn't have its flow", "run", s.ID)
+			log.Info("Left flow run alone; this binary doesn't have its flow", "rule", control.RuleRef(name), "run", s.ID)
 			continue
 		}
 		if _, carriesOn := newest[name]; carriesOn {

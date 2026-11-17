@@ -544,7 +544,7 @@ func (s *server) reconcile(rules, flows []string) error {
 			err = errors.New("dropped by a fault point")
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", rule, err))
+			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", control.RuleRef(rule), err))
 			continue
 		}
 		s.log.Info("Ended the claims of a removed rule", "rule", control.RuleRef(rule), "highest", level.String())
@@ -563,7 +563,7 @@ func (s *server) reconcile(rules, flows []string) error {
 				continue
 			}
 			if err := saved.Delete(s.ctx, key(name)); err != nil {
-				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", name, err))
+				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", control.RuleRef(name), err))
 				continue
 			}
 			s.log.Info("Forgot the saved state of a removed rule", "rule", control.RuleRef(name))

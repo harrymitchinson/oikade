@@ -94,23 +94,26 @@ type BudgetReport struct {
 
 // planned sets a budget's metrics from its plan, and whether the plan wants the target on now.
 func (m budgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
-	m.target.Set(float64(p.day.TargetMinutes), ruleRef(key))
-	m.scheduled.Set(float64(p.day.ScheduledMinutes), ruleRef(key))
-	m.desired.Set(float64(btoi(on)), ruleRef(key))
-	m.todayRun.Set(math.Floor(p.run.Minutes()), ruleRef(key))
+	rule := ruleRef(key)
+	m.target.Set(float64(p.day.TargetMinutes), rule)
+	m.scheduled.Set(float64(p.day.ScheduledMinutes), rule)
+	m.desired.Set(float64(btoi(on)), rule)
+	m.todayRun.Set(math.Floor(p.run.Minutes()), rule)
 }
 
 // unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
 // run is kept for when it can plan again.
 func (m budgetMetrics) unplanned(key ident.ID) {
-	m.target.Delete(ruleRef(key))
-	m.scheduled.Delete(ruleRef(key))
-	m.desired.Set(0, ruleRef(key))
+	rule := ruleRef(key)
+	m.target.Delete(rule)
+	m.scheduled.Delete(rule)
+	m.desired.Set(0, rule)
 }
 
 func (m budgetMetrics) delete(key ident.ID) {
+	rule := ruleRef(key)
 	for _, v := range m.all() {
-		v.Delete(ruleRef(key))
+		v.Delete(rule)
 	}
 }
 

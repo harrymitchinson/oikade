@@ -30,6 +30,11 @@ func (a Average) Key() ident.ID {
 	return ident.ID{Name: a.Device + " " + a.Capability + " " + ShortDuration(a.Over)}
 }
 
+// logAttrs names the average in a log line: its capability's ref, and the window.
+func (a Average) logAttrs() []any {
+	return []any{"average", ident.CapabilityRef(a.Device, a.Capability).String(), "over", ShortDuration(a.Over)}
+}
+
 // Var is the name a condition reads the average by, among its device's capabilities: "temperature
 // over 24h".
 func (a Average) Var() string { return AverageVar(a.Capability, a.Over) }
@@ -237,7 +242,7 @@ func (e *Engine) saveAverage(a Average, st AverageState) {
 			av.saving[a] = nil
 			av.mu.Unlock()
 			if err := e.AverageStates.Put(ctx, a.Key(), *next); err != nil && ctx.Err() == nil {
-				e.Log.Error("Failed to save average", "err", err, "average", ident.CapabilityRef(a.Device, a.Capability).String(), "over", ShortDuration(a.Over))
+				e.Log.With(a.logAttrs()...).Error("Failed to save average", "err", err)
 			}
 		}
 	})
@@ -289,7 +294,7 @@ func (e *Engine) flushAverages(ctx context.Context) {
 	e.averages.mu.Unlock()
 	for i, a := range due {
 		if err := e.AverageStates.Put(ctx, a.Key(), states[i]); err != nil && ctx.Err() == nil {
-			e.Log.Error("Failed to save average", "err", err, "average", ident.CapabilityRef(a.Device, a.Capability).String(), "over", ShortDuration(a.Over))
+			e.Log.With(a.logAttrs()...).Error("Failed to save average", "err", err)
 		}
 	}
 }
