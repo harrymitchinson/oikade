@@ -158,6 +158,9 @@ func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Cli
 			},
 		},
 	}
+	if findsLocal(u) {
+		cfg.AttemptConnection = dialLocal(localDialer)
+	}
 	if u.User != nil {
 		pw, _ := u.User.Password()
 		cfg.ConnectUsername, cfg.ConnectPassword = u.User.Username(), []byte(pw)

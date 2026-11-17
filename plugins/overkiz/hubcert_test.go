@@ -1,6 +1,7 @@
 package overkiz
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -258,4 +260,31 @@ func TestSkippingTheCheckTrustsAnyHub(t *testing.T) {
 	account := Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), SkipCertificateCheck: true}
 	b := startWith(t, hub, account, fast, token)
 	b.waitAvailability(kitchen, "online")
+}
+
+// TestAHubFoundByItsLocalName gives the hub's address as its own gateway-<pin>.local name, which
+// Go's resolver can't find without cgo, and checks the plugin reaches it through its .local dialer
+// with the name still checked against the certificate.
+func TestAHubFoundByItsLocalName(t *testing.T) {
+	hub := newFakeHub(t)
+	_, port, err := net.SplitHostPort(hub.address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := make(chan string, 16)
+	old := dialHub
+	dialHub = func(ctx context.Context, network, address string) (net.Conn, error) {
+		select {
+		case asked <- address:
+		default:
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, hub.address())
+	}
+	t.Cleanup(func() { dialHub = old })
+	account := Local{Address: net.JoinHostPort(hubName, port), Token: plugin.NewSecret("tahoma-token"), roots: hub.ca}
+	b := startWith(t, hub, account, fast, token, kitchen)
+	b.waitAvailability(kitchen, "online")
+	if got, want := <-asked, account.Address; got != want {
+		t.Errorf("dialed %s, want %s", got, want)
+	}
 }

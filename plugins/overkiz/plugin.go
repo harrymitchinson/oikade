@@ -17,6 +17,7 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"github.com/harrymitchinson/oikade/internal/mdns"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
@@ -103,6 +104,8 @@ func (l Local) warn(log *slog.Logger) {
 func (l Local) connect(_ context.Context, token string) (*client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = hubTLS(cmp.Or(l.roots, overkizRoots), l.pin())
+	// The hub's own name is gateway-<pin>.local, which only mDNS answers (OIK-328).
+	transport.DialContext = dialHub
 	if l.SkipCertificateCheck {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // The user chose to.
 	}
@@ -114,6 +117,9 @@ func (l Local) connect(_ context.Context, token string) (*client, error) {
 		},
 	}, nil
 }
+
+// dialHub dials a local hub, finding a .local name over mDNS. Tests replace it.
+var dialHub = mdns.DialContext
 
 // timing is how often the plugin polls and how long it waits, which tests shorten.
 type timing struct {

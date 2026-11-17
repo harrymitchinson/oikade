@@ -4,14 +4,14 @@ import "errors"
 
 // Listener is an IPv4 socket on the mDNS port, joined to the group on every multicast interface,
 // for something that asks and listens rather than answers. It shares the port with any responder
-// on the host, this package's included.
+// on the host, internal/matter/mdns's included.
 type Listener struct {
 	conn *mcastConn
 }
 
 // ListenMulticast opens a Listener.
 func ListenMulticast() (*Listener, error) {
-	ifaces, err := multicastInterfaces()
+	ifaces, err := MulticastInterfaces()
 	if err != nil {
 		return nil, err
 	}
