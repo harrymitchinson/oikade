@@ -309,6 +309,20 @@ func TestOutsideChangeOverridesForHold(t *testing.T) {
 	h.want("11:30", h.to("11:30"), on, Normal, "Rule/n", NoLimit)
 }
 
+// Only Outside makes an outside change: a rule's claim that says it's External is still the rule's,
+// so the next outside change doesn't replace it.
+func TestARuleCantClaimAsAnOutsideChange(t *testing.T) {
+	h := newHarness(t, boolSettings, "10:00")
+	d := h.claim(Claim{Source: "Rule/n", Level: Override, Value: on, External: true, Baseline: on})
+	if c := d.Claims[0]; c.External || c.Baseline != off {
+		t.Fatalf("the rule's claim is %+v, want one that isn't External, on the default's baseline", c)
+	}
+	d = h.outside("Matter", off)
+	if len(d.Claims) != 2 {
+		t.Errorf("an outside change replaced the rule's claim: %+v", d.Claims)
+	}
+}
+
 func TestOutsideChangeReplacesEarlierOutsideChange(t *testing.T) {
 	h := newHarness(t, boolSettings, "10:00")
 	h.outside("Device", off)

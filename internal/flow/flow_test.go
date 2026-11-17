@@ -461,6 +461,11 @@ func TestChangedFlowIsDropped(t *testing.T) {
 	for name, edited := range map[string]func(*Run) error{
 		"a different wait": func(r *Run) error { r.Sleep(2 * time.Hour); return nil },
 		"a different step": func(r *Run) error { r.Now(); return nil },
+		// Its ID is the sleep's, 1h0m0s, so only its kind tells them apart.
+		"a different step with the same ID": func(r *Run) error {
+			r.WaitFor(func(engine.Vars) (bool, error) { return false, nil }, time.Hour)
+			return nil
+		},
 		"a step put first": func(r *Run) error {
 			if err := r.Apply(engine.Set{Device: "new", Capability: "on", Value: true}); err != nil {
 				return err
