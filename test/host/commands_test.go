@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -123,21 +124,24 @@ func TestSetReportsWhatTheDeviceWasLeftAt(t *testing.T) {
 	r := start(t)
 	r.sync()
 
-	// The towel rail's Control writes back any outside change, so the set doesn't last.
-	out := string(r.stdout(nil, "set", "towel-rail", "on", "on"))
-	if !strings.Contains(out, "towel-rail on is false, not true: no line applies, so its Default wins") {
-		t.Errorf("set said %q", out)
+	// What set says of an outcome is cmd/oikade's (TestSetSaysWhatTheDeviceWasLeftAt): here, that
+	// the host answers with the outcome. The towel rail's Control writes back any outside change, so
+	// the set doesn't last.
+	set := func(device, value string) (bool, api.Capability) {
+		var resp struct {
+			OK      bool           `json:"ok"`
+			Outcome api.Capability `json:"outcome"`
+		}
+		if err := json.Unmarshal(r.stdout(nil, "set", device, "on", value, "--json"), &resp); err != nil {
+			t.Fatal(err)
+		}
+		return resp.OK, resp.Outcome
 	}
-
-	var resp struct {
-		OK      bool           `json:"ok"`
-		Outcome api.Capability `json:"outcome"`
+	if ok, c := set("towel-rail", "on"); !ok || c.Value != false || c.Level != "Default" {
+		t.Errorf("the towel rail's outcome: %v, %+v", ok, c)
 	}
-	if err := json.Unmarshal(r.stdout(nil, "set", "claimed", "on", "off", "--json"), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if c := resp.Outcome; !resp.OK || c.Value != false || c.Level != "Override" || winner(c) != "Command" {
-		t.Errorf("set's outcome: %+v", resp)
+	if ok, c := set("claimed", "off"); !ok || c.Value != false || c.Level != "Override" || winner(c) != "Command" {
+		t.Errorf("set's outcome: %v, %+v", ok, c)
 	}
 }
 
@@ -477,42 +481,32 @@ func TestMetricsAndHealthAreServedOverHTTP(t *testing.T) {
 	}
 }
 
-// statusGaps is what oikade status says is left to set up, which it says on stderr.
-func (r *rig) statusGaps() string {
-	r.t.Helper()
-	stderr, err := r.oikade(nil, "status")
-	if err != nil {
-		r.t.Fatalf("status: %v: %s", err, stderr)
-	}
-	return stderr
-}
-
-func TestStatusSaysWhatsLeftToSetUp(t *testing.T) {
+// What status says is left to set up is cmd/oikade's (TestStatusStartsWithWhatsLeftToSetUp and
+// the tests around it): here, that the host fills in what it's worked out from.
+func TestStatusHasWhatsLeftToSetUp(t *testing.T) {
 	t.Parallel()
 	r := prepare(t)
 	r.launchWithout(settle, matterFlag(freeUDP(t)), "--simulate", devicesFile(t))
 	r.waitSocket()
-	// Until it serves, the bridge is down rather than waiting for a controller.
 	r.until("the bridge", func() bool { return r.matter().Serving })
-	gaps := r.statusGaps()
-	for _, want := range []string{
-		"No home deployed. Run oikade deploy", "The Matter bridge has no controller. oikade matter",
-	} {
-		if !strings.Contains(gaps, want) {
-			t.Errorf("no %q in:\n%s", want, gaps)
-		}
+	if st := r.status(); st.Version != "" || st.Process || st.Deploying {
+		t.Errorf("a host with no home: %+v", st)
 	}
-	// --json keeps its shape, and says nothing of them.
+	if m := r.matter(); len(m.Fabrics) != 0 {
+		t.Errorf("a bridge nobody paired: %+v", m)
+	}
+	// --json keeps its shape, and says nothing of what's left.
 	if stderr, err := r.oikade(nil, "status", "--json"); err != nil || stderr != "" {
 		t.Errorf("status --json: %v: %q", err, stderr)
 	}
 
 	p := startPlugins(t, matterFlag(freeUDP(t)))
 	p.until("the device's problem", func() bool {
-		return strings.Contains(p.statusGaps(), "Devices with a problem: locked.")
+		locked := func(d api.Device) bool { return d.Name == "locked" && d.Problem != "" }
+		return slices.ContainsFunc(p.status().Devices, locked)
 	})
-	if gaps := p.statusGaps(); strings.Contains(gaps, "No home deployed") || !strings.Contains(gaps, "oikade matter") {
-		t.Errorf("with a home deployed:\n%s", gaps)
+	if st := p.status(); st.Version == "" && !st.Process {
+		t.Errorf("with a home deployed: %+v", st)
 	}
 }
 
@@ -520,7 +514,17 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	t.Parallel()
 	c := commissioned(t)
 	c.r.sync()
-	if gaps := c.r.statusGaps(); gaps != "" {
-		t.Errorf("got:\n%s", gaps)
+	st := c.r.status()
+	deployed := st.Version != "" || st.Process
+	if !deployed || len(st.PluginProblems) != 0 || len(st.NeedsSetup) != 0 || len(st.UnsetSecrets) != 0 {
+		t.Errorf("status: %+v", st)
+	}
+	for _, d := range st.Devices {
+		if d.Problem != "" || d.PluginNotImported {
+			t.Errorf("device %s: %+v", d.Name, d)
+		}
+	}
+	if m := c.r.matter(); !m.Serving || len(m.Fabrics) == 0 {
+		t.Errorf("matter: %+v", m)
 	}
 }

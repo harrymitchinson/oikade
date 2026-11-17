@@ -79,6 +79,38 @@ func TestOnlySafetyRulesAreFlagged(t *testing.T) {
 	}
 }
 
+// A deploy that would end Safety is refused with a finding that names the rule and why.
+func TestSafetyFindingsNameWhatGoes(t *testing.T) {
+	leak := wire.RuleInfo{Name: "valve on leak-shutoff", Kind: wire.KindCase, Safety: true, Device: "valve"}
+	renamed := wire.RuleInfo{Name: "valve on water-shutoff", Kind: wire.KindCase, Safety: true, Device: "valve"}
+	failing := wire.RuleInfo{Name: "failing", Kind: wire.KindFlow, Safety: true}
+	for name, tc := range map[string]struct {
+		old, next wire.Manifest
+		held      map[string]control.Level
+		want      []string
+	}{
+		// A case renamed on a device that keeps its name is one gone and another new.
+		"a renamed Safety case": {manifest(leak), manifest(renamed), nil, []string{`Safety case "valve on leak-shutoff" is gone`}},
+		// A flow its decision ranks above the override line is Safety by that, before it claims.
+		"a Safety flow that goes": {manifest(failing), manifest(), nil, []string{`Safety flow "failing" is gone`}},
+		// Its Safety claim is the same finding, not another.
+		"a gone Safety flow's claim": {
+			manifest(failing), manifest(), map[string]control.Level{"failing": control.Safety},
+			[]string{`Safety flow "failing" is gone`},
+		},
+		"a gone rule's Safety claim": {
+			manifest(wire.RuleInfo{Name: "drain", Kind: wire.KindFlow}), manifest(), map[string]control.Level{"drain": control.Safety},
+			[]string{`rule "drain" is gone and holds a Safety claim, which would end`},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := safetyFindings(tc.old, tc.next, nil, tc.held, noneHeld); !slices.Equal(got, tc.want) {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // script writes an executable that acts as a binary's check mode.
 func script(t *testing.T, body string) string {
 	t.Helper()

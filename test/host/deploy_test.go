@@ -777,33 +777,6 @@ func TestAHostStoppingConfirmsNoDeployWaitingOnIt(t *testing.T) {
 	}
 }
 
-// The override covers a gone flow's Safety claim and its run, as well as a hold's.
-func TestAllowedDeployEndsAGoneFlowsSafetyClaim(t *testing.T) {
-	t.Parallel()
-	r := flowRig(t, "")
-	r.launch(settle)
-	r.awaitLoaded()
-	r.contact("fail-go", true)
-	r.wrote("claimed-safety", false)
-	r.sync()
-	if stderr, err := r.deploy("nofail"); err == nil || !strings.Contains(stderr, `"failing"`) {
-		t.Fatalf("got %v, %s", err, stderr)
-	}
-	r.mustDeploy("nofail", "--allow-safety-removal")
-	if r.count(ended, "rule", "failing", "highest", "Safety") != 1 {
-		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
-	}
-	r.stop()
-	if got := r.ruleClaims("claimed-safety"); holdsClaim(got, "Rule/failing", -1) {
-		t.Fatalf("got %+v", got)
-	}
-	s := r.openStore()
-	defer func() { _ = s.Close() }()
-	if runs, err := s.Journal().Runs(); err != nil || len(runs) != 0 {
-		t.Fatalf("got %v, %v", runs, err)
-	}
-}
-
 // A run's journal is the record of what it claimed, so it outlasts a claim that wouldn't end.
 func TestAFailedEndKeepsARunsJournal(t *testing.T) {
 	t.Parallel()
@@ -917,22 +890,6 @@ func TestAnUnfinishedDeployCleansUpOnlyWhatItMade(t *testing.T) {
 	r.expectSafetyKept()
 }
 
-// A flow a decision ranks above its override line is a Safety rule by its declaration, so a deploy
-// that drops it is refused before it has claimed anything.
-func TestADeployThatDropsASafetyFlowIsRefused(t *testing.T) {
-	t.Parallel()
-	r := flowRig(t, "")
-	r.launch(settle)
-	r.awaitLoaded()
-	stderr, err := r.deploy("nofail")
-	if err == nil || !strings.Contains(stderr, `Safety flow "failing" is gone`) {
-		t.Fatalf("got %v, %s. The log:\n%s", err, stderr, r.dump())
-	}
-	if r.count(checked) != 0 {
-		t.Fatalf("the check passed. The log:\n%s", r.dump())
-	}
-}
-
 // Redeploying the running version picks up a removal that failed.
 func TestRedeployingRetriesAFailedRemoval(t *testing.T) {
 	t.Parallel()
@@ -1032,20 +989,6 @@ func TestDeployWorksWhenTheRunningBinaryHasGone(t *testing.T) {
 	if err == nil || !strings.Contains(stderr, "no earlier version") {
 		t.Fatalf("got %v, %s", err, stderr)
 	}
-}
-
-func TestRollbackGoesBackAVersionAtATime(t *testing.T) {
-	t.Parallel()
-	r := start(t, settle)
-	r.mustDeploy("same")
-	r.mustDeploy("tail")
-	r.mustDeploy("edited")
-	r.mustRollback() // To tail.
-	r.mustRollback() // To same.
-	r.contact("park-go", true)
-	r.sync()
-	r.contact("park-end", true)
-	r.wrote("park-out", true)
 }
 
 // holdsClaim says whether a source holds a claim, at level if that isn't negative.

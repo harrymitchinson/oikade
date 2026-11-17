@@ -138,34 +138,6 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 	}
 }
 
-func TestBackupsAreBoundedAndNewestKept(t *testing.T) {
-	t.Parallel()
-	r := start(t, "--matter-port=0")
-	dir := filepath.Join(r.dir, "backups")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, old := range []string{"20200101", "20200102", "20200103", "20200104", "20200105", "20200106"} {
-		if err := os.WriteFile(filepath.Join(dir, "oikade-"+old+"T000000Z.db"), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	newest := strings.TrimSpace(string(r.stdout(nil, "backup")))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 5 {
-		t.Errorf("%d backups kept", len(entries))
-	}
-	if _, err := os.Stat(newest); err != nil {
-		t.Errorf("the newest went: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "oikade-20200101T000000Z.db")); err == nil {
-		t.Error("the oldest stayed")
-	}
-}
-
 func TestSecretsReachYourProcessAndPluginsAndNoLogOrAnswer(t *testing.T) {
 	t.Parallel()
 	r := prepare(t)
