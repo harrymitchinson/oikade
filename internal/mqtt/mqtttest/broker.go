@@ -19,9 +19,11 @@ type Broker struct {
 	URL string
 
 	addr string
-	mu   sync.Mutex
-	s    *mochi.Server
-	one  *oneSession
+	// bound is Listen's socket, which the first start serves. A Restart binds the address again.
+	bound net.Listener
+	mu    sync.Mutex
+	s     *mochi.Server
+	one   *oneSession
 }
 
 // StartBroker starts a broker on a free localhost port and returns its mqtt:// URL.
@@ -50,10 +52,10 @@ func Listen() (*Broker, error) {
 		return nil, err
 	}
 	addr := l.Addr().String()
-	_ = l.Close()
-
-	b := &Broker{URL: "mqtt://" + addr, addr: addr}
+	// The broker serves the socket bound here, so the port is never free for another to be handed.
+	b := &Broker{URL: "mqtt://" + addr, addr: addr, bound: l}
 	if err := b.start(); err != nil {
+		_ = l.Close()
 		return nil, err
 	}
 	return b, nil
@@ -79,13 +81,18 @@ func (b *Broker) start() error {
 	if err := s.AddHook(&retainScan{s: s}, nil); err != nil {
 		return err
 	}
-	// After a Restart the old listener's port can take a moment to free up.
 	var err error
-	for range 50 {
-		if err = s.AddListener(newListener("test", b.addr)); err == nil {
-			break
+	if b.bound != nil {
+		err = s.AddListener(boundListener("test", b.bound))
+		b.bound = nil
+	} else {
+		// After a Restart the old listener's port can take a moment to free up.
+		for range 50 {
+			if err = s.AddListener(newListener("test", b.addr)); err == nil {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
 		}
-		time.Sleep(20 * time.Millisecond)
 	}
 	if err != nil {
 		return err

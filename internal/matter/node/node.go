@@ -98,6 +98,8 @@ type advertiser interface {
 
 func listenMDNS(opts mdns.Options) (advertiser, error) { return mdns.Listen(opts) }
 
+func listenUDP(addr string) (net.PacketConn, error) { return net.ListenPacket("udp", addr) }
+
 // Setup is the node's own setup passcode and discriminator.
 type Setup struct {
 	Passcode      uint32
@@ -123,8 +125,9 @@ type Node struct {
 
 	// run is the latest Run's, which hooks and timers may be reaching for as the next one starts.
 	run atomic.Pointer[running]
-	// listenMDNS opens the advertiser; tests replace it.
+	// listenMDNS opens the advertiser, and listenUDP the Matter socket; tests replace them.
 	listenMDNS func(mdns.Options) (advertiser, error)
+	listenUDP  func(addr string) (net.PacketConn, error)
 
 	sessions sessionSet
 	// name is the DN key of the next commissionable service, which Rename changes.
@@ -173,7 +176,7 @@ func New(cfg Config) (*Node, error) {
 	}
 	n := &Node{
 		cfg: cfg, log: cfg.Log, resumption: securechannel.NewResumptionStore(0),
-		operational: map[uint8]*mdns.Service{}, listenMDNS: listenMDNS,
+		operational: map[uint8]*mdns.Service{}, listenMDNS: listenMDNS, listenUDP: listenUDP,
 	}
 	n.name.Store(&cfg.DeviceName)
 	var err error
@@ -258,12 +261,13 @@ func (n *Node) Run(ctx context.Context) error {
 		}
 		opts.Interfaces = list
 	}
-	tr, err := transport.Listen(fmt.Sprintf("[::]:%d", n.cfg.Port), transport.Options{
-		Log: n.log.With("part", "transport"), Panicked: n.panicked(), EndSession: n.endSession,
-	})
+	conn, err := n.listenUDP(fmt.Sprintf("[::]:%d", n.cfg.Port))
 	if err != nil {
 		return err
 	}
+	tr := transport.New(conn, transport.Options{
+		Log: n.log.With("part", "transport"), Panicked: n.panicked(), EndSession: n.endSession,
+	})
 	opts.Log, opts.Panicked = n.log.With("part", "mdns"), n.panicked()
 	responder, err := n.listenMDNS(opts)
 	if err != nil {
