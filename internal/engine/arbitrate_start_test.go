@@ -35,7 +35,7 @@ func TestTheFirstReportAfterAStartIsNoOverride(t *testing.T) {
 			saved := ControlState{capability.On: control.State{Value: 0, Known: true, Claims: []control.Claim{
 				{Source: ruleSource("pump-quiet"), Level: control.Normal, Value: 0},
 			}}}
-			if err := controls.Put(context.Background(), pump, saved); err != nil {
+			if err := controls.Put(t.Context(), pump, saved); err != nil {
 				t.Fatal(err)
 			}
 			o := rigOptions{

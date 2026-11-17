@@ -953,10 +953,10 @@ func TestRemovalsFinishAfterACrash(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(ended, "rule", "claim-moment") })
 	r.awaitLoaded()
 	r.stop()
-	// Only the removed rule's claim is checked. The simulator starts claimed at its file's on, which
-	// isn't the rule's off the host saved, so the restarted host may also hold the device's own
-	// Override: it does when it takes in that report before the removal ends the claim.
-	if got := r.ruleClaims("claimed"); holdsClaim(got, "Rule/claim-moment", -1) {
+	// The simulator starts claimed at its file's on, which isn't the rule's off the host saved. That
+	// first report is the device's value, not an Override, whether it comes before the removal or
+	// after (OIK-318), so nothing holds the device.
+	if got := r.ruleClaims("claimed"); len(got) != 0 {
 		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 }
