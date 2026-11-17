@@ -102,6 +102,7 @@ type Spec struct {
 	// explicit write unlocks a door. A Budget, which turns its target on and off, can't have it.
 	NoEndWrite bool
 	// Step is what a number a hold follows is rounded to, so a reading's every wobble isn't a write.
+	// Half of it, and 0.5 at most, is how far a report may be from a write and still be it (Near).
 	// Zero is none: a Follow of it gives its own.
 	Step float64
 }

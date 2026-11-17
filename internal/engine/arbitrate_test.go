@@ -777,3 +777,20 @@ func TestARoundedReportOfAWriteIsntAnOverride(t *testing.T) {
 		})
 	}
 }
+
+// A setpoint's step is 0.5 °C, so a radiator turned up by one is somebody, not the write's rounding.
+func TestASetpointTurnedUpAStepIsAnOverride(t *testing.T) {
+	r := startRigWith(t, rigOptions{
+		now:    local("2026-10-21 20:00 BST"),
+		values: map[string]map[string]any{"study-radiator": {capability.Setpoint: 16.0}},
+		control: map[string][]control.Entry{"study-radiator": {
+			entry(capability.Setpoint, "20", control.NameOverride, "1h"),
+		}},
+	})
+	r.expect(call{"study-radiator", capability.Setpoint, 20.0})
+	r.clock.Step(capability.SettleOf(capability.Setpoint) + time.Second)
+	r.change("study-radiator", capability.Setpoint, 20.5)
+	if w := winner(r.status("study-radiator", capability.Setpoint)); w != "Device Override" {
+		t.Errorf("winner %q after a turn to 20.5, want the device's", w)
+	}
+}
