@@ -193,7 +193,7 @@ Oikade never adopts what it can't validate. It drops the message, or the offendi
 | `unknown_capability` | A capability name not in Oikade's registry. |
 | `unknown_device_type` | A `deviceType` that isn't one of the six. The device is kept, and its type follows from its capabilities. |
 | `invalid_value` | A value of the wrong kind or out of range. |
-| `undeclared_device` | `state` or `availability` for an id with no Device. |
+| `undeclared_device` | `state` or `availability` for an id with no Device. One for a device you removed is dropped without counting, since a plugin that hears devices on the network can't tell it from a new one. |
 | `unannounced_capability` | A value for a capability the device didn't announce in `devices`. |
 
 ## Versioning

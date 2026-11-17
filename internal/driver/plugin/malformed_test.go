@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
@@ -189,5 +190,27 @@ func TestIDsNoDeviceHasAreBounded(t *testing.T) {
 	}
 	if got := rec.takeChanges(); len(got) != 1 || got[0].Device != porch || got[0].Value != true {
 		t.Errorf("replayed %+v, want porch's on", got)
+	}
+}
+
+// TestARemovedDevicesMessagesAreNotCounted: a plugin that hears devices on the network keeps
+// publishing for one you removed, which it can't tell from a new one, so its state and
+// availability are dropped without counting as a rejection. Another unknown ID still counts.
+func TestARemovedDevicesMessagesAreNotCounted(t *testing.T) {
+	i, bus, rec := setup(t, online())
+	i.SetDevices(map[string]ident.ID{"1000aa": porch}, map[string]bool{"1000bb": true})
+	rec.takeChanges()
+	wantDelta(t, "removed state", rejectedDelta(t, i, bus, root+"/1000bb/state", `{"on":true}`, `{"on":false}`), map[string]uint64{})
+	wantDelta(t, "removed availability", rejectedDelta(t, i, bus, root+"/1000bb/availability", "online", "offline"), map[string]uint64{})
+	if got := rec.takeChanges(); len(got) != 0 {
+		t.Errorf("a removed device's state changed %+v", got)
+	}
+	wantDelta(t, "undeclared", rejectedDelta(t, i, bus, root+"/1000cc/state", `{"on":true}`), map[string]uint64{ReasonUndeclaredDevice: 1})
+	// Declared again, as a re-paired device is, its state is used.
+	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall}, nil)
+	rec.takeChanges()
+	publish(t, bus, root+"/1000bb/state", `{"on":true}`)
+	if got := rec.takeChanges(); len(got) != 1 || got[0].Device != hall {
+		t.Errorf("hall declared again got %+v, want its state", got)
 	}
 }

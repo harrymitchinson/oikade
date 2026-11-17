@@ -23,6 +23,7 @@ const (
 	pluginStarted   = "Started plugin process"
 	pluginRestarted = "Restarting plugin process"
 	pluginKilled    = "Killing plugin process; it stopped answering"
+	rejectedMessage = "Rejected plugin message"
 )
 
 // pluginDevices is the usual simulated home, with its valve on the relays plugin instead.
@@ -168,16 +169,25 @@ func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 	r := startPlugins(t)
 	r.untilValue("relay", false)
 	r.stdout(nil, "devices", "remove", "relay", "--allow-safety")
+	// The plugin opens the valve once it has published every relay, the removed one among them.
+	r.setting("valve", "off")
+	r.untilValue("valve", false)
+	rejected := r.count(rejectedMessage, "reason", "undeclared_device")
 
 	// A restart is the plugin listing everything again.
 	connected := r.count(pluginConnected)
 	r.oikade(nil, "set", "panics", "on", "on") //nolint:errcheck // It dies taking this.
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected) > connected })
 	r.untilValue("panics", false)
+	r.untilValue("valve", true)
 	for _, d := range r.devices().Devices {
 		if d.ID == "relay" && !d.Removed {
 			t.Fatalf("it came back: %+v", d)
 		}
+	}
+	// Nor is what the plugin still publishes for it counted against the plugin.
+	if got := r.count(rejectedMessage, "reason", "undeclared_device"); got != rejected {
+		t.Errorf("the removed relay's messages were rejected as undeclared. The log:\n%s", r.dump())
 	}
 }
 
