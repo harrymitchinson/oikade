@@ -91,7 +91,7 @@ A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"on
 - `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless your home declares one with `Is`, and a device's other types follow from its capabilities ([OIK-142](https://linear.app/oikade/issue/OIK-142)).
 - `error` is a problem with the device's configuration, such as a missing secret or settings the plugin can't use. `oikade devices` and `oikade status` show it. A device can be `found` and still have one, if the plugin can see it and can't use it. Leave it empty otherwise.
 - `needsSetup` is optional: true while the plugin can't serve its devices until someone runs its [setup](#setup), such as one with no credentials yet. Only a plugin whose status has `setup` sends it.
-- `undeclared` counts devices the plugin can see that Oikade doesn't have on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
+- `undeclared` counts devices the plugin can see that Oikade doesn't have on record. A device you removed is on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 
 Republish `devices` whenever any of this changes.
 

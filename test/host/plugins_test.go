@@ -169,7 +169,8 @@ func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 	r := startPlugins(t)
 	r.untilValue("relay", false)
 	r.stdout(nil, "devices", "remove", "relay", "--allow-safety")
-	// The plugin opens the valve once it has published every relay, the removed one among them.
+	// Closed now, so that the valve opening again shows the restarted plugin has published every
+	// relay: it opens it last.
 	r.setting("valve", "off")
 	r.untilValue("valve", false)
 	rejected := r.count(rejectedMessage, "reason", "undeclared_device")

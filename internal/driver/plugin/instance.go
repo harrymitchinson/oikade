@@ -586,7 +586,7 @@ func (i *Instance) deviceTypeLocked(id, t, topic string) devicetype.Type {
 	return devicetype.Type(t)
 }
 
-// undeclaredLocked counts the discovered devices without a Device, or returns the plugin's own
+// undeclaredLocked counts the discovered devices neither declared nor removed, or returns the plugin's own
 // count if it sends no discovered list.
 func (i *Instance) undeclaredLocked() int {
 	if i.discovered == nil {
@@ -594,7 +594,7 @@ func (i *Instance) undeclaredLocked() int {
 	}
 	n := 0
 	for _, d := range i.discovered {
-		if _, ok := i.declared[d.ID]; !ok {
+		if _, ok := i.declared[d.ID]; !ok && !i.removed[d.ID] {
 			n++
 		}
 	}
