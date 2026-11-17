@@ -97,6 +97,23 @@ func (f *Fake) HasWaiters() bool {
 	return len(f.waiters) > 0
 }
 
+// NextWait returns when the soonest wait on the clock fires, and false if nothing is waiting. A
+// test reads it to see what a goroutine is waiting for before it moves the clock.
+func (f *Fake) NextWait() (time.Time, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.waiters) == 0 {
+		return time.Time{}, false
+	}
+	next := f.waiters[0].at
+	for _, t := range f.waiters[1:] {
+		if t.at.Before(next) {
+			next = t.at
+		}
+	}
+	return next, true
+}
+
 type fakeTimer struct {
 	clock *Fake
 	at    time.Time

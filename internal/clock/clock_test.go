@@ -142,6 +142,30 @@ func TestFakeTimerStopLeavesOtherWaits(t *testing.T) {
 	}
 }
 
+func TestFakeNextWait(t *testing.T) {
+	c := NewFake(start)
+	if _, ok := c.NextWait(); ok {
+		t.Fatal("NextWait() found a wait on a clock nothing waits on")
+	}
+	hour, second := c.NewTimer(time.Hour), c.NewTimer(time.Second)
+	c.NewTimer(time.Minute)
+	if got, ok := c.NextWait(); !ok || !got.Equal(start.Add(time.Second)) {
+		t.Fatalf("NextWait() = %v, %t, want the second's wait", got, ok)
+	}
+	second.Stop()
+	if got, _ := c.NextWait(); !got.Equal(start.Add(time.Minute)) {
+		t.Fatalf("NextWait() = %v after stopping the soonest, want the minute's wait", got)
+	}
+	c.Step(time.Minute)
+	if got, _ := c.NextWait(); !got.Equal(start.Add(time.Hour)) {
+		t.Fatalf("NextWait() = %v after the minute fired, want the hour's wait", got)
+	}
+	hour.Stop()
+	if _, ok := c.NextWait(); ok {
+		t.Fatal("NextWait() found a wait once every one was stopped or fired")
+	}
+}
+
 // The engine and its runs wait on the clock while a simulated home moves it. go test -race checks this.
 func TestFakeConcurrentUse(t *testing.T) {
 	c := NewFake(start)
@@ -152,6 +176,7 @@ func TestFakeConcurrentUse(t *testing.T) {
 				timer := c.NewTimer(time.Second)
 				c.Now()
 				c.HasWaiters()
+				c.NextWait()
 				timer.Stop()
 			}
 		})
