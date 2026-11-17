@@ -144,7 +144,8 @@ func TestFailsAPluginWhoseSetupFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--devices", devices, "--timeout", "2s", "--", bin}, &stdout, &stderr)
+	// 5 s for a loaded machine, as TestFailsAPluginWhoseDiscoveredIDsChange explains.
+	code := run([]string{"--devices", devices, "--timeout", "5s", "--", bin}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
 	}
@@ -199,7 +200,8 @@ func TestFailsAPluginThatNamesAnOldCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--devices", devices, "--timeout", "2s", "--", bin}, &stdout, &stderr)
+	// 5 s for a loaded machine, as TestFailsAPluginWhoseDiscoveredIDsChange explains.
+	code := run([]string{"--devices", devices, "--timeout", "5s", "--", bin}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("exit %d, want 1\nstdout:\n%s\nstderr:\n%s", code, &stdout, &stderr)
 	}
