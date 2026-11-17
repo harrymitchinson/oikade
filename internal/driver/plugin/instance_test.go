@@ -122,7 +122,7 @@ func setup(t *testing.T, retained map[string]string) (*Instance, *mqtt.Memory, *
 	if err := i.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall, "1000ff": ghost})
+	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall, "1000ff": ghost}, nil)
 	return i, bus, rec
 }
 
@@ -253,7 +253,7 @@ func TestRetainedStateBeforeDeclaration(t *testing.T) {
 	}
 
 	// Re-declaring re-reports discovery but doesn't repeat changes.
-	i.SetDevices(map[string]ident.ID{"1000aa": porch})
+	i.SetDevices(map[string]ident.ID{"1000aa": porch}, nil)
 	if got := rec.takeChanges(); len(got) != 0 {
 		t.Errorf("re-declaring repeated changes: %+v", got)
 	}
@@ -436,8 +436,14 @@ func TestDiscoveredCountsUndeclared(t *testing.T) {
 		t.Errorf("rejected = %v, want 2 malformed and 1 unknown_capability", r)
 	}
 
+	// Removing it is having it on record too.
+	i.SetDevices(map[string]ident.ID{"1000aa": porch}, map[string]bool{"1000cc": true})
+	if rec.undeclared != 0 {
+		t.Errorf("undeclared after removing = %d, want 0", rec.undeclared)
+	}
+
 	// Declaring 1000cc leaves nothing undeclared.
-	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000cc": hall})
+	i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000cc": hall}, nil)
 	if rec.undeclared != 0 {
 		t.Errorf("undeclared after declaring = %d, want 0", rec.undeclared)
 	}

@@ -49,6 +49,9 @@ type Instance struct {
 	mu          sync.Mutex
 	unsubscribe func()
 	declared    map[string]ident.ID // id -> Device
+	// removed are the ids of devices you removed. A plugin that hears devices on the network can't
+	// tell one from a device it hasn't been told of, so their messages are dropped but not counted.
+	removed map[string]bool
 	// status is nil until the plugin's status topic is seen.
 	status *contractv1.Status
 	// announced is nil until the devices topic is seen.
@@ -107,12 +110,20 @@ func (i *Instance) Stop() {
 	}
 }
 
-// SetDevices replaces the declared devices (plugin-local id -> Device) and re-reports discovery.
-func (i *Instance) SetDevices(declared map[string]ident.ID) {
+// SetDevices replaces the declared devices (plugin-local id -> Device) and the ids of removed ones,
+// and re-reports discovery.
+func (i *Instance) SetDevices(declared map[string]ident.ID, removed map[string]bool) {
 	i.counting.Lock()
 	defer i.counting.Unlock()
 	i.mu.Lock()
-	i.declared = maps.Clone(declared)
+	// A device that leaves, or moves to another id, starts empty where it lands, so the values it
+	// had must not hold back the next report that repeats them.
+	for id, dev := range i.declared {
+		if declared[id] != dev {
+			delete(i.values, id)
+		}
+	}
+	i.declared, i.removed = maps.Clone(declared), maps.Clone(removed)
 	emit := i.discoveryLocked()
 	// Only a discovered list's count depends on what's declared.
 	counted := i.discovered != nil
@@ -407,8 +418,8 @@ func (i *Instance) handleState(id, topic string, payload []byte) {
 	var emit func()
 	if _, ok := i.declared[id]; ok {
 		emit = i.applyStateLocked(id, state, now, topic)
-	} else if i.declared != nil {
-		i.rejectLocked(ReasonUndeclaredDevice, id, topic)
+	} else {
+		i.rejectUndeclaredLocked(id, topic)
 	}
 	i.mu.Unlock()
 	if emit != nil {
@@ -427,8 +438,8 @@ func (i *Instance) handleAvailability(id, topic string, payload []byte) {
 	l := i.lastLocked(id)
 	l.online, l.hasOnline = state == contractv1.Online, true
 	dev, declared := i.declared[id]
-	if !declared && i.declared != nil {
-		i.rejectLocked(ReasonUndeclaredDevice, id, topic)
+	if !declared {
+		i.rejectUndeclaredLocked(id, topic)
 	}
 	// A device can't be online while its plugin is known to be down.
 	online := l.online && (i.status == nil || i.upLocked())
@@ -575,7 +586,7 @@ func (i *Instance) deviceTypeLocked(id, t, topic string) devicetype.Type {
 	return devicetype.Type(t)
 }
 
-// undeclaredLocked counts the discovered devices without a Device, or returns the plugin's own
+// undeclaredLocked counts the discovered devices neither declared nor removed, or returns the plugin's own
 // count if it sends no discovered list.
 func (i *Instance) undeclaredLocked() int {
 	if i.discovered == nil {
@@ -583,7 +594,7 @@ func (i *Instance) undeclaredLocked() int {
 	}
 	n := 0
 	for _, d := range i.discovered {
-		if _, ok := i.declared[d.ID]; !ok {
+		if _, ok := i.declared[d.ID]; !ok && !i.removed[d.ID] {
 			n++
 		}
 	}
@@ -621,6 +632,14 @@ func (i *Instance) lastLocked(id string) *lastSeen {
 		i.last[id] = &lastSeen{}
 	}
 	return i.last[id]
+}
+
+// rejectUndeclaredLocked rejects a message for an id no Device has, unless it's a removed device's, or
+// no devices have been declared yet.
+func (i *Instance) rejectUndeclaredLocked(id, topic string) {
+	if i.declared != nil && !i.removed[id] {
+		i.rejectLocked(ReasonUndeclaredDevice, id, topic)
+	}
 }
 
 // rejectLocked counts a dropped message and logs the first one per reason and id, or past

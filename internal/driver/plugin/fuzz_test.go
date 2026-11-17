@@ -30,7 +30,7 @@ func FuzzHandle(f *testing.F) {
 			Key: dev("sonoff"), Root: root, Bus: bus, Sink: newRecorder(),
 			Now: func() time.Time { return now }, Log: logging.Discard(),
 		}
-		i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall, "1000ff": ghost})
+		i.SetDevices(map[string]ident.ID{"1000aa": porch, "1000bb": hall, "1000ff": ghost}, nil)
 		rejected := map[string]uint64{}
 		send := func(topic string, payload []byte) {
 			i.handle(mqtt.Message{Topic: topic, Payload: payload})

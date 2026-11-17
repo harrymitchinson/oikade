@@ -157,28 +157,27 @@ func (b pairingBus) Subscribe(ctx context.Context, filter string, h mqtt.Handler
 	})
 }
 
-// onRecord maps a plugin's device IDs to the devices they are.
-func (p *plugins) onRecord(h *hosted) map[string]ident.ID {
-	devices := map[string]ident.ID{}
+// onRecord maps a plugin's device IDs to the devices they are, and finds those you removed, from
+// one read of the registry so that no ID is in neither.
+func (p *plugins) onRecord(h *hosted) (map[string]ident.ID, map[string]bool) {
+	devices, removed := map[string]ident.ID{}, map[string]bool{}
 	driverName := instanceName(h.key)
 	for _, d := range p.known.registry.List().Devices {
-		if d.Driver == driverName && !d.Removed && d.ID != "" {
+		switch {
+		case d.Driver != driverName || d.ID == "":
+		case d.Removed:
+			removed[d.ID] = true
+		default:
 			devices[d.ID] = key(d.Name)
 		}
 	}
-	return devices
+	return devices, removed
 }
 
 // removed finds the devices of a plugin's that you removed.
 func (p *plugins) removed(h *hosted) map[string]bool {
-	out := map[string]bool{}
-	driverName := instanceName(h.key)
-	for _, d := range p.known.registry.List().Devices {
-		if d.Driver == driverName && d.Removed && d.ID != "" {
-			out[d.ID] = true
-		}
-	}
-	return out
+	_, removed := p.onRecord(h)
+	return removed
 }
 
 // pair records everything a plugin reports, so a paired device is usable at once. A plugin that

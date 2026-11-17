@@ -147,7 +147,7 @@ func New(t T, cfg Config) *Suite {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.inst.Stop)
-	s.inst.SetDevices(s.devices)
+	s.inst.SetDevices(s.devices, nil)
 	if _, err := bus.Subscribe(ctx, root.Devices(), s.recordReport); err != nil {
 		t.Fatal(err)
 	}
