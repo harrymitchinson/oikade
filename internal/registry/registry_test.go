@@ -137,6 +137,26 @@ func TestTheRegistrySurvivesReopening(t *testing.T) {
 	}
 }
 
+func TestAnAppsRoomSavedBeforeRoomsHadNamesIsMadeIntoOne(t *testing.T) {
+	_, values := open(t)
+	raw := `{"next":4,"devices":[` +
+		`{"name":"lamp","id":"1","driver":"sim","room":"Living Room","appRoom":"Living Room","endpoint":2},` +
+		`{"name":"fan","id":"2","driver":"sim","room":"hall","declared":true,"endpoint":3}]}`
+	if err := values.Put(stateKey, []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Open(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := get(t, r, "lamp"); d.Room != "living-room" || d.AppRoom != "Living Room" {
+		t.Errorf("got %+v", d)
+	}
+	if d := get(t, r, "fan"); d.Room != "hall" {
+		t.Errorf("got %+v", d)
+	}
+}
+
 func TestAnUnreadableRegistryIsAnError(t *testing.T) {
 	_, values := open(t)
 	for _, raw := range []string{"not json", `{"next":0,"devices":[]}`} {

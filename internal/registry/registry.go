@@ -125,6 +125,13 @@ func Open(values *store.Namespace) (*Registry, error) {
 	if r.state.Next < FirstEndpoint {
 		return nil, fmt.Errorf("reading the device registry: its next endpoint is %d", r.state.Next)
 	}
+	// A room copied from an app before rooms had names of their own is made into one. A declared
+	// room is the home's, which oikade check holds to the rule.
+	for i, d := range r.state.Devices {
+		if !d.Declared && d.Room != "" && !ident.ValidName(d.Room) {
+			r.state.Devices[i].Room = roomOf(d.Room)
+		}
+	}
 	return r, nil
 }
 
