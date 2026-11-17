@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"errors"
 	"net"
 	"reflect"
 	"slices"
@@ -546,6 +547,9 @@ func TestCommissioningWindow(t *testing.T) {
 	}
 	if res := open(v.Bytes()); res.ClusterStatus == nil || *res.ClusterStatus != adminBusy {
 		t.Errorf("second open: %+v", res)
+	}
+	if _, err := n.comm.OpenOwnersWindow(Window{Basic: true, Timeout: 180 * time.Second}); !errors.Is(err, ErrWindowBusy) {
+		t.Errorf("the owner's window replaced a controller's: %v", err)
 	}
 	if res := invoke(t, c, IDAdministratorCommissioning, 0x02, nil, false); res.Status != im.StatusNeedsTimedInteraction {
 		t.Errorf("untimed revoke: %#x", res.Status)
