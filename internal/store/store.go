@@ -51,7 +51,8 @@ type Store struct {
 
 // Open opens the store in dir, creating both if needed. Only one process can have a data directory
 // open: another gets ErrLocked. The operating system drops that lock when the process dies, however
-// it dies, so a crash never leaves the directory locked.
+// it dies, so a crash never leaves the directory locked. A file that isn't a store this version can
+// read, a file cut short among them, gets ErrFormat.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
@@ -59,6 +60,9 @@ func Open(dir string) (*Store, error) {
 	opts := *bolt.DefaultOptions
 	opts.Timeout = lockTimeout
 	path := filepath.Join(dir, fileName)
+	if err := checkFile(path); err != nil {
+		return nil, err
+	}
 	db, err := bolt.Open(path, 0o600, &opts)
 	if errors.Is(err, bolterrors.ErrTimeout) {
 		return nil, fmt.Errorf("open %s: %w", dir, ErrLocked)
@@ -119,13 +123,17 @@ func (s *Store) init(dir string) error {
 	return nil
 }
 
+// syncFile syncs f, for every sync the store makes itself. bbolt syncs its own writes. A test
+// counts them through it.
+var syncFile = (*os.File).Sync
+
 // syncDir makes a new file in dir durable. Syncing a file doesn't sync its directory entry.
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("open data directory: %w", err)
 	}
-	if err := d.Sync(); err != nil {
+	if err := syncFile(d); err != nil {
 		return errors.Join(fmt.Errorf("sync data directory: %w", err), d.Close())
 	}
 	return d.Close()
@@ -217,7 +225,7 @@ func (s *Store) Snapshot(path string) error {
 		return err
 	})
 	if err == nil {
-		err = f.Sync()
+		err = syncFile(f)
 	}
 	if closed := f.Close(); err == nil {
 		err = closed

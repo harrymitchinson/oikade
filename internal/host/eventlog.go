@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/clock"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
@@ -37,6 +38,8 @@ type eventLog struct {
 	store *store.Events
 	bound store.Bound
 	log   *slog.Logger
+	// clock times the flushes.
+	clock clock.Clock
 
 	mu      sync.Mutex
 	queue   []api.Event
@@ -52,7 +55,7 @@ func newEventLog(events *store.Events, bound store.Bound, log *slog.Logger) *eve
 	if bound.MaxBytes == 0 {
 		bound.MaxBytes = DefaultEventLogBytes
 	}
-	return &eventLog{store: events, bound: bound, log: log}
+	return &eventLog{store: events, bound: bound, log: log, clock: clock.Real{}}
 }
 
 func (l *eventLog) add(e api.Event) {
@@ -67,13 +70,13 @@ func (l *eventLog) add(e api.Event) {
 
 // run flushes until ctx ends. The host flushes once more when everything has stopped.
 func (l *eventLog) run(ctx context.Context) {
-	tick := time.NewTicker(eventFlush)
-	defer tick.Stop()
 	for {
+		next := l.clock.NewTimer(eventFlush)
 		select {
-		case <-tick.C:
+		case <-next.C():
 			l.flush()
 		case <-ctx.Done():
+			next.Stop()
 			return
 		}
 	}
