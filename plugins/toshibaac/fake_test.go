@@ -19,6 +19,8 @@ import (
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/mochi-mqtt/server/v2/packets"
+
+	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // hubName is the fake hub's name, which its certificate, httptest's, holds.
@@ -36,6 +38,8 @@ type fakeCloud struct {
 	password string
 	// groups are the account's units, in its groups.
 	groups [][]unit
+	// outdoor is the home's OutdoorUnits.
+	outdoor [][]string
 	// states are what reading a unit's state gives, by its cloud ID.
 	states map[string]string
 	// access is the access token logged in with, and sas the hub's token registering gives.
@@ -75,7 +79,7 @@ func (c *fakeCloud) set(f func(c *fakeCloud)) {
 func (c *fakeCloud) config() Config {
 	roots := c.server.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
 	return Config{
-		Username: username, Password: secretFor("toshiba"),
+		Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: c.outdoor,
 		api: c.server.URL, transport: c.server.Client().Transport,
 		hub: hubOptions{address: c.hubAddress, tls: &tls.Config{RootCAs: roots, ServerName: hubName, MinVersion: tls.VersionTLS12}},
 	}
