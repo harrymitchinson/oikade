@@ -1,8 +1,10 @@
 package ewelinklan
 
 import (
+	"maps"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -10,6 +12,14 @@ import (
 )
 
 const serviceType = "_ewelink._tcp.local"
+
+// maxServices bounds the instances followed, far beyond the eWeLink devices a home has, so that a
+// host on the network inventing names can't fill memory: at the limit, a new one replaces the one
+// heard from longest ago. maxAddresses bounds the addresses kept the same way.
+const (
+	maxServices  = 256
+	maxAddresses = 2 * maxServices
+)
 
 // serviceName is a device's mDNS instance, lower-cased, and captures its ID.
 var serviceName = regexp.MustCompile(`^ewelink_([0-9a-f]{10})\._ewelink\._tcp\.local$`)
@@ -56,12 +66,11 @@ func (r *records) take(packet []byte, now time.Time) (touched, added []string) {
 		case *dnsmessage.AResource:
 			// Any host's address could arrive here, so only those that may be needed are kept.
 			if relevant || r.isTarget(name) {
-				r.addresses[name] = netip.AddrFrom4(body.A).String()
+				r.setAddress(name, netip.AddrFrom4(body.A).String())
 			}
 		case *dnsmessage.PTRResource:
 			instance := clean(body.PTR)
-			if name == serviceType && serviceName.MatchString(instance) && r.services[instance] == nil {
-				r.services[instance] = &service{id: serviceName.FindStringSubmatch(instance)[1]}
+			if name == serviceType && r.services[instance] == nil && r.instance(instance) != nil {
 				added = append(added, instance)
 			}
 		case *dnsmessage.SRVResource:
@@ -80,9 +89,13 @@ func (r *records) take(packet []byte, now time.Time) (touched, added []string) {
 			}
 		}
 	}
+	// A name later in the packet can have replaced one at maxServices.
 	for name := range seen {
-		touched = append(touched, name)
+		if r.services[name] != nil {
+			touched = append(touched, name)
+		}
 	}
+	added = slices.DeleteFunc(added, func(name string) bool { return r.services[name] == nil })
 	return touched, added
 }
 
@@ -108,10 +121,40 @@ func (r *records) instance(name string) *service {
 	}
 	s := r.services[name]
 	if s == nil {
+		if len(r.services) >= maxServices {
+			r.evict()
+		}
 		s = &service{id: m[1]}
 		r.services[name] = s
 	}
 	return s
+}
+
+// evict forgets the service heard from longest ago, one never heard from first.
+func (r *records) evict() {
+	var oldest string
+	for name, s := range r.services {
+		if o := r.services[oldest]; o == nil || s.heard.Before(o.heard) || (s.heard.Equal(o.heard) && name < oldest) {
+			oldest = name
+		}
+	}
+	delete(r.services, oldest)
+}
+
+// setAddress keeps a host's address. At maxAddresses, it first forgets those no service points
+// at, and if that frees no room, the new one is dropped.
+func (r *records) setAddress(name, addr string) {
+	if _, ok := r.addresses[name]; !ok && len(r.addresses) >= maxAddresses {
+		targets := map[string]bool{}
+		for _, s := range r.services {
+			targets[s.target] = true
+		}
+		maps.DeleteFunc(r.addresses, func(n, _ string) bool { return !targets[n] })
+		if len(r.addresses) >= maxAddresses {
+			return
+		}
+	}
+	r.addresses[name] = addr
 }
 
 // txtFields splits a TXT record into its fields. A field with no name or one repeated makes the

@@ -29,6 +29,8 @@ A device of type `th_plug`, such as a THR316D or THR320D, reports `on` and `temp
 
 A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one. It stays hidden through a restart if it's on the network when the plugin starts, and comes back if it was off then and is heard later.
 
+The plugin follows up to 256 devices, and the log says once when it ignores one beyond that, so that a host on the network announcing made-up devices can't fill its memory.
+
 ## Security
 
 eWeLink LAN traffic is encrypted with each device's key, but Oikade can't tell a replayed report from a new one. Keep these devices on a network you trust.

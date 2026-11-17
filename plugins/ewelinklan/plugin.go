@@ -26,6 +26,9 @@ import (
 // maxResponse is the most a device's answer to a command may be.
 const maxResponse = 1 << 16
 
+// maxSkipped bounds the kinds of device not reported that are logged.
+const maxSkipped = 64
+
 // timing is how long things take, which the tests shorten.
 type timing struct {
 	// settle is how long the first report waits, listening. Every device that answers is then in it,
@@ -124,8 +127,10 @@ type bridge struct {
 	// not gone.
 	devices map[string]*device
 	records *records
-	// skipped are the types not reported, each logged once.
+	// skipped are the types not reported, each logged once, up to maxSkipped. full is whether a
+	// device was ignored for there being maxServices already.
 	skipped map[string]bool
+	full    bool
 	// settled is whether the first report has gone out, and dirty whether another is due.
 	settled, dirty bool
 	// early is what devices said before the first report, which goes out with it.
@@ -277,7 +282,8 @@ func (b *bridge) accept(s *service, now time.Time) (observed, bool) {
 	}
 	k, known := kinds[s.txt["type"]]
 	if !known || s.txt["encrypt"] != "true" {
-		if why := s.txt["type"] + "/" + s.txt["encrypt"]; !b.skipped[why] {
+		// Each kind is logged once, and only so many, since the network says what they are.
+		if why := s.txt["type"] + "/" + s.txt["encrypt"]; !b.skipped[why] && len(b.skipped) < maxSkipped {
 			b.skipped[why] = true
 			b.log.Info("Ignored eWeLink LAN device", "device", s.id, "type", s.txt["type"], "encrypt", s.txt["encrypt"])
 		}
@@ -285,6 +291,13 @@ func (b *bridge) accept(s *service, now time.Time) (observed, bool) {
 	}
 	d := b.devices[s.id]
 	if d == nil {
+		if len(b.devices) >= maxServices {
+			if !b.full {
+				b.full = true
+				b.log.Warn("Ignored eWeLink LAN devices beyond the limit", "device", s.id, "limit", maxServices)
+			}
+			return observed{}, false
+		}
 		d = &device{id: s.id, kind: k, humidity: k.sensors && b.humidity[s.id], changed: make(chan struct{})}
 		b.devices[s.id] = d
 		b.dirty = true
