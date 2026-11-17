@@ -35,9 +35,10 @@ func TestTimedRequestExpires(t *testing.T) {
 		invoked int32
 	}{
 		{"at the timeout", timeoutMs * time.Millisecond, nil, 1},
-		{"after the timeout", timeoutMs*time.Millisecond + time.Nanosecond, StatusTimeout, 1},
+		{"after the timeout", timeoutMs*time.Millisecond + time.Nanosecond, StatusTimeout, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			invoked.Store(0)
 			// Invoke writes the command's fields once the Timed Request has been answered, and the
 			// server's deadline set, so the clock moves between the two.
 			res, err := client.Invoke(t.Context(), CommandPath{Endpoint: 1, Cluster: 6, Command: 1}, func(*tlv.Writer) {

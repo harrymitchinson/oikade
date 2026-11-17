@@ -188,6 +188,9 @@ func (c *Commissioning) openWindow(fabric uint8, initial bool, w Window) {
 	if f, ok := c.fabrics.Fabric(fabric); ok {
 		vendor = f.VendorID
 	}
+	if c.window.timer != nil {
+		c.window.timer.Stop()
+	}
 	c.window.generation++
 	gen := c.window.generation
 	c.window = window{

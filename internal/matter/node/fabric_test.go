@@ -26,7 +26,7 @@ func TestARemovedFabricsSessionsEndAfterTheGrace(t *testing.T) {
 	})
 
 	removed := clk.Now()
-	if f := cm.Invoke(admin, clusters.IDOperationalCredentials, 0x0A, func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 1) }); f[0] != uint64(0) {
+	if f := cm.Invoke(admin, clusters.IDOperationalCredentials, 0x0A, func(w *tlv.Writer) { w.PutUint(tlv.Context(0), 1) }); len(f) == 0 || f[0] != uint64(0) {
 		t.Fatalf("RemoveFabric: %v", f)
 	}
 	testkit.Eventually(t, "the node to wait 2 s before ending the fabric's sessions", func() bool {

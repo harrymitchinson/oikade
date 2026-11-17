@@ -83,8 +83,9 @@ type Config struct {
 	// Subscriptions, if set, keeps controllers' subscriptions, so that the next Run resumes them
 	// rather than waiting for each controller to notice the node is gone.
 	Subscriptions im.SubscriptionStore
-	// Clock times what the node waits for: subscriptions' reports and resuming them, timed requests,
-	// the fail-safe, commissioning windows and a removed fabric's sessions' grace. nil is the real one.
+	// Clock times subscriptions' reports and resuming them, timed requests, the fail-safe,
+	// commissioning windows and the grace before a removed fabric's sessions end. A test that sets
+	// it moves it for subscriptions to report. nil is the real one.
 	Clock clock.Clock
 	Log   *slog.Logger
 }
