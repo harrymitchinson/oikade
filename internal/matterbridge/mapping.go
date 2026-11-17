@@ -120,11 +120,12 @@ func Map(d Device, set SetFunc) *Mapped {
 
 	// A thermostat's on and temperature are its Thermostat cluster's, not an On/Off or a sensor. An
 	// air conditioner's on is its On/Off cluster too.
-	thermostat := has(capability.Setpoint)
-	switch {
-	case thermostat && has(capability.Mode):
+	climate := devicetype.ClimateOf(d.Capabilities)
+	thermostat := climate != ""
+	switch climate {
+	case devicetype.RoomAirConditioner:
 		mapAirConditioner(m, set)
-	case thermostat:
+	case devicetype.Thermostat:
 		mapHeater(m, has(capability.On), set)
 	}
 
@@ -256,7 +257,7 @@ func mapHeater(m *Mapped, switchable bool, set SetFunc) {
 	}
 }
 
-// systemModes are the SystemMode each mode shows as.
+// systemModes are the SystemMode each mode shows as, and modeNames the other way round.
 var systemModes = map[string]uint64{
 	contractv1.ModeAuto: clusters.SystemModeAuto,
 	contractv1.ModeHeat: clusters.SystemModeHeat,
@@ -264,6 +265,14 @@ var systemModes = map[string]uint64{
 	contractv1.ModeDry:  clusters.SystemModeDry,
 	contractv1.ModeFan:  clusters.SystemModeFanOnly,
 }
+
+var modeNames = func() map[uint64]string {
+	out := map[uint64]string{}
+	for name, v := range systemModes {
+		out[v] = name
+	}
+	return out
+}()
 
 // mapAirConditioner makes the device a Room Air Conditioner: a Thermostat with Heating, Cooling and
 // Auto, whose SystemMode is its on and its mode, and an On/Off cluster for its on. Both occupied
@@ -274,15 +283,13 @@ var systemModes = map[string]uint64{
 func mapAirConditioner(m *Mapped, set SetFunc) {
 	a := clusters.NewAirConditioner()
 	onoff := clusters.NewOnOff()
+	// Off is the unit's dead front: SystemMode Off, with its mode and setpoint kept.
+	onoff.Cluster().FeatureMap |= clusters.FeatureDeadFront
 	a.OnSetpoint = func(celsius float64) { set(capability.Setpoint, celsius) }
 	a.OnSystemMode = func(on bool, mode uint64) {
 		onoff.Set(on)
-		if on {
-			for name, v := range systemModes {
-				if v == mode {
-					set(capability.Mode, name)
-				}
-			}
+		if name, ok := modeNames[mode]; on && ok {
+			set(capability.Mode, name)
 		}
 		set(capability.On, on)
 	}

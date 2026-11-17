@@ -94,25 +94,8 @@ func NewHeater(switchable bool) *Heater {
 			},
 			intAttr(0x0015, MinHeatSetpoint), // MinHeatSetpointLimit
 			intAttr(0x0016, MaxHeatSetpoint), // MaxHeatSetpointLimit
-			{
-				ID: attrControlSequenceOfOperation,
-				Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error {
-					w.PutUint(tag, controlHeatingOnly)
-					return nil
-				},
-				// A heater only heats: writing what it already is succeeds, and anything else can't be.
-				Write: func(_ *im.Request, r *tlv.Reader, op im.WriteOp) im.Status {
-					v, err := r.Uint()
-					if err != nil || op != im.Replace {
-						return im.StatusInvalidDataType
-					}
-					if v != controlHeatingOnly {
-						return im.StatusConstraintError
-					}
-					return im.StatusSuccess
-				},
-				WritePrivilege: im.PrivilegeManage,
-			},
+			// A heater only heats: writing what it already is succeeds, and anything else can't be.
+			fixed(attrControlSequenceOfOperation, controlHeatingOnly, false),
 			{
 				ID: attrSystemMode,
 				Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error {
@@ -200,11 +183,22 @@ func (h *Heater) mode(heat bool) {
 // raiseLower is SetpointRaiseLower: Mode Heat (0) or Both (2) moves the heating setpoint by Amount
 // tenths of a degree, within the limits. A heater has no cooling setpoint for Cool (1) to move.
 func (h *Heater) raiseLower(_ *im.Request, fields *tlv.Reader) (*im.Response, error) {
-	var mode uint64
-	var amount int64
+	mode, amount, err := readRaiseLower(fields)
+	if err != nil {
+		return nil, err
+	}
+	if mode != 0 && mode != 2 {
+		return nil, im.StatusConstraintError
+	}
+	h.command(clampSetpoint(h.setpoint + amount*10))
+	return nil, nil
+}
+
+// readRaiseLower reads SetpointRaiseLower's Mode and Amount, in tenths of a degree.
+func readRaiseLower(fields *tlv.Reader) (mode uint64, amount int64, err error) {
 	seenMode, seenAmount := false, false
 	if fields == nil {
-		return nil, im.StatusInvalidCommand
+		return 0, 0, im.StatusInvalidCommand
 	}
 	if err := readFields(fields, func(r *tlv.Reader, tag uint8) (err error) {
 		switch tag {
@@ -217,13 +211,9 @@ func (h *Heater) raiseLower(_ *im.Request, fields *tlv.Reader) (*im.Response, er
 		}
 		return err
 	}); err != nil || !seenMode || !seenAmount || amount < math.MinInt8 || amount > math.MaxInt8 {
-		return nil, im.StatusInvalidCommand
+		return 0, 0, im.StatusInvalidCommand
 	}
-	if mode != 0 && mode != 2 {
-		return nil, im.StatusConstraintError
-	}
-	h.command(clampSetpoint(h.setpoint + amount*10))
-	return nil, nil
+	return mode, amount, nil
 }
 
 // minLocal is the lowest LocalTemperature, absolute zero: it's an int16 of hundredths.

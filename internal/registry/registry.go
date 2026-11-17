@@ -246,7 +246,7 @@ func fits(d Device, t devicetype.Type) error {
 	case !slices.Contains(d.Capabilities, capability.On):
 		return fmt.Errorf("%s isn't on or off, so what it is follows from its capabilities", d.Name)
 	case slices.Contains(d.Capabilities, capability.Setpoint):
-		return fmt.Errorf("%s has a setpoint, so it's a %s", d.Name, devicetype.Of("", "", d.Capabilities)[0])
+		return fmt.Errorf("%s has a setpoint, so it's a %s", d.Name, devicetype.ClimateOf(d.Capabilities))
 	case devicetype.Dimmable(t) && !slices.Contains(d.Capabilities, capability.Brightness):
 		return fmt.Errorf("%s has no brightness, so it can't be %s", d.Name, t)
 	}

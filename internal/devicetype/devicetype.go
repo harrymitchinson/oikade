@@ -41,8 +41,9 @@ const (
 // also a light or a plug, and its temperature is what it heats to, so it isn't a Temperature Sensor.
 const Thermostat Type = "Thermostat"
 
-// RoomAirConditioner is an air conditioner or heat pump: a device with a setpoint and a mode. Its
-// on and temperature are its own, as a Thermostat's are.
+// RoomAirConditioner is an air conditioner or heat pump: a device with a setpoint, a mode and an on,
+// which Matter's Room Air Conditioner needs. Its on and temperature are its own, as a Thermostat's
+// are. One with no on is a Thermostat.
 const RoomAirConditioner Type = "RoomAirConditioner"
 
 // OnOff are the types a device that's on or off can be, in the order an error lists them.
@@ -126,21 +127,30 @@ func OnOffOf(yours, drivers Type, capabilities []string) Type {
 	return t
 }
 
+// ClimateOf is what a device with a setpoint is: a RoomAirConditioner with a mode and an on, else a
+// Thermostat. It's empty for a device with no setpoint.
+func ClimateOf(capabilities []string) Type {
+	has := func(c string) bool { return slices.Contains(capabilities, c) }
+	switch {
+	case !has(capability.Setpoint):
+		return ""
+	case has(capability.Mode) && has(capability.On):
+		return RoomAirConditioner
+	}
+	return Thermostat
+}
+
 // Of is a device's device types: its on/off type, Thermostat or RoomAirConditioner, then any that
 // follow from its other capabilities. A battery is a power source, which Matter shows on the device rather than as what it
 // is, so it isn't one.
 func Of(yours, drivers Type, capabilities []string) []Type {
 	var out []Type
-	thermostat := slices.Contains(capabilities, capability.Setpoint)
-	switch {
-	case thermostat && slices.Contains(capabilities, capability.Mode):
-		out = append(out, RoomAirConditioner)
-	case thermostat:
-		out = append(out, Thermostat)
-	default:
-		if t := OnOffOf(yours, drivers, capabilities); t != "" {
-			out = append(out, t)
-		}
+	climate := ClimateOf(capabilities)
+	thermostat := climate != ""
+	if thermostat {
+		out = append(out, climate)
+	} else if t := OnOffOf(yours, drivers, capabilities); t != "" {
+		out = append(out, t)
 	}
 	for _, s := range followed {
 		if thermostat && s.capability == capability.Temperature {

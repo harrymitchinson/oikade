@@ -176,10 +176,10 @@ func (c becomes) changes() []engine.Change {
 // Kind from Kinds is some of them.
 type DeviceType string
 
-// Thermostat is a heater or thermostat: any device with a Setpoint and no Mode.
+// Thermostat is a heater or thermostat: a device with a Setpoint that isn't a RoomAirConditioner.
 const Thermostat DeviceType = "Thermostat"
 
-// RoomAirConditioner is an air conditioner or heat pump: any device with a Setpoint and a Mode. A
+// RoomAirConditioner is an air conditioner or heat pump: a device with a Setpoint, a Mode and an On. A
 // room's on covers it with Everything, and Kinds(RoomAirConditioner) means only them.
 const RoomAirConditioner DeviceType = "RoomAirConditioner"
 

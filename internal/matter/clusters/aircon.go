@@ -26,6 +26,10 @@ const (
 	attrMinSetpointDeadBand     = 0x0019
 )
 
+// FeatureDeadFront is On/Off's DeadFrontBehavior, which a Room Air Conditioner's has: off, the
+// other clusters show what they can.
+const FeatureDeadFront = 1 << 1
+
 // controlCoolingAndHeating is ControlSequenceOfOperation's CoolingAndHeating.
 const controlCoolingAndHeating = 4
 
@@ -236,24 +240,9 @@ func (a *AirConditioner) command(on bool, mode uint64) {
 // raiseLower is SetpointRaiseLower: Mode Heat (0), Cool (1) or Both (2) moves the setpoint by Amount
 // tenths of a degree, within the limits, unless it names only the side not in use.
 func (a *AirConditioner) raiseLower(_ *im.Request, fields *tlv.Reader) (*im.Response, error) {
-	var mode uint64
-	var amount int64
-	seenMode, seenAmount := false, false
-	if fields == nil {
-		return nil, im.StatusInvalidCommand
-	}
-	if err := readFields(fields, func(r *tlv.Reader, tag uint8) (err error) {
-		switch tag {
-		case 0:
-			mode, err = r.Uint()
-			seenMode = true
-		case 1:
-			amount, err = r.Int()
-			seenAmount = true
-		}
-		return err
-	}); err != nil || !seenMode || !seenAmount || amount < math.MinInt8 || amount > math.MaxInt8 {
-		return nil, im.StatusInvalidCommand
+	mode, amount, err := readRaiseLower(fields)
+	if err != nil {
+		return nil, err
 	}
 	switch {
 	case mode > 2:

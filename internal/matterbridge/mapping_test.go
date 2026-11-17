@@ -661,7 +661,9 @@ func TestAnAirConditionerIsARoomAirConditioner(t *testing.T) {
 	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x0072}) {
 		t.Errorf("device types %#x, want only Room Air Conditioner", got)
 	}
-	cluster(t, m, clusters.IDOnOff)
+	if f := cluster(t, m, clusters.IDOnOff).FeatureMap; f != clusters.FeatureDeadFront {
+		t.Errorf("On/Off features %#x, want only DeadFrontBehavior", f)
+	}
 	for _, c := range m.Clusters {
 		if c.ID == clusters.IDTemperatureMeasurement {
 			t.Error("an air conditioner has a Temperature Measurement cluster")
@@ -724,6 +726,15 @@ func TestAnAirConditionerIsARoomAirConditioner(t *testing.T) {
 	}
 	if read(t, th, mode) != uint64(0) {
 		t.Errorf("SystemMode after Off %v", read(t, th, mode))
+	}
+}
+
+// Matter's Room Air Conditioner has an On/Off, so a unit with no on is a heater, whose mode the
+// bridge doesn't show.
+func TestAnAirConditionerWithNoOnIsAThermostat(t *testing.T) {
+	m, _ := mapDevice(t, "", capability.Mode, capability.Setpoint)
+	if got := ids(m.Types); !reflect.DeepEqual(got, []uint32{0x0301}) {
+		t.Errorf("device types %#x, want only Thermostat", got)
 	}
 }
 
