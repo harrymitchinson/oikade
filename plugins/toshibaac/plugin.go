@@ -90,6 +90,10 @@ type device struct {
 	// modes are the modes it does, by raw value.
 	modes []byte
 	state fcuState
+	// intent is its state with the writes sent since its last report, which the next write is
+	// worked out from, nil if there are none: a mode and then a setpoint, sent together, must
+	// see the new mode.
+	intent *fcuState
 	// values are what was last reported.
 	values contractv1.State
 }
@@ -240,14 +244,8 @@ func (b *bridge) session(ctx context.Context, password string, connected func())
 		b.mu.Unlock()
 	}()
 
-	b.take(units)
-	if err := b.publishAll(ctx); err != nil {
-		return reporting(err)
-	}
-	b.setProblem(ctx, "")
-	b.log.Info("Connected to Toshiba's cloud", "units", len(units), "hub", tok.host)
-	connected()
-
+	// The hub is read from now, so a write's PUBACK is heard while the units are reported. Its calls
+	// wait for the session's loop.
 	following, stop := context.WithCancel(ctx)
 	defer stop()
 	ended := make(chan error, 1)
@@ -262,6 +260,14 @@ func (b *bridge) session(ctx context.Context, password string, connected func())
 			}
 		})
 	}()
+
+	b.take(units)
+	if err := b.publishAll(ctx); err != nil {
+		return reporting(err)
+	}
+	b.setProblem(ctx, "")
+	b.log.Info("Connected to Toshiba's cloud", "units", len(units), "hub", tok.host)
+	connected()
 
 	// A session starts again before its SAS token runs out, or halfway through a short one.
 	var renew <-chan time.Time
@@ -367,6 +373,10 @@ func (b *bridge) apply(d *device, from string, change func(*fcuState) error) con
 	if err := change(&d.state); err != nil {
 		b.log.Warn("Could not read Toshiba unit's report", "err", err, "device", d.id, "from", from)
 		return nil
+	}
+	// A report of its state says what it did with the writes sent. A heartbeat only has a temperature.
+	if from != cmdHeartbeat {
+		d.intent = nil
 	}
 	values, unknown := d.state.values()
 	if unknown != 0 && !b.unknownModes[unknown] {
@@ -607,7 +617,7 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 		err error
 	)
 	if d != nil {
-		c, err = d.state.command(cmd.Capability, cmd.Value, d.modes)
+		c, err = d.current().command(cmd.Capability, cmd.Value, d.modes)
 	}
 	b.mu.Unlock()
 	switch {
@@ -623,5 +633,19 @@ func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCo
 	if err := hub.publishAcked(ctx, telemetryTopic(device), commandMessage(device, d.uniqueID, c.encode())); err != nil {
 		return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
 	}
+	b.mu.Lock()
+	intent := d.current()
+	// A command is a state with only what changes, so it applies as a report would.
+	_ = intent.update(c.encode())
+	d.intent = &intent
+	b.mu.Unlock()
 	return nil
+}
+
+// current is the unit's state with the writes sent since its last report. b.mu must be held.
+func (d *device) current() fcuState {
+	if d.intent != nil {
+		return *d.intent
+	}
+	return d.state
 }

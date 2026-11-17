@@ -195,6 +195,16 @@ func TestAPublishAtQoS1WaitsForItsPUBACK(t *testing.T) {
 	if err := <-published; err != nil {
 		t.Errorf("publish: %v", err)
 	}
+	// A PUBACK sent twice blocks nothing: the next publish is still heard.
+	server.send(pktPuback<<4, []byte{0, 2})
+	go func() { published <- c.publishAcked(t.Context(), "a/b", nil) }()
+	if _, _, err := server.c.read(); err != nil {
+		t.Fatal(err)
+	}
+	server.send(pktPuback<<4, []byte{0, 3})
+	if err := <-published; err != nil {
+		t.Errorf("publish after a repeated PUBACK: %v", err)
+	}
 
 	// One that's never acknowledged gives up when its context does.
 	short, stop := context.WithTimeout(t.Context(), 50*time.Millisecond)

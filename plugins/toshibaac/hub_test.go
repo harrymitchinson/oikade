@@ -99,10 +99,11 @@ func TestACommandMessageIsWhatTheLibrarySends(t *testing.T) {
 		t.Errorf("topic %s", got)
 	}
 	for s, want := range map[string]string{
-		`plain`:   `'plain'`,
-		`o'brien`: `"o'brien"`,
-		`a'b"c`:   `'a\'b"c'`,
-		`back\`:   `'back\\'`,
+		`plain`:          `'plain'`,
+		`o'brien`:        `"o'brien"`,
+		`a'b"c`:          `'a\'b"c'`,
+		`back\`:          `'back\\'`,
+		"a\nb\tc\rd\x01": `'a\nb\tc\rd\x01'`,
 	} {
 		if got := pyString(s); got != want {
 			t.Errorf("pyString(%s) = %s, want %s", s, got, want)

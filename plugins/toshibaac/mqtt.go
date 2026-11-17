@@ -153,8 +153,11 @@ func (c *mqttConn) acked(body []byte) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if w, ok := c.waiting[binary.BigEndian.Uint16(body)]; ok {
+	// Delivered once, so a PUBACK sent twice can't block on a full channel.
+	id := binary.BigEndian.Uint16(body)
+	if w, ok := c.waiting[id]; ok {
 		w <- nil
+		delete(c.waiting, id)
 	}
 }
 
@@ -165,6 +168,7 @@ func (c *mqttConn) end(err error) {
 	if c.ended == nil {
 		c.ended = fmt.Errorf("the connection to the hub ended: %w", err)
 	}
+	// Each is still waiting, so its channel is empty.
 	for id, w := range c.waiting {
 		w <- c.ended
 		delete(c.waiting, id)

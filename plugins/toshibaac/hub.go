@@ -142,13 +142,32 @@ func commandMessage(device, target, state string) []byte {
 		"], 'cmd': '" + cmdCommand + "', 'payload': {'data': " + pyString(state) + "}, 'timeStamp': '0000000'}")
 }
 
-// pyString is s as Python's repr writes a string: in single quotes, or double if it has a single
-// quote and no double one, with backslashes and the quote escaped.
+// pyString is s as Python's repr writes an ASCII string: in single quotes, or double if it has a
+// single quote and no double one, with backslashes, the quote and control characters escaped.
 func pyString(s string) string {
-	quote := "'"
+	quote := byte('\'')
 	if strings.Contains(s, "'") && !strings.Contains(s, `"`) {
-		quote = `"`
+		quote = '"'
 	}
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	return quote + strings.ReplaceAll(s, quote, `\`+quote) + quote
+	var b strings.Builder
+	b.WriteByte(quote)
+	for i := range len(s) {
+		switch c := s[i]; {
+		case c == '\\' || c == quote:
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c == '\n':
+			b.WriteString(`\n`)
+		case c == '\r':
+			b.WriteString(`\r`)
+		case c == '\t':
+			b.WriteString(`\t`)
+		case c < 0x20 || c == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte(quote)
+	return b.String()
 }

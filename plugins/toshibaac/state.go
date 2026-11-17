@@ -3,6 +3,7 @@ package toshibaac
 import (
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -154,15 +155,17 @@ func (s fcuState) values() (v contractv1.State, unknownMode byte) {
 	return v, unknownMode
 }
 
-// modeByte is a mode's raw value.
-func modeByte(name string) (byte, bool) {
-	for b, n := range modes {
-		if n == name {
-			return b, true
+// allModes are the modes' raw values, in order, and modeBytes each mode's by name.
+var (
+	allModes  = slices.Sorted(maps.Keys(modes))
+	modeBytes = func() map[string]byte {
+		m := map[string]byte{}
+		for b, name := range modes {
+			m[name] = b
 		}
-	}
-	return 0, false
-}
+		return m
+	}()
+)
 
 // The merit features a mode turns off, from KaSroka/Toshiba-AC-control's features.py: merit A's
 // high power (1), silent (2, 10), eco (3), 8 °C heating (4), sleep care (5) and floor (6), and
@@ -188,7 +191,9 @@ func newCommand() command {
 }
 
 // command is the change that sets capability to value on a unit in state s that does the modes
-// given. It refuses what the unit can't hold, rather than letting it round.
+// given. It refuses what the plugin knows the unit can't hold, rather than letting it round: a mode
+// it doesn't do, or a setpoint that isn't whole degrees or that the protocol can't carry. Which
+// setpoints a unit takes isn't known, so one it clamps is sent.
 func (s fcuState) command(capability string, value any, unitModes []byte) (command, error) {
 	c := newCommand()
 	mode := s.mode
@@ -211,7 +216,7 @@ func (s fcuState) command(capability string, value any, unitModes []byte) (comma
 		if !ok {
 			return c, fmt.Errorf("mode is a name, not %T", value)
 		}
-		b, known := modeByte(name)
+		b, known := modeBytes[name]
 		if !known || !slices.Contains(unitModes, b) {
 			return c, fmt.Errorf("the unit doesn't do %s: it does %s", name, modeNames(unitModes))
 		}
@@ -264,20 +269,19 @@ func (c command) encode() string {
 // them all, a heater only heats, and an air conditioner without heat pump does all but heating.
 // A MeritFeature the plugin can't read does them all.
 func unitModes(merit string) []byte {
-	all := []byte{0x41, 0x42, 0x43, 0x44, 0x45}
 	// Four digits, padded or cut, as the library reads it.
 	v, err := strconv.ParseUint((merit + "0000")[:4], 16, 16)
 	if err != nil {
-		return all
+		return allModes
 	}
 	bit := func(i int) bool { return v>>(15-i)&1 == 1 }
 	switch {
 	case !bit(6) && bit(7):
-		return []byte{0x43}
+		return []byte{modeHeat}
 	case bit(6) && !bit(7):
-		return []byte{0x41, 0x42, 0x44, 0x45}
+		return slices.DeleteFunc(slices.Clone(allModes), func(b byte) bool { return b == modeHeat })
 	}
-	return all
+	return allModes
 }
 
 // modeNames lists modes by name.

@@ -603,3 +603,46 @@ func TestAReadThatFailsKeepsTheSession(t *testing.T) {
 		t.Errorf("the bedroom went offline: %v", h)
 	}
 }
+
+func TestWritesSentTogetherSeeEachOther(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	// The bedroom is in 8 °C heating.
+	cloud.set(func(c *fakeCloud) { c.groups[0][0].State = hexState(0x30, 0x43, 24, meritHeating8C, 9) })
+	b := start(t, cloud, password, fast)
+	b.waitState(bedroom, `{"mode":"heat","on":true,"setpoint":8,"temperature":9}`)
+
+	// The Home app switches it to cooling at 24, before it has reported.
+	for _, cmd := range []contractv1.SetCommand{
+		{ID: bedroom, Capability: contractv1.Mode, Value: "cool"},
+		{ID: bedroom, Capability: contractv1.Setpoint, Value: 24.0},
+	} {
+		if err := b.handler.Set(t.Context(), nil, cmd); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cool, setpoint := newCommand(), newCommand()
+	cool.mode, cool.meritA = 0x42, meritOff
+	// Not 40: it's no longer heating.
+	setpoint.setpoint = 24
+	sent := cloud.messages()
+	if len(sent) != 2 || !strings.Contains(sent[0], cool.encode()) || !strings.Contains(sent[1], setpoint.encode()) {
+		t.Errorf("sent %v, want %s then %s", sent, cool.encode(), setpoint.encode())
+	}
+
+	// Its report says what it did, which the next write starts from: here, it stayed heating.
+	cloud.method(methodName, cmdState, bedroomUnique, map[string]string{"data": hexState(0x30, 0x43, 24, meritHeating8C, 9)})
+	b.eventually("the report taken", func() bool {
+		b.handler.mu.Lock()
+		defer b.handler.mu.Unlock()
+		return b.handler.devices[bedroom].intent == nil
+	})
+	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: bedroom, Capability: contractv1.Setpoint, Value: 9.0}); err != nil {
+		t.Fatal(err)
+	}
+	again := newCommand()
+	again.setpoint = 25
+	if sent := cloud.messages(); len(sent) != 3 || !strings.Contains(sent[2], again.encode()) {
+		t.Errorf("sent %v, want %s last", sent, again.encode())
+	}
+}
