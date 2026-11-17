@@ -145,7 +145,7 @@ func (r *Responder) handshake(ctx context.Context, ex *transport.Exchange, first
 		r.status(ctx, ex, GeneralFailure, CodeInvalidParameter)
 		return nil, err
 	}
-	y, err := mcrypto.RandomScalar()
+	y, err := randomScalar()
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func EstablishPASE(ctx context.Context, tr *transport.Transport, device netip.Ad
 	}
 	t := mcrypto.Transcript{Context: paseContext(reqBytes, respBytes)}
 
-	x, err := mcrypto.RandomScalar()
+	x, err := randomScalar()
 	if err != nil {
 		return nil, err
 	}
@@ -373,8 +373,13 @@ func message(op uint8, payload []byte) transport.Message {
 	return transport.Message{Protocol: transport.SecureChannel, Opcode: op, Payload: payload}
 }
 
-func random() []byte {
-	b := make([]byte, randomSize)
-	_, _ = rand.Read(b)
-	return b
-}
+// random and randomScalar are a handshake's randomness. The test that records a handshake with
+// chip-tool (capture_test.go) replaces them, to keep what it needs to replay it.
+var (
+	random = func() []byte {
+		b := make([]byte, randomSize)
+		_, _ = rand.Read(b)
+		return b
+	}
+	randomScalar = mcrypto.RandomScalar
+)
