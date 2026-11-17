@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -637,17 +636,7 @@ func TestProcessStopsWhenTheHostDies(t *testing.T) {
 	if err := r.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(waitLimit)
-	for {
-		err := syscall.Kill(pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("process %d is still running", pid)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	r.gone(fmt.Sprintf("process %d to stop", pid), pid)
 }
 
 func TestHomeRefusesToRunWithoutTheHost(t *testing.T) {
