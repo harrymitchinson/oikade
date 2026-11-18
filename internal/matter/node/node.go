@@ -115,15 +115,19 @@ func (s Setup) Valid() bool {
 
 // Node is a Matter node serving a bridge.
 type Node struct {
-	cfg        Config
-	log        *slog.Logger
-	salt       []byte
-	verifier   mcrypto.Verifier
-	table      *fabric.Table
-	comm       *clusters.Commissioning
-	bridge     *clusters.Bridge
-	server     *im.Server
-	resumption *securechannel.ResumptionStore
+	cfg Config
+	log *slog.Logger
+	// advertising logs what the node advertises over mDNS, under the part the responder logs as.
+	advertising *slog.Logger
+	// commissioning logs the commissioning window, under the part its cluster logs as.
+	commissioning *slog.Logger
+	salt          []byte
+	verifier      mcrypto.Verifier
+	table         *fabric.Table
+	comm          *clusters.Commissioning
+	bridge        *clusters.Bridge
+	server        *im.Server
+	resumption    *securechannel.ResumptionStore
 
 	// run is the latest Run's, which hooks and timers may be reaching for as the next one starts.
 	run atomic.Pointer[running]
@@ -177,7 +181,8 @@ func New(cfg Config) (*Node, error) {
 		fabrics = fabric.DirStore{Dir: cfg.DataDir}
 	}
 	n := &Node{
-		cfg: cfg, log: cfg.Log, resumption: securechannel.NewResumptionStore(0),
+		cfg: cfg, log: cfg.Log, advertising: cfg.Log.With("part", "mdns"),
+		commissioning: cfg.Log.With("part", "commissioning"), resumption: securechannel.NewResumptionStore(0),
 		operational: map[uint8]*mdns.Service{}, listenMDNS: listenMDNS, listenUDP: listenUDP,
 	}
 	n.name.Store(&cfg.DeviceName)
@@ -197,7 +202,7 @@ func New(cfg Config) (*Node, error) {
 		}
 	}
 	n.comm, err = clusters.NewCommissioning(clusters.CommissioningConfig{
-		Fabrics: n.table, Attestation: creds, Clock: cfg.Clock, Log: cfg.Log.With("part", "commissioning"),
+		Fabrics: n.table, Attestation: creds, Clock: cfg.Clock, Log: n.commissioning,
 		Hooks: clusters.Hooks{
 			OpenWindow:    n.openWindow,
 			CloseWindow:   n.closeWindow,
@@ -270,7 +275,7 @@ func (n *Node) Run(ctx context.Context) error {
 	tr := transport.New(conn, transport.Options{
 		Log: n.log.With("part", "transport"), Panicked: n.panicked(), EndSession: n.endSession,
 	})
-	opts.Log, opts.Panicked = n.log.With("part", "mdns"), n.panicked()
+	opts.Log, opts.Panicked = n.advertising, n.panicked()
 	responder, err := n.listenMDNS(opts)
 	if err != nil {
 		_ = tr.Serve(cancelled()) // closes the socket
@@ -480,7 +485,7 @@ func (n *Node) openWindow(w clusters.Window) {
 	svc, err := c.Service()
 	if err != nil {
 		n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
-		n.log.Error("Could not build the commissionable service", "err", err)
+		n.advertising.Error("Could not build the commissionable service", "err", err)
 		return
 	}
 	n.mu.Lock()
@@ -502,7 +507,7 @@ func (n *Node) openWindow(w clusters.Window) {
 		if current {
 			n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 		}
-		n.log.Error("Could not advertise the commissionable service", "err", err)
+		n.advertising.Error("Could not advertise the commissionable service", "err", err)
 		return
 	}
 	if !current {
@@ -510,7 +515,7 @@ func (n *Node) openWindow(w clusters.Window) {
 		_ = n.run.Load().mdns.Remove(svc)
 		return
 	}
-	n.log.Info("Advertised commissionable service", "discriminator", w.Discriminator, "instance", svc.Instance)
+	n.advertising.Info("Advertised commissionable service", "discriminator", w.Discriminator, "instance", svc.Instance)
 }
 
 // closeWindow stops answering PASE, and stops advertising the commissionable service.
@@ -524,11 +529,11 @@ func (n *Node) closeWindow() {
 		return
 	}
 	if err := n.run.Load().mdns.Remove(*old); err != nil {
-		n.log.Error("Could not stop advertising the commissionable service", "err", err)
+		n.advertising.Error("Could not stop advertising the commissionable service", "err", err)
 	}
-	n.log.Info("Stopped advertising commissionable service")
+	n.advertising.Info("Stopped advertising commissionable service")
 	if n.table.Count() == 0 {
-		n.log.Info("Closed the commissioning window while on no fabric: oikade matter open opens it again")
+		n.commissioning.Info("Closed the commissioning window while on no fabric: oikade matter open opens it again")
 	}
 }
 
@@ -567,7 +572,7 @@ func (n *Node) advertiseFabric(index uint8) {
 	}
 	n.mu.Unlock()
 	if err != nil {
-		n.log.Error("Could not advertise the operational service", "err", err, "fabric", index)
+		n.advertising.Error("Could not advertise the operational service", "err", err, "fabric", index)
 		return
 	}
 	if !current {
@@ -575,7 +580,7 @@ func (n *Node) advertiseFabric(index uint8) {
 		_ = n.run.Load().mdns.Remove(svc)
 		return
 	}
-	n.log.Info("Advertised operational service", "fabric", index, "instance", svc.Instance)
+	n.advertising.Info("Advertised operational service", "fabric", index, "instance", svc.Instance)
 }
 
 // commissioned advertises a fabric CommissioningComplete committed, again for an UpdateNOC.
@@ -646,7 +651,7 @@ func (n *Node) fabricRemoved(index uint8) {
 	n.mu.Unlock()
 	if svc != nil {
 		if err := n.run.Load().mdns.Remove(*svc); err != nil {
-			n.log.Error("Could not stop advertising the operational service", "err", err, "fabric", index)
+			n.advertising.Error("Could not stop advertising the operational service", "err", err, "fabric", index)
 		}
 	}
 	n.log.Info("Ended fabric's sessions", "fabric", index, "sessions", len(ending))

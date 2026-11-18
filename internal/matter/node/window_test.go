@@ -1,9 +1,13 @@
 package node
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"slices"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,5 +91,65 @@ func TestOwnersWindow(t *testing.T) {
 	}
 	if _, err := n.OpenWindow(t.Context(), MinWindowTimeout); !errors.Is(err, clusters.ErrWindowBusy) {
 		t.Errorf("opened a window with the fail-safe armed: %v", err)
+	}
+}
+
+// jsonLines is a log in slog's JSON, as the host writes it, read back a line at a time.
+type jsonLines struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *jsonLines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+// line is the first line with msg, decoded, or nil.
+func (l *jsonLines) line(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for raw := range bytes.Lines(l.buf.Bytes()) {
+		var line map[string]any
+		if err := json.Unmarshal(raw, &line); err != nil {
+			t.Fatalf("%q: %v", raw, err)
+		}
+		if line["msg"] == msg {
+			return line
+		}
+	}
+	return nil
+}
+
+// The window's lines read as the host writes them: its timeout as a duration, not nanoseconds, and
+// the advertising lines under the part the mDNS responder logs as (OIK-338).
+func TestTheWindowsLinesSayTheirPartAndTimeout(t *testing.T) {
+	clk := clock.NewFake(time.Date(2026, 11, 18, 14, 0, 0, 0, time.UTC))
+	log := &jsonLines{}
+	n, fake, _ := start(t, Config{DataDir: t.TempDir(), Clock: clk, Log: slog.New(slog.NewJSONHandler(log, nil))})
+	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
+	testkit.Eventually(t, "the advertised line", func() bool { return log.line(t, "Advertised commissionable service") != nil })
+	clk.Step(DefaultWindowTimeout)
+	testkit.Eventually(t, "the window to time out", func() bool { return !n.WindowOpen() })
+	testkit.Eventually(t, "the stopped line", func() bool { return log.line(t, "Stopped advertising commissionable service") != nil })
+
+	for msg, want := range map[string]map[string]any{
+		"Opened commissioning window":                                                           {"part": "commissioning", "timeout": DefaultWindowTimeout.String()},
+		"Advertised commissionable service":                                                     {"part": "mdns"},
+		"Stopped advertising commissionable service":                                            {"part": "mdns"},
+		"Closed the commissioning window while on no fabric: oikade matter open opens it again": {"part": "commissioning"},
+	} {
+		line := log.line(t, msg)
+		if line == nil {
+			t.Errorf("no line %q", msg)
+			continue
+		}
+		for k, v := range want {
+			if line[k] != v {
+				t.Errorf("%q: %s is %v (%T), want %v", msg, k, line[k], line[k], v)
+			}
+		}
 	}
 }

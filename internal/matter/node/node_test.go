@@ -139,7 +139,10 @@ func startWith(t *testing.T, cfg Config, fake *fakeMDNS) (*Node, func()) {
 	if cfg.Port == 0 {
 		cfg.Port = freePort(t)
 	}
-	cfg.Setup, cfg.Log, cfg.Info = testSetup, logging.Test(t), clusters.Info{VendorName: "Oikade"}
+	if cfg.Log == nil {
+		cfg.Log = logging.Test(t)
+	}
+	cfg.Setup, cfg.Info = testSetup, clusters.Info{VendorName: "Oikade"}
 	n, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)

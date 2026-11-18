@@ -255,7 +255,7 @@ func (c *Commissioning) openWindow(fabric uint8, initial, owners bool, w Window)
 		}),
 	}
 	c.windowChanged()
-	c.log.Info("Opened commissioning window", "basic", w.Basic, "initial", initial, "timeout", w.Timeout, "fabric", fabric)
+	c.log.Info("Opened commissioning window", "basic", w.Basic, "initial", initial, "timeout", w.Timeout.String(), "fabric", fabric)
 	if c.hooks.OpenWindow != nil {
 		c.hook(func() { c.hooks.OpenWindow(w) })
 	}
