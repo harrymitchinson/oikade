@@ -17,6 +17,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 var (
@@ -101,9 +102,99 @@ func TestCoalescerSkipsNoChange(t *testing.T) {
 func TestCoalescerWritesATravellersLastReportedPosition(t *testing.T) {
 	c, rec, clk := coalescer(t, reports(40.0))
 	c.Add(officeBlind, capability.Position, 40.0)
-	burstEnds(c, clk)
+	clk.Step(travelWindow)
+	c.flushes.Wait()
 	if got := rec.list(); !slices.Equal(got, []string{"office-blind position=40"}) {
 		t.Errorf("writes %v", got)
+	}
+}
+
+// The Home app sends a slider's move as it goes, 1% and then 18% a second later for one drag of a
+// shutter (OIK-337): the shutter gets one write, the last, once the drag has stopped for the
+// travel window.
+func TestCoalescerSendsOnlyADragsLastPosition(t *testing.T) {
+	c, rec, clk := coalescer(t, reports(0.0))
+	c.Add(officeBlind, capability.Position, 1.0)
+	clk.Step(time.Second)
+	c.Add(officeBlind, capability.Position, 18.0)
+	clk.Step(travelWindow - time.Millisecond)
+	if got := rec.list(); len(got) != 0 {
+		t.Errorf("wrote %v before the drag had stopped for the travel window", got)
+	}
+	clk.Step(time.Millisecond)
+	c.flushes.Wait()
+	if got := rec.list(); !slices.Equal(got, []string{"office-blind position=18"}) {
+		t.Errorf("writes %v, want only the last position", got)
+	}
+}
+
+// A capability that doesn't travel keeps the short window, even in a burst a travelling one has
+// joined: the burst ends when the last window does.
+func TestCoalescerGathersEachWriteForItsWindow(t *testing.T) {
+	c, rec, clk := coalescer(t, reports(nil))
+	c.Add(porchFan, capability.On, true)
+	burstEnds(c, clk)
+	if got := rec.list(); !slices.Equal(got, []string{"porch-fan on=true"}) {
+		t.Errorf("writes %v after the short window", got)
+	}
+	c.Add(officeBlind, capability.On, true)
+	c.Add(officeBlind, capability.Position, 60.0)
+	clk.Step(window)
+	if got := rec.list(); len(got) != 1 {
+		t.Errorf("writes %v before the position's window was over", got)
+	}
+	clk.Step(travelWindow - window)
+	c.flushes.Wait()
+	want := []string{"porch-fan on=true", "office-blind position=60", "office-blind on=true"}
+	if got := rec.list(); !slices.Equal(got, want) {
+		t.Errorf("writes %v, want %v", got, want)
+	}
+}
+
+// A stop ends the burst at once: a shutter travelling for the window would pass where it stops.
+func TestCoalescerSendsAtOnceWhenAsked(t *testing.T) {
+	c, rec, _ := coalescer(t, reports(30.0))
+	c.Add(officeBlind, capability.Position, 70.0)
+	c.Add(officeBlind, capability.Position, 40.0)
+	c.Send(officeBlind)
+	testkit.Eventually(t, "the burst's write", func() bool { return len(rec.list()) > 0 })
+	c.flushes.Wait()
+	if got := rec.list(); !slices.Equal(got, []string{"office-blind position=40"}) {
+		t.Errorf("writes %v, want the stop's position at once", got)
+	}
+	c.Send(officeBlind) // nothing gathering: nothing to send
+	if c.Busy() {
+		t.Error("busy with nothing gathering")
+	}
+}
+
+// A write after Send joins the burst without holding it back for another window: a second stop, or
+// another controller's move, can't make a stop wait.
+func TestCoalescerSendIsntHeldBackByALaterWrite(t *testing.T) {
+	c, rec, _ := coalescer(t, reports(30.0))
+	c.Add(officeBlind, capability.Position, 70.0)
+	c.Send(officeBlind)
+	c.Add(officeBlind, capability.Position, 40.0)
+	testkit.Eventually(t, "the burst's write", func() bool { return len(rec.list()) > 0 })
+	c.flushes.Wait()
+	if got := rec.list(); !slices.Equal(got, []string{"office-blind position=40"}) {
+		t.Errorf("writes %v, want the last position, at once", got)
+	}
+}
+
+// As the host stops, every burst still gathering is sent at once.
+func TestCoalescerSendAllEndsEveryBurst(t *testing.T) {
+	c, rec, _ := coalescer(t, reports(nil))
+	c.Add(officeBlind, capability.Position, 70.0)
+	c.Add(porchFan, capability.On, true)
+	if !c.Gathering(officeBlind, capability.Position) {
+		t.Error("a write waiting for its window isn't gathering")
+	}
+	c.SendAll()
+	testkit.Eventually(t, "both writes", func() bool { return len(rec.list()) == 2 })
+	c.flushes.Wait()
+	if c.Gathering(officeBlind, capability.Position) {
+		t.Error("a sent write is still gathering")
 	}
 }
 

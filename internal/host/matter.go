@@ -230,6 +230,13 @@ func (m *matterBridge) connect(devices *hub.Store, known *inventory, options *ho
 	}
 }
 
+// sendGathering sends every controller's write still gathering, as the host stops.
+func (m *matterBridge) sendGathering() {
+	if m.working() && m.Writes != nil {
+		m.Writes.SendAll()
+	}
+}
+
 // gathering says whether a controller's write has yet to reach its device.
 func (m *matterBridge) gathering() bool { return m.working() && m.Writes != nil && m.Writes.Busy() }
 

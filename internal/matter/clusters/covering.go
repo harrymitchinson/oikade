@@ -75,6 +75,12 @@ type Covering struct {
 	// name, and the target it moves to in percent closed, or nil for one that moves nothing, as a
 	// StopMotion with nothing moving. It's called before OnMove, and must not block.
 	OnCommand func(command string, target *float64)
+	// OnStop, if set, is called, under the Node's lock, after OnMove for a StopMotion, so that the
+	// stop needn't wait for writes gathering. It must not block.
+	OnStop func()
+	// Unsent, if set, says the last move is still waiting to be written, under the Node's lock: the
+	// device hasn't heard of it, so it's still where it last reported.
+	Unsent func() bool
 	// AfterSettle runs f, under the Node's lock, once a move has had as long as it takes, unless the
 	// function it returns is called first. Nil leaves a move until a report reaches its target.
 	AfterSettle func(f func()) (stop func())
@@ -250,18 +256,23 @@ func (c *Covering) operationalStatus() uint64 {
 }
 
 // stop is StopMotion. With no capability to stop a device, it writes the last reported position,
-// which stops a move on the way. With no report since the move, the device would go back to where
-// it started, which is worse than not stopping, so it fails.
+// which stops a move on the way. With no report since the move was written, the device would go
+// back to where it started, which is worse than not stopping, so it fails. A move not yet written
+// hasn't started, so the device is where it reported.
 func (c *Covering) stop(*im.Request, *tlv.Reader) (*im.Response, error) {
+	unsent := c.Unsent != nil && c.Unsent()
 	switch {
 	case !c.moving:
 		c.command("StopMotion", nil)
 		return nil, nil
-	case !c.reported || c.current == nil:
+	case (!c.reported && !unsent) || c.current == nil:
 		c.command("StopMotion", nil)
 		return nil, im.StatusFailure
 	}
 	c.goTo("StopMotion", *c.current)
+	if c.OnStop != nil {
+		c.OnStop()
+	}
 	return nil, nil
 }
 
