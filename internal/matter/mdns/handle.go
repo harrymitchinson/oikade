@@ -62,6 +62,10 @@ func (r *Responder) handle(c packetConn, ifIndex int, src *net.UDPAddr, b []byte
 		}
 		return
 	}
+	// A query with records in its authority section is another host's probe (RFC 6762, 8.2).
+	if src.Port == Port && len(m.Authorities) > 0 {
+		r.tieBreak(&m, ifIndex)
+	}
 	r.answer(c, ifIndex, src, &m)
 }
 

@@ -57,6 +57,7 @@ type timing struct {
 	minDelay      time.Duration // the random delay before a multicast answer with shared records (6)
 	maxDelay      time.Duration
 	watch         time.Duration // between looks at the interfaces and their addresses
+	tieWait       time.Duration // before probing again after losing a tie-break (8.2)
 }
 
 var defaultTiming = timing{
@@ -66,6 +67,7 @@ var defaultTiming = timing{
 	minDelay:      20 * time.Millisecond,
 	maxDelay:      120 * time.Millisecond,
 	watch:         5 * time.Second,
+	tieWait:       time.Second,
 }
 
 // Responder answers mDNS queries for the services added to it.
@@ -110,11 +112,17 @@ type entry struct {
 	ready   bool     // probed and announced
 }
 
-// probe is a set of names being probed. The handler reports a conflict on one of them.
+// probe is a set of names being probed. The handler reports a conflict on one of them, or that
+// another host probing one of them at the same time won the tie-break.
 type probe struct {
 	names    []dnsmessage.Name
+	records  []record             // the service's, which it proposes; the host's addresses go per interface
 	conflict chan dnsmessage.Name // buffered, 1
+	lost     chan dnsmessage.Name // the name a tie was lost on; buffered, 1
 }
+
+// host reports whether p probes the host name too.
+func (p *probe) host() bool { return len(p.names) > 1 }
 
 // Listen joins the mDNS groups on the interfaces in opts, and returns a Responder that serves
 // them until it's closed.
@@ -230,14 +238,17 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 	}
 	e := &entry{svc: svc, name: name, records: recs}
 	r.services[key] = e
-	p := &probe{names: []dnsmessage.Name{name}, conflict: make(chan dnsmessage.Name, 1)}
+	p := &probe{
+		names: []dnsmessage.Name{name}, records: recs,
+		conflict: make(chan dnsmessage.Name, 1), lost: make(chan dnsmessage.Name, 1),
+	}
 	if !r.hostReady {
 		p.names = append(p.names, r.host)
 	}
 	r.probes[p] = struct{}{}
 	r.mu.Unlock()
 
-	err = r.probe(ctx, p, e)
+	err = r.probe(ctx, p)
 
 	r.mu.Lock()
 	delete(r.probes, p)
@@ -250,7 +261,7 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 		return err
 	}
 	e.ready = true
-	if len(p.names) > 1 {
+	if p.host() {
 		r.hostReady = true
 	}
 	r.mu.Unlock()
@@ -261,13 +272,28 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 }
 
 // probe sends three probes for p's names, 250 ms apart, after a random wait (RFC 6762, 8.1), and
-// returns an error if another host answers for one of them.
-func (r *Responder) probe(ctx context.Context, p *probe, e *entry) error {
+// returns an error if another host answers for one of them. If another host probing one of them at
+// the same time wins the tie-break, it waits a second and starts again (8.2).
+func (r *Responder) probe(ctx context.Context, p *probe) error {
 	wait := time.Duration(mrand.Int64N(int64(r.timing.probeWait) + 1))
+	losses := 0
+	probed := false // since the last tie lost
 	for i := 0; ; i++ {
 		select {
 		case n := <-p.conflict:
 			return fmt.Errorf("%w: %s", ErrConflict, n)
+		case n := <-p.lost:
+			// The winner sends three probes, each of which we lose to, and may be heard on
+			// more than one interface: the tie counts once, until we probe again.
+			if probed {
+				losses++
+				r.log.Debug("Lost mDNS probe tie-break", "name", n.String())
+			}
+			if losses >= maxTieLosses {
+				return fmt.Errorf("%w: another host kept probing for %s", ErrConflict, n)
+			}
+			i, wait, probed = -1, r.timing.tieWait, false
+			continue
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-r.done:
@@ -277,30 +303,21 @@ func (r *Responder) probe(ctx context.Context, p *probe, e *entry) error {
 		if i == 3 {
 			return nil
 		}
-		r.sendProbe(p, e)
-		wait = r.timing.probeInterval
+		r.sendProbe(p)
+		wait, probed = r.timing.probeInterval, true
 	}
 }
 
 // sendProbe asks for any record with p's names, with the records we propose for them in the
 // authority section, so that a host probing at the same time can tell.
-func (r *Responder) sendProbe(p *probe, e *entry) {
+func (r *Responder) sendProbe(p *probe) {
 	r.multicast(func(ifIndex int) ([]byte, error) {
 		m := dnsmessage.Message{}
 		for _, n := range p.names {
 			m.Questions = append(m.Questions, dnsmessage.Question{
 				Name: n, Type: dnsmessage.TypeALL, Class: dnsmessage.ClassINET | unicastResponse,
 			})
-		}
-		for _, rec := range e.records {
-			if rec.unique {
-				m.Authorities = append(m.Authorities, rec.resource(rec.ttl, false))
-			}
-		}
-		if len(p.names) > 1 {
-			for _, rec := range addressRecords(r.host, r.addrs(ifIndex)) {
-				m.Authorities = append(m.Authorities, rec.resource(rec.ttl, false))
-			}
+			m.Authorities = append(m.Authorities, r.proposed(p, n, ifIndex)...)
 		}
 		return m.Pack()
 	})
