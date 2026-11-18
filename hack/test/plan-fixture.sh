@@ -23,7 +23,7 @@ plan_issue() {
 	{
 		echo ---
 		jq -rn --arg id "$2" --arg t "$3" --argjson e "$extra" \
-			'{id: $id, title: $t} + $e | to_entries[] | select(.value != null) | "\(.key): \(.value | tojson)"'
+			'{id: $id, title: $t, aliases: [$id]} + $e | to_entries[] | select(.value != null) | "\(.key): \(.value | tojson)"'
 		echo ---
 		echo
 		printf '%s\n' "$4"
