@@ -263,6 +263,44 @@ func TestPlanConstraints(t *testing.T) {
 	}
 }
 
+func TestPlanMidSlot(t *testing.T) {
+	// 15-minute slots, a 30-minute minimum run, a preferred hour and then a forbidden window,
+	// planned 10 minutes into the 12:30 slot.
+	cheap := Rule{Name: "cheap", Window: window("12:00", "13:00"), Effect: Prefer, Prefer: 5}
+	quiet := Rule{Name: "quiet", Window: window("13:00", "15:00"), Effect: Forbid}
+	cases := []struct {
+		name      string
+		minutes   int
+		rules     []Rule
+		notBefore time.Duration
+		want      string
+	}{
+		{"a block too short from now starts at the next whole slot", 30, []Rule{cheap, quiet}, 12*time.Hour + 40*time.Minute, "15:00-15:30"},
+		{"a block long enough from now starts in the slot in progress", 45, []Rule{cheap}, 12*time.Hour + 40*time.Minute, "12:30-13:15"},
+		{"a moment after a slot edge keeps the slot", 30, []Rule{cheap, quiet}, 12*time.Hour + 30*time.Minute + 30*time.Second, "12:30-13:00"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := PlanInput{
+				Now:         saturday.Add(tc.notBefore),
+				NotBefore:   saturday.Add(tc.notBefore),
+				Slots:       DaySlots(2026, time.July, 4, 0, 15, paris),
+				Rules:       tc.rules,
+				Minutes:     expression(tc.minutes),
+				Constraints: Constraints{MinimumRun: 30 * time.Minute},
+			}
+			day := Plan(in)
+			if got := local(day.Blocks); got != tc.want {
+				t.Errorf("blocks %q, want %q", got, tc.want)
+			}
+			classes, _ := classify(in)
+			if v := violations(in, classes, day.TargetMinutes, day.Blocks); len(v) > 0 {
+				t.Errorf("violations: %v", v)
+			}
+		})
+	}
+}
+
 func TestPlanTieBreak(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -440,7 +478,7 @@ func randomInput(r *rand.Rand, n int) PlanInput {
 	}
 	in := PlanInput{
 		Now:       start,
-		NotBefore: start.Add(time.Duration(r.IntN(3)) * time.Hour),
+		NotBefore: start.Add(time.Duration(r.IntN(3))*time.Hour + time.Duration(r.IntN(2)*r.IntN(60))*time.Minute),
 		Slots:     slots,
 		Rules:     rules,
 		Minutes:   expression(r.IntN(n+1) * 60),
@@ -514,7 +552,12 @@ func blockViolations(in PlanInput, classes []slotClass, on []bool) []string {
 		bs[len(bs)-1].fixed = bs[len(bs)-1].fixed && classes[i].kind == required
 	}
 	for j, b := range bs {
-		if !b.fixed && time.Duration(b.end-b.start)*step < in.Constraints.MinimumRun {
+		// A block that starts in the slot in progress runs from NotBefore, at minute resolution.
+		from := in.Slots[b.start].Start
+		if in.NotBefore.Sub(from) >= time.Minute {
+			from = in.NotBefore
+		}
+		if !b.fixed && in.Slots[b.end-1].End.Sub(from) < in.Constraints.MinimumRun {
 			v = append(v, fmt.Sprintf("block %d is shorter than the minimum run", j))
 		}
 		if j > 0 && (!b.fixed || !bs[j-1].fixed) && time.Duration(b.start-bs[j-1].end)*step < in.Constraints.MinimumRest {

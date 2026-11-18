@@ -198,6 +198,31 @@ func TestABudgetRunsItsMinutes(t *testing.T) {
 	}
 }
 
+// A budget planned 10 minutes into a slot, as on the day of a deploy, doesn't start a block that
+// its minimum on would hold past the block's end, into the hours it forbids (OIK-345).
+func TestABudgetPlannedMidSlotKeepsOutOfTheHoursItForbids(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{})
+	filtration := oikade.NewBudget(func(oikade.Snapshot) int { return 30 }).
+		SlotMinutes(15).
+		Prefer(oikade.Daily("12:00", "13:00"), 3).
+		Forbid(oikade.Daily("13:00", "15:00"))
+	home.Decide(pump).
+		Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 30 * time.Minute}).
+		Budget("filtration", true, filtration).
+		Default(false)
+	start := time.Date(2030, time.January, 7, 12, 40, 0, 0, time.UTC)
+	h := hometest.New(t, home, hometest.Options{Devices: devices(), Start: start})
+	h.Advance(4 * time.Hour)
+	writes := h.Writes()
+	got := make([]string, 0, len(writes))
+	for _, w := range writes {
+		got = append(got, fmt.Sprintf("%s %v", w.Time.Format("15:04"), w.Value))
+	}
+	if want := []string{"15:00 true", "15:30 false"}; !slices.Equal(got, want) {
+		t.Errorf("writes %v, want %v", got, want)
+	}
+}
+
 func TestAFlowSleeps(t *testing.T) {
 	home := oikade.NewHome(oikade.Options{})
 	home.Flow("porch", func(r *oikade.FlowRun) {
