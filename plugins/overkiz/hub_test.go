@@ -60,6 +60,11 @@ type fakeHub struct {
 	magellanDown bool
 	// written are the bodies of Magellan's writecapability.
 	written []map[string]any
+	// magellanRuns is how many reads of an execution it's in progress for, 0 for done at once. A
+	// write to a device while one of its executions is in progress is refused, state 4, and
+	// changes nothing, as a real account's was (OIK-339).
+	magellanRuns int
+	executing    map[string]*fakeExecution
 
 	// ca is the authority that signed a hub's certificate, standing in for Overkiz's.
 	ca *x509.CertPool
@@ -329,18 +334,67 @@ func (h *fakeHub) answerMagellan(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(raw, &body); err != nil {
 			h.t.Errorf("writecapability body: %s", raw)
 		}
-		if !h.writeMagellan(body) {
+		device := fmt.Sprint(body["deviceId"])
+		refused := h.magellanBusy(device)
+		if !refused && !h.writeMagellan(body) {
 			answer(http.StatusForbidden, `{"code":43000011,"message":"Access to resource is forbidden for provided access_token.","type":"ResourceAccessForbidden"}`)
 			return
 		}
 		h.written = append(h.written, body)
-		answer(http.StatusCreated, fmt.Sprint(900000+len(h.written)))
+		id := fmt.Sprint(900000 + len(h.written))
+		if h.executing == nil {
+			h.executing = map[string]*fakeExecution{}
+		}
+		h.executing[id] = &fakeExecution{device: device, refused: refused}
+		answer(http.StatusCreated, id)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/magellan/executions/"):
 		id := strings.TrimPrefix(r.URL.Path, "/magellan/executions/")
-		answer(http.StatusOK, `{"id":`+id+`,"state":3,"executionId":`+id+`,"executionState":3,"details":"execution Done"}`)
+		state := 3
+		switch e := h.executing[id]; {
+		case e == nil:
+		case e.refused:
+			state = 4
+		case e.reads < h.magellanRuns:
+			e.reads++
+			state = 2
+		default:
+			e.reads = h.magellanRuns
+		}
+		answer(http.StatusOK, fmt.Sprintf(`{"id":%s,"state":%d,"executionId":%s,"executionState":%d}`, id, state, id, state))
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// fakeExecution is a Magellan write's execution: its device, how often it has been read, and
+// whether it was refused.
+type fakeExecution struct {
+	device  string
+	reads   int
+	refused bool
+}
+
+// magellanBusy is whether one of a device's executions is in progress.
+func (h *fakeHub) magellanBusy(device string) bool {
+	for _, e := range h.executing {
+		if e.device == device && !e.refused && e.reads < h.magellanRuns {
+			return true
+		}
+	}
+	return false
+}
+
+// magellanRefused counts the writes Magellan refused because the device was busy.
+func (h *fakeHub) magellanRefused() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, e := range h.executing {
+		if e.refused {
+			n++
+		}
+	}
+	return n
 }
 
 // writeMagellan sets a capability of a device in the setup, and says whether it found the device.

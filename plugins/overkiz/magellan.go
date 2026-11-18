@@ -185,11 +185,13 @@ func (c *magellanClient) write(ctx context.Context, device string, capability in
 	return string(exec), nil
 }
 
-// An execution's states: under way, and done. Any other ends it too, unheard of so far.
+// An execution's states: under way, done, and refused, as a write that came while the device's last
+// was under way did (OIK-339). Any other ends it too, unheard of so far.
 const (
 	execPending    = 1
 	execInProgress = 2
 	execDone       = 3
+	execRefused    = 4
 )
 
 // execution reads how far an execution has got.
@@ -217,6 +219,21 @@ func (c capabilities) number(id int) (float64, bool) {
 type mWrite struct {
 	capability int
 	value      string
+}
+
+// mQueued is a write waiting its turn: Magellan fails a write to a device while its last runs, so
+// each waits for the one before to end.
+type mQueued struct {
+	// id is the plugin's ID for the device, deviceID Magellan's, and set the capability the command
+	// that asked for it set.
+	id, deviceID, set string
+	mWrite
+}
+
+// mExecution is a write Magellan has taken, under way.
+type mExecution struct {
+	mQueued
+	began time.Time
 }
 
 // mModel is what Oikade serves of one kind of Magellan device.
@@ -337,8 +354,12 @@ type magellan struct {
 	// client is the session's, nil while there's none: every device is then offline.
 	client  *magellanClient
 	devices map[string]*mDeviceState
-	// running are the executions under way, and when each began.
-	running map[string]time.Time
+	// running are the executions under way, by ID.
+	running map[string]mExecution
+	// queued are the writes waiting for their device's execution to end, by device, in order, and
+	// sending the devices a write is being sent to.
+	queued  map[string][]mQueued
+	sending map[string]bool
 	// skipped are the models not served, each logged once.
 	skipped map[string]bool
 }
@@ -347,7 +368,8 @@ func newMagellan(c Cozytouch, env plugin.Environment, t timing, log *slog.Logger
 	return &magellan{
 		account: c, env: env, timing: t, log: log, name: "Magellan",
 		cozytouch: c, kick: make(chan struct{}, 1),
-		devices: map[string]*mDeviceState{}, running: map[string]time.Time{}, skipped: map[string]bool{},
+		devices: map[string]*mDeviceState{}, running: map[string]mExecution{},
+		queued: map[string][]mQueued{}, sending: map[string]bool{}, skipped: map[string]bool{},
 	}
 }
 
@@ -425,7 +447,7 @@ func refusedToken(err error) bool {
 func (m *magellan) interval() time.Duration {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.running) > 0 {
+	if len(m.running) > 0 || len(m.queued) > 0 {
 		return m.timing.busy
 	}
 	return m.timing.read
@@ -437,9 +459,6 @@ func (m *magellan) executions(ctx context.Context, c *magellanClient) (bool, err
 	m.mu.Lock()
 	ids := slices.Sorted(maps.Keys(m.running))
 	m.mu.Unlock()
-	if len(ids) == 0 {
-		return true, nil
-	}
 	now := time.Now()
 	for _, id := range ids {
 		state, err := c.execution(ctx, id)
@@ -454,26 +473,96 @@ func (m *magellan) executions(ctx context.Context, c *magellanClient) (bool, err
 			m.finish(id)
 		case state == execPending || state == execInProgress:
 			m.mu.Lock()
-			if now.Sub(m.running[id]) > m.timing.execution {
+			e, ok := m.running[id]
+			if ok && now.Sub(e.began) > m.timing.execution {
 				delete(m.running, id)
 			}
 			m.mu.Unlock()
+			if ok && now.Sub(e.began) > m.timing.execution {
+				m.log.Warn("Stopped waiting for Magellan execution", "exec", id, "device", e.id,
+					"capability", e.set, "value", e.value, "after", m.timing.execution.String())
+			}
 		case state == execDone:
 			m.finish(id)
+		case state == execRefused:
+			e := m.finish(id)
+			m.log.Warn("Magellan execution failed", "exec", id, "device", e.id, "capability", e.set, "value", e.value)
 		default:
-			m.log.Warn("Magellan execution failed", "exec", id, "state", state)
-			m.finish(id)
+			e := m.finish(id)
+			m.log.Warn("Magellan execution ended in a state the plugin doesn't know", "exec", id, "state", state,
+				"device", e.id, "capability", e.set, "value", e.value)
+		}
+	}
+	// What waited for an execution that has ended goes now.
+	m.mu.Lock()
+	waiting := slices.Sorted(maps.Keys(m.queued))
+	m.mu.Unlock()
+	for _, id := range waiting {
+		send, cancel := context.WithTimeout(ctx, m.timing.set)
+		err := m.send(send, c, id)
+		cancel()
+		if err != nil {
+			var e *apiError
+			if errors.As(err, &e) && (classify(err) == refused || classify(err) == limited) {
+				return false, err
+			}
+			m.log.Error("Could not send Magellan write", "device", id, "err", err)
 		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return len(m.running) == 0, nil
+	return len(m.running) == 0 && len(m.queued) == 0, nil
 }
 
-func (m *magellan) finish(id string) {
+// finish forgets an execution that has ended, and returns it.
+func (m *magellan) finish(id string) mExecution {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	e := m.running[id]
 	delete(m.running, id)
+	return e
+}
+
+// send sends a device's queued writes in order, while none of its executions runs, and returns once
+// one is under way or none is left. Magellan fails a write to a device while its last runs (OIK-339).
+func (m *magellan) send(ctx context.Context, c *magellanClient, id string) error {
+	for {
+		m.mu.Lock()
+		queue := m.queued[id]
+		if len(queue) == 0 || m.sending[id] || m.runsLocked(id) {
+			m.mu.Unlock()
+			return nil
+		}
+		next := queue[0]
+		if len(queue) == 1 {
+			delete(m.queued, id)
+		} else {
+			m.queued[id] = queue[1:]
+		}
+		m.sending[id] = true
+		m.mu.Unlock()
+
+		exec, err := c.write(ctx, next.deviceID, next.capability, next.value)
+		m.mu.Lock()
+		delete(m.sending, id)
+		if err == nil && exec != "" {
+			m.running[exec] = mExecution{mQueued: next, began: time.Now()}
+		}
+		m.mu.Unlock()
+		if err != nil {
+			return fmt.Errorf("could not set %s on %s: %w", next.set, id, err)
+		}
+	}
+}
+
+// runsLocked is whether one of a device's executions is under way.
+func (m *magellan) runsLocked(id string) bool {
+	for _, e := range m.running {
+		if e.id == id {
+			return true
+		}
+	}
+	return false
 }
 
 // read reads the setup, and reports what changed.
@@ -638,6 +727,7 @@ func (m *magellan) lost(ctx context.Context) {
 	m.mu.Lock()
 	m.client = nil
 	clear(m.running)
+	clear(m.queued)
 	ids := slices.Sorted(maps.Keys(m.devices))
 	m.mu.Unlock()
 	for _, id := range ids {
@@ -656,8 +746,9 @@ func (m *magellan) absent(ctx context.Context) {
 	m.check(m.out.SetDevices(ctx, found, 0), "Could not report Magellan devices", "")
 }
 
-// set writes a command's capabilities, and returns once Magellan has taken them, before the device
-// has acted on them. It fails at once while there's no session.
+// set writes a command's capabilities, and returns once Magellan has taken what can go now, before
+// the device has acted on it. A write waits for the device's last execution to end, and is sent by
+// the session's next look at its executions. It fails at once while there's no session.
 func (m *magellan) set(ctx context.Context, cmd contractv1.SetCommand) error {
 	m.mu.Lock()
 	c, dev := m.client, m.devices[cmd.ID]
@@ -669,6 +760,19 @@ func (m *magellan) set(ctx context.Context, cmd contractv1.SetCommand) error {
 	if dev != nil {
 		writes, err = dev.model.write(cmd.Capability, cmd.Value, dev.caps)
 		deviceID = dev.deviceID
+	}
+	if dev != nil && c != nil && err == nil {
+		// What's written is what the next write decides from, as a quick off then on, until the
+		// setup is read again. A newer write to a capability replaces one still waiting.
+		queue := m.queued[cmd.ID]
+		for _, w := range writes {
+			dev.caps[w.capability] = w.value
+			queue = slices.DeleteFunc(queue, func(q mQueued) bool { return q.capability == w.capability })
+			queue = append(queue, mQueued{id: cmd.ID, deviceID: deviceID, set: cmd.Capability, mWrite: w})
+		}
+		if len(queue) > 0 {
+			m.queued[cmd.ID] = queue
+		}
 	}
 	m.mu.Unlock()
 	switch {
@@ -689,21 +793,6 @@ func (m *magellan) set(ctx context.Context, cmd contractv1.SetCommand) error {
 		default:
 		}
 	}()
-	for _, w := range writes {
-		exec, err := c.write(ctx, deviceID, w.capability, w.value)
-		if err != nil {
-			return fmt.Errorf("could not set %s on %s: %w", cmd.Capability, cmd.ID, err)
-		}
-		m.mu.Lock()
-		if exec != "" {
-			m.running[exec] = time.Now()
-		}
-		// What's written is what the next write decides from, as a quick off then on, until the
-		// setup is read again.
-		if dev := m.devices[cmd.ID]; dev != nil {
-			dev.caps[w.capability] = w.value
-		}
-		m.mu.Unlock()
-	}
-	return nil
+	// What can go now goes, and the rest once the execution before it has ended.
+	return m.send(ctx, c, cmd.ID)
 }

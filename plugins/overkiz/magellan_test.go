@@ -302,3 +302,52 @@ func TestAProxysNotFoundIsntNoAccount(t *testing.T) {
 		t.Errorf("got %v, %v", err, classify(err))
 	}
 }
+
+// A setpoint moved and moved straight back ends where it was moved last: Magellan refuses a write to
+// a device while its last runs, so each waits for the one before to end, and a newer write replaces
+// one still waiting (OIK-339).
+func TestAQuickSecondWriteWaitsForTheFirst(t *testing.T) {
+	cloud := newMagellanCloud(t)
+	cloud.set(func(h *fakeHub) { h.magellanRuns = 3 })
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitAvailability(towel, "online")
+	b.set(towel, `{"setpoint":17.5}`)
+	b.set(towel, `{"setpoint":16}`)
+	b.waitState(towel, `{"on":true,"setpoint":16,"temperature":21.94}`)
+	if got := waitWrites(b, 2); !reflect.DeepEqual(got, []string{"40=17.5", "40=16"}) {
+		t.Errorf("wrote %v", got)
+	}
+
+	b.set(towel, `{"setpoint":17.5}`)
+	b.set(towel, `{"setpoint":16}`)
+	b.set(towel, `{"setpoint":18}`)
+	b.waitState(towel, `{"on":true,"setpoint":18,"temperature":21.94}`)
+	if got := waitWrites(b, 4); !reflect.DeepEqual(got, []string{"40=17.5", "40=16", "40=17.5", "40=18"}) {
+		t.Errorf("wrote %v, want the waiting 16 replaced by 18", got)
+	}
+	if n := cloud.magellanRefused(); n != 0 {
+		t.Errorf("Magellan refused %d writes", n)
+	}
+	if b.logs.count("Magellan execution failed") != 0 {
+		t.Errorf("an execution failed:\n%s", b.logs.String())
+	}
+}
+
+// A write Magellan refuses anyway, as while the Cozytouch app's own write runs, is logged with the
+// device and what it set.
+func TestARefusedMagellanWriteSaysWhatItWas(t *testing.T) {
+	cloud := newMagellanCloud(t)
+	cloud.set(func(h *fakeHub) {
+		h.magellanRuns = 1000
+		h.executing = map[string]*fakeExecution{"1651827": {device: fmt.Sprint(towelID)}}
+	})
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitAvailability(towel, "online")
+	b.set(towel, `{"setpoint":17.5}`)
+	b.eventually("the refusal logged", func() bool { return b.logs.count("Magellan execution failed") == 1 })
+	for _, want := range []string{`"device":"magellan.40000001"`, `"capability":"setpoint"`, `"value":"17.5"`} {
+		if !strings.Contains(b.logs.String(), want) {
+			t.Errorf("the refusal doesn't say %s:\n%s", want, b.logs.String())
+		}
+	}
+}
