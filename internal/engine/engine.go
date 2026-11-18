@@ -134,7 +134,8 @@ type Engine struct {
 	mu sync.Mutex
 	// suns answers for Site, and is nil without one.
 	suns *sunCache
-	// membersGen counts changes to rooms' members, so a room hold compares its own only after one.
+	// membersGen counts changes to rooms' members and discoveries, so a group or room hold compares
+	// its own only after one.
 	membersGen uint64
 	// skipped is the Room members each rule last left out.
 	skipped map[ident.ID][]string
@@ -667,8 +668,9 @@ func (e *Engine) membersChanged() {
 	due := false
 	e.membersGen++
 	for _, s := range e.rules {
-		// A hold with when may read the rooms, and a room hold writes their members.
-		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.room != "") {
+		// A hold with when may read the rooms, a room hold writes their members, and a group hold
+		// writes a member once it's discovered.
+		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.room != "" || len(s.c.hold.devices) > 0) {
 			s.next = fire{At: now}
 			due = true
 		}

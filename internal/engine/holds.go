@@ -590,7 +590,8 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 	var retry time.Duration
 	// started is what a start wrote. added are the members that joined and were written.
 	var started, added []ident.ID
-	startedOrEnded, joinFailed := false, false
+	// partial is a group's or a room's start that reached some members and failed on others.
+	startedOrEnded, joinFailed, partial := false, false, false
 	ended := true
 	if end != nil {
 		if _, d, err := e.applyHold(ctx, key, *end, false, claim); err != nil {
@@ -606,6 +607,12 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 			saved = e.saveStart(ctx, key, st, since)
 		}
 		written, d, err := e.applyHold(ctx, key, st.Target, active, claim)
+		if err != nil && active && len(written) > 0 && isGroup(st.Target) {
+			// A write to one member failed. What it reached is held: inactive, nothing would end those
+			// claims (OIK-321). The rest join it at the retry, as members that join a room hold do.
+			retry, saved, partial = d, false, true
+			err = nil
+		}
 		if err != nil {
 			retry, saved = d, false
 		} else {
@@ -657,7 +664,7 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 	}
 	switch {
 	case startedOrEnded:
-		hs.held, hs.heldKnown, hs.heldGen = started, st.Active, e.membersGen
+		hs.held, hs.heldKnown, hs.heldGen, hs.heldStale = started, st.Active, e.membersGen, partial
 	case joinFailed:
 		// Compare again once the retry is due.
 		hs.held, hs.heldStale = append(hs.held, added...), true
@@ -713,12 +720,16 @@ func (e *Engine) deleteState(key ident.ID) {
 	}
 }
 
-// joined are the members of an active room hold that it doesn't hold yet and can write, as a device
-// that moved into the room, or was retyped into its types, while it was active. left are those it
-// held that aren't members now. A failed write waits for its retry. Call with e.mu held.
+// isGroup reports whether a hold's target is a group's or a room's members, rather than one device.
+func isGroup(t HoldTarget) bool { return t.Room != "" || len(t.Devices) > 0 }
+
+// joined are the members of an active group or room hold that it doesn't hold yet and can write, as
+// a device that moved into the room, or was retyped into its types, while it was active, or one its
+// start couldn't write. left are those it held that aren't members now. A failed write waits for its
+// retry. Call with e.mu held.
 func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarget, now time.Time) (joined, left []ident.ID) {
 	t := st.Target
-	if t.Room == "" || !active || !st.Active || end != nil {
+	if !isGroup(t) || !active || !st.Active || end != nil {
 		hs.held, hs.heldKnown = nil, false
 		return nil, nil
 	}
@@ -726,7 +737,11 @@ func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarge
 		return nil, nil
 	}
 	var members []ident.ID
-	for _, dev := range e.roomMembers(t) {
+	candidates := named(t)
+	if t.Room != "" {
+		candidates = e.roomMembers(t)
+	}
+	for _, dev := range candidates {
 		if snap, ok := e.Store.Get(dev); ok && snap.OfTypes(t.DeviceTypes) {
 			members = append(members, dev)
 		}
@@ -745,7 +760,8 @@ func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarge
 	// One that left counts as joining again if it comes back.
 	hs.held = slices.DeleteFunc(hs.held, func(dev ident.ID) bool { return slices.Contains(left, dev) })
 	for _, dev := range members {
-		// One not discovered yet, or without the capability, joins once it's discovered with it.
+		// One not discovered yet, or without the capability, joins once it's discovered with it. A
+		// group's member that isn't on record yet is written once it is.
 		if snap, _ := e.Store.Get(dev); !slices.Contains(hs.held, dev) && snap.Discovered &&
 			slices.Contains(snap.Info.Capabilities, t.Capability) {
 			joined = append(joined, dev)
@@ -755,7 +771,7 @@ func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarge
 	return joined, left
 }
 
-// holdJoined writes an active room hold's start to the members that joined it, and returns those it
+// holdJoined writes an active group or room hold's start to the members that joined it, and returns those it
 // wrote. One that fails is left out, so it's tried again at the retry.
 func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, claim control.Claim,
 	joined []ident.ID,
@@ -769,7 +785,11 @@ func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, cla
 			retry = max(retry, d)
 			continue
 		}
-		e.Log.Info("Held Room member that joined", "rule", ruleRef(key), "device", dev.Name, "room", t.Room)
+		if t.Room != "" {
+			e.Log.Info("Held Room member that joined", "rule", ruleRef(key), "device", dev.Name, "room", t.Room)
+		} else {
+			e.Log.Info("Held group member once it could be written", "rule", ruleRef(key), "device", dev.Name)
+		}
 		added = append(added, dev)
 	}
 	return added, retry
@@ -790,28 +810,8 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 	log := e.Log.With("rule", ruleRef(key), "capability", t.Capability)
 	devices := named(t)
 	if t.Room != "" {
-		waiting := false
-		var skipped []string
-		for _, dev := range e.roomMembers(t) {
-			snap, ok := e.Store.Get(dev)
-			waiting = waiting || !ok || !snap.Discovered
-			if !ok || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, t.Capability) {
-				continue
-			}
-			if !snap.OfTypes(t.DeviceTypes) {
-				// A member retyped while the hold was active may still hold its claim, which its end
-				// lets go of. It writes nothing to one: the hold never wrote it.
-				if !start && snap.Controls(t.Capability) {
-					e.releaseClaim(ctx, dev, t.Capability, claim.Source)
-				}
-				skipped = append(skipped, otherType(dev, snap))
-				continue
-			}
-			devices = append(devices, dev)
-		}
-		if start {
-			e.reportSkipped(key, skipped)
-		}
+		var waiting bool
+		devices, waiting = e.roomTargets(ctx, key, t, start, claim.Source)
 		// With no member to write yet, as on startup, wait for the undiscovered ones. Once some
 		// are written, one that never reports doesn't keep rewriting the rest.
 		if len(devices) == 0 && waiting {
@@ -819,6 +819,9 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 			return nil, retryUndiscovered, fmt.Errorf("no member of room %s is discovered", t.Room)
 		}
 	}
+	// A group's member that isn't discovered yet joins the hold once it is, as a room's does, so it
+	// holds up neither the others' start nor the end.
+	waiting := 0
 	for _, dev := range devices {
 		snap, ok := e.Store.Get(dev)
 		if ok && snap.Controls(t.Capability) {
@@ -832,6 +835,10 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 		}
 		if !ok || !snap.Discovered {
 			log.Debug("Waiting for Device before writing hold", "device", dev.Name)
+			if len(t.Devices) > 0 {
+				waiting++
+				continue
+			}
 			retry, failed = max(retry, retryUndiscovered), fmt.Errorf("device %s isn't discovered", dev.Name)
 			continue
 		}
@@ -844,7 +851,38 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 		}
 		written = append(written, dev)
 	}
+	if waiting > 0 && len(written) == 0 && failed == nil && !skipEnd {
+		return nil, retryUndiscovered, fmt.Errorf("no member of the group is discovered")
+	}
 	return written, retry, failed
+}
+
+// roomTargets are the members of a room hold's room it writes: discovered with the capability, and of
+// its types. waiting says some member isn't discovered yet. A member of another type is left out,
+// and reported on a start, and an end lets go of a claim it may still hold.
+func (e *Engine) roomTargets(ctx context.Context, key ident.ID, t HoldTarget, start bool, source string) (devices []ident.ID, waiting bool) {
+	var skipped []string
+	for _, dev := range e.roomMembers(t) {
+		snap, ok := e.Store.Get(dev)
+		waiting = waiting || !ok || !snap.Discovered
+		if !ok || !snap.Discovered || !slices.Contains(snap.Info.Capabilities, t.Capability) {
+			continue
+		}
+		if !snap.OfTypes(t.DeviceTypes) {
+			// A member retyped while the hold was active may still hold its claim, which its end
+			// lets go of. It writes nothing to one: the hold never wrote it.
+			if !start && snap.Controls(t.Capability) {
+				e.releaseClaim(ctx, dev, t.Capability, source)
+			}
+			skipped = append(skipped, otherType(dev, snap))
+			continue
+		}
+		devices = append(devices, dev)
+	}
+	if start {
+		e.reportSkipped(key, skipped)
+	}
+	return devices, waiting
 }
 
 // writesEnd says a hold's end writes to an unarbitrated target: the opposite of a bool, unless

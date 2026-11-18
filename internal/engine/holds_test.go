@@ -787,3 +787,75 @@ func TestARulesSeriesAndLogLinesNameItByItsRef(t *testing.T) {
 		t.Errorf("the log:\n%s", strings.Join(r.logs.Lines(), "\n"))
 	}
 }
+
+// OIK-321: a group hold whose start claims one member but can't reach another, not discovered yet,
+// is active, so the claim it made ends when its when does. Saved inactive, nothing would end it.
+func TestAGroupHoldStartedOnSomeMembersEndsTheirClaims(t *testing.T) {
+	r := partlyStarted(t)
+	r.change("workshop-temp", capability.Temperature, 20.0)
+	if got := winner(r.status("workshop-heater", capability.On)); got != control.NameDefault {
+		t.Errorf("got %s once the overheat passed, want the claim gone", got)
+	}
+}
+
+// The member it couldn't reach gets the start once it's discovered.
+func TestAGroupHoldWritesAMemberItCouldntReachOnceItsDiscovered(t *testing.T) {
+	r := partlyStarted(t)
+	r.put(map[string]hub.Meta{"workshop-heater": {Control: []control.Entry{workshopRail}}, "spare-heater": {}})
+	r.store.Discovered(ident.ID{Name: "spare-heater"}, driver.Info{Found: true, Capabilities: []string{capability.On}})
+	r.settle()
+	r.expect(call{"workshop-heater", capability.On, true}, call{"workshop-heater", capability.On, false},
+		call{"spare-heater", capability.On, false})
+	if got := winner(r.status("workshop-heater", capability.On)); got != "Rule/workshop-overheat Safety" {
+		t.Errorf("got %s, want the hold's claim kept", got)
+	}
+}
+
+var workshopRail = entry(capability.On, "true", control.NameOverride, "1h")
+
+// partlyStarted is a rig whose Safety group hold has started on the workshop heater, which it
+// claims, and not on the spare heater, which isn't on record yet.
+func partlyStarted(t *testing.T) *rig {
+	t.Helper()
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-21 12:00 BST"),
+		control: map[string][]control.Entry{"workshop-heater": {workshopRail}},
+		values:  map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}},
+	})
+	group := overheat
+	group.Device, group.Devices, group.Latch = "", []string{"workshop-heater", "spare-heater"}, false
+	r.e.Load(holdRule(t, "workshop-overheat", group))
+	r.settle()
+	if got := winner(r.status("workshop-heater", capability.On)); got != "Rule/workshop-overheat Safety" {
+		t.Fatalf("got %s, want the hold's Safety claim", got)
+	}
+	// Its arbiter writes its default, then the claim's value.
+	r.expect(call{"workshop-heater", capability.On, true}, call{"workshop-heater", capability.On, false})
+	return r
+}
+
+// A group hold whose write to one member fails is active with the rest written, so its end writes
+// them back, and the member that failed gets its start at the retry.
+func TestAGroupHoldWhoseWriteFailsOnOneMemberIsActive(t *testing.T) {
+	r := startRigWith(t, rigOptions{
+		now:    local("2026-10-21 12:00 BST"),
+		values: map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}},
+	})
+	r.failing("bathroom-fan")
+	group := overheat
+	group.Device, group.Devices, group.Latch = "", []string{"water-heater", "bathroom-fan"}, false
+	r.e.Load(holdRule(t, "workshop-overheat", group))
+	r.settle()
+	// The fan's write is tried, and fails.
+	r.expect(call{"water-heater", capability.On, false}, call{"bathroom-fan", capability.On, false})
+
+	// At the retry, the fan gets the start.
+	r.failing()
+	r.at("2026-10-21 12:01 BST")
+	started := call{"water-heater", capability.On, false}
+	fan := call{"bathroom-fan", capability.On, false}
+	r.expect(started, fan, fan)
+
+	r.change("workshop-temp", capability.Temperature, 20.0)
+	r.expect(started, fan, fan, call{"water-heater", capability.On, true}, call{"bathroom-fan", capability.On, true})
+}
