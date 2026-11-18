@@ -32,7 +32,7 @@ type Condition interface {
 func (b Bool) holds(s Snapshot) bool { return s.Get(b) }
 
 func (b Bool) explain(s Snapshot, _ bool) string {
-	return fmt.Sprintf("%s is %t", b, s.Get(b))
+	return fmt.Sprintf("%s is %t", b.handle().said(), s.Get(b))
 }
 
 func (b Bool) check(Options) error { return checkHandle(b.handle()) }
@@ -86,7 +86,7 @@ func (c compare) holds(s Snapshot) bool {
 }
 
 func (c compare) explain(s Snapshot, want bool) string {
-	what := fmt.Sprintf("%s is %s", c.n, number(s.Get(c.n)))
+	what := fmt.Sprintf("%s is %s", c.n.handle().said(), number(s.Get(c.n)))
 	not := ""
 	if want {
 		not = "not "
