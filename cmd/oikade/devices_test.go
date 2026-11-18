@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -45,10 +46,10 @@ func TestUnimportedDevicesSayHowToRemoveThemAndCallOutSafety(t *testing.T) {
 
 func TestDevicesMarkThoseWhosePluginIsntImported(t *testing.T) {
 	var out bytes.Buffer
-	printDevices(&out, registry.Snapshot{Devices: []registry.Device{
+	printDevices(cli.Plain(&out, 0), registry.Snapshot{Devices: []registry.Device{
 		{Name: "boiler", ID: "b", Driver: "plugin/relays", Endpoint: 2},
 		{Name: "lamp", ID: "l", Driver: "plugin/shades", Endpoint: 3},
-	}}, deviceMarks{unimported: map[string]bool{"boiler": true}})
+	}}, deviceMarks{unimported: map[string]bool{"boiler": true}}, false)
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[1], "plugin not imported") || strings.Contains(lines[2], "plugin not imported") {
 		t.Errorf("got\n%s", out.String())
@@ -63,7 +64,7 @@ func TestDevicesSayWhatsWrongWithThem(t *testing.T) {
 	problems := map[string]string{"porch-light": "no LAN key: oikade secret set 1000aabbcc"}
 
 	var out bytes.Buffer
-	printDevices(&out, list, deviceMarks{problems: problems})
+	printDevices(cli.Plain(&out, 0), list, deviceMarks{problems: problems}, false)
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[2], problems["porch-light"]) || strings.Contains(lines[1], "no LAN key") {
 		t.Errorf("got\n%s", out.String())
@@ -93,7 +94,7 @@ func TestDevicesMarkThoseHiddenFromMatter(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	printDevices(&out, list, marks)
+	printDevices(cli.Plain(&out, 0), list, marks, false)
 	lines := strings.Split(out.String(), "\n")
 	// Sorted: attic-shutter, bedroom-shutter, garage-door.
 	if !strings.Contains(lines[1], "offline at the box, hidden from Matter") ||
@@ -136,7 +137,7 @@ func TestDevicesNotInYourCodeSayHowToDeclareThem(t *testing.T) {
 		{Name: "kettle", ID: "k", Driver: "simulated/simulator", Endpoint: 4},
 	}}
 	var out bytes.Buffer
-	printDevices(&out, list, deviceMarks{})
+	printDevices(cli.Plain(&out, 0), list, deviceMarks{}, false)
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[1], "attic-fan") || !strings.Contains(lines[1], notInYourCode) ||
 		strings.Contains(lines[2], notInYourCode) || strings.Contains(lines[3], notInYourCode) {
@@ -250,7 +251,7 @@ func TestDevicesShowTheirHardwareByItsRef(t *testing.T) {
 	}}
 	const ref = "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5"
 	var out bytes.Buffer
-	printDevices(&out, list, deviceMarks{})
+	printDevices(cli.Plain(&out, 0), list, deviceMarks{}, false)
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[0], "HARDWARE") || !strings.Contains(lines[2], ref) ||
 		!strings.Contains(lines[1], "simulated/simulator's k") {

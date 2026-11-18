@@ -33,7 +33,7 @@ func runSetup(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print how it ended as JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
 	if len(words) != 1 {
-		return errors.New("usage: oikade setup PLUGIN")
+		return cli.UsageErrorf("usage: oikade setup PLUGIN")
 	}
 	transport, host := target.resolve()
 	s := setupper{

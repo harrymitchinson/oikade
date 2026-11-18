@@ -442,7 +442,7 @@ func runSet(ctx context.Context, args []string) error {
 		}
 		name = words[1]
 	default:
-		return errors.New("usage: oikade set device/DEVICE/CAPABILITY VALUE, or oikade set DEVICE CAPABILITY VALUE")
+		return cli.UsageErrorf("usage: oikade set device/DEVICE/CAPABILITY VALUE, or oikade set DEVICE CAPABILITY VALUE")
 	}
 	value := parseValue(words[len(words)-1])
 	_, _ = fmt.Fprintf(os.Stderr, "Setting %s to %v\n", ident.CapabilityRef(device, name), value)
@@ -524,7 +524,7 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 		return fmt.Errorf("a case is one ref: oikade %s %s", name, ref)
 	}
 	if len(words) != 1 {
-		return fmt.Errorf("usage: oikade %s REF, a case's, such as case/desk-plug/on/night, "+
+		return cli.UsageErrorf("usage: oikade %s REF, a case's, such as case/desk-plug/on/night, "+
 			"or a flow's, such as flow/morning", name)
 	}
 	rule := words[0]

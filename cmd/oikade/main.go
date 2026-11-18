@@ -57,16 +57,18 @@ const usage = `Usage:
 Every command that talks to a host takes --data-dir DIR, for the host on this machine, and --context NAME,
 which reaches a host you logged in to over its network API. Without either, a command uses the context
 oikade login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context saved
-without one. To trust a new client, run oikade-host client add NAME on the host's machine.`
+without one. To trust a new client, run oikade-host client add NAME on the host's machine.
+Every command takes --debug, or OIKADE_DEBUG=1, to show an error in full, with its causes.`
 
 func main() {
-	if len(os.Args) < 2 {
+	args, debug := cli.Debug(os.Args[1:], "test")
+	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
+		os.Exit(cli.ExitUsage)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	command, args := os.Args[1], os.Args[2:]
+	command, args := args[0], args[1:]
 	var err error
 	switch command {
 	case "init":
@@ -118,8 +120,8 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		stop()
+		os.Exit(cli.NewPrinter(os.Stderr).Fail(err, debug))
 	}
 }
 

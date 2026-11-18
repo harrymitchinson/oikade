@@ -1,14 +1,13 @@
 package capability
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
-)
 
-var update = flag.Bool("update", false, "rewrite docs/capabilities.md from the registry")
+	"github.com/harrymitchinson/oikade/internal/testkit"
+)
 
 const docsTable = "../../docs/capabilities.md"
 
@@ -57,7 +56,7 @@ func table() string {
 
 func TestTheDocsTableIsTheRegistrys(t *testing.T) {
 	want := table()
-	if *update {
+	if *testkit.Update {
 		if err := os.WriteFile(docsTable, []byte(want), 0o644); err != nil {
 			t.Fatal(err)
 		}

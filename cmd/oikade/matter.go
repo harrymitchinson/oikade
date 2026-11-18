@@ -9,8 +9,6 @@ import (
 	"os"
 	"time"
 
-	"golang.org/x/term"
-
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/qr"
@@ -40,7 +38,7 @@ func runMatter(ctx context.Context, args []string) error {
 		req = api.Request{Type: api.TypeMatterOpen, WindowSeconds: int(window.Seconds())}
 		_, _ = fmt.Fprintln(os.Stderr, "Opening the Matter bridge's window")
 	default:
-		return errors.New("usage: oikade matter [open [--for DURATION]] [--json]")
+		return cli.UsageErrorf("usage: oikade matter [open [--for DURATION]] [--json]")
 	}
 	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
@@ -49,7 +47,7 @@ func runMatter(ctx context.Context, args []string) error {
 	if resp.Error != "" {
 		return errors.New(resp.Error)
 	}
-	drawQR := term.IsTerminal(int(os.Stdout.Fd())) && os.Getenv("TERM") != "dumb"
+	drawQR := cli.NewPrinter(os.Stdout).Terminal
 	if req.Type == api.TypeMatterOpen {
 		if resp.MatterWindow == nil {
 			return errors.New("the host opened no window")
@@ -125,6 +123,6 @@ func printQR(out io.Writer, payload string) {
 		return
 	}
 	for _, line := range c.Terminal() {
-		_, _ = fmt.Fprintln(out, line)
+		_, _ = fmt.Fprintln(out, cli.Image(line))
 	}
 }

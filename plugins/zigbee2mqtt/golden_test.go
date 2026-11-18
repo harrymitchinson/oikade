@@ -3,7 +3,6 @@ package zigbee2mqtt
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,9 +18,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
-
-var updateGolden = flag.Bool("update", false, "rewrite testdata/golden from the fixtures")
 
 const goldenDir = "testdata/golden"
 
@@ -99,7 +97,7 @@ func TestGolden(t *testing.T) {
 			}
 			got := buf.Bytes()
 			want := filepath.Join(goldenDir, name)
-			if *updateGolden {
+			if *testkit.Update {
 				if err := os.MkdirAll(goldenDir, 0o755); err != nil {
 					t.Fatal(err)
 				}

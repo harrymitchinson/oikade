@@ -93,6 +93,19 @@ Every `oikade` and `oikade-host` command is not verbose, but never leaves you wo
 - **Never pass on another tool's output that asks for a step already done:** `oikade init` hides Go's `go mod tidy` hint, which it has run, and shows Go's output only when Go fails.
 - **`--json` and stdout stay clean for scripts:** progress and hints go to stderr, and `--json` keeps its shape when empty (`[]`).
 
+#### The look
+
+Human output shares one look (OIK-331), printed with `internal/cli`'s `Printer` (`cli.NewPrinter(os.Stdout)`, one per stream), never raw ANSI or `text/tabwriter`:
+
+- **Plain text first.** Every line reads right without colour, piped, and in a log.
+- **Colour and glyphs only on a terminal,** never with `NO_COLOR` set or `TERM=dumb`, and few of them: `Bold` for a table's header and a section's title, `Dim` for what's secondary (refs, hints, "not in your code"), `Done` (a green `✓`) for something done, `Warn` (a yellow `!`) for a warning, and `Fail` (a red `✗` and `Error:`) for a failure.
+- **Fit the terminal.** A `cli.Table` keeps to a terminal's width (`COLUMNS`, or 80, when it doesn't say), and a pipe gets it in full, for grep: columns go by their `Drop` and then `Shrink` ones shorten, and `--wide` (or `--all` where it exists) shows the rest. No `-` for an empty cell: leave it blank.
+- **Say it once.** A hint that applies to many rows is one `Hint` after the table, naming the command that says more.
+- **Errors are one sentence and a next step:** return a `cli.Errorf`, `cli.Wrap(err, …)` or `cli.UsageErrorf`, with `.WithHint(…)` naming the command or flag that fixes it. `Error: <what went wrong, in the user's words>`, then a dim `Hint: …`. A wrapped cause, such as a Go error chain (`fork/exec …`, `mkdir …`), shows only with `--debug` or `OIKADE_DEBUG=1`. Usage errors exit 2, other failures 1.
+- **Times are relative near now** (`cli.Ago`: `8 s ago`, `today 08:45`, `3 days ago`) and absolute past a week, in local time. Versions are short (`cli.ShortVersion`: `f113018`, `v0.2.0-alpha.2`).
+- **Golden tests** (`testkit.Golden`, `testdata/*.golden`, rewritten with `go test -update`) show what a command prints, plain and styled (`cli.Plain`, `cli.Styled`), at 80 and 120 columns.
+- **No new dependency:** ANSI by hand beside `golang.org/x/term`.
+
 ## Publishing
 
 ```bash

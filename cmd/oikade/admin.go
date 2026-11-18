@@ -65,7 +65,7 @@ func runSecret(ctx context.Context, args []string) error {
 	case len(words) == 2 && words[0] == "remove":
 		req = api.Request{Type: api.TypeSecretRemove, Secret: words[1]}
 	default:
-		return errors.New("usage: oikade secret list | set NAME | remove NAME")
+		return cli.UsageErrorf("usage: oikade secret list | set NAME | remove NAME")
 	}
 	resp, err := api.Call(ctx, t.transport(), req)
 	if err != nil {
@@ -81,22 +81,21 @@ func runSecret(ctx context.Context, args []string) error {
 		}
 		return cli.PrintJSON(struct{}{})
 	}
-	return printSecrets(os.Stdout, os.Stderr, resp.Secrets, *asJSON)
+	return printSecrets(cli.NewPrinter(os.Stdout), cli.NewPrinter(os.Stderr), resp.Secrets, *asJSON)
 }
 
 // printSecrets lists the secrets' names, or says there are none and how to add one.
-func printSecrets(stdout, stderr io.Writer, secrets []api.Secret, asJSON bool) error {
+func printSecrets(stdout, stderr *cli.Printer, secrets []api.Secret, asJSON bool) error {
 	if asJSON {
 		return json.NewEncoder(stdout).Encode(append([]api.Secret{}, secrets...))
 	}
 	if len(secrets) == 0 {
-		_, err := fmt.Fprintln(stderr, "No secrets. oikade secret set NAME adds one.")
-		return err
+		stderr.Println("No secrets. oikade secret set NAME adds one.")
+		return nil
 	}
+	// Names alone, with no header, so that a script can read them a line each.
 	for _, s := range secrets {
-		if _, err := fmt.Fprintln(stdout, s.Name); err != nil {
-			return err
-		}
+		stdout.Println(s.Name)
 	}
 	return nil
 }

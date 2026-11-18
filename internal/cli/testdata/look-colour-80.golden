@@ -1,0 +1,12 @@
+[1mNAME[0m         [1mROOM[0m   [1mSTATE[0m                          [1mCAPABILITIES[0m
+hall-lamp    hall   paired                         on
+study-blind  study  paired, not in your code       position, target-position, m…
+office-ac           no LAN key: oikade secret se…  mode, on, setpoint, temperat…
+[2mHint: --wide shows HARDWARE and ENDPOINT[0m
+[32m✓[0m Deployed version f113018
+[33m![0m [33mWarning:[0m the broker's password isn't set
+[31m✗[0m [31mError:[0m device/salon/on takes true or false, not maybe
+[2mHint: oikade status salon shows it[0m
+[31m✗[0m [31mError:[0m the host can't write its data directory, /var/lib/oikade
+[2mHint: run it as root, or pass --data-dir[0m
+[2mDebug: the host can't write its data directory, /var/lib/oikade: mkdir /var/lib/oikade: permission denied[0m
