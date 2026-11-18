@@ -165,6 +165,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 			log.Info("Took Matter command", append([]any{"device", e.device(), "command", command}, args...)...)
 		}
 		d.Send = func() { b.Writes.Send(e.device()) }
+		d.Gathering = func(name string) bool { return b.Writes.Gathering(e.device(), name) }
 		e.mapped = Map(d, func(name string, value any) { b.Writes.Add(e.device(), name, value) })
 		info, err := b.Matter.AddDeviceTypes(id, e.mapped.Types, e.label, d.uniqueID(), e.mapped.Clusters...)
 		if err != nil {

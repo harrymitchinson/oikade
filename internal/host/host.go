@@ -264,6 +264,7 @@ func (h *Host) Run(ctx context.Context) error {
 			srv.shutdown()
 		}},
 		{name: "Finishing device writes", run: func(ctx context.Context) {
+			bridge.sendGathering()
 			finishWrites(ctx, func() bool { return writing.Load() > 0 || bridge.gathering() || !eng.Idle() })
 		}},
 		{name: "Stopping plugins", run: func(context.Context) {

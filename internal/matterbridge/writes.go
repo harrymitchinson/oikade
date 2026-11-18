@@ -49,8 +49,8 @@ type gathering struct {
 	// timer fires at due. A write that moves due replaces it, and wakes the burst.
 	timer clock.Timer
 	wake  chan struct{}
-	// over is set once the burst has ended, and is waiting to be sent or being sent. A write then
-	// still joins it, but doesn't move due.
+	// over is set once the burst has ended, or Send has ended it, and is waiting to be sent or being
+	// sent. A write then still joins it, but doesn't move due.
 	over bool
 }
 
@@ -150,14 +150,35 @@ func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 }
 
 // Send ends a device's burst now, rather than when its writes' windows are over: a stop can't wait
-// for more of a move. It doesn't block.
+// for more of a move. A write after it still joins the burst, without holding it back. It doesn't
+// block.
 func (c *Coalescer) Send(dev ident.ID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if g := c.waiting[dev]; g != nil && !g.over {
-		g.due = c.now()
+	if g := c.waiting[dev]; g != nil {
+		g.over = true
 		g.wakeUp()
 	}
+}
+
+// SendAll ends every burst now, as the host stops: a write still gathering would otherwise use up
+// the time it has to reach its device.
+func (c *Coalescer) SendAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, g := range c.waiting {
+		g.over = true
+		g.wakeUp()
+	}
+}
+
+// Gathering says a write to a device's capability is waiting to be sent: the device hasn't been
+// told of it.
+func (c *Coalescer) Gathering(dev ident.ID, name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.pending[writeKey{dev, name}]
+	return ok
 }
 
 func (g *gathering) wakeUp() {
@@ -172,7 +193,7 @@ func (c *Coalescer) gather(ctx context.Context, g *gathering) bool {
 	for {
 		c.mu.Lock()
 		timer := g.timer
-		if !c.now().Before(g.due) {
+		if g.over || !c.now().Before(g.due) {
 			g.over = true
 			timer.Stop()
 			c.mu.Unlock()

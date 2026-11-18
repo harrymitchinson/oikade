@@ -299,3 +299,34 @@ func TestABlindsStopDoesntWaitForItsMove(t *testing.T) {
 		t.Errorf("writes %v, want only the stop's", got)
 	}
 }
+
+// A stop before the blind has been sent its move works, and leaves it where it is: it hasn't
+// started, so the position it last reported is where it is. Without the gathering it would fail,
+// as a stop with no report since the move does, and the Home app would show No Response.
+func TestABlindStoppedBeforeItsMoveIsSentStaysPut(t *testing.T) {
+	b := newBridgeRig()
+	fake := clock.NewFake(time.Date(2026, 11, 18, 15, 30, 0, 0, time.UTC))
+	rec := &recorder{}
+	b.Writes = &Coalescer{Setter: rec, Current: func(ident.ID, string) (any, bool) { return nil, false }, Clock: fake}
+	b.Writes.Start(t.Context())
+	apply(t, b, device("blind", 2, capability.Position))
+	b.Changed(driver.Update{Device: ident.ID{Name: "blind"}, Capability: capability.Position, Value: 10.0})
+	var stopErr error
+	b.Matter.Node.Update(func() {
+		c := b.Matter.Node.Endpoint(2).Cluster(clusters.IDWindowCovering)
+		invoke(t, c, clusters.CommandGoToLiftPercentage, goToLift0(6000))
+		for _, x := range c.Commands {
+			if x.ID == clusters.CommandStopMotion {
+				_, stopErr = x.Invoke(nil, nil)
+			}
+		}
+	})
+	if stopErr != nil {
+		t.Fatalf("StopMotion before the move was sent: %v", stopErr)
+	}
+	testkit.Eventually(t, "the stop's write", func() bool { return len(rec.list()) > 0 })
+	b.Writes.flushes.Wait()
+	if got := rec.list(); !slices.Equal(got, []string{"blind position=10"}) {
+		t.Errorf("writes %v, want only where the blind is", got)
+	}
+}
