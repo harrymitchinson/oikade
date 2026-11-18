@@ -156,9 +156,13 @@ if run state OIK-1 Todo; then fail "an agent moved an issue out of Design Review
 ! wrote || fail "a refused move wrote: $(plan_commits)"
 
 # The user moved it to Todo: approved.
-HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Todo Harry) issue OIK-1 todo
+HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Todo "the user") issue OIK-1 todo
 may_build | grep -qx 'May build:  approved' || fail "show doesn't count the user's move to Todo: $(may_build)"
-may_build | grep -qx 'Approved:   by Harry' || fail "show doesn't say who approved it: $(may_build)"
+may_build | grep -qx 'Approved:   by the user' || fail "show doesn't say who approved it: $(may_build)"
+
+# Only "the user" counts: a name the export didn't map to the user doesn't.
+HISTORY=$(moved "Design Review" Todo Harry) issue OIK-1 todo
+may_build | grep -q '^May build:  no' || fail "show counts a move by a name that isn't the user's: $(may_build)"
 
 # Someone else moved it: not approved, and show says who.
 HISTORY=$(moved "Design Review" Todo "Oikade Agent") issue OIK-1 todo
@@ -171,9 +175,9 @@ HISTORY=$(moved "Design Review" Todo Linear) issue OIK-1 todo
 may_build | grep -q '^May build:  no' || fail "show counts a move out of Design Review by Linear: $(may_build)"
 
 # The user sent it back to Backlog, then an agent moved it to Todo: not approved.
-HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Backlog Harry Backlog Todo "Oikade Agent") issue OIK-1 todo
+HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Backlog "the user" Backlog Todo "Oikade Agent") issue OIK-1 todo
 may_build | grep -q '^May build:  no' || fail "show counts a design the user sent back: $(may_build)"
-HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Backlog Harry) issue OIK-1 backlog
+HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Backlog "the user") issue OIK-1 backlog
 if run state OIK-1 Todo; then fail "an agent moved a design the user sent back into Todo"; fi
 ! wrote || fail "a refused move wrote: $(plan_commits)"
 
@@ -197,6 +201,11 @@ may_build | grep -qx 'May build:  approved' || fail "the approval by hand was lo
 # And by hand back to Backlog: not approved, so an agent can't move it to Todo.
 HISTORY=$(moved "" "Design Review" "Oikade Agent") issue OIK-1 backlog
 if run state OIK-1 Todo; then fail "an agent moved a design the user sent back by hand into Todo"; fi
+# Nor once a later move has recorded the one by hand.
+run state OIK-1 Triage || fail "an agent couldn't move a design the user sent back to Triage: $(cat "$tmp/err")"
+grep -q 'Design Review -> Backlog by the user, by hand' "$(plan_file OIK-1)" || fail "the move by hand to Backlog wasn't recorded: $(cat "$(plan_file OIK-1)")"
+if run state OIK-1 Todo; then fail "an agent moved a design the user sent back by hand into Todo, once it was recorded"; fi
+may_build | grep -q '^Approved:   no' || fail "show counts a design the user sent back by hand: $(may_build)"
 
 # approve is the user's: out of Design Review, saying the user did.
 HISTORY=$(moved "" "Design Review" "Oikade Agent") issue OIK-1 design-review
@@ -207,7 +216,7 @@ if run approve OIK-1; then fail "approve moved an issue that isn't in Design Rev
 
 # Design: OIK-2 counts only if the user approved OIK-2.
 HISTORY="" issue OIK-1 todo $'Design: OIK-2\n'
-HISTORY=$(moved "Design Review" Todo Harry) issue OIK-2 todo
+HISTORY=$(moved "Design Review" Todo "the user") issue OIK-2 todo
 may_build | grep -qx 'May build:  builds the design approved in OIK-2' || fail "show doesn't count a Design: line the user approved: $(may_build)"
 HISTORY=$(moved "Design Review" Todo "Oikade Agent") issue OIK-2 todo
 may_build | grep -q '^May build:  no' || fail "show counts a Design: line the agent approved: $(may_build)"
@@ -220,7 +229,7 @@ grep -q "the plan has no issue OIK-77" "$tmp/err" || fail "show didn't say the p
 printf '## Why\nA\n\n## Steps\none\n' >"$tmp/approved.md"
 printf '## Why\nB\n\n## Steps\none\n' >"$tmp/redesigned.md"
 printf '## Why\nA\n\n## Steps\none\ntwo\n' >"$tmp/restepped.md"
-HISTORY=$(moved "Design Review" Todo Harry) issue OIK-1 todo "$(cat "$tmp/approved.md")"
+HISTORY=$(moved "Design Review" Todo "the user") issue OIK-1 todo "$(cat "$tmp/approved.md")"
 if run edit OIK-1 "$tmp/redesigned.md"; then fail "edit changed an approved design"; fi
 ! wrote || fail "edit wrote an approved design: $(plan_commits)"
 run edit OIK-1 "$tmp/restepped.md" || fail "edit refused new Steps on an approved design: $(cat "$tmp/err")"

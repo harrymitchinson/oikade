@@ -41,8 +41,11 @@ USER_NAME="the user"
 
 die() {
 	echo "plan: $*" >&2
-	# A write that stops part-way gives the plan's lock back.
-	if (( ${LOCKS:-0} > 0 )) && [[ -n "${PLAN_DIR:-}" ]]; then rm -rf "$PLAN_DIR/.git/plan.lock"; fi
+	# A write that stops part-way gives the plan's lock back, unless this is a
+	# command substitution inside it, whose caller still holds it.
+	if (( ${LOCKS:-0} > 0 )) && [[ "$BASH_SUBSHELL" == "${LOCK_DEPTH:-}" && -n "${PLAN_DIR:-}" ]]; then
+		rm -rf "$PLAN_DIR/.git/plan.lock"
+	fi
 	exit 1
 }
 
@@ -203,8 +206,27 @@ write_md() {
 # issues: every issue's front matter as one JSON array, each with its folder
 # as path and its status as state {name, type}.
 issues() {
-	local files
+	local head cache
 	plan_dir
+	cache="$PLAN_DIR/.git/plan-index"
+	# A plan with nothing changed since its last commit is read once, and kept
+	# by that commit's hash: every write commits, so a new one means a new read.
+	head=$(git -C "$PLAN_DIR" rev-parse -q --verify HEAD || true)
+	if [[ -n "$head" && -z "$(git -C "$PLAN_DIR" status --porcelain)" ]]; then
+		if [[ -f "$cache" && "$(head -1 "$cache")" == "$head" ]]; then
+			tail -n +2 "$cache"
+			return
+		fi
+		issues_read >"$cache.$$"
+		{ echo "$head"; cat "$cache.$$"; } >"$cache.$$.new" && mv "$cache.$$.new" "$cache"
+		cat "$cache.$$"
+		rm -f "$cache.$$"
+		return
+	fi
+	issues_read
+}
+issues_read() {
+	local files
 	files=("$PLAN_DIR"/*/*/issue.md)
 	[[ -e "${files[0]}" ]] || { echo '[]'; return; }
 	awk 'FNR == 1 {f = ($0 == "---"); next} f && /^---$/ {f = 0; next}
@@ -246,14 +268,14 @@ issue() {
 # Where its folder isn't in the status the last change left it in, someone
 # moved the folder by hand, which only the user does: that's a change too.
 history() {
-	jq -r '(.history | map(capture("^(?<w>[^ ]+) (?<f>.+) -> (?<t>.+) by (?<a>.*)$"))) as $h
+	jq -r '(.history | map(capture("^(?<w>[^ ]+) (?<f>.+?) -> (?<t>.+?) by (?<a>.*)$"))) as $h
 		| ($h[] | [.w, .f, .t, .a] | @tsv),
 		(if ($h | length) > 0 and $h[-1].t != .state.name then ["-", $h[-1].t, .state.name, "the user, by hand"] | @tsv else empty end)' <<<"$1"
 }
 
-# is_user WHO: whether the change was the user's: anyone but an agent, or
-# Linear's own automations from before the plan moved out of Linear.
-is_user() { [[ -n "$1" && "$1" != "$AGENT" && "$1" != Linear ]]; }
+# is_user WHO: whether the change was the user's: what approve writes, a move
+# by hand, or the export's name for the workspace's one human admin.
+is_user() { [[ "$1" == "$USER_NAME" || "$1" == "$USER_NAME, by hand" ]]; }
 
 # --- Writing the plan ---------------------------------------------------------
 
@@ -269,7 +291,7 @@ lock() {
 	for ((i = 0; i < LOCK_WAIT * 10; i++)); do
 		if mkdir "$l" 2>/dev/null; then
 			echo $$ >"$l/pid"
-			LOCKS=1
+			LOCKS=1 LOCK_DEPTH="$BASH_SUBSHELL"
 			return
 		fi
 		pid=$(cat "$l/pid" 2>/dev/null || true)
@@ -325,20 +347,13 @@ _set_state() {
 		set_fm "$d/issue.md" '.["status-history"] += ["\($t) \($f) -> \($c) by the user, by hand"]' \
 			--arg t "$t" --arg f "$(cut -f2 <<<"$last")" --arg c "$cur"
 	fi
-	set_fm "$d/issue.md" '.["status-history"] += ["\($t) \($f) -> \($to) by \($who)"] | .updated = $t
+	# The folder moves first, so a history line never claims a move that didn't happen.
+	mkdir -p "$PLAN_DIR/$dest"
+	git -C "$PLAN_DIR" mv "$d" "$PLAN_DIR/$dest/" || die "couldn't move $n's folder to $dest/"
+	set_fm "$PLAN_DIR/$dest/$(basename "$d")/issue.md" '.["status-history"] += ["\($t) \($f) -> \($to) by \($who)"] | .updated = $t
 		| if $type == "completed" then .completed = $t elif $type == "canceled" then .canceled = $t
 		elif $type == "started" and .started == null then .started = $t else . end' \
 		--arg t "$t" --arg f "$cur" --arg to "$name" --arg who "${3:-$AGENT}" --arg type "$(cut -d'|' -f3 <<<"$s")"
-	mkdir -p "$PLAN_DIR/$dest"
-	git -C "$PLAN_DIR" mv "$d" "$PLAN_DIR/$dest/"
-}
-
-# set_body ID FILE: replace the issue's description with FILE.
-set_body() { plan_write "$1: edit the description" _set_body "$@"; }
-_set_body() {
-	local f
-	f="$(folder "$1")/issue.md"
-	write_md "$f" "$(fm "$f" | jq -c --arg t "$(now)" '.updated = $t')" "$(cat "$2")"
 }
 
 # comment ID TEXT [WHO]: add a comment, a file of its own named for its time
@@ -1233,9 +1248,11 @@ cmd_sync() {
 				if [[ "$type" != completed ]]; then
 					k=$(line_step "$s")
 					if [[ -n "$k" ]]; then
-						tick "$n" "$k" && echo "$n: ticked step $k, PR #$pr merged"
+						tick "$n" "$k"
+						echo "$n: ticked step $k, PR #$pr merged"
 					elif [[ "$s" != "$n" ]]; then
-						set_state "$s" Done && echo "$s: done, PR #$pr merged"
+						set_state "$s" Done
+						echo "$s: done, PR #$pr merged"
 					fi
 				fi
 				continue
@@ -1243,12 +1260,17 @@ cmd_sync() {
 			# Merged into the step below it, or open: not done, whatever the plan says.
 			if [[ "$st" != MERGED && ( "$type" == completed || "$type" == canceled ) ]]; then continue; fi
 			open=1
-			if [[ "$st" == OPEN && "$type" != started ]] && sub_issue "$s" "$n"; then set_state "$s" "In Review" && echo "$s: in review, PR #$pr"; fi
+			if [[ "$st" == OPEN && "$type" != started ]] && sub_issue "$s" "$n"; then
+				set_state "$s" "In Review"
+				echo "$s: in review, PR #$pr"
+			fi
 		done < <(steps "$json")
 		if (( open == 0 )); then
-			set_state "$n" Done && echo "$n: done, every step merged"
+			set_state "$n" Done
+			echo "$n: done, every step merged"
 		elif [[ "$(jq -r .state.name <<<"$json")" == "In Progress" && "$claimed" != *" $n "* ]]; then
-			set_state "$n" Todo && echo "$n: back to Todo, nobody claims it"
+			set_state "$n" Todo
+			echo "$n: back to Todo, nobody claims it"
 		fi
 	done
 }
@@ -1318,9 +1340,16 @@ above_steps() { awk '/^##[ \t]+Steps[ \t]*$/ {exit} {print}'; }
 # edit ID FILE: once the user has approved a design, it's what they decided,
 # so only ## Steps and below may change.
 cmd_edit() {
-	local n file="${2:?usage: plan edit ID BODY_FILE}" a cur old
+	local n file="${2:?usage: plan edit ID BODY_FILE}"
 	n=$(id "${1:?usage: plan edit ID BODY_FILE}")
 	need_file "$file"
+	folder "$n" >/dev/null
+	# The checks run under the lock, so the user can't approve the design in between.
+	plan_write "$n: edit the description" _edit "$n" "$file"
+	echo "Edited $n"
+}
+_edit() {
+	local n="$1" file="$2" a cur old f
 	a=$(approval "$n") || exit 1
 	cur=$(issue "$n" | jq -r '.description // ""')
 	if [[ "$a" == approved* ]] && [[ "$(above_steps <<<"$cur")" != "$(above_steps <"$file")" ]]; then
@@ -1331,8 +1360,8 @@ cmd_edit() {
 	if [[ -n "$old" && "$(checklist_lines <"$file" | cut -f2 | head -n "$(grep -c . <<<"$old")")" != "$old" ]]; then
 		die "$n's steps are numbered by their place in ## Steps, and their branches and PRs with them: keep the lines it has, in order and as worded, and add new ones at the end. Tick one that's no longer needed rather than removing it"
 	fi
-	set_body "$n" "$file"
-	echo "Edited $n"
+	f="$(folder "$n")/issue.md"
+	write_md "$f" "$(fm "$f" | jq -c --arg t "$(now)" '.updated = $t')" "$(cat "$file")"
 }
 
 cmd_state() {
@@ -1387,26 +1416,28 @@ cmd_label() {
 
 # _labels ID ADD_JSON REMOVE_JSON: add and remove labels, ignoring case.
 _labels() {
-	set_fm "$(folder "$1")/issue.md" '.labels = ((.labels // []) + $add | unique
+	local f
+	f="$(folder "$1")/issue.md"
+	set_fm "$f" '.labels = ((.labels // []) + $add | unique
 		| map(select(ascii_downcase as $l | $rm | map(ascii_downcase) | index($l) | not))) | .updated = $now' \
 		--argjson add "$2" --argjson rm "$3" --arg now "$(now)"
 }
 
 cmd_block() {
-	local n m
+	local n m f
 	n=$(id "${1:?usage: plan block ID BLOCKER}") m=$(id "${2:?usage: plan block ID BLOCKER}")
 	folder "$m" >/dev/null
-	plan_write "$n: blocked by $m" set_fm "$(folder "$n")/issue.md" '.["blocked-by"] = ((.["blocked-by"] // []) + [$m] | unique)' --arg m "$m"
+	f="$(folder "$n")/issue.md"
+	plan_write "$n: blocked by $m" set_fm "$f" '.["blocked-by"] = ((.["blocked-by"] // []) + [$m] | unique)' --arg m "$m"
 	echo "$n is blocked by $m"
 }
 
 cmd_projects() {
-	local f all name
+	local f all
 	plan_dir
 	all=$(issues)
 	for f in "$PLAN_DIR"/releases/*.md; do
 		[[ -e "$f" ]] || { echo "No releases. hack/plan project new NAME FILE adds one."; return; }
-		name=$(fm "$f" | jq -r .name)
 		# Progress is the share of the release's issues that are done, of those not canceled.
 		fm "$f" | jq -r --argjson all "$all" --rawfile c <(body "$f") '
 			.name as $n | [$all[] | select(.release == $n and (.state.type | IN("canceled", "duplicate") | not))] as $is
@@ -1436,7 +1467,8 @@ cmd_project() {
 	set)
 		n=$(id "${2:?usage: plan project set ID NAME}") name="${3:?usage: plan project set ID NAME}"
 		release_file "$name" >/dev/null
-		plan_write "$n: in $name" set_fm "$(folder "$n")/issue.md" '.release = $r | .updated = $now' --arg r "$name" --arg now "$(now)"
+		f="$(folder "$n")/issue.md"
+		plan_write "$n: in $name" set_fm "$f" '.release = $r | .updated = $now' --arg r "$name" --arg now "$(now)"
 		echo "$n is in $name"
 		;;
 	close)

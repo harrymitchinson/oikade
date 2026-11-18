@@ -95,7 +95,13 @@ all() {
 		nodes { $2 } pageInfo { hasNextPage endCursor } } }" '{}' ".$1"
 }
 
-HISTORY='createdAt fromState { name } toState { name } actor { name } botActor { name }'
+HISTORY='createdAt fromState { name } toState { name } actor { id name } botActor { name }'
+
+# The user: the workspace's one active admin who isn't an app. A status change
+# they made says "by the user", which is what hack/plan counts as theirs.
+owner=$(lin '{ users(filter: {admin: {eq: true}, active: {eq: true}}) { nodes { id app } } }' |
+	jq -r '[.users.nodes[] | select(.app | not) | .id] | if length == 1 then .[0] else empty end')
+[[ -n "$owner" ]] || die "can't tell who the user is: Linear has no one active human admin, so nothing was exported"
 
 team_filter="{team: {key: {eq: \"$TEAM\"}}}"
 echo "Fetching $TEAM's issues from Linear" >&2
@@ -152,7 +158,7 @@ fi
 jq -rn \
 	--slurpfile issues "$work/issues.json" --slurpfile comments "$work/comments.json" \
 	--slurpfile projects "$work/projects.json" --slurpfile updates "$work/updates.json" \
-	--slurpfile documents "$work/documents.json" --arg team "$TEAM" '
+	--slurpfile documents "$work/documents.json" --arg team "$TEAM" --arg owner "$owner" '
 def slug: ascii_downcase | gsub("[^a-z0-9]+"; "-") | gsub("^-+|-+$"; "")
 	| if length > 60 then .[:60] | sub("-[^-]*$"; "") else . end;
 def docname: if (.title | slug) == "" then "untitled-\(.id[:8])" else .title | slug end;
@@ -212,7 +218,7 @@ def uploads($folder; $text): files_of($text)[] | "\($folder)/files/\(split("/") 
 			["archived", ($i.archivedAt | t)],
 			["links", [$i.attachments.nodes[] | "\(.title) \(.url)"]],
 			["status-history", [$i.history.nodes | sort_by(.createdAt)[] | select(.toState != null)
-				| "\(.createdAt | ts) \(.fromState.name // "none") -> \(.toState.name) by \(.actor.name // .botActor.name // "Linear")"]]
+				| "\(.createdAt | ts) \(.fromState.name // "none") -> \(.toState.name) by \(if .actor.id == $owner then "the user" else .actor.name // .botActor.name // "Linear" end)"]]
 		]) + "\n" + ($i.description // "" | local("") | delinear("../../"; $docnames)) + "\n"),
 	uploads($folder; $i.description),
 	($cs[] as $c | (
