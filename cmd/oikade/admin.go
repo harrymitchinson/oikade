@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -26,7 +25,7 @@ func publishedVersion() string {
 }
 
 func runBackup(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("backup", flag.ExitOnError)
+	fs := newFlags("backup")
 	t := addTarget(fs)
 	_ = fs.Parse(args)
 	resp, err := api.Call(ctx, t.transport(), api.Request{Type: api.TypeBackup})
@@ -41,7 +40,7 @@ func runBackup(ctx context.Context, args []string) error {
 }
 
 func runSecret(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("secret", flag.ExitOnError)
+	fs := newFlags("secret")
 	t := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
@@ -65,7 +64,7 @@ func runSecret(ctx context.Context, args []string) error {
 	case len(words) == 2 && words[0] == "remove":
 		req = api.Request{Type: api.TypeSecretRemove, Secret: words[1]}
 	default:
-		return cli.UsageErrorf("usage: oikade secret list | set NAME | remove NAME")
+		return cli.UsageErrorf("oikade secret takes list, set NAME, or remove NAME")
 	}
 	resp, err := api.Call(ctx, t.transport(), req)
 	if err != nil {
@@ -81,7 +80,7 @@ func runSecret(ctx context.Context, args []string) error {
 		}
 		return cli.PrintJSON(struct{}{})
 	}
-	return printSecrets(cli.NewPrinter(os.Stdout), cli.NewPrinter(os.Stderr), resp.Secrets, *asJSON)
+	return printSecrets(std.out, std.err, resp.Secrets, *asJSON)
 }
 
 // printSecrets lists the secrets' names, or says there are none and how to add one.

@@ -1,0 +1,20 @@
+exit 0
+--- stdout
+oikade-host client add: Print a code for oikade login, or a token for CI, from
+the host running here.
+
+It goes only over the host's socket, so a stolen token can't make more clients.
+oikade client lists and revokes them.
+
+Usage:
+  oikade-host client add NAME [--token] [--data-dir DIR] [--json]
+
+Flags:
+  --token         Print a token for the client to send, such as CI, rather than
+                  a code to log in with.
+  --data-dir DIR  The host's data directory. (default /var/lib/oikade)
+  --json          Print JSON, whose fields stay stable for scripts.
+
+Example:
+  sudo oikade-host client add laptop
+--- stderr

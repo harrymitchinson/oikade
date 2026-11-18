@@ -1,0 +1,7 @@
+exit 2
+--- stdout
+--- stderr
+Error: --since needs a value
+Usage:
+  oikade replay [--module DIR] [--types FILE] [--since DURATION] [--json]
+Hint: oikade replay --help says more

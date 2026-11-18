@@ -1,0 +1,7 @@
+exit 2
+--- stdout
+--- stderr
+Error: oikade deploy has no flag --bogus
+Usage:
+  oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
+Hint: oikade deploy --help says more

@@ -1,0 +1,63 @@
+exit 0
+--- stdout
+oikade-host: Run the host: the one process per home that runs your home and its
+plugins, and serves Matter and the API.
+
+Everything you run from your laptop, from deploy to status, is oikade.
+
+Usage:
+  oikade-host [FLAGS]
+
+Flags:
+  --api-addr ADDRESS             Where to serve the API over TLS, for clients
+                                 with a token, such as :8443. Empty serves it
+                                 only on the socket.
+  --broker URL                   The MQTT broker --outside-plugins speak the
+                                 contract on. A plugin your home imports, such
+                                 as Zigbee2MQTT, takes its broker in its Config.
+  --broker-password-secret NAME  The secret with the password for --broker,
+                                 whose URL names the user. A password in a flag
+                                 lands in ps.
+  --data-dir DIR                 Directory with all the host's state. (default
+                                 /var/lib/oikade)
+  --event-log-age DURATION       How long oikade replay's event log keeps
+                                 events. (default 336h)
+  --event-log-mib MIB            The most oikade replay's event log holds, in
+                                 MiB. (default 64)
+  --heartbeat-timeout DURATION   How long your process may go without answering.
+                                 (default 10s)
+  --home BINARY                  Your home's binary, until one is deployed.
+  --matter-interfaces LIST       Comma-separated interfaces to advertise Matter
+                                 on. Empty means every multicast interface.
+  --matter-port PORT             The Matter bridge's UDP port. 0 turns Matter
+                                 off. (default 5540)
+  --metrics-addr ADDRESS         Where to serve metrics and health over HTTP.
+                                 Empty serves neither. (default :8080)
+  --outside-plugins LIST         Comma-separated plugins that run as processes
+                                 of their own and speak the MQTT contract on
+                                 --broker, under oikade/v1/<name>.
+  --plugin-set-timeout DURATION  How long a plugin's Set may run before the
+                                 plugin counts as hung. (default 30s)
+  --secrets-dir DIR              Directory of secrets, one file each. Defaults
+                                 to secrets in --data-dir. A read-only one is
+                                 fine.
+  --settle DURATION              How long a new version must stay up. (default
+                                 5s)
+  --simulate FILE                JSON file of simulated devices. Lines of JSON
+                                 on stdin change them.
+  --stop-timeout DURATION        How long stopping may take before the rest is
+                                 cut off. Keep it under systemd's
+                                 TimeoutStopSec. (default 10s)
+
+Commands:
+  client add  Print a code for oikade login, or a token for CI, from the host
+              running here.
+  install     Install this binary as the host under systemd, or upgrade the one
+              there.
+  version     Print this oikade-host's version.
+
+oikade-host COMMAND --help says more of one.
+
+Example:
+  oikade-host --data-dir /srv/oikade --api-addr :8443
+--- stderr

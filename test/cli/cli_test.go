@@ -3,6 +3,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -384,6 +385,32 @@ func TestHelpPrintsTheUsage(t *testing.T) {
 			t.Errorf("oikade %s: %v: %s", help, err, out)
 		}
 	}
+	// A command's own help, and a slip, exit as a person and a script expect: 0, and 2 with that
+	// command's usage alone.
+	if out, err := run(t, bin, dir, "", "deploy", "--help"); err != nil ||
+		!strings.Contains(out, "--module DIR") || strings.Contains(out, "Usage of") {
+		t.Errorf("oikade deploy --help: %v: %s", err, out)
+	}
+	for args, want := range map[string]string{
+		"deploy --bogus": "Error: oikade deploy has no flag --bogus\nUsage:\n  oikade deploy ",
+		"statu":          "Error: unknown command statu\nHint: did you mean status?",
+	} {
+		out, err := run(t, bin, dir, "", strings.Fields(args)...)
+		if code := exitCode(err); code != 2 || !strings.HasPrefix(out, want) || strings.Contains(out, "oikade rollback") {
+			t.Errorf("oikade %s exits %d:\n%s", args, code, out)
+		}
+	}
+}
+
+// exitCode is the code a command that ran exited with.
+func exitCode(err error) int {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		return exitErr.ExitCode()
+	}
+	if err != nil {
+		return -1
+	}
+	return 0
 }
 
 // oikade runs on a laptop, so it carries nothing of the host: not the host, not Matter.
@@ -419,7 +446,8 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 		t.Errorf("oikade-host version: %v: %q", err, out)
 	}
 	for _, help := range []string{"help", "-h", "--help"} {
-		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "Usage:") {
+		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "oikade-host: Run the host") ||
+			!strings.Contains(out, "--data-dir DIR") || !strings.Contains(out, "client add") {
 			t.Errorf("oikade-host %s: %v: %s", help, err, out)
 		}
 	}

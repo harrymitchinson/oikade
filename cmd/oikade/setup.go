@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -28,12 +27,12 @@ import (
 const redirectWait = 5 * time.Minute
 
 func runSetup(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("setup", flag.ExitOnError)
+	fs := newFlags("setup")
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print how it ended as JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
 	if len(words) != 1 {
-		return cli.UsageErrorf("usage: oikade setup PLUGIN")
+		return cli.UsageErrorf("oikade setup takes the plugin to set up")
 	}
 	transport, host := target.resolve()
 	s := setupper{

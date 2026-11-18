@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -21,9 +20,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-const devicesUsage = "usage: oikade devices [remove DEVICE | remove --plugin NAME]. " +
-	"A device's name, room and type are your home's code's: home.Device declares them"
-
 // nameHeader is the header of a table's first column, of what each row is.
 const nameHeader = "NAME"
 
@@ -31,7 +27,7 @@ const nameHeader = "NAME"
 const verbRemove = "remove"
 
 func runDevices(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("devices", flag.ExitOnError)
+	fs := newFlags("devices")
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	all := fs.Bool("all", false, "List removed devices too, which keep their Matter endpoints.")
@@ -65,7 +61,8 @@ func runDevices(ctx context.Context, args []string) error {
 				"If it's still paired, it comes back when it next reports", words[0])
 		}
 	default:
-		return cli.UsageErrorf(devicesUsage)
+		return cli.UsageErrorf("oikade devices takes nothing, remove DEVICE, or remove --plugin NAME").
+			WithHint("a device's name, room and type are your home's code's: home.Device declares them")
 	}
 	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
@@ -130,8 +127,8 @@ func listDevices(ctx context.Context, target target, asJSON, all, wide bool) err
 		noDevices(os.Stderr, removed)
 		return nil
 	}
-	stderr := cli.NewPrinter(os.Stderr)
-	undeclared, dropped := printDevices(cli.NewPrinter(os.Stdout), list, marks, wide)
+	stderr := std.err
+	undeclared, dropped := printDevices(std.out, list, marks, wide)
 	if len(dropped) > 0 {
 		stderr.Hint("--wide shows %s", strings.Join(dropped, " and "))
 	}
@@ -288,7 +285,7 @@ func listed(list registry.Snapshot, marks deviceMarks) any {
 }
 
 func runTypes(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("types", flag.ExitOnError)
+	fs := newFlags("types")
 	target := addTarget(fs)
 	out := fs.String("out", "devices.go", "The file to write, or - for standard output.")
 	pkg := fs.String("package", "main", "The file's Go package.")

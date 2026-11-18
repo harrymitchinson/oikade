@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -43,7 +42,7 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 // runCheck finds what's wrong with a home without touching one: the compiler, then the source, then the
 // checks your binary makes of itself, which are the ones a deploy makes.
 func runCheck(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	fs := newFlags("check")
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
@@ -180,7 +179,7 @@ func printHiding(out io.Writer, list registry.Snapshot, hidden []wire.HiddenPlug
 
 // runTest runs a home's tests. Anything after the flags goes to go test.
 func runTest(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("test", flag.ExitOnError)
+	fs := newFlags("test")
 	module := fs.String("module", ".", "Your home's module.")
 	_ = fs.Parse(args)
 	packages := fs.Args()
@@ -198,7 +197,7 @@ func runTest(ctx context.Context, args []string) error {
 
 // runDev runs a home against a simulated one, built from the committed types file.
 func runDev(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("dev", flag.ExitOnError)
+	fs := newFlags("dev")
 	module := fs.String("module", ".", "Your home's module.")
 	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
@@ -220,7 +219,7 @@ func runDev(ctx context.Context, args []string) error {
 
 // runInit starts a home in a directory that hasn't one.
 func runInit(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	fs := newFlags("init")
 	name := fs.String("module", "home", "Your module's path.")
 	source := fs.String("source", "", "A checkout of Oikade to build against, rather than a published version.")
 	extra := cli.ParseFlags(fs, args)

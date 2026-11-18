@@ -1,0 +1,8 @@
+exit 2
+--- stdout
+--- stderr
+Error: oikade set takes a capability and its value
+Usage:
+  oikade set device/DEVICE/CAPABILITY VALUE [--json]
+  oikade set DEVICE CAPABILITY VALUE [--json]
+Hint: oikade set --help says more

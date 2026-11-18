@@ -1,0 +1,5 @@
+exit 2
+--- stdout
+--- stderr
+Error: unknown command statu
+Hint: did you mean status? oikade help lists them

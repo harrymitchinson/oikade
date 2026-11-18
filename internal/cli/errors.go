@@ -93,6 +93,11 @@ func Debug(args []string, passOn ...string) (rest []string, debug bool) {
 // Error with Usage, and ExitFailed otherwise. An Error prints its Message, and its cause only if
 // debug asks for it. Any other error prints in full.
 func (p *Printer) Fail(err error, debug bool) int {
+	return p.fail(err, debug, true)
+}
+
+// fail is Fail, with or without the hint.
+func (p *Printer) fail(err error, debug, withHint bool) int {
 	code := ExitFailed
 	message, hint, full := err.Error(), "", ""
 	if e, ok := errors.AsType[*Error](err); ok {
@@ -105,7 +110,7 @@ func (p *Printer) Fail(err error, debug bool) int {
 		}
 	}
 	p.Println(p.glyph("✗", p.Red) + p.Red("Error:") + " " + message)
-	if hint != "" {
+	if hint != "" && withHint {
 		p.Hint("%s", hint)
 	}
 	if full != "" {
