@@ -107,7 +107,9 @@ type PlanInput struct {
 	// Now is the planning time, which judges the age of a bands input.
 	Now time.Time
 	// NotBefore makes slots that end at or before it unavailable. The slot in progress stays
-	// available, so planning a moment after a slot edge doesn't lose the slot.
+	// available, so planning a moment after a slot edge doesn't lose the slot. But once a minute
+	// or more of it has passed, a block the budget starts there counts MinimumRun from
+	// NotBefore, not from the slot's start, so it runs one slot longer or starts at the next.
 	NotBefore time.Time
 	// Slots are the planning day's slots, contiguous and all of one length, as from DaySlots.
 	// Windows match against the slots' own location.
@@ -393,6 +395,7 @@ func search(in PlanInput, classes []slotClass, extra int) [2]uint64 {
 		start.gap = minRest - resting
 	}
 
+	late := lateSlot(in)
 	layer := map[key]plan{start: {}}
 	for i, c := range classes {
 		next := make(map[key]plan, len(layer))
@@ -408,7 +411,7 @@ func search(in PlanInput, classes []slotClass, extra int) [2]uint64 {
 					keep(k2, p)
 				}
 			case required:
-				if k2, ok := onSlot(k, true, minRun, minRest, limit); ok {
+				if k2, ok := onSlot(k, true, i == late, minRun, minRest, limit); ok {
 					keep(k2, withSlot(p, i, 0, k2, k))
 				}
 			case allowed:
@@ -416,7 +419,7 @@ func search(in PlanInput, classes []slotClass, extra int) [2]uint64 {
 					keep(k2, p)
 				}
 				if k.chosen < extra {
-					if k2, ok := onSlot(k, false, minRun, minRest, limit); ok {
+					if k2, ok := onSlot(k, false, i == late, minRun, minRest, limit); ok {
 						k2.chosen++
 						keep(k2, withSlot(p, i, c.score, k2, k))
 					}
@@ -439,6 +442,20 @@ func search(in PlanInput, classes []slotClass, extra int) [2]uint64 {
 	return best.on
 }
 
+// lateSlot returns the slot in progress once a minute or more of it has passed, or -1. A block
+// that starts there runs only from NotBefore, so that slot doesn't count towards the minimum run.
+func lateSlot(in PlanInput) int {
+	for i, s := range in.Slots {
+		if s.End.After(in.NotBefore) {
+			if in.NotBefore.Sub(s.Start) >= time.Minute {
+				return i
+			}
+			return -1
+		}
+	}
+	return -1
+}
+
 func slotsCeil(d, step time.Duration) int {
 	return int(math.Ceil(float64(d) / float64(step)))
 }
@@ -455,8 +472,9 @@ func off(k key, minRun, minRest int) (key, bool) {
 	return k, true
 }
 
-// onSlot moves a state through an on slot, required or chosen by the budget.
-func onSlot(k key, isRequired bool, minRun, minRest, limit int) (key, bool) {
+// onSlot moves a state through an on slot, required or chosen by the budget. A late slot is
+// the slot in progress, which doesn't count towards a new block's minimum run.
+func onSlot(k key, isRequired, late bool, minRun, minRest, limit int) (key, bool) {
 	if k.on {
 		if !isRequired && k.locked {
 			return k, false
@@ -476,7 +494,11 @@ func onSlot(k key, isRequired bool, minRun, minRest, limit int) (key, bool) {
 		}
 		starts++
 	}
-	return key{chosen: k.chosen, starts: starts, on: true, run: min(1, minRun), fixed: isRequired, locked: short}, true
+	run := min(1, minRun)
+	if late {
+		run = 0
+	}
+	return key{chosen: k.chosen, starts: starts, on: true, run: run, fixed: isRequired, locked: short}, true
 }
 
 func withSlot(p plan, i, score int, now, before key) plan {
