@@ -373,9 +373,12 @@ func (e *Engine) triggerAfterWrites(key ident.ID, s *state, vars Vars) {
 
 // startWrites runs the hold writes evaluate queued, and then the flows the same look set off.
 // Writes that can reach the same device, those in one room or to one device with no room, run one
-// after another. Claims go first, highest level first: a Safety claim is in before a Normal one, so
-// the arbiter never writes the Normal value. Plain writes, with nothing to arbitrate, go after,
-// lowest level first, so the highest level's value is the one that stays. Writes elsewhere run
+// after another. Claims go first: those that start before those that end, so a hold taking over from
+// another at the same moment has claimed before the other lets go and the arbiter never falls back to
+// the default (OIK-343), and then highest level first: a Safety claim is in before a Normal one, so
+// the arbiter never writes the Normal value. Plain writes, with nothing to arbitrate, go after: ends
+// first, since a bool's end writes the opposite of its value, then lowest level first, so a start's
+// value, and the highest level's, is the one that stays. Writes elsewhere run
 // alongside, so a slow device holds up only its own room. Call with e.mu held, after every
 // evaluate of the look.
 func (e *Engine) startWrites(ctx context.Context) {
@@ -413,15 +416,19 @@ func (e *Engine) startWrites(ctx context.Context) {
 					return -1
 				}
 				return 1
-			case a.ends != b.ends:
+			case a.ends != b.ends && a.claims:
 				// A claim ends after the starts, so a hold that takes over from it at the same
-				// moment has claimed before it lets go, and the arbiter never falls back to the
-				// default on the way (OIK-343). A plain end writes the opposite of its value, so it
-				// goes first, and a start's value is the one that stays.
-				if a.ends == a.claims {
+				// moment has claimed before it lets go (OIK-343).
+				if a.ends {
 					return 1
 				}
 				return -1
+			case a.ends != b.ends:
+				// A plain end writes the opposite of its value, so it goes before the starts.
+				if a.ends {
+					return -1
+				}
+				return 1
 			case a.level != b.level && a.claims:
 				return cmp.Compare(b.level, a.level)
 			case a.level != b.level:
