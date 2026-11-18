@@ -1,6 +1,6 @@
 [
   {"ieee_address":"0x00124b0000000001","friendly_name":"Coordinator","type":"Coordinator","definition":null},
-  {"ieee_address":"0x000b57fffe000001","friendly_name":"0x000b57fffe000001","type":"Router",
+  {"ieee_address":"0x000b57fffe000001","friendly_name":"0x000b57fffe000001","type":"Router","software_build_id":"2.3.087",
    "definition":{"vendor":"IKEA","model":"LED1545G12","exposes":[
      {"type":"light","features":[
        {"type":"binary","name":"state","property":"state","value_on":"ON","value_off":"OFF","value_toggle":"TOGGLE","access":7},

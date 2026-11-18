@@ -291,13 +291,13 @@ func TestEveryPairedDeviceIsReportedAndCanBeSet(t *testing.T) {
 		got.Devices[i].DeviceType != "" {
 		t.Errorf("the plug: %+v", got.Devices)
 	}
-	// The light says what it is, in both lists, with nobody setting it.
+	// The light says what it is, and its firmware, in both lists, with nobody setting it.
 	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == lampIEEE }); i < 0 ||
-		got.Devices[i].DeviceType != contractv1.DimmableLight {
+		got.Devices[i].DeviceType != contractv1.DimmableLight || got.Devices[i].FirmwareVersion != "2.3.087" {
 		t.Errorf("the lamp: %+v", got.Devices)
 	}
 	if i := slices.IndexFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == lampIEEE }); i < 0 ||
-		got.Discovered[i].DeviceType != contractv1.DimmableLight {
+		got.Discovered[i].DeviceType != contractv1.DimmableLight || got.Discovered[i].FirmwareVersion != "2.3.087" {
 		t.Errorf("the lamp: %+v", got.Discovered)
 	}
 

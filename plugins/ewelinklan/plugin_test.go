@@ -863,3 +863,22 @@ func TestAGoodbyeOrAnAddressIsntHearingFromADevice(t *testing.T) {
 	b.advance(2 * time.Second)
 	b.waitAvailability(relayID, contractv1.Offline)
 }
+
+// A device's firmware is in the devices list once a report says it, and stays through reports that
+// don't, as a short report after a switch doesn't.
+func TestADevicesFirmwareIsReported(t *testing.T) {
+	b := start(t, Config{}, fast)
+	b.secret(relayID, fixtureKey)
+	d := b.device(relayID, "th_plug", map[string]any{"switch": "off", "currentTemperature": "11.9", "fwVersion": "1.3.0"})
+	d.report()
+	b.eventually("the firmware", func() bool { return b.reports()[relayID].FirmwareVersion == "1.3.0" })
+
+	d.mu.Lock()
+	d.fields = map[string]any{"switch": "on"}
+	d.mu.Unlock()
+	d.report()
+	b.waitState(relayID, "on", "true")
+	if got := b.reports()[relayID].FirmwareVersion; got != "1.3.0" {
+		t.Errorf("a report without the firmware made it %q", got)
+	}
+}

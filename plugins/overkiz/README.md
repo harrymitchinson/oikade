@@ -41,7 +41,7 @@ A refused password shows in `oikade status`, and the plugin waits for the secret
 
 ## What it reports
 
-Each device's ID comes from its Overkiz device URL, `<protocol>://<hub>/<address>`, as `<protocol>.<address>`, such as `io.11111111`. It leaves out the hub, so a replaced hub keeps your devices, their rooms and their Home app automations. A device's sub-devices, such as a sensor inside it, are part of it.
+Each device's ID comes from its Overkiz device URL, `<protocol>://<hub>/<address>`, as `<protocol>.<address>`, such as `io.11111111`. It leaves out the hub, so a replaced hub keeps your devices, their rooms and their Home app automations. A device's sub-devices, such as a sensor inside it, are part of it. Its manufacturer is its `core:Manufacturer` attribute, or the account's brand, and its model its `controllableName`, or a Magellan device's model name. The setups recorded so far carry no device's serial number or version, only the hub's serial, so none is reported (OIK-349).
 
 | Widget | Somfy devices | Capabilities |
 |---|---|---|

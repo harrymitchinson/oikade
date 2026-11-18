@@ -22,6 +22,8 @@ import (
 const (
 	fieldTemperature = "currentTemperature"
 	fieldHumidity    = "currentHumidity"
+	// fieldFirmware is the device's firmware version, such as "1.3.0".
+	fieldFirmware = "fwVersion"
 )
 
 // report is what one decrypted report says.

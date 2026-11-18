@@ -37,7 +37,7 @@ Every paired device enters the registry by its IEEE address, except the coordina
 
 ## What devices become
 
-Each device's capabilities come from the exposes in its `bridge/devices` entry, at its root. An endpoint's features, such as a second gang's `state_l2`, aren't served yet.
+Each device's capabilities come from the exposes in its `bridge/devices` entry, at its root. An endpoint's features, such as a second gang's `state_l2`, aren't served yet. Its manufacturer and model are its definition's `vendor` and `model`, and its firmware version is its `software_build_id`, when the device gave Zigbee2MQTT one. Zigbee has no serial number or hardware version to report (OIK-349).
 
 | Zigbee2MQTT expose | Capability | Notes |
 | --- | --- | --- |
