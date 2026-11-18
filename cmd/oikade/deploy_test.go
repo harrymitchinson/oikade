@@ -203,3 +203,20 @@ func TestADumbTerminalGetsNoRedraws(t *testing.T) {
 		}
 	}
 }
+
+func TestADeploySaysWhatItsDeclarationsChangedAndWarns(t *testing.T) {
+	var out bytes.Buffer
+	printDeviceChanges(&out, api.Response{
+		DeviceChanges: []string{"Moved desk-plug to loft"},
+		Warning:       "study has no devices now that case/fan/on/stuffy read, so they keep their state until one is back",
+	})
+	want := "Moved desk-plug to loft\nWarning: study has no devices now that case/fan/on/stuffy read"
+	if !strings.HasPrefix(out.String(), want) {
+		t.Errorf("got %q, want it to start %q", out.String(), want)
+	}
+	out.Reset()
+	printDeviceChanges(&out, api.Response{})
+	if out.Len() != 0 {
+		t.Errorf("no changes printed %q", out.String())
+	}
+}

@@ -112,12 +112,18 @@ func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
 	return key(d.Name), nil
 }
 
+// onHub reports whether the hub keeps d: hardware on record, of a plugin attached.
+func (i *inventory) onHub(d registry.Device) bool {
+	_, ok := i.instances[d.Driver]
+	return ok && !d.Removed && d.ID != ""
+}
+
 // meta is what the hub keeps for a device on record.
 func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
-	instance, ok := i.instances[d.Driver]
-	if !ok || d.Removed || d.ID == "" {
+	if !i.onHub(d) {
 		return hub.Meta{}, false
 	}
+	instance := i.instances[d.Driver]
 	var entries []control.Entry
 	if len(d.Control) > 0 {
 		if err := json.Unmarshal(d.Control, &entries); err != nil {
@@ -265,8 +271,8 @@ func (i *inventory) claimed(name string) (holders []string, safety bool) {
 	return slices.Compact(holders), safety
 }
 
-// members are the hub's devices, by name, before and after a change to the registry. Both are read
-// with mu held, so no other change is taken for it.
+// members are the hub's devices, by name, before and after a change to the registry, or one a deploy
+// would make. Both are read with mu held, so no other change is taken for it.
 type members struct {
 	before, after map[string]hub.Member
 }
@@ -398,15 +404,14 @@ func (s *apiServer) remove(req api.Request) api.Response {
 		resp, change = s.devices.remove(s.ctx, req.Device, req.AllowSafety)
 	}
 	if len(resp.Removed) > 0 {
-		resp.Warning = s.emptiedWarning(change)
+		resp.Warning = emptiedWarning(s.srv.emptyReads(change.before, change.after, nil))
 	}
 	return resp
 }
 
 // emptiedWarning says which rooms a change to the registry left with no devices a hold reads there,
 // and which holds, or is empty if it left none.
-func (s *apiServer) emptiedWarning(change members) string {
-	emptied := s.emptyReads(change.before, change.after)
+func emptiedWarning(emptied map[string][]string) string {
 	rooms := slices.Sorted(maps.Keys(emptied))
 	warnings := make([]string, 0, len(rooms))
 	for _, room := range rooms {
@@ -416,10 +421,11 @@ func (s *apiServer) emptiedWarning(change members) string {
 	return strings.Join(warnings, "; ")
 }
 
-// emptyReads are the holds of the running process with a read of a room that had devices of the
-// read's types among before and has none among after, by room, each sorted by name. A read that was
-// empty already isn't the change's doing.
-func (s *apiServer) emptyReads(before, after map[string]hub.Member) map[string][]string {
+// emptyReads are the refs of the running process's holds with a read of a room that had devices of
+// the read's types among before and has none among after, by room, each sorted. A read that was empty
+// already isn't the change's doing. rename gives the key a hold's rule will have, or false for one
+// to leave out; nil keeps every one as it is.
+func (s *server) emptyReads(before, after map[string]hub.Member, rename func(rule string) (string, bool)) map[string][]string {
 	covers := func(members map[string]hub.Member, r engine.RoomRead) bool {
 		for _, m := range members {
 			if m.Room == r.Room && m.OfTypes(r.Types) {
@@ -428,11 +434,17 @@ func (s *apiServer) emptyReads(before, after map[string]hub.Member) map[string][
 		}
 		return false
 	}
-	s.srv.mu.Lock()
-	defer s.srv.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := map[string][]string{}
-	if sess := s.srv.session; sess != nil {
+	if sess := s.session; sess != nil {
 		for rule, reads := range sess.reads {
+			if rename != nil {
+				var ok bool
+				if rule, ok = rename(rule); !ok {
+					continue
+				}
+			}
 			rooms := map[string]bool{}
 			for _, r := range reads {
 				if r.Room != "" && covers(before, r) && !covers(after, r) {
@@ -440,7 +452,7 @@ func (s *apiServer) emptyReads(before, after map[string]hub.Member) map[string][
 				}
 			}
 			for room := range rooms {
-				out[room] = append(out[room], rule)
+				out[room] = append(out[room], control.RuleRef(rule).String())
 			}
 		}
 	}

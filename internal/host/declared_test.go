@@ -8,6 +8,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
@@ -169,5 +170,96 @@ func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testin
 	}
 	if resp, _ := known.remove(t.Context(), "lamp", true); !strings.Contains(resp.Error, "declared in your home's code") {
 		t.Errorf("removed a declared device: %+v", resp)
+	}
+}
+
+// pairedHome is an inventory with devices paired from plugin x, and a server whose process's holds
+// have read reads, as a deploy sees them before the process stops.
+func pairedHome(t *testing.T, reads map[string][]engine.RoomRead, devices ...driver.AppDevice) *deployer {
+	t.Helper()
+	known, _ := declaredHome(t, t.TempDir())
+	for _, d := range devices {
+		if _, err := known.paired(pluginKey("x"), d, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := &server{session: &session{reads: reads}, declaring: known.declaring}
+	return &deployer{srv: srv, log: logging.Discard()}
+}
+
+// A deploy warns of a room its declarations leave with none of the devices a hold reads there, by
+// the name the hold has in the next version, and not of one another device still covers, one that
+// was empty already, or a hold the next version drops.
+func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
+	plugs := []devicetype.Type{devicetype.OnOffPlugInUnit}
+	d := pairedHome(t, map[string][]engine.RoomRead{
+		"heater on hall-plugs":  {{Room: "hall", Types: plugs}},
+		"desk-lamp on occupied": {{Room: "study"}},
+		"dropped on hall":       {{Room: "hall"}},
+		"attic-fan":             {{Room: "attic"}},
+	},
+		driver.AppDevice{ID: "h", Name: "heater", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffPlugInUnit},
+		driver.AppDevice{ID: "s", Name: "sensor", Room: "study", Capabilities: []string{capability.Occupied}},
+		driver.AppDevice{ID: "d", Name: "desk-lamp", Room: "study", Capabilities: []string{capability.On}},
+	)
+	// The heater, renamed and declared a light, leaves the hall with no plug; the sensor moves to the
+	// loft, but the desk lamp is still in the study.
+	next := wire.Manifest{
+		Inventory: []wire.DeviceDeclaration{
+			{Name: "radiator", Plugin: "x", ID: "h", Room: "hall", DeviceType: devicetype.OnOffLight},
+			{Name: "sensor", Plugin: "x", ID: "s", Room: "loft"},
+		},
+		Rules: []wire.RuleInfo{{Name: "radiator on hall-plugs"}, {Name: "desk-lamp on occupied"}, {Name: "attic-fan"}},
+	}
+	got := d.declaredWarning(next, wire.Manifest{}, map[string]string{"heater": "radiator"})
+	want := "hall has no devices now that case/radiator/on/hall-plugs read, so they keep their state until one is back in hall"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+
+	// Declaring the devices as they are warns of nothing.
+	same := wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "heater", Plugin: "x", ID: "h", Room: "hall"}}, Rules: next.Rules}
+	if got := d.declaredWarning(same, wire.Manifest{}, nil); got != "" {
+		t.Errorf("declaring the heater where it is warns %q", got)
+	}
+}
+
+// A device a declaration moves into a room that decides a capability it has its own decision on is
+// named, unless its decision hands over to the room's with Then, or it was there already.
+func TestADeployWarnsOfADeviceThatKeepsItsOwnDecisionInItsNewRoom(t *testing.T) {
+	d := pairedHome(t, nil,
+		driver.AppDevice{ID: "p", Name: "pendant", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffLight},
+	)
+	decides := func(lines ...string) []wire.DeviceControl {
+		return []wire.DeviceControl{
+			{Room: "kitchen", Entry: control.Entry{Capability: capability.On, Lines: []string{"Rule/kitchen on dark"}}},
+			{Device: "pendant", Entry: control.Entry{Capability: capability.On, Lines: lines}},
+		}
+	}
+	into := func(room string, settings []wire.DeviceControl) wire.Manifest {
+		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "pendant", Plugin: "x", ID: "p", Room: room}}, Control: settings}
+	}
+	own := decides("Rule/pendant on dinner")
+	want := "device/pendant/on keeps its own decision rather than kitchen's, unless the home hands it over with Then"
+	if got := d.declaredWarning(into("kitchen", own), wire.Manifest{}, nil); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := d.declaredWarning(into("kitchen", decides("Rule/pendant on dinner", "Rule/kitchen on dark")), wire.Manifest{}, nil); got != "" {
+		t.Errorf("a decision that hands over with Then warns %q", got)
+	}
+	if got := d.declaredWarning(into("hall", own), wire.Manifest{}, nil); got != "" {
+		t.Errorf("staying in the hall warns %q", got)
+	}
+	// A room's decision with no case, such as flows and a default, hands over all of its lines.
+	flows := []wire.DeviceControl{
+		{Room: "kitchen", Entry: control.Entry{Capability: capability.On, Lines: []string{control.LineOverride, control.LineFlows}}},
+		{Device: "pendant", Entry: control.Entry{Capability: capability.On, Lines: []string{"Rule/pendant on dinner", control.LineFlows}}},
+	}
+	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}, nil); got != "" {
+		t.Errorf("a decision that has the room's lines warns %q", got)
+	}
+	flows[1].Entry.Lines = []string{"Rule/pendant on dinner"}
+	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}, nil); got == "" {
+		t.Error("a decision without the room's Flows line doesn't warn")
 	}
 }

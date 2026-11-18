@@ -281,6 +281,8 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	}
 
 	d.log.Info("Checked automations version", "version", id)
+	// While the running process is, as only it knows what its holds have read.
+	warning := d.declaredWarning(manifest, old, declared.Renamed)
 	last := d.running
 	spared, err := d.srv.leftovers()
 	if err != nil {
@@ -326,7 +328,40 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	fault.Hit(fault.HostDeploySettled)
 	resp := d.confirm(id)
 	resp.DeviceChanges, resp.Unseen = declared.Changes, declared.Unseen
+	if resp.Version == id {
+		// It's running, even if something after that failed.
+		resp.Warning = warning
+	}
 	return resp
+}
+
+// declaredWarning says which rooms the next version's declared rooms and types leave with no devices
+// a hold of the running process reads there, if the next version keeps the hold, and which devices
+// they put in a room whose decision they don't take. It's empty if there are none, or if nothing can
+// say.
+func (d *deployer) declaredWarning(next, old wire.Manifest, renamed map[string]string) string {
+	if d.srv.declaring == nil {
+		return ""
+	}
+	change, kept, err := d.srv.declaring(next.Inventory, old.Control, next.Control)
+	if err != nil {
+		// planDeclared took them, so this is the registry changing under the deploy: say nothing.
+		d.log.Info("Could not check which rooms the declarations empty", "err", err)
+		return ""
+	}
+	rules := make(map[string]bool, len(next.Rules))
+	for _, r := range next.Rules {
+		rules[r.Name] = true
+	}
+	rename := func(rule string) (string, bool) {
+		to := control.RenamedKey(rule, renamed)
+		return to, rules[to]
+	}
+	warnings := kept
+	if w := emptiedWarning(d.srv.emptyReads(change.before, change.after, rename)); w != "" {
+		warnings = append([]string{w}, warnings...)
+	}
+	return strings.Join(warnings, "; ")
 }
 
 // confirm makes a version that has settled the running one for good.
