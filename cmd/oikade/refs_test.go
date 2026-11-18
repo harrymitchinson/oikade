@@ -19,7 +19,7 @@ func TestACommandTakesARefOrABareName(t *testing.T) {
 		}
 	}
 	_, err := nameOf(ident.Device, "flow/morning")
-	if err == nil || !strings.Contains(err.Error(), "such as device/NAME") {
+	if err == nil || !strings.Contains(err.Error(), "give one as device/NAME") {
 		t.Errorf("err = %v", err)
 	}
 	if d, c, err := capabilityOf("device/desk-plug/on"); err != nil || d != "desk-plug" || c != "on" {

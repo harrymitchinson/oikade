@@ -328,6 +328,12 @@ func TestPausingAFlowHoldingASafetyClaimNeedsAsking(t *testing.T) {
 	if err == nil || !strings.Contains(stderr, `"failing" isn't a ref: name the rule as flow/failing`) {
 		t.Errorf("paused by a bare name: %v: %s", err, stderr)
 	}
+	// A word that's no rule's name says what a rule's ref is, and not every kind of ref there is.
+	stderr, err = r.oikade(nil, "pause", "frost")
+	if err == nil || !strings.Contains(stderr, "frost isn't a rule's ref: give a case's, case/DEVICE/CAPABILITY/CASE") ||
+		strings.Contains(stderr, "hardware") {
+		t.Errorf("paused a word: %v: %s", err, stderr)
+	}
 	stderr, err = r.oikade(nil, "pause", "flow/failing")
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("stranded a Safety claim without asking: %v: %s", err, stderr)

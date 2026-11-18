@@ -33,10 +33,10 @@ func runReplay(ctx context.Context, args []string) error {
 	since := fs.Duration("since", defaultReplay, "How far back to compare.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikade replay takes no %q", extra[0])
+		return cli.UsageErrorf("oikade replay takes no %q", extra[0])
 	}
 	if *since <= 0 {
-		return fmt.Errorf("--since must be more than zero, not %s", *since)
+		return cli.UsageErrorf("--since is how far back to look, so more than zero, not %s", *since)
 	}
 	file, err := filepath.Abs(filepath.Join(*module, *types))
 	if err != nil {
@@ -60,7 +60,7 @@ func runReplay(ctx context.Context, args []string) error {
 	cmd := exec.CommandContext(ctx, path, wire.RoleReplay, log, file, result)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("replaying your home: %w", err)
+		return cli.Wrap(err, "your home's replay failed, as it says above")
 	}
 	raw, err := os.ReadFile(result)
 	if err != nil {
@@ -72,7 +72,8 @@ func runReplay(ctx context.Context, args []string) error {
 	}
 	var report simhome.Report
 	if err := json.Unmarshal(raw, &report); err != nil {
-		return fmt.Errorf("reading the replay: %w", err)
+		return cli.Wrap(err, "your home's replay wrote something this oikade can't read").
+			WithHint("build your home against the same version of Oikade as this oikade, %s", cli.Version(version))
 	}
 	fmt.Print(render(report, time.Local))
 	return nil

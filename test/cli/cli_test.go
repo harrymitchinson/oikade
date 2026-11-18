@@ -499,3 +499,17 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 		t.Errorf("oikade client add should point at oikade-host: %v: %s", err, out)
 	}
 }
+
+// Outside a home, a command that builds one says there's none there and how to name one, rather than
+// what Go made of it (fork/exec …: permission denied).
+func TestReplayOutsideAHomeSaysThereIsNone(t *testing.T) {
+	t.Parallel()
+	bin := oikade(t)
+	dir := t.TempDir()
+	out, err := run(t, bin, dir, "", "replay", "--data-dir", t.TempDir())
+	want := "Error: there's no home here: a home is a Go module, with a go.mod\n" +
+		"Hint: cd into your home's module, or pass --module DIR. oikade init starts one\n"
+	if code := exitCode(err); code != 1 || out != want {
+		t.Errorf("oikade replay outside a home exits %d:\n%s", code, out)
+	}
+}

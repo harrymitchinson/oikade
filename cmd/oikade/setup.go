@@ -207,7 +207,8 @@ func catchRedirect(ctx context.Context, redirect string, listening func()) (stri
 	}
 	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 	if err != nil {
-		return "", fmt.Errorf("could not listen for the page's redirect on %s: %w", address, err)
+		return "", cli.Wrap(err, "couldn't listen for the page's redirect on %s", address).
+			WithHint("something else has that port: stop it, and run oikade setup again")
 	}
 	got := make(chan string, 1)
 	page := func(w http.ResponseWriter, r *http.Request) {
