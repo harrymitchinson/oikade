@@ -66,6 +66,8 @@ func announced(ttl int64) []rr {
 		{testInstance, dnsmessage.TypeTXT, otherTTL, true},
 		{testHost, dnsmessage.TypeA, hostTTL, true},
 		{testHost, dnsmessage.TypeAAAA, hostTTL, true},
+		{testInstance, typeNSEC, otherTTL, true},
+		{testHost, typeNSEC, hostTTL, true},
 	}
 	if ttl >= 0 {
 		for i := range want {
@@ -232,8 +234,8 @@ func TestUpdateRemoveClose(t *testing.T) {
 			t.Error("said goodbye to the services listing while a service of the type is left")
 		}
 	}
-	if len(bye.msg.Answers) != 5 { // the type PTR, two subtype PTRs, SRV and TXT
-		t.Errorf("goodbye has %d records, want 5: %v", len(bye.msg.Answers), summarise(bye.msg.Answers))
+	if len(bye.msg.Answers) != 6 { // the type PTR, two subtype PTRs, SRV, TXT and the instance's NSEC
+		t.Errorf("goodbye has %d records, want 6: %v", len(bye.msg.Answers), summarise(bye.msg.Answers))
 	}
 	if err := r.Remove(closed); err == nil {
 		t.Error("removed a service twice")
@@ -277,7 +279,7 @@ func TestAnswer(t *testing.T) {
 	}
 	// Each unique name in a reply comes with an NSEC that lists its types (RFC 6762, 6.1).
 	hostNSEC := rr{testHost, typeNSEC, hostTTL, true}
-	instanceNSEC := rr{testInstance, typeNSEC, hostTTL, true}
+	instanceNSEC := rr{testInstance, typeNSEC, otherTTL, true} // the longest of its records' TTLs
 	instance := append([]rr{
 		{testInstance, dnsmessage.TypeSRV, hostTTL, true},
 		{testInstance, dnsmessage.TypeTXT, otherTTL, true},

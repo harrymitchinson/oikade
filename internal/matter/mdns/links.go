@@ -121,7 +121,8 @@ func (r *Responder) goodbyeAddrs(ifIndex int, gone []netip.Addr) {
 	r.multicastOn(ifIndex, func(int) ([]byte, error) { return response(addressRecords(r.host, gone), 0) })
 }
 
-// announceOn announces, on one interface, each announced service with the host's addresses there,
+// announceOn announces, on one interface, each announced service with the host's addresses there
+// and their NSEC records, which tell caches that a family has come or gone,
 // twice, a second apart (RFC 6762, 8.3), or the addresses alone if no service is announced. Each
 // time, it sends what's announced then, so a goodbye in between isn't undone.
 func (r *Responder) announceOn(ifIndex int) {
@@ -137,7 +138,7 @@ func (r *Responder) announceOn(ifIndex int) {
 			services = [][]record{nil}
 		}
 		for _, recs := range services {
-			r.multicastOn(ifIndex, func(int) ([]byte, error) { return response(slices.Concat(recs, addrs), -1) })
+			r.multicastOn(ifIndex, func(int) ([]byte, error) { return response(withOwnNSEC(slices.Concat(recs, addrs)), -1) })
 		}
 	}
 	send()

@@ -1,6 +1,7 @@
 package mdns
 
 import (
+	"net"
 	"net/netip"
 	"slices"
 	"testing"
@@ -121,4 +122,106 @@ func TestNoNSECForANameThatIsntOurs(t *testing.T) {
 	// Shared names, such as a service type, have no NSEC either: other hosts' records share them.
 	r.handle(c, testIf, peer, query(t, "_matterc._udp.local.", dnsmessage.TypeSRV, false))
 	c.none(t)
+}
+
+func TestKnownAnswersGetNoNSECInstead(t *testing.T) {
+	r, c := newTestResponder(t)
+	defer func() { _ = r.Close() }()
+	addReady(t, r, testService())
+	recs := r.answerable(testIf)
+	var aaaa record
+	for _, rec := range recs {
+		if rec.typ == dnsmessage.TypeAAAA {
+			aaaa = rec
+		}
+	}
+	// The querier already has our AAAA: nothing is missing, so there's nothing to say.
+	m := dnsmessage.Message{
+		Questions: []dnsmessage.Question{{Name: r.host, Type: dnsmessage.TypeAAAA, Class: dnsmessage.ClassINET}},
+		Answers:   []dnsmessage.Resource{aaaa.resource(hostTTL, false)},
+	}
+	r.handle(c, testIf, peer, pack(t, m))
+	c.none(t)
+}
+
+func TestAQueryInAnotherCaseGetsOneNSEC(t *testing.T) {
+	r, c := newTestResponder(t)
+	defer func() { _ = r.Close() }()
+	r.addrs = func(int) []netip.Addr { return []netip.Addr{testAddr4} }
+	addReady(t, r, testService())
+	other := mustName("dca632a1b2c3.local.")
+	m := dnsmessage.Message{Questions: []dnsmessage.Question{
+		{Name: other, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET},
+		{Name: other, Type: dnsmessage.TypeAAAA, Class: dnsmessage.ClassINET},
+	}}
+	r.handle(c, testIf, peer, pack(t, m))
+	p := c.next(t)
+	n := 0
+	for _, a := range slices.Concat(p.msg.Answers, p.msg.Additionals) {
+		if a.Header.Type == typeNSEC {
+			n++
+			if a.Header.Name.String() != testHost {
+				t.Errorf("NSEC names %v, want our own %s", a.Header.Name, testHost)
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("sent %d NSEC records, want 1", n)
+	}
+}
+
+func TestACompressedKnownNSECCounts(t *testing.T) {
+	ours, ok := nsec(mustName(testHost), addressRecords(mustName(testHost), []netip.Addr{testAddr4}))
+	if !ok {
+		t.Fatal("no NSEC")
+	}
+	bitmap, _ := nsecBitmap(ours.body.(*dnsmessage.UnknownResource).Data)
+	// The querier's copy points at the owner name, at offset 12, rather than spelling it out.
+	theirs := &dnsmessage.UnknownResource{Type: typeNSEC, Data: slices.Concat([]byte{0xC0, 12}, bitmap)}
+	if !ours.same(ours.name, typeNSEC, theirs) {
+		t.Error("an NSEC with a compressed next name isn't the same record")
+	}
+	other := &dnsmessage.UnknownResource{Type: typeNSEC, Data: []byte{0xC0, 12, 0, 4, 0x40, 0, 0, 8}}
+	if ours.same(ours.name, typeNSEC, other) {
+		t.Error("an NSEC with other types is the same record")
+	}
+}
+
+func TestALegacyQueryGetsNoNSEC(t *testing.T) {
+	r, c := newTestResponder(t)
+	defer func() { _ = r.Close() }()
+	r.addrs = func(int) []netip.Addr { return []netip.Addr{testAddr4} }
+	addReady(t, r, testService())
+	legacy := &net.UDPAddr{IP: peer.IP, Port: 49152}
+
+	r.handle(c, testIf, legacy, query(t, testHost, dnsmessage.TypeAAAA, false))
+	p := c.next(t)
+	if p.dst != legacy || len(p.msg.Answers) != 0 || len(p.msg.Additionals) != 0 {
+		t.Errorf("got %+v, want an empty answer: the host has no AAAA", p.msg)
+	}
+
+	r.handle(c, testIf, legacy, query(t, testHost, dnsmessage.TypeA, false))
+	p = c.next(t)
+	for _, a := range slices.Concat(p.msg.Answers, p.msg.Additionals) {
+		if a.Header.Type == typeNSEC {
+			t.Errorf("a legacy reply carries %v", a.Header)
+		}
+	}
+}
+
+func TestAnnouncementsCarryNSEC(t *testing.T) {
+	r, c, links := newLinkedResponder(t)
+	links.set(testIf, testAddr4) // the IPv6 address goes
+	r.checkLinks()
+	c.next(t) // the goodbye to it
+	p := c.next(t)
+	for _, a := range p.msg.Answers {
+		if a.Header.Type == typeNSEC && a.Header.Name.String() == testHost {
+			if _, types := nsecTypes(t, a); !slices.Equal(types, []dnsmessage.Type{dnsmessage.TypeA}) {
+				t.Errorf("host's NSEC lists %v, want only A now", types)
+			}
+			return
+		}
+	}
+	t.Errorf("announcement %v has no NSEC for the host", summarise(p.msg.Answers))
 }

@@ -84,7 +84,15 @@ func sameBody(a, b dnsmessage.ResourceBody) bool {
 		return ok && slices.Equal(x.TXT, y.TXT)
 	case *dnsmessage.UnknownResource:
 		y, ok := b.(*dnsmessage.UnknownResource)
-		return ok && x.Type == y.Type && bytes.Equal(x.Data, y.Data)
+		if !ok || x.Type != y.Type {
+			return false
+		}
+		if x.Type == typeNSEC {
+			xb, xok := nsecBitmap(x.Data)
+			yb, yok := nsecBitmap(y.Data)
+			return xok && yok && bytes.Equal(xb, yb)
+		}
+		return bytes.Equal(x.Data, y.Data)
 	}
 	return false
 }
@@ -92,15 +100,40 @@ func sameBody(a, b dnsmessage.ResourceBody) bool {
 // typeNSEC is the NSEC record's type (RFC 4034, 4), which dnsmessage has no name for.
 const typeNSEC dnsmessage.Type = 47
 
-// nsec returns the NSEC record that says which types name has among the unique records of recs,
-// and so that it has no others, or false if it has none (RFC 6762, 6.1). It's mDNS's restricted
-// form: the next name is name itself, and the bitmap is window 0 alone, since every type the
-// responder sends is below 256. The bitmap leaves out NSEC itself, as Apple's responder does.
+// withOwnNSEC returns recs with an NSEC record for each name that has unique records among them,
+// saying which types the name has and so that it has no others (RFC 6762, 6.1). A querier that
+// asks for a type a name hasn't, such as an AAAA on an IPv4-only link, then knows at once.
+func withOwnNSEC(recs []record) []record {
+	out := slices.Clone(recs)
+	var names []dnsmessage.Name
+	for _, rec := range recs {
+		if rec.unique && rec.typ != typeNSEC && !slices.ContainsFunc(names, func(n dnsmessage.Name) bool { return nameEqual(n, rec.name) }) {
+			names = append(names, rec.name)
+		}
+	}
+	for _, n := range names {
+		if rec, ok := nsec(n, recs); ok {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+// nsec returns the NSEC record for name, from the unique records of recs that have it, or false if
+// none has. It's mDNS's restricted form: the next name is name itself, and the bitmap is window 0
+// alone, since every type the responder sends is below 256. The bitmap leaves out NSEC itself, as
+// Apple's responder does. Its TTL is the longest of the name's records, which a negative answer
+// for another type stands in for.
 func nsec(name dnsmessage.Name, recs []record) (record, bool) {
 	var types []dnsmessage.Type
+	var ttl uint32
 	for _, rec := range recs {
-		if rec.unique && rec.typ != typeNSEC && rec.typ < 256 && nameEqual(rec.name, name) && !slices.Contains(types, rec.typ) {
-			types = append(types, rec.typ)
+		if rec.unique && rec.typ != typeNSEC && rec.typ < 256 && nameEqual(rec.name, name) {
+			name = rec.name // ours, in our case
+			ttl = max(ttl, rec.ttl)
+			if !slices.Contains(types, rec.typ) {
+				types = append(types, rec.typ)
+			}
 		}
 	}
 	if len(types) == 0 {
@@ -113,36 +146,54 @@ func nsec(name dnsmessage.Name, recs []record) (record, bool) {
 	// The next name goes uncompressed, which any reader can follow.
 	data := slices.Concat(wireName(name), []byte{0, byte(len(bitmap))}, bitmap)
 	return record{
-		name: name, typ: typeNSEC, unique: true, ttl: hostTTL,
+		name: name, typ: typeNSEC, unique: true, ttl: ttl,
 		body: &dnsmessage.UnknownResource{Type: typeNSEC, Data: data},
 	}, true
 }
 
-// withNSEC returns additionals with an NSEC record for each name that has unique records among
-// answers and additionals, from what recs holds for it, unless answers already carry it, so that a
-// querier knows at once that the name has no other types, such as no AAAA on an IPv4-only host.
-func withNSEC(answers, additionals, recs []record) []record {
-	var names []dnsmessage.Name
-	for _, rec := range slices.Concat(answers, additionals) {
-		if rec.unique && rec.typ != typeNSEC && !slices.ContainsFunc(names, func(n dnsmessage.Name) bool { return nameEqual(n, rec.name) }) {
-			names = append(names, rec.name)
+// nsecOf returns the NSEC record among recs for name.
+func nsecOf(recs []record, name dnsmessage.Name) (record, bool) {
+	for _, rec := range recs {
+		if rec.typ == typeNSEC && nameEqual(rec.name, name) {
+			return rec, true
 		}
 	}
-	for _, n := range names {
-		if rec, ok := nsec(n, recs); ok && !slices.ContainsFunc(answers, rec.equal) {
-			additionals = appendNew(additionals, rec)
+	return record{}, false
+}
+
+// withNSEC returns additionals with the NSEC record from recs for each name that has unique
+// records among answers and additionals, unless answers already carry it.
+func withNSEC(answers, additionals, recs []record) []record {
+	for _, rec := range slices.Concat(answers, additionals) {
+		if !rec.unique || rec.typ == typeNSEC {
+			continue
+		}
+		if n, ok := nsecOf(recs, rec.name); ok && !slices.ContainsFunc(answers, n.equal) {
+			additionals = appendNew(additionals, n)
 		}
 	}
 	return additionals
 }
 
-// holds reports whether rec is among recs, or, for an NSEC record, whether recs make the same one.
-func holds(recs []record, rec record) bool {
-	if rec.typ == typeNSEC {
-		n, ok := nsec(rec.name, recs)
-		return ok && n.equal(rec)
+// nsecBitmap returns the type bitmaps of an NSEC record's data, after its next name. The next name
+// may be compressed (RFC 6762, 18.14), which a pointer into the rest of the message ends, so it's
+// skipped rather than read: two NSEC records with the same owner name hold the same data when
+// their bitmaps match, as mDNS's next name is the owner name.
+func nsecBitmap(data []byte) ([]byte, bool) {
+	for i := 0; i < len(data); {
+		switch n := int(data[i]); {
+		case n == 0:
+			return data[i+1:], true
+		case n&0xC0 == 0xC0:
+			if i+2 > len(data) {
+				return nil, false
+			}
+			return data[i+2:], true
+		default:
+			i += 1 + n
+		}
 	}
-	return slices.ContainsFunc(recs, rec.equal)
+	return nil, false
 }
 
 // wireName returns name in DNS wire format, uncompressed. dnsmessage treats every dot as a label's
