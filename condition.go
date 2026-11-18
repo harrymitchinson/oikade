@@ -3,11 +3,13 @@ package oikade
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/sun"
 )
@@ -86,7 +88,11 @@ func (c compare) holds(s Snapshot) bool {
 }
 
 func (c compare) explain(s Snapshot, want bool) string {
-	what := fmt.Sprintf("%s is %s", c.n.handle().said(), number(s.Get(c.n)))
+	v := s.Get(c.n)
+	if name := c.n.handle().capability; capability.Averaged(name) != name {
+		v = math.Round(v*100) / 100 // an average is computed, so it carries every digit
+	}
+	what := fmt.Sprintf("%s is %s", c.n.handle().said(), number(v))
 	not := ""
 	if want {
 		not = "not "

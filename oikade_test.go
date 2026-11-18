@@ -515,7 +515,8 @@ func TestAConditionSaysWhyItsFalse(t *testing.T) {
 	vars := engine.Vars{
 		"now": time.Date(2026, 11, 16, 9, 12, 0, 0, time.UTC), "location": time.UTC,
 		"devices": map[string]map[string]any{
-			"pool-water": {"temperature": 5.0, "temperature over 24h": 12.2}, "garage-door": {"open": false}, "unheard": {},
+			"pool-water":  {"temperature": 5.0, "temperature over 24h": 12.291878360583002},
+			"garage-door": {"open": false}, "unheard": {},
 		},
 	}
 	for name, tc := range map[string]struct {
@@ -529,7 +530,7 @@ func TestAConditionSaysWhyItsFalse(t *testing.T) {
 		"not above": {Not(water.Above(3)), "device/pool-water/temperature is 5, above 3"},
 		"within":    {water.Within(18, 25.5), "device/pool-water/temperature is 5, not within 18 to 25.5"},
 		"an average": {
-			water.AverageOver(24 * time.Hour).Above(20), "device/pool-water/temperature over 24h is 12.2, not above 20",
+			water.AverageOver(24 * time.Hour).Above(20), "device/pool-water/temperature over 24h is 12.29, not above 20",
 		},
 		"daily":     {Daily("10:00", "18:00"), "it's 09:12, outside 10:00 to 18:00"},
 		"days":      {Daily("10:00", "18:00").Days(time.Saturday), "it's Mon 09:12, outside 10:00 to 18:00 starting Sat"},
