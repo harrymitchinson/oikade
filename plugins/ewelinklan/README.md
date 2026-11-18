@@ -27,6 +27,8 @@ A wrong app ID or secret shows when you sign in: change it with `oikade secret s
 
 A device of type `th_plug`, such as a THR316D or THR320D, reports `on` and `temperature`, plus `humidity` if its ID is in `Humidity`, which is a list because a device's sensors decide what the Home app shows. A reading that isn't a number, as with humidity from a temperature-only probe, isn't reported, and the last value stays. A device listed in `Humidity` that sends none says so once in the host's log. Any other type isn't reported yet, and the log says so once. Each new type is checked against a real device before it's added.
 
+For a few seconds after it powers up, a THR320D reports 25 °C, before it has read its probe. The eWeLink app shows it too, so the plugin passes it on. A rule that decides on the temperature should read an average, such as `PoolWater.Temperature.AverageOver(time.Hour)`, which a few seconds' spike barely moves.
+
 A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one. It stays hidden through a restart if it's on the network when the plugin starts, and comes back if it was off then and is heard later.
 
 The plugin follows up to 256 devices, and the log says once when it ignores one beyond that, so that a host on the network announcing made-up devices can't fill its memory.
