@@ -240,7 +240,7 @@ func TestADeployWarnsOfADeviceThatKeepsItsOwnDecisionInItsNewRoom(t *testing.T) 
 		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "pendant", Plugin: "x", ID: "p", Room: room}}, Control: settings}
 	}
 	own := decides("Rule/pendant on dinner")
-	want := "pendant keeps its own decision on on rather than kitchen's, unless the home hands it over with Then"
+	want := "device/pendant/on keeps its own decision rather than kitchen's, unless the home hands it over with Then"
 	if got := d.declaredWarning(into("kitchen", own), wire.Manifest{}, nil); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -249,5 +249,17 @@ func TestADeployWarnsOfADeviceThatKeepsItsOwnDecisionInItsNewRoom(t *testing.T) 
 	}
 	if got := d.declaredWarning(into("hall", own), wire.Manifest{}, nil); got != "" {
 		t.Errorf("staying in the hall warns %q", got)
+	}
+	// A room's decision with no case, such as flows and a default, hands over all of its lines.
+	flows := []wire.DeviceControl{
+		{Room: "kitchen", Entry: control.Entry{Capability: capability.On, Lines: []string{control.LineOverride, control.LineFlows}}},
+		{Device: "pendant", Entry: control.Entry{Capability: capability.On, Lines: []string{"Rule/pendant on dinner", control.LineFlows}}},
+	}
+	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}, nil); got != "" {
+		t.Errorf("a decision that has the room's lines warns %q", got)
+	}
+	flows[1].Entry.Lines = []string{"Rule/pendant on dinner"}
+	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}, nil); got == "" {
+		t.Error("a decision without the room's Flows line doesn't warn")
 	}
 }

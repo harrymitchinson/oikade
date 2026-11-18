@@ -328,7 +328,8 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	fault.Hit(fault.HostDeploySettled)
 	resp := d.confirm(id)
 	resp.DeviceChanges, resp.Unseen = declared.Changes, declared.Unseen
-	if resp.Error == "" {
+	if resp.Version == id {
+		// It's running, even if something after that failed.
 		resp.Warning = warning
 	}
 	return resp
@@ -345,7 +346,7 @@ func (d *deployer) declaredWarning(next, old wire.Manifest, renamed map[string]s
 	change, kept, err := d.srv.declaring(next.Inventory, old.Control, next.Control)
 	if err != nil {
 		// planDeclared took them, so this is the registry changing under the deploy: say nothing.
-		d.log.Info("Could not check what the declarations empty", "reason", err.Error())
+		d.log.Info("Could not check which rooms the declarations empty", "err", err)
 		return ""
 	}
 	rules := make(map[string]bool, len(next.Rules))
