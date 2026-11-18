@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io/fs"
 	"net"
@@ -136,14 +135,15 @@ func (f failing) Dial(context.Context) (net.Conn, error) { return nil, f.err }
 
 // runLogin trusts a host's network API by its pin, and saves it as the current context.
 func runLogin(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("login", flag.ExitOnError)
+	flags := newFlags("login")
 	pin := flags.String("pin", "", "The host's pin, from oikade-host client add.")
 	code := flags.String("code", "",
 		"The code from oikade-host client add. Without one, the token comes from "+tokenEnv+".")
 	name := flags.String("context", "", "What to call this host. Defaults to its name.")
 	words := cli.Parse(flags, args)
 	if len(words) != 1 || *pin == "" {
-		return cli.UsageErrorf("usage: oikade login ADDRESS --pin PIN [--code CODE] [--context NAME]")
+		return cli.UsageErrorf("oikade login takes the host's address and --pin").
+			WithHint("oikade-host client add, on the host's machine, prints the line to run")
 	}
 	address := api.Address(words[0])
 	if *name == "" {

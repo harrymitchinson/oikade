@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"maps"
 	"os"
@@ -27,7 +26,7 @@ const defaultReplay = 7 * 24 * time.Hour
 // code against it on a fake clock, and compares that with what the deployed version did. The only
 // things it asks the host for are its status and its log.
 func runReplay(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("replay", flag.ExitOnError)
+	fs := newFlags("replay")
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module.")
 	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")

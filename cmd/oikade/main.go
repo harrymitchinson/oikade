@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -25,108 +24,16 @@ import (
 // version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".
 var version = cli.DevVersion
 
-const usage = `Usage:
-  oikade init [DIR] [--module PATH] [--source DIR]
-  oikade check [--module DIR]
-  oikade test [--module DIR] [PACKAGES...]
-  oikade dev [--module DIR] [--types FILE]
-  oikade replay [--module DIR] [--types FILE] [--since DURATION] [--json]
-  oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
-  oikade rollback [--allow-safety-removal]
-  oikade status [DEVICE] [--json]
-  oikade tail [--json]
-  oikade set device/DEVICE/CAPABILITY VALUE [--json]   Or DEVICE CAPABILITY VALUE.
-  oikade pause REF [--allow-safety] [--json]   A case, case/DEVICE/CAPABILITY/CASE, or a flow, flow/FLOW.
-  oikade resume REF [--json]
-  oikade devices [--all] [--json]
-  oikade devices remove DEVICE [--allow-safety] [--json]
-  oikade devices remove --plugin NAME [--allow-safety] [--json]
-  oikade types [--out FILE] [--package NAME] [--module DIR]
-  oikade matter [--json]
-  oikade matter open [--for DURATION] [--json]   Opens the window to pair, for up to 15 minutes.
-  oikade setup PLUGIN [--json]         Asks what the plugin needs, and checks it, on the host.
-  oikade backup
-  oikade secret list [--json]
-  oikade secret set NAME [--json]      The value comes from stdin, or is asked for.
-  oikade secret remove NAME [--json]
-  oikade client list [--json]
-  oikade client revoke NAME [--json]
-  oikade login ADDRESS --pin PIN [--code CODE] [--context NAME]
-  oikade version
-
-Every command that talks to a host takes --data-dir DIR, for the host on this machine, and --context NAME,
-which reaches a host you logged in to over its network API. Without either, a command uses the context
-oikade login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context saved
-without one. To trust a new client, run oikade-host client add NAME on the host's machine.
-Every command takes --debug, or OIKADE_DEBUG=1, to show an error in full, with its causes.`
-
 func main() {
 	args, debug := cli.Debug(os.Args[1:], "test")
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(cli.ExitUsage)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	command, args := args[0], args[1:]
-	var err error
-	switch command {
-	case "init":
-		err = runInit(ctx, args)
-	case "check":
-		err = runCheck(ctx, args)
-	case "test":
-		err = runTest(ctx, args)
-	case "dev":
-		err = runDev(ctx, args)
-	case "replay":
-		err = runReplay(ctx, args)
-	case "deploy":
-		err = runDeploy(ctx, args)
-	case "rollback":
-		err = runRollback(ctx, args)
-	case "status":
-		err = runStatus(ctx, args)
-	case "tail":
-		err = runTail(ctx, args)
-	case "set":
-		err = runSet(ctx, args)
-	case "pause":
-		err = runPause(ctx, args, true)
-	case "resume":
-		err = runPause(ctx, args, false)
-	case "devices":
-		err = runDevices(ctx, args)
-	case "types":
-		err = runTypes(ctx, args)
-	case "matter":
-		err = runMatter(ctx, args)
-	case "backup":
-		err = runBackup(ctx, args)
-	case "setup":
-		err = runSetup(ctx, args)
-	case "secret":
-		err = runSecret(ctx, args)
-	case "client":
-		err = runClient(ctx, args)
-	case "login":
-		err = runLogin(ctx, args)
-	case "version":
-		fmt.Println(cli.Version(version))
-	case "help", "-h", "--help":
-		fmt.Println(usage)
-	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown command %s\n\n%s\n", command, usage)
-		os.Exit(2)
-	}
-	if err != nil {
-		stop()
-		os.Exit(cli.NewPrinter(os.Stderr).Fail(err, debug))
-	}
+	code := dispatch(ctx, args, debug)
+	stop()
+	os.Exit(code)
 }
 
 func runDeploy(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
+	fs := newFlags("deploy")
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module, to check and build.")
 	binary := fs.String("binary", "", "A binary already built for the host, skipping the source checks.")
@@ -198,7 +105,7 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 }
 
 func runRollback(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("rollback", flag.ExitOnError)
+	fs := newFlags("rollback")
 	target := addTarget(fs)
 	allow := fs.Bool("allow-safety-removal", false, "Go ahead even though a Safety rule would go.")
 	_ = fs.Parse(args)

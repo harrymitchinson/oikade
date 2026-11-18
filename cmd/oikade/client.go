@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
@@ -14,12 +12,9 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
-const clientUsage = "usage: oikade client list | revoke NAME. " +
-	"To add one, run oikade-host client add NAME on the host's machine"
-
 // runClient lists and revokes who may call the host's network API.
 func runClient(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("client", flag.ExitOnError)
+	fs := newFlags("client")
 	t := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
@@ -34,7 +29,8 @@ func runClient(ctx context.Context, args []string) error {
 		}
 		req = api.Request{Type: api.TypeClientRevoke, Client: name}
 	default:
-		return cli.UsageErrorf(clientUsage)
+		return cli.UsageErrorf("oikade client takes list, or revoke NAME").
+			WithHint("to add a client, run oikade-host client add NAME on the host's machine")
 	}
 	resp, err := api.Call(ctx, t.transport(), req)
 	if err != nil {
@@ -44,7 +40,7 @@ func runClient(ctx context.Context, args []string) error {
 		return errors.New(resp.Error)
 	}
 	if req.Type == api.TypeClients {
-		return printClients(cli.NewPrinter(os.Stdout), cli.NewPrinter(os.Stderr), resp.Clients, *asJSON, time.Now())
+		return printClients(std.out, std.err, resp.Clients, *asJSON, time.Now())
 	}
 	if *asJSON {
 		return cli.PrintJSON(struct{}{})

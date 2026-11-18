@@ -32,7 +32,7 @@ func TestACommandTakesARefOrABareName(t *testing.T) {
 
 func TestSetWithoutAValueSaysHowToUseIt(t *testing.T) {
 	err := runSet(t.Context(), []string{"desk-plug", "on"})
-	if err == nil || !strings.HasPrefix(err.Error(), "usage: oikade set") {
+	if err == nil || !strings.HasPrefix(err.Error(), "oikade set takes a capability") {
 		t.Errorf("err = %v", err)
 	}
 }

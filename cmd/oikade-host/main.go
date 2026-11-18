@@ -28,59 +28,16 @@ import (
 // version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".
 var version = cli.DevVersion
 
-const usage = `Usage:
-  oikade-host [--data-dir DIR] [--home BINARY] [--simulate FILE] [--heartbeat-timeout DURATION] [--settle DURATION]
-              [--event-log-age DURATION] [--event-log-mib SIZE] [--metrics-addr ADDRESS] [--api-addr ADDRESS]
-              [--broker URL] [--broker-password-secret NAME] [--outside-plugins LIST] [--secrets-dir DIR]
-              [--matter-port PORT] [--matter-interfaces LIST] [--plugin-set-timeout DURATION]
-              [--stop-timeout DURATION]
-  oikade-host client add NAME [--token] [--data-dir DIR] [--json]
-                              A code for oikade login, or a token for CI, from the host running here.
-  oikade-host install [--api-addr ADDRESS] [--client NAME] [--json]
-                              Install this binary as the host under systemd, or upgrade the one there.
-  oikade-host version
-
-With no command, oikade-host runs the host. Everything else, from deploy to status, is oikade.
-Every command takes --debug, or OIKADE_DEBUG=1, to show an error in full, with its causes.`
-
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	args, debug := cli.Debug(os.Args[1:])
-	command := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		command, args = args[0], args[1:]
-	}
-	switch {
-	case command == "" && len(args) == 1 && (args[0] == "-h" || args[0] == "--help"):
-		command = "help"
-	case command == "" && len(args) == 1 && args[0] == "--version":
-		command = "version"
-	}
-	var err error
-	switch command {
-	case "":
-		err = runHost(ctx, args)
-	case "client":
-		err = runClient(ctx, args)
-	case "install":
-		err = runInstall(ctx, args)
-	case "version":
-		fmt.Println(cli.Version(version))
-	case "help":
-		fmt.Println(usage)
-	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown command %s\n\n%s\n", command, usage)
-		os.Exit(2)
-	}
-	if err != nil {
-		stop()
-		os.Exit(cli.NewPrinter(os.Stderr).Fail(err, debug))
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	code := dispatch(ctx, args, debug)
+	stop()
+	os.Exit(code)
 }
 
 func runHost(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("oikade-host", flag.ExitOnError)
+	fs := newFlags(hostCommand)
 	dataDir := fs.String("data-dir", cli.DefaultDataDir, "Directory with all the host's state.")
 	home := fs.String("home", "", "Your home's binary, until one is deployed.")
 	simulate := fs.String("simulate", "", "JSON file of simulated devices. Lines of JSON on stdin change them.")
@@ -117,10 +74,10 @@ func runHost(ctx context.Context, args []string) error {
 	_ = fs.Parse(args)
 	if fs.NArg() > 0 {
 		// A command after a flag would otherwise start a second host on the data directory.
-		return fmt.Errorf("%q isn't a flag: a command such as client add comes first, before any flags", fs.Arg(0))
+		return cli.UsageErrorf("%q isn't a flag: a command such as client add comes first, before any flags", fs.Arg(0))
 	}
 	if *matterPort > math.MaxUint16 {
-		return fmt.Errorf("--matter-port %d isn't a UDP port", *matterPort)
+		return cli.UsageErrorf("--matter-port %d isn't a UDP port", *matterPort)
 	}
 
 	if *outside == "" && (*broker != "" || *brokerPassword != "") {
@@ -179,7 +136,28 @@ func runHost(ctx context.Context, args []string) error {
 		}
 		h.Devices, h.Simulate = devices, os.Stdin
 	}
-	return h.Run(ctx)
+	return dataDirError(h.Run(ctx), *dataDir)
+}
+
+// within says whether path is dir or in it.
+func within(path, dir string) bool {
+	path, errPath := filepath.Abs(path)
+	dir, errDir := filepath.Abs(dir)
+	if errPath != nil || errDir != nil {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// dataDirError is err in the user's words if it's one the host's user may not write its data
+// directory with, as when it isn't root.
+func dataDirError(err error, dataDir string) error {
+	if pe, ok := errors.AsType[*os.PathError](err); ok && errors.Is(pe, os.ErrPermission) && within(pe.Path, dataDir) {
+		return cli.Wrap(err, "the host may not write its data directory, %s", dataDir).
+			WithHint("run it as root, or pass --data-dir DIR for one its user may write")
+	}
+	return err
 }
 
 // removed are flags that described the home rather than the machine, and the field that replaced
@@ -188,19 +166,21 @@ var removed = map[string]string{
 	"matter-name": "the bridge's name is MatterName in your home's oikade.Options now: set it there and deploy",
 }
 
-const clientUsage = "usage: oikade-host client add NAME [--token] [--data-dir DIR] [--json]"
-
 // runClient trusts a new client of the network API. It goes only over the socket, so a stolen token
 // can't make more of them. oikade lists and revokes them.
 func runClient(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("client", flag.ExitOnError)
+	fs := newFlags(clientAddCommand)
 	dataDir := fs.String("data-dir", cli.DefaultDataDir, "The host's data directory.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	token := fs.Bool("token", false,
 		"Print a token for the client to send, such as CI, rather than a code to log in with.")
 	words := cli.Parse(fs, args)
-	if len(words) != 2 || words[0] != "add" {
-		return cli.UsageErrorf(clientUsage)
+	switch {
+	case len(words) == 0 || words[0] != "add":
+		return cli.UsageErrorf("oikade-host client only adds one").
+			WithHint("oikade client lists and revokes them, from anywhere")
+	case len(words) != 2:
+		return cli.UsageErrorf("oikade-host client add takes the client's name")
 	}
 	name := words[1]
 	resp, err := api.Call(ctx, api.Local{DataDir: *dataDir},
@@ -253,11 +233,9 @@ func printLogin(name string, resp api.Response) {
 	fmt.Println("The code works once. If the host's name doesn't reach it from there, use its address.")
 }
 
-const installUsage = "usage: oikade-host install [--api-addr ADDRESS] [--client NAME] [--json]"
-
 // runInstall installs this binary as the host under systemd, or upgrades the one there (OIK-277).
 func runInstall(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	fs := newFlags(installCommand)
 	apiAddr := fs.String("api-addr", install.DefaultAPIAddr,
 		"Where the unit serves the API over TLS. Empty serves it only on the socket. "+
 			"An upgrade writes the unit again only when it's given.")
@@ -265,7 +243,7 @@ func runInstall(ctx context.Context, args []string) error {
 		"Who the login line is for. An upgrade prints one only when it's given.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	if words := cli.Parse(fs, args); len(words) > 0 {
-		return cli.UsageErrorf(installUsage)
+		return cli.UsageErrorf("oikade-host install takes no %q", words[0])
 	}
 	opts := install.Options{APIAddr: *apiAddr, Client: *client}
 	fs.Visit(func(f *flag.Flag) {

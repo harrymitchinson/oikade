@@ -1,0 +1,7 @@
+exit 2
+--- stdout
+--- stderr
+Error: oikade-host install has no flag --bogus
+Usage:
+  oikade-host install [--api-addr ADDRESS] [--client NAME] [--json]
+Hint: oikade-host install --help says more

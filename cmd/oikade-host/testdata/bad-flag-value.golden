@@ -1,0 +1,7 @@
+exit 2
+--- stdout
+--- stderr
+Error: --settle is a duration, such as 90s or 10m, not "soon"
+Usage:
+  oikade-host [FLAGS]
+Hint: oikade-host --help says more

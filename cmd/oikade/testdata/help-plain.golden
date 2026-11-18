@@ -1,0 +1,44 @@
+exit 0
+--- stdout
+Usage: oikade COMMAND [ARGUMENTS] [FLAGS]
+
+Write your home
+  init      Start a home: a Go module that builds against Oikade.
+  check     Find what's wrong with your home, as a deploy would.
+  test      Run your home's tests.
+  dev       Run your home against simulated devices.
+  replay    Compare what your code would have done with what the host did.
+  types     Write devices.go, with a Go handle for each of the host's devices.
+
+Ship it
+  deploy    Check and build your home, and run it on the host.
+  rollback  Go back to the version the host ran before this one.
+
+Watch and drive
+  status    Show each device's values, and the rules that set them.
+  tail      Follow your home's events as they happen.
+  set       Set a capability, as a person would, through arbitration.
+  pause     Pause a rule, so it lets go of what it holds until you resume it.
+  resume    Resume a rule you paused.
+
+Devices and pairing
+  devices   List the host's devices and how each is doing, or remove one.
+  setup     Give a plugin what it needs, such as a sign-in, on the host.
+  matter    Show the Matter bridge, or open its window to pair a controller.
+
+Host access
+  login     Trust a host's network API, and use it from now on.
+  client    List or revoke who may call the host's network API.
+  secret    List, set or remove the secrets your home and its plugins read.
+  backup    Back up the host's store, on the host, and print where it went.
+  version   Print this oikade's version.
+
+oikade help COMMAND, or oikade COMMAND --help, says more of one.
+
+Every command that talks to a host takes --data-dir DIR, for the host on this
+machine, and --context NAME, which reaches a host you logged in to over its
+network API. Without either, a command uses the context oikade login last saved,
+or the host on this machine. OIKADE_TOKEN is the token of a context saved
+without one. Every command takes --debug, or OIKADE_DEBUG=1, to show an error in
+full.
+--- stderr

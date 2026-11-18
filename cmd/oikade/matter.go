@@ -18,7 +18,7 @@ import (
 const defaultWindow = 15 * time.Minute
 
 func runMatter(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("matter", flag.ExitOnError)
+	fs := newFlags("matter")
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	window := fs.Duration("for", defaultWindow, "How long open keeps the window open: 3m to 15m.")
@@ -38,7 +38,7 @@ func runMatter(ctx context.Context, args []string) error {
 		req = api.Request{Type: api.TypeMatterOpen, WindowSeconds: int(window.Seconds())}
 		_, _ = fmt.Fprintln(os.Stderr, "Opening the Matter bridge's window")
 	default:
-		return cli.UsageErrorf("usage: oikade matter [open [--for DURATION]] [--json]")
+		return cli.UsageErrorf("oikade matter takes nothing, or open")
 	}
 	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
@@ -47,7 +47,7 @@ func runMatter(ctx context.Context, args []string) error {
 	if resp.Error != "" {
 		return errors.New(resp.Error)
 	}
-	drawQR := cli.NewPrinter(os.Stdout).Terminal
+	drawQR := std.out.Terminal
 	if req.Type == api.TypeMatterOpen {
 		if resp.MatterWindow == nil {
 			return errors.New("the host opened no window")

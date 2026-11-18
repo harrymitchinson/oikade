@@ -1,0 +1,7 @@
+exit 2
+--- stdout
+--- stderr
+Error: oikade-host client only adds one
+Usage:
+  oikade-host client add NAME [--token] [--data-dir DIR] [--json]
+Hint: oikade client lists and revokes them, from anywhere
