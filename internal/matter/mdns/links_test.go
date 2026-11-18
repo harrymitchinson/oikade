@@ -187,22 +187,38 @@ func TestNothingIsAnnouncedOnANewInterfaceBeforeTheHostIsProbed(t *testing.T) {
 	c.none(t)
 }
 
-func TestFixedInterfacesFollowOnlyThoseGiven(t *testing.T) {
+func TestAnAddressThatMovesToAnotherInterfaceGetsNoGoodbye(t *testing.T) {
+	r, c, links := newLinkedResponder(t)
+	const bridge = testIf + 1
+	links.up(net.Interface{Index: bridge, Name: "br0"}, testAddr4) // eth0 joins a bridge
+	links.set(testIf, testAddr6)
+
+	r.checkLinks()
+
+	for range 4 { // two announcements on each interface
+		if p := c.next(t); slices.ContainsFunc(p.msg.Answers, func(a dnsmessage.Resource) bool { return a.Header.TTL == 0 }) {
+			t.Fatalf("said goodbye to %v, which the host still has", addrsIn(p.msg.Answers))
+		}
+	}
+	c.none(t)
+}
+
+func TestFixedInterfacesFollowThoseGivenByName(t *testing.T) {
 	all, err := net.Interfaces()
 	if err != nil || len(all) == 0 {
 		t.Skip("no interfaces to look at")
 	}
-	given := []net.Interface{all[0], {Index: 1 << 20, Name: "gone0"}}
+	// The first was created again with a new index; the second is gone.
+	given := []net.Interface{{Index: 1 << 20, Name: all[0].Name}, {Index: all[0].Index, Name: "gone0"}}
 	got, err := fixedInterfaces(given)()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ifi := range got {
-		if ifi.Index != all[0].Index {
-			t.Errorf("lists %s, which wasn't given or doesn't exist", ifi.Name)
-		}
+	want := 0
+	if all[0].Flags&net.FlagUp != 0 {
+		want = 1
 	}
-	if all[0].Flags&net.FlagUp != 0 && len(got) != 1 {
-		t.Errorf("lists %v, want %s", got, all[0].Name)
+	if len(got) != want || (want == 1 && got[0].Index != all[0].Index) {
+		t.Errorf("lists %v, want %s at index %d if it's up", got, all[0].Name, all[0].Index)
 	}
 }

@@ -1,11 +1,11 @@
 package mdns
 
 import (
+	"fmt"
 	"maps"
 	"net"
 	"net/netip"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -35,6 +35,9 @@ func (r *Responder) watchLinks() {
 // the groups on an interface that's new or whose addresses changed, stops serving one that's gone,
 // and tells caches.
 func (r *Responder) checkLinks() {
+	if r.interfaces == nil {
+		return
+	}
 	list, err := r.interfaces()
 	if err != nil {
 		r.log.Debug("Could not list interfaces", "err", err)
@@ -45,31 +48,32 @@ func (r *Responder) checkLinks() {
 	prev := r.links
 	next := make(map[int][]netip.Addr, len(list))
 	names := make(map[int]string, len(list))
-	type change struct {
-		ifIndex int
-		gone    []netip.Addr
-	}
-	var changes []change
+	var changed []int
+	gone := map[int][]netip.Addr{}
 	for _, ifi := range list {
 		addrs := sortedAddrs(r.addrs(ifi.Index))
 		next[ifi.Index], names[ifi.Index] = addrs, ifi.Name
 		old, seen := prev[ifi.Index]
-		if seen && slices.Equal(old, addrs) {
-			continue
-		}
-		// An interface that had no address of a family when a conn opened couldn't join that
-		// family's group on some systems, so try again whenever its addresses change.
+		unchanged := seen && slices.Equal(old, addrs)
+		// Join is a no-op where a conn has joined already, so a join that failed, as on an
+		// interface that has no address of the family yet on some systems, is tried each time.
 		for _, c := range r.conns {
-			if err := c.Join(ifi); err != nil {
+			if err := c.Join(ifi); err != nil && !unchanged {
 				r.log.Debug("Could not join mDNS group", "interface", ifi.Name, "err", err)
 			}
 		}
-		if seen {
-			r.log.Info("Announcing interface's new addresses", "interface", ifi.Name, "addrs", joinAddrs(addrs))
-		} else {
-			r.log.Info("Advertising on interface", "interface", ifi.Name, "addrs", joinAddrs(addrs))
+		if unchanged {
+			continue
 		}
-		changes = append(changes, change{ifIndex: ifi.Index, gone: addrsWithout(old, addrs)})
+		if seen {
+			r.log.Info("Interface's addresses changed", "interface", ifi.Name, "addrs", fmt.Sprint(addrs))
+		} else {
+			r.log.Info("Started advertising on interface", "interface", ifi.Name, "addrs", fmt.Sprint(addrs))
+		}
+		changed = append(changed, ifi.Index)
+		if g := addrsWithout(old, addrs); len(g) > 0 {
+			gone[ifi.Index] = g
+		}
 	}
 	for ifIndex := range prev {
 		if _, ok := next[ifIndex]; !ok {
@@ -85,9 +89,18 @@ func (r *Responder) checkLinks() {
 	r.zones, r.ifaces = names, slices.Sorted(maps.Keys(next))
 	r.netMu.Unlock()
 
-	for _, ch := range changes {
-		r.goodbyeAddrs(ch.ifIndex, ch.gone)
-		r.announceOn(ch.ifIndex)
+	// Goodbyes go first, and leave out an address the host still has on another interface, as
+	// when one moves between two on the same link, so that none follows the announcement of an
+	// address that's still the host's.
+	var held []netip.Addr
+	for _, addrs := range next {
+		held = append(held, addrs...)
+	}
+	for ifIndex, g := range gone {
+		r.goodbyeAddrs(ifIndex, addrsWithout(g, held))
+	}
+	for _, ifIndex := range changed {
+		r.announceOn(ifIndex)
 	}
 }
 
@@ -166,14 +179,15 @@ func (r *Responder) zoneNames() map[int]string {
 	return r.zones
 }
 
-// fixedInterfaces returns a function that lists those of ifaces that still exist and are up, so
-// that a Responder given its interfaces follows them but no others.
+// fixedInterfaces returns a function that lists those of ifaces that exist and are up, looked up
+// by name, so that a Responder given its interfaces follows them, even one that's created again
+// with a new index, but no others.
 func fixedInterfaces(ifaces []net.Interface) func() ([]net.Interface, error) {
 	return func() ([]net.Interface, error) {
 		var out []net.Interface
 		for _, want := range ifaces {
-			ifi, err := net.InterfaceByIndex(want.Index)
-			if err == nil && ifi.Name == want.Name && ifi.Flags&net.FlagUp != 0 {
+			ifi, err := net.InterfaceByName(want.Name)
+			if err == nil && ifi.Flags&net.FlagUp != 0 {
 				out = append(out, *ifi)
 			}
 		}
@@ -201,12 +215,4 @@ func addrsWithout(addrs, drop []netip.Addr) []netip.Addr {
 		}
 	}
 	return out
-}
-
-func joinAddrs(addrs []netip.Addr) string {
-	s := make([]string, len(addrs))
-	for i, a := range addrs {
-		s[i] = a.String()
-	}
-	return strings.Join(s, ",")
 }

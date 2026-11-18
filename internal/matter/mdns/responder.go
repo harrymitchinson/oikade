@@ -77,8 +77,8 @@ type Responder struct {
 	addrs    func(ifIndex int) []netip.Addr // the host's addresses on an interface
 	timing   timing
 
-	// interfaces lists the interfaces to serve, which checkLinks follows. nil, as in tests that
-	// don't change them, leaves them as they were at the start.
+	// interfaces lists the interfaces to serve, which checkLinks follows. With nil, as in tests
+	// that don't change them, checkLinks does nothing.
 	interfaces func() ([]net.Interface, error)
 	linkMu     sync.Mutex           // held by checkLinks
 	links      map[int][]netip.Addr // the interfaces served and their addresses, as last seen

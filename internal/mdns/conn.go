@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"sync"
 
 	"golang.org/x/net/ipv4"
@@ -114,11 +116,7 @@ func (c *mcastConn) Leave(ifIndex int) {
 func (c *mcastConn) joined() []int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make([]int, 0, len(c.ifaces))
-	for i := range c.ifaces {
-		out = append(out, i)
-	}
-	return out
+	return slices.Collect(maps.Keys(c.ifaces))
 }
 
 func (c *mcastConn) Close() error { return c.pc.Close() }
