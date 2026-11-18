@@ -19,6 +19,8 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/cli"
+	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
@@ -483,13 +485,6 @@ func or(s, fallback string) string {
 	return s
 }
 
-func display(v any) any {
-	if v == nil {
-		return "-"
-	}
-	return v
-}
-
 // why says which line of a capability's decision wins, and what holds it back.
 func why(c api.Capability) string {
 	if c.Level == "" {
@@ -548,7 +543,7 @@ func runTail(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print a line of JSON for each event, whose fields stay stable for scripts.")
 	_ = fs.Parse(args)
 	transport, host := target.resolve()
-	return tail(ctx, transport, host, *asJSON, os.Stdout, os.Stderr)
+	return tail(ctx, transport, host, *asJSON, std.out, std.err)
 }
 
 // tail follows a host's events onto stdout, and says on stderr once it has started, so that a quiet
@@ -562,31 +557,77 @@ func tail(ctx context.Context, t api.Transport, host string, asJSON bool, stdout
 			_, _ = fmt.Fprintf(stderr, "Following %s's events\n", host)
 		}
 	}
+	p := printerOf(stdout)
 	return api.Tail(ctx, t, opened, func(e api.Event) error {
 		if asJSON {
 			return out.Encode(e)
 		}
-		_, err := fmt.Fprintln(stdout, e.Time.Local().Format("15:04:05"), describe(e))
+		_, err := fmt.Fprintln(p, eventLine(p, e))
 		return err
 	})
 }
 
-func describe(e api.Event) string {
+// eventLine is an event as tail prints it: its time, the ref of what it's about, what happened, and
+// its cause, dimmed: "14:02:07  device/desk-plug/on  true  was false".
+func eventLine(p *cli.Printer, e api.Event) string {
+	what, cause := describe(e)
+	line := []string{e.Time.Local().Format("15:04:05")}
+	if e.Ref != "" {
+		line = append(line, e.Ref)
+	}
+	line = append(line, what)
+	if cause != "" {
+		line = append(line, p.Dim(cause))
+	}
+	return strings.Join(line, "  ")
+}
+
+// describe is what an event says happened, and what caused it, if it says.
+func describe(e api.Event) (what, cause string) {
+	value := func(v any) string { return or(valueText(e.Capability, v), "nothing") }
 	switch e.Type {
 	case api.EventChange:
-		return fmt.Sprintf("%s %s = %v", e.Device, e.Capability, display(e.Value))
+		if e.Previous != nil {
+			cause = "was " + value(e.Previous)
+		}
+		return value(e.Value), cause
 	case api.EventRule:
-		return fmt.Sprintf("rule %s %s", e.Rule, e.Result)
+		return runResult(e.Result), ""
 	case api.EventPause:
-		return fmt.Sprintf("rule %s %s", e.Rule, e.Message)
+		return e.Message, ""
 	case api.EventWrite:
-		return fmt.Sprintf("wrote %s %s = %v", e.Device, e.Capability, display(e.Value))
+		return "wrote " + value(e.Value), ""
 	case api.EventRefused:
-		return fmt.Sprintf("refused Matter write %s %s = %v: %s", e.Device, e.Capability, display(e.Value), e.Message)
+		return "refused a Matter write of " + value(e.Value), e.Message
 	case api.EventDeploy:
-		return "deployed " + e.Message
+		return "deployed version " + cli.ShortVersion(e.Message), ""
 	}
-	return "automations " + e.Message
+	return "automations " + e.Message, ""
+}
+
+// runResult is how a rule's run ended, in words.
+func runResult(result string) string {
+	switch result {
+	case engine.ResultSucceeded:
+		return "ran"
+	case engine.ResultFailed:
+		return "ran and failed"
+	case engine.ResultCancelled:
+		return "was cancelled"
+	case engine.ResultBusy:
+		return "didn't run: it was still running"
+	case engine.ResultConditionFalse:
+		return "didn't run: its condition was false"
+	case engine.ResultConditionError:
+		return "didn't run: its condition couldn't be read"
+	case engine.ResultMissed:
+		return "missed its time"
+	case flow.ResultGaveUp:
+		return "gave up: it woke too late to carry on"
+	case flow.ResultDropped:
+		return "was dropped: its code changed under it"
+	}
+	return strings.ReplaceAll(result, "_", " ")
 }
 
 func runSet(ctx context.Context, args []string) error {
@@ -620,17 +661,24 @@ func runSet(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return done(resp, *asJSON, outcome(device, name, value, resp.Outcome))
+	// A value that hasn't answered, or that the host held back, isn't a change, so it gets no ✓.
+	changed := resp.Outcome != nil && stuck(name, resp.Outcome.Value, value)
+	return finished(resp, *asJSON, outcome(device, name, value, resp.Outcome), changed)
 }
 
 // outcome says what a set left the capability at, and why, rather than what it asked for.
+// stuck is whether a capability took the value asked of it, or the driver's rounding of it.
+func stuck(name string, got, asked any) bool {
+	return fmt.Sprint(got) == fmt.Sprint(asked) || rounded(name, got, asked)
+}
+
 func outcome(device, name string, asked any, c *api.Capability) string {
 	if c == nil {
 		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",
 			ident.CapabilityRef(device, name), device)
 	}
 	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), or(valueText(name, c.Value), "-"))
-	if fmt.Sprint(c.Value) != fmt.Sprint(asked) && !rounded(name, c.Value, asked) {
+	if !stuck(name, c.Value, asked) {
 		is += ", not " + valueText(name, asked)
 	}
 	if c.Level == "" {
@@ -725,8 +773,21 @@ func paused(did, rule string, resp api.Response) string {
 	return message
 }
 
+// printerOf is w as a printer: w itself if it's one, or a plain one, as a test's buffer is.
+func printerOf(w io.Writer) *cli.Printer {
+	if p, ok := w.(*cli.Printer); ok {
+		return p
+	}
+	return cli.Plain(w, 0)
+}
+
 // done prints the outcome of a command that changes something.
 func done(resp api.Response, asJSON bool, message string) error {
+	return finished(resp, asJSON, message, true)
+}
+
+// finished prints how a request ended: its JSON, or message, on a ✓ line if it changed something.
+func finished(resp api.Response, asJSON bool, message string, changed bool) error {
 	if asJSON {
 		out := struct {
 			OK      bool            `json:"ok"`
@@ -741,12 +802,16 @@ func done(resp api.Response, asJSON bool, message string) error {
 			return err
 		}
 	} else {
-		if resp.Error == "" {
-			fmt.Println(message)
+		switch {
+		case resp.Error != "":
+		case changed:
+			std.out.Done("%s", message)
+		default:
+			std.out.Println(message)
 		}
 		// A remove that failed part way still warns of what it did.
 		if resp.Warning != "" {
-			fmt.Fprintln(os.Stderr, "Warning:", resp.Warning)
+			std.err.Warn("%s", resp.Warning)
 		}
 	}
 	if resp.Error != "" {

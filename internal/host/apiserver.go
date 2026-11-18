@@ -43,6 +43,8 @@ const maxPublicRequest = 4 << 10
 // apiServer answers oikade. A call outlives its connection: a deploy that has begun
 // finishes even if the command that asked goes away.
 type apiServer struct {
+	// version is oikade-host's.
+	version string
 	log     *slog.Logger
 	ctx     context.Context
 	deploys *deployer
@@ -330,7 +332,7 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 	case api.TypeClients, api.TypeClientAdd, api.TypeClientRevoke, api.TypeLogin:
 		return s.client(c, req)
 	case api.TypeInfo:
-		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, HostVersion: s.version}
 	case api.TypeRollback:
 		return s.deploys.rollback(s.ctx, req.AllowSafetyRemoval)
 	case api.TypeStatus:

@@ -46,7 +46,7 @@ func runDeploy(ctx context.Context, args []string) error {
 	}
 
 	d := deployer{
-		stdout:   os.Stdout,
+		stdout:   std.out,
 		progress: &progress{w: os.Stderr, live: redraws(term.IsTerminal(int(os.Stderr.Fd())), os.Getenv("TERM"))},
 		check:    checkSource,
 		build:    build,
@@ -103,10 +103,10 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	if resp.Unchanged {
-		_, _ = fmt.Fprintln(d.stdout, "Already running version", resp.Version)
+		printerOf(d.stdout).Println("Already running version " + cli.ShortVersion(resp.Version))
 		return nil
 	}
-	return report(d.stdout, resp, "Deployed version")
+	return report(printerOf(d.stdout), resp, "Deployed version")
 }
 
 func runRollback(ctx context.Context, args []string) error {
@@ -122,7 +122,7 @@ func runRollback(ctx context.Context, args []string) error {
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
-	return report(os.Stdout, resp, "Rolled back to version")
+	return report(std.out, resp, "Rolled back to version")
 }
 
 // printDeviceChanges says what a version's device declarations changed, which declared names wait
@@ -139,9 +139,9 @@ func printDeviceChanges(out io.Writer, resp api.Response) {
 	}
 }
 
-func report(stdout io.Writer, resp api.Response, done string) error {
+func report(stdout *cli.Printer, resp api.Response, done string) error {
 	if resp.Error == "" {
-		_, _ = fmt.Fprintln(stdout, done, resp.Version)
+		stdout.Done("%s %s", done, cli.ShortVersion(resp.Version))
 		return nil
 	}
 	for _, f := range resp.Findings {

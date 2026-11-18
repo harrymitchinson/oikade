@@ -105,6 +105,7 @@ func runHost(ctx context.Context, args []string) error {
 
 	h := &host.Host{
 		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, Log: log,
+		Version:     cli.Version(version),
 		MetricsAddr: *metricsAddr, APIAddr: *apiAddr,
 		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, StopTimeout: *stopTimeout, SecretsDir: *secretsDir,
 		EventLog: store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},

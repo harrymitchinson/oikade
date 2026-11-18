@@ -75,7 +75,12 @@ func runSecret(ctx context.Context, args []string) error {
 	}
 	if req.Type != api.TypeSecrets {
 		if !*asJSON {
-			fmt.Println("Done. Your process and plugins read it when they next ask, so one that reads it once needs a restart")
+			did := "Set"
+			if req.Type == api.TypeSecretRemove {
+				did = "Removed"
+			}
+			std.out.Done("%s secret %s. Your process and plugins read it when they next ask, "+
+				"so one that reads it once needs a restart", did, req.Secret)
 			return nil
 		}
 		return cli.PrintJSON(struct{}{})

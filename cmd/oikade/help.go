@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
 // std is where every command prints, and exit how it ends: os.Stdout, os.Stderr and os.Exit, except
@@ -190,8 +192,10 @@ var groups = []group{
 		},
 		{
 			Name:    "oikade version",
-			Summary: "Print this oikade's version.",
-			Usage:   []string{"oikade version"},
+			Summary: "Print this oikade's version, and its host's when one answers.",
+			About: "It asks the host a command would reach, the current context's or this machine's, or the one " +
+				"--context or --data-dir names, and waits 3 s at most.",
+			Usage: []string{"oikade version"},
 		},
 	}},
 }
@@ -209,12 +213,52 @@ func runners() map[string]func(ctx context.Context, args []string) error {
 	}
 }
 
-func runVersion(_ context.Context, args []string) error {
-	if extra := cli.Parse(newFlags("version"), args); len(extra) > 0 {
+// hostWait is how long oikade version waits for a host to say its version.
+const hostWait = 3 * time.Second
+
+func runVersion(ctx context.Context, args []string) error {
+	fs := newFlags("version")
+	target := addTarget(fs)
+	if extra := cli.Parse(fs, args); len(extra) > 0 {
 		return cli.UsageErrorf("oikade version takes no %q", extra[0])
 	}
-	std.out.Println(cli.Version(version))
+	std.out.Println("oikade " + cli.Version(version))
+	raw, name := target.resolve()
+	if f, ok := raw.(failing); ok { // A context that isn't there, say.
+		return f.err
+	}
+	if name != thisMachine {
+		std.err.Printf("Asking %s for its version\n", name)
+	}
+	ctx, cancel := context.WithTimeout(ctx, hostWait)
+	defer cancel()
+	info, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeInfo})
+	if err == nil && info.Error != "" {
+		err = errors.New(info.Error)
+	}
+	if err != nil {
+		why := err.Error()
+		if e, ok := errors.AsType[*cli.Error](err); ok {
+			why = e.Message
+		}
+		std.err.Println(std.err.Dim("Couldn't ask the host for its version: " + why))
+		return nil
+	}
+	std.out.Println(hostVersionLine(info, name))
 	return nil
+}
+
+// hostVersionLine is a host's version, where it is and what it runs on:
+// "oikade-host v0.2.0 on this machine, linux/arm64".
+func hostVersionLine(info api.Response, name string) string {
+	where := "on this machine"
+	if name != thisMachine {
+		where = "at " + name
+	}
+	if info.HostVersion == "" {
+		return fmt.Sprintf("oikade-host %s, %s/%s, too old to say its version", where, info.GOOS, info.GOARCH)
+	}
+	return fmt.Sprintf("oikade-host %s %s, %s/%s", info.HostVersion, where, info.GOOS, info.GOARCH)
 }
 
 // overviewAfter is what oikade help says after its commands.

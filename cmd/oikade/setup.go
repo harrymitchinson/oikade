@@ -105,7 +105,7 @@ func (s setupper) run(ctx context.Context, t api.Transport, host, plugin string,
 			return err
 		}
 	} else if done.Error == "" {
-		_, _ = fmt.Fprintln(s.stdout, done.Result)
+		printerOf(s.stdout).Done("%s", done.Result)
 	}
 	if done.Error != "" {
 		return fmt.Errorf("%s isn't set up: %s", plugin, done.Error)

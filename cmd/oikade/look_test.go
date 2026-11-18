@@ -185,3 +185,82 @@ func TestStatusFitsTheTerminal(t *testing.T) {
 		testkit.Golden(t, "status-device-"+name, out.Bytes())
 	}
 }
+
+// The rest of what oikade prints, in the same look: matter's controllers, tail's events, version's
+// host and a command's ✓ line.
+func TestTheRestLookTheSame(t *testing.T) {
+	at := time.Date(2026, 11, 18, 14, 2, 7, 0, time.Local)
+	events := []api.Event{
+		{Type: api.EventChange, Ref: "device/desk-plug/on", Capability: "on", Value: true, Previous: false},
+		{Type: api.EventChange, Ref: "device/office-ac/setpoint", Capability: "setpoint", Value: 21.5},
+		{Type: api.EventWrite, Ref: "device/desk-plug/on", Capability: "on", Value: false},
+		{
+			Type: api.EventRefused, Ref: "device/desk-plug/on", Capability: "on", Value: true,
+			Message: "case/desk-plug/on/hall-too-humid holds it at Safety",
+		},
+		{Type: api.EventRule, Ref: "flow/morning", Result: "succeeded"},
+		{Type: api.EventRule, Ref: "case/towel-rail/on/after-shower", Result: "condition_error"},
+		{Type: api.EventPause, Ref: "flow/morning", Message: "paused"},
+		{Type: api.EventDeploy, Message: "f113018fb81c06e4d5fa3500102bfbc4"},
+		{Type: api.EventProcess, Message: "connected"},
+	}
+	for name, printer := range printers {
+		var b bytes.Buffer
+		p := printer(&b, 80)
+		printMatter(p, &api.Matter{Serving: true, Port: 5540, Fabrics: []api.Fabric{
+			{Index: 1, VendorID: 0x1349, Label: "Home"}, {Index: 2, VendorID: 0x1384},
+		}}, false)
+		p.Println("---")
+		for _, e := range events {
+			e.Time = at
+			p.Println(eventLine(p, e))
+		}
+		p.Println("---")
+		p.Println(hostVersionLine(api.Response{HostVersion: "v0.2.0-alpha.2", GOOS: "linux", GOARCH: "arm64"}, thisMachine))
+		p.Println(hostVersionLine(api.Response{GOOS: "linux", GOARCH: "amd64"}, "europa"))
+		p.Println("---")
+		if err := report(p, api.Response{Version: "f113018fb81c06e4d5fa3500102bfbc4"}, "Deployed version"); err != nil {
+			t.Fatal(err)
+		}
+		testkit.Golden(t, "rest-"+name, b.Bytes())
+		for i, line := range strings.Split(b.String(), "\n") {
+			if strings.HasSuffix(stripStyles(line), " ") {
+				t.Errorf("%s: line %d ends in a blank: %q", name, i, line)
+			}
+		}
+	}
+}
+
+// version says its own, then why it has no host's. A context that isn't there is an error.
+func TestVersionSaysWhyItHasNoHosts(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	out, errs, code := runOikade(t, cli.Plain, "version", "--data-dir", dir)
+	if code != 0 || out != "oikade "+cli.Version(version)+"\n" ||
+		errs != "Couldn't ask the host for its version: no host is running on this machine with its data in "+dir+"\n" {
+		t.Errorf("no host: exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+	if _, errs, code := runOikade(t, cli.Plain, "version", "--context", "nowhere"); code != 1 ||
+		!strings.HasPrefix(errs, "Error: ") {
+		t.Errorf("no such context: exit %d, stderr %q", code, errs)
+	}
+}
+
+// Only a change gets a ✓: a value that hasn't answered or was held back doesn't.
+func TestOnlyAChangeGetsATick(t *testing.T) {
+	saved := std
+	t.Cleanup(func() { std = saved })
+	for _, tc := range []struct {
+		changed bool
+		want    string
+	}{{true, "\x1b[32m✓\x1b[0m Paused flow/morning\n"}, {false, "Paused flow/morning\n"}} {
+		var b bytes.Buffer
+		std.out = cli.Styled(&b, 80)
+		if err := finished(api.Response{}, false, "Paused flow/morning", tc.changed); err != nil || b.String() != tc.want {
+			t.Errorf("changed %v: %q, %v", tc.changed, b.String(), err)
+		}
+	}
+	if stuck("on", nil, true) || !stuck("brightness", 33.1, 33.0) || stuck("brightness", 30.0, 33.0) {
+		t.Error("stuck")
+	}
+}

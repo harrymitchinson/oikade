@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
@@ -45,7 +44,7 @@ func runClient(ctx context.Context, args []string) error {
 	if *asJSON {
 		return cli.PrintJSON(struct{}{})
 	}
-	fmt.Printf("Revoked %s\n", words[1])
+	std.out.Done("Revoked client %s", words[1])
 	return nil
 }
 

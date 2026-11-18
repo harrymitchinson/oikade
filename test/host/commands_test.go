@@ -159,6 +159,18 @@ func TestStatusNamesOneDevice(t *testing.T) {
 	}
 }
 
+// oikade version says the host's version beside its own, as the host answers it.
+func TestVersionSaysTheHostsToo(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	lines := strings.Split(strings.TrimSpace(string(r.stdout(nil, "version"))), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "oikade ") ||
+		!strings.HasPrefix(lines[1], "oikade-host ") || !strings.Contains(lines[1], " on this machine, ") ||
+		strings.Contains(lines[1], "too old") {
+		t.Errorf("oikade version:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 func paused(t *testing.T, st api.Status, rule string) bool {
 	t.Helper()
 	for _, r := range st.Rules {

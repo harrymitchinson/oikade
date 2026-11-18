@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"time"
 
@@ -55,7 +54,7 @@ func runMatter(ctx context.Context, args []string) error {
 		if *asJSON {
 			return cli.PrintJSON(resp.MatterWindow)
 		}
-		printWindow(os.Stdout, resp.MatterWindow, drawQR)
+		printWindow(std.out, resp.MatterWindow, drawQR)
 		return nil
 	}
 	if resp.Matter == nil {
@@ -64,11 +63,11 @@ func runMatter(ctx context.Context, args []string) error {
 	if *asJSON {
 		return cli.PrintJSON(resp.Matter)
 	}
-	printMatter(os.Stdout, resp.Matter, drawQR)
+	printMatter(std.out, resp.Matter, drawQR)
 	return nil
 }
 
-func printMatter(out io.Writer, m *api.Matter, drawQR bool) {
+func printMatter(out *cli.Printer, m *api.Matter, drawQR bool) {
 	state := "down, and the host's log says why"
 	switch {
 	case m.Serving:
@@ -76,53 +75,67 @@ func printMatter(out io.Writer, m *api.Matter, drawQR bool) {
 	case m.Problem != "":
 		state = "down: " + m.Problem
 	}
-	_, _ = fmt.Fprintf(out, "Matter bridge: %s\n", state)
+	out.Printf("Matter bridge: %s\n", state)
 	// The bridge's own code pairs only while it's on no fabric: once it's on one, a window takes a
 	// code of its own.
 	if m.ManualCode != "" && m.Serving && m.Window && len(m.Fabrics) == 0 && drawQR {
 		printQR(out, m.QRCode)
 	}
 	if m.ManualCode != "" {
-		_, _ = fmt.Fprintf(out, "Manual code: %s\nQR code: %s\n", m.ManualCode, m.QRCode)
+		out.Printf("Manual code: %s\nQR code: %s\n", m.ManualCode, m.QRCode)
 	}
 	switch {
 	case !m.Serving:
 	case m.Window && len(m.Fabrics) == 0:
-		_, _ = fmt.Fprintln(out, "Ready to pair: scan it with the Home app, or the camera of any controller.")
+		out.Println("Ready to pair: scan it with the Home app, or the camera of any controller.")
 	case m.Window:
-		_, _ = fmt.Fprintln(out, "Ready to pair, with the code that opened the window, not these:",
+		out.Println("Ready to pair, with the code that opened the window, not these:",
 			"oikade matter open replaces it with a new one.")
 	case len(m.Fabrics) == 0:
-		_, _ = fmt.Fprintln(out, "Not ready to pair: the window has closed. oikade matter open opens it again.")
+		out.Println("Not ready to pair: the window has closed. oikade matter open opens it again.")
 	default:
-		_, _ = fmt.Fprintln(out, "To add another controller, run oikade matter open,",
+		out.Println("To add another controller, run oikade matter open,",
 			"or share the bridge from one that's paired.")
 	}
+	if len(m.Fabrics) > 0 {
+		out.Println()
+		out.Println(out.Bold("Paired controllers"))
+	}
 	for _, f := range m.Fabrics {
-		_, _ = fmt.Fprintf(out, "Paired: fabric %d, vendor %#04x %s\n", f.Index, f.VendorID, f.Label)
+		out.Println("  " + fabricLine(f))
 	}
 }
 
-func printWindow(out io.Writer, w *api.MatterWindow, drawQR bool) {
-	_, _ = fmt.Fprintf(out, "Opened the Matter bridge's window until %s\n", w.Expires.Local().Format("15:04"))
+func printWindow(out *cli.Printer, w *api.MatterWindow, drawQR bool) {
+	out.Done("Opened the Matter bridge's window until %s", w.Expires.Local().Format("15:04"))
 	if drawQR {
 		printQR(out, w.QRCode)
 	}
-	_, _ = fmt.Fprintf(out, "Manual code: %s\nQR code: %s\n", w.ManualCode, w.QRCode)
+	out.Printf("Manual code: %s\nQR code: %s\n", w.ManualCode, w.QRCode)
 	if w.Fresh {
-		_, _ = fmt.Fprintln(out, "These codes are this window's, as the bridge is paired, and pair nothing once it closes.")
+		out.Println("These codes are this window's, as the bridge is paired, and pair nothing once it closes.")
 	}
-	_, _ = fmt.Fprintln(out, "Scan it with the Home app, or the camera of any controller.")
+	out.Println("Scan it with the Home app, or the camera of any controller.")
+}
+
+// fabricLine is a paired controller: its fabric, its label if it gave one, and its vendor's ID,
+// such as "fabric 1: Home, vendor 0x1349", or "fabric 2: vendor 0x1384".
+func fabricLine(f api.Fabric) string {
+	vendor := fmt.Sprintf("vendor %#04x", f.VendorID)
+	if f.Label != "" {
+		return fmt.Sprintf("fabric %d: %s, %s", f.Index, f.Label, vendor)
+	}
+	return fmt.Sprintf("fabric %d: %s", f.Index, vendor)
 }
 
 // printQR draws the QR code of an onboarding payload, or nothing if it can't, as the line after has
 // the payload as text.
-func printQR(out io.Writer, payload string) {
+func printQR(out *cli.Printer, payload string) {
 	c, err := qr.Encode(payload)
 	if err != nil {
 		return
 	}
 	for _, line := range c.Terminal() {
-		_, _ = fmt.Fprintln(out, cli.Image(line))
+		out.Println(cli.Image(line))
 	}
 }
