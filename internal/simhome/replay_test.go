@@ -379,3 +379,91 @@ func TestRefusedWritesAreNoDifference(t *testing.T) {
 		t.Fatalf("removed %v, added %v, %d deployed, %d changes", r.Removed, r.Added, r.Deployed, r.Changes)
 	}
 }
+
+// A log that begins with the host starting has the deployed version's first writes in it: your code
+// starts when the deployed version did, and its first writes are compared with those (OIK-320).
+func TestWritesOnStartingAreComparedWhenTheLogHasTheStart(t *testing.T) {
+	connected := monday.Add(3 * time.Second)
+	log := []api.Event{
+		{Time: monday, Type: api.EventChange, Device: "sensor", Capability: humidity, Value: 40.0},
+		{Time: monday, Type: api.EventChange, Device: "fan", Capability: on, Value: true},
+		{Time: connected, Type: api.EventProcess, Message: "connected"},
+		{Time: connected.Add(40 * time.Millisecond), Type: api.EventWrite, Device: "fan", Capability: on, Value: false},
+		{Time: connected.Add(90 * time.Millisecond), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+	}
+	r, err := simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 || r.Deployed != 1 || r.Yours != 1 {
+		t.Errorf("got removed %v, added %v, %d deployed and %d yours, want the one write on starting in both",
+			r.Removed, r.Added, r.Deployed, r.Yours)
+	}
+
+	// The host can stamp the deployed version's first write a moment before it says it connected,
+	// though it's after in the log.
+	same := slices.Clone(log)
+	same[3].Time = connected.Add(-time.Millisecond)
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), same)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 || r.Deployed != 1 || r.Yours != 1 {
+		t.Errorf("with the write as it connected, got removed %v, added %v, %d deployed and %d yours",
+			r.Removed, r.Added, r.Deployed, r.Yours)
+	}
+
+	// A write well before the connect is an earlier process's: the log began with one running.
+	earlier := slices.Insert(slices.Clone(log), 2, api.Event{Time: monday, Type: api.EventWrite, Device: "fan", Capability: on, Value: true})
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), earlier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.From.Equal(connected) || r.Yours != 0 {
+		t.Errorf("replayed from %s with %d writes of yours, want your code started before the log, its writes on "+
+			"starting not counted, as a write came well before the connect", r.From, r.Yours)
+	}
+
+	// What a device said before the connect is how it was when the process connected: someone
+	// switching the fan on first leaves it on, and the code's write on starting is the same.
+	toggled := slices.Insert(slices.Clone(log), 2,
+		api.Event{Time: monday.Add(time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+		api.Event{Time: monday.Add(2 * time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: true})
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), toggled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 || r.Yours != 1 {
+		t.Errorf("with the fan toggled before the connect, got removed %v, added %v and %d yours", r.Removed, r.Added, r.Yours)
+	}
+
+	// A device's first report after the connect is a change the running process saw.
+	late := append(slices.Clone(log),
+		api.Event{Time: connected.Add(40 * time.Second), Type: api.EventChange, Device: "late-sensor", Capability: humidity, Value: 80.0})
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), late)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Changes != 1 {
+		t.Errorf("got %d changes, want the late sensor's report after the connect", r.Changes)
+	}
+
+	// Your code changed what it writes on starting.
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), slices.Delete(slices.Clone(log), 3, 5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Added) != 1 || len(r.Removed) != 0 {
+		t.Errorf("got removed %v, added %v, want your write on starting added", r.Removed, r.Added)
+	}
+
+	// A log that begins with the deployed version already running has none of its first writes, so
+	// yours aren't counted either.
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), log[:2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 || r.Yours != 0 {
+		t.Errorf("got removed %v, added %v and %d yours, want nothing from before the log", r.Removed, r.Added, r.Yours)
+	}
+}

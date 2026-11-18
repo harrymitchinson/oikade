@@ -27,6 +27,9 @@ const (
 	downFor = time.Minute
 	// startingFor is how long from the log's start a device's first report counts as how it started.
 	startingFor = time.Minute
+	// connectLag is how long before the host logs that your process connected it can log the
+	// process's first write. A write further before is an earlier process's.
+	connectLag = time.Second
 )
 
 // hostZone names the fixed offset used for a host that can't name its time zone.
@@ -97,15 +100,25 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 		events = events[:i]
 	}
 	o.Dry, o.Location, o.Calls = true, location(head.Log), callsOf(events)
-	// A second before the first event, so that what your code does on starting comes before it.
+	// When the log has the deployed version starting, your code starts then too, and what each wrote
+	// on starting is compared. Otherwise it starts a second before the first event, so that what it
+	// does on starting comes before the comparison does, as the deployed version's did before the log.
+	started, inLog := processStart(events)
 	o.Start = head.Log.Now
-	if len(events) > 0 {
+	switch {
+	case inLog:
+		o.Start = started
+	case len(events) > 0:
 		o.Start = events[0].Time.Add(-time.Second)
 	}
 	o.Start = o.Start.In(o.Location)
 	o.Devices = replayDevices(o.Devices, head.Log.Baseline, events)
 	outside := withoutEchoes(events)
-	outside = startingValues(o.Devices, outside, o.Start)
+	if inLog {
+		outside = valuesAtStart(o.Devices, outside, o.Start)
+	} else {
+		outside = startingValues(o.Devices, outside, o.Start)
+	}
 	sim, err := New(o)
 	if err != nil {
 		return Report{}, err
@@ -141,14 +154,19 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 		return Report{}, err
 	}
 
+	// From the deployed version's start, its first write counts, which can be at that moment.
+	counts := func(t time.Time) bool { return t.After(r.From) }
+	if inLog && r.From.Equal(o.Start) {
+		counts = func(t time.Time) bool { return !t.Before(r.From) }
+	}
 	var deployed, yours []Write
 	for _, e := range events {
-		if e.Type == api.EventWrite && e.Time.After(r.From) {
+		if e.Type == api.EventWrite && counts(e.Time) {
 			deployed = append(deployed, Write{Time: e.Time, Device: e.Device, Capability: e.Capability, Value: e.Value})
 		}
 	}
 	for _, w := range sim.Writes() {
-		if w.Time.After(r.From) {
+		if counts(w.Time) {
 			yours = append(yours, w)
 		}
 	}
@@ -161,8 +179,12 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 	if o.Location.String() == hostZone {
 		r.Notes = append(r.Notes, "The host didn't name its time zone, so a clock change in the log throws times of day out")
 	}
-	if head.Since.Before(o.Start) && len(events) > 0 {
-		r.Notes = append(r.Notes, "The event log only goes back to "+stamp(o.Start, o.Location))
+	logStart := o.Start
+	if inLog {
+		logStart = events[0].Time
+	}
+	if head.Since.Before(logStart) && len(events) > 0 {
+		r.Notes = append(r.Notes, "The event log only goes back to "+stamp(logStart, o.Location))
 	}
 	return r, nil
 }
@@ -182,6 +204,36 @@ func (s *Sim) replayTo(to time.Time) error {
 		}
 	}
 	return nil
+}
+
+// processStart is when the deployed version's process started as the log began: the first process
+// event, if it's a connect within startingFor of the first event. The host can log the process's
+// first writes up to connectLag before it says it connected, and stamp one before it though it's
+// after in the log, so it started at the first of those. A write further before is an earlier
+// process's, and the log began with one running.
+func processStart(events []api.Event) (time.Time, bool) {
+	i := slices.IndexFunc(events, func(e api.Event) bool { return e.Type == api.EventProcess })
+	if i < 0 || events[i].Message != "connected" || events[i].Time.Sub(events[0].Time) > startingFor {
+		return time.Time{}, false
+	}
+	connected, at := events[i].Time, events[i].Time
+	for _, e := range events {
+		if e.Type != api.EventWrite || !e.Time.Before(connected) {
+			continue
+		}
+		if connected.Sub(e.Time) > connectLag {
+			return time.Time{}, false
+		}
+		at = minTime(at, e.Time)
+	}
+	return at, true
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
 }
 
 // CallKey is where a flow's outside call waits for its answer. Two flows may use one name.
@@ -264,6 +316,23 @@ func startingValues(devices []Device, outside []api.Event, start time.Time) []ap
 			return false
 		}
 		values[e.Capability] = e.Value
+		return true
+	})
+}
+
+// valuesAtStart moves every change before start into the devices, the last of each being its value,
+// and returns the changes left. A log that has the deployed version starting has what devices said
+// before it, which the process only saw as how they were when it connected.
+func valuesAtStart(devices []Device, outside []api.Event, start time.Time) []api.Event {
+	byName := map[string]map[string]any{}
+	for _, d := range devices {
+		byName[d.Name] = d.Values
+	}
+	return slices.DeleteFunc(outside, func(e api.Event) bool {
+		if !e.Time.Before(start) {
+			return false
+		}
+		byName[e.Device][e.Capability] = e.Value
 		return true
 	})
 }

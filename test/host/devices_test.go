@@ -294,8 +294,8 @@ func TestAClaimOnAModeSurvivesARestart(t *testing.T) {
 		t.Errorf("the claim holds %v, want dry's number", claims[0].Value)
 	}
 
-	// The simulated unit starts in cool again, its decision's Default, so only the saved claim makes
-	// it dry.
+	// The simulated unit starts in auto again, and its decision's Default is cool, so only the saved
+	// claim makes it dry.
 	r.launch(settle)
 	r.awaitLoaded()
 	r.sync()

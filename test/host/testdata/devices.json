@@ -49,7 +49,7 @@
    "control": [{"capability": "on", "default": false, "external": "Revert"}]},
   {"name": "study-go", "capabilities": ["open"], "values": {"open": false}},
   {"name": "bedroom-ac", "capabilities": ["on", "mode", "setpoint", "temperature"],
-   "values": {"on": true, "mode": "cool", "setpoint": 24, "temperature": 26}},
+   "values": {"on": true, "mode": "auto", "setpoint": 24, "temperature": 26}},
   {"name": "bedroom-damp", "capabilities": ["open"], "values": {"open": false}},
   {"name": "study-heater", "capabilities": ["on", "setpoint", "temperature"], "values": {"on": true, "setpoint": 21, "temperature": 19.5}},
   {"name": "back-door", "capabilities": ["locked"], "values": {"locked": false}}
