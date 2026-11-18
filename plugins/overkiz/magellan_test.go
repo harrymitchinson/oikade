@@ -351,3 +351,34 @@ func TestARefusedMagellanWriteSaysWhatItWas(t *testing.T) {
 		}
 	}
 }
+
+// A write that fails changes nothing the next decides from: on from off, failed, is on from off
+// again, not nothing. One that waited and fails is logged with what it set.
+func TestAFailedMagellanWriteIsntWhatTheNextDecidesFrom(t *testing.T) {
+	cloud := newMagellanCloud(t)
+	cloud.set(func(h *fakeHub) { h.magellanRuns = 3 })
+	b := startCloud(t, cloud, password, cloudFast)
+	b.waitAvailability(towel, "online")
+	b.set(towel, `{"on":false}`)
+	b.waitState(towel, `{"on":false,"setpoint":15,"temperature":21.94}`)
+	cloud.set(func(h *fakeHub) { h.magellanWritesFail = true })
+	b.set(towel, `{"on":true}`)
+	b.eventually("the failure", func() bool { return b.logs.count("Could not apply set command") == 1 })
+	cloud.set(func(h *fakeHub) { h.magellanWritesFail = false })
+	b.set(towel, `{"on":true}`)
+	b.waitState(towel, `{"on":true,"setpoint":15,"temperature":21.94}`)
+	if got := waitWrites(b, 3); !reflect.DeepEqual(got, []string{"7=0", "7=4", "184=0"}) {
+		t.Errorf("wrote %v", got)
+	}
+
+	// On from off is the mode, then, once it's done, the programme: here the programme fails.
+	b.set(towel, `{"on":false}`)
+	b.waitState(towel, `{"on":false,"setpoint":15,"temperature":21.94}`)
+	b.set(towel, `{"on":true}`)
+	waitWrites(b, 5)
+	cloud.set(func(h *fakeHub) { h.magellanWritesFail = true })
+	b.eventually("the waiting write's failure", func() bool { return b.logs.count("Could not send Magellan write") == 1 })
+	if !strings.Contains(b.logs.String(), `could not set on to 0 on magellan.40000001`) {
+		t.Errorf("the failure doesn't say what it set:\n%s", b.logs.String())
+	}
+}

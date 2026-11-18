@@ -474,11 +474,12 @@ func (m *magellan) executions(ctx context.Context, c *magellanClient) (bool, err
 		case state == execPending || state == execInProgress:
 			m.mu.Lock()
 			e, ok := m.running[id]
-			if ok && now.Sub(e.began) > m.timing.execution {
+			expired := ok && now.Sub(e.began) > m.timing.execution
+			if expired {
 				delete(m.running, id)
 			}
 			m.mu.Unlock()
-			if ok && now.Sub(e.began) > m.timing.execution {
+			if expired {
 				m.log.Warn("Stopped waiting for Magellan execution", "exec", id, "device", e.id,
 					"capability", e.set, "value", e.value, "after", m.timing.execution.String())
 			}
@@ -507,6 +508,7 @@ func (m *magellan) executions(ctx context.Context, c *magellanClient) (bool, err
 				return false, err
 			}
 			m.log.Error("Could not send Magellan write", "device", id, "err", err)
+			// The setup, read once nothing runs, says where the device is.
 		}
 	}
 	m.mu.Lock()
@@ -545,13 +547,36 @@ func (m *magellan) send(ctx context.Context, c *magellanClient, id string) error
 		exec, err := c.write(ctx, next.deviceID, next.capability, next.value)
 		m.mu.Lock()
 		delete(m.sending, id)
-		if err == nil && exec != "" {
+		var dropped []mQueued
+		switch {
+		case err != nil:
+			// What waited on it was decided from it, so it doesn't go either.
+			dropped = m.queued[id]
+			delete(m.queued, id)
+		case exec != "":
 			m.running[exec] = mExecution{mQueued: next, began: time.Now()}
+		}
+		if dev := m.devices[id]; err == nil && dev != nil {
+			// What's written is what the next write decides from, until the setup is read again.
+			dev.caps[next.capability] = next.value
 		}
 		m.mu.Unlock()
 		if err != nil {
-			return fmt.Errorf("could not set %s on %s: %w", next.set, id, err)
+			m.dropped(dropped, "an earlier write failed")
+			return fmt.Errorf("could not set %s to %s on %s: %w", next.set, next.value, id, err)
 		}
+		if exec == "" {
+			// With no execution to wait for, the next waits for the next look at the executions.
+			return nil
+		}
+	}
+}
+
+// dropped logs writes that were taken, and won't be sent: the setup read that follows says where
+// the devices are.
+func (m *magellan) dropped(writes []mQueued, why string) {
+	for _, q := range writes {
+		m.log.Warn("Dropped Magellan write", "device", q.id, "capability", q.set, "value", q.value, "reason", why)
 	}
 }
 
@@ -727,9 +752,14 @@ func (m *magellan) lost(ctx context.Context) {
 	m.mu.Lock()
 	m.client = nil
 	clear(m.running)
+	var dropped []mQueued
+	for _, id := range slices.Sorted(maps.Keys(m.queued)) {
+		dropped = append(dropped, m.queued[id]...)
+	}
 	clear(m.queued)
 	ids := slices.Sorted(maps.Keys(m.devices))
 	m.mu.Unlock()
+	m.dropped(dropped, "the session ended")
 	for _, id := range ids {
 		m.check(m.out.SetAvailability(ctx, id, false), "Could not report Magellan device offline", id)
 	}
@@ -758,15 +788,18 @@ func (m *magellan) set(ctx context.Context, cmd contractv1.SetCommand) error {
 		deviceID string
 	)
 	if dev != nil {
-		writes, err = dev.model.write(cmd.Capability, cmd.Value, dev.caps)
+		// A write decides from what was written and what's waiting, as a quick off then on does.
+		caps := maps.Clone(dev.caps)
+		for _, q := range m.queued[cmd.ID] {
+			caps[q.capability] = q.value
+		}
+		writes, err = dev.model.write(cmd.Capability, cmd.Value, caps)
 		deviceID = dev.deviceID
 	}
 	if dev != nil && c != nil && err == nil {
-		// What's written is what the next write decides from, as a quick off then on, until the
-		// setup is read again. A newer write to a capability replaces one still waiting.
+		// A newer write to a capability replaces one still waiting.
 		queue := m.queued[cmd.ID]
 		for _, w := range writes {
-			dev.caps[w.capability] = w.value
 			queue = slices.DeleteFunc(queue, func(q mQueued) bool { return q.capability == w.capability })
 			queue = append(queue, mQueued{id: cmd.ID, deviceID: deviceID, set: cmd.Capability, mWrite: w})
 		}

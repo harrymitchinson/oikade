@@ -65,6 +65,8 @@ type fakeHub struct {
 	// changes nothing, as a real account's was (OIK-339).
 	magellanRuns int
 	executing    map[string]*fakeExecution
+	// magellanWritesFail answers each write with a 500.
+	magellanWritesFail bool
 
 	// ca is the authority that signed a hub's certificate, standing in for Overkiz's.
 	ca *x509.CertPool
@@ -328,6 +330,8 @@ func (h *fakeHub) answerMagellan(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, _ := json.Marshal(h.magellan)
 		answer(http.StatusOK, string(raw))
+	case r.Method == http.MethodPost && r.URL.Path == "/magellan/executions/writecapability" && h.magellanWritesFail:
+		answer(http.StatusInternalServerError, `{"message":"internal error"}`)
 	case r.Method == http.MethodPost && r.URL.Path == "/magellan/executions/writecapability":
 		raw, _ := io.ReadAll(r.Body)
 		var body map[string]any
@@ -357,8 +361,6 @@ func (h *fakeHub) answerMagellan(w http.ResponseWriter, r *http.Request) {
 		case e.reads < h.magellanRuns:
 			e.reads++
 			state = 2
-		default:
-			e.reads = h.magellanRuns
 		}
 		answer(http.StatusOK, fmt.Sprintf(`{"id":%s,"state":%d,"executionId":%s,"executionState":%d}`, id, state, id, state))
 	default:
