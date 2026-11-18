@@ -75,7 +75,7 @@ func (r *Responder) Remove(svc Service) error {
 	r.mu.Unlock()
 
 	r.log.Info("Withdrawing mDNS service", "instance", name.String())
-	r.goodbye(without(e.records, keep))
+	r.goodbye(withOwnNSEC(without(e.records, keep)))
 	return nil
 }
 
@@ -109,12 +109,12 @@ func (r *Responder) Close() error {
 	r.mu.Unlock()
 
 	if len(all) > 0 {
-		r.goodbye(all)
+		r.goodbye(withOwnNSEC(all))
 	}
 	if hostReady {
 		r.sendMu.Lock()
 		r.multicast(func(ifIndex int) ([]byte, error) {
-			return response(addressRecords(r.host, r.addrs(ifIndex)), 0)
+			return response(withOwnNSEC(addressRecords(r.host, r.addrs(ifIndex))), 0)
 		})
 		r.sendMu.Unlock()
 	}
@@ -127,7 +127,7 @@ func (r *Responder) Close() error {
 	return errors.Join(errs...)
 }
 
-// announce sends e's records, with the host's addresses, twice, a second apart (RFC 6762, 8.3).
+// announce sends e's records, with the host's addresses and their NSEC records, twice, a second apart (RFC 6762, 8.3).
 // Each time, it sends the records e has then, and nothing once e has been removed, so that a late
 // announcement can't undo a goodbye.
 func (r *Responder) announce(e *entry) {
@@ -142,7 +142,7 @@ func (r *Responder) announce(e *entry) {
 			return
 		}
 		r.multicast(func(ifIndex int) ([]byte, error) {
-			return response(slices.Concat(recs, addressRecords(r.host, r.addrs(ifIndex))), -1)
+			return response(withOwnNSEC(slices.Concat(recs, addressRecords(r.host, r.addrs(ifIndex)))), -1)
 		})
 	}
 	send()

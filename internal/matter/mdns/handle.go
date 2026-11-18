@@ -85,15 +85,22 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 		if class != dnsmessage.ClassINET && class != dnsmessage.ClassANY {
 			continue
 		}
-		matched := false
+		matched, has := false, false
 		for _, rec := range recs {
-			if (q.Type != dnsmessage.TypeALL && q.Type != rec.typ) || !nameEqual(q.Name, rec.name) {
+			if !nameEqual(q.Name, rec.name) || !asks(q.Type, rec.typ) {
 				continue
 			}
+			has = true
 			if knownAnswer(m.Answers, rec) {
 				continue
 			}
 			answers = appendNew(answers, rec)
+			matched = true
+		}
+		// A name of ours that has no record of the type asked for says so with its NSEC (RFC
+		// 6762, 6.1), so the querier needn't wait and ask again.
+		if n, ok := nsecOf(recs, q.Name); ok && !has && q.Type != dnsmessage.TypeALL && !knownAnswer(m.Answers, n) {
+			answers = appendNew(answers, n)
 			matched = true
 		}
 		if matched && q.Class&unicastResponse == 0 {
@@ -103,7 +110,7 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 	if len(answers) == 0 {
 		return
 	}
-	additionals := without(additional(answers, recs), answers)
+	additionals := withNSEC(answers, without(additional(answers, recs), answers), recs)
 
 	// A query from a port other than 5353 is a legacy unicast query, from a resolver that
 	// isn't an mDNS querier: it gets a conventional DNS reply (RFC 6762, 6.7).
@@ -139,9 +146,9 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 		defer r.sendMu.Unlock()
 		// Leave out what was withdrawn in the meantime.
 		now := r.answerable(ifIndex)
-		still := func(rec record) bool { return slices.ContainsFunc(now, rec.equal) }
-		answers = slices.DeleteFunc(answers, func(rec record) bool { return !still(rec) })
-		additionals = slices.DeleteFunc(additionals, func(rec record) bool { return !still(rec) })
+		gone := func(rec record) bool { return !slices.ContainsFunc(now, rec.equal) }
+		answers = slices.DeleteFunc(answers, gone)
+		additionals = slices.DeleteFunc(additionals, gone)
 		if len(answers) == 0 {
 			return
 		}
@@ -179,8 +186,8 @@ func (r *Responder) asksForUs(qs []dnsmessage.Question) bool {
 }
 
 // answerable returns the records the Responder answers with on an interface: those of its
-// announced services, and the host's addresses there once the host name has been probed. It
-// returns none once the Responder is closing.
+// announced services, the host's addresses there once the host name has been probed, and an NSEC
+// for each of their unique names. It returns none once the Responder is closing.
 func (r *Responder) answerable(ifIndex int) []record {
 	recs, hostReady, open := r.answering()
 	if !open {
@@ -189,7 +196,19 @@ func (r *Responder) answerable(ifIndex int) []record {
 	if hostReady {
 		recs = append(recs, addressRecords(r.host, r.addrs(ifIndex))...)
 	}
-	return recs
+	return withOwnNSEC(recs)
+}
+
+// asks reports whether a question of type q asks for a record of type typ. A question for any type
+// leaves out NSEC, which goes with the name's records in the additional section.
+func asks(q, typ dnsmessage.Type) bool {
+	switch {
+	case typ == typeNSEC:
+		return q == typeNSEC
+	case q == dnsmessage.TypeALL:
+		return true
+	}
+	return q == typ
 }
 
 // answering returns the announced services' records, whether the host name has been probed, and whether
@@ -266,11 +285,18 @@ func legacyReply(q *dnsmessage.Message, answers, additionals []record) ([]byte, 
 	for i := range m.Questions {
 		m.Questions[i].Class &^= unicastResponse
 	}
+	// A conventional resolver reads a name with no record of the type as an empty answer, not
+	// an NSEC there.
+	notNSEC := func(rec record) bool { return rec.typ != typeNSEC }
 	for _, rec := range answers {
-		m.Answers = append(m.Answers, rec.resource(min(rec.ttl, legacyTTL), false))
+		if notNSEC(rec) {
+			m.Answers = append(m.Answers, rec.resource(min(rec.ttl, legacyTTL), false))
+		}
 	}
 	for _, rec := range additionals {
-		m.Additionals = append(m.Additionals, rec.resource(min(rec.ttl, legacyTTL), false))
+		if notNSEC(rec) {
+			m.Additionals = append(m.Additionals, rec.resource(min(rec.ttl, legacyTTL), false))
+		}
 	}
 	return m.Pack()
 }
@@ -302,8 +328,9 @@ func (r *Responder) checkConflicts(m *dnsmessage.Message) {
 	if len(probes) == 0 {
 		return
 	}
+	services := ours
 	for _, ifIndex := range r.served() {
-		ours = append(ours, addressRecords(r.host, r.addrs(ifIndex))...)
+		ours = append(ours, withOwnNSEC(slices.Concat(services, addressRecords(r.host, r.addrs(ifIndex))))...)
 	}
 	for _, rr := range slices.Concat(m.Answers, m.Authorities, m.Additionals) {
 		if slices.ContainsFunc(ours, func(rec record) bool { return rec.same(rr.Header.Name, rr.Header.Type, rr.Body) }) {
