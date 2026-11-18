@@ -546,9 +546,20 @@ func TestABridgedDevicesProductIsServedOnceKnown(t *testing.T) {
 
 	// 33 bytes, the last two of them one character.
 	long := strings.Repeat("x", 31) + "é"
-	f.bridge.Node.Update(func() { f.info.SetProduct("Signify Netherlands B.V.", long) })
+	versions := strings.Repeat("1.", 32) + "9" // 65 bytes
+	f.bridge.Node.Update(func() {
+		f.info.SetProduct(Product{
+			VendorName: "Signify Netherlands B.V.", ProductName: long, SerialNumber: "4A1B9C",
+			SoftwareVersion: versions, HardwareVersion: "2",
+		})
+	})
 	select {
 	case got := <-reports:
+		for attr, want := range map[uint32]string{0x08: "2", 0x0A: strings.Repeat("1.", 32), 0x0F: "4A1B9C"} {
+			if r := find(got, path(attr)); r == nil || value(t, *r) != want {
+				t.Errorf("report %+v, want %#x %s", got, attr, want)
+			}
+		}
 		if r := find(got, vendor); r == nil || value(t, *r) != "Signify Netherlands B.V." {
 			t.Errorf("report %+v, want VendorName Signify Netherlands B.V.", got)
 		}
@@ -562,7 +573,9 @@ func TestABridgedDevicesProductIsServedOnceKnown(t *testing.T) {
 		t.Fatal("no report of VendorName and ProductName")
 	}
 
-	f.bridge.Node.Update(func() { f.info.SetProduct("Signify Netherlands B.V.", "") })
+	f.bridge.Node.Update(func() {
+		f.info.SetProduct(Product{VendorName: "Signify Netherlands B.V.", SerialNumber: "4A1B9C", SoftwareVersion: "1.2", HardwareVersion: "2"})
+	})
 	select {
 	case got := <-reports:
 		if find(got, product) != nil {

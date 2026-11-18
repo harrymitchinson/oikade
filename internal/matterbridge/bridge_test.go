@@ -337,7 +337,7 @@ func TestABlindStoppedBeforeItsMoveIsSentStaysPut(t *testing.T) {
 func TestABridgedDeviceSaysWhatItIs(t *testing.T) {
 	b := newBridgeRig()
 	plug := device("desk-plug", 2, capability.On)
-	plug.Manufacturer, plug.Model, plug.Absent = "Shelly", "Plug S", true
+	plug.Product, plug.Absent = driver.Product{Manufacturer: "Shelly", Model: "Plug S", FirmwareVersion: "1.4.4"}, true
 	apply(t, b, plug)
 	var before *im.Endpoint
 	product := func() (vendor, product any) {
@@ -349,13 +349,16 @@ func TestABridgedDeviceSaysWhatItIs(t *testing.T) {
 			}
 			vendor = readAttr(t, e, clusters.IDBridgedDeviceBasicInformation, 0x01)
 			product = readAttr(t, e, clusters.IDBridgedDeviceBasicInformation, 0x03)
+			if v := readAttr(t, e, clusters.IDBridgedDeviceBasicInformation, 0x0A); v != "1.4.4" {
+				t.Errorf("SoftwareVersionString %v, want the firmware's 1.4.4", v)
+			}
 		})
 		return vendor, product
 	}
 	if vendor, product := product(); vendor != "Shelly" || product != "Plug S" {
 		t.Errorf("VendorName %v and ProductName %v, want Shelly Plug S", vendor, product)
 	}
-	plug.Model, plug.Absent = "Plug S Gen3", false
+	plug.Product.Model, plug.Absent = "Plug S Gen3", false
 	apply(t, b, plug)
 	if vendor, product := product(); vendor != "Shelly" || product != "Plug S Gen3" {
 		t.Errorf("VendorName %v and ProductName %v, want Shelly Plug S Gen3", vendor, product)

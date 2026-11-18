@@ -24,10 +24,10 @@ type endpoint struct {
 	signature string
 	label     string
 	absent    bool
-	// manufacturer and model are what it's said to be, which refresh serves.
-	manufacturer, model string
-	mapped              *Mapped
-	info                *clusters.BridgedInfo
+	// product is what it's said to be, which refresh serves.
+	product clusters.Product
+	mapped  *Mapped
+	info    *clusters.BridgedInfo
 }
 
 func (e *endpoint) device() ident.ID { return *e.key.Load() }
@@ -141,7 +141,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 	for id, e := range b.endpoints {
 		d := want[id]
 		e.key.Store(&d.Key)
-		e.absent, e.manufacturer, e.model = d.Absent, d.Manufacturer, d.Model
+		e.absent, e.product = d.Absent, productOf(d.Product)
 		byDevice[d.Key] = e
 	}
 	b.byDevice = byDevice
@@ -160,7 +160,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		}
 		d := want[id]
 		e := &endpoint{
-			signature: d.Signature(), label: Label(d.Name), absent: d.Absent, manufacturer: d.Manufacturer, model: d.Model,
+			signature: d.Signature(), label: Label(d.Name), absent: d.Absent, product: productOf(d.Product),
 		}
 		e.key.Store(&d.Key)
 		d.After = b.after
@@ -185,12 +185,20 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 	return failed
 }
 
+// productOf is what a driver says a device is, as Matter has it.
+func productOf(p driver.Product) clusters.Product {
+	return clusters.Product{
+		VendorName: p.Manufacturer, ProductName: p.Model, SerialNumber: p.SerialNumber,
+		SoftwareVersion: p.FirmwareVersion, HardwareVersion: p.HardwareVersion,
+	}
+}
+
 // refresh brings an endpoint's clusters up to date with the device it's for.
 func (b *Bridge) refresh(e *endpoint) {
 	snap, _ := b.Store.Get(e.device())
 	b.Matter.Node.Update(func() {
 		// What a device is, it is while it's away.
-		e.info.SetProduct(e.manufacturer, e.model)
+		e.info.SetProduct(e.product)
 		if e.absent {
 			e.info.SetReachable(false)
 			return

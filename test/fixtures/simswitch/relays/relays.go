@@ -47,16 +47,22 @@ type switches struct {
 	needsSetup, refuseSetup bool
 }
 
-// manufacturer and model are what every simulated relay reports.
+// manufacturer, model and firmware are what every simulated relay reports, and a serial number its
+// own.
 const (
 	manufacturer = "Oikade"
 	model        = "Simulated switch"
+	firmware     = "1.0.0"
 )
+
+// serial is a simulated relay's serial number.
+func serial(id string) string { return "SIM-" + strings.ToUpper(id) }
 
 // spare is a relay in the simulated app that no Device declares.
 var spare = contractv1.DiscoveredDevice{
-	ID: "spare-relay", Manufacturer: manufacturer, Model: model,
-	Capabilities: []string{"on"}, Name: "Spare relay",
+	ID: "spare-relay", Manufacturer: manufacturer, Model: model, SerialNumber: serial("spare-relay"),
+	FirmwareVersion: firmware,
+	Capabilities:    []string{"on"}, Name: "Spare relay",
 }
 
 var (
@@ -83,8 +89,9 @@ func fault(id string) string {
 // discoveredAs is a relay as the simulated app lists it, under its name there.
 func discoveredAs(d contractv1.DeclaredDevice, id string, capabilities ...string) contractv1.DiscoveredDevice {
 	return contractv1.DiscoveredDevice{
-		ID: id, Manufacturer: manufacturer, Model: model, Capabilities: capabilities,
-		Name: d.DisplayName, Room: d.Room,
+		ID: id, Manufacturer: manufacturer, Model: model, SerialNumber: serial(d.ID), FirmwareVersion: firmware,
+		Capabilities: capabilities,
+		Name:         d.DisplayName, Room: d.Room,
 	}
 }
 
@@ -139,7 +146,8 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 		s.relays[d.ID] = r
 		// No DeviceType: a relay can't tell what it switches.
 		s.reports = append(s.reports, contractv1.DeviceReport{
-			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, Capabilities: r.capabilities(),
+			ID: d.ID, Found: true, Manufacturer: manufacturer, Model: model, SerialNumber: serial(d.ID),
+			FirmwareVersion: firmware, Capabilities: r.capabilities(),
 		})
 		id := d.ID
 		if simulate == "unstable-id" {

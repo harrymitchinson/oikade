@@ -16,6 +16,7 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
@@ -51,8 +52,9 @@ type Device struct {
 	Unique string
 	// Absent is a device with no driver reporting it yet: it's on the bridge, and unreachable.
 	Absent bool
-	// Manufacturer and Model are the bridged device's VendorName and ProductName, empty if unknown.
-	Manufacturer, Model string
+	// Product is what the device is, which the bridged device's Bridged Device Basic Information
+	// serves.
+	Product driver.Product
 	// After runs f, under the Node's lock, once d has passed, for a move that settles, unless the
 	// function it returns is called first. Nil settles a move only by the device's report.
 	After func(d time.Duration, f func()) (stop func())

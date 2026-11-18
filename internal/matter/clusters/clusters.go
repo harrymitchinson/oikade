@@ -59,6 +59,8 @@ const (
 	dataModelRevision    = 17         // Matter 1.3
 	specificationVersion = 0x01030000 // 1.3.0
 	maxStringLength      = 32
+	// maxVersionLength is a version string's limit, such as SoftwareVersionString's.
+	maxVersionLength = 64
 )
 
 // readOnly returns an attribute whose value write puts.
@@ -198,8 +200,14 @@ type BridgedInfo struct {
 	label     string
 	uniqueID  string
 	reachable bool
-	// vendor and product are VendorName and ProductName, each served only once it's known.
-	vendor, product string
+	// product is what it is, each attribute served only once it's known.
+	product Product
+}
+
+// Product is what a bridged device is, as its Bridged Device Basic Information's optional strings,
+// each empty if it isn't known.
+type Product struct {
+	VendorName, ProductName, SerialNumber, SoftwareVersion, HardwareVersion string
 }
 
 // NewBridgedInfo returns the cluster for one bridged device.
@@ -228,12 +236,16 @@ func (b *BridgedInfo) SetLabel(label string) {
 	}
 }
 
-// SetProduct sets the device's VendorName and ProductName, each cut to 32 bytes. One that's empty
-// isn't served, and subscribers are told of a change, the attribute list's included. Call it inside
+// SetProduct sets what the device is: its VendorName, ProductName and SerialNumber, each cut to 32
+// bytes, and its SoftwareVersionString and HardwareVersionString, cut to 64. One that's empty isn't
+// served, and subscribers are told of a change, the attribute list's included. Call it inside
 // Node.Update.
-func (b *BridgedInfo) SetProduct(vendor, product string) {
-	b.setOptional(0x01, &b.vendor, Fit(vendor, maxStringLength))
-	b.setOptional(0x03, &b.product, Fit(product, maxStringLength))
+func (b *BridgedInfo) SetProduct(p Product) {
+	b.setOptional(0x01, &b.product.VendorName, Fit(p.VendorName, maxStringLength))
+	b.setOptional(0x03, &b.product.ProductName, Fit(p.ProductName, maxStringLength))
+	b.setOptional(0x08, &b.product.HardwareVersion, Fit(p.HardwareVersion, maxVersionLength))
+	b.setOptional(0x0A, &b.product.SoftwareVersion, Fit(p.SoftwareVersion, maxVersionLength))
+	b.setOptional(0x0F, &b.product.SerialNumber, Fit(p.SerialNumber, maxStringLength))
 }
 
 // setOptional sets an optional string attribute, which is served only while it isn't empty.

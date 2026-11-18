@@ -17,6 +17,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/store"
@@ -62,9 +63,8 @@ type Device struct {
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// DriverDeviceType is what its driver says it is, if the driver knows.
 	DriverDeviceType devicetype.Type `json:"driverDeviceType,omitempty"`
-	// Manufacturer and Model are what its driver last said they are, kept while it says nothing.
-	Manufacturer string `json:"manufacturer,omitempty"`
-	Model        string `json:"model,omitempty"`
+	// Product is what its driver last said it is, each field kept while the driver says nothing of it.
+	driver.Product
 	// Endpoint is its Matter endpoint ID, and follows the name onto replacement hardware.
 	Endpoint uint16 `json:"endpoint"`
 	// Removed keeps the device on record, holding its endpoint, in case it comes back.
@@ -98,9 +98,8 @@ type Report struct {
 	DeviceType devicetype.Type
 	// Control is how it's arbitrated. Nil leaves what's on record.
 	Control json.RawMessage
-	// Manufacturer and Model are as the driver says. Empty leaves what's on record.
-	Manufacturer string
-	Model        string
+	// Product is what the driver says it is. An empty field leaves what's on record.
+	driver.Product
 	// Name and Room are as named in its app, and are only read the first time.
 	Name string
 	Room string
@@ -159,10 +158,10 @@ func (r *Registry) Get(name string) (Device, bool) {
 }
 
 // ByID returns a live device by its hardware.
-func (r *Registry) ByID(driver, id string) (Device, bool) {
+func (r *Registry) ByID(instance, id string) (Device, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if i := hardware(r.state, driver, id); i >= 0 && !r.state.Devices[i].Removed {
+	if i := hardware(r.state, instance, id); i >= 0 && !r.state.Devices[i].Removed {
 		return cloneDevice(r.state.Devices[i]), true
 	}
 	return Device{}, false
@@ -238,7 +237,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if report.Control != nil {
 			d.Control = bytes.Clone(report.Control)
 		}
-		d.Manufacturer, d.Model = cmp.Or(clean(report.Manufacturer), d.Manufacturer), cmp.Or(clean(report.Model), d.Model)
+		d.Product = report.Product.Clean().Or(d.Product)
 		out = cloneDevice(*d)
 		return nil
 	})
@@ -250,10 +249,9 @@ func newAppName(d Device, report Report) bool {
 	return d.AppName == "" && clean(report.Name) != ""
 }
 
-// newProduct says a report names the device's manufacturer or model anew.
+// newProduct says a report says anew what the device is.
 func newProduct(d Device, report Report) bool {
-	m, model := clean(report.Manufacturer), clean(report.Model)
-	return m != "" && m != d.Manufacturer || model != "" && model != d.Model
+	return report.Product.Clean().Or(d.Product) != d.Product
 }
 
 // fits refuses a device type a device can't be. One that hasn't reported can be any.
@@ -297,8 +295,8 @@ func live(s Snapshot, name string) int {
 	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.Name == name && !d.Removed })
 }
 
-func hardware(s Snapshot, driver, id string) int {
-	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.ID == id && d.Driver == driver })
+func hardware(s Snapshot, instance, id string) int {
+	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.ID == id && d.Driver == instance })
 }
 
 func checkName(name string) error { return ident.CheckName(ident.Device, name) }

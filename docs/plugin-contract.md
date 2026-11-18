@@ -77,7 +77,7 @@ A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"on
 ```json
 {
   "devices": [
-    {"id": "1000aabbcc", "found": true, "manufacturer": "SONOFF", "model": "MINIR4", "capabilities": ["on"]},
+    {"id": "1000aabbcc", "found": true, "manufacturer": "SONOFF", "model": "MINIR4", "firmwareVersion": "3.6.0", "capabilities": ["on"]},
     {"id": "1000ccbbaa", "found": true, "manufacturer": "Nanoleaf", "model": "NL45", "capabilities": ["on", "brightness"], "deviceType": "DimmableLight"},
     {"id": "1000ddeeff", "found": false, "error": "no LAN key for 1000ddeeff"}
   ],
@@ -86,7 +86,8 @@ A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"on
 ```
 
 - List every device from the devices file (see [Environment](#environment)), each once, by its `id`. Oikade drops an entry whose `id` isn't valid (1 to 63 letters, digits, `_`, `.` or `-`, starting with a letter or digit) or repeats an earlier one's, and keeps the rest (OIK-317).
-- `found` is true once the plugin can reach the device. `manufacturer`, `model`, `capabilities` and `deviceType` matter only when it's true. Oikade keeps the last `manufacturer` and `model` a device had, which `oikade devices` and the Home app show, so leave one empty when the plugin doesn't know it. Matter takes at most 32 bytes of each.
+- `found` is true once the plugin can reach the device. `manufacturer`, `model`, `serialNumber`, `firmwareVersion`, `hardwareVersion`, `capabilities` and `deviceType` matter only when it's true.
+- `manufacturer`, `model`, `serialNumber`, `firmwareVersion` and `hardwareVersion` are optional: what the device is, as its app or hub says, all strings. Oikade keeps the last of each a device had, which `oikade devices` and the Home app show, so leave one out when the plugin doesn't know it rather than sending a placeholder. Matter takes at most 32 bytes of the manufacturer, model and serial number, and 64 of each version (OIK-349).
 - `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. They're added to Oikade's registry, named by the guide in `internal/capability`'s package doc.
 - `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless your home declares one with `Is`, and a device's other types follow from its capabilities (OIK-142).
 - `error` is a problem with the device's configuration, such as a missing secret or settings the plugin can't use. `oikade devices` and `oikade status` show it. A device can be `found` and still have one, if the plugin can see it and can't use it. Leave it empty otherwise.
@@ -112,7 +113,7 @@ A plugin that can list the devices in its app (a hub, a cloud account) adds them
 - List every device in the app, **declared or not**, online or not. A device leaving the list means it was removed from its app. One that is unplugged stays in the list and is reported `found: false` in `devices` if it's declared.
 - Leave `discovered` out if the plugin can't list its app's devices. An empty list means the app has none. A plugin that only hears devices on the network is one of these, because it can't list one that's unplugged: it reports what it hears in `devices` with `found: true`, which puts them on record, and those on record it hasn't heard with `found: false`. So that a device you removed stays removed, its first report waits until it has listened for long enough to have heard the devices that are there.
 - `name` and `room` are as the user named them in the app. Leave them out if it has none.
-- `capabilities` are canonical names, and `deviceType` is optional, as in `devices`. For a device in both, `devices` wins.
+- `capabilities` are canonical names, and `deviceType` is optional, as in `devices`. For a device in both, `devices` wins. So does each of `manufacturer`, `model`, `serialNumber`, `firmwareVersion` and `hardwareVersion` that `devices` gives.
 - **A discovered device's `id` is stable.** It stays the same across restarts of the plugin, and across restarts and restores of its hub or account, until the device is reset or re-paired. If the platform's own ID doesn't, build one from something that does, such as a MAC address, serial number or IEEE address. A Device that adopts it keeps that ID.
 
 ### `<id>/state`

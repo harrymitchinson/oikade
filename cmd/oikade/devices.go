@@ -194,9 +194,11 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 			{Header: nameHeader},
 			{Header: "ROOM"},
 			{Header: "STATE"},
-			{Header: "MODEL", Drop: 3, Shrink: true},
-			{Header: "HARDWARE", Drop: 1, Dim: true},
-			{Header: "ENDPOINT", Drop: 2},
+			{Header: "MODEL", Drop: 5, Shrink: true},
+			{Header: "SERIAL", Drop: 1, Shrink: true},
+			{Header: "FIRMWARE", Drop: 2, Shrink: true},
+			{Header: "HARDWARE", Drop: 3, Dim: true},
+			{Header: "ENDPOINT", Drop: 4},
 			{Header: "DEVICE TYPES", Shrink: true},
 			{Header: "CAPABILITIES", Shrink: true},
 		},
@@ -229,7 +231,7 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 		if d.Endpoint != 0 {
 			endpoint = strconv.Itoa(int(d.Endpoint))
 		}
-		table.Rows = append(table.Rows, []string{d.Name, d.Room, state, modelOf(d),
+		table.Rows = append(table.Rows, []string{d.Name, d.Room, state, modelOf(d), d.SerialNumber, d.FirmwareVersion,
 			or(registry.HardwareRef(d).String(), hardwareOf(d)), endpoint,
 			devicetype.Join(d.DeviceTypes()), strings.Join(d.Capabilities, ", ")})
 	}
