@@ -36,6 +36,7 @@ type queuedWrite struct {
 	rule  string
 	level control.Level
 	to    HoldTarget
+	ends  bool
 }
 
 // runWrites queues these writes in this order, as one look's evaluates would, and returns the order
@@ -49,7 +50,7 @@ func runWrites(t *testing.T, e *Engine, writes ...queuedWrite) []string {
 	for _, w := range writes {
 		done.Add(1)
 		e.holdWrites = append(e.holdWrites, holdWrite{
-			level: w.level, key: ident.ID{Name: w.rule}, target: w.to,
+			level: w.level, key: ident.ID{Name: w.rule}, target: w.to, ends: w.ends,
 			run: func() {
 				defer done.Done()
 				mu.Lock()
@@ -80,12 +81,42 @@ func TestClaimsGoHighestLevelFirst(t *testing.T) {
 	e := writeOrderEngine(t, map[string]hub.Meta{"heater": {Control: arbitratedOn}})
 	heater := HoldTarget{Device: "heater", Capability: capability.On}
 	got := runWrites(t, e,
-		queuedWrite{"warm", control.Normal, heater},
-		queuedWrite{"cutoff", control.Safety, heater},
-		queuedWrite{"boost", control.Override, heater},
+		queuedWrite{"warm", control.Normal, heater, false},
+		queuedWrite{"cutoff", control.Safety, heater, false},
+		queuedWrite{"boost", control.Override, heater, false},
 	)
 	if want := []string{"cutoff", "boost", "warm"}; !slices.Equal(got, want) {
 		t.Errorf("claims ran in the order %v, want %v", got, want)
+	}
+}
+
+// A claim that ends goes after those that start, whatever their levels, so a hold that takes over at
+// the same moment has claimed before the arbiter is left with nothing but the default (OIK-343).
+func TestClaimsStartBeforeOthersEnd(t *testing.T) {
+	e := writeOrderEngine(t, map[string]hub.Meta{"pump": {Control: arbitratedOn}})
+	pump := HoldTarget{Device: "pump", Capability: capability.On}
+	got := runWrites(t, e,
+		queuedWrite{"a-frost", control.Safety, pump, true},
+		queuedWrite{"b-budget", control.Normal, pump, true},
+		queuedWrite{"c-swimming", control.Normal, pump, false},
+		queuedWrite{"d-boost", control.Override, pump, false},
+	)
+	if want := []string{"d-boost", "c-swimming", "a-frost", "b-budget"}; !slices.Equal(got, want) {
+		t.Errorf("claims ran in the order %v, want %v", got, want)
+	}
+}
+
+// A plain end writes the opposite of its value, so it goes before the starts, and theirs stay.
+func TestPlainWritesEndBeforeOthersStart(t *testing.T) {
+	e := writeOrderEngine(t, map[string]hub.Meta{"lamp": {}})
+	lamp := HoldTarget{Device: "lamp", Capability: capability.On}
+	got := runWrites(t, e,
+		queuedWrite{"a-evening", control.Normal, lamp, false},
+		queuedWrite{"b-cutoff", control.Safety, lamp, true},
+		queuedWrite{"c-dusk", control.Normal, lamp, true},
+	)
+	if want := []string{"c-dusk", "b-cutoff", "a-evening"}; !slices.Equal(got, want) {
+		t.Errorf("plain writes ran in the order %v, want %v", got, want)
 	}
 }
 
@@ -95,9 +126,9 @@ func TestPlainWritesGoLowestLevelFirst(t *testing.T) {
 	e := writeOrderEngine(t, map[string]hub.Meta{"lamp": {}})
 	lamp := HoldTarget{Device: "lamp", Capability: capability.On}
 	got := runWrites(t, e,
-		queuedWrite{"cutoff", control.Safety, lamp},
-		queuedWrite{"warm", control.Normal, lamp},
-		queuedWrite{"boost", control.Override, lamp},
+		queuedWrite{"cutoff", control.Safety, lamp, false},
+		queuedWrite{"warm", control.Normal, lamp, false},
+		queuedWrite{"boost", control.Override, lamp, false},
 	)
 	if want := []string{"warm", "boost", "cutoff"}; !slices.Equal(got, want) {
 		t.Errorf("plain writes ran in the order %v, want %v", got, want)
@@ -111,8 +142,8 @@ func TestARoomsClaimsGoBeforeItsPlainWrites(t *testing.T) {
 		"lamp":   {Room: "hall"},
 	})
 	got := runWrites(t, e,
-		queuedWrite{"lamp-cutoff", control.Safety, HoldTarget{Device: "lamp", Capability: capability.On}},
-		queuedWrite{"heater-warm", control.Normal, HoldTarget{Device: "heater", Capability: capability.On}},
+		queuedWrite{"lamp-cutoff", control.Safety, HoldTarget{Device: "lamp", Capability: capability.On}, false},
+		queuedWrite{"heater-warm", control.Normal, HoldTarget{Device: "heater", Capability: capability.On}, false},
 	)
 	if want := []string{"heater-warm", "lamp-cutoff"}; !slices.Equal(got, want) {
 		t.Errorf("the hall's writes ran in the order %v, want %v", got, want)
