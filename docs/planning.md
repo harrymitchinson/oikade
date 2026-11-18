@@ -18,6 +18,8 @@ The base is the same as it always was: a tracker holds the plan, and the user de
 
 Linear is the source of truth for the plan and for every design. The repo keeps no copy of a design: the feature's issue, with its comments, is the record of why. The docs in the repo say how things work now, and link the issue for why. `#N` references in older PRs, commits and docs point at GitHub issues that were deleted when the plan moved to Linear.
 
+The plan is moving out of Linear into `plan/`, a gitignored folder in the main checkout that is its own git repository ([OIK-350](https://linear.app/oikade/issue/OIK-350)). Until `hack/plan` moves over, Linear stays the source of truth, and `plan/` is only a copy: `hack/plan-export` writes it, with every issue (archived ones included), comment, release, document and upload, and commits the result there. `hack/plan-export --csv FILE` also checks it against a CSV exported from Linear.
+
 ## Ideas, features and releases
 
 - **An idea is an issue in Triage,** and only one that needs the user's decision or input before it's built. `hack/plan idea` adds one, and `hack/plan promote` moves it to Backlog (or Design Review) once it's going to be built. Bugs and follow-ups that need no design skip Triage: an agent files them straight into Todo, with the Bug label for a bug and a comment on why, so agents build them without waiting for the user.

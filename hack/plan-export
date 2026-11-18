@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+# plan-export: copy the whole plan out of Linear into plan/, the gitignored
+# folder in the main checkout that is its own git repository, so nothing is
+# lost when the workspace is deleted (OIK-350). It runs as the Oikade Agent
+# (hack/linear-token) and only reads from Linear.
+#
+# Every issue is exported, archived ones included, into a folder named for its
+# status: plan/<status>/OIK-N-<slug>/issue.md, with its fields as front matter
+# and its description as the body. Each comment is its own file under the
+# issue's comments/, uploads are downloaded into its files/, projects become
+# plan/releases/<name>.md and documents plan/docs/<title>.md.
+#
+# It overwrites plan/ and commits the result there, so it can run again until
+# hack/plan moves over. It refuses if plan/ has changes that aren't committed.
+#
+# Usage: hack/plan-export [--csv FILE]
+#   --csv FILE  also check every row of a CSV exported from Linear's UI against
+#               the export: same title, status and project
+set -euo pipefail
+
+LINEAR_API="${LINEAR_API_URL:-https://api.linear.app/graphql}"
+TEAM="${PLAN_TEAM:-OIK}"
+# How many issues a page holds. Each brings its relations, links and status
+# history with it, which Linear counts against a query's complexity.
+PAGE="${PLAN_EXPORT_PAGE:-50}"
+
+die() { echo "plan-export: $*" >&2; exit 1; }
+
+csv=""
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--csv) csv="${2:?--csv needs a file}"; shift 2 ;;
+	-h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+	*) die "unknown argument $1 (hack/plan-export --help)" ;;
+	esac
+done
+[[ -z "$csv" || -f "$csv" ]] || die "no such file: $csv"
+
+# The main checkout, which every worktree shares: plan/ lives there.
+main=$(git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##')
+dir="${PLAN_DIR:-$main/plan}"
+
+if [[ -d "$dir/.git" ]]; then
+	[[ -z "$(git -C "$dir" status --porcelain)" ]] ||
+		die "$dir has changes that aren't committed, so nothing was exported. Commit or discard them first"
+elif [[ -e "$dir" && -n "$(ls -A "$dir")" ]]; then
+	die "$dir exists and isn't a git repository, so nothing was exported"
+fi
+
+token=$("$(dirname "$0")/linear-token") ||
+	die "can't act as the Oikade Agent in Linear, so nothing was exported. Fix it as the error above says"
+
+# lin QUERY [VARS_JSON]: one GraphQL call. Any error stops. The token reaches
+# curl through a file descriptor, not its arguments.
+lin() {
+	local out
+	out=$(jq -cn --arg q "$1" --argjson v "${2:-null}" '{query: $q, variables: ($v // {})}' |
+		curl -sS --fail-with-body "$LINEAR_API" -H 'Content-Type: application/json' \
+			-H @<(printf 'Authorization: Bearer %s\n' "$token") --data-binary @-) ||
+		die "Linear refused the request: $out"
+	jq -e '.errors == null' >/dev/null <<<"$out" || die "Linear: $(jq -r '[.errors[].message] | join("; ")' <<<"$out")"
+	jq -c .data <<<"$out"
+}
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# pages QUERY VARS_JSON PATH: every node of the connection at PATH in QUERY's
+# answer, which takes the variable $a as the cursor to start after, as one JSON
+# array. Pages go through files, never arguments, which have a size limit.
+pages() {
+	local after=null page n=0 parts
+	parts=$(mktemp -d "$work/pages.XXXXXX")
+	while :; do
+		page=$(lin "$1" "$(jq -c --argjson a "$after" '. + {a: $a}' <<<"$2")")
+		n=$((n + 1))
+		jq -c "$3.nodes" <<<"$page" >"$parts/$(printf %06d "$n").json"
+		[[ "$(jq -r "$3.pageInfo.hasNextPage" <<<"$page")" == true ]] || break
+		after=$(jq -c "$3.pageInfo.endCursor" <<<"$page")
+	done
+	jq -cs 'add // []' "$parts"/*.json
+}
+
+# all CONNECTION FIELDS [FILTER] [SIZE]: every node of a top-level connection,
+# archived ones included.
+all() {
+	pages "query(\$a: String) { $1(first: ${4:-250}, after: \$a, includeArchived: true${3:+, filter: $3}) {
+		nodes { $2 } pageInfo { hasNextPage endCursor } } }" '{}' ".$1"
+}
+
+HISTORY='createdAt fromState { name } toState { name } actor { name } botActor { name }'
+
+team_filter="{team: {key: {eq: \"$TEAM\"}}}"
+echo "Fetching $TEAM's issues from Linear" >&2
+all issues 'identifier title description priority estimate dueDate
+	createdAt updatedAt startedAt completedAt canceledAt archivedAt triagedAt
+	state { name } project { name } parent { identifier } creator { name } assignee { name }
+	labels { nodes { name } pageInfo { hasNextPage } }
+	relations { nodes { type relatedIssue { identifier } } pageInfo { hasNextPage } }
+	inverseRelations { nodes { type issue { identifier } } pageInfo { hasNextPage } }
+	attachments { nodes { title url } pageInfo { hasNextPage } }
+	history(first: 100) { nodes { '"$HISTORY"' } pageInfo { hasNextPage } }' "$team_filter" "$PAGE" >"$work/issues.json"
+# Labels, relations and links come 50 to a page. None has had more, so rather
+# than page through them, an issue with more stops the export.
+full=$(jq -r '[.[] | select([.labels, .relations, .inverseRelations, .attachments][].pageInfo.hasNextPage) | .identifier]
+	| unique | join(" ")' "$work/issues.json")
+[[ -z "$full" ]] || die "$full has more than 50 labels, relations or links, which this export doesn't page through yet, so nothing was exported"
+# History holds every change, not only status, so a busy issue gets the rest
+# of its history on its own.
+for i in $(jq -r '.[] | select(.history.pageInfo.hasNextPage) | .identifier' "$work/issues.json"); do
+	pages "query(\$i: String!, \$a: String) { issue(id: \$i) { history(first: 250, after: \$a) {
+		nodes { $HISTORY } pageInfo { hasNextPage endCursor } } } }" "$(jq -cn --arg i "$i" '{i: $i}')" .issue.history >"$work/history.json"
+	jq -c --arg i "$i" --slurpfile h "$work/history.json" 'map(if .identifier == $i then .history.nodes = $h[0] else . end)' \
+		"$work/issues.json" >"$work/issues.next" && mv "$work/issues.next" "$work/issues.json"
+done
+
+echo "Fetching comments, releases and documents" >&2
+all comments 'id body createdAt updatedAt editedAt quotedText resolvedAt
+	issue { identifier } parent { id } user { name } botActor { name } externalUser { name }' >"$work/comments.json"
+# Linear also takes comments on documents and releases. None has any, so rather
+# than lose one, any there are stop the export.
+loose=$(jq '[.[] | select(.issue == null)] | length' "$work/comments.json")
+[[ "$loose" == 0 ]] || die "$loose comments aren't on an issue, which this export doesn't copy yet, so nothing was exported"
+all projects 'name state description content startedAt completedAt canceledAt targetDate archivedAt
+	teams { nodes { key } }' '' 50 >"$work/projects.json"
+all projectUpdates 'body createdAt health project { name } user { name }' >"$work/updates.json"
+all documents 'id slugId title content createdAt updatedAt archivedAt project { name } creator { name }' >"$work/documents.json"
+
+# Uploads die with the workspace, so every one a description, comment,
+# release or document links is downloaded, and its link points at the copy instead.
+jq -r '.[] | (.description, .body, .content) // empty' "$work"/{issues,comments,projects,updates,documents}.json |
+	grep -o 'https://uploads\.linear\.app/[^[:space:])"<>]*' | sort -u >"$work/uploads.txt" || true
+n_uploads=$(wc -l <"$work/uploads.txt" | tr -d ' ')
+mkdir "$work/uploads"
+if [[ "$n_uploads" -gt 0 ]]; then
+	echo "Downloading $n_uploads uploads" >&2
+	while read -r u; do
+		curl -sS --fail -o "$work/uploads/${u##*/}" -H @<(printf 'Authorization: Bearer %s\n' "$token") "$u" ||
+			die "couldn't download $u, so nothing was exported"
+	done <"$work/uploads.txt"
+fi
+
+# The render: one line per file to write, "PATH<TAB>BASE64", and one per
+# upload to copy, "PATH<TAB>@ID". Paths are relative to plan/.
+jq -rn \
+	--slurpfile issues "$work/issues.json" --slurpfile comments "$work/comments.json" \
+	--slurpfile projects "$work/projects.json" --slurpfile updates "$work/updates.json" \
+	--slurpfile documents "$work/documents.json" --arg team "$TEAM" '
+def slug: ascii_downcase | gsub("[^a-z0-9]+"; "-") | gsub("^-+|-+$"; "")
+	| if length > 60 then .[:60] | sub("-[^-]*$"; "") else . end;
+def docname: if (.title | slug) == "" then "untitled-\(.id[:8])" else .title | slug end;
+# A value in front matter: a JSON string or list, which YAML reads as well.
+def fm($pairs): "---\n" + ([$pairs[] | select(.[1] != null and .[1] != [] and .[1] != "")
+	| "\(.[0]): \(.[1] | tojson)"] | join("\n")) + "\n---\n";
+def ts: sub("\\.[0-9]+Z$"; "Z");
+# A time that may be missing.
+def t: if . then ts else . end;
+def who: .user.name // .botActor.name // .externalUser.name // "Linear";
+def files_of($text): [$text // "" | scan("https://uploads\\.linear\\.app/[^\\s)\"<>]*")] | unique;
+# Links to uploads point at files/<ID>, from where the text sits.
+def local($prefix): gsub("https://uploads\\.linear\\.app/[^\\s)\"<>]*/(?<f>[^/\\s)\"<>]+)"; "\($prefix)files/\(.f)");
+# Links into Linear die with it too. One to an issue becomes its ID, and one to
+# a document a link to its copy, from $root, the way back to plan/. $docnames
+# maps the slugId of a document to the name of its file.
+def delinear($root; $docnames):
+	gsub("\\[(?<t>[^\\]]*)\\]\\(https://linear\\.app/[a-z0-9-]+/issue/(?<id>[A-Z]+-[0-9]+)[^)]*\\)";
+		if .t == .id then .id else "\(.t) (\(.id))" end)
+	| gsub("<?https://linear\\.app/[a-z0-9-]+/issue/(?<id>[A-Z]+-[0-9]+)[^ )>\n]*>?"; .id)
+	| gsub("\\]\\(https://linear\\.app/[a-z0-9-]+/document/([^)]*-)?(?<s>[0-9a-f]+)\\)"; "](\($root)docs/\($docnames[.s] // .s).md)")
+	# The page Linear shows for the review of a PR: the text of the link names the PR.
+	| gsub("\\[(?<t>[^\\]]*)\\]\\(https://linear\\.app/[a-z0-9-]+/review/[^)]*\\)"; .t);
+def emit($path; $text): "\($path)\t\($text | @base64)";
+def uploads($folder; $text): files_of($text)[] | "\($folder)/files/\(split("/") | last)\t@\(split("/") | last)";
+
+# Two documents with one name get their slugIds too, so neither overwrites the other.
+($documents[0] | group_by(docname) | map(if length == 1 then .[0] | {key: .slugId, value: docname}
+	else .[] | {key: .slugId, value: "\(docname)-\(.slugId)"} end) | from_entries) as $docnames
+| ($comments[0] | group_by(.issue.identifier // "") | map({key: (.[0].issue.identifier // ""), value: .}) | from_entries) as $by_issue
+| ($updates[0] | group_by(.project.name) | map({key: .[0].project.name, value: .}) | from_entries) as $by_project
+| (
+	$issues[0][] as $i
+	| "\($i.state.name | slug)/\($i.identifier)\($i.title | slug | if . == "" then "" else "-\(.)" end)" as $folder
+	| ($by_issue[$i.identifier] // [] | sort_by(.createdAt)) as $cs
+	| ($cs | map({key: .id, value: "\(.createdAt | ts | gsub(":"; "-"))-\(who | slug)"}) | from_entries) as $names0
+	# Two comments by one author in the same second get -2, -3 and so on.
+	| ($cs | map(.id) | reduce .[] as $id ({seen: {}, out: {}};
+		$names0[$id] as $n | (.seen[$n] // 0) as $k
+		| .seen[$n] = $k + 1 | .out[$id] = (if $k == 0 then $n else "\($n)-\($k + 1)" end))
+		| .out) as $names
+	| emit("\($folder)/issue.md";
+		fm([
+			["id", $i.identifier], ["title", $i.title],
+			["release", $i.project.name], ["parent", $i.parent.identifier],
+			["labels", ([$i.labels.nodes[].name] | sort)],
+			["blocked-by", ([$i.inverseRelations.nodes[] | select(.type == "blocks") | .issue.identifier] | sort)],
+			["related", ([$i.relations.nodes[] | select(.type == "related") | .relatedIssue.identifier] | sort)],
+			["duplicate-of", ([$i.relations.nodes[] | select(.type == "duplicate") | .relatedIssue.identifier] | first)],
+			["priority", if $i.priority > 0 then $i.priority else null end], ["estimate", $i.estimate],
+			["due", $i.dueDate], ["creator", $i.creator.name], ["assignee", $i.assignee.name],
+			["created", ($i.createdAt | ts)], ["updated", ($i.updatedAt | ts)],
+			["triaged", ($i.triagedAt | t)],
+			["started", ($i.startedAt | t)],
+			["completed", ($i.completedAt | t)],
+			["canceled", ($i.canceledAt | t)],
+			["archived", ($i.archivedAt | t)],
+			["links", [$i.attachments.nodes[] | "\(.title) \(.url)"]],
+			["status-history", [$i.history.nodes | sort_by(.createdAt)[] | select(.toState != null)
+				| "\(.createdAt | ts) \(.fromState.name // "none") -> \(.toState.name) by \(.actor.name // .botActor.name // "Linear")"]]
+		]) + "\n" + ($i.description // "" | local("") | delinear("../../"; $docnames)) + "\n"),
+	uploads($folder; $i.description),
+	($cs[] as $c | (
+		emit("\($folder)/comments/\($names[$c.id]).md";
+			fm([
+				["author", ($c | who)], ["created", ($c.createdAt | ts)],
+				["edited", ($c.editedAt | t)],
+				["reply-to", if $c.parent then $names[$c.parent.id] else null end],
+				["quote", $c.quotedText],
+				["resolved", ($c.resolvedAt | t)]
+			]) + "\n" + ($c.body | local("../") | delinear("../../../"; $docnames)) + "\n"),
+		uploads($folder; $c.body)))
+),
+(
+	$projects[0][] | select([.teams.nodes[].key] | index($team)) as $p
+	| emit("releases/\($p.name).md";
+		fm([
+			["name", $p.name], ["state", $p.state], ["summary", $p.description],
+			["target", $p.targetDate],
+			["started", ($p.startedAt | t)],
+			["completed", ($p.completedAt | t)],
+			["canceled", ($p.canceledAt | t)],
+			["archived", ($p.archivedAt | t)]
+		]) + "\n" + ($p.content // "" | local("") | delinear("../"; $docnames)) + "\n"
+		+ ([$by_project[$p.name] // [] | sort_by(.createdAt)[]
+			| "\n## Update, \(.createdAt | ts) by \(who) (\(.health))\n\n\(.body | local("") | delinear("../"; $docnames))\n"] | join(""))),
+	uploads("releases"; $p.content),
+	($by_project[$p.name] // [] | .[] | uploads("releases"; .body))
+),
+(
+	$documents[0][] as $d
+	| $docnames[$d.slugId] as $name
+	| emit("docs/\($name).md";
+		fm([
+			["title", $d.title], ["release", $d.project.name], ["creator", $d.creator.name],
+			["created", ($d.createdAt | ts)], ["updated", ($d.updatedAt | ts)],
+			["archived", ($d.archivedAt | t)]
+		]) + "\n" + ($d.content // "" | local("") | delinear("../"; $docnames)) + "\n"),
+	uploads("docs"; $d.content)
+)
+' >"$work/render.tsv"
+
+# Write the new plan beside the old, then swap it in, keeping plan/'s history.
+new="$work/plan"
+mkdir "$new"
+while IFS=$'\t' read -r path data; do
+	mkdir -p "$new/$(dirname "$path")"
+	if [[ "$data" == @* ]]; then
+		cp "$work/uploads/${data#@}" "$new/$path"
+	else
+		base64 -d <<<"$data" >"$new/$path"
+	fi
+done <"$work/render.tsv"
+cat >"$new/README.md" <<'EOF'
+# The plan
+
+Exported from Linear by `hack/plan-export` (OIK-350). Each folder at the top is
+a status, and each issue is a folder in it: `issue.md` holds its fields as front
+matter and its description, `comments/` one file per comment, and `files/` its
+uploads. Releases are in `releases/`, documents in `docs/`.
+EOF
+
+mkdir -p "$dir"
+[[ -d "$dir/.git" ]] || git -C "$dir" init -q
+find "$dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+cp -R "$new/." "$dir/"
+git -C "$dir" add -A
+if git -C "$dir" diff --cached --quiet; then
+	echo "Linear hasn't changed since the last export: nothing to commit" >&2
+else
+	git -C "$dir" commit -q -m "Export the plan from Linear" -m "hack/plan-export, $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+fi
+
+# What came over, so it can be checked against Linear's own counts.
+issues=$(jq length "$work/issues.json")
+archived=$(jq '[.[] | select(.archivedAt)] | length' "$work/issues.json")
+highest=$(jq '[.[].identifier | ltrimstr("'"$TEAM"'-") | tonumber] | max // 0' "$work/issues.json")
+gaps=$(jq -r --argjson h "$highest" '[.[].identifier | ltrimstr("'"$TEAM"'-") | tonumber] as $have
+	| [range(1; $h + 1) | select(. as $n | $have | index($n) | not) | "'"$TEAM"'-\(.)"] | join(" ")' "$work/issues.json")
+echo "Exported $issues issues ($archived archived) up to $TEAM-$highest, $(jq length "$work/comments.json") comments, $(find "$dir/releases" -name '*.md' 2>/dev/null | wc -l | tr -d ' ') releases, $(jq length "$work/documents.json") documents and $n_uploads uploads into $dir"
+[[ -z "$gaps" ]] || echo "Linear has no issue numbered $gaps: deleted, so not exported"
+jq -r 'group_by(.state.name)[] | "  \(.[0].state.name): \(length)"' "$work/issues.json"
+
+[[ -n "$csv" ]] || exit 0
+# The CSV's rows, as JSON: Linear quotes fields and puts newlines inside them,
+# so it's read by Python's csv module rather than by hand.
+python3 -I -c 'import csv, json, sys
+rows = csv.DictReader(open(sys.argv[1], newline="", encoding="utf-8-sig"))
+print(json.dumps([{k: r.get(k, "") for k in ("ID", "Title", "Status", "Project")} for r in rows]))' "$csv" >"$work/csv.json"
+bad=$(jq -r --slurpfile i "$work/issues.json" '
+	($i[0] | map({key: .identifier, value: .}) | from_entries) as $by
+	| .[] | . as $r | $by[$r.ID] as $e
+	| if $e == null then "\($r.ID): in the CSV but not exported"
+	elif $e.title != $r.Title then "\($r.ID): titled \($e.title | tojson), not \($r.Title | tojson)"
+	elif $e.state.name != $r.Status then "\($r.ID): \($e.state.name), not \($r.Status)"
+	elif ($e.project.name // "") != $r.Project then "\($r.ID): in release \($e.project.name // "none" | tojson), not \($r.Project | tojson)"
+	else empty end' "$work/csv.json")
+rows=$(jq length "$work/csv.json")
+if [[ -n "$bad" ]]; then
+	echo "The CSV disagrees with the export on:" >&2
+	while IFS= read -r line; do echo "  $line" >&2; done <<<"$bad"
+	echo "If those issues changed in Linear after the CSV was exported, that's expected" >&2
+	exit 1
+fi
+echo "Every one of the CSV's $rows rows matches the export"
