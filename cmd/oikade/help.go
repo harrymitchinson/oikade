@@ -127,6 +127,8 @@ var groups = []group{
 			Usage:   []string{"oikade resume REF [--json]"},
 			About:   "REF is a case's, case/DEVICE/CAPABILITY/CASE, or a flow's, flow/FLOW.",
 			Example: []string{"oikade resume flow/morning"},
+			// pause's alone, which shares resume's flag set.
+			Hide: []string{"allow-safety"},
 		},
 	}},
 	{"Devices and pairing", []cli.Command{
@@ -287,8 +289,10 @@ func dispatch(ctx context.Context, args []string, debug bool) int {
 	}
 	word, args := args[0], args[1:]
 	switch word {
+	case "--version":
+		word = "version"
 	case "help", "-h", "--help":
-		if len(args) == 0 {
+		if len(args) == 0 || args[0] == "help" {
 			printHelp(std.out)
 			return 0
 		}

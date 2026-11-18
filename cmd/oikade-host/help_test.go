@@ -48,6 +48,7 @@ func TestHostHelpAndUsage(t *testing.T) {
 		{"help", []string{"help"}, 0},
 		{"help", []string{"--help"}, 0},
 		{"help", []string{"-h"}, 0},
+		{"help", []string{"help", "help"}, 0},
 		{"client-add-help", []string{"client", "add", "--help"}, 0},
 		{"client-add-help", []string{"help", "client", "add"}, 0},
 		{"unknown-command", []string{"instal"}, cli.ExitUsage},
@@ -73,6 +74,14 @@ func TestADataDirectoryTheHostMayNotWriteSaysHowToRunIt(t *testing.T) {
 		"Hint: run it as root, or pass --data-dir DIR for one its user may write\n"
 	if code != cli.ExitFailed || b.String() != want {
 		t.Errorf("exit %d:\n%s", code, b.String())
+	}
+	// Its data directory however it's named, and not a directory beside it.
+	for dir, want := range map[string]bool{
+		"/var/lib/oikade/": true, "/var/lib/../lib/oikade": true, "/var/lib/oik": false,
+	} {
+		if got := dataDirError(denied, dir) != denied; got != want {
+			t.Errorf("--data-dir %s: reworded %v, want %v", dir, got, want)
+		}
 	}
 	// Anything else, such as a secret it may not read, is as it was.
 	other := &fs.PathError{Op: "open", Path: "/etc/oikade/secrets/broker", Err: fs.ErrPermission}

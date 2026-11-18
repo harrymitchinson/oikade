@@ -139,11 +139,21 @@ func runHost(ctx context.Context, args []string) error {
 	return dataDirError(h.Run(ctx), *dataDir)
 }
 
+// within says whether path is dir or in it.
+func within(path, dir string) bool {
+	path, errPath := filepath.Abs(path)
+	dir, errDir := filepath.Abs(dir)
+	if errPath != nil || errDir != nil {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // dataDirError is err in the user's words if it's one the host's user may not write its data
 // directory with, as when it isn't root.
 func dataDirError(err error, dataDir string) error {
-	if pe, ok := errors.AsType[*os.PathError](err); ok && errors.Is(err, os.ErrPermission) &&
-		strings.HasPrefix(pe.Path, dataDir) {
+	if pe, ok := errors.AsType[*os.PathError](err); ok && errors.Is(pe, os.ErrPermission) && within(pe.Path, dataDir) {
 		return cli.Wrap(err, "the host may not write its data directory, %s", dataDir).
 			WithHint("run it as root, or pass --data-dir DIR for one its user may write")
 	}

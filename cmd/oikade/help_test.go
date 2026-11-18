@@ -46,6 +46,7 @@ func TestHelpAndUsage(t *testing.T) {
 		code   int
 	}{
 		{"help", []string{"help"}, 0},
+		{"help", []string{"help", "help"}, 0},
 		{"help-to-stderr", nil, cli.ExitUsage},
 		{"deploy-help", []string{"deploy", "--help"}, 0},
 		{"deploy-help", []string{"help", "deploy"}, 0},

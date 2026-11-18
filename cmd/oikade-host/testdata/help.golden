@@ -3,7 +3,8 @@ exit 0
 oikade-host: Run the host: the one process per home that runs your home and its
 plugins, and serves Matter and the API.
 
-Everything you run from your laptop, from deploy to status, is oikade.
+Everything you run from your laptop, from deploy to status, is oikade. Every
+command takes --debug, or OIKADE_DEBUG=1, to show an error in full.
 
 Usage:
   oikade-host [FLAGS]

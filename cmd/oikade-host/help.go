@@ -28,6 +28,8 @@ const (
 	versionCommand   = "version"
 	// clientWord is client add's first word, which alone means client add.
 	clientWord = "client"
+	// helpWord is help, which help alone or help help means the host's.
+	helpWord = "help"
 )
 
 // others are oikade-host's commands besides running the host.
@@ -60,7 +62,8 @@ var hostHelp = cli.Command{
 	Name:    "oikade-host",
 	Summary: "Run the host: the one process per home that runs your home and its plugins, and serves Matter and the API.",
 	Usage:   []string{"oikade-host [FLAGS]"},
-	About:   "Everything you run from your laptop, from deploy to status, is oikade.",
+	About: "Everything you run from your laptop, from deploy to status, is oikade. Every command takes " +
+		"--debug, or OIKADE_DEBUG=1, to show an error in full.",
 	Values: map[string]string{
 		"data-dir": "DIR", "home": "BINARY", "simulate": "FILE", "metrics-addr": "ADDRESS", "api-addr": "ADDRESS",
 		"broker": "URL", "broker-password-secret": "NAME", "outside-plugins": "LIST", "secrets-dir": "DIR",
@@ -102,9 +105,12 @@ func dispatch(ctx context.Context, args []string, debug bool) int {
 	switch {
 	case len(args) == 1 && args[0] == "--version":
 		words, rest = versionCommand, nil
-	case len(args) > 0 && args[0] == "help":
+	case len(args) > 0 && args[0] == helpWord:
 		// help, help client add and help install are those commands' --help.
 		words, rest = strings.Join(args[1:], " "), []string{"--help"}
+		if words == helpWord {
+			words = hostCommand
+		}
 		if words == clientWord {
 			words = clientAddCommand
 		}
@@ -150,7 +156,7 @@ func runVersion(args []string) error {
 // unknown says there's no command words, and names the one it's likely a slip for.
 func unknown(words string) error {
 	hint := "oikade-host help lists them, and everything else, from deploy to status, is oikade"
-	if slip := cli.Closest(words, []string{clientWord, installCommand, versionCommand, "help"}); slip != "" {
+	if slip := cli.Closest(words, []string{clientWord, installCommand, versionCommand, helpWord}); slip != "" {
 		hint = fmt.Sprintf("did you mean %s? oikade-host help lists them", slip)
 	}
 	return cli.UsageErrorf("unknown command %s", words).WithHint("%s", hint)
