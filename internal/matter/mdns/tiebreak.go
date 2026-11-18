@@ -16,8 +16,8 @@ import (
 // as a conflict.
 
 // maxTieLosses is how many tie-breaks a probe loses before it gives the name up, so that a host
-// that keeps probing with later records can't hold Add up for ever. Fifteen is RFC 6762, 8.1's
-// count of conflicts that calls for slowing down.
+// that keeps probing with later records can't hold Add up for ever. A winner has the name, and
+// answers our next probe, within a second, so a real tie is lost once or twice.
 const maxTieLosses = 15
 
 // tieBreak compares the records that a probe from another host, m, proposes for each name we're
@@ -32,12 +32,12 @@ func (r *Responder) tieBreak(m *dnsmessage.Message, ifIndex int) {
 					theirs = append(theirs, rr)
 				}
 			}
-			if len(theirs) == 0 || r.ourOwn(p, theirs) {
+			if len(theirs) == 0 || r.ourOwn(p, n, theirs) {
 				continue
 			}
 			if compareSets(r.proposed(p, n, ifIndex), theirs) < 0 {
 				select {
-				case p.lost <- struct{}{}:
+				case p.lost <- n:
 				default: // one is enough
 				}
 			}
@@ -45,24 +45,23 @@ func (r *Responder) tieBreak(m *dnsmessage.Message, ifIndex int) {
 	}
 }
 
-// ourOwn reports whether every record of theirs is one that p proposes, on any interface: our own
-// probe, which multicast loopback, or another interface on the same link, brings back.
-func (r *Responder) ourOwn(p *probe, theirs []dnsmessage.Resource) bool {
-	ours := slices.Clone(p.records)
-	if p.host() {
-		for _, ifIndex := range r.served() {
-			ours = append(ours, addressRecords(r.host, r.addrs(ifIndex))...)
+// ourOwn reports whether theirs is the set of records that p proposes for n on one of the
+// interfaces we serve: our own probe, which multicast loopback, or another interface on the same
+// link, brings back. A set that's only part of ours is another host's, which may sort later.
+func (r *Responder) ourOwn(p *probe, n dnsmessage.Name, theirs []dnsmessage.Resource) bool {
+	if !nameEqual(n, r.host) {
+		return compareSets(r.proposed(p, n, 0), theirs) == 0 // the same on every interface
+	}
+	for _, ifIndex := range r.served() {
+		if compareSets(r.proposed(p, n, ifIndex), theirs) == 0 {
+			return true
 		}
 	}
-	for _, rr := range theirs {
-		if !slices.ContainsFunc(ours, func(rec record) bool { return rec.same(rr.Header.Name, rr.Header.Type, rr.Body) }) {
-			return false
-		}
-	}
-	return true
+	return false
 }
 
-// proposed returns the records that p proposes for name n in a probe sent on an interface.
+// proposed returns the records that p proposes for name n in a probe sent on an interface: the
+// service's unique records, or the host's addresses there.
 func (r *Responder) proposed(p *probe, n dnsmessage.Name, ifIndex int) []dnsmessage.Resource {
 	recs := p.records
 	if nameEqual(n, r.host) {

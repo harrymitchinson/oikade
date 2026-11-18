@@ -12,8 +12,8 @@ import (
 )
 
 func TestTypesComeBeforeData(t *testing.T) {
-	// Another host that proposes only an SRV loses to our TXT and SRV, whatever its port: sorted,
-	// our TXT (16) meets its SRV (33) first (RFC 6762, 8.2.1).
+	// We lose to another host that proposes only an SRV, whatever its port: sorted, our TXT (16)
+	// meets its SRV (33) first, so our set is the earlier (RFC 6762, 8.2.1).
 	r, c := newTestResponder(t)
 	r.timing.tieWait = 20 * time.Millisecond
 	defer func() { _ = r.Close() }()
@@ -84,24 +84,80 @@ func TestTheLaterOfTwoSimultaneousProbesWins(t *testing.T) {
 	earlier, later := testService(), testService()
 	later.Port++ // the SRV's data is later
 
-	errs := make(chan error, 2)
-	won := make(chan error, 1)
-	go func() { errs <- r1.Add(t.Context(), earlier) }()
-	go func() { err := r2.Add(t.Context(), later); won <- err; errs <- err }()
+	lost, won := make(chan error, 1), make(chan error, 1)
+	go func() { lost <- r1.Add(t.Context(), earlier) }()
+	go func() { won <- r2.Add(t.Context(), later) }()
 
-	if err := <-won; err != nil {
-		t.Fatalf("the later records' Add: %v", err)
-	}
-	if err := <-errs; err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-errs:
-		if !errors.Is(err, ErrConflict) {
-			t.Fatalf("the earlier records' Add: %v, want ErrConflict", err)
+	for range 2 {
+		select {
+		case err := <-won:
+			if err != nil {
+				t.Errorf("the later records' Add: %v", err)
+			}
+		case err := <-lost:
+			if !errors.Is(err, ErrConflict) {
+				t.Errorf("the earlier records' Add: %v, want ErrConflict", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("an Add didn't return")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("the earlier records' Add didn't return")
+	}
+}
+
+func TestAWinnersThreeProbesAreOneTie(t *testing.T) {
+	r, c := newTestResponder(t)
+	r.timing.tieWait = 20 * time.Millisecond
+	defer func() { _ = r.Close() }()
+	errc := make(chan error, 1)
+	go func() { errc <- r.Add(t.Context(), testService()) }()
+	// Each of our probes meets a burst of the winner's, as it would on two interfaces: fifteen
+	// bursts lose fifteen ties, not forty-five.
+	ties := 0
+	for {
+		select {
+		case err := <-errc:
+			if !errors.Is(err, ErrConflict) || ties != maxTieLosses {
+				t.Fatalf("Add returned %v after %d ties, want ErrConflict after %d", err, ties, maxTieLosses)
+			}
+			return
+		case p := <-c.sent:
+			if p.msg.Response {
+				t.Fatal("announced, though every probe lost")
+			}
+			ties++
+			for range 3 {
+				r.handle(c, testIf, peer, probeFor(t, testService().Port+1))
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Add didn't return")
+		}
+	}
+}
+
+func TestPartOfOurRecordsIsAnotherHosts(t *testing.T) {
+	r, c := newTestResponder(t)
+	r.timing.tieWait = 20 * time.Millisecond
+	r.addrs = func(int) []netip.Addr {
+		return []netip.Addr{netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("192.0.2.2")}
+	}
+	defer func() { _ = r.Close() }()
+	errc := make(chan error, 1)
+	go func() { errc <- r.Add(t.Context(), testService()) }()
+	c.next(t)
+	// Another host proposes 192.0.2.2 alone for our host name: sorted, our 192.0.2.1 meets it
+	// first, so we lose, though every record it has is one of ours.
+	r.handle(c, testIf, peer, pack(t, dnsmessage.Message{
+		Questions: []dnsmessage.Question{{Name: r.host, Type: dnsmessage.TypeALL, Class: dnsmessage.ClassINET}},
+		Authorities: []dnsmessage.Resource{{
+			Header: dnsmessage.ResourceHeader{Name: r.host, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: hostTTL},
+			Body:   &dnsmessage.AResource{A: [4]byte{192, 0, 2, 2}},
+		}},
+	}))
+	if n := probesBeforeAnnouncing(t, c); n != 3 {
+		t.Errorf("sent %d probes, want 3 more after losing", n)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
 	}
 }
 
