@@ -117,15 +117,15 @@ fuzz: ## Run every fuzz target for FUZZTIME (30s) each, one at a time.
 	hack/fuzz $(FUZZTIME)
 
 .PHONY: test-hack
-test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval, plugin-repo and checklist steps with gh stubbed, the plan's export from Linear and hack/plan's writes to plan/, and no raw gh writes in skills.
-	shellcheck -x hack/plan hack/plan-export hack/fuzz hack/agent-token hack/linear-token hack/owner-approval hack/test/*.sh
+test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval, plugin-repo and checklist steps with gh stubbed, hack/plan's writes to plan/, no raw gh writes in skills, and no links into Linear or calls to it.
+	shellcheck -x hack/plan hack/fuzz hack/agent-token hack/owner-approval hack/test/*.sh
 	hack/test/agent-identity.sh
 	hack/test/merge-on-approval.sh
 	hack/test/plugin-repo.sh
 	hack/test/checklist-steps.sh
-	hack/test/plan-export.sh
 	hack/test/plan-writes.sh
 	hack/test/no-raw-gh-writes.sh
+	hack/test/no-linear.sh
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

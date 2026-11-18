@@ -1,10 +1,10 @@
 # The oikade/v1 plugin contract
 
-A plugin is a separate process that connects a device platform Oikade doesn't speak natively (the eWeLink LAN protocol, the Overkiz cloud API) to the MQTT bus. It speaks **canonical capabilities**, not vendor payloads, so Oikade needs no code for the platform. The design is in [OIK-61](https://linear.app/oikade/issue/OIK-61).
+A plugin is a separate process that connects a device platform Oikade doesn't speak natively (the eWeLink LAN protocol, the Overkiz cloud API) to the MQTT bus. It speaks **canonical capabilities**, not vendor payloads, so Oikade needs no code for the platform. The design is in OIK-61.
 
 This page is the contract. A plugin that follows it works with Oikade's runtime and Matter bridges unchanged.
 
-On a host there are two ways to run one ([OIK-143](https://linear.app/oikade/issue/OIK-143)): [as a Go module your home imports](#a-plugin-your-home-imports), or as an outside process speaking this contract to a broker of yours.
+On a host there are two ways to run one (OIK-143): [as a Go module your home imports](#a-plugin-your-home-imports), or as an outside process speaking this contract to a broker of yours.
 
 ## A plugin your home imports
 
@@ -68,7 +68,7 @@ Roots under `oikade/v1/` that start with `_` are Oikade's. Don't publish to them
 
 Publish `{"state":"online","contract":1}` once connected, and set the Last Will so that the broker publishes `{"state":"offline","contract":1}` if the plugin dies. While the status is offline, Oikade treats every device of the plugin as unavailable and refuses to send it commands.
 
-A plugin with a problem of its own, one no single device carries, says so in an optional `error`, such as `{"state":"online","contract":1,"error":"login refused"}` for an account that refuses the password, which leaves no device to put an `error` on. A problem with one device goes in that device's `error` instead. `oikade status` shows it, on one line and cut to 200 characters, so say what would fix it, such as the secret to check. Republish the status without it once the problem is fixed. It doesn't change what an online status means: the plugin is still running, and its devices say for themselves whether they can be reached ([OIK-17](https://linear.app/oikade/issue/OIK-17)).
+A plugin with a problem of its own, one no single device carries, says so in an optional `error`, such as `{"state":"online","contract":1,"error":"login refused"}` for an account that refuses the password, which leaves no device to put an `error` on. A problem with one device goes in that device's `error` instead. `oikade status` shows it, on one line and cut to 200 characters, so say what would fix it, such as the secret to check. Republish the status without it once the problem is fixed. It doesn't change what an online status means: the plugin is still running, and its devices say for themselves whether they can be reached (OIK-17).
 
 A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"online","contract":1,"setup":true}`.
 
@@ -85,10 +85,10 @@ A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"on
 }
 ```
 
-- List every device from the devices file (see [Environment](#environment)), each once, by its `id`. Oikade drops an entry whose `id` isn't valid (1 to 63 letters, digits, `_`, `.` or `-`, starting with a letter or digit) or repeats an earlier one's, and keeps the rest ([OIK-317](https://linear.app/oikade/issue/OIK-317)).
+- List every device from the devices file (see [Environment](#environment)), each once, by its `id`. Oikade drops an entry whose `id` isn't valid (1 to 63 letters, digits, `_`, `.` or `-`, starting with a letter or digit) or repeats an earlier one's, and keeps the rest (OIK-317).
 - `found` is true once the plugin can reach the device. `manufacturer`, `model`, `capabilities` and `deviceType` matter only when it's true.
 - `capabilities` lists canonical capability names from Oikade's registry (`internal/capability`), such as `on`, `brightness` or `temperature`, which [capabilities.md](capabilities.md) lists, and `contract/v1` names as constants. An old or misspelt name is unknown. A plugin can't define new capabilities. They're added to Oikade's registry, named by the guide in `internal/capability`'s package doc.
-- `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless your home declares one with `Is`, and a device's other types follow from its capabilities ([OIK-142](https://linear.app/oikade/issue/OIK-142)).
+- `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless your home declares one with `Is`, and a device's other types follow from its capabilities (OIK-142).
 - `error` is a problem with the device's configuration, such as a missing secret or settings the plugin can't use. `oikade devices` and `oikade status` show it. A device can be `found` and still have one, if the plugin can see it and can't use it. Leave it empty otherwise.
 - `needsSetup` is optional: true while the plugin can't serve its devices until someone runs its [setup](#setup), such as one with no credentials yet. Only a plugin whose status has `setup` sends it.
 - `undeclared` counts devices the plugin can see that Oikade doesn't have on record. A device you removed is on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
@@ -97,7 +97,7 @@ Republish `devices` whenever any of this changes.
 
 #### `discovered`
 
-A plugin that can list the devices in its app (a hub, a cloud account) adds them, so Oikade can adopt the ones you haven't declared ([OIK-123](https://linear.app/oikade/issue/OIK-123)):
+A plugin that can list the devices in its app (a hub, a cloud account) adds them, so Oikade can adopt the ones you haven't declared (OIK-123):
 
 ```json
 {
@@ -129,7 +129,7 @@ Oikade sends one capability per message, such as `{"mode":"dry"}`, already valid
 
 ## Setup
 
-A plugin may have a setup: a short dialogue, run on the host, with the person setting it up, which asks only for what the plugin can't find out itself, keeps what it learns as host secrets and checks the result ([OIK-276](https://linear.app/oikade/issue/OIK-276)). It runs where the plugin does, so its checks see the broker and the network as the plugin will. Run again, it repeats its checks and changes only what's wrong.
+A plugin may have a setup: a short dialogue, run on the host, with the person setting it up, which asks only for what the plugin can't find out itself, keeps what it learns as host secrets and checks the result (OIK-276). It runs where the plugin does, so its checks see the broker and the network as the plugin will. Run again, it repeats its checks and changes only what's wrong.
 
 Oikade starts a session on `_setup/in` with `{"session":"s1","start":true}`. A plugin runs one session at a time, so a new one ends the last. The plugin then publishes its steps on `_setup/out`, numbered from 1 by `seq`, each with exactly one of these:
 
@@ -178,7 +178,7 @@ The devices file is yours to write, and lists the devices this plugin serves.
 }
 ```
 
-A device has no settings of its own here. A setting only the plugin uses, for one device or all of them, goes in the plugin's own config ([OIK-295](https://linear.app/oikade/issue/OIK-295)).
+A device has no settings of its own here. A setting only the plugin uses, for one device or all of them, goes in the plugin's own config (OIK-295).
 
 The secrets directory holds one file per secret, by convention one per device ID. Never log its contents. In the Go SDK, a plugin your home imports takes a credential the person chooses as a `plugin.Secret` in its config, which the home makes with `oikade.Secret`, so `oikade deploy` names it while it isn't set. It reads the ones it names itself with `plugin.ReadSecret`.
 

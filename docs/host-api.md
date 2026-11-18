@@ -1,6 +1,6 @@
 # The host API
 
-This is how `oikade` talks to a running host. It's HTTP on `api.sock` in the data directory, a Unix socket with mode `0600`, so only the host's user can reach it. With `oikade-host --api-addr`, the same routes are served over TLS too, for clients with a token. It's apart from `host.sock`, which only your process uses and which [`host-protocol.md`](host-protocol.md) describes. [OIK-171](https://linear.app/oikade/issue/OIK-171) says why it's HTTP.
+This is how `oikade` talks to a running host. It's HTTP on `api.sock` in the data directory, a Unix socket with mode `0600`, so only the host's user can reach it. With `oikade-host --api-addr`, the same routes are served over TLS too, for clients with a token. It's apart from `host.sock`, which only your process uses and which [`host-protocol.md`](host-protocol.md) describes. OIK-171 says why it's HTTP.
 
 ## Calls
 
@@ -36,7 +36,7 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 ## Status
 
-`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices`, `rules`, `pluginProblems`, what each plugin with a problem of its own says is wrong with it, by name ([OIK-17](https://linear.app/oikade/issue/OIK-17)), `needsSetup`, the plugins that say they need their [setup](#setup) run, and `unsetSecrets`, the secrets the running version uses that aren't set ([OIK-297](https://linear.app/oikade/issue/OIK-297)). Fields are added, never renamed. A capability's claims each have a `source`, the [ref](devices.md#refs) of who made it, such as `case/fan/on/humid` or `matter`. Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind` (`case` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved ([OIK-215](https://linear.app/oikade/issue/OIK-215)):
+`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices`, `rules`, `pluginProblems`, what each plugin with a problem of its own says is wrong with it, by name (OIK-17), `needsSetup`, the plugins that say they need their [setup](#setup) run, and `unsetSecrets`, the secrets the running version uses that aren't set (OIK-297). Fields are added, never renamed. A capability's claims each have a `source`, the [ref](devices.md#refs) of who made it, such as `case/fan/on/humid` or `matter`. Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind` (`case` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved (OIK-215):
 
 | Field | Means |
 |---|---|
@@ -49,7 +49,7 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 ## Setup
 
-`POST /v1/setup` runs a plugin's setup ([OIK-276](https://linear.app/oikade/issue/OIK-276)) and answers with its steps, as lines of JSON. The first line has only `session`, and says it has started. The rest are the plugin's steps, as the [plugin contract](plugin-contract.md#setup) has them: a `say`, an `ask` or an `open`, each with its `seq`, and last a `done`, with a `result` or an `error`. A `keep` is the host's to do, so the stream has only the secret's name as `kept`, once it's on disk, and never its value. A refused setup, such as one of a plugin that has none, is a `422` with an `error`, as a call is.
+`POST /v1/setup` runs a plugin's setup (OIK-276) and answers with its steps, as lines of JSON. The first line has only `session`, and says it has started. The rest are the plugin's steps, as the [plugin contract](plugin-contract.md#setup) has them: a `say`, an `ask` or an `open`, each with its `seq`, and last a `done`, with a `result` or an `error`. A `keep` is the host's to do, so the stream has only the secret's name as `kept`, once it's on disk, and never its value. A refused setup, such as one of a plugin that has none, is a `422` with an `error`, as a call is.
 
 Answer each `ask` and `open` with `POST /v1/setup/reply`, naming the `session` and the step's `seq`: `answer` is what the person typed, or an `open`'s redirect query, such as `code=abc&state=xyz`. A reply is taken once, and only for a step that's waiting. An answer may be a secret, so it's never logged.
 

@@ -4,7 +4,7 @@ How a home's rules are written: decisions, flows' triggers, conditions, rooms, b
 
 ## Automations
 
-A home has two kinds of rule ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+A home has two kinds of rule (OIK-298):
 
 - **[Decisions](#decisions)** say what a capability should be, as a list of cases read top to bottom. The engine works out from the clock and the devices' state which case applies, so it stays right across a restart.
 - **[Flows](writing-flows.md)** do something when a trigger fires: a capability changes, or a time of day comes. A flow is ordinary Go, with real `if` and `for`, and it can wait for hours and survive a crash.
@@ -28,7 +28,7 @@ home.Flow("hallway-motion-light", func(r *oikade.FlowRun) {
 
 ### Conditions
 
-A condition is something true or false about the home now. It's a value, so the host can say why one is false ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+A condition is something true or false about the home now. It's a value, so the host can say why one is false (OIK-298):
 
 | Condition | True while |
 |---|---|
@@ -88,7 +88,7 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 
 ### Groups and rooms
 
-A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool`, a `Number` or a `Choice` as a device does, which a decision, a flow's `Set` and a trigger take, and a `Bool`'s `Any()` and `All()` are [conditions](#conditions) ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool`, a `Number` or a `Choice` as a device does, which a decision, a flow's `Set` and a trigger take, and a `Bool`'s `Any()` and `All()` are [conditions](#conditions) (OIK-298):
 
 ```go
 radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
@@ -107,7 +107,7 @@ home.Flow("lights-out", func(r *oikade.FlowRun) {
 
 A group's members are devices from `devices.go`, which `oikade types` writes, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `case/radiators/setpoint/windows-open`, so it can't be a device's name too.
 
-A room's devices change as a device is paired, removed or [declared](devices.md#declaring-devices-in-code) in another room, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there. Its kinds say which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater ([OIK-255](https://linear.app/oikade/issue/OIK-255)):
+A room's devices change as a device is paired, removed or [declared](devices.md#declaring-devices-in-code) in another room, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there. Its kinds say which of the room's devices you mean, by their [device types](devices.md#what-a-device-is), because `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater (OIK-255):
 
 | Kind | Device types |
 |---|---|
@@ -150,20 +150,20 @@ oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 
 A read covers the members that have reported the capability, and ignores the rest, so one dead sensor doesn't stop a rule over three. A group's capability isn't a condition on its own: `oikade check` asks for `Any` or `All`. If none has reported, the condition stops, as at a `Get`. A case that reads a room looks again when a device moves in or out. A sensor that reported and then died keeps its last value.
 
-A room with no devices in it, or none of the read's kinds, stops the condition too, and a case keeps its state: one that applied, or was lingering, stays until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices remove` still removes a device when that leaves a room a case reads with nothing of the read's group in it, but it warns on stderr, naming the room and the cases, and `--json` has the warning as `warning`. A deploy whose declared rooms and types do the same warns too, after it's deployed, of the cases the running version has read that the new one keeps ([OIK-303](https://linear.app/oikade/issue/OIK-303)).
+A room with no devices in it, or none of the read's kinds, stops the condition too, and a case keeps its state: one that applied, or was lingering, stays until a device is back in the room. The log says `Rule read a Room with no members` at Warn, once each time it happens, with the rule and the room. `oikade devices remove` still removes a device when that leaves a room a case reads with nothing of the read's group in it, but it warns on stderr, naming the room and the cases, and `--json` has the warning as `warning`. A deploy whose declared rooms and types do the same warns too, after it's deployed, of the cases the running version has read that the new one keeps (OIK-303).
 
 #### Triggers and writes
 
 - **A group's or a room's trigger** fires on a change from any member: for a room, any device in the room and of its kinds at the time of the change.
 - **A group's `Set`** writes each member with the capability, each ranked by its own decision, and one that fails doesn't stop the others.
-- **A room's `Set`** sets every device in the room and of its kinds that has reported the capability, in name order, and skips the rest. So `on` on a room with no kinds leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone ([OIK-20](https://linear.app/oikade/issue/OIK-20)). Membership is read when the `Set` runs, so a lamp added to the room during a `Sleep` is included in the `Set`s after it.
+- **A room's `Set`** sets every device in the room and of its kinds that has reported the capability, in name order, and skips the rest. So `on` on a room with no kinds leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone (OIK-20). Membership is read when the `Set` runs, so a lamp added to the room during a `Sleep` is included in the `Set`s after it.
 - **If some devices fail**, the others are still set and the flow carries on, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
 - **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Sleep` longer than the time your sensor holds occupancy after the last movement.
 - **A room `Set` with no end skips arbitrated members,** because a claim must end (see [claims from flows](#claims-from-flows)). The log names them, with members of other types, as `Skipped Room members`.
 
 ### Decisions
 
-A decision is everything that sets one capability, in one list read top to bottom. `home.Decide` takes the capability, a device's or a [group's](#groups-and-rooms), and each line after it says when it applies and what it wants. The first line that applies wins, and `Default`, the last line, is what's left when none does ([OIK-298](https://linear.app/oikade/issue/OIK-298)):
+A decision is everything that sets one capability, in one list read top to bottom. `home.Decide` takes the capability, a device's or a [group's](#groups-and-rooms), and each line after it says when it applies and what it wants. The first line that applies wins, and `Default`, the last line, is what's left when none does (OIK-298):
 
 ```go
 home.Decide(BathroomFan.On).
@@ -196,7 +196,7 @@ A capability has one decision, and `oikade check` refuses a second, a line after
 
 - **Every capability with a decision is arbitrated:** the host saves the decision, so a device is arbitrated, and a safety line holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a safety line's claim that way needs `--allow-safety-removal`.
 - **Restarts are safe.** The host saves each case's state, under its device, capability and name, and a new process writes only if a case started or ended meanwhile. A `Linger`'s deadline is saved too, so the fan still stops on time. Renaming a case loses its state, so a deploy refuses to drop a safety line's that way without `--allow-safety-removal`.
-- **A lock** goes to its `Default` when nothing claims it, as any capability does, so give it `Default(true)` unless it should unlock by itself ([OIK-23](https://linear.app/oikade/issue/OIK-23)).
+- **A lock** goes to its `Default` when nothing claims it, as any capability does, so give it `Default(true)` unless it should unlock by itself (OIK-23).
 
 ### Arbitration
 
@@ -222,7 +222,7 @@ In this example, motion turns the light on, and it goes off 5 minutes after the 
 
 `Limits` apply after the winner is picked and beat every line, safety lines included: `MinimumOn` and `MinimumOff` are how long a run and a rest last at least, `MaximumOn` stops a longer run, and `MaximumStartsPerDay` caps the starts. An outside change is accepted and counted, but not fought. `oikade status` says when a limit holds a line back: `frost wants true, resting until 03:20`.
 
-A report soon after a write is the device catching up, not an outside change: for 5 seconds, or as long as the capability takes to settle, which is 2 minutes for a blind's `position` and 30 seconds for `locked` ([OIK-23](https://linear.app/oikade/issue/OIK-23)). So a blind reporting 20, 40 and 60 on its way to 70 isn't an override. A report of something else once that's up is, so a blind that someone stopped at 45 is an override at 45, two minutes after the write. A report within half a step of the write is the write, as a driver rounds a brightness of 33 to 33.1 ([OIK-271](https://linear.app/oikade/issue/OIK-271)), so a setpoint turned 0.5 °C from it is still an override. A device's first report after the host starts isn't one either: a change made while the host was down is undone, and the winner written again.
+A report soon after a write is the device catching up, not an outside change: for 5 seconds, or as long as the capability takes to settle, which is 2 minutes for a blind's `position` and 30 seconds for `locked` (OIK-23). So a blind reporting 20, 40 and 60 on its way to 70 isn't an override. A report of something else once that's up is, so a blind that someone stopped at 45 is an override at 45, two minutes after the write. A report within half a step of the write is the write, as a driver rounds a brightness of 33 to 33.1 (OIK-271), so a setpoint turned 0.5 °C from it is still an override. A device's first report after the host starts isn't one either: a change made while the host was down is undone, and the winner written again.
 
 An outside change is recorded by the path it came in by, and a claim's source in `oikade status --json` is its [ref](devices.md#refs): `matter` for a command through the bridge, such as a Home app tap, `command` for `oikade set`, and `device` for anything else, such as a wall switch. A case's claim is `case/<device>/<capability>/<case>`, and a flow's `flow/<flow>`. Oikade can't tell what a person did, so nothing is called "manual".
 
@@ -278,7 +278,7 @@ home.Decide(GarageHeater.On).
 	Default(true)
 ```
 
-Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. No other rule is needed to reset it. The Home app keeps showing your tap for about 10 seconds before it shows the heater off again. Oikade has already sent the real value by then, and sending it later doesn't change the wait ([OIK-239](https://linear.app/oikade/issue/OIK-239)). Rules run only while your process is up. If the garage overheats and cools again while it's down, nothing latches. An `r.Release("garage-heater on overheat")` in a flow ends the latch too.
+Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. No other rule is needed to reset it. The Home app keeps showing your tap for about 10 seconds before it shows the heater off again. Oikade has already sent the real value by then, and sending it later doesn't change the wait (OIK-239). Rules run only while your process is up. If the garage overheats and cools again while it's down, nothing latches. An `r.Release("garage-heater on overheat")` in a flow ends the latch too.
 
 ### Values that follow a reading
 

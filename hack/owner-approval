@@ -2,7 +2,7 @@
 # owner-approval: whether the user's Approve covers a PR's code as it is now.
 # hack/plan merge uses it to merge a needs-review PR, and review-gate.yml to
 # pass "Approved by the owner" (docs/planning.md). It reads only GitHub, so
-# it runs in CI too, where there's no Linear token.
+# it runs in CI too, where there's no plan.
 #
 # The user's latest decisive review (an Approve, Request changes or dismissal;
 # comments don't count) must approve the head commit, or a commit whose own

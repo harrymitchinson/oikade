@@ -17,7 +17,7 @@ func table() string {
 	b.WriteString("<!-- Generated from internal/capability by its tests: go test ./internal/capability -update -->\n\n")
 	b.WriteString("# Capabilities\n\n")
 	b.WriteString("Every capability Oikade knows, named for people rather than for a protocol ")
-	b.WriteString("([OIK-181](https://linear.app/oikade/issue/OIK-181)). A home names them through `oikade`'s ")
+	b.WriteString("(OIK-181). A home names them through `oikade`'s ")
 	b.WriteString("constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. ")
 	b.WriteString("Any other name is unknown.\n\n")
 	b.WriteString("A name's number, in brackets, is what claims hold and the `oikade_capability_value` gauge exports. ")
