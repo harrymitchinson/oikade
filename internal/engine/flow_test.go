@@ -526,7 +526,7 @@ func TestAWaitThatEndsEarlyLeavesNothingOnTheClock(t *testing.T) {
 		}()
 		waiting(t, c)
 		met.Store(true)
-		eng.membersChanged()
+		eng.membersChanged(ident.ID{Name: "pump"})
 		finished(t, done)
 	})
 

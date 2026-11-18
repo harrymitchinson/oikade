@@ -661,7 +661,7 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 
 // membersChanged makes Run evaluate again the holds whose when may read a room, and the room holds,
 // as handle does on a change.
-func (e *Engine) membersChanged() {
+func (e *Engine) membersChanged(dev ident.ID) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := e.Clock.Now()
@@ -670,7 +670,7 @@ func (e *Engine) membersChanged() {
 	for _, s := range e.rules {
 		// A hold with when may read the rooms, a room hold writes their members, and a group hold
 		// writes a member once it's discovered.
-		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.room != "" || len(s.c.hold.devices) > 0) {
+		if s.hold != nil && s.hold.loaded && (s.c.hold.when != nil || s.c.hold.room != "" || slices.Contains(s.c.hold.devices, dev.Name)) {
 			s.next = fire{At: now}
 			due = true
 		}

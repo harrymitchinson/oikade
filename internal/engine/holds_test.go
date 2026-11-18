@@ -859,3 +859,22 @@ func TestAGroupHoldWhoseWriteFailsOnOneMemberIsActive(t *testing.T) {
 	r.change("workshop-temp", capability.Temperature, 20.0)
 	r.expect(started, fan, fan, call{"water-heater", capability.On, true}, call{"bathroom-fan", capability.On, true})
 }
+
+// The member still to write doesn't hold up the group hold's end, which writes back only what the
+// hold wrote: the fan it never switched off isn't switched on.
+func TestAGroupHoldEndsAtOnceAndOnlyOnTheMembersItWrote(t *testing.T) {
+	r := startRigWith(t, rigOptions{
+		now:    local("2026-10-21 12:00 BST"),
+		values: map[string]map[string]any{"workshop-temp": {capability.Temperature: 50.0}},
+	})
+	r.failing("bathroom-fan")
+	group := overheat
+	group.Device, group.Devices, group.Latch = "", []string{"water-heater", "bathroom-fan"}, false
+	r.e.Load(holdRule(t, "workshop-overheat", group))
+	r.settle()
+	started, fan := call{"water-heater", capability.On, false}, call{"bathroom-fan", capability.On, false}
+	r.expect(started, fan)
+
+	r.change("workshop-temp", capability.Temperature, 20.0)
+	r.expect(started, fan, call{"water-heater", capability.On, true})
+}
