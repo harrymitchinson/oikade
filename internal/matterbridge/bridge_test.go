@@ -13,6 +13,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/logging"
 	"github.com/harrymitchinson/oikade/internal/matter/clusters"
 	"github.com/harrymitchinson/oikade/internal/matter/im"
+	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 // device is a Device on endpoint id.
@@ -237,6 +239,34 @@ func TestABlindsMoveSettlesOnTheBridgesClock(t *testing.T) {
 	for deadline := time.Now().Add(5 * time.Second); status() != uint64(0); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("OperationalStatus %v after the settle, want stopped", status())
+		}
+	}
+}
+
+// Each Window Covering command a controller sends is logged with its target, so a real host's log
+// says what the Home app asked for (OIK-337).
+func TestABlindsCommandsAreLogged(t *testing.T) {
+	log := testkit.Logs(t)
+	b := newBridgeRig()
+	if err := b.Apply(log.Logger, map[uint16]Device{2: device("blind", 2, capability.Position)}); err != nil {
+		t.Fatal(err)
+	}
+	blind := ident.ID{Name: "blind"}
+	b.Changed(driver.Update{Device: blind, Capability: capability.Position, Value: 10.0})
+	send := func(cmd uint32, f func(w *tlv.Writer)) {
+		b.Matter.Node.Update(func() { invoke(t, b.Matter.Node.Endpoint(2).Cluster(clusters.IDWindowCovering), cmd, f) })
+	}
+	send(clusters.CommandGoToLiftPercentage, goToLift0(7000))
+	b.Changed(driver.Update{Device: blind, Capability: capability.Position, Value: 40.0})
+	send(clusters.CommandStopMotion, nil)
+	send(clusters.CommandStopMotion, nil) // nothing moving
+	for _, want := range [][]string{
+		{"command=GoToLiftPercentage", "target=70"},
+		{"command=StopMotion", "target=40"},
+		{"command=StopMotion", "target=none"},
+	} {
+		if !log.Has(append([]string{`msg="Took Matter command"`, "device=blind"}, want...)...) {
+			t.Errorf("no line with %v", want)
 		}
 	}
 }

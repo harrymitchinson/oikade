@@ -160,6 +160,10 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		e := &endpoint{signature: d.Signature(), label: Label(d.Name), absent: d.Absent}
 		e.key.Store(&d.Key)
 		d.After = b.after
+		// So the log says what a controller asked for, as well as what was written (OIK-337).
+		d.Command = func(command string, args ...any) {
+			log.Info("Took Matter command", append([]any{"device", e.device(), "command", command}, args...)...)
+		}
 		e.mapped = Map(d, func(name string, value any) { b.Writes.Add(e.device(), name, value) })
 		info, err := b.Matter.AddDeviceTypes(id, e.mapped.Types, e.label, d.uniqueID(), e.mapped.Clusters...)
 		if err != nil {
