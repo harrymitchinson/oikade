@@ -1,37 +1,32 @@
 #!/usr/bin/env bash
-# plan: Oikade's planning commands, so skills and agents never hand-write
-# GraphQL. How planning works is in docs/planning.md.
+# plan: Oikade's planning commands, so skills and agents never edit the plan by
+# hand. How planning works is in docs/planning.md.
 #
-# The plan lives in Linear (team OIK). A feature is one top-level issue, and
-# its PR-sized steps are the checklist lines under its "## Steps" heading, in
-# order, or its sub-issues where it has them. A feature with neither is a
-# single step. A feature is claimed by creating the remote branch claim/OIK-N:
-# the push only succeeds if that branch doesn't exist yet, so two agents can't
-# both claim it. Line k of OIK-N is built on work/OIKN-stepk, which names no
-# issue, so Linear's GitHub integration doesn't move the feature when its PR
-# opens or merges: sync ticks the line instead. A sub-issue's step is built on
-# work/OIK-S, named for it, which is how Linear links the PR to it. While a
-# step waits for review, the next one stacks on it.
+# The plan lives in plan/, a folder in the main checkout that is its own git
+# repository (OIK-350). Each folder at its top is a status, and each issue is
+# a folder in one. A feature is a top-level issue, and its PR-sized steps are
+# the checklist lines under its "## Steps" heading, in order, or its sub-issues
+# where it has them. A feature with neither is a single step. A feature is
+# claimed by creating the remote branch claim/OIK-N: the push only succeeds if
+# that branch doesn't exist yet, so two agents can't both claim it. Line k of
+# OIK-N is built on work/OIKN-stepk, and sync ticks the line once its PR
+# merges. A sub-issue's step is built on work/OIK-S, named for it. While a step
+# waits for review, the next one stacks on it.
 #
-# Linear calls go out as the Oikade Agent app (hack/linear-token), and GitHub
-# writes as oikade-agent[bot] inside Claude Code (hack/agent-token), so an
-# agent's work never passes for the user's (docs/planning.md).
+# GitHub writes go out as oikade-agent[bot] inside Claude Code
+# (hack/agent-token), so an agent's work never passes for the user's
+# (docs/planning.md).
 #
 # Usage: hack/plan <command> [args]   (hack/plan help lists the commands)
-# shellcheck disable=SC2016 # $t, $i and the like are GraphQL variables
+# shellcheck disable=SC2016 # $t, $now and the like are jq's variables
 set -euo pipefail
 
 TEAM="${PLAN_TEAM:-OIK}"
-LINEAR_API="${LINEAR_API_URL:-https://api.linear.app/graphql}"
 REMOTE="${PLAN_REMOTE:-origin}"
 STALE_HOURS="${PLAN_STALE_HOURS:-24}"
 # How many of a feature's steps may wait for review at once. Each stacks on the
 # one before, so a change asked for low in the stack means rebasing the rest.
 MAX_STACK="${PLAN_MAX_STACK:-3}"
-# The free plan's limit on issues that aren't archived, and where sync and
-# ready start warning about it.
-ISSUE_LIMIT="${PLAN_ISSUE_LIMIT:-250}"
-ISSUE_WARN="${PLAN_ISSUE_WARN:-225}"
 # How many times, and how often, merge retries while GitHub refuses it because
 # a required check is still running: 60 times 5 seconds is 5 minutes.
 MERGE_TRIES="${PLAN_MERGE_TRIES:-60}"
@@ -39,11 +34,20 @@ MERGE_SLEEP="${PLAN_MERGE_SLEEP:-5}"
 # The status a design waits in. Only the user moves an issue out of it, and
 # that move is the approval.
 DESIGN_REVIEW="Design Review"
+# Who the plan says made a change hack/plan makes. Approve, which only the
+# user runs, says the user did.
+AGENT="Oikade Agent"
+USER_NAME="the user"
 
-die() { echo "plan: $*" >&2; exit 1; }
+die() {
+	echo "plan: $*" >&2
+	# A write that stops part-way gives the plan's lock back.
+	if (( ${LOCKS:-0} > 0 )) && [[ -n "${PLAN_DIR:-}" ]]; then rm -rf "$PLAN_DIR/.git/plan.lock"; fi
+	exit 1
+}
 
 # The dispatch at the bottom looks this repo up once, into HOME_REPO and REPO.
-# Claims, Linear and stacks live here. A step whose sub-issue has a line
+# Claims, the plan and stacks live here. A step whose sub-issue has a line
 # "Repo: OWNER/NAME" is built in that repo instead, a plugin's own: on_repo
 # points REPO, GH_REPO (every gh call) and STEP_REMOTE (its git remote) at it.
 HOME_REPO="" REPO="" STEP_REMOTE="$REMOTE"
@@ -106,117 +110,279 @@ need_file() { [[ -f "$1" ]] || die "no such file: $1"; }
 id() {
 	local i
 	i=$(tr '[:lower:]' '[:upper:]' <<<"$1")
-	[[ "$i" =~ ^[A-Z]+-[0-9]+$ ]] || die "\"$1\" isn't a Linear issue ID such as $TEAM-12"
+	[[ "$i" =~ ^[A-Z]+-[0-9]+$ ]] || die "\"$1\" isn't an issue ID such as $TEAM-12"
 	echo "$i"
 }
 
-# --- Linear -------------------------------------------------------------------
+# --- The plan -----------------------------------------------------------------
+#
+# plan/ holds a folder per status, and in it a folder per issue, OIK-N-<slug>/:
+# issue.md is its fields as front matter, one "key: JSON" a line between two
+# "---" lines, then its description. comments/ holds a file per comment, and
+# releases/ a file per release, with the same front matter. Every write takes
+# the plan's lock and commits what it changed, in plan/'s own repository.
 
-LINEAR_TOKEN=""
-
-# linear_auth: get the Oikade Agent's token once. A missing credential stops
-# the command before it reads or writes anything, rather than acting as the user.
-linear_auth() {
-	[[ -n "$LINEAR_TOKEN" ]] && return 0
-	LINEAR_TOKEN=$("$(dirname "$0")/linear-token") ||
-		die "can't act as the Oikade Agent in Linear, so nothing was read or written. Fix it as the error above says"
+# Where the plan is: plan/ in the main checkout, which every worktree shares.
+PLAN_DIR="${PLAN_DIR:-}"
+plan_dir() {
+	[[ -n "$PLAN_DIR" ]] || PLAN_DIR="$(git rev-parse --path-format=absolute --git-common-dir | sed 's#/\.git$##')/plan"
+	[[ -d "$PLAN_DIR/.git" ]] ||
+		die "there's no plan at $PLAN_DIR. It's plan/ in the main checkout, its own git repository (docs/planning.md)"
 }
 
-# lin QUERY [VARS_JSON]: run a GraphQL call and print its data. Any error stops.
-# The token reaches curl through a file descriptor, not its arguments.
-lin() {
-	local out
-	linear_auth
-	out=$(jq -cn --arg q "$1" --argjson v "${2:-null}" '{query: $q, variables: ($v // {})}' |
-		curl -sS --fail-with-body "$LINEAR_API" -H 'Content-Type: application/json' \
-			-H @<(printf 'Authorization: Bearer %s\n' "$LINEAR_TOKEN") --data-binary @-) ||
-		die "Linear refused the request: $out"
-	jq -e '.errors == null' >/dev/null <<<"$out" || die "Linear: $(jq -r '[.errors[].message] | join("; ")' <<<"$out")"
-	jq -c .data <<<"$out"
-}
+# The statuses, "NAME|FOLDER|TYPE", in the order an issue moves through them.
+STATUSES='Triage|triage|triage
+Backlog|backlog|backlog
+Design Review|design-review|backlog
+Todo|todo|unstarted
+In Progress|in-progress|started
+In Review|in-review|started
+Done|done|completed
+Canceled|canceled|canceled
+Duplicate|duplicate|duplicate'
 
-# Read once per run.
-STATES=""
-states() {
-	[[ -n "$STATES" ]] || STATES=$(lin 'query($t: String!) { team(id: $t) { id states { nodes { id name type } } } }' \
-		"$(jq -cn --arg t "$TEAM" '{t: $t}')")
-	echo "$STATES"
-}
-team_id() { states | jq -r .team.id; }
-
-# state_id NAME: matched without case, so "todo" finds Todo.
-state_id() {
+# status NAME: "NAME|FOLDER|TYPE" for the status NAME, or its folder, in any case.
+status() {
 	local s
-	s=$(states | jq -r --arg n "$1" '.team.states.nodes[] | select((.name | ascii_downcase) == ($n | ascii_downcase)) | .id')
-	[[ -n "$s" ]] || die "$TEAM has no status \"$1\""
+	s=$(awk -F'|' -v n="$(tr '[:upper:]' '[:lower:]' <<<"$1")" 'tolower($1) == n || $2 == n' <<<"$STATUSES")
+	[[ -n "$s" ]] || die "there's no status \"$1\". There are: $(cut -d'|' -f1 <<<"$STATUSES" | paste -sd, - | sed 's/,/, /g')"
 	echo "$s"
 }
 
-# The user: the workspace's one active admin who isn't an app.
-OWNER=""
-owner() {
-	local o
-	if [[ -z "$OWNER" ]]; then
-		o=$(lin '{ users(filter: {admin: {eq: true}, active: {eq: true}}) { nodes { id name app } } }' |
-			jq -c '[.users.nodes[] | select(.app | not)]')
-		[[ "$(jq length <<<"$o")" == 1 ]] || die "can't tell who the user is: Linear has $(jq length <<<"$o") active human admins"
-		OWNER=$(jq -c '.[0]' <<<"$o")
-	fi
-	echo "$OWNER"
-}
-owner_id() { owner | jq -r .id; }
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-ISSUE_FIELDS='id identifier title url description priority
-	state { name type } project { name } parent { identifier } labels { nodes { name } }
-	children(first: 100) { nodes { identifier title description subIssueSortOrder number state { name type } } }
-	inverseRelations(first: 100) { nodes { type issue { identifier state { type } } } }'
-
-# issue ID: the issue as JSON, with its steps and blockers.
-issue() {
-	lin "query(\$i: String!) { issue(id: \$i) { $ISSUE_FIELDS } }" "$(jq -cn --arg i "$1" '{i: $i}')" | jq -c .issue
+# slug TEXT: TEXT as a folder or file name: lower case, a dash between words,
+# and at most 60 characters, cut at a word.
+slug() {
+	local s
+	s=$(tr '[:upper:]' '[:lower:]' <<<"$1" | LC_ALL=C sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+	if (( ${#s} > 60 )); then s=$(sed -E 's/-[^-]*$//' <<<"${s:0:60}"); fi
+	echo "$s"
 }
 
-# history ID: the issue's status changes, oldest first: "WHEN<TAB>FROM<TAB>TO<TAB>ACTOR_ID<TAB>ACTOR".
-history() {
-	local page after="" all="[]"
-	while :; do
-		page=$(lin 'query($i: String!, $a: String) { issue(id: $i) { history(first: 250, after: $a) {
-			nodes { createdAt fromState { name } toState { name } actor { id name } } pageInfo { hasNextPage endCursor } } } }' \
-			"$(jq -cn --arg i "$1" --arg a "$after" '{i: $i, a: (if $a == "" then null else $a end)}')") || exit 1
-		all=$(jq -c --argjson p "$page" '. + $p.issue.history.nodes' <<<"$all")
-		[[ "$(jq -r .issue.history.pageInfo.hasNextPage <<<"$page")" == true ]] || break
-		after=$(jq -r .issue.history.pageInfo.endCursor <<<"$page")
+# folder_name ID TITLE: the name of an issue's folder: OIK-N-<slug>.
+folder_name() {
+	local s
+	s=$(slug "$2")
+	echo "$1${s:+-$s}"
+}
+
+# folder ID: the issue's folder, or stop if the plan has no such issue.
+folder() {
+	local d
+	plan_dir
+	for d in "$PLAN_DIR"/*/"$1" "$PLAN_DIR"/*/"$1"-*; do
+		if [[ -f "$d/issue.md" ]]; then echo "$d"; return; fi
 	done
-	jq -r 'map(select(.toState != null)) | sort_by(.createdAt)[]
-		| [.createdAt, (.fromState.name // ""), .toState.name, (.actor.id // ""), (.actor.name // "Linear")] | @tsv' <<<"$all"
+	die "the plan has no issue $1"
 }
 
-update_issue() {
-	lin 'mutation($i: String!, $in: IssueUpdateInput!) { issueUpdate(id: $i, input: $in) { success } }' \
-		"$(jq -cn --arg i "$1" --argjson in "$2" '{i: $i, in: $in}')" >/dev/null
+# fm FILE: FILE's front matter, as one JSON object.
+fm() {
+	awk 'NR == 1 {if ($0 != "---") exit; next} /^---$/ {exit} {i = index($0, ": "); print substr($0, 1, i - 1) "\t" substr($0, i + 2)}' "$1" |
+		jq -Rn '[inputs | split("\t") | {key: .[0], value: (.[1:] | join("\t") | fromjson)}] | from_entries'
 }
 
-set_state() { update_issue "$1" "$(jq -cn --arg s "$(state_id "$2")" '{stateId: $s}')"; }
-
-comment() {
-	lin 'mutation($in: CommentCreateInput!) { commentCreate(input: $in) { success } }' \
-		"$(jq -cn --arg i "$1" --arg b "$2" '{in: {issueId: $i, body: $b}}')" >/dev/null
+# body FILE: what follows FILE's front matter.
+body() {
+	awk 'NR == 1 && $0 == "---" {f = 1; next} f == 1 && $0 == "---" {f = 2; next}
+		f == 2 && !s {s = 1; if ($0 == "") next} f == 2 {print}' "$1"
 }
 
-label_id() {
-	local l
-	l=$(lin 'query($n: String!) { issueLabels(filter: {name: {eqIgnoreCase: $n}}) { nodes { id } } }' \
-		"$(jq -cn --arg n "$1" '{n: $n}')" | jq -r '.issueLabels.nodes[0].id // empty')
-	[[ -n "$l" ]] || die "Linear has no label \"$1\""
-	echo "$l"
+# write_md FILE FRONT_MATTER_JSON BODY: write FILE. Empty fields are left out.
+write_md() {
+	{
+		echo ---
+		jq -r 'to_entries[] | select(.value != null and .value != [] and .value != "") | "\(.key): \(.value | tojson)"' <<<"$2"
+		echo ---
+		echo
+		printf '%s\n' "$3"
+	} >"$1"
 }
 
-project_id() {
-	local p
-	p=$(lin 'query($n: String!) { projects(filter: {name: {eqIgnoreCase: $n}}) { nodes { id } } }' \
-		"$(jq -cn --arg n "$1" '{n: $n}')" | jq -r '.projects.nodes[0].id // empty')
-	[[ -n "$p" ]] || die "Linear has no project \"$1\""
-	echo "$p"
+# issues: every issue's front matter as one JSON array, each with its folder
+# as path and its status as state {name, type}.
+issues() {
+	local files
+	plan_dir
+	files=("$PLAN_DIR"/*/*/issue.md)
+	[[ -e "${files[0]}" ]] || { echo '[]'; return; }
+	awk 'FNR == 1 {f = ($0 == "---"); next} f && /^---$/ {f = 0; next}
+		f {i = index($0, ": "); print FILENAME "\t" substr($0, 1, i - 1) "\t" substr($0, i + 2)}' "${files[@]}" |
+		jq -Rnc --arg st "$STATUSES" '
+			($st | split("\n") | map(split("|") | {key: .[1], value: {name: .[0], type: .[2]}}) | from_entries) as $s
+			| [inputs | split("\t") | {f: .[0], k: .[1], v: (.[2:] | join("\t") | fromjson)}] | group_by(.f)
+			| map((map({key: .k, value: .v}) | from_entries)
+				+ {path: (.[0].f | rtrimstr("/issue.md")), state: $s[.[0].f | split("/") | .[-3]]})
+			| map(select(.state != null and .id != null))'
+}
+
+# issue ID: the issue as JSON: identifier, title, description, state {name,
+# type}, project {name} (its release), parent {identifier}, labels, history
+# (its status changes), its sub-issues as children, and the issues blocking
+# it as inverseRelations of type blocks.
+issue() {
+	local d all kids="[]" c
+	d=$(folder "$1") || exit 1
+	all=$(issues)
+	for c in $(jq -r --arg i "$1" '.[] | select(.parent == $i) | .path' <<<"$all"); do
+		kids=$(jq -c --rawfile b <(body "$c/issue.md") --argjson all "$all" --arg c "$c" \
+			'. + [$all[] | select(.path == $c) | {identifier: .id, title, description: $b, number: (.id | split("-")[1] | tonumber), state}]' <<<"$kids")
+	done
+	jq -c --arg i "$1" --rawfile b <(body "$d/issue.md") --argjson kids "$kids" '
+		(map({key: .id, value: .}) | from_entries) as $by | $by[$i] as $me
+		| {id: $i, identifier: $i, number: ($i | split("-")[1] | tonumber), title: $me.title, url: $me.path,
+			description: $b, state: $me.state,
+			project: (if $me.release then {name: $me.release} else null end),
+			parent: (if $me.parent then {identifier: $me.parent} else null end),
+			labels: {nodes: [($me.labels // [])[] | {name: .}]},
+			history: ($me["status-history"] // []),
+			children: {nodes: ($kids | sort_by(.number))},
+			inverseRelations: {nodes: [($me["blocked-by"] // [])[]
+				| {type: "blocks", issue: {identifier: ., state: {type: ($by[.].state.type // "canceled")}}}]}}' <<<"$all"
+}
+
+# history JSON: the issue's status changes, oldest first: "WHEN<TAB>FROM<TAB>TO<TAB>WHO".
+# Where its folder isn't in the status the last change left it in, someone
+# moved the folder by hand, which only the user does: that's a change too.
+history() {
+	jq -r '(.history | map(capture("^(?<w>[^ ]+) (?<f>.+) -> (?<t>.+) by (?<a>.*)$"))) as $h
+		| ($h[] | [.w, .f, .t, .a] | @tsv),
+		(if ($h | length) > 0 and $h[-1].t != .state.name then ["-", $h[-1].t, .state.name, "the user, by hand"] | @tsv else empty end)' <<<"$1"
+}
+
+# is_user WHO: whether the change was the user's: anyone but an agent, or
+# Linear's own automations from before the plan moved out of Linear.
+is_user() { [[ -n "$1" && "$1" != "$AGENT" && "$1" != Linear ]]; }
+
+# --- Writing the plan ---------------------------------------------------------
+
+# lock and unlock: the plan's lock, a directory, since mkdir either makes it or
+# fails, whichever of two processes asks first. A lock whose process has gone
+# is taken over. It counts, so a write inside a write takes it once.
+LOCKS=0
+# How long a write waits for the lock, in seconds.
+LOCK_WAIT="${PLAN_LOCK_WAIT:-30}"
+lock() {
+	local l="$PLAN_DIR/.git/plan.lock" i pid=""
+	if (( LOCKS > 0 )); then LOCKS=$((LOCKS + 1)); return; fi
+	for ((i = 0; i < LOCK_WAIT * 10; i++)); do
+		if mkdir "$l" 2>/dev/null; then
+			echo $$ >"$l/pid"
+			LOCKS=1
+			return
+		fi
+		pid=$(cat "$l/pid" 2>/dev/null || true)
+		if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$l"; continue; fi
+		sleep 0.1
+	done
+	die "the plan has been locked for $LOCK_WAIT s${pid:+ by process $pid}. If nothing holds it: rm -r $l"
+}
+unlock() {
+	LOCKS=$((LOCKS - 1))
+	if (( LOCKS == 0 )); then rm -rf "$PLAN_DIR/.git/plan.lock"; fi
+}
+
+# plan_write MESSAGE FUNC ARGS...: run FUNC under the lock, then commit what it
+# changed with MESSAGE. Changes the user made by hand are committed first, on
+# their own, so a commit never mixes theirs with an agent's.
+plan_write() {
+	local msg="$1"
+	shift
+	plan_dir
+	lock
+	if [[ -n "$(git -C "$PLAN_DIR" status --porcelain)" ]]; then
+		git -C "$PLAN_DIR" add -A
+		git -C "$PLAN_DIR" commit -q -m "Changes made by hand"
+	fi
+	"$@"
+	git -C "$PLAN_DIR" add -A
+	git -C "$PLAN_DIR" diff --cached --quiet || git -C "$PLAN_DIR" commit -q -m "$msg"
+	unlock
+}
+
+# set_fm FILE FILTER [JQ_ARGS...]: rewrite FILE's front matter with a jq FILTER.
+set_fm() {
+	local f="$1" filter="$2" b
+	shift 2
+	b=$(body "$f")
+	write_md "$f" "$(fm "$f" | jq -c "$@" "$filter")" "$b"
+}
+
+# set_state ID STATUS [WHO]: move the issue's folder into STATUS, and say so
+# in its status history. A move the user made by hand since the last change is
+# recorded first, so the history never loses it.
+set_state() { plan_write "$1: $(status "$2" | cut -d'|' -f1)" _set_state "$@"; }
+_set_state() {
+	local n="$1" s name dest d cur last t
+	s=$(status "$2") name=$(cut -d'|' -f1 <<<"$s") dest=$(cut -d'|' -f2 <<<"$s")
+	d=$(folder "$n")
+	cur=$(status "$(basename "$(dirname "$d")")" | cut -d'|' -f1)
+	[[ "$cur" != "$name" ]] || return 0
+	t=$(now)
+	last=$(history "$(issue "$n")" | tail -1)
+	if [[ "$(cut -f4 <<<"$last")" == "the user, by hand" ]]; then
+		set_fm "$d/issue.md" '.["status-history"] += ["\($t) \($f) -> \($c) by the user, by hand"]' \
+			--arg t "$t" --arg f "$(cut -f2 <<<"$last")" --arg c "$cur"
+	fi
+	set_fm "$d/issue.md" '.["status-history"] += ["\($t) \($f) -> \($to) by \($who)"] | .updated = $t
+		| if $type == "completed" then .completed = $t elif $type == "canceled" then .canceled = $t
+		elif $type == "started" and .started == null then .started = $t else . end' \
+		--arg t "$t" --arg f "$cur" --arg to "$name" --arg who "${3:-$AGENT}" --arg type "$(cut -d'|' -f3 <<<"$s")"
+	mkdir -p "$PLAN_DIR/$dest"
+	git -C "$PLAN_DIR" mv "$d" "$PLAN_DIR/$dest/"
+}
+
+# set_body ID FILE: replace the issue's description with FILE.
+set_body() { plan_write "$1: edit the description" _set_body "$@"; }
+_set_body() {
+	local f
+	f="$(folder "$1")/issue.md"
+	write_md "$f" "$(fm "$f" | jq -c --arg t "$(now)" '.updated = $t')" "$(cat "$2")"
+}
+
+# comment ID TEXT [WHO]: add a comment, a file of its own named for its time
+# and author.
+comment() { plan_write "$1: comment" _comment "$@"; }
+_comment() {
+	local d who="${3:-$AGENT}" t name k=1
+	d=$(folder "$1")
+	t=$(now)
+	mkdir -p "$d/comments"
+	name="${t//:/-}-$(slug "$who")"
+	while [[ -e "$d/comments/$name$([[ $k == 1 ]] || echo "-$k").md" ]]; do k=$((k + 1)); done
+	write_md "$d/comments/$name$([[ $k == 1 ]] || echo "-$k").md" "$(jq -cn --arg a "$who" --arg t "$t" '{author: $a, created: $t}')" "$2"
+}
+
+# new_issue TITLE FILE STATUS RELEASE PARENT LABELS_JSON: create an issue and
+# print its ID, one more than the highest any issue has had.
+new_issue() { plan_write "New issue: $1" _new_issue "$@"; }
+_new_issue() {
+	local s n t id dir
+	s=$(status "$3")
+	n=$(cat "$PLAN_DIR/next-id" 2>/dev/null || echo 0)
+	for dir in "$PLAN_DIR"/*/"$TEAM"-*; do
+		[[ "$dir" =~ /$TEAM-([0-9]+)(-|$) ]] || continue
+		(( BASH_REMATCH[1] < n )) || n=$((BASH_REMATCH[1] + 1))
+	done
+	id="$TEAM-$n" t=$(now)
+	dir="$PLAN_DIR/$(cut -d'|' -f2 <<<"$s")/$(folder_name "$id" "$1")"
+	mkdir -p "$(dirname "$dir")"
+	mkdir "$dir"
+	write_md "$dir/issue.md" "$(jq -cn --arg id "$id" --arg title "$1" --arg r "$4" --arg p "$5" --argjson l "$6" \
+		--arg a "$AGENT" --arg t "$t" --arg s "$(cut -d'|' -f1 <<<"$s")" \
+		'{id: $id, title: $title, release: $r, parent: $p, labels: $l, creator: $a, created: $t, updated: $t,
+			"status-history": ["\($t) none -> \($s) by \($a)"]}')" "$(cat "$2")"
+	# IDs are never reused, even once an issue's folder is deleted.
+	echo $((n + 1)) >"$PLAN_DIR/next-id"
+	echo "$id"
+}
+
+# release_file NAME: the release's file, or stop if there's none.
+release_file() {
+	plan_dir
+	[[ -f "$PLAN_DIR/releases/$1.md" ]] || die "there's no release $1. hack/plan projects lists them"
+	echo "$PLAN_DIR/releases/$1.md"
 }
 
 has_label() { jq -e --arg l "$1" '[.labels.nodes[].name | ascii_downcase] | index($l) != null' >/dev/null <<<"$2"; }
@@ -280,7 +446,7 @@ label_refusal() {
 
 usage() {
 	cat <<'EOF'
-Usage: hack/plan <command> [args]        IDs are Linear issues, such as OIK-12
+Usage: hack/plan <command> [args]        IDs are the plan's issues, such as OIK-12, in plan/
 
 Work
   ready                 Features agents may build that nobody has claimed and nothing blocks, earliest release first
@@ -300,7 +466,7 @@ Work
   claims                Every claimed feature, with its open PRs and how long since its last commit
   digest [DAYS]         What agents merged in the last DAYS days (default 7), for the user to skim
   sync [ID]             Set steps and features from their PRs, and unclaimed features back to Todo
-  note ID|PR TEXT       Comment on a Linear issue or a GitHub PR
+  note ID|PR TEXT       Comment on an issue or a GitHub PR
 
 A feature's steps are the lines "- [ ] <step>" under its "## Steps" heading, or its sub-issues.
 Line k of OIK-N is built on work/OIKN-stepk, and sync ticks it once its PR merges into main.
@@ -317,16 +483,18 @@ Issues (agents use these, never raw writes)
   title ID TITLE        Replace an issue's title
   state ID STATE        Move an issue. Never out of Design Review, and never into Todo once it has
                         been in Design Review: those are the user's decision
+  approve ID [STATE]    The user's own: move a design out of Design Review (default Todo), which
+                        approves it. Agents never run it
   label ID|PR +L|-L...  Add (+) or remove (-) labels. Never removes needs-review or agent-merged
   block ID BLOCKER      Record that ID is blocked by BLOCKER
 
-Releases (Linear projects)
-  projects              Every project, with its status and description
-  project new NAME FILE         Create a project
-  project edit NAME FILE        Replace a project's description
-  project set ID NAME           Put an issue in a project
-  project close NAME            Mark a project completed
-  project rename NAME NEW       Rename a project
+Releases (plan/releases/NAME.md)
+  projects              Every release, with its state and description
+  project new NAME FILE         Create a release
+  project edit NAME FILE        Replace a release's description
+  project set ID NAME           Put an issue in a release
+  project close NAME            Mark a release completed
+  project rename NAME NEW       Rename a release, and every issue's mention of it
 
 Ideas (issues in Triage)
   ideas                 List the ideas
@@ -379,17 +547,18 @@ checklist_lines() {
 			print (t == " " ? "-" : "x") "\t" r}'
 }
 
-# tick ID K: tick line K of ID's ## Steps checklist. Linear has no
-# compare-and-swap, so it reads the description just before writing it back.
-tick() {
-	local d
-	d=$(issue "$1" | jq -r '.description // ""') || exit 1
-	d=$(awk -v k="$2" '
+# tick ID K: tick line K of ID's ## Steps checklist. It reads the description
+# under the plan's lock, so a write in between can't be lost.
+tick() { plan_write "$1: tick step $2" _tick "$@"; }
+_tick() {
+	local f d
+	f="$(folder "$1")/issue.md"
+	d=$(body "$f" | awk -v k="$2" '
 		/^##[ \t]+Steps[ \t]*$/ && !d {s = 1; print; next}
 		s && /^##[ \t]/ {s = 0; d = 1}
 		s && /^[-*][ \t]+\[[ xX]\][ \t]/ {if (++n == k) sub(/\[ \]/, "[x]")}
-		{print}' <<<"$d")
-	update_issue "$1" "$(jq -cn --arg d "$d" '{description: $d}')"
+		{print}')
+	write_md "$f" "$(fm "$f" | jq -c --arg t "$(now)" '.updated = $t')" "$d"
 }
 
 # step_repo JSON STEP: the repo STEP is built in, or nothing for this repo.
@@ -413,8 +582,8 @@ step_prs() {
 		[[ "$repo" == - ]] || continue
 		IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s")"
 		[[ "$st" == OPEN || "$st" == MERGED ]] || continue
-		# Not Linear's Done alone: it marks a step done when its PR merges into
-		# the step below it, before the change reaches main.
+		# Not a step's Done alone: a step is done when its PR merges into the
+		# step below it, before the change reaches main.
 		if [[ "$st $base" == "MERGED main" ]]; then
 			printf '%s\t%s\tx\n' "$i" "$pr"
 		else
@@ -455,28 +624,22 @@ step_of() {
 # --- Who may build it ---------------------------------------------------------
 
 # approval ID: "approved<TAB>WHO" if the user moved ID out of Design Review,
-# "unapproved<TAB>WHO" if someone else did, "waiting" if it's still there, or
-# nothing if it never was. An issue created in Design Review has no move into
-# it in its history, so it's in its current status too. A failed read stops
-# the command: callers in a command substitution add || exit, since bash
-# doesn't carry set -e into one.
+# "unapproved<TAB>WHO" if someone else did, "returned<TAB>WHO" if it went back
+# to Backlog, Triage, Canceled or Duplicate, "waiting" if it's still there, or
+# nothing if it never was. A failed read stops the command: callers in a
+# command substitution add || exit, since bash doesn't carry set -e into one.
 approval() {
-	local h cur last o
-	h=$(history "$1") || die "couldn't read $1's history, so whether the user approved it is unknown"
-	cur=$(issue "$1" | jq -r .state.name) || die "couldn't read $1"
-	[[ "$cur" == "$DESIGN_REVIEW" ]] && { echo waiting; return; }
-	last=$(awk -F'\t' -v d="$DESIGN_REVIEW" '$2 == d {l = $0} END {print l}' <<<"$h")
-	if [[ -z "$last" ]]; then
-		return 0
-	elif [[ "$(cut -f3 <<<"$last")" =~ ^(Backlog|Triage|Canceled|Duplicate)$ ]]; then
-		printf 'returned\t%s\n' "$(cut -f5 <<<"$last")"
-	fi
-	o=$(owner_id) || exit 1
-	[[ -n "$o" ]] || die "couldn't tell who the user is"
-	if [[ "$(cut -f4 <<<"$last")" == "$o" ]]; then
-		printf 'approved\t%s\n' "$(cut -f5 <<<"$last")"
+	local j last
+	j=$(issue "$1") || die "couldn't read $1, so whether the user approved it is unknown"
+	[[ "$(jq -r .state.name <<<"$j")" != "$DESIGN_REVIEW" ]] || { echo waiting; return; }
+	last=$(history "$j" | awk -F'\t' -v d="$DESIGN_REVIEW" '$2 == d {l = $0} END {print l}')
+	[[ -n "$last" ]] || return 0
+	if [[ "$(cut -f3 <<<"$last")" =~ ^(Backlog|Triage|Canceled|Duplicate)$ ]]; then
+		printf 'returned\t%s\n' "$(cut -f4 <<<"$last")"
+	elif is_user "$(cut -f4 <<<"$last")"; then
+		printf 'approved\t%s\n' "$(cut -f4 <<<"$last")"
 	else
-		printf 'unapproved\t%s\n' "$(cut -f5 <<<"$last")"
+		printf 'unapproved\t%s\n' "$(cut -f4 <<<"$last")"
 	fi
 }
 
@@ -661,36 +824,12 @@ restack() {
 
 # --- Commands -------------------------------------------------------------------
 
-# count_issues: say on stderr how many issues aren't archived, of the free
-# plan's limit, and warn once they near it. Linear counts the whole workspace.
-count_issues() {
-	local page after="" n=0
-	while :; do
-		# Only advice, so a failure says so and lets the command go on.
-		page=$(lin 'query($a: String) { issues(first: 250, after: $a) { nodes { id } pageInfo { hasNextPage endCursor } } }' \
-			"$(jq -cn --arg a "$after" '{a: (if $a == "" then null else $a end)}')") ||
-			{ echo "plan: couldn't count Linear's issues" >&2; return 0; }
-		n=$((n + $(jq '.issues.nodes | length' <<<"$page")))
-		[[ "$(jq -r .issues.pageInfo.hasNextPage <<<"$page")" == true ]] || break
-		after=$(jq -r .issues.pageInfo.endCursor <<<"$page")
-	done
-	if (( n > ISSUE_WARN )); then
-		echo "plan: $n of Linear's $ISSUE_LIMIT issues are used. Write steps as checklist lines, not sub-issues, and tag what's safe to delete to-delete for the user" >&2
-	else
-		echo "plan: $n of Linear's $ISSUE_LIMIT issues are used" >&2
-	fi
-}
-
 cmd_ready() {
 	local claimed features n json
-	count_issues
 	claimed=" $(claimed_ids | tr '\n' ' ') "
-	features=$(lin 'query($t: String!) { issues(first: 250, filter: {team: {key: {eq: $t}}, parent: {null: true},
-		state: {name: {in: ["Todo", "In Progress"]}}}) { nodes { identifier number title project { name } } } }' \
-		"$(jq -cn --arg t "$TEAM" '{t: $t}')" |
-		jq -r '.issues.nodes
-			| sort_by([((.project.name // "v9999") | ltrimstr("v") | split(".") | map(tonumber? // 9999)), .number])[]
-			| [.identifier, (.project.name // "-"), .title] | @tsv')
+	features=$(issues | jq -r 'map(select(.parent == null and (.state.name | IN("Todo", "In Progress"))))
+		| sort_by([((.release // "v9999") | ltrimstr("v") | split(".") | map(tonumber? // 9999)), (.id | split("-")[1] | tonumber)])[]
+		| [.id, (.release // "-"), .title] | @tsv')
 	[[ -n "$features" ]] || return 0
 	while IFS=$'\t' read -r n _ _; do
 		[[ "$claimed" == *" $n "* ]] && continue
@@ -708,6 +847,7 @@ cmd_show() {
 	n=$(id "${1:?usage: plan show ID}")
 	json=$(issue "$n")
 	jq -r '"\(.identifier) \(.title)\n\(.url)\nStatus:     \(.state.name)\nRelease:    \(.project.name // "none")\nLabels:     \([.labels.nodes[].name] | join(", "))\n\n\(.description // "")\n"' <<<"$json"
+	echo "Comments:   $(find "$(jq -r .url <<<"$json")/comments" -name '*.md' 2>/dev/null | wc -l | tr -d ' '), in $(jq -r .url <<<"$json")/comments"
 	echo "Steps:"
 	while IFS=$'\t' read -r i s type repo title; do
 		IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s" "$repo")"
@@ -837,14 +977,12 @@ cmd_pr() {
 	fi
 	git config "branch.$branch.plan-base-oid" "$(git rev-parse "$rem/$base")"
 	git push -q --force-with-lease -u "$rem" "$branch"
-	# The branch name links the PR to its step in Linear. The trailer names both.
-	# A checklist line's PR names its feature with "part of", which links it
-	# without moving the feature when it merges.
+	# The trailer names the step and its feature, so the PR leads back to the plan.
 	k=$(line_step "$s")
 	if [[ -n "$k" ]]; then
-		body="$(cat "$file")"$'\n\n'"Linear: part of $n, step $k"
+		body="$(cat "$file")"$'\n\n'"Plan: part of $n, step $k"
 	else
-		body="$(cat "$file")"$'\n\n'"Linear: $s"
+		body="$(cat "$file")"$'\n\n'"Plan: $s"
 		[[ "$s" == "$n" ]] || body+=", part of $n"
 	fi
 	url=$(as_agent api "repos/$(repo)/pulls" -f head="$branch" -f base="$base" -f title="$title" -f body="$body" -q .html_url) ||
@@ -1083,10 +1221,7 @@ merged_to_main() {
 cmd_sync() {
 	local ids n json claimed i s type repo title pr st base oid open k
 	if [[ $# -gt 0 ]]; then ids=$(id "$1"); else
-		count_issues
-		ids=$(lin 'query($t: String!) { issues(first: 250, filter: {team: {key: {eq: $t}}, parent: {null: true},
-			state: {type: {eq: "started"}}}) { nodes { identifier } } }' "$(jq -cn --arg t "$TEAM" '{t: $t}')" |
-			jq -r '.issues.nodes[].identifier')
+		ids=$(issues | jq -r '.[] | select(.parent == null and .state.type == "started") | .id')
 	fi
 	claimed=" $(claimed_ids | tr '\n' ' ') "
 	for n in $ids; do
@@ -1105,7 +1240,7 @@ cmd_sync() {
 				fi
 				continue
 			fi
-			# Merged into the step below it, or open: not done, whatever Linear says.
+			# Merged into the step below it, or open: not done, whatever the plan says.
 			if [[ "$st" != MERGED && ( "$type" == completed || "$type" == canceled ) ]]; then continue; fi
 			open=1
 			if [[ "$st" == OPEN && "$type" != started ]] && sub_issue "$s" "$n"; then set_state "$s" "In Review" && echo "$s: in review, PR #$pr"; fi
@@ -1147,7 +1282,7 @@ may_move() {
 
 cmd_issue() {
 	local title="${1:?usage: plan issue TITLE BODY_FILE [--state S] [--project P] [--parent ID] [--label L]...}" file="${2:?usage: plan issue TITLE BODY_FILE ...}"
-	local in st="Backlog" parent="" project="" labels=()
+	local st="Backlog" parent="" project="" labels="[]"
 	shift 2
 	need_file "$file"
 	while [[ $# -gt 0 ]]; do
@@ -1155,24 +1290,26 @@ cmd_issue() {
 		--state) st="${2:?--state needs a status}"; shift 2 ;;
 		--project) project="${2:?--project needs a name}"; shift 2 ;;
 		--parent) parent=$(id "${2:?--parent needs an ID}"); shift 2 ;;
-		--label) labels+=("$(label_id "${2:?--label needs a name}")"); shift 2 ;;
+		--label) labels=$(jq -c --arg l "$(label_name "${2:?--label needs a name}")" '. + [$l] | unique' <<<"$labels"); shift 2 ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
-	in=$(jq -cn --arg t "$(team_id)" --arg title "$title" --rawfile d "$file" --arg s "$(state_id "$st")" \
-		'{teamId: $t, title: $title, description: $d, stateId: $s}')
+	status "$st" >/dev/null
 	if [[ -n "$parent" ]]; then
 		# A feature with any sub-issue takes its steps from them alone.
 		[[ -z "$(issue "$parent" | jq -r '.description // ""' | checklist_lines)" ]] ||
 			die "$parent's steps are lines in its ## Steps checklist, which a sub-issue would hide. Add the step as a line with hack/plan edit, or make every one of its steps a sub-issue"
 		echo "plan: a step is usually a line in $parent's ## Steps checklist. A sub-issue is for a step that needs its own discussion, or is built in another repo" >&2
-		in=$(jq -c --arg p "$(issue "$parent" | jq -r .id)" '. + {parentId: $p}' <<<"$in")
 		[[ -n "$project" ]] || project=$(issue "$parent" | jq -r '.project.name // empty')
 	fi
-	[[ -z "$project" ]] || in=$(jq -c --arg p "$(project_id "$project")" '. + {projectId: $p}' <<<"$in")
-	(( ${#labels[@]} )) && in=$(jq -c --args '. + {labelIds: $ARGS.positional}' "${labels[@]}" <<<"$in")
-	lin 'mutation($in: IssueCreateInput!) { issueCreate(input: $in) { issue { identifier } } }' \
-		"$(jq -cn --argjson in "$in" '{in: $in}')" | jq -r .issueCreate.issue.identifier
+	[[ -z "$project" ]] || release_file "$project" >/dev/null
+	new_issue "$title" "$file" "$st" "$project" "$parent" "$labels"
+}
+
+# label_name NAME: a label as the plan already spells it, whatever the case,
+# or NAME if no issue has it yet.
+label_name() {
+	issues | jq -r --arg l "$1" '[.[].labels // [] | .[] | select(ascii_downcase == ($l | ascii_downcase))] | .[0] // $l'
 }
 
 # above_steps: a description up to its "## Steps" heading, which is the design.
@@ -1184,7 +1321,7 @@ cmd_edit() {
 	local n file="${2:?usage: plan edit ID BODY_FILE}" a cur old
 	n=$(id "${1:?usage: plan edit ID BODY_FILE}")
 	need_file "$file"
-	a=$(approval "$n")
+	a=$(approval "$n") || exit 1
 	cur=$(issue "$n" | jq -r '.description // ""')
 	if [[ "$a" == approved* ]] && [[ "$(above_steps <<<"$cur")" != "$(above_steps <"$file")" ]]; then
 		die "$n's design is approved, so it's the user's decision: only ## Steps and below may change. Ask the user in a comment instead"
@@ -1194,7 +1331,7 @@ cmd_edit() {
 	if [[ -n "$old" && "$(checklist_lines <"$file" | cut -f2 | head -n "$(grep -c . <<<"$old")")" != "$old" ]]; then
 		die "$n's steps are numbered by their place in ## Steps, and their branches and PRs with them: keep the lines it has, in order and as worded, and add new ones at the end. Tick one that's no longer needed rather than removing it"
 	fi
-	update_issue "$n" "$(jq -cn --rawfile d "$file" '{description: $d}')"
+	set_body "$n" "$file"
 	echo "Edited $n"
 }
 
@@ -1210,12 +1347,20 @@ cmd_state() {
 cmd_title() {
 	local n t="${2:?usage: plan title ID TITLE}"
 	n=$(id "${1:?usage: plan title ID TITLE}")
-	update_issue "$n" "$(jq -cn --arg t "$t" '{title: $t}')"
+	plan_write "$n: retitle" _title "$n" "$t"
 	echo "$n: $t"
+}
+# The folder's name follows the title.
+_title() {
+	local d new
+	d=$(folder "$1")
+	set_fm "$d/issue.md" '.title = $t | .updated = $now' --arg t "$2" --arg now "$(now)"
+	new="$(dirname "$d")/$(folder_name "$1" "$2")"
+	[[ "$new" == "$d" ]] || git -C "$PLAN_DIR" mv "$d" "$new"
 }
 
 cmd_label() {
-	local t="${1:?usage: plan label ID|PR +LABEL|-LABEL...}" l why add=() remove=() i
+	local t="${1:?usage: plan label ID|PR +LABEL|-LABEL...}" l why add=() remove=() i=()
 	shift
 	[[ $# -gt 0 ]] || die "usage: plan label ID|PR +LABEL|-LABEL..."
 	for l in "$@"; do
@@ -1233,77 +1378,102 @@ cmd_label() {
 		return
 	fi
 	t=$(id "$t")
-	i=$(issue "$t" | jq -r .id)
-	for l in ${add[@]+"${add[@]}"}; do
-		lin 'mutation($i: String!, $l: String!) { issueAddLabel(id: $i, labelId: $l) { success } }' \
-			"$(jq -cn --arg i "$i" --arg l "$(label_id "$l")" '{i: $i, l: $l}')" >/dev/null
-	done
-	for l in ${remove[@]+"${remove[@]}"}; do
-		lin 'mutation($i: String!, $l: String!) { issueRemoveLabel(id: $i, labelId: $l) { success } }' \
-			"$(jq -cn --arg i "$i" --arg l "$(label_id "$l")" '{i: $i, l: $l}')" >/dev/null
-	done
+	folder "$t" >/dev/null
+	for l in ${add[@]+"${add[@]}"}; do i+=("$(label_name "$l")"); done
+	plan_write "$t: labels $*" _labels "$t" "$(jq -cn '$ARGS.positional' --args ${i[@]+"${i[@]}"})" \
+		"$(jq -cn '$ARGS.positional' --args ${remove[@]+"${remove[@]}"})"
 	echo "$t: $*"
+}
+
+# _labels ID ADD_JSON REMOVE_JSON: add and remove labels, ignoring case.
+_labels() {
+	set_fm "$(folder "$1")/issue.md" '.labels = ((.labels // []) + $add | unique
+		| map(select(ascii_downcase as $l | $rm | map(ascii_downcase) | index($l) | not))) | .updated = $now' \
+		--argjson add "$2" --argjson rm "$3" --arg now "$(now)"
 }
 
 cmd_block() {
 	local n m
 	n=$(id "${1:?usage: plan block ID BLOCKER}") m=$(id "${2:?usage: plan block ID BLOCKER}")
-	lin 'mutation($in: IssueRelationCreateInput!) { issueRelationCreate(input: $in) { success } }' \
-		"$(jq -cn --arg a "$(issue "$m" | jq -r .id)" --arg b "$(issue "$n" | jq -r .id)" '{in: {issueId: $a, relatedIssueId: $b, type: "blocks"}}')" >/dev/null
+	folder "$m" >/dev/null
+	plan_write "$n: blocked by $m" set_fm "$(folder "$n")/issue.md" '.["blocked-by"] = ((.["blocked-by"] // []) + [$m] | unique)' --arg m "$m"
 	echo "$n is blocked by $m"
 }
 
 cmd_projects() {
-	lin '{ projects(first: 100) { nodes { name status { name } progress content description } } }' |
-		jq -r '.projects.nodes | sort_by(.name)[]
-			| "## \(.name) (\(.status.name // "-"), \(.progress * 100 | floor)% done)\n\(.content // .description // "")\n"'
+	local f all name
+	plan_dir
+	all=$(issues)
+	for f in "$PLAN_DIR"/releases/*.md; do
+		[[ -e "$f" ]] || { echo "No releases. hack/plan project new NAME FILE adds one."; return; }
+		name=$(fm "$f" | jq -r .name)
+		# Progress is the share of the release's issues that are done, of those not canceled.
+		fm "$f" | jq -r --argjson all "$all" --rawfile c <(body "$f") '
+			.name as $n | [$all[] | select(.release == $n and (.state.type | IN("canceled", "duplicate") | not))] as $is
+			| "## \(.name) (\(.state // "-"), \(if ($is | length) == 0 then 0 else ([$is[] | select(.state.type == "completed")] | length) * 100 / ($is | length) | floor end)% done)\n\($c)"'
+	done
 }
 
 cmd_project() {
-	local sub="${1:-}" name file n s
+	local sub="${1:-}" name file n f
+	plan_dir
 	case "$sub" in
 	new)
 		name="${2:?usage: plan project new NAME FILE}" file="${3:?usage: plan project new NAME FILE}"
 		need_file "$file"
-		lin 'mutation($in: ProjectCreateInput!) { projectCreate(input: $in) { project { url } } }' \
-			"$(jq -cn --arg n "$name" --arg t "$(team_id)" --rawfile c "$file" \
-				'{in: {name: $n, teamIds: [$t], content: $c, description: ($c | capture("Goal: (?<g>[^\n]*)").g // "" | .[:255])}}')" |
-			jq -r .projectCreate.project.url
+		[[ ! -e "$PLAN_DIR/releases/$name.md" ]] || die "there's already a release $name"
+		[[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || die "a release's name is a file's name too: letters, digits, dots and dashes only"
+		plan_write "Release $name" _project_new "$name" "$file"
+		echo "plan/releases/$name.md"
 		;;
 	edit)
 		name="${2:?usage: plan project edit NAME FILE}" file="${3:?usage: plan project edit NAME FILE}"
 		need_file "$file"
-		lin 'mutation($i: String!, $in: ProjectUpdateInput!) { projectUpdate(id: $i, input: $in) { success } }' \
-			"$(jq -cn --arg i "$(project_id "$name")" --rawfile c "$file" '{i: $i, in: {content: $c}}')" >/dev/null
+		f=$(release_file "$name")
+		plan_write "Release $name: edit" write_md "$f" "$(fm "$f")" "$(cat "$file")"
 		echo "Edited $name"
 		;;
 	set)
 		n=$(id "${2:?usage: plan project set ID NAME}") name="${3:?usage: plan project set ID NAME}"
-		update_issue "$n" "$(jq -cn --arg p "$(project_id "$name")" '{projectId: $p}')"
+		release_file "$name" >/dev/null
+		plan_write "$n: in $name" set_fm "$(folder "$n")/issue.md" '.release = $r | .updated = $now' --arg r "$name" --arg now "$(now)"
 		echo "$n is in $name"
 		;;
 	close)
 		name="${2:?usage: plan project close NAME}"
-		s=$(lin '{ projectStatuses { nodes { id type } } }' | jq -r '[.projectStatuses.nodes[] | select(.type == "completed")][0].id // empty')
-		[[ -n "$s" ]] || die "Linear has no completed project status"
-		lin 'mutation($i: String!, $in: ProjectUpdateInput!) { projectUpdate(id: $i, input: $in) { success } }' \
-			"$(jq -cn --arg i "$(project_id "$name")" --arg s "$s" '{i: $i, in: {statusId: $s}}')" >/dev/null
+		f=$(release_file "$name")
+		plan_write "Release $name: completed" set_fm "$f" '.state = "completed" | .completed = $now' --arg now "$(now)"
 		echo "Closed $name"
 		;;
 	rename)
 		name="${2:?usage: plan project rename NAME NEW}" n="${3:?usage: plan project rename NAME NEW}"
-		lin 'mutation($i: String!, $in: ProjectUpdateInput!) { projectUpdate(id: $i, input: $in) { success } }' \
-			"$(jq -cn --arg i "$(project_id "$name")" --arg n "$n" '{i: $i, in: {name: $n}}')" >/dev/null
+		release_file "$name" >/dev/null
+		[[ ! -e "$PLAN_DIR/releases/$n.md" ]] || die "there's already a release $n"
+		[[ "$n" =~ ^[A-Za-z0-9._-]+$ ]] || die "a release's name is a file's name too: letters, digits, dots and dashes only"
+		plan_write "Release $name: renamed $n" _project_rename "$name" "$n"
 		echo "Renamed $name to $n"
 		;;
 	*) die "usage: plan project new NAME FILE | edit NAME FILE | set ID NAME | close NAME | rename NAME NEW" ;;
 	esac
 }
 
+_project_new() {
+	mkdir -p "$PLAN_DIR/releases"
+	write_md "$PLAN_DIR/releases/$1.md" "$(jq -cn --arg n "$1" --rawfile c "$2" --arg t "$(now)" \
+		'{name: $n, state: "backlog", summary: ($c | capture("Goal: (?<g>[^\n]*)").g // ""), created: $t}')" "$(cat "$2")"
+}
+
+_project_rename() {
+	local p
+	git -C "$PLAN_DIR" mv "releases/$1.md" "releases/$2.md"
+	set_fm "$PLAN_DIR/releases/$2.md" '.name = $n' --arg n "$2"
+	for p in $(issues | jq -r --arg r "$1" '.[] | select(.release == $r) | .path'); do
+		set_fm "$p/issue.md" '.release = $n' --arg n "$2"
+	done
+}
+
 cmd_ideas() {
-	lin 'query($t: String!) { issues(first: 250, filter: {team: {key: {eq: $t}}, state: {type: {eq: "triage"}}}) {
-		nodes { identifier title project { name } } } }' "$(jq -cn --arg t "$TEAM" '{t: $t}')" |
-		jq -r '.issues.nodes | sort_by(.identifier)[] | [.identifier, (.project.name // "-"), .title] | @tsv'
+	issues | jq -r 'map(select(.state.type == "triage")) | sort_by(.id | split("-")[1] | tonumber)[] | [.id, (.release // "-"), .title] | @tsv'
 }
 
 cmd_idea() {
@@ -1321,32 +1491,31 @@ cmd_promote() {
 	cmd_state "$n" "$st"
 }
 
-# prime: fill the run-once caches in this shell. Most uses are in command
-# substitutions, which can't fill them for later calls.
-prime() {
-	linear_auth
-	states >/dev/null
-	owner >/dev/null
+# approve ID [STATE]: the user's approval of a design, which agents never run
+# (.claude/settings.json denies it): move it out of Design Review, saying the
+# user did.
+cmd_approve() {
+	local n st="${2:-Todo}"
+	n=$(id "${1:?usage: plan approve ID [STATE]}")
+	[[ "$(issue "$n" | jq -r .state.name)" == "$DESIGN_REVIEW" ]] || die "$n isn't in $DESIGN_REVIEW"
+	[[ "$(status "$st" | cut -d'|' -f1)" != "$DESIGN_REVIEW" ]] || die "approving moves $n out of $DESIGN_REVIEW: name where to, such as Todo"
+	set_state "$n" "$st" "$USER_NAME"
+	echo "$n: $(status "$st" | cut -d'|' -f1), approved by the user"
 }
 
 cmd="${1:-help}"
 [[ $# -gt 0 ]] && shift
 case "$cmd" in
 	# Commands that write to GitHub mint the App token first, before anything
-	# else, so a missing key stops them before they touch GitHub. Linear's
-	# token comes with the first Linear call (lin), which is always before a
-	# Linear write, and note and label on a PR never need it.
+	# else, so a missing key stops them before they touch GitHub.
 	claim | step | pr | merge | restack | release | sync | note | label | repo)
 		agent_token
 		HOME_REPO=$(repo) REPO="$HOME_REPO"
 		export GH_REPO="$HOME_REPO"
-		# note and label on a PR, and repo, never need Linear.
-		if [[ "$cmd" != repo ]] && { [[ "$cmd" != note && "$cmd" != label ]] || [[ ! "${1#\#}" =~ ^([0-9]+|.*/.*#[0-9]+)$ ]]; }; then prime; fi
 		"cmd_$cmd" "$@"
 		;;
 	digest) "cmd_$cmd" "$@" ;;
-	ready | show | claims | issue | edit | title | state | block | projects | project | ideas | idea | promote)
-		prime
+	ready | show | claims | issue | edit | title | state | approve | block | projects | project | ideas | idea | promote)
 		HOME_REPO=$(repo) REPO="$HOME_REPO"
 		export GH_REPO="$HOME_REPO"
 		"cmd_$cmd" "$@"

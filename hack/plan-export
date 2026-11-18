@@ -11,7 +11,8 @@
 # plan/releases/<name>.md and documents plan/docs/<title>.md.
 #
 # It overwrites plan/ and commits the result there, so it can run again until
-# hack/plan moves over. It refuses if plan/ has changes that aren't committed.
+# hack/plan moves over. It refuses if plan/ has changes that aren't committed,
+# or any commit that isn't an export's, since then plan/ is the plan.
 #
 # Usage: hack/plan-export [--csv FILE]
 #   --csv FILE  also check every row of a CSV exported from Linear's UI against
@@ -43,6 +44,12 @@ dir="${PLAN_DIR:-$main/plan}"
 if [[ -d "$dir/.git" ]]; then
 	[[ -z "$(git -C "$dir" status --porcelain)" ]] ||
 		die "$dir has changes that aren't committed, so nothing was exported. Commit or discard them first"
+	# Once hack/plan writes to plan/, it is the plan, and an export would undo
+	# what it wrote since.
+	if git -C "$dir" rev-parse -q --verify HEAD >/dev/null &&
+		[[ -n "$(git -C "$dir" log --format=%s | grep -vx "Export the plan from Linear" || true)" ]]; then
+		die "$dir has changes since it was exported, so it's the plan now, and nothing was exported over it"
+	fi
 elif [[ -e "$dir" && -n "$(ls -A "$dir")" ]]; then
 	die "$dir exists and isn't a git repository, so nothing was exported"
 fi

@@ -170,7 +170,7 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 
 ## Not yet
 
-Planned work is tracked in [Linear](https://linear.app/oikade). Each release is a project there, and its description gives its goal, exit criteria and why it sits where it does. Designs live in their features' issues there, and [docs/planning.md](docs/planning.md) says how planning works.
+Planned work is tracked in `plan/`, a folder kept beside this checkout on the maintainer's machine. Each release is a file there, and its description gives its goal, exit criteria and why it sits where it does. Designs live in their features' issues there, and [docs/planning.md](docs/planning.md) says how planning works.
 
 ## Not doing
 

@@ -2,10 +2,9 @@
 # checklist-steps: check that a feature whose steps are the checklist lines
 # under its "## Steps" heading is claimed, stacked, opened and synced one line
 # at a time on work/OIKN-stepK, with each line ticked as its PR reaches main
-# and the feature Done after the last; and that sync says how many issues
-# Linear holds. git runs for real against a scratch remote. gh is a stub that
-# answers from JSON fixtures, and curl plays Linear, logging its writes. Run by
-# make test-hack.
+# and the feature Done after the last. git runs for real against a scratch
+# remote, and the plan is a scratch plan/. gh is a stub that answers from JSON
+# fixtures. Run by make test-hack.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -46,33 +45,13 @@ esac
 [[ -f "$fx/$name" ]] || { echo "gh stub: no fixture $name for: $*" >&2; exit 1; }
 if [[ -n "$q" ]]; then jq -r "$q" "$fx/$name"; else cat "$fx/$name"; fi
 STUB
-# curl: the feature from feature.json, no history, the user, the team's
-# statuses, no features in progress, and COUNT issues in pages of 250.
-# Mutations are logged to linear.log, one JSON request a line.
-cat >"$tmp/bin/curl" <<'STUB'
-#!/usr/bin/env bash
-req=$(cat)
-q=$(jq -r .query <<<"$req" | tr -s ' \n\t' ' ')
-case "$q" in
-*mutation*) jq -c . <<<"$req" >>"$STUB_FX/linear.log"; echo '{"data":{"ok":{"success":true}}}' ;;
-*"history"*) echo '{"data":{"issue":{"history":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}' ;;
-*"issue(id:"*) jq -c '{data: {issue: .}}' "$STUB_FX/feature.json" ;;
-*"users("*) echo '{"data":{"users":{"nodes":[{"id":"u-owner","name":"Owner","app":false}]}}}' ;;
-*"team(id:"*) echo '{"data":{"team":{"id":"t1","states":{"nodes":[{"id":"s-done","name":"Done","type":"completed"},{"id":"s-review","name":"In Review","type":"started"},{"id":"s-prog","name":"In Progress","type":"started"},{"id":"s-todo","name":"Todo","type":"unstarted"}]}}}}' ;;
-*"pageInfo"*)
-	after=$(jq -r '.variables.a // ""' <<<"$req") count="${COUNT:-0}" from=0
-	[[ -z "$after" ]] || from="$after"
-	jq -cn --argjson from "$from" --argjson count "$count" \
-		'([$count - $from, 250] | min) as $n | {data: {issues: {nodes: [range($n) | {id: "i"}],
-			pageInfo: {hasNextPage: ($from + $n < $count), endCursor: "\($from + $n)"}}}}' ;;
-*"issues("*) echo '{"data":{"issues":{"nodes":[]}}}' ;;
-*) echo "curl stub: no answer for $q" >&2; exit 1 ;;
-esac
-STUB
 chmod +x "$tmp/bin/"*
-export PATH="$tmp/bin:$PATH" STUB_FX="$tmp/fx" CLAUDECODE='' \
+export PATH="$tmp/bin:$PATH" STUB_FX="$tmp/fx" CLAUDECODE='' PLAN_DIR="$tmp/plan-dir" \
 	GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fx() { cat >"$tmp/fx/$1"; }
+# shellcheck source=hack/test/plan-fixture.sh
+. "$root/hack/test/plan-fixture.sh"
+plan_init
 fx repo.json <<<'{"nameWithOwner":"o/r"}'
 
 # feature STATE TICKS: OIK-9 in STATE, with three checklist steps, ticked
@@ -87,9 +66,7 @@ feature() {
 		i=$((i + 1))
 	done
 	d+=$'\n'"## Notes"$'\n\n'"- [ ] not a step"
-	jq -n --arg state "$1" --arg d "$d" '{id: "uuid-9", identifier: "OIK-9", title: "F", url: "u", description: $d, priority: 0,
-		state: {name: $state, type: "unstarted"}, project: null, parent: null,
-		labels: {nodes: []}, inverseRelations: {nodes: []}, children: {nodes: []}}' >"$tmp/fx/feature.json"
+	plan_issue "$([[ "$1" == Todo ]] && echo todo || echo in-progress)" OIK-9 F "$d"
 }
 feature Todo "- - -"
 
@@ -101,11 +78,9 @@ echo base >base && git add base && git commit -qm base && git push -q origin HEA
 plan="$tmp/plan/hack/plan"
 mkdir -p "$tmp/plan/hack"
 cp "$root/hack/plan" "$root/hack/agent-token" "$tmp/plan/hack/"
-printf '#!/usr/bin/env bash\necho lin_test\n' >"$tmp/plan/hack/linear-token"
 chmod +x "$tmp/plan/hack/"*
-logs() { : >"$tmp/fx/writes.log"; : >"$tmp/fx/linear.log"; }
-# set_states: the issues whose status a Linear write set, one a line.
-set_states() { jq -r 'select(.variables.in.stateId != null) | .variables.i' "$tmp/fx/linear.log"; }
+logs() { : >"$tmp/fx/writes.log"; plan_mark; }
+set_states() { plan_moves; }
 
 # show lists the three lines, and not the one under ## Notes.
 "$plan" show OIK-9 >"$tmp/out" 2>&1 || fail "show failed: $(cat "$tmp/out")"
@@ -119,18 +94,19 @@ logs
 dir="$tmp/work/.claude/worktrees/work-OIK-9"
 "$plan" claim OIK-9 >"$tmp/out" 2>&1 || fail "claim refused OIK-9: $(cat "$tmp/out")"
 [[ "$(git -C "$dir" branch --show-current)" == work/OIK9-step1 ]] || fail "claim didn't start work/OIK9-step1: $(cat "$tmp/out")"
-[[ "$(set_states)" == uuid-9 || "$(set_states)" == OIK-9 ]] || fail "claim moved something besides the feature: $(set_states)"
+[[ "$(set_states)" == OIK-9 ]] || fail "claim moved something besides the feature: $(set_states)"
+[[ "$(plan_status OIK-9)" == in-progress ]] || fail "claim didn't move the feature to In Progress: $(plan_status OIK-9)"
 feature "In Progress" "- - -"
 
 # pr opens it on main, naming the feature with "part of" and the line, and
-# moves nothing in Linear.
+# moves nothing in the plan.
 cd "$dir"
 echo one >one && git add one && git commit -qm one
 echo body >"$tmp/body.md"
 logs
 "$plan" pr OIK-9 "feat: one" "$tmp/body.md" >"$tmp/out" 2>&1 || fail "pr refused line 1: $(cat "$tmp/out")"
 grep -q 'api repos/o/r/pulls -f head=work/OIK9-step1 -f base=main' "$tmp/fx/writes.log" || fail "pr didn't open line 1 on main: $(cat "$tmp/fx/writes.log")"
-grep -q 'Linear: part of OIK-9, step 1' "$tmp/fx/writes.log" || fail "pr's body doesn't name the feature and line: $(cat "$tmp/fx/writes.log")"
+grep -q 'Plan: part of OIK-9, step 1' "$tmp/fx/writes.log" || fail "pr's body doesn't name the feature and line: $(cat "$tmp/fx/writes.log")"
 [[ -z "$(set_states)" ]] || fail "pr moved an issue: $(set_states)"
 s1=$(git rev-parse HEAD)
 git push -q origin "$s1:refs/pull/21/head"
@@ -144,13 +120,13 @@ grep -q 'On work/OIK9-step2, on top of work/OIK9-step1' "$tmp/out" || fail "step
 # sync leaves an open line alone, and ticks one whose PR merged into main.
 logs
 "$plan" sync OIK-9 >"$tmp/out" 2>&1 || fail "sync failed: $(cat "$tmp/out")"
-[[ ! -s "$tmp/fx/linear.log" ]] || fail "sync wrote with no PR merged: $(cat "$tmp/fx/linear.log")"
+[[ -z "$(plan_commits)" ]] || fail "sync wrote with no PR merged: $(plan_commits)"
 fx list-work_OIK9-step1.json <<<'[{"number":21,"state":"MERGED","baseRefName":"main","headRefOid":"'"$s1"'"}]'
 fx pr-21.json <<<'{"state":"MERGED","headRefName":"work/OIK9-step1","headRefOid":"'"$s1"'","baseRefName":"main"}'
 logs
 "$plan" sync OIK-9 >"$tmp/out" 2>&1 || fail "sync failed: $(cat "$tmp/out")"
 grep -q 'OIK-9: ticked step 1, PR #21 merged' "$tmp/out" || fail "sync didn't tick line 1: $(cat "$tmp/out")"
-desc=$(jq -r 'select(.variables.in.description != null) | .variables.in.description' "$tmp/fx/linear.log")
+desc=$(cat "$(plan_file OIK-9)")
 grep -q '^- \[x\] One' <<<"$desc" || fail "line 1 isn't ticked: $desc"
 grep -q '^- \[ \] Two' <<<"$desc" || fail "line 2 was ticked too: $desc"
 grep -q '^- \[ \] not a step' <<<"$desc" || fail "a line under ## Notes changed: $desc"
@@ -165,31 +141,26 @@ logs
 "$plan" sync OIK-9 >"$tmp/out" 2>&1 || fail "sync failed: $(cat "$tmp/out")"
 grep -q 'OIK-9: ticked step 3, PR #23 merged' "$tmp/out" || fail "sync didn't tick line 3: $(cat "$tmp/out")"
 grep -q 'OIK-9: done, every step merged' "$tmp/out" || fail "sync didn't finish the feature: $(cat "$tmp/out")"
-
-# sync and ready say how many issues Linear holds, and warn near the limit.
+[[ "$(plan_status OIK-9)" == "done" ]] || fail "the feature isn't in done/: $(plan_status OIK-9)"
 cd "$tmp/work"
-COUNT=221 "$plan" sync >"$tmp/out" 2>&1 || fail "sync failed: $(cat "$tmp/out")"
-grep -qx "plan: 221 of Linear's 250 issues are used" "$tmp/out" || fail "sync didn't count 221 issues: $(cat "$tmp/out")"
-COUNT=260 "$plan" ready >"$tmp/out" 2>&1 || fail "ready failed: $(cat "$tmp/out")"
-grep -q "plan: 260 of Linear's 250 issues are used. Write steps as checklist lines" "$tmp/out" || fail "ready didn't warn at 260 issues: $(cat "$tmp/out")"
 
 # edit keeps the lines in place: it adds one at the end, and refuses a
 # reorder, since a line's branch and PR follow its position.
 feature "In Progress" "x - -"
-jq -r .description "$tmp/fx/feature.json" | awk '{print} /^- \[ \] Three/ {print "- [ ] Four: more. Acceptance: it works (unit)"}' >"$tmp/added.md"
+plan_body OIK-9 | awk '{print} /^- \[ \] Three/ {print "- [ ] Four: more. Acceptance: it works (unit)"}' >"$tmp/added.md"
 logs
 "$plan" edit OIK-9 "$tmp/added.md" >"$tmp/out" 2>&1 || fail "edit refused a line added at the end: $(cat "$tmp/out")"
 awk '/^- \[ \] Two/ {two = $0; next} /^- \[ \] Three/ {print; print two; next} {print}' "$tmp/added.md" >"$tmp/swapped.md"
 logs
 if "$plan" edit OIK-9 "$tmp/swapped.md" >"$tmp/out" 2>&1; then fail "edit took a reordered checklist"; fi
 grep -q 'numbered by their place' "$tmp/out" || fail "edit didn't say why it refused: $(cat "$tmp/out")"
-[[ ! -s "$tmp/fx/linear.log" ]] || fail "edit wrote a reordered checklist: $(cat "$tmp/fx/linear.log")"
+[[ -z "$(plan_commits)" ]] || fail "edit wrote a reordered checklist: $(plan_commits)"
 
 # A sub-issue would hide a checklist feature's lines, so issue --parent refuses.
 logs
 if "$plan" issue "Five" "$tmp/body.md" --parent OIK-9 >"$tmp/out" 2>&1; then fail "issue made a sub-issue of a checklist feature"; fi
 grep -q 'which a sub-issue would hide' "$tmp/out" || fail "issue didn't say why it refused: $(cat "$tmp/out")"
-[[ ! -s "$tmp/fx/linear.log" ]] || fail "issue created a sub-issue of a checklist feature: $(cat "$tmp/fx/linear.log")"
+[[ -z "$(plan_commits)" ]] || fail "issue created a sub-issue of a checklist feature: $(plan_commits)"
 
 (( failed == 0 )) && echo "ok: checklist steps"
 exit "$failed"

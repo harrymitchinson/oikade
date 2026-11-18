@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # agent-identity: check that hack/plan writes to GitHub as oikade-agent[bot]
-# inside Claude Code and as the user outside it, writes to Linear only as the
-# Oikade Agent app, never as the user when a credential is missing, and counts
-# a design as approved only when the user moved it out of Design Review. gh,
-# security and curl are stubs on PATH, so nothing reaches GitHub, Linear or the
-# Keychain. Run by make test-hack.
+# inside Claude Code and as the user outside it, never as the user when the
+# App's key is missing, writes to the plan as the Oikade Agent, and counts a
+# design as approved only when the user moved it out of Design Review. gh,
+# security and curl are stubs on PATH, so nothing reaches GitHub or the
+# Keychain, and the plan is a scratch plan/. Run by make test-hack.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-mkdir "$tmp/bin" "$tmp/issues" "$tmp/history"
+mkdir "$tmp/bin"
 failed=0
 
 fail() { echo "FAIL: $*" >&2; failed=1; }
@@ -41,46 +41,29 @@ while [[ $# -gt 0 ]]; do [[ "$1" == -a ]] && account="$2"; shift; done
 cat "$KEYCHAIN_DIR/$account"
 STUB
 
-# curl plays GitHub's App endpoints, Linear's token endpoint and Linear's
-# GraphQL API. GraphQL calls are logged as "TOKEN|QUERY|VARIABLES". An issue
-# is $STUB_DIR/issues/<ID>.json, and its history $STUB_DIR/history/<ID>.json,
-# which fails without the file.
+# curl plays GitHub's App endpoints.
 cat >"$tmp/bin/curl" <<'STUB'
 #!/usr/bin/env bash
-token="" url="${*: -1}"
+url="${*: -1}"
 for a; do
 	[[ "$a" == "Authorization: Bearer "* ]] && echo "${a#Authorization: Bearer }" >"$STUB_JWT"
-	[[ "$a" == @/dev/fd/* || "$a" == @/proc/* ]] && token=$(sed -nE 's/^Authorization: Bearer //p' "${a#@}")
 	[[ "$a" == http* ]] && url="$a"
 done
 case "$url" in
-*/repos/o/r/installation) echo '{"id":42}'; exit ;;
-*/app/installations/42/access_tokens) echo '{"token":"ghs_agent"}'; exit ;;
-*/oauth/token) cat >/dev/null; echo '{"access_token":"lin_agent","expires_in":2592000}'; exit ;;
-*/graphql) ;;
+*/repos/o/r/installation) echo '{"id":42}' ;;
+*/app/installations/42/access_tokens) echo '{"token":"ghs_agent"}' ;;
 *) echo '{"message":"Not Found"}'; exit 22 ;;
-esac
-req=$(cat)
-q=$(jq -r .query <<<"$req" | tr -s ' \n\t' ' ')
-v=$(jq -c .variables <<<"$req")
-echo "$token|$q|$v" >>"$STUB_LINEAR_LOG"
-i=$(jq -r '.i // empty' <<<"$v")
-case "$q" in
-*"history("*)
-	[[ -f "$STUB_DIR/history/$i.json" ]] || { echo '{"errors":[{"message":"internal error"}]}'; exit; }
-	jq -c '{data: {issue: {history: {nodes: .}}}}' "$STUB_DIR/history/$i.json" ;;
-*"issue(id:"*) jq -c '{data: {issue: .}}' "$STUB_DIR/issues/$i.json" ;;
-*"users("*) echo '{"data":{"users":{"nodes":[{"id":"u-owner","name":"Owner","app":false},{"id":"u-agent","name":"Oikade Agent","app":true}]}}}' ;;
-*"team(id:"*) echo '{"data":{"team":{"id":"t1","states":{"nodes":[{"id":"s-todo","name":"Todo","type":"unstarted"},{"id":"s-dr","name":"Design Review","type":"backlog"},{"id":"s-backlog","name":"Backlog","type":"backlog"}]}}}}' ;;
-*"issueLabels("*) echo '{"data":{"issueLabels":{"nodes":[{"id":"l1"}]}}}' ;;
-*) echo '{"data":{"ok":{"success":true}}}' ;;
 esac
 STUB
 chmod +x "$tmp/bin/"*
 
-export PATH="$tmp/bin:$PATH" STUB_LOG="$tmp/gh.log" STUB_LINEAR_LOG="$tmp/linear.log" STUB_JWT="$tmp/jwt" \
-	KEYCHAIN_DIR="$tmp/keychain" STUB_DIR="$tmp" AGENT_REPO=o/r PLAN_REMOTE=none
+export PATH="$tmp/bin:$PATH" STUB_LOG="$tmp/gh.log" STUB_JWT="$tmp/jwt" \
+	KEYCHAIN_DIR="$tmp/keychain" AGENT_REPO=o/r PLAN_REMOTE=none PLAN_DIR="$tmp/plan-dir" \
+	GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir "$KEYCHAIN_DIR"
+# shellcheck source=hack/test/plan-fixture.sh
+. "$root/hack/test/plan-fixture.sh"
+plan_init
 
 # --- GitHub ------------------------------------------------------------------
 
@@ -120,49 +103,36 @@ unb64 "$sig" >"$tmp/sig"
 printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -verify "$tmp/pub.pem" -signature "$tmp/sig" >/dev/null ||
 	fail "the JWT doesn't verify against the App's public key"
 
-run() { : >"$STUB_LOG"; : >"$STUB_LINEAR_LOG"; CLAUDECODE=1 "$root/hack/plan" "$@" >"$tmp/out" 2>"$tmp/err"; }
+run() { : >"$STUB_LOG"; plan_mark; CLAUDECODE=1 "$root/hack/plan" "$@" >"$tmp/out" 2>"$tmp/err"; }
 
 run label 7 +a +b -gone || fail "label on a PR failed: $(cat "$tmp/err")"
 grep -qx 'ghs_agent|api repos/o/r/issues/7/labels -f labels\[\]=a -f labels\[\]=b' "$STUB_LOG" ||
 	fail "label didn't add both labels in one request as the App: $(cat "$STUB_LOG")"
 
-# --- Linear ------------------------------------------------------------------
+# --- The plan ----------------------------------------------------------------
 
-# issue ID STATE [DESCRIPTION]: write a fixture.
-issue() {
-	jq -n --arg i "$1" --arg s "$2" --arg d "${3:-}" '{id: ("uuid-" + $i), identifier: $i, title: "T", url: "u", description: $d,
-		state: {name: $s, type: (if $s == "Todo" then "unstarted" else "backlog" end)}, project: null, parent: null,
-		labels: {nodes: []}, children: {nodes: []}, inverseRelations: {nodes: []}}' >"$tmp/issues/$1.json"
-}
-# moved ID FROM TO ACTOR...: a history of status changes by the given actors.
+# issue ID FOLDER [DESCRIPTION]: write OIK-ID into a status folder.
+issue() { plan_issue "$2" "$1" T "${3:-}" "${HISTORY:-}"; }
+# moved FROM TO WHO...: the status-history front matter for the given changes.
 moved() {
-	local i="$1" out="[]" n=0
-	shift
+	local out="[]" n=0
 	while [[ $# -gt 0 ]]; do
-		out=$(jq -c --arg f "$1" --arg t "$2" --arg a "$3" --argjson n "$n" \
-			'. + [{createdAt: "2026-10-2\($n)T00:00:00Z", fromState: (if $f == "" then null else {name: $f} end),
-				toState: {name: $t}, actor: {id: $a, name: $a}}]' <<<"$out")
+		out=$(jq -c --arg f "${1:-none}" --arg t "$2" --arg a "$3" --argjson n "$n" '. + ["2026-10-2\($n)T00:00:00Z \($f) -> \($t) by \($a)"]' <<<"$out")
 		shift 3
 		n=$((n + 1))
 	done
-	echo "$out" >"$tmp/history/$i.json"
+	jq -cn --argjson h "$out" '{"status-history": $h}'
 }
 
-# No Linear credentials: nothing reaches Linear, and the error names the fix.
-issue OIK-1 Todo
-moved OIK-1
-if run note OIK-1 hi; then fail "note OIK-1 succeeded with no Linear credentials"; fi
-grep -q 'Oikade Agent' "$tmp/err" || fail "the missing-credential error doesn't name the Oikade Agent: $(cat "$tmp/err")"
-[[ ! -s "$STUB_LINEAR_LOG" ]] || fail "Linear was called with no credentials: $(cat "$STUB_LINEAR_LOG")"
-
-# With them: the comment goes to Linear as the app, and the token is cached.
-echo cid >"$KEYCHAIN_DIR/linear-client-id"
-echo secret >"$KEYCHAIN_DIR/linear-client-secret"
+# A note on an issue is a comment of its own, by the Oikade Agent, committed.
+HISTORY="" issue OIK-1 todo
 run note OIK-1 hi || fail "note OIK-1 failed: $(cat "$tmp/err")"
-grep -q '^lin_agent|mutation.*commentCreate' "$STUB_LINEAR_LOG" || fail "note didn't comment in Linear as the app: $(cat "$STUB_LINEAR_LOG")"
-grep -q ' lin_agent$' "$KEYCHAIN_DIR/linear-access-token" || fail "the Linear token wasn't cached"
-! grep -q '^|' "$STUB_LINEAR_LOG" || fail "a Linear call went out without the app's token"
-! grep -q secret "$STUB_LINEAR_LOG" || fail "the client secret reached a GraphQL call"
+c=$(find "$PLAN_DIR/todo/OIK-1/comments" -name '*-oikade-agent.md' | head -1)
+[[ -n "$c" ]] || fail "note didn't write a comment by the Oikade Agent: $(find "$PLAN_DIR" -path '*/comments/*')"
+grep -qx 'author: "Oikade Agent"' "$c" || fail "the comment doesn't name its author: $(cat "$c")"
+grep -qx 'hi' "$c" || fail "the comment doesn't say hi: $(cat "$c")"
+[[ "$(plan_commits)" == "OIK-1: comment" ]] || fail "note didn't commit its comment: $(plan_commits)"
+! grep -q '|api ' "$STUB_LOG" || fail "a note on an issue wrote to GitHub: $(cat "$STUB_LOG")"
 
 # Labels that record the user's decisions: removing needs-review or
 # agent-merged, on a PR or an issue, in any case. A refusal writes nothing.
@@ -171,75 +141,91 @@ for args in "label 7 -needs-review" "label 7 -agent-merged" "label OIK-1 -Needs-
 	if run $args; then fail "plan $args succeeded"; fi
 	grep -q 'only the user' "$tmp/err" || fail "plan $args didn't say why: $(cat "$tmp/err")"
 	! grep -q '|api ' "$STUB_LOG" || fail "plan $args wrote to GitHub: $(cat "$STUB_LOG")"
-	! grep -q 'mutation' "$STUB_LINEAR_LOG" || fail "plan $args wrote to Linear: $(cat "$STUB_LINEAR_LOG")"
+	[[ -z "$(plan_commits)" ]] || fail "plan $args wrote to the plan: $(plan_commits)"
 done
 run label OIK-1 +needs-review || fail "adding needs-review failed: $(cat "$tmp/err")"
+grep -qx 'labels: \["needs-review"\]' "$(plan_file OIK-1)" || fail "needs-review isn't on OIK-1: $(cat "$(plan_file OIK-1)")"
 
-mutated() { grep -q 'mutation' "$STUB_LINEAR_LOG"; }
+wrote() { [[ -n "$(plan_commits)" ]]; }
 may_build() { run show OIK-1; grep -E '^(May build|Approved):' "$tmp/out"; }
 
 # Waiting in Design Review: not buildable, and an agent can't move it on.
-issue OIK-1 "Design Review"
-moved OIK-1
+HISTORY=$(moved "" "Design Review" "Oikade Agent") issue OIK-1 design-review
 may_build | grep -q '^May build:  no' || fail "show counts a design waiting for review: $(may_build)"
 if run state OIK-1 Todo; then fail "an agent moved an issue out of Design Review"; fi
-! mutated || fail "a refused move wrote: $(cat "$STUB_LINEAR_LOG")"
+! wrote || fail "a refused move wrote: $(plan_commits)"
 
 # The user moved it to Todo: approved.
-issue OIK-1 Todo
-moved OIK-1 "Design Review" Todo u-owner
+HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Todo Harry) issue OIK-1 todo
 may_build | grep -qx 'May build:  approved' || fail "show doesn't count the user's move to Todo: $(may_build)"
+may_build | grep -qx 'Approved:   by Harry' || fail "show doesn't say who approved it: $(may_build)"
 
 # Someone else moved it: not approved, and show says who.
-moved OIK-1 "Design Review" Todo u-agent
+HISTORY=$(moved "Design Review" Todo "Oikade Agent") issue OIK-1 todo
 may_build | grep -q '^May build:  no' || fail "show counts the agent's move out of Design Review: $(may_build)"
-may_build | grep -q 'by u-agent, not the user' || fail "show doesn't say who moved it: $(may_build)"
+may_build | grep -q 'by Oikade Agent, not the user' || fail "show doesn't say who moved it: $(may_build)"
 if run state OIK-1 "In Progress"; then fail "an agent moved an issue the agent took out of Design Review"; fi
 
-# A move with no actor, such as an automation's, isn't the user's.
-moved OIK-1 "Design Review" Todo ""
-may_build | grep -q '^May build:  no' || fail "show counts a move out of Design Review with no actor: $(may_build)"
+# A move by Linear's automations, from before the plan left Linear, isn't the user's.
+HISTORY=$(moved "Design Review" Todo Linear) issue OIK-1 todo
+may_build | grep -q '^May build:  no' || fail "show counts a move out of Design Review by Linear: $(may_build)"
 
 # The user sent it back to Backlog, then an agent moved it to Todo: not approved.
-moved OIK-1 "" "Design Review" u-agent "Design Review" Backlog u-owner Backlog Todo u-agent
+HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Backlog Harry Backlog Todo "Oikade Agent") issue OIK-1 todo
 may_build | grep -q '^May build:  no' || fail "show counts a design the user sent back: $(may_build)"
-issue OIK-1 Backlog
+HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Backlog Harry) issue OIK-1 backlog
 if run state OIK-1 Todo; then fail "an agent moved a design the user sent back into Todo"; fi
-! mutated || fail "a refused move wrote: $(cat "$STUB_LINEAR_LOG")"
+! wrote || fail "a refused move wrote: $(plan_commits)"
 
-# Never in Design Review: needs no design, and an agent may move it to Todo.
-moved OIK-1 "" Backlog u-agent
+# Never in Design Review: needs no design, and an agent may move it to Todo,
+# which the history records.
+HISTORY=$(moved "" Backlog "Oikade Agent") issue OIK-1 backlog
 run state OIK-1 Todo || fail "an agent couldn't move an issue that needs no design to Todo: $(cat "$tmp/err")"
-issue OIK-1 Todo
+[[ "$(plan_status OIK-1)" == todo ]] || fail "state didn't move OIK-1's folder to todo: $(plan_status OIK-1)"
+grep -q ' Backlog -> Todo by Oikade Agent"\]$' "$(plan_file OIK-1)" || fail "state didn't record the move: $(cat "$(plan_file OIK-1)")"
+[[ "$(plan_moves)" == OIK-1 ]] || fail "state didn't commit the move: $(plan_commits)"
 may_build | grep -qx 'May build:  needs no design' || fail "show doesn't build an issue that never needed a design: $(may_build)"
 
+# The user moved its folder out of Design Review by hand: approved, and the
+# next change records the move before its own.
+HISTORY=$(moved "" "Design Review" "Oikade Agent") issue OIK-1 todo
+may_build | grep -qx 'May build:  approved' || fail "show doesn't count the user's move by hand: $(may_build)"
+run state OIK-1 "In Progress" || fail "an agent couldn't start a design the user approved by hand: $(cat "$tmp/err")"
+grep -q 'Design Review -> Todo by the user, by hand","[^"]* Todo -> In Progress by Oikade Agent"' "$(plan_file OIK-1)" ||
+	fail "the move by hand wasn't recorded before the agent's: $(cat "$(plan_file OIK-1)")"
+may_build | grep -qx 'May build:  approved' || fail "the approval by hand was lost once recorded: $(may_build)"
+# And by hand back to Backlog: not approved, so an agent can't move it to Todo.
+HISTORY=$(moved "" "Design Review" "Oikade Agent") issue OIK-1 backlog
+if run state OIK-1 Todo; then fail "an agent moved a design the user sent back by hand into Todo"; fi
+
+# approve is the user's: out of Design Review, saying the user did.
+HISTORY=$(moved "" "Design Review" "Oikade Agent") issue OIK-1 design-review
+run approve OIK-1 || fail "approve failed: $(cat "$tmp/err")"
+[[ "$(plan_status OIK-1)" == todo ]] || fail "approve didn't move OIK-1 to Todo: $(plan_status OIK-1)"
+may_build | grep -qx 'Approved:   by the user' || fail "approve doesn't count as the user's: $(may_build)"
+if run approve OIK-1; then fail "approve moved an issue that isn't in Design Review"; fi
+
 # Design: OIK-2 counts only if the user approved OIK-2.
-issue OIK-1 Todo $'Design: OIK-2\n'
-issue OIK-2 Todo
-moved OIK-2 "Design Review" Todo u-owner
+HISTORY="" issue OIK-1 todo $'Design: OIK-2\n'
+HISTORY=$(moved "Design Review" Todo Harry) issue OIK-2 todo
 may_build | grep -qx 'May build:  builds the design approved in OIK-2' || fail "show doesn't count a Design: line the user approved: $(may_build)"
-moved OIK-2 "Design Review" Todo u-agent
+HISTORY=$(moved "Design Review" Todo "Oikade Agent") issue OIK-2 todo
 may_build | grep -q '^May build:  no' || fail "show counts a Design: line the agent approved: $(may_build)"
 
-# A failed history read stops rather than reading as "never needed a design".
-rm "$tmp/history/OIK-1.json"
-if run show OIK-1; then fail "show succeeded with no history"; fi
-grep -q "couldn't read OIK-1's history" "$tmp/err" || fail "show didn't say the history read failed: $(cat "$tmp/err")"
-issue OIK-1 Backlog
-if run state OIK-1 Todo; then fail "state moved an issue whose history couldn't be read"; fi
-! mutated || fail "state wrote with no history: $(cat "$STUB_LINEAR_LOG")"
+# An issue the plan doesn't have stops, rather than reading as one that needs no design.
+if run show OIK-77; then fail "show succeeded on an issue the plan doesn't have"; fi
+grep -q "the plan has no issue OIK-77" "$tmp/err" || fail "show didn't say the plan has no OIK-77: $(cat "$tmp/err")"
 
 # On an approved design only ## Steps and below may change.
 printf '## Why\nA\n\n## Steps\none\n' >"$tmp/approved.md"
 printf '## Why\nB\n\n## Steps\none\n' >"$tmp/redesigned.md"
 printf '## Why\nA\n\n## Steps\none\ntwo\n' >"$tmp/restepped.md"
-issue OIK-1 Todo "$(cat "$tmp/approved.md")"
-moved OIK-1 "Design Review" Todo u-owner
+HISTORY=$(moved "Design Review" Todo Harry) issue OIK-1 todo "$(cat "$tmp/approved.md")"
 if run edit OIK-1 "$tmp/redesigned.md"; then fail "edit changed an approved design"; fi
-! mutated || fail "edit wrote an approved design: $(cat "$STUB_LINEAR_LOG")"
+! wrote || fail "edit wrote an approved design: $(plan_commits)"
 run edit OIK-1 "$tmp/restepped.md" || fail "edit refused new Steps on an approved design: $(cat "$tmp/err")"
-issue OIK-1 "Design Review" "$(cat "$tmp/approved.md")"
-moved OIK-1
+grep -qx 'two' "$(plan_file OIK-1)" || fail "edit didn't write the new step: $(cat "$(plan_file OIK-1)")"
+HISTORY=$(moved "" "Design Review" "Oikade Agent") issue OIK-1 design-review "$(cat "$tmp/approved.md")"
 run edit OIK-1 "$tmp/redesigned.md" || fail "edit refused a design under review: $(cat "$tmp/err")"
 
 (( failed == 0 )) && echo "ok: agent identity"

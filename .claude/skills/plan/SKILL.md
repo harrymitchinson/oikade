@@ -1,11 +1,11 @@
 ---
 name: plan
-description: Keep Oikade's plan in Linear honest and answer what to do next. Manage ideas (issues in Triage), features (issues whose steps are checklist lines), blocked-by links between features, releases (Linear projects) with observable exit criteria, claims by parallel agents, and the README's "Not doing" list, reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "releases", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
+description: Keep Oikade's plan in plan/ honest and answer what to do next. Manage ideas (issues in Triage), features (issues whose steps are checklist lines), blocked-by links between features, releases (files in plan/releases/) with observable exit criteria, claims by parallel agents, and the README's "Not doing" list, reconciled against recent git history and the README's "Not yet" list. Use this whenever the user asks "what should I work on next", "what's the plan", "what's waiting on me", "prioritise", "sequence these", "roadmap", "milestones", "releases", "what's left for the next release", "create an issue for…", "track this", "note this idea", wants to slot a new idea in, or reports that something shipped, even if they never say "roadmap". To decide how to build something, use design; to build it, use work.
 ---
 
 # Planning Oikade
 
-How the workflow fits together is in `docs/planning.md`. The plan is in Linear, team `OIK`. Each fact has one owner, so don't copy facts between them:
+How the workflow fits together is in `docs/planning.md`. The plan is in `plan/`, in the main checkout: a folder per status, and a folder per issue in it. Each fact has one owner, so don't copy facts between them:
 
 | Fact | Owner |
 |---|---|
@@ -17,12 +17,12 @@ How the workflow fits together is in `docs/planning.md`. The plan is in Linear, 
 | That agents may start without the user's approval | Never having been in Design Review (nothing expensive to reverse), or a `Design: OIK-M` line naming an approved feature whose design it builds. The design skill decides which. |
 | Order between features | "Blocked by" relationships |
 | Who's working on it | The branch `claim/OIK-N` (`hack/plan claims`). Its steps are on `work/OIKN-stepk` (or `work/OIK-S` for a sub-issue), stacked while they wait for review. |
-| Status | The issue's status. Claiming moves it to In Progress, `hack/plan sync` ticks each step's line as its PR merges, and Linear's GitHub integration moves a sub-issue step as its PR opens and merges. |
-| What's in a release | The Linear project (`v0.1.0`, …). Its description holds the goal, the exit criteria and a "Why here" line. |
-| Order between releases | The version numbers, with each project's "Why here" line |
+| Status | The folder the issue is in. Claiming moves it to In Progress, `hack/plan sync` ticks each step's line as its PR merges, and `hack/plan pr` and `sync` move a sub-issue step as its PR opens and merges. |
+| What's in a release | Each issue's `release`, and the release's file in `plan/releases/` (`v0.1.0`, …), whose description holds the goal, the exit criteria and a "Why here" line. |
+| Order between releases | The version numbers, with each release's "Why here" line |
 | What the user ruled out, and why | The README's "Not doing" |
 
-Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and the like), which act as the Oikade Agent. Use `hack/plan` for everything it covers (`hack/plan help`), and for every change to issues, statuses, labels, projects and blocked-by links: the MCP tools that would change them are denied, so `hack/plan`'s rules always apply. Comments can go through either. Bookkeeping never needs a PR. Only "Not doing" is a file, in the README. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
+Read the plan with your file tools: `plan/*/OIK-N-*/issue.md`, its `comments/`, `plan/releases/` and `plan/docs/`, or `hack/plan show`, `ready`, `ideas` and `projects`. Use `hack/plan` for everything it covers (`hack/plan help`), and for every change to issues, statuses, labels, releases, comments and blocked-by links, never an edit by hand, so `hack/plan`'s rules always apply and each change is its own commit. Bookkeeping never needs a PR. Only "Not doing" is a file, in the README. A change to it goes in with the next PR that has a reason to touch it, or its own PR if the user asks.
 
 ## Answering "what's next"
 
@@ -61,9 +61,9 @@ Read Linear through its MCP tools (`mcp__linear__list_issues`, `get_issue` and t
   - [ ] <step two>: …
   ```
 
-  Each step is a checklist line, one PR each, built in order. The workspace is capped at 250 issues that aren't archived, and `hack/plan sync` says how many are used. So a step is a sub-issue (`hack/plan issue "<step>" <file> --parent OIK-N`, its description holding `Scope:` and `Acceptance:`) only if it needs its own discussion or is built in another repo. Don't file review findings, flaky-test sightings or manual-check evidence as issues of their own: add them as a comment, or a line, on the feature they belong to.
+  Each step is a checklist line, one PR each, built in order, so a feature's steps stay in one place. A step is a sub-issue (`hack/plan issue "<step>" <file> --parent OIK-N`, its description holding `Scope:` and `Acceptance:`) only if it needs its own discussion or is built in another repo. Don't file review findings, flaky-test sightings or manual-check evidence as issues of their own: add them as a comment, or a line, on the feature they belong to.
 
-  Acceptance that needs real devices or the Home app, which CI can't provide, reads `(manual, in the Manual testing doc)`. Its check goes in the Linear document "Manual testing" (project `v0.2.0`), under a heading for the feature. The feature is done when its last step merges, and the check stays open in the document until the user has done it.
+  Acceptance that needs real devices or the Home app, which CI can't provide, reads `(manual, in the Manual testing doc)`. Its check goes in `plan/docs/manual-testing.md`, under a heading for the feature. The feature is done when its last step merges, and the check stays open in the document until the user has done it.
 - **Order between features:**
 
   ```sh

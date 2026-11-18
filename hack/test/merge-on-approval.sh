@@ -3,8 +3,8 @@
 # once their Approve covers its head, including after a restack, and refuses
 # it otherwise; and that hack/owner-approval decides that. git runs for real
 # against a scratch remote. gh is a stub that answers from JSON fixtures,
-# applying the -q filter the real gh would, and curl plays Linear. Run by
-# make test-hack.
+# applying the -q filter the real gh would, and the plan is a scratch plan/.
+# Run by make test-hack.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -75,33 +75,22 @@ fi
 if [[ -n "$q" ]]; then jq -r "$q" "$fx/$name"; else cat "$fx/$name"; fi
 STUB
 
-# curl plays Linear's GraphQL API: the feature from feature.json, the user,
-# the team's statuses, and success for any write.
-cat >"$tmp/bin/curl" <<'STUB'
-#!/usr/bin/env bash
-q=$(jq -r .query | tr -s ' \n\t' ' ')
-case "$q" in
-*"issue(id:"*) jq -c '{data: {issue: .}}' "$STUB_FX/feature.json" ;;
-*"users("*) echo '{"data":{"users":{"nodes":[{"id":"u-owner","name":"Owner","app":false}]}}}' ;;
-*"team(id:"*) echo '{"data":{"team":{"id":"t1","states":{"nodes":[{"id":"s-done","name":"Done","type":"completed"},{"id":"s-review","name":"In Review","type":"started"},{"id":"s-todo","name":"Todo","type":"unstarted"}]}}}}' ;;
-*) echo '{"data":{"ok":{"success":true}}}' ;;
-esac
-STUB
 chmod +x "$tmp/bin/"*
-export PATH="$tmp/bin:$PATH" STUB_FX="$tmp/fx" CLAUDECODE='' \
+export PATH="$tmp/bin:$PATH" STUB_FX="$tmp/fx" CLAUDECODE='' PLAN_DIR="$tmp/plan-dir" \
 	GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fx() { cat >"$tmp/fx/$1"; }
+# shellcheck source=hack/test/plan-fixture.sh
+. "$root/hack/test/plan-fixture.sh"
+plan_init
 fx repo.json <<<'{"nameWithOwner":"o/r"}'
 
 # feature LABEL...: OIK-9, in FEATURE_STATE (default In Progress), with steps OIK-10 (PR #11) and OIK-11 (PR #12).
 feature() {
-	jq -n --arg state "${FEATURE_STATE:-In Progress}" --args '{id: "uuid-9", identifier: "OIK-9", title: "F", url: "u", description: "", priority: 0,
-		state: {name: $state, type: "started"}, project: null, parent: null,
-		labels: {nodes: [$ARGS.positional[] | {name: .}]}, inverseRelations: {nodes: []},
-		children: {nodes: [
-			{identifier: "OIK-10", title: "One", subIssueSortOrder: 1, number: 10, state: {name: "Done", type: "completed"}},
-			{identifier: "OIK-11", title: "Two", subIssueSortOrder: 2, number: 11, state: {name: "In Review", type: "started"}}]}}' \
-		"$@" >"$tmp/fx/feature.json"
+	local st
+	st=$(tr '[:upper:] ' '[:lower:]-' <<<"${FEATURE_STATE:-In Progress}")
+	plan_issue "$st" OIK-9 F "" "$(jq -cn '{labels: $ARGS.positional}' --args "$@")"
+	plan_issue "done" OIK-10 One "" '{"parent": "OIK-9"}'
+	plan_issue in-review OIK-11 Two "" '{"parent": "OIK-9"}'
 }
 feature
 
@@ -210,7 +199,6 @@ plan="$tmp/rigged/hack/plan"
 mkdir -p "$tmp/rigged/hack"
 cp "$root/hack/plan" "$root/hack/agent-token" "$tmp/rigged/hack/"
 printf '#!/usr/bin/env bash\necho rigged\n' >"$tmp/rigged/hack/owner-approval"
-printf '#!/usr/bin/env bash\necho lin_test\n' >"$tmp/rigged/hack/linear-token"
 chmod +x "$tmp/rigged/hack/"*
 merge() { : >"$tmp/fx/writes.log"; "$plan" merge OIK-9 12 >"$tmp/out" 2>&1; }
 gate fail

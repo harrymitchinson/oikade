@@ -246,5 +246,13 @@ grep -qF "OIK-1 has more than 50" <<<"$out" || fail "the refusal doesn't name th
 cp "$tmp/issues.json" "$tmp/fx/issues.json"
 [[ -e "$plan/$one/issue.md" ]] || fail "a refused export changed plan/"
 
+# Once anything but an export has committed to plan/, it's the plan, and an
+# export would undo that, so it refuses.
+echo note >"$plan/scratch.md"
+git -C "$plan" add scratch.md && git -C "$plan" commit -qm "OIK-1: comment"
+if out=$("$tmp/hack/plan-export" 2>&1); then fail "exported over a plan hack/plan had written to"; fi
+grep -qF "it's the plan now" <<<"$out" || fail "the refusal doesn't say why: $out"
+[[ -e "$plan/scratch.md" ]] || fail "the refusal removed the plan's change"
+
 [[ $failed == 0 ]] && echo "plan-export: ok"
 exit "$failed"
