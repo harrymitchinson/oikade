@@ -346,10 +346,18 @@ func (s *Store) Changed(changes ...driver.Update) {
 	}
 }
 
-// Availability implements driver.Sink.
+// Availability implements driver.Sink. A device going offline, or coming back, is logged, so the
+// log says when it went (OIK-340); one first reported online isn't, since that's every device at start.
 func (s *Store) Availability(dev ident.ID, online bool) {
-	if !s.update(dev, func(e *entry) { e.Online = &online }) {
+	var was *bool
+	if !s.update(dev, func(e *entry) { was, e.Online = e.Online, &online }) {
 		return
+	}
+	switch {
+	case !online && (was == nil || *was):
+		s.Log.Info("Device went offline", "device", dev.Name)
+	case online && was != nil && !*was:
+		s.Log.Info("Device came back online", "device", dev.Name)
 	}
 	for _, l := range s.Listeners {
 		l.Availability(dev, online)

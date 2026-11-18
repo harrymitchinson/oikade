@@ -329,11 +329,15 @@ func deviceState(d api.Device) string {
 	if d.PluginNotImported {
 		state = append(state, notImported)
 	}
+	// Offline comes first, and the driver's problem may say why, as oikade devices has it (OIK-340).
+	offline := d.Online != nil && !*d.Online && !d.PluginNotImported
 	switch {
+	case offline && d.Problem != "":
+		state = append(state, "offline: "+d.Problem)
+	case offline:
+		state = append(state, "offline")
 	case d.Problem != "":
 		state = append(state, d.Problem)
-	case d.Online != nil && !*d.Online && !d.PluginNotImported:
-		state = append(state, "offline")
 	}
 	if d.Declare != "" {
 		state = append(state, notInYourCode)
