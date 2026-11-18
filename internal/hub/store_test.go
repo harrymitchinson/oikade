@@ -2,6 +2,7 @@ package hub
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -9,6 +10,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 func TestStoreRoom(t *testing.T) {
@@ -187,5 +189,38 @@ func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 	s.Rename(map[ident.ID]Move{a: {To: b, Meta: Meta{Room: "nothing", Instance: instance}}})
 	if snap, _ := s.Get(b); snap.Room == "nothing" {
 		t.Error("nothing replaced a device")
+	}
+}
+
+// A device going offline, and coming back, is logged once each, and a first report online isn't
+// (OIK-340).
+func TestStoreLogsADeviceGoingOffline(t *testing.T) {
+	log := testkit.Logs(t)
+	s := NewStore(log.Logger)
+	key := driver.InstanceKey{Driver: driver.Plugin, Name: "ewelink"}
+	heater := ident.ID{Name: "study-heater"}
+	s.SetDevices(key, map[ident.ID]Meta{heater: {Instance: key}})
+	s.Availability(heater, true)
+	s.Availability(heater, false)
+	s.Availability(heater, false)
+	s.Availability(heater, true)
+	s.Availability(heater, true)
+	var got []string
+	for _, line := range log.Lines() {
+		if strings.Contains(line, "online") || strings.Contains(line, "offline") {
+			got = append(got, line)
+		}
+	}
+	if len(got) != 2 || !strings.Contains(got[0], `msg="Device went offline" device=study-heater`) ||
+		!strings.Contains(got[1], `msg="Device came back online" device=study-heater`) {
+		t.Errorf("logged %q", got)
+	}
+
+	// One that's offline from its first report says so.
+	lamp := ident.ID{Name: "porch-lamp"}
+	s.SetDevices(key, map[ident.ID]Meta{heater: {Instance: key}, lamp: {Instance: key}})
+	s.Availability(lamp, false)
+	if !log.Has(`msg="Device went offline"`, "device=porch-lamp") {
+		t.Errorf("no line for the lamp:\n%s", strings.Join(log.Lines(), "\n"))
 	}
 }

@@ -130,6 +130,26 @@ func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 	}
 }
 
+// An offline device says so in status, with the driver's problem if it has one, as oikade devices
+// has it (OIK-340).
+func TestStatusSaysADeviceIsOffline(t *testing.T) {
+	offline, online := false, true
+	for _, tc := range []struct {
+		d    api.Device
+		want string
+	}{
+		{api.Device{Name: "pool-pump", Online: &offline}, "offline"},
+		{api.Device{Name: "shed-relay", Online: &offline, Problem: "not seen on the LAN"}, "offline: not seen on the LAN"},
+		{api.Device{Name: "porch-light", Online: &online, Problem: "no key"}, "no key"},
+		{api.Device{Name: "desk-lamp", Online: &online}, ""},
+		{api.Device{Name: "attic-fan", Online: &offline, PluginNotImported: true}, notImported},
+	} {
+		if got := deviceState(tc.d); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.d.Name, got, tc.want)
+		}
+	}
+}
+
 func TestDevicesNotInYourCodeSayHowToDeclareThem(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
 		{Name: "attic-fan", ID: "0x1", Driver: "plugin/zigbee", Endpoint: 2},

@@ -374,11 +374,16 @@ func (s *apiServer) device(req api.Request) api.Response {
 		}
 		resp.HiddenFromMatter = api.HiddenDevices(list, s.srv.options.hiddenFromMatter())
 		for dev, snap := range s.srv.devices.List() {
-			if snap.Info.Error != "" {
+			problem := snap.Info.Error
+			if snap.Online != nil && !*snap.Online {
+				// Offline is what's wrong first, and the driver's error may say why (OIK-340).
+				problem = strings.TrimSuffix("offline: "+problem, ": ")
+			}
+			if problem != "" {
 				if resp.Problems == nil {
 					resp.Problems = map[string]string{}
 				}
-				resp.Problems[dev.Name] = snap.Info.Error
+				resp.Problems[dev.Name] = problem
 			}
 		}
 		return resp
