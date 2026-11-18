@@ -35,6 +35,9 @@ type fakeConn struct {
 	sent   chan sentPacket
 	closed chan struct{}
 	once   sync.Once
+
+	mu     sync.Mutex
+	joined map[int]bool // by Join, and not left since
 }
 
 func newFakeConn(t testing.TB) *fakeConn {
@@ -66,6 +69,29 @@ func (c *fakeConn) record(b []byte, ifIndex int, dst *net.UDPAddr) error {
 func (c *fakeConn) WriteMulticast(b []byte, ifIndex int) error { return c.record(b, ifIndex, nil) }
 func (c *fakeConn) WriteUnicast(b []byte, dst *net.UDPAddr) error {
 	return c.record(b, 0, dst)
+}
+
+func (c *fakeConn) Join(ifi net.Interface) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.joined == nil {
+		c.joined = map[int]bool{}
+	}
+	c.joined[ifi.Index] = true
+	return nil
+}
+
+func (c *fakeConn) Leave(ifIndex int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.joined, ifIndex)
+}
+
+// isJoined reports whether Join was called for an interface that wasn't left since.
+func (c *fakeConn) isJoined(ifIndex int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.joined[ifIndex]
 }
 
 func (c *fakeConn) Close() error {
