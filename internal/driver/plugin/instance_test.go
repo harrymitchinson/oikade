@@ -564,3 +564,14 @@ func TestWhatADeviceIsComesThrough(t *testing.T) {
 		t.Errorf("the discovered list's inventory is %+v, want %+v", rec.inventory, want)
 	}
 }
+
+// A report's field that's only space is one it leaves out, so the discovered list's fills it.
+func TestAFieldThatsOnlySpaceIsLeftOut(t *testing.T) {
+	got := ReportProduct(contractv1.DeviceReport{Manufacturer: " Aqara\n", SerialNumber: " \t"})
+	if want := (driver.Product{Manufacturer: "Aqara"}); got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	if merged := got.Or(DiscoveredProduct(contractv1.DiscoveredDevice{SerialNumber: "N9"})); merged.SerialNumber != "N9" {
+		t.Errorf("the discovered list's serial number didn't fill a blank one: %+v", merged)
+	}
+}

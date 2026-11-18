@@ -141,12 +141,21 @@ func (i *Instance) key() driver.InstanceKey {
 
 func (i *Instance) sendUndeclared(n int) { i.Sink.Undeclared(i.key(), n) }
 
-// DiscoveredProduct is what a plugin's discovered list says a device is.
+// DiscoveredProduct is what a plugin's discovered list says a device is, cleaned, so that a field
+// that's only space is one it leaves out.
 func DiscoveredProduct(d contractv1.DiscoveredDevice) driver.Product {
 	return driver.Product{
 		Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
 		FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion,
-	}
+	}.Clean()
+}
+
+// ReportProduct is DiscoveredProduct, for a device's report.
+func ReportProduct(d contractv1.DeviceReport) driver.Product {
+	return driver.Product{
+		Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
+		FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion,
+	}.Clean()
 }
 
 // inventoryLocked is the discovered list for the Sink, sorted by ID, or nil.
@@ -379,9 +388,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 			i.rejectLocked(ReasonMalformed, "", topic)
 			continue
 		}
-		info := driver.Info{Found: d.Found, Error: d.Error,
-			Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
-			FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion}
+		info := driver.Info{Found: d.Found, Error: d.Error, Product: ReportProduct(d)}
 		if d.Found {
 			for _, c := range d.Capabilities {
 				if _, ok := capability.Lookup(c); !ok {

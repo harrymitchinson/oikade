@@ -237,7 +237,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if report.Control != nil {
 			d.Control = bytes.Clone(report.Control)
 		}
-		d.Product = cleanProduct(report.Product).Or(d.Product)
+		d.Product = report.Product.Clean().Or(d.Product)
 		out = cloneDevice(*d)
 		return nil
 	})
@@ -251,15 +251,7 @@ func newAppName(d Device, report Report) bool {
 
 // newProduct says a report says anew what the device is.
 func newProduct(d Device, report Report) bool {
-	return cleanProduct(report.Product).Or(d.Product) != d.Product
-}
-
-// cleanProduct is p, each field cleaned.
-func cleanProduct(p driver.Product) driver.Product {
-	return driver.Product{
-		Manufacturer: clean(p.Manufacturer), Model: clean(p.Model), SerialNumber: clean(p.SerialNumber),
-		FirmwareVersion: clean(p.FirmwareVersion), HardwareVersion: clean(p.HardwareVersion),
-	}
+	return report.Product.Clean().Or(d.Product) != d.Product
 }
 
 // fits refuses a device type a device can't be. One that hasn't reported can be any.

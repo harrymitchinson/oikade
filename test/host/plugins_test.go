@@ -328,7 +328,8 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	if vendor, product := c.info(endpoint, 0x01), c.info(endpoint, 0x03); vendor != "Oikade" || product != "Simulated switch" {
 		t.Errorf("VendorName %v and ProductName %v, want what the plugin says", vendor, product)
 	}
-	if serial, firmware := c.info(endpoint, 0x0F), c.info(endpoint, 0x0A); serial != deviceOf(t, r.devices(), "relay").SerialNumber ||
+	relay := deviceOf(t, r.devices(), "relay")
+	if serial, firmware := c.info(endpoint, 0x0F), c.info(endpoint, 0x0A); serial != "SIM-"+strings.ToUpper(relay.ID) ||
 		firmware != "1.0.0" {
 		t.Errorf("SerialNumber %v and SoftwareVersionString %v, want what the plugin says", serial, firmware)
 	}

@@ -4,7 +4,9 @@ package driver
 import (
 	"cmp"
 	"context"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -49,6 +51,24 @@ func (p Product) Or(q Product) Product {
 		SerialNumber: cmp.Or(p.SerialNumber, q.SerialNumber), FirmwareVersion: cmp.Or(p.FirmwareVersion, q.FirmwareVersion),
 		HardwareVersion: cmp.Or(p.HardwareVersion, q.HardwareVersion),
 	}
+}
+
+// Clean is p with each field on one line: no control characters, and no space around it, so a field
+// that's only those is empty.
+func (p Product) Clean() Product {
+	return Product{
+		Manufacturer: oneLine(p.Manufacturer), Model: oneLine(p.Model), SerialNumber: oneLine(p.SerialNumber),
+		FirmwareVersion: oneLine(p.FirmwareVersion), HardwareVersion: oneLine(p.HardwareVersion),
+	}
+}
+
+func oneLine(s string) string {
+	return strings.TrimSpace(strings.Map(func(c rune) rune {
+		if unicode.IsControl(c) {
+			return -1
+		}
+		return c
+	}, s))
 }
 
 // Info is what a driver knows about a declared device.
