@@ -111,7 +111,8 @@ func (r *Responder) goodbyeAddrs(ifIndex int, gone []netip.Addr) {
 		return
 	}
 	r.mu.Lock()
-	announced := r.hostReady && !r.closed
+	announced := r.hostReady && !r.closed // a goodbye goes while it's probed again too
+	r.rememberFormer(addressRecords(r.host, gone))
 	r.mu.Unlock()
 	if !announced {
 		return
@@ -159,8 +160,12 @@ func (r *Responder) announced() (services [][]record, hostReady, open bool) {
 			services = append(services, e.records)
 		}
 	}
-	return services, r.hostReady, true
+	return services, r.hostReady && !r.hostDefending, true
 }
+
+// hostAnswered reports whether the host name is announced and not being probed again. r.mu is
+// held.
+func (r *Responder) hostAnswered() bool { return r.hostReady && !r.hostDefending }
 
 // served returns the indexes of the interfaces the Responder serves.
 func (r *Responder) served() []int {

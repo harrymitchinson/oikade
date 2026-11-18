@@ -39,11 +39,15 @@ func (r *Responder) Update(svc Service) error {
 	}
 	old := e.records
 	e.svc, e.records = svc, recs
+	defending := e.defending
+	r.rememberFormer(old)
 	r.mu.Unlock()
 
 	r.log.Info("Updating mDNS service", "instance", name.String())
 	r.goodbye(without(old, recs))
-	r.announce(e)
+	if !defending { // a name being probed again is announced once it's kept
+		r.announce(e)
+	}
 	return nil
 }
 
@@ -68,7 +72,7 @@ func (r *Responder) Remove(svc Service) error {
 	// Keep the services listing's record while another announced service of the type is left.
 	var keep []record
 	for _, o := range r.services {
-		if o.ready {
+		if o.ready || o.defending {
 			keep = append(keep, o.records...)
 		}
 	}
@@ -79,13 +83,14 @@ func (r *Responder) Remove(svc Service) error {
 	return nil
 }
 
-// ready returns the added, probed service named name. r.mu is held.
+// ready returns the added, announced service named name, which may be being probed again after a
+// conflict. r.mu is held.
 func (r *Responder) ready(name dnsmessage.Name) (*entry, error) {
 	e, ok := r.services[strings.ToLower(name.String())]
 	switch {
 	case !ok:
 		return nil, fmt.Errorf("mdns: no service %s", name)
-	case !e.ready:
+	case !e.ready && !e.defending:
 		return nil, fmt.Errorf("mdns: service %s is still being probed", name)
 	}
 	return e, nil
@@ -101,11 +106,11 @@ func (r *Responder) Close() error {
 	r.closed = true
 	var all []record
 	for _, e := range r.services {
-		if e.ready {
+		if e.ready || e.defending {
 			all = appendNew(all, e.records...)
 		}
 	}
-	hostReady := r.hostReady
+	hostReady := r.hostReady || r.hostDefending
 	r.mu.Unlock()
 
 	if len(all) > 0 {
@@ -137,12 +142,17 @@ func (r *Responder) announce(e *entry) {
 		r.mu.Lock()
 		current := !r.closed && r.services[strings.ToLower(e.name.String())] == e
 		recs := e.records
+		host := r.hostAnswered()
 		r.mu.Unlock()
 		if !current {
 			return
 		}
 		r.multicast(func(ifIndex int) ([]byte, error) {
-			return response(withOwnNSEC(slices.Concat(recs, addressRecords(r.host, r.addrs(ifIndex)))), -1)
+			all := recs
+			if host { // not while the host name is probed again, which announces them after
+				all = slices.Concat(recs, addressRecords(r.host, r.addrs(ifIndex)))
+			}
+			return response(withOwnNSEC(all), -1)
 		})
 	}
 	send()

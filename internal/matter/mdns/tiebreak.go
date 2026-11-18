@@ -63,7 +63,12 @@ func (r *Responder) ourOwn(p *probe, n dnsmessage.Name, theirs []dnsmessage.Reso
 // proposed returns the records that p proposes for name n in a probe sent on an interface: the
 // service's unique records, or the host's addresses there.
 func (r *Responder) proposed(p *probe, n dnsmessage.Name, ifIndex int) []dnsmessage.Resource {
-	recs := p.records
+	var recs []record
+	if p.entry != nil {
+		r.mu.Lock()
+		recs = p.entry.records // which Update may change while a name is probed again
+		r.mu.Unlock()
+	}
 	if nameEqual(n, r.host) {
 		recs = addressRecords(r.host, r.addrs(ifIndex))
 	}

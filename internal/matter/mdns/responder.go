@@ -47,33 +47,42 @@ type Options struct {
 	Host string
 	// Panicked, if set, hears each panic contained in answering a packet.
 	Panicked contain.Panicked
+	// Lost, if set, hears each service whose name another host took after it was announced
+	// (RFC 6762, 9), which the Responder no longer advertises. It's called on the Responder's
+	// goroutine, and may Add another.
+	Lost func(Service)
 }
 
 // timing is the protocol's delays, which tests shorten.
 type timing struct {
-	probeWait     time.Duration // the longest random wait before the first probe (RFC 6762, 8.1)
-	probeInterval time.Duration // between probes
-	announceGap   time.Duration // between the two announcements (8.3)
-	minDelay      time.Duration // the random delay before a multicast answer with shared records (6)
-	maxDelay      time.Duration
-	watch         time.Duration // between looks at the interfaces and their addresses
-	tieWait       time.Duration // before probing again after losing a tie-break (8.2)
+	probeWait      time.Duration // the longest random wait before the first probe (RFC 6762, 8.1)
+	probeInterval  time.Duration // between probes
+	announceGap    time.Duration // between the two announcements (8.3)
+	minDelay       time.Duration // the random delay before a multicast answer with shared records (6)
+	maxDelay       time.Duration
+	watch          time.Duration // between looks at the interfaces and their addresses
+	tieWait        time.Duration // before probing again after losing a tie-break (8.2)
+	slowProbe      time.Duration // before each probe once conflicts come too fast (8.1)
+	conflictWindow time.Duration // that slowProbe counts conflicts over
 }
 
 var defaultTiming = timing{
-	probeWait:     250 * time.Millisecond,
-	probeInterval: 250 * time.Millisecond,
-	announceGap:   time.Second,
-	minDelay:      20 * time.Millisecond,
-	maxDelay:      120 * time.Millisecond,
-	watch:         5 * time.Second,
-	tieWait:       time.Second,
+	probeWait:      250 * time.Millisecond,
+	probeInterval:  250 * time.Millisecond,
+	announceGap:    time.Second,
+	minDelay:       20 * time.Millisecond,
+	maxDelay:       120 * time.Millisecond,
+	watch:          5 * time.Second,
+	tieWait:        time.Second,
+	slowProbe:      5 * time.Second,
+	conflictWindow: 10 * time.Second,
 }
 
 // Responder answers mDNS queries for the services added to it.
 type Responder struct {
 	log      *slog.Logger
 	panicked contain.Panicked
+	lostFn   func(Service)
 	host     dnsmessage.Name
 	conns    []packetConn
 	addrs    func(ifIndex int) []netip.Addr // the host's addresses on an interface
@@ -98,7 +107,11 @@ type Responder struct {
 	probes    map[*probe]struct{}
 	lookups   map[*lookup]struct{} // Resolves waiting for responses
 	hostReady bool                 // the host name has been probed
-	closed    bool
+	// hostDefending is set while the host name is probed again after a conflict.
+	hostDefending bool
+	conflicts     []time.Time    // when the last conflicts came, for slowConflicts
+	former        []formerRecord // records just replaced or withdrawn, which our own late packets may still carry
+	closed        bool
 
 	done chan struct{} // closed by Close, to stop timers
 	wg   sync.WaitGroup
@@ -110,13 +123,16 @@ type entry struct {
 	name    dnsmessage.Name
 	records []record // without the host's addresses
 	ready   bool     // probed and announced
+	// defending is set while the name is probed again after a conflict: announced before, so
+	// it's removed with a goodbye, but not answered for.
+	defending bool
 }
 
 // probe is a set of names being probed. The handler reports a conflict on one of them, or that
 // another host probing one of them at the same time won the tie-break.
 type probe struct {
 	names    []dnsmessage.Name
-	records  []record             // the service's, which it proposes; the host's addresses go per interface
+	entry    *entry               // the service whose records it proposes, nil for the host name alone; the host's addresses go per interface
 	conflict chan dnsmessage.Name // buffered, 1
 	lost     chan dnsmessage.Name // the name a tie was lost on; buffered, 1
 }
@@ -168,6 +184,7 @@ func Listen(opts Options) (*Responder, error) {
 		}
 		return nil, err
 	}
+	r.lostFn = opts.Lost
 	r.interfaces = mdnsnet.MulticastInterfaces
 	if len(opts.Interfaces) > 0 {
 		r.interfaces = fixedInterfaces(ifaces)
@@ -238,10 +255,7 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 	}
 	e := &entry{svc: svc, name: name, records: recs}
 	r.services[key] = e
-	p := &probe{
-		names: []dnsmessage.Name{name}, records: recs,
-		conflict: make(chan dnsmessage.Name, 1), lost: make(chan dnsmessage.Name, 1),
-	}
+	p := newProbe([]dnsmessage.Name{name}, e)
 	if !r.hostReady {
 		p.names = append(p.names, r.host)
 	}
@@ -249,6 +263,9 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 	r.mu.Unlock()
 
 	err = r.probe(ctx, p)
+	if errors.Is(err, ErrConflict) {
+		r.noteConflict()
+	}
 
 	r.mu.Lock()
 	delete(r.probes, p)
@@ -276,6 +293,9 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 // the same time wins the tie-break, it waits a second and starts again (8.2).
 func (r *Responder) probe(ctx context.Context, p *probe) error {
 	wait := time.Duration(mrand.Int64N(int64(r.timing.probeWait) + 1))
+	if r.slowConflicts() {
+		wait = r.timing.slowProbe
+	}
 	losses := 0
 	probed := false // since the last tie lost
 	for i := 0; ; i++ {
@@ -293,6 +313,9 @@ func (r *Responder) probe(ctx context.Context, p *probe) error {
 				return fmt.Errorf("%w: another host kept probing for %s", ErrConflict, n)
 			}
 			i, wait, probed = -1, r.timing.tieWait, false
+			if r.slowConflicts() {
+				wait = max(wait, r.timing.slowProbe)
+			}
 			continue
 		case <-ctx.Done():
 			return ctx.Err()

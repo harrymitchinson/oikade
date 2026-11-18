@@ -29,6 +29,37 @@ type fakeMDNS struct {
 	closing func()
 	// resolve, if set, answers ResolveOperational. Unset, it finds nothing.
 	resolve func(compressedFabricID, nodeID uint64) (mdns.Resolved, error)
+	// lost is the node's Options.Lost, which a test calls as a responder would.
+	lost func(mdns.Service)
+}
+
+// loseName stops advertising svc and tells the node, as a responder does when another host takes
+// its name.
+func (f *fakeMDNS) loseName(svc mdns.Service) {
+	f.mu.Lock()
+	delete(f.services, svc.Instance+"."+svc.Type)
+	lost := f.lost
+	f.mu.Unlock()
+	lost(svc)
+}
+
+// commissionableService returns the advertised commissionable service, if there's one.
+func (f *fakeMDNS) commissionableService() (mdns.Service, bool) {
+	return f.service(mdns.CommissionableType)
+}
+
+// operationalService returns an advertised operational service, if there's one.
+func (f *fakeMDNS) operationalService() (mdns.Service, bool) { return f.service(mdns.OperationalType) }
+
+func (f *fakeMDNS) service(typ string) (mdns.Service, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, svc := range f.services {
+		if svc.Type == typ {
+			return svc, true
+		}
+	}
+	return mdns.Service{}, false
 }
 
 func (f *fakeMDNS) Add(_ context.Context, svc mdns.Service) error {
@@ -147,7 +178,12 @@ func startWith(t *testing.T, cfg Config, fake *fakeMDNS) (*Node, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n.listenMDNS = func(mdns.Options) (advertiser, error) { return fake, nil }
+	n.listenMDNS = func(o mdns.Options) (advertiser, error) {
+		fake.mu.Lock()
+		fake.lost = o.Lost
+		fake.mu.Unlock()
+		return fake, nil
+	}
 	n.listenUDP = listenHeld
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
