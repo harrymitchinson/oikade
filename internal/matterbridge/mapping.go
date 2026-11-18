@@ -58,6 +58,9 @@ type Device struct {
 	// asked, as a Window Covering does: the command's name, then key-value pairs. It runs under the
 	// Node's lock, and must not block.
 	Command func(command string, args ...any)
+	// Send, if set, sends what a controller has written to the device without waiting for more, as
+	// a stop must. It must not block.
+	Send func()
 }
 
 // uniqueID is the bridged device's UniqueID.
@@ -232,6 +235,7 @@ func Map(d Device, set SetFunc) *Mapped {
 func mapCovering(m *Mapped, d Device, set SetFunc) {
 	c := clusters.NewCovering()
 	c.OnMove = func(percent float64) { set(capability.Position, percent) }
+	c.OnStop = d.Send
 	if d.Command != nil {
 		c.OnCommand = func(command string, target *float64) {
 			if target == nil {

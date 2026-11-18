@@ -21,6 +21,13 @@ import (
 // send bursts: a swipe in the Home app sends several On/Off commands within 10 ms.
 const coalesceWindow = 50 * time.Millisecond
 
+// travelWindow is how long writes to a capability that travels, as a blind's position, gather after
+// the last one. The Home app sends a slider's move as it goes: 1% and then 18% a second later for
+// one drag of a shutter (OIK-337). Each is a new run on the motor, which stops it to start the
+// next, so the shutter stutters. A move starts this much later, which a shutter's travel of tens of
+// seconds hides.
+const travelWindow = 1500 * time.Millisecond
+
 // sentFor is how long a sent value, rather than the device's report, is what a later write is
 // compared with: long enough for a device to report the change.
 const sentFor = 10 * time.Second
@@ -35,15 +42,37 @@ type sent struct {
 	at    time.Time
 }
 
+// gathering is a device's burst while its writes gather.
+type gathering struct {
+	// due is when the burst ends: the latest of each write's time plus its window.
+	due time.Time
+	// timer fires at due. A write that moves due replaces it, and wakes the burst.
+	timer clock.Timer
+	wake  chan struct{}
+	// over is set once the burst has ended, and is waiting to be sent or being sent. A write then
+	// still joins it, but doesn't move due.
+	over bool
+}
+
+// travels says a capability goes from one value to the next over time, as a blind does, rather than
+// being at its new value at once.
+func travels(name string) bool { return capability.SettleOf(name) > capability.DefaultSettle }
+
 // Coalescer gathers writes from controllers per device and capability, latest wins, and sends
 // each once the burst is over. It drops a write that only asks for what the device already has,
 // or was just sent, so a burst that ends where it started doesn't chatter a relay.
+//
+// A burst is over once each of its writes has had its window: Window from when it came, or
+// TravelWindow after the last write to a capability that travels.
 type Coalescer struct {
 	Setter driver.Setter
 	// Current returns a capability's current value on the device, if known.
 	Current func(dev ident.ID, name string) (any, bool)
 	// Window is how long writes gather; 0 means 50 ms.
 	Window time.Duration
+	// TravelWindow is how long writes to a capability that travels gather after the last; 0 means
+	// 1.5 s.
+	TravelWindow time.Duration
 	// Timeout bounds each write.
 	Timeout time.Duration
 	// Clock is the time writes gather and are compared on; nil is the real clock.
@@ -51,7 +80,7 @@ type Coalescer struct {
 
 	mu      sync.Mutex
 	pending map[writeKey]any
-	waiting map[ident.ID]bool
+	waiting map[ident.ID]*gathering
 	// sending holds a device's lock while a burst is sent, so a later burst waits for it.
 	sending map[ident.ID]*sync.Mutex
 	sent    map[writeKey]sent
@@ -92,32 +121,87 @@ func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 		c.ctx = context.Background()
 	}
 	if c.pending == nil {
-		c.pending, c.waiting, c.sent = map[writeKey]any{}, map[ident.ID]bool{}, map[writeKey]sent{}
+		c.pending, c.waiting, c.sent = map[writeKey]any{}, map[ident.ID]*gathering{}, map[writeKey]sent{}
 		c.sending = map[ident.ID]*sync.Mutex{}
 	}
 	c.pending[writeKey{dev, name}] = value
-	if c.waiting[dev] {
+	w := c.window(name)
+	due := c.now().Add(w)
+	if g := c.waiting[dev]; g != nil {
+		if !g.over && due.After(g.due) {
+			g.timer.Stop()
+			g.due, g.timer = due, c.clock().NewTimer(w)
+			g.wakeUp()
+		}
 		return
 	}
-	c.waiting[dev] = true
-	w := c.Window
-	if w == 0 {
-		w = coalesceWindow
-	}
-	timer := c.clock().NewTimer(w)
+	g := &gathering{due: due, timer: c.clock().NewTimer(w), wake: make(chan struct{}, 1)}
+	c.waiting[dev] = g
 	c.bursts.Add(1)
 	c.flushes.Go(func() {
 		defer c.bursts.Add(-1)
-		defer timer.Stop()
 		c.mu.Lock()
 		ctx := c.ctx
 		c.mu.Unlock()
-		select {
-		case <-timer.C():
+		if c.gather(ctx, g) {
 			c.flush(dev)
-		case <-ctx.Done():
 		}
 	})
+}
+
+// Send ends a device's burst now, rather than when its writes' windows are over: a stop can't wait
+// for more of a move. It doesn't block.
+func (c *Coalescer) Send(dev ident.ID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if g := c.waiting[dev]; g != nil && !g.over {
+		g.due = c.now()
+		g.wakeUp()
+	}
+}
+
+func (g *gathering) wakeUp() {
+	select {
+	case g.wake <- struct{}{}:
+	default: // already woken
+	}
+}
+
+// gather waits for a burst to be over, and says whether it is, rather than shutting down.
+func (c *Coalescer) gather(ctx context.Context, g *gathering) bool {
+	for {
+		c.mu.Lock()
+		timer := g.timer
+		if !c.now().Before(g.due) {
+			g.over = true
+			timer.Stop()
+			c.mu.Unlock()
+			return true
+		}
+		c.mu.Unlock()
+		select {
+		case <-timer.C():
+		case <-g.wake:
+		case <-ctx.Done():
+			c.mu.Lock()
+			g.timer.Stop()
+			c.mu.Unlock()
+			return false
+		}
+	}
+}
+
+// window is how long a write to the capability gathers.
+func (c *Coalescer) window(name string) time.Duration {
+	switch {
+	case travels(name) && c.TravelWindow != 0:
+		return c.TravelWindow
+	case travels(name):
+		return travelWindow
+	case c.Window != 0:
+		return c.Window
+	}
+	return coalesceWindow
 }
 
 // flush sends a device's latest writes: a level before turning on, and turning off before
@@ -175,8 +259,7 @@ func (c *Coalescer) flush(dev ident.ID) {
 	for _, w := range writes {
 		k := writeKey{dev, w.name}
 		// A device on its way, as a blind travels, isn't at what it reports, so writing that stops it.
-		travels := capability.SettleOf(w.name) > capability.DefaultSettle
-		if !travels && reflect.DeepEqual(c.baseline(k), w.value) {
+		if !travels(w.name) && reflect.DeepEqual(c.baseline(k), w.value) {
 			log.Debug("Skipped Matter write that changes nothing", "device", dev, "capability", w.name)
 			continue
 		}
