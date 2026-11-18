@@ -23,7 +23,7 @@ A refused password shows in `oikade status`, and the plugin waits for the secret
 
 ## What it reports
 
-Each unit's ID comes from its `DeviceUniqueId` in Toshiba's API, in lower case, so renaming it in the app keeps its rooms, its history and its Home app automations. Its name in the app is its suggested name.
+Each unit's ID comes from its `DeviceUniqueId` in Toshiba's API, in lower case, so renaming it in the app keeps its rooms, its history and its Home app automations. Its name in the app is its suggested name. Its manufacturer is Toshiba. Its model, serial number and firmware version aren't reported, since what Toshiba's API says of them hasn't been seen from a real unit (OIK-349).
 
 | Capability | From the unit |
 |---|---|

@@ -87,6 +87,8 @@ type device struct {
 	key    []byte
 	// problem is what's wrong, as oikade devices shows it.
 	problem string
+	// firmware is its firmware version, as its last report that said it, empty until one does.
+	firmware string
 	// lastCipher is the last report decoded, since a device repeats itself and that isn't news.
 	lastCipher string
 	// relayAt is when a report last said what the relay is, zero if the last one couldn't be believed.
@@ -385,6 +387,9 @@ func (b *bridge) repeated(d *device, heard time.Time) (observed, bool) {
 
 // apply takes a decoded report. Call with mu held.
 func (b *bridge) apply(d *device, params map[string]any, heard time.Time) (observed, bool) {
+	if fw, ok := params[fieldFirmware].(string); ok && fw != "" && len(fw) <= maxFirmware && fw != d.firmware {
+		d.firmware, b.dirty = fw, true
+	}
 	r := d.kind.read(params)
 	values := contractv1.State{}
 	switch {
@@ -518,7 +523,9 @@ func (b *bridge) reportsLocked() []contractv1.DeviceReport {
 	reports := make([]contractv1.DeviceReport, 0, len(b.devices)+len(b.declared))
 	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
 		d := b.devices[id]
-		reports = append(reports, contractv1.DeviceReport{ID: id, Found: true, Capabilities: capabilities(d), Error: d.problem})
+		reports = append(reports, contractv1.DeviceReport{
+			ID: id, Found: true, FirmwareVersion: d.firmware, Capabilities: capabilities(d), Error: d.problem,
+		})
 	}
 	for _, id := range b.declared {
 		if b.devices[id] == nil {

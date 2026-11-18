@@ -14,6 +14,9 @@ type bridgeDevice struct {
 	FriendlyName string      `json:"friendly_name"`
 	Type         string      `json:"type"`
 	Definition   *definition `json:"definition"`
+	// SoftwareBuildID is the device's firmware, as its Basic cluster says, nil if it didn't say. It's
+	// whatever the device sent, so that one that isn't a string costs only itself.
+	SoftwareBuildID any `json:"software_build_id"`
 }
 
 type definition struct {

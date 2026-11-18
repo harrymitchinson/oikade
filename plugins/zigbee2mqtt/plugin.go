@@ -313,13 +313,17 @@ func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 	paired := make(map[string]ident.ID, len(devices))
 	for _, d := range devices {
 		paired[d.ID] = device(d.ID)
+		listed := contractv1.DiscoveredDevice{
+			ID: d.ID, Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
+			FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion, Capabilities: d.Capabilities,
+			Name: d.Name, DeviceType: string(d.DeviceType),
+		}
+		discovered = append(discovered, listed)
+		// The report is the same device, as found.
 		reports = append(reports, contractv1.DeviceReport{
-			ID: d.ID, Found: true, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: d.Capabilities,
-			DeviceType: string(d.DeviceType),
-		})
-		discovered = append(discovered, contractv1.DiscoveredDevice{
-			ID: d.ID, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: d.Capabilities, Name: d.Name,
-			DeviceType: string(d.DeviceType),
+			ID: listed.ID, Found: true, Manufacturer: listed.Manufacturer, Model: listed.Model,
+			SerialNumber: listed.SerialNumber, FirmwareVersion: listed.FirmwareVersion,
+			HardwareVersion: listed.HardwareVersion, Capabilities: listed.Capabilities, DeviceType: listed.DeviceType,
 		})
 	}
 	for _, id := range b.declared {

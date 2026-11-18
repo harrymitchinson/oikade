@@ -22,7 +22,13 @@ import (
 const (
 	fieldTemperature = "currentTemperature"
 	fieldHumidity    = "currentHumidity"
+	// fieldFirmware is the device's firmware version, such as "1.3.0".
+	fieldFirmware = "fwVersion"
 )
+
+// maxFirmware is the longest firmware version taken, as Matter's SoftwareVersionString is limited: a
+// longer one isn't a version.
+const maxFirmware = 64
 
 // report is what one decrypted report says.
 type report struct {

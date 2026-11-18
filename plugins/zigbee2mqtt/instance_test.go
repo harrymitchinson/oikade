@@ -114,7 +114,7 @@ func setup(t *testing.T) (*Instance, *mqtt.Memory, *recorder) {
 func TestDiscovery(t *testing.T) {
 	_, _, rec := setup(t)
 
-	if got := rec.discovered[lamp]; !got.Found || got.Manufacturer != "IKEA" ||
+	if got := rec.discovered[lamp]; !got.Found || got.Manufacturer != "IKEA" || got.FirmwareVersion != "2.3.087" ||
 		!slices.Equal(got.Capabilities, []string{capability.On, capability.Brightness, capability.LinkQuality}) {
 		t.Errorf("lamp = %+v", got)
 	}
