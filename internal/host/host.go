@@ -57,6 +57,8 @@ type Host struct {
 	APIAddr string
 	// Matter serves a Matter bridge. Nil serves none.
 	Matter *Matter
+	// Version is oikade-host's own, which oikade version shows beside its own.
+	Version string
 	// Broker is an MQTT broker of yours, for Outside. A plugin your home imports takes its own.
 	Broker string
 	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
@@ -211,6 +213,7 @@ func (h *Host) Run(ctx context.Context) error {
 	calls := &apiServer{
 		log: h.Log.With("logger", "api"), ctx: apiCalls.ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
 		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir}, authFailures: newAuthFailures(exported),
+		version: h.Version,
 	}
 	network := h.listenAPI(data, calls)
 	observing := h.observe(exported, srv)

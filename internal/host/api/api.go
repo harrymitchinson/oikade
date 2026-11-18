@@ -178,6 +178,8 @@ type Response struct {
 	// GOOS and GOARCH are what the host runs on, so that a deploy can build for it.
 	GOOS   string `json:"goos,omitempty"`
 	GOARCH string `json:"goarch,omitempty"`
+	// HostVersion is oikade-host's own version, an info request's.
+	HostVersion string `json:"hostVersion,omitempty"`
 	// NeedsAllowSafety is a request that AllowSafety would let through.
 	NeedsAllowSafety bool `json:"needsAllowSafety,omitempty"`
 	// Status is a status's.

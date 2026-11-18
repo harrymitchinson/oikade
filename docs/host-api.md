@@ -8,7 +8,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 
 | Route | Fields | Answers with |
 |---|---|---|
-| `GET /v1/info` | | `goos`, `goarch` |
+| `GET /v1/info` | | `goos`, `goarch`, `hostVersion`, oikade-host's own version |
 | `GET /v1/status` | | `status` |
 | `GET /v1/matter` | | `matter` |
 | `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds; `hiddenFromMatter`, the devices your home keeps off Matter |

@@ -483,13 +483,6 @@ func or(s, fallback string) string {
 	return s
 }
 
-func display(v any) any {
-	if v == nil {
-		return "-"
-	}
-	return v
-}
-
 // why says which line of a capability's decision wins, and what holds it back.
 func why(c api.Capability) string {
 	if c.Level == "" {
@@ -548,7 +541,7 @@ func runTail(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print a line of JSON for each event, whose fields stay stable for scripts.")
 	_ = fs.Parse(args)
 	transport, host := target.resolve()
-	return tail(ctx, transport, host, *asJSON, os.Stdout, os.Stderr)
+	return tail(ctx, transport, host, *asJSON, std.out, std.err)
 }
 
 // tail follows a host's events onto stdout, and says on stderr once it has started, so that a quiet
@@ -562,31 +555,71 @@ func tail(ctx context.Context, t api.Transport, host string, asJSON bool, stdout
 			_, _ = fmt.Fprintf(stderr, "Following %s's events\n", host)
 		}
 	}
+	p := printerOf(stdout)
 	return api.Tail(ctx, t, opened, func(e api.Event) error {
 		if asJSON {
 			return out.Encode(e)
 		}
-		_, err := fmt.Fprintln(stdout, e.Time.Local().Format("15:04:05"), describe(e))
-		return err
+		p.Println(eventLine(p, e))
+		return nil
 	})
 }
 
-func describe(e api.Event) string {
+// eventLine is an event as tail prints it: its time, the ref of what it's about, what happened, and
+// its cause, dimmed: "14:02:07  device/desk-plug/on  true  was false".
+func eventLine(p *cli.Printer, e api.Event) string {
+	what, cause := describe(e)
+	line := []string{e.Time.Local().Format("15:04:05")}
+	if e.Ref != "" {
+		line = append(line, e.Ref)
+	}
+	line = append(line, what)
+	if cause != "" {
+		line = append(line, p.Dim(cause))
+	}
+	return strings.Join(line, "  ")
+}
+
+// describe is what an event says happened, and what caused it, if it says.
+func describe(e api.Event) (what, cause string) {
+	value := func(v any) string { return or(valueText(e.Capability, v), "nothing") }
 	switch e.Type {
 	case api.EventChange:
-		return fmt.Sprintf("%s %s = %v", e.Device, e.Capability, display(e.Value))
+		if e.Previous != nil {
+			cause = "was " + value(e.Previous)
+		}
+		return value(e.Value), cause
 	case api.EventRule:
-		return fmt.Sprintf("rule %s %s", e.Rule, e.Result)
+		return runResult(e.Result), ""
 	case api.EventPause:
-		return fmt.Sprintf("rule %s %s", e.Rule, e.Message)
+		return e.Message, ""
 	case api.EventWrite:
-		return fmt.Sprintf("wrote %s %s = %v", e.Device, e.Capability, display(e.Value))
+		return "wrote " + value(e.Value), ""
 	case api.EventRefused:
-		return fmt.Sprintf("refused Matter write %s %s = %v: %s", e.Device, e.Capability, display(e.Value), e.Message)
+		return "refused a Matter write of " + value(e.Value), e.Message
 	case api.EventDeploy:
-		return "deployed " + e.Message
+		return "deployed version " + cli.ShortVersion(e.Message), ""
 	}
-	return "automations " + e.Message
+	return "automations " + e.Message, ""
+}
+
+// runResult is how a rule's run ended, in words.
+func runResult(result string) string {
+	switch result {
+	case "succeeded":
+		return "ran"
+	case "failed":
+		return "ran and failed"
+	case "cancelled":
+		return "was cancelled"
+	case "busy":
+		return "didn't run: it was still running"
+	case "condition_error":
+		return "didn't run: its condition couldn't be read"
+	case "missed":
+		return "missed its time"
+	}
+	return strings.ReplaceAll(result, "_", " ")
 }
 
 func runSet(ctx context.Context, args []string) error {
@@ -726,6 +759,14 @@ func paused(did, rule string, resp api.Response) string {
 }
 
 // done prints the outcome of a command that changes something.
+// printerOf is w as a printer: w itself if it's one, or a plain one, as a test's buffer is.
+func printerOf(w io.Writer) *cli.Printer {
+	if p, ok := w.(*cli.Printer); ok {
+		return p
+	}
+	return cli.Plain(w, 0)
+}
+
 func done(resp api.Response, asJSON bool, message string) error {
 	if asJSON {
 		out := struct {
@@ -742,11 +783,11 @@ func done(resp api.Response, asJSON bool, message string) error {
 		}
 	} else {
 		if resp.Error == "" {
-			fmt.Println(message)
+			std.out.Done("%s", message)
 		}
 		// A remove that failed part way still warns of what it did.
 		if resp.Warning != "" {
-			fmt.Fprintln(os.Stderr, "Warning:", resp.Warning)
+			std.err.Warn("%s", resp.Warning)
 		}
 	}
 	if resp.Error != "" {

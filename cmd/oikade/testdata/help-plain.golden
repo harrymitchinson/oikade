@@ -31,7 +31,7 @@ Host access
   client    List or revoke who may call the host's network API.
   secret    List, set or remove the secrets your home and its plugins read.
   backup    Back up the host's store, on the host, and print where it went.
-  version   Print this oikade's version.
+  version   Print this oikade's version, and its host's when one answers.
 
 oikade help COMMAND, or oikade COMMAND --help, says more of one.
 

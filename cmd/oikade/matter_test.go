@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -12,7 +13,7 @@ const testQR = "MT:Y.K9042C00KA0648G00"
 
 func matterOutput(m *api.Matter, drawQR bool) string {
 	var b strings.Builder
-	printMatter(&b, m, drawQR)
+	printMatter(cli.Plain(&b, 0), m, drawQR)
 	return b.String()
 }
 
@@ -52,7 +53,7 @@ func TestMatterOpenSaysWhoseCodeItIs(t *testing.T) {
 	expires := time.Date(2026, 11, 17, 14, 47, 0, 0, time.Local)
 	w := &api.MatterWindow{ManualCode: "34970112332", QRCode: testQR, Expires: expires}
 	var b strings.Builder
-	printWindow(&b, w, true)
+	printWindow(cli.Plain(&b, 0), w, true)
 	out := b.String()
 	if !strings.HasPrefix(out, "Opened the Matter bridge's window until 14:47\n") || !strings.Contains(out, "█") ||
 		!strings.Contains(out, "Manual code: 34970112332\nQR code: "+testQR) || strings.Contains(out, "pair nothing") {
@@ -60,7 +61,7 @@ func TestMatterOpenSaysWhoseCodeItIs(t *testing.T) {
 	}
 	w.Fresh = true
 	b.Reset()
-	printWindow(&b, w, false)
+	printWindow(cli.Plain(&b, 0), w, false)
 	if out := b.String(); strings.Contains(out, "█") || !strings.Contains(out, "pair nothing once it closes") {
 		t.Errorf("a fresh code, to a pipe:\n%s", out)
 	}
