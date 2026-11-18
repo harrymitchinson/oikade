@@ -24,8 +24,14 @@ func TestNewSwitchesReportsEachDevice(t *testing.T) {
 		t.Fatalf("got %d reports, want 3", len(s.reports))
 	}
 	want := []contractv1.DeviceReport{
-		{ID: "a", Found: true, Manufacturer: "Oikade", Model: "Simulated switch", Capabilities: []string{"on"}},
-		{ID: "b", Found: true, Manufacturer: "Oikade", Model: "Simulated switch", Capabilities: []string{"on"}},
+		{
+			ID: "a", Found: true, Manufacturer: "Oikade", Model: "Simulated switch", SerialNumber: "SIM-A",
+			FirmwareVersion: "1.0.0", Capabilities: []string{"on"},
+		},
+		{
+			ID: "b", Found: true, Manufacturer: "Oikade", Model: "Simulated switch", SerialNumber: "SIM-B",
+			FirmwareVersion: "1.0.0", Capabilities: []string{"on"},
+		},
 	}
 	if !reflect.DeepEqual(s.reports[:2], want) {
 		t.Fatalf("got %+v, want %+v", s.reports[:2], want)

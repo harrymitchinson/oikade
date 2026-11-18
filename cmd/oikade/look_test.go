@@ -23,7 +23,8 @@ var printers = map[string]func(io.Writer, int) *cli.Printer{"plain": cli.Plain, 
 func aHome() (registry.Snapshot, deviceMarks) {
 	return registry.Snapshot{Devices: []registry.Device{
 		{Name: "hall-lamp", ID: "1000aabbcc", Driver: "plugin/ewelink-lan", Endpoint: 2, Room: "hall", Declared: true,
-			DeviceType: devicetype.OnOffLight, Capabilities: []string{"on"}, Manufacturer: "SONOFF", Model: "MINIR4"},
+			DeviceType: devicetype.OnOffLight, Capabilities: []string{"on"}, Manufacturer: "SONOFF", Model: "MINIR4",
+			SerialNumber: "1000aabbcc", FirmwareVersion: "3.6.0"},
 		{Name: "office-ac", ID: "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60", Driver: "plugin/toshiba", Endpoint: 3,
 			Manufacturer: "Toshiba", Capabilities: []string{"mode", "on", "setpoint", "temperature"}},
 		{Name: "study-blind", ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 4, Room: "study",
@@ -62,7 +63,7 @@ func TestDevicesFitTheTerminal(t *testing.T) {
 		!strings.Contains(b.String(), "hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60") {
 		t.Errorf("--wide dropped %v:\n%s", dropped, b.String())
 	}
-	for _, want := range []string{"SONOFF MINIR4", "Toshiba ", " Somfy RS100 io "} {
+	for _, want := range []string{"SONOFF MINIR4", "Toshiba ", " Somfy RS100 io ", "1000aabbcc  3.6.0"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("--wide has no %q:\n%s", want, b.String())
 		}

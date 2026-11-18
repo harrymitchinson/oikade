@@ -10,6 +10,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -425,5 +426,22 @@ func TestWhatADeviceIsMovesWithItsHardware(t *testing.T) {
 	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x3", Room: "hall"})
 	if d := get(t, r, "hall-sensor"); d.Manufacturer != "" || d.Model != "" {
 		t.Errorf("hardware not on record kept the last one's manufacturer and model: %+v", d)
+	}
+}
+
+func TestAFirmwareUpdateIsTakenUpAndTheRestKept(t *testing.T) {
+	r, _ := open(t)
+	first := driver.Product{Manufacturer: "Bosch", Model: "BTH-RA", SerialNumber: "18FC26FFFE0A1B2C", FirmwareVersion: "3.05.09", HardwareVersion: "1"}
+	if _, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "radiator", Product: first}); err != nil {
+		t.Fatal(err)
+	}
+	d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", FirmwareVersion: "3.05.10\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := first
+	want.FirmwareVersion = "3.05.10"
+	if !changed || d.Product != want {
+		t.Errorf("got %+v, changed %v, want %+v", d.Product, changed, want)
 	}
 }

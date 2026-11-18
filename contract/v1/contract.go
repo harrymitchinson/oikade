@@ -194,10 +194,15 @@ type Devices struct {
 type DiscoveredDevice struct {
 	// ID must stay the same across restarts of the plugin and of its hub or account, until the
 	// device is reset or re-paired. See ValidID.
-	ID           string   `json:"id"`
-	Manufacturer string   `json:"manufacturer,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	ID           string `json:"id"`
+	Manufacturer string `json:"manufacturer,omitempty"`
+	Model        string `json:"model,omitempty"`
+	// SerialNumber, FirmwareVersion and HardwareVersion are as the device's app or hub gives them,
+	// empty if it doesn't.
+	SerialNumber    string   `json:"serialNumber,omitempty"`
+	FirmwareVersion string   `json:"firmwareVersion,omitempty"`
+	HardwareVersion string   `json:"hardwareVersion,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 	// DeviceType is what the device is, one of DeviceTypes, empty if the plugin doesn't know.
 	DeviceType string `json:"deviceType,omitempty"`
 	// Name and Room are as the user named them in the device's app, empty if it has none.
@@ -210,10 +215,15 @@ type DeviceReport struct {
 	// ID is the device's ID from the devices file, a ValidID listed once.
 	ID    string `json:"id"`
 	Found bool   `json:"found"`
-	// Manufacturer, Model, Capabilities and DeviceType matter only when Found is true.
-	Manufacturer string   `json:"manufacturer,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	// Manufacturer, Model, SerialNumber, FirmwareVersion, HardwareVersion, Capabilities and DeviceType
+	// matter only when Found is true. The first five are as the device's app or hub gives them,
+	// empty if it doesn't.
+	Manufacturer    string   `json:"manufacturer,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	SerialNumber    string   `json:"serialNumber,omitempty"`
+	FirmwareVersion string   `json:"firmwareVersion,omitempty"`
+	HardwareVersion string   `json:"hardwareVersion,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 	// DeviceType is what the device is, one of DeviceTypes, empty if the plugin doesn't know.
 	DeviceType string `json:"deviceType,omitempty"`
 	// Error is a problem with the device's configuration, empty otherwise. A device can be found and

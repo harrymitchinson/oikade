@@ -122,7 +122,8 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	r.stdout(nil, "set", "relay", "on", "on")
 	r.untilValue("relay", true)
 	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 ||
-		d.Manufacturer != "Oikade" || d.Model != "Simulated switch" {
+		d.Manufacturer != "Oikade" || d.Model != "Simulated switch" || !strings.HasPrefix(d.SerialNumber, "SIM-") ||
+		d.FirmwareVersion != "1.0.0" {
 		t.Fatalf("got %+v", d)
 	}
 }
@@ -326,6 +327,10 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	endpoint := c.endpoint("relay")
 	if vendor, product := c.info(endpoint, 0x01), c.info(endpoint, 0x03); vendor != "Oikade" || product != "Simulated switch" {
 		t.Errorf("VendorName %v and ProductName %v, want what the plugin says", vendor, product)
+	}
+	if serial, firmware := c.info(endpoint, 0x0F), c.info(endpoint, 0x0A); serial != deviceOf(t, r.devices(), "relay").SerialNumber ||
+		firmware != "1.0.0" {
+		t.Errorf("SerialNumber %v and SoftwareVersionString %v, want what the plugin says", serial, firmware)
 	}
 	c.command(endpoint, turnOn)
 	r.untilValue("relay", true)

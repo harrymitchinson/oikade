@@ -1,7 +1,6 @@
 package host
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -189,7 +188,7 @@ func (p *plugins) pair(h *hosted) {
 	for id, info := range h.driver.Announced() {
 		if info.Found {
 			apps[id] = driver.AppDevice{
-				ID: id, Name: id, Manufacturer: info.Manufacturer, Model: info.Model, Capabilities: info.Capabilities,
+				ID: id, Name: id, Product: info.Product, Capabilities: info.Capabilities,
 				DeviceType: info.DeviceType,
 			}
 		}
@@ -197,13 +196,13 @@ func (p *plugins) pair(h *hosted) {
 	listed, _ := h.driver.Discovered()
 	for _, d := range listed {
 		app := driver.AppDevice{
-			ID: d.ID, Name: d.Name, Room: d.Room, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: d.Capabilities,
+			ID: d.ID, Name: d.Name, Room: d.Room, Product: pluginDriver.DiscoveredProduct(d), Capabilities: d.Capabilities,
 			DeviceType: devicetype.Type(d.DeviceType),
 		}
 		// What the plugin reports for a device it serves wins over its discovered list.
 		if known, ok := apps[d.ID]; ok {
 			app.Capabilities, app.DeviceType = known.Capabilities, known.DeviceType
-			app.Manufacturer, app.Model = cmp.Or(known.Manufacturer, app.Manufacturer), cmp.Or(known.Model, app.Model)
+			app.Product = known.Or(app.Product)
 		}
 		apps[d.ID] = app
 	}

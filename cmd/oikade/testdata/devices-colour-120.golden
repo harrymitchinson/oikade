@@ -3,4 +3,4 @@ hall-lamp    hall   paired                                    OnOffLight        
 office-ac           paired, not in your code                  RoomAirConditioner  mode, on, setpoint, temperature
 porch-light         no LAN key: oikade secret set 1000ddeeff  OnOffPlugInUnit     on
 study-blind  study  hidden from Matter                        WindowCovering      position, target-position, moving
-dropped: [HARDWARE ENDPOINT MODEL]
+dropped: [SERIAL FIRMWARE HARDWARE ENDPOINT MODEL]

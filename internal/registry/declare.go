@@ -218,7 +218,7 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 		e, from := &s.Devices[i], &s.Devices[j]
 		e.ID, e.Driver, e.Capabilities, e.DriverDeviceType = from.ID, from.Driver, slices.Clone(from.Capabilities), from.DriverDeviceType
 		e.AppName, e.AppRoom = from.AppName, from.AppRoom
-		e.Manufacturer, e.Model = from.Manufacturer, from.Model
+		e.Product = from.Product
 		if len(e.Control) == 0 {
 			e.Control = bytes.Clone(from.Control)
 		}
@@ -226,14 +226,14 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 			out.Absorbed[from.Name] = d.Name
 		}
 		from.ID, from.Removed, from.Declared = "", true, false
-		from.Manufacturer, from.Model = "", ""
+		from.Product = driver.Product{}
 		return i, nil
 	case i >= 0:
 		// Onto hardware not on record, or none: the old hardware is forgotten.
 		e := &s.Devices[i]
 		if e.ID != d.ID || e.Driver != d.Driver {
 			e.ID, e.Driver, e.Capabilities, e.DriverDeviceType, e.AppName, e.AppRoom = d.ID, d.Driver, nil, "", "", ""
-			e.Manufacturer, e.Model = "", ""
+			e.Product = driver.Product{}
 		}
 		return i, nil
 	default:

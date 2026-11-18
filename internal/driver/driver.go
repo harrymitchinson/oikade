@@ -2,6 +2,7 @@
 package driver
 
 import (
+	"cmp"
 	"context"
 	"time"
 
@@ -31,6 +32,25 @@ func (k InstanceKey) Label() string {
 	return k.Driver + "/" + k.Name
 }
 
+// Product is what a driver says a device is, each field empty if it doesn't say. Its JSON is in the
+// registry, and so in oikade devices --json: add to it, and don't rename.
+type Product struct {
+	Manufacturer    string `json:"manufacturer,omitempty"`
+	Model           string `json:"model,omitempty"`
+	SerialNumber    string `json:"serialNumber,omitempty"`
+	FirmwareVersion string `json:"firmwareVersion,omitempty"`
+	HardwareVersion string `json:"hardwareVersion,omitempty"`
+}
+
+// Or is p, with each field it leaves empty taken from q.
+func (p Product) Or(q Product) Product {
+	return Product{
+		Manufacturer: cmp.Or(p.Manufacturer, q.Manufacturer), Model: cmp.Or(p.Model, q.Model),
+		SerialNumber: cmp.Or(p.SerialNumber, q.SerialNumber), FirmwareVersion: cmp.Or(p.FirmwareVersion, q.FirmwareVersion),
+		HardwareVersion: cmp.Or(p.HardwareVersion, q.HardwareVersion),
+	}
+}
+
 // Info is what a driver knows about a declared device.
 type Info struct {
 	// Found is false while the device is declared but not paired with the driver.
@@ -38,9 +58,8 @@ type Info struct {
 	Capabilities []string
 	// DeviceType is what the device is, one of devicetype.OnOff, if the driver knows. A relay
 	// doesn't, as it can't tell what it switches.
-	DeviceType   devicetype.Type
-	Manufacturer string
-	Model        string
+	DeviceType devicetype.Type
+	Product
 	// Error is a driver-reported problem with the device, such as bad plugin parameters.
 	Error string
 }
@@ -49,9 +68,8 @@ type Info struct {
 // instance's paired devices, or a plugin's discovered list.
 type AppDevice struct {
 	// ID is the driver's ID for the device: an IEEE address or a plugin's discovered ID.
-	ID           string
-	Manufacturer string
-	Model        string
+	ID string
+	Product
 	Capabilities []string
 	// DeviceType is what the device is, if the driver knows, as in Info.
 	DeviceType devicetype.Type

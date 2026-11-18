@@ -141,6 +141,14 @@ func (i *Instance) key() driver.InstanceKey {
 
 func (i *Instance) sendUndeclared(n int) { i.Sink.Undeclared(i.key(), n) }
 
+// DiscoveredProduct is what a plugin's discovered list says a device is.
+func DiscoveredProduct(d contractv1.DiscoveredDevice) driver.Product {
+	return driver.Product{
+		Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
+		FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion,
+	}
+}
+
 // inventoryLocked is the discovered list for the Sink, sorted by ID, or nil.
 func (i *Instance) inventoryLocked() []driver.AppDevice {
 	if i.discovered == nil {
@@ -149,7 +157,7 @@ func (i *Instance) inventoryLocked() []driver.AppDevice {
 	out := make([]driver.AppDevice, 0, len(i.discovered))
 	for _, d := range i.discovered {
 		out = append(out, driver.AppDevice{
-			ID: d.ID, Manufacturer: d.Manufacturer, Model: d.Model, Capabilities: slices.Clone(d.Capabilities),
+			ID: d.ID, Product: DiscoveredProduct(d), Capabilities: slices.Clone(d.Capabilities),
 			DeviceType: devicetype.Type(d.DeviceType), Name: d.Name, Room: d.Room,
 		})
 	}
@@ -371,7 +379,9 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 			i.rejectLocked(ReasonMalformed, "", topic)
 			continue
 		}
-		info := driver.Info{Found: d.Found, Manufacturer: d.Manufacturer, Model: d.Model, Error: d.Error}
+		info := driver.Info{Found: d.Found, Error: d.Error,
+			Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
+			FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion}
 		if d.Found {
 			for _, c := range d.Capabilities {
 				if _, ok := capability.Lookup(c); !ok {

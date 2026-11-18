@@ -271,9 +271,9 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 			Key: dev, Endpoint: d.Endpoint, Name: d.Name, Capabilities: d.Capabilities,
 			Type: devicetype.OnOffOf(d.DeviceType, d.DriverDeviceType, d.Capabilities),
 			// A name can move, and an endpoint can't, so a controller keeps its device through either.
-			Unique:       matterbridge.UniqueID(m.id.UniqueID + "/" + strconv.Itoa(int(d.Endpoint))),
-			Absent:       !live || !snap.Discovered,
-			Manufacturer: d.Manufacturer, Model: d.Model,
+			Unique:  matterbridge.UniqueID(m.id.UniqueID + "/" + strconv.Itoa(int(d.Endpoint))),
+			Absent:  !live || !snap.Discovered,
+			Product: d.Product,
 		}
 	}
 	return out
