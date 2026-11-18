@@ -193,7 +193,9 @@ var groups = []group{
 		{
 			Name:    "oikade version",
 			Summary: "Print this oikade's version, and its host's when one answers.",
-			Usage:   []string{"oikade version"},
+			About: "It asks the host a command would reach, the current context's or this machine's, or the one " +
+				"--context or --data-dir names, and waits 3 s at most.",
+			Usage: []string{"oikade version"},
 		},
 	}},
 }
@@ -221,16 +223,25 @@ func runVersion(ctx context.Context, args []string) error {
 		return cli.UsageErrorf("oikade version takes no %q", extra[0])
 	}
 	std.out.Println("oikade " + cli.Version(version))
+	raw, name := target.resolve()
+	if f, ok := raw.(failing); ok { // A context that isn't there, say.
+		return f.err
+	}
+	if name != thisMachine {
+		std.err.Printf("Asking %s for its version\n", name)
+	}
 	ctx, cancel := context.WithTimeout(ctx, hostWait)
 	defer cancel()
-	transport, name := target.resolve()
-	info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
-	if err != nil || info.Error != "" {
-		if name == thisMachine {
-			std.err.Println(std.err.Dim("No host answered on this machine"))
-		} else {
-			std.err.Println(std.err.Dim("No host answered at " + name))
+	info, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeInfo})
+	if err == nil && info.Error != "" {
+		err = errors.New(info.Error)
+	}
+	if err != nil {
+		why := err.Error()
+		if e, ok := errors.AsType[*cli.Error](err); ok {
+			why = e.Message
 		}
+		std.err.Println(std.err.Dim("Couldn't ask the host for its version: " + why))
 		return nil
 	}
 	std.out.Println(hostVersionLine(info, name))

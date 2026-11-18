@@ -230,3 +230,37 @@ func TestTheRestLookTheSame(t *testing.T) {
 		}
 	}
 }
+
+// version says its own, then why it has no host's. A context that isn't there is an error.
+func TestVersionSaysWhyItHasNoHosts(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	out, errs, code := runOikade(t, cli.Plain, "version", "--data-dir", dir)
+	if code != 0 || out != "oikade "+cli.Version(version)+"\n" ||
+		errs != "Couldn't ask the host for its version: no host is running on this machine with its data in "+dir+"\n" {
+		t.Errorf("no host: exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+	if _, errs, code := runOikade(t, cli.Plain, "version", "--context", "nowhere"); code != 1 ||
+		!strings.HasPrefix(errs, "Error: ") {
+		t.Errorf("no such context: exit %d, stderr %q", code, errs)
+	}
+}
+
+// Only a change gets a ✓: a value that hasn't answered or was held back doesn't.
+func TestOnlyAChangeGetsATick(t *testing.T) {
+	saved := std
+	t.Cleanup(func() { std = saved })
+	for _, tc := range []struct {
+		changed bool
+		want    string
+	}{{true, "\x1b[32m✓\x1b[0m Paused flow/morning\n"}, {false, "Paused flow/morning\n"}} {
+		var b bytes.Buffer
+		std.out = cli.Styled(&b, 80)
+		if err := finished(api.Response{}, false, "Paused flow/morning", tc.changed); err != nil || b.String() != tc.want {
+			t.Errorf("changed %v: %q, %v", tc.changed, b.String(), err)
+		}
+	}
+	if stuck("on", nil, true) || !stuck("brightness", 33.1, 33.0) || stuck("brightness", 30.0, 33.0) {
+		t.Error("stuck")
+	}
+}

@@ -103,7 +103,7 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	if resp.Unchanged {
-		printerOf(d.stdout).Done("Already running version %s", cli.ShortVersion(resp.Version))
+		printerOf(d.stdout).Println("Already running version " + cli.ShortVersion(resp.Version))
 		return nil
 	}
 	return report(printerOf(d.stdout), resp, "Deployed version")

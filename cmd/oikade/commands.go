@@ -19,6 +19,8 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/cli"
+	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/flow"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
@@ -560,8 +562,8 @@ func tail(ctx context.Context, t api.Transport, host string, asJSON bool, stdout
 		if asJSON {
 			return out.Encode(e)
 		}
-		p.Println(eventLine(p, e))
-		return nil
+		_, err := fmt.Fprintln(p, eventLine(p, e))
+		return err
 	})
 }
 
@@ -606,18 +608,24 @@ func describe(e api.Event) (what, cause string) {
 // runResult is how a rule's run ended, in words.
 func runResult(result string) string {
 	switch result {
-	case "succeeded":
+	case engine.ResultSucceeded:
 		return "ran"
-	case "failed":
+	case engine.ResultFailed:
 		return "ran and failed"
-	case "cancelled":
+	case engine.ResultCancelled:
 		return "was cancelled"
-	case "busy":
+	case engine.ResultBusy:
 		return "didn't run: it was still running"
-	case "condition_error":
+	case engine.ResultConditionFalse:
+		return "didn't run: its condition was false"
+	case engine.ResultConditionError:
 		return "didn't run: its condition couldn't be read"
-	case "missed":
+	case engine.ResultMissed:
 		return "missed its time"
+	case flow.ResultGaveUp:
+		return "gave up: it woke too late to carry on"
+	case flow.ResultDropped:
+		return "was dropped: its code changed under it"
 	}
 	return strings.ReplaceAll(result, "_", " ")
 }
@@ -653,17 +661,24 @@ func runSet(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return done(resp, *asJSON, outcome(device, name, value, resp.Outcome))
+	// A value that hasn't answered, or that the host held back, isn't a change, so it gets no ✓.
+	changed := resp.Outcome != nil && stuck(name, resp.Outcome.Value, value)
+	return finished(resp, *asJSON, outcome(device, name, value, resp.Outcome), changed)
 }
 
 // outcome says what a set left the capability at, and why, rather than what it asked for.
+// stuck is whether a capability took the value asked of it, or the driver's rounding of it.
+func stuck(name string, got, asked any) bool {
+	return fmt.Sprint(got) == fmt.Sprint(asked) || rounded(name, got, asked)
+}
+
 func outcome(device, name string, asked any, c *api.Capability) string {
 	if c == nil {
 		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",
 			ident.CapabilityRef(device, name), device)
 	}
 	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), or(valueText(name, c.Value), "-"))
-	if fmt.Sprint(c.Value) != fmt.Sprint(asked) && !rounded(name, c.Value, asked) {
+	if !stuck(name, c.Value, asked) {
 		is += ", not " + valueText(name, asked)
 	}
 	if c.Level == "" {
@@ -758,7 +773,6 @@ func paused(did, rule string, resp api.Response) string {
 	return message
 }
 
-// done prints the outcome of a command that changes something.
 // printerOf is w as a printer: w itself if it's one, or a plain one, as a test's buffer is.
 func printerOf(w io.Writer) *cli.Printer {
 	if p, ok := w.(*cli.Printer); ok {
@@ -767,7 +781,13 @@ func printerOf(w io.Writer) *cli.Printer {
 	return cli.Plain(w, 0)
 }
 
+// done prints the outcome of a command that changes something.
 func done(resp api.Response, asJSON bool, message string) error {
+	return finished(resp, asJSON, message, true)
+}
+
+// finished prints how a request ended: its JSON, or message, on a ✓ line if it changed something.
+func finished(resp api.Response, asJSON bool, message string, changed bool) error {
 	if asJSON {
 		out := struct {
 			OK      bool            `json:"ok"`
@@ -782,8 +802,12 @@ func done(resp api.Response, asJSON bool, message string) error {
 			return err
 		}
 	} else {
-		if resp.Error == "" {
+		switch {
+		case resp.Error != "":
+		case changed:
 			std.out.Done("%s", message)
+		default:
+			std.out.Println(message)
 		}
 		// A remove that failed part way still warns of what it did.
 		if resp.Warning != "" {
