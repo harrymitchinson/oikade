@@ -275,7 +275,7 @@ func (n *Node) Run(ctx context.Context) error {
 	tr := transport.New(conn, transport.Options{
 		Log: n.log.With("part", "transport"), Panicked: n.panicked(), EndSession: n.endSession,
 	})
-	opts.Log, opts.Panicked = n.advertising, n.panicked()
+	opts.Log, opts.Panicked, opts.Lost = n.advertising, n.panicked(), n.lostName
 	responder, err := n.listenMDNS(opts)
 	if err != nil {
 		_ = tr.Serve(cancelled()) // closes the socket
@@ -535,6 +535,35 @@ func (n *Node) closeWindow() {
 	if n.table.Count() == 0 {
 		n.commissioning.Info("Closed the commissioning window while on no fabric: oikade matter open opens it again")
 	}
+}
+
+// lostName hears that another host took the name of a service the node advertised (RFC 6762, 9).
+// A commissionable instance name is random, so the window is advertised again under a new one. An
+// operational one is the fabric's and the node's IDs, which another node on the fabric has too,
+// so there's nothing to pick: it's logged, and advertised again on the next run.
+func (n *Node) lostName(svc mdns.Service) {
+	n.mu.Lock()
+	if c := n.commissionable; c != nil && c.Type == svc.Type && c.Instance == svc.Instance {
+		n.commissionable = nil
+		window := n.window
+		n.mu.Unlock()
+		if window == nil {
+			return
+		}
+		n.advertising.Warn("Another host took the commissionable service's name: advertising it under a new one", "instance", svc.Instance)
+		go n.openWindow(*window)
+		return
+	}
+	for index, o := range n.operational {
+		if o.Type == svc.Type && o.Instance == svc.Instance {
+			delete(n.operational, index)
+			n.mu.Unlock()
+			n.advertising.Error("Another host took the operational service's name: controllers on its fabric may reach that host instead",
+				"fabric", index, "instance", svc.Instance)
+			return
+		}
+	}
+	n.mu.Unlock()
 }
 
 // refusePASE answers PASE while no commissioning window is open.

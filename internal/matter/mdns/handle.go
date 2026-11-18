@@ -305,14 +305,11 @@ func legacyReply(q *dnsmessage.Message, answers, additionals []record) ([]byte, 
 	return m.Pack()
 }
 
-// probing returns the probes running and the records of our services. It answers packets, so its
+// probing returns the probes running and the records of every service of ours. It answers packets, so its
 // lock goes with defer.
 func (r *Responder) probing() (probes []*probe, ours []record) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.probes) == 0 {
-		return nil, nil
-	}
 	probes = make([]*probe, 0, len(r.probes))
 	for p := range r.probes {
 		probes = append(probes, p)
@@ -328,15 +325,18 @@ func (r *Responder) probing() (probes []*probe, ours []record) {
 // interfaces on the same link bring back, hold only records identical to ours, so they aren't
 // conflicts; another responder on this host that claims one of our names with other data is.
 func (r *Responder) checkConflicts(m *dnsmessage.Message) {
-	probes, ours := r.probing()
+	probes, services := r.probing()
+	served := r.served()
+	ours := make([]record, 0, len(served)*(len(services)+4))
+	for _, ifIndex := range served {
+		ours = append(ours, withOwnNSEC(slices.Concat(services, addressRecords(r.host, r.addrs(ifIndex))))...)
+	}
+	rrs := slices.Concat(m.Answers, m.Authorities, m.Additionals)
+	r.defendNames(rrs, ours)
 	if len(probes) == 0 {
 		return
 	}
-	services := ours
-	for _, ifIndex := range r.served() {
-		ours = append(ours, withOwnNSEC(slices.Concat(services, addressRecords(r.host, r.addrs(ifIndex))))...)
-	}
-	for _, rr := range slices.Concat(m.Answers, m.Authorities, m.Additionals) {
+	for _, rr := range rrs {
 		if slices.ContainsFunc(ours, func(rec record) bool { return rec.same(rr.Header.Name, rr.Header.Type, rr.Body) }) {
 			continue
 		}
