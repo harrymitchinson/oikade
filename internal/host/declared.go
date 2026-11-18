@@ -13,6 +13,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
@@ -289,4 +290,75 @@ func (i *inventory) leavingSafety(decls []wire.DeviceDeclaration, old, next []wi
 	}
 	slices.Sort(out)
 	return slices.Compact(out)
+}
+
+// declaring is what a version's declarations would change of the hub's devices: their members now
+// and once decls are applied, and what each device a declared room or type puts in a room that
+// decides a capability it has its own decision on keeps of it, under the version's control next
+// rather than the running one's, old.
+func (i *inventory) declaring(decls []wire.DeviceDeclaration, old, next []wire.DeviceControl) (members, []string, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	before := i.registry.List()
+	after, err := registry.Declaring(before, wire.Declarations(decls))
+	if err != nil {
+		return members{}, nil, err
+	}
+	var kept []string
+	for _, a := range after.Devices {
+		k := slices.IndexFunc(before.Devices, func(b registry.Device) bool { return b.Endpoint == a.Endpoint && !b.Removed })
+		if a.Removed || k < 0 {
+			continue
+		}
+		b := before.Devices[k]
+		if a.Room == b.Room && slices.Equal(a.DeviceTypes(), b.DeviceTypes()) {
+			continue // Its room's decisions are the home's to change, and it sees them.
+		}
+		caps := keptDecisions(next, a)
+		if a.Room == b.Room {
+			// Retyped in the same room: only what it didn't keep already is news.
+			was := keptDecisions(old, b)
+			caps = slices.DeleteFunc(caps, func(c string) bool { return slices.Contains(was, c) })
+		}
+		if len(caps) > 0 {
+			kept = append(kept, fmt.Sprintf("%s keeps its own decision on %s rather than %s's, "+
+				"unless the home hands it over with Then", a.Name, strings.Join(caps, " and "), a.Room))
+		}
+	}
+	slices.Sort(kept)
+	return members{before: i.membersOf(before), after: i.membersOf(after)}, kept, nil
+}
+
+// membersOf are the devices of snap the hub would have, by name, as sync puts them there. Call with
+// mu held.
+func (i *inventory) membersOf(snap registry.Snapshot) map[string]hub.Member {
+	out := map[string]hub.Member{}
+	for _, d := range snap.Devices {
+		if i.onHub(d) {
+			out[d.Name] = hub.Member{Room: d.Room, DeviceTypes: d.DeviceTypes()}
+		}
+	}
+	return out
+}
+
+// keptDecisions are the capabilities a device has its own decision on that its room also decides,
+// sorted, which it keeps rather than taking the room's. One whose decision hands over to the room's
+// with Then has the room's lines in its own, and isn't one.
+func keptDecisions(settings []wire.DeviceControl, d registry.Device) []string {
+	var kept []string
+	for _, c := range settings {
+		if c.Room == "" || c.Room != d.Room || !slices.Contains(d.Capabilities, c.Entry.Capability) ||
+			len(c.DeviceTypes) > 0 && !devicetype.Any(d.DeviceTypes(), c.DeviceTypes) {
+			continue
+		}
+		if slices.ContainsFunc(settings, func(o wire.DeviceControl) bool {
+			return o.Device == d.Name && o.Entry.Capability == c.Entry.Capability && !slices.ContainsFunc(c.Entry.Lines, func(l string) bool {
+				return strings.HasPrefix(l, control.SourceRule) && slices.Contains(o.Entry.Lines, l)
+			})
+		}) {
+			kept = append(kept, c.Entry.Capability)
+		}
+	}
+	slices.Sort(kept)
+	return slices.Compact(kept)
 }

@@ -91,6 +91,9 @@ type server struct {
 	planDeclared func([]wire.DeviceDeclaration) (registry.Declared, error)
 	// leavingSafety, if set, names the devices a version's declared rooms and types take out of Safety rules.
 	leavingSafety func(decls []wire.DeviceDeclaration, old, next []wire.RuleInfo) []string
+	// declaring, if set, says what a version's declarations would change of the hub's devices, and
+	// which devices they put in a room whose decision they don't take, under old and next control.
+	declaring func(decls []wire.DeviceDeclaration, old, next []wire.DeviceControl) (members, []string, error)
 	// attaching is held from a process's settings until it has attached: see open.
 	attaching sync.Mutex
 

@@ -159,7 +159,7 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
 	srv.declare, srv.planDeclared, known.renamed = known.takeDeclared, known.planDeclared, srv.renameRules
-	srv.leavingSafety = known.leavingSafety
+	srv.leavingSafety, srv.declaring = known.leavingSafety, known.declaring
 	sim := &simulator{store: devices, known: known, log: h.Log.With("logger", "simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)
