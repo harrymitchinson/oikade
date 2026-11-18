@@ -8,15 +8,16 @@ import (
 	"testing"
 )
 
-// update rewrites the golden files a test compares with, rather than comparing.
-var update = flag.Bool("update", false, "rewrite testdata/*.golden with what the tests print")
+// Update is -update, which has a test rewrite the files it compares with, such as golden files,
+// rather than compare. It's testkit's, so that every package's tests share one flag.
+var Update = flag.Bool("update", false, "rewrite the files tests compare with, such as testdata/*.golden")
 
 // Golden fails t unless got is what testdata/NAME.golden holds. With -update, it writes got there
 // instead, to read before committing.
 func Golden(t testing.TB, name string, got []byte) {
 	t.Helper()
 	path := filepath.Join("testdata", name+".golden")
-	if *update {
+	if *Update {
 		if err := os.MkdirAll("testdata", 0o755); err != nil {
 			t.Fatal(err)
 		}

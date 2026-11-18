@@ -7,14 +7,15 @@ import (
 )
 
 // Ago says when t was, from now: relative near now (8 s ago, 12 min ago, today 08:45, yesterday
-// 21:10, 3 days ago), and the date and time past a week or in the future, in now's time zone.
+// 21:10, 3 days ago), and the date and time past a week or over a minute ahead, in now's time zone.
 func Ago(t, now time.Time) string {
 	t = t.In(now.Location())
 	d := now.Sub(t)
 	switch {
-	case d < 0:
+	case d < -time.Minute:
 		return t.Format("2006-01-02 15:04")
 	case d < time.Second:
+		// A minute ahead is the host's clock and this one's disagreeing.
 		return "just now"
 	case d < time.Minute:
 		return fmt.Sprintf("%d s ago", int(d/time.Second))

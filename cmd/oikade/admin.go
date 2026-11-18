@@ -93,11 +93,10 @@ func printSecrets(stdout, stderr *cli.Printer, secrets []api.Secret, asJSON bool
 		stderr.Println("No secrets. oikade secret set NAME adds one.")
 		return nil
 	}
-	table := cli.Table{Columns: []cli.Column{{Header: nameHeader}}}
+	// Names alone, with no header, so that a script can read them a line each.
 	for _, s := range secrets {
-		table.Rows = append(table.Rows, []string{s.Name})
+		stdout.Println(s.Name)
 	}
-	stdout.Table(table)
 	return nil
 }
 

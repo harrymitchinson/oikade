@@ -61,7 +61,7 @@ without one. To trust a new client, run oikade-host client add NAME on the host'
 Every command takes --debug, or OIKADE_DEBUG=1, to show an error in full, with its causes.`
 
 func main() {
-	args, debug := cli.Debug(os.Args[1:])
+	args, debug := cli.Debug(os.Args[1:], "test")
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(cli.ExitUsage)

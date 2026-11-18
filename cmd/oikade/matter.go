@@ -38,7 +38,7 @@ func runMatter(ctx context.Context, args []string) error {
 		req = api.Request{Type: api.TypeMatterOpen, WindowSeconds: int(window.Seconds())}
 		_, _ = fmt.Fprintln(os.Stderr, "Opening the Matter bridge's window")
 	default:
-		return errors.New("usage: oikade matter [open [--for DURATION]] [--json]")
+		return cli.UsageErrorf("usage: oikade matter [open [--for DURATION]] [--json]")
 	}
 	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 	"golang.org/x/term"
 )
 
-// DefaultWidth is a table's width when the stream's isn't known, as when it's piped.
+// DefaultWidth is a table's width on a terminal that doesn't say its own.
 const DefaultWidth = 80
 
 // The styles, in SGR codes. Only a Styled printer writes them.
@@ -52,16 +52,17 @@ func NewPrinter(f *os.File) *Printer {
 }
 
 // newPrinter prints to w, a terminal of width columns or not, as the environment getenv reads says.
-// A width of zero is one the terminal didn't say.
+// A terminal that doesn't say its width is DefaultWidth wide, unless COLUMNS says. Anything else,
+// such as a pipe, has no limit, so that grep finds what a table holds.
 func newPrinter(w io.Writer, terminal bool, width int, getenv func(string) string) *Printer {
-	terminal = terminal && getenv("TERM") != "dumb"
 	if width <= 0 {
 		width, _ = strconv.Atoi(getenv("COLUMNS"))
 	}
-	if width <= 0 {
+	if width <= 0 && terminal {
 		width = DefaultWidth
 	}
-	return &Printer{w: w, Terminal: terminal, Styled: terminal && getenv("NO_COLOR") == "", Width: width}
+	terminal = terminal && getenv("TERM") != "dumb"
+	return &Printer{w: w, Terminal: terminal, Styled: terminal && getenv("NO_COLOR") == "", Width: max(width, 0)}
 }
 
 // Plain prints to w with no colour or glyphs, at width columns, as to a file or in a test.

@@ -92,7 +92,7 @@ func TestNoColourOffATerminal(t *testing.T) {
 	} {
 		var b bytes.Buffer
 		p := newPrinter(&b, tc.terminal, 0, func(k string) string { return tc.env[k] })
-		if p.Styled != tc.styled || p.Width != DefaultWidth {
+		if wantWidth := map[bool]int{true: DefaultWidth}[tc.terminal]; p.Styled != tc.styled || p.Width != wantWidth {
 			t.Errorf("%s: styled %v, width %d", tc.name, p.Styled, p.Width)
 		}
 		sample(p)
@@ -132,9 +132,22 @@ func TestFailExitsTwoForUsageAndShowsTheCauseOnlyWithDebug(t *testing.T) {
 }
 
 func TestDebugComesFromTheFlagOrTheEnvironment(t *testing.T) {
-	rest, debug := Debug([]string{"replay", "--debug", "--since", "1h", "--", "--debug"})
-	if !debug || strings.Join(rest, " ") != "replay --since 1h -- --debug" {
-		t.Errorf("got %v, %v", rest, debug)
+	for _, tc := range []struct {
+		args  []string
+		rest  string
+		debug bool
+	}{
+		{[]string{"replay", "--debug", "--since", "1h", "--", "--debug"}, "replay --since 1h -- --debug", true},
+		{[]string{"-debug", "status", "porch-light"}, "status porch-light", true},
+		{[]string{"status", "--debug=false"}, "status", false},
+		// What oikade test hands go test is go test's.
+		{[]string{"test", "--debug", "./...", "-args", "-debug"}, "test ./... -args -debug", true},
+		{[]string{"test", "./...", "-args", "-debug"}, "test ./... -args -debug", false},
+	} {
+		rest, debug := Debug(tc.args, "test")
+		if debug != tc.debug || strings.Join(rest, " ") != tc.rest {
+			t.Errorf("Debug(%q) = %q, %v", tc.args, rest, debug)
+		}
 	}
 	t.Setenv("OIKADE_DEBUG", "1")
 	if _, debug := Debug([]string{"status"}); !debug {
@@ -157,6 +170,8 @@ func TestAgoIsRelativeNearNow(t *testing.T) {
 		{time.Date(2026, 11, 15, 9, 0, 0, 0, loc), "3 days ago"},
 		{time.Date(2026, 11, 10, 8, 45, 53, 0, loc), "2026-11-10 08:45"},
 		{now.Add(time.Hour), "2026-11-18 15:30"},
+		// The host's clock a little ahead of this one's.
+		{now.Add(20 * time.Second), "just now"},
 		// In now's time zone, whatever t's.
 		{time.Date(2026, 11, 18, 7, 45, 0, 0, time.UTC), "today 08:45"},
 	} {

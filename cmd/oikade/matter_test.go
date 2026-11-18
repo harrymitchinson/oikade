@@ -21,7 +21,8 @@ func matterOutput(m *api.Matter, drawQR bool) string {
 func TestMatterDrawsTheQRCodeWhileItPairs(t *testing.T) {
 	ready := &api.Matter{Serving: true, Port: 5540, ManualCode: "34970112332", QRCode: testQR, Window: true}
 	out := matterOutput(ready, true)
-	if !strings.Contains(out, "█") || !strings.Contains(out, "QR code: "+testQR) ||
+	// Black on bright white, so that a dark terminal doesn't draw it inverted.
+	if !strings.Contains(out, "\x1b[30;107m") || !strings.Contains(out, "QR code: "+testQR) ||
 		!strings.Contains(out, "Ready to pair: scan it") {
 		t.Errorf("ready, to a terminal:\n%s", out)
 	}

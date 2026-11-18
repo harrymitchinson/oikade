@@ -200,7 +200,7 @@ func runClient(ctx context.Context, args []string) error {
 		"Print a token for the client to send, such as CI, rather than a code to log in with.")
 	words := cli.Parse(fs, args)
 	if len(words) != 2 || words[0] != "add" {
-		return errors.New(clientUsage)
+		return cli.UsageErrorf(clientUsage)
 	}
 	name := words[1]
 	resp, err := api.Call(ctx, api.Local{DataDir: *dataDir},
@@ -265,7 +265,7 @@ func runInstall(ctx context.Context, args []string) error {
 		"Who the login line is for. An upgrade prints one only when it's given.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	if words := cli.Parse(fs, args); len(words) > 0 {
-		return errors.New(installUsage)
+		return cli.UsageErrorf(installUsage)
 	}
 	opts := install.Options{APIAddr: *apiAddr, Client: *client}
 	fs.Visit(func(f *flag.Flag) {

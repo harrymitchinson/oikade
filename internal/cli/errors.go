@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 )
 
 // Exit codes.
@@ -60,19 +62,29 @@ func (e *Error) WithHint(format string, a ...any) *Error {
 	return e
 }
 
-// Debug takes --debug from args, before any "--", and says whether it or OIKADE_DEBUG asks for
-// errors in full.
-func Debug(args []string) (rest []string, debug bool) {
+// Debug takes --debug (or --debug=BOOL) from a command's arguments, and says whether it or
+// OIKADE_DEBUG asks for errors in full. It stops at "--", and for a command in passOn, which hands
+// what follows its flags to another program, as oikade test does to go test, at the first word
+// after the command's.
+func Debug(args []string, passOn ...string) (rest []string, debug bool) {
 	debug, _ = strconv.ParseBool(os.Getenv("OIKADE_DEBUG"))
+	command := ""
 	for i, arg := range args {
-		switch arg {
-		case "--":
+		name, value, hasValue := strings.Cut(strings.TrimPrefix(arg, "-"), "=")
+		passing := command != "" && slices.Contains(passOn, command) && !strings.HasPrefix(arg, "-")
+		switch {
+		case arg == "--" || passing:
 			return append(rest, args[i:]...), debug
-		case "--debug", "-debug":
+		case name == "-debug" || name == "debug":
 			debug = true
-		default:
-			rest = append(rest, arg)
+			if hasValue {
+				debug, _ = strconv.ParseBool(value)
+			}
+			continue
+		case command == "" && !strings.HasPrefix(arg, "-"):
+			command = arg
 		}
+		rest = append(rest, arg)
 	}
 	return rest, debug
 }
