@@ -227,10 +227,12 @@ func TestOurOwnLatePacketAfterAnUpdateIsntAConflict(t *testing.T) {
 func TestAConflictCountsOnce(t *testing.T) {
 	r, c, lost := newDefendingResponder(t)
 	r.timing.conflictWindow = time.Minute
-	for range 4 { // the other host announces twice, on two interfaces
+	r.handle(c, testIf, peer, otherSRV(t, hostTTL))
+	probes(t, c, testInstance, 1)
+	for range 3 { // the other host announces again, and answers our probe, heard on two interfaces
 		r.handle(c, testIf, peer, otherSRV(t, hostTTL))
 	}
-	select { // what came after the first claimed it while we probed it again
+	select {
 	case <-lost:
 	case <-time.After(time.Second):
 		t.Fatal("didn't lose the name")
@@ -252,16 +254,25 @@ func TestAnUpdateWhileProbedAgainIsWhatItProposes(t *testing.T) {
 	if err := r.Update(changed); err != nil {
 		t.Fatal(err)
 	}
+	// The last probe before the name is announced again proposes the updated TXT. One sent
+	// before the Update may propose the old.
+	var last []string
 	for {
 		p := c.next(t)
-		if p.msg.Response {
+		if !p.msg.Response {
+			for _, a := range p.msg.Authorities {
+				if txt, ok := a.Body.(*dnsmessage.TXTResource); ok {
+					last = txt.TXT
+				}
+			}
+			continue
+		}
+		if len(p.msg.Answers) > 0 && p.msg.Answers[0].Header.TTL == 0 {
 			continue // the Update's goodbye
 		}
-		for _, a := range p.msg.Authorities {
-			if txt, ok := a.Body.(*dnsmessage.TXTResource); ok && !slices.Equal(txt.TXT, changed.Text) {
-				t.Errorf("probe proposes TXT %q, want the updated %q", txt.TXT, changed.Text)
-			}
-		}
-		return
+		break // announced again
+	}
+	if !slices.Equal(last, changed.Text) {
+		t.Errorf("the last probe proposed TXT %q, want the updated %q", last, changed.Text)
 	}
 }

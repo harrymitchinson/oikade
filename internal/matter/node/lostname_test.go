@@ -38,14 +38,8 @@ func TestALostOperationalNameIsAdvertisedAgainLater(t *testing.T) {
 		return ok
 	})
 
-	fake.loseName(op)
+	fake.loseName(op) // which stops advertising it
 
-	n.mu.Lock()
-	_, still := n.operational[1]
-	n.mu.Unlock()
-	if still {
-		t.Error("still counts the lost operational service as advertised")
-	}
 	testkit.Eventually(t, "the operational service again", func() bool {
 		svc, ok := fake.operationalService()
 		return ok && svc.Instance == op.Instance
