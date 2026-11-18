@@ -75,6 +75,20 @@ grep -qx 'aliases: \["OIK-30"\]' "$(plan_file OIK-30)" || fail "an issue without
 grep -qx 'updated: "2026-01-01T00:00:00Z"' "$(plan_file OIK-30)" || fail "adding an alias changed updated"
 [[ "$(plan_body OIK-30)" == "aliases: not front matter" ]] || fail "adding an alias changed the description: $(plan_body OIK-30)"
 [[ "$(git -C "$PLAN_DIR" show --stat --format= HEAD~1 | grep -c issue.md)" == 1 ]] || fail "the aliases commit touched issues that had one"
+# Adding one changes nothing else, even in front matter hack/plan can't read,
+# and an aliases list in YAML's block style, as Obsidian writes it, counts.
+mkdir -p "$PLAN_DIR/backlog/OIK-31-yaml" "$PLAN_DIR/backlog/OIK-32-block"
+printf -- '---\ntitle: Unquoted\ntags:\n  - a\nlabels: []\n---\n\nBody.\n' >"$PLAN_DIR/backlog/OIK-31-yaml/issue.md"
+printf -- '---\nid: "OIK-32"\naliases:\n  - OIK-32\n  - pump\n---\n\nBody.\n' >"$PLAN_DIR/backlog/OIK-32-block/issue.md"
+git -C "$PLAN_DIR" add -A && git -C "$PLAN_DIR" commit -qm "Fixture: OIK-31 and OIK-32"
+cp "$PLAN_DIR/backlog/OIK-32-block/issue.md" "$tmp/block.md"
+"$plan" note OIK-11 again >/dev/null
+[[ "$(cat "$PLAN_DIR/backlog/OIK-31-yaml/issue.md")" == $'---\ntitle: Unquoted\ntags:\n  - a\nlabels: []\naliases: ["OIK-31"]\n---\n\nBody.' ]] ||
+	fail "adding an alias changed more than its line: $(cat "$PLAN_DIR/backlog/OIK-31-yaml/issue.md")"
+cmp -s "$tmp/block.md" "$PLAN_DIR/backlog/OIK-32-block/issue.md" || fail "an aliases list in block style didn't count: $(cat "$PLAN_DIR/backlog/OIK-32-block/issue.md")"
+# hack/plan reads only JSON front matter, so the rest of this file can't share a plan with OIK-31.
+rm -rf "$PLAN_DIR/backlog/OIK-31-yaml" "$PLAN_DIR/backlog/OIK-32-block"
+git -C "$PLAN_DIR" add -A && git -C "$PLAN_DIR" commit -qm "Fixture: remove OIK-31 and OIK-32"
 
 # Labels keep the plan's spelling, and come off in any case.
 "$plan" label OIK-7 +Bug >/dev/null

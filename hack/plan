@@ -326,17 +326,25 @@ plan_write() {
 
 # add_aliases: give every issue without one its ID as an alias, so Obsidian,
 # with plan/ as its vault, resolves [[OIK-N]] and finds each mention of it,
-# though every issue's file is issue.md (OIK-351). It commits on its own, and
-# leaves updated alone, since nothing about the issue changed.
+# though every issue's file is issue.md (OIK-351). It adds that one line before
+# the front matter's end, with the ID from the folder's name, and rewrites
+# nothing else, so front matter it can't read is left as it was. Any aliases
+# line counts, in either YAML style, as Obsidian writes a list in block style.
+# Only the issues it changed are committed, on their own.
 add_aliases() {
-	local f files
+	local f d files changed=()
 	files=("$PLAN_DIR"/*/*/issue.md)
 	[[ -e "${files[0]}" ]] || return 0
 	while IFS= read -r f; do
-		set_fm "$f" '.aliases = ([.id] | map(select(. != null)))'
-	done < <(awk 'FNR == 1 {if ($0 != "---") nextfile; next} /^aliases: / {nextfile} /^---$/ {print FILENAME; nextfile}' "${files[@]}")
-	git -C "$PLAN_DIR" add -A
-	git -C "$PLAN_DIR" diff --cached --quiet || git -C "$PLAN_DIR" commit -q -m "Aliases for Obsidian"
+		d=$(basename "$(dirname "$f")")
+		[[ "$d" =~ ^($TEAM-[0-9]+)(-|$) ]] || continue
+		awk -v a="aliases: [\"${BASH_REMATCH[1]}\"]" 'NR > 1 && !done && $0 == "---" {print a; done = 1} {print}' "$f" >"$f.$$" &&
+			mv "$f.$$" "$f"
+		changed+=("$f")
+	done < <(awk 'FNR == 1 {if ($0 != "---") nextfile; next} /^aliases:/ {nextfile} /^---$/ {print FILENAME; nextfile}' "${files[@]}")
+	(( ${#changed[@]} > 0 )) || return 0
+	git -C "$PLAN_DIR" add -- "${changed[@]}"
+	git -C "$PLAN_DIR" commit -q -m "Aliases for Obsidian" -- "${changed[@]}"
 }
 
 # set_fm FILE FILTER [JQ_ARGS...]: rewrite FILE's front matter with a jq FILTER.
