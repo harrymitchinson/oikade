@@ -180,6 +180,9 @@ func build(ctx context.Context, module, out string, info api.Response) error {
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	cmd.Env = append(os.Environ(), "GOOS="+info.GOOS, "GOARCH="+info.GOARCH, "CGO_ENABLED=0")
 	if err := cmd.Run(); err != nil {
+		if !ranAndFailed(err) {
+			return fmt.Errorf("couldn't run go build: %w", err)
+		}
 		return cli.Wrap(err, "your home doesn't build, as go build says above")
 	}
 	return nil

@@ -60,6 +60,9 @@ func runReplay(ctx context.Context, args []string) error {
 	cmd := exec.CommandContext(ctx, path, wire.RoleReplay, log, file, result)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Run(); err != nil {
+		if !ranAndFailed(err) {
+			return fmt.Errorf("couldn't run your home's replay: %w", err)
+		}
 		return cli.Wrap(err, "your home's replay failed, as it says above")
 	}
 	raw, err := os.ReadFile(result)

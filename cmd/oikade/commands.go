@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -44,7 +45,14 @@ func (t target) transport() api.Transport {
 	return api.Explained(transport, func(err error) error { return unreachable(transport, name, err) })
 }
 
-// unreachable is err, from dialing t, in the user's words.
+// isDNS is a name that didn't resolve.
+func isDNS(err error) bool {
+	_, ok := errors.AsType[*net.DNSError](err)
+	return ok
+}
+
+// unreachable is err, from dialing t, in the user's words, if it's one that a host out of reach
+// gives. Anything else, such as a cancel, is as it was.
 func unreachable(t api.Transport, name string, err error) error {
 	if _, ok := errors.AsType[*cli.Error](err); ok {
 		return err
@@ -66,8 +74,10 @@ func unreachable(t api.Transport, name string, err error) error {
 			return cli.Wrap(err, "%s, at %s, isn't the host you logged in to: its key has another pin", name, t.Address).
 				WithHint("oikade login it again, with the pin oikade-host client add prints on it")
 		}
-		return cli.Wrap(err, "couldn't reach %s, at %s", name, t.Address).
-			WithHint("check the host is running there with --api-addr, and that this machine can reach it")
+		if _, isNet := errors.AsType[*net.OpError](err); isNet || isDNS(err) {
+			return cli.Wrap(err, "couldn't reach %s, at %s", name, t.Address).
+				WithHint("check the host is running there with --api-addr, and that this machine can reach it")
+		}
 	}
 	return err
 }

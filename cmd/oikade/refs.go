@@ -77,8 +77,7 @@ func valueOf(device, name, raw string) (any, error) {
 	spec, ok := capability.Lookup(name)
 	switch {
 	case !ok:
-		return nil, cli.Errorf("%s isn't a capability Oikade knows", name).
-			WithHint("oikade status %s lists what %s has", device, device)
+		return parseValue(raw), nil // A newer host's, perhaps, which says what it takes.
 	case !spec.Writable:
 		return nil, cli.Errorf("%s is read-only: %s reports it, and nothing sets it", ref, device)
 	}
@@ -107,8 +106,11 @@ func valueOf(device, name, raw string) (any, error) {
 
 // orList is "a, b or c".
 func orList(names []string) string {
-	if len(names) < 2 {
-		return strings.Join(names, "")
+	switch len(names) {
+	case 0:
+		return "a name"
+	case 1:
+		return names[0]
 	}
 	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
 }

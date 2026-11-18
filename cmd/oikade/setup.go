@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -207,8 +208,11 @@ func catchRedirect(ctx context.Context, redirect string, listening func()) (stri
 	}
 	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 	if err != nil {
-		return "", cli.Wrap(err, "couldn't listen for the page's redirect on %s", address).
-			WithHint("something else has that port: stop it, and run oikade setup again")
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return "", cli.Wrap(err, "couldn't listen for the page's redirect on %s: something else has that port", address).
+				WithHint("stop it, and run oikade setup again")
+		}
+		return "", fmt.Errorf("couldn't listen for the page's redirect on %s: %w", address, err)
 	}
 	got := make(chan string, 1)
 	page := func(w http.ResponseWriter, r *http.Request) {

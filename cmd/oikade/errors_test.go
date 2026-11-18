@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -38,11 +41,6 @@ func TestErrorsReadAsSentences(t *testing.T) {
 		{
 			[]string{"set", "salon", "temperature", "3"},
 			"Error: device/salon/temperature is read-only: salon reports it, and nothing sets it\n",
-			1,
-		},
-		{
-			[]string{"set", "salon", "colour", "red"},
-			"Error: colour isn't a capability Oikade knows\nHint: oikade status salon lists what salon has\n",
 			1,
 		},
 		// A ref says what it got, and the forms the command takes.
@@ -123,14 +121,35 @@ func TestAHostOutOfReachSaysWhy(t *testing.T) {
 		{api.Remote{Address: "pi.home:8443"}, fmt.Errorf("the host's pin is sha256:a, not sha256:b: %w", api.ErrOtherHost),
 			"Error: europa, at pi.home:8443, isn't the host you logged in to: its key has another pin\n" +
 				"Hint: oikade login it again, with the pin oikade-host client add prints on it\n"},
-		{api.Remote{Address: "pi.home:8443"}, errors.New("dial tcp: lookup pi.home: no such host"),
+		{api.Remote{Address: "pi.home:8443"}, &net.DNSError{Err: "no such host", Name: "pi.home", IsNotFound: true},
 			"Error: couldn't reach europa, at pi.home:8443\n" +
 				"Hint: check the host is running there with --api-addr, and that this machine can reach it\n"},
+		// Anything else, such as a cancel, is as it was.
+		{api.Remote{Address: "pi.home:8443"}, context.Canceled, "Error: context canceled\n"},
+		{api.Remote{Address: "pi.home:8443"}, errors.New("no pin for the host"), "Error: no pin for the host\n"},
 	} {
 		var b strings.Builder
 		cli.Plain(&b, 0).Fail(unreachable(tc.transport, "europa", tc.err), false)
 		if !strings.HasPrefix(b.String(), tc.want) {
 			t.Errorf("%v:\n%s\nwant:\n%s", tc.err, b.String(), tc.want)
 		}
+	}
+}
+
+// A home's module may be above --module, as go build finds it.
+func TestAHomeIsAnyDirectoryInAModule(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module home\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "cmd", "home")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireHome(sub); err != nil {
+		t.Errorf("%s is in a module: %v", sub, err)
+	}
+	if err := requireHome(t.TempDir()); err == nil {
+		t.Error("a directory in no module is a home")
 	}
 }

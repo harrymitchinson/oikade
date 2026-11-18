@@ -42,17 +42,36 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 	return path, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-// requireHome fails unless module is a Go module, as a home is, saying how to name one.
+// requireHome fails unless module is in a Go module, as a home is, saying how to name one. It looks
+// for a go.mod there and above, as go build does, and leaves any other trouble to go.
 func requireHome(module string) error {
-	if _, err := os.Stat(filepath.Join(module, "go.mod")); err != nil {
-		where := "here"
-		if module != "." {
-			where = "in " + module
-		}
-		return cli.Wrap(err, "there's no home %s: a home is a Go module, with a go.mod", where).
-			WithHint("cd into your home's module, or pass --module DIR. oikade init starts one")
+	dir, err := filepath.Abs(module)
+	if err != nil {
+		return nil
 	}
-	return nil
+	for {
+		_, err := os.Stat(filepath.Join(dir, "go.mod"))
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	where := "here"
+	if module != "." {
+		where = "in " + module
+	}
+	return cli.Errorf("there's no home %s: a home is a Go module, with a go.mod", where).
+		WithHint("cd into your home's module, or pass --module DIR. oikade init starts one")
+}
+
+// ranAndFailed is err if it's a program that ran and failed, which has said why on stderr.
+func ranAndFailed(err error) bool {
+	_, ok := errors.AsType[*exec.ExitError](err)
+	return ok
 }
 
 // runCheck finds what's wrong with a home without touching one: the compiler, then the source, then the
@@ -112,6 +131,9 @@ func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if !ranAndFailed(err) {
+			return wire.Manifest{}, fmt.Errorf("couldn't run your home's checks: %w", err)
+		}
 		return wire.Manifest{}, cli.Wrap(err, "your home failed its own checks, as it says above")
 	}
 	// A home's own code may have printed first.
@@ -148,7 +170,7 @@ func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceD
 func hostDevices(ctx context.Context, t api.Transport) (api.Response, bool) {
 	devices, err := devicesOf(ctx, t)
 	if err != nil {
-		if local, ok := t.(api.Local); ok {
+		if local, ok := api.Unexplained(t).(api.Local); ok {
 			if _, statErr := os.Stat(filepath.Join(local.DataDir, api.SocketName)); statErr != nil {
 				return api.Response{}, false // There's no host here to ask.
 			}
@@ -211,6 +233,9 @@ func runTest(ctx context.Context, args []string) error {
 	cmd.Dir = *module
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
+		if !ranAndFailed(err) {
+			return fmt.Errorf("couldn't run go test: %w", err)
+		}
 		return cli.Wrap(err, "your tests didn't pass, as go test says above")
 	}
 	return nil
@@ -310,6 +335,9 @@ func moduleFromRelease(ctx context.Context, stderr io.Writer, dir, name string) 
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			_, _ = stderr.Write(out)
+			if !ranAndFailed(err) {
+				return fmt.Errorf("couldn't run go %s: %w", strings.Join(args, " "), err)
+			}
 			return cli.Wrap(err, "go %s failed, as it says above", strings.Join(args, " "))
 		}
 	}
