@@ -19,7 +19,8 @@ printf '#!/usr/bin/env bash\necho lin_test\n' >"$tmp/hack/linear-token"
 chmod +x "$tmp/hack/linear-token"
 
 # curl: a download (-o FILE) writes "bytes of NAME". A GraphQL call answers
-# from CONNECTION.json, and issues come in two pages, to check the paging.
+# from CONNECTION.json, issues come in two pages, to check the paging, and
+# issue(id:) answers with the whole history from issue.json.
 cat >"$tmp/bin/curl" <<'STUB'
 #!/usr/bin/env bash
 out="" url=""
@@ -37,7 +38,9 @@ q=$(jq -r .query <<<"$req")
 conn=$(sed -E 's/^[^{]*\{ *([a-zA-Z]+)\(.*/\1/' <<<"$(tr -s ' \n\t' ' ' <<<"$q")")
 f="$STUB_FX/$conn.json"
 [[ -f "$f" ]] || { echo "curl stub: no fixture for $conn" >&2; exit 1; }
-if [[ "$conn" == issues ]]; then
+if [[ "$conn" == issue ]]; then
+	jq -c '{data: {issue: {history: {nodes: ., pageInfo: {hasNextPage: false, endCursor: null}}}}}' "$f"
+elif [[ "$conn" == issues ]]; then
 	if [[ "$(jq -r .variables.a <<<"$req")" == null ]]; then
 		jq -c '{data: {issues: {nodes: .[:2], pageInfo: {hasNextPage: true, endCursor: "c1"}}}}' "$f"
 	else
@@ -72,12 +75,13 @@ cat >"$tmp/fx/issues.json" <<EOF
  "creator": {"name": "Oikade Agent"}, "assignee": null, "labels": $none,
  "relations": $none, "inverseRelations": {"nodes": [{"type": "blocks", "issue": {"identifier": "OIK-1"}}, {"type": "related", "issue": {"identifier": "OIK-4"}}]},
  "attachments": $none, "history": {"nodes": [], "pageInfo": {"hasNextPage": false}}},
-{"identifier": "OIK-4", "title": "Pause, then resume!", "priority": 0, "estimate": null, "dueDate": null, "description": "Why.",
+{"identifier": "OIK-4", "title": "Pause, then resume!", "priority": 0, "estimate": null, "dueDate": null, "description": "Why.\nhttps://uploads.linear.app/org/d/u4\n- next",
  "createdAt": "2026-10-03T10:00:00.000Z", "updatedAt": "2026-10-03T10:00:00.000Z", "startedAt": null,
  "completedAt": null, "canceledAt": null, "archivedAt": null, "triagedAt": null,
  "state": {"name": "Design Review"}, "project": null, "parent": null,
  "creator": {"name": "Owner"}, "assignee": null, "labels": $none, "relations": $none, "inverseRelations": $none,
- "attachments": $none, "history": {"nodes": [], "pageInfo": {"hasNextPage": false}}}
+ "attachments": $none, "history": {"nodes": [{"createdAt": "2026-10-03T10:00:00.000Z", "fromState": null, "toState": {"name": "Design Review"}, "actor": {"name": "Owner"}, "botActor": null}],
+   "pageInfo": {"hasNextPage": true}}}
 ]
 EOF
 cat >"$tmp/fx/comments.json" <<'EOF'
@@ -92,11 +96,17 @@ cat >"$tmp/fx/comments.json" <<'EOF'
 EOF
 cat >"$tmp/fx/projects.json" <<'EOF'
 [
-{"name": "v0.1.0", "state": "completed", "description": "The first release.", "content": "Goal: it runs.\n\nSee [Manual testing](https://linear.app/oikade/document/manual-testing-abc123).",
+{"name": "v0.1.0", "state": "completed", "description": "The first release.", "content": "Goal: it runs.\n\nSee [Manual testing](https://linear.app/oikade/document/manual-testing-abc123). ![chart](https://uploads.linear.app/org/c/u3)",
  "startedAt": "2026-10-01T00:00:00.000Z", "completedAt": "2026-11-01T00:00:00.000Z", "canceledAt": null, "targetDate": null, "archivedAt": null, "teams": {"nodes": [{"key": "OIK"}]}},
 {"name": "Elsewhere", "state": "started", "description": "Another team's.", "content": "", "startedAt": null, "completedAt": null, "canceledAt": null,
  "targetDate": null, "archivedAt": null, "teams": {"nodes": [{"key": "OTH"}]}}
 ]
+EOF
+# OIK-4 has more history than one page holds: the rest comes on its own.
+cat >"$tmp/fx/issue.json" <<'EOF'
+[{"createdAt": "2026-10-03T10:00:00.000Z", "fromState": null, "toState": {"name": "Design Review"}, "actor": {"name": "Owner"}, "botActor": null},
+ {"createdAt": "2026-10-04T10:00:00.000Z", "fromState": null, "toState": null, "actor": {"name": "Owner"}, "botActor": null},
+ {"createdAt": "2026-10-05T10:00:00.000Z", "fromState": {"name": "Design Review"}, "toState": {"name": "Backlog"}, "actor": {"name": "Owner"}, "botActor": null}]
 EOF
 cat >"$tmp/fx/projectUpdates.json" <<'EOF'
 [{"body": "Shipped.", "createdAt": "2026-11-01T00:00:00.000Z", "health": "onTrack", "project": {"name": "v0.1.0"}, "user": {"name": "Owner"}}]
@@ -148,6 +158,12 @@ has "$one/issue.md" '![shot.png](files/u1)'
 has "$one/files/u1" 'bytes of u1'
 has "$one/issue.md" 'After OIK-2, see OIK-4, the step (OIK-2) and [Manual testing](../../docs/manual-testing.md).'
 lacks "$one/issue.md" 'linear.app'
+# An upload at the end of a line stops there.
+has "$four/issue.md" 'files/u4'
+has "$four/issue.md" '- next'
+has "$four/files/u4" 'bytes of u4'
+# A history longer than a page is fetched in full.
+has "$four/issue.md" 'status-history: ["2026-10-03T10:00:00Z none -> Design Review by Owner","2026-10-05T10:00:00Z Design Review -> Backlog by Owner"]'
 
 # One file per comment, named for its time and author; two in one second get -2.
 c="$one/comments/2026-10-01T10-10-00Z-oikade-agent"
@@ -168,11 +184,13 @@ has releases/v0.1.0.md 'state: "completed"'
 has releases/v0.1.0.md 'summary: "The first release."'
 has releases/v0.1.0.md 'See [Manual testing](../docs/manual-testing.md).'
 has releases/v0.1.0.md '## Update, 2026-11-01T00:00:00Z by Owner (onTrack)'
+has releases/v0.1.0.md '![chart](files/u3)'
+has releases/files/u3 'bytes of u3'
 [[ ! -e "$plan/releases/Elsewhere.md" ]] || fail "exported another team's project"
 has docs/manual-testing.md 'title: "Manual testing"'
 has docs/manual-testing.md '- [ ] It fires.'
 
-grep -qF 'Exported 3 issues (1 archived) up to OIK-4, 3 comments, 1 releases, 1 documents and 2 uploads' <<<"$out" ||
+grep -qF 'Exported 3 issues (1 archived) up to OIK-4, 3 comments, 1 releases, 1 documents and 4 uploads' <<<"$out" ||
 	fail "the summary is wrong: $out"
 grep -qF 'Linear has no issue numbered OIK-3' <<<"$out" || fail "the gap at OIK-3 isn't reported: $out"
 
@@ -203,6 +221,30 @@ printf '%s\n' 'ID,Title,Status,Project' 'OIK-1,Schedules,Todo,v0.1.0' 'OIK-9,Gon
 if out=$("$tmp/hack/plan-export" --csv "$tmp/bad.csv" 2>&1); then fail "a CSV that disagrees passed"; fi
 grep -qF 'OIK-1: Done, not Todo' <<<"$out" || fail "the CSV check doesn't name the status: $out"
 grep -qF 'OIK-9: in the CSV but not exported' <<<"$out" || fail "the CSV check doesn't name the missing issue: $out"
+
+# Two documents with one name both come over, each with its slugId.
+cp "$tmp/fx/documents.json" "$tmp/documents.json"
+jq '. + [.[0] | .id = "e7654321-y" | .slugId = "def456" | .title = "Manual Testing!" | .content = "Other."]' \
+	"$tmp/documents.json" >"$tmp/fx/documents.json"
+"$tmp/hack/plan-export" >/dev/null 2>&1 || fail "the export with two documents of one name failed"
+has docs/manual-testing-abc123.md '- [ ] It fires.'
+has docs/manual-testing-def456.md 'Other.'
+has "$one/issue.md" '[Manual testing](../../docs/manual-testing-abc123.md)'
+cp "$tmp/documents.json" "$tmp/fx/documents.json"
+
+# What it can't copy yet stops it before it writes: a comment on no issue, or
+# more labels, relations or links than one page holds.
+cp "$tmp/fx/comments.json" "$tmp/comments.json"
+jq '.[0].issue = null' "$tmp/comments.json" >"$tmp/fx/comments.json"
+if out=$("$tmp/hack/plan-export" 2>&1); then fail "exported with a comment on no issue"; fi
+grep -qF "1 comments aren't on an issue" <<<"$out" || fail "the refusal doesn't say why: $out"
+cp "$tmp/comments.json" "$tmp/fx/comments.json"
+cp "$tmp/fx/issues.json" "$tmp/issues.json"
+jq '.[0].attachments.pageInfo = {hasNextPage: true}' "$tmp/issues.json" >"$tmp/fx/issues.json"
+if out=$("$tmp/hack/plan-export" 2>&1); then fail "exported an issue with more links than a page"; fi
+grep -qF "OIK-1 has more than 50" <<<"$out" || fail "the refusal doesn't name the issue: $out"
+cp "$tmp/issues.json" "$tmp/fx/issues.json"
+[[ -e "$plan/$one/issue.md" ]] || fail "a refused export changed plan/"
 
 [[ $failed == 0 ]] && echo "plan-export: ok"
 exit "$failed"

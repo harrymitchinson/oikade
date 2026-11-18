@@ -62,50 +62,74 @@ lin() {
 	jq -c .data <<<"$out"
 }
 
-# all CONNECTION FIELDS [FILTER] [SIZE]: every node of a top-level connection,
-# archived ones included, as one JSON array.
-all() {
-	local after=null nodes='[]' page
-	while :; do
-		page=$(lin "query(\$a: String) { $1(first: ${4:-250}, after: \$a, includeArchived: true${3:+, filter: $3}) {
-			nodes { $2 } pageInfo { hasNextPage endCursor } } }" "$(jq -cn --argjson a "$after" '{a: $a}')")
-		nodes=$(jq -c --argjson p "$page" ". + \$p.$1.nodes" <<<"$nodes")
-		[[ "$(jq -r ".$1.pageInfo.hasNextPage" <<<"$page")" == true ]] || break
-		after=$(jq -c ".$1.pageInfo.endCursor" <<<"$page")
-	done
-	printf '%s\n' "$nodes"
-}
-
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+
+# pages QUERY VARS_JSON PATH: every node of the connection at PATH in QUERY's
+# answer, which takes the variable $a as the cursor to start after, as one JSON
+# array. Pages go through files, never arguments, which have a size limit.
+pages() {
+	local after=null page n=0 parts
+	parts=$(mktemp -d "$work/pages.XXXXXX")
+	while :; do
+		page=$(lin "$1" "$(jq -c --argjson a "$after" '. + {a: $a}' <<<"$2")")
+		n=$((n + 1))
+		jq -c "$3.nodes" <<<"$page" >"$parts/$(printf %06d "$n").json"
+		[[ "$(jq -r "$3.pageInfo.hasNextPage" <<<"$page")" == true ]] || break
+		after=$(jq -c "$3.pageInfo.endCursor" <<<"$page")
+	done
+	jq -cs 'add // []' "$parts"/*.json
+}
+
+# all CONNECTION FIELDS [FILTER] [SIZE]: every node of a top-level connection,
+# archived ones included.
+all() {
+	pages "query(\$a: String) { $1(first: ${4:-250}, after: \$a, includeArchived: true${3:+, filter: $3}) {
+		nodes { $2 } pageInfo { hasNextPage endCursor } } }" '{}' ".$1"
+}
+
+HISTORY='createdAt fromState { name } toState { name } actor { name } botActor { name }'
 
 team_filter="{team: {key: {eq: \"$TEAM\"}}}"
 echo "Fetching $TEAM's issues from Linear" >&2
 all issues 'identifier title description priority estimate dueDate
 	createdAt updatedAt startedAt completedAt canceledAt archivedAt triagedAt
 	state { name } project { name } parent { identifier } creator { name } assignee { name }
-	labels { nodes { name } }
-	relations { nodes { type relatedIssue { identifier } } }
-	inverseRelations { nodes { type issue { identifier } } }
-	attachments { nodes { title url } }
-	history(first: 100) { nodes { createdAt fromState { name } toState { name } actor { name } botActor { name } }
-		pageInfo { hasNextPage } }' "$team_filter" "$PAGE" >"$work/issues.json"
-# A page of history holds 100 changes. An issue with more would lose some.
-long=$(jq -r '[.[] | select(.history.pageInfo.hasNextPage) | .identifier] | join(" ")' "$work/issues.json")
-[[ -z "$long" ]] || die "$long changed status more than 100 times, which this export doesn't page through yet"
+	labels { nodes { name } pageInfo { hasNextPage } }
+	relations { nodes { type relatedIssue { identifier } } pageInfo { hasNextPage } }
+	inverseRelations { nodes { type issue { identifier } } pageInfo { hasNextPage } }
+	attachments { nodes { title url } pageInfo { hasNextPage } }
+	history(first: 100) { nodes { '"$HISTORY"' } pageInfo { hasNextPage } }' "$team_filter" "$PAGE" >"$work/issues.json"
+# Labels, relations and links come 50 to a page. None has had more, so rather
+# than page through them, an issue with more stops the export.
+full=$(jq -r '[.[] | select([.labels, .relations, .inverseRelations, .attachments][].pageInfo.hasNextPage) | .identifier]
+	| unique | join(" ")' "$work/issues.json")
+[[ -z "$full" ]] || die "$full has more than 50 labels, relations or links, which this export doesn't page through yet, so nothing was exported"
+# History holds every change, not only status, so a busy issue gets the rest
+# of its history on its own.
+for i in $(jq -r '.[] | select(.history.pageInfo.hasNextPage) | .identifier' "$work/issues.json"); do
+	pages "query(\$i: String!, \$a: String) { issue(id: \$i) { history(first: 250, after: \$a) {
+		nodes { $HISTORY } pageInfo { hasNextPage endCursor } } } }" "$(jq -cn --arg i "$i" '{i: $i}')" .issue.history >"$work/history.json"
+	jq -c --arg i "$i" --slurpfile h "$work/history.json" 'map(if .identifier == $i then .history.nodes = $h[0] else . end)' \
+		"$work/issues.json" >"$work/issues.next" && mv "$work/issues.next" "$work/issues.json"
+done
 
 echo "Fetching comments, releases and documents" >&2
 all comments 'id body createdAt updatedAt editedAt quotedText resolvedAt
 	issue { identifier } parent { id } user { name } botActor { name } externalUser { name }' >"$work/comments.json"
+# Linear also takes comments on documents and releases. None has any, so rather
+# than lose one, any there are stop the export.
+loose=$(jq '[.[] | select(.issue == null)] | length' "$work/comments.json")
+[[ "$loose" == 0 ]] || die "$loose comments aren't on an issue, which this export doesn't copy yet, so nothing was exported"
 all projects 'name state description content startedAt completedAt canceledAt targetDate archivedAt
 	teams { nodes { key } }' '' 50 >"$work/projects.json"
 all projectUpdates 'body createdAt health project { name } user { name }' >"$work/updates.json"
 all documents 'id slugId title content createdAt updatedAt archivedAt project { name } creator { name }' >"$work/documents.json"
 
-# Uploads die with the workspace, so every one a description, comment or
-# document links is downloaded, and its link points at the copy instead.
-jq -r '.[] | (.description, .body, .content) // empty' "$work"/{issues,comments,documents}.json |
-	grep -o 'https://uploads\.linear\.app/[^ )"<>]*' | sort -u >"$work/uploads.txt" || true
+# Uploads die with the workspace, so every one a description, comment,
+# release or document links is downloaded, and its link points at the copy instead.
+jq -r '.[] | (.description, .body, .content) // empty' "$work"/{issues,comments,projects,updates,documents}.json |
+	grep -o 'https://uploads\.linear\.app/[^[:space:])"<>]*' | sort -u >"$work/uploads.txt" || true
 n_uploads=$(wc -l <"$work/uploads.txt" | tr -d ' ')
 mkdir "$work/uploads"
 if [[ "$n_uploads" -gt 0 ]]; then
@@ -132,9 +156,9 @@ def ts: sub("\\.[0-9]+Z$"; "Z");
 # A time that may be missing.
 def t: if . then ts else . end;
 def who: .user.name // .botActor.name // .externalUser.name // "Linear";
-def files_of($text): [$text // "" | scan("https://uploads\\.linear\\.app/[^ )\"<>]*")] | unique;
+def files_of($text): [$text // "" | scan("https://uploads\\.linear\\.app/[^\\s)\"<>]*")] | unique;
 # Links to uploads point at files/<ID>, from where the text sits.
-def local($prefix): gsub("https://uploads\\.linear\\.app/[^ )\"<>]*/(?<f>[^/ )\"<>]+)"; "\($prefix)files/\(.f)");
+def local($prefix): gsub("https://uploads\\.linear\\.app/[^\\s)\"<>]*/(?<f>[^/\\s)\"<>]+)"; "\($prefix)files/\(.f)");
 # Links into Linear die with it too. One to an issue becomes its ID, and one to
 # a document a link to its copy, from $root, the way back to plan/. $docnames
 # maps the slugId of a document to the name of its file.
@@ -148,7 +172,9 @@ def delinear($root; $docnames):
 def emit($path; $text): "\($path)\t\($text | @base64)";
 def uploads($folder; $text): files_of($text)[] | "\($folder)/files/\(split("/") | last)\t@\(split("/") | last)";
 
-($documents[0] | map({key: .slugId, value: docname}) | from_entries) as $docnames
+# Two documents with one name get their slugIds too, so neither overwrites the other.
+($documents[0] | group_by(docname) | map(if length == 1 then .[0] | {key: .slugId, value: docname}
+	else .[] | {key: .slugId, value: "\(docname)-\(.slugId)"} end) | from_entries) as $docnames
 | ($comments[0] | group_by(.issue.identifier // "") | map({key: (.[0].issue.identifier // ""), value: .}) | from_entries) as $by_issue
 | ($updates[0] | group_by(.project.name) | map({key: .[0].project.name, value: .}) | from_entries) as $by_project
 | (
@@ -203,13 +229,15 @@ def uploads($folder; $text): files_of($text)[] | "\($folder)/files/\(split("/") 
 			["completed", ($p.completedAt | t)],
 			["canceled", ($p.canceledAt | t)],
 			["archived", ($p.archivedAt | t)]
-		]) + "\n" + ($p.content // "" | delinear("../"; $docnames)) + "\n"
+		]) + "\n" + ($p.content // "" | local("") | delinear("../"; $docnames)) + "\n"
 		+ ([$by_project[$p.name] // [] | sort_by(.createdAt)[]
-			| "\n## Update, \(.createdAt | ts) by \(who) (\(.health))\n\n\(.body | delinear("../"; $docnames))\n"] | join("")))
+			| "\n## Update, \(.createdAt | ts) by \(who) (\(.health))\n\n\(.body | local("") | delinear("../"; $docnames))\n"] | join(""))),
+	uploads("releases"; $p.content),
+	($by_project[$p.name] // [] | .[] | uploads("releases"; .body))
 ),
 (
 	$documents[0][] as $d
-	| ($d | docname) as $name
+	| $docnames[$d.slugId] as $name
 	| emit("docs/\($name).md";
 		fm([
 			["title", $d.title], ["release", $d.project.name], ["creator", $d.creator.name],
