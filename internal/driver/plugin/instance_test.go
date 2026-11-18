@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -110,6 +111,12 @@ func publish(t *testing.T, bus *mqtt.Memory, topic, payload string) {
 // setup starts an instance the way the hub does: subscribe first, then declare devices.
 func setup(t *testing.T, retained map[string]string) (*Instance, *mqtt.Memory, *recorder) {
 	t.Helper()
+	return setupLogged(t, retained, logging.Discard())
+}
+
+// setupLogged is setup, logging to log.
+func setupLogged(t *testing.T, retained map[string]string, log *slog.Logger) (*Instance, *mqtt.Memory, *recorder) {
+	t.Helper()
 	bus := mqtt.NewMemory()
 	for topic, payload := range retained {
 		publish(t, bus, root+"/"+topic, payload)
@@ -117,7 +124,7 @@ func setup(t *testing.T, retained map[string]string) (*Instance, *mqtt.Memory, *
 	rec := newRecorder()
 	i := &Instance{
 		Key: dev("sonoff"), Root: root, Bus: bus, Sink: rec,
-		Now: func() time.Time { return now }, Log: logging.Discard(),
+		Now: func() time.Time { return now }, Log: log,
 	}
 	if err := i.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -507,4 +514,34 @@ func TestADeviceTypeIsTakenAndAnUnknownOneRejected(t *testing.T) {
 	if got := i.Stats().Rejected[ReasonUnknownDeviceType]; got != 2 {
 		t.Errorf("unknown_device_type = %d, want 2: %v", got, i.Stats().Rejected)
 	}
+}
+
+// Its lines name the plugin by name in the host's JSON log, as a filter on it expects (OIK-330).
+func TestThePluginsLinesNameIt(t *testing.T) {
+	var out lockedBuffer
+	_, bus, _ := setupLogged(t, online(), slog.New(slog.NewJSONHandler(&out, nil)))
+	publish(t, bus, root+"/status", `{"state":"offline","contract":1}`)
+	for _, msg := range []string{"Plugin came online", "Plugin went offline"} {
+		if !strings.Contains(out.String(), `"msg":"`+msg+`","plugin":"sonoff"`) {
+			t.Errorf("no %q with plugin sonoff in:\n%s", msg, out.String())
+		}
+	}
+}
+
+// lockedBuffer is a log's output that any goroutine can write while the test reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

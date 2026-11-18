@@ -3,6 +3,7 @@ package ident
 
 import (
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"unicode"
@@ -17,6 +18,12 @@ type ID struct {
 // String returns the ID's name.
 func (id ID) String() string {
 	return id.Name
+}
+
+// LogValue logs an ID as its name, so a filter on a device's or a plugin's name finds every line
+// that names it (OIK-330).
+func (id ID) LogValue() slog.Value {
+	return slog.StringValue(id.Name)
 }
 
 // Kind is a kind of thing a home is made of, as a name's errors and suggestions call it.

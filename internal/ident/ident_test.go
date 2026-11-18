@@ -1,6 +1,7 @@
 package ident
 
 import (
+	"log/slog"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,14 @@ func TestCheckNameSuggestsAName(t *testing.T) {
 		if err == nil || err.Error() != c.want {
 			t.Errorf("CheckName(%s, %q) = %v, want %s", c.kind, c.name, err, c.want)
 		}
+	}
+}
+
+// A log names an ID by its name, as a filter on it expects (OIK-330).
+func TestAnIDLogsAsItsName(t *testing.T) {
+	var out strings.Builder
+	slog.New(slog.NewJSONHandler(&out, nil)).Info("Plugin came online", "plugin", ID{Name: "ewelink-lan"})
+	if !strings.Contains(out.String(), `"plugin":"ewelink-lan"`) {
+		t.Errorf("got %s", out.String())
 	}
 }
