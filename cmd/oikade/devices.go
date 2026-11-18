@@ -291,7 +291,7 @@ func runTypes(ctx context.Context, args []string) error {
 	pkg := fs.String("package", "main", "The file's Go package.")
 	module := fs.String("module", ".", "Your home's module, whose declarations name its devices.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikade types takes no %q", extra[0])
+		return cli.UsageErrorf("oikade types takes no %q", extra[0])
 	}
 	list, err := registryOf(ctx, target)
 	if err != nil {

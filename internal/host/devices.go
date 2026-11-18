@@ -343,6 +343,9 @@ func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafet
 	var removed, problems []string
 	for _, name := range names {
 		if err := i.registry.Remove(name); err != nil {
+			if errors.Is(err, registry.ErrNoDevice) {
+				err = noDevice(name)
+			}
 			problems = append(problems, err.Error())
 			break
 		}

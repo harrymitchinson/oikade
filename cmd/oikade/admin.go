@@ -116,7 +116,7 @@ func readSecret(in *os.File) (string, error) {
 	}
 	text := strings.TrimSuffix(strings.TrimSuffix(string(value), "\n"), "\r")
 	if text == "" {
-		return "", errors.New("the value is empty")
+		return "", cli.Errorf("a secret's value can't be empty").WithHint("type it when asked, or pipe it in")
 	}
 	return text, nil
 }

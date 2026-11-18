@@ -196,10 +196,11 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	dev := key(req.Device)
 	snap, ok := s.srv.devices.Get(dev)
 	if !ok {
-		return api.Response{Error: fmt.Sprintf("no device %q", req.Device)}
+		return api.Response{Error: noDevice(req.Device).Error()}
 	}
 	if !slices.Contains(snap.Info.Capabilities, req.Capability) {
-		return api.Response{Error: fmt.Sprintf("%s has no %s", req.Device, req.Capability)}
+		return api.Response{Error: fmt.Sprintf("%s has no %s: oikade status %s lists what it has",
+			ident.DeviceRef(req.Device), req.Capability, req.Device)}
 	}
 	if spec, ok := capability.Lookup(req.Capability); !ok || !spec.Writable {
 		return api.Response{Error: fmt.Sprintf("%s is read-only", req.Capability)}
@@ -377,7 +378,7 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 	i := slices.IndexFunc(rules, func(r wire.RuleInfo) bool { return r.Name == rule })
 	switch {
 	case known && i < 0:
-		return api.Response{Error: fmt.Sprintf("no rule %s", req.Rule)}
+		return api.Response{Error: noRule(req.Rule).Error()}
 	case req.AllowSafety:
 	case !known:
 		// In an emergency a process may be down, which is no reason to guess it isn't a Safety rule.
@@ -403,6 +404,10 @@ func (s *apiServer) ruleKey(ref string, rules func() []wire.RuleInfo) (string, e
 	rule, err := control.RuleKey(ref)
 	if err == nil {
 		return rule, nil
+	}
+	if !strings.Contains(ref, "/") {
+		// Not every kind of ref there is: a rule's is one of two.
+		err = fmt.Errorf("%s isn't a rule's ref: give a case's, case/DEVICE/CAPABILITY/CASE, or a flow's, flow/FLOW", ref)
 	}
 	_, paused := s.srv.paused.Get(key(ref))
 	if !paused && !slices.ContainsFunc(rules(), func(r wire.RuleInfo) bool { return r.Name == ref }) {
@@ -444,12 +449,25 @@ func (s *apiServer) resume(ctx context.Context, req api.Request) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	if _, ok := s.srv.paused.Get(key(rule)); !ok {
+		if rules, known := s.rulesInfo(); known && !slices.ContainsFunc(rules, func(r wire.RuleInfo) bool { return r.Name == rule }) {
+			return api.Response{Error: noRule(req.Rule).Error()}
+		}
 		return api.Response{Error: fmt.Sprintf("%s isn't paused", req.Rule)}
 	}
 	if err := s.srv.setPaused(ctx, rule, false); err != nil {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{}
+}
+
+// noDevice is a device the host has no record of, as every answer says it.
+func noDevice(name string) error {
+	return fmt.Errorf("there's no %s: oikade devices lists them", ident.DeviceRef(name))
+}
+
+// noRule is a rule the running version doesn't have, as every answer says it.
+func noRule(ref string) error {
+	return fmt.Errorf("there's no %s in the running version: oikade status --json lists its rules", ref)
 }
 
 // setPaused saves a rule's pause and tells the process. A paused rule's claims end, but for Safety

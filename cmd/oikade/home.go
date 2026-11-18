@@ -26,6 +26,9 @@ const oikadeModule = "github.com/harrymitchinson/oikade"
 
 // buildHome builds a module for this machine, in a directory that ends with done.
 func buildHome(ctx context.Context, module string) (path string, done func(), err error) {
+	if err := requireHome(module); err != nil {
+		return "", nil, err
+	}
 	dir, err := os.MkdirTemp("", "oikade-home")
 	if err != nil {
 		return "", nil, err
@@ -39,6 +42,38 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 	return path, func() { _ = os.RemoveAll(dir) }, nil
 }
 
+// requireHome fails unless module is in a Go module, as a home is, saying how to name one. It looks
+// for a go.mod there and above, as go build does, and leaves any other trouble to go.
+func requireHome(module string) error {
+	dir, err := filepath.Abs(module)
+	if err != nil {
+		return nil
+	}
+	for {
+		_, err := os.Stat(filepath.Join(dir, "go.mod"))
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	where := "here"
+	if module != "." {
+		where = "in " + module
+	}
+	return cli.Errorf("there's no home %s: a home is a Go module, with a go.mod", where).
+		WithHint("cd into your home's module, or pass --module DIR. oikade init starts one")
+}
+
+// ranAndFailed is err if it's a program that ran and failed, which has said why on stderr.
+func ranAndFailed(err error) bool {
+	_, ok := errors.AsType[*exec.ExitError](err)
+	return ok
+}
+
 // runCheck finds what's wrong with a home without touching one: the compiler, then the source, then the
 // checks your binary makes of itself, which are the ones a deploy makes.
 func runCheck(ctx context.Context, args []string) error {
@@ -46,7 +81,7 @@ func runCheck(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikade check takes no %q", extra[0])
+		return cli.UsageErrorf("oikade check takes no %q", extra[0])
 	}
 	path, done, err := buildHome(ctx, *module)
 	if err != nil {
@@ -96,17 +131,22 @@ func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return wire.Manifest{}, fmt.Errorf("checking your home: %w", err)
+		if !ranAndFailed(err) {
+			return wire.Manifest{}, fmt.Errorf("couldn't run your home's checks: %w", err)
+		}
+		return wire.Manifest{}, cli.Wrap(err, "your home failed its own checks, as it says above")
 	}
 	// A home's own code may have printed first.
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	var m wire.Manifest
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &m); err != nil {
-		return wire.Manifest{}, fmt.Errorf("reading your home's check: %w", err)
+		return wire.Manifest{}, cli.Wrap(err, "your home's check said something this oikade can't read").
+			WithHint("build your home against the same version of Oikade as this oikade, %s", cli.Version(version))
 	}
 	if m.Protocol != wire.Version {
-		return wire.Manifest{}, fmt.Errorf("your home was built for protocol %d, and this oikade speaks %d: "+
-			"use the same version of both", m.Protocol, wire.Version)
+		return wire.Manifest{}, cli.Errorf("your home was built for protocol %d, and this oikade speaks %d",
+			m.Protocol, wire.Version).
+			WithHint("build your home against the same version of Oikade as this oikade, %s", cli.Version(version))
 	}
 	return m, nil
 }
@@ -130,7 +170,7 @@ func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceD
 func hostDevices(ctx context.Context, t api.Transport) (api.Response, bool) {
 	devices, err := devicesOf(ctx, t)
 	if err != nil {
-		if local, ok := t.(api.Local); ok {
+		if local, ok := api.Unexplained(t).(api.Local); ok {
 			if _, statErr := os.Stat(filepath.Join(local.DataDir, api.SocketName)); statErr != nil {
 				return api.Response{}, false // There's no host here to ask.
 			}
@@ -182,6 +222,9 @@ func runTest(ctx context.Context, args []string) error {
 	fs := newFlags("test")
 	module := fs.String("module", ".", "Your home's module.")
 	_ = fs.Parse(args)
+	if err := requireHome(*module); err != nil {
+		return err
+	}
 	packages := fs.Args()
 	if len(packages) == 0 {
 		packages = []string{"./..."}
@@ -190,7 +233,10 @@ func runTest(ctx context.Context, args []string) error {
 	cmd.Dir = *module
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("your tests didn't pass: %w", err)
+		if !ranAndFailed(err) {
+			return fmt.Errorf("couldn't run go test: %w", err)
+		}
+		return cli.Wrap(err, "your tests didn't pass, as go test says above")
 	}
 	return nil
 }
@@ -201,7 +247,7 @@ func runDev(ctx context.Context, args []string) error {
 	module := fs.String("module", ".", "Your home's module.")
 	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
-		return fmt.Errorf("oikade dev takes no %q", extra[0])
+		return cli.UsageErrorf("oikade dev takes no %q", extra[0])
 	}
 	path, done, err := buildHome(ctx, *module)
 	if err != nil {
@@ -224,7 +270,7 @@ func runInit(ctx context.Context, args []string) error {
 	source := fs.String("source", "", "A checkout of Oikade to build against, rather than a published version.")
 	extra := cli.ParseFlags(fs, args)
 	if len(extra) > 1 {
-		return fmt.Errorf("oikade init takes one directory, not %q", extra[1])
+		return cli.UsageErrorf("oikade init takes one directory, not %q", extra[1])
 	}
 	dir := "."
 	if len(extra) == 1 {
@@ -289,7 +335,10 @@ func moduleFromRelease(ctx context.Context, stderr io.Writer, dir, name string) 
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			_, _ = stderr.Write(out)
-			return fmt.Errorf("go %s: %w", strings.Join(args, " "), err)
+			if !ranAndFailed(err) {
+				return fmt.Errorf("couldn't run go %s: %w", strings.Join(args, " "), err)
+			}
+			return cli.Wrap(err, "go %s failed, as it says above", strings.Join(args, " "))
 		}
 	}
 	return nil

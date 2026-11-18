@@ -81,7 +81,7 @@ func runHost(ctx context.Context, args []string) error {
 	}
 
 	if *outside == "" && (*broker != "" || *brokerPassword != "") {
-		return errors.New("--broker and --broker-password-secret are only for --outside-plugins: " +
+		return cli.UsageErrorf("--broker and --broker-password-secret are only for --outside-plugins: " +
 			"a plugin your home imports takes its broker in its Config, such as zigbee2mqtt.Config's Broker and Password")
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -111,12 +111,12 @@ func runHost(ctx context.Context, args []string) error {
 	}
 	if *outside != "" {
 		if *broker == "" {
-			return errors.New("--outside-plugins needs --broker")
+			return cli.UsageErrorf("--outside-plugins needs --broker")
 		}
 		for name := range strings.SplitSeq(*outside, ",") {
 			name = strings.TrimSpace(name)
 			if err := ident.CheckName(ident.Plugin, name); err != nil {
-				return fmt.Errorf("--outside-plugins: %w", err)
+				return cli.UsageErrorf("--outside-plugins: %s", err)
 			}
 			h.Outside = append(h.Outside, name)
 		}

@@ -61,14 +61,15 @@ func loadConfig() (clientConfig, error) {
 		return cfg, err
 	}
 	if info.Mode().Perm()&0o077 != 0 {
-		return cfg, fmt.Errorf("%s can be read by others, and holds tokens: run chmod 600 %s", path, path)
+		return cfg, cli.Errorf("%s can be read by others, and holds tokens", path).WithHint("chmod 600 %s", path)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return cfg, err
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return cfg, fmt.Errorf("reading %s: %w", path, err)
+		return cfg, cli.Wrap(err, "your contexts, in %s, aren't JSON oikade can read", path).
+			WithHint("fix or delete it, and oikade login again")
 	}
 	return cfg, nil
 }

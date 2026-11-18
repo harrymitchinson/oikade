@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -36,10 +39,47 @@ func addTarget(fs *flag.FlagSet) target {
 }
 
 // transport is --context, then the socket if --data-dir is given, then the current context, then the
-// socket.
+// socket. A host it can't reach says so in the user's words.
 func (t target) transport() api.Transport {
-	transport, _ := t.resolve()
-	return transport
+	transport, name := t.resolve()
+	return api.Explained(transport, func(err error) error { return unreachable(transport, name, err) })
+}
+
+// isDNS is a name that didn't resolve.
+func isDNS(err error) bool {
+	_, ok := errors.AsType[*net.DNSError](err)
+	return ok
+}
+
+// unreachable is err, from dialing t, in the user's words, if it's one that a host out of reach
+// gives. Anything else, such as a cancel, is as it was.
+func unreachable(t api.Transport, name string, err error) error {
+	if _, ok := errors.AsType[*cli.Error](err); ok {
+		return err
+	}
+	switch t := t.(type) {
+	case api.Local:
+		socket := filepath.Join(t.DataDir, api.SocketName)
+		switch {
+		case errors.Is(err, os.ErrPermission):
+			return cli.Wrap(err, "you may not reach %s: its socket, %s, is the host's user's", thisMachine, socket).
+				WithHint("run it with sudo, or pass --context NAME for a host you've logged in to")
+		case errors.Is(err, os.ErrNotExist), errors.Is(err, syscall.ECONNREFUSED):
+			return cli.Wrap(err, "no host is running on this machine with its data in %s", t.DataDir).
+				WithHint("start one with oikade-host, pass --data-dir DIR for another, " +
+					"or --context NAME for a host you've logged in to")
+		}
+	case api.Remote:
+		if errors.Is(err, api.ErrOtherHost) {
+			return cli.Wrap(err, "%s, at %s, isn't the host you logged in to: its key has another pin", name, t.Address).
+				WithHint("oikade login it again, with the pin oikade-host client add prints on it")
+		}
+		if _, isNet := errors.AsType[*net.OpError](err); isNet || isDNS(err) {
+			return cli.Wrap(err, "couldn't reach %s, at %s", name, t.Address).
+				WithHint("check the host is running there with --api-addr, and that this machine can reach it")
+		}
+	}
+	return err
 }
 
 // thisMachine is what a command calls the host on this machine's socket.
@@ -99,7 +139,7 @@ func runStatus(ctx context.Context, args []string) error {
 	if len(devices) > 0 {
 		st.Devices = slices.DeleteFunc(st.Devices, func(d api.Device) bool { return !slices.Contains(devices, d.Name) })
 		if len(st.Devices) == 0 {
-			return fmt.Errorf("no device %s", strings.Join(devices, ", "))
+			return cli.Errorf("there's no device %s", strings.Join(devices, ", ")).WithHint("oikade devices lists them")
 		}
 	}
 	if *asJSON {
@@ -444,7 +484,10 @@ func runSet(ctx context.Context, args []string) error {
 	default:
 		return cli.UsageErrorf("oikade set takes a capability and its value")
 	}
-	value := parseValue(words[len(words)-1])
+	value, err := valueOf(device, name, words[len(words)-1])
+	if err != nil {
+		return err
+	}
 	_, _ = fmt.Fprintf(os.Stderr, "Setting %s to %v\n", ident.CapabilityRef(device, name), value)
 	resp, err := api.Call(ctx, target.transport(), api.Request{
 		Type: api.TypeSet, Device: device, Capability: name, Value: value,
@@ -491,7 +534,8 @@ func rounded(name string, reported, asked any) bool {
 	return ok && ok2 && capability.Near(name, r, a)
 }
 
-// parseValue reads a value from the command line. The host checks that it suits the capability.
+// parseValue reads a value from the command line: a bool, a number or a string. valueOf checks it
+// suits the capability, as the host does again.
 func parseValue(s string) any {
 	switch s {
 	case "true", "on":
@@ -521,13 +565,16 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 		if _, _, err := ident.ParseRef(ref.String()); err != nil {
 			return err
 		}
-		return fmt.Errorf("a case is one ref: oikade %s %s", name, ref)
+		return cli.UsageErrorf("a case is one ref: oikade %s %s", name, ref)
 	}
 	if len(words) != 1 {
 		return cli.UsageErrorf("oikade %s takes one rule's ref, a case's, such as case/desk-plug/on/night, "+
 			"or a flow's, such as flow/morning", name)
 	}
 	rule := words[0]
+	if err := ruleOf(name, rule); err != nil {
+		return err
+	}
 	resp, err := api.Call(ctx, target.transport(), api.Request{Type: kind, Rule: rule, AllowSafety: *allow})
 	if err != nil {
 		return err

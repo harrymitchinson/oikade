@@ -33,7 +33,8 @@ func TestConfigIsPrivate(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "chmod 600") {
+	if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "can be read by others") ||
+		!strings.Contains(err.(*cli.Error).Hint, "chmod 600") {
 		t.Errorf("a config others can read: %v", err)
 	}
 	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(path), ".config-*")); len(leftovers) != 0 {
@@ -48,7 +49,7 @@ func TestTargetChoosesTheHost(t *testing.T) {
 		fs := flag.NewFlagSet("status", flag.ContinueOnError)
 		target := addTarget(fs)
 		cli.Parse(fs, args)
-		return target.transport()
+		return api.Unexplained(target.transport())
 	}
 	if _, ok := pick().(api.Local); !ok {
 		t.Error("with no config, a command should use this machine")

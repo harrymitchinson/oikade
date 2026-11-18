@@ -127,7 +127,7 @@ func TestReplayNeedsAHost(t *testing.T) {
 	t.Parallel()
 	r := prepare(t)
 	out, err := r.oikade(moduleEnv, "replay", "--module", filepath.Join(buildDir, "module"))
-	if err == nil || !strings.Contains(out, "reaching the host") {
+	if err == nil || !strings.Contains(out, "no host is running on this machine") {
 		t.Fatalf("got %v: %s", err, out)
 	}
 }

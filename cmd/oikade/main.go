@@ -39,6 +39,11 @@ func runDeploy(ctx context.Context, args []string) error {
 	binary := fs.String("binary", "", "A binary already built for the host, skipping the source checks.")
 	allow := fs.Bool("allow-safety-removal", false, "Go ahead even though a Safety rule would go.")
 	_ = fs.Parse(args)
+	if *binary == "" {
+		if err := requireHome(*module); err != nil {
+			return err
+		}
+	}
 
 	d := deployer{
 		stdout:   os.Stdout,
@@ -175,7 +180,10 @@ func build(ctx context.Context, module, out string, info api.Response) error {
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	cmd.Env = append(os.Environ(), "GOOS="+info.GOOS, "GOARCH="+info.GOARCH, "CGO_ENABLED=0")
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("building your module: %w", err)
+		if !ranAndFailed(err) {
+			return fmt.Errorf("couldn't run go build: %w", err)
+		}
+		return cli.Wrap(err, "your home doesn't build, as go build says above")
 	}
 	return nil
 }
