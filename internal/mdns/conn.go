@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"sync"
 
 	"golang.org/x/net/ipv4"
@@ -37,18 +39,25 @@ type PacketConn interface {
 	WriteMulticast(b []byte, ifIndex int) error
 	// WriteUnicast sends b to dst.
 	WriteUnicast(b []byte, dst *net.UDPAddr) error
+	// Join joins the mDNS group on ifi, unless the conn already has. A responder calls it for an
+	// interface that comes up, or gains an address, after the conn opened.
+	Join(ifi net.Interface) error
+	// Leave stops sending to the group on an interface, which may be gone.
+	Leave(ifIndex int)
 	Close() error
 }
 
 // mcastConn is a PacketConn on a real socket.
 type mcastConn struct {
-	pc     net.PacketConn
-	group  *net.UDPAddr
-	ifaces map[int]*net.Interface // that it joined the group on
-	read   func(b []byte) (n, ifIndex int, src net.Addr, err error)
-	setIf  func(*net.Interface) error
+	pc    net.PacketConn
+	group *net.UDPAddr
+	read  func(b []byte) (n, ifIndex int, src net.Addr, err error)
+	setIf func(*net.Interface) error
+	join  func(*net.Interface, net.Addr) error
+	leave func(*net.Interface, net.Addr) error
 
-	mu sync.Mutex // the multicast interface is per socket
+	mu     sync.Mutex             // the multicast interface is per socket
+	ifaces map[int]*net.Interface // that it joined the group on
 }
 
 func (c *mcastConn) ReadPacket(b []byte) (int, int, *net.UDPAddr, error) {
@@ -61,12 +70,12 @@ func (c *mcastConn) ReadPacket(b []byte) (int, int, *net.UDPAddr, error) {
 }
 
 func (c *mcastConn) WriteMulticast(b []byte, ifIndex int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	ifi, ok := c.ifaces[ifIndex]
 	if !ok {
 		return nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if err := c.setIf(ifi); err != nil {
 		return err
 	}
@@ -77,6 +86,37 @@ func (c *mcastConn) WriteMulticast(b []byte, ifIndex int) error {
 func (c *mcastConn) WriteUnicast(b []byte, dst *net.UDPAddr) error {
 	_, err := c.pc.WriteTo(b, dst)
 	return err
+}
+
+func (c *mcastConn) Join(ifi net.Interface) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.ifaces[ifi.Index]; ok {
+		return nil
+	}
+	if err := c.join(&ifi, c.group); err != nil {
+		return fmt.Errorf("%s: %w", ifi.Name, err)
+	}
+	c.ifaces[ifi.Index] = &ifi
+	return nil
+}
+
+func (c *mcastConn) Leave(ifIndex int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ifi, ok := c.ifaces[ifIndex]
+	if !ok {
+		return
+	}
+	delete(c.ifaces, ifIndex)
+	_ = c.leave(ifi, c.group) // fails if the interface has gone, which leaves the group anyway
+}
+
+// joined returns the indexes of the interfaces the conn joined the group on.
+func (c *mcastConn) joined() []int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Collect(maps.Keys(c.ifaces))
 }
 
 func (c *mcastConn) Close() error { return c.pc.Close() }
@@ -112,14 +152,15 @@ func listen4(ifaces []net.Interface) (*mcastConn, error) {
 		return nil, err
 	}
 	p := ipv4.NewPacketConn(pc)
-	c := &mcastConn{pc: pc, group: Group4, ifaces: map[int]*net.Interface{}, setIf: p.SetMulticastInterface}
+	c := &mcastConn{
+		pc: pc, group: Group4, ifaces: map[int]*net.Interface{},
+		setIf: p.SetMulticastInterface, join: p.JoinGroup, leave: p.LeaveGroup,
+	}
 	var errs []error
-	for i := range ifaces {
-		if err := p.JoinGroup(&ifaces[i], Group4); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", ifaces[i].Name, err))
-			continue
+	for _, ifi := range ifaces {
+		if err := c.Join(ifi); err != nil {
+			errs = append(errs, err)
 		}
-		c.ifaces[ifaces[i].Index] = &ifaces[i]
 	}
 	if len(c.ifaces) == 0 {
 		_ = pc.Close()
@@ -149,14 +190,15 @@ func listen6(ifaces []net.Interface) (*mcastConn, error) {
 		return nil, err
 	}
 	p := ipv6.NewPacketConn(pc)
-	c := &mcastConn{pc: pc, group: group6, ifaces: map[int]*net.Interface{}, setIf: p.SetMulticastInterface}
+	c := &mcastConn{
+		pc: pc, group: group6, ifaces: map[int]*net.Interface{},
+		setIf: p.SetMulticastInterface, join: p.JoinGroup, leave: p.LeaveGroup,
+	}
 	var errs []error
-	for i := range ifaces {
-		if err := p.JoinGroup(&ifaces[i], group6); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", ifaces[i].Name, err))
-			continue
+	for _, ifi := range ifaces {
+		if err := c.Join(ifi); err != nil {
+			errs = append(errs, err)
 		}
-		c.ifaces[ifaces[i].Index] = &ifaces[i]
 	}
 	if len(c.ifaces) == 0 {
 		_ = pc.Close()

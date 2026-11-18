@@ -29,7 +29,7 @@ func (r *Responder) serve(c packetConn) {
 			}
 			continue
 		}
-		if !slices.Contains(r.ifaces, ifIndex) {
+		if !r.serves(ifIndex) {
 			continue // another socket joined the group on an interface we don't serve
 		}
 		r.handleContained(c, ifIndex, src, b[:n])
@@ -302,7 +302,7 @@ func (r *Responder) checkConflicts(m *dnsmessage.Message) {
 	if len(probes) == 0 {
 		return
 	}
-	for _, ifIndex := range r.ifaces {
+	for _, ifIndex := range r.served() {
 		ours = append(ours, addressRecords(r.host, r.addrs(ifIndex))...)
 	}
 	for _, rr := range slices.Concat(m.Answers, m.Authorities, m.Additionals) {

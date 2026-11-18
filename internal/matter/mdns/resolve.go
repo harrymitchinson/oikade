@@ -82,7 +82,7 @@ func (r *Responder) ResolveOperational(ctx context.Context, compressedFabricID, 
 		select {
 		case h := <-l.resp:
 			hadTarget := st.target.Length > 0
-			st.take(h, r.zones)
+			st.take(h, r.zoneNames())
 			if found, ok := st.resolved(); ok {
 				r.log.Debug("Resolved mDNS service", "instance", found.Instance, "host", found.Host, "addrs", fmt.Sprint(found.Addrs))
 				return found, nil

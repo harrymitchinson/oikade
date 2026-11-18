@@ -35,9 +35,10 @@ func (l *Listener) Read(b []byte) (int, error) {
 // fails only if it went out on none, with what went wrong on each. So an interface that can join the
 // group but not send to it, such as a container bridge, doesn't fail every send.
 func (l *Listener) Send(b []byte) error {
-	errs := make([]error, 0, len(l.conn.ifaces))
+	joined := l.conn.joined()
+	errs := make([]error, 0, len(joined))
 	sent := false
-	for index := range l.conn.ifaces {
+	for _, index := range joined {
 		if err := l.conn.WriteMulticast(b, index); err != nil {
 			errs = append(errs, err)
 		} else {

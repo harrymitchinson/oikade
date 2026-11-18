@@ -56,6 +56,7 @@ type timing struct {
 	announceGap   time.Duration // between the two announcements (8.3)
 	minDelay      time.Duration // the random delay before a multicast answer with shared records (6)
 	maxDelay      time.Duration
+	watch         time.Duration // between looks at the interfaces and their addresses
 }
 
 var defaultTiming = timing{
@@ -64,6 +65,7 @@ var defaultTiming = timing{
 	announceGap:   time.Second,
 	minDelay:      20 * time.Millisecond,
 	maxDelay:      120 * time.Millisecond,
+	watch:         5 * time.Second,
 }
 
 // Responder answers mDNS queries for the services added to it.
@@ -72,10 +74,18 @@ type Responder struct {
 	panicked contain.Panicked
 	host     dnsmessage.Name
 	conns    []packetConn
-	ifaces   []int
 	addrs    func(ifIndex int) []netip.Addr // the host's addresses on an interface
-	zones    map[int]string                 // interfaces' names, the zones of link-local addresses
 	timing   timing
+
+	// interfaces lists the interfaces to serve, which checkLinks follows. With nil, as in tests
+	// that don't change them, checkLinks does nothing.
+	interfaces func() ([]net.Interface, error)
+	linkMu     sync.Mutex           // held by checkLinks
+	links      map[int][]netip.Addr // the interfaces served and their addresses, as last seen
+
+	netMu  sync.Mutex
+	ifaces []int          // the interfaces served
+	zones  map[int]string // interfaces' names, the zones of link-local addresses; replaced, never changed
 
 	// sendMu orders announcements, delayed answers and goodbyes, so that a record that has
 	// been said goodbye to isn't sent again after it.
@@ -150,6 +160,11 @@ func Listen(opts Options) (*Responder, error) {
 		}
 		return nil, err
 	}
+	r.interfaces = mdnsnet.MulticastInterfaces
+	if len(opts.Interfaces) > 0 {
+		r.interfaces = fixedInterfaces(ifaces)
+	}
+	r.wg.Go(r.watchLinks)
 	return r, nil
 }
 
@@ -171,11 +186,15 @@ func newResponder(
 		ifaces:   ifaces,
 		addrs:    addrs,
 		zones:    interfaceNames(ifaces),
+		links:    map[int][]netip.Addr{},
 		timing:   defaultTiming,
 		services: map[string]*entry{},
 		probes:   map[*probe]struct{}{},
 		lookups:  map[*lookup]struct{}{},
 		done:     make(chan struct{}),
+	}
+	for _, i := range ifaces {
+		r.links[i] = sortedAddrs(addrs(i))
 	}
 	for _, c := range conns {
 		r.wg.Go(func() { r.serve(c) })
