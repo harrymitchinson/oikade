@@ -333,7 +333,8 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	joined, left := e.joined(hs, st, active, end, now)
 	if active != st.Active || !st.same(hs.saved) || hs.dirty || end != nil || reclaim || len(joined) > 0 || len(left) > 0 {
 		hs.writing, hs.dirty, hs.claimed = true, false, &claim
-		e.holdWrites = append(e.holdWrites, holdWrite{level: claim.Level, key: key, target: st.Target, run: func() {
+		ends := st.Active && !active
+		e.holdWrites = append(e.holdWrites, holdWrite{level: claim.Level, key: key, target: st.Target, ends: ends, run: func() {
 			e.write(ctx, key, hs, st, active, end, claim, reclaim || rewrite, rewrite, joined, left)
 		}})
 		s.next = fire{}
@@ -351,7 +352,9 @@ type holdWrite struct {
 	level  control.Level
 	key    ident.ID
 	target HoldTarget
-	run    func()
+	// ends is whether the write ends the hold.
+	ends bool
+	run  func()
 }
 
 // pendingTrigger is a flow a look set off, to start once that look's hold writes are done.
@@ -410,6 +413,15 @@ func (e *Engine) startWrites(ctx context.Context) {
 					return -1
 				}
 				return 1
+			case a.ends != b.ends:
+				// A claim ends after the starts, so a hold that takes over from it at the same
+				// moment has claimed before it lets go, and the arbiter never falls back to the
+				// default on the way (OIK-343). A plain end writes the opposite of its value, so it
+				// goes first, and a start's value is the one that stays.
+				if a.ends == a.claims {
+					return 1
+				}
+				return -1
 			case a.level != b.level && a.claims:
 				return cmp.Compare(b.level, a.level)
 			case a.level != b.level:
