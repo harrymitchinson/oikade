@@ -35,7 +35,7 @@ plan/
   next-id                           the next issue's number
 ```
 
-- **Front matter** is one `key: value` a line between two `---` lines, each value JSON, which YAML reads as well: `title`, `release`, `parent` (a sub-issue's feature), `labels`, `blocked-by`, the times, `links` (PRs from before the move) and `status-history`.
+- **Front matter** is one `key: value` a line between two `---` lines, each value JSON, which YAML reads as well: `title`, `aliases` (the issue's ID, so Obsidian with `plan/` as its vault resolves `[[OIK-N]]` and finds each mention of it), `release`, `parent` (a sub-issue's feature), `labels`, `blocked-by`, the times, `links` (PRs from before the move) and `status-history`.
 - **The status history** says who moved the issue and when: `2026-11-18T15:34:33Z Design Review -> Todo by the user`. `hack/plan` adds a line to it whenever it moves an issue, and the plan's git history has the rest.
 - **Every write is one commit,** made by `hack/plan` under the plan's lock (`plan/.git/plan.lock`), since sessions share the plan. Changes the user made by hand are committed first, on their own.
 - **IDs are never reused.** A new issue takes the next number after the highest any issue has had.

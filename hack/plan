@@ -317,10 +317,26 @@ plan_write() {
 		git -C "$PLAN_DIR" add -A
 		git -C "$PLAN_DIR" commit -q -m "Changes made by hand"
 	fi
+	add_aliases
 	"$@"
 	git -C "$PLAN_DIR" add -A
 	git -C "$PLAN_DIR" diff --cached --quiet || git -C "$PLAN_DIR" commit -q -m "$msg"
 	unlock
+}
+
+# add_aliases: give every issue without one its ID as an alias, so Obsidian,
+# with plan/ as its vault, resolves [[OIK-N]] and finds each mention of it,
+# though every issue's file is issue.md (OIK-351). It commits on its own, and
+# leaves updated alone, since nothing about the issue changed.
+add_aliases() {
+	local f files
+	files=("$PLAN_DIR"/*/*/issue.md)
+	[[ -e "${files[0]}" ]] || return 0
+	while IFS= read -r f; do
+		set_fm "$f" '.aliases = ([.id] | map(select(. != null)))'
+	done < <(awk 'FNR == 1 {if ($0 != "---") nextfile; next} /^aliases: / {nextfile} /^---$/ {print FILENAME; nextfile}' "${files[@]}")
+	git -C "$PLAN_DIR" add -A
+	git -C "$PLAN_DIR" diff --cached --quiet || git -C "$PLAN_DIR" commit -q -m "Aliases for Obsidian"
 }
 
 # set_fm FILE FILTER [JQ_ARGS...]: rewrite FILE's front matter with a jq FILTER.
@@ -386,7 +402,7 @@ _new_issue() {
 	mkdir "$dir"
 	write_md "$dir/issue.md" "$(jq -cn --arg id "$id" --arg title "$1" --arg r "$4" --arg p "$5" --argjson l "$6" \
 		--arg a "$AGENT" --arg t "$t" --arg s "$(cut -d'|' -f1 <<<"$s")" \
-		'{id: $id, title: $title, release: $r, parent: $p, labels: $l, creator: $a, created: $t, updated: $t,
+		'{id: $id, title: $title, aliases: [$id], release: $r, parent: $p, labels: $l, creator: $a, created: $t, updated: $t,
 			"status-history": ["\($t) none -> \($s) by \($a)"]}')" "$(cat "$2")"
 	# IDs are never reused, even once an issue's folder is deleted.
 	echo $((n + 1)) >"$PLAN_DIR/next-id"

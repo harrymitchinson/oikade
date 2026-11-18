@@ -61,6 +61,21 @@ plan_mark
 [[ -f "$PLAN_DIR/done/OIK-7-seven-renamed/issue.md" ]] || fail "retitling didn't rename the folder: $(ls "$PLAN_DIR/done")"
 grep -qx 'title: "Seven, renamed"' "$(plan_file OIK-7)" || fail "retitling didn't change the title"
 
+# Every issue has its ID as an alias, for Obsidian: a new one from the start,
+# and one without it from the next write, in a commit of its own that leaves
+# its updated as it was.
+grep -qx 'aliases: \["OIK-13"\]' "$(plan_file OIK-13)" || fail "a new issue has no alias: $(cat "$(plan_file OIK-13)")"
+mkdir -p "$PLAN_DIR/backlog/OIK-30-old"
+printf -- '---\nid: "OIK-30"\ntitle: "Old"\nupdated: "2026-01-01T00:00:00Z"\n---\n\naliases: not front matter\n' >"$PLAN_DIR/backlog/OIK-30-old/issue.md"
+git -C "$PLAN_DIR" add -A && git -C "$PLAN_DIR" commit -qm "Fixture: OIK-30 with no alias"
+plan_mark
+"$plan" note OIK-11 aliased >/dev/null
+[[ "$(plan_commits | tr '\n' '|')" == "OIK-11: comment|Aliases for Obsidian|" ]] || fail "the aliases weren't a commit of their own: $(plan_commits)"
+grep -qx 'aliases: \["OIK-30"\]' "$(plan_file OIK-30)" || fail "an issue without an alias didn't get one: $(cat "$(plan_file OIK-30)")"
+grep -qx 'updated: "2026-01-01T00:00:00Z"' "$(plan_file OIK-30)" || fail "adding an alias changed updated"
+[[ "$(plan_body OIK-30)" == "aliases: not front matter" ]] || fail "adding an alias changed the description: $(plan_body OIK-30)"
+[[ "$(git -C "$PLAN_DIR" show --stat --format= HEAD~1 | grep -c issue.md)" == 1 ]] || fail "the aliases commit touched issues that had one"
+
 # Labels keep the plan's spelling, and come off in any case.
 "$plan" label OIK-7 +Bug >/dev/null
 "$plan" label OIK-8 +bug +later >/dev/null
