@@ -33,7 +33,7 @@ _<date> · handoff from a Claude Code session_
 ## Goal
 <What the user is trying to achieve and why, in 2–4 sentences. Include the
 user's own constraints and preferences that shaped the work, such as "arm64 only"
-or "don't touch the contract". Name the Linear issue the work belongs to (OIK-N), if
+or "don't touch the contract". Name the plan's issue the work belongs to (OIK-N), if
 there is one.>
 
 ## Status

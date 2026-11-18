@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# plan-writes: check that hack/plan's writes to plan/ each commit what they
+# changed under the plan's lock: new issues get IDs nobody else gets, even
+# when created at once, and never one used before; changes made by hand are
+# committed apart; and titles, labels, blockers, releases and ideas land where
+# OIK-350 says. The plan is a scratch plan/, and gh a stub. Run by make test-hack.
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/../.." && pwd)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+failed=0
+fail() { echo "FAIL: $*" >&2; failed=1; }
+
+mkdir "$tmp/bin"
+cat >"$tmp/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1 $2" == "repo view" ]] && echo o/r
+exit 0
+STUB
+chmod +x "$tmp/bin/gh"
+export PATH="$tmp/bin:$PATH" CLAUDECODE='' PLAN_DIR="$tmp/plan" \
+	GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+# shellcheck source=hack/test/plan-fixture.sh
+. "$root/hack/test/plan-fixture.sh"
+plan_init
+plan="$root/hack/plan"
+# A checkout with a remote, for the claims show looks up.
+git init -q --bare -b main "$tmp/remote.git"
+git clone -q "$tmp/remote.git" "$tmp/work" 2>/dev/null
+cd "$tmp/work"
+echo "Why." >"$tmp/body.md"
+
+# Five issues created at once get five IDs, after the highest there is.
+plan_issue "done" OIK-7 Seven ""
+plan_mark
+for i in 1 2 3 4 5; do "$plan" issue "Idea $i" "$tmp/body.md" --state Triage >"$tmp/id-$i" 2>"$tmp/err-$i" & done
+wait
+ids=$(cat "$tmp"/id-* | sort)
+[[ "$ids" == $'OIK-10\nOIK-11\nOIK-8\nOIK-9\nOIK-12' || "$(sort -u <<<"$ids" | wc -l | tr -d ' ')" == 5 ]] ||
+	fail "five issues created at once didn't get five IDs: $ids $(cat "$tmp"/err-*)"
+[[ "$(sort -t- -k2 -n <<<"$ids" | tr '\n' ' ')" == "OIK-8 OIK-9 OIK-10 OIK-11 OIK-12 " ]] || fail "the IDs aren't the five after OIK-7: $ids"
+[[ "$(plan_commits | grep -c '^New issue: Idea')" == 5 ]] || fail "each new issue isn't its own commit: $(plan_commits)"
+[[ -f "$PLAN_DIR/triage/OIK-8-idea-$(grep -l OIK-8 "$tmp"/id-* | sed 's/.*id-//')/issue.md" ]] || fail "OIK-8 isn't a folder in triage/: $(ls "$PLAN_DIR/triage")"
+f=$(plan_file OIK-12)
+grep -q '^status-history: \["[^"]* none -> Triage by Oikade Agent"\]$' "$f" || fail "a new issue's history doesn't say who made it: $(cat "$f")"
+[[ "$(plan_body OIK-12)" == "Why." ]] || fail "a new issue's description isn't its file: $(plan_body OIK-12)"
+
+# An ID is never used again, even once its issue's folder has gone.
+rm -rf "$(dirname "$(plan_file OIK-12)")"
+git -C "$PLAN_DIR" commit -qam "Delete OIK-12"
+[[ "$("$plan" issue "After" "$tmp/body.md")" == OIK-13 ]] || fail "the ID of a deleted issue was used again"
+[[ -n "$(plan_file OIK-13)" && "$(plan_status OIK-13)" == backlog ]] || fail "a new issue isn't in Backlog by default"
+
+# Changes made by hand are committed on their own before the next write.
+echo "note" >>"$(plan_file OIK-7)"
+plan_mark
+"$plan" title OIK-7 "Seven, renamed" >/dev/null
+[[ "$(plan_commits | tr '\n' '|')" == "OIK-7: retitle|Changes made by hand|" ]] || fail "changes by hand weren't committed apart: $(plan_commits)"
+# The folder's name follows the title.
+[[ -f "$PLAN_DIR/done/OIK-7-seven-renamed/issue.md" ]] || fail "retitling didn't rename the folder: $(ls "$PLAN_DIR/done")"
+grep -qx 'title: "Seven, renamed"' "$(plan_file OIK-7)" || fail "retitling didn't change the title"
+
+# Labels keep the plan's spelling, and come off in any case.
+"$plan" label OIK-7 +Bug >/dev/null
+"$plan" label OIK-8 +bug +later >/dev/null
+grep -qx 'labels: \["Bug","later"\]' "$(plan_file OIK-8)" || fail "a label didn't take the plan's spelling: $(grep labels "$(plan_file OIK-8)")"
+"$plan" label OIK-8 -LATER >/dev/null
+grep -qx 'labels: \["Bug"\]' "$(plan_file OIK-8)" || fail "a label didn't come off: $(grep labels "$(plan_file OIK-8)")"
+
+# A blocker is recorded on the issue it blocks, and holds it back until done.
+plan_issue todo OIK-20 Feature $'## Steps\n\n- [ ] One: it. Acceptance: it works (unit)'
+"$plan" block OIK-20 OIK-9 >/dev/null
+grep -qx 'blocked-by: \["OIK-9"\]' "$(plan_file OIK-20)" || fail "block didn't record OIK-9 on OIK-20"
+grep -qx 'Blocked by: OIK-9' <<<"$("$plan" show OIK-20)" || fail "show doesn't say OIK-20 is blocked"
+mkdir -p "$PLAN_DIR/done" && git -C "$PLAN_DIR" mv "$(dirname "$(plan_file OIK-9)")" "$PLAN_DIR/done/"
+grep -qx 'Blocked by: nothing open' <<<"$("$plan" show OIK-20)" || fail "a blocker that's done still blocks"
+
+# Releases: new, set, listed with their progress, closed and renamed.
+printf 'Goal: it runs.\n\nDone when: it does.\n' >"$tmp/release.md"
+"$plan" project new v0.9.0 "$tmp/release.md" >/dev/null
+grep -qx 'summary: "it runs."' "$PLAN_DIR/releases/v0.9.0.md" || fail "a new release has no summary: $(cat "$PLAN_DIR/releases/v0.9.0.md")"
+"$plan" project set OIK-7 v0.9.0 >/dev/null
+"$plan" project set OIK-20 v0.9.0 >/dev/null
+grep -qx '## v0.9.0 (backlog, 50% done)' <<<"$("$plan" projects)" || fail "projects doesn't show the release's progress: $("$plan" projects)"
+if "$plan" project set OIK-7 v9 2>/dev/null; then fail "project set took a release that doesn't exist"; fi
+"$plan" project close v0.9.0 >/dev/null
+grep -qx 'state: "completed"' "$PLAN_DIR/releases/v0.9.0.md" || fail "close didn't complete the release"
+"$plan" project rename v0.9.0 v1.0.0-pre >/dev/null
+[[ -f "$PLAN_DIR/releases/v1.0.0-pre.md" && ! -e "$PLAN_DIR/releases/v0.9.0.md" ]] || fail "rename didn't move the release's file"
+grep -qx 'release: "v1.0.0-pre"' "$(plan_file OIK-20)" || fail "rename didn't follow on the release's issues"
+"$plan" issue "In it" "$tmp/body.md" --project v1.0.0-pre >/dev/null
+grep -q $'^OIK-20\tv1.0.0-pre\tFeature$' <<<"$("$plan" ready)" || fail "ready doesn't list OIK-20 in its release: $("$plan" ready)"
+
+# Ideas are what's in Triage, and promote moves one out.
+grep -q $'^OIK-10\t-\tIdea' <<<"$("$plan" ideas)" || fail "ideas doesn't list OIK-10: $("$plan" ideas)"
+"$plan" promote OIK-10 >/dev/null
+[[ "$(plan_status OIK-10)" == backlog ]] || fail "promote didn't move OIK-10 to Backlog"
+if "$plan" promote OIK-10 2>/dev/null; then fail "promote moved an issue that isn't in Triage"; fi
+
+# Two comments in one second by one author both stay.
+"$plan" note OIK-8 one >/dev/null
+"$plan" note OIK-8 two >/dev/null
+[[ "$(find "$(dirname "$(plan_file OIK-8)")/comments" -name '*.md' | wc -l | tr -d ' ')" == 2 ]] || fail "two comments didn't make two files"
+
+# A lock left by a process that's gone is taken over; one held stops a write.
+mkdir "$PLAN_DIR/.git/plan.lock" && echo 999999 >"$PLAN_DIR/.git/plan.lock/pid"
+"$plan" note OIK-8 three >/dev/null || fail "a lock left by a process that's gone stopped a write"
+[[ ! -e "$PLAN_DIR/.git/plan.lock" ]] || fail "the write didn't give the lock back"
+sleep 60 &
+mkdir "$PLAN_DIR/.git/plan.lock" && echo $! >"$PLAN_DIR/.git/plan.lock/pid"
+plan_mark
+if PLAN_LOCK_WAIT=1 "$plan" note OIK-8 four 2>"$tmp/err"; then fail "a write went ahead while another held the lock"; fi
+grep -q 'locked for 1 s' "$tmp/err" || fail "the write didn't say the plan was locked: $(cat "$tmp/err")"
+[[ -z "$(plan_commits)" ]] || fail "a write committed while another held the lock"
+kill %1 2>/dev/null || true
+rm -rf "$PLAN_DIR/.git/plan.lock"
+
+(( failed == 0 )) && echo "ok: plan writes"
+exit "$failed"

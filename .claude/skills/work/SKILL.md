@@ -1,6 +1,6 @@
 ---
 name: work
-description: Pick up Oikade work and build it. Take the next ready feature from Linear (or the one the user names), claim it so no other agent takes it, then build its steps one PR at a time in its own worktree, stacking each on the last while they wait for review. Test each step, run code review and open its PR. Use this whenever the user says "work on OIK-N", "pick something up", "do the next thing", "implement", "build the next step", "/work", or runs several sessions or a /loop to work in parallel, even if they never say "work". To decide what should be built, use design; to change the plan, use plan.
+description: Pick up Oikade work and build it. Take the next ready feature from the plan (or the one the user names), claim it so no other agent takes it, then build its steps one PR at a time in its own worktree, stacking each on the last while they wait for review. Test each step, run code review and open its PR. Use this whenever the user says "work on OIK-N", "pick something up", "do the next thing", "implement", "build the next step", "/work", or runs several sessions or a /loop to work in parallel, even if they never say "work". To decide what should be built, use design; to change the plan, use plan.
 ---
 
 # Working on an Oikade feature
@@ -18,7 +18,7 @@ You work on **one feature**. Its steps are the checklist lines under its `## Ste
 
 ## 2. Understand the step
 
-Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the next step and why it may be built. Then read, through the Linear MCP tools:
+Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the next step and why it may be built. Then read the feature's folder, which `show` names (`plan/*/OIK-N-*/`: `issue.md` and `comments/`):
 
 - the feature's **Why**, and the step's scope and acceptance: its checklist line, or its sub-issue
 - the design (in the feature, the feature its `Design: OIK-M` line names), and the comments on both, which may hold notes from earlier steps
@@ -34,14 +34,14 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 - **Never run the journeys within a step.** The bar for a PR is `make test`. CI runs them only on main after a merge and nightly. If they break on main, fix it forward in a new PR. Say in the PR that they weren't run.
 - **Test at the lowest level that shows the behaviour:** mappings, coalescing and IDs in unit tests, the host in `test/host`, Matter commissioning in an in-process node test (a Go controller talking to the node). Don't add a journey per feature: `test/journeys` keeps a few, across components.
 
-- **Manual acceptance** (`(manual, in the Manual testing doc)`, such as pairing with the Home app and real devices) can't be checked here. Leave it for the user, check that the Linear document "Manual testing" lists it, and say so in the PR.
+- **Manual acceptance** (`(manual, in the Manual testing doc)`, such as pairing with the Home app and real devices) can't be checked here. Leave it for the user, check that `plan/docs/manual-testing.md` lists it, and say so in the PR.
 - **Commit as you go,** with conventional commits like the git log (`feat(schedule): …`). Stage explicit paths only.
 
 ## 4. Review and open the PR
 
 1. Run the `code-review` skill on the step, or, when other agents run alongside you, a reviewer of your own (see [Running in parallel](#running-in-parallel)). When it's stacked, review only the step's own commits: `git diff <base>...HEAD`. Fix each finding, or explain in the PR why you didn't.
-2. Write the PR body to a file in your scratchpad: the step, what you tested and how, anything left for manual testing, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first. `hack/plan pr` adds the Linear line.
-3. Open it with `hack/plan pr OIK-N "<conventional title>" <body file>`. It pushes the step's branch and opens the PR against the step below it (or main), with a Linear line naming the step. Once it merges, `hack/plan merge` ticks the step's line. Don't open it any other way.
+2. Write the PR body to a file in your scratchpad: the step, what you tested and how, anything left for manual testing, and any choices you made. If the step is stacked, say which PR it sits on, and that the user should merge that one first. `hack/plan pr` adds the `Plan:` line.
+3. Open it with `hack/plan pr OIK-N "<conventional title>" <body file>`. It pushes the step's branch and opens the PR against the step below it (or main), with a `Plan:` line naming the step. Once it merges, `hack/plan merge` ticks the step's line. Don't open it any other way.
 4. **Merge it yourself** once it's the bottom of its stack and CI passes: wait with `gh pr checks <PR> --watch`, then run `hack/plan merge OIK-N <PR>`. The user reviews designs, not diffs, so the checks and your code review are what vouch for it. Nothing waits for the user by default, CI and `hack/plan` changes included. `hack/plan merge` holds a step only if the user labelled it or its feature `needs-review`, and merges it once their Approve covers its head: it reads their review itself. Don't add `needs-review` yourself. A step that needs the user's decision asks with `hack/plan note` instead. Changes to `.claude/settings.json` are the one thing you can't make: write the proposed file to your scratchpad and ask the user to apply it. **Never work around a refusal,** and never merge any other way.
    - If a check fails, fix it on the branch and push, rather than leaving it red.
 5. If a later step needs to know something that isn't in the code or the PR, leave it with `hack/plan note OIK-N "…"`.
@@ -59,7 +59,7 @@ Run `hack/plan show OIK-N`. It prints the feature, its steps and their PRs, the 
 - **Before `hack/plan step`,** push any commits you've added to the current step since its PR opened. The next step builds on the pushed branch, and `step` refuses while it's behind.
 - **If you can't finish a step,** commit and push what you have to its `work/OIK-S` branch, use the `handoff` skill, then release the claim. The next claim finds the pushed branch and resumes it rather than starting over.
 - **An approved step left after its feature's claim was released** merges without claiming: run `hack/plan merge OIK-N <PR>`. It holds the claim while it runs if nobody else does, and gives it back.
-- **After a merge,** whether yours or the user's, GitHub deletes the step's branch and Linear marks the step Done. The next `hack/plan claim` restacks the steps above it onto main. `git worktree remove <path>` cleans up locally.
+- **After a merge,** whether yours or the user's, GitHub deletes the step's branch, and `hack/plan sync` ticks the step or marks it Done. The next `hack/plan claim` restacks the steps above it onto main. `git worktree remove <path>` cleans up locally.
 
 ## Running in parallel
 

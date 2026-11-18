@@ -2,8 +2,8 @@
 # plugin-repo: check that a step whose sub-issue says "Repo: OWNER/NAME" is
 # shown, opened and merged in that repo, not this one, and that repo init
 # starts only an empty repo. git runs for real against scratch bare repos. gh
-# is a stub that answers from JSON fixtures keyed by GH_REPO, and curl plays
-# Linear. Run by make test-hack.
+# is a stub that answers from JSON fixtures keyed by GH_REPO, and the plan is
+# a scratch plan/. Run by make test-hack.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -49,32 +49,20 @@ fi
 [[ -f "$fx/$name" ]] || { echo "gh stub: no fixture $name for: $*" >&2; exit 1; }
 if [[ -n "$q" ]]; then jq -r "$q" "$fx/$name"; else cat "$fx/$name"; fi
 STUB
-cat >"$tmp/bin/curl" <<'STUB'
-#!/usr/bin/env bash
-q=$(jq -r .query | tr -s ' \n\t' ' ')
-case "$q" in
-*"issue(id:"*) jq -c '{data: {issue: .}}' "$STUB_FX/feature.json" ;;
-*"users("*) echo '{"data":{"users":{"nodes":[{"id":"u-owner","name":"Owner","app":false}]}}}' ;;
-*"team(id:"*) echo '{"data":{"team":{"id":"t1","states":{"nodes":[{"id":"s-done","name":"Done","type":"completed"},{"id":"s-review","name":"In Review","type":"started"},{"id":"s-prog","name":"In Progress","type":"started"},{"id":"s-todo","name":"Todo","type":"unstarted"}]}}}}' ;;
-*"history"*) echo '{"data":{"issue":{"history":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}' ;;
-*) echo '{"data":{"ok":{"success":true}}}' ;;
-esac
-STUB
 chmod +x "$tmp/bin/"*
-export PATH="$tmp/bin:$PATH" STUB_FX="$tmp/fx" CLAUDECODE='' PLAN_GITHUB="$tmp/github" \
+export PATH="$tmp/bin:$PATH" STUB_FX="$tmp/fx" CLAUDECODE='' PLAN_DIR="$tmp/plan-dir" PLAN_GITHUB="$tmp/github" \
 	GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fx() { cat >"$tmp/fx/$1"; }
+# shellcheck source=hack/test/plan-fixture.sh
+. "$root/hack/test/plan-fixture.sh"
+plan_init
 fx repo.json <<<'{"nameWithOwner":"o/r"}'
 
 # OIK-20: step OIK-21 here, done, and step OIK-22 in o/r-plug. Its name
 # starts with this repo's, o/r, so nothing may take it for a path under o/r.
-jq -n '{id: "uuid-20", identifier: "OIK-20", title: "F", url: "u", description: "", priority: 0,
-	state: {name: "In Progress", type: "started"}, project: null, parent: null,
-	labels: {nodes: []}, inverseRelations: {nodes: []},
-	children: {nodes: [
-		{identifier: "OIK-21", title: "Here", description: "Scope: here.", subIssueSortOrder: 1, number: 21, state: {name: "Done", type: "completed"}},
-		{identifier: "OIK-22", title: "There", description: "Scope: a plugin.\n**Repo:** `o/r-plug` (its own)\nAcceptance: it works.", subIssueSortOrder: 2, number: 22, state: {name: "In Progress", type: "started"}}]}}' \
-	>"$tmp/fx/feature.json"
+plan_issue in-progress OIK-20 F ""
+plan_issue "done" OIK-21 Here "Scope: here." '{"parent": "OIK-20"}'
+plan_issue in-progress OIK-22 There $'Scope: a plugin.\n**Repo:** `o/r-plug` (its own)\nAcceptance: it works.' '{"parent": "OIK-20"}'
 
 # This repo, claimed, and the plugin's repo with a main.
 git init -q --bare -b main "$tmp/remote.git"
@@ -87,11 +75,10 @@ git push -q origin HEAD:main HEAD:refs/heads/claim/OIK-20
 git clone -q "$tmp/github/o/r-plug.git" "$tmp/plug" 2>/dev/null
 (cd "$tmp/plug" && echo plug >README.md && git add README.md && git commit -qm plug && git push -q origin HEAD:main)
 
-# hack/plan with a stub linear-token: CI has no Keychain, and curl plays Linear.
+# A copy of hack/plan, as a plugin repo's worktree would run it.
 plan="$tmp/plan/hack/plan"
 mkdir -p "$tmp/plan/hack"
 cp "$root/hack/plan" "$root/hack/agent-token" "$tmp/plan/hack/"
-printf '#!/usr/bin/env bash\necho lin_test\n' >"$tmp/plan/hack/linear-token"
 chmod +x "$tmp/plan/hack/"*
 # OIK-21 merged here as PR #3.
 here=$(git rev-parse HEAD)

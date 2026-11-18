@@ -53,6 +53,8 @@ STUB
 chmod +x "$tmp/bin/curl"
 
 none='{"nodes": []}'
+# The user is the one active admin who isn't an app.
+echo '[{"id": "u-owner", "app": false}, {"id": "u-agent", "app": true}]' >"$tmp/fx/users.json"
 cat >"$tmp/fx/issues.json" <<EOF
 [
 {"identifier": "OIK-1", "title": "Schedules", "priority": 2, "estimate": null, "dueDate": null,
@@ -64,9 +66,9 @@ cat >"$tmp/fx/issues.json" <<EOF
  "relations": {"nodes": [{"type": "related", "relatedIssue": {"identifier": "OIK-4"}}]}, "inverseRelations": $none,
  "attachments": {"nodes": [{"title": "feat: schedules (#5)", "url": "https://github.com/o/r/pull/5"}]},
  "history": {"nodes": [
-   {"createdAt": "2026-10-01T12:00:00.000Z", "fromState": {"name": "Design Review"}, "toState": {"name": "Todo"}, "actor": {"name": "Owner"}, "botActor": null},
+   {"createdAt": "2026-10-01T12:00:00.000Z", "fromState": {"name": "Design Review"}, "toState": {"name": "Todo"}, "actor": {"id": "u-owner", "name": "Owner"}, "botActor": null},
    {"createdAt": "2026-10-01T11:00:00.000Z", "fromState": null, "toState": {"name": "Design Review"}, "actor": null, "botActor": {"name": "Oikade Agent"}},
-   {"createdAt": "2026-10-01T11:30:00.000Z", "fromState": null, "toState": null, "actor": {"name": "Owner"}, "botActor": null}
+   {"createdAt": "2026-10-01T11:30:00.000Z", "fromState": null, "toState": null, "actor": {"id": "u-owner", "name": "Owner"}, "botActor": null}
  ], "pageInfo": {"hasNextPage": false}}},
 {"identifier": "OIK-2", "title": "Run: a step", "priority": 0, "estimate": null, "dueDate": null, "description": null,
  "createdAt": "2026-10-01T10:05:00.000Z", "updatedAt": "2026-10-01T10:05:00.000Z", "startedAt": null,
@@ -80,7 +82,7 @@ cat >"$tmp/fx/issues.json" <<EOF
  "completedAt": null, "canceledAt": null, "archivedAt": null, "triagedAt": null,
  "state": {"name": "Design Review"}, "project": null, "parent": null,
  "creator": {"name": "Owner"}, "assignee": null, "labels": $none, "relations": $none, "inverseRelations": $none,
- "attachments": $none, "history": {"nodes": [{"createdAt": "2026-10-03T10:00:00.000Z", "fromState": null, "toState": {"name": "Design Review"}, "actor": {"name": "Owner"}, "botActor": null}],
+ "attachments": $none, "history": {"nodes": [{"createdAt": "2026-10-03T10:00:00.000Z", "fromState": null, "toState": {"name": "Design Review"}, "actor": {"id": "u-owner", "name": "Owner"}, "botActor": null}],
    "pageInfo": {"hasNextPage": true}}}
 ]
 EOF
@@ -104,9 +106,9 @@ cat >"$tmp/fx/projects.json" <<'EOF'
 EOF
 # OIK-4 has more history than one page holds: the rest comes on its own.
 cat >"$tmp/fx/issue.json" <<'EOF'
-[{"createdAt": "2026-10-03T10:00:00.000Z", "fromState": null, "toState": {"name": "Design Review"}, "actor": {"name": "Owner"}, "botActor": null},
- {"createdAt": "2026-10-04T10:00:00.000Z", "fromState": null, "toState": null, "actor": {"name": "Owner"}, "botActor": null},
- {"createdAt": "2026-10-05T10:00:00.000Z", "fromState": {"name": "Design Review"}, "toState": {"name": "Backlog"}, "actor": {"name": "Owner"}, "botActor": null}]
+[{"createdAt": "2026-10-03T10:00:00.000Z", "fromState": null, "toState": {"name": "Design Review"}, "actor": {"id": "u-owner", "name": "Owner"}, "botActor": null},
+ {"createdAt": "2026-10-04T10:00:00.000Z", "fromState": null, "toState": null, "actor": {"id": "u-owner", "name": "Owner"}, "botActor": null},
+ {"createdAt": "2026-10-05T10:00:00.000Z", "fromState": {"name": "Design Review"}, "toState": {"name": "Backlog"}, "actor": {"id": "u-owner", "name": "Owner"}, "botActor": null}]
 EOF
 cat >"$tmp/fx/projectUpdates.json" <<'EOF'
 [{"body": "Shipped.", "createdAt": "2026-11-01T00:00:00.000Z", "health": "onTrack", "project": {"name": "v0.1.0"}, "user": {"name": "Owner"}}]
@@ -145,7 +147,7 @@ has "$one/issue.md" 'priority: 2'
 has "$one/issue.md" 'created: "2026-10-01T10:00:00Z"'
 has "$one/issue.md" 'links: ["feat: schedules (#5) https://github.com/o/r/pull/5"]'
 # Status changes oldest first, by whoever made them, and nothing else from the history.
-has "$one/issue.md" 'status-history: ["2026-10-01T11:00:00Z none -> Design Review by Oikade Agent","2026-10-01T12:00:00Z Design Review -> Todo by Owner"]'
+has "$one/issue.md" 'status-history: ["2026-10-01T11:00:00Z none -> Design Review by Oikade Agent","2026-10-01T12:00:00Z Design Review -> Todo by the user"]'
 lacks "$one/issue.md" 'blocked-by'
 has "$two/issue.md" 'parent: "OIK-1"'
 has "$two/issue.md" 'blocked-by: ["OIK-1"]'
@@ -163,7 +165,7 @@ has "$four/issue.md" 'files/u4'
 has "$four/issue.md" '- next'
 has "$four/files/u4" 'bytes of u4'
 # A history longer than a page is fetched in full.
-has "$four/issue.md" 'status-history: ["2026-10-03T10:00:00Z none -> Design Review by Owner","2026-10-05T10:00:00Z Design Review -> Backlog by Owner"]'
+has "$four/issue.md" 'status-history: ["2026-10-03T10:00:00Z none -> Design Review by the user","2026-10-05T10:00:00Z Design Review -> Backlog by the user"]'
 
 # One file per comment, named for its time and author; two in one second get -2.
 c="$one/comments/2026-10-01T10-10-00Z-oikade-agent"
@@ -245,6 +247,14 @@ if out=$("$tmp/hack/plan-export" 2>&1); then fail "exported an issue with more l
 grep -qF "OIK-1 has more than 50" <<<"$out" || fail "the refusal doesn't name the issue: $out"
 cp "$tmp/issues.json" "$tmp/fx/issues.json"
 [[ -e "$plan/$one/issue.md" ]] || fail "a refused export changed plan/"
+
+# Once anything but an export has committed to plan/, it's the plan, and an
+# export would undo that, so it refuses.
+echo note >"$plan/scratch.md"
+git -C "$plan" add scratch.md && git -C "$plan" commit -qm "OIK-1: comment"
+if out=$("$tmp/hack/plan-export" 2>&1); then fail "exported over a plan hack/plan had written to"; fi
+grep -qF "it's the plan now" <<<"$out" || fail "the refusal doesn't say why: $out"
+[[ -e "$plan/scratch.md" ]] || fail "the refusal removed the plan's change"
 
 [[ $failed == 0 ]] && echo "plan-export: ok"
 exit "$failed"
