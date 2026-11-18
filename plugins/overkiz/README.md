@@ -31,7 +31,7 @@ Until the token is set, or while the hub refuses it, `oikade status` says so, an
 
 `Brand` is the app your account is in: `overkiz.Atlantic`, `overkiz.Thermor` or `overkiz.Sauter`. `Username` is the account's email address, and its password is a secret: run `oikade secret set cozytouch`, and paste it. It's read at each login, so a new password needs no deploy.
 
-**Your account's devices can be on either of Atlantic's clouds, or both:** Overkiz, or Magellan, where newer WiFi devices such as a Thermor Riva 5 are ([OIK-329](https://linear.app/oikade/issue/OIK-329)). You don't need to know which. The plugin logs in once and reads both. A cloud that has no account for your login, as Overkiz answers `No such user account` for an account on Magellan, isn't a problem: the plugin asks it again hourly.
+**Your account's devices can be on either of Atlantic's clouds, or both:** Overkiz, or Magellan, where newer WiFi devices such as a Thermor Riva 5 are ([OIK-329](https://linear.app/oikade/issue/OIK-329)). You don't need to know which. The plugin logs in once and reads both. A cloud that has no account for your login, as Overkiz answers `No such user account` for an account on Magellan, isn't a problem: the plugin logs it once, and asks it again hourly.
 
 A refused password shows in `oikade status`, and the plugin waits for the secret to change, or an hour, rather than trying again, since too many failed logins can lock the account. A session the cloud ends is logged in again by itself.
 

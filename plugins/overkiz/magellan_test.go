@@ -174,6 +174,22 @@ func TestAnEndedTokenSignsInAgainWithTheTowelRadiatorOnline(t *testing.T) {
 	}
 }
 
+func TestOverkizHavingNoAccountIsLoggedOnce(t *testing.T) {
+	cloud := newMagellanCloud(t)
+	// Overkiz is asked again every refused, hourly in the plugin.
+	timings := cloudFast
+	timings.refused = 20 * time.Millisecond
+	b := startCloud(t, cloud, password, timings)
+	b.waitState(towel, towelSays)
+	b.eventually("three Overkiz logins", func() bool { return cloud.count("/login") >= 3 })
+	if n := b.logs.count("Found no Overkiz account for the login"); n != 1 {
+		t.Errorf("logged %d times at Info, not once:\n%s", n, b.logs.String())
+	}
+	if e := b.status().Error; e != "" {
+		t.Errorf("status error %q", e)
+	}
+}
+
 func TestAnOverkizAccountWithNoMagellanSetupIsntAProblem(t *testing.T) {
 	cloud := newFakeCloud(t)
 	b := startCloud(t, cloud, password, cloudFast)
