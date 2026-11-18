@@ -62,11 +62,13 @@ func TestDevicesFitTheTerminal(t *testing.T) {
 		!strings.Contains(b.String(), "hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60") {
 		t.Errorf("--wide dropped %v:\n%s", dropped, b.String())
 	}
-	// A model that starts with its manufacturer names it once.
 	for _, want := range []string{"SONOFF MINIR4", "Toshiba ", " Somfy RS100 io "} {
-		if !strings.Contains(b.String(), want) || strings.Contains(b.String(), "Somfy Somfy") {
-			t.Errorf("--wide has no %q, or a manufacturer twice:\n%s", want, b.String())
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("--wide has no %q:\n%s", want, b.String())
 		}
+	}
+	if strings.Contains(b.String(), "Somfy Somfy") {
+		t.Errorf("a model that starts with its manufacturer names it twice:\n%s", b.String())
 	}
 }
 
@@ -269,5 +271,20 @@ func TestOnlyAChangeGetsATick(t *testing.T) {
 	}
 	if stuck("on", nil, true) || !stuck("brightness", 33.1, 33.0) || stuck("brightness", 30.0, 33.0) {
 		t.Error("stuck")
+	}
+}
+
+func TestAModelNamesItsManufacturerOnce(t *testing.T) {
+	for _, c := range []struct{ manufacturer, model, want string }{
+		{"Somfy", "Somfy RS100 io", "Somfy RS100 io"},
+		{"somfy", "Somfy", "Somfy"},
+		{"Aqara", "AqaraHub-M2", "Aqara AqaraHub-M2"},
+		{"Toshiba", "", "Toshiba"},
+		{"", "MINIR4", "MINIR4"},
+		{"Bosch", "Bo", "Bosch Bo"},
+	} {
+		if got := modelOf(registry.Device{Manufacturer: c.manufacturer, Model: c.model}); got != c.want {
+			t.Errorf("%q and %q gave %q, want %q", c.manufacturer, c.model, got, c.want)
+		}
 	}
 }

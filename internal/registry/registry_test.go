@@ -417,6 +417,11 @@ func TestWhatADeviceIsMovesWithItsHardware(t *testing.T) {
 	if d := get(t, r, "hall-sensor"); d.Manufacturer != "Aqara" || d.Model != "WSDCGQ11LM" {
 		t.Errorf("the name took the hardware without what it is: %+v", d)
 	}
+	for _, d := range r.List().Devices {
+		if d.Name != "hall-sensor" && (d.Manufacturer != "" || d.Model != "") {
+			t.Errorf("the retired entry kept what its hardware is: %+v", d)
+		}
+	}
 	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x3", Room: "hall"})
 	if d := get(t, r, "hall-sensor"); d.Manufacturer != "" || d.Model != "" {
 		t.Errorf("hardware not on record kept the last one's manufacturer and model: %+v", d)

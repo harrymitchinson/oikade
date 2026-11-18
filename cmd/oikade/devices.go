@@ -237,11 +237,13 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 }
 
 // modelOf is a device's manufacturer and model, as its driver says, with the manufacturer once if its
-// model already starts with it.
+// model already starts with it as a word.
 func modelOf(d registry.Device) string {
-	m := d.Manufacturer
-	if m == "" || len(d.Model) >= len(m) && strings.EqualFold(d.Model[:len(m)], m) {
-		return d.Model
+	m, model := d.Manufacturer, d.Model
+	startsWith := len(model) >= len(m) && strings.EqualFold(model[:len(m)], m) &&
+		(len(model) == len(m) || model[len(m)] == ' ')
+	if m == "" || startsWith {
+		return model
 	}
 	return strings.TrimSpace(d.Manufacturer + " " + d.Model)
 }

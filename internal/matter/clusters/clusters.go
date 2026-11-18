@@ -232,8 +232,8 @@ func (b *BridgedInfo) SetLabel(label string) {
 // isn't served, and subscribers are told of a change, the attribute list's included. Call it inside
 // Node.Update.
 func (b *BridgedInfo) SetProduct(vendor, product string) {
-	b.setOptional(0x01, &b.vendor, fit(vendor, maxStringLength))
-	b.setOptional(0x03, &b.product, fit(product, maxStringLength))
+	b.setOptional(0x01, &b.vendor, Fit(vendor, maxStringLength))
+	b.setOptional(0x03, &b.product, Fit(product, maxStringLength))
 }
 
 // setOptional sets an optional string attribute, which is served only while it isn't empty.
@@ -250,16 +250,14 @@ func (b *BridgedInfo) setOptional(id uint32, field *string, v string) {
 	case !found:
 		b.cluster.Attributes = slices.Insert(b.cluster.Attributes, i, stringAttr(id, field))
 	}
-	if v != "" {
-		b.cluster.Changed(id)
-	}
+	b.cluster.Changed(id)
 	if had != (v != "") {
 		b.cluster.Changed(im.AttrAttributeList)
 	}
 }
 
-// fit cuts s to at most limit bytes, on a character's boundary.
-func fit(s string, limit int) string {
+// Fit cuts s to at most limit bytes, on a character's boundary, as Matter's strings are limited.
+func Fit(s string, limit int) string {
 	for len(s) > limit {
 		_, size := utf8.DecodeLastRuneInString(s)
 		s = s[:len(s)-size]

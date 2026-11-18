@@ -226,6 +226,7 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 			out.Absorbed[from.Name] = d.Name
 		}
 		from.ID, from.Removed, from.Declared = "", true, false
+		from.Manufacturer, from.Model = "", ""
 		return i, nil
 	case i >= 0:
 		// Onto hardware not on record, or none: the old hardware is forgotten.
