@@ -1,6 +1,7 @@
 package host
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -202,6 +203,7 @@ func (p *plugins) pair(h *hosted) {
 		// What the plugin reports for a device it serves wins over its discovered list.
 		if known, ok := apps[d.ID]; ok {
 			app.Capabilities, app.DeviceType = known.Capabilities, known.DeviceType
+			app.Manufacturer, app.Model = cmp.Or(known.Manufacturer, app.Manufacturer), cmp.Or(known.Model, app.Model)
 		}
 		apps[d.ID] = app
 	}

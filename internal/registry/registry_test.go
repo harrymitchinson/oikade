@@ -373,3 +373,57 @@ func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
 		t.Errorf("going back gave %v, want the driver's", got)
 	}
 }
+
+func TestWhatADeviceIsStaysOnRecordUntilItsDriverSaysOtherwise(t *testing.T) {
+	r, values := open(t)
+	on := []string{capability.On}
+	reported := func(manufacturer, model string) (Device, bool) {
+		t.Helper()
+		d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "lamp", Capabilities: on, Manufacturer: manufacturer, Model: model})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d, changed
+	}
+	reported("", "")
+	if d, changed := reported(" IKEA of Sweden\n", "TRADFRI bulb E27"); !changed || d.Manufacturer != "IKEA of Sweden" || d.Model != "TRADFRI bulb E27" {
+		t.Errorf("a first manufacturer and model gave %+v, changed %v", d, changed)
+	}
+	if d, changed := reported("", ""); changed || d.Manufacturer != "IKEA of Sweden" || d.Model != "TRADFRI bulb E27" {
+		t.Errorf("a report that says nothing of them gave %+v, changed %v", d, changed)
+	}
+	if _, changed := reported("IKEA of Sweden", "TRADFRI bulb E27"); changed {
+		t.Error("the same manufacturer and model changed something")
+	}
+	if d, changed := reported("", "TRADFRI bulb E27 WS"); !changed || d.Manufacturer != "IKEA of Sweden" || d.Model != "TRADFRI bulb E27 WS" {
+		t.Errorf("a new model alone gave %+v, changed %v", d, changed)
+	}
+	again, err := Open(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := again.Get("lamp"); d.Manufacturer != "IKEA of Sweden" || d.Model != "TRADFRI bulb E27 WS" {
+		t.Errorf("after reopening: %+v", d)
+	}
+}
+
+func TestWhatADeviceIsMovesWithItsHardware(t *testing.T) {
+	r, _ := open(t)
+	if _, _, err := r.Report(Report{ID: "0x2", Driver: "sim", Name: "Sensor 7", Manufacturer: "Aqara", Model: "WSDCGQ11LM"}); err != nil {
+		t.Fatal(err)
+	}
+	declareOK(t, r, Declaration{Name: "hall-sensor", Room: "hall"})
+	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: "hall"})
+	if d := get(t, r, "hall-sensor"); d.Manufacturer != "Aqara" || d.Model != "WSDCGQ11LM" {
+		t.Errorf("the name took the hardware without what it is: %+v", d)
+	}
+	for _, d := range r.List().Devices {
+		if d.Name != "hall-sensor" && (d.Manufacturer != "" || d.Model != "") {
+			t.Errorf("the retired entry kept what its hardware is: %+v", d)
+		}
+	}
+	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x3", Room: "hall"})
+	if d := get(t, r, "hall-sensor"); d.Manufacturer != "" || d.Model != "" {
+		t.Errorf("hardware not on record kept the last one's manufacturer and model: %+v", d)
+	}
+}

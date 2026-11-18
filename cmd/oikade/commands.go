@@ -199,7 +199,7 @@ func printStatus(out, stderr *cli.Printer, st *api.Status, bridge *api.Matter, s
 	if len(st.Devices) > 0 {
 		dropped, decided := printDeviceLines(out, st.Devices, wide)
 		if len(dropped) > 0 {
-			stderr.Hint("--wide shows %s", strings.Join(dropped, " and "))
+			stderr.Hint("--wide shows %s", andList(dropped))
 		}
 		countUndeclared(stderr, undeclared)
 		if decided != "" {
