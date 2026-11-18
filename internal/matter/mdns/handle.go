@@ -96,6 +96,16 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 			answers = appendNew(answers, rec)
 			matched = true
 		}
+		// A name of ours that has no record of the type asked for says so with an NSEC (RFC
+		// 6762, 6.1), so the querier needn't wait and ask again.
+		if !matched && q.Type != dnsmessage.TypeALL {
+			if n, ok := nsec(q.Name, recs); ok {
+				if !knownAnswer(m.Answers, n) {
+					answers = appendNew(answers, n)
+				}
+				matched = true
+			}
+		}
 		if matched && q.Class&unicastResponse == 0 {
 			unicast = false
 		}
@@ -103,7 +113,7 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 	if len(answers) == 0 {
 		return
 	}
-	additionals := without(additional(answers, recs), answers)
+	additionals := withNSEC(answers, without(additional(answers, recs), answers), recs)
 
 	// A query from a port other than 5353 is a legacy unicast query, from a resolver that
 	// isn't an mDNS querier: it gets a conventional DNS reply (RFC 6762, 6.7).
@@ -139,7 +149,7 @@ func (r *Responder) answer(c packetConn, ifIndex int, src *net.UDPAddr, m *dnsme
 		defer r.sendMu.Unlock()
 		// Leave out what was withdrawn in the meantime.
 		now := r.answerable(ifIndex)
-		still := func(rec record) bool { return slices.ContainsFunc(now, rec.equal) }
+		still := func(rec record) bool { return holds(now, rec) }
 		answers = slices.DeleteFunc(answers, func(rec record) bool { return !still(rec) })
 		additionals = slices.DeleteFunc(additionals, func(rec record) bool { return !still(rec) })
 		if len(answers) == 0 {

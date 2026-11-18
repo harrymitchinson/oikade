@@ -1,6 +1,7 @@
 package mdns
 
 import (
+	"bytes"
 	"net/netip"
 	"slices"
 	"strings"
@@ -61,7 +62,8 @@ func nameEqual(a, b dnsmessage.Name) bool {
 }
 
 // sameBody reports whether a and b hold the same data. It only knows the types the responder
-// sends, so any other type is never the same as one of ours.
+// sends, so any other type is never the same as one of ours. NSEC, which dnsmessage doesn't
+// know, is an UnknownResource, compared byte for byte.
 func sameBody(a, b dnsmessage.ResourceBody) bool {
 	switch x := a.(type) {
 	case *dnsmessage.AResource:
@@ -80,8 +82,78 @@ func sameBody(a, b dnsmessage.ResourceBody) bool {
 	case *dnsmessage.TXTResource:
 		y, ok := b.(*dnsmessage.TXTResource)
 		return ok && slices.Equal(x.TXT, y.TXT)
+	case *dnsmessage.UnknownResource:
+		y, ok := b.(*dnsmessage.UnknownResource)
+		return ok && x.Type == y.Type && bytes.Equal(x.Data, y.Data)
 	}
 	return false
+}
+
+// typeNSEC is the NSEC record's type (RFC 4034, 4), which dnsmessage has no name for.
+const typeNSEC dnsmessage.Type = 47
+
+// nsec returns the NSEC record that says which types name has among the unique records of recs,
+// and so that it has no others, or false if it has none (RFC 6762, 6.1). It's mDNS's restricted
+// form: the next name is name itself, and the bitmap is window 0 alone, since every type the
+// responder sends is below 256. The bitmap leaves out NSEC itself, as Apple's responder does.
+func nsec(name dnsmessage.Name, recs []record) (record, bool) {
+	var types []dnsmessage.Type
+	for _, rec := range recs {
+		if rec.unique && rec.typ != typeNSEC && rec.typ < 256 && nameEqual(rec.name, name) && !slices.Contains(types, rec.typ) {
+			types = append(types, rec.typ)
+		}
+	}
+	if len(types) == 0 {
+		return record{}, false
+	}
+	bitmap := make([]byte, int(slices.Max(types))/8+1)
+	for _, t := range types {
+		bitmap[t/8] |= 0x80 >> (t % 8)
+	}
+	// The next name goes uncompressed, which any reader can follow.
+	data := slices.Concat(wireName(name), []byte{0, byte(len(bitmap))}, bitmap)
+	return record{
+		name: name, typ: typeNSEC, unique: true, ttl: hostTTL,
+		body: &dnsmessage.UnknownResource{Type: typeNSEC, Data: data},
+	}, true
+}
+
+// withNSEC returns additionals with an NSEC record for each name that has unique records among
+// answers and additionals, from what recs holds for it, unless answers already carry it, so that a
+// querier knows at once that the name has no other types, such as no AAAA on an IPv4-only host.
+func withNSEC(answers, additionals, recs []record) []record {
+	var names []dnsmessage.Name
+	for _, rec := range slices.Concat(answers, additionals) {
+		if rec.unique && rec.typ != typeNSEC && !slices.ContainsFunc(names, func(n dnsmessage.Name) bool { return nameEqual(n, rec.name) }) {
+			names = append(names, rec.name)
+		}
+	}
+	for _, n := range names {
+		if rec, ok := nsec(n, recs); ok && !slices.ContainsFunc(answers, rec.equal) {
+			additionals = appendNew(additionals, rec)
+		}
+	}
+	return additionals
+}
+
+// holds reports whether rec is among recs, or, for an NSEC record, whether recs make the same one.
+func holds(recs []record, rec record) bool {
+	if rec.typ == typeNSEC {
+		n, ok := nsec(rec.name, recs)
+		return ok && n.equal(rec)
+	}
+	return slices.ContainsFunc(recs, rec.equal)
+}
+
+// wireName returns name in DNS wire format, uncompressed. dnsmessage treats every dot as a label's
+// end, so splitting on them reads a name as it does.
+func wireName(name dnsmessage.Name) []byte {
+	var b []byte
+	for label := range strings.SplitSeq(strings.TrimSuffix(name.String(), "."), ".") {
+		b = append(b, byte(len(label)))
+		b = append(b, label...)
+	}
+	return append(b, 0)
 }
 
 // addressRecords returns the A and AAAA records that map host to addrs.

@@ -275,10 +275,14 @@ func TestAnswer(t *testing.T) {
 		{testHost, dnsmessage.TypeA, hostTTL, true},
 		{testHost, dnsmessage.TypeAAAA, hostTTL, true},
 	}
+	// Each unique name in a reply comes with an NSEC that lists its types (RFC 6762, 6.1).
+	hostNSEC := rr{testHost, typeNSEC, hostTTL, true}
+	instanceNSEC := rr{testInstance, typeNSEC, hostTTL, true}
 	instance := append([]rr{
 		{testInstance, dnsmessage.TypeSRV, hostTTL, true},
 		{testInstance, dnsmessage.TypeTXT, otherTTL, true},
 	}, addresses...)
+	withNSECs := func(rrs ...rr) []rr { return append(rrs, instanceNSEC, hostNSEC) }
 
 	for _, tc := range []struct {
 		name            string
@@ -287,20 +291,21 @@ func TestAnswer(t *testing.T) {
 		answers, extras []rr
 	}{
 		{"service type", "_matterc._udp.local.", dnsmessage.TypePTR,
-			[]rr{{"_matterc._udp.local.", dnsmessage.TypePTR, otherTTL, false}}, instance},
+			[]rr{{"_matterc._udp.local.", dnsmessage.TypePTR, otherTTL, false}}, withNSECs(instance...)},
 		{"long discriminator", "_L3840._sub._matterc._udp.local.", dnsmessage.TypePTR,
-			[]rr{{"_L3840._sub._matterc._udp.local.", dnsmessage.TypePTR, otherTTL, false}}, instance},
+			[]rr{{"_L3840._sub._matterc._udp.local.", dnsmessage.TypePTR, otherTTL, false}}, withNSECs(instance...)},
 		{"commissioning mode, in another case", "_cm._sub._MATTERC._udp.local.", dnsmessage.TypePTR,
-			[]rr{{"_CM._sub._matterc._udp.local.", dnsmessage.TypePTR, otherTTL, false}}, instance},
+			[]rr{{"_CM._sub._matterc._udp.local.", dnsmessage.TypePTR, otherTTL, false}}, withNSECs(instance...)},
 		{"services listing", servicesName, dnsmessage.TypePTR,
 			[]rr{{servicesName, dnsmessage.TypePTR, otherTTL, false}}, nil},
 		{"SRV", testInstance, dnsmessage.TypeSRV,
-			[]rr{{testInstance, dnsmessage.TypeSRV, hostTTL, true}}, addresses},
+			[]rr{{testInstance, dnsmessage.TypeSRV, hostTTL, true}}, withNSECs(addresses...)},
 		{"TXT", testInstance, dnsmessage.TypeTXT,
-			[]rr{{testInstance, dnsmessage.TypeTXT, otherTTL, true}}, nil},
-		{"ANY", testInstance, dnsmessage.TypeALL, instance[:2], addresses},
-		{"A", testHost, dnsmessage.TypeA, addresses[:1], nil},
-		{"AAAA", testHost, dnsmessage.TypeAAAA, addresses[1:], nil},
+			[]rr{{testInstance, dnsmessage.TypeTXT, otherTTL, true}}, []rr{instanceNSEC}},
+		{"ANY", testInstance, dnsmessage.TypeALL, instance[:2], withNSECs(addresses...)},
+		{"A", testHost, dnsmessage.TypeA, addresses[:1], []rr{hostNSEC}},
+		{"AAAA", testHost, dnsmessage.TypeAAAA, addresses[1:], []rr{hostNSEC}},
+		{"a type the instance hasn't", testInstance, dnsmessage.TypeA, []rr{instanceNSEC}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r.handle(c, testIf, peer, query(t, tc.qname, tc.typ, false))
