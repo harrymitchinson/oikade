@@ -121,7 +121,8 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	r.untilValue("relay", false)
 	r.stdout(nil, "set", "relay", "on", "on")
 	r.untilValue("relay", true)
-	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 {
+	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 ||
+		d.Manufacturer != "Oikade" || d.Model != "Simulated switch" {
 		t.Fatalf("got %+v", d)
 	}
 }
@@ -323,6 +324,9 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
 	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
 	endpoint := c.endpoint("relay")
+	if vendor, product := c.info(endpoint, 0x01), c.info(endpoint, 0x03); vendor != "Oikade" || product != "Simulated switch" {
+		t.Errorf("VendorName %v and ProductName %v, want what the plugin says", vendor, product)
+	}
 	c.command(endpoint, turnOn)
 	r.untilValue("relay", true)
 	r.stdout(nil, "set", "relay", "on", "off")

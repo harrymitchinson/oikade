@@ -62,6 +62,9 @@ type Device struct {
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// DriverDeviceType is what its driver says it is, if the driver knows.
 	DriverDeviceType devicetype.Type `json:"driverDeviceType,omitempty"`
+	// Manufacturer and Model are what its driver last said they are, kept while it says nothing.
+	Manufacturer string `json:"manufacturer,omitempty"`
+	Model        string `json:"model,omitempty"`
 	// Endpoint is its Matter endpoint ID, and follows the name onto replacement hardware.
 	Endpoint uint16 `json:"endpoint"`
 	// Removed keeps the device on record, holding its endpoint, in case it comes back.
@@ -95,6 +98,9 @@ type Report struct {
 	DeviceType devicetype.Type
 	// Control is how it's arbitrated. Nil leaves what's on record.
 	Control json.RawMessage
+	// Manufacturer and Model are as the driver says. Empty leaves what's on record.
+	Manufacturer string
+	Model        string
 	// Name and Room are as named in its app, and are only read the first time.
 	Name string
 	Room string
@@ -197,6 +203,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 	i := hardware(r.state, report.Driver, report.ID)
 	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
 		r.state.Devices[i].DriverDeviceType == report.DeviceType && !newAppName(r.state.Devices[i], report) &&
+		!newProduct(r.state.Devices[i], report) &&
 		(report.Control == nil || bytes.Equal(r.state.Devices[i].Control, report.Control))
 	var known Device
 	if same {
@@ -231,6 +238,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if report.Control != nil {
 			d.Control = bytes.Clone(report.Control)
 		}
+		d.Manufacturer, d.Model = cmp.Or(clean(report.Manufacturer), d.Manufacturer), cmp.Or(clean(report.Model), d.Model)
 		out = cloneDevice(*d)
 		return nil
 	})
@@ -240,6 +248,12 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 // newAppName says a report is the first to name the device in its app.
 func newAppName(d Device, report Report) bool {
 	return d.AppName == "" && clean(report.Name) != ""
+}
+
+// newProduct says a report names the device's manufacturer or model anew.
+func newProduct(d Device, report Report) bool {
+	m, model := clean(report.Manufacturer), clean(report.Model)
+	return m != "" && m != d.Manufacturer || model != "" && model != d.Model
 }
 
 // fits refuses a device type a device can't be. One that hasn't reported can be any.

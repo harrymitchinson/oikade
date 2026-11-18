@@ -1,6 +1,7 @@
 package matterbridge
 
 import (
+	"cmp"
 	"slices"
 	"testing"
 	"time"
@@ -328,5 +329,35 @@ func TestABlindStoppedBeforeItsMoveIsSentStaysPut(t *testing.T) {
 	b.Writes.flushes.Wait()
 	if got := rec.list(); !slices.Equal(got, []string{"blind position=10"}) {
 		t.Errorf("writes %v, want only where the blind is", got)
+	}
+}
+
+// What a device is, its manufacturer and model, is its VendorName and ProductName, while it's away
+// too, and a new one is set in place.
+func TestABridgedDeviceSaysWhatItIs(t *testing.T) {
+	b := newBridgeRig()
+	plug := device("desk-plug", 2, capability.On)
+	plug.Manufacturer, plug.Model, plug.Absent = "Shelly", "Plug S", true
+	apply(t, b, plug)
+	var before *im.Endpoint
+	product := func() (vendor, product any) {
+		b.Matter.Node.View(func() {
+			e := b.Matter.Node.Endpoint(2)
+			before = cmp.Or(before, e)
+			if e != before {
+				t.Error("the endpoint was rebuilt")
+			}
+			vendor = readAttr(t, e, clusters.IDBridgedDeviceBasicInformation, 0x01)
+			product = readAttr(t, e, clusters.IDBridgedDeviceBasicInformation, 0x03)
+		})
+		return vendor, product
+	}
+	if vendor, product := product(); vendor != "Shelly" || product != "Plug S" {
+		t.Errorf("VendorName %v and ProductName %v, want Shelly Plug S", vendor, product)
+	}
+	plug.Model, plug.Absent = "Plug S Gen3", false
+	apply(t, b, plug)
+	if vendor, product := product(); vendor != "Shelly" || product != "Plug S Gen3" {
+		t.Errorf("VendorName %v and ProductName %v, want Shelly Plug S Gen3", vendor, product)
 	}
 }

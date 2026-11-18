@@ -102,6 +102,7 @@ func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
 	d, changed, err := i.registry.Report(registry.Report{
 		ID: app.ID, Driver: instanceName(instance), Name: app.Name, Room: app.Room,
 		Capabilities: app.Capabilities, DeviceType: app.DeviceType, Control: settings,
+		Manufacturer: app.Manufacturer, Model: app.Model,
 	})
 	if err != nil {
 		return ident.ID{}, err

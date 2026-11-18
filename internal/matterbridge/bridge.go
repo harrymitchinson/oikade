@@ -24,8 +24,10 @@ type endpoint struct {
 	signature string
 	label     string
 	absent    bool
-	mapped    *Mapped
-	info      *clusters.BridgedInfo
+	// manufacturer and model are what it's said to be, which refresh serves.
+	manufacturer, model string
+	mapped              *Mapped
+	info                *clusters.BridgedInfo
 }
 
 func (e *endpoint) device() ident.ID { return *e.key.Load() }
@@ -139,7 +141,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 	for id, e := range b.endpoints {
 		d := want[id]
 		e.key.Store(&d.Key)
-		e.absent = d.Absent
+		e.absent, e.manufacturer, e.model = d.Absent, d.Manufacturer, d.Model
 		byDevice[d.Key] = e
 	}
 	b.byDevice = byDevice
@@ -157,7 +159,9 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 			continue
 		}
 		d := want[id]
-		e := &endpoint{signature: d.Signature(), label: Label(d.Name), absent: d.Absent}
+		e := &endpoint{
+			signature: d.Signature(), label: Label(d.Name), absent: d.Absent, manufacturer: d.Manufacturer, model: d.Model,
+		}
 		e.key.Store(&d.Key)
 		d.After = b.after
 		// So the log says what a controller asked for, as well as what was written (OIK-337).
@@ -185,6 +189,8 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 func (b *Bridge) refresh(e *endpoint) {
 	snap, _ := b.Store.Get(e.device())
 	b.Matter.Node.Update(func() {
+		// What a device is, it is while it's away.
+		e.info.SetProduct(e.manufacturer, e.model)
 		if e.absent {
 			e.info.SetReachable(false)
 			return

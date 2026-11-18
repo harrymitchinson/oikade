@@ -514,3 +514,64 @@ func TestSubscriberSeesRemovedDevice(t *testing.T) {
 		}
 	}
 }
+
+// A bridged device's VendorName and ProductName are served once known, cut to 32 bytes, and
+// subscribers hear of them and of the attribute list they join.
+func TestABridgedDevicesProductIsServedOnceKnown(t *testing.T) {
+	f := newFixture(t)
+	path := func(attr uint32) im.Path {
+		return im.Path{Endpoint: 2, Cluster: IDBridgedDeviceBasicInformation, Attribute: attr}
+	}
+	vendor, product, list := path(0x01), path(0x03), path(im.AttrAttributeList)
+	cluster := im.AttributePath{Endpoint: 2, Cluster: IDBridgedDeviceBasicInformation, WildAttribute: true}
+	priming, _, _, reports, err := f.client.Subscribe(timeout(t), 0, 5, cluster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if find(priming, vendor) != nil || find(priming, product) != nil {
+		t.Fatalf("an unknown VendorName or ProductName is served: %+v", priming)
+	}
+	attributes := func(r *im.AttributeReport) []uint64 {
+		t.Helper()
+		if r == nil {
+			t.Fatal("no attribute list")
+		}
+		values := value(t, *r).([]any)
+		ids := make([]uint64, 0, len(values))
+		for _, v := range values {
+			ids = append(ids, v.(uint64))
+		}
+		return ids
+	}
+
+	// 33 bytes, the last two of them one character.
+	long := strings.Repeat("x", 31) + "é"
+	f.bridge.Node.Update(func() { f.info.SetProduct("Signify Netherlands B.V.", long) })
+	select {
+	case got := <-reports:
+		if r := find(got, vendor); r == nil || value(t, *r) != "Signify Netherlands B.V." {
+			t.Errorf("report %+v, want VendorName Signify Netherlands B.V.", got)
+		}
+		if r := find(got, product); r == nil || value(t, *r) != strings.Repeat("x", 31) {
+			t.Errorf("report %+v, want ProductName cut to 31 x's", got)
+		}
+		if ids := attributes(find(got, list)); !slices.Contains(ids, 0x01) || !slices.Contains(ids, 0x03) {
+			t.Errorf("the attribute list is %v, without VendorName and ProductName", ids)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no report of VendorName and ProductName")
+	}
+
+	f.bridge.Node.Update(func() { f.info.SetProduct("Signify Netherlands B.V.", "") })
+	select {
+	case got := <-reports:
+		if find(got, product) != nil {
+			t.Errorf("an emptied ProductName is served: %+v", got)
+		}
+		if ids := attributes(find(got, list)); !slices.Contains(ids, 0x01) || slices.Contains(ids, 0x03) {
+			t.Errorf("the attribute list is %v, want VendorName and no ProductName", ids)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no report of the attribute list")
+	}
+}

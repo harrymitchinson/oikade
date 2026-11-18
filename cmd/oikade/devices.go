@@ -130,10 +130,18 @@ func listDevices(ctx context.Context, target target, asJSON, all, wide bool) err
 	stderr := std.err
 	undeclared, dropped := printDevices(std.out, list, marks, wide)
 	if len(dropped) > 0 {
-		stderr.Hint("--wide shows %s", strings.Join(dropped, " and "))
+		stderr.Hint("--wide shows %s", andList(dropped))
 	}
 	printUndeclared(stderr, undeclared)
 	return nil
+}
+
+// andList is "A", "A and B", or "A, B and C".
+func andList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 // printUndeclared gives the lines that would declare the devices your home doesn't, which it needs
@@ -186,6 +194,7 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 			{Header: nameHeader},
 			{Header: "ROOM"},
 			{Header: "STATE"},
+			{Header: "MODEL", Drop: 3, Shrink: true},
 			{Header: "HARDWARE", Drop: 1, Dim: true},
 			{Header: "ENDPOINT", Drop: 2},
 			{Header: "DEVICE TYPES", Shrink: true},
@@ -220,11 +229,21 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 		if d.Endpoint != 0 {
 			endpoint = strconv.Itoa(int(d.Endpoint))
 		}
-		table.Rows = append(table.Rows, []string{d.Name, d.Room, state,
+		table.Rows = append(table.Rows, []string{d.Name, d.Room, state, modelOf(d),
 			or(registry.HardwareRef(d).String(), hardwareOf(d)), endpoint,
 			devicetype.Join(d.DeviceTypes()), strings.Join(d.Capabilities, ", ")})
 	}
 	return undeclared, out.Table(table)
+}
+
+// modelOf is a device's manufacturer and model, as its driver says, with the manufacturer once if its
+// model already starts with it.
+func modelOf(d registry.Device) string {
+	m := d.Manufacturer
+	if m == "" || len(d.Model) >= len(m) && strings.EqualFold(d.Model[:len(m)], m) {
+		return d.Model
+	}
+	return strings.TrimSpace(d.Manufacturer + " " + d.Model)
 }
 
 // hardwareOf names hardware that isn't a plugin's, such as a simulated device's, by its driver and

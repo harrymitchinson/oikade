@@ -218,6 +218,7 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 		e, from := &s.Devices[i], &s.Devices[j]
 		e.ID, e.Driver, e.Capabilities, e.DriverDeviceType = from.ID, from.Driver, slices.Clone(from.Capabilities), from.DriverDeviceType
 		e.AppName, e.AppRoom = from.AppName, from.AppRoom
+		e.Manufacturer, e.Model = from.Manufacturer, from.Model
 		if len(e.Control) == 0 {
 			e.Control = bytes.Clone(from.Control)
 		}
@@ -231,6 +232,7 @@ func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int
 		e := &s.Devices[i]
 		if e.ID != d.ID || e.Driver != d.Driver {
 			e.ID, e.Driver, e.Capabilities, e.DriverDeviceType, e.AppName, e.AppRoom = d.ID, d.Driver, nil, "", "", ""
+			e.Manufacturer, e.Model = "", ""
 		}
 		return i, nil
 	default:

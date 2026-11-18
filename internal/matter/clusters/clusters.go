@@ -4,9 +4,11 @@
 package clusters
 
 import (
+	"cmp"
 	"errors"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
@@ -196,6 +198,8 @@ type BridgedInfo struct {
 	label     string
 	uniqueID  string
 	reachable bool
+	// vendor and product are VendorName and ProductName, each served only once it's known.
+	vendor, product string
 }
 
 // NewBridgedInfo returns the cluster for one bridged device.
@@ -222,6 +226,45 @@ func (b *BridgedInfo) SetLabel(label string) {
 		b.label = label
 		b.cluster.Changed(0x05)
 	}
+}
+
+// SetProduct sets the device's VendorName and ProductName, each cut to 32 bytes. One that's empty
+// isn't served, and subscribers are told of a change, the attribute list's included. Call it inside
+// Node.Update.
+func (b *BridgedInfo) SetProduct(vendor, product string) {
+	b.setOptional(0x01, &b.vendor, fit(vendor, maxStringLength))
+	b.setOptional(0x03, &b.product, fit(product, maxStringLength))
+}
+
+// setOptional sets an optional string attribute, which is served only while it isn't empty.
+func (b *BridgedInfo) setOptional(id uint32, field *string, v string) {
+	if v == *field {
+		return
+	}
+	had := *field != ""
+	*field = v
+	byID := func(a im.Attribute, id uint32) int { return cmp.Compare(a.ID, id) }
+	switch i, found := slices.BinarySearchFunc(b.cluster.Attributes, id, byID); {
+	case v == "":
+		b.cluster.Attributes = slices.Delete(b.cluster.Attributes, i, i+1)
+	case !found:
+		b.cluster.Attributes = slices.Insert(b.cluster.Attributes, i, stringAttr(id, field))
+	}
+	if v != "" {
+		b.cluster.Changed(id)
+	}
+	if had != (v != "") {
+		b.cluster.Changed(im.AttrAttributeList)
+	}
+}
+
+// fit cuts s to at most limit bytes, on a character's boundary.
+func fit(s string, limit int) string {
+	for len(s) > limit {
+		_, size := utf8.DecodeLastRuneInString(s)
+		s = s[:len(s)-size]
+	}
+	return s
 }
 
 // SetReachable records whether the device answers. Call it inside Node.Update.
